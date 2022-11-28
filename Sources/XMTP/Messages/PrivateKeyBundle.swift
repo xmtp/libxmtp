@@ -14,11 +14,7 @@ extension PrivateKeyBundle {
 		let bundleBytes = try serializedData()
 		let walletPreKey = try Crypto.secureRandomBytes(count: 32)
 
-		guard let input = Signature.enableIdentityText(key: walletPreKey).data(using: .utf8) else {
-			throw PrivateKeyError.invalidSignatureText
-		}
-
-		let signature = try await key.sign(input)
+		let signature = try await key.sign(message: Signature.enableIdentityText(key: walletPreKey))
 		let cipherText = try Crypto.encrypt(signature.ecdsaCompact.bytes, bundleBytes)
 
 		var encryptedBundle = EncryptedPrivateKeyBundle()

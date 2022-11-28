@@ -10,16 +10,12 @@ import secp256k1
 
 // Anything that can sign should be a SigningKey (like a private key or a wallet).
 protocol SigningKey {
+	var address: String { get }
 	func sign(_ data: Data) async throws -> Signature
+	func sign(message: String) async throws -> Signature
 }
 
 extension SigningKey {
-	func sign(message: String) async throws -> Signature {
-		let digest = try Signature.ethHash(message)
-
-		return try await sign(digest)
-	}
-
 	func createIdentity(_ identity: PrivateKey) async throws -> AuthorizedIdentity {
 		var slimKey = PublicKey()
 		slimKey.timestamp = UInt64(Date().millisecondsSinceEpoch)

@@ -38,3 +38,12 @@ struct AuthorizedIdentity {
 		}
 	}
 }
+
+// In an extension so we don't lose the normal struct init()
+extension AuthorizedIdentity {
+	init(privateKeyBundleV1: PrivateKeyBundleV1) {
+		address = privateKeyBundleV1.identityKey.walletAddress
+		authorized = privateKeyBundleV1.identityKey.publicKey
+		identity = privateKeyBundleV1.identityKey
+	}
+}

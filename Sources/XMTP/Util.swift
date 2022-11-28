@@ -5,11 +5,11 @@
 //  Created by Pat Nakajima on 11/20/22.
 //
 
-import CryptoSwift
 import Foundation
+import web3
 
 enum Util {
 	static func keccak256(_ data: Data) -> Data {
-		return Data(SHA3(variant: .keccak256).calculate(for: data.bytes))
+		return data.web3.keccak256
 	}
 }

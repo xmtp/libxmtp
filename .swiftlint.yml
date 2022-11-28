@@ -1,0 +1,31 @@
+disabled_rules: # rule identifiers turned on by default to exclude from running
+  - identifier_name
+  - multiple_closures_with_trailing_closure
+  - cyclomatic_complexity
+  - trailing_comma
+  - opening_brace
+  - nesting
+  - type_body_length
+
+opt_in_rules:
+  - force_unwrapping
+
+force_unwrapping:
+  severity: error
+
+line_length: 500
+
+custom_rules:
+  no_optional_try: # rule identifier
+    included:
+      - ".*\\.swift" # regex that defines paths to include during linting. optional.
+    excluded:
+      - ".*Tests?\\.swift" # regex that defines paths to exclude during linting. optional
+    name: "No optional try" # rule name. optional.
+    regex: try[\\?]
+    capture_group: 0 # number of regex capture group to highlight the rule violation at. optional.
+    message: "Handle this error instead of doing this.." # violation message. optional.
+    severity: error # violation severity. optional.
+    #match_kinds:# SyntaxKinds to match. optional.
+    #   - comment
+    # - identifier

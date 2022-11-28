@@ -97,6 +97,7 @@ enum KeyUtil {
 			v -= 35
 		}
 
+		// swiftlint:disable force_unwrapping
 		try serializedSignature.withUnsafeBytes {
 			guard secp256k1_ecdsa_recoverable_signature_parse_compact(ctx, signaturePtr, $0.bindMemory(to: UInt8.self).baseAddress!, v) == 1 else {
 				logger.warning("Failed to parse signature: recoverable ECDSA signature parse failed.")
@@ -111,11 +112,14 @@ enum KeyUtil {
 				throw KeyUtilError.signatureFailure
 			}
 		}
+
 		var size: Int = 65
 		var rv = Data(count: size)
 		_ = rv.withUnsafeMutableBytes {
 			secp256k1_ec_pubkey_serialize(ctx, $0.bindMemory(to: UInt8.self).baseAddress!, &size, pubkey, UInt32(SECP256K1_EC_UNCOMPRESSED))
 		}
+
+		// swiftlint:enable force_unwrapping
 		return rv
 	}
 }

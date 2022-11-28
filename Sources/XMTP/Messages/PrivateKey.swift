@@ -16,6 +16,10 @@ enum PrivateKeyError: Error {
 }
 
 extension PrivateKey: SigningKey {
+	var address: String {
+		walletAddress
+	}
+
 	func sign(_ data: Data) async throws -> Signature {
 		let signatureData = try KeyUtil.sign(message: data, with: secp256K1.bytes, hashing: false)
 		var signature = Signature()
@@ -23,6 +27,12 @@ extension PrivateKey: SigningKey {
 		signature.ecdsaCompact.recovery = UInt32(signatureData[64])
 
 		return signature
+	}
+
+	func sign(message: String) async throws -> Signature {
+		let digest = try Signature.ethHash(message)
+
+		return try await sign(digest)
 	}
 }
 

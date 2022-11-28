@@ -10,15 +10,29 @@ import XMTPProto
 
 typealias Signature = Xmtp_MessageContents_Signature
 
+enum SignatureError: Error {
+	case invalidMessage
+}
+
 extension Signature {
-	static func ethHash(_ message: String) throws -> Data {
+	static func ethPersonalMessage(_ message: String) throws -> Data {
 		let prefix = "\u{19}Ethereum Signed Message:\n\(message.count)"
 
 		guard var data = prefix.data(using: .ascii) else {
 			throw PrivateKeyError.invalidPrefix
 		}
 
-		data.append(message.data(using: .utf8)!)
+		guard let messageData = message.data(using: .utf8) else {
+			throw SignatureError.invalidMessage
+		}
+
+		data.append(messageData)
+
+		return data
+	}
+
+	static func ethHash(_ message: String) throws -> Data {
+		let data = try ethPersonalMessage(message)
 
 		return Util.keccak256(data)
 	}
@@ -42,6 +56,15 @@ extension Signature {
 	}
 
 	var rawData: Data {
-		ecdsaCompact.bytes + [UInt8(Int(ecdsaCompact.recovery))]
+		switch union {
+		case .ecdsaCompact(ecdsaCompact):
+			return ecdsaCompact.bytes + [UInt8(Int(ecdsaCompact.recovery))]
+		case .walletEcdsaCompact(walletEcdsaCompact):
+			return walletEcdsaCompact.bytes + [UInt8(Int(walletEcdsaCompact.recovery))]
+		case .none:
+			return Data()
+		case .some:
+			return Data()
+		}
 	}
 }
