@@ -14,4 +14,4 @@ jobs:
         with:
           xcode-version: latest-stable
       - uses: actions/checkout@v3
-      - run: swiftlint ./Sources
+      - run: script/lint

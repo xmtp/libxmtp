@@ -11,10 +11,10 @@
 		A6281995292DC825004B9117 /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A6281994292DC825004B9117 /* ContentView.swift */; };
 		A6281997292DC826004B9117 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = A6281996292DC826004B9117 /* Assets.xcassets */; };
 		A628199B292DC826004B9117 /* Preview Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = A628199A292DC826004B9117 /* Preview Assets.xcassets */; };
+		A67CCEC129355B4B00131F5C /* AccountManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = A67CCEC029355B4B00131F5C /* AccountManager.swift */; };
 		A69F33C6292DC992005A5556 /* XMTP in Frameworks */ = {isa = PBXBuildFile; productRef = A69F33C5292DC992005A5556 /* XMTP */; };
 		A69F33CA292DD557005A5556 /* LoggedInView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A69F33C9292DD557005A5556 /* LoggedInView.swift */; };
 		A69F33CC292DD568005A5556 /* QRCodeSheetView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A69F33CB292DD568005A5556 /* QRCodeSheetView.swift */; };
-		A69F33CE292DD595005A5556 /* WalletManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = A69F33CD292DD595005A5556 /* WalletManager.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -24,10 +24,10 @@
 		A6281996292DC826004B9117 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		A6281998292DC826004B9117 /* XMTPiOSExample.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = XMTPiOSExample.entitlements; sourceTree = "<group>"; };
 		A628199A292DC826004B9117 /* Preview Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = "Preview Assets.xcassets"; sourceTree = "<group>"; };
+		A67CCEC029355B4B00131F5C /* AccountManager.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = AccountManager.swift; sourceTree = "<group>"; };
 		A69F33C7292DD3A9005A5556 /* xmtp-ios */ = {isa = PBXFileReference; lastKnownFileType = wrapper; name = "xmtp-ios"; path = ..; sourceTree = "<group>"; };
 		A69F33C9292DD557005A5556 /* LoggedInView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LoggedInView.swift; sourceTree = "<group>"; };
 		A69F33CB292DD568005A5556 /* QRCodeSheetView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QRCodeSheetView.swift; sourceTree = "<group>"; };
-		A69F33CD292DD595005A5556 /* WalletManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WalletManager.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -63,13 +63,13 @@
 		A6281991292DC825004B9117 /* XMTPiOSExample */ = {
 			isa = PBXGroup;
 			children = (
+				A67CCEC029355B4B00131F5C /* AccountManager.swift */,
 				A69F33C8292DD54C005A5556 /* Views */,
 				A6281992292DC825004B9117 /* XMTPiOSExampleApp.swift */,
 				A6281994292DC825004B9117 /* ContentView.swift */,
 				A6281996292DC826004B9117 /* Assets.xcassets */,
 				A6281998292DC826004B9117 /* XMTPiOSExample.entitlements */,
 				A6281999292DC826004B9117 /* Preview Content */,
-				A69F33CD292DD595005A5556 /* WalletManager.swift */,
 			);
 			path = XMTPiOSExample;
 			sourceTree = "<group>";
@@ -171,11 +171,11 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				A69F33CE292DD595005A5556 /* WalletManager.swift in Sources */,
 				A6281995292DC825004B9117 /* ContentView.swift in Sources */,
 				A69F33CA292DD557005A5556 /* LoggedInView.swift in Sources */,
 				A69F33CC292DD568005A5556 /* QRCodeSheetView.swift in Sources */,
 				A6281993292DC825004B9117 /* XMTPiOSExampleApp.swift in Sources */,
+				A67CCEC129355B4B00131F5C /* AccountManager.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

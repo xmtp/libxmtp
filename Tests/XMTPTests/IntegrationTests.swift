@@ -98,4 +98,62 @@ final class IntegrationTests: XCTestCase {
 		let result = try await api.query(topics: [.userPrivateStoreKeyBundle("0xE2c094aB885170B56A811f0c8b5FeDC4a2565575")])
 		XCTAssert(result.envelopes.count >= 1)
 	}
+
+	func testPublishingAndFetchingContactBundlesWithWhileGeneratingKeys() async throws {
+		throw XCTSkip("integration only")
+
+		let aliceWallet = try PrivateKey.generate()
+		let alice = try await PrivateKeyBundleV1.generate(wallet: aliceWallet)
+
+		let clientOptions = ClientOptions(api: ClientOptions.Api(env: .local, isSecure: false))
+		let client = try await Client.create(account: aliceWallet, options: clientOptions)
+		XCTAssertEqual(.local, client.apiClient.environment)
+
+		let noContactYet = try await client.getUserContact(peerAddress: aliceWallet.walletAddress)
+		XCTAssertNil(noContactYet)
+
+		try await client.publishUserContact()
+
+		let contact = try await client.getUserContact(peerAddress: aliceWallet.walletAddress)
+
+		XCTAssertEqual(contact?.v1.keyBundle.identityKey.secp256K1Uncompressed, client.privateKeyBundleV1.identityKey.publicKey.secp256K1Uncompressed)
+		XCTAssert(contact?.v1.keyBundle.identityKey.hasSignature == true, "no signature")
+		XCTAssert(contact?.v1.keyBundle.preKey.hasSignature == true, "pre key not signed")
+	}
+
+	func testPublishingAndFetchingContactBundlesWithSavedKeys() async throws {
+		throw XCTSkip("integration only")
+
+		let aliceWallet = try PrivateKey.generate()
+		let alice = try await PrivateKeyBundleV1.generate(wallet: aliceWallet)
+
+		// Save keys
+		let identity = try PrivateKey.generate()
+		let authorized = try await aliceWallet.createIdentity(identity)
+		let authToken = try await authorized.createAuthToken()
+		var api = try ApiClient(environment: .local, secure: false)
+		api.setAuthToken(authToken)
+		let encryptedBundle = try await PrivateKeyBundle(v1: alice).encrypted(with: aliceWallet)
+		var envelope = Envelope()
+		envelope.contentTopic = Topic.userPrivateStoreKeyBundle(authorized.address).description
+		envelope.timestampNs = UInt64(Date().millisecondsSinceEpoch) * 1_000_000
+		envelope.message = try encryptedBundle.serializedData()
+		try await api.publish(envelopes: [envelope])
+		// Done saving keys
+
+		let clientOptions = ClientOptions(api: ClientOptions.Api(env: .local, isSecure: false))
+		let client = try await Client.create(account: aliceWallet, options: clientOptions)
+		XCTAssertEqual(.local, client.apiClient.environment)
+
+		let noContactYet = try await client.getUserContact(peerAddress: aliceWallet.walletAddress)
+		XCTAssertNil(noContactYet)
+
+		try await client.publishUserContact()
+
+		let contact = try await client.getUserContact(peerAddress: aliceWallet.walletAddress)
+
+		XCTAssertEqual(contact?.v1.keyBundle.identityKey.secp256K1Uncompressed, client.privateKeyBundleV1.identityKey.publicKey.secp256K1Uncompressed)
+		XCTAssert(contact?.v1.keyBundle.identityKey.hasSignature == true, "no signature")
+		XCTAssert(contact?.v1.keyBundle.preKey.hasSignature == true, "pre key not signed")
+	}
 }

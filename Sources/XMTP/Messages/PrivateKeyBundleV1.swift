@@ -15,9 +15,23 @@ extension PrivateKeyBundleV1 {
 		let authorizedIdentity = try await wallet.createIdentity(privateKey)
 
 		var bundle = try authorizedIdentity.toBundle
-		let preKey = try PrivateKey.generate()
+		var preKey = try PrivateKey.generate()
+
+		let signedPublicKey = try await privateKey.sign(key: UnsignedPublicKey(preKey.publicKey))
+
+		preKey.publicKey = try PublicKey(serializedData: signedPublicKey.keyBytes)
+		preKey.publicKey.signature = signedPublicKey.signature
 		bundle.v1.preKeys = [preKey]
 
 		return bundle.v1
+	}
+
+	func toPublicKeyBundle() -> PublicKeyBundle {
+		var publicKeyBundle = PublicKeyBundle()
+
+		publicKeyBundle.identityKey = identityKey.publicKey
+		publicKeyBundle.preKey = preKeys[0].publicKey
+
+		return publicKeyBundle
 	}
 }

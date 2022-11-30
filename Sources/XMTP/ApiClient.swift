@@ -9,6 +9,7 @@ import GRPC
 import XMTPProto
 
 typealias Envelope = Xmtp_MessageApi_V1_Envelope
+typealias PublishResponse = Xmtp_MessageApi_V1_PublishResponse
 
 struct ApiClient {
 	let ClientVersionHeaderKey = "X-Client-Version"
@@ -48,7 +49,7 @@ struct ApiClient {
 		return try await client.query(request, callOptions: options)
 	}
 
-	@discardableResult func publish(envelopes: [Envelope]) async throws -> Xmtp_MessageApi_V1_PublishResponse {
+	@discardableResult func publish(envelopes: [Envelope]) async throws -> PublishResponse {
 		var request = Xmtp_MessageApi_V1_PublishRequest()
 		request.envelopes = envelopes
 

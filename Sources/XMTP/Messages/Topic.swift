@@ -8,12 +8,15 @@
 import XMTPProto
 
 enum Topic: CustomStringConvertible {
-	case userPrivateStoreKeyBundle(String)
+	case userPrivateStoreKeyBundle(String),
+	     contact(String)
 
 	var description: String {
 		switch self {
 		case let .userPrivateStoreKeyBundle(address):
 			return wrap("privatestore-\(address)")
+		case let .contact(address):
+			return wrap("contact-\(address)")
 		}
 	}
 

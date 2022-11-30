@@ -9,7 +9,7 @@ import SwiftUI
 import XMTP
 
 struct LoggedInView: View {
-	var wallet: XMTP.Wallet
+	var account: XMTP.Account
 
 	var body: some View {
 		Text("We're in")

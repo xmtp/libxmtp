@@ -13,7 +13,7 @@ struct ContentView: View {
 		case unknown, connecting, connected, error(String)
 	}
 
-	@StateObject var walletManager = WalletManager()
+	@StateObject var accountManager = AccountManager()
 
 	@State private var status: Status = .unknown
 
@@ -28,7 +28,7 @@ struct ContentView: View {
 			case .connecting:
 				ProgressView("Connecting…")
 			case .connected:
-				LoggedInView(wallet: walletManager.wallet)
+				LoggedInView(account: accountManager.account)
 			case let .error(error):
 				Text("Error: \(error)").foregroundColor(.red)
 			}
@@ -44,7 +44,7 @@ struct ContentView: View {
 		status = .connecting
 
 		do {
-			switch try walletManager.wallet.preferredConnectionMethod() {
+			switch try accountManager.account.preferredConnectionMethod() {
 			case let .qrCode(image):
 				qrCodeImage = image
 
@@ -59,10 +59,10 @@ struct ContentView: View {
 
 			Task {
 				do {
-					try await walletManager.wallet.connect()
+					try await accountManager.account.connect()
 
 					for _ in 0 ... 30 {
-						if walletManager.wallet.connection.isConnected {
+						if accountManager.account.connection.isConnected {
 							self.status = .connected
 							self.isShowingQRCode = false
 							break
