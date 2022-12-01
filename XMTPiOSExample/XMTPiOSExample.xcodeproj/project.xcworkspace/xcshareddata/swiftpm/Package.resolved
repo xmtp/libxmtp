@@ -12,10 +12,10 @@
     {
       "identity" : "cryptoswift",
       "kind" : "remoteSourceControl",
-      "location" : "https://github.com/krzyzanowskim/CryptoSwift.git",
+      "location" : "https://github.com/krzyzanowskim/CryptoSwift",
       "state" : {
-        "revision" : "039f56c5d7960f277087a0be51f5eb04ed0ec073",
-        "version" : "1.5.1"
+        "branch" : "main",
+        "revision" : "55fa5ed941fbdc72a17369c8bbf411b800da8301"
       }
     },
     {

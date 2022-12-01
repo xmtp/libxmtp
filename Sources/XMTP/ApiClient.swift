@@ -8,7 +8,6 @@
 import GRPC
 import XMTPProto
 
-typealias Envelope = Xmtp_MessageApi_V1_Envelope
 typealias PublishResponse = Xmtp_MessageApi_V1_PublishResponse
 
 struct ApiClient {
@@ -38,15 +37,19 @@ struct ApiClient {
 		authToken = token
 	}
 
-	func query(topics: [Topic]) async throws -> Xmtp_MessageApi_V1_QueryResponse {
+	func query(topics: [String]) async throws -> Xmtp_MessageApi_V1_QueryResponse {
 		var request = Xmtp_MessageApi_V1_QueryRequest()
-		request.contentTopics = topics.map(\.description)
+		request.contentTopics = topics
 
 		var options = CallOptions()
 		options.customMetadata.add(name: "authorization", value: "Bearer \(authToken)")
 		options.timeLimit = .timeout(.seconds(5))
 
 		return try await client.query(request, callOptions: options)
+	}
+
+	func query(topics: [Topic]) async throws -> Xmtp_MessageApi_V1_QueryResponse {
+		return try await query(topics: topics.map(\.description))
 	}
 
 	@discardableResult func publish(envelopes: [Envelope]) async throws -> PublishResponse {

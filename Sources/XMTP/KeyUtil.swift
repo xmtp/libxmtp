@@ -14,6 +14,7 @@ enum KeyUtilError: Error {
 	case signatureFailure
 	case signatureParseFailure
 	case badArguments
+	case parseError
 }
 
 // Copied from web3.swift since its version is `internal`
@@ -113,7 +114,7 @@ enum KeyUtil {
 			}
 		}
 
-		var size: Int = 65
+		var size = 65
 		var rv = Data(count: size)
 		_ = rv.withUnsafeMutableBytes {
 			secp256k1_ec_pubkey_serialize(ctx, $0.bindMemory(to: UInt8.self).baseAddress!, &size, pubkey, UInt32(SECP256K1_EC_UNCOMPRESSED))

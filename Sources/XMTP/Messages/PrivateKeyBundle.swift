@@ -5,13 +5,14 @@
 //  Created by Pat Nakajima on 11/17/22.
 //
 
+import Foundation
 import XMTPProto
 
 typealias PrivateKeyBundle = Xmtp_MessageContents_PrivateKeyBundle
 
 enum PrivateKeyBundleError: Error {
 	case noPreKeyFound
- }
+}
 
 extension PrivateKeyBundle {
 	init(v1: PrivateKeyBundleV1) {

@@ -38,7 +38,23 @@ class Client {
 			// swiftlint:enable no_optional_try
 			return keys
 		} else {
-			return try await PrivateKeyBundleV1.generate(wallet: account)
+			let keys = try await PrivateKeyBundleV1.generate(wallet: account)
+
+			let keyBundle = PrivateKeyBundle(v1: keys)
+			let encryptedKeys = try await keyBundle.encrypted(with: account)
+
+			var authorizedIdentity = AuthorizedIdentity(privateKeyBundleV1: keys)
+			authorizedIdentity.address = account.address
+			let authToken = try await authorizedIdentity.createAuthToken()
+
+			var apiClient = apiClient
+			apiClient.setAuthToken(authToken)
+
+			try await apiClient.publish(envelopes: [
+				Envelope(topic: .userPrivateStoreKeyBundle(account.address), timestamp: Date(), message: try encryptedKeys.serializedData()),
+			])
+
+			return keys
 		}
 	}
 
@@ -67,8 +83,19 @@ class Client {
 		self.apiClient = apiClient
 	}
 
+	lazy var conversations: Conversations = .init(client: self)
+
+	var keys: PrivateKeyBundleV2 {
+		do {
+			return try privateKeyBundleV1.toV2()
+		} catch {
+			fatalError("Error getting keys \(error)")
+		}
+	}
+
 	func publishUserContact() async throws {
-		var keyBundle = privateKeyBundleV1.toPublicKeyBundle()
+		let keyBundle = privateKeyBundleV1.toPublicKeyBundle()
+
 		var contactBundle = ContactBundle()
 		contactBundle.v1.keyBundle = keyBundle
 
@@ -80,7 +107,7 @@ class Client {
 		_ = try await publish(envelopes: [envelope])
 	}
 
-	func publish(envelopes: [Envelope]) async throws -> PublishResponse {
+	@discardableResult func publish(envelopes: [Envelope]) async throws -> PublishResponse {
 		let authorized = AuthorizedIdentity(address: address, authorized: privateKeyBundleV1.identityKey.publicKey, identity: privateKeyBundleV1.identityKey)
 		let authToken = try await authorized.createAuthToken()
 

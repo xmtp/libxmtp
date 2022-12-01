@@ -16,16 +16,6 @@ class ClientTests: XCTestCase {
 		_ = try await Client.create(account: fakeWallet)
 	}
 
-	func testHasAPIClient() async throws {
-		let fakeWallet = try PrivateKey.generate()
-
-		var options = ClientOptions()
-		options.api.env = .local
-		let client = try await Client.create(account: fakeWallet, options: options)
-
-		XCTAssert(client.apiClient.environment == .local)
-	}
-
 	func testHasPrivateKeyBundleV1() async throws {
 		let fakeWallet = try PrivateKey.generate()
 		let client = try await Client.create(account: fakeWallet)

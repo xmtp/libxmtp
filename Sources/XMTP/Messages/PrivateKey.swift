@@ -20,9 +20,14 @@ extension PrivateKey: SigningKey {
 		walletAddress
 	}
 
+	func matches(_ publicKey: PublicKey) -> Bool {
+		return self.publicKey.secp256K1Uncompressed.bytes == publicKey.secp256K1Uncompressed.bytes
+	}
+
 	func sign(_ data: Data) async throws -> Signature {
 		let signatureData = try KeyUtil.sign(message: data, with: secp256K1.bytes, hashing: false)
 		var signature = Signature()
+
 		signature.ecdsaCompact.bytes = signatureData[0 ..< 64]
 		signature.ecdsaCompact.recovery = UInt32(signatureData[64])
 
@@ -59,7 +64,7 @@ extension PrivateKey {
 
 	func sign(key: UnsignedPublicKey) async throws -> SignedPublicKey {
 		let bytes = try key.serializedData()
-		let digest = SHA256Digest([UInt8](bytes))
+		let digest = SHA256.hash(data: bytes)
 		let signature = try await sign(Data(digest.bytes))
 
 		var signedPublicKey = SignedPublicKey()

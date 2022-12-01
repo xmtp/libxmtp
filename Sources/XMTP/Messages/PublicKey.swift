@@ -11,19 +11,30 @@ import XMTPProto
 
 typealias PublicKey = Xmtp_MessageContents_PublicKey
 
-enum PublicKeyError: Error {
-	case noSignature
+enum PublicKeyError: String, Error {
+	case noSignature, invalidPreKey, addressNotFound
 }
 
 extension PublicKey {
 	init(_ signedPublicKey: SignedPublicKey) throws {
 		self.init()
 
-		let unsignedPublicKey = try UnsignedPublicKey(serializedData: signedPublicKey.keyBytes)
+		let unsignedPublicKey = try PublicKey(serializedData: signedPublicKey.keyBytes)
 
-		timestamp = unsignedPublicKey.createdNs
+		timestamp = unsignedPublicKey.timestamp
 		secp256K1Uncompressed.bytes = unsignedPublicKey.secp256K1Uncompressed.bytes
 		signature = signedPublicKey.signature
+
+		if !signature.walletEcdsaCompact.bytes.isEmpty {
+			signature.ecdsaCompact.bytes = signature.walletEcdsaCompact.bytes
+			signature.ecdsaCompact.recovery = signature.walletEcdsaCompact.recovery
+		}
+	}
+
+	init(_ unsignedPublicKey: UnsignedPublicKey) {
+		self.init()
+		secp256K1Uncompressed.bytes = unsignedPublicKey.secp256K1Uncompressed.bytes
+		timestamp = unsignedPublicKey.createdNs / 1_000_000
 	}
 
 	init(_ data: Data) throws {

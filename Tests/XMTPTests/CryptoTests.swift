@@ -35,4 +35,29 @@ final class CryptoTests: XCTestCase {
 		let decrypted = try Crypto.decrypt(secret, encrypted)
 		XCTAssertEqual(message, decrypted)
 	}
+
+	func testMessages() async throws {
+		let aliceWallet = try PrivateKey.generate()
+		let bobWallet = try PrivateKey.generate()
+
+		let alice = try await PrivateKeyBundleV1.generate(wallet: aliceWallet)
+		let bob = try await PrivateKeyBundleV1.generate(wallet: bobWallet)
+
+		let msg = "Hello world"
+		let decrypted = Data(msg.utf8)
+
+		let alicePublic = alice.toPublicKeyBundle()
+		let bobPublic = bob.toPublicKeyBundle()
+
+		let aliceSecret = try alice.sharedSecret(peer: bobPublic, myPreKey: alicePublic.preKey, isRecipient: false)
+
+		let encrypted = try Crypto.encrypt(aliceSecret, decrypted)
+
+		let bobSecret = try bob.sharedSecret(peer: alicePublic, myPreKey: bobPublic.preKey, isRecipient: true)
+		let bobDecrypted = try Crypto.decrypt(bobSecret, encrypted)
+
+		let decryptedText = String(data: bobDecrypted, encoding: .utf8)
+
+		XCTAssertEqual(decryptedText, msg)
+	}
 }

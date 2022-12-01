@@ -1,4 +1,5 @@
 disabled_rules: # rule identifiers turned on by default to exclude from running
+  - type_name
   - identifier_name
   - multiple_closures_with_trailing_closure
   - cyclomatic_complexity

@@ -11,6 +11,10 @@ typealias ContactBundle = Xmtp_MessageContents_ContactBundle
 typealias ContactBundleV1 = Xmtp_MessageContents_ContactBundleV1
 typealias ContactBundleV2 = Xmtp_MessageContents_ContactBundleV2
 
+enum ContactBundleError: Error {
+	case invalidVersion, notFound
+}
+
 extension ContactBundle {
 	static func from(envelope: Envelope) throws -> ContactBundle {
 		let data = envelope.message
@@ -28,6 +32,17 @@ extension ContactBundle {
 		}
 
 		return contactBundle
+	}
+
+	func toSignedPublicKeyBundle() throws -> SignedPublicKeyBundle {
+		switch version {
+		case .v1:
+			return try SignedPublicKeyBundle(v1.keyBundle)
+		case .v2:
+			return v2.keyBundle
+		case .none:
+			throw ContactBundleError.invalidVersion
+		}
 	}
 
 	// swiftlint:disable no_optional_try

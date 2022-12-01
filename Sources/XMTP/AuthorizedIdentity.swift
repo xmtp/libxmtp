@@ -13,14 +13,11 @@ struct AuthorizedIdentity {
 	var identity: PrivateKey
 
 	func createAuthToken() async throws -> String {
-		var publicKey = authorized
-
 		let authData = AuthData(walletAddress: address)
 		let authDataBytes = try authData.serializedData()
 		let signature = try await identity.sign(Util.keccak256(authDataBytes))
 
 		var token = Token()
-		publicKey.signature = signature
 
 		token.identityKey = authorized
 		token.authDataBytes = authDataBytes
