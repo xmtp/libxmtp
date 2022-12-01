@@ -9,6 +9,10 @@ import XMTPProto
 
 typealias PrivateKeyBundle = Xmtp_MessageContents_PrivateKeyBundle
 
+enum PrivateKeyBundleError: Error {
+	case noPreKeyFound
+ }
+
 extension PrivateKeyBundle {
 	init(v1: PrivateKeyBundleV1) {
 		self.init()

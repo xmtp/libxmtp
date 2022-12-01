@@ -16,7 +16,7 @@ enum CryptoError: Error {
 }
 
 enum Crypto {
-	static func encrypt(_ secret: Data, _ message: Data) throws -> CipherText {
+	static func encrypt(_ secret: Data, _ message: Data, additionalData: Data? = nil) throws -> CipherText {
 		let salt = try secureRandomBytes(count: 32)
 		let nonceData = try secureRandomBytes(count: 12)
 		let nonce = try AES.GCM.Nonce(data: nonceData)
@@ -27,7 +27,13 @@ enum Crypto {
 			outputByteCount: 32
 		)
 
-		let payload = try AES.GCM.seal(message, using: resultKey, nonce: nonce)
+		var payload: AES.GCM.SealedBox
+
+		if let additionalData {
+			payload = try AES.GCM.seal(message, using: resultKey, nonce: nonce, authenticating: additionalData)
+		} else {
+			payload = try AES.GCM.seal(message, using: resultKey, nonce: nonce)
+		}
 
 		var ciphertext = CipherText()
 
@@ -38,7 +44,7 @@ enum Crypto {
 		return ciphertext
 	}
 
-	static func decrypt(_ secret: Data, _ ciphertext: CipherText) throws -> Data {
+	static func decrypt(_ secret: Data, _ ciphertext: CipherText, additionalData: Data? = nil) throws -> Data {
 		let salt = ciphertext.aes256GcmHkdfSha256.hkdfSalt
 		let nonceData = ciphertext.aes256GcmHkdfSha256.gcmNonce
 		let nonce = try AES.GCM.Nonce(data: nonceData)
@@ -54,7 +60,11 @@ enum Crypto {
 			outputByteCount: 32
 		)
 
-		return try AES.GCM.open(box, using: resultKey)
+		if let additionalData {
+			return try AES.GCM.open(box, using: resultKey, authenticating: additionalData)
+		} else {
+			return try AES.GCM.open(box, using: resultKey)
+		}
 	}
 
 	static func secureRandomBytes(count: Int) throws -> Data {

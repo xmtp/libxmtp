@@ -7,9 +7,13 @@
 
 import XMTPProto
 
-enum Topic: CustomStringConvertible {
+enum Topic {
 	case userPrivateStoreKeyBundle(String),
-	     contact(String)
+	     contact(String),
+	     userIntro(String),
+	     userInvite(String),
+	     directMessageV1(String, String),
+	     directMessageV2(String)
 
 	var description: String {
 		switch self {
@@ -17,6 +21,15 @@ enum Topic: CustomStringConvertible {
 			return wrap("privatestore-\(address)")
 		case let .contact(address):
 			return wrap("contact-\(address)")
+		case let .userIntro(address):
+			return wrap("intro-\(address)")
+		case let .userInvite(address):
+			return wrap("invite-\(address)")
+		case let .directMessageV1(address1, address2):
+			let addresses = [address1, address2].sorted().joined(separator: "-")
+			return wrap("dm-\(addresses)")
+		case let .directMessageV2(randomString):
+			return wrap("m-\(randomString)")
 		}
 	}
 
