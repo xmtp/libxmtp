@@ -8,34 +8,42 @@
 import Foundation
 import XMTPProto
 
-struct Conversations {
+public struct Conversations {
 	var client: Client
 
-	func list() async throws -> [Conversation] {
+	public func list() async throws -> [Conversation] {
 		var conversations: [Conversation] = []
 
-		let seenPeers = try await listIntroductionPeers()
-		let invitations = try await listInvitations()
-
-		for (peerAddress, sentAt) in seenPeers {
-			conversations.append(
-				Conversation.v1(
-					ConversationV1(
-						client: client,
-						peerAddress: peerAddress,
-						sentAt: sentAt
+		do {
+			let seenPeers = try await listIntroductionPeers()
+			for (peerAddress, sentAt) in seenPeers {
+				conversations.append(
+					Conversation.v1(
+						ConversationV1(
+							client: client,
+							peerAddress: peerAddress,
+							sentAt: sentAt
+						)
 					)
 				)
-			)
+			}
+		} catch {
+			print("Error loading introduction peers: \(error)")
 		}
 
-		for sealedInvitation in invitations {
-			let unsealed = try sealedInvitation.v1.getInvitation(viewer: client.keys)
-			let conversation = try ConversationV2.create(client: client, invitation: unsealed, header: sealedInvitation.v1.header)
+		let invitations = try await listInvitations()
 
-			conversations.append(
-				Conversation.v2(conversation)
-			)
+		for sealedInvitation in invitations {
+			do {
+				let unsealed = try sealedInvitation.v1.getInvitation(viewer: client.keys)
+				let conversation = try ConversationV2.create(client: client, invitation: unsealed, header: sealedInvitation.v1.header)
+
+				conversations.append(
+					Conversation.v2(conversation)
+				)
+			} catch {
+				print("Error loading invitations: \(error)")
+			}
 		}
 
 		return conversations
@@ -46,7 +54,7 @@ struct Conversations {
 			.userIntro(client.address),
 		]).envelopes
 
-		let messages = try envelopes.compactMap { envelope in
+		let messages = envelopes.compactMap { envelope in
 			do {
 				let message = try MessageV1.fromBytes(envelope.message)
 
@@ -62,12 +70,12 @@ struct Conversations {
 		var seenPeers: [String: Date] = [:]
 		for message in messages {
 			guard let recipientAddress = message.recipientAddress,
-			      let senderAddress = message.senderAddress,
-			      let sentAt = message.sentAt
+			      let senderAddress = message.senderAddress
 			else {
 				continue
 			}
 
+			let sentAt = message.sentAt
 			let peerAddress = recipientAddress == client.address ? senderAddress : recipientAddress
 
 			guard let existing = seenPeers[peerAddress] else {
@@ -88,8 +96,10 @@ struct Conversations {
 			.userInvite(client.address),
 		]).envelopes
 
-		return try envelopes.map { envelope in
-			try SealedInvitation(serializedData: envelope.message)
+		return envelopes.compactMap { envelope in
+			// swiftlint:disable no_optional_try
+			try? SealedInvitation(serializedData: envelope.message)
+			// swiftlint:enable no_optional_try
 		}
 	}
 
@@ -105,7 +115,6 @@ struct Conversations {
 
 		try await client.publish(envelopes: [
 			Envelope(topic: .userInvite(peerAddress), timestamp: created, message: try sealed.serializedData()),
-			Envelope(topic: .userInvite(client.address), timestamp: created, message: try sealed.serializedData()),
 		])
 
 		return sealed

@@ -30,6 +30,10 @@ extension SealedInvitationV1 {
 
 		var secret: Data
 
+		if !header.sender.identityKey.hasSignature {
+			throw SealedInvitationError.noSignature
+		}
+
 		if viewer.identityKey.matches(header.sender.identityKey) {
 			secret = try viewer.sharedSecret(peer: header.recipient, myPreKey: header.sender.preKey, isRecipient: false)
 		} else {

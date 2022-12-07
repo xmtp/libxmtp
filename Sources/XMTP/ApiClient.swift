@@ -10,7 +10,7 @@ import XMTPProto
 
 typealias PublishResponse = Xmtp_MessageApi_V1_PublishResponse
 
-struct ApiClient {
+public struct ApiClient {
 	let ClientVersionHeaderKey = "X-Client-Version"
 	let AppVersionHeaderKey = "X-App-Version"
 

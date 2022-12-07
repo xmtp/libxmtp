@@ -9,7 +9,7 @@ import Foundation
 import secp256k1
 import XMTPProto
 
-typealias Signature = Xmtp_MessageContents_Signature
+public typealias Signature = Xmtp_MessageContents_Signature
 
 enum SignatureError: Error {
 	case invalidMessage

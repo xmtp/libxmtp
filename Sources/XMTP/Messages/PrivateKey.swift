@@ -9,22 +9,26 @@ import Foundation
 import secp256k1
 import XMTPProto
 
-typealias PrivateKey = Xmtp_MessageContents_PrivateKey
+public typealias PrivateKey = Xmtp_MessageContents_PrivateKey
 
 enum PrivateKeyError: Error {
 	case invalidSignatureText, invalidPrefix, invalidSignature
 }
 
 extension PrivateKey: SigningKey {
-	var address: String {
+	public var address: String {
 		walletAddress
 	}
 
 	func matches(_ publicKey: PublicKey) -> Bool {
-		return self.publicKey.secp256K1Uncompressed.bytes == publicKey.secp256K1Uncompressed.bytes
+		do {
+			return try self.publicKey.recoverKeySignedPublicKey() == (try publicKey.recoverKeySignedPublicKey())
+		} catch {
+			return false
+		}
 	}
 
-	func sign(_ data: Data) async throws -> Signature {
+	public func sign(_ data: Data) async throws -> Signature {
 		let signatureData = try KeyUtil.sign(message: data, with: secp256K1.bytes, hashing: false)
 		var signature = Signature()
 
@@ -34,7 +38,7 @@ extension PrivateKey: SigningKey {
 		return signature
 	}
 
-	func sign(message: String) async throws -> Signature {
+	public func sign(message: String) async throws -> Signature {
 		let digest = try Signature.ethHash(message)
 
 		return try await sign(digest)
@@ -43,7 +47,7 @@ extension PrivateKey: SigningKey {
 
 extension PrivateKey {
 	// Easier conversion from the secp256k1 library's Private keys to our proto type.
-	init(_ privateKeyData: Data) throws {
+	public init(_ privateKeyData: Data) throws {
 		self.init()
 		timestamp = UInt64(Date().millisecondsSinceEpoch)
 		secp256K1.bytes = privateKeyData
@@ -53,7 +57,7 @@ extension PrivateKey {
 		publicKey.timestamp = timestamp
 	}
 
-	static func generate() throws -> PrivateKey {
+	public static func generate() throws -> PrivateKey {
 		let data = Data(try Crypto.secureRandomBytes(count: 32))
 		return try PrivateKey(data)
 	}

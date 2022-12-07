@@ -10,6 +10,10 @@ import XMTPProto
 
 typealias SealedInvitation = Xmtp_MessageContents_SealedInvitation
 
+enum SealedInvitationError: Error {
+	case noSignature
+}
+
 extension SealedInvitation {
 	static func createV1(sender: PrivateKeyBundleV2, recipient: SignedPublicKeyBundle, created: Date, invitation: InvitationV1) throws -> SealedInvitation {
 		let header = SealedInvitationHeaderV1(

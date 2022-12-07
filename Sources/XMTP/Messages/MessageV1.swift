@@ -80,17 +80,16 @@ extension MessageV1 {
 		}
 	}
 
-	var sentAt: Date? {
-		do {
-			return try Date(timeIntervalSince1970: Double(header.timestamp) / 1_000_000)
-		} catch {
-			return nil
-		}
+	var sentAt: Date {
+		// swiftlint:disable force_try
+		try! Date(timeIntervalSince1970: Double(header.timestamp) / 1_000_000)
+		// swiftlint:enable force_try
 	}
 
 	var recipientAddress: String? {
 		do {
 			let recipientKey = try header.recipient.identityKey.recoverWalletSignerPublicKey()
+
 			return recipientKey.walletAddress
 		} catch {
 			print("Error getting recipient address: \(error)")
@@ -105,7 +104,7 @@ extension MessageV1 {
 		let sender = header.sender
 
 		var secret: Data
-		if viewer.identityKey.matches(sender.identityKey) {
+		if viewer.walletAddress == sender.walletAddress {
 			secret = try viewer.sharedSecret(peer: recipient, myPreKey: sender.preKey, isRecipient: false)
 		} else {
 			secret = try viewer.sharedSecret(peer: sender, myPreKey: recipient.preKey, isRecipient: true)

@@ -7,6 +7,14 @@
 
 import Foundation
 
-struct DecodedMessage {
-	var body: String
+public struct DecodedMessage {
+	public var body: String
+	public var senderAddress: String
+	public var sent: Date
+
+	public init(body: String, senderAddress: String, sent: Date) {
+		self.body = body
+		self.senderAddress = senderAddress
+		self.sent = sent
+	}
 }

@@ -20,10 +20,26 @@ class PrivateKeyBundleTests: XCTestCase {
 		XCTAssertEqual(v1.preKeys[0].publicKey.secp256K1Uncompressed.bytes, v2PreKeyPublic.secp256K1Uncompressed.bytes)
 	}
 
+	func testKeyBundlesAreSigned() async throws {
+		let wallet = try PrivateKey.generate()
+		let v1 = try await PrivateKeyBundleV1.generate(wallet: wallet)
+
+		XCTAssert(v1.identityKey.publicKey.hasSignature, "no private v1 identity key signature")
+		XCTAssert(v1.preKeys[0].publicKey.hasSignature, "no private v1 pre key signature")
+		XCTAssert(v1.toPublicKeyBundle().identityKey.hasSignature, "no public v1 identity key signature")
+		XCTAssert(v1.toPublicKeyBundle().preKey.hasSignature, "no public v1 pre key signature")
+
+		let v2 = try v1.toV2()
+		XCTAssert(v2.identityKey.publicKey.hasSignature, "no private v2 identity key signature")
+		XCTAssert(v2.preKeys[0].publicKey.hasSignature, "no private v2 pre key signature")
+		XCTAssert(v2.getPublicKeyBundle().identityKey.hasSignature, "no public v2 identity key signature")
+		XCTAssert(v2.getPublicKeyBundle().preKey.hasSignature, "no public v2 pre key signature")
+	}
+
 	func testSharedSecret() async throws {
 		let alice = try PrivateKey.generate()
 		let alicePrivateBundle = try await PrivateKeyBundleV1.generate(wallet: alice).toV2()
-		let alicePublicBundle = await alicePrivateBundle.getPublicKeyBundle()
+		let alicePublicBundle = alicePrivateBundle.getPublicKeyBundle()
 
 		let bob = try PrivateKey.generate()
 		let bobPrivateBundle = try await PrivateKeyBundleV1.generate(wallet: bob).toV2()

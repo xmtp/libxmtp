@@ -10,7 +10,7 @@ import XMTP
 
 struct ContentView: View {
 	enum Status {
-		case unknown, connecting, connected, error(String)
+		case unknown, connecting, connected(Client), error(String)
 	}
 
 	@StateObject var accountManager = AccountManager()
@@ -20,15 +20,18 @@ struct ContentView: View {
 	@State private var isShowingQRCode = false
 	@State private var qrCodeImage: UIImage?
 
+	@State private var client: Client?
+
 	var body: some View {
 		VStack {
 			switch status {
 			case .unknown:
 				Button("Connect Wallet", action: connectWallet)
+				Button("Generate Wallet", action: generateWallet)
 			case .connecting:
 				ProgressView("Connecting…")
-			case .connected:
-				LoggedInView(account: accountManager.account)
+			case let .connected(client):
+				LoggedInView(client: client)
 			case let .error(error):
 				Text("Error: \(error)").foregroundColor(.red)
 			}
@@ -63,9 +66,11 @@ struct ContentView: View {
 
 					for _ in 0 ... 30 {
 						if accountManager.account.connection.isConnected {
-							self.status = .connected
+							let client = try await Client.create(account: accountManager.account)
+
+							self.status = .connected(client)
 							self.isShowingQRCode = false
-							break
+							return
 						}
 
 						try await Task.sleep(for: .seconds(1))
@@ -81,6 +86,23 @@ struct ContentView: View {
 			}
 		} catch {
 			status = .error("No acceptable connection methods found \(error)")
+		}
+	}
+
+	func generateWallet() {
+		Task {
+			do {
+				let wallet = try PrivateKey.generate()
+				let client = try await Client.create(account: wallet)
+
+				await MainActor.run {
+					self.status = .connected(client)
+				}
+			} catch {
+				await MainActor.run {
+					self.status = .error("Error generating wallet: \(error)")
+				}
+			}
 		}
 	}
 }

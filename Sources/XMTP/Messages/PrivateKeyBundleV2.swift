@@ -39,7 +39,7 @@ extension PrivateKeyBundleV2 {
 
 		let sharedSecret = try publicKey.multiply(privateData.bytes, format: .uncompressed)
 
-		return try sharedSecret.rawRepresentation
+		return sharedSecret.rawRepresentation
 	}
 
 	func findPreKey(_ myPreKey: SignedPublicKey) throws -> SignedPrivateKey {

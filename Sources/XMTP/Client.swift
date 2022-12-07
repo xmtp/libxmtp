@@ -7,21 +7,32 @@
 
 import Foundation
 
-struct ClientOptions {
-	struct Api {
-		var env: Environment = .production
-		var isSecure: Bool = true
+public struct ClientOptions {
+	public struct Api {
+		public var env: Environment = .dev
+		public var isSecure: Bool = true
+
+		public init(env: Environment = .dev, isSecure: Bool = true) {
+			self.env = env
+			self.isSecure = isSecure
+		}
 	}
 
-	var api = Api()
+	public var api = Api()
+
+	public init(api: Api = Api()) {
+		self.api = api
+	}
 }
 
-class Client {
-	var address: String
+public class Client {
+	public var address: String
 	var privateKeyBundleV1: PrivateKeyBundleV1
 	var apiClient: ApiClient
 
-	public static func create(account: SigningKey, options: ClientOptions = ClientOptions()) async throws -> Client {
+	public static func create(account: SigningKey, options: ClientOptions? = nil) async throws -> Client {
+		let options = options ?? ClientOptions()
+
 		let apiClient = try ApiClient(
 			environment: options.api.env,
 			secure: options.api.isSecure
@@ -29,7 +40,10 @@ class Client {
 
 		let privateKeyBundleV1 = try await loadOrCreateKeys(for: account, apiClient: apiClient)
 
-		return try Client(address: account.address, privateKeyBundleV1: privateKeyBundleV1, apiClient: apiClient)
+		let client = try Client(address: account.address, privateKeyBundleV1: privateKeyBundleV1, apiClient: apiClient)
+		try await client.publishUserContact()
+
+		return client
 	}
 
 	static func loadOrCreateKeys(for account: SigningKey, apiClient: ApiClient) async throws -> PrivateKeyBundleV1 {
@@ -83,7 +97,7 @@ class Client {
 		self.apiClient = apiClient
 	}
 
-	lazy var conversations: Conversations = .init(client: self)
+	public lazy var conversations: Conversations = .init(client: self)
 
 	var keys: PrivateKeyBundleV2 {
 		do {
@@ -128,5 +142,17 @@ class Client {
 		}
 
 		return nil
+	}
+}
+
+public extension Client {
+	static var preview: Client {
+		get async {
+			// swiftlint:disable force_try
+			let wallet = try! PrivateKey.generate()
+			let client = try! await Client.create(account: wallet)
+			// swiftlint:enable force_try
+			return client
+		}
 	}
 }

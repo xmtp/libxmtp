@@ -6,13 +6,14 @@
 //
 
 import CryptoKit
+import Foundation
 import secp256k1
 import XMTPProto
 
 typealias SignedPublicKey = Xmtp_MessageContents_SignedPublicKey
 
 extension SignedPublicKey {
-	static func fromLegacy(_ legacyKey: PublicKey, signedByWallet _: Bool? = false) throws -> SignedPublicKey {
+	static func fromLegacy(_ legacyKey: PublicKey, signedByWallet: Bool? = false) throws -> SignedPublicKey {
 		var signedPublicKey = SignedPublicKey()
 
 		var publicKey = PublicKey()
@@ -21,6 +22,13 @@ extension SignedPublicKey {
 
 		signedPublicKey.keyBytes = try publicKey.serializedData()
 		signedPublicKey.signature = legacyKey.signature
+
+		if let signedByWallet, signedByWallet {
+			var signature = legacyKey.signature
+			signature.walletEcdsaCompact.bytes = legacyKey.signature.ecdsaCompact.bytes
+			signature.walletEcdsaCompact.recovery = legacyKey.signature.ecdsaCompact.recovery
+			signedPublicKey.signature = signature
+		}
 
 		return signedPublicKey
 	}
@@ -49,6 +57,19 @@ extension SignedPublicKey {
 		}
 
 		return try signature.verify(signedBy: try PublicKey(key), digest: key.keyBytes)
+	}
+
+	func recoverKeySignedPublicKey() throws -> PublicKey {
+		let publicKey = try PublicKey(self)
+
+		// We don't want to include the signature in the key bytes
+		var slimKey = PublicKey()
+		slimKey.secp256K1Uncompressed.bytes = secp256K1Uncompressed.bytes
+		slimKey.timestamp = publicKey.timestamp
+		let bytesToSign = try slimKey.serializedData()
+
+		let pubKeyData = try KeyUtil.recoverPublicKey(message: Data(SHA256.hash(data: bytesToSign)), signature: publicKey.signature.rawData)
+		return try PublicKey(pubKeyData)
 	}
 
 	func recoverWalletSignerPublicKey() throws -> PublicKey {

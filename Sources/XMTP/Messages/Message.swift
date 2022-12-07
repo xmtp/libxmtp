@@ -19,4 +19,9 @@ extension Message {
 		self.init()
 		self.v1 = v1
 	}
+
+	init(v2: MessageV2) {
+		self.init()
+		self.v2 = v2
+	}
 }

@@ -34,6 +34,17 @@ extension ContactBundle {
 		return contactBundle
 	}
 
+	func toPublicKeyBundle() throws -> PublicKeyBundle {
+		switch version {
+		case .v1:
+			return v1.keyBundle
+		case .v2:
+			return try PublicKeyBundle(v2.keyBundle)
+		default:
+			throw ContactBundleError.invalidVersion
+		}
+	}
+
 	func toSignedPublicKeyBundle() throws -> SignedPublicKeyBundle {
 		switch version {
 		case .v1:

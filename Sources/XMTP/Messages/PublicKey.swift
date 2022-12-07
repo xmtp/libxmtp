@@ -23,12 +23,14 @@ extension PublicKey {
 
 		timestamp = unsignedPublicKey.timestamp
 		secp256K1Uncompressed.bytes = unsignedPublicKey.secp256K1Uncompressed.bytes
-		signature = signedPublicKey.signature
+		var signature = signedPublicKey.signature
 
 		if !signature.walletEcdsaCompact.bytes.isEmpty {
-			signature.ecdsaCompact.bytes = signature.walletEcdsaCompact.bytes
-			signature.ecdsaCompact.recovery = signature.walletEcdsaCompact.recovery
+			signature.ecdsaCompact.bytes = signedPublicKey.signature.walletEcdsaCompact.bytes
+			signature.ecdsaCompact.recovery = signedPublicKey.signature.walletEcdsaCompact.recovery
 		}
+
+		self.signature = signature
 	}
 
 	init(_ unsignedPublicKey: UnsignedPublicKey) {
@@ -57,6 +59,21 @@ extension PublicKey {
 		let sigHash = try Signature.ethHash(sigText)
 
 		let pubKeyData = try KeyUtil.recoverPublicKey(message: sigHash, signature: signature.rawData)
+		return try PublicKey(pubKeyData)
+	}
+
+	func recoverKeySignedPublicKey() throws -> PublicKey {
+		if !hasSignature {
+			throw PublicKeyError.noSignature
+		}
+
+		// We don't want to include the signature in the key bytes
+		var slimKey = PublicKey()
+		slimKey.secp256K1Uncompressed.bytes = secp256K1Uncompressed.bytes
+		slimKey.timestamp = timestamp
+		let bytesToSign = try slimKey.serializedData()
+
+		let pubKeyData = try KeyUtil.recoverPublicKey(message: Data(SHA256.hash(data: bytesToSign)), signature: signature.rawData)
 		return try PublicKey(pubKeyData)
 	}
 

@@ -13,7 +13,7 @@ typealias InvitationV1 = Xmtp_MessageContents_InvitationV1
 extension InvitationV1 {
 	@available(iOS 16.0, *)
 	static func createRandom(context: InvitationV1.Context? = nil) throws -> InvitationV1 {
-		var context = context ?? InvitationV1.Context()
+		let context = context ?? InvitationV1.Context()
 		let randomBytes = try Crypto.secureRandomBytes(count: 32)
 		let regex = #/=*$/#
 		let randomString = Data(randomBytes).base64EncodedString()

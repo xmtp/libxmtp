@@ -9,9 +9,21 @@ import SwiftUI
 import XMTP
 
 struct LoggedInView: View {
-	var account: XMTP.Account
+	var client: XMTP.Client
 
 	var body: some View {
-		Text("We're in")
+		NavigationView {
+			VStack {
+				ConversationListView(client: client)
+				VStack(alignment: .leading) {
+					Text("Connected as")
+					Text("`\(client.address)`")
+						.bold()
+						.textSelection(.enabled)
+				}
+				.frame(maxWidth: .infinity)
+				.font(.caption)
+			}
+		}
 	}
 }

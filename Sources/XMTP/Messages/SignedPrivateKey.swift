@@ -23,7 +23,17 @@ extension SignedPrivateKey {
 		return signedPrivateKey
 	}
 
+	func sign(_ data: Data) async throws -> Signature {
+		let key = try PrivateKey(secp256K1.bytes)
+		return try await key.sign(data)
+	}
+
 	func matches(_ signedPublicKey: SignedPublicKey) -> Bool {
-		return publicKey.keyBytes == signedPublicKey.keyBytes
+		do {
+			return try publicKey.recoverKeySignedPublicKey().walletAddress ==
+				(try signedPublicKey.recoverKeySignedPublicKey().walletAddress)
+		} catch {
+			return false
+		}
 	}
 }

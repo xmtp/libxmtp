@@ -7,7 +7,7 @@
 
 import Foundation
 
-struct ConversationV1 {
+public struct ConversationV1 {
 	var client: Client
 	var peerAddress: String
 	var sentAt: Date
@@ -19,9 +19,7 @@ struct ConversationV1 {
 
 		let encoder = TextCodec()
 		let encodedContent = try encoder.encode(content: content)
-
-		let signedPublicKeyBundle = try contact.toSignedPublicKeyBundle()
-		let recipient = try PublicKeyBundle(signedPublicKeyBundle)
+		let recipient = try contact.toPublicKeyBundle()
 
 		if !recipient.identityKey.hasSignature {
 			fatalError("no signature for id key")
@@ -51,14 +49,19 @@ struct ConversationV1 {
 		return envelopes.compactMap { envelope in
 			do {
 				let message = try Message(serializedData: envelope.message)
-
 				let decrypted = try message.v1.decrypt(with: client.privateKeyBundleV1)
 
 				let encodedMessage = try EncodedContent(serializedData: decrypted)
 				let decoder = TextCodec()
 				let decoded = try decoder.decode(content: encodedMessage)
 
-				return DecodedMessage(body: decoded)
+				let header = try message.v1.header
+
+				return DecodedMessage(
+					body: decoded,
+					senderAddress: try header.sender.walletAddress,
+					sent: message.v1.sentAt
+				)
 			} catch {
 				print("ERROR DECODING CONVO V1 MESSAGE: \(error)")
 				return nil

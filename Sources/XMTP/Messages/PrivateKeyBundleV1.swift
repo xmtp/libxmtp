@@ -35,6 +35,12 @@ extension PrivateKeyBundleV1 {
 		return bundle.v1
 	}
 
+	var walletAddress: String {
+		// swiftlint:disable no_optional_try
+		return (try? identityKey.publicKey.recoverWalletSignerPublicKey().walletAddress) ?? ""
+		// swiftlint:enable no_optional_try
+	}
+
 	func toV2() throws -> PrivateKeyBundleV2 {
 		var v2bundle = PrivateKeyBundleV2()
 
@@ -51,16 +57,6 @@ extension PrivateKeyBundleV1 {
 		publicKeyBundle.preKey = preKeys[0].publicKey
 
 		return publicKeyBundle
-	}
-
-	func findPreKey(_ myPreKey: PublicKey) throws -> PrivateKey {
-		for preKey in preKeys {
-			if preKey.publicKey.secp256K1Uncompressed.bytes == myPreKey.secp256K1Uncompressed.bytes {
-				return preKey
-			}
-		}
-
-		throw PrivateKeyBundleError.noPreKeyFound
 	}
 
 	func sharedSecret(peer: PublicKeyBundle, myPreKey: PublicKey, isRecipient: Bool) throws -> Data {

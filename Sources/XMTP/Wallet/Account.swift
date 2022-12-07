@@ -35,7 +35,7 @@ public struct Account {
 }
 
 extension Account: SigningKey {
-	func sign(_ data: Data) async throws -> Signature {
+	public func sign(_ data: Data) async throws -> Signature {
 		let signatureData = try await connection.sign(data)
 
 		var signature = Signature()
@@ -46,7 +46,7 @@ extension Account: SigningKey {
 		return signature
 	}
 
-	func sign(message: String) async throws -> Signature {
+	public func sign(message: String) async throws -> Signature {
 		return try await sign(Data(message.utf8))
 	}
 }

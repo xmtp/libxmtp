@@ -158,7 +158,7 @@ final class IntegrationTests: XCTestCase {
 	}
 
 	func testCanReceiveMessagesFromJS() async throws {
-		throw XCTSkip("integration only (requires dev network)")
+		throw XCTSkip("integration only (requires local node)")
 
 		//  Uncomment these lines to generate a new wallet to test with the JS sdk
 //		var wallet = try PrivateKey.generate()
@@ -166,7 +166,7 @@ final class IntegrationTests: XCTestCase {
 //		print("NEW address \(wallet.walletAddress)")
 
 		var wallet = PrivateKey()
-		wallet.secp256K1.bytes = Data([65, 48, 96, 54, 186, 123, 188, 219, 77, 158, 158, 62, 89, 35, 88, 88, 118, 11, 79, 23, 239, 48, 25, 113, 195, 230, 114, 240, 243, 180, 122, 135])
+		wallet.secp256K1.bytes = Data([8, 103, 164, 168, 62, 63, 146, 40, 194, 165, 137, 89, 228, 126, 62, 81, 202, 187, 231, 21, 154, 42, 144, 172, 79, 70, 155, 235, 33, 116, 121, 120])
 		wallet.publicKey.secp256K1Uncompressed.bytes = try KeyUtil.generatePublicKey(from: wallet.secp256K1.bytes)
 		print("OUR ADDRESS: \(wallet.walletAddress)")
 
@@ -191,25 +191,7 @@ final class IntegrationTests: XCTestCase {
 			messages = try await conversation.messages()
 		}
 
-		XCTAssert(messages.count > 0, "did not find messages")
-
-		let contact = try await client.getUserContact(peerAddress: "0x8B26203eDc935Ab291ABC67Cd343c40970B3c1d3")!
-		let invitation = try InvitationV1.createRandom()
-		let created = Date()
-		let sealedInvitation = try await client.conversations.sendInvitation(
-			recipient: contact.toSignedPublicKeyBundle(),
-			invitation: invitation,
-			created: created
-		)
-
-		let header = try SealedInvitationHeaderV1(serializedData: sealedInvitation.v1.headerBytes)
-		let conversation = ConversationV1(client: client, peerAddress: "0x8B26203eDc935Ab291ABC67Cd343c40970B3c1d3", sentAt: Date())
-//
-//		do {
-//			try await conversation.send(content: "and another one...")
-//		} catch {
-//			print("ERROR SENDING \(error)")
-//		}
+		try await convo.send(text: "hello from swift")
 	}
 
 	func testEndToEndConversation() async throws {
@@ -231,7 +213,10 @@ final class IntegrationTests: XCTestCase {
 		let conversations = Conversations(client: client)
 
 		let created = Date()
-		let invitationv1 = try InvitationV1.createRandom()
+
+		var invitationContext = InvitationV1.Context()
+		invitationContext.conversationID = "https://example.com/1"
+		let invitationv1 = try InvitationV1.createRandom(context: invitationContext)
 		let senderBundle = try client.privateKeyBundleV1.toV2()
 
 		XCTAssertEqual(try senderBundle.identityKey.publicKey.recoverWalletSignerPublicKey().walletAddress, fakeWallet.address)
@@ -247,12 +232,6 @@ final class IntegrationTests: XCTestCase {
 		XCTAssertEqual(try inviteHeader.recipient.walletAddress, fakeContactWallet.walletAddress)
 
 		let recipBundle = privkeybundlev2.getPublicKeyBundle()
-		let sealedInvitation = try await conversations.sendInvitation(
-			recipient: recipBundle,
-			invitation: invitationv1,
-			created: created
-		)
-
 		let header = try SealedInvitationHeaderV1(serializedData: invitation.v1.headerBytes)
 		let conversation = try ConversationV2.create(client: client, invitation: invitationv1, header: header)
 

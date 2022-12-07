@@ -5,17 +5,18 @@
 //  Created by Pat Nakajima on 11/26/22.
 //
 
+import CryptoKit
 import Foundation
 import XMTPProto
 
 struct SendOptions {}
 
-struct ConversationV2 {
+public struct ConversationV2 {
 	var topic: String
 	var keyMaterial: Data // MUST be kept secret
 	var context: InvitationV1.Context
 	var peerAddress: String
-	private var client: Client
+	var client: Client
 	private var header: SealedInvitationHeaderV1
 
 	static func create(client: Client, invitation: InvitationV1, header: SealedInvitationHeaderV1) throws -> ConversationV2 {
@@ -51,17 +52,17 @@ struct ConversationV2 {
 		return envelopes.compactMap { envelope in
 			do {
 				let message = try Message(serializedData: envelope.message)
-				let decrypted = try message.v1.decrypt(with: client.privateKeyBundleV1)
-				let encodedMessage = try EncodedContent(serializedData: decrypted)
-				let decoder = TextCodec()
-				let decoded = try decoder.decode(content: encodedMessage)
 
-				return DecodedMessage(body: decoded)
+				return try decode(message.v2)
 			} catch {
 				print("Error decoding envelope \(error)")
 				return nil
 			}
 		}
+	}
+
+	private func decode(_ message: MessageV2) throws -> DecodedMessage {
+		try MessageV2.decode(message, keyMaterial: keyMaterial)
 	}
 
 	// TODO: more types of content
@@ -70,23 +71,15 @@ struct ConversationV2 {
 			throw ContactBundleError.notFound
 		}
 
-		let encoder = TextCodec()
-		let encodedContent = try encoder.encode(content: content)
-
-		let signedPublicKeyBundle = try contact.toSignedPublicKeyBundle()
-		let recipient = try PublicKeyBundle(signedPublicKeyBundle)
-
-		let message = try MessageV1.encode(
-			sender: client.privateKeyBundleV1,
-			recipient: recipient,
-			message: try encodedContent.serializedData(),
-			timestamp: Date()
+		let message = try await MessageV2.encode(
+			client: client,
+			content: content,
+			topic: topic,
+			keyMaterial: keyMaterial
 		)
 
 		try await client.publish(envelopes: [
-			Envelope(topic: .userIntro(recipient.walletAddress), timestamp: Date(), message: try message.serializedData()),
-			Envelope(topic: .userIntro(client.address), timestamp: Date(), message: try message.serializedData()),
-			Envelope(topic: topic, timestamp: Date(), message: try Message(v1: message).serializedData()),
+			Envelope(topic: topic, timestamp: Date(), message: try Message(v2: message).serializedData()),
 		])
 	}
 }
