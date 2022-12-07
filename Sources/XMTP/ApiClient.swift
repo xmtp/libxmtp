@@ -10,6 +10,7 @@ import XMTPProto
 
 typealias PublishResponse = Xmtp_MessageApi_V1_PublishResponse
 typealias QueryResponse = Xmtp_MessageApi_V1_QueryResponse
+typealias SubscribeRequest = Xmtp_MessageApi_V1_SubscribeRequest
 
 protocol ApiClient {
 	var environment: Environment { get }
@@ -18,6 +19,7 @@ protocol ApiClient {
 	func query(topics: [String]) async throws -> QueryResponse
 	func query(topics: [Topic]) async throws -> QueryResponse
 	func publish(envelopes: [Envelope]) async throws -> PublishResponse
+	func subscribe(topics: [String]) -> AsyncThrowingStream<Envelope, Error>
 }
 
 public class GRPCApiClient: ApiClient {
@@ -60,6 +62,19 @@ public class GRPCApiClient: ApiClient {
 
 	func query(topics: [Topic]) async throws -> Xmtp_MessageApi_V1_QueryResponse {
 		return try await query(topics: topics.map(\.description))
+	}
+
+	func subscribe(topics: [String]) -> AsyncThrowingStream<Envelope, Error> {
+		return AsyncThrowingStream { continuation in
+			Task {
+				var request = SubscribeRequest()
+				request.contentTopics = topics
+
+				for try await envelope in self.client.subscribe(request) {
+					continuation.yield(envelope)
+				}
+			}
+		}
 	}
 
 	@discardableResult func publish(envelopes: [Envelope]) async throws -> PublishResponse {

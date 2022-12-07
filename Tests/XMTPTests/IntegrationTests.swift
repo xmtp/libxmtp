@@ -260,4 +260,73 @@ final class IntegrationTests: XCTestCase {
 			XCTFail("no messages")
 		}
 	}
+
+	func testStreamMessagesInV1Conversation() async throws {
+		throw XCTSkip("integration only (requires local node)")
+
+		let alice = try PrivateKey.generate()
+		let bob = try PrivateKey.generate()
+
+		let clientOptions = ClientOptions(api: .init(env: .local, isSecure: false))
+		let aliceClient = try await Client.create(account: alice, options: clientOptions)
+		try await aliceClient.publishUserContact(legacy: true)
+		let bobClient = try await Client.create(account: bob, options: clientOptions)
+		try await bobClient.publishUserContact(legacy: true)
+
+		guard case let .v1(aliceConversation) = try await aliceClient.conversations.newConversation(with: bob.walletAddress) else {
+			XCTFail("Did not create v1 convo")
+			return
+		}
+
+		try await aliceConversation.send(content: "greetings")
+
+		let expectation = expectation(description: "bob gets a streamed message")
+
+		guard case let .v1(bobConversation) = try await bobClient.conversations.newConversation(with: alice.walletAddress) else {
+			XCTFail("Did not get v1 convo")
+			return
+		}
+
+		XCTAssertEqual(bobConversation.topic.description, aliceConversation.topic.description)
+
+		Task(priority: .userInitiated) {
+			for try await _ in bobConversation.streamMessages() {
+				expectation.fulfill()
+			}
+		}
+
+		try await aliceConversation.send(content: "hi bob")
+		try await bobConversation.send(content: "hi alice")
+
+		await waitForExpectations(timeout: 3)
+	}
+
+	func testStreamMessagesInV2Conversation() async throws {
+		throw XCTSkip("integration only (requires local node)")
+
+		let alice = try PrivateKey.generate()
+		let bob = try PrivateKey.generate()
+
+		let clientOptions = ClientOptions(api: .init(env: .local, isSecure: false))
+		let aliceClient = try await Client.create(account: alice, options: clientOptions)
+		let bobClient = try await Client.create(account: bob, options: clientOptions)
+
+		let aliceConversation = try await aliceClient.conversations.newConversation(with: bob.walletAddress, context: .init(conversationID: "https://example.com/3"))
+
+		let expectation = expectation(description: "bob gets a streamed message")
+
+		let bobConversation = try await bobClient.conversations.newConversation(with: alice.walletAddress, context: .init(conversationID: "https://example.com/3"))
+
+		XCTAssertEqual(bobConversation.topic, aliceConversation.topic)
+
+		Task(priority: .userInitiated) {
+			for try await _ in bobConversation.streamMessages() {
+				expectation.fulfill()
+			}
+		}
+
+		try await aliceConversation.send(text: "hi bob")
+
+		await waitForExpectations(timeout: 3)
+	}
 }

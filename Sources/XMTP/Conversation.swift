@@ -30,6 +30,24 @@ public enum Conversation {
 		}
 	}
 
+	public var topic: String {
+		switch self {
+		case let .v1(conversation):
+			return conversation.topic.description
+		case let .v2(conversation):
+			return conversation.topic
+		}
+	}
+
+	public func streamMessages() -> AsyncThrowingStream<DecodedMessage, Error> {
+		switch self {
+		case let .v1(conversation):
+			return conversation.streamMessages()
+		case let .v2(conversation):
+			return conversation.streamMessages()
+		}
+	}
+
 	public func messages() async throws -> [DecodedMessage] {
 		switch self {
 		case let .v1(conversationV1):

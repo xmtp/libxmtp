@@ -6,6 +6,8 @@
 //
 
 import Foundation
+import GRPC
+import XMTPProto
 
 public struct ClientOptions {
 	public struct Api {
@@ -135,6 +137,10 @@ public class Client {
 		apiClient.setAuthToken(authToken)
 
 		return try await apiClient.publish(envelopes: envelopes)
+	}
+
+	func subscribe(topics: [String]) -> AsyncThrowingStream<Envelope, Error> {
+		return apiClient.subscribe(topics: topics)
 	}
 
 	func getUserContact(peerAddress: String) async throws -> ContactBundle? {

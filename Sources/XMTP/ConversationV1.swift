@@ -12,6 +12,10 @@ public struct ConversationV1 {
 	var peerAddress: String
 	var sentAt: Date
 
+	var topic: Topic {
+		Topic.directMessageV1(client.address, peerAddress)
+	}
+
 	func send(content: String, options _: SendOptions? = nil) async throws {
 		guard let contact = try await client.getUserContact(peerAddress: peerAddress) else {
 			throw ContactBundleError.notFound
@@ -41,6 +45,17 @@ public struct ConversationV1 {
 		])
 	}
 
+	public func streamMessages() -> AsyncThrowingStream<DecodedMessage, Error> {
+		AsyncThrowingStream { continuation in
+			Task {
+				for try await envelope in client.subscribe(topics: [topic.description]) {
+					let decoded = try decode(envelope: envelope)
+					continuation.yield(decoded)
+				}
+			}
+		}
+	}
+
 	func messages() async throws -> [DecodedMessage] {
 		let envelopes = try await client.apiClient.query(topics: [
 			.directMessageV1(client.address, peerAddress),
@@ -48,24 +63,28 @@ public struct ConversationV1 {
 
 		return envelopes.compactMap { envelope in
 			do {
-				let message = try Message(serializedData: envelope.message)
-				let decrypted = try message.v1.decrypt(with: client.privateKeyBundleV1)
-
-				let encodedMessage = try EncodedContent(serializedData: decrypted)
-				let decoder = TextCodec()
-				let decoded = try decoder.decode(content: encodedMessage)
-
-				let header = try message.v1.header
-
-				return DecodedMessage(
-					body: decoded,
-					senderAddress: try header.sender.walletAddress,
-					sent: message.v1.sentAt
-				)
+				return try decode(envelope: envelope)
 			} catch {
 				print("ERROR DECODING CONVO V1 MESSAGE: \(error)")
 				return nil
 			}
 		}
+	}
+
+	private func decode(envelope: Envelope) throws -> DecodedMessage {
+		let message = try Message(serializedData: envelope.message)
+		let decrypted = try message.v1.decrypt(with: client.privateKeyBundleV1)
+
+		let encodedMessage = try EncodedContent(serializedData: decrypted)
+		let decoder = TextCodec()
+		let decoded = try decoder.decode(content: encodedMessage)
+
+		let header = try message.v1.header
+
+		return DecodedMessage(
+			body: decoded,
+			senderAddress: try header.sender.walletAddress,
+			sent: message.v1.sentAt
+		)
 	}
 }

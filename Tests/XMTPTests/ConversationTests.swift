@@ -8,6 +8,8 @@
 import XCTest
 @testable import XMTP
 
+
+@available(iOS 16, *)
 class ConversationTests: XCTestCase {
 	var fakeApiClient: FakeApiClient!
 
@@ -106,5 +108,87 @@ class ConversationTests: XCTestCase {
 
 			XCTAssertEqual(conversation.topic, existingConversation.topic, "made new conversation instead of using existing one")
 		}
+	}
+
+	func testStreamingMessagesFromV1Conversation() async throws {
+		// Overwrite contact as legacy
+		try await bobClient.publishUserContact(legacy: true)
+		try await aliceClient.publishUserContact(legacy: true)
+
+		guard case let .v1(conversation) = try await aliceClient.conversations.newConversation(with: bob.walletAddress) else {
+			XCTFail("Did not have a convo with bob")
+			return
+		}
+
+		let expectation = expectation(description: "got a message")
+
+		Task(priority: .userInitiated) {
+			for try await message in conversation.streamMessages() {
+				expectation.fulfill()
+			}
+		}
+
+		let encoder = TextCodec()
+		let encodedContent = try encoder.encode(content: "hi alice")
+
+		let date = Date().advanced(by: -1_000_000)
+
+		let messageV1 = try MessageV1.encode(
+			sender: bobClient.privateKeyBundleV1,
+			recipient: aliceClient.privateKeyBundleV1.toPublicKeyBundle(),
+			message: try encodedContent.serializedData(),
+			timestamp: date
+		)
+
+		// Stream a message
+		fakeApiClient.send(
+			envelope: Envelope(
+				topic: conversation.topic,
+				timestamp: Date(),
+				message: try Message(
+					v1: MessageV1.encode(
+						sender: bobClient.privateKeyBundleV1,
+						recipient: aliceClient.privateKeyBundleV1.toPublicKeyBundle(),
+						message: try encodedContent.serializedData(),
+						timestamp: date
+					)
+				).serializedData()
+			)
+		)
+
+		await waitForExpectations(timeout: 3)
+	}
+
+	func testStreamingMessagesFromV2Conversations() async throws {
+		guard case let .v2(conversation) = try await aliceClient.conversations.newConversation(with: bob.walletAddress) else {
+			XCTFail("Did not get a v2 convo")
+			return
+		}
+
+		let expectation = expectation(description: "got a message")
+
+		Task(priority: .userInitiated) {
+			for try await message in conversation.streamMessages() {
+				expectation.fulfill()
+			}
+		}
+
+		// Stream a message
+		fakeApiClient.send(
+			envelope: Envelope(
+				topic: conversation.topic,
+				timestamp: Date(),
+				message: try Message(
+					v2: try await MessageV2.encode(
+						client: bobClient,
+						content: "hi alice",
+						topic: conversation.topic,
+						keyMaterial: conversation.keyMaterial
+					)
+				).serializedData()
+			)
+		)
+
+		await waitForExpectations(timeout: 3)
 	}
 }

@@ -7,9 +7,9 @@
 
 import XMTPProto
 
-typealias Message = Xmtp_MessageContents_Message
+public typealias Message = Xmtp_MessageContents_Message
 
-enum MessageVersion: String, RawRepresentable {
+public enum MessageVersion: String, RawRepresentable {
 	case v1,
 	     v2
 }

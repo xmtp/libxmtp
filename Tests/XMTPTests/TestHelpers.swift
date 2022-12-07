@@ -5,6 +5,7 @@
 //  Created by Pat Nakajima on 12/6/22.
 //
 
+import Combine
 import XCTest
 @testable import XMTP
 
@@ -12,11 +13,27 @@ enum FakeApiClientError: String, Error {
 	case noResponses
 }
 
+class FakeStreamHolder: ObservableObject {
+	@Published var envelope: Envelope?
+
+	func send(envelope: Envelope) {
+		self.envelope = envelope
+	}
+}
+
+@available(iOS 15, *)
 class FakeApiClient: ApiClient {
 	var environment: Environment
 	var authToken: String = ""
 	private var responses: [String: [Envelope]] = [:]
+
+	private var stream = FakeStreamHolder()
 	var published: [Envelope] = []
+	var cancellable: AnyCancellable?
+
+	deinit {
+		cancellable?.cancel()
+	}
 
 	func assertNoPublish(callback: () async throws -> Void) async throws {
 		let oldCount = published.count
@@ -34,7 +51,11 @@ class FakeApiClient: ApiClient {
 		environment = .local
 	}
 
-	func findPublishedEnvelope(_ topic: Topic) -> Envelope? {
+	func send(envelope: Envelope) {
+		stream.send(envelope: envelope)
+	}
+
+  func findPublishedEnvelope(_ topic: Topic) -> Envelope? {
 		return findPublishedEnvelope(topic.description)
 	}
 
@@ -52,6 +73,16 @@ class FakeApiClient: ApiClient {
 
 	required init(environment: XMTP.Environment, secure _: Bool) throws {
 		self.environment = environment
+	}
+
+	func subscribe(topics: [String]) -> AsyncThrowingStream<Envelope, Error> {
+		AsyncThrowingStream { continuation in
+			self.cancellable = stream.$envelope.sink(receiveValue: { env in
+				if let env, topics.contains(env.contentTopic) {
+					continuation.yield(env)
+				}
+			})
+		}
 	}
 
 	func setAuthToken(_ token: String) {
