@@ -19,6 +19,10 @@ extension SignedPublicKeyBundle {
 		preKey.signature = publicKeyBundle.preKey.signature
 	}
 
+	func equals(_ other: SignedPublicKeyBundle) -> Bool {
+		return identityKey == other.identityKey && preKey == other.preKey
+	}
+
 	var walletAddress: String {
 		get throws {
 			return try identityKey.recoverWalletSignerPublicKey().walletAddress

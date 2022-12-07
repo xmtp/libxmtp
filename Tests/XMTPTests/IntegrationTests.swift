@@ -37,7 +37,7 @@ final class IntegrationTests: XCTestCase {
 
 		let authToken = try await authorized.createAuthToken()
 
-		var api = try ApiClient(environment: .local, secure: false)
+		var api = try GRPCApiClient(environment: .local, secure: false)
 		api.setAuthToken(authToken)
 
 		let encryptedBundle = try await authorized.toBundle.encrypted(with: alice)
@@ -81,7 +81,7 @@ final class IntegrationTests: XCTestCase {
 		let authorized = try await wallet.createIdentity(privateKey)
 		let authToken = try await authorized.createAuthToken()
 
-		var api = try ApiClient(environment: .local, secure: false)
+		var api = try GRPCApiClient(environment: .local, secure: false)
 		api.setAuthToken(authToken)
 
 		let encryptedBundle = try await authorized.toBundle.encrypted(with: wallet)
@@ -131,7 +131,7 @@ final class IntegrationTests: XCTestCase {
 		let identity = try PrivateKey.generate()
 		let authorized = try await aliceWallet.createIdentity(identity)
 		let authToken = try await authorized.createAuthToken()
-		var api = try ApiClient(environment: .local, secure: false)
+		var api = try GRPCApiClient(environment: .local, secure: false)
 		api.setAuthToken(authToken)
 		let encryptedBundle = try await PrivateKeyBundle(v1: alice).encrypted(with: aliceWallet)
 		var envelope = Envelope()

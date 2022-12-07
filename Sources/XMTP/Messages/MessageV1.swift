@@ -82,7 +82,7 @@ extension MessageV1 {
 
 	var sentAt: Date {
 		// swiftlint:disable force_try
-		try! Date(timeIntervalSince1970: Double(header.timestamp) / 1_000_000)
+		try! Date(timeIntervalSince1970: Double(header.timestamp))
 		// swiftlint:enable force_try
 	}
 

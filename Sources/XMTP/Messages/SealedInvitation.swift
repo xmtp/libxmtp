@@ -37,4 +37,14 @@ extension SealedInvitation {
 		v1.headerBytes = headerBytes
 		v1.ciphertext = ciphertext
 	}
+
+	func involves(_ contact: ContactBundle) -> Bool {
+		do {
+			let contactSignedPublicKeyBundle = try contact.toSignedPublicKeyBundle()
+
+			return v1.header.recipient.equals(contactSignedPublicKeyBundle) || v1.header.sender.equals(contactSignedPublicKeyBundle)
+		} catch {
+			return false
+		}
+	}
 }

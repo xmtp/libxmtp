@@ -9,8 +9,18 @@ import GRPC
 import XMTPProto
 
 typealias PublishResponse = Xmtp_MessageApi_V1_PublishResponse
+typealias QueryResponse = Xmtp_MessageApi_V1_QueryResponse
 
-public struct ApiClient {
+protocol ApiClient {
+	var environment: Environment { get }
+	init(environment: Environment, secure: Bool) throws
+	func setAuthToken(_ token: String)
+	func query(topics: [String]) async throws -> QueryResponse
+	func query(topics: [Topic]) async throws -> QueryResponse
+	func publish(envelopes: [Envelope]) async throws -> PublishResponse
+}
+
+public class GRPCApiClient: ApiClient {
 	let ClientVersionHeaderKey = "X-Client-Version"
 	let AppVersionHeaderKey = "X-App-Version"
 
@@ -19,7 +29,7 @@ public struct ApiClient {
 
 	private var client: Xmtp_MessageApi_V1_MessageApiAsyncClient!
 
-	init(environment: Environment, secure: Bool = true) throws {
+	required init(environment: Environment, secure: Bool = true) throws {
 		self.environment = environment
 		let group = PlatformSupport.makeEventLoopGroup(loopCount: 1)
 
@@ -33,11 +43,11 @@ public struct ApiClient {
 		client = Xmtp_MessageApi_V1_MessageApiAsyncClient(channel: channel)
 	}
 
-	mutating func setAuthToken(_ token: String) {
+	func setAuthToken(_ token: String) {
 		authToken = token
 	}
 
-	func query(topics: [String]) async throws -> Xmtp_MessageApi_V1_QueryResponse {
+	func query(topics: [String]) async throws -> QueryResponse {
 		var request = Xmtp_MessageApi_V1_QueryRequest()
 		request.contentTopics = topics
 

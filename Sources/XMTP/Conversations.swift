@@ -11,6 +11,61 @@ import XMTPProto
 public struct Conversations {
 	var client: Client
 
+	public func newConversation(with peerAddress: String, context: InvitationV1.Context? = nil) async throws -> Conversation {
+		guard let contact = try await client.getUserContact(peerAddress: peerAddress) else {
+			throw ContactBundleError.notFound
+		}
+
+		// See if we have an existing v1 convo
+		if context?.conversationID == nil || context?.conversationID == "" {
+			let invitationPeers = try await listIntroductionPeers()
+			if let peerSeenAt = invitationPeers[peerAddress] {
+				return .v1(ConversationV1(client: client, peerAddress: peerAddress, sentAt: peerSeenAt))
+			}
+		}
+
+		// If the contact is v1, start a v1 conversation
+		if case .v1 = contact.version, context?.conversationID == nil || context?.conversationID == "" {
+			return .v1(ConversationV1(client: client, peerAddress: peerAddress, sentAt: Date()))
+		}
+
+		// See if we have a v2 conversation
+		for sealedInvitation in try await listInvitations() {
+			if !sealedInvitation.involves(contact) {
+				continue
+			}
+
+			let invite = try sealedInvitation.v1.getInvitation(viewer: client.keys)
+			if invite.context.conversationID == context?.conversationID, invite.context.conversationID != "" {
+				return .v2(ConversationV2(
+					topic: invite.topic,
+					keyMaterial: invite.aes256GcmHkdfSha256.keyMaterial,
+					context: invite.context,
+					peerAddress: peerAddress,
+					client: client,
+					header: sealedInvitation.v1.header
+				))
+			}
+		}
+
+		// We don't have an existing conversation, make a v2 one
+		let recipient = try contact.toSignedPublicKeyBundle()
+		let invitation = try InvitationV1.createRandom(context: context)
+
+		let sealedInvitation = try await sendInvitation(recipient: recipient, invitation: invitation, created: Date())
+
+		let conversationV2 = ConversationV2(
+			topic: invitation.topic,
+			keyMaterial: invitation.aes256GcmHkdfSha256.keyMaterial,
+			context: invitation.context,
+			peerAddress: peerAddress,
+			client: client,
+			header: sealedInvitation.v1.header
+		)
+
+		return .v2(conversationV2)
+	}
+
 	public func list() async throws -> [Conversation] {
 		var conversations: [Conversation] = []
 
@@ -114,6 +169,7 @@ public struct Conversations {
 		let peerAddress = try recipient.walletAddress
 
 		try await client.publish(envelopes: [
+			Envelope(topic: .userInvite(client.address), timestamp: created, message: try sealed.serializedData()),
 			Envelope(topic: .userInvite(peerAddress), timestamp: created, message: try sealed.serializedData()),
 		])
 

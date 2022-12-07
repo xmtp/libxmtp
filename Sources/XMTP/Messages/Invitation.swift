@@ -8,17 +8,15 @@
 import Foundation
 import XMTPProto
 
-typealias InvitationV1 = Xmtp_MessageContents_InvitationV1
+public typealias InvitationV1 = Xmtp_MessageContents_InvitationV1
 
 extension InvitationV1 {
-	@available(iOS 16.0, *)
 	static func createRandom(context: InvitationV1.Context? = nil) throws -> InvitationV1 {
 		let context = context ?? InvitationV1.Context()
 		let randomBytes = try Crypto.secureRandomBytes(count: 32)
-		let regex = #/=*$/#
 		let randomString = Data(randomBytes).base64EncodedString()
-			.replacing(regex, with: "")
-			.replacingOccurrences(of: "/", with: "-")
+			.replacingOccurrences(of: "=*$", with: "", options: .regularExpression)
+			.replacingOccurrences(of: "[^A-Za-z0-9]", with: "", options: .regularExpression)
 
 		let topic = Topic.directMessageV2(randomString)
 
@@ -44,5 +42,13 @@ extension InvitationV1 {
 		}
 
 		self.aes256GcmHkdfSha256 = aes256GcmHkdfSha256
+	}
+}
+
+extension InvitationV1.Context {
+	init(conversationID: String = "", metadata: [String: String] = [:]) {
+		self.init()
+		self.conversationID = conversationID
+		self.metadata = metadata
 	}
 }
