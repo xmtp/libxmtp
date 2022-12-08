@@ -21,6 +21,15 @@ public enum Conversation {
 		}
 	}
 
+	public var conversationID: String? {
+		switch self {
+		case let .v1(conversation):
+			return nil
+		case let .v2(conversation):
+			return conversation.context.conversationID
+		}
+	}
+
 	public func send(text: String) async throws {
 		switch self {
 		case let .v1(conversationV1):
@@ -64,5 +73,15 @@ public enum Conversation {
 		case let .v2(conversationV2):
 			return conversationV2.client
 		}
+	}
+}
+
+extension Conversation: Hashable {
+	public static func == (lhs: Conversation, rhs: Conversation) -> Bool {
+		lhs.topic == rhs.topic
+	}
+
+	public func hash(into hasher: inout Hasher) {
+		hasher.combine(topic)
 	}
 }

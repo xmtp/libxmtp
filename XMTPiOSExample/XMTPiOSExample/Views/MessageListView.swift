@@ -8,56 +8,29 @@
 import SwiftUI
 import XMTP
 
-struct MessageCellView: View {
-	var myAddress: String
-	var message: DecodedMessage
-
-	var body: some View {
-		HStack {
-			if message.senderAddress == myAddress {
-				Spacer()
-			}
-			Text(message.body)
-				.padding(.vertical, 8)
-				.padding(.horizontal, 12)
-				.background(background)
-				.cornerRadius(16)
-				.foregroundColor(color)
-			if message.senderAddress != myAddress {
-				Spacer()
-			}
-		}
-		.listRowSeparator(.hidden)
-	}
-
-	var background: Color {
-		if message.senderAddress == myAddress {
-			return .purple
-		} else {
-			return .secondary.opacity(0.2)
-		}
-	}
-
-	var color: Color {
-		if message.senderAddress == myAddress {
-			return .white
-		} else {
-			return .primary
-		}
-	}
-}
-
 struct MessageListView: View {
 	var myAddress: String
 	var messages: [DecodedMessage]
 
 	var body: some View {
-		List {
-			ForEach(Array(messages.sorted(by: { $0.sent < $1.sent }).enumerated()), id: \.0) { _, message in
-				MessageCellView(myAddress: myAddress, message: message)
+		ScrollViewReader { proxy in
+			ScrollView {
+				VStack {
+					ForEach(Array(messages.sorted(by: { $0.sent < $1.sent }).enumerated()), id: \.0) { i, message in
+						MessageCellView(myAddress: myAddress, message: message)
+							.transition(.scale)
+							.id(i)
+					}
+					Spacer()
+						.onChange(of: messages.count) { _ in
+							withAnimation {
+								proxy.scrollTo(messages.count - 1, anchor: .bottom)
+							}
+						}
+				}
 			}
+			.padding(.horizontal)
 		}
-		.listStyle(.plain)
 	}
 }
 

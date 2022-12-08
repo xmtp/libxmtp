@@ -14,6 +14,8 @@
 		A6281995292DC825004B9117 /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A6281994292DC825004B9117 /* ContentView.swift */; };
 		A6281997292DC826004B9117 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = A6281996292DC826004B9117 /* Assets.xcassets */; };
 		A628199B292DC826004B9117 /* Preview Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = A628199A292DC826004B9117 /* Preview Assets.xcassets */; };
+		A6557A312941166E00CC4C7B /* MessageCellView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A6557A302941166E00CC4C7B /* MessageCellView.swift */; };
+		A6557A3329411F4F00CC4C7B /* NewConversationView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A6557A3229411F4F00CC4C7B /* NewConversationView.swift */; };
 		A67CCEC129355B4B00131F5C /* AccountManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = A67CCEC029355B4B00131F5C /* AccountManager.swift */; };
 		A683860C293EA862006336FF /* MessageListView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A683860B293EA862006336FF /* MessageListView.swift */; };
 		A69F33C6292DC992005A5556 /* XMTP in Frameworks */ = {isa = PBXBuildFile; productRef = A69F33C5292DC992005A5556 /* XMTP */; };
@@ -32,6 +34,8 @@
 		A6281996292DC826004B9117 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		A6281998292DC826004B9117 /* XMTPiOSExample.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = XMTPiOSExample.entitlements; sourceTree = "<group>"; };
 		A628199A292DC826004B9117 /* Preview Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = "Preview Assets.xcassets"; sourceTree = "<group>"; };
+		A6557A302941166E00CC4C7B /* MessageCellView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MessageCellView.swift; sourceTree = "<group>"; };
+		A6557A3229411F4F00CC4C7B /* NewConversationView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NewConversationView.swift; sourceTree = "<group>"; };
 		A67CCEC029355B4B00131F5C /* AccountManager.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = AccountManager.swift; sourceTree = "<group>"; };
 		A683860B293EA862006336FF /* MessageListView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MessageListView.swift; sourceTree = "<group>"; };
 		A69F33C7292DD3A9005A5556 /* xmtp-ios */ = {isa = PBXFileReference; lastKnownFileType = wrapper; name = "xmtp-ios"; path = ..; sourceTree = "<group>"; };
@@ -111,6 +115,8 @@
 				A60FC8C0293AD171001697E3 /* ConversationDetailView.swift */,
 				A60FC8C2293AD18A001697E3 /* PreviewClientProvider.swift */,
 				A683860B293EA862006336FF /* MessageListView.swift */,
+				A6557A302941166E00CC4C7B /* MessageCellView.swift */,
+				A6557A3229411F4F00CC4C7B /* NewConversationView.swift */,
 			);
 			path = Views;
 			sourceTree = "<group>";
@@ -188,6 +194,8 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				A6557A3329411F4F00CC4C7B /* NewConversationView.swift in Sources */,
+				A6557A312941166E00CC4C7B /* MessageCellView.swift in Sources */,
 				A60FC8C1293AD171001697E3 /* ConversationDetailView.swift in Sources */,
 				A60FC8C3293AD18A001697E3 /* PreviewClientProvider.swift in Sources */,
 				A6281995292DC825004B9117 /* ContentView.swift in Sources */,

@@ -8,7 +8,7 @@
 import Foundation
 
 /// Contains hosts an `ApiClient` can connect to
-public enum Environment: String {
+public enum XMTPEnvironment: String {
 	case dev = "dev.xmtp.network",
 	     production = "production.xmtp.network",
 	     local = "localhost"

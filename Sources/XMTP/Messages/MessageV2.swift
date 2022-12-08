@@ -53,8 +53,6 @@ extension MessageV2 {
 		let signature = try await preKey.sign(Data(digest))
 
 		var bundle = try client.privateKeyBundleV1.toV2().getPublicKeyBundle()
-		bundle.identityKey.signature.walletEcdsaCompact.bytes = bundle.identityKey.signature.ecdsaCompact.bytes
-		bundle.identityKey.signature.walletEcdsaCompact.recovery = bundle.identityKey.signature.ecdsaCompact.recovery
 
 		let signedContent = SignedContent(payload: payload, sender: bundle, signature: signature)
 		let signedBytes = try signedContent.serializedData()

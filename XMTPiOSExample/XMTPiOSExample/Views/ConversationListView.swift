@@ -10,15 +10,21 @@ import XMTP
 
 struct ConversationListView: View {
 	var client: XMTP.Client
+
+	@EnvironmentObject var coordinator: EnvironmentCoordinator
 	@State private var conversations: [XMTP.Conversation] = []
+	@State private var isShowingNewConversation = false
 
 	var body: some View {
 		List {
 			ForEach(conversations, id: \.peerAddress) { conversation in
-				NavigationLink(destination: ConversationDetailView(client: client, conversation: conversation)) {
+				NavigationLink(value: conversation) {
 					Text(conversation.peerAddress)
 				}
 			}
+		}
+		.navigationDestination(for: Conversation.self) { conversation in
+			ConversationDetailView(client: client, conversation: conversation)
 		}
 		.navigationTitle("Conversations")
 		.refreshable {
@@ -26,6 +32,21 @@ struct ConversationListView: View {
 		}
 		.task {
 			await loadConversations()
+		}
+		.toolbar {
+			ToolbarItem(placement: .navigationBarTrailing) {
+				Button(action: {
+					self.isShowingNewConversation = true
+				}) {
+					Label("New Conversation", systemImage: "plus")
+				}
+			}
+		}
+		.sheet(isPresented: $isShowingNewConversation) {
+			NewConversationView(client: client) { conversation in
+				conversations.insert(conversation, at: 0)
+				coordinator.path.append(conversation)
+			}
 		}
 	}
 

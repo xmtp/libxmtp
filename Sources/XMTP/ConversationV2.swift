@@ -20,7 +20,7 @@ public struct ConversationV2 {
 	private var header: SealedInvitationHeaderV1
 
 	static func create(client: Client, invitation: InvitationV1, header: SealedInvitationHeaderV1) throws -> ConversationV2 {
-		let myKeys = client.keys.getPublicKeyBundle()
+		var myKeys = client.keys.getPublicKeyBundle()
 
 		let peer = try myKeys.walletAddress == (try header.sender.walletAddress) ? header.recipient : header.sender
 		let peerAddress = try peer.walletAddress

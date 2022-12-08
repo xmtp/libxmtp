@@ -8,7 +8,6 @@
 import XCTest
 @testable import XMTP
 
-
 @available(iOS 16, *)
 class ConversationTests: XCTestCase {
 	var fakeApiClient: FakeApiClient!
@@ -27,6 +26,20 @@ class ConversationTests: XCTestCase {
 
 		aliceClient = try await Client.create(account: alice, apiClient: fakeApiClient)
 		bobClient = try await Client.create(account: bob, apiClient: fakeApiClient)
+	}
+
+	func testCanUseCachedConversation() async throws {
+		guard case .v2 = try await bobClient.conversations.newConversation(with: alice.walletAddress) else {
+			XCTFail("Did not get a v2 convo")
+			return
+		}
+
+		try await fakeApiClient.assertNoQuery {
+			guard case .v2 = try await bobClient.conversations.newConversation(with: alice.walletAddress) else {
+				XCTFail("Did not get a v2 convo")
+				return
+			}
+		}
 	}
 
 	func testCanInitiateV2Conversation() async throws {
@@ -110,10 +123,22 @@ class ConversationTests: XCTestCase {
 		}
 	}
 
+	func publishLegacyContact(client: Client) async throws {
+		var contactBundle = ContactBundle()
+		contactBundle.v1.keyBundle = client.privateKeyBundleV1.toPublicKeyBundle()
+
+		var envelope = Envelope()
+		envelope.contentTopic = Topic.contact(client.address).description
+		envelope.timestampNs = UInt64(Date().millisecondsSinceEpoch * 1_000_000)
+		envelope.message = try contactBundle.serializedData()
+
+		try await client.publish(envelopes: [envelope])
+	}
+
 	func testStreamingMessagesFromV1Conversation() async throws {
 		// Overwrite contact as legacy
-		try await bobClient.publishUserContact(legacy: true)
-		try await aliceClient.publishUserContact(legacy: true)
+		try await publishLegacyContact(client: bobClient)
+		try await publishLegacyContact(client: aliceClient)
 
 		guard case let .v1(conversation) = try await aliceClient.conversations.newConversation(with: bob.walletAddress) else {
 			XCTFail("Did not have a convo with bob")
@@ -123,7 +148,7 @@ class ConversationTests: XCTestCase {
 		let expectation = expectation(description: "got a message")
 
 		Task(priority: .userInitiated) {
-			for try await message in conversation.streamMessages() {
+			for try await _ in conversation.streamMessages() {
 				expectation.fulfill()
 			}
 		}

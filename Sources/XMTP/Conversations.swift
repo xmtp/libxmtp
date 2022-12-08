@@ -8,25 +8,38 @@
 import Foundation
 import XMTPProto
 
+public enum ConversationError: Error {
+	case recipientNotOnNetwork
+}
+
 public struct Conversations {
 	var client: Client
+	var conversations: [Conversation] = []
 
-	public func newConversation(with peerAddress: String, context: InvitationV1.Context? = nil) async throws -> Conversation {
+	public mutating func newConversation(with peerAddress: String, context: InvitationV1.Context? = nil) async throws -> Conversation {
+		if let existingConversation = conversations.first(where: { $0.peerAddress == peerAddress }) {
+			return existingConversation
+		}
+
 		guard let contact = try await client.getUserContact(peerAddress: peerAddress) else {
-			throw ContactBundleError.notFound
+			throw ConversationError.recipientNotOnNetwork
 		}
 
 		// See if we have an existing v1 convo
 		if context?.conversationID == nil || context?.conversationID == "" {
 			let invitationPeers = try await listIntroductionPeers()
 			if let peerSeenAt = invitationPeers[peerAddress] {
-				return .v1(ConversationV1(client: client, peerAddress: peerAddress, sentAt: peerSeenAt))
+				let conversation: Conversation = .v1(ConversationV1(client: client, peerAddress: peerAddress, sentAt: peerSeenAt))
+				conversations.append(conversation)
+				return conversation
 			}
 		}
 
 		// If the contact is v1, start a v1 conversation
 		if case .v1 = contact.version, context?.conversationID == nil || context?.conversationID == "" {
-			return .v1(ConversationV1(client: client, peerAddress: peerAddress, sentAt: Date()))
+			let conversation: Conversation = .v1(ConversationV1(client: client, peerAddress: peerAddress, sentAt: Date()))
+			conversations.append(conversation)
+			return conversation
 		}
 
 		// See if we have a v2 conversation
@@ -37,7 +50,7 @@ public struct Conversations {
 
 			let invite = try sealedInvitation.v1.getInvitation(viewer: client.keys)
 			if invite.context.conversationID == context?.conversationID, invite.context.conversationID != "" {
-				return .v2(ConversationV2(
+				let conversation: Conversation = .v2(ConversationV2(
 					topic: invite.topic,
 					keyMaterial: invite.aes256GcmHkdfSha256.keyMaterial,
 					context: invite.context,
@@ -45,6 +58,10 @@ public struct Conversations {
 					client: client,
 					header: sealedInvitation.v1.header
 				))
+
+				conversations.append(conversation)
+
+				return conversation
 			}
 		}
 
@@ -53,17 +70,11 @@ public struct Conversations {
 		let invitation = try InvitationV1.createRandom(context: context)
 
 		let sealedInvitation = try await sendInvitation(recipient: recipient, invitation: invitation, created: Date())
+		let conversationV2 = try ConversationV2.create(client: client, invitation: invitation, header: sealedInvitation.v1.header)
 
-		let conversationV2 = ConversationV2(
-			topic: invitation.topic,
-			keyMaterial: invitation.aes256GcmHkdfSha256.keyMaterial,
-			context: invitation.context,
-			peerAddress: peerAddress,
-			client: client,
-			header: sealedInvitation.v1.header
-		)
-
-		return .v2(conversationV2)
+		let conversation: Conversation = .v2(conversationV2)
+		conversations.append(conversation)
+		return conversation
 	}
 
 	public func list() async throws -> [Conversation] {
@@ -159,8 +170,10 @@ public struct Conversations {
 	}
 
 	func sendInvitation(recipient: SignedPublicKeyBundle, invitation: InvitationV1, created: Date) async throws -> SealedInvitation {
+		var senderBundle = client.keys
+
 		let sealed = try SealedInvitation.createV1(
-			sender: try client.privateKeyBundleV1.toV2(),
+			sender: senderBundle,
 			recipient: recipient,
 			created: created,
 			invitation: invitation

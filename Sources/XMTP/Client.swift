@@ -11,10 +11,10 @@ import XMTPProto
 
 public struct ClientOptions {
 	public struct Api {
-		public var env: Environment = .dev
+		public var env: XMTPEnvironment = .dev
 		public var isSecure: Bool = true
 
-		public init(env: Environment = .dev, isSecure: Bool = true) {
+		public init(env: XMTPEnvironment = .dev, isSecure: Bool = true) {
 			self.env = env
 			self.isSecure = isSecure
 		}
@@ -32,6 +32,10 @@ public class Client {
 	var privateKeyBundleV1: PrivateKeyBundleV1
 	var apiClient: ApiClient
 
+	public var environment: XMTPEnvironment {
+		apiClient.environment
+	}
+
 	public static func create(account: SigningKey, options: ClientOptions? = nil) async throws -> Client {
 		let options = options ?? ClientOptions()
 
@@ -47,7 +51,7 @@ public class Client {
 		let privateKeyBundleV1 = try await loadOrCreateKeys(for: account, apiClient: apiClient)
 
 		let client = try Client(address: account.address, privateKeyBundleV1: privateKeyBundleV1, apiClient: apiClient)
-		try await client.publishUserContact()
+		try await client.ensureUserContactPublished()
 
 		return client
 	}
@@ -67,7 +71,7 @@ public class Client {
 			authorizedIdentity.address = account.address
 			let authToken = try await authorizedIdentity.createAuthToken()
 
-			var apiClient = apiClient
+			let apiClient = apiClient
 			apiClient.setAuthToken(authToken)
 
 			try await apiClient.publish(envelopes: [
@@ -113,21 +117,42 @@ public class Client {
 		}
 	}
 
+	func ensureUserContactPublished() async throws {
+		if let contact = try await getUserContact(peerAddress: address),
+		   case .v2 = contact.version,
+		   keys.getPublicKeyBundle().equals(contact.v2.keyBundle)
+		{
+			return
+		}
+
+		try await publishUserContact(legacy: true)
+	}
+
 	func publishUserContact(legacy: Bool = false) async throws {
-		var contactBundle = ContactBundle()
+		var envelopes: [Envelope] = []
 
 		if legacy {
+			var contactBundle = ContactBundle()
 			contactBundle.v1.keyBundle = privateKeyBundleV1.toPublicKeyBundle()
-		} else {
-			contactBundle.v2.keyBundle = keys.getPublicKeyBundle()
+
+			var envelope = Envelope()
+			envelope.contentTopic = Topic.contact(address).description
+			envelope.timestampNs = UInt64(Date().millisecondsSinceEpoch * 1_000_000)
+			envelope.message = try contactBundle.serializedData()
+
+			envelopes.append(envelope)
 		}
+
+		var contactBundle = ContactBundle()
+		contactBundle.v2.keyBundle = keys.getPublicKeyBundle()
 
 		var envelope = Envelope()
 		envelope.contentTopic = Topic.contact(address).description
 		envelope.timestampNs = UInt64(Date().millisecondsSinceEpoch * 1_000_000)
 		envelope.message = try contactBundle.serializedData()
+		envelopes.append(envelope)
 
-		_ = try await publish(envelopes: [envelope])
+		_ = try await publish(envelopes: envelopes)
 	}
 
 	@discardableResult func publish(envelopes: [Envelope]) async throws -> PublishResponse {

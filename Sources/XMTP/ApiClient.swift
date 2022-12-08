@@ -13,8 +13,8 @@ typealias QueryResponse = Xmtp_MessageApi_V1_QueryResponse
 typealias SubscribeRequest = Xmtp_MessageApi_V1_SubscribeRequest
 
 protocol ApiClient {
-	var environment: Environment { get }
-	init(environment: Environment, secure: Bool) throws
+	var environment: XMTPEnvironment { get }
+	init(environment: XMTPEnvironment, secure: Bool) throws
 	func setAuthToken(_ token: String)
 	func query(topics: [String]) async throws -> QueryResponse
 	func query(topics: [Topic]) async throws -> QueryResponse
@@ -26,12 +26,12 @@ public class GRPCApiClient: ApiClient {
 	let ClientVersionHeaderKey = "X-Client-Version"
 	let AppVersionHeaderKey = "X-App-Version"
 
-	var environment: Environment
+	var environment: XMTPEnvironment
 	var authToken = ""
 
 	private var client: Xmtp_MessageApi_V1_MessageApiAsyncClient!
 
-	required init(environment: Environment, secure: Bool = true) throws {
+	required init(environment: XMTPEnvironment, secure: Bool = true) throws {
 		self.environment = environment
 		let group = PlatformSupport.makeEventLoopGroup(loopCount: 1)
 

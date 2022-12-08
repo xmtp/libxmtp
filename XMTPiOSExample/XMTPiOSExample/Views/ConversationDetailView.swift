@@ -23,6 +23,17 @@ struct ConversationDetailView: View {
 				.task {
 					await loadMessages()
 				}
+				.task {
+					do {
+						for try await message in conversation.streamMessages() {
+							await MainActor.run {
+								messages.append(message)
+							}
+						}
+					} catch {
+						print("Error in message stream: \(error)")
+					}
+				}
 
 			MessageComposerView { text in
 				do {
@@ -33,6 +44,7 @@ struct ConversationDetailView: View {
 			}
 		}
 		.navigationTitle(conversation.peerAddress)
+		.navigationBarTitleDisplayMode(.inline)
 	}
 
 	func loadMessages() async {

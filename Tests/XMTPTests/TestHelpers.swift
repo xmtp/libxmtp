@@ -10,7 +10,7 @@ import XCTest
 @testable import XMTP
 
 enum FakeApiClientError: String, Error {
-	case noResponses
+	case noResponses, queryAssertionFailure
 }
 
 class FakeStreamHolder: ObservableObject {
@@ -23,13 +23,13 @@ class FakeStreamHolder: ObservableObject {
 
 @available(iOS 15, *)
 class FakeApiClient: ApiClient {
-	var environment: Environment
+	var environment: XMTPEnvironment
 	var authToken: String = ""
 	private var responses: [String: [Envelope]] = [:]
-
 	private var stream = FakeStreamHolder()
 	var published: [Envelope] = []
 	var cancellable: AnyCancellable?
+	var forbiddingQueries = false
 
 	deinit {
 		cancellable?.cancel()
@@ -39,6 +39,12 @@ class FakeApiClient: ApiClient {
 		let oldCount = published.count
 		try await callback()
 		XCTAssertEqual(oldCount, published.count, "Published messages: \(try? published[oldCount - 1 ..< published.count].map { try $0.jsonString() })")
+	}
+
+	func assertNoQuery(callback: () async throws -> Void) async throws {
+		forbiddingQueries = true
+		try await callback()
+		forbiddingQueries = false
 	}
 
 	func register(message: [Envelope], for topic: Topic) {
@@ -71,7 +77,7 @@ class FakeApiClient: ApiClient {
 
 	// MARK: ApiClient conformance
 
-	required init(environment: XMTP.Environment, secure _: Bool) throws {
+	required init(environment: XMTP.XMTPEnvironment, secure _: Bool) throws {
 		self.environment = environment
 	}
 
@@ -90,6 +96,11 @@ class FakeApiClient: ApiClient {
 	}
 
 	func query(topics: [String]) async throws -> XMTP.QueryResponse {
+		if forbiddingQueries {
+			XCTFail("Attempted to query \(topics)")
+			throw FakeApiClientError.queryAssertionFailure
+		}
+
 		var result: [Envelope] = []
 
 		for topic in topics {
