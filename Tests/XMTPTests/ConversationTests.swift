@@ -28,6 +28,69 @@ class ConversationTests: XCTestCase {
 		bobClient = try await Client.create(account: bob, apiClient: fakeApiClient)
 	}
 
+	func testCanStreamConversationsV1() async throws {
+		// Overwrite contact as legacy
+		try await publishLegacyContact(client: bobClient)
+		try await publishLegacyContact(client: aliceClient)
+
+		let expectation = expectation(description: "got a conversation")
+
+		Task(priority: .userInitiated) {
+			for try await conversation in aliceClient.conversations.stream() {
+				if conversation.peerAddress == bob.walletAddress {
+					expectation.fulfill()
+				}
+			}
+		}
+
+		guard case let .v1(conversation) = try await bobClient.conversations.newConversation(with: alice.walletAddress) else {
+			XCTFail("Did not create a v1 convo")
+			return
+		}
+
+		try await conversation.send(content: "hi")
+
+		// Remove known introduction from contacts to test de-duping
+		bobClient.contacts.hasIntroduced.removeAll()
+
+		try await conversation.send(content: "hi again")
+
+		await waitForExpectations(timeout: 5)
+	}
+
+	func testCanStreamConversationsV2() async throws {
+		let expectation = expectation(description: "got a conversation")
+
+		Task(priority: .userInitiated) {
+			for try await conversation in aliceClient.conversations.stream() {
+				if conversation.peerAddress == bob.walletAddress {
+					expectation.fulfill()
+				}
+			}
+		}
+
+		guard case let .v2(conversation) = try await bobClient.conversations.newConversation(with: alice.walletAddress) else {
+			XCTFail("Did not create a v1 convo")
+			return
+		}
+
+		try await conversation.send(content: "hi")
+
+		// Remove known introduction from contacts to test de-duping
+		bobClient.contacts.hasIntroduced.removeAll()
+		bobClient.contacts.knownBundles.removeAll()
+		bobClient.conversations.conversations.removeAll()
+
+		guard case let .v2(conversation) = try await bobClient.conversations.newConversation(with: alice.walletAddress) else {
+			XCTFail("Did not create a v1 convo")
+			return
+		}
+
+		try await conversation.send(content: "hi again")
+
+		await waitForExpectations(timeout: 3)
+	}
+
 	func testCanUseCachedConversation() async throws {
 		guard case .v2 = try await bobClient.conversations.newConversation(with: alice.walletAddress) else {
 			XCTFail("Did not get a v2 convo")

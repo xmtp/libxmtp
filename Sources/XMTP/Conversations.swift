@@ -77,6 +77,41 @@ public struct Conversations {
 		return conversation
 	}
 
+	public func stream() -> AsyncThrowingStream<Conversation, Error> {
+		AsyncThrowingStream { continuation in
+			Task {
+				var streamedConversationTopics: Set<String> = []
+
+				for try await envelope in client.subscribe(topics: [.userIntro(client.address), .userInvite(client.address)]) {
+					if streamedConversationTopics.contains(envelope.contentTopic) {
+						continue
+					}
+
+					if envelope.contentTopic == Topic.userIntro(client.address).description {
+						let messageV1 = try MessageV1.fromBytes(envelope.message)
+						let senderAddress = try messageV1.header.sender.walletAddress
+						let recipientAddress = try messageV1.header.recipient.walletAddress
+
+						let peerAddress = client.address == senderAddress ? recipientAddress : senderAddress
+						let conversationV1 = ConversationV1(client: client, peerAddress: peerAddress, sentAt: messageV1.sentAt)
+
+						streamedConversationTopics.insert(envelope.contentTopic)
+						continuation.yield(Conversation.v1(conversationV1))
+					}
+
+					if envelope.contentTopic == Topic.userInvite(client.address).description {
+						let sealedInvitation = try SealedInvitation(serializedData: envelope.message)
+						let unsealed = try sealedInvitation.v1.getInvitation(viewer: client.keys)
+						let conversationV2 = try ConversationV2.create(client: client, invitation: unsealed, header: sealedInvitation.v1.header)
+
+						streamedConversationTopics.insert(envelope.contentTopic)
+						continuation.yield(Conversation.v2(conversationV2))
+					}
+				}
+			}
+		}
+	}
+
 	public func list() async throws -> [Conversation] {
 		var conversations: [Conversation] = []
 

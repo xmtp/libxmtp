@@ -61,7 +61,7 @@ class FakeApiClient: ApiClient {
 		stream.send(envelope: envelope)
 	}
 
-  func findPublishedEnvelope(_ topic: Topic) -> Envelope? {
+	func findPublishedEnvelope(_ topic: Topic) -> Envelope? {
 		return findPublishedEnvelope(topic.description)
 	}
 
@@ -124,8 +124,40 @@ class FakeApiClient: ApiClient {
 	}
 
 	func publish(envelopes: [XMTP.Envelope]) async throws -> XMTP.PublishResponse {
+		for envelope in envelopes {
+			send(envelope: envelope)
+		}
+
 		published.append(contentsOf: envelopes)
 
 		return PublishResponse()
+	}
+}
+
+@available(iOS 15, *)
+struct Fixtures {
+	var fakeApiClient: FakeApiClient!
+
+	var alice: PrivateKey!
+	var aliceClient: Client!
+
+	var bob: PrivateKey!
+	var bobClient: Client!
+
+	init() async throws {
+		alice = try PrivateKey.generate()
+		bob = try PrivateKey.generate()
+
+		fakeApiClient = FakeApiClient()
+
+		aliceClient = try await Client.create(account: alice, apiClient: fakeApiClient)
+		bobClient = try await Client.create(account: bob, apiClient: fakeApiClient)
+	}
+}
+
+extension XCTestCase {
+	@available(iOS 15, *)
+	func fixtures() async -> Fixtures {
+		return try! await Fixtures()
 	}
 }

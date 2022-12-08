@@ -33,6 +33,15 @@ struct ConversationListView: View {
 		.task {
 			await loadConversations()
 		}
+		.task {
+			do {
+				for try await conversation in client.conversations.stream() {
+					conversations.insert(conversation, at: 0)
+				}
+			} catch {
+				print("Error streaming conversations: \(error)")
+			}
+		}
 		.toolbar {
 			ToolbarItem(placement: .navigationBarTrailing) {
 				Button(action: {

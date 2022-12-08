@@ -32,6 +32,9 @@ public class Client {
 	var privateKeyBundleV1: PrivateKeyBundleV1
 	var apiClient: ApiClient
 
+	public lazy var conversations: Conversations = .init(client: self)
+	public lazy var contacts: Contacts = .init(client: self)
+
 	public var environment: XMTPEnvironment {
 		apiClient.environment
 	}
@@ -107,8 +110,6 @@ public class Client {
 		self.apiClient = apiClient
 	}
 
-	public lazy var conversations: Conversations = .init(client: self)
-
 	var keys: PrivateKeyBundleV2 {
 		do {
 			return try privateKeyBundleV1.toV2()
@@ -155,6 +156,10 @@ public class Client {
 		_ = try await publish(envelopes: envelopes)
 	}
 
+	func query(topics: [Topic]) async throws -> QueryResponse {
+		return try await apiClient.query(topics: topics)
+	}
+
 	@discardableResult func publish(envelopes: [Envelope]) async throws -> PublishResponse {
 		let authorized = AuthorizedIdentity(address: address, authorized: privateKeyBundleV1.identityKey.publicKey, identity: privateKeyBundleV1.identityKey)
 		let authToken = try await authorized.createAuthToken()
@@ -168,18 +173,12 @@ public class Client {
 		return apiClient.subscribe(topics: topics)
 	}
 
+	func subscribe(topics: [Topic]) -> AsyncThrowingStream<Envelope, Error> {
+		return subscribe(topics: topics.map(\.description))
+	}
+
 	func getUserContact(peerAddress: String) async throws -> ContactBundle? {
-		let response = try await apiClient.query(topics: [.contact(peerAddress)])
-
-		for envelope in response.envelopes {
-			// swiftlint:disable no_optional_try
-			if let contactBundle = try? ContactBundle.from(envelope: envelope) {
-				return contactBundle
-			}
-			// swiftlint:enable no_optional_try
-		}
-
-		return nil
+		return try await contacts.find(peerAddress)
 	}
 }
 

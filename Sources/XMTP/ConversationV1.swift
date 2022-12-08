@@ -17,7 +17,7 @@ public struct ConversationV1 {
 	}
 
 	func send(content: String, options _: SendOptions? = nil) async throws {
-		guard let contact = try await client.getUserContact(peerAddress: peerAddress) else {
+		guard let contact = try await client.contacts.find(peerAddress) else {
 			throw ContactBundleError.notFound
 		}
 
@@ -36,13 +36,34 @@ public struct ConversationV1 {
 			timestamp: Date()
 		)
 
-		try await client.publish(envelopes: [
+		let date = Date()
+
+		var envelopes = [
 			Envelope(
 				topic: .directMessageV1(client.address, peerAddress),
-				timestamp: Date(),
+				timestamp: date,
 				message: try Message(v1: message).serializedData()
 			),
-		])
+		]
+
+		if client.contacts.needsIntroduction(peerAddress) {
+			envelopes.append(contentsOf: [
+				Envelope(
+					topic: .userIntro(peerAddress),
+					timestamp: date,
+					message: try Message(v1: message).serializedData()
+				),
+				Envelope(
+					topic: .userIntro(client.address),
+					timestamp: date,
+					message: try Message(v1: message).serializedData()
+				),
+			])
+
+			client.contacts.hasIntroduced[peerAddress] = true
+		}
+
+		try await client.publish(envelopes: envelopes)
 	}
 
 	public func streamMessages() -> AsyncThrowingStream<DecodedMessage, Error> {
