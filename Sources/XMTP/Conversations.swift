@@ -153,7 +153,7 @@ public struct Conversations {
 	func listIntroductionPeers() async throws -> [String: Date] {
 		let envelopes = try await client.apiClient.query(topics: [
 			.userIntro(client.address),
-		]).envelopes
+		], pagination: nil).envelopes
 
 		let messages = envelopes.compactMap { envelope in
 			do {
@@ -195,7 +195,7 @@ public struct Conversations {
 	func listInvitations() async throws -> [SealedInvitation] {
 		let envelopes = try await client.apiClient.query(topics: [
 			.userInvite(client.address),
-		]).envelopes
+		], pagination: nil).envelopes
 
 		return envelopes.compactMap { envelope in
 			// swiftlint:disable no_optional_try

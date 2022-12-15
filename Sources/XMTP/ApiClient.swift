@@ -16,8 +16,8 @@ protocol ApiClient {
 	var environment: XMTPEnvironment { get }
 	init(environment: XMTPEnvironment, secure: Bool) throws
 	func setAuthToken(_ token: String)
-	func query(topics: [String]) async throws -> QueryResponse
-	func query(topics: [Topic]) async throws -> QueryResponse
+	func query(topics: [String], pagination: Pagination?) async throws -> QueryResponse
+	func query(topics: [Topic], pagination: Pagination?) async throws -> QueryResponse
 	func publish(envelopes: [Envelope]) async throws -> PublishResponse
 	func subscribe(topics: [String]) -> AsyncThrowingStream<Envelope, Error>
 }
@@ -49,9 +49,23 @@ public class GRPCApiClient: ApiClient {
 		authToken = token
 	}
 
-	func query(topics: [String]) async throws -> QueryResponse {
+	func query(topics: [String], pagination: Pagination? = nil) async throws -> QueryResponse {
 		var request = Xmtp_MessageApi_V1_QueryRequest()
 		request.contentTopics = topics
+
+		if let pagination {
+			request.pagingInfo = pagination.pagingInfo
+		}
+
+		if let startAt = pagination?.startTime {
+			request.endTimeNs = UInt64(startAt.millisecondsSinceEpoch) * 1_000_000
+			request.pagingInfo.direction = .descending
+		}
+
+		if let endAt = pagination?.endTime {
+			request.startTimeNs = UInt64(endAt.millisecondsSinceEpoch) * 1_000_000
+			request.pagingInfo.direction = .descending
+		}
 
 		var options = CallOptions()
 		options.customMetadata.add(name: "authorization", value: "Bearer \(authToken)")
@@ -60,8 +74,8 @@ public class GRPCApiClient: ApiClient {
 		return try await client.query(request, callOptions: options)
 	}
 
-	func query(topics: [Topic]) async throws -> Xmtp_MessageApi_V1_QueryResponse {
-		return try await query(topics: topics.map(\.description))
+	func query(topics: [Topic], pagination: Pagination? = nil) async throws -> Xmtp_MessageApi_V1_QueryResponse {
+		return try await query(topics: topics.map(\.description), pagination: pagination)
 	}
 
 	func subscribe(topics: [String]) -> AsyncThrowingStream<Envelope, Error> {

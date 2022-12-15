@@ -86,7 +86,7 @@ public class Client {
 
 	static func loadPrivateKeys(for account: SigningKey, apiClient: ApiClient) async throws -> PrivateKeyBundleV1? {
 		let topics: [Topic] = [.userPrivateStoreKeyBundle(account.address)]
-		let res = try await apiClient.query(topics: topics)
+		let res = try await apiClient.query(topics: topics, pagination: nil)
 
 		for envelope in res.envelopes {
 			do {
@@ -156,8 +156,8 @@ public class Client {
 		_ = try await publish(envelopes: envelopes)
 	}
 
-	func query(topics: [Topic]) async throws -> QueryResponse {
-		return try await apiClient.query(topics: topics)
+	func query(topics: [Topic], pagination: Pagination? = nil) async throws -> QueryResponse {
+		return try await apiClient.query(topics: topics, pagination: pagination)
 	}
 
 	@discardableResult func publish(envelopes: [Envelope]) async throws -> PublishResponse {

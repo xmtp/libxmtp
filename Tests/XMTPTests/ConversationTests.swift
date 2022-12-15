@@ -156,7 +156,7 @@ class ConversationTests: XCTestCase {
 		}
 
 		XCTAssertEqual(conversation.peerAddress, bob.walletAddress)
-		XCTAssertEqual(Int(conversation.sentAt.timeIntervalSince1970), Int(someTimeAgo.millisecondsSinceEpoch))
+		XCTAssertEqual(Int(conversation.sentAt.timeIntervalSince1970), Int(someTimeAgo.timeIntervalSince1970))
 
 		let existingMessages = fakeApiClient.published.count
 
@@ -167,7 +167,7 @@ class ConversationTests: XCTestCase {
 
 		XCTAssertEqual(existingMessages, fakeApiClient.published.count, "published more messages when we shouldn't have")
 		XCTAssertEqual(conversation.peerAddress, alice.walletAddress)
-		XCTAssertEqual(Int(conversation.sentAt.timeIntervalSince1970), Int(someTimeAgo.millisecondsSinceEpoch))
+		XCTAssertEqual(Int(conversation.sentAt.timeIntervalSince1970), Int(someTimeAgo.timeIntervalSince1970))
 	}
 
 	func testCanFindExistingV2Conversation() async throws {
@@ -278,5 +278,101 @@ class ConversationTests: XCTestCase {
 		)
 
 		await waitForExpectations(timeout: 3)
+	}
+
+	func testCanLoadV1Messages() async throws {
+		// Overwrite contact as legacy so we can get v1
+		try await publishLegacyContact(client: bobClient)
+		try await publishLegacyContact(client: aliceClient)
+
+		guard case let .v1(bobConversation) = try await bobClient.conversations.newConversation(with: alice.address) else {
+			XCTFail("did not get a v1 conversation for alice")
+			return
+		}
+
+		guard case let .v1(aliceConversation) = try await aliceClient.conversations.newConversation(with: bob.address) else {
+			XCTFail("did not get a v1 conversation for alice")
+			return
+		}
+
+		try await bobConversation.send(content: "hey alice")
+		try await bobConversation.send(content: "hey alice again")
+
+		let messages = try await aliceConversation.messages()
+
+		XCTAssertEqual(2, messages.count)
+		XCTAssertEqual("hey alice", messages[1].body)
+		XCTAssertEqual(bob.address, messages[1].senderAddress)
+	}
+
+	func testCanLoadV2Messages() async throws {
+		guard case let .v2(bobConversation) = try await bobClient.conversations.newConversation(with: alice.address, context: InvitationV1.Context(conversationID: "hi")) else {
+			XCTFail("did not get a v2 conversation for alice")
+			return
+		}
+
+		guard case let .v2(aliceConversation) = try await aliceClient.conversations.newConversation(with: bob.address, context: InvitationV1.Context(conversationID: "hi")) else {
+			XCTFail("did not get a v2 conversation for alice")
+			return
+		}
+
+		try await bobConversation.send(content: "hey alice")
+		let messages = try await aliceConversation.messages()
+
+		XCTAssertEqual(1, messages.count)
+		XCTAssertEqual("hey alice", messages[0].body)
+		XCTAssertEqual(bob.address, messages[0].senderAddress)
+	}
+
+	func testCanPaginateV1Messages() async throws {
+		// Overwrite contact as legacy so we can get v1
+		try await publishLegacyContact(client: bobClient)
+		try await publishLegacyContact(client: aliceClient)
+
+		guard case let .v1(bobConversation) = try await bobClient.conversations.newConversation(with: alice.address) else {
+			XCTFail("did not get a v1 conversation for alice")
+			return
+		}
+
+		guard case let .v1(aliceConversation) = try await aliceClient.conversations.newConversation(with: bob.address) else {
+			XCTFail("did not get a v1 conversation for alice")
+			return
+		}
+
+		try await bobConversation.send(content: "hey alice 1", sentAt: Date().addingTimeInterval(-10))
+		try await bobConversation.send(content: "hey alice 2", sentAt: Date().addingTimeInterval(-5))
+		try await bobConversation.send(content: "hey alice 3", sentAt: Date())
+
+		let messages = try await aliceConversation.messages(limit: 1)
+		XCTAssertEqual(1, messages.count)
+		XCTAssertEqual("hey alice 3", messages[0].body)
+
+		let messages2 = try await aliceConversation.messages(limit: 1, before: messages[0].sent)
+		XCTAssertEqual(1, messages2.count)
+		XCTAssertEqual("hey alice 2", messages2[0].body)
+	}
+
+	func testCanPaginateV2Messages() async throws {
+		guard case let .v2(bobConversation) = try await bobClient.conversations.newConversation(with: alice.address, context: InvitationV1.Context(conversationID: "hi")) else {
+			XCTFail("did not get a v2 conversation for alice")
+			return
+		}
+
+		guard case let .v2(aliceConversation) = try await aliceClient.conversations.newConversation(with: bob.address, context: InvitationV1.Context(conversationID: "hi")) else {
+			XCTFail("did not get a v2 conversation for alice")
+			return
+		}
+
+		try await bobConversation.send(content: "hey alice 1", sentAt: Date().addingTimeInterval(-10))
+		try await bobConversation.send(content: "hey alice 2", sentAt: Date().addingTimeInterval(-5))
+		try await bobConversation.send(content: "hey alice 3", sentAt: Date())
+
+		let messages = try await aliceConversation.messages(limit: 1)
+		XCTAssertEqual(1, messages.count)
+		XCTAssertEqual("hey alice 3", messages[0].body)
+
+		let messages2 = try await aliceConversation.messages(limit: 1, before: messages[0].sent)
+		XCTAssertEqual(1, messages2.count)
+		XCTAssertEqual("hey alice 2", messages2[0].body)
 	}
 }

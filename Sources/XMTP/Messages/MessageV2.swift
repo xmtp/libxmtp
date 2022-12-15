@@ -31,7 +31,7 @@ extension MessageV2 {
 			return DecodedMessage(
 				body: decoded,
 				senderAddress: try signed.sender.walletAddress,
-				sent: Date(timeIntervalSince1970: Double(header.createdNs) / 1_000_000)
+				sent: Date(timeIntervalSince1970: Double(header.createdNs / 1_000_000) / 1000)
 			)
 		} catch {
 			print("ERROR DECODING: \(error)")

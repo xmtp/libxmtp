@@ -16,7 +16,11 @@ public struct ConversationV1 {
 		Topic.directMessageV1(client.address, peerAddress)
 	}
 
-	func send(content: String, options _: SendOptions? = nil) async throws {
+	func send(content: String) async throws {
+		try await send(content: content, options: nil, sentAt: nil)
+	}
+
+	internal func send(content: String, options _: SendOptions? = nil, sentAt: Date? = nil) async throws {
 		guard let contact = try await client.contacts.find(peerAddress) else {
 			throw ContactBundleError.notFound
 		}
@@ -29,14 +33,14 @@ public struct ConversationV1 {
 			fatalError("no signature for id key")
 		}
 
+		let date = sentAt ?? Date()
+
 		let message = try MessageV1.encode(
 			sender: client.privateKeyBundleV1,
 			recipient: recipient,
 			message: try encodedContent.serializedData(),
-			timestamp: Date()
+			timestamp: date
 		)
-
-		let date = Date()
 
 		var envelopes = [
 			Envelope(
@@ -77,10 +81,12 @@ public struct ConversationV1 {
 		}
 	}
 
-	func messages() async throws -> [DecodedMessage] {
+	func messages(limit: Int? = nil, before: Date? = nil, after: Date? = nil) async throws -> [DecodedMessage] {
+		let pagination = Pagination(limit: limit, startTime: before, endTime: after)
+
 		let envelopes = try await client.apiClient.query(topics: [
 			.directMessageV1(client.address, peerAddress),
-		]).envelopes
+		], pagination: pagination).envelopes
 
 		return envelopes.compactMap { envelope in
 			do {

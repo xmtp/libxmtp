@@ -343,4 +343,77 @@ final class IntegrationTests: XCTestCase {
 
 		await waitForExpectations(timeout: 3)
 	}
+
+	func testCanPaginateV1Messages() async throws {
+		throw XCTSkip("integration only (requires local node)")
+
+		let bob = try FakeWallet.generate()
+		let alice = try FakeWallet.generate()
+
+		let options = ClientOptions(api: ClientOptions.Api(env: .local, isSecure: false))
+		let bobClient = try await Client.create(account: bob, options: options)
+
+		// Publish alice's contact
+		_ = try await Client.create(account: alice, options: options)
+
+		let convo = ConversationV1(client: bobClient, peerAddress: alice.address, sentAt: Date())
+
+		// Say this message is sent in the past
+		try await convo.send(content: "10 seconds ago", sentAt: Date().addingTimeInterval(-10))
+
+		try await convo.send(content: "now")
+
+		let messages = try await convo.messages(limit: 1)
+		XCTAssertEqual(1, messages.count)
+		let nowMessage = messages[0]
+		XCTAssertEqual("now", nowMessage.body)
+
+		let messages2 = try await convo.messages(limit: 1, before: nowMessage.sent)
+		XCTAssertEqual(1, messages2.count)
+		let tenSecondsAgoMessage = messages2[0]
+		XCTAssertEqual("10 seconds ago", tenSecondsAgoMessage.body)
+
+		let messages3 = try await convo.messages(limit: 1, after: tenSecondsAgoMessage.sent)
+		XCTAssertEqual(1, messages3.count)
+		let nowMessage2 = messages3[0]
+		XCTAssertEqual("now", nowMessage2.body)
+	}
+
+	func testCanPaginateV2Messages() async throws {
+		throw XCTSkip("integration only (requires local node)")
+
+		let bob = try FakeWallet.generate()
+		let alice = try FakeWallet.generate()
+
+		let options = ClientOptions(api: ClientOptions.Api(env: .local, isSecure: false))
+		let bobClient = try await Client.create(account: bob, options: options)
+
+		// Publish alice's contact
+		_ = try await Client.create(account: alice, options: options)
+
+		guard case let .v2(convo) = try await bobClient.conversations.newConversation(with: alice.address) else {
+			XCTFail("Did not get a v2 convo")
+			return
+		}
+
+		// Say this message is sent in the past
+		let tenSecondsAgo = Date().addingTimeInterval(-10)
+		try await convo.send(content: "10 seconds ago", sentAt: tenSecondsAgo)
+		try await convo.send(content: "now")
+
+		let messages = try await convo.messages(limit: 1)
+		XCTAssertEqual(1, messages.count)
+		let nowMessage = messages[0]
+		XCTAssertEqual("now", nowMessage.body)
+
+		let messages2 = try await convo.messages(limit: 1, before: nowMessage.sent)
+		XCTAssertEqual(1, messages2.count)
+		let tenSecondsAgoMessage = messages2[0]
+		XCTAssertEqual("10 seconds ago", tenSecondsAgoMessage.body)
+
+		let messages3 = try await convo.messages(limit: 1, after: tenSecondsAgoMessage.sent)
+		XCTAssertEqual(1, messages3.count)
+		let nowMessage2 = messages3[0]
+		XCTAssertEqual("now", nowMessage2.body)
+	}
 }

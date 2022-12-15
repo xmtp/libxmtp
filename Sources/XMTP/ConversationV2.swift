@@ -46,8 +46,10 @@ public struct ConversationV2 {
 		self.header = header
 	}
 
-	func messages() async throws -> [DecodedMessage] {
-		let envelopes = try await client.apiClient.query(topics: [topic]).envelopes
+	func messages(limit: Int? = nil, before: Date? = nil, after: Date? = nil) async throws -> [DecodedMessage] {
+		let pagination = Pagination(limit: limit, startTime: before, endTime: after)
+
+		let envelopes = try await client.apiClient.query(topics: [topic], pagination: pagination).envelopes
 
 		return envelopes.compactMap { envelope in
 			do {
@@ -78,8 +80,7 @@ public struct ConversationV2 {
 		try MessageV2.decode(message, keyMaterial: keyMaterial)
 	}
 
-	// TODO: more types of content
-	func send(content: String, options _: SendOptions? = nil) async throws {
+	internal func send(content: String, sentAt: Date) async throws {
 		guard try await client.getUserContact(peerAddress: peerAddress) != nil else {
 			throw ContactBundleError.notFound
 		}
@@ -92,7 +93,12 @@ public struct ConversationV2 {
 		)
 
 		try await client.publish(envelopes: [
-			Envelope(topic: topic, timestamp: Date(), message: try Message(v2: message).serializedData()),
+			Envelope(topic: topic, timestamp: sentAt, message: try Message(v2: message).serializedData()),
 		])
+	}
+
+	// TODO: more types of content
+	func send(content: String) async throws {
+		try await send(content: content, sentAt: Date())
 	}
 }

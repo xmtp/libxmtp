@@ -122,7 +122,7 @@ class FakeApiClient: ApiClient {
 		authToken = token
 	}
 
-	func query(topics: [String]) async throws -> XMTP.QueryResponse {
+	func query(topics: [String], pagination: Pagination? = nil) async throws -> XMTP.QueryResponse {
 		if forbiddingQueries {
 			XCTFail("Attempted to query \(topics)")
 			throw FakeApiClientError.queryAssertionFailure
@@ -135,8 +135,30 @@ class FakeApiClient: ApiClient {
 				result.append(contentsOf: response)
 			}
 
-			if let envelope = findPublishedEnvelope(topic) {
-				result.append(envelope)
+			result.append(contentsOf: published.filter { $0.contentTopic == topic }.reversed())
+		}
+
+		if let startAt = pagination?.startTime {
+			result = result
+				.filter { $0.timestampNs < UInt64(startAt.millisecondsSinceEpoch * 1_000_000) }
+				.sorted(by: { $0.timestampNs > $1.timestampNs })
+		}
+
+		if let endAt = pagination?.endTime {
+			result = result
+				.filter { $0.timestampNs > UInt64(endAt.millisecondsSinceEpoch * 1_000_000) }
+				.sorted(by: { $0.timestampNs < $1.timestampNs })
+		}
+
+		if let limit = pagination?.limit {
+			if limit == 1 {
+				if let first = result.first {
+					result = [first]
+				} else {
+					result = []
+				}
+			} else {
+				result = Array(result[0 ... limit - 1])
 			}
 		}
 
@@ -146,8 +168,8 @@ class FakeApiClient: ApiClient {
 		return queryResponse
 	}
 
-	func query(topics: [XMTP.Topic]) async throws -> XMTP.QueryResponse {
-		return try await query(topics: topics.map(\.description))
+	func query(topics: [XMTP.Topic], pagination: Pagination? = nil) async throws -> XMTP.QueryResponse {
+		return try await query(topics: topics.map(\.description), pagination: pagination)
 	}
 
 	func publish(envelopes: [XMTP.Envelope]) async throws -> XMTP.PublishResponse {

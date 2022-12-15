@@ -13,7 +13,7 @@ import XMTPProto
 typealias SignedPublicKey = Xmtp_MessageContents_SignedPublicKey
 
 extension SignedPublicKey {
-	static func fromLegacy(_ legacyKey: PublicKey, signedByWallet: Bool? = false) throws -> SignedPublicKey {
+	static func fromLegacy(_ legacyKey: PublicKey, signedByWallet _: Bool? = false) throws -> SignedPublicKey {
 		var signedPublicKey = SignedPublicKey()
 
 		var publicKey = PublicKey()
