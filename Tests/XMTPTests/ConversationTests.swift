@@ -177,7 +177,7 @@ class ConversationTests: XCTestCase {
 		}
 
 		try await fakeApiClient.assertNoPublish {
-			guard case let .v2(conversation) = try await aliceClient.conversations.newConversation(with: bob.walletAddress, context: .init(conversationID: "http://example.com/2")) else {
+			guard case let .v2(conversation) = try await bobClient.conversations.newConversation(with: alice.walletAddress, context: .init(conversationID: "http://example.com/2")) else {
 				XCTFail("Did not get conversation with bob")
 				return
 			}

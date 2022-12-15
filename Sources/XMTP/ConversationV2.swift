@@ -20,7 +20,7 @@ public struct ConversationV2 {
 	private var header: SealedInvitationHeaderV1
 
 	static func create(client: Client, invitation: InvitationV1, header: SealedInvitationHeaderV1) throws -> ConversationV2 {
-		var myKeys = client.keys.getPublicKeyBundle()
+		let myKeys = client.keys.getPublicKeyBundle()
 
 		let peer = try myKeys.walletAddress == (try header.sender.walletAddress) ? header.recipient : header.sender
 		let peerAddress = try peer.walletAddress
@@ -80,7 +80,7 @@ public struct ConversationV2 {
 
 	// TODO: more types of content
 	func send(content: String, options _: SendOptions? = nil) async throws {
-		guard let contact = try await client.getUserContact(peerAddress: peerAddress) else {
+		guard try await client.getUserContact(peerAddress: peerAddress) != nil else {
 			throw ContactBundleError.notFound
 		}
 

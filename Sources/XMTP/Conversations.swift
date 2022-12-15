@@ -21,7 +21,7 @@ public struct Conversations {
 			return existingConversation
 		}
 
-		guard let contact = try await client.getUserContact(peerAddress: peerAddress) else {
+		guard let contact = try await client.contacts.find(peerAddress) else {
 			throw ConversationError.recipientNotOnNetwork
 		}
 
@@ -205,10 +205,8 @@ public struct Conversations {
 	}
 
 	func sendInvitation(recipient: SignedPublicKeyBundle, invitation: InvitationV1, created: Date) async throws -> SealedInvitation {
-		var senderBundle = client.keys
-
 		let sealed = try SealedInvitation.createV1(
-			sender: senderBundle,
+			sender: client.keys,
 			recipient: recipient,
 			created: created,
 			invitation: invitation

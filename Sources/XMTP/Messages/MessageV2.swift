@@ -52,7 +52,7 @@ extension MessageV2 {
 		let preKey = client.keys.preKeys[0]
 		let signature = try await preKey.sign(Data(digest))
 
-		var bundle = try client.privateKeyBundleV1.toV2().getPublicKeyBundle()
+		let bundle = try client.privateKeyBundleV1.toV2().getPublicKeyBundle()
 
 		let signedContent = SignedContent(payload: payload, sender: bundle, signature: signature)
 		let signedBytes = try signedContent.serializedData()

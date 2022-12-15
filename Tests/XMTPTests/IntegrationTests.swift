@@ -157,41 +157,55 @@ final class IntegrationTests: XCTestCase {
 		XCTAssert(contact?.v1.keyBundle.preKey.hasSignature == true, "pre key not signed")
 	}
 
-	func testCanReceiveMessagesFromJS() async throws {
+	func publishLegacyContact(client: XMTP.Client) async throws {
+		var contactBundle = ContactBundle()
+		contactBundle.v1.keyBundle = client.privateKeyBundleV1.toPublicKeyBundle()
+
+		var envelope = Envelope()
+		envelope.contentTopic = Topic.contact(client.address).description
+		envelope.timestampNs = UInt64(Date().millisecondsSinceEpoch * 1_000_000)
+		envelope.message = try contactBundle.serializedData()
+
+		try await client.publish(envelopes: [envelope])
+	}
+
+	func testCanReceiveV1MessagesFromJS() async throws {
 		throw XCTSkip("integration only (requires local node)")
 
-		//  Uncomment these lines to generate a new wallet to test with the JS sdk
-//		var wallet = try PrivateKey.generate()
-//		print("wallet bytes \(wallet.secp256K1.bytes.bytes)")
-//		print("NEW address \(wallet.walletAddress)")
+		let wallet = try FakeWallet.generate()
+		let options = ClientOptions(api: ClientOptions.Api(env: .local, isSecure: false))
+		let client = try await Client.create(account: wallet, options: options)
 
-		var wallet = PrivateKey()
-		wallet.secp256K1.bytes = Data([8, 103, 164, 168, 62, 63, 146, 40, 194, 165, 137, 89, 228, 126, 62, 81, 202, 187, 231, 21, 154, 42, 144, 172, 79, 70, 155, 235, 33, 116, 121, 120])
-		wallet.publicKey.secp256K1Uncompressed.bytes = try KeyUtil.generatePublicKey(from: wallet.secp256K1.bytes)
-		print("OUR ADDRESS: \(wallet.walletAddress)")
+		let convo = ConversationV1(client: client, peerAddress: "0xf4BF19Ed562651837bc11ff975472ABd239D35B5", sentAt: Date())
+		try await convo.send(content: "hello from swift")
+		try await Task.sleep(for: .seconds(1))
 
+		let messages = try await convo.messages()
+		XCTAssertEqual(2, messages.count)
+
+		XCTAssertEqual("HI \(wallet.address)", messages[0].body)
+	}
+
+	func testCanReceiveV2MessagesFromJS() async throws {
+		throw XCTSkip("integration only (requires local node)")
+
+		let wallet = try PrivateKey.generate()
 		let options = ClientOptions(api: ClientOptions.Api(env: .local, isSecure: false))
 		let client = try await Client.create(account: wallet, options: options)
 
 		try await client.publishUserContact()
 
-		let convos = try await client.conversations.list()
-
-		guard let convo = convos.first else {
-			XCTFail("No conversations")
+		guard case let .v2(convo) = try? await client.conversations.newConversation(with: "0xf4BF19Ed562651837bc11ff975472ABd239D35B5", context: InvitationV1.Context(conversationID: "https://example.com/4")) else {
+			XCTFail("did not get v2 convo")
 			return
 		}
 
-		var messages: [DecodedMessage] = []
+		try await convo.send(content: "hello from swift")
+		try await Task.sleep(for: .seconds(1))
 
-		switch convo {
-		case let .v1(conversation):
-			messages = try await conversation.messages()
-		case let .v2(conversation):
-			messages = try await conversation.messages()
-		}
-
-		try await convo.send(text: "hello from swift")
+		let messages = try await convo.messages()
+		XCTAssertEqual(2, messages.count)
+		XCTAssertEqual("HI \(wallet.address)", messages[0].body)
 	}
 
 	func testEndToEndConversation() async throws {

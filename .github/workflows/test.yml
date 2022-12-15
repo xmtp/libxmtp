@@ -14,4 +14,31 @@ jobs:
         with:
           xcode-version: latest-stable
       - uses: actions/checkout@v3
+      - name: Update Homebrew and save docker version
+        run: |
+          brew update --preinstall
+          cat "$(brew --repository)/Library/Taps/homebrew/homebrew-core/Formula/docker.rb" > .github/brew-formulae
+      - name: Configure Homebrew docker cache files
+        uses: actions/cache@v3
+        with:
+          path: |
+             ~/Library/Caches/Homebrew/docker--*
+             ~/Library/Caches/Homebrew/downloads/*--docker-*
+          key: brew-${{ hashFiles('.github/brew-formulae') }}
+          restore-keys: brew-
+      - name: Install Docker and start colima
+        id: install_mac_docker
+        run: |
+          brew install docker docker-compose
+          # Docker engine is no longer available because of licensing
+          # Alternative Colima is part of the github macOS runner
+          colima start
+          # Ensure colima is configured for later user
+          echo "DOCKER_HOST=unix://$HOME/.colima/default/docker.sock" >> $GITHUB_ENV
+          # Verify Docker
+          docker ps
+      - name: Start local test server
+        run: docker-compose -p xmtp -f dev/local/docker-compose.yml up -d
       - run: xcodebuild test -scheme XMTP -destination "platform=iOS Simulator,name=iPhone 14" 
+      - name: Stop local test server
+        run: docker-compose -p xmtp -f dev/local/docker-compose.yml down

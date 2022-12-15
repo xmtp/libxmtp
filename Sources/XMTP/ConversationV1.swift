@@ -104,7 +104,7 @@ public struct ConversationV1 {
 
 		return DecodedMessage(
 			body: decoded,
-			senderAddress: try header.sender.walletAddress,
+			senderAddress: header.sender.walletAddress,
 			sent: message.v1.sentAt
 		)
 	}

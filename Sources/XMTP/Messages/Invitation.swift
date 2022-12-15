@@ -45,7 +45,7 @@ extension InvitationV1 {
 	}
 }
 
-extension InvitationV1.Context {
+public extension InvitationV1.Context {
 	init(conversationID: String = "", metadata: [String: String] = [:]) {
 		self.init()
 		self.conversationID = conversationID

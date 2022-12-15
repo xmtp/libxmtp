@@ -66,7 +66,6 @@ public class Client {
 			return keys
 		} else {
 			let keys = try await PrivateKeyBundleV1.generate(wallet: account)
-
 			let keyBundle = PrivateKeyBundle(v1: keys)
 			let encryptedKeys = try await keyBundle.encrypted(with: account)
 
@@ -77,7 +76,7 @@ public class Client {
 			let apiClient = apiClient
 			apiClient.setAuthToken(authToken)
 
-			try await apiClient.publish(envelopes: [
+			_ = try await apiClient.publish(envelopes: [
 				Envelope(topic: .userPrivateStoreKeyBundle(account.address), timestamp: Date(), message: try encryptedKeys.serializedData()),
 			])
 
@@ -146,6 +145,7 @@ public class Client {
 
 		var contactBundle = ContactBundle()
 		contactBundle.v2.keyBundle = keys.getPublicKeyBundle()
+		contactBundle.v2.keyBundle.identityKey.signature.ensureWalletSignature()
 
 		var envelope = Envelope()
 		envelope.contentTopic = Topic.contact(address).description

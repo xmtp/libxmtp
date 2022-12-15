@@ -23,7 +23,7 @@ public enum Conversation {
 
 	public var conversationID: String? {
 		switch self {
-		case let .v1(conversation):
+		case .v1:
 			return nil
 		case let .v2(conversation):
 			return conversation.context.conversationID

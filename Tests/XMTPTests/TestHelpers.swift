@@ -9,6 +9,33 @@ import Combine
 import XCTest
 @testable import XMTP
 
+struct FakeWallet: SigningKey {
+	static func generate() throws -> FakeWallet {
+		let key = try PrivateKey.generate()
+		return FakeWallet(key)
+	}
+
+	var address: String {
+		key.walletAddress
+	}
+
+	func sign(_ data: Data) async throws -> XMTP.Signature {
+		let signature = try await key.sign(data)
+		return signature
+	}
+
+	func sign(message: String) async throws -> XMTP.Signature {
+		let signature = try await key.sign(message: message)
+		return signature
+	}
+
+	var key: PrivateKey
+
+	init(_ key: PrivateKey) {
+		self.key = key
+	}
+}
+
 enum FakeApiClientError: String, Error {
 	case noResponses, queryAssertionFailure
 }

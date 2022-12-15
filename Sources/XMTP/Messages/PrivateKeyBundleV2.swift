@@ -57,6 +57,7 @@ extension PrivateKeyBundleV2 {
 
 		publicKeyBundle.identityKey = identityKey.publicKey
 		publicKeyBundle.identityKey.signature = identityKey.publicKey.signature
+		publicKeyBundle.identityKey.signature.ensureWalletSignature()
 		publicKeyBundle.preKey = preKeys[0].publicKey
 
 		return publicKeyBundle

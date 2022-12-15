@@ -29,6 +29,9 @@ struct AuthorizedIdentity {
 	var toBundle: PrivateKeyBundle {
 		get throws {
 			var bundle = PrivateKeyBundle()
+			let identity = identity
+			let authorized = authorized
+
 			bundle.v1.identityKey = identity
 			bundle.v1.identityKey.publicKey = authorized
 			return bundle
