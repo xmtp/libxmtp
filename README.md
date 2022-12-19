@@ -35,10 +35,10 @@ For a basic demonstration of the core concepts and capabilities of the `xmtp-ios
 
 ## Install with Swift Package Manager
 
-Use Xcode to add to the project (**File** > **Swift Packages**) or add this to your `Package.swift` file:
+Use Xcode to add to the project (**File** > **Add Packages…**) or add this to your `Package.swift` file:
 
 ```swift
-.package(url: "https://github.com/xmtp/xmtp-ios.swift", branch: "main")
+.package(url: "https://github.com/xmtp/xmtp-ios", branch: "main")
 ```
 
 ## Usage overview
