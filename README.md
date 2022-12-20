@@ -6,9 +6,9 @@
 
 Use `xmtp-ios` to build with XMTP to send messages between blockchain accounts, including DMs, notifications, announcements, and more.
 
-This SDK is in **Developer Preview** status. We do **not** recommend using Developer Preview software in production apps.
+This SDK is in **Developer Preview** status and ready for you to start building.
 
-Software in this status:
+However, we do **not** recommend using Developer Preview software in production apps. Software in this status:
 
 - Is not formally supported
 - Will change without warning
