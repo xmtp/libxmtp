@@ -1,0 +1,26 @@
+pluginManagement {
+    repositories {
+        gradlePluginPortal()
+        google()
+        mavenCentral()
+    }
+}
+dependencyResolutionManagement {
+    repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)
+    repositories {
+        google()
+        mavenCentral()
+        def githubProperties = new Properties()
+        githubProperties.load(new FileInputStream(file("github.properties")))
+        maven {
+            url = uri("https://maven.pkg.github.com/xmtp/proto")
+            credentials {
+                username = githubProperties.getProperty("gpr.user")
+                password = githubProperties.getProperty("gpr.key")
+            }
+        }
+    }
+}
+rootProject.name = "xmtp-android"
+include ':example'
+include ':library'
