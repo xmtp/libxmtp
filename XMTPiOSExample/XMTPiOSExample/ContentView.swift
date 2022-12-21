@@ -65,7 +65,7 @@ struct ContentView: View {
 					try await accountManager.account.connect()
 
 					for _ in 0 ... 30 {
-						if accountManager.account.connection.isConnected {
+						if accountManager.account.isConnected {
 							let client = try await Client.create(account: accountManager.account)
 
 							self.status = .connected(client)

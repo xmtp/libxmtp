@@ -8,6 +8,7 @@
 import Foundation
 import XMTPProto
 
+/// Handles topic generation for conversations.
 public typealias InvitationV1 = Xmtp_MessageContents_InvitationV1
 
 extension InvitationV1 {
@@ -45,6 +46,7 @@ extension InvitationV1 {
 	}
 }
 
+/// Allows for additional data to be attached to V2 conversations
 public extension InvitationV1.Context {
 	init(conversationID: String = "", metadata: [String: String] = [:]) {
 		self.init()

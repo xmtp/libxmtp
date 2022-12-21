@@ -7,6 +7,7 @@
 
 import Foundation
 
+/// Provides access to contact bundles.
 public struct Contacts {
 	var client: Client
 

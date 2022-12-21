@@ -7,6 +7,7 @@
 
 import XMTPProto
 
+/// Handles encryption/decryption for communicating data in conversations
 public typealias Message = Xmtp_MessageContents_Message
 
 public enum MessageVersion: String, RawRepresentable {

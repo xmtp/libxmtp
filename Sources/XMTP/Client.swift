@@ -9,9 +9,14 @@ import Foundation
 import GRPC
 import XMTPProto
 
+/// Specify configuration options for creating a ``Client``.
 public struct ClientOptions {
+	// Specify network options
 	public struct Api {
+		/// Specify which XMTP network to connect to. Defaults to ``.dev``
 		public var env: XMTPEnvironment = .dev
+
+		/// Specify whether the API client should use TLS security. In general this should only be false when using the `.local` environment.
 		public var isSecure: Bool = true
 
 		public init(env: XMTPEnvironment = .dev, isSecure: Bool = true) {
@@ -27,18 +32,32 @@ public struct ClientOptions {
 	}
 }
 
+/// Client is the entrypoint into the XMTP SDK.
+///
+/// A client is created by calling ``create(account:options:)`` with a ``SigningKey`` that can create signatures on your behalf. The client will request a signature in two cases:
+///
+/// 1. To sign the newly generated key bundle. This happens only the very first time when a key bundle is not found in storage.
+/// 2. To sign a random salt used to encrypt the key bundle in storage. This happens every time the client is started, including the very first time).
+///
+/// > Important: The client connects to the XMTP `dev` environment by default. Use ``ClientOptions`` to change this and other parameters of the network connection.
 public class Client {
+	/// The wallet address of the ``SigningKey`` used to create this Client.
 	public var address: String
 	var privateKeyBundleV1: PrivateKeyBundleV1
 	var apiClient: ApiClient
 
+	/// Access ``Conversations`` for this Client.
 	public lazy var conversations: Conversations = .init(client: self)
+
+	/// Access ``Contacts`` for this Client.
 	public lazy var contacts: Contacts = .init(client: self)
 
+	/// The XMTP environment which specifies which network this Client is connected to.
 	public var environment: XMTPEnvironment {
 		apiClient.environment
 	}
 
+	/// Creates a client.
 	public static func create(account: SigningKey, options: ClientOptions? = nil) async throws -> Client {
 		let options = options ?? ClientOptions()
 
@@ -179,17 +198,5 @@ public class Client {
 
 	func getUserContact(peerAddress: String) async throws -> ContactBundle? {
 		return try await contacts.find(peerAddress)
-	}
-}
-
-public extension Client {
-	static var preview: Client {
-		get async {
-			// swiftlint:disable force_try
-			let wallet = try! PrivateKey.generate()
-			let client = try! await Client.create(account: wallet)
-			// swiftlint:enable force_try
-			return client
-		}
 	}
 }

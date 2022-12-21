@@ -7,6 +7,7 @@
 
 import Foundation
 
+/// Handles legacy message conversations.
 public struct ConversationV1 {
 	var client: Client
 	var peerAddress: String

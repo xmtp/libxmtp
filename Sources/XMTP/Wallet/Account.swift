@@ -8,9 +8,12 @@
 import Foundation
 import UIKit
 
+/// Wrapper around a WalletConnect V1 wallet connection. Account conforms to ``SigningKey`` so
+/// you can use it to create a ``Client``.
+///
+/// > Warning: The WalletConnect V1 API will be deprecated soon.
 public struct Account {
-	public var connection: WalletConnection
-	var isConnected: Bool = false
+	var connection: WalletConnection
 
 	public static func create() throws -> Account {
 		let connection = WCWalletConnection()
@@ -19,6 +22,10 @@ public struct Account {
 
 	init(connection: WalletConnection) throws {
 		self.connection = connection
+	}
+
+	public var isConnected: Bool {
+		connection.isConnected
 	}
 
 	public var address: String {

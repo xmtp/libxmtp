@@ -26,7 +26,7 @@ enum WalletConnectionError: String, Error {
 	case noSignature
 }
 
-public protocol WalletConnection {
+protocol WalletConnection {
 	var isConnected: Bool { get }
 	var walletAddress: String? { get }
 	func preferredConnectionMethod() throws -> WalletConnectionMethodType

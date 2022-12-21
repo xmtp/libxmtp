@@ -9,13 +9,15 @@ import Foundation
 import secp256k1
 import XMTPProto
 
+/// Represents a secp256k1 compact recoverable signature.
 public typealias Signature = Xmtp_MessageContents_Signature
 
 enum SignatureError: Error {
 	case invalidMessage
 }
 
-extension Signature {
+public extension Signature {
+	/// Generate Ethereum personal signature text from a message
 	static func ethPersonalMessage(_ message: String) throws -> Data {
 		let prefix = "\u{19}Ethereum Signed Message:\n\(message.count)"
 
@@ -31,7 +33,9 @@ extension Signature {
 
 		return data
 	}
+}
 
+extension Signature {
 	static func ethHash(_ message: String) throws -> Data {
 		let data = try ethPersonalMessage(message)
 

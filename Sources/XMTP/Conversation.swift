@@ -8,10 +8,12 @@
 import Foundation
 import XMTPProto
 
+/// Wrapper that provides a common interface between ``ConversationV1`` and ``ConversationV2`` objects.
 public enum Conversation {
 	// TODO: It'd be nice to not have to expose these types as public, maybe we make this a struct with an enum prop instead of just an enum
 	case v1(ConversationV1), v2(ConversationV2)
 
+	/// The wallet address of the other person in this conversation.
 	public var peerAddress: String {
 		switch self {
 		case let .v1(conversationV1):
@@ -21,6 +23,9 @@ public enum Conversation {
 		}
 	}
 
+	/// An optional string that can specify a different context for a conversation with another account address.
+	///
+	/// > Note: ``conversationID`` is only available for ``ConversationV2`` conversations.
 	public var conversationID: String? {
 		switch self {
 		case .v1:
@@ -30,6 +35,7 @@ public enum Conversation {
 		}
 	}
 
+	/// Send a message to the conversation
 	public func send(text: String) async throws {
 		switch self {
 		case let .v1(conversationV1):
@@ -39,6 +45,7 @@ public enum Conversation {
 		}
 	}
 
+	/// The topic identifier for this conversation
 	public var topic: String {
 		switch self {
 		case let .v1(conversation):
@@ -48,6 +55,10 @@ public enum Conversation {
 		}
 	}
 
+	/// Returns a stream you can iterate through to receive new messages in this conversation.
+	///
+	/// > Note: All messages in the conversation are returned by this stream. If you want to filter out messages
+	/// by a sender, you can check the ``Client`` address against the message's ``peerAddress``.
 	public func streamMessages() -> AsyncThrowingStream<DecodedMessage, Error> {
 		switch self {
 		case let .v1(conversation):
@@ -57,6 +68,7 @@ public enum Conversation {
 		}
 	}
 
+	/// List messages in the conversation
 	public func messages() async throws -> [DecodedMessage] {
 		switch self {
 		case let .v1(conversationV1):
@@ -76,7 +88,7 @@ public enum Conversation {
 	}
 }
 
-extension Conversation: Hashable {
+extension Conversation: Hashable, Equatable {
 	public static func == (lhs: Conversation, rhs: Conversation) -> Bool {
 		lhs.topic == rhs.topic
 	}

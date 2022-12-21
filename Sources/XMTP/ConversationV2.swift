@@ -11,6 +11,7 @@ import XMTPProto
 
 struct SendOptions {}
 
+/// Handles V2 Message conversations.
 public struct ConversationV2 {
 	var topic: String
 	var keyMaterial: Data // MUST be kept secret

@@ -22,7 +22,7 @@ protocol ApiClient {
 	func subscribe(topics: [String]) -> AsyncThrowingStream<Envelope, Error>
 }
 
-public class GRPCApiClient: ApiClient {
+class GRPCApiClient: ApiClient {
 	let ClientVersionHeaderKey = "X-Client-Version"
 	let AppVersionHeaderKey = "X-App-Version"
 

@@ -1,0 +1,1 @@
+xcodebuild docbuild -scheme XMTP -destination "platform=iOS Simulator,name=iPhone 14"

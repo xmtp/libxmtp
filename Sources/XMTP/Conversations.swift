@@ -12,6 +12,7 @@ public enum ConversationError: Error {
 	case recipientNotOnNetwork
 }
 
+/// Handles listing and creating Conversations.
 public struct Conversations {
 	var client: Client
 	var conversations: [Conversation] = []

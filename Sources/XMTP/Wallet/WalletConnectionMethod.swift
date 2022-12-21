@@ -13,6 +13,7 @@ protocol WalletConnectionMethod {
 	var type: WalletConnectionMethodType { get }
 }
 
+/// Describes WalletConnect flows.
 public enum WalletConnectionMethodType {
 	case redirect(URL), qrCode(UIImage), manual(String)
 }
