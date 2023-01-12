@@ -60,6 +60,9 @@ dependencies {
     implementation 'io.grpc:grpc-protobuf:1.51.0'
     implementation 'com.google.protobuf:protobuf-kotlin:3.21.9'
     implementation 'org.jetbrains.kotlinx:kotlinx-coroutines-core:1.6.4'
+    implementation 'com.google.crypto.tink:tink:1.7.0'
+    implementation 'org.web3j:crypto:5.0.0'
+    implementation 'io.grpc:grpc-okhttp:1.51.1'
 
     implementation 'androidx.core:core-ktx:1.9.0'
     implementation 'androidx.appcompat:appcompat:1.5.1'
