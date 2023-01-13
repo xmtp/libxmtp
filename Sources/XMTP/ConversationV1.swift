@@ -22,12 +22,23 @@ public struct ConversationV1 {
 	}
 
 	internal func send(content: String, options _: SendOptions? = nil, sentAt: Date? = nil) async throws {
+		let encoder = TextCodec()
+		let encodedContent = try encoder.encode(content: content)
+
+		try await send(content: encodedContent, sentAt: sentAt)
+	}
+
+	func send<Codec: ContentCodec>(codec: Codec, content: Codec.T, fallback: String? = nil) async throws {
+		var encoded = try codec.encode(content: content)
+		encoded.fallback = fallback ?? ""
+		try await send(content: encoded)
+	}
+
+	internal func send(content encodedContent: EncodedContent, options _: SendOptions? = nil, sentAt: Date? = nil) async throws {
 		guard let contact = try await client.contacts.find(peerAddress) else {
 			throw ContactBundleError.notFound
 		}
 
-		let encoder = TextCodec()
-		let encodedContent = try encoder.encode(content: content)
 		let recipient = try contact.toPublicKeyBundle()
 
 		if !recipient.identityKey.hasSignature {
@@ -104,13 +115,10 @@ public struct ConversationV1 {
 		let decrypted = try message.v1.decrypt(with: client.privateKeyBundleV1)
 
 		let encodedMessage = try EncodedContent(serializedData: decrypted)
-		let decoder = TextCodec()
-		let decoded = try decoder.decode(content: encodedMessage)
-
 		let header = try message.v1.header
 
 		return DecodedMessage(
-			body: decoded,
+			encodedContent: encodedMessage,
 			senderAddress: header.sender.walletAddress,
 			sent: message.v1.sentAt
 		)

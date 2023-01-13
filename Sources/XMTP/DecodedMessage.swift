@@ -9,8 +9,7 @@ import Foundation
 
 /// Decrypted messages from a conversation.
 public struct DecodedMessage {
-	/// The text of a message
-	public var body: String
+	public var encodedContent: EncodedContent
 
 	/// The wallet address of the sender of the message
 	public var senderAddress: String
@@ -18,9 +17,34 @@ public struct DecodedMessage {
 	/// When the message was sent
 	public var sent: Date
 
-	public init(body: String, senderAddress: String, sent: Date) {
-		self.body = body
+	public init(encodedContent: EncodedContent, senderAddress: String, sent: Date) {
+		self.encodedContent = encodedContent
 		self.senderAddress = senderAddress
 		self.sent = sent
+	}
+
+	public func content<T>() throws -> T {
+		return try encodedContent.decoded()
+	}
+
+	var fallbackContent: String {
+		encodedContent.fallback
+	}
+
+	var body: String {
+		do {
+			return try content()
+		} catch {
+			return fallbackContent
+		}
+	}
+}
+
+public extension DecodedMessage {
+	static func preview(body: String, senderAddress: String, sent: Date) -> DecodedMessage {
+		// swiftlint:disable force_try
+		var encoded = try! TextCodec().encode(content: body)
+		// swiftlint:enable force_try
+		return DecodedMessage(encodedContent: encoded, senderAddress: senderAddress, sent: sent)
 	}
 }

@@ -20,7 +20,7 @@ class InvitationTests: XCTestCase {
 
 		let invitation = try InvitationV1.createRandom()
 
-		let newInvitation = try await SealedInvitation.createV1(
+		let newInvitation = try SealedInvitation.createV1(
 			sender: try alice.toV2(),
 			recipient: try bob.toV2().getPublicKeyBundle(),
 			created: Date(),

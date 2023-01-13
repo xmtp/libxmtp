@@ -26,9 +26,11 @@ public struct ClientOptions {
 	}
 
 	public var api = Api()
+	public var codecs: [any ContentCodec] = []
 
-	public init(api: Api = Api()) {
+	public init(api: Api = Api(), codecs: [any ContentCodec] = []) {
 		self.api = api
+		self.codecs = codecs
 	}
 }
 
@@ -55,6 +57,16 @@ public class Client {
 	/// The XMTP environment which specifies which network this Client is connected to.
 	public var environment: XMTPEnvironment {
 		apiClient.environment
+	}
+
+	static var codecRegistry = {
+		var registry = CodecRegsistry()
+		registry.register(codec: TextCodec())
+		return registry
+	}()
+
+	public static func register(codec: any ContentCodec) {
+		codecRegistry.register(codec: codec)
 	}
 
 	/// Creates a client.

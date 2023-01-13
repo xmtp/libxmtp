@@ -35,6 +35,15 @@ public enum Conversation {
 		}
 	}
 
+	public func send<T, CodecType: ContentCodec>(content: T, codec: CodecType, fallback: String? = nil) async throws where CodecType.T == T {
+		switch self {
+		case let .v1(conversationV1):
+			try await conversationV1.send(codec: codec, content: content, fallback: fallback)
+		case let .v2(conversationV2):
+			try await conversationV2.send(codec: codec, content: content, fallback: fallback)
+		}
+	}
+
 	/// Send a message to the conversation
 	public func send(text: String) async throws {
 		switch self {

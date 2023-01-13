@@ -65,7 +65,7 @@ class FakeApiClient: ApiClient {
 	func assertNoPublish(callback: () async throws -> Void) async throws {
 		let oldCount = published.count
 		try await callback()
-		XCTAssertEqual(oldCount, published.count, "Published messages: \(try? published[oldCount - 1 ..< published.count].map { try $0.jsonString() })")
+		XCTAssertEqual(oldCount, published.count, "Published messages: \(String(describing: try? published[oldCount - 1 ..< published.count].map { try $0.jsonString() }))")
 	}
 
 	func assertNoQuery(callback: () async throws -> Void) async throws {

@@ -37,7 +37,7 @@ final class IntegrationTests: XCTestCase {
 
 		let authToken = try await authorized.createAuthToken()
 
-		var api = try GRPCApiClient(environment: .local, secure: false)
+		let api = try GRPCApiClient(environment: .local, secure: false)
 		api.setAuthToken(authToken)
 
 		let encryptedBundle = try await authorized.toBundle.encrypted(with: alice)
@@ -103,8 +103,6 @@ final class IntegrationTests: XCTestCase {
 		throw XCTSkip("integration only (requires local node)")
 
 		let aliceWallet = try PrivateKey.generate()
-		let alice = try await PrivateKeyBundleV1.generate(wallet: aliceWallet)
-
 		let clientOptions = ClientOptions(api: ClientOptions.Api(env: .local, isSecure: false))
 		let client = try await Client.create(account: aliceWallet, options: clientOptions)
 		XCTAssertEqual(.local, client.apiClient.environment)
@@ -224,8 +222,6 @@ final class IntegrationTests: XCTestCase {
 
 		XCTAssertEqual(contact.walletAddress, fakeContactWallet.walletAddress)
 		let privkeybundlev2 = try client.privateKeyBundleV1.toV2()
-		let conversations = Conversations(client: client)
-
 		let created = Date()
 
 		var invitationContext = InvitationV1.Context()
@@ -245,7 +241,6 @@ final class IntegrationTests: XCTestCase {
 		XCTAssertEqual(try inviteHeader.sender.walletAddress, fakeWallet.walletAddress)
 		XCTAssertEqual(try inviteHeader.recipient.walletAddress, fakeContactWallet.walletAddress)
 
-		let recipBundle = privkeybundlev2.getPublicKeyBundle()
 		let header = try SealedInvitationHeaderV1(serializedData: invitation.v1.headerBytes)
 		let conversation = try ConversationV2.create(client: client, invitation: invitationv1, header: header)
 

@@ -20,7 +20,7 @@ struct MessageCellView: View {
 					Spacer()
 				}
 				VStack(alignment: .leading) {
-					Text(message.body)
+					Text(bodyText)
 
 					if isDebugging {
 						Text("My Address \(myAddress)")
@@ -46,6 +46,12 @@ struct MessageCellView: View {
 		}
 	}
 
+	var bodyText: String {
+		// swiftlint:disable force_try
+		return try! message.content()
+		// swiftlint:enable force_try
+	}
+
 	var background: Color {
 		if message.senderAddress == myAddress {
 			return .purple
@@ -66,7 +72,7 @@ struct MessageCellView: View {
 struct MessageCellView_Previews: PreviewProvider {
 	static var previews: some View {
 		List {
-			MessageCellView(myAddress: "0x00", message: DecodedMessage(body: "Hi, how is it going?", senderAddress: "0x00", sent: Date()))
+			MessageCellView(myAddress: "0x00", message: DecodedMessage.preview(body: "Hi, how is it going?", senderAddress: "0x00", sent: Date()))
 		}
 		.listStyle(.plain)
 	}

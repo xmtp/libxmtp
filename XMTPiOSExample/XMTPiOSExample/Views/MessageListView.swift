@@ -38,12 +38,12 @@ struct MessageListView_Previews: PreviewProvider {
 	static var previews: some View {
 		MessageListView(
 			myAddress: "0x00", messages: [
-				XMTP.DecodedMessage(body: "Hello", senderAddress: "0x00", sent: Date().addingTimeInterval(-10)),
-				XMTP.DecodedMessage(body: "Oh hi", senderAddress: "0x01", sent: Date().addingTimeInterval(-9)),
-				XMTP.DecodedMessage(body: "Sup", senderAddress: "0x01", sent: Date().addingTimeInterval(-8)),
-				XMTP.DecodedMessage(body: "Nice to see you", senderAddress: "0x00", sent: Date().addingTimeInterval(-7)),
-				XMTP.DecodedMessage(body: "What if it's a longer message I mean really really long like should it wrap?", senderAddress: "0x01", sent: Date().addingTimeInterval(-6)),
-				XMTP.DecodedMessage(body: "🧐", senderAddress: "0x00", sent: Date().addingTimeInterval(-5)),
+				XMTP.DecodedMessage.preview(body: "Hello", senderAddress: "0x00", sent: Date().addingTimeInterval(-10)),
+				XMTP.DecodedMessage.preview(body: "Oh hi", senderAddress: "0x01", sent: Date().addingTimeInterval(-9)),
+				XMTP.DecodedMessage.preview(body: "Sup", senderAddress: "0x01", sent: Date().addingTimeInterval(-8)),
+				XMTP.DecodedMessage.preview(body: "Nice to see you", senderAddress: "0x00", sent: Date().addingTimeInterval(-7)),
+				XMTP.DecodedMessage.preview(body: "What if it's a longer message I mean really really long like should it wrap?", senderAddress: "0x01", sent: Date().addingTimeInterval(-6)),
+				XMTP.DecodedMessage.preview(body: "🧐", senderAddress: "0x00", sent: Date().addingTimeInterval(-5)),
 			]
 		)
 	}

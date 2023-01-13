@@ -81,7 +81,19 @@ public struct ConversationV2 {
 		try MessageV2.decode(message, keyMaterial: keyMaterial)
 	}
 
-	internal func send(content: String, sentAt: Date) async throws {
+	func send<Codec: ContentCodec>(codec: Codec, content: Codec.T, fallback: String? = nil) async throws {
+		var encoded = try codec.encode(content: content)
+		encoded.fallback = fallback ?? ""
+		try await send(content: encoded, sentAt: Date())
+	}
+
+	func send(content: String, sentAt: Date) async throws {
+		let encoder = TextCodec()
+		let encodedContent = try encoder.encode(content: content)
+		try await send(content: encodedContent, sentAt: sentAt)
+	}
+
+	internal func send(content: EncodedContent, sentAt: Date) async throws {
 		guard try await client.getUserContact(peerAddress: peerAddress) != nil else {
 			throw ContactBundleError.notFound
 		}
@@ -98,7 +110,6 @@ public struct ConversationV2 {
 		])
 	}
 
-	// TODO: more types of content
 	func send(content: String) async throws {
 		try await send(content: content, sentAt: Date())
 	}
