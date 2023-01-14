@@ -134,18 +134,32 @@ public class Client {
 		return nil
 	}
 
+	/// Create a Client from saved v1 key bundle.
+	public static func from(bundle v1Bundle: PrivateKeyBundleV1, options: ClientOptions? = nil) throws -> Client {
+		let address = try v1Bundle.identityKey.publicKey.recoverWalletSignerPublicKey().walletAddress
+
+		let options = options ?? ClientOptions()
+
+		let apiClient = try GRPCApiClient(
+			environment: options.api.env,
+			secure: options.api.isSecure
+		)
+
+		return try Client(address: address, privateKeyBundleV1: v1Bundle, apiClient: apiClient)
+	}
+
 	init(address: String, privateKeyBundleV1: PrivateKeyBundleV1, apiClient: ApiClient) throws {
 		self.address = address
 		self.privateKeyBundleV1 = privateKeyBundleV1
 		self.apiClient = apiClient
 	}
 
-	var keys: PrivateKeyBundleV2 {
-		do {
-			return try privateKeyBundleV1.toV2()
-		} catch {
-			fatalError("Error getting keys \(error)")
-		}
+	public var v1keys: PrivateKeyBundleV1 {
+		privateKeyBundleV1
+	}
+
+	public var keys: PrivateKeyBundleV2 {
+		privateKeyBundleV1.toV2()
 	}
 
 	func ensureUserContactPublished() async throws {

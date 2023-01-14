@@ -9,7 +9,7 @@ import CryptoKit
 import Foundation
 import XMTPProto
 
-typealias PrivateKeyBundleV1 = Xmtp_MessageContents_PrivateKeyBundleV1
+public typealias PrivateKeyBundleV1 = Xmtp_MessageContents_PrivateKeyBundleV1
 
 extension PrivateKeyBundleV1 {
 	static func generate(wallet: SigningKey) async throws -> PrivateKeyBundleV1 {
@@ -41,11 +41,11 @@ extension PrivateKeyBundleV1 {
 		// swiftlint:enable no_optional_try
 	}
 
-	func toV2() throws -> PrivateKeyBundleV2 {
+	func toV2() -> PrivateKeyBundleV2 {
 		var v2bundle = PrivateKeyBundleV2()
 
-		v2bundle.identityKey = try SignedPrivateKey.fromLegacy(identityKey, signedByWallet: false)
-		v2bundle.preKeys = try preKeys.map { try SignedPrivateKey.fromLegacy($0) }
+		v2bundle.identityKey = SignedPrivateKey.fromLegacy(identityKey, signedByWallet: false)
+		v2bundle.preKeys = preKeys.map { SignedPrivateKey.fromLegacy($0) }
 
 		return v2bundle
 	}
@@ -61,7 +61,7 @@ extension PrivateKeyBundleV1 {
 
 	func sharedSecret(peer: PublicKeyBundle, myPreKey: PublicKey, isRecipient: Bool) throws -> Data {
 		let peerBundle = try SignedPublicKeyBundle(peer)
-		let preKey = try SignedPublicKey.fromLegacy(myPreKey)
+		let preKey = SignedPublicKey.fromLegacy(myPreKey)
 
 		return try toV2().sharedSecret(peer: peerBundle, myPreKey: preKey, isRecipient: isRecipient)
 	}

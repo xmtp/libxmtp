@@ -47,9 +47,9 @@ extension PrivateKey: SigningKey {
 	}
 }
 
-extension PrivateKey {
+public extension PrivateKey {
 	// Easier conversion from the secp256k1 library's Private keys to our proto type.
-	public init(_ privateKeyData: Data) throws {
+	init(_ privateKeyData: Data) throws {
 		self.init()
 		timestamp = UInt64(Date().millisecondsSinceEpoch)
 		secp256K1.bytes = privateKeyData
@@ -59,16 +59,23 @@ extension PrivateKey {
 		publicKey.timestamp = timestamp
 	}
 
-	public static func generate() throws -> PrivateKey {
+	init(_ signedPrivateKey: SignedPrivateKey) throws {
+		self.init()
+		timestamp = signedPrivateKey.createdNs / 1_000_000
+		secp256K1.bytes = signedPrivateKey.secp256K1.bytes
+		publicKey = try PublicKey(signedPrivateKey.publicKey)
+	}
+
+	static func generate() throws -> PrivateKey {
 		let data = Data(try Crypto.secureRandomBytes(count: 32))
 		return try PrivateKey(data)
 	}
 
-	var walletAddress: String {
+	internal var walletAddress: String {
 		publicKey.walletAddress
 	}
 
-	func sign(key: UnsignedPublicKey) async throws -> SignedPublicKey {
+	internal func sign(key: UnsignedPublicKey) async throws -> SignedPublicKey {
 		let bytes = try key.serializedData()
 		let digest = SHA256.hash(data: bytes)
 		let signature = try await sign(Data(digest.bytes))

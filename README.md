@@ -76,7 +76,28 @@ A client is created with `Client.create(account: SigningKey) async throws -> Cli
 import XMTP
 
 // Create the client with a `SigningKey` from your app
-let client = try await Client.create(account: account)
+let client = try await Client.create(account: account, options: .init(api: .init(env: .production)))
+```
+
+### Creating a client from saved keys
+
+You can save your keys from the client via the `v1keys` property:
+
+```swift
+// Create the client with a `SigningKey` from your app
+let client = try await Client.create(account: account, options: .init(api: .init(env: .production)))
+
+// Get the key bundle
+let keys = client.v1keys
+
+// Serialize the key bundle and store it somewhere safe
+let keysData = try keys.serializedData()
+```
+
+Once you have those keys, you can create a new client with `Client.from`:
+
+```swift
+let client = try Client.from(bundle: keys, options: .init(api: .init(env: .production)))
 ```
 
 ### Configure the client
