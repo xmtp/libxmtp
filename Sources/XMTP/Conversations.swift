@@ -9,7 +9,7 @@ import Foundation
 import XMTPProto
 
 public enum ConversationError: Error {
-	case recipientNotOnNetwork
+	case recipientNotOnNetwork, recipientIsSender
 }
 
 /// Handles listing and creating Conversations.
@@ -18,6 +18,10 @@ public struct Conversations {
 	var conversations: [Conversation] = []
 
 	public mutating func newConversation(with peerAddress: String, context: InvitationV1.Context? = nil) async throws -> Conversation {
+		if peerAddress.lowercased() == client.address.lowercased() {
+			throw ConversationError.recipientIsSender
+		}
+
 		if let existingConversation = conversations.first(where: { $0.peerAddress == peerAddress }) {
 			return existingConversation
 		}
@@ -148,7 +152,7 @@ public struct Conversations {
 			}
 		}
 
-		return conversations
+		return conversations.filter { $0.peerAddress != client.address }
 	}
 
 	func listIntroductionPeers() async throws -> [String: Date] {

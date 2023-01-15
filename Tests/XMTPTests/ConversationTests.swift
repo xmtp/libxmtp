@@ -28,6 +28,45 @@ class ConversationTests: XCTestCase {
 		bobClient = try await Client.create(account: bob, apiClient: fakeApiClient)
 	}
 
+	func testDoesNotAllowConversationWithSelf() async throws {
+		let expectation = expectation(description: "convo with self throws")
+		let client = try await Client.create(account: alice)
+
+		do {
+			try await client.conversations.newConversation(with: alice.walletAddress)
+		} catch {
+			expectation.fulfill()
+		}
+
+		wait(for: [expectation], timeout: 0.1)
+	}
+
+	func testDoesNotIncludeSelfConversationsInList() async throws {
+		let convos = try await aliceClient.conversations.list()
+		XCTAssert(convos.isEmpty, "setup is wrong")
+
+		let recipient = aliceClient.privateKeyBundleV1.toPublicKeyBundle()
+		let invitation = try InvitationV1.createRandom()
+		let created = Date()
+
+		let sealedInvitation = try SealedInvitation.createV1(
+			sender: aliceClient.keys,
+			recipient: SignedPublicKeyBundle(recipient),
+			created: created,
+			invitation: invitation
+		)
+
+		let peerAddress = recipient.walletAddress
+
+		try await aliceClient.publish(envelopes: [
+			Envelope(topic: .userInvite(aliceClient.address), timestamp: created, message: try sealedInvitation.serializedData()),
+			Envelope(topic: .userInvite(peerAddress), timestamp: created, message: try sealedInvitation.serializedData()),
+		])
+
+		let newConvos = try await aliceClient.conversations.list()
+		XCTAssert(newConvos.isEmpty, "did not filter out self conversations")
+	}
+
 	func testCanStreamConversationsV1() async throws {
 		// Overwrite contact as legacy
 		try await publishLegacyContact(client: bobClient)
