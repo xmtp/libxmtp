@@ -192,10 +192,10 @@ for conversation in client.conversations.list() {
 It may be helpful to retrieve and process the messages in a conversation page by page. You can do this by calling `conversation.messages(limit: Int, before: Date)` which will return the specified number of messages sent before that time.
 
 ```swift
-let conversation = try await clienet.conversations.newConversation(with: "0x3F11b27F323b62B159D2642964fa27C46C841897")
+let conversation = try await client.conversations.newConversation(with: "0x3F11b27F323b62B159D2642964fa27C46C841897")
 
-let messages = conversation.messages(limit: 25)
-let nextPage = conversation.messages(limit: 25, before: messages[0].sent)
+let messages = try await conversation.messages(limit: 25)
+let nextPage = try await conversation.messages(limit: 25, before: messages[0].sent)
 ```
 
 ### Listen for new messages in a conversation
