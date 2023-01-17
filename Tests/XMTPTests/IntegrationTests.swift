@@ -411,4 +411,50 @@ final class IntegrationTests: XCTestCase {
 		let nowMessage2 = messages3[0]
 		XCTAssertEqual("now", nowMessage2.body)
 	}
+
+	func testCanStreamV2Conversations() async throws {
+		throw XCTSkip("integration only (requires local node)")
+
+		let alice = try PrivateKey.generate()
+		let bob = try PrivateKey.generate()
+
+		let clientOptions = ClientOptions(api: .init(env: .local, isSecure: false))
+		let aliceClient = try await Client.create(account: alice, options: clientOptions)
+		let bobClient = try await Client.create(account: bob, options: clientOptions)
+
+		let expectation1 = expectation(description: "got a conversation")
+		expectation1.expectedFulfillmentCount = 2
+
+		Task(priority: .userInitiated) {
+			for try await convo in bobClient.conversations.stream() {
+				expectation1.fulfill()
+			}
+		}
+
+		guard case let .v2(conversation) = try await bobClient.conversations.newConversation(with: alice.walletAddress) else {
+			XCTFail("Did not create a v2 convo")
+			return
+		}
+
+		try await conversation.send(content: "hi")
+
+		guard case let .v2(conversation) = try await bobClient.conversations.newConversation(with: alice.walletAddress) else {
+			XCTFail("Did not create a v2 convo")
+			return
+		}
+
+		try await conversation.send(content: "hi again")
+
+		let newWallet = try PrivateKey.generate()
+		let newClient = try await Client.create(account: newWallet, options: clientOptions)
+
+		guard case let .v2(conversation2) = try await bobClient.conversations.newConversation(with: newWallet.walletAddress) else {
+			XCTFail("Did not create a v2 convo")
+			return
+		}
+
+		try await conversation2.send(content: "hi from new wallet")
+
+		await waitForExpectations(timeout: 3)
+	}
 }

@@ -34,4 +34,3 @@ services:
       wakunode:
         condition: service_healthy
     build: ./dev/test
-        

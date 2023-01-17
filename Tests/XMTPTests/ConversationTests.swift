@@ -98,34 +98,38 @@ class ConversationTests: XCTestCase {
 	}
 
 	func testCanStreamConversationsV2() async throws {
-		let expectation = expectation(description: "got a conversation")
+		let expectation1 = expectation(description: "got a conversation")
+		expectation1.expectedFulfillmentCount = 2
 
 		Task(priority: .userInitiated) {
-			for try await conversation in aliceClient.conversations.stream() {
-				if conversation.peerAddress == bob.walletAddress {
-					expectation.fulfill()
-				}
+			for try await conversation in bobClient.conversations.stream() {
+				expectation1.fulfill()
 			}
 		}
 
 		guard case let .v2(conversation) = try await bobClient.conversations.newConversation(with: alice.walletAddress) else {
-			XCTFail("Did not create a v1 convo")
+			XCTFail("Did not create a v2 convo")
 			return
 		}
 
 		try await conversation.send(content: "hi")
 
-		// Remove known introduction from contacts to test de-duping
-		bobClient.contacts.hasIntroduced.removeAll()
-		bobClient.contacts.knownBundles.removeAll()
-		bobClient.conversations.conversations.removeAll()
-
 		guard case let .v2(conversation) = try await bobClient.conversations.newConversation(with: alice.walletAddress) else {
-			XCTFail("Did not create a v1 convo")
+			XCTFail("Did not create a v2 convo")
 			return
 		}
 
 		try await conversation.send(content: "hi again")
+
+		let newWallet = try PrivateKey.generate()
+		let newClient = try await Client.create(account: newWallet, apiClient: fakeApiClient)
+
+		guard case let .v2(conversation2) = try await bobClient.conversations.newConversation(with: newWallet.walletAddress) else {
+			XCTFail("Did not create a v2 convo")
+			return
+		}
+
+		try await conversation2.send(content: "hi from new wallet")
 
 		await waitForExpectations(timeout: 3)
 	}
