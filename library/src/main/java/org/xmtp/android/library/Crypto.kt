@@ -18,7 +18,7 @@ class Crypto {
         fun encrypt(
             secret: ByteArray,
             message: ByteArray,
-            additionalData: ByteArray = byteArrayOf()
+            additionalData: ByteArray = byteArrayOf(),
         ): CipherText? {
             return try {
                 val salt = SecureRandom().generateSeed(32)
@@ -51,7 +51,7 @@ class Crypto {
         fun decrypt(
             secret: ByteArray,
             ciphertext: CipherText,
-            additionalData: ByteArray = byteArrayOf()
+            additionalData: ByteArray = byteArrayOf(),
         ): ByteArray? {
             return try {
                 val salt = ciphertext.aes256GcmHkdfSha256.hkdfSalt.toByteArray()

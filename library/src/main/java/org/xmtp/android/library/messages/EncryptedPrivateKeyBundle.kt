@@ -8,7 +8,7 @@ typealias EncryptedPrivateKeyBundle = org.xmtp.proto.message.contents.PrivateKey
 fun EncryptedPrivateKeyBundle.decrypted(key: SigningKey): PrivateKeyBundle {
     val signature = key.sign(
         message = Signature.newBuilder().build()
-            .enableIdentityText(key = v1.walletPreKey.toByteArray())
+            .enableIdentityText(key = v1.walletPreKey.toByteArray()),
     )
     val message = Crypto.decrypt(signature.rawData, v1.ciphertext)
     return PrivateKeyBundle.parseFrom(message)

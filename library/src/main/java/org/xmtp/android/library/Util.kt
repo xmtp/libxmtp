@@ -1,7 +1,6 @@
 package org.xmtp.android.library
 
 import org.bouncycastle.jcajce.provider.digest.Keccak
-import org.web3j.crypto.Hash
 
 class Util {
     companion object {

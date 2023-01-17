@@ -1,14 +1,19 @@
 package org.xmtp.android.library
 
 import android.util.Base64
-import com.google.crypto.tink.subtle.Base64.*
-import org.xmtp.android.library.messages.*
+import com.google.crypto.tink.subtle.Base64.encodeToString
+import org.xmtp.android.library.messages.AuthDataBuilder
+import org.xmtp.android.library.messages.PrivateKey
+import org.xmtp.android.library.messages.PrivateKeyBuilder
+import org.xmtp.android.library.messages.PrivateKeyBundle
+import org.xmtp.android.library.messages.PublicKey
+import org.xmtp.android.library.messages.Token
 import org.xmtp.proto.message.contents.PrivateKeyOuterClass
 
 data class AuthorizedIdentity(
     var address: String,
     var authorized: PublicKey,
-    var identity: PrivateKey
+    var identity: PrivateKey,
 ) {
 
     fun createAuthToken(): String {

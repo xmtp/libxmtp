@@ -4,7 +4,13 @@ import com.google.protobuf.kotlin.toByteStringUtf8
 import junit.framework.TestCase.fail
 import org.junit.Assert.assertEquals
 import org.junit.Test
-import org.xmtp.android.library.messages.*
+import org.xmtp.android.library.messages.AuthData
+import org.xmtp.android.library.messages.PrivateKey
+import org.xmtp.android.library.messages.PrivateKeyBuilder
+import org.xmtp.android.library.messages.Token
+import org.xmtp.android.library.messages.decrypted
+import org.xmtp.android.library.messages.encrypted
+import org.xmtp.android.library.messages.generate
 
 class AuthenticationTest {
 

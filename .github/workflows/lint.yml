@@ -1,0 +1,37 @@
+name: Lint
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+
+env:
+  GPR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+  GPR_USER: ${{ secrets.GITHUB_ACTOR }}
+
+jobs:
+  static-analysis:
+    name: Static Analysis
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v2
+
+      - name: Gradle Run ktlint
+        run: ./gradlew ktlintCheck --continue
+
+      - uses: actions/upload-artifact@v2
+        name: Upload ktlint report
+        if: ${{ failure() }}
+        with:
+          name: ktlint
+          path: '**/build/reports/ktlint/'
+
+      - name: Gradle Android lint
+        run: ./gradlew :library:lintDebug
+
+      - uses: actions/upload-artifact@v2
+        name: Upload lint report
+        if: ${{ failure() }}
+        with:
+          name: lint
+          path: 'app/build/reports/lint-results-**.html'

@@ -45,7 +45,7 @@ fun PublicKey.recoverKeySignedPublicKey(): PublicKey {
 
     val pubKeyData = Sign.signedMessageToKey(
         SHA256Digest(bytesToSign).encodedState,
-        KeyUtil.getSignatureData(signature.toByteArray())
+        KeyUtil.getSignatureData(signature.toByteArray()),
     )
     return PublicKeyBuilder.buildFromBytes(pubKeyData.toByteArray())
 }
