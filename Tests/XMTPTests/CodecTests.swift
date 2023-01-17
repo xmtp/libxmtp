@@ -98,7 +98,7 @@ class CodecTests: XCTestCase {
 		let textContent = try TextCodec().encode(content: "sup")
 		let numberContent = try NumberCodec().encode(content: 3.14)
 
-		var source = DecodedComposite(parts: [
+		let source = DecodedComposite(parts: [
 			DecodedComposite(encodedContent: textContent),
 			DecodedComposite(parts: [
 				DecodedComposite(encodedContent: numberContent),

@@ -43,7 +43,7 @@ public struct DecodedMessage {
 public extension DecodedMessage {
 	static func preview(body: String, senderAddress: String, sent: Date) -> DecodedMessage {
 		// swiftlint:disable force_try
-		var encoded = try! TextCodec().encode(content: body)
+		let encoded = try! TextCodec().encode(content: body)
 		// swiftlint:enable force_try
 		return DecodedMessage(encodedContent: encoded, senderAddress: senderAddress, sent: sent)
 	}
