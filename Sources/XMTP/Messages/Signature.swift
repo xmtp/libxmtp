@@ -77,6 +77,18 @@ extension Signature {
 		}
 	}
 
+	var rawDataWithNormalizedRecovery: Data {
+		var data = rawData
+
+		if data[64] == 0 {
+			data[64] = 27
+		} else if data[64] == 1 {
+			data[64] = 28
+		}
+
+		return data
+	}
+
 	mutating func ensureWalletSignature() {
 		switch union {
 		case let .ecdsaCompact(ecdsa):

@@ -412,6 +412,32 @@ final class IntegrationTests: XCTestCase {
 		XCTAssertEqual("now", nowMessage2.body)
 	}
 
+	// Test used to verify https://github.com/xmtp/xmtp-ios/issues/39 fix.
+	func testExistingWallet() async throws {
+		throw XCTSkip("integration only (requires dev network)")
+
+		// Generated from JS script
+		let keyBytes: [UInt8] = [
+			31, 116, 198, 193, 189, 122, 19, 254,
+			191, 189, 211, 215, 255, 131, 171, 239,
+			243, 33, 4, 62, 143, 86, 18, 195,
+			251, 61, 128, 90, 34, 126, 219, 236,
+		]
+
+		var key = PrivateKey()
+		key.secp256K1.bytes = Data(keyBytes)
+		key.publicKey.secp256K1Uncompressed.bytes = try KeyUtil.generatePublicKey(from: Data(keyBytes))
+
+		let client = try await XMTP.Client.create(account: key)
+		XCTAssertEqual(client.apiClient.environment, .dev)
+
+		let conversations = try await client.conversations.list()
+		XCTAssertEqual(1, conversations.count)
+
+		let message = try await conversations[0].messages().first
+		XCTAssertEqual(message?.body, "hello")
+	}
+
 	func testCanStreamV2Conversations() async throws {
 		throw XCTSkip("integration only (requires local node)")
 

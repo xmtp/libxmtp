@@ -18,7 +18,7 @@ enum Topic {
 	var description: String {
 		switch self {
 		case let .userPrivateStoreKeyBundle(address):
-			return wrap("privatestore-\(address)")
+			return wrap("privatestore-\(address)/key_bundle")
 		case let .contact(address):
 			return wrap("contact-\(address)")
 		case let .userIntro(address):
