@@ -415,6 +415,82 @@ class ConversationTests: XCTestCase {
 		XCTAssertEqual("hey alice 2", messages2[0].body)
 	}
 
+	func testV1ConversationCodable() async throws {
+		// Overwrite contact as legacy
+		try await publishLegacyContact(client: bobClient)
+		try await publishLegacyContact(client: aliceClient)
+
+		guard case let .v1(conversation) = try await aliceClient.conversations.newConversation(with: bob.walletAddress) else {
+			XCTFail("Did not have a v1 convo with bob")
+			return
+		}
+		try await conversation.send(content: "hi")
+		let envelope = fakeApiClient.published.first(where: { $0.contentTopic.hasPrefix("/xmtp/0/dm-") })!
+
+		let container = Conversation.v1(conversation).encodedContainer
+
+		try await fakeApiClient.assertNoQuery {
+			let decodedConversation = container.decode(with: aliceClient)
+			let decodedMessage = try decodedConversation.decode(envelope)
+			XCTAssertEqual(decodedMessage.body, "hi")
+		}
+	}
+
+	func testV2ConversationCodable() async throws {
+		guard case let .v2(conversation) = try await aliceClient.conversations.newConversation(with: bob.walletAddress) else {
+			XCTFail("Did not have a v2 convo with bob")
+			return
+		}
+		try await conversation.send(content: "hi")
+		let envelope = fakeApiClient.published.first(where: { $0.contentTopic.hasPrefix("/xmtp/0/m-") })!
+
+		let container = Conversation.v2(conversation).encodedContainer
+
+		try await fakeApiClient.assertNoQuery {
+			let decodedConversation = container.decode(with: aliceClient)
+			let decodedMessage = try decodedConversation.decode(envelope)
+			XCTAssertEqual(decodedMessage.body, "hi")
+		}
+	}
+
+	func testDecodeSingleV1Message() async throws {
+		// Overwrite contact as legacy
+		try await publishLegacyContact(client: bobClient)
+		try await publishLegacyContact(client: aliceClient)
+
+		guard case let .v1(conversation) = try await aliceClient.conversations.newConversation(with: bob.walletAddress) else {
+			XCTFail("Did not have a convo with bob")
+			return
+		}
+
+		try await conversation.send(content: "hi")
+
+		let message = fakeApiClient.published.first(where: { $0.contentTopic.hasPrefix("/xmtp/0/dm-") })!
+
+		let decodedMessage = try conversation.decode(envelope: message)
+		XCTAssertEqual("hi", decodedMessage.body)
+
+		let decodedMessage2 = try Conversation.v1(conversation).decode(message)
+		XCTAssertEqual("hi", decodedMessage2.body)
+	}
+
+	func testDecodeSingleV2Message() async throws {
+		guard case let .v2(conversation) = try await aliceClient.conversations.newConversation(with: bob.walletAddress) else {
+			XCTFail("Did not have a convo with bob")
+			return
+		}
+
+		try await conversation.send(content: "hi")
+
+		let message = fakeApiClient.published.first(where: { $0.contentTopic.hasPrefix("/xmtp/0/m-") })!
+
+		let decodedMessage = try conversation.decode(envelope: message)
+		XCTAssertEqual("hi", decodedMessage.body)
+
+		let decodedMessage2 = try Conversation.v2(conversation).decode(message)
+		XCTAssertEqual("hi", decodedMessage2.body)
+  }
+
 	func testCanSendGzipCompressedV1Messages() async throws {
 		try await publishLegacyContact(client: bobClient)
 		try await publishLegacyContact(client: aliceClient)

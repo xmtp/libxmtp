@@ -97,6 +97,7 @@ let keysData = try keys.serializedData()
 Once you have those keys, you can create a new client with `Client.from`:
 
 ```swift
+let keys = try PrivateKeyBundleV1(serializedData: keysData)
 let client = try Client.from(bundle: keys, options: .init(api: .init(env: .production)))
 ```
 
@@ -251,6 +252,43 @@ let myAppConversations = conversations.filter {
 
   return conversationID.hasPrefix("mydomain.xyz/")
 }
+```
+
+### Decoding a single message
+
+You can decode a single `Envelope` from XMTP using the `decode` method:
+
+```swift
+let conversation = try await client.conversations.newConversation(with: "0x3F11b27F323b62B159D2642964fa27C46C841897")
+
+// Assume this function returns an Envelope that contains a message for the above conversation
+let envelope = getEnvelopeFromXMTP()
+
+let decodedMessage = try conversation.decode(envelope)
+```
+
+### Serialize/Deserialize conversations
+
+You can save a conversation object locally using its `encodedContainer` property. This returns a `ConversationContainer` object which conforms to `Codable`.
+
+```swift
+// Get a conversation
+let conversation = try await client.conversations.newConversation(with: "0x3F11b27F323b62B159D2642964fa27C46C841897")
+
+// Get a container.
+let container = conversation.encodedContainer
+
+// Dump it to JSON
+let encoder = JSONEncoder()
+let data = try encoder.encode(container)
+
+// Get it back from JSON
+let decoder = JSONDecoder()
+let containerAgain = try decoder.decode(ConversationContainer.self, from: data)
+
+// Get an actual Conversation object like we had above
+let decodedConversation = containerAgain.decode(with: client)
+try await decodedConversation.send(text: "hi")
 ```
 
 ## Compression

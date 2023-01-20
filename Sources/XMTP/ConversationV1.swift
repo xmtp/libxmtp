@@ -7,11 +7,25 @@
 
 import Foundation
 
+// Save the non-client parts for a v1 conversation
+public struct ConversationV1Container: Codable {
+	var peerAddress: String
+	var sentAt: Date
+
+	func decode(with client: Client) -> ConversationV1 {
+		ConversationV1(client: client, peerAddress: peerAddress, sentAt: sentAt)
+	}
+}
+
 /// Handles legacy message conversations.
 public struct ConversationV1 {
 	var client: Client
 	var peerAddress: String
 	var sentAt: Date
+
+	public var encodedContainer: ConversationV1Container {
+		ConversationV1Container(peerAddress: peerAddress, sentAt: sentAt)
+	}
 
 	var topic: Topic {
 		Topic.directMessageV1(client.address, peerAddress)
@@ -116,7 +130,7 @@ public struct ConversationV1 {
 		}
 	}
 
-	private func decode(envelope: Envelope) throws -> DecodedMessage {
+	public func decode(envelope: Envelope) throws -> DecodedMessage {
 		let message = try Message(serializedData: envelope.message)
 		let decrypted = try message.v1.decrypt(with: client.privateKeyBundleV1)
 

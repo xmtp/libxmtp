@@ -9,6 +9,21 @@ import CryptoKit
 import Foundation
 import XMTPProto
 
+// Save the non-client parts for a v2 conversation
+public struct ConversationV2Container: Codable {
+	var topic: String
+	var keyMaterial: Data
+	var conversationID: String?
+	var metadata: [String: String] = [:]
+	var peerAddress: String
+	var header: SealedInvitationHeaderV1
+
+	public func decode(with client: Client) -> ConversationV2 {
+		let context = InvitationV1.Context(conversationID: conversationID ?? "", metadata: metadata)
+		return ConversationV2(topic: topic, keyMaterial: keyMaterial, context: context, peerAddress: peerAddress, client: client, header: header)
+	}
+}
+
 /// Handles V2 Message conversations.
 public struct ConversationV2 {
 	var topic: String
@@ -45,6 +60,10 @@ public struct ConversationV2 {
 		self.header = header
 	}
 
+	public var encodedContainer: ConversationV2Container {
+		ConversationV2Container(topic: topic, keyMaterial: keyMaterial, conversationID: context.conversationID, metadata: context.metadata, peerAddress: peerAddress, header: header)
+	}
+
 	func messages(limit: Int? = nil, before: Date? = nil, after: Date? = nil) async throws -> [DecodedMessage] {
 		let pagination = Pagination(limit: limit, startTime: before, endTime: after)
 
@@ -73,6 +92,11 @@ public struct ConversationV2 {
 				}
 			}
 		}
+	}
+
+	public func decode(envelope: Envelope) throws -> DecodedMessage {
+		let message = try Message(serializedData: envelope.message)
+		return try decode(message.v2)
 	}
 
 	private func decode(_ message: MessageV2) throws -> DecodedMessage {

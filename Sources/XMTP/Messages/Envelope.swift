@@ -8,7 +8,7 @@
 import Foundation
 import XMTPProto
 
-typealias Envelope = Xmtp_MessageApi_V1_Envelope
+public typealias Envelope = Xmtp_MessageApi_V1_Envelope
 
 extension Envelope {
 	init(topic: Topic, timestamp: Date, message: Data) {

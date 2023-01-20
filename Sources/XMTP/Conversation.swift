@@ -8,10 +8,32 @@
 import Foundation
 import XMTPProto
 
+public enum ConversationContainer {
+	case v1(ConversationV1Container), v2(ConversationV2Container)
+
+	public func decode(with client: Client) -> Conversation {
+		switch self {
+		case let .v1(container):
+			return .v1(container.decode(with: client))
+		case let .v2(container):
+			return .v2(container.decode(with: client))
+		}
+	}
+}
+
 /// Wrapper that provides a common interface between ``ConversationV1`` and ``ConversationV2`` objects.
 public enum Conversation {
 	// TODO: It'd be nice to not have to expose these types as public, maybe we make this a struct with an enum prop instead of just an enum
 	case v1(ConversationV1), v2(ConversationV2)
+
+	public var encodedContainer: ConversationContainer {
+		switch self {
+		case let .v1(conversationV1):
+			return .v1(conversationV1.encodedContainer)
+		case let .v2(conversationV2):
+			return .v2(conversationV2.encodedContainer)
+		}
+	}
 
 	/// The wallet address of the other person in this conversation.
 	public var peerAddress: String {
@@ -32,6 +54,15 @@ public enum Conversation {
 			return nil
 		case let .v2(conversation):
 			return conversation.context.conversationID
+		}
+	}
+
+	public func decode(_ envelope: Envelope) throws -> DecodedMessage {
+		switch self {
+		case let .v1(conversationV1):
+			return try conversationV1.decode(envelope: envelope)
+		case let .v2(conversationV2):
+			return try conversationV2.decode(envelope: envelope)
 		}
 	}
 

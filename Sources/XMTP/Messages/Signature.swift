@@ -118,3 +118,25 @@ extension Signature {
 		return signingKey.ecdsa.isValidSignature(ecdsaSignature, for: digest)
 	}
 }
+
+extension Signature: Codable {
+	enum CodingKeys: CodingKey {
+		case rawData
+	}
+
+	public func encode(to encoder: Encoder) throws {
+		var container = encoder.container(keyedBy: CodingKeys.self)
+
+		try container.encode(rawData, forKey: .rawData)
+	}
+
+	public init(from decoder: Decoder) throws {
+		self.init()
+
+		let container = try decoder.container(keyedBy: CodingKeys.self)
+		let rawData = try container.decode(Data.self, forKey: .rawData)
+
+		ecdsaCompact.bytes = rawData[0 ..< 64]
+		ecdsaCompact.recovery = UInt32(rawData[64])
+	}
+}
