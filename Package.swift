@@ -21,6 +21,7 @@ let package = Package(
 		.package(url: "https://github.com/GigaBitcoin/secp256k1.swift.git", branch: "main"),
 		.package(url: "https://github.com/argentlabs/web3.swift", from: "1.1.0"),
 		.package(url: "https://github.com/WalletConnect/WalletConnectSwift.git", revision: "9e4dfba34fb35336fd5da551285d7986ff536cb8"),
+		.package(url: "https://github.com/1024jp/GzipSwift", from: "5.2.0"),
 	],
 	targets: [
 		// Targets are the basic building blocks of a package. A target can define a module or a test suite.
@@ -32,6 +33,7 @@ let package = Package(
 				.product(name: "secp256k1", package: "secp256k1.swift"),
 				"web3.swift",
 				"WalletConnectSwift",
+				.product(name: "Gzip", package: "GzipSwift"),
 			]
 		),
 		.testTarget(

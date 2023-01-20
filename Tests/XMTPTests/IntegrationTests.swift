@@ -483,4 +483,56 @@ final class IntegrationTests: XCTestCase {
 
 		await waitForExpectations(timeout: 3)
 	}
+
+	func testCanReadGzipCompressedMessages() async throws {
+		throw XCTSkip("integration only (requires dev network)")
+
+		let keyBytes: [UInt8] = [
+			225, 2, 36, 98, 37, 243, 68, 234,
+			42, 126, 248, 246, 126, 83, 186, 197,
+			204, 186, 19, 173, 51, 0, 64, 0,
+			155, 8, 249, 247, 163, 185, 124, 159,
+		]
+
+		var key = PrivateKey()
+		key.secp256K1.bytes = Data(keyBytes)
+		key.publicKey.secp256K1Uncompressed.bytes = try KeyUtil.generatePublicKey(from: Data(keyBytes))
+
+		let client = try await XMTP.Client.create(account: key)
+		XCTAssertEqual(client.apiClient.environment, .dev)
+
+		let convo = try await client.conversations.list()[0]
+		let message = try await convo.messages()[0]
+
+		XCTAssertEqual("hello gzip", try message.content())
+	}
+
+	func testCanReadZipCompressedMessages() async throws {
+		throw XCTSkip("integration only (requires dev network)")
+
+		let keyBytes: [UInt8] = [
+			60, 45, 240, 192, 223, 2, 14, 166,
+			122, 65, 231, 31, 122, 178, 158, 137,
+			192, 97, 139, 83, 133, 245, 149, 250,
+			25, 125, 25, 11, 203, 97, 12, 200,
+		]
+
+		var key = PrivateKey()
+		key.secp256K1.bytes = Data(keyBytes)
+		key.publicKey.secp256K1Uncompressed.bytes = try KeyUtil.generatePublicKey(from: Data(keyBytes))
+
+		let client = try await XMTP.Client.create(account: key)
+		XCTAssertEqual(client.apiClient.environment, .dev)
+
+		let convo = try await client.conversations.list()[0]
+		let message = try await convo.messages().last!
+
+		let swiftdata = Data("hello deflate".utf8) as NSData
+		print("swift version: \((try swiftdata.compressed(using: .zlib) as Data).bytes)")
+
+		XCTAssertEqual("hello deflate", try message.content())
+
+		// Check that we can send as well
+		try await convo.send(text: "hello deflate from swift again", options: .init(compression: .deflate))
+	}
 }

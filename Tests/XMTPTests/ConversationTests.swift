@@ -414,4 +414,86 @@ class ConversationTests: XCTestCase {
 		XCTAssertEqual(1, messages2.count)
 		XCTAssertEqual("hey alice 2", messages2[0].body)
 	}
+
+	func testCanSendGzipCompressedV1Messages() async throws {
+		try await publishLegacyContact(client: bobClient)
+		try await publishLegacyContact(client: aliceClient)
+
+		guard case let .v1(bobConversation) = try await bobClient.conversations.newConversation(with: alice.address) else {
+			XCTFail("did not get a v1 conversation for alice")
+			return
+		}
+
+		guard case let .v1(aliceConversation) = try await aliceClient.conversations.newConversation(with: bob.address) else {
+			XCTFail("did not get a v1 conversation for alice")
+			return
+		}
+
+		try await bobConversation.send(content: Array(repeating: "A", count: 1000).joined(), options: .init(compression: .gzip))
+
+		let messages = try await aliceConversation.messages()
+
+		XCTAssertEqual(1, messages.count)
+		XCTAssertEqual(Array(repeating: "A", count: 1000).joined(), try messages[0].content())
+	}
+
+	func testCanSendDeflateCompressedV1Messages() async throws {
+		try await publishLegacyContact(client: bobClient)
+		try await publishLegacyContact(client: aliceClient)
+
+		guard case let .v1(bobConversation) = try await bobClient.conversations.newConversation(with: alice.address) else {
+			XCTFail("did not get a v1 conversation for alice")
+			return
+		}
+
+		guard case let .v1(aliceConversation) = try await aliceClient.conversations.newConversation(with: bob.address) else {
+			XCTFail("did not get a v1 conversation for alice")
+			return
+		}
+
+		try await bobConversation.send(content: Array(repeating: "A", count: 1000).joined(), options: .init(compression: .deflate))
+
+		let messages = try await aliceConversation.messages()
+
+		XCTAssertEqual(1, messages.count)
+		XCTAssertEqual(Array(repeating: "A", count: 1000).joined(), try messages[0].content())
+	}
+
+	func testCanSendGzipCompressedV2Messages() async throws {
+		guard case let .v2(bobConversation) = try await bobClient.conversations.newConversation(with: alice.address, context: InvitationV1.Context(conversationID: "hi")) else {
+			XCTFail("did not get a v2 conversation for alice")
+			return
+		}
+
+		guard case let .v2(aliceConversation) = try await aliceClient.conversations.newConversation(with: bob.address, context: InvitationV1.Context(conversationID: "hi")) else {
+			XCTFail("did not get a v2 conversation for alice")
+			return
+		}
+
+		try await bobConversation.send(content: Array(repeating: "A", count: 1000).joined(), options: .init(compression: .gzip))
+		let messages = try await aliceConversation.messages()
+
+		XCTAssertEqual(1, messages.count)
+		XCTAssertEqual(Array(repeating: "A", count: 1000).joined(), messages[0].body)
+		XCTAssertEqual(bob.address, messages[0].senderAddress)
+	}
+
+	func testCanSendDeflateCompressedV2Messages() async throws {
+		guard case let .v2(bobConversation) = try await bobClient.conversations.newConversation(with: alice.address, context: InvitationV1.Context(conversationID: "hi")) else {
+			XCTFail("did not get a v2 conversation for alice")
+			return
+		}
+
+		guard case let .v2(aliceConversation) = try await aliceClient.conversations.newConversation(with: bob.address, context: InvitationV1.Context(conversationID: "hi")) else {
+			XCTFail("did not get a v2 conversation for alice")
+			return
+		}
+
+		try await bobConversation.send(content: Array(repeating: "A", count: 1000).joined(), options: .init(compression: .deflate))
+		let messages = try await aliceConversation.messages()
+
+		XCTAssertEqual(1, messages.count)
+		XCTAssertEqual(Array(repeating: "A", count: 1000).joined(), messages[0].body)
+		XCTAssertEqual(bob.address, messages[0].senderAddress)
+	}
 }

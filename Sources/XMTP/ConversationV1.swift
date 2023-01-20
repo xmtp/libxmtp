@@ -17,26 +17,32 @@ public struct ConversationV1 {
 		Topic.directMessageV1(client.address, peerAddress)
 	}
 
-	func send(content: String) async throws {
-		try await send(content: content, options: nil, sentAt: nil)
+	func send(content: String, options: SendOptions? = nil) async throws {
+		try await send(content: content, options: options, sentAt: nil)
 	}
 
-	internal func send(content: String, options _: SendOptions? = nil, sentAt: Date? = nil) async throws {
+	internal func send(content: String, options: SendOptions? = nil, sentAt: Date? = nil) async throws {
 		let encoder = TextCodec()
 		let encodedContent = try encoder.encode(content: content)
 
-		try await send(content: encodedContent, sentAt: sentAt)
+		try await send(content: encodedContent, options: options, sentAt: sentAt)
 	}
 
-	func send<Codec: ContentCodec>(codec: Codec, content: Codec.T, fallback: String? = nil) async throws {
+	func send<Codec: ContentCodec>(codec: Codec, content: Codec.T, options: SendOptions? = nil, fallback: String? = nil) async throws {
 		var encoded = try codec.encode(content: content)
 		encoded.fallback = fallback ?? ""
-		try await send(content: encoded)
+		try await send(content: encoded, options: options)
 	}
 
-	internal func send(content encodedContent: EncodedContent, options _: SendOptions? = nil, sentAt: Date? = nil) async throws {
+	internal func send(content encodedContent: EncodedContent, options: SendOptions? = nil, sentAt: Date? = nil) async throws {
 		guard let contact = try await client.contacts.find(peerAddress) else {
 			throw ContactBundleError.notFound
+		}
+
+		var encodedContent = encodedContent
+
+		if let compression = options?.compression {
+			encodedContent = try encodedContent.compress(compression)
 		}
 
 		let recipient = try contact.toPublicKeyBundle()

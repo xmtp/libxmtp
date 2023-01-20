@@ -9,8 +9,6 @@ import CryptoKit
 import Foundation
 import XMTPProto
 
-struct SendOptions {}
-
 /// Handles V2 Message conversations.
 public struct ConversationV2 {
 	var topic: String
@@ -81,21 +79,27 @@ public struct ConversationV2 {
 		try MessageV2.decode(message, keyMaterial: keyMaterial)
 	}
 
-	func send<Codec: ContentCodec>(codec: Codec, content: Codec.T, fallback: String? = nil) async throws {
+	func send<Codec: ContentCodec>(codec: Codec, content: Codec.T, options: SendOptions? = nil, fallback: String? = nil) async throws {
 		var encoded = try codec.encode(content: content)
 		encoded.fallback = fallback ?? ""
-		try await send(content: encoded, sentAt: Date())
+		try await send(content: encoded, options: options, sentAt: Date())
 	}
 
-	func send(content: String, sentAt: Date) async throws {
+	func send(content: String, options: SendOptions? = nil, sentAt: Date) async throws {
 		let encoder = TextCodec()
 		let encodedContent = try encoder.encode(content: content)
-		try await send(content: encodedContent, sentAt: sentAt)
+		try await send(content: encodedContent, options: options, sentAt: sentAt)
 	}
 
-	internal func send(content: EncodedContent, sentAt: Date) async throws {
+	internal func send(content: EncodedContent, options: SendOptions? = nil, sentAt: Date) async throws {
 		guard try await client.getUserContact(peerAddress: peerAddress) != nil else {
 			throw ContactBundleError.notFound
+		}
+
+		var content = content
+
+		if let compression = options?.compression {
+			content = try content.compress(compression)
 		}
 
 		let message = try await MessageV2.encode(
@@ -110,7 +114,7 @@ public struct ConversationV2 {
 		])
 	}
 
-	func send(content: String) async throws {
-		try await send(content: content, sentAt: Date())
+	func send(content: String, options: SendOptions? = nil) async throws {
+		try await send(content: content, options: options, sentAt: Date())
 	}
 }
