@@ -18,6 +18,10 @@
 		A6557A3329411F4F00CC4C7B /* NewConversationView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A6557A3229411F4F00CC4C7B /* NewConversationView.swift */; };
 		A67CCEC129355B4B00131F5C /* AccountManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = A67CCEC029355B4B00131F5C /* AccountManager.swift */; };
 		A683860C293EA862006336FF /* MessageListView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A683860B293EA862006336FF /* MessageListView.swift */; };
+		A687810729679BC700042FAB /* Account.swift in Sources */ = {isa = PBXBuildFile; fileRef = A687810629679BC700042FAB /* Account.swift */; };
+		A687810A29679BEB00042FAB /* WalletConnectSwift in Frameworks */ = {isa = PBXBuildFile; productRef = A687810929679BEB00042FAB /* WalletConnectSwift */; };
+		A687810C29679BFC00042FAB /* WalletConnection.swift in Sources */ = {isa = PBXBuildFile; fileRef = A687810B29679BFC00042FAB /* WalletConnection.swift */; };
+		A687810E29679C0D00042FAB /* WalletConnectionMethod.swift in Sources */ = {isa = PBXBuildFile; fileRef = A687810D29679C0D00042FAB /* WalletConnectionMethod.swift */; };
 		A69F33C6292DC992005A5556 /* XMTP in Frameworks */ = {isa = PBXBuildFile; productRef = A69F33C5292DC992005A5556 /* XMTP */; };
 		A69F33CA292DD557005A5556 /* LoggedInView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A69F33C9292DD557005A5556 /* LoggedInView.swift */; };
 		A69F33CC292DD568005A5556 /* QRCodeSheetView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A69F33CB292DD568005A5556 /* QRCodeSheetView.swift */; };
@@ -38,6 +42,9 @@
 		A6557A3229411F4F00CC4C7B /* NewConversationView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NewConversationView.swift; sourceTree = "<group>"; };
 		A67CCEC029355B4B00131F5C /* AccountManager.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = AccountManager.swift; sourceTree = "<group>"; };
 		A683860B293EA862006336FF /* MessageListView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MessageListView.swift; sourceTree = "<group>"; };
+		A687810629679BC700042FAB /* Account.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Account.swift; sourceTree = "<group>"; };
+		A687810B29679BFC00042FAB /* WalletConnection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WalletConnection.swift; sourceTree = "<group>"; };
+		A687810D29679C0D00042FAB /* WalletConnectionMethod.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WalletConnectionMethod.swift; sourceTree = "<group>"; };
 		A69F33C7292DD3A9005A5556 /* xmtp-ios */ = {isa = PBXFileReference; lastKnownFileType = wrapper; name = "xmtp-ios"; path = ..; sourceTree = "<group>"; };
 		A69F33C9292DD557005A5556 /* LoggedInView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LoggedInView.swift; sourceTree = "<group>"; };
 		A69F33CB292DD568005A5556 /* QRCodeSheetView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QRCodeSheetView.swift; sourceTree = "<group>"; };
@@ -50,6 +57,7 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				A687810A29679BEB00042FAB /* WalletConnectSwift in Frameworks */,
 				A69F33C6292DC992005A5556 /* XMTP in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -78,8 +86,8 @@
 		A6281991292DC825004B9117 /* XMTPiOSExample */ = {
 			isa = PBXGroup;
 			children = (
+				A687810529679B5B00042FAB /* Account */,
 				A6D192CD293A792D006B49F2 /* Info.plist */,
-				A67CCEC029355B4B00131F5C /* AccountManager.swift */,
 				A69F33C8292DD54C005A5556 /* Views */,
 				A6281992292DC825004B9117 /* XMTPiOSExampleApp.swift */,
 				A6281994292DC825004B9117 /* ContentView.swift */,
@@ -96,6 +104,17 @@
 				A628199A292DC826004B9117 /* Preview Assets.xcassets */,
 			);
 			path = "Preview Content";
+			sourceTree = "<group>";
+		};
+		A687810529679B5B00042FAB /* Account */ = {
+			isa = PBXGroup;
+			children = (
+				A67CCEC029355B4B00131F5C /* AccountManager.swift */,
+				A687810629679BC700042FAB /* Account.swift */,
+				A687810B29679BFC00042FAB /* WalletConnection.swift */,
+				A687810D29679C0D00042FAB /* WalletConnectionMethod.swift */,
+			);
+			path = Account;
 			sourceTree = "<group>";
 		};
 		A69F33C4292DC992005A5556 /* Frameworks */ = {
@@ -139,6 +158,7 @@
 			name = XMTPiOSExample;
 			packageProductDependencies = (
 				A69F33C5292DC992005A5556 /* XMTP */,
+				A687810929679BEB00042FAB /* WalletConnectSwift */,
 			);
 			productName = XMTPiOSExample;
 			productReference = A628198F292DC825004B9117 /* XMTPiOSExample.app */;
@@ -168,6 +188,9 @@
 				Base,
 			);
 			mainGroup = A6281986292DC825004B9117;
+			packageReferences = (
+				A687810829679BEB00042FAB /* XCRemoteSwiftPackageReference "WalletConnectSwift" */,
+			);
 			productRefGroup = A6281990292DC825004B9117 /* Products */;
 			projectDirPath = "";
 			projectRoot = "";
@@ -195,14 +218,17 @@
 			buildActionMask = 2147483647;
 			files = (
 				A6557A3329411F4F00CC4C7B /* NewConversationView.swift in Sources */,
+				A687810729679BC700042FAB /* Account.swift in Sources */,
 				A6557A312941166E00CC4C7B /* MessageCellView.swift in Sources */,
 				A60FC8C1293AD171001697E3 /* ConversationDetailView.swift in Sources */,
 				A60FC8C3293AD18A001697E3 /* PreviewClientProvider.swift in Sources */,
 				A6281995292DC825004B9117 /* ContentView.swift in Sources */,
+				A687810C29679BFC00042FAB /* WalletConnection.swift in Sources */,
 				A69F33CA292DD557005A5556 /* LoggedInView.swift in Sources */,
 				A69F33CC292DD568005A5556 /* QRCodeSheetView.swift in Sources */,
 				A6281993292DC825004B9117 /* XMTPiOSExampleApp.swift in Sources */,
 				A67CCEC129355B4B00131F5C /* AccountManager.swift in Sources */,
+				A687810E29679C0D00042FAB /* WalletConnectionMethod.swift in Sources */,
 				A60FC8BF293AD054001697E3 /* MessageComposerView.swift in Sources */,
 				A683860C293EA862006336FF /* MessageListView.swift in Sources */,
 				A6D192D0293A7B97006B49F2 /* ConversationListView.swift in Sources */,
@@ -420,7 +446,23 @@
 		};
 /* End XCConfigurationList section */
 
+/* Begin XCRemoteSwiftPackageReference section */
+		A687810829679BEB00042FAB /* XCRemoteSwiftPackageReference "WalletConnectSwift" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/WalletConnect/WalletConnectSwift";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 1.0.0;
+			};
+		};
+/* End XCRemoteSwiftPackageReference section */
+
 /* Begin XCSwiftPackageProductDependency section */
+		A687810929679BEB00042FAB /* WalletConnectSwift */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = A687810829679BEB00042FAB /* XCRemoteSwiftPackageReference "WalletConnectSwift" */;
+			productName = WalletConnectSwift;
+		};
 		A69F33C5292DC992005A5556 /* XMTP */ = {
 			isa = XCSwiftPackageProductDependency;
 			productName = XMTP;

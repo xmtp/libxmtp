@@ -9,11 +9,11 @@ import Foundation
 import XMTP
 
 class AccountManager: ObservableObject {
-	var account: XMTP.Account
+	var account: Account
 
 	init() {
 		do {
-			account = try XMTP.Account.create()
+			account = try Account.create()
 		} catch {
 			fatalError("Account could not be created: \(error)")
 		}

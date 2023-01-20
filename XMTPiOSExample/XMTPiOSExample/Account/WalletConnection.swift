@@ -9,6 +9,7 @@ import Foundation
 import UIKit
 import WalletConnectSwift
 import web3
+import XMTP
 
 extension WCURL {
 	var asURL: URL {
@@ -74,19 +75,37 @@ class WCWalletConnection: WalletConnection, WalletConnectSwift.ClientDelegate {
 
 	lazy var walletConnectURL: WCURL? = {
 		do {
-			let keybytes = try Crypto.secureRandomBytes(count: 32)
+			let keybytes = try secureRandomBytes(count: 32)
 
 			return WCURL(
 				topic: UUID().uuidString,
 				// swiftlint:disable force_unwrapping
 				bridgeURL: URL(string: "https://bridge.walletconnect.org")!,
 				// swiftlint:enable force_unwrapping
-				key: keybytes.toHex
+				key: keybytes.reduce("") { $0 + String(format: "%02x", $1) }
 			)
 		} catch {
 			return nil
 		}
 	}()
+
+	func secureRandomBytes(count: Int) throws -> Data {
+		var bytes = [UInt8](repeating: 0, count: count)
+
+		// Fill bytes with secure random data
+		let status = SecRandomCopyBytes(
+			kSecRandomDefault,
+			count,
+			&bytes
+		)
+
+		// A status of errSecSuccess indicates success
+		if status == errSecSuccess {
+			return Data(bytes)
+		} else {
+			fatalError("could not generate random bytes")
+		}
+	}
 
 	func connect() async throws {
 		guard let url = walletConnectURL else {
