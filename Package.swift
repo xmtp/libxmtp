@@ -31,7 +31,7 @@ let package = Package(
 				.product(name: "XMTPProto", package: "proto"),
 				.product(name: "secp256k1", package: "secp256k1.swift"),
 				"web3.swift",
-				.product(name: "Gzip", package: "GzipSwift")
+				.product(name: "Gzip", package: "GzipSwift"),
 			]
 		),
 		.testTarget(

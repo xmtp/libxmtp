@@ -39,7 +39,7 @@ class CodecTests: XCTestCase {
 		let aliceClient = fixtures.aliceClient!
 		let aliceConversation = try await aliceClient.conversations.newConversation(with: fixtures.bob.address)
 
-		try await aliceConversation.send(content: 3.14, codec: NumberCodec())
+		try await aliceConversation.send(content: 3.14, options: .init(contentType: NumberCodec().contentType))
 
 		let messages = try await aliceConversation.messages()
 		XCTAssertEqual(messages.count, 1)
@@ -56,7 +56,7 @@ class CodecTests: XCTestCase {
 		let aliceClient = fixtures.aliceClient!
 		let aliceConversation = try await aliceClient.conversations.newConversation(with: fixtures.bob.address)
 
-		try await aliceConversation.send(content: 3.14, codec: NumberCodec(), fallback: "pi")
+		try await aliceConversation.send(content: 3.14, options: .init(contentType: NumberCodec().contentType, contentFallback: "pi"))
 
 		// Remove number codec from registry
 		Client.codecRegistry.codecs.removeValue(forKey: NumberCodec().id)
@@ -79,7 +79,7 @@ class CodecTests: XCTestCase {
 
 		let textContent = try TextCodec().encode(content: "hiya")
 		let source = DecodedComposite(encodedContent: textContent)
-		try await aliceConversation.send(content: source, codec: CompositeCodec())
+		try await aliceConversation.send(content: source, options: .init(contentType: CompositeCodec().contentType))
 		let messages = try await aliceConversation.messages()
 
 		let decoded: DecodedComposite = try messages[0].content()
@@ -105,7 +105,7 @@ class CodecTests: XCTestCase {
 			]),
 		])
 
-		try await aliceConversation.send(content: source, codec: CompositeCodec())
+		try await aliceConversation.send(content: source, options: .init(contentType: CompositeCodec().contentType))
 		let messages = try await aliceConversation.messages()
 
 		let decoded: DecodedComposite = try messages[0].content()

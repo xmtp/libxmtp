@@ -9,4 +9,6 @@ import Foundation
 
 public struct SendOptions {
 	public var compression: EncodedContentCompression? = nil
+	public var contentType: ContentTypeID?
+	public var contentFallback: String?
 }

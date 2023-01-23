@@ -66,12 +66,12 @@ public enum Conversation {
 		}
 	}
 
-	public func send<T, CodecType: ContentCodec>(content: T, codec: CodecType, options: SendOptions? = nil, fallback: String? = nil) async throws where CodecType.T == T {
+	public func send<T>(content: T, options: SendOptions? = nil, fallback _: String? = nil) async throws {
 		switch self {
 		case let .v1(conversationV1):
-			try await conversationV1.send(codec: codec, content: content, options: options, fallback: fallback)
+			try await conversationV1.send(content: content, options: options)
 		case let .v2(conversationV2):
-			try await conversationV2.send(codec: codec, content: content, options: options, fallback: fallback)
+			try await conversationV2.send(content: content, options: options)
 		}
 	}
 

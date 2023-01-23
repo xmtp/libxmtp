@@ -16,9 +16,7 @@ public typealias EncodedContent = Xmtp_MessageContents_EncodedContent
 
 extension EncodedContent {
 	func decoded<T>() throws -> T {
-		guard let codec = Client.codecRegistry.find(for: type) else {
-			throw CodecError.codecNotFound
-		}
+		let codec = Client.codecRegistry.find(for: type)
 
 		var encodedContent = self
 

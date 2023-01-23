@@ -13,9 +13,7 @@ However, we do **not** recommend using Developer Preview software in production 
 Specifically, this SDK is missing this functionality:
 
 - Specifying `apiUrl`, `keyStoreType`, `codecs`, `maxContentSize`, and `appVersion` when creating a `Client`
-- Content types other than text
 - Streaming all messages from all conversations
-- Message content compression
 
 Follow along in the [tracking issue](https://github.com/xmtp/xmtp-ios/issues/7) for updates.
 
@@ -291,9 +289,29 @@ let decodedConversation = containerAgain.decode(with: client)
 try await decodedConversation.send(text: "hi")
 ```
 
-## Compression
+### Different types of content
 
-This package currently does not support message content compression.
+All the send functions support SendOptions as an optional parameter. The contentType option allows specifying different types of content than the default simple string, which is identified with content type identifier ContentTypeText. Support for other types of content can be added by registering additional ContentCodecs with the Client. Every codec is associated with a content type identifier, ContentTypeId, which is used to signal to the Client which codec should be used to process the content that is being sent or received. See XIP-5 for more details on codecs and content types.
+
+Codecs and content types may be proposed as interoperable standards through XRCs. If there is a concern that the recipient may not be able to handle a non-standard content type, the sender can use the contentFallback option to provide a string that describes the content being sent. If the recipient fails to decode the original content, the fallback will replace it and can be used to inform the recipient what the original content was.
+
+```swift
+// Assuming we've loaded a fictional NumberCodec that can be used to encode numbers,
+// and is identified with ContentTypeNumber, we can use it as follows.
+Client.register(codec: NumberCodec())
+
+try await aliceConversation.send(content: 3.14, options: .init(contentType: ContentTypeNumber, contentFallback: "sending you a pie"))
+```
+
+### Compression
+
+Message content can be optionally compressed using the compression option. The value of the option is the name of the compression algorithm to use. Currently supported are gzip and deflate. Compression is applied to the bytes produced by the content codec.
+
+Content will be decompressed transparently on the receiving end. Note that Client enforces maximum content size. The default limit can be overridden through the ClientOptions. Consequently a message that would expand beyond that limit on the receiving end will fail to decode.
+
+```swift
+try await conversation.send(text: '#'.repeat(1000), options: .init(compression: .gzip))
+```
 
 ## 🏗 **Breaking revisions**
 

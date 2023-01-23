@@ -14,11 +14,15 @@ struct CodecRegsistry {
 		codecs[codec.id] = codec
 	}
 
-	func find(for contentType: ContentTypeID) -> (any ContentCodec)? {
+	func find(for contentType: ContentTypeID?) -> any ContentCodec {
+		guard let contentType else {
+			return TextCodec()
+		}
+
 		if let codec = codecs[contentType.id] {
 			return codec
 		}
 
-		return nil
+		return TextCodec()
 	}
 }

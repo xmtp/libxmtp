@@ -489,7 +489,7 @@ class ConversationTests: XCTestCase {
 
 		let decodedMessage2 = try Conversation.v2(conversation).decode(message)
 		XCTAssertEqual("hi", decodedMessage2.body)
-  }
+	}
 
 	func testCanSendGzipCompressedV1Messages() async throws {
 		try await publishLegacyContact(client: bobClient)

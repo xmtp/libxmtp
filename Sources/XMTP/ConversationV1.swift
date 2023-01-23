@@ -42,9 +42,20 @@ public struct ConversationV1 {
 		try await send(content: encodedContent, options: options, sentAt: sentAt)
 	}
 
-	func send<Codec: ContentCodec>(codec: Codec, content: Codec.T, options: SendOptions? = nil, fallback: String? = nil) async throws {
-		var encoded = try codec.encode(content: content)
-		encoded.fallback = fallback ?? ""
+	func send<T>(content: T, options: SendOptions? = nil) async throws {
+		let codec = Client.codecRegistry.find(for: options?.contentType)
+
+		func encode<Codec: ContentCodec>(codec: Codec, content: Any) throws -> EncodedContent {
+			if let content = content as? Codec.T {
+				return try codec.encode(content: content)
+			} else {
+				throw CodecError.invalidContent
+			}
+		}
+
+		let content = content as T
+		var encoded = try encode(codec: codec, content: content)
+		encoded.fallback = options?.contentFallback ?? ""
 		try await send(content: encoded, options: options)
 	}
 
