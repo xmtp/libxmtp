@@ -136,8 +136,12 @@ public class Client {
 		return nil
 	}
 
+	public static func from(bundle: PrivateKeyBundle, options: ClientOptions? = nil) throws -> Client {
+		return try from(v1Bundle: bundle.v1, options: options)
+	}
+
 	/// Create a Client from saved v1 key bundle.
-	public static func from(bundle v1Bundle: PrivateKeyBundleV1, options: ClientOptions? = nil) throws -> Client {
+	public static func from(v1Bundle: PrivateKeyBundleV1, options: ClientOptions? = nil) throws -> Client {
 		let address = try v1Bundle.identityKey.publicKey.recoverWalletSignerPublicKey().walletAddress
 
 		let options = options ?? ClientOptions()
@@ -154,6 +158,10 @@ public class Client {
 		self.address = address
 		self.privateKeyBundleV1 = privateKeyBundleV1
 		self.apiClient = apiClient
+	}
+
+	public var privateKeyBundle: PrivateKeyBundle {
+		PrivateKeyBundle(v1: privateKeyBundleV1)
 	}
 
 	public var v1keys: PrivateKeyBundleV1 {

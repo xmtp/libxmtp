@@ -8,7 +8,7 @@
 import Foundation
 import XMTPProto
 
-typealias PrivateKeyBundle = Xmtp_MessageContents_PrivateKeyBundle
+public typealias PrivateKeyBundle = Xmtp_MessageContents_PrivateKeyBundle
 
 enum PrivateKeyBundleError: Error {
 	case noPreKeyFound

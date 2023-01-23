@@ -81,14 +81,14 @@ let client = try await Client.create(account: account, options: .init(api: .init
 
 ### Creating a client from saved keys
 
-You can save your keys from the client via the `v1keys` property:
+You can save your keys from the client via the `privateKeyBundle` property:
 
 ```swift
 // Create the client with a `SigningKey` from your app
 let client = try await Client.create(account: account, options: .init(api: .init(env: .production)))
 
 // Get the key bundle
-let keys = client.v1keys
+let keys = client.privateKeyBundle
 
 // Serialize the key bundle and store it somewhere safe
 let keysData = try keys.serializedData()
@@ -97,7 +97,7 @@ let keysData = try keys.serializedData()
 Once you have those keys, you can create a new client with `Client.from`:
 
 ```swift
-let keys = try PrivateKeyBundleV1(serializedData: keysData)
+let keys = try PrivateKeyBundle(serializedData: keysData)
 let client = try Client.from(bundle: keys, options: .init(api: .init(env: .production)))
 ```
 
