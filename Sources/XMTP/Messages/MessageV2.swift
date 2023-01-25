@@ -11,6 +11,10 @@ import XMTPProto
 
 typealias MessageV2 = Xmtp_MessageContents_MessageV2
 
+enum MessageV2Error: Error {
+	case invalidSignature
+}
+
 extension MessageV2 {
 	init(headerBytes: Data, ciphertext: CipherText) {
 		self.init()
@@ -22,6 +26,18 @@ extension MessageV2 {
 		do {
 			let decrypted = try Crypto.decrypt(keyMaterial, message.ciphertext, additionalData: message.headerBytes)
 			let signed = try SignedContent(serializedData: decrypted)
+
+			// Verify content signature
+			let digest = SHA256.hash(data: message.headerBytes + signed.payload)
+
+			let key = try PublicKey.with { key in
+				key.secp256K1Uncompressed.bytes = try KeyUtil.recoverPublicKey(message: Data(digest.bytes), signature: signed.signature.rawData)
+			}
+
+			if key.walletAddress != (try PublicKey(signed.sender.preKey).walletAddress) {
+				throw MessageV2Error.invalidSignature
+			}
+
 			let encodedMessage = try EncodedContent(serializedData: signed.payload)
 			let header = try MessageHeaderV2(serializedData: message.headerBytes)
 

@@ -5,6 +5,7 @@
 //  Created by Pat Nakajima on 12/6/22.
 //
 
+import CryptoKit
 import XCTest
 @testable import XMTP
 
@@ -361,6 +362,52 @@ class ConversationTests: XCTestCase {
 		XCTAssertEqual(1, messages.count)
 		XCTAssertEqual("hey alice", messages[0].body)
 		XCTAssertEqual(bob.address, messages[0].senderAddress)
+	}
+
+	func testVerifiesV2MessageSignature() async throws {
+		guard case let .v2(aliceConversation) = try await aliceClient.conversations.newConversation(with: bob.address, context: InvitationV1.Context(conversationID: "hi")) else {
+			XCTFail("did not get a v2 conversation for alice")
+			return
+		}
+
+		let codec = TextCodec()
+		let originalContent = try codec.encode(content: "hello")
+		let tamperedContent = try codec.encode(content: "this is a fake")
+
+		let originalPayload = try originalContent.serializedData()
+		let tamperedPayload = try tamperedContent.serializedData()
+
+		let date = Date()
+		let header = MessageHeaderV2(topic: aliceConversation.topic, created: date)
+		let headerBytes = try header.serializedData()
+
+		let digest = SHA256.hash(data: headerBytes + tamperedPayload)
+		let preKey = aliceClient.keys.preKeys[0]
+		let signature = try await preKey.sign(Data(digest))
+
+		let bundle = aliceClient.privateKeyBundleV1.toV2().getPublicKeyBundle()
+
+		let signedContent = SignedContent(payload: originalPayload, sender: bundle, signature: signature)
+		let signedBytes = try signedContent.serializedData()
+
+		let ciphertext = try Crypto.encrypt(aliceConversation.keyMaterial, signedBytes, additionalData: headerBytes)
+
+		let tamperedMessage = MessageV2(
+			headerBytes: headerBytes,
+			ciphertext: ciphertext
+		)
+
+		try await aliceClient.publish(envelopes: [
+			Envelope(topic: aliceConversation.topic, timestamp: Date(), message: try Message(v2: tamperedMessage).serializedData()),
+		])
+
+		guard case let .v2(bobConversation) = try await bobClient.conversations.newConversation(with: alice.address, context: InvitationV1.Context(conversationID: "hi")) else {
+			XCTFail("did not get a v2 conversation for alice")
+			return
+		}
+
+		let messages = try await bobConversation.messages()
+		XCTAssertEqual(0, messages.count, "did not filter out tampered message")
 	}
 
 	func testCanPaginateV1Messages() async throws {
