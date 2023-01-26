@@ -1,5 +1,5 @@
 [package]
-name = "wasmpkg"
+name = "libxmtp"
 version = "0.1.0"
 authors = ["jazzz <jazz@xmtp.com"]
 edition = "2018"

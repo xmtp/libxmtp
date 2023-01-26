@@ -1,1 +1,1 @@
-export { Wasmpkg } from "./wasmpkg.js";
+export { XmtpApi } from "./libxmtp.js";

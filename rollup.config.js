@@ -18,7 +18,7 @@ const rolls = (fmt, env) => ({
     format: fmt,
     entryFileNames:
       outdir(fmt, env) + `/[name].` + (fmt === "cjs" ? "cjs" : "js"),
-    name: "wasmpkg",
+    name: "libxmtp",
   },
   plugins: [
     // We want to inline our wasm bundle as base64. Not needing browser users
@@ -56,8 +56,8 @@ const rolls = (fmt, env) => ({
         // on the rust code
         fs.mkdirSync(`./dist/types/pkg`, { recursive: true });
         fs.copyFileSync(
-          path.resolve("./src/pkg/wasmpkg.d.ts"),
-          path.resolve(`./dist/types/pkg/wasmpkg.d.ts`)
+          path.resolve("./src/pkg/libxmtp.d.ts"),
+          path.resolve(`./dist/types/pkg/libxmtp.d.ts`)
         );
       },
     },

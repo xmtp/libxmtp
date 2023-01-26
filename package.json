@@ -1,9 +1,9 @@
 {
-  "name": "wasmpkg",
-  "version": "0.8.1",
+  "name": "libxmtp",
+  "version": "0.0.1",
   "author": "jazzz <jazz@xmtp.com",
   "license": "MIT",
-  "description": "Template for a Node Wasm Library",
+  "description": "Node.js package for the core XMTP utlities library",
   "sideEffects": false,
   "type": "module",
   "main": "./dist/umd/index.js",
@@ -22,7 +22,7 @@
       "import": "./dist/es-slim/index_slim.js",
       "default": "./dist/cjs-slim/index_slim.cjs"
     },
-    "./wasmpkg.wasm": "./dist/wasmpkg_bg.wasm",
+    "./libxmtp.wasm": "./dist/libxmtp_bg.wasm",
     "./package.json": "./package.json"
   },
   "files": [

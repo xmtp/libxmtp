@@ -1,4 +1,4 @@
-import init, { InitInput, add } from "./pkg/wasmpkg.js";
+import init, { InitInput, add } from "./pkg/libxmtp.js";
 
 export interface PackageLoadOptions {
   /**
@@ -13,8 +13,8 @@ export const setWasmInit = (arg: () => InitInput) => {
 };
 
 let initialized: Promise<void> | undefined = undefined;
-const encoder = new TextEncoder();
-export class Wasmpkg {
+
+export class XmtpApi {
   private constructor() {}
 
   public add(a: number, b: number): number {
@@ -33,7 +33,7 @@ export class Wasmpkg {
     }
 
     await initialized;
-    return new Wasmpkg();
+    return new XmtpApi();
   };
 
   /**
