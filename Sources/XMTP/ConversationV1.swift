@@ -6,6 +6,7 @@
 //
 
 import Foundation
+import CryptoKit
 
 // Save the non-client parts for a v1 conversation
 public struct ConversationV1Container: Codable {
@@ -148,10 +149,18 @@ public struct ConversationV1 {
 		let encodedMessage = try EncodedContent(serializedData: decrypted)
 		let header = try message.v1.header
 
-		return DecodedMessage(
+		var decoded = DecodedMessage(
 			encodedContent: encodedMessage,
 			senderAddress: header.sender.walletAddress,
 			sent: message.v1.sentAt
 		)
+
+		decoded.id = generateID(from: envelope)
+
+		return decoded
+	}
+
+	private func generateID(from envelope: Envelope) -> String {
+		Data(SHA256.hash(data: envelope.message)).toHex
 	}
 }

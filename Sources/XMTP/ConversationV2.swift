@@ -71,9 +71,7 @@ public struct ConversationV2 {
 
 		return envelopes.compactMap { envelope in
 			do {
-				let message = try Message(serializedData: envelope.message)
-
-				return try decode(message.v2)
+				return try decode(envelope: envelope)
 			} catch {
 				print("Error decoding envelope \(error)")
 				return nil
@@ -96,7 +94,11 @@ public struct ConversationV2 {
 
 	public func decode(envelope: Envelope) throws -> DecodedMessage {
 		let message = try Message(serializedData: envelope.message)
-		return try decode(message.v2)
+		var decoded = try decode(message.v2)
+
+		decoded.id = generateID(from: envelope)
+
+		return decoded
 	}
 
 	private func decode(_ message: MessageV2) throws -> DecodedMessage {
@@ -150,5 +152,9 @@ public struct ConversationV2 {
 
 	func send(content: String, options: SendOptions? = nil) async throws {
 		try await send(content: content, options: options, sentAt: Date())
+	}
+
+	private func generateID(from envelope: Envelope) -> String {
+		Data(SHA256.hash(data: envelope.message)).toHex
 	}
 }

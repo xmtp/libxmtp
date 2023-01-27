@@ -9,6 +9,8 @@ import Foundation
 
 /// Decrypted messages from a conversation.
 public struct DecodedMessage {
+	public var id: String = ""
+
 	public var encodedContent: EncodedContent
 
 	/// The wallet address of the sender of the message
