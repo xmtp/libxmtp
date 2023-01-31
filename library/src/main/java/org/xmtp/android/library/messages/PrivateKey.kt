@@ -1,8 +1,8 @@
 package org.xmtp.android.library.messages
 
 import com.google.protobuf.kotlin.toByteString
-import org.bouncycastle.crypto.digests.SHA256Digest
 import org.web3j.crypto.ECKeyPair
+import org.web3j.crypto.Hash
 import org.web3j.crypto.Sign
 import org.xmtp.android.library.KeyUtil
 import org.xmtp.android.library.SigningKey
@@ -13,36 +13,35 @@ import java.security.SecureRandom
 typealias PrivateKey = org.xmtp.proto.message.contents.PrivateKeyOuterClass.PrivateKey
 
 class PrivateKeyBuilder : SigningKey {
-    constructor(key: PrivateKey) {
-        privateKey = key
-    }
+    private var privateKey: PrivateKey
 
     constructor() {
-        privateKey = PrivateKey.newBuilder().apply {
+        privateKey = PrivateKey.newBuilder().also {
             val time = System.currentTimeMillis()
-            timestamp = time
+            it.timestamp = time
             val privateKeyData = SecureRandom().generateSeed(32)
-            secp256K1Builder.bytes = privateKeyData.toByteString()
-            val publicData = ECKeyPair.create(privateKeyData)
-            publicKeyBuilder.apply {
-                timestamp = time
-                secp256K1UncompressedBuilder.apply {
-                    bytes = publicData.publicKey.toByteArray().toByteString()
-                }.build()
+            it.secp256K1Builder.bytes = privateKeyData.toByteString()
+            val publicData = KeyUtil.getPublicKey(privateKeyData)
+            val uncompressedKey = KeyUtil.addUncompressedByte(publicData)
+            it.publicKeyBuilder.also { pubKey ->
+                pubKey.timestamp = time
+                pubKey.secp256K1UncompressedBuilder.bytes = uncompressedKey.toByteString()
             }.build()
         }.build()
     }
 
-    companion object {
-        lateinit var privateKey: PrivateKey
+    constructor(key: PrivateKey) {
+        privateKey = key
+    }
 
-        fun buildFromPrivateKey(privateKeyData: ByteArray): PrivateKey {
-            privateKey = PrivateKey.newBuilder().apply {
+    companion object {
+        fun buildFromPrivateKeyData(privateKeyData: ByteArray): PrivateKey {
+            return PrivateKey.newBuilder().apply {
                 val time = System.currentTimeMillis()
                 timestamp = time
                 secp256K1Builder.bytes = privateKeyData.toByteString()
-                val publicData = ECKeyPair.create(privateKeyData)
-                val uncompressedKey = byteArrayOf(0x4.toByte()) + publicData.publicKey.toByteArray()
+                val publicData = KeyUtil.getPublicKey(privateKeyData)
+                val uncompressedKey = KeyUtil.addUncompressedByte(publicData)
                 publicKeyBuilder.apply {
                     timestamp = time
                     secp256K1UncompressedBuilder.apply {
@@ -50,18 +49,25 @@ class PrivateKeyBuilder : SigningKey {
                     }.build()
                 }.build()
             }.build()
-            return privateKey
+        }
+
+        fun buildFromSignedPrivateKey(signedPrivateKey: SignedPrivateKey): PrivateKey {
+            return PrivateKey.newBuilder().apply {
+                timestamp = signedPrivateKey.createdNs / 1_000_000
+                secp256K1Builder.bytes = signedPrivateKey.secp256K1.bytes
+                publicKey = PublicKeyBuilder.buildFromSignedPublicKey(signedPrivateKey.publicKey)
+            }.build()
         }
     }
 
-    fun setPrivateKey(key: PrivateKey) {
-        privateKey = key
+    fun getPrivateKey(): PrivateKey {
+        return privateKey
     }
 
     override val address: String
         get() = privateKey.walletAddress
 
-    override fun sign(data: ByteArray): Signature {
+    override fun sign(data: ByteArray): SignatureOuterClass.Signature {
         val signatureData =
             Sign.signMessage(
                 data,
@@ -77,7 +83,7 @@ class PrivateKeyBuilder : SigningKey {
         return signature.build()
     }
 
-    override fun sign(message: String): Signature {
+    override fun sign(message: String): SignatureOuterClass.Signature {
         val digest = Signature.newBuilder().build().ethHash(message)
         return sign(digest)
     }
@@ -87,18 +93,17 @@ fun PrivateKey.matches(publicKey: PublicKey): Boolean =
     publicKey.recoverKeySignedPublicKey() == (publicKey.recoverKeySignedPublicKey())
 
 fun PrivateKey.generate(): PrivateKey {
-    return PrivateKeyBuilder.buildFromPrivateKey(SecureRandom().generateSeed(32))
+    return PrivateKeyBuilder.buildFromPrivateKeyData(SecureRandom().generateSeed(32))
 }
 
 val PrivateKey.walletAddress: String
     get() = publicKey.walletAddress
 
 fun PrivateKey.sign(key: PublicKeyOuterClass.UnsignedPublicKey): PublicKeyOuterClass.SignedPublicKey {
-    val bytes = key.secp256K1Uncompressed.bytes
-    val digest = SHA256Digest(bytes.toByteArray()).encodedState
+    val bytes = key.toByteArray()
     val signedPublicKey = PublicKeyOuterClass.SignedPublicKey.newBuilder()
-    val signature = PrivateKeyBuilder().sign(digest)
+    val signature = PrivateKeyBuilder(this).sign(Hash.sha256(bytes))
     signedPublicKey.signature = signature
-    signedPublicKey.keyBytes = bytes
+    signedPublicKey.keyBytes = bytes.toByteString()
     return signedPublicKey.build()
 }

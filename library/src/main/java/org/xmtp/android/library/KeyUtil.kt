@@ -1,8 +1,37 @@
 package org.xmtp.android.library
 
+import org.bouncycastle.asn1.sec.SECNamedCurves
+import org.bouncycastle.crypto.params.ECDomainParameters
+import org.bouncycastle.math.ec.FixedPointCombMultiplier
+import org.bouncycastle.util.Arrays
 import org.web3j.crypto.Sign.SignatureData
+import java.math.BigInteger
 
 object KeyUtil {
+    fun getPublicKey(privateKey: ByteArray): ByteArray {
+        val params = SECNamedCurves.getByName("secp256k1")
+        val curve = ECDomainParameters(params.curve, params.g, params.n, params.h)
+
+        var privKey = BigInteger(1, privateKey)
+
+        if (privKey.bitLength() > curve.n.bitLength()) {
+            privKey = privKey.mod(curve.n)
+        }
+
+        val point = FixedPointCombMultiplier().multiply(curve.getG(), privKey)
+        return Arrays.copyOfRange(point.getEncoded(false), 1, 65)
+    }
+
+    fun addUncompressedByte(publicKey: ByteArray): ByteArray {
+        return if (publicKey.size >= 65) {
+            val newPublicKey = ByteArray(64)
+            System.arraycopy(publicKey, publicKey.size - 64, newPublicKey, 0, 64)
+            byteArrayOf(0x4.toByte()) + newPublicKey
+        } else {
+            byteArrayOf(0x4.toByte()) + publicKey
+        }
+    }
+
     fun getSignatureData(signatureBytes: ByteArray): SignatureData {
         val v = signatureBytes[64]
         if (v < 27) {

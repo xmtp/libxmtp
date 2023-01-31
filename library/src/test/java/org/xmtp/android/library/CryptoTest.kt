@@ -1,8 +1,14 @@
 package org.xmtp.android.library
 
 import com.google.protobuf.kotlin.toByteString
+import com.google.protobuf.kotlin.toByteStringUtf8
 import org.junit.Assert.assertEquals
 import org.junit.Test
+import org.xmtp.android.library.messages.PrivateKeyBuilder
+import org.xmtp.android.library.messages.generate
+import org.xmtp.android.library.messages.sharedSecret
+import org.xmtp.android.library.messages.toPublicKeyBundle
+import org.xmtp.proto.message.contents.PrivateKeyOuterClass
 
 class CryptoTest {
 
@@ -32,5 +38,23 @@ class CryptoTest {
         val encrypted = CipherText.parseFrom(bytes)
         val decrypted = Crypto.decrypt(secret, encrypted)
         assertEquals(message.toByteString(), decrypted!!.toByteString())
+    }
+
+    @Test
+    fun testMessages() {
+        val aliceWallet = PrivateKeyBuilder()
+        val bobWallet = PrivateKeyBuilder()
+        val alice = PrivateKeyOuterClass.PrivateKeyBundleV1.newBuilder().build().generate(wallet = aliceWallet)
+        val bob = PrivateKeyOuterClass.PrivateKeyBundleV1.newBuilder().build().generate(wallet = bobWallet)
+        val msg = "Hello world"
+        val decrypted = msg.toByteStringUtf8().toByteArray()
+        val alicePublic = alice.toPublicKeyBundle()
+        val bobPublic = bob.toPublicKeyBundle()
+        val aliceSecret = alice.sharedSecret(peer = bobPublic, myPreKey = alicePublic.preKey, isRecipient = false)
+        val encrypted = Crypto.encrypt(aliceSecret, decrypted)
+        val bobSecret = bob.sharedSecret(peer = alicePublic, myPreKey = bobPublic.preKey, isRecipient = true)
+        val bobDecrypted = Crypto.decrypt(bobSecret, encrypted!!)
+        val decryptedText = String(bobDecrypted!!, Charsets.UTF_8)
+        assertEquals(decryptedText, msg)
     }
 }

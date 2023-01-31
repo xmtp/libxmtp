@@ -1,0 +1,38 @@
+version: "3.8"
+services:
+  wakunode:
+    image: xmtp/node-go
+    platform: linux/amd64
+    environment:
+      - GOWAKU-NODEKEY=8a30dcb604b0b53627a5adc054dbf434b446628d4bd1eccc681d223f0550ce67
+    command:
+      - --ws
+      - --store
+      - --message-db-connection-string=postgres://postgres:xmtp@db:5432/postgres?sslmode=disable
+      - --message-db-reader-connection-string=postgres://postgres:xmtp@db:5432/postgres?sslmode=disable
+      - --lightpush
+      - --filter
+      - --ws-port=9001
+      - --wait-for-db=30s
+      - --api.authn.enable
+    ports:
+      - 9001:9001
+      - 5555:5555 # http message API
+      - 5556:5556 # grpc message API
+    depends_on:
+      - db
+    healthcheck:
+      test: ["CMD", "lsof", "-i", ":5556"]
+      interval: 3s
+      timeout: 10s
+      retries: 5
+  db:
+    image: postgres:13
+    environment:
+      POSTGRES_PASSWORD: xmtp
+  js:
+    restart: always
+    depends_on:
+      wakunode:
+        condition: service_healthy
+    build: ./test

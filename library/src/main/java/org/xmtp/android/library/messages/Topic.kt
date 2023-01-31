@@ -23,6 +23,5 @@ sealed class Topic {
             }
         }
 
-    private fun wrap(value: String): String =
-        "/xmtp/0/$value/proto"
+    private fun wrap(value: String): String = "/xmtp/0/$value/proto"
 }

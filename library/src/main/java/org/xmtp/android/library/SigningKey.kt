@@ -34,15 +34,15 @@ fun SigningKey.createIdentity(identity: PrivateKeyOuterClass.PrivateKey): Author
 
     val signatureData = KeyUtil.getSignatureData(signature.rawData.toByteString().toByteArray())
     val publicKey = Sign.recoverFromSignature(
-        BigInteger(signatureData.v).toInt(),
-        ECDSASignature(BigInteger(1, signatureData.r), BigInteger(signatureData.s)),
+        BigInteger(1, signatureData.v).toInt(),
+        ECDSASignature(BigInteger(1, signatureData.r), BigInteger(1, signatureData.s)),
         digest,
     )
 
-    val authorized = PublicKey.newBuilder().apply {
-        secp256K1Uncompressed = slimKey.secp256K1Uncompressed
-        timestamp = slimKey.timestamp
-        this.signature = signature
+    val authorized = PublicKey.newBuilder().also {
+        it.secp256K1Uncompressed = slimKey.secp256K1Uncompressed
+        it.timestamp = slimKey.timestamp
+        it.signature = signature
     }
     return AuthorizedIdentity(
         address = Keys.getAddress(publicKey),
