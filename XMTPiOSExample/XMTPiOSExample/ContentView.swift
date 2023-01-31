@@ -36,6 +36,15 @@ struct ContentView: View {
 				Text("Error: \(error)").foregroundColor(.red)
 			}
 		}
+		.task {
+			UIApplication.shared.registerForRemoteNotifications()
+
+			do {
+				_ = try await XMTPPush.shared.request()
+			} catch {
+				print("Error requesting push access: \(error)")
+			}
+		}
 		.sheet(isPresented: $isShowingQRCode) {
 			if let qrCodeImage = qrCodeImage {
 				QRCodeSheetView(image: qrCodeImage)
@@ -68,6 +77,9 @@ struct ContentView: View {
 						if accountManager.account.isConnected {
 							let client = try await Client.create(account: accountManager.account)
 
+							let keysData = try client.privateKeyBundle.serializedData()
+							Persistence().saveKeys(keysData)
+
 							self.status = .connected(client)
 							self.isShowingQRCode = false
 							return
@@ -94,6 +106,9 @@ struct ContentView: View {
 			do {
 				let wallet = try PrivateKey.generate()
 				let client = try await Client.create(account: wallet)
+
+				let keysData = try client.privateKeyBundle.serializedData()
+				Persistence().saveKeys(keysData)
 
 				await MainActor.run {
 					self.status = .connected(client)

@@ -16,17 +16,48 @@
 		A628199B292DC826004B9117 /* Preview Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = A628199A292DC826004B9117 /* Preview Assets.xcassets */; };
 		A6557A312941166E00CC4C7B /* MessageCellView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A6557A302941166E00CC4C7B /* MessageCellView.swift */; };
 		A6557A3329411F4F00CC4C7B /* NewConversationView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A6557A3229411F4F00CC4C7B /* NewConversationView.swift */; };
+		A65F0704297B5D4E00C3C76E /* Persistence.swift in Sources */ = {isa = PBXBuildFile; fileRef = A65F0703297B5D4E00C3C76E /* Persistence.swift */; };
+		A65F0707297B5E7600C3C76E /* WalletConnectSwift in Frameworks */ = {isa = PBXBuildFile; productRef = A65F0706297B5E7600C3C76E /* WalletConnectSwift */; };
+		A65F070A297B5E8600C3C76E /* KeychainAccess in Frameworks */ = {isa = PBXBuildFile; productRef = A65F0709297B5E8600C3C76E /* KeychainAccess */; };
 		A67CCEC129355B4B00131F5C /* AccountManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = A67CCEC029355B4B00131F5C /* AccountManager.swift */; };
 		A683860C293EA862006336FF /* MessageListView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A683860B293EA862006336FF /* MessageListView.swift */; };
 		A687810729679BC700042FAB /* Account.swift in Sources */ = {isa = PBXBuildFile; fileRef = A687810629679BC700042FAB /* Account.swift */; };
-		A687810A29679BEB00042FAB /* WalletConnectSwift in Frameworks */ = {isa = PBXBuildFile; productRef = A687810929679BEB00042FAB /* WalletConnectSwift */; };
 		A687810C29679BFC00042FAB /* WalletConnection.swift in Sources */ = {isa = PBXBuildFile; fileRef = A687810B29679BFC00042FAB /* WalletConnection.swift */; };
 		A687810E29679C0D00042FAB /* WalletConnectionMethod.swift in Sources */ = {isa = PBXBuildFile; fileRef = A687810D29679C0D00042FAB /* WalletConnectionMethod.swift */; };
 		A69F33C6292DC992005A5556 /* XMTP in Frameworks */ = {isa = PBXBuildFile; productRef = A69F33C5292DC992005A5556 /* XMTP */; };
 		A69F33CA292DD557005A5556 /* LoggedInView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A69F33C9292DD557005A5556 /* LoggedInView.swift */; };
 		A69F33CC292DD568005A5556 /* QRCodeSheetView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A69F33CB292DD568005A5556 /* QRCodeSheetView.swift */; };
+		A6AE5187297B61AE006FDD0F /* NotificationService.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = A6AE5180297B61AE006FDD0F /* NotificationService.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+		A6AE518E297B6210006FDD0F /* NotificationService.swift in Sources */ = {isa = PBXBuildFile; fileRef = A6AE518C297B6210006FDD0F /* NotificationService.swift */; };
+		A6AE5191297B625F006FDD0F /* XMTP in Frameworks */ = {isa = PBXBuildFile; productRef = A6AE5190297B625F006FDD0F /* XMTP */; };
+		A6AE5192297B6270006FDD0F /* Persistence.swift in Sources */ = {isa = PBXBuildFile; fileRef = A65F0703297B5D4E00C3C76E /* Persistence.swift */; };
+		A6AE5194297B62C8006FDD0F /* KeychainAccess in Frameworks */ = {isa = PBXBuildFile; productRef = A6AE5193297B62C8006FDD0F /* KeychainAccess */; };
 		A6D192D0293A7B97006B49F2 /* ConversationListView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A6D192CF293A7B97006B49F2 /* ConversationListView.swift */; };
 /* End PBXBuildFile section */
+
+/* Begin PBXContainerItemProxy section */
+		A6AE5185297B61AE006FDD0F /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = A6281987292DC825004B9117 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = A6AE517F297B61AE006FDD0F;
+			remoteInfo = NotificationService;
+		};
+/* End PBXContainerItemProxy section */
+
+/* Begin PBXCopyFilesBuildPhase section */
+		A65F0701297B5BCC00C3C76E /* Embed Foundation Extensions */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "";
+			dstSubfolderSpec = 13;
+			files = (
+				A6AE5187297B61AE006FDD0F /* NotificationService.appex in Embed Foundation Extensions */,
+			);
+			name = "Embed Foundation Extensions";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
 		A60FC8BE293AD054001697E3 /* MessageComposerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MessageComposerView.swift; sourceTree = "<group>"; };
@@ -40,6 +71,7 @@
 		A628199A292DC826004B9117 /* Preview Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = "Preview Assets.xcassets"; sourceTree = "<group>"; };
 		A6557A302941166E00CC4C7B /* MessageCellView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MessageCellView.swift; sourceTree = "<group>"; };
 		A6557A3229411F4F00CC4C7B /* NewConversationView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NewConversationView.swift; sourceTree = "<group>"; };
+		A65F0703297B5D4E00C3C76E /* Persistence.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = Persistence.swift; sourceTree = "<group>"; };
 		A67CCEC029355B4B00131F5C /* AccountManager.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = AccountManager.swift; sourceTree = "<group>"; };
 		A683860B293EA862006336FF /* MessageListView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MessageListView.swift; sourceTree = "<group>"; };
 		A687810629679BC700042FAB /* Account.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Account.swift; sourceTree = "<group>"; };
@@ -48,7 +80,9 @@
 		A69F33C7292DD3A9005A5556 /* xmtp-ios */ = {isa = PBXFileReference; lastKnownFileType = wrapper; name = "xmtp-ios"; path = ..; sourceTree = "<group>"; };
 		A69F33C9292DD557005A5556 /* LoggedInView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LoggedInView.swift; sourceTree = "<group>"; };
 		A69F33CB292DD568005A5556 /* QRCodeSheetView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QRCodeSheetView.swift; sourceTree = "<group>"; };
-		A6D192CD293A792D006B49F2 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
+		A6AE5180297B61AE006FDD0F /* NotificationService.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = NotificationService.appex; sourceTree = BUILT_PRODUCTS_DIR; };
+		A6AE518B297B61C8006FDD0F /* NotificationService.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = NotificationService.entitlements; sourceTree = "<group>"; };
+		A6AE518C297B6210006FDD0F /* NotificationService.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = NotificationService.swift; sourceTree = "<group>"; };
 		A6D192CF293A7B97006B49F2 /* ConversationListView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConversationListView.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
@@ -57,8 +91,18 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				A687810A29679BEB00042FAB /* WalletConnectSwift in Frameworks */,
+				A65F0707297B5E7600C3C76E /* WalletConnectSwift in Frameworks */,
 				A69F33C6292DC992005A5556 /* XMTP in Frameworks */,
+				A65F070A297B5E8600C3C76E /* KeychainAccess in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		A6AE517D297B61AE006FDD0F /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				A6AE5194297B62C8006FDD0F /* KeychainAccess in Frameworks */,
+				A6AE5191297B625F006FDD0F /* XMTP in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -70,6 +114,7 @@
 			children = (
 				A69F33C7292DD3A9005A5556 /* xmtp-ios */,
 				A6281991292DC825004B9117 /* XMTPiOSExample */,
+				A6AE5181297B61AE006FDD0F /* NotificationService */,
 				A6281990292DC825004B9117 /* Products */,
 				A69F33C4292DC992005A5556 /* Frameworks */,
 			);
@@ -79,6 +124,7 @@
 			isa = PBXGroup;
 			children = (
 				A628198F292DC825004B9117 /* XMTPiOSExample.app */,
+				A6AE5180297B61AE006FDD0F /* NotificationService.appex */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -86,8 +132,8 @@
 		A6281991292DC825004B9117 /* XMTPiOSExample */ = {
 			isa = PBXGroup;
 			children = (
+				A65F0703297B5D4E00C3C76E /* Persistence.swift */,
 				A687810529679B5B00042FAB /* Account */,
-				A6D192CD293A792D006B49F2 /* Info.plist */,
 				A69F33C8292DD54C005A5556 /* Views */,
 				A6281992292DC825004B9117 /* XMTPiOSExampleApp.swift */,
 				A6281994292DC825004B9117 /* ContentView.swift */,
@@ -140,6 +186,15 @@
 			path = Views;
 			sourceTree = "<group>";
 		};
+		A6AE5181297B61AE006FDD0F /* NotificationService */ = {
+			isa = PBXGroup;
+			children = (
+				A6AE518C297B6210006FDD0F /* NotificationService.swift */,
+				A6AE518B297B61C8006FDD0F /* NotificationService.entitlements */,
+			);
+			path = NotificationService;
+			sourceTree = "<group>";
+		};
 /* End PBXGroup section */
 
 /* Begin PBXNativeTarget section */
@@ -150,19 +205,43 @@
 				A628198B292DC825004B9117 /* Sources */,
 				A628198C292DC825004B9117 /* Frameworks */,
 				A628198D292DC825004B9117 /* Resources */,
+				A65F0701297B5BCC00C3C76E /* Embed Foundation Extensions */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				A6AE5186297B61AE006FDD0F /* PBXTargetDependency */,
+			);
+			name = XMTPiOSExample;
+			packageProductDependencies = (
+				A69F33C5292DC992005A5556 /* XMTP */,
+				A65F0706297B5E7600C3C76E /* WalletConnectSwift */,
+				A65F0709297B5E8600C3C76E /* KeychainAccess */,
+			);
+			productName = XMTPiOSExample;
+			productReference = A628198F292DC825004B9117 /* XMTPiOSExample.app */;
+			productType = "com.apple.product-type.application";
+		};
+		A6AE517F297B61AE006FDD0F /* NotificationService */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = A6AE5188297B61AE006FDD0F /* Build configuration list for PBXNativeTarget "NotificationService" */;
+			buildPhases = (
+				A6AE517C297B61AE006FDD0F /* Sources */,
+				A6AE517D297B61AE006FDD0F /* Frameworks */,
+				A6AE517E297B61AE006FDD0F /* Resources */,
 			);
 			buildRules = (
 			);
 			dependencies = (
 			);
-			name = XMTPiOSExample;
+			name = NotificationService;
 			packageProductDependencies = (
-				A69F33C5292DC992005A5556 /* XMTP */,
-				A687810929679BEB00042FAB /* WalletConnectSwift */,
+				A6AE5190297B625F006FDD0F /* XMTP */,
+				A6AE5193297B62C8006FDD0F /* KeychainAccess */,
 			);
-			productName = XMTPiOSExample;
-			productReference = A628198F292DC825004B9117 /* XMTPiOSExample.app */;
-			productType = "com.apple.product-type.application";
+			productName = NotificationService;
+			productReference = A6AE5180297B61AE006FDD0F /* NotificationService.appex */;
+			productType = "com.apple.product-type.app-extension";
 		};
 /* End PBXNativeTarget section */
 
@@ -177,6 +256,9 @@
 					A628198E292DC825004B9117 = {
 						CreatedOnToolsVersion = 14.1;
 					};
+					A6AE517F297B61AE006FDD0F = {
+						CreatedOnToolsVersion = 14.1;
+					};
 				};
 			};
 			buildConfigurationList = A628198A292DC825004B9117 /* Build configuration list for PBXProject "XMTPiOSExample" */;
@@ -189,13 +271,15 @@
 			);
 			mainGroup = A6281986292DC825004B9117;
 			packageReferences = (
-				A687810829679BEB00042FAB /* XCRemoteSwiftPackageReference "WalletConnectSwift" */,
+				A65F0705297B5E7500C3C76E /* XCRemoteSwiftPackageReference "WalletConnectSwift" */,
+				A65F0708297B5E8600C3C76E /* XCRemoteSwiftPackageReference "KeychainAccess" */,
 			);
 			productRefGroup = A6281990292DC825004B9117 /* Products */;
 			projectDirPath = "";
 			projectRoot = "";
 			targets = (
 				A628198E292DC825004B9117 /* XMTPiOSExample */,
+				A6AE517F297B61AE006FDD0F /* NotificationService */,
 			);
 		};
 /* End PBXProject section */
@@ -210,6 +294,13 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		A6AE517E297B61AE006FDD0F /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXResourcesBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
@@ -218,6 +309,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				A6557A3329411F4F00CC4C7B /* NewConversationView.swift in Sources */,
+				A65F0704297B5D4E00C3C76E /* Persistence.swift in Sources */,
 				A687810729679BC700042FAB /* Account.swift in Sources */,
 				A6557A312941166E00CC4C7B /* MessageCellView.swift in Sources */,
 				A60FC8C1293AD171001697E3 /* ConversationDetailView.swift in Sources */,
@@ -235,7 +327,24 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		A6AE517C297B61AE006FDD0F /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				A6AE518E297B6210006FDD0F /* NotificationService.swift in Sources */,
+				A6AE5192297B6270006FDD0F /* Persistence.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXSourcesBuildPhase section */
+
+/* Begin PBXTargetDependency section */
+		A6AE5186297B61AE006FDD0F /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = A6AE517F297B61AE006FDD0F /* NotificationService */;
+			targetProxy = A6AE5185297B61AE006FDD0F /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
 
 /* Begin XCBuildConfiguration section */
 		A628199C292DC826004B9117 /* Debug */ = {
@@ -350,13 +459,14 @@
 		A628199F292DC826004B9117 /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
+				ALWAYS_EMBED_SWIFT_STANDARD_LIBRARIES = YES;
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_ENTITLEMENTS = XMTPiOSExample/XMTPiOSExample.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_ASSET_PATHS = "\"XMTPiOSExample/Preview Content\"";
-				DEVELOPMENT_TEAM = Z773AM52SJ;
+				DEVELOPMENT_TEAM = "";
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = XMTPiOSExample/Info.plist;
@@ -375,7 +485,7 @@
 				"LD_RUNPATH_SEARCH_PATHS[sdk=macosx*]" = "@executable_path/../Frameworks";
 				MACOSX_DEPLOYMENT_TARGET = 12.5;
 				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = com.xmtp.XMTPiOSExample;
+				PRODUCT_BUNDLE_IDENTIFIER = com.xmtp.XMTPiOSExampletest;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SDKROOT = auto;
 				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator macosx";
@@ -388,6 +498,7 @@
 		A62819A0292DC826004B9117 /* Release */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
+				ALWAYS_EMBED_SWIFT_STANDARD_LIBRARIES = YES;
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_ENTITLEMENTS = XMTPiOSExample/XMTPiOSExample.entitlements;
@@ -423,6 +534,63 @@
 			};
 			name = Release;
 		};
+		A6AE5189297B61AE006FDD0F /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_ENTITLEMENTS = NotificationService/NotificationService.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = "";
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = NotificationService/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = NotificationService;
+				INFOPLIST_KEY_NSHumanReadableCopyright = "";
+				IPHONEOS_DEPLOYMENT_TARGET = 16.1;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.xmtp.XMTPiOSExampletest.NotificationService;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SKIP_INSTALL = YES;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Debug;
+		};
+		A6AE518A297B61AE006FDD0F /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_ENTITLEMENTS = NotificationService/NotificationService.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = "";
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = NotificationService/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = NotificationService;
+				INFOPLIST_KEY_NSHumanReadableCopyright = "";
+				IPHONEOS_DEPLOYMENT_TARGET = 16.1;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.xmtp.XMTPiOSExampletest.NotificationService;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SKIP_INSTALL = YES;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				VALIDATE_PRODUCT = YES;
+			};
+			name = Release;
+		};
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
@@ -444,28 +612,59 @@
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
 		};
+		A6AE5188297B61AE006FDD0F /* Build configuration list for PBXNativeTarget "NotificationService" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				A6AE5189297B61AE006FDD0F /* Debug */,
+				A6AE518A297B61AE006FDD0F /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
 /* End XCConfigurationList section */
 
 /* Begin XCRemoteSwiftPackageReference section */
-		A687810829679BEB00042FAB /* XCRemoteSwiftPackageReference "WalletConnectSwift" */ = {
+		A65F0705297B5E7500C3C76E /* XCRemoteSwiftPackageReference "WalletConnectSwift" */ = {
 			isa = XCRemoteSwiftPackageReference;
 			repositoryURL = "https://github.com/WalletConnect/WalletConnectSwift";
 			requirement = {
-				kind = upToNextMajorVersion;
-				minimumVersion = 1.0.0;
+				branch = master;
+				kind = branch;
+			};
+		};
+		A65F0708297B5E8600C3C76E /* XCRemoteSwiftPackageReference "KeychainAccess" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/kishikawakatsumi/KeychainAccess";
+			requirement = {
+				branch = master;
+				kind = branch;
 			};
 		};
 /* End XCRemoteSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
-		A687810929679BEB00042FAB /* WalletConnectSwift */ = {
+		A65F0706297B5E7600C3C76E /* WalletConnectSwift */ = {
 			isa = XCSwiftPackageProductDependency;
-			package = A687810829679BEB00042FAB /* XCRemoteSwiftPackageReference "WalletConnectSwift" */;
+			package = A65F0705297B5E7500C3C76E /* XCRemoteSwiftPackageReference "WalletConnectSwift" */;
 			productName = WalletConnectSwift;
+		};
+		A65F0709297B5E8600C3C76E /* KeychainAccess */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = A65F0708297B5E8600C3C76E /* XCRemoteSwiftPackageReference "KeychainAccess" */;
+			productName = KeychainAccess;
 		};
 		A69F33C5292DC992005A5556 /* XMTP */ = {
 			isa = XCSwiftPackageProductDependency;
 			productName = XMTP;
+		};
+		A6AE5190297B625F006FDD0F /* XMTP */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = XMTP;
+		};
+		A6AE5193297B62C8006FDD0F /* KeychainAccess */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = A65F0708297B5E8600C3C76E /* XCRemoteSwiftPackageReference "KeychainAccess" */;
+			productName = KeychainAccess;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};

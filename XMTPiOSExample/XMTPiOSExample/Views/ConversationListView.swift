@@ -37,7 +37,10 @@ struct ConversationListView: View {
 			do {
 				for try await conversation in client.conversations.stream() {
 					conversations.insert(conversation, at: 0)
+
+					await add(conversations: [conversation])
 				}
+
 			} catch {
 				print("Error streaming conversations: \(error)")
 			}
@@ -66,8 +69,27 @@ struct ConversationListView: View {
 			await MainActor.run {
 				self.conversations = conversations
 			}
+
+			await add(conversations: conversations)
 		} catch {
 			print("Error loading conversations: \(error)")
+		}
+	}
+
+	func add(conversations: [Conversation]) async {
+		// Ensure we're subscribed to push notifications on these conversations
+		do {
+			try await XMTPPush.shared.subscribe(topics: conversations.map(\.topic))
+		} catch {
+			print("Error subscribing: \(error)")
+		}
+
+		for conversation in conversations {
+			do {
+				try Persistence().save(conversation: conversation)
+			} catch {
+				print("Error saving \(conversation.topic): \(error)")
+			}
 		}
 	}
 }

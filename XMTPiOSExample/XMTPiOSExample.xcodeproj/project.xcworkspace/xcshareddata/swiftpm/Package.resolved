@@ -10,6 +10,15 @@
       }
     },
     {
+      "identity" : "connect-swift",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/bufbuild/connect-swift",
+      "state" : {
+        "revision" : "2dd21eec7ed7dfa657778a19abcbf4af4f450385",
+        "version" : "0.2.0"
+      }
+    },
+    {
       "identity" : "cryptoswift",
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/krzyzanowskim/CryptoSwift",
@@ -43,6 +52,15 @@
       "state" : {
         "revision" : "7a7f17761c76a932662ab77028a4329f67d645a4",
         "version" : "5.2.0"
+      }
+    },
+    {
+      "identity" : "keychainaccess",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/kishikawakatsumi/KeychainAccess",
+      "state" : {
+        "branch" : "master",
+        "revision" : "6299daec1d74be12164fec090faf9ed14d0da9d6"
       }
     },
     {
@@ -149,8 +167,8 @@
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/WalletConnect/WalletConnectSwift",
       "state" : {
-        "revision" : "e0bbfd16d5c54a7aa7e316956d765399c6332fa2",
-        "version" : "1.7.0"
+        "branch" : "master",
+        "revision" : "9e4dfba34fb35336fd5da551285d7986ff536cb8"
       }
     },
     {
