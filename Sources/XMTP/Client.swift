@@ -172,6 +172,55 @@ public class Client {
 		privateKeyBundleV1.toV2()
 	}
 
+	public func importConversation(from conversationData: Data) throws -> Conversation? {
+		let jsonDecoder = JSONDecoder()
+
+		do {
+			let v2Export = try jsonDecoder.decode(ConversationV2Export.self, from: conversationData)
+			return try importV2Conversation(export: v2Export)
+		} catch {
+			do {
+				let v1Export = try jsonDecoder.decode(ConversationV1Export.self, from: conversationData)
+				return try importV1Conversation(export: v1Export)
+			} catch {
+				throw ConversationImportError.invalidData
+			}
+		}
+	}
+
+	func importV2Conversation(export: ConversationV2Export) throws -> Conversation {
+		guard let keyMaterial = Data(base64Encoded: Data(export.keyMaterial.utf8)) else {
+			throw ConversationImportError.invalidData
+		}
+
+		return .v2(ConversationV2(
+			topic: export.topic,
+			keyMaterial: keyMaterial,
+			context: InvitationV1.Context(
+				conversationID: export.context?.conversationId ?? "",
+				metadata: export.context?.metadata ?? [:]
+			),
+			peerAddress: export.peerAddress,
+			client: self,
+			header: SealedInvitationHeaderV1()
+		))
+	}
+
+	func importV1Conversation(export: ConversationV1Export) throws -> Conversation {
+		let formatter = ISO8601DateFormatter()
+		formatter.formatOptions.insert(.withFractionalSeconds)
+
+		guard let sentAt = formatter.date(from: export.createdAt) else {
+			throw ConversationImportError.invalidData
+		}
+
+		return .v1(ConversationV1(
+			client: self,
+			peerAddress: export.peerAddress,
+			sentAt: sentAt
+		))
+	}
+
 	func ensureUserContactPublished() async throws {
 		if let contact = try await getUserContact(peerAddress: address),
 		   case .v2 = contact.version,

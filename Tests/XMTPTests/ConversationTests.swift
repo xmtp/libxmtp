@@ -462,6 +462,42 @@ class ConversationTests: XCTestCase {
 		XCTAssertEqual("hey alice 2", messages2[0].body)
 	}
 
+	func testImportV1ConversationFromJS() async throws {
+		let jsExportJSONData = Data("""
+		{
+				"version": "v1",
+				"peerAddress": "0x5DAc8E2B64b8523C11AF3e5A2E087c2EA9003f14",
+				"createdAt": "2022-09-20T09:32:50.329Z"
+		}
+		""".utf8)
+
+		let conversation = try aliceClient.importConversation(from: jsExportJSONData)
+
+		XCTAssertEqual(conversation?.peerAddress, "0x5DAc8E2B64b8523C11AF3e5A2E087c2EA9003f14")
+	}
+
+	func testImportV2ConversationFromJS() async throws {
+		let jsExportJSONData = Data("""
+		{"version":"v2","topic":"/xmtp/0/m-2SkdN5Qa0ZmiFI5t3RFbfwIS-OLv5jusqndeenTLvNg/proto","keyMaterial":"ATA1L0O2aTxHmskmlGKCudqfGqwA1H+bad3W/GpGOr8=","peerAddress":"0x436D906d1339fC4E951769b1699051f020373D04","createdAt":"2023-01-26T22:58:45.068Z","context":{"conversationId":"pat/messageid","metadata":{}}}
+		""".utf8)
+
+		let conversation = try aliceClient.importConversation(from: jsExportJSONData)
+		XCTAssertEqual(conversation?.peerAddress, "0x436D906d1339fC4E951769b1699051f020373D04")
+	}
+
+	func testImportV2ConversationWithNoContextFromJS() async throws {
+		let jsExportJSONData = Data("""
+		{"version":"v2","topic":"/xmtp/0/m-2SkdN5Qa0ZmiFI5t3RFbfwIS-OLv5jusqndeenTLvNg/proto","keyMaterial":"ATA1L0O2aTxHmskmlGKCudqfGqwA1H+bad3W/GpGOr8=","peerAddress":"0x436D906d1339fC4E951769b1699051f020373D04","createdAt":"2023-01-26T22:58:45.068Z"}
+		""".utf8)
+
+		guard case let .v2(conversation) = try aliceClient.importConversation(from: jsExportJSONData) else {
+			XCTFail("did not get a v2 conversation")
+			return
+		}
+
+		XCTAssertEqual(conversation.peerAddress, "0x436D906d1339fC4E951769b1699051f020373D04")
+	}
+
 	func testV1ConversationCodable() async throws {
 		// Overwrite contact as legacy
 		try await publishLegacyContact(client: bobClient)
