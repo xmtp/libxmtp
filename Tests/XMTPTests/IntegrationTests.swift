@@ -477,4 +477,25 @@ final class IntegrationTests: XCTestCase {
 		// Check that we can send as well
 		try await convo.send(text: "hello deflate from swift again", options: .init(compression: .deflate))
 	}
+
+	func testCanLoadAllConversations() async throws {
+		throw XCTSkip("integration only (requires dev network)")
+
+		let keyBytes: [UInt8] = [
+			105, 207, 193, 11, 240, 115, 115, 204,
+			117, 134, 201, 10, 56, 59, 52, 90,
+			229, 103, 15, 66, 20, 113, 118, 137,
+			44, 62, 130, 90, 30, 158, 182, 178,
+		]
+
+		var key = PrivateKey()
+		key.secp256K1.bytes = Data(keyBytes)
+		key.publicKey.secp256K1Uncompressed.bytes = try KeyUtil.generatePublicKey(from: Data(keyBytes))
+
+		let client = try await XMTP.Client.create(account: key)
+
+		let conversations = try await client.conversations.list()
+
+		XCTAssertEqual(200, conversations.count)
+	}
 }

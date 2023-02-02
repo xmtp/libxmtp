@@ -5,8 +5,8 @@
 //  Created by Pat Nakajima on 11/27/22.
 //
 
-import XCTest
 import CryptoKit
+import XCTest
 @testable import XMTP
 
 // TODO: Make these match ConversationContainer
@@ -121,10 +121,10 @@ class MessageTests: XCTestCase {
 
 		let key = try PrivateKey.with { key in
 			key.secp256K1.bytes = Data([
-				80,  84,  15, 126,  14, 105, 216,  8,
-				61, 147, 153, 232, 103,  69, 219, 13,
-				99, 118,  68,  56, 160,  94,  58, 22,
-			 140, 247, 221, 172,  14, 188,  52, 88
+				80, 84, 15, 126, 14, 105, 216, 8,
+				61, 147, 153, 232, 103, 69, 219, 13,
+				99, 118, 68, 56, 160, 94, 58, 22,
+				140, 247, 221, 172, 14, 188, 52, 88,
 			])
 
 			key.publicKey.secp256K1Uncompressed.bytes = try KeyUtil.generatePublicKey(from: key.secp256K1.bytes)

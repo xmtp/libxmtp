@@ -8,6 +8,7 @@
 import Combine
 import XCTest
 @testable import XMTP
+import XMTPProto
 
 struct FakeWallet: SigningKey {
 	static func generate() throws -> FakeWallet {
@@ -50,6 +51,10 @@ class FakeStreamHolder: ObservableObject {
 
 @available(iOS 15, *)
 class FakeApiClient: ApiClient {
+	func envelopes(topics: [String], pagination: XMTP.Pagination?) async throws -> [XMTP.Envelope] {
+		try await query(topics: topics, pagination: pagination).envelopes
+	}
+
 	var environment: XMTPEnvironment
 	var authToken: String = ""
 	private var responses: [String: [Envelope]] = [:]
@@ -122,7 +127,7 @@ class FakeApiClient: ApiClient {
 		authToken = token
 	}
 
-	func query(topics: [String], pagination: Pagination? = nil) async throws -> XMTP.QueryResponse {
+	func query(topics: [String], pagination: Pagination? = nil, cursor _: Xmtp_MessageApi_V1_Cursor? = nil) async throws -> XMTP.QueryResponse {
 		if forbiddingQueries {
 			XCTFail("Attempted to query \(topics)")
 			throw FakeApiClientError.queryAssertionFailure
@@ -169,7 +174,7 @@ class FakeApiClient: ApiClient {
 	}
 
 	func query(topics: [XMTP.Topic], pagination: Pagination? = nil) async throws -> XMTP.QueryResponse {
-		return try await query(topics: topics.map(\.description), pagination: pagination)
+		return try await query(topics: topics.map(\.description), pagination: pagination, cursor: nil)
 	}
 
 	func publish(envelopes: [XMTP.Envelope]) async throws -> XMTP.PublishResponse {

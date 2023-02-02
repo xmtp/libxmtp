@@ -83,7 +83,8 @@ public struct XMTPPush {
 			config: ProtocolClientConfig(
 				host: pushServer,
 				networkProtocol: .connect,
-				codec: ProtoCodec())
+				codec: ProtoCodec()
+			)
 		)
 
 		return Notifications_V1_NotificationsClient(client: protocolClient)

@@ -14,8 +14,8 @@
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/bufbuild/connect-swift",
       "state" : {
-        "revision" : "2dd21eec7ed7dfa657778a19abcbf4af4f450385",
-        "version" : "0.2.0"
+        "revision" : "6f5afc57f44a3ed15b9a01381ce73f84d15e43db",
+        "version" : "0.3.0"
       }
     },
     {

@@ -5,8 +5,8 @@
 //  Created by Pat Nakajima on 11/28/22.
 //
 
-import Foundation
 import CryptoKit
+import Foundation
 
 // Save the non-client parts for a v1 conversation
 public struct ConversationV1Container: Codable {
