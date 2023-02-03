@@ -120,3 +120,7 @@ dist
 .yarn/build-state.yml
 .yarn/install-state.gz
 .pnp.*
+
+# Swap files for vim
+*.swp
+*.swo

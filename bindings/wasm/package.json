@@ -3,7 +3,7 @@
   "version": "0.0.1",
   "author": "jazzz <jazz@xmtp.com",
   "license": "MIT",
-  "description": "Node.js package for the core XMTP utlities library",
+  "description": "Node.js package for the core XMTP utilities library",
   "sideEffects": false,
   "type": "module",
   "main": "./dist/umd/index.js",
