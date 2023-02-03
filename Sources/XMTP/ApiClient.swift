@@ -90,7 +90,7 @@ class GRPCApiClient: ApiClient {
 			envelopes.append(contentsOf: response.envelopes)
 
 			cursor = response.pagingInfo.cursor
-			hasNextPage = !response.envelopes.isEmpty
+			hasNextPage = !response.envelopes.isEmpty && response.pagingInfo.hasCursor
 		}
 
 		return envelopes
