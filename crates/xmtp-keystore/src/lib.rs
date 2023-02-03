@@ -1,12 +1,20 @@
 use ethers::core::rand::thread_rng;
 use ethers::signers::{coins_bip39::{Mnemonic,English}};
 
-pub struct Keystore {}
+mod proto;
+
+pub struct Keystore {
+    // Optional privateIdentityKey
+    privateIdentityKey: Option<proto::private_key::SignedPrivateKey>,
+}
 
 impl Keystore {
     // new() is a constructor for the Keystore struct
     pub fn new() -> Self {
-        Keystore {}
+        Keystore {
+            // Empty option for privateIdentityKey
+            privateIdentityKey: None,
+        }
     }
 
     pub fn generate_mnemonic(&self) -> String {
