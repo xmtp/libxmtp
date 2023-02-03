@@ -1,5 +1,5 @@
 import { expect, it } from "vitest";
- import { XmtpApi } from "..";
+import { XmtpApi } from "..";
 
 it("can instantiate", async () => {
   const a = await XmtpApi.initialize();
