@@ -1,8 +1,6 @@
 use ethers::core::rand::thread_rng;
 use ethers::signers::{coins_bip39::{Mnemonic,English}};
 
-mod proto;
-
 pub struct Keystore {}
 
 impl Keystore {
