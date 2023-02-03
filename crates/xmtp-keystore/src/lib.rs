@@ -1,9 +1,5 @@
 use ethers::core::rand::thread_rng;
-use ethers::signers::{LocalWallet, Signer, coins_bip39::{Mnemonic,English}};
-
-// base64 decoding library
-use base64::decode;
-use hex::encode;
+use ethers::signers::{coins_bip39::{Mnemonic,English}};
 
 mod proto;
 
@@ -16,7 +12,7 @@ impl Keystore {
     }
 
     pub fn generate_mnemonic(&self) -> String {
-		let mut rng = rand::thread_rng();
+		let mut rng = thread_rng();
 		let mnemonic = Mnemonic::<English>::new_with_count(&mut rng, 12).unwrap();
 		let phrase = mnemonic.to_phrase();
 		// split the phrase by spaces

@@ -1,4 +1,4 @@
-import init, { InitInput, add, generate_mnemonic } from "./pkg/libxmtp.js";
+import init, { InitInput, generate_mnemonic } from "./pkg/libxmtp.js";
 
 export interface PackageLoadOptions {
   /**
@@ -16,10 +16,6 @@ let initialized: Promise<void> | undefined = undefined;
 
 export class XmtpApi {
   private constructor() {}
-
-  public add(a: number, b: number): number {
-    return add(a, b);
-  }
 
   public generateMnemonic(): string {
     return generate_mnemonic();

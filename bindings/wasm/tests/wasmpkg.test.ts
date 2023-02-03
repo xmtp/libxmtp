@@ -10,7 +10,7 @@ it("can instantiate", async () => {
   expect(b).toBeDefined();
 });
 
-it("can generate key", async () => {
+it("can generate mnemonic", async () => {
   // Make sure we can call it again
   const b = await XmtpApi.initialize();
   expect(b).toBeDefined();
