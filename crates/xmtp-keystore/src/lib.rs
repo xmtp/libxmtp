@@ -7,9 +7,14 @@ use hex::encode;
 
 mod proto;
 
-pub struct XMTP {}
+pub struct Keystore {}
 
-impl XMTP {
+impl Keystore {
+    // new() is a constructor for the Keystore struct
+    pub fn new() -> Self {
+        Keystore {}
+    }
+
     pub fn generate_mnemonic(&self) -> String {
 		let mut rng = rand::thread_rng();
 		let mnemonic = Mnemonic::<English>::new_with_count(&mut rng, 12).unwrap();

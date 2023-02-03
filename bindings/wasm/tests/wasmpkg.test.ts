@@ -1,25 +1,21 @@
 import { expect, it } from "vitest";
-// import { Wasmpkg } from "..";
+ import { XmtpApi } from "..";
 
-// it("can instantiate parser", async () => {
-//   const a = await Wasmpkg.initialize();
-//   expect(a).toBeDefined();
+it("can instantiate", async () => {
+  const a = await XmtpApi.initialize();
+  expect(a).toBeDefined();
 
-//   // Make sure we can call it again
-//   const b = await Wasmpkg.initialize();
-//   expect(b).toBeDefined();
-// });
+  // Make sure we can call it again
+  const b = await XmtpApi.initialize();
+  expect(b).toBeDefined();
+});
 
-// it("should handle the simple case", async () => {
-//   // Make sure we can call it again
-//   const b = await Wasmpkg.initialize();
-//   expect(b).toBeDefined();
-//   expect(await b.add(5, 3)).toEqual(8);
-// });
-
-// it("should handle the simple case", async () => {
-//   // Make sure we can call it again
-//   const b = await Wasmpkg.initialize();
-//   expect(b).toBeDefined();
-//   expect(await b.add(-4, 0)).toEqual(-4);
-// });
+it("can generate key", async () => {
+  // Make sure we can call it again
+  const b = await XmtpApi.initialize();
+  expect(b).toBeDefined();
+  // Generate a key
+  const key = await b.generateMnemonic();
+  // Make sure it splits to 12 words
+  expect(key.split(" ").length).toBe(12);
+});
