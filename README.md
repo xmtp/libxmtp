@@ -3,6 +3,13 @@
 
 Libxmtp is a platform agnostic implementation of the core cryptographic functionality to be used in XMTP sdk's
 
-## QuickStart
+## Structure
 
-Run `npm run build` to build the rust library and Node.js bindings.
+Top-level
+- libxmtp - the pure Rust implementation of XMTP APIs, agnostic to any per-language or per-platform binding
+- bindings/wasm - depends on libxmtp to generate a WASM library and bindings
+
+## WASM QuickStart
+
+- cd `bindings/wasm`
+- Run `npm run build` to build the rust crate and Node.js bindings.
