@@ -2,9 +2,9 @@ use ethers::core::rand::thread_rng;
 use ethers::signers::{coins_bip39::{Mnemonic,English}};
 
 // use aes-gcm from ring crate
-use ring::aead::{Nonce, AES_256_GCM, UnboundKey};
+use ring::aead::{AES_256_GCM};
 // use hkdf from ring
-use ring::hkdf::{Salt, HKDF_SHA256, Prk, Okm};
+use ring::hkdf::{Salt, HKDF_SHA256};
 
 use protobuf;
 
@@ -12,7 +12,7 @@ mod proto;
 
 pub struct Keystore {
     // Optional privateIdentityKey
-    privateIdentityKey: Option<proto::private_key::SignedPrivateKey>,
+    private_identity_key: Option<proto::private_key::SignedPrivateKey>,
 }
 
 impl Keystore {
@@ -20,7 +20,7 @@ impl Keystore {
     pub fn new() -> Self {
         Keystore {
             // Empty option for privateIdentityKey
-            privateIdentityKey: None,
+            private_identity_key: None,
         }
     }
 
@@ -49,7 +49,6 @@ impl Keystore {
         let prk = salt.extract(secret);
         let okm_result = prk.expand(&[], &AES_256_GCM);
         if let Ok(okm) = okm_result {
-            let mut key = [0u8; 32];
             // Fill the key array with the key from the okm
             let mut key = [0u8; 32];
             let fill_result = okm.fill(&mut key);
@@ -65,84 +64,15 @@ impl Keystore {
         }
     }
 
-
-//    /**
-//     * Mirrors this javascript implementation:
-//     * // symmetric authenticated encryption of plaintext using the secret;
-//     * // additionalData is used to protect un-encrypted parts of the message (header)
-//     * // in the authentication scope of the encryption.
-//     * export async function encrypt(
-//     *   plain: Uint8Array,
-//     *   secret: Uint8Array,
-//     *   additionalData?: Uint8Array
-//     * ): Promise<Ciphertext> {
-//     *   const salt = crypto.getRandomValues(new Uint8Array(KDFSaltSize))
-//     *   const nonce = crypto.getRandomValues(new Uint8Array(AESGCMNonceSize))
-//     *   const key = await hkdf(secret, salt)
-//     *   const encrypted: ArrayBuffer = await crypto.subtle.encrypt(
-//     *     aesGcmParams(nonce, additionalData),
-//     *     key,
-//     *     plain
-//     *   )
-//     *   return new Ciphertext({
-//     *     aes256GcmHkdfSha256: {
-//     *       payload: new Uint8Array(encrypted),
-//     *       hkdfSalt: salt,
-//     *       gcmNonce: nonce,
-//     *     },
-//     *   })
-//     * }
-//     */
-//    fn encrypt(plain: &[u8], secret: &[u8], additionalData: Option<&[u8]>) -> proto::ciphertext::Ciphertext {
-//        // Generate a random salt
-//        let mut salt = [0u8; 16];
-//        thread_rng().fill_bytes(&mut salt);
-//
-//        // Generate a random nonce
-//        let mut nonce = [0u8; 12];
-//        thread_rng().fill_bytes(&mut nonce);
-//
-//        // Generate a key from the secret and salt
-//        let key = hkdf(secret, salt);
-//
-//        // Encrypt the plain text
-//        let encrypted = crypto::aes_gcm_encrypt(plain, key, nonce, additionalData);
-//
-//        // Return the ciphertext
-//        proto::Ciphertext {
-//            aes256GcmHkdfSha256: Some(proto::Aes256GcmHkdfSha256 {
-//                payload: encrypted,
-//                hkdfSalt: salt,
-//                gcmNonce: nonce,
-//            }),
-//        }
-//    }
-
     // Set private identity key from protobuf bytes
     pub fn set_private_identity_key(&mut self, private_identity_key: &[u8]) {
         // Deserialize protobuf bytes into a SignedPrivateKey struct
-        let privateKeyResult: protobuf::Result<proto::private_key::SignedPrivateKey> = protobuf::Message::parse_from_bytes(private_identity_key);
+        let private_key_result: protobuf::Result<proto::private_key::SignedPrivateKey> = protobuf::Message::parse_from_bytes(private_identity_key);
         // If the deserialization was successful, set the privateIdentityKey field
-        if privateKeyResult.is_ok() {
-            self.privateIdentityKey = Some(privateKeyResult.unwrap());
+        if private_key_result.is_ok() {
+            self.private_identity_key = Some(private_key_result.unwrap());
         }
     }
-
-//    // Takes a content_topic, message bytes and header bytes and produces proto::ciphertext::Ciphertext
-//    pub fn encrypt_v2(&self, content_topic: &[u8], message: &[u8], header: &[u8]) -> proto::ciphertext::Ciphertext {
-//        // Create a new Ciphertext struct
-//        let mut ciphertext = proto::ciphertext::Ciphertext::new();
-//        // Set the version field to 2
-//        ciphertext.set_version(2);
-//        // Set the content topic field to the content topic bytes
-//        ciphertext.set_contentTopic(content_topic.to_vec());
-//        // Set the header field to the header bytes
-//        ciphertext.set_header(header.to_vec());
-//        // Set the body field to the message bytes
-//        ciphertext.set_body(message.to_vec());
-//        // Return the ciphertext
-//        ciphertext
-//    }
 
     pub fn generate_mnemonic(&self) -> String {
 		let mut rng = thread_rng();
@@ -160,14 +90,14 @@ mod tests {
 
     #[test]
     fn generate_mnemonic_works() {
-        let x = Keystore { privateIdentityKey: None };
+        let x = Keystore { private_identity_key: None };
         let mnemonic = x.generate_mnemonic();
         assert_eq!(mnemonic.split(" ").count(), 12);
     }
 
     #[test]
     fn test_hkdf_simple() {
-        // Test Vectors
+        // Test Vectors generated with xmtp-js
         // secret aff491a0fe153a4ac86065b4b4f6953a4cb33477aa233facb94d5fb88c82778c39167f453aa0690b5358abe9e027ddca5a6185bce3699d8b2ac7efa30510a7991b
         // salt e3412c112c28353088c99bd5c7350c81b1bc879b4d08ea1192ec3c03202ff337
         // derived 0159d9ad511263c3754a8e2045fadc657c0016b1801720e67bbeb2661c60f176
@@ -177,7 +107,6 @@ mod tests {
         
         // Test hkdf with hardcoded test vectors
         // Test 1
-        let x = Keystore { privateIdentityKey: None };
         let secret1 = hex::decode("aff491a0fe153a4ac86065b4b4f6953a4cb33477aa233facb94d5fb88c82778c39167f453aa0690b5358abe9e027ddca5a6185bce3699d8b2ac7efa30510a7991b").unwrap();
         let salt1 = hex::decode("e3412c112c28353088c99bd5c7350c81b1bc879b4d08ea1192ec3c03202ff337").unwrap();
         let expected1 = hex::decode("0159d9ad511263c3754a8e2045fadc657c0016b1801720e67bbeb2661c60f176").unwrap();
@@ -198,7 +127,6 @@ mod tests {
 
     #[test]
     fn test_hkdf_error() {
-        let x = Keystore { privateIdentityKey: None };
         let secret1 = hex::decode("bff491a0fe153a4ac86065b4b4f6953a4cb33477aa233facb94d5fb88c82778c39167f453aa0690b5358abe9e027ddca5a6185bce3699d8b2ac7efa30510a7991b").unwrap();
         let salt1 = hex::decode("e3412c112c28353088c99bd5c7350c81b1bc879b4d08ea1192ec3c03202ff337").unwrap();
         let expected1 = hex::decode("0159d9ad511263c3754a8e2045fadc657c0016b1801720e67bbeb2661c60f176").unwrap();
