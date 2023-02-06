@@ -2,9 +2,9 @@ use ethers::core::rand::thread_rng;
 use ethers::signers::{coins_bip39::{Mnemonic,English}};
 
 // use aes-gcm from ring crate
-use ring::aead::{Nonce, AES_256_GCM};
+use ring::aead::{Nonce, AES_256_GCM, UnboundKey};
 // use hkdf from ring
-use ring::hkdf::{Salt, HKDF_SHA256};
+use ring::hkdf::{Salt, HKDF_SHA256, Prk, Okm};
 
 use protobuf;
 
@@ -44,11 +44,25 @@ impl Keystore {
     fn hkdf(secret: &[u8], salt: &[u8]) -> Result<[u8; 32], ring::error::Unspecified> {
         // Create a salt from the salt slice
         let salt = Salt::new(HKDF_SHA256, salt);
-        let mut key = [0u8; 32];
-        // Derive the key from the secret and salt
-
-        // Return key
-        Ok(key)
+        // Derive the key from the secret and salt with HKDF_SHA256
+        // and store it in the key array
+        let prk = salt.extract(secret);
+        let okm_result = prk.expand(&[], &AES_256_GCM);
+        if let Ok(okm) = okm_result {
+            let mut key = [0u8; 32];
+            // Fill the key array with the key from the okm
+            let mut key = [0u8; 32];
+            let fill_result = okm.fill(&mut key);
+            // If fill_result is okay, return key otherwise return error
+            if fill_result.is_ok() {
+                Ok(key)
+            } else {
+                // Wrap the fill_result error
+                Err(ring::error::Unspecified)
+            }
+        } else {
+            Err(ring::error::Unspecified)
+        }
     }
 
 
@@ -171,5 +185,27 @@ mod tests {
         // Check result
         assert!(derived1_result.is_ok());
         assert_eq!(derived1_result.unwrap().to_vec(), expected1);
+
+        // Test 2
+        let secret2 = hex::decode("af43ad68d9fcf40967f194497246a6e30515b6c4f574ee2ff58e31df32f5f18040812188cfb5ce34e74ae27b73be08dca626b3eb55c55e6733f32a59dd1b8e021c").unwrap();
+        let salt2 = hex::decode("a8500ae6f90a7ccaa096adc55857b90c03508f7d5f8d103a49d58e69058f0c3c").unwrap();
+        let expected2 = hex::decode("6181d0905f3f31cc3940336696afe1337d9e4d7f6655b9a6eaed2880be38150c").unwrap();
+        let derived2_result = Keystore::hkdf(&secret2, &salt2);
+        // Check result
+        assert!(derived2_result.is_ok());
+        assert_eq!(derived2_result.unwrap().to_vec(), expected2);
+    }
+
+    #[test]
+    fn test_hkdf_error() {
+        let x = Keystore { privateIdentityKey: None };
+        let secret1 = hex::decode("bff491a0fe153a4ac86065b4b4f6953a4cb33477aa233facb94d5fb88c82778c39167f453aa0690b5358abe9e027ddca5a6185bce3699d8b2ac7efa30510a7991b").unwrap();
+        let salt1 = hex::decode("e3412c112c28353088c99bd5c7350c81b1bc879b4d08ea1192ec3c03202ff337").unwrap();
+        let expected1 = hex::decode("0159d9ad511263c3754a8e2045fadc657c0016b1801720e67bbeb2661c60f176").unwrap();
+        let derived1_result = Keystore::hkdf(&secret1, &salt1);
+        // Check result
+        assert!(derived1_result.is_ok());
+        // Assert not equal
+        assert_ne!(derived1_result.unwrap().to_vec(), expected1);
     }
 }
