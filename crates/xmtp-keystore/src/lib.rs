@@ -2,9 +2,9 @@ use ethers::core::rand::thread_rng;
 use ethers::signers::{coins_bip39::{Mnemonic,English}};
 
 // use aes-gcm from ring crate
-use ring::aead::{Aead, Nonce, UnboundKey, AES_256_GCM, aead::generic_array::GenericArray};
+use ring::aead::{Nonce, AES_256_GCM};
 // use hkdf from ring
-use ring::hkdf::{Hkdf, Salt};
+use ring::hkdf::{Salt, HKDF_SHA256};
 
 use protobuf;
 
@@ -41,17 +41,14 @@ impl Keystore {
      *   )
      * }
      */
-    fn hkdf(secret: &[u8], salt: &[u8]) -> UnboundKey {
+    fn hkdf(secret: &[u8], salt: &[u8]) -> Result<[u8; 32], ring::error::Unspecified> {
         // Create a salt from the salt slice
-        let salt = Salt::new(&AES_256_GCM, salt);
-        // Create a new Hkdf instance
-        let hkdf = Hkdf::<HmacSha256>::new(salt, secret);
-        // Create a new UnboundKey instance
+        let salt = Salt::new(HKDF_SHA256, salt);
         let mut key = [0u8; 32];
-        // Fill the key with the derived key
-        hkdf.expand(&[], &mut key).unwrap();
-        // Return the UnboundKey
-        UnboundKey::new(&AES_256_GCM, &key).unwrap()
+        // Derive the key from the secret and salt
+
+        // Return key
+        Ok(key)
     }
 
 
@@ -149,8 +146,30 @@ mod tests {
 
     #[test]
     fn generate_mnemonic_works() {
-        let x = XMTP {};
+        let x = Keystore { privateIdentityKey: None };
         let mnemonic = x.generate_mnemonic();
         assert_eq!(mnemonic.split(" ").count(), 12);
+    }
+
+    #[test]
+    fn test_hkdf_simple() {
+        // Test Vectors
+        // secret aff491a0fe153a4ac86065b4b4f6953a4cb33477aa233facb94d5fb88c82778c39167f453aa0690b5358abe9e027ddca5a6185bce3699d8b2ac7efa30510a7991b
+        // salt e3412c112c28353088c99bd5c7350c81b1bc879b4d08ea1192ec3c03202ff337
+        // derived 0159d9ad511263c3754a8e2045fadc657c0016b1801720e67bbeb2661c60f176
+        // secret af43ad68d9fcf40967f194497246a6e30515b6c4f574ee2ff58e31df32f5f18040812188cfb5ce34e74ae27b73be08dca626b3eb55c55e6733f32a59dd1b8e021c
+        // salt a8500ae6f90a7ccaa096adc55857b90c03508f7d5f8d103a49d58e69058f0c3c
+        // derived 6181d0905f3f31cc3940336696afe1337d9e4d7f6655b9a6eaed2880be38150c
+        
+        // Test hkdf with hardcoded test vectors
+        // Test 1
+        let x = Keystore { privateIdentityKey: None };
+        let secret1 = hex::decode("aff491a0fe153a4ac86065b4b4f6953a4cb33477aa233facb94d5fb88c82778c39167f453aa0690b5358abe9e027ddca5a6185bce3699d8b2ac7efa30510a7991b").unwrap();
+        let salt1 = hex::decode("e3412c112c28353088c99bd5c7350c81b1bc879b4d08ea1192ec3c03202ff337").unwrap();
+        let expected1 = hex::decode("0159d9ad511263c3754a8e2045fadc657c0016b1801720e67bbeb2661c60f176").unwrap();
+        let derived1_result = Keystore::hkdf(&secret1, &salt1);
+        // Check result
+        assert!(derived1_result.is_ok());
+        assert_eq!(derived1_result.unwrap().to_vec(), expected1);
     }
 }

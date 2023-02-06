@@ -1308,17 +1308,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "201de327520df007757c1f0adce6e827fe8562fbc28bfd9c15571c66ca1f5f79"
 
 [[package]]
-name = "libxmtp"
-version = "0.1.0"
-dependencies = [
- "base64 0.21.0",
- "ethers",
- "hex",
- "protobuf",
- "rand",
-]
-
-[[package]]
 name = "lock_api"
 version = "0.4.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2668,6 +2657,18 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "05f360fc0b24296329c78fda852a1e9ae82de9cf7b27dae4b7f62f118f77b9ed"
 dependencies = [
  "tap",
+]
+
+[[package]]
+name = "xmtp-keystore"
+version = "0.1.0"
+dependencies = [
+ "base64 0.21.0",
+ "ethers",
+ "hex",
+ "protobuf",
+ "rand",
+ "ring",
 ]
 
 [[package]]
