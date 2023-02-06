@@ -20,9 +20,15 @@ public struct ConversationV1Container: Codable {
 
 /// Handles legacy message conversations.
 public struct ConversationV1 {
-	var client: Client
-	var peerAddress: String
-	var sentAt: Date
+	public var client: Client
+	public var peerAddress: String
+	public var sentAt: Date
+
+	public init(client: Client, peerAddress: String, sentAt: Date) {
+		self.client = client
+		self.peerAddress = peerAddress
+		self.sentAt = sentAt
+	}
 
 	public var encodedContainer: ConversationV1Container {
 		ConversationV1Container(peerAddress: peerAddress, sentAt: sentAt)

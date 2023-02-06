@@ -8,7 +8,7 @@
 import Foundation
 import XMTPProto
 
-typealias SealedInvitationHeaderV1 = Xmtp_MessageContents_SealedInvitationHeaderV1
+public typealias SealedInvitationHeaderV1 = Xmtp_MessageContents_SealedInvitationHeaderV1
 
 extension SealedInvitationHeaderV1 {
 	init(sender: SignedPublicKeyBundle, recipient: SignedPublicKeyBundle, createdNs: UInt64) {

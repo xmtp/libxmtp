@@ -26,11 +26,11 @@ public struct ConversationV2Container: Codable {
 
 /// Handles V2 Message conversations.
 public struct ConversationV2 {
-	var topic: String
-	var keyMaterial: Data // MUST be kept secret
-	var context: InvitationV1.Context
-	var peerAddress: String
-	var client: Client
+	public var topic: String
+	public var keyMaterial: Data // MUST be kept secret
+	public var context: InvitationV1.Context
+	public var peerAddress: String
+	public var client: Client
 	private var header: SealedInvitationHeaderV1
 
 	static func create(client: Client, invitation: InvitationV1, header: SealedInvitationHeaderV1) throws -> ConversationV2 {
@@ -51,7 +51,16 @@ public struct ConversationV2 {
 		)
 	}
 
-	init(topic: String, keyMaterial: Data, context: InvitationV1.Context, peerAddress: String, client: Client, header: SealedInvitationHeaderV1) {
+	public init(topic: String, keyMaterial: Data, context: InvitationV1.Context, peerAddress: String, client: Client) {
+		self.topic = topic
+		self.keyMaterial = keyMaterial
+		self.context = context
+		self.peerAddress = peerAddress
+		self.client = client
+		self.header = SealedInvitationHeaderV1()
+	}
+
+	public init(topic: String, keyMaterial: Data, context: InvitationV1.Context, peerAddress: String, client: Client, header: SealedInvitationHeaderV1) {
 		self.topic = topic
 		self.keyMaterial = keyMaterial
 		self.context = context
@@ -90,6 +99,10 @@ public struct ConversationV2 {
 				}
 			}
 		}
+	}
+
+	public var createdAt: Date {
+		Date(timeIntervalSince1970: Double(header.createdNs / 1_000_000) / 1000)
 	}
 
 	public func decode(envelope: Envelope) throws -> DecodedMessage {
