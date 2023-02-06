@@ -60,7 +60,7 @@ public class Client {
 	}
 
 	static var codecRegistry = {
-		var registry = CodecRegsistry()
+		var registry = CodecRegistry()
 		registry.register(codec: TextCodec())
 		return registry
 	}()

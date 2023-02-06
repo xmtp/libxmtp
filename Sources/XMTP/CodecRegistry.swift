@@ -7,7 +7,7 @@
 
 import Foundation
 
-struct CodecRegsistry {
+struct CodecRegistry {
 	var codecs: [String: any ContentCodec] = [:]
 
 	mutating func register(codec: any ContentCodec) {
