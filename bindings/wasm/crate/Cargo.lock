@@ -2718,6 +2718,7 @@ dependencies = [
  "hex",
  "protobuf",
  "rand",
+ "ring",
 ]
 
 [[package]]
