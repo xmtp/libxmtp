@@ -116,6 +116,16 @@ impl Keystore {
         // - A SealedInvitationHeaderV1 serialized as protobuf bytes
         // - A Ciphertext serialized as protobuf bytes
         // Get the header bytes
+        let header_bytes = invite.header_bytes;
+        // Deserialize the header bytes into a SealedInvitationHeaderV1 struct
+        let header_result: protobuf::Result<proto::invitation::SealedInvitationHeaderV1> = protobuf::Message::parse_from_bytes(&header_bytes);
+        // If the deserialization was successful, get the header
+        // otherwise return an error
+        let header = if header_result.is_ok() {
+            header_result.unwrap()
+        } else {
+            return Err(ring::error::Unspecified);
+        };
         return Err(ring::error::Unspecified);
     }
 
