@@ -2,7 +2,7 @@
 name = "xmtp-keystore"
 version = "0.1.0"
 edition = "2021"
-
+rust-version = "1.64"
 [dependencies]
 ethers = "1.0.2"
 rand = "0.8.4"
