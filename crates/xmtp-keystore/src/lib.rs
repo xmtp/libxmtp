@@ -1,10 +1,8 @@
 use ethers::core::rand::thread_rng;
 use ethers::signers::{coins_bip39::{Mnemonic,English}};
 
-// use aes-gcm from ring crate
-use ring::aead::{AES_256_GCM};
-// use hkdf from ring
-use ring::hkdf::{Salt, HKDF_SHA256};
+use sha2::Sha256;
+use hkdf::Hkdf;
 
 use protobuf;
 
@@ -41,27 +39,14 @@ impl Keystore {
      *   )
      * }
      */
-    fn hkdf(secret: &[u8], salt: &[u8]) -> Result<[u8; 32], ring::error::Unspecified> {
-        // Create a salt from the salt slice
-        let salt = Salt::new(HKDF_SHA256, salt);
-        // Derive the key from the secret and salt with HKDF_SHA256
-        // and store it in the key array
-        let prk = salt.extract(secret);
-        let okm_result = prk.expand(&[], &AES_256_GCM);
-        if let Ok(okm) = okm_result {
-            // Fill the key array with the key from the okm
-            let mut key = [0u8; 32];
-            let fill_result = okm.fill(&mut key);
-            // If fill_result is okay, return key otherwise return error
-            if fill_result.is_ok() {
-                Ok(key)
-            } else {
-                // Wrap the fill_result error
-                Err(ring::error::Unspecified)
-            }
-        } else {
-            Err(ring::error::Unspecified)
+    fn hkdf(secret: &[u8], salt: &[u8]) -> Result<[u8; 32], String> {
+        let hk = Hkdf::<Sha256>::new(Some(&salt), &secret);
+        let mut okm = [0u8; 42];
+        let res = hk.expand(&[], &mut okm);
+        if res.is_err() {
+            return Err(res.err().unwrap().to_string());
         }
+        okm[0..32].try_into().map_err(|_| "hkdf failed to fit in 32 bytes".to_string())
     }
 
     // Set private identity key from protobuf bytes
@@ -135,5 +120,14 @@ mod tests {
         assert!(derived1_result.is_ok());
         // Assert not equal
         assert_ne!(derived1_result.unwrap().to_vec(), expected1);
+    }
+
+    #[test]
+    fn test_hkdf_invalid_key() {
+        let secret1 = hex::decode("").unwrap();
+        let salt1 = hex::decode("").unwrap();
+        let derived1_result = Keystore::hkdf(&secret1, &salt1);
+        // Check result
+        assert!(derived1_result.is_ok());
     }
 }
