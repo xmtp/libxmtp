@@ -9,16 +9,20 @@ use protobuf;
 mod proto;
 
 pub struct Keystore {
-    // Optional privateIdentityKey
-    private_identity_key: Option<proto::private_key::SignedPrivateKey>,
+    // Private key bundle powers most operations 
+    private_key_bundle: Option<proto::private_key::PrivateKeyBundleV2>,
+    // List of invites
+    saved_invites: Vec<proto::invitation::InvitationV1>,
 }
 
 impl Keystore {
     // new() is a constructor for the Keystore struct
     pub fn new() -> Self {
         Keystore {
-            // Empty option for privateIdentityKey
-            private_identity_key: None,
+            // Empty option for private key bundle
+            private_key_bundle: None,
+            // Conversation store
+            saved_invites: Vec::new(),
         }
     }
 
@@ -50,12 +54,12 @@ impl Keystore {
     }
 
     // Set private identity key from protobuf bytes
-    pub fn set_private_identity_key(&mut self, private_identity_key: &[u8]) {
+    pub fn set_private_key_bundle(&mut self, private_key_bundle: &[u8]) {
         // Deserialize protobuf bytes into a SignedPrivateKey struct
-        let private_key_result: protobuf::Result<proto::private_key::SignedPrivateKey> = protobuf::Message::parse_from_bytes(private_identity_key);
+        let private_key_result: protobuf::Result<proto::private_key::PrivateKeyBundleV2> = protobuf::Message::parse_from_bytes(private_key_bundle);
         // If the deserialization was successful, set the privateIdentityKey field
         if private_key_result.is_ok() {
-            self.private_identity_key = Some(private_key_result.unwrap());
+            self.private_key_bundle = Some(private_key_result.unwrap());
         }
     }
 
@@ -67,6 +71,77 @@ impl Keystore {
 		let words: Vec<String> = phrase.unwrap().split(" ").map(|s| s.to_string()).collect();
         return words.join(" ");
     }
+
+	/*
+     * Rust version of this javascript code:
+     *  async getInvitation(viewer: PrivateKeyBundleV2): Promise<InvitationV1> {
+     *    // Use cached value if already exists
+     *    if (this._invitation) {
+     *      return this._invitation
+     *    }
+     *    // The constructors for child classes will validate that this is complete
+     *    const header = this.header
+     *    let secret: Uint8Array
+     *    if (viewer.identityKey.matches(this.header.sender.identityKey)) {
+     *      secret = await viewer.sharedSecret(
+     *        header.recipient,
+     *        header.sender.preKey,
+     *        false
+     *      )
+     *    } else {
+     *      secret = await viewer.sharedSecret(
+     *        header.sender,
+     *        header.recipient.preKey,
+     *        true
+     *      )
+     *    }
+    
+     *    const decryptedBytes = await decrypt(
+     *      this.ciphertext,
+     *      secret,
+     *      this.headerBytes
+     *    )
+     *    this._invitation = InvitationV1.fromBytes(decryptedBytes)
+     *    return this._invitation
+     *  }
+    */
+    fn decrypt_sealed_invite(&self, invite: proto::invitation::SealedInvitationV1) -> Result<proto::invitation::InvitationV1, ring::error::Unspecified> {
+        // Check that the private identity key is set
+        if self.private_key_bundle.is_none() {
+            return Err(ring::error::Unspecified);
+        }
+        // Get the private identity key
+        let private_key_bundle = self.private_key_bundle.as_ref().unwrap();
+        // A sealed invite consists of:
+        // - A SealedInvitationHeaderV1 serialized as protobuf bytes
+        // - A Ciphertext serialized as protobuf bytes
+        // Get the header bytes
+        return Err(ring::error::Unspecified);
+    }
+
+    // Store a proto::invitation into memory after decrypting
+    pub fn save_invite(&mut self, invite_bytes: &[u8]) -> Result<(), ring::error::Unspecified> {
+        // Attempt to deserialize the invite
+        let sealed_invite_result: protobuf::Result<proto::invitation::SealedInvitation> = protobuf::Message::parse_from_bytes(invite_bytes);
+        // If the deserialization was successful, store the invite
+        if sealed_invite_result.is_ok() {
+            // Check that sealed_invite_result is a SealedInivationV1
+            let sealed_invite: proto::invitation::SealedInvitation = sealed_invite_result.unwrap();
+            let sealed_invite_v1: proto::invitation::SealedInvitationV1  = sealed_invite.v1().clone();
+            let unsealed_invite_result = self.decrypt_sealed_invite(sealed_invite_v1);
+            if unsealed_invite_result.is_ok() {
+                // Add unsealed_invite_result to the invites list
+                self.saved_invites.push(unsealed_invite_result.unwrap());
+                return Ok(());
+            } else {
+                return Err(unsealed_invite_result.unwrap_err());
+            }
+        } else {
+            // Wrap the deserialization error
+            // TODO: Return a custom error
+            Err(ring::error::Unspecified)
+        }
+    }
 }
 
 #[cfg(test)]
@@ -75,7 +150,7 @@ mod tests {
 
     #[test]
     fn generate_mnemonic_works() {
-        let x = Keystore { private_identity_key: None };
+        let x = Keystore::new();
         let mnemonic = x.generate_mnemonic();
         assert_eq!(mnemonic.split(" ").count(), 12);
     }
