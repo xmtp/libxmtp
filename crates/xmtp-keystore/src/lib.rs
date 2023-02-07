@@ -40,7 +40,7 @@ impl Keystore {
      * }
      */
     fn hkdf(secret: &[u8], salt: &[u8]) -> Result<[u8; 32], String> {
-        let hk = Hkdf::<Sha256>::new(Some(&salt[..]), &secret);
+        let hk = Hkdf::<Sha256>::new(Some(&salt), &secret);
         let mut okm = [0u8; 42];
         let res = hk.expand(&[], &mut okm);
         if res.is_err() {
@@ -120,5 +120,14 @@ mod tests {
         assert!(derived1_result.is_ok());
         // Assert not equal
         assert_ne!(derived1_result.unwrap().to_vec(), expected1);
+    }
+
+    #[test]
+    fn test_hkdf_invalid_key() {
+        let secret1 = hex::decode("").unwrap();
+        let salt1 = hex::decode("").unwrap();
+        let derived1_result = Keystore::hkdf(&secret1, &salt1);
+        // Check result
+        assert!(derived1_result.is_ok());
     }
 }
