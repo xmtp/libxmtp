@@ -23,15 +23,16 @@ impl EcPrivateKey {
         if !private_key_bundle.identity_key.has_secp256k1() {
             println!("No secp256k1 key found");
         }
-        println!("{:?}", private_key_bundle.identity_key.secp256k1());
-        println!("{:?}", private_key_bundle.identity_key.secp256k1().bytes);
+
         // Parse the private key from the proto
         let secret_key_bytes = private_key_bundle.identity_key.secp256k1().bytes.as_slice();
-        // Print hex encoded secret_key_bytes
-        println!("Secret key bytes: {}", hex::encode(secret_key_bytes));
-        // From encoded point
+        // Check that bytes are not empty
+        if secret_key_bytes.is_empty() {
+            return Err("No bytes found".to_string());
+        }
+
+        // Try to derive secret key from big-endian hex-encoded BigInt, check the result
         let secret_key_result = SecretKey::from_be_bytes(secret_key_bytes);
-        // Check secret_key_result
         if secret_key_result.is_err() {
             return Err(secret_key_result.err().unwrap().to_string());
         }
