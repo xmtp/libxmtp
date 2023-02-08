@@ -4,9 +4,12 @@ use ethers::signers::{coins_bip39::{Mnemonic,English}};
 use sha2::Sha256;
 use hkdf::Hkdf;
 
+
 use protobuf;
 
 mod proto;
+mod private_key;
+use crate::private_key::EcPrivateKey;
 
 pub struct Keystore {
     // Private key bundle powers most operations 
@@ -51,6 +54,44 @@ impl Keystore {
             return Err(res.err().unwrap().to_string());
         }
         okm[0..32].try_into().map_err(|_| "hkdf failed to fit in 32 bytes".to_string())
+    }
+
+    fn find_prekey_bundle(&self, prekey: &proto::public_key::SignedPublicKey) -> Option<&proto::private_key::SignedPrivateKey> {
+        // For each prekey in the private key bundle, check if the public key derived from that
+        // prekey matches the public key in the prekey argument
+//        for prekey_bundle in self.private_key_bundle.as_ref().unwrap().get_prekeys() {
+//            let private_key = EcPrivateKey::from_proto(prekey_bundle.get_private_key().clone());
+//        }
+        None
+    }
+
+    /** Rust implementation of this javascript code:
+     * let dh1: Uint8Array, dh2: Uint8Array, preKey: SignedPrivateKey
+     * if (isRecipient) {
+     *   preKey = this.findPreKey(myPreKey)
+     *   dh1 = preKey.sharedSecret(peer.identityKey)
+     *   dh2 = this.identityKey.sharedSecret(peer.preKey)
+     * } else {
+     *   preKey = this.findPreKey(myPreKey)
+     *   dh1 = this.identityKey.sharedSecret(peer.preKey)
+     *   dh2 = preKey.sharedSecret(peer.identityKey)
+     * }
+     * const dh3 = preKey.sharedSecret(peer.preKey)
+     * const secret = new Uint8Array(dh1.length + dh2.length + dh3.length)
+     * secret.set(dh1, 0)
+     * secret.set(dh2, dh1.length)
+     * secret.set(dh3, dh1.length + dh2.length)
+     * return secret
+     */
+    fn derive_shared_secret(&self, peer_bundle: proto::public_key::SignedPublicKeyBundle, my_prekey: proto::public_key::SignedPublicKey, is_recipient: bool) -> Result<[u8; 32], String> {
+        // Check if self.private_key_bundle is set
+        if self.private_key_bundle.is_none() {
+            return Err("private key bundle is not set".to_string());
+        }
+        // Get the private key bundle
+        let private_key_bundle = self.private_key_bundle.as_ref().unwrap();
+        let secret: [u8; 32] = [0; 32];
+        return Ok(secret);
     }
 
     // Set private identity key from protobuf bytes
@@ -105,10 +146,10 @@ impl Keystore {
      *    return this._invitation
      *  }
     */
-    fn decrypt_sealed_invite(&self, invite: proto::invitation::SealedInvitationV1) -> Result<proto::invitation::InvitationV1, ring::error::Unspecified> {
+    fn decrypt_sealed_invite(&self, invite: proto::invitation::SealedInvitationV1) -> Result<proto::invitation::InvitationV1, String> {
         // Check that the private identity key is set
         if self.private_key_bundle.is_none() {
-            return Err(ring::error::Unspecified);
+            return Err("private identity key is not yet set".to_string());
         }
         // Get the private identity key
         let private_key_bundle = self.private_key_bundle.as_ref().unwrap();
@@ -124,13 +165,13 @@ impl Keystore {
         let header = if header_result.is_ok() {
             header_result.unwrap()
         } else {
-            return Err(ring::error::Unspecified);
+            return Err(header_result.err().unwrap().to_string());
         };
-        return Err(ring::error::Unspecified);
+        return Err("not implemented".to_string());
     }
 
     // Store a proto::invitation into memory after decrypting
-    pub fn save_invite(&mut self, invite_bytes: &[u8]) -> Result<(), ring::error::Unspecified> {
+    pub fn save_invite(&mut self, invite_bytes: &[u8]) -> Result<(), String> {
         // Attempt to deserialize the invite
         let sealed_invite_result: protobuf::Result<proto::invitation::SealedInvitation> = protobuf::Message::parse_from_bytes(invite_bytes);
         // If the deserialization was successful, store the invite
@@ -144,12 +185,12 @@ impl Keystore {
                 self.saved_invites.push(unsealed_invite_result.unwrap());
                 return Ok(());
             } else {
-                return Err(unsealed_invite_result.unwrap_err());
+                return Err(unsealed_invite_result.unwrap_err().to_string());
             }
         } else {
             // Wrap the deserialization error
             // TODO: Return a custom error
-            Err(ring::error::Unspecified)
+            Err("SealedInvitation deserialization failed".to_string())
         }
     }
 }
@@ -214,5 +255,33 @@ mod tests {
         let derived1_result = Keystore::hkdf(&secret1, &salt1);
         // Check result
         assert!(derived1_result.is_ok());
+    }
+
+    #[test]
+    fn test_private_key_from_v2_bundle() {
+        // = test vectors generated with xmtp-js =
+        // encoded v2:  EpYDCsgBCMDw7ZjWtOygFxIiCiAvph+Hg/Gk9G1g2EoW1ZDlWVH1nCkn6uRL7GBG3iNophqXAQpPCMDw7ZjWtOygFxpDCkEEeH4w/gK5HMaKu51aec/jiosmqDduIaEA67V7Lbox1cPhz9SIEi6sY/6jVQQXeIjKxzsZSVrM0LXCXjc0VkRmxhJEEkIKQNSujk9ApV5gIKltm0CFhLLuN3Xt2fjkKZBoUH/mswjTaUMTc3qZZzde3ZKMfkNVZYqns4Sn0sgopXzpjQGgjyUSyAEIwPXBtNa07KAXEiIKIOekWIyRJCelxqX+mR8i76KuDO2QV3e42nv8CxJQL0DXGpcBCk8IwPXBtNa07KAXGkMKQQTIePKpkAHxREbLbXfn6XCOwx9YqQWmqLuTHAnqRNj1q5xDLpbgkiyAORFZmVOK8iVq3dT/PWm6WMasPrqdzD7iEkQKQgpAqIj/yKx2wn8VjeWV6wm/neNDEQ6282p3CeJsPDKS56B11Nqc5Y5vUPKcrC1nB2dqBkwvop0fU49Yx4k0CB2evQ==
+        // digest:  dQnlvaDHYtK6x/kNdYtbImP6Acy8VCq1498WO+CObKk=
+        // testMessageSignature:  CkQKQAROtHwYeoBT4LhZEVM6dYaPCDDVy4/9dYSZBvKizAk7J+9f29+1OkAZoGw+FLCHWr/G9cKGfiZf3ln7bTssuIkQAQ==
+        let private_key_bundle_raw = "EpYDCsgBCMDw7ZjWtOygFxIiCiAvph+Hg/Gk9G1g2EoW1ZDlWVH1nCkn6uRL7GBG3iNophqXAQpPCMDw7ZjWtOygFxpDCkEEeH4w/gK5HMaKu51aec/jiosmqDduIaEA67V7Lbox1cPhz9SIEi6sY/6jVQQXeIjKxzsZSVrM0LXCXjc0VkRmxhJEEkIKQNSujk9ApV5gIKltm0CFhLLuN3Xt2fjkKZBoUH/mswjTaUMTc3qZZzde3ZKMfkNVZYqns4Sn0sgopXzpjQGgjyUSyAEIwPXBtNa07KAXEiIKIOekWIyRJCelxqX+mR8i76KuDO2QV3e42nv8CxJQL0DXGpcBCk8IwPXBtNa07KAXGkMKQQTIePKpkAHxREbLbXfn6XCOwx9YqQWmqLuTHAnqRNj1q5xDLpbgkiyAORFZmVOK8iVq3dT/PWm6WMasPrqdzD7iEkQKQgpAqIj/yKx2wn8VjeWV6wm/neNDEQ6282p3CeJsPDKS56B11Nqc5Y5vUPKcrC1nB2dqBkwvop0fU49Yx4k0CB2evQ==";
+        let message = "hello world!";
+        let digest = "dQnlvaDHYtK6x/kNdYtbImP6Acy8VCq1498WO+CObKk=";
+        let signature_proto_raw = "CkQKQAROtHwYeoBT4LhZEVM6dYaPCDDVy4/9dYSZBvKizAk7J+9f29+1OkAZoGw+FLCHWr/G9cKGfiZf3ln7bTssuIkQAQ==";
+
+        // For debugging, the secret key is hex encoded bigint:
+        // BigInt('0x2fa61f8783f1a4f46d60d84a16d590e55951f59c2927eae44bec6046de2368a6')
+        // > 21552218103791599555364469821754606161148148489927333195317013913723696539814n
+
+        let proto_encoded = base64::decode(private_key_bundle_raw).unwrap();
+        // Deserialize the proto bytes into proto::private_key::PrivateKeyBundleV2
+        let signed_private_key: proto::private_key::PrivateKeyBundle = protobuf::Message::parse_from_bytes(&proto_encoded).unwrap();
+        let private_key_bundle = signed_private_key.v2();
+
+        // Decode signature proto
+        let signature: proto::signature::Signature = protobuf::Message::parse_from_bytes(&base64::decode(signature_proto_raw).unwrap()).unwrap();
+        let ec_private_key_result = EcPrivateKey::from_proto(private_key_bundle);
+        assert!(ec_private_key_result.is_ok());
+        let signature_verified = ec_private_key_result.unwrap().verify_signature(message.as_bytes(), &signature.ecdsa_compact().bytes);
+        assert!(signature_verified.is_ok());
     }
 }
