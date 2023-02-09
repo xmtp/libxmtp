@@ -267,6 +267,7 @@ mod tests {
         let message = "hello world!";
         let digest = "dQnlvaDHYtK6x/kNdYtbImP6Acy8VCq1498WO+CObKk=";
         let signature_proto_raw = "CkQKQAROtHwYeoBT4LhZEVM6dYaPCDDVy4/9dYSZBvKizAk7J+9f29+1OkAZoGw+FLCHWr/G9cKGfiZf3ln7bTssuIkQAQ==";
+        // =====
 
         // For debugging, the secret key is hex encoded bigint:
         // BigInt('0x2fa61f8783f1a4f46d60d84a16d590e55951f59c2927eae44bec6046de2368a6')
@@ -281,7 +282,29 @@ mod tests {
         let signature: proto::signature::Signature = protobuf::Message::parse_from_bytes(&base64::decode(signature_proto_raw).unwrap()).unwrap();
         let ec_private_key_result = EcPrivateKey::from_proto(private_key_bundle);
         assert!(ec_private_key_result.is_ok());
+        // Do a raw byte signature verification
         let signature_verified = ec_private_key_result.unwrap().verify_signature(message.as_bytes(), &signature.ecdsa_compact().bytes);
         assert!(signature_verified.is_ok());
+        // Do a recovered key signature verification
+    }
+
+    #[test]
+    fn test_verify_wallet_signature() {
+        // = test vectors generated with xmtp-js =
+        // signing address:  0xFC27dA504d6661C61263A986254466CF190ab743
+        // bytes to sign:  CIDAj6aqu/ygFxpDCkEEZ/cSnAnGca8F+EfFi0O2hm8hKWJ7Vbfx0tXyJ8dv33PuW03J4nyUZOp8kyxc/aURPDq8SQAmHE3qoP932mijaA==
+        // signature:  EkIKQOY92Tbo+euugNqbFop62PrMxzsyjqyPiJj6IfHxzbH4DUZCnRShpyi5cx2wcVXBUvhPKNNveF4CDCiekvhsnGM=
+        // =====
+        let address = "0xFC27dA504d6661C61263A986254466CF190ab743";
+        let signature_proto_result: proto::signature::Signature = protobuf::Message::parse_from_bytes(&base64::decode("EkIKQOY92Tbo+euugNqbFop62PrMxzsyjqyPiJj6IfHxzbH4DUZCnRShpyi5cx2wcVXBUvhPKNNveF4CDCiekvhsnGM=").unwrap()).unwrap();
+        let bytes_to_sign = base64::decode("CIDAj6aqu/ygFxpDCkEEZ/cSnAnGca8F+EfFi0O2hm8hKWJ7Vbfx0tXyJ8dv33PuW03J4nyUZOp8kyxc/aURPDq8SQAmHE3qoP932mijaA==").unwrap();
+        // Encode string as bytes
+        let xmtp_identity_signature_payload = EcPrivateKey::xmtp_identity_key_payload(&bytes_to_sign);
+        let personal_signature_message = EcPrivateKey::ethereum_personal_sign_payload(&xmtp_identity_signature_payload);
+        let signature_verified = EcPrivateKey::verify_wallet_signature(address, &personal_signature_message.as_slice(), &signature_proto_result);
+        if let Err(e) = &signature_verified {
+            println!("Error: {}", e);
+        }
+        assert!(&signature_verified.is_ok());
     }
 }

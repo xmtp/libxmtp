@@ -2716,7 +2716,9 @@ dependencies = [
  "k256 0.12.0",
  "protobuf",
  "rand",
+ "rlp",
  "sha2 0.10.6",
+ "sha3",
 ]
 
 [[package]]
