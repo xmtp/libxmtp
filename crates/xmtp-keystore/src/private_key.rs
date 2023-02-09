@@ -86,18 +86,21 @@ impl EcPrivateKey {
     }
 
     // Verify wallet signature from proto
-    pub fn verify_wallet_signature(address: &str, message: &[u8], signature: &proto::signature::Signature) -> Result<(), String> {
+    pub fn verify_wallet_signature(address: &str, message: &[u8], signature: &proto::signature::Signature, recid: u8) -> Result<(), String> {
         // Expect ecdsa_compact field with subfields: bytes, recovery_id
         if !signature.has_wallet_ecdsa_compact() {
             return Err("No wallet_ecdsa_compact field found".to_string());
         }
         let wallet_ecdsa_compact = signature.wallet_ecdsa_compact();
         let signature_bytes = wallet_ecdsa_compact.bytes.as_slice();
-        let recovery_id_result = RecoveryId::try_from(wallet_ecdsa_compact.recovery as u8);
+        println!("Signature bytes: {}", hex::encode(&signature_bytes));
+        println!("recover: {}", wallet_ecdsa_compact.recovery);
+        let recovery_id_result = RecoveryId::try_from(recid);
         if recovery_id_result.is_err() {
             return Err(recovery_id_result.err().unwrap().to_string());
         }
         let recovery_id = recovery_id_result.unwrap();
+        println!("Len of signature bytes: {}", signature_bytes.len());
         let ecdsa_signature_result = Signature::try_from(signature_bytes);
         if ecdsa_signature_result.is_err() {
             return Err(ecdsa_signature_result.err().unwrap().to_string());
