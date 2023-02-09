@@ -60,16 +60,28 @@ impl EcPrivateKey {
         return raw_string.as_bytes().to_vec();
     }
 
+    // https://github.com/ethereumjs/ethereumjs-util/blob/ebf40a0fba8b00ba9acae58405bca4415e383a0d/src/signature.ts#L168
     pub fn ethereum_personal_sign_payload(xmtp_payload: &[u8]) -> Vec<u8> {
-        // utf decode the payload
-        let payload_string = String::from_utf8(xmtp_payload.to_vec()).unwrap();
-        let raw_string = format!("\x19Ethereum Signed Message:\n{}{}", payload_string.len(), payload_string);
-        println!("Raw string: {}", raw_string);
-        // Compute the keccak256 hash of the raw string
+        // Prefix byte array is: "\x19Ethereum Signed Message:\n32"
+        let mut prefix = format!("\x19Ethereum Signed Message:\n{}", xmtp_payload.len()).as_bytes().to_vec();
+        prefix.append(&mut xmtp_payload.to_vec());
+        return prefix;
+//
+//        // Hash the entire thing one more time with keccak256
+//        let mut hasher = Keccak256::new();
+//        hasher.update(prefix);
+//        let result = hasher.finalize();
+//        println!("Ethereum personal sign payload: {}", hex::encode(&result));
+//        return result.to_vec();
+    }
+
+    pub fn ethereum_personal_digest(xmtp_payload: &[u8]) -> Vec<u8> {
+        // Hash the entire thing one more time with keccak256
+        let personal_sign_payload = EcPrivateKey::ethereum_personal_sign_payload(xmtp_payload);
         let mut hasher = Keccak256::new();
-        hasher.update(raw_string.as_bytes());
+        hasher.update(xmtp_payload);
         let result = hasher.finalize();
-        // Return the string utf-8 encoded
+        println!("Ethereum personal digest: {}", hex::encode(&result));
         return result.to_vec();
     }
 

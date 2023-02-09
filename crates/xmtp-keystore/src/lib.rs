@@ -1,4 +1,6 @@
 use ethers::core::rand::thread_rng;
+// use ethers::utils::hash_message;
+use ethers::utils::hash_message;
 use ethers::signers::{coins_bip39::{Mnemonic,English}};
 
 use sha2::Sha256;
@@ -300,11 +302,29 @@ mod tests {
         let bytes_to_sign = base64::decode("CIDAj6aqu/ygFxpDCkEEZ/cSnAnGca8F+EfFi0O2hm8hKWJ7Vbfx0tXyJ8dv33PuW03J4nyUZOp8kyxc/aURPDq8SQAmHE3qoP932mijaA==").unwrap();
         // Encode string as bytes
         let xmtp_identity_signature_payload = EcPrivateKey::xmtp_identity_key_payload(&bytes_to_sign);
-        let personal_signature_message = EcPrivateKey::ethereum_personal_sign_payload(&xmtp_identity_signature_payload);
-        let signature_verified = EcPrivateKey::verify_wallet_signature(address, &personal_signature_message.as_slice(), &signature_proto_result);
+        println!("xmtp_identity_signature_payload: {:?}", std::str::from_utf8(&xmtp_identity_signature_payload).unwrap());
+        let personal_signature_message = hash_message(hex::encode(xmtp_identity_signature_payload).as_bytes());
+        let signature_verified = EcPrivateKey::verify_wallet_signature(address, &personal_signature_message.as_bytes(), &signature_proto_result);
         if let Err(e) = &signature_verified {
             println!("Error: {}", e);
         }
         assert!(&signature_verified.is_ok());
+    }
+
+    #[test]
+    fn test_recover_wallet_signature() {
+        // XMTP : Create Identity
+        // 08b8cff59ae3301a430a4104ac471e1ff54947e91e30a4640fe093e6dcb9ac097330b2e2506135d42980454e83bdc639ef7ae4de3debf82aa6800bdd4d1a635d0cdeeab8ed2401d64de22dde
+
+        // For more info: https://xmtp.org/signatures/
+        // digest LDK+7DM/jgDncHBEegvPq0fM9sirQXNHcuNcEPLe5E4= address 0x9DaBcF16c361493e41192BF5901DB1E4E7E7Ca30
+        
+        let xmtp_test_message = "XMTP : Create Identity\n08b8cff59ae3301a430a4104ac471e1ff54947e91e30a4640fe093e6dcb9ac097330b2e2506135d42980454e83bdc639ef7ae4de3debf82aa6800bdd4d1a635d0cdeeab8ed2401d64de22dde\n\nFor more info: https://xmtp.org/signatures/";
+        let xmtp_test_digest = "LDK+7DM/jgDncHBEegvPq0fM9sirQXNHcuNcEPLe5E4=";
+        let xmtp_test_address = "0x9DaBcF16c361493e41192BF5901DB1E4E7E7Ca30";
+
+        let derived_digest = EcPrivateKey::ethereum_personal_digest(xmtp_test_message.as_bytes());
+        println!("ethers-rs hashed message: {}", base64::encode(hash_message(xmtp_test_message.as_bytes())));
+        assert_eq!(xmtp_test_digest, base64::encode(&derived_digest));
     }
 }
