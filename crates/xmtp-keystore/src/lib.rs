@@ -269,6 +269,7 @@ mod tests {
         let message = "hello world!";
         let digest = "dQnlvaDHYtK6x/kNdYtbImP6Acy8VCq1498WO+CObKk=";
         let signature_proto_raw = "CkQKQAROtHwYeoBT4LhZEVM6dYaPCDDVy4/9dYSZBvKizAk7J+9f29+1OkAZoGw+FLCHWr/G9cKGfiZf3ln7bTssuIkQAQ==";
+        let expected_address = "0xf4c3d5f8f04da9d5eaa7e92f7a6e7f990450c88b";
         // =====
 
         // For debugging, the secret key is hex encoded bigint:
@@ -290,7 +291,7 @@ mod tests {
         assert!(signature_verified.is_ok());
         // Calculate the eth wallet address from public key
         let eth_address = &ec_private_key.eth_address().unwrap();
-        assert_eq!(eth_address, "0xF4C3D5F8F04dA9d5eAa7E92F7A6E7F990450C88b");
+        assert_eq!(eth_address, expected_address);
     }
 
     #[test]

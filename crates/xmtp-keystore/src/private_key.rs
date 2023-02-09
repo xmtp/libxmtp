@@ -59,8 +59,11 @@ impl EcPrivateKey {
         // Get the public key bytes
         let binding = self.public_key.to_encoded_point(false);
         let public_key_bytes = binding.as_bytes();
+        println!("Public key bytes: {}", public_key_bytes.len());
+        println!("Hex encoded public key bytes: {}", hex::encode(public_key_bytes));
         // Return the result as hex string, take the last 20 bytes
-        return EcPrivateKey::eth_wallet_address_from_public_key(public_key_bytes);
+        // Need to remove the 04 prefix for uncompressed point representation
+        return EcPrivateKey::eth_wallet_address_from_public_key(&public_key_bytes[1..]);
     }
 
     pub fn xmtp_identity_key_payload(public_key_bytes: &[u8]) -> Vec<u8> {
