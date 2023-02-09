@@ -5,6 +5,7 @@ use k256::{
     PublicKey,
     SecretKey,
 };
+use k256::elliptic_curve::sec1::ToEncodedPoint;
 use sha2::{Sha256, Digest};
 use sha3::{Keccak256};
 
@@ -47,11 +48,19 @@ impl EcPrivateKey {
 
     pub fn eth_wallet_address_from_public_key(public_key_bytes: &[u8]) -> Result<String, String> {
         // Hash the public key bytes
-        let mut hasher = Sha256::new();
+        let mut hasher = Keccak256::new();
         hasher.update(public_key_bytes);
         let result = hasher.finalize();
         // Return the result as hex string, take the last 20 bytes
         return Ok(format!("0x{}", hex::encode(&result[12..])));
+    }
+
+    pub fn eth_address(&self) -> Result<String, String> {
+        // Get the public key bytes
+        let binding = self.public_key.to_encoded_point(false);
+        let public_key_bytes = binding.as_bytes();
+        // Return the result as hex string, take the last 20 bytes
+        return EcPrivateKey::eth_wallet_address_from_public_key(public_key_bytes);
     }
 
     pub fn xmtp_identity_key_payload(public_key_bytes: &[u8]) -> Vec<u8> {
@@ -118,7 +127,7 @@ impl EcPrivateKey {
         let recovered_key = recovered_key_result.unwrap();
         // Check if ethereum address from recovered key matches the address from the proto
         // First extract the public key from the recovered key
-        let public_key = recovered_key.to_encoded_point(false);
+        let public_key = recovered_key.to_encoded_point(true);
         let public_key_bytes = public_key.as_bytes();
         let eth_address_result = EcPrivateKey::eth_wallet_address_from_public_key(public_key_bytes);
         if eth_address_result.is_err() {

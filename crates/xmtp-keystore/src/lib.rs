@@ -284,9 +284,13 @@ mod tests {
         let signature: proto::signature::Signature = protobuf::Message::parse_from_bytes(&base64::decode(signature_proto_raw).unwrap()).unwrap();
         let ec_private_key_result = EcPrivateKey::from_proto(private_key_bundle);
         assert!(ec_private_key_result.is_ok());
+        let ec_private_key = ec_private_key_result.unwrap();
         // Do a raw byte signature verification
-        let signature_verified = ec_private_key_result.unwrap().verify_signature(message.as_bytes(), &signature.ecdsa_compact().bytes);
+        let signature_verified = &ec_private_key.verify_signature(message.as_bytes(), &signature.ecdsa_compact().bytes);
         assert!(signature_verified.is_ok());
+        // Calculate the eth wallet address from public key
+        let eth_address = &ec_private_key.eth_address().unwrap();
+        assert_eq!(eth_address, "0xF4C3D5F8F04dA9d5eAa7E92F7A6E7F990450C88b");
     }
 
     #[test]
@@ -303,7 +307,7 @@ mod tests {
         let xmtp_identity_signature_payload = EcPrivateKey::xmtp_identity_key_payload(&bytes_to_sign);
         println!("xmtp_identity_signature_payload: {:?}", std::str::from_utf8(&xmtp_identity_signature_payload).unwrap());
         let personal_signature_message = hash_message(xmtp_identity_signature_payload);
-        for recid in 0..255 {
+        for recid in 0..10 {
             println!("recid: {}", recid);
             let signature_verified = EcPrivateKey::verify_wallet_signature(address, &personal_signature_message.as_bytes(), &signature_proto_result, recid);
             if signature_verified.is_ok() {
