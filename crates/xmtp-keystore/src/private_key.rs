@@ -130,9 +130,11 @@ impl EcPrivateKey {
         let recovered_key = recovered_key_result.unwrap();
         // Check if ethereum address from recovered key matches the address from the proto
         // First extract the public key from the recovered key
-        let public_key = recovered_key.to_encoded_point(true);
+        let public_key = recovered_key.to_encoded_point(false);
         let public_key_bytes = public_key.as_bytes();
-        let eth_address_result = EcPrivateKey::eth_wallet_address_from_public_key(public_key_bytes);
+        println!("Public key bytes length: {}", public_key_bytes.len());
+        println!("Public key bytes: {}", hex::encode(&public_key_bytes));
+        let eth_address_result = EcPrivateKey::eth_wallet_address_from_public_key(&public_key_bytes[1..]);
         if eth_address_result.is_err() {
             return Err(eth_address_result.err().unwrap().to_string());
         }

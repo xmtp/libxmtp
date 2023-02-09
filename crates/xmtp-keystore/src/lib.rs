@@ -297,9 +297,6 @@ mod tests {
     #[test]
     fn test_verify_wallet_signature() {
         // = test vectors generated with xmtp-js =
-        // signing address:  0xFC27dA504d6661C61263A986254466CF190ab743
-        // bytes to sign:  CIDAj6aqu/ygFxpDCkEEZ/cSnAnGca8F+EfFi0O2hm8hKWJ7Vbfx0tXyJ8dv33PuW03J4nyUZOp8kyxc/aURPDq8SQAmHE3qoP932mijaA==
-        // signature:  EkIKQOY92Tbo+euugNqbFop62PrMxzsyjqyPiJj6IfHxzbH4DUZCnRShpyi5cx2wcVXBUvhPKNNveF4CDCiekvhsnGM=
         // =====
         let address = "0x2Fb28c95E110C6Bb188B41f9E7d6850ccbE48e61";
         let signature_proto_result: proto::signature::Signature = protobuf::Message::parse_from_bytes(&base64::decode("EkIKQKOfb+lUwNCnJrMWQapvY1YNtFheYXa5gH5jZ+IpHPxrIAtWyvMPTMW7WpBb4Mscrie9yRap7H8XbzPPbJKEybI=").unwrap()).unwrap();
@@ -307,7 +304,7 @@ mod tests {
         // Encode string as bytes
         let xmtp_identity_signature_payload = EcPrivateKey::xmtp_identity_key_payload(&bytes_to_sign);
         println!("xmtp_identity_signature_payload: {:?}", std::str::from_utf8(&xmtp_identity_signature_payload).unwrap());
-        let personal_signature_message = hash_message(xmtp_identity_signature_payload);
+        let personal_signature_message = hash_message(&xmtp_identity_signature_payload);
         for recid in 0..10 {
             println!("recid: {}", recid);
             let signature_verified = EcPrivateKey::verify_wallet_signature(address, &personal_signature_message.as_bytes(), &signature_proto_result, recid);
