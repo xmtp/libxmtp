@@ -10,6 +10,7 @@ import secp256k1
 import web3
 import XCTest
 @testable import XMTP
+import XMTPTestHelpers
 
 @available(iOS 16, *)
 final class IntegrationTests: XCTestCase {

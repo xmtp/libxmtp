@@ -10,29 +10,29 @@ import XCTest
 @testable import XMTP
 import XMTPProto
 
-struct FakeWallet: SigningKey {
-	static func generate() throws -> FakeWallet {
+public struct FakeWallet: SigningKey {
+	static public func generate() throws -> FakeWallet {
 		let key = try PrivateKey.generate()
 		return FakeWallet(key)
 	}
 
-	var address: String {
+	public var address: String {
 		key.walletAddress
 	}
 
-	func sign(_ data: Data) async throws -> XMTP.Signature {
+	public func sign(_ data: Data) async throws -> XMTP.Signature {
 		let signature = try await key.sign(data)
 		return signature
 	}
 
-	func sign(message: String) async throws -> XMTP.Signature {
+	public func sign(message: String) async throws -> XMTP.Signature {
 		let signature = try await key.sign(message: message)
 		return signature
 	}
 
-	var key: PrivateKey
+	public var key: PrivateKey
 
-	init(_ key: PrivateKey) {
+	public init(_ key: PrivateKey) {
 		self.key = key
 	}
 }
@@ -50,16 +50,16 @@ class FakeStreamHolder: ObservableObject {
 }
 
 @available(iOS 15, *)
-class FakeApiClient: ApiClient {
-	func envelopes(topics: [String], pagination: XMTP.Pagination?) async throws -> [XMTP.Envelope] {
+public class FakeApiClient: ApiClient {
+	public func envelopes(topics: [String], pagination: XMTP.Pagination?) async throws -> [XMTP.Envelope] {
 		try await query(topics: topics, pagination: pagination).envelopes
 	}
 
-	var environment: XMTPEnvironment
-	var authToken: String = ""
+	public var environment: XMTPEnvironment
+	public var authToken: String = ""
 	private var responses: [String: [Envelope]] = [:]
 	private var stream = FakeStreamHolder()
-	var published: [Envelope] = []
+	public var published: [Envelope] = []
 	var cancellable: AnyCancellable?
 	var forbiddingQueries = false
 
@@ -67,37 +67,39 @@ class FakeApiClient: ApiClient {
 		cancellable?.cancel()
 	}
 
-	func assertNoPublish(callback: () async throws -> Void) async throws {
+	public func assertNoPublish(callback: () async throws -> Void) async throws {
 		let oldCount = published.count
 		try await callback()
+		// swiftlint:disable no_optional_try
 		XCTAssertEqual(oldCount, published.count, "Published messages: \(String(describing: try? published[oldCount - 1 ..< published.count].map { try $0.jsonString() }))")
+		// swiftlint:enable no_optional_try
 	}
 
-	func assertNoQuery(callback: () async throws -> Void) async throws {
+	public func assertNoQuery(callback: () async throws -> Void) async throws {
 		forbiddingQueries = true
 		try await callback()
 		forbiddingQueries = false
 	}
 
-	func register(message: [Envelope], for topic: Topic) {
+	public func register(message: [Envelope], for topic: Topic) {
 		var responsesForTopic = responses[topic.description] ?? []
 		responsesForTopic.append(contentsOf: message)
 		responses[topic.description] = responsesForTopic
 	}
 
-	init() {
+	public init() {
 		environment = .local
 	}
 
-	func send(envelope: Envelope) {
+	public func send(envelope: Envelope) {
 		stream.send(envelope: envelope)
 	}
 
-	func findPublishedEnvelope(_ topic: Topic) -> Envelope? {
+	public func findPublishedEnvelope(_ topic: Topic) -> Envelope? {
 		return findPublishedEnvelope(topic.description)
 	}
 
-	func findPublishedEnvelope(_ topic: String) -> Envelope? {
+	public func findPublishedEnvelope(_ topic: String) -> Envelope? {
 		for envelope in published.reversed() {
 			if envelope.contentTopic == topic.description {
 				return envelope
@@ -109,11 +111,11 @@ class FakeApiClient: ApiClient {
 
 	// MARK: ApiClient conformance
 
-	required init(environment: XMTP.XMTPEnvironment, secure _: Bool) throws {
+	required public init(environment: XMTP.XMTPEnvironment, secure _: Bool) throws {
 		self.environment = environment
 	}
 
-	func subscribe(topics: [String]) -> AsyncThrowingStream<Envelope, Error> {
+	public func subscribe(topics: [String]) -> AsyncThrowingStream<Envelope, Error> {
 		AsyncThrowingStream { continuation in
 			self.cancellable = stream.$envelope.sink(receiveValue: { env in
 				if let env, topics.contains(env.contentTopic) {
@@ -123,11 +125,11 @@ class FakeApiClient: ApiClient {
 		}
 	}
 
-	func setAuthToken(_ token: String) {
+	public func setAuthToken(_ token: String) {
 		authToken = token
 	}
 
-	func query(topics: [String], pagination: Pagination? = nil, cursor _: Xmtp_MessageApi_V1_Cursor? = nil) async throws -> XMTP.QueryResponse {
+	public func query(topics: [String], pagination: Pagination? = nil, cursor _: Xmtp_MessageApi_V1_Cursor? = nil) async throws -> XMTP.QueryResponse {
 		if forbiddingQueries {
 			XCTFail("Attempted to query \(topics)")
 			throw FakeApiClientError.queryAssertionFailure
@@ -173,11 +175,11 @@ class FakeApiClient: ApiClient {
 		return queryResponse
 	}
 
-	func query(topics: [XMTP.Topic], pagination: Pagination? = nil) async throws -> XMTP.QueryResponse {
+	public func query(topics: [XMTP.Topic], pagination: Pagination? = nil) async throws -> XMTP.QueryResponse {
 		return try await query(topics: topics.map(\.description), pagination: pagination, cursor: nil)
 	}
 
-	func publish(envelopes: [XMTP.Envelope]) async throws -> XMTP.PublishResponse {
+	public func publish(envelopes: [XMTP.Envelope]) async throws -> XMTP.PublishResponse {
 		for envelope in envelopes {
 			send(envelope: envelope)
 		}
@@ -189,14 +191,14 @@ class FakeApiClient: ApiClient {
 }
 
 @available(iOS 15, *)
-struct Fixtures {
-	var fakeApiClient: FakeApiClient!
+public struct Fixtures {
+	public var fakeApiClient: FakeApiClient!
 
-	var alice: PrivateKey!
-	var aliceClient: Client!
+	public var alice: PrivateKey!
+	public var aliceClient: Client!
 
-	var bob: PrivateKey!
-	var bobClient: Client!
+	public var bob: PrivateKey!
+	public var bobClient: Client!
 
 	init() async throws {
 		alice = try PrivateKey.generate()
@@ -209,9 +211,10 @@ struct Fixtures {
 	}
 }
 
-extension XCTestCase {
+public extension XCTestCase {
 	@available(iOS 15, *)
 	func fixtures() async -> Fixtures {
+		// swiftlint:disable force_try
 		return try! await Fixtures()
 	}
 }

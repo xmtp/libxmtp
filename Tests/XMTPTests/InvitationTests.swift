@@ -6,6 +6,7 @@
 //
 
 import Foundation
+import XMTPTestHelpers
 import XCTest
 @testable import XMTP
 

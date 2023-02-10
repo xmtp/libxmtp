@@ -12,6 +12,10 @@ let package = Package(
 			name: "XMTP",
 			targets: ["XMTP"]
 		),
+		.library(
+			name: "XMTPTestHelpers",
+			targets: ["XMTPTestHelpers"]
+		),
 	],
 	dependencies: [
 		// Dependencies declare other packages that this package depends on.
@@ -36,9 +40,13 @@ let package = Package(
 				.product(name: "Connect", package: "connect-swift"),
 			]
 		),
+		.target(
+			name: "XMTPTestHelpers",
+			dependencies: ["XMTP"]
+		),
 		.testTarget(
 			name: "XMTPTests",
-			dependencies: ["XMTP"]
+			dependencies: ["XMTP", "XMTPTestHelpers"]
 		),
 	]
 )
