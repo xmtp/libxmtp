@@ -292,6 +292,7 @@ mod tests {
         // Calculate the eth wallet address from public key
         let eth_address = &ec_private_key.eth_address().unwrap();
         assert_eq!(eth_address, expected_address);
+        assert!(false);
     }
 
     #[test]
@@ -326,9 +327,14 @@ mod tests {
         // For more info: https://xmtp.org/signatures/
         // digest LDK+7DM/jgDncHBEegvPq0fM9sirQXNHcuNcEPLe5E4= address 0x9DaBcF16c361493e41192BF5901DB1E4E7E7Ca30
         
+        let hex_public_key = "08b8cff59ae3301a430a4104ac471e1ff54947e91e30a4640fe093e6dcb9ac097330b2e2506135d42980454e83bdc639ef7ae4de3debf82aa6800bdd4d1a635d0cdeeab8ed2401d64de22dde";
         let xmtp_test_message = "XMTP : Create Identity\n08b8cff59ae3301a430a4104ac471e1ff54947e91e30a4640fe093e6dcb9ac097330b2e2506135d42980454e83bdc639ef7ae4de3debf82aa6800bdd4d1a635d0cdeeab8ed2401d64de22dde\n\nFor more info: https://xmtp.org/signatures/";
         let xmtp_test_digest = "LDK+7DM/jgDncHBEegvPq0fM9sirQXNHcuNcEPLe5E4=";
         let xmtp_test_address = "0x9DaBcF16c361493e41192BF5901DB1E4E7E7Ca30";
+
+        let xmtp_identity_signature_payload = EcPrivateKey::xmtp_identity_key_payload(&hex::decode(hex_public_key).unwrap());
+
+        assert_eq!(xmtp_identity_signature_payload, xmtp_test_message.as_bytes());
 
         let derived_digest = EcPrivateKey::ethereum_personal_digest(xmtp_test_message.as_bytes());
         println!("ethers-rs hashed message: {}", base64::encode(hash_message(xmtp_test_message.as_bytes())));

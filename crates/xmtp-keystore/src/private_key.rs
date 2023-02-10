@@ -158,6 +158,9 @@ impl EcPrivateKey {
 
     // Verify signature
     pub fn verify_signature(&self, message: &[u8], signature: &[u8]) -> Result<(), String> {
+        // print signature bytes
+        println!("Signature length: {}", &signature.len());
+        println!("Signature bytes: {}", hex::encode(&signature));
         // Parse signature from raw compressed bytes
         let signature_result = Signature::try_from(signature);
         // Check signature_result
@@ -170,6 +173,8 @@ impl EcPrivateKey {
         let verifying_key = VerifyingKey::from(&self.public_key);
         // Verify signature
         let verify_result = verifying_key.verify(message, &signature);
+        // print message as decoded utf8
+        println!("Message: {}", String::from_utf8_lossy(message));
         // Check verify_result
         if verify_result.is_err() {
             return Err(verify_result.err().unwrap().to_string());

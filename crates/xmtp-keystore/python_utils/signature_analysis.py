@@ -9,6 +9,7 @@ w3 = Web3()
 
 message = encode_defunct(text='XMTP : Create Identity\n0880b4eee9a3e48fa1171a430a4104136ed88fc47dede4a85a3130137e54de9078dfd4bd3927ddacfac38c61fdfc94390826fcae314ad6fc7185b1c63366ead6fd0f5dd93a93fb646e15e69f65849b\n\nFor more info: https://xmtp.org/signatures/')
 print(message)
+# Needed to add 1b to the end of the signature output
 signature = "a39f6fe954c0d0a726b31641aa6f63560db4585e6176b9807e6367e2291cfc6b200b56caf30f4cc5bb5a905be0cb1cae27bdc916a9ec7f176f33cf6c9284c9b21b"
 
 #message = encode_defunct(text="I♥SF")
