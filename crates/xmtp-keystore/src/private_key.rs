@@ -1,20 +1,17 @@
 // Import k256 crate
-use k256::{
-    ecdsa::{SigningKey, Signature, RecoveryId, VerifyingKey, signature::{Verifier}},
-    EncodedPoint,
-    PublicKey,
-    SecretKey,
-    ProjectivePoint,
-};
+use k256::ecdsa::signature::DigestVerifier;
+use k256::elliptic_curve::group::prime::PrimeCurveAffine;
 use k256::elliptic_curve::sec1::ToEncodedPoint;
 use k256::elliptic_curve::AffineXCoordinate;
-use k256::elliptic_curve::group::prime::PrimeCurveAffine;
-use k256::ecdsa::signature::DigestVerifier;
-use sha2::{Sha256, Digest};
-use sha3::{Keccak256};
+use k256::{
+    ecdsa::{signature::Verifier, RecoveryId, Signature, SigningKey, VerifyingKey},
+    EncodedPoint, ProjectivePoint, PublicKey, SecretKey,
+};
+use sha2::{Digest, Sha256};
+use sha3::Keccak256;
 
-use protobuf;
 use super::proto;
+use protobuf;
 
 pub struct EcPrivateKey {
     private_key: SecretKey,
@@ -22,9 +19,10 @@ pub struct EcPrivateKey {
 }
 
 impl EcPrivateKey {
-
     // Static function to parse an EcPrivateKey from proto::private_key::PrivateKeyBundleV2
-    pub fn from_proto(private_key_bundle: &proto::private_key::PrivateKeyBundleV2) -> Result<EcPrivateKey, String> {
+    pub fn from_proto(
+        private_key_bundle: &proto::private_key::PrivateKeyBundleV2,
+    ) -> Result<EcPrivateKey, String> {
         // Check if secp256k1 is available
         if !private_key_bundle.identity_key.has_secp256k1() {
             println!("No secp256k1 key found");
@@ -64,14 +62,20 @@ impl EcPrivateKey {
         let binding = self.public_key.to_encoded_point(false);
         let public_key_bytes = binding.as_bytes();
         println!("Public key bytes: {}", public_key_bytes.len());
-        println!("Hex encoded public key bytes: {}", hex::encode(public_key_bytes));
+        println!(
+            "Hex encoded public key bytes: {}",
+            hex::encode(public_key_bytes)
+        );
         // Return the result as hex string, take the last 20 bytes
         // Need to remove the 04 prefix for uncompressed point representation
         return EcPrivateKey::eth_wallet_address_from_public_key(&public_key_bytes[1..]);
     }
 
     pub fn xmtp_identity_key_payload(public_key_bytes: &[u8]) -> Vec<u8> {
-        let raw_string = format!("XMTP : Create Identity\n{}\n\nFor more info: https://xmtp.org/signatures/", hex::encode(public_key_bytes));
+        let raw_string = format!(
+            "XMTP : Create Identity\n{}\n\nFor more info: https://xmtp.org/signatures/",
+            hex::encode(public_key_bytes)
+        );
         // Return the string utf-8 encoded
         return raw_string.as_bytes().to_vec();
     }
@@ -79,16 +83,18 @@ impl EcPrivateKey {
     // https://github.com/ethereumjs/ethereumjs-util/blob/ebf40a0fba8b00ba9acae58405bca4415e383a0d/src/signature.ts#L168
     pub fn ethereum_personal_sign_payload(xmtp_payload: &[u8]) -> Vec<u8> {
         // Prefix byte array is: "\x19Ethereum Signed Message:\n32"
-        let mut prefix = format!("\x19Ethereum Signed Message:\n{}", xmtp_payload.len()).as_bytes().to_vec();
+        let mut prefix = format!("\x19Ethereum Signed Message:\n{}", xmtp_payload.len())
+            .as_bytes()
+            .to_vec();
         prefix.append(&mut xmtp_payload.to_vec());
         return prefix;
-//
-//        // Hash the entire thing one more time with keccak256
-//        let mut hasher = Keccak256::new();
-//        hasher.update(prefix);
-//        let result = hasher.finalize();
-//        println!("Ethereum personal sign payload: {}", hex::encode(&result));
-//        return result.to_vec();
+        //
+        //        // Hash the entire thing one more time with keccak256
+        //        let mut hasher = Keccak256::new();
+        //        hasher.update(prefix);
+        //        let result = hasher.finalize();
+        //        println!("Ethereum personal sign payload: {}", hex::encode(&result));
+        //        return result.to_vec();
     }
 
     pub fn ethereum_personal_digest(xmtp_payload: &[u8]) -> Vec<u8> {
@@ -102,7 +108,11 @@ impl EcPrivateKey {
     }
 
     // Verify wallet signature from proto
-    pub fn verify_wallet_signature(address: &str, message: &[u8], signature: &proto::signature::Signature) -> Result<(), String> {
+    pub fn verify_wallet_signature(
+        address: &str,
+        message: &[u8],
+        signature: &proto::signature::Signature,
+    ) -> Result<(), String> {
         // Expect ecdsa_compact field with subfields: bytes, recovery_id
         if !signature.has_wallet_ecdsa_compact() {
             return Err("No wallet_ecdsa_compact field found".to_string());
@@ -134,11 +144,11 @@ impl EcPrivateKey {
             recovery_id,
         );
         // Can't do this because digest primitive for k256 is sha256, not Keccak256
-//        let recovered_key_result = VerifyingKey::recover_from_msg(
-//            &message,
-//            &ec_signature,
-//            recovery_id,
-//        );
+        //        let recovered_key_result = VerifyingKey::recover_from_msg(
+        //            &message,
+        //            &ec_signature,
+        //            recovery_id,
+        //        );
         if recovered_key_result.is_err() {
             return Err(recovered_key_result.err().unwrap().to_string());
         }
@@ -152,13 +162,17 @@ impl EcPrivateKey {
         println!("affine point: {:?}", affine_point);
         // https://github.com/RustCrypto/elliptic-curves/blob/c6ea4a6d986732835f9905232042a2ad0347d6b4/k256/src/arithmetic/field/field_5x52.rs#L87
         println!("projective point: {:?}", projective_point);
-        println!("affine point: {}", hex::encode(&affine_point.to_encoded_point(false).as_bytes()));
+        println!(
+            "affine point: {}",
+            hex::encode(&affine_point.to_encoded_point(false).as_bytes())
+        );
         let encoded_public_key = public_key.to_encoded_point(false);
         let public_key_bytes = encoded_public_key.as_bytes();
         println!("Public key bytes length: {}", public_key_bytes.len());
         println!("Public key bytes: {}", hex::encode(&public_key_bytes));
-//        println!("Recovering key bytes: {}", hex::encode(&recovered_key.to_bytes()));
-        let eth_address_result = EcPrivateKey::eth_wallet_address_from_public_key(&public_key_bytes[1..]);
+        //        println!("Recovering key bytes: {}", hex::encode(&recovered_key.to_bytes()));
+        let eth_address_result =
+            EcPrivateKey::eth_wallet_address_from_public_key(&public_key_bytes[1..]);
         if eth_address_result.is_err() {
             return Err(eth_address_result.err().unwrap().to_string());
         }
@@ -170,12 +184,15 @@ impl EcPrivateKey {
             return Err("Recovered address does not match the address from the proto".to_string());
         }
         // Check recovered key == public key
-//        if recovered_key != self.public_key {
-//            return Err("Recovered key does not match public key".to_string());
-//        }
+        //        if recovered_key != self.public_key {
+        //            return Err("Recovered key does not match public key".to_string());
+        //        }
         // Check signature
         // Need to supply the digested ethereum personal message for re-verification
-        if recovered_key.verify_digest(Keccak256::new_with_prefix(&message), &ec_signature).is_err() {
+        if recovered_key
+            .verify_digest(Keccak256::new_with_prefix(&message), &ec_signature)
+            .is_err()
+        {
             return Err("Signature verification failed".to_string());
         }
         return Ok(());
