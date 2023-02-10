@@ -94,7 +94,7 @@ impl EcPrivateKey {
         // Hash the entire thing one more time with keccak256
         let personal_sign_payload = EcPrivateKey::ethereum_personal_sign_payload(xmtp_payload);
         let mut hasher = Keccak256::new();
-        hasher.update(xmtp_payload);
+        hasher.update(personal_sign_payload);
         let result = hasher.finalize();
         println!("Ethereum personal digest: {}", hex::encode(&result));
         return result.to_vec();
