@@ -9,6 +9,7 @@ use k256::{
 use k256::elliptic_curve::sec1::ToEncodedPoint;
 use k256::elliptic_curve::AffineXCoordinate;
 use k256::elliptic_curve::group::prime::PrimeCurveAffine;
+use k256::ecdsa::signature::DigestVerifier;
 use sha2::{Sha256, Digest};
 use sha3::{Keccak256};
 
@@ -101,7 +102,7 @@ impl EcPrivateKey {
     }
 
     // Verify wallet signature from proto
-    pub fn verify_wallet_signature(address: &str, message: &[u8], signature: &proto::signature::Signature, recid: u8) -> Result<(), String> {
+    pub fn verify_wallet_signature(address: &str, message: &[u8], signature: &proto::signature::Signature) -> Result<(), String> {
         // Expect ecdsa_compact field with subfields: bytes, recovery_id
         if !signature.has_wallet_ecdsa_compact() {
             return Err("No wallet_ecdsa_compact field found".to_string());
@@ -110,7 +111,7 @@ impl EcPrivateKey {
         let signature_bytes = wallet_ecdsa_compact.bytes.as_slice();
         println!("Signature bytes: {}", hex::encode(&signature_bytes));
         println!("recover: {}", wallet_ecdsa_compact.recovery);
-        let recovery_id_result = RecoveryId::try_from(recid);
+        let recovery_id_result = RecoveryId::try_from(wallet_ecdsa_compact.recovery as u8);
         if recovery_id_result.is_err() {
             return Err(recovery_id_result.err().unwrap().to_string());
         }
@@ -173,7 +174,8 @@ impl EcPrivateKey {
 //            return Err("Recovered key does not match public key".to_string());
 //        }
         // Check signature
-        if recovered_key.verify(message, &ec_signature).is_err() {
+        // Need to supply the digested ethereum personal message for re-verification
+        if recovered_key.verify_digest(Keccak256::new_with_prefix(&message), &ec_signature).is_err() {
             return Err("Signature verification failed".to_string());
         }
         return Ok(());
