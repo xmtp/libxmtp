@@ -4,9 +4,11 @@ use k256::{
     EncodedPoint,
     PublicKey,
     SecretKey,
+    ProjectivePoint,
 };
 use k256::elliptic_curve::sec1::ToEncodedPoint;
 use k256::elliptic_curve::AffineXCoordinate;
+use k256::elliptic_curve::group::prime::PrimeCurveAffine;
 use sha2::{Sha256, Digest};
 use sha3::{Keccak256};
 
@@ -145,13 +147,16 @@ impl EcPrivateKey {
         let public_key = PublicKey::from(&recovered_key);
         // Get affine point from public_key
         let affine_point = public_key.as_affine();
-//        println!("public key left: {}", hex::encode(&affine_point.x().to_bytes()));
-//        println!("public key right: {}", hex::encode(&affine_point.y().to_bytes()));
+        let projective_point = affine_point.to_curve();
+        println!("affine point: {:?}", affine_point);
+        // https://github.com/RustCrypto/elliptic-curves/blob/c6ea4a6d986732835f9905232042a2ad0347d6b4/k256/src/arithmetic/field/field_5x52.rs#L87
+        println!("projective point: {:?}", projective_point);
         println!("affine point: {}", hex::encode(&affine_point.to_encoded_point(false).as_bytes()));
         let encoded_public_key = public_key.to_encoded_point(false);
         let public_key_bytes = encoded_public_key.as_bytes();
         println!("Public key bytes length: {}", public_key_bytes.len());
         println!("Public key bytes: {}", hex::encode(&public_key_bytes));
+//        println!("Recovering key bytes: {}", hex::encode(&recovered_key.to_bytes()));
         let eth_address_result = EcPrivateKey::eth_wallet_address_from_public_key(&public_key_bytes[1..]);
         if eth_address_result.is_err() {
             return Err(eth_address_result.err().unwrap().to_string());
