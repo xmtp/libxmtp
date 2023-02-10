@@ -8,8 +8,8 @@ class PublicKeyBundleBuilder {
     companion object {
         fun buildFromSignedKeyBundle(signedPublicKeyBundle: SignedPublicKeyBundle): PublicKeyBundle {
             return PublicKeyBundle.newBuilder().apply {
-                identityKey = PublicKey.parseFrom(signedPublicKeyBundle.identityKey.keyBytes)
-                preKey = PublicKey.parseFrom(signedPublicKeyBundle.preKey.keyBytes)
+                identityKey = PublicKeyBuilder.buildFromSignedPublicKey(signedPublicKeyBundle.identityKey)
+                preKey = PublicKeyBuilder.buildFromSignedPublicKey(signedPublicKeyBundle.preKey)
             }.build()
         }
     }

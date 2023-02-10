@@ -51,20 +51,6 @@ fun SignedPublicKey.verify(key: SignedPublicKey): Boolean {
     )
 }
 
-fun SignedPublicKey.recoverKeySignedPublicKey(): PublicKey {
-    val publicKey = PublicKeyBuilder.buildFromSignedPublicKey(this)
-    val slimKey = PublicKey.newBuilder().also {
-        it.secp256K1UncompressedBuilder.bytes = secp256K1Uncompressed.toByteString()
-        it.timestamp = publicKey.timestamp
-    }.build()
-
-    val pubKeyData = Sign.signedMessageToKey(
-        slimKey.toByteArray(),
-        KeyUtil.getSignatureData(publicKey.signature.rawDataWithNormalizedRecovery)
-    )
-    return PublicKeyBuilder.buildFromBytes(pubKeyData.toByteArray())
-}
-
 fun SignedPublicKey.recoverWalletSignerPublicKey(): PublicKey {
     val publicKey = PublicKeyBuilder.buildFromSignedPublicKey(this)
     val sig = Signature.newBuilder().build()

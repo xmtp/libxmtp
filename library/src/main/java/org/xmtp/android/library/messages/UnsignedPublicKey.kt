@@ -1,6 +1,5 @@
 package org.xmtp.android.library.messages
 
-import org.xmtp.android.library.extensions.millisecondsSinceEpoch
 import java.util.Date
 
 typealias UnsignedPublicKey = org.xmtp.proto.message.contents.PublicKeyOuterClass.UnsignedPublicKey
@@ -8,7 +7,7 @@ typealias UnsignedPublicKey = org.xmtp.proto.message.contents.PublicKeyOuterClas
 fun UnsignedPublicKey.generate(): UnsignedPublicKey {
     val unsigned = UnsignedPublicKey.newBuilder()
     val key = PrivateKey.newBuilder().build().generate()
-    val createdNs = Date().millisecondsSinceEpoch
+    val createdNs = (Date().time * 1_000_000)
     unsigned.secp256K1UncompressedBuilder.bytes = key.publicKey.secp256K1Uncompressed.bytes
     unsigned.createdNs = createdNs.toLong()
     return unsigned.build()

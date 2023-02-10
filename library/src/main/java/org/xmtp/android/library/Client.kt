@@ -2,6 +2,8 @@ package org.xmtp.android.library
 
 import androidx.annotation.WorkerThread
 import kotlinx.coroutines.runBlocking
+import org.xmtp.android.library.codecs.ContentCodec
+import org.xmtp.android.library.codecs.TextCodec
 import org.xmtp.android.library.messages.ContactBundle
 import org.xmtp.android.library.messages.EncryptedPrivateKeyBundle
 import org.xmtp.android.library.messages.Envelope
@@ -39,6 +41,18 @@ class Client() {
         private set
     val environment: XMTPEnvironment = apiClient.environment
     val contacts: Contacts = Contacts(client = this)
+    val conversations: Conversations = Conversations(client = this)
+
+    companion object {
+        var codecRegistry = run {
+            val registry = CodecRegistry()
+            registry.register(codec = TextCodec())
+            registry
+        }
+        fun register(codec: ContentCodec<*>) {
+            codecRegistry.register(codec = codec)
+        }
+    }
 
     constructor(
         address: String,
@@ -57,7 +71,7 @@ class Client() {
         return create(account = account, apiClient = apiClient)
     }
 
-    private fun create(account: SigningKey, apiClient: ApiClient): Client {
+    fun create(account: SigningKey, apiClient: ApiClient): Client {
         return runBlocking {
             val privateKeyBundleV1 = loadOrCreateKeys(account, apiClient)
             val client = Client(account.address, privateKeyBundleV1, apiClient)
@@ -126,7 +140,7 @@ class Client() {
         return null
     }
 
-    suspend fun publishUserContact(legacy: Boolean = false) {
+    fun publishUserContact(legacy: Boolean = false) {
         val envelopes: MutableList<MessageApiOuterClass.Envelope> = mutableListOf()
         if (legacy) {
             val contactBundle = ContactBundle.newBuilder().also {
@@ -137,11 +151,11 @@ class Client() {
                 address?.let {
                     contentTopic = Topic.contact(it).description
                 }
-                timestampNs = System.currentTimeMillis() * 1_000_000
+                timestampNs = Date().time * 1_000_000
                 message = contactBundle.toByteString()
             }.build()
 
-            envelopes.plus(envelope)
+            envelopes.add(envelope)
         }
         val contactBundle = ContactBundle.newBuilder().also {
             it.v2Builder.keyBundle = keys?.getPublicKeyBundle()
@@ -151,11 +165,11 @@ class Client() {
             address?.let {
                 contentTopic = Topic.contact(it).description
             }
-            timestampNs = System.currentTimeMillis() * 1_000_000
+            timestampNs = Date().time * 1_000_000
             message = contactBundle.toByteString()
         }.build()
         envelopes.add(envelope)
-        publish(envelopes = envelopes)
+        runBlocking { publish(envelopes = envelopes) }
     }
 
     fun getUserContact(peerAddress: String): ContactBundle? {
@@ -167,8 +181,7 @@ class Client() {
         return apiClient.query(topics = topics)
     }
 
-    @WorkerThread
-    suspend fun publish(envelopes: List<Envelope>): PublishResponse {
+    fun publish(envelopes: List<Envelope>): PublishResponse {
         privateKeyBundleV1?.let {
             address?.let { address ->
                 val authorized = AuthorizedIdentity(
@@ -181,10 +194,10 @@ class Client() {
             }
         }
 
-        return apiClient.publish(envelopes = envelopes)
+        return runBlocking { apiClient.publish(envelopes = envelopes) }
     }
 
-    suspend fun ensureUserContactPublished() {
+    fun ensureUserContactPublished() {
         address?.let {
             val contact = getUserContact(peerAddress = it)
             if (contact != null && keys?.getPublicKeyBundle() == contact.v2.keyBundle) {

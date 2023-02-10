@@ -9,6 +9,7 @@ import org.xmtp.android.library.SigningKey
 import org.xmtp.proto.message.contents.PublicKeyOuterClass
 import org.xmtp.proto.message.contents.SignatureOuterClass
 import java.security.SecureRandom
+import java.util.Date
 
 typealias PrivateKey = org.xmtp.proto.message.contents.PrivateKeyOuterClass.PrivateKey
 
@@ -17,7 +18,7 @@ class PrivateKeyBuilder : SigningKey {
 
     constructor() {
         privateKey = PrivateKey.newBuilder().also {
-            val time = System.currentTimeMillis()
+            val time = Date().time
             it.timestamp = time
             val privateKeyData = SecureRandom().generateSeed(32)
             it.secp256K1Builder.bytes = privateKeyData.toByteString()
@@ -37,7 +38,7 @@ class PrivateKeyBuilder : SigningKey {
     companion object {
         fun buildFromPrivateKeyData(privateKeyData: ByteArray): PrivateKey {
             return PrivateKey.newBuilder().apply {
-                val time = System.currentTimeMillis()
+                val time = Date().time
                 timestamp = time
                 secp256K1Builder.bytes = privateKeyData.toByteString()
                 val publicData = KeyUtil.getPublicKey(privateKeyData)
@@ -88,9 +89,6 @@ class PrivateKeyBuilder : SigningKey {
         return sign(digest)
     }
 }
-
-fun PrivateKey.matches(publicKey: PublicKey): Boolean =
-    publicKey.recoverKeySignedPublicKey() == (publicKey.recoverKeySignedPublicKey())
 
 fun PrivateKey.generate(): PrivateKey {
     return PrivateKeyBuilder.buildFromPrivateKeyData(SecureRandom().generateSeed(32))

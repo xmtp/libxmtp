@@ -18,9 +18,10 @@ class SignedPrivateKeyBuilder {
 }
 
 fun SignedPrivateKey.sign(data: ByteArray): Signature {
-    val key = PrivateKey.parseFrom(secp256K1.bytes)
+    val key = PrivateKeyBuilder.buildFromPrivateKeyData(secp256K1.bytes.toByteArray())
     return PrivateKeyBuilder(key).sign(data)
 }
 
-fun SignedPrivateKey.matches(signedPublicKey: SignedPublicKey): Boolean =
-    publicKey == signedPublicKey
+fun SignedPrivateKey.matches(signedPublicKey: SignedPublicKey): Boolean {
+    return publicKey.recoverWalletSignerPublicKey().walletAddress == signedPublicKey.recoverWalletSignerPublicKey().walletAddress
+}

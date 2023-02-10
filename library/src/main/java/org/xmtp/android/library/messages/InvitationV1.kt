@@ -1,8 +1,9 @@
 package org.xmtp.android.library.messages
 
-import com.google.crypto.tink.subtle.Base64
+import com.google.crypto.tink.subtle.Base64.encodeToString
 import com.google.protobuf.kotlin.toByteString
 import org.xmtp.proto.message.contents.Invitation
+import org.xmtp.proto.message.contents.Invitation.InvitationV1.Context
 import java.security.SecureRandom
 
 typealias InvitationV1 = org.xmtp.proto.message.contents.Invitation.InvitationV1
@@ -38,9 +39,8 @@ class InvitationV1Builder {
 fun InvitationV1.createRandom(context: Invitation.InvitationV1.Context? = null): InvitationV1 {
     val inviteContext = context ?: Invitation.InvitationV1.Context.newBuilder().build()
     val randomBytes = SecureRandom().generateSeed(32)
-    val randomString =
-        Base64.decode(randomBytes, 0).toByteString().toString().replace(Regex("=*$"), "")
-            .replace(Regex("[^A-Za-z0-9]"), "")
+    val randomString = encodeToString(randomBytes, 0).replace(Regex("=*$"), "")
+        .replace(Regex("[^A-Za-z0-9]"), "")
     val topic = Topic.directMessageV2(randomString)
     val keyMaterial = SecureRandom().generateSeed(32)
     val aes256GcmHkdfSha256 = Invitation.InvitationV1.Aes256gcmHkdfsha256.newBuilder().apply {
@@ -52,4 +52,18 @@ fun InvitationV1.createRandom(context: Invitation.InvitationV1.Context? = null):
         context = inviteContext,
         aes256GcmHkdfSha256 = aes256GcmHkdfSha256
     )
+}
+
+class InvitationV1ContextBuilder {
+    companion object {
+        fun buildFromConversation(
+            conversationId: String = "",
+            metadata: Map<String, String> = mapOf()
+        ): Context {
+            return Context.newBuilder().also {
+                it.conversationId = conversationId
+                it.putAllMetadata(metadata)
+            }.build()
+        }
+    }
 }

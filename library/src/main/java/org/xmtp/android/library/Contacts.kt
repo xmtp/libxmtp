@@ -7,8 +7,8 @@ import org.xmtp.android.library.messages.Topic
 
 data class Contacts(
     var client: Client,
-    var knownBundles: Map<String, ContactBundle> = mapOf(),
-    var hasIntroduced: Map<String, Boolean> = mapOf()
+    val knownBundles: MutableMap<String, ContactBundle> = mutableMapOf(),
+    val hasIntroduced: MutableMap<String, Boolean> = mutableMapOf()
 ) {
 
     fun has(peerAddress: String): Boolean =
@@ -23,11 +23,12 @@ data class Contacts(
             return knownBundle
         }
         val response = runBlocking { client.query(topics = listOf(Topic.contact(peerAddress))) }
+
+        if (response.envelopesList.isNullOrEmpty()) return null
+
         for (envelope in response.envelopesList) {
-            val contactBundle = ContactBundleBuilder.buildFromEnvelope(envelope)
-            knownBundles.toMutableMap()[peerAddress] = contactBundle
-            return contactBundle
+            knownBundles[peerAddress] = ContactBundleBuilder.buildFromEnvelope(envelope)
         }
-        return null
+        return ContactBundleBuilder.buildFromEnvelope(response.envelopesList.first())
     }
 }

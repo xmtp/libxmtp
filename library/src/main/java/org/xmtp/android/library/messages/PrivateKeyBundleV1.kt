@@ -37,6 +37,9 @@ fun PrivateKeyBundleV1.generate(wallet: SigningKey): PrivateKeyBundleV1 {
     return bundle.v1
 }
 
+val PrivateKeyBundleV1.walletAddress: String
+    get() = identityKey.publicKey.recoverWalletSignerPublicKey().walletAddress
+
 fun PrivateKeyBundleV1.toV2(): PrivateKeyBundleV2 {
     return PrivateKeyBundleV2.newBuilder().also {
         it.identityKey =

@@ -8,7 +8,7 @@ typealias AuthData = org.xmtp.proto.message.api.v1.Authn.AuthData
 class AuthDataBuilder {
     companion object {
         fun buildFromWalletAddress(walletAddress: String, timestamp: Date? = null): Authn.AuthData {
-            val timestamped = timestamp?.time ?: System.currentTimeMillis()
+            val timestamped = timestamp?.time ?: Date().time
             return AuthData.newBuilder().apply {
                 walletAddr = walletAddress
                 createdNs = timestamped * 1_000_000

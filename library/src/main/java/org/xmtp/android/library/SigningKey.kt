@@ -13,6 +13,7 @@ import org.xmtp.proto.message.contents.PrivateKeyOuterClass
 import org.xmtp.proto.message.contents.PublicKeyOuterClass
 import org.xmtp.proto.message.contents.SignatureOuterClass
 import java.math.BigInteger
+import java.util.Date
 
 interface SigningKey {
     val address: String
@@ -24,7 +25,7 @@ interface SigningKey {
 
 fun SigningKey.createIdentity(identity: PrivateKeyOuterClass.PrivateKey): AuthorizedIdentity {
     val slimKey = PublicKeyOuterClass.PublicKey.newBuilder().apply {
-        timestamp = System.currentTimeMillis()
+        timestamp = Date().time
         secp256K1Uncompressed = identity.publicKey.secp256K1Uncompressed
     }.build()
     val signatureClass = Signature.newBuilder().build()
@@ -45,7 +46,7 @@ fun SigningKey.createIdentity(identity: PrivateKeyOuterClass.PrivateKey): Author
         it.signature = signature
     }
     return AuthorizedIdentity(
-        address = Keys.getAddress(publicKey),
+        address = Keys.toChecksumAddress(Keys.getAddress(publicKey)),
         authorized = authorized.build(),
         identity = identity,
     )

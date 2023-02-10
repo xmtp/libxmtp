@@ -20,6 +20,7 @@ interface ApiClient {
     val environment: XMTPEnvironment
     fun setAuthToken(token: String)
     suspend fun query(topics: List<Topic>): QueryResponse
+    suspend fun queryStrings(topics: List<String>): QueryResponse
     suspend fun publish(envelopes: List<Envelope>): PublishResponse
 }
 
@@ -36,15 +37,16 @@ data class GRPCApiClient(override val environment: XMTPEnvironment, val secure: 
             Metadata.Key.of("X-App-Version", Metadata.ASCII_STRING_MARSHALLER)
     }
 
-    private val channel: ManagedChannel = Grpc.newChannelBuilderForAddress(
-        environment.rawValue,
-        5556,
-        if (secure) {
-            TlsChannelCredentials.create()
-        } else {
-            InsecureChannelCredentials.create()
-        },
-    ).build()
+    private val channel: ManagedChannel =
+        Grpc.newChannelBuilderForAddress(
+            environment.rawValue,
+            5556,
+            if (secure) {
+                TlsChannelCredentials.create()
+            } else {
+                InsecureChannelCredentials.create()
+            },
+        ).build()
 
     private val client: MessageApiGrpcKt.MessageApiCoroutineStub =
         MessageApiGrpcKt.MessageApiCoroutineStub(channel)
@@ -55,9 +57,9 @@ data class GRPCApiClient(override val environment: XMTPEnvironment, val secure: 
     }
 
     @WorkerThread
-    override suspend fun query(topics: List<Topic>): QueryResponse {
+    override suspend fun queryStrings(topics: List<String>): QueryResponse {
         val request = QueryRequest.newBuilder()
-            .addAllContentTopics(topics.map { it.description }).build()
+            .addAllContentTopics(topics).build()
 
         val headers = Metadata()
 
@@ -65,6 +67,11 @@ data class GRPCApiClient(override val environment: XMTPEnvironment, val secure: 
             headers.put(AUTHORIZATION_HEADER_KEY, "Bearer $token")
         }
         return client.query(request, headers = headers)
+    }
+
+    @WorkerThread
+    override suspend fun query(topics: List<Topic>): QueryResponse {
+        return queryStrings(topics.map { it.description })
     }
 
     @WorkerThread
