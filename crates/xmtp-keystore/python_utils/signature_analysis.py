@@ -19,4 +19,7 @@ signature = "a39f6fe954c0d0a726b31641aa6f63560db4585e6176b9807e6367e2291cfc6b200
 #signature = "044eb47c187a8053e0b85911533a75868f0830d5cb8ffd75849906f2a2cc093b27ef5fdbdfb53a4019a06c3e14b0875abfc6f5c2867e265fde59fb6d3b2cb889"
 
 # Get HexBytes from signature
-print(w3.eth.account.recover_message(message, signature=signature))
+import pdb; pdb.set_trace()
+# set a breakpoint on _recover_hash
+address = w3.eth.account.recover_message(message, signature=signature)
+print(address)

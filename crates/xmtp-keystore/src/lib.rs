@@ -306,6 +306,8 @@ mod tests {
         let xmtp_identity_signature_payload = EcPrivateKey::xmtp_identity_key_payload(&bytes_to_sign);
         println!("xmtp_identity_signature_payload: {:?}", std::str::from_utf8(&xmtp_identity_signature_payload).unwrap());
         let personal_signature_message = hash_message(&xmtp_identity_signature_payload);
+        // message hash should be b'\xaaP\xbe\x9f~\x83\xce\xce\x00\x8c#\x8e\xf2jT\xa8\xc6\x93:\x01G\x00\x11D8\xa0!J\xc4BV\xb5'
+        // b'qlC+n36Dzs4AjCOO8mpUqMaTOgFHABFEOKAhSsRCVrU='
         for recid in 0..10 {
             println!("recid: {}", recid);
             let signature_verified = EcPrivateKey::verify_wallet_signature(address, &personal_signature_message.as_bytes(), &signature_proto_result, recid);

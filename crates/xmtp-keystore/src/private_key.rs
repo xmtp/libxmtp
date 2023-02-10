@@ -124,6 +124,11 @@ impl EcPrivateKey {
             &ec_signature,
             recovery_id,
         );
+//        let recovered_key_result = VerifyingKey::recover_from_msg(
+//            &message,
+//            &ec_signature,
+//            recovery_id,
+//        );
         if recovered_key_result.is_err() {
             return Err(recovered_key_result.err().unwrap().to_string());
         }
