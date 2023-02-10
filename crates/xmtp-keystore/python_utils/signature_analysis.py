@@ -21,5 +21,6 @@ signature = "a39f6fe954c0d0a726b31641aa6f63560db4585e6176b9807e6367e2291cfc6b200
 # Get HexBytes from signature
 import pdb; pdb.set_trace()
 # set a breakpoint on _recover_hash
+
 address = w3.eth.account.recover_message(message, signature=signature)
 print(address)

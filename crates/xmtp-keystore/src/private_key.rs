@@ -6,6 +6,7 @@ use k256::{
     SecretKey,
 };
 use k256::elliptic_curve::sec1::ToEncodedPoint;
+use k256::elliptic_curve::AffineXCoordinate;
 use sha2::{Sha256, Digest};
 use sha3::{Keccak256};
 
@@ -118,12 +119,18 @@ impl EcPrivateKey {
             return Err(ecdsa_signature_result.err().unwrap().to_string());
         }
         let ec_signature = ecdsa_signature_result.unwrap();
+        // Print r value of signature
+        println!("r: {}", hex::encode(&ec_signature.r().to_bytes()));
+        // Print s value of signature
+        println!("s: {}", hex::encode(&ec_signature.s().to_bytes()));
+        println!("message hex: {}", hex::encode(&message));
 
         let recovered_key_result = VerifyingKey::recover_from_digest(
             Keccak256::new_with_prefix(message),
             &ec_signature,
             recovery_id,
         );
+        // Can't do this because digest primitive for k256 is sha256, not Keccak256
 //        let recovered_key_result = VerifyingKey::recover_from_msg(
 //            &message,
 //            &ec_signature,
@@ -135,8 +142,14 @@ impl EcPrivateKey {
         let recovered_key = recovered_key_result.unwrap();
         // Check if ethereum address from recovered key matches the address from the proto
         // First extract the public key from the recovered key
-        let public_key = recovered_key.to_encoded_point(false);
-        let public_key_bytes = public_key.as_bytes();
+        let public_key = PublicKey::from(&recovered_key);
+        // Get affine point from public_key
+        let affine_point = public_key.as_affine();
+//        println!("public key left: {}", hex::encode(&affine_point.x().to_bytes()));
+//        println!("public key right: {}", hex::encode(&affine_point.y().to_bytes()));
+        println!("affine point: {}", hex::encode(&affine_point.to_encoded_point(false).as_bytes()));
+        let encoded_public_key = public_key.to_encoded_point(false);
+        let public_key_bytes = encoded_public_key.as_bytes();
         println!("Public key bytes length: {}", public_key_bytes.len());
         println!("Public key bytes: {}", hex::encode(&public_key_bytes));
         let eth_address_result = EcPrivateKey::eth_wallet_address_from_public_key(&public_key_bytes[1..]);
