@@ -292,7 +292,6 @@ mod tests {
         // Calculate the eth wallet address from public key
         let eth_address = &ec_private_key.eth_address().unwrap();
         assert_eq!(eth_address, expected_address);
-        assert!(false);
     }
 
     #[test]
@@ -341,7 +340,7 @@ mod tests {
         assert_eq!(xmtp_identity_signature_payload, xmtp_test_message.as_bytes());
 
         let derived_digest = EcPrivateKey::ethereum_personal_digest(xmtp_test_message.as_bytes());
-        println!("ethers-rs hashed message: {}", base64::encode(hash_message(xmtp_test_message.as_bytes())));
         assert_eq!(xmtp_test_digest, base64::encode(&derived_digest));
+        assert_eq!(xmtp_test_digest, base64::encode(hash_message(xmtp_test_message.as_bytes())));
     }
 }
