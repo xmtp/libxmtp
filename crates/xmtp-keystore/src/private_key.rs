@@ -10,6 +10,7 @@ use k256::{
 use sha2::{Digest, Sha256};
 use sha3::Keccak256;
 
+use super::ethereum_utils::{EthereumCompatibleKey, EthereumUtils};
 use super::proto;
 use protobuf;
 
@@ -88,13 +89,6 @@ impl EcPrivateKey {
             .to_vec();
         prefix.append(&mut xmtp_payload.to_vec());
         return prefix;
-        //
-        //        // Hash the entire thing one more time with keccak256
-        //        let mut hasher = Keccak256::new();
-        //        hasher.update(prefix);
-        //        let result = hasher.finalize();
-        //        println!("Ethereum personal sign payload: {}", hex::encode(&result));
-        //        return result.to_vec();
     }
 
     pub fn ethereum_personal_digest(xmtp_payload: &[u8]) -> Vec<u8> {
@@ -198,11 +192,8 @@ impl EcPrivateKey {
         return Ok(());
     }
 
-    // Verify signature
+    // Verify signature with default sha256 digest mechanism
     pub fn verify_signature(&self, message: &[u8], signature: &[u8]) -> Result<(), String> {
-        // print signature bytes
-        println!("Signature length: {}", &signature.len());
-        println!("Signature bytes: {}", hex::encode(&signature));
         // Parse signature from raw compressed bytes
         let signature_result = Signature::try_from(signature);
         // Check signature_result
@@ -222,5 +213,22 @@ impl EcPrivateKey {
             return Err(verify_result.err().unwrap().to_string());
         }
         return Ok(verify_result.unwrap());
+    }
+}
+
+// Implement the EthereumCompatibleKey trait for EcPrivateKey
+// this provides a get_ethereum_address method
+impl EthereumCompatibleKey for EcPrivateKey {
+    fn get_ethereum_address(&self) -> String {
+        // Get public key from self
+        let public_key = self.public_key;
+        // Get encoded public key
+        let encoded_public_key = public_key.to_encoded_point(false);
+        // Get public key bytes
+        let public_key_bytes = encoded_public_key.as_bytes();
+        // Get ethereum address from public key bytes
+        let eth_address =
+            EthereumUtils::get_ethereum_address_from_public_key_bytes(&public_key_bytes[1..]);
+        return eth_address;
     }
 }

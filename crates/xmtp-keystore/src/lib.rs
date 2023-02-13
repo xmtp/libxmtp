@@ -8,6 +8,7 @@ use sha2::Sha256;
 
 use protobuf;
 
+mod ethereum_utils;
 mod private_key;
 mod proto;
 use crate::private_key::EcPrivateKey;
