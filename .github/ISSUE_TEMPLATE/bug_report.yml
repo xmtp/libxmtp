@@ -10,7 +10,7 @@ body:
         - Include 1 bug per issue. Creating 1 issue per bug will make it easier to assign and track progress on bugs.
         - Check [existing issues](https://github.com/xmtp/xmtp-android/issues) to see if your issue has already been reported.
         - Ensure that the bug is not security-related and can safely be disclosed publicly on GitHub. For information about how to report a security issue, see [Security policy](https://github.com/xmtp/xmtp-android/security/policy).
-        - Follow the [XMTP code of conduct](https://xmtp.org/community/code-of-conduct).
+        - Follow the [XMTP code of conduct](https://github.com/xmtp/xmtp-android/blob/main/CODE_OF_CONDUCT.md).
 - type: textarea
   id: bug-description
   attributes:
