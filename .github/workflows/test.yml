@@ -10,8 +10,28 @@ env:
   GPR_USER: ${{ secrets.GITHUB_ACTOR }}
 
 jobs:
-  library:
-    name: Library
+  library-unit:
+    name: Library (Unit Tests)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout project sources
+        uses: actions/checkout@v3
+      - uses: actions/setup-java@v3
+        with:
+          distribution: 'adopt'
+          java-version: '11'
+      - name: Setup Gradle
+        uses: gradle/gradle-build-action@v2
+      - name: Validate Gradle Wrapper
+        uses: gradle/wrapper-validation-action@v1
+      - name: Start local test server
+        run: docker-compose -p xmtp -f dev/local/docker-compose.yml up -d
+      - name: Gradle Run Unit Tests
+        run: ./gradlew library:testDebug
+      - name: Stop local test server
+        run: docker-compose -p xmtp -f dev/local/docker-compose.yml down
+  library-integration:
+    name: Library (Integration Tests)
     runs-on: macos-latest
     steps:
       - name: Checkout project sources
@@ -40,8 +60,6 @@ jobs:
           docker ps
       - name: Start local test server
         run: docker-compose -p xmtp -f dev/local/docker-compose.yml up -d
-      - name: Gradle Run Unit Tests
-        run: ./gradlew library:testDebug
       - name: Gradle Run Integration Tests
         uses: reactivecircus/android-emulator-runner@v2
         with:
