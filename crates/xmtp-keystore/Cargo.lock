@@ -529,6 +529,7 @@ dependencies = [
  "ff",
  "generic-array 0.14.6",
  "group",
+ "hkdf",
  "pkcs8",
  "rand_core",
  "sec1",

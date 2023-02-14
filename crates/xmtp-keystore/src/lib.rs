@@ -7,6 +7,7 @@ use sha2::Sha256;
 
 use protobuf;
 
+mod ecdh;
 mod ethereum_utils;
 mod private_key;
 mod proto;
@@ -32,23 +33,6 @@ impl Keystore {
         }
     }
 
-    /**
-     * Rust version of this javascript code:
-     * // Derive AES-256-GCM key from a shared secret and salt.
-     * // Returns crypto.CryptoKey suitable for the encrypt/decrypt API
-     * async function hkdf(secret: Uint8Array, salt: Uint8Array): Promise<CryptoKey> {
-     *   const key = await crypto.subtle.importKey('raw', secret, 'HKDF', false, [
-     *     'deriveKey',
-     *   ])
-     *   return crypto.subtle.deriveKey(
-     *     { name: 'HKDF', hash: 'SHA-256', salt, info: hkdfNoInfo },
-     *     key,
-     *     { name: 'AES-GCM', length: 256 },
-     *     false,
-     *     ['encrypt', 'decrypt']
-     *   )
-     * }
-     */
     fn hkdf(secret: &[u8], salt: &[u8]) -> Result<[u8; 32], String> {
         let hk = Hkdf::<Sha256>::new(Some(&salt), &secret);
         let mut okm = [0u8; 42];
@@ -59,40 +43,6 @@ impl Keystore {
         okm[0..32]
             .try_into()
             .map_err(|_| "hkdf failed to fit in 32 bytes".to_string())
-    }
-
-    /** Rust implementation of this javascript code:
-     * let dh1: Uint8Array, dh2: Uint8Array, preKey: SignedPrivateKey
-     * if (isRecipient) {
-     *   preKey = this.findPreKey(myPreKey)
-     *   dh1 = preKey.sharedSecret(peer.identityKey)
-     *   dh2 = this.identityKey.sharedSecret(peer.preKey)
-     * } else {
-     *   preKey = this.findPreKey(myPreKey)
-     *   dh1 = this.identityKey.sharedSecret(peer.preKey)
-     *   dh2 = preKey.sharedSecret(peer.identityKey)
-     * }
-     * const dh3 = preKey.sharedSecret(peer.preKey)
-     * const secret = new Uint8Array(dh1.length + dh2.length + dh3.length)
-     * secret.set(dh1, 0)
-     * secret.set(dh2, dh1.length)
-     * secret.set(dh3, dh1.length + dh2.length)
-     * return secret
-     */
-    fn derive_shared_secret(
-        &self,
-        peer_bundle: proto::public_key::SignedPublicKeyBundle,
-        my_prekey: proto::public_key::SignedPublicKey,
-        is_recipient: bool,
-    ) -> Result<[u8; 32], String> {
-        // Check if self.private_key_bundle is set
-        if self.private_key_bundle.is_none() {
-            return Err("private key bundle is not set".to_string());
-        }
-        // Get the private key bundle
-        let private_key_bundle = self.private_key_bundle.as_ref().unwrap();
-        let secret: [u8; 32] = [0; 32];
-        return Ok(secret);
     }
 
     // Set private identity key from protobuf bytes
@@ -329,10 +279,6 @@ mod tests {
         );
         let personal_signature_message =
             EcPrivateKey::ethereum_personal_sign_payload(&xmtp_identity_signature_payload);
-        // message hash should be b'\xaaP\xbe\x9f~\x83\xce\xce\x00\x8c#\x8e\xf2jT\xa8\xc6\x93:\x01G\x00\x11D8\xa0!J\xc4BV\xb5'
-        // b'qlC+n36Dzs4AjCOO8mpUqMaTOgFHABFEOKAhSsRCVrU='
-        //        assert_eq!(personal_signature_message.as_bytes(), base64::decode("qlC+n36Dzs4AjCOO8mpUqMaTOgFHABFEOKAhSsRCVrU=").unwrap());
-        println!("woo digest match");
         let signature_verified = EcPrivateKey::verify_wallet_signature(
             address,
             &personal_signature_message,
