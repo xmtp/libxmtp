@@ -97,7 +97,6 @@ impl EcPrivateKey {
         let mut hasher = Keccak256::new();
         hasher.update(personal_sign_payload);
         let result = hasher.finalize();
-        println!("Ethereum personal digest: {}", hex::encode(&result));
         return result.to_vec();
     }
 
@@ -137,52 +136,22 @@ impl EcPrivateKey {
             &ec_signature,
             recovery_id,
         );
-        // Can't do this because digest primitive for k256 is sha256, not Keccak256
-        //        let recovered_key_result = VerifyingKey::recover_from_msg(
-        //            &message,
-        //            &ec_signature,
-        //            recovery_id,
-        //        );
+
         if recovered_key_result.is_err() {
             return Err(recovered_key_result.err().unwrap().to_string());
         }
         let recovered_key = recovered_key_result.unwrap();
+
         // Check if ethereum address from recovered key matches the address from the proto
         // First extract the public key from the recovered key
         let public_key = PublicKey::from(&recovered_key);
-        // Get affine point from public_key
-        let affine_point = public_key.as_affine();
-        let projective_point = affine_point.to_curve();
-        println!("affine point: {:?}", affine_point);
-        // https://github.com/RustCrypto/elliptic-curves/blob/c6ea4a6d986732835f9905232042a2ad0347d6b4/k256/src/arithmetic/field/field_5x52.rs#L87
-        println!("projective point: {:?}", projective_point);
-        println!(
-            "affine point: {}",
-            hex::encode(&affine_point.to_encoded_point(false).as_bytes())
-        );
-        let encoded_public_key = public_key.to_encoded_point(false);
-        let public_key_bytes = encoded_public_key.as_bytes();
-        println!("Public key bytes length: {}", public_key_bytes.len());
-        println!("Public key bytes: {}", hex::encode(&public_key_bytes));
-        //        println!("Recovering key bytes: {}", hex::encode(&recovered_key.to_bytes()));
-        let eth_address_result =
-            EcPrivateKey::eth_wallet_address_from_public_key(&public_key_bytes[1..]);
-        if eth_address_result.is_err() {
-            return Err(eth_address_result.err().unwrap().to_string());
-        }
-        let eth_address = eth_address_result.unwrap();
-        println!("Recovered address: {}", &eth_address);
+        let eth_address = public_key.get_ethereum_address();
 
         // Compare both in lower case
         if address.to_lowercase() != eth_address.to_lowercase() {
             return Err("Recovered address does not match the address from the proto".to_string());
         }
-        // Check recovered key == public key
-        //        if recovered_key != self.public_key {
-        //            return Err("Recovered key does not match public key".to_string());
-        //        }
-        // Check signature
-        // Need to supply the digested ethereum personal message for re-verification
+        // Finally use the recovered key in a re-verification, may not strictly be required
         if recovered_key
             .verify_digest(Keccak256::new_with_prefix(&message), &ec_signature)
             .is_err()
@@ -206,8 +175,6 @@ impl EcPrivateKey {
         let verifying_key = VerifyingKey::from(&self.public_key);
         // Verify signature
         let verify_result = verifying_key.verify(message, &signature);
-        // print message as decoded utf8
-        println!("Message: {}", String::from_utf8_lossy(message));
         // Check verify_result
         if verify_result.is_err() {
             return Err(verify_result.err().unwrap().to_string());
@@ -224,6 +191,19 @@ impl EthereumCompatibleKey for EcPrivateKey {
         let public_key = self.public_key;
         // Get encoded public key
         let encoded_public_key = public_key.to_encoded_point(false);
+        // Get public key bytes
+        let public_key_bytes = encoded_public_key.as_bytes();
+        // Get ethereum address from public key bytes
+        let eth_address =
+            EthereumUtils::get_ethereum_address_from_public_key_bytes(&public_key_bytes[1..]);
+        return eth_address;
+    }
+}
+
+impl EthereumCompatibleKey for PublicKey {
+    fn get_ethereum_address(&self) -> String {
+        // Get encoded public key
+        let encoded_public_key = self.to_encoded_point(false);
         // Get public key bytes
         let public_key_bytes = encoded_public_key.as_bytes();
         // Get ethereum address from public key bytes

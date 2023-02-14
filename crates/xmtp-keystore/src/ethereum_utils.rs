@@ -28,6 +28,16 @@ impl EthereumUtils {
         // TODO: EIP-55 checksum address encoding
         return format!("0x{}", hex::encode(&hash[12..]));
     }
+
+    // Place the XMTP payload in this utilities class
+    pub fn xmtp_identity_key_payload(public_key_bytes: &[u8]) -> Vec<u8> {
+        let raw_string = format!(
+            "XMTP : Create Identity\n{}\n\nFor more info: https://xmtp.org/signatures/",
+            hex::encode(public_key_bytes)
+        );
+        // Return the string utf-8 encoded
+        return raw_string.as_bytes().to_vec();
+    }
 }
 
 // Define a trait for keys called EthereumCompatibleKey

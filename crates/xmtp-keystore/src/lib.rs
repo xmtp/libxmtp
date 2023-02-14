@@ -333,7 +333,7 @@ mod tests {
         let bytes_to_sign = base64::decode("CIC07umj5I+hFxpDCkEEE27Yj8R97eSoWjEwE35U3pB439S9OSfdrPrDjGH9/JQ5CCb8rjFK1vxxhbHGM2bq1v0PXdk6k/tkbhXmn2WEmw==").unwrap();
         // Encode string as bytes
         let xmtp_identity_signature_payload =
-            EcPrivateKey::xmtp_identity_key_payload(&bytes_to_sign);
+            ethereum_utils::EthereumUtils::xmtp_identity_key_payload(&bytes_to_sign);
         println!(
             "xmtp_identity_signature_payload: {:?}",
             std::str::from_utf8(&xmtp_identity_signature_payload).unwrap()
@@ -366,7 +366,9 @@ mod tests {
         let xmtp_test_address = "0x9DaBcF16c361493e41192BF5901DB1E4E7E7Ca30";
 
         let xmtp_identity_signature_payload =
-            EcPrivateKey::xmtp_identity_key_payload(&hex::decode(hex_public_key).unwrap());
+            ethereum_utils::EthereumUtils::xmtp_identity_key_payload(
+                &hex::decode(hex_public_key).unwrap(),
+            );
 
         assert_eq!(
             xmtp_identity_signature_payload,
