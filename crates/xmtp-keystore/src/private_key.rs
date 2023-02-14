@@ -213,38 +213,4 @@ impl ECDHDerivable for EcPrivateKey {
         );
         return Ok(shared_secret);
     }
-
-    //    /** Rust implementation of this javascript code:
-    //     * let dh1: Uint8Array, dh2: Uint8Array, preKey: SignedPrivateKey
-    //     * if (isRecipient) {
-    //     *   preKey = this.findPreKey(myPreKey)
-    //     *   dh1 = preKey.sharedSecret(peer.identityKey)
-    //     *   dh2 = this.identityKey.sharedSecret(peer.preKey)
-    //     * } else {
-    //     *   preKey = this.findPreKey(myPreKey)
-    //     *   dh1 = this.identityKey.sharedSecret(peer.preKey)
-    //     *   dh2 = preKey.sharedSecret(peer.identityKey)
-    //     * }
-    //     * const dh3 = preKey.sharedSecret(peer.preKey)
-    //     * const secret = new Uint8Array(dh1.length + dh2.length + dh3.length)
-    //     * secret.set(dh1, 0)
-    //     * secret.set(dh2, dh1.length)
-    //     * secret.set(dh3, dh1.length + dh2.length)
-    //     * return secret
-    //     */
-    //    fn derive_shared_secret(
-    //        &self,
-    //        peer_bundle: &ECDHKey,
-    //        my_prekey: &ECDHKey,
-    //        is_recipient: bool,
-    //    ) -> Result<[u8; 32], String> {
-    //        // Check if self.private_key_bundle is set
-    //        if self.private_key_bundle.is_none() {
-    //            return Err("private key bundle is not set".to_string());
-    //        }
-    //        // Get the private key bundle
-    //        let private_key_bundle = self.private_key_bundle.as_ref().unwrap();
-    //        let secret: [u8; 32] = [0; 32];
-    //        return Ok(secret);
-    //    }
 }
