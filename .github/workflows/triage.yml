@@ -6,13 +6,5 @@ on:
       - opened
 
 jobs:
-  add-to-project:
-    name: Add issue to project
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/add-to-project@main
-        with:
-          project-url: https://github.com/orgs/xmtp-labs/projects/24
-          github-token: ${{ secrets.PROJECT_PAT }}
-          labeled: bug, enhancement
-          label-operator: OR
+  call-add-issues-to-project:
+    uses: xmtp/workflow_calls/.github/workflows/add-issues-to-project.yml@main
