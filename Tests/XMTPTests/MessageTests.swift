@@ -7,8 +7,8 @@
 
 import CryptoKit
 import XCTest
-import XMTPTestHelpers
 @testable import XMTP
+import XMTPTestHelpers
 
 @available(iOS 16.0, *)
 class MessageTests: XCTestCase {

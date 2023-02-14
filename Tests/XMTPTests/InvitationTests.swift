@@ -6,9 +6,9 @@
 //
 
 import Foundation
-import XMTPTestHelpers
 import XCTest
 @testable import XMTP
+import XMTPTestHelpers
 
 @available(iOS 16.0, *)
 class InvitationTests: XCTestCase {

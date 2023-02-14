@@ -6,8 +6,8 @@
 //
 
 import XCTest
-import XMTPTestHelpers
 @testable import XMTP
+import XMTPTestHelpers
 
 @available(iOS 15, *)
 class ContactsTests: XCTestCase {

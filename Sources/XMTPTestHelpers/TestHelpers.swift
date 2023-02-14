@@ -11,7 +11,7 @@ import XCTest
 import XMTPProto
 
 public struct FakeWallet: SigningKey {
-	static public func generate() throws -> FakeWallet {
+	public static func generate() throws -> FakeWallet {
 		let key = try PrivateKey.generate()
 		return FakeWallet(key)
 	}
@@ -111,7 +111,7 @@ public class FakeApiClient: ApiClient {
 
 	// MARK: ApiClient conformance
 
-	required public init(environment: XMTP.XMTPEnvironment, secure _: Bool) throws {
+	public required init(environment: XMTP.XMTPEnvironment, secure _: Bool) throws {
 		self.environment = environment
 	}
 

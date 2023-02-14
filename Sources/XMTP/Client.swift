@@ -6,8 +6,8 @@
 //
 
 import Foundation
-import web3
 import GRPC
+import web3
 import XMTPProto
 
 /// Specify configuration options for creating a ``Client``.

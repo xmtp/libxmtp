@@ -57,7 +57,7 @@ public struct ConversationV2 {
 		self.context = context
 		self.peerAddress = peerAddress
 		self.client = client
-		self.header = SealedInvitationHeaderV1()
+		header = SealedInvitationHeaderV1()
 	}
 
 	public init(topic: String, keyMaterial: Data, context: InvitationV1.Context, peerAddress: String, client: Client, header: SealedInvitationHeaderV1) {
