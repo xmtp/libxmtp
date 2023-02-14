@@ -1,14 +1,11 @@
 // Import k256 crate
 use k256::ecdsa::signature::DigestVerifier;
-use k256::elliptic_curve::group::prime::PrimeCurveAffine;
 use k256::elliptic_curve::sec1::ToEncodedPoint;
-use k256::elliptic_curve::AffineXCoordinate;
 use k256::{
-    ecdsa::{signature::Verifier, RecoveryId, Signature, SigningKey, VerifyingKey},
-    EncodedPoint, ProjectivePoint, PublicKey, SecretKey,
+    ecdsa::{signature::Verifier, RecoveryId, Signature, VerifyingKey},
+    PublicKey, SecretKey,
 };
-use sha2::{Digest, Sha256};
-use sha3::Keccak256;
+use sha3::{Digest, Keccak256};
 
 use super::ethereum_utils::{EthereumCompatibleKey, EthereumUtils};
 use super::proto;
@@ -70,15 +67,6 @@ impl EcPrivateKey {
         // Return the result as hex string, take the last 20 bytes
         // Need to remove the 04 prefix for uncompressed point representation
         return EcPrivateKey::eth_wallet_address_from_public_key(&public_key_bytes[1..]);
-    }
-
-    pub fn xmtp_identity_key_payload(public_key_bytes: &[u8]) -> Vec<u8> {
-        let raw_string = format!(
-            "XMTP : Create Identity\n{}\n\nFor more info: https://xmtp.org/signatures/",
-            hex::encode(public_key_bytes)
-        );
-        // Return the string utf-8 encoded
-        return raw_string.as_bytes().to_vec();
     }
 
     // https://github.com/ethereumjs/ethereumjs-util/blob/ebf40a0fba8b00ba9acae58405bca4415e383a0d/src/signature.ts#L168

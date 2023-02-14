@@ -1,5 +1,4 @@
 use ethers::core::rand::thread_rng;
-// use ethers::utils::hash_message;
 use ethers::signers::coins_bip39::{English, Mnemonic};
 use ethers::utils::hash_message;
 
@@ -12,6 +11,8 @@ mod ethereum_utils;
 mod private_key;
 mod proto;
 use crate::private_key::EcPrivateKey;
+
+use base64::{engine::general_purpose, Engine as _};
 
 pub struct Keystore {
     // Private key bundle powers most operations
@@ -58,18 +59,6 @@ impl Keystore {
         okm[0..32]
             .try_into()
             .map_err(|_| "hkdf failed to fit in 32 bytes".to_string())
-    }
-
-    fn find_prekey_bundle(
-        &self,
-        prekey: &proto::public_key::SignedPublicKey,
-    ) -> Option<&proto::private_key::SignedPrivateKey> {
-        // For each prekey in the private key bundle, check if the public key derived from that
-        // prekey matches the public key in the prekey argument
-        //        for prekey_bundle in self.private_key_bundle.as_ref().unwrap().get_prekeys() {
-        //            let private_key = EcPrivateKey::from_proto(prekey_bundle.get_private_key().clone());
-        //        }
-        None
     }
 
     /** Rust implementation of this javascript code:
