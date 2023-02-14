@@ -1,6 +1,5 @@
 package org.xmtp.android.library
 
-import androidx.annotation.WorkerThread
 import io.grpc.Grpc
 import io.grpc.InsecureChannelCredentials
 import io.grpc.ManagedChannel
@@ -56,7 +55,6 @@ data class GRPCApiClient(override val environment: XMTPEnvironment, val secure: 
         authToken = token
     }
 
-    @WorkerThread
     override suspend fun queryStrings(topics: List<String>): QueryResponse {
         val request = QueryRequest.newBuilder()
             .addAllContentTopics(topics).build()
@@ -69,12 +67,10 @@ data class GRPCApiClient(override val environment: XMTPEnvironment, val secure: 
         return client.query(request, headers = headers)
     }
 
-    @WorkerThread
     override suspend fun query(topics: List<Topic>): QueryResponse {
         return queryStrings(topics.map { it.description })
     }
 
-    @WorkerThread
     override suspend fun publish(envelopes: List<Envelope>): PublishResponse {
         val request = PublishRequest.newBuilder().addAllEnvelopes(envelopes).build()
         val headers = Metadata()

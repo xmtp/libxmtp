@@ -2,6 +2,7 @@ package org.xmtp.android.library.messages
 
 import org.bouncycastle.util.Arrays
 import org.web3j.crypto.Keys
+import org.xmtp.android.library.XMTPException
 import org.xmtp.android.library.toHex
 import org.xmtp.proto.message.api.v1.MessageApiOuterClass
 import org.xmtp.proto.message.contents.Contact
@@ -31,7 +32,7 @@ fun ContactBundle.toPublicKeyBundle(): PublicKeyBundle {
     return when (versionCase) {
         Contact.ContactBundle.VersionCase.V1 -> v1.keyBundle
         Contact.ContactBundle.VersionCase.V2 -> PublicKeyBundleBuilder.buildFromSignedKeyBundle(v2.keyBundle)
-        else -> throw IllegalArgumentException("Invalid version")
+        else -> throw XMTPException("Invalid version")
     }
 }
 
@@ -39,7 +40,7 @@ fun ContactBundle.toSignedPublicKeyBundle(): SignedPublicKeyBundle {
     return when (versionCase) {
         Contact.ContactBundle.VersionCase.V1 -> SignedPublicKeyBundleBuilder.buildFromKeyBundle(v1.keyBundle)
         Contact.ContactBundle.VersionCase.V2 -> v2.keyBundle
-        else -> throw IllegalArgumentException("Invalid version")
+        else -> throw XMTPException("Invalid version")
     }
 }
 

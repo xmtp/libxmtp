@@ -7,6 +7,7 @@ import org.junit.Test
 import org.web3j.utils.Numeric
 import org.xmtp.android.library.codecs.TextCodec
 import org.xmtp.android.library.messages.InvitationV1
+import org.xmtp.android.library.messages.InvitationV1ContextBuilder
 import org.xmtp.android.library.messages.MessageV1Builder
 import org.xmtp.android.library.messages.MessageV2Builder
 import org.xmtp.android.library.messages.PrivateKeyBuilder
@@ -180,5 +181,35 @@ class MessageTest {
         val client = Client().create(account = PrivateKeyBuilder(key))
         val conversations = client.conversations.list()
         assertEquals(100, conversations.size)
+    }
+
+    @Test
+    fun canReceiveV1MessagesFromJS() {
+        val wallet = FakeWallet.generate()
+        val client = Client().create(account = wallet)
+        val convo = ConversationV1(
+            client = client,
+            peerAddress = "0xf4BF19Ed562651837bc11ff975472ABd239D35B5",
+            sentAt = Date()
+        )
+        convo.send(text = "hello from kotlin")
+        val messages = convo.messages()
+        assertEquals(1, messages.size)
+        assertEquals("hello from kotlin", messages[0].body)
+    }
+
+    @Test
+    fun canReceiveV2MessagesFromJS() {
+        val wallet = PrivateKeyBuilder()
+        val client = Client().create(account = wallet)
+        val convo = client.conversations.newConversation(
+            "0xf4BF19Ed562651837bc11ff975472ABd239D35B5",
+            InvitationV1ContextBuilder.buildFromConversation("https://example.com/4")
+        )
+
+        convo.send(content = "hello from kotlin")
+        val messages = convo.messages()
+        assertEquals(1, messages.size)
+        assertEquals("hello from kotlin", messages[0].body)
     }
 }

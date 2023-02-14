@@ -16,9 +16,9 @@ sealed class Topic {
                 is userIntro -> wrap("intro-$address")
                 is userInvite -> wrap("invite-$address")
                 is directMessageV1 -> {
-                    val list = arrayOf(address1, address2).sort()
-                    val addresses = listOf(list).joinToString(separator = "-")
-                    wrap("dm-$addresses")
+                    val addresses = arrayOf(address1, address2)
+                    addresses.sort()
+                    wrap("dm-${addresses.joinToString(separator = "-")}")
                 }
                 is directMessageV2 -> wrap("m-$addresses")
             }

@@ -7,6 +7,15 @@ import org.xmtp.android.library.messages.walletAddress
 class ContactsTest {
 
     @Test
+    fun testNormalizesAddresses() {
+        val fixtures = fixtures()
+        fixtures.bobClient.ensureUserContactPublished()
+        val bobAddressLowercased = fixtures.bobClient.address?.lowercase()
+        val bobContact = fixtures.aliceClient.getUserContact(peerAddress = bobAddressLowercased!!)
+        assert(bobContact != null)
+    }
+
+    @Test
     fun testCanFindContact() {
         val fixtures = fixtures()
         fixtures.bobClient.ensureUserContactPublished()

@@ -9,6 +9,7 @@ import org.xmtp.android.library.Client
 import org.xmtp.android.library.Crypto
 import org.xmtp.android.library.DecodedMessage
 import org.xmtp.android.library.KeyUtil
+import org.xmtp.android.library.XMTPException
 import org.xmtp.android.library.codecs.EncodedContent
 import java.math.BigInteger
 import java.util.Date
@@ -46,7 +47,7 @@ class MessageV2Builder {
             }.build()
 
             if (key.walletAddress != (PublicKeyBuilder.buildFromSignedPublicKey(signed.sender.preKey).walletAddress)) {
-                throw throw IllegalArgumentException("Invalid signature")
+                throw throw XMTPException("Invalid signature")
             }
             val encodedMessage = EncodedContent.parseFrom(signed.payload)
             val header = MessageHeaderV2.parseFrom(message.headerBytes)

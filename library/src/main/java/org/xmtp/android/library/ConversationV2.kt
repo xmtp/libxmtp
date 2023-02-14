@@ -1,6 +1,5 @@
 package org.xmtp.android.library
 
-import android.content.res.Resources.NotFoundException
 import kotlinx.coroutines.runBlocking
 import org.xmtp.android.library.codecs.ContentCodec
 import org.xmtp.android.library.codecs.EncodedContent
@@ -74,7 +73,7 @@ data class ConversationV2(
             if (contentType != null) {
                 return codec.encode(contentType)
             } else {
-                throw IllegalArgumentException("Codec type is not registered")
+                throw XMTPException("Codec type is not registered")
             }
         }
 
@@ -93,7 +92,7 @@ data class ConversationV2(
 
     private fun send(encodedContent: EncodedContent, options: SendOptions? = null, sentAt: Date) {
         if (client.getUserContact(peerAddress = peerAddress) == null) {
-            throw NotFoundException()
+            throw XMTPException("Contact not found.")
         }
         var content = encodedContent
 

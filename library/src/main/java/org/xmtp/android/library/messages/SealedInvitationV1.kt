@@ -1,9 +1,9 @@
 package org.xmtp.android.library.messages
 
-import android.content.res.Resources.NotFoundException
 import com.google.protobuf.kotlin.toByteString
 import org.xmtp.android.library.CipherText
 import org.xmtp.android.library.Crypto
+import org.xmtp.android.library.XMTPException
 
 typealias SealedInvitationV1 = org.xmtp.proto.message.contents.Invitation.SealedInvitationV1
 
@@ -24,7 +24,7 @@ val SealedInvitationV1.header: SealedInvitationHeaderV1
 fun SealedInvitationV1.getInvitation(viewer: PrivateKeyBundleV2?): InvitationV1 {
     val header = header
     if (!header.sender.identityKey.hasSignature()) {
-        throw NotFoundException("No signature")
+        throw XMTPException("No signature")
     }
     val secret = if (viewer != null && viewer.identityKey.matches(header.sender.identityKey)) {
         viewer.sharedSecret(

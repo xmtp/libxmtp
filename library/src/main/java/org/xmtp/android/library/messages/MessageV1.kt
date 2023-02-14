@@ -3,6 +3,7 @@ package org.xmtp.android.library.messages
 import com.google.protobuf.kotlin.toByteString
 import org.xmtp.android.library.CipherText
 import org.xmtp.android.library.Crypto
+import org.xmtp.android.library.XMTPException
 import org.xmtp.proto.message.contents.MessageOuterClass
 import java.util.Date
 
@@ -44,7 +45,7 @@ class MessageV1Builder {
                     headerBytes = message.v2.headerBytes.toByteArray()
                     ciphertext = message.v2.ciphertext
                 }
-                else -> throw IllegalArgumentException("Cannot decode from bytes")
+                else -> throw XMTPException("Cannot decode from bytes")
             }
             return buildFromCipherText(headerBytes, ciphertext)
         }
