@@ -11,6 +11,16 @@ import XMTPTestHelpers
 
 @available(iOS 15, *)
 class ContactsTests: XCTestCase {
+	func testNormalizesAddresses() async throws {
+		let fixtures = await fixtures()
+		try await fixtures.bobClient.ensureUserContactPublished()
+
+		let bobAddressLowercased = fixtures.bobClient.address.lowercased()
+		let bobContact = try await fixtures.aliceClient.getUserContact(peerAddress: bobAddressLowercased)
+
+		XCTAssertNotNil(bobContact)
+	}
+
 	func testCanFindContact() async throws {
 		let fixtures = await fixtures()
 

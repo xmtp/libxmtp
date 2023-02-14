@@ -6,6 +6,7 @@
 //
 
 import Foundation
+import web3
 import GRPC
 import XMTPProto
 
@@ -282,6 +283,7 @@ public class Client {
 	}
 
 	func getUserContact(peerAddress: String) async throws -> ContactBundle? {
+		let peerAddress = EthereumAddress(peerAddress).toChecksumAddress()
 		return try await contacts.find(peerAddress)
 	}
 }
