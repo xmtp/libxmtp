@@ -92,8 +92,7 @@ public struct ConversationV2 {
 		AsyncThrowingStream { continuation in
 			Task {
 				for try await envelope in client.subscribe(topics: [topic.description]) {
-					let message = try Message(serializedData: envelope.message)
-					let decoded = try decode(message.v2)
+					let decoded = try decode(envelope: envelope)
 
 					continuation.yield(decoded)
 				}
