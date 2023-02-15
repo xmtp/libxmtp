@@ -73,10 +73,14 @@ class Client() {
 
     fun create(account: SigningKey, apiClient: ApiClient): Client {
         return runBlocking {
-            val privateKeyBundleV1 = loadOrCreateKeys(account, apiClient)
-            val client = Client(account.address, privateKeyBundleV1, apiClient)
-            client.ensureUserContactPublished()
-            client
+            try {
+                val privateKeyBundleV1 = loadOrCreateKeys(account, apiClient)
+                val client = Client(account.address, privateKeyBundleV1, apiClient)
+                client.ensureUserContactPublished()
+                client
+            } catch (e: java.lang.Exception) {
+                throw XMTPException("Error creating client", e)
+            }
         }
     }
 
