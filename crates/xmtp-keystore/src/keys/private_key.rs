@@ -95,11 +95,6 @@ impl SignedPrivateKey {
         // Get the public key bytes
         let binding = self.public_key.to_encoded_point(false);
         let public_key_bytes = binding.as_bytes();
-        println!("Public key bytes: {}", public_key_bytes.len());
-        println!(
-            "Hex encoded public key bytes: {}",
-            hex::encode(public_key_bytes)
-        );
         // Return the result as hex string, take the last 20 bytes
         // Need to remove the 04 prefix for uncompressed point representation
         return Self::eth_wallet_address_from_public_key(&public_key_bytes[1..]);
@@ -136,24 +131,16 @@ impl SignedPrivateKey {
         }
         let wallet_ecdsa_compact = signature.wallet_ecdsa_compact();
         let signature_bytes = wallet_ecdsa_compact.bytes.as_slice();
-        println!("Signature bytes: {}", hex::encode(&signature_bytes));
-        println!("recover: {}", wallet_ecdsa_compact.recovery);
         let recovery_id_result = RecoveryId::try_from(wallet_ecdsa_compact.recovery as u8);
         if recovery_id_result.is_err() {
             return Err(recovery_id_result.err().unwrap().to_string());
         }
         let recovery_id = recovery_id_result.unwrap();
-        println!("Len of signature bytes: {}", signature_bytes.len());
         let ecdsa_signature_result = Signature::try_from(signature_bytes);
         if ecdsa_signature_result.is_err() {
             return Err(ecdsa_signature_result.err().unwrap().to_string());
         }
         let ec_signature = ecdsa_signature_result.unwrap();
-        // Print r value of signature
-        println!("r: {}", hex::encode(&ec_signature.r().to_bytes()));
-        // Print s value of signature
-        println!("s: {}", hex::encode(&ec_signature.s().to_bytes()));
-        println!("message hex: {}", hex::encode(&message));
 
         let recovered_key_result = VerifyingKey::recover_from_digest(
             Keccak256::new_with_prefix(message),
@@ -194,12 +181,6 @@ impl SignedPrivateKey {
             return Err(signature_result.err().unwrap().to_string());
         }
         let signature = signature_result.unwrap();
-
-        // print the public key as secp1 bytes
-        println!(
-            "Public key bytes: {}",
-            hex::encode(&self.public_key.to_encoded_point(false))
-        );
 
         // Verifying key from self.public_key
         let verifying_key = VerifyingKey::from(&self.public_key);

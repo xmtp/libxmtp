@@ -4,7 +4,7 @@ use sha2::Sha256;
 use generic_array::GenericArray;
 
 use aes_gcm::{
-    aead::{Aead, KeyInit, OsRng},
+    aead::{Aead, KeyInit},
     Aes256Gcm,
     Nonce, // Or `Aes128Gcm`
 };

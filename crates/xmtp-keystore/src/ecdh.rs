@@ -1,4 +1,3 @@
-use k256::ecdh::SharedSecret;
 use k256::PublicKey;
 
 pub trait ECDHKey {
