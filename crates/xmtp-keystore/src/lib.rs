@@ -6,15 +6,18 @@ use protobuf;
 mod ecdh;
 mod encryption;
 mod ethereum_utils;
-mod private_key;
-mod proto;
-use crate::private_key::EcPrivateKey;
+pub mod keys;
+pub mod proto;
+use keys::{
+    key_bundle::PrivateKeyBundle,
+    private_key::{PrivateKey, SignedPrivateKey},
+};
 
 use base64::{engine::general_purpose, Engine as _};
 
 pub struct Keystore {
     // Private key bundle powers most operations
-    private_key_bundle: Option<proto::private_key::PrivateKeyBundleV2>,
+    private_key_bundle: Option<PrivateKeyBundle>,
     // List of invites
     saved_invites: Vec<proto::invitation::InvitationV1>,
 }
@@ -123,7 +126,8 @@ impl Keystore {
             protobuf::Message::parse_from_bytes(private_key_bundle);
         // If the deserialization was successful, set the privateIdentityKey field
         if private_key_result.is_ok() {
-            self.private_key_bundle = Some(private_key_result.unwrap());
+            self.private_key_bundle =
+                Some(PrivateKeyBundle::from_proto(&private_key_result.unwrap()).unwrap());
         }
     }
 
@@ -311,15 +315,16 @@ mod tests {
         let signature: proto::signature::Signature =
             protobuf::Message::parse_from_bytes(&base64::decode(signature_proto_raw).unwrap())
                 .unwrap();
-        let ec_private_key_result = EcPrivateKey::from_proto(private_key_bundle);
-        assert!(ec_private_key_result.is_ok());
-        let ec_private_key = ec_private_key_result.unwrap();
+        let key_bundle_result = PrivateKeyBundle::from_proto(private_key_bundle);
+        assert!(key_bundle_result.is_ok());
+        let key_bundle = key_bundle_result.unwrap();
         // Do a raw byte signature verification
-        let signature_verified =
-            &ec_private_key.verify_signature(message.as_bytes(), &signature.ecdsa_compact().bytes);
+        let signature_verified = &key_bundle
+            .identity_key
+            .verify_signature(message.as_bytes(), &signature.ecdsa_compact().bytes);
         assert!(signature_verified.is_ok());
         // Calculate the eth wallet address from public key
-        let eth_address = &ec_private_key.eth_address().unwrap();
+        let eth_address = &key_bundle.identity_key.eth_address().unwrap();
         assert_eq!(eth_address, expected_address);
     }
 
@@ -337,8 +342,8 @@ mod tests {
             std::str::from_utf8(&xmtp_identity_signature_payload).unwrap()
         );
         let personal_signature_message =
-            EcPrivateKey::ethereum_personal_sign_payload(&xmtp_identity_signature_payload);
-        let signature_verified = EcPrivateKey::verify_wallet_signature(
+            SignedPrivateKey::ethereum_personal_sign_payload(&xmtp_identity_signature_payload);
+        let signature_verified = SignedPrivateKey::verify_wallet_signature(
             address,
             &personal_signature_message,
             &signature_proto_result,
@@ -364,7 +369,8 @@ mod tests {
             xmtp_test_message.as_bytes()
         );
 
-        let derived_digest = EcPrivateKey::ethereum_personal_digest(xmtp_test_message.as_bytes());
+        let derived_digest =
+            SignedPrivateKey::ethereum_personal_digest(xmtp_test_message.as_bytes());
         assert_eq!(xmtp_test_digest, base64::encode(&derived_digest));
     }
 
