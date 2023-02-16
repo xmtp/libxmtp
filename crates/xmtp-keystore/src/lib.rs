@@ -1,6 +1,5 @@
 use ethers::core::rand::thread_rng;
 use ethers::signers::coins_bip39::{English, Mnemonic};
-use ethers::utils::hash_message;
 
 use protobuf;
 
@@ -51,7 +50,7 @@ impl Keystore {
             let mut response = proto::keystore::decrypt_response::Response::new();
 
             // let decrypt_result = encryption::decrypt_v1(payload, peer_keys, header_bytes, is_sender);
-            let decrypt_result = encryption::decrypt_v1(&[], &[], None);
+            let decrypt_result = encryption::decrypt_v1(&[], &[], &[], &[], None);
             match decrypt_result {
                 Ok(decrypted) => {
                     let mut success_response =
@@ -239,14 +238,6 @@ mod tests {
     #[test]
     fn test_hkdf_simple() {
         // Test Vectors generated with xmtp-js
-        // secret aff491a0fe153a4ac86065b4b4f6953a4cb33477aa233facb94d5fb88c82778c39167f453aa0690b5358abe9e027ddca5a6185bce3699d8b2ac7efa30510a7991b
-        // salt e3412c112c28353088c99bd5c7350c81b1bc879b4d08ea1192ec3c03202ff337
-        // derived 0159d9ad511263c3754a8e2045fadc657c0016b1801720e67bbeb2661c60f176
-        // secret af43ad68d9fcf40967f194497246a6e30515b6c4f574ee2ff58e31df32f5f18040812188cfb5ce34e74ae27b73be08dca626b3eb55c55e6733f32a59dd1b8e021c
-        // salt a8500ae6f90a7ccaa096adc55857b90c03508f7d5f8d103a49d58e69058f0c3c
-        // derived 6181d0905f3f31cc3940336696afe1337d9e4d7f6655b9a6eaed2880be38150c
-
-        // Test hkdf with hardcoded test vectors
         // Test 1
         let secret1 = hex::decode("aff491a0fe153a4ac86065b4b4f6953a4cb33477aa233facb94d5fb88c82778c39167f453aa0690b5358abe9e027ddca5a6185bce3699d8b2ac7efa30510a7991b").unwrap();
         let salt1 = hex::decode("e3412c112c28353088c99bd5c7350c81b1bc879b4d08ea1192ec3c03202ff337")
@@ -299,9 +290,6 @@ mod tests {
     #[test]
     fn test_private_key_from_v2_bundle() {
         // = test vectors generated with xmtp-js =
-        // encoded v2:  EpYDCsgBCMDw7ZjWtOygFxIiCiAvph+Hg/Gk9G1g2EoW1ZDlWVH1nCkn6uRL7GBG3iNophqXAQpPCMDw7ZjWtOygFxpDCkEEeH4w/gK5HMaKu51aec/jiosmqDduIaEA67V7Lbox1cPhz9SIEi6sY/6jVQQXeIjKxzsZSVrM0LXCXjc0VkRmxhJEEkIKQNSujk9ApV5gIKltm0CFhLLuN3Xt2fjkKZBoUH/mswjTaUMTc3qZZzde3ZKMfkNVZYqns4Sn0sgopXzpjQGgjyUSyAEIwPXBtNa07KAXEiIKIOekWIyRJCelxqX+mR8i76KuDO2QV3e42nv8CxJQL0DXGpcBCk8IwPXBtNa07KAXGkMKQQTIePKpkAHxREbLbXfn6XCOwx9YqQWmqLuTHAnqRNj1q5xDLpbgkiyAORFZmVOK8iVq3dT/PWm6WMasPrqdzD7iEkQKQgpAqIj/yKx2wn8VjeWV6wm/neNDEQ6282p3CeJsPDKS56B11Nqc5Y5vUPKcrC1nB2dqBkwvop0fU49Yx4k0CB2evQ==
-        // digest:  dQnlvaDHYtK6x/kNdYtbImP6Acy8VCq1498WO+CObKk=
-        // testMessageSignature:  CkQKQAROtHwYeoBT4LhZEVM6dYaPCDDVy4/9dYSZBvKizAk7J+9f29+1OkAZoGw+FLCHWr/G9cKGfiZf3ln7bTssuIkQAQ==
         let private_key_bundle_raw = "EpYDCsgBCMDw7ZjWtOygFxIiCiAvph+Hg/Gk9G1g2EoW1ZDlWVH1nCkn6uRL7GBG3iNophqXAQpPCMDw7ZjWtOygFxpDCkEEeH4w/gK5HMaKu51aec/jiosmqDduIaEA67V7Lbox1cPhz9SIEi6sY/6jVQQXeIjKxzsZSVrM0LXCXjc0VkRmxhJEEkIKQNSujk9ApV5gIKltm0CFhLLuN3Xt2fjkKZBoUH/mswjTaUMTc3qZZzde3ZKMfkNVZYqns4Sn0sgopXzpjQGgjyUSyAEIwPXBtNa07KAXEiIKIOekWIyRJCelxqX+mR8i76KuDO2QV3e42nv8CxJQL0DXGpcBCk8IwPXBtNa07KAXGkMKQQTIePKpkAHxREbLbXfn6XCOwx9YqQWmqLuTHAnqRNj1q5xDLpbgkiyAORFZmVOK8iVq3dT/PWm6WMasPrqdzD7iEkQKQgpAqIj/yKx2wn8VjeWV6wm/neNDEQ6282p3CeJsPDKS56B11Nqc5Y5vUPKcrC1nB2dqBkwvop0fU49Yx4k0CB2evQ==";
         let message = "hello world!";
         let digest = "dQnlvaDHYtK6x/kNdYtbImP6Acy8VCq1498WO+CObKk=";
@@ -338,7 +326,6 @@ mod tests {
     #[test]
     fn test_verify_wallet_signature() {
         // = test vectors generated with xmtp-js =
-        // =====
         let address = "0x2Fb28c95E110C6Bb188B41f9E7d6850ccbE48e61";
         let signature_proto_result: proto::signature::Signature = protobuf::Message::parse_from_bytes(&base64::decode("EkIKQKOfb+lUwNCnJrMWQapvY1YNtFheYXa5gH5jZ+IpHPxrIAtWyvMPTMW7WpBb4Mscrie9yRap7H8XbzPPbJKEybI=").unwrap()).unwrap();
         let bytes_to_sign = base64::decode("CIC07umj5I+hFxpDCkEEE27Yj8R97eSoWjEwE35U3pB439S9OSfdrPrDjGH9/JQ5CCb8rjFK1vxxhbHGM2bq1v0PXdk6k/tkbhXmn2WEmw==").unwrap();
@@ -361,12 +348,7 @@ mod tests {
 
     #[test]
     fn test_recover_wallet_signature() {
-        // XMTP : Create Identity
-        // 08b8cff59ae3301a430a4104ac471e1ff54947e91e30a4640fe093e6dcb9ac097330b2e2506135d42980454e83bdc639ef7ae4de3debf82aa6800bdd4d1a635d0cdeeab8ed2401d64de22dde
-
-        // For more info: https://xmtp.org/signatures/
-        // digest LDK+7DM/jgDncHBEegvPq0fM9sirQXNHcuNcEPLe5E4= address 0x9DaBcF16c361493e41192BF5901DB1E4E7E7Ca30
-
+        // = test vectors generated with xmtp-js =
         let hex_public_key = "08b8cff59ae3301a430a4104ac471e1ff54947e91e30a4640fe093e6dcb9ac097330b2e2506135d42980454e83bdc639ef7ae4de3debf82aa6800bdd4d1a635d0cdeeab8ed2401d64de22dde";
         let xmtp_test_message = "XMTP : Create Identity\n08b8cff59ae3301a430a4104ac471e1ff54947e91e30a4640fe093e6dcb9ac097330b2e2506135d42980454e83bdc639ef7ae4de3debf82aa6800bdd4d1a635d0cdeeab8ed2401d64de22dde\n\nFor more info: https://xmtp.org/signatures/";
         let xmtp_test_digest = "LDK+7DM/jgDncHBEegvPq0fM9sirQXNHcuNcEPLe5E4=";
@@ -384,9 +366,5 @@ mod tests {
 
         let derived_digest = EcPrivateKey::ethereum_personal_digest(xmtp_test_message.as_bytes());
         assert_eq!(xmtp_test_digest, base64::encode(&derived_digest));
-        assert_eq!(
-            xmtp_test_digest,
-            base64::encode(hash_message(xmtp_test_message.as_bytes()))
-        );
     }
 }

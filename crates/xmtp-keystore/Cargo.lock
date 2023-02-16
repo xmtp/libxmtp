@@ -2776,6 +2776,7 @@ dependencies = [
  "base64 0.21.0",
  "ecdsa 0.15.1",
  "ethers",
+ "generic-array 0.14.6",
  "hex",
  "hkdf",
  "k256 0.12.0",
