@@ -1,9 +1,9 @@
 use k256::ecdsa::signature::DigestVerifier;
 use k256::elliptic_curve::sec1::ToEncodedPoint;
 use k256::{
-    ecdh::{diffie_hellman, SharedSecret},
+    ecdh::SharedSecret,
     ecdsa::{signature::Verifier, RecoveryId, Signature, VerifyingKey},
-    PublicKey, SecretKey,
+    NonZeroScalar, ProjectivePoint, PublicKey, Secp256k1, SecretKey,
 };
 use sha3::{Digest, Keccak256};
 
@@ -219,23 +219,32 @@ impl ECDHKey for PublicKey {
     }
 }
 
+// NOTE: XMTP uses the entire point in uncompressed format as secret material
+// this diverges from the convention of using only the `x` coordinate.
+// For this reason, we need to duplicate the diffie_hellman operation otherwise
+// RustCrypto hides the `y` coordinate from visibility when constructing a SharedSecret
+// https://github.com/RustCrypto/traits/blob/d57b54b9fcf5b28745547cb9fef313ab09780918/elliptic-curve/src/ecdh.rs#L60
+// let public_point = ProjectivePoint::<C>::from(*public_key.borrow());
+// let secret_point = (public_point * secret_key.borrow().as_ref()).to_affine();
+fn diffie_hellman(secret_key: &SecretKey, public_key: &PublicKey) -> Result<Vec<u8>, String> {
+    // Get the public projective point from the public key
+    let public_point = public_key.to_projective();
+    // Multiply with nonzero scalar of secret key
+    let shared_secret_point = (public_point * secret_key.to_nonzero_scalar().as_ref()).to_affine();
+    // Encode the entire point in uncompressed format
+    let shared_secret_encoded = shared_secret_point.to_encoded_point(false);
+    return Ok(shared_secret_encoded.as_bytes().to_vec());
+}
+
 impl ECDHDerivable for PrivateKey {
-    fn shared_secret(&self, public_key: &dyn ECDHKey) -> Result<Vec<u8>, String> {
-        let shared_secret = diffie_hellman(
-            self.private_key.to_nonzero_scalar(),
-            public_key.get_public_key().as_affine(),
-        );
-        return Ok(shared_secret.raw_secret_bytes().to_vec());
+    fn shared_secret(&self, other_key: &dyn ECDHKey) -> Result<Vec<u8>, String> {
+        diffie_hellman(&self.private_key, &other_key.get_public_key())
     }
 }
 
 impl ECDHDerivable for SignedPrivateKey {
-    fn shared_secret(&self, public_key: &dyn ECDHKey) -> Result<Vec<u8>, String> {
-        let shared_secret = diffie_hellman(
-            self.private_key.to_nonzero_scalar(),
-            public_key.get_public_key().as_affine(),
-        );
-        return Ok(shared_secret.raw_secret_bytes().to_vec());
+    fn shared_secret(&self, other_key: &dyn ECDHKey) -> Result<Vec<u8>, String> {
+        diffie_hellman(&self.private_key, &other_key.get_public_key())
     }
 }
 
