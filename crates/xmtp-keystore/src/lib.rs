@@ -305,16 +305,21 @@ mod tests {
         // BigInt('0x2fa61f8783f1a4f46d60d84a16d590e55951f59c2927eae44bec6046de2368a6')
         // > 21552218103791599555364469821754606161148148489927333195317013913723696539814n
 
-        let proto_encoded = base64::decode(private_key_bundle_raw).unwrap();
+        let proto_encoded = general_purpose::STANDARD
+            .decode(private_key_bundle_raw)
+            .unwrap();
         // Deserialize the proto bytes into proto::private_key::PrivateKeyBundleV2
         let signed_private_key: proto::private_key::PrivateKeyBundle =
             protobuf::Message::parse_from_bytes(&proto_encoded).unwrap();
         let private_key_bundle = signed_private_key.v2();
 
         // Decode signature proto
-        let signature: proto::signature::Signature =
-            protobuf::Message::parse_from_bytes(&base64::decode(signature_proto_raw).unwrap())
-                .unwrap();
+        let signature: proto::signature::Signature = protobuf::Message::parse_from_bytes(
+            &general_purpose::STANDARD
+                .decode(signature_proto_raw)
+                .unwrap(),
+        )
+        .unwrap();
         let key_bundle_result = PrivateKeyBundle::from_proto(private_key_bundle);
         assert!(key_bundle_result.is_ok());
         let key_bundle = key_bundle_result.unwrap();
@@ -332,8 +337,8 @@ mod tests {
     fn test_verify_wallet_signature() {
         // = test vectors generated with xmtp-js =
         let address = "0x2Fb28c95E110C6Bb188B41f9E7d6850ccbE48e61";
-        let signature_proto_result: proto::signature::Signature = protobuf::Message::parse_from_bytes(&base64::decode("EkIKQKOfb+lUwNCnJrMWQapvY1YNtFheYXa5gH5jZ+IpHPxrIAtWyvMPTMW7WpBb4Mscrie9yRap7H8XbzPPbJKEybI=").unwrap()).unwrap();
-        let bytes_to_sign = base64::decode("CIC07umj5I+hFxpDCkEEE27Yj8R97eSoWjEwE35U3pB439S9OSfdrPrDjGH9/JQ5CCb8rjFK1vxxhbHGM2bq1v0PXdk6k/tkbhXmn2WEmw==").unwrap();
+        let signature_proto_result: proto::signature::Signature = protobuf::Message::parse_from_bytes(&general_purpose::STANDARD.decode("EkIKQKOfb+lUwNCnJrMWQapvY1YNtFheYXa5gH5jZ+IpHPxrIAtWyvMPTMW7WpBb4Mscrie9yRap7H8XbzPPbJKEybI=").unwrap()).unwrap();
+        let bytes_to_sign = general_purpose::STANDARD.decode("CIC07umj5I+hFxpDCkEEE27Yj8R97eSoWjEwE35U3pB439S9OSfdrPrDjGH9/JQ5CCb8rjFK1vxxhbHGM2bq1v0PXdk6k/tkbhXmn2WEmw==").unwrap();
         // Encode string as bytes
         let xmtp_identity_signature_payload =
             ethereum_utils::EthereumUtils::xmtp_identity_key_payload(&bytes_to_sign);
@@ -371,7 +376,10 @@ mod tests {
 
         let derived_digest =
             SignedPrivateKey::ethereum_personal_digest(xmtp_test_message.as_bytes());
-        assert_eq!(xmtp_test_digest, base64::encode(&derived_digest));
+        assert_eq!(
+            xmtp_test_digest,
+            general_purpose::STANDARD.encode(&derived_digest)
+        );
     }
 
     #[test]

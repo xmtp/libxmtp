@@ -12,6 +12,7 @@ use super::super::ethereum_utils::{EthereumCompatibleKey, EthereumUtils};
 
 use super::super::proto;
 
+#[derive(Clone, Debug, PartialEq)]
 pub struct PrivateKey {
     // Underlying protos
     proto: proto::private_key::PrivateKey,
@@ -45,6 +46,7 @@ impl PrivateKey {
     }
 }
 
+#[derive(Clone, Debug, PartialEq)]
 pub struct SignedPrivateKey {
     proto: proto::private_key::SignedPrivateKey,
 

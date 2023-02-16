@@ -61,4 +61,13 @@ impl PrivateKeyBundle {
         let public_key_bytes = binding.as_bytes();
         return PrivateKeyBundle::eth_wallet_address_from_public_key(public_key_bytes);
     }
+
+    pub fn find_pre_key(&self, my_pre_key: PublicKey) -> Option<SignedPrivateKey> {
+        for pre_key in self.pre_keys.iter() {
+            if pre_key.public_key == my_pre_key {
+                return Some(pre_key.clone());
+            }
+        }
+        return None;
+    }
 }
