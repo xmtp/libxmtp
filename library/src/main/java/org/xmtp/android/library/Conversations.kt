@@ -24,12 +24,12 @@ import java.util.Date
 
 data class Conversations(
     var client: Client,
-    var conversations: MutableList<Conversation> = mutableListOf()
+    var conversations: MutableList<Conversation> = mutableListOf(),
 ) {
 
     fun newConversation(
         peerAddress: String,
-        context: Invitation.InvitationV1.Context? = null
+        context: Invitation.InvitationV1.Context? = null,
     ): Conversation {
         if (peerAddress.lowercase() == client.address?.lowercase()) {
             throw XMTPException("Recipient is sender")
@@ -186,7 +186,7 @@ data class Conversations(
     fun sendInvitation(
         recipient: SignedPublicKeyBundle,
         invitation: InvitationV1,
-        created: Date
+        created: Date,
     ): SealedInvitation {
         client.keys?.let {
             val sealed = SealedInvitationBuilder.buildFromV1(

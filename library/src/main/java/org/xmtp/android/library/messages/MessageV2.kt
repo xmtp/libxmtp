@@ -54,7 +54,7 @@ class MessageV2Builder {
             return DecodedMessage(
                 encodedContent = encodedMessage,
                 senderAddress = signed.sender.walletAddress,
-                sent = Date((header.createdNs / 1_000_000) / 1000)
+                sent = Date(header.createdNs / 1_000_000)
             )
         }
 

@@ -31,6 +31,7 @@ import org.xmtp.android.library.messages.toSignedPublicKeyBundle
 import org.xmtp.android.library.messages.toV2
 import org.xmtp.android.library.messages.walletAddress
 import org.xmtp.proto.message.contents.Invitation
+import java.nio.charset.StandardCharsets
 import java.util.Date
 
 class ConversationTest {
@@ -362,5 +363,80 @@ class ConversationTest {
         if (message != null) {
             assertEquals("hello world", message.body)
         }
+    }
+
+    @Test
+    fun testCanUseCachedConversation() {
+        bobClient.conversations.newConversation(alice.walletAddress)
+
+        fakeApiClient.assertNoQuery {
+            bobClient.conversations.newConversation(alice.walletAddress)
+        }
+    }
+
+    @Test
+    fun testCanPaginateV1Messages() {
+        // Overwrite contact as legacy so we can get v1
+        publishLegacyContact(client = bobClient)
+        publishLegacyContact(client = aliceClient)
+        val bobConversation = bobClient.conversations.newConversation(alice.walletAddress)
+        val aliceConversation = aliceClient.conversations.newConversation(bob.walletAddress)
+
+        val date = Date()
+        date.time = date.time - 1000000
+        bobConversation.send(text = "hey alice 1", sentAt = date)
+        bobConversation.send(text = "hey alice 2")
+        bobConversation.send(text = "hey alice 3")
+        val messages = aliceConversation.messages(limit = 1)
+        assertEquals(1, messages.size)
+        assertEquals("hey alice 3", messages[0].body)
+        val messages2 = aliceConversation.messages(limit = 1, after = date)
+        assertEquals(1, messages2.size)
+        assertEquals("hey alice 2", messages2[0].body)
+    }
+
+    @Test
+    fun testCanPaginateV2Messages() {
+        val bobConversation = bobClient.conversations.newConversation(
+            alice.walletAddress,
+            context = InvitationV1ContextBuilder.buildFromConversation("hi")
+        )
+
+        val aliceConversation = aliceClient.conversations.newConversation(
+            bob.walletAddress,
+            context = InvitationV1ContextBuilder.buildFromConversation("hi")
+        )
+        val date = Date()
+        date.time = date.time - 1000000
+        bobConversation.send(text = "hey alice 1", sentAt = date)
+        bobConversation.send(text = "hey alice 2")
+        bobConversation.send(text = "hey alice 3")
+        val messages = aliceConversation.messages(limit = 1)
+        assertEquals(1, messages.size)
+        assertEquals("hey alice 3", messages[0].body)
+        val messages2 = aliceConversation.messages(limit = 1, after = date)
+        assertEquals(1, messages2.size)
+        assertEquals("hey alice 2", messages2[0].body)
+    }
+
+    @Test
+    fun testImportV1ConversationFromJS() {
+        val jsExportJSONData = (""" { "version": "v1", "peerAddress": "0x5DAc8E2B64b8523C11AF3e5A2E087c2EA9003f14", "createdAt": "2022-09-20T09:32:50.329Z" } """).toByteArray(StandardCharsets.UTF_8)
+        val conversation = aliceClient.importConversation(jsExportJSONData)
+        assertEquals(conversation.peerAddress, "0x5DAc8E2B64b8523C11AF3e5A2E087c2EA9003f14")
+    }
+
+    @Test
+    fun testImportV2ConversationFromJS() {
+        val jsExportJSONData = (""" {"version":"v2","topic":"/xmtp/0/m-2SkdN5Qa0ZmiFI5t3RFbfwIS-OLv5jusqndeenTLvNg/proto","keyMaterial":"ATA1L0O2aTxHmskmlGKCudqfGqwA1H+bad3W/GpGOr8=","peerAddress":"0x436D906d1339fC4E951769b1699051f020373D04","createdAt":"2023-01-26T22:58:45.068Z","context":{"conversationId":"pat/messageid","metadata":{}}} """).toByteArray(StandardCharsets.UTF_8)
+        val conversation = aliceClient.importConversation(jsExportJSONData)
+        assertEquals(conversation.peerAddress, "0x436D906d1339fC4E951769b1699051f020373D04")
+    }
+
+    @Test
+    fun testImportV2ConversationWithNoContextFromJS() {
+        val jsExportJSONData = (""" {"version":"v2","topic":"/xmtp/0/m-2SkdN5Qa0ZmiFI5t3RFbfwIS-OLv5jusqndeenTLvNg/proto","keyMaterial":"ATA1L0O2aTxHmskmlGKCudqfGqwA1H+bad3W/GpGOr8=","peerAddress":"0x436D906d1339fC4E951769b1699051f020373D04","createdAt":"2023-01-26T22:58:45.068Z"} """).toByteArray(StandardCharsets.UTF_8)
+        val conversation = aliceClient.importConversation(jsExportJSONData)
+        assertEquals(conversation.peerAddress, "0x436D906d1339fC4E951769b1699051f020373D04")
     }
 }

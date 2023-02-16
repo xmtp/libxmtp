@@ -5,8 +5,11 @@ import io.grpc.InsecureChannelCredentials
 import io.grpc.ManagedChannel
 import io.grpc.Metadata
 import io.grpc.TlsChannelCredentials
+import org.xmtp.android.library.messages.Pagination
 import org.xmtp.android.library.messages.Topic
 import org.xmtp.proto.message.api.v1.MessageApiGrpcKt
+import org.xmtp.proto.message.api.v1.MessageApiOuterClass
+import org.xmtp.proto.message.api.v1.MessageApiOuterClass.Cursor
 import org.xmtp.proto.message.api.v1.MessageApiOuterClass.Envelope
 import org.xmtp.proto.message.api.v1.MessageApiOuterClass.PublishRequest
 import org.xmtp.proto.message.api.v1.MessageApiOuterClass.PublishResponse
@@ -18,8 +21,14 @@ import java.util.concurrent.TimeUnit
 interface ApiClient {
     val environment: XMTPEnvironment
     fun setAuthToken(token: String)
-    suspend fun query(topics: List<Topic>): QueryResponse
-    suspend fun queryStrings(topics: List<String>): QueryResponse
+    suspend fun queryStrings(
+        topics: List<String>,
+        pagination: Pagination? = null,
+        cursor: Cursor? = null,
+    ): QueryResponse
+
+    suspend fun query(topics: List<Topic>, pagination: Pagination? = null): QueryResponse
+    suspend fun envelopes(topics: List<String>, pagination: Pagination? = null): List<Envelope>
     suspend fun publish(envelopes: List<Envelope>): PublishResponse
 }
 
@@ -55,9 +64,30 @@ data class GRPCApiClient(override val environment: XMTPEnvironment, val secure: 
         authToken = token
     }
 
-    override suspend fun queryStrings(topics: List<String>): QueryResponse {
+    override suspend fun queryStrings(
+        topics: List<String>,
+        pagination: Pagination?,
+        cursor: Cursor?,
+    ): QueryResponse {
         val request = QueryRequest.newBuilder()
-            .addAllContentTopics(topics).build()
+            .addAllContentTopics(topics).also {
+                if (pagination != null) {
+                    it.pagingInfo = pagination.pagingInfo
+                }
+                if (pagination?.startTime != null) {
+                    it.endTimeNs = pagination.startTime.time * 1_000_000
+                    it.pagingInfoBuilder.direction =
+                        MessageApiOuterClass.SortDirection.SORT_DIRECTION_DESCENDING
+                }
+                if (pagination?.endTime != null) {
+                    it.startTimeNs = pagination.endTime.time * 1_000_000
+                    it.pagingInfoBuilder.direction =
+                        MessageApiOuterClass.SortDirection.SORT_DIRECTION_DESCENDING
+                }
+                if (cursor != null) {
+                    it.pagingInfoBuilder.cursor = cursor
+                }
+            }.build()
 
         val headers = Metadata()
 
@@ -67,8 +97,21 @@ data class GRPCApiClient(override val environment: XMTPEnvironment, val secure: 
         return client.query(request, headers = headers)
     }
 
-    override suspend fun query(topics: List<Topic>): QueryResponse {
-        return queryStrings(topics.map { it.description })
+    override suspend fun envelopes(topics: List<String>, pagination: Pagination?): List<Envelope> {
+        val envelopes: MutableList<Envelope> = mutableListOf()
+        var hasNextPage = true
+        var cursor: Cursor? = null
+        while (hasNextPage) {
+            val response = queryStrings(topics = topics, pagination = pagination, cursor = cursor)
+            envelopes.addAll(response.envelopesList)
+            cursor = response.pagingInfo.cursor
+            hasNextPage = response.envelopesList.isNotEmpty() && response.pagingInfo.hasCursor()
+        }
+        return envelopes
+    }
+
+    override suspend fun query(topics: List<Topic>, pagination: Pagination?): QueryResponse {
+        return queryStrings(topics.map { it.description }, pagination)
     }
 
     override suspend fun publish(envelopes: List<Envelope>): PublishResponse {

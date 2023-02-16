@@ -10,6 +10,7 @@ import org.xmtp.android.library.messages.EnvelopeBuilder
 import org.xmtp.android.library.messages.Message
 import org.xmtp.android.library.messages.MessageBuilder
 import org.xmtp.android.library.messages.MessageV1Builder
+import org.xmtp.android.library.messages.Pagination
 import org.xmtp.android.library.messages.Topic
 import org.xmtp.android.library.messages.decrypt
 import org.xmtp.android.library.messages.header
@@ -33,7 +34,7 @@ data class ConversationV1(
     fun send(text: String, sendOptions: SendOptions? = null, sentAt: Date? = null) {
         val encoder = TextCodec()
         val encodedContent = encoder.encode(content = text)
-        send(encodedContent = encodedContent)
+        send(encodedContent = encodedContent, sendOptions = sendOptions, sentAt = sentAt)
     }
 
     fun <T> send(content: T, options: SendOptions? = null) {
@@ -114,17 +115,17 @@ data class ConversationV1(
         before: Date? = null,
         after: Date? = null,
     ): List<DecodedMessage> {
+        val pagination = Pagination(limit = limit, startTime = before, endTime = after)
         val result = runBlocking {
-            client.apiClient.query(
-                topics = listOf(topic)
-            )
+            client.apiClient.query(topics = listOf(topic), pagination = pagination)
         }
+
         return result.envelopesList.flatMap { envelope ->
             listOf(decode(envelope = envelope))
         }
     }
 
-    private fun decode(envelope: Envelope): DecodedMessage {
+    fun decode(envelope: Envelope): DecodedMessage {
         val message = Message.parseFrom(envelope.message)
         val decrypted = message.v1.decrypt(client.privateKeyBundleV1)
         val encodedMessage = EncodedContent.parseFrom(decrypted)

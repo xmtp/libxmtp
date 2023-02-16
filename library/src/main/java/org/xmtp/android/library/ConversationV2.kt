@@ -1,15 +1,18 @@
 package org.xmtp.android.library
 
 import kotlinx.coroutines.runBlocking
+import org.web3j.crypto.Hash
 import org.xmtp.android.library.codecs.ContentCodec
 import org.xmtp.android.library.codecs.EncodedContent
 import org.xmtp.android.library.codecs.TextCodec
 import org.xmtp.android.library.codecs.compress
+import org.xmtp.android.library.messages.Envelope
 import org.xmtp.android.library.messages.EnvelopeBuilder
 import org.xmtp.android.library.messages.Message
 import org.xmtp.android.library.messages.MessageBuilder
 import org.xmtp.android.library.messages.MessageV2
 import org.xmtp.android.library.messages.MessageV2Builder
+import org.xmtp.android.library.messages.Pagination
 import org.xmtp.android.library.messages.SealedInvitationHeaderV1
 import org.xmtp.android.library.messages.getPublicKeyBundle
 import org.xmtp.android.library.messages.walletAddress
@@ -47,22 +50,35 @@ data class ConversationV2(
         }
     }
 
-    val createdAt: Date = Date((header.createdNs / 1_000_000) / 1000)
+    val createdAt: Date = Date(header.createdNs / 1_000_000)
 
     fun messages(
         limit: Int? = null,
         before: Date? = null,
         after: Date? = null,
     ): List<DecodedMessage> {
-        val envelopes =
-            runBlocking { client.apiClient.queryStrings(topics = listOf(topic)).envelopesList }
-        return envelopes.flatMap { envelope ->
-            val message = Message.parseFrom(envelope.message)
-            listOf(decode(message.v2))
+        val pagination = Pagination(limit = limit, startTime = before, endTime = after)
+        val result = runBlocking {
+            client.apiClient.queryStrings(
+                topics = listOf(topic),
+                pagination = pagination,
+                cursor = null
+            )
+        }
+
+        return result.envelopesList.flatMap { envelope ->
+            listOf(decodeEnvelope(envelope))
         }
     }
 
-    private fun decode(message: MessageV2): DecodedMessage =
+    fun decodeEnvelope(envelope: Envelope): DecodedMessage {
+        val message = Message.parseFrom(envelope.message)
+        val decoded = decode(message.v2)
+        decoded.id = generateID(envelope)
+        return decoded
+    }
+
+    fun decode(message: MessageV2): DecodedMessage =
         MessageV2Builder.buildDecode(message, keyMaterial = keyMaterial)
 
     fun <T> send(content: T, options: SendOptions? = null) {
@@ -84,17 +100,18 @@ data class ConversationV2(
         send(encodedContent = encoded, sentAt = Date())
     }
 
-    fun send(text: String, options: SendOptions? = null, sentAt: Date) {
+    fun send(text: String, options: SendOptions? = null, sentAt: Date? = null) {
         val encoder = TextCodec()
         val encodedContent = encoder.encode(content = text)
         send(encodedContent = encodedContent, options = options, sentAt = sentAt)
     }
 
-    private fun send(encodedContent: EncodedContent, options: SendOptions? = null, sentAt: Date) {
+    private fun send(encodedContent: EncodedContent, options: SendOptions? = null, sentAt: Date? = null) {
         if (client.getUserContact(peerAddress = peerAddress) == null) {
             throw XMTPException("Contact not found.")
         }
         var content = encodedContent
+        val date = sentAt ?: Date()
 
         if (options?.compression != null) {
             content = content.compress(options.compression!!)
@@ -110,14 +127,13 @@ data class ConversationV2(
             envelopes = listOf(
                 EnvelopeBuilder.buildFromString(
                     topic = topic,
-                    timestamp = sentAt,
+                    timestamp = date,
                     message = MessageBuilder.buildFromMessageV2(message).toByteArray()
                 )
             )
         )
     }
 
-    fun send(text: String, options: SendOptions? = null) {
-        send(text = text, options = options, sentAt = Date())
-    }
+    private fun generateID(envelope: Envelope): String =
+        Hash.sha256(envelope.message.toByteArray()).toHex()
 }

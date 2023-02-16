@@ -1,11 +1,13 @@
 package org.xmtp.android.library
 
 import androidx.test.ext.junit.runners.AndroidJUnit4
+import androidx.test.filters.FlakyTest
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.xmtp.android.library.messages.Envelope
+import org.xmtp.android.library.messages.InvitationV1ContextBuilder
 import org.xmtp.android.library.messages.PrivateKey
 import org.xmtp.android.library.messages.PrivateKeyBuilder
 import org.xmtp.android.library.messages.PrivateKeyBundleBuilder
@@ -63,6 +65,7 @@ class InstrumentedTest {
     }
 
     @Test
+    @FlakyTest
     fun testPublishingAndFetchingContactBundlesWithSavedKeys() {
         val aliceWallet = PrivateKeyBuilder()
         val alice = PrivateKeyOuterClass.PrivateKeyBundleV1.newBuilder().build()
@@ -96,5 +99,66 @@ class InstrumentedTest {
         )
         assert(contact!!.v2.keyBundle.identityKey.hasSignature())
         assert(contact.v2.keyBundle.preKey.hasSignature())
+    }
+
+    @Test
+    fun testCanPaginateV2Messages() {
+        val bob = PrivateKeyBuilder()
+        val alice = PrivateKeyBuilder()
+        val clientOptions =
+            ClientOptions(api = ClientOptions.Api(env = XMTPEnvironment.LOCAL, isSecure = false))
+        val bobClient = Client().create(bob, clientOptions)
+        // Publish alice's contact
+        Client().create(account = alice, clientOptions)
+        val convo = bobClient.conversations.newConversation(
+            alice.address,
+            context = InvitationV1ContextBuilder.buildFromConversation("hi")
+        )
+        // Say this message is sent in the past
+        val date = Date()
+        date.time = date.time - 10000
+        convo.send(text = "10 seconds ago", sentAt = date)
+        convo.send(text = "now")
+        val messages = convo.messages(limit = 1)
+        assertEquals(1, messages.size)
+        val nowMessage = messages[0]
+        assertEquals("now", nowMessage.body)
+        val messages2 = convo.messages(limit = 1, before = date)
+        assertEquals(1, messages2.size)
+        val tenSecondsAgoMessage = messages2[0]
+        assertEquals("10 seconds ago", tenSecondsAgoMessage.body)
+        val messages3 = convo.messages(limit = 1, after = tenSecondsAgoMessage.sent)
+        assertEquals(1, messages3.size)
+        val nowMessage2 = messages3[0]
+        assertEquals("now", nowMessage2.body)
+    }
+
+    @Test
+    fun testCanPaginateV1Messages() {
+        val bob = PrivateKeyBuilder()
+        val alice = PrivateKeyBuilder()
+        val clientOptions =
+            ClientOptions(api = ClientOptions.Api(env = XMTPEnvironment.LOCAL, isSecure = false))
+        val bobClient = Client().create(bob, clientOptions)
+        // Publish alice's contact
+        Client().create(account = alice, clientOptions)
+        val convo = ConversationV1(client = bobClient, peerAddress = alice.address, sentAt = Date())
+        // Say this message is sent in the past
+        val date = Date()
+        date.time = date.time - 10000
+        convo.send(text = "10 seconds ago", sentAt = date)
+        convo.send(text = "now")
+        val messages = convo.messages(limit = 1)
+        assertEquals(1, messages.size)
+        val nowMessage = messages[0]
+        assertEquals("now", nowMessage.body)
+        val messages2 = convo.messages(limit = 1, before = date)
+        assertEquals(1, messages2.size)
+        val tenSecondsAgoMessage = messages2[0]
+        assertEquals("10 seconds ago", tenSecondsAgoMessage.body)
+        val messages3 = convo.messages(limit = 1, after = tenSecondsAgoMessage.sent)
+        assertEquals(1, messages3.size)
+        val nowMessage2 = messages3[0]
+        assertEquals("now", nowMessage2.body)
     }
 }

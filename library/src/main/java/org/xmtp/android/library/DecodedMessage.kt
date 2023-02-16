@@ -10,6 +10,7 @@ data class DecodedMessage(
     var senderAddress: String,
     var sent: Date
 ) {
+    var id: String = ""
     companion object {
         fun preview(body: String, senderAddress: String, sent: Date): DecodedMessage {
             val encoded = TextCodec().encode(content = body)

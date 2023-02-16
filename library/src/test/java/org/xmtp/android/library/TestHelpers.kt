@@ -2,6 +2,7 @@ package org.xmtp.android.library
 
 import org.junit.Assert.assertEquals
 import org.xmtp.android.library.messages.Envelope
+import org.xmtp.android.library.messages.Pagination
 import org.xmtp.android.library.messages.PrivateKey
 import org.xmtp.android.library.messages.PrivateKeyBuilder
 import org.xmtp.android.library.messages.Signature
@@ -74,12 +75,26 @@ class FakeApiClient : ApiClient {
         authToken = token
     }
 
-    override suspend fun query(topics: List<Topic>): MessageApiOuterClass.QueryResponse {
-        return queryStrings(topics = topics.map { it.description })
+    override suspend fun query(
+        topics: List<Topic>,
+        pagination: Pagination?,
+    ): MessageApiOuterClass.QueryResponse {
+        return queryStrings(topics = topics.map { it.description }, pagination)
     }
 
-    override suspend fun queryStrings(topics: List<String>): MessageApiOuterClass.QueryResponse {
-        val result: MutableList<Envelope> = mutableListOf()
+    override suspend fun envelopes(
+        topics: List<String>,
+        pagination: Pagination?,
+    ): List<MessageApiOuterClass.Envelope> {
+        return queryStrings(topics = topics, pagination = pagination).envelopesList
+    }
+
+    override suspend fun queryStrings(
+        topics: List<String>,
+        pagination: Pagination?,
+        cursor: MessageApiOuterClass.Cursor?,
+    ): MessageApiOuterClass.QueryResponse {
+        var result: MutableList<Envelope> = mutableListOf()
         for (topic in topics) {
             val response = responses.toMutableMap().remove(topic)
             if (response != null) {
@@ -91,6 +106,31 @@ class FakeApiClient : ApiClient {
                 }.reversed()
             )
         }
+
+        val startAt = pagination?.startTime
+        if (startAt != null) {
+            result = result.filter { it.timestampNs < startAt.time * 1_000_000 }
+                .sortedBy { it.timestampNs }.toMutableList()
+        }
+        val endAt = pagination?.endTime
+        if (endAt != null) {
+            result = result.filter { it.timestampNs > endAt.time * 1_000_000 }
+                .sortedBy { it.timestampNs }.toMutableList()
+        }
+        val limit = pagination?.limit
+        if (limit != null) {
+            if (limit == 1) {
+                val first = result.firstOrNull()
+                if (first != null) {
+                    result = mutableListOf(first)
+                } else {
+                    result = mutableListOf()
+                }
+            } else {
+                result = result.take(limit - 1).toMutableList()
+            }
+        }
+
         return QueryResponse.newBuilder().also {
             it.addAllEnvelopes(result)
         }.build()
