@@ -195,6 +195,12 @@ impl SignedPrivateKey {
         }
         let signature = signature_result.unwrap();
 
+        // print the public key as secp1 bytes
+        println!(
+            "Public key bytes: {}",
+            hex::encode(&self.public_key.to_encoded_point(false))
+        );
+
         // Verifying key from self.public_key
         let verifying_key = VerifyingKey::from(&self.public_key);
         // Verify signature

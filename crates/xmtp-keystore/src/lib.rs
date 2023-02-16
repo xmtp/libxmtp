@@ -9,8 +9,9 @@ mod ethereum_utils;
 pub mod keys;
 pub mod proto;
 use keys::{
-    key_bundle::{PrivateKeyBundle, PublicKeyBundle},
+    key_bundle::{PrivateKeyBundle, PublicKeyBundle, SignedPublicKeyBundle},
     private_key::{PrivateKey, SignedPrivateKey},
+    public_key,
 };
 
 use ecdh::{ECDHDerivable, ECDHKey};
@@ -107,7 +108,7 @@ impl Keystore {
      */
     fn derive_shared_secret_x3dh(
         &self,
-        peer_bundle: &PublicKeyBundle,
+        peer_bundle: &SignedPublicKeyBundle,
         my_prekey: &dyn ecdh::ECDHKey,
         is_recipient: bool,
     ) -> Result<Vec<u8>, String> {
@@ -137,7 +138,11 @@ impl Keystore {
             dh2 = pre_key.shared_secret(&peer_bundle.identity_key).unwrap();
         }
         let dh3 = pre_key.shared_secret(&peer_bundle.pre_key).unwrap();
+        println!("dh1: {:?}", dh1);
+        println!("dh2: {:?}", dh2);
+        println!("dh3: {:?}", dh3);
         let secret = [dh1, dh2, dh3].concat();
+        println!("secret: {:?}", secret);
         return Ok(secret);
     }
 
@@ -478,6 +483,31 @@ mod tests {
             &general_purpose::STANDARD
                 .decode(my_identity_bundle)
                 .unwrap(),
+        );
+
+        let peer_bundle_proto: proto::public_key::SignedPublicKeyBundle =
+            protobuf::Message::parse_from_bytes(
+                &general_purpose::STANDARD.decode(peer_bundle).unwrap(),
+            )
+            .unwrap();
+        println!("peer_bundle_proto: {:?}", peer_bundle_proto);
+        let peer_bundle_object = SignedPublicKeyBundle::from_proto(&peer_bundle_proto).unwrap();
+
+        let pre_key_proto: proto::public_key::SignedPublicKey =
+            protobuf::Message::parse_from_bytes(
+                &general_purpose::STANDARD.decode(my_pre_key_public).unwrap(),
+            )
+            .unwrap();
+        let pre_key_object = public_key::signed_public_key_from_proto(&pre_key_proto).unwrap();
+
+        // Do a x3dh shared secret derivation
+        let shared_secret_result =
+            x.derive_shared_secret_x3dh(&peer_bundle_object, &pre_key_object, is_recipient);
+        assert!(shared_secret_result.is_ok());
+        let shared_secret = shared_secret_result.unwrap();
+        assert_eq!(
+            shared_secret,
+            general_purpose::STANDARD.decode(secret).unwrap()
         );
     }
 }
