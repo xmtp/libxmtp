@@ -9,9 +9,11 @@ mod ethereum_utils;
 pub mod keys;
 pub mod proto;
 use keys::{
-    key_bundle::PrivateKeyBundle,
+    key_bundle::{PrivateKeyBundle, PublicKeyBundle},
     private_key::{PrivateKey, SignedPrivateKey},
 };
+
+use ecdh::{ECDHDerivable, ECDHKey};
 
 use base64::{engine::general_purpose, Engine as _};
 
@@ -105,17 +107,37 @@ impl Keystore {
      */
     fn derive_shared_secret(
         &self,
-        peer_bundle: &dyn ecdh::ECDHKey,
+        peer_bundle: &PublicKeyBundle,
         my_prekey: &dyn ecdh::ECDHKey,
         is_recipient: bool,
-    ) -> Result<[u8; 32], String> {
+    ) -> Result<Vec<u8>, String> {
         // Check if self.private_key_bundle is set
         if self.private_key_bundle.is_none() {
             return Err("private key bundle is not set".to_string());
         }
+        let private_key_bundle_ref = self.private_key_bundle.as_ref().unwrap();
+        let pre_key = private_key_bundle_ref
+            .find_pre_key(my_prekey.get_public_key())
+            .ok_or("could not find prekey in private key bundle".to_string())?;
+        let mut dh1: Vec<u8>;
+        let mut dh2: Vec<u8>;
+        // (STOPSHIP) TODO: better error handling
         // Get the private key bundle
-        let private_key_bundle = self.private_key_bundle.as_ref().unwrap();
-        let secret: [u8; 32] = [0; 32];
+        if is_recipient {
+            dh1 = pre_key.shared_secret(&peer_bundle.identity_key).unwrap();
+            dh2 = private_key_bundle_ref
+                .identity_key
+                .shared_secret(&peer_bundle.pre_key)
+                .unwrap();
+        } else {
+            dh1 = private_key_bundle_ref
+                .identity_key
+                .shared_secret(&peer_bundle.pre_key)
+                .unwrap();
+            dh2 = pre_key.shared_secret(&peer_bundle.identity_key).unwrap();
+        }
+        let dh3 = pre_key.shared_secret(&peer_bundle.pre_key).unwrap();
+        let secret = [dh1, dh2, dh3].concat();
         return Ok(secret);
     }
 

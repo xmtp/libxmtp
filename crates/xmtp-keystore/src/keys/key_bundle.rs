@@ -71,3 +71,69 @@ impl PrivateKeyBundle {
         return None;
     }
 }
+
+pub struct PublicKeyBundle {
+    // Underlying protos
+    public_key_bundle_proto: proto::public_key::PublicKeyBundle,
+
+    pub identity_key: PublicKey,
+    pub pre_key: PublicKey,
+}
+
+impl PublicKeyBundle {
+    pub fn from_proto(
+        public_key_bundle: &proto::public_key::PublicKeyBundle,
+    ) -> Result<PublicKeyBundle, String> {
+        // Check if secp256k1 is available
+        if !public_key_bundle.identity_key.has_secp256k1_uncompressed() {
+            println!("No secp256k1 key found");
+        }
+
+        // Parse the public key from the proto
+        let public_key_bytes = public_key_bundle
+            .identity_key
+            .secp256k1_uncompressed()
+            .bytes
+            .as_slice();
+        // Check that bytes are not empty
+        if public_key_bytes.is_empty() {
+            return Err("No bytes found".to_string());
+        }
+
+        // Try to derive public key from big-endian hex-encoded BigInt, check the result
+        let public_key_result = PublicKey::from_sec1_bytes(public_key_bytes);
+        if public_key_result.is_err() {
+            return Err(public_key_result.err().unwrap().to_string());
+        }
+        let public_key = public_key_result.unwrap();
+
+        // Check if secp256k1 is available
+        if !public_key_bundle.pre_key.has_secp256k1_uncompressed() {
+            println!("No secp256k1 key found");
+        }
+
+        // Parse the public key from the proto
+        let pre_key_bytes = public_key_bundle
+            .pre_key
+            .secp256k1_uncompressed()
+            .bytes
+            .as_slice();
+        // Check that bytes are not empty
+        if pre_key_bytes.is_empty() {
+            return Err("No bytes found".to_string());
+        }
+
+        // Try to derive public key from big-endian hex-encoded BigInt, check the result
+        let pre_key_result = PublicKey::from_sec1_bytes(pre_key_bytes);
+        if pre_key_result.is_err() {
+            return Err(pre_key_result.err().unwrap().to_string());
+        }
+        let pre_key = pre_key_result.unwrap();
+
+        return Ok(PublicKeyBundle {
+            public_key_bundle_proto: public_key_bundle.clone(),
+            identity_key: public_key,
+            pre_key: pre_key,
+        });
+    }
+}

@@ -51,8 +51,8 @@ pub struct SignedPrivateKey {
     proto: proto::private_key::SignedPrivateKey,
 
     pub private_key: SecretKey,
+    // (STOPSHIP) TODO: needs to be a signed PublicKey
     pub public_key: PublicKey,
-    // TODO: needs to be a signed PublicKey
 }
 
 impl SignedPrivateKey {
@@ -207,6 +207,32 @@ impl SignedPrivateKey {
     }
 }
 
+impl ECDHKey for PublicKey {
+    fn get_public_key(&self) -> PublicKey {
+        return self.clone();
+    }
+}
+
+impl ECDHDerivable for PrivateKey {
+    fn shared_secret(&self, public_key: &dyn ECDHKey) -> Result<Vec<u8>, String> {
+        let shared_secret = diffie_hellman(
+            self.private_key.to_nonzero_scalar(),
+            public_key.get_public_key().as_affine(),
+        );
+        return Ok(shared_secret.raw_secret_bytes().to_vec());
+    }
+}
+
+impl ECDHDerivable for SignedPrivateKey {
+    fn shared_secret(&self, public_key: &dyn ECDHKey) -> Result<Vec<u8>, String> {
+        let shared_secret = diffie_hellman(
+            self.private_key.to_nonzero_scalar(),
+            public_key.get_public_key().as_affine(),
+        );
+        return Ok(shared_secret.raw_secret_bytes().to_vec());
+    }
+}
+
 impl EthereumCompatibleKey for proto::private_key::PrivateKey {
     fn get_ethereum_address(&self) -> String {
         let private_key_result = PrivateKey::from_proto(self);
@@ -245,14 +271,5 @@ impl EthereumCompatibleKey for PublicKey {
         let eth_address =
             EthereumUtils::get_ethereum_address_from_public_key_bytes(&public_key_bytes[1..]);
         return eth_address;
-    }
-}
-
-impl ECDHDerivable for SecretKey {
-    fn get_shared_secret(&self, other: &dyn ECDHKey) -> Result<SharedSecret, String> {
-        // Get other public key
-        let other_public_key = other.get_public_key();
-        let shared_secret = diffie_hellman(self.to_nonzero_scalar(), other_public_key.as_affine());
-        return Ok(shared_secret);
     }
 }
