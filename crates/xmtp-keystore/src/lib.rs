@@ -105,7 +105,7 @@ impl Keystore {
      * secret.set(dh3, dh1.length + dh2.length)
      * return secret
      */
-    fn derive_shared_secret(
+    fn derive_shared_secret_x3dh(
         &self,
         peer_bundle: &PublicKeyBundle,
         my_prekey: &dyn ecdh::ECDHKey,
@@ -144,12 +144,19 @@ impl Keystore {
     // Set private identity key from protobuf bytes
     pub fn set_private_key_bundle(&mut self, private_key_bundle: &[u8]) {
         // Deserialize protobuf bytes into a SignedPrivateKey struct
-        let private_key_result: protobuf::Result<proto::private_key::PrivateKeyBundleV2> =
+        let private_key_result: protobuf::Result<proto::private_key::PrivateKeyBundle> =
             protobuf::Message::parse_from_bytes(private_key_bundle);
+        if private_key_result.is_err() {
+            return;
+        }
+        // Get the private key from the result
+        let private_key = private_key_result.as_ref().unwrap();
+        let private_key_bundle = private_key.v2();
+
         // If the deserialization was successful, set the privateIdentityKey field
         if private_key_result.is_ok() {
             self.private_key_bundle =
-                Some(PrivateKeyBundle::from_proto(&private_key_result.unwrap()).unwrap());
+                Some(PrivateKeyBundle::from_proto(&private_key_bundle).unwrap());
         }
     }
 
@@ -429,5 +436,48 @@ mod tests {
 
         assert!(decrypt_result.is_ok());
         assert_eq!(hex::encode(decrypt_result.unwrap()), plaintext_hex);
+    }
+
+    #[test]
+    fn test_x3dh_derivation_selfdh() {
+        /*
+        peer bundle:  CpIBCNPvn83lMBJECkIKQFksbby30voQCCvTeqXmVf/OPstIMEX+r1lNBWeYa/KGKhXOIpBc/8LOgtqUOptHqLJjs6HWaBCHCfMDxo7R0t0aQwpBBEYsIllTStVEwPth0ukovlbJriqI9OhnqnZU0oyuOJUGWXO4DLlf0r4cAyO7ftTRXRa5TgmFD3KVC2BraNfAhRQSkgEI9++fzeUwEkQKQgpAfsSooQ6ENgHu6JpF7oOPQon80nAcFj83Ygwoqh6oRAJB0KGdX90909hYUT7XRSpYbsQfRWHFx3lCNMHacX/ZKBpDCkEERb2fdceKy9jOmbbMvkWR4a/CWVgDiu652qTaC6ZT7szfJvFxYy06FkS7w+UEqRWXEwuvZxyDNxQW5nseW+UKrQ==
+        myPreKey:  CPfvn83lMBJECkIKQH7EqKEOhDYB7uiaRe6Dj0KJ/NJwHBY/N2IMKKoeqEQCQdChnV/dPdPYWFE+10UqWG7EH0Vhxcd5QjTB2nF/2SgaQwpBBEW9n3XHisvYzpm2zL5FkeGvwllYA4ruudqk2gumU+7M3ybxcWMtOhZEu8PlBKkVlxMLr2ccgzcUFuZ7HlvlCq0=
+        my identity key:  CNPvn83lMBIiCiBPQL5ryv37t976or91HfmJPKKWiPtMf9NUp7CXZrEcTxqSAQjT75/N5TASRApCCkBZLG28t9L6EAgr03ql5lX/zj7LSDBF/q9ZTQVnmGvyhioVziKQXP/CzoLalDqbR6iyY7Oh1mgQhwnzA8aO0dLdGkMKQQRGLCJZU0rVRMD7YdLpKL5Wya4qiPToZ6p2VNKMrjiVBllzuAy5X9K+HAMju37U0V0WuU4JhQ9ylQtga2jXwIUU
+        is recipient:  false
+        preKey:  CPfvn83lMBIiCiA2WyXGP4085Xq+TAYNbO6AT0i3YjKttVQzX3VnRjV8LhqSAQj375/N5TASRApCCkB+xKihDoQ2Ae7omkXug49CifzScBwWPzdiDCiqHqhEAkHQoZ1f3T3T2FhRPtdFKlhuxB9FYcXHeUI0wdpxf9koGkMKQQRFvZ91x4rL2M6Ztsy+RZHhr8JZWAOK7rnapNoLplPuzN8m8XFjLToWRLvD5QSpFZcTC69nHIM3FBbmex5b5Qqt
+        dh1:  BKegRppINyzve/I8BWnHK3ERJNKDUaFjiPqjOF+aZWNyTkxpudyU/5Sbl4mcPOnU8xWz6dbYudqThzI6cIhbGNY=
+        dh2:  BKegRppINyzve/I8BWnHK3ERJNKDUaFjiPqjOF+aZWNyTkxpudyU/5Sbl4mcPOnU8xWz6dbYudqThzI6cIhbGNY=
+        dh3:  BBrRQblghj7QkSn23w0+blhVP14HZT1TEwchKH9aDRX4jN37jAU8JxgBmHCA3AzATPnj9XaRHtrvwRYIIjlRRdY=
+        secret:  BKegRppINyzve/I8BWnHK3ERJNKDUaFjiPqjOF+aZWNyTkxpudyU/5Sbl4mcPOnU8xWz6dbYudqThzI6cIhbGNYEp6BGmkg3LO978jwFaccrcREk0oNRoWOI+qM4X5plY3JOTGm53JT/lJuXiZw86dTzFbPp1ti52pOHMjpwiFsY1gQa0UG5YIY+0JEp9t8NPm5YVT9eB2U9UxMHISh/Wg0V+Izd+4wFPCcYAZhwgNwMwEz54/V2kR7a78EWCCI5UUXW
+        */
+        let peer_bundle = "CkwI8oazzOUwGkMKQQT8vluBL7Arf+QabYmDKAMRa/BWbfWlz3sYEn0GDrWDDkPvL3MkKDzHLa7xJlVq1HdFKrjlKz9yN1WMS8bTCQUREpQBCPKGs8zlMBJGCkQKQLxyHFyDM9afxnvVjqrKI8E06gQSpPmPfURLkdi+MoxYHXcXSO1OlEe6r4uulj7axV3aUeivTdUyolpy0AJy34sQARpDCkEEPE4ep8JPcEP3tnoEMPOr7s+bKDEEdPN4JevV8RPE2SuDPi2wXh6gOmOfR5WmffUG3NcKenmfecfpdR/fllAmfg==";
+        let my_pre_key_public = "CPOGs8zlMBJGCkQKQDPOq6PTquoSZAuJBZLOAf0ofiESLMi87Sq8EJDpm16PBg3RIk2TSX+e8A4mQDovOxwznS40QKNBHoIvmpEEgOMQARpDCkEEpuULoHF8aFkqJde7amRXcmV7t7AEfuW6VtGnFyEy7sul26D8bPoi5ofwUwWf/eDtCeOQmJzLEMXue6VgAAgxTA==";
+        let is_recipient = true;
+        let pre_key_private = "CPOGs8zlMBIiCiC2PODgCoZ7vuYOkLUAVOL1btJ3VSrwRU2A6XsrqeZIcRqUAQjzhrPM5TASRgpECkAzzquj06rqEmQLiQWSzgH9KH4hEizIvO0qvBCQ6ZtejwYN0SJNk0l/nvAOJkA6LzscM50uNECjQR6CL5qRBIDjEAEaQwpBBKblC6BxfGhZKiXXu2pkV3Jle7ewBH7lulbRpxchMu7Lpdug/Gz6IuaH8FMFn/3g7QnjkJicyxDF7nulYAAIMUw=";
+        let dh1 = "BDxAgPoi9aqd75DwbRr564ZfHfLuDqmkzXuX4lGuGEX71/P7r+zx6H6oYb/euA9Mi1TfzO0zB8by9IVhx31BZow=";
+        let dh2 = "BEVk8yLoeYqFoQUtZzr8loAxZH9/PRoiZsUZ48qDtu7QSKYgBAAB5zrff3VhCG8RvbOv7B662AWLGxbFvGZa0ms=";
+        let dh3 = "BE+a50DRnTzMPArqdG+9Jca8JEOWzOO3VqoTtFGr8a83iLEG+Qhoj49JerXXbeLP7jrHPZQgXWwOqhr/gAK1oTw=";
+        let secret = "BDxAgPoi9aqd75DwbRr564ZfHfLuDqmkzXuX4lGuGEX71/P7r+zx6H6oYb/euA9Mi1TfzO0zB8by9IVhx31BZowERWTzIuh5ioWhBS1nOvyWgDFkf389GiJmxRnjyoO27tBIpiAEAAHnOt9/dWEIbxG9s6/sHrrYBYsbFsW8ZlrSawRPmudA0Z08zDwK6nRvvSXGvCRDlszjt1aqE7RRq/GvN4ixBvkIaI+PSXq1123iz+46xz2UIF1sDqoa/4ACtaE8";
+    }
+
+    #[test]
+    fn test_x3dh_simple() {
+        let peer_bundle =  "CpQBCkwIs46U3eUwGkMKQQSp/qE9WdVygIo8+sb45OtE43s68RCqPz+RikceMh+FLuvPp1FcpNiLqURwSrL0o1p/T4HmG4qHn2Mk0lPZqKIBEkQSQgpA416oJdOWzEAQzGiKgDt9ejOkZAtCJ0EN3b2LyapXv+wZPfTlQSI95Db3tTWb/xz1vO/Of3tHDQ0L4bRIqgTVrhKUAQpMCNWOlN3lMBpDCkEEzR0hsrKL6oZeOAabEo3LDYycTjnZ6HSns5Tl9vg3RQ1iEWLrd0GQ4IN8CwwDlGWRUDqcUZNKmqOVXiicDEATuBJECkIKQJiZjxTenDCM/0dMFvqz0d9g2iyGFOM10mi/jaDSxpdUMYm2ZMyNEh94Jq1kYUpptcixuTtb528dnDKlax8B1SE=";
+        let my_pre_key_public =  "CkwIy4yU3eUwGkMKQQRibzecVrKk6rgCPNSPyybJib3lKBk1GrI8r/v1yHXcoVuhtmOKffZcoZ3yYl7R1q8+kx61GhwgBQtihzlDyGrKEkQKQgpALqg2w0lg9uhGApJMtgtKrW5qxNgYDNL2BwvnYCHsE15fu9KOdKq0kYKy9TSL9T0Ue0rCYwonA/Qr6lhnFmbh1A==";
+        let my_identity_bundle =  "EpADCsUBCMCvgomt/JiiFxIiCiA8iMJ0t2Kc+ilGyAIDtnQOgeQ19RNQzuZuj3J29d+iPxqUAQpMCKeMlN3lMBpDCkEEtrRkcEuQsvY3c6Hwbpyuzk8lbsZK7YgsxSAdmrWft1DM38oM/rrDswhqKUbrMKobt/lN7ShP5JQV+Q2ypvks0RJEEkIKQJgwindCu1V5K46WxWiibrdqodLii2rxgIF/qbSNVREacZ2GSonzXMOlHTMTTo4sy6nw9W1iwAfukqElUZy7J9QSxQEIwNGXmq38mKIXEiIKIF6tvfEObqASql4MbqwWwdvcB1AtHbx6km21Tk6VwCX5GpQBCkwIy4yU3eUwGkMKQQRibzecVrKk6rgCPNSPyybJib3lKBk1GrI8r/v1yHXcoVuhtmOKffZcoZ3yYl7R1q8+kx61GhwgBQtihzlDyGrKEkQKQgpALqg2w0lg9uhGApJMtgtKrW5qxNgYDNL2BwvnYCHsE15fu9KOdKq0kYKy9TSL9T0Ue0rCYwonA/Qr6lhnFmbh1A==";
+        let is_recipient = false;
+        let pre_key_private =  "CMDRl5qt/JiiFxIiCiBerb3xDm6gEqpeDG6sFsHb3AdQLR28epJttU5OlcAl+RqUAQpMCMuMlN3lMBpDCkEEYm83nFaypOq4AjzUj8smyYm95SgZNRqyPK/79ch13KFbobZjin32XKGd8mJe0davPpMetRocIAULYoc5Q8hqyhJECkIKQC6oNsNJYPboRgKSTLYLSq1uasTYGAzS9gcL52Ah7BNeX7vSjnSqtJGCsvU0i/U9FHtKwmMKJwP0K+pYZxZm4dQ=";
+        let dh1 =  "BNOBBknXpaz9LWs2izeKYFAh3KRS8a7Mibefi38yhyunt3stLHjgvSYPWScBQ4E9VlzTFzOKzR2mnyYhAYrUDSg=";
+        let dh2 =  "BAitvQQvKnk7LrBFmVWbKNwAvYxQ11fk+zspePqfqXRzF4Xq+UuMQISSzRKnxnQS59WON+nFZKaSxf5EI6hPA08=";
+        let dh3 =  "BNPEbxWF4PLLqy/08Udk3ULRPrEnTUcfrJUx5ksg6RLXd+JuOFnZJQ0NgD7+a4zIH0Ce4bxQ3cw04YtBI+Rxbc4=";
+        let secret =  "BNOBBknXpaz9LWs2izeKYFAh3KRS8a7Mibefi38yhyunt3stLHjgvSYPWScBQ4E9VlzTFzOKzR2mnyYhAYrUDSgECK29BC8qeTsusEWZVZso3AC9jFDXV+T7Oyl4+p+pdHMXher5S4xAhJLNEqfGdBLn1Y436cVkppLF/kQjqE8DTwTTxG8VheDyy6sv9PFHZN1C0T6xJ01HH6yVMeZLIOkS13fibjhZ2SUNDYA+/muMyB9AnuG8UN3MNOGLQSPkcW3O";
+
+        let mut x = Keystore::new();
+        x.set_private_key_bundle(
+            &general_purpose::STANDARD
+                .decode(my_identity_bundle)
+                .unwrap(),
+        );
     }
 }

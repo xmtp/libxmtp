@@ -24,7 +24,7 @@ impl PrivateKeyBundle {
     ) -> Result<PrivateKeyBundle, String> {
         // Check if secp256k1 is available
         if !private_key_bundle.identity_key.has_secp256k1() {
-            println!("No secp256k1 key found");
+            return Err("No secp256k1 key found".to_string());
         }
 
         let identity_key_result =

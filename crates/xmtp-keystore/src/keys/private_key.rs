@@ -24,11 +24,11 @@ impl PrivateKey {
     pub fn from_proto(proto: &proto::private_key::PrivateKey) -> Result<PrivateKey, String> {
         // Check if has_secp256k1
         if !proto.has_secp256k1() {
-            return Err("SignedPrivateKey does not have secp256k1".to_string());
+            return Err("PrivateKey does not have secp256k1".to_string());
         }
         let secret_key_bytes = proto.secp256k1().bytes.as_slice();
         if secret_key_bytes.is_empty() {
-            return Err("SignedPrivateKey does not have secp256k1 bytes".to_string());
+            return Err("PrivateKey does not have secp256k1 bytes".to_string());
         }
         // Try to derive secret key from big-endian hex-encoded BigInt, check the result
         let secret_key_result = SecretKey::from_be_bytes(secret_key_bytes);
