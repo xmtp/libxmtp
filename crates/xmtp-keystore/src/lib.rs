@@ -2,12 +2,10 @@ use ethers::core::rand::thread_rng;
 use ethers::signers::coins_bip39::{English, Mnemonic};
 use ethers::utils::hash_message;
 
-use hkdf::Hkdf;
-use sha2::Sha256;
-
 use protobuf;
 
 mod ecdh;
+mod encryption;
 mod ethereum_utils;
 mod private_key;
 mod proto;
@@ -52,7 +50,8 @@ impl Keystore {
 
             let mut response = proto::keystore::decrypt_response::Response::new();
 
-            let decrypt_result = self.decrypt_v1_inner(payload, peer_keys, header_bytes, is_sender);
+            // let decrypt_result = encryption::decrypt_v1(payload, peer_keys, header_bytes, is_sender);
+            let decrypt_result = encryption::decrypt_v1(&[], &[], None);
             match decrypt_result {
                 Ok(decrypted) => {
                     let mut success_response =
@@ -66,7 +65,7 @@ impl Keystore {
                 }
                 Err(e) => {
                     let mut error_response = proto::keystore::KeystoreError::new();
-                    error_response.message = e.err().unwrap().to_string();
+                    error_response.message = e;
                     error_response.code = protobuf::EnumOrUnknown::new(
                         proto::keystore::ErrorCode::ERROR_CODE_UNSPECIFIED,
                     );
@@ -78,22 +77,11 @@ impl Keystore {
                 }
             }
         }
-        let response_proto = proto::keystore::DecryptResponse::new();
+        let mut response_proto = proto::keystore::DecryptResponse::new();
         response_proto.responses = responses;
         return Ok(response_proto);
     }
-
-    fn hkdf(secret: &[u8], salt: &[u8]) -> Result<[u8; 32], String> {
-        let hk = Hkdf::<Sha256>::new(Some(&salt), &secret);
-        let mut okm = [0u8; 42];
-        let res = hk.expand(&[], &mut okm);
-        if res.is_err() {
-            return Err(res.err().unwrap().to_string());
-        }
-        okm[0..32]
-            .try_into()
-            .map_err(|_| "hkdf failed to fit in 32 bytes".to_string())
-    }
+    // == end keystore api ==
 
     /** Rust implementation of this javascript code:
      * let dh1: Uint8Array, dh2: Uint8Array, preKey: SignedPrivateKey
@@ -266,7 +254,7 @@ mod tests {
         let expected1 =
             hex::decode("0159d9ad511263c3754a8e2045fadc657c0016b1801720e67bbeb2661c60f176")
                 .unwrap();
-        let derived1_result = Keystore::hkdf(&secret1, &salt1);
+        let derived1_result = encryption::hkdf(&secret1, &salt1);
         // Check result
         assert!(derived1_result.is_ok());
         assert_eq!(derived1_result.unwrap().to_vec(), expected1);
@@ -278,7 +266,7 @@ mod tests {
         let expected2 =
             hex::decode("6181d0905f3f31cc3940336696afe1337d9e4d7f6655b9a6eaed2880be38150c")
                 .unwrap();
-        let derived2_result = Keystore::hkdf(&secret2, &salt2);
+        let derived2_result = encryption::hkdf(&secret2, &salt2);
         // Check result
         assert!(derived2_result.is_ok());
         assert_eq!(derived2_result.unwrap().to_vec(), expected2);
@@ -292,7 +280,7 @@ mod tests {
         let expected1 =
             hex::decode("0159d9ad511263c3754a8e2045fadc657c0016b1801720e67bbeb2661c60f176")
                 .unwrap();
-        let derived1_result = Keystore::hkdf(&secret1, &salt1);
+        let derived1_result = encryption::hkdf(&secret1, &salt1);
         // Check result
         assert!(derived1_result.is_ok());
         // Assert not equal
@@ -303,7 +291,7 @@ mod tests {
     fn test_hkdf_invalid_key() {
         let secret1 = hex::decode("").unwrap();
         let salt1 = hex::decode("").unwrap();
-        let derived1_result = Keystore::hkdf(&secret1, &salt1);
+        let derived1_result = encryption::hkdf(&secret1, &salt1);
         // Check result
         assert!(derived1_result.is_ok());
     }
