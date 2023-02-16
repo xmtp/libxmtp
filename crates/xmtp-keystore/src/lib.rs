@@ -9,14 +9,13 @@ mod ethereum_utils;
 pub mod keys;
 pub mod proto;
 use keys::{
-    key_bundle::{PrivateKeyBundle, PublicKeyBundle, SignedPublicKeyBundle},
-    private_key::{PrivateKey, SignedPrivateKey},
+    key_bundle::{PrivateKeyBundle, SignedPublicKeyBundle},
+    private_key::SignedPrivateKey,
     public_key,
 };
 
-use ecdh::{ECDHDerivable, ECDHKey};
-
 use base64::{engine::general_purpose, Engine as _};
+use ecdh::{ECDHDerivable, ECDHKey};
 
 pub struct Keystore {
     // Private key bundle powers most operations
@@ -44,14 +43,14 @@ impl Keystore {
         // Get the list of requests inside request
         let requests = request.requests;
         // Create a list of responses
-        let mut responses = Vec::new();
+        let responses = Vec::new();
 
         // Iterate over the requests
         for request in requests {
-            let payload = request.payload;
-            let peer_keys = request.peer_keys;
-            let header_bytes = request.header_bytes;
-            let is_sender = request.is_sender;
+            let _payload = request.payload;
+            let _peer_keys = request.peer_keys;
+            let _header_bytes = request.header_bytes;
+            let _is_sender = request.is_sender;
 
             let mut response = proto::keystore::decrypt_response::Response::new();
 
@@ -212,7 +211,7 @@ impl Keystore {
             return Err("private identity key is not yet set".to_string());
         }
         // Get the private identity key
-        let private_key_bundle = self.private_key_bundle.as_ref().unwrap();
+        let _private_key_bundle = self.private_key_bundle.as_ref().unwrap();
         // A sealed invite consists of:
         // - A SealedInvitationHeaderV1 serialized as protobuf bytes
         // - A Ciphertext serialized as protobuf bytes
@@ -223,7 +222,7 @@ impl Keystore {
             protobuf::Message::parse_from_bytes(&header_bytes);
         // If the deserialization was successful, get the header
         // otherwise return an error
-        let header = if header_result.is_ok() {
+        let _header = if header_result.is_ok() {
             header_result.unwrap()
         } else {
             return Err(header_result.err().unwrap().to_string());

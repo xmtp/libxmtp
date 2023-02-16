@@ -32,7 +32,7 @@ pub fn decrypt_v1(
     let derived_key = hkdf(secret_bytes, salt_bytes)?;
     let key = Aes256Gcm::new(GenericArray::from_slice(&derived_key));
     let nonce = Nonce::from_slice(nonce_bytes);
-    let additional_data = additional_data.unwrap_or(&[]);
+    let _additional_data = additional_data.unwrap_or(&[]);
     let res = key.decrypt(nonce, ciphertext_bytes);
     if res.is_err() {
         return Err(res.err().unwrap().to_string());

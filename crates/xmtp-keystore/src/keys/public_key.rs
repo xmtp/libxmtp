@@ -27,7 +27,7 @@ pub fn signed_public_key_from_proto(
 }
 
 pub fn public_key_from_proto(proto: &proto::public_key::PublicKey) -> Result<PublicKey, String> {
-    let mut public_key_bytes = proto.secp256k1_uncompressed().bytes.as_slice();
+    let public_key_bytes = proto.secp256k1_uncompressed().bytes.as_slice();
     let public_key_result = PublicKey::from_sec1_bytes(public_key_bytes);
     if public_key_result.is_err() {
         return Err(public_key_result.err().unwrap().to_string());

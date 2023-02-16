@@ -1,14 +1,9 @@
-use k256::ecdsa::signature::DigestVerifier;
 use k256::elliptic_curve::sec1::ToEncodedPoint;
-use k256::{
-    ecdh::{diffie_hellman, SharedSecret},
-    ecdsa::{signature::Verifier, RecoveryId, Signature, VerifyingKey},
-    PublicKey, SecretKey,
-};
+use k256::PublicKey;
 use sha3::{Digest, Keccak256};
 
 use super::super::proto;
-use super::private_key::{PrivateKey, SignedPrivateKey};
+use super::private_key::SignedPrivateKey;
 use super::public_key;
 
 pub struct PrivateKeyBundle {

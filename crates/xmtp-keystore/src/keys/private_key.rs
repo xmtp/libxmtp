@@ -1,9 +1,8 @@
 use k256::ecdsa::signature::DigestVerifier;
 use k256::elliptic_curve::sec1::ToEncodedPoint;
 use k256::{
-    ecdh::SharedSecret,
     ecdsa::{signature::Verifier, RecoveryId, Signature, VerifyingKey},
-    NonZeroScalar, ProjectivePoint, PublicKey, Secp256k1, SecretKey,
+    PublicKey, SecretKey,
 };
 use sha3::{Digest, Keccak256};
 
