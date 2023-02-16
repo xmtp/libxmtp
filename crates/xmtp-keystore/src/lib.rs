@@ -33,6 +33,56 @@ impl Keystore {
         }
     }
 
+    // == Keystore methods ==
+    pub fn decrypt_v1(
+        &self,
+        request: proto::keystore::DecryptV1Request,
+    ) -> Result<proto::keystore::DecryptResponse, String> {
+        // Get the list of requests inside request
+        let requests = request.requests;
+        // Create a list of responses
+        let mut responses = Vec::new();
+
+        // Iterate over the requests
+        for request in requests {
+            let payload = request.payload;
+            let peer_keys = request.peer_keys;
+            let header_bytes = request.header_bytes;
+            let is_sender = request.is_sender;
+
+            let mut response = proto::keystore::decrypt_response::Response::new();
+
+            let decrypt_result = self.decrypt_v1_inner(payload, peer_keys, header_bytes, is_sender);
+            match decrypt_result {
+                Ok(decrypted) => {
+                    let mut success_response =
+                        proto::keystore::decrypt_response::response::Success::new();
+                    success_response.decrypted = decrypted;
+                    response.response = Some(
+                        proto::keystore::decrypt_response::response::Response::Result(
+                            success_response,
+                        ),
+                    );
+                }
+                Err(e) => {
+                    let mut error_response = proto::keystore::KeystoreError::new();
+                    error_response.message = e.err().unwrap().to_string();
+                    error_response.code = protobuf::EnumOrUnknown::new(
+                        proto::keystore::ErrorCode::ERROR_CODE_UNSPECIFIED,
+                    );
+                    response.response = Some(
+                        proto::keystore::decrypt_response::response::Response::Error(
+                            error_response,
+                        ),
+                    );
+                }
+            }
+        }
+        let response_proto = proto::keystore::DecryptResponse::new();
+        response_proto.responses = responses;
+        return Ok(response_proto);
+    }
+
     fn hkdf(secret: &[u8], salt: &[u8]) -> Result<[u8; 32], String> {
         let hk = Hkdf::<Sha256>::new(Some(&salt), &secret);
         let mut okm = [0u8; 42];
