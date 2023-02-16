@@ -11,7 +11,6 @@ use sha3::{Digest, Keccak256};
 use super::ecdh::{ECDHDerivable, ECDHKey};
 use super::ethereum_utils::{EthereumCompatibleKey, EthereumUtils};
 use super::proto;
-use protobuf;
 
 pub struct EcPrivateKey {
     private_key: SecretKey,
