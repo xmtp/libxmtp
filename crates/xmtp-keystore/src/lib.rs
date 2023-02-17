@@ -105,7 +105,7 @@ impl Keystore {
      * secret.set(dh3, dh1.length + dh2.length)
      * return secret
      */
-    fn derive_shared_secret_x3dh(
+    fn derive_shared_secret_xmtp(
         &self,
         peer_bundle: &SignedPublicKeyBundle,
         my_prekey: &dyn ecdh::ECDHKey,
@@ -167,93 +167,6 @@ impl Keystore {
         // split the phrase by spaces
         let words: Vec<String> = phrase.unwrap().split(" ").map(|s| s.to_string()).collect();
         return words.join(" ");
-    }
-
-    /*
-     * Rust version of this javascript code:
-     *  async getInvitation(viewer: PrivateKeyBundleV2): Promise<InvitationV1> {
-     *    // Use cached value if already exists
-     *    if (this._invitation) {
-     *      return this._invitation
-     *    }
-     *    // The constructors for child classes will validate that this is complete
-     *    const header = this.header
-     *    let secret: Uint8Array
-     *    if (viewer.identityKey.matches(this.header.sender.identityKey)) {
-     *      secret = await viewer.sharedSecret(
-     *        header.recipient,
-     *        header.sender.preKey,
-     *        false
-     *      )
-     *    } else {
-     *      secret = await viewer.sharedSecret(
-     *        header.sender,
-     *        header.recipient.preKey,
-     *        true
-     *      )
-     *    }
-
-     *    const decryptedBytes = await decrypt(
-     *      this.ciphertext,
-     *      secret,
-     *      this.headerBytes
-     *    )
-     *    this._invitation = InvitationV1.fromBytes(decryptedBytes)
-     *    return this._invitation
-     *  }
-    */
-    fn decrypt_sealed_invite(
-        &self,
-        invite: proto::invitation::SealedInvitationV1,
-    ) -> Result<proto::invitation::InvitationV1, String> {
-        // Check that the private identity key is set
-        if self.private_key_bundle.is_none() {
-            return Err("private identity key is not yet set".to_string());
-        }
-        // Get the private identity key
-        let _private_key_bundle = self.private_key_bundle.as_ref().unwrap();
-        // A sealed invite consists of:
-        // - A SealedInvitationHeaderV1 serialized as protobuf bytes
-        // - A Ciphertext serialized as protobuf bytes
-        // Get the header bytes
-        let header_bytes = invite.header_bytes;
-        // Deserialize the header bytes into a SealedInvitationHeaderV1 struct
-        let header_result: protobuf::Result<proto::invitation::SealedInvitationHeaderV1> =
-            protobuf::Message::parse_from_bytes(&header_bytes);
-        // If the deserialization was successful, get the header
-        // otherwise return an error
-        let _header = if header_result.is_ok() {
-            header_result.unwrap()
-        } else {
-            return Err(header_result.err().unwrap().to_string());
-        };
-        return Err("not implemented".to_string());
-    }
-
-    // Store a proto::invitation into memory after decrypting
-    pub fn save_invite(&mut self, invite_bytes: &[u8]) -> Result<(), String> {
-        // Attempt to deserialize the invite
-        let sealed_invite_result: protobuf::Result<proto::invitation::SealedInvitation> =
-            protobuf::Message::parse_from_bytes(invite_bytes);
-        // If the deserialization was successful, store the invite
-        if sealed_invite_result.is_ok() {
-            // Check that sealed_invite_result is a SealedInivationV1
-            let sealed_invite: proto::invitation::SealedInvitation = sealed_invite_result.unwrap();
-            let sealed_invite_v1: proto::invitation::SealedInvitationV1 =
-                sealed_invite.v1().clone();
-            let unsealed_invite_result = self.decrypt_sealed_invite(sealed_invite_v1);
-            if unsealed_invite_result.is_ok() {
-                // Add unsealed_invite_result to the invites list
-                self.saved_invites.push(unsealed_invite_result.unwrap());
-                return Ok(());
-            } else {
-                return Err(unsealed_invite_result.unwrap_err().to_string());
-            }
-        } else {
-            // Wrap the deserialization error
-            // TODO: Return a custom error
-            Err("SealedInvitation deserialization failed".to_string())
-        }
     }
 }
 
@@ -439,7 +352,7 @@ mod tests {
     }
 
     #[test]
-    fn test_x3dh_simple() {
+    fn test_xmtp_x3dh_simple() {
         let peer_bundle =  "CpQBCkwIs46U3eUwGkMKQQSp/qE9WdVygIo8+sb45OtE43s68RCqPz+RikceMh+FLuvPp1FcpNiLqURwSrL0o1p/T4HmG4qHn2Mk0lPZqKIBEkQSQgpA416oJdOWzEAQzGiKgDt9ejOkZAtCJ0EN3b2LyapXv+wZPfTlQSI95Db3tTWb/xz1vO/Of3tHDQ0L4bRIqgTVrhKUAQpMCNWOlN3lMBpDCkEEzR0hsrKL6oZeOAabEo3LDYycTjnZ6HSns5Tl9vg3RQ1iEWLrd0GQ4IN8CwwDlGWRUDqcUZNKmqOVXiicDEATuBJECkIKQJiZjxTenDCM/0dMFvqz0d9g2iyGFOM10mi/jaDSxpdUMYm2ZMyNEh94Jq1kYUpptcixuTtb528dnDKlax8B1SE=";
         let my_pre_key_public =  "CkwIy4yU3eUwGkMKQQRibzecVrKk6rgCPNSPyybJib3lKBk1GrI8r/v1yHXcoVuhtmOKffZcoZ3yYl7R1q8+kx61GhwgBQtihzlDyGrKEkQKQgpALqg2w0lg9uhGApJMtgtKrW5qxNgYDNL2BwvnYCHsE15fu9KOdKq0kYKy9TSL9T0Ue0rCYwonA/Qr6lhnFmbh1A==";
         let my_identity_bundle =  "EpADCsUBCMCvgomt/JiiFxIiCiA8iMJ0t2Kc+ilGyAIDtnQOgeQ19RNQzuZuj3J29d+iPxqUAQpMCKeMlN3lMBpDCkEEtrRkcEuQsvY3c6Hwbpyuzk8lbsZK7YgsxSAdmrWft1DM38oM/rrDswhqKUbrMKobt/lN7ShP5JQV+Q2ypvks0RJEEkIKQJgwindCu1V5K46WxWiibrdqodLii2rxgIF/qbSNVREacZ2GSonzXMOlHTMTTo4sy6nw9W1iwAfukqElUZy7J9QSxQEIwNGXmq38mKIXEiIKIF6tvfEObqASql4MbqwWwdvcB1AtHbx6km21Tk6VwCX5GpQBCkwIy4yU3eUwGkMKQQRibzecVrKk6rgCPNSPyybJib3lKBk1GrI8r/v1yHXcoVuhtmOKffZcoZ3yYl7R1q8+kx61GhwgBQtihzlDyGrKEkQKQgpALqg2w0lg9uhGApJMtgtKrW5qxNgYDNL2BwvnYCHsE15fu9KOdKq0kYKy9TSL9T0Ue0rCYwonA/Qr6lhnFmbh1A==";
@@ -470,7 +383,7 @@ mod tests {
 
         // Do a x3dh shared secret derivation
         let shared_secret_result =
-            x.derive_shared_secret_x3dh(&peer_bundle_object, &pre_key_object, is_recipient);
+            x.derive_shared_secret_xmtp(&peer_bundle_object, &pre_key_object, is_recipient);
         assert!(shared_secret_result.is_ok());
         let shared_secret = shared_secret_result.unwrap();
         assert_eq!(
