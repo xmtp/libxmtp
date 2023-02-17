@@ -9,3 +9,5 @@ pub mod message;
 pub mod private_key;
 pub mod public_key;
 pub mod signature;
+// Added manually
+pub mod keystore;

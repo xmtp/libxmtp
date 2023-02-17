@@ -1,3 +1,6 @@
+# WARNING: DO NOT USE FOR PRODUCTION XMTP CLIENTS
+
+This code is preliminary and meant for benchmarking.
 
 # Libxmtp
 
