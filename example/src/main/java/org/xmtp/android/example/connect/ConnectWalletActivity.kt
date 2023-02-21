@@ -1,5 +1,7 @@
 package org.xmtp.android.example.connect
 
+import android.accounts.Account
+import android.accounts.AccountManager
 import android.content.Intent
 import android.os.Bundle
 import android.view.View
@@ -11,7 +13,7 @@ import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.repeatOnLifecycle
 import kotlinx.coroutines.launch
 import org.xmtp.android.example.MainActivity
-import org.xmtp.android.example.UserPreferences
+import org.xmtp.android.example.R
 import org.xmtp.android.example.databinding.ActivityConnectWalletBinding
 
 class ConnectWalletActivity : AppCompatActivity() {
@@ -40,13 +42,16 @@ class ConnectWalletActivity : AppCompatActivity() {
         when (uiState) {
             is ConnectWalletViewModel.ConnectUiState.Error -> showError(uiState.message)
             ConnectWalletViewModel.ConnectUiState.Loading -> showLoading()
-            is ConnectWalletViewModel.ConnectUiState.Success -> signIn(uiState.address)
+            is ConnectWalletViewModel.ConnectUiState.Success -> signIn(uiState.address, uiState.encodedKeyData)
             ConnectWalletViewModel.ConnectUiState.Unknown -> Unit
         }
     }
 
-    private fun signIn(address: String) {
-        UserPreferences.setSignedInAddress(this, address)
+    private fun signIn(address: String, encodedKey: String) {
+        val accountManager = AccountManager.get(this)
+        Account(address, resources.getString(R.string.account_type)).also { account ->
+            accountManager.addAccountExplicitly(account, encodedKey, null)
+        }
         startActivity(Intent(this, MainActivity::class.java))
         finish()
     }

@@ -7,7 +7,6 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
-import org.xmtp.android.library.Client
 import org.xmtp.android.library.XMTPException
 import org.xmtp.android.library.messages.PrivateKeyBuilder
 
@@ -22,8 +21,10 @@ class ConnectWalletViewModel : ViewModel() {
             _uiState.value = ConnectUiState.Loading
             try {
                 val wallet = PrivateKeyBuilder()
-                val client = Client().create(account = wallet)
-                _uiState.value = ConnectUiState.Success(client.address.orEmpty())
+                _uiState.value = ConnectUiState.Success(
+                    wallet.address,
+                    wallet.encodedPrivateKeyData()
+                )
             } catch (e: XMTPException) {
                 _uiState.value = ConnectUiState.Error(e.message.orEmpty())
             }
@@ -33,7 +34,7 @@ class ConnectWalletViewModel : ViewModel() {
     sealed class ConnectUiState {
         object Unknown : ConnectUiState()
         object Loading : ConnectUiState()
-        data class Success(val address: String): ConnectUiState()
+        data class Success(val address: String, val encodedKeyData: String): ConnectUiState()
         data class Error(val message: String): ConnectUiState()
     }
 }
