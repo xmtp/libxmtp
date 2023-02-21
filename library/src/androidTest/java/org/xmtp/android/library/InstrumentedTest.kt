@@ -60,7 +60,7 @@ class InstrumentedTest {
         }
         Thread.sleep(2_000)
         val result =
-            runBlocking { api.query(topics = listOf(Topic.userPrivateStoreKeyBundle(authorized.address))) }
+            runBlocking { api.queryTopics(topics = listOf(Topic.userPrivateStoreKeyBundle(authorized.address))) }
         assertEquals(result.envelopesList.size, 1)
     }
 

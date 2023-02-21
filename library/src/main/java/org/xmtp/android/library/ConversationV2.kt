@@ -1,5 +1,7 @@
 package org.xmtp.android.library
 
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.runBlocking
 import org.web3j.crypto.Hash
 import org.xmtp.android.library.codecs.ContentCodec
@@ -59,7 +61,7 @@ data class ConversationV2(
     ): List<DecodedMessage> {
         val pagination = Pagination(limit = limit, startTime = before, endTime = after)
         val result = runBlocking {
-            client.apiClient.queryStrings(
+            client.apiClient.query(
                 topics = listOf(topic),
                 pagination = pagination,
                 cursor = null
@@ -106,7 +108,11 @@ data class ConversationV2(
         send(encodedContent = encodedContent, options = options, sentAt = sentAt)
     }
 
-    private fun send(encodedContent: EncodedContent, options: SendOptions? = null, sentAt: Date? = null) {
+    private fun send(
+        encodedContent: EncodedContent,
+        options: SendOptions? = null,
+        sentAt: Date? = null,
+    ) {
         if (client.getUserContact(peerAddress = peerAddress) == null) {
             throw XMTPException("Contact not found.")
         }
@@ -132,6 +138,12 @@ data class ConversationV2(
                 )
             )
         )
+    }
+
+    fun streamMessages(): Flow<DecodedMessage> = flow {
+        client.subscribe(listOf(topic)).collect {
+            emit(decodeEnvelope(envelope = it))
+        }
     }
 
     private fun generateID(envelope: Envelope): String =

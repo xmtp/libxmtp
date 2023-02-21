@@ -1,5 +1,6 @@
 package org.xmtp.android.library
 
+import kotlinx.coroutines.flow.Flow
 import org.xmtp.android.library.messages.Envelope
 import java.util.Date
 
@@ -95,4 +96,11 @@ sealed class Conversation {
                 is V2 -> conversationV2.client
             }
         }
+
+    fun streamMessages(): Flow<DecodedMessage> {
+        return when (this) {
+            is V1 -> return conversationV1.streamMessages()
+            is V2 -> return conversationV2.streamMessages()
+        }
+    }
 }

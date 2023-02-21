@@ -1,5 +1,9 @@
 package org.xmtp.android.library
 
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.flowOf
 import org.junit.Assert.assertEquals
 import org.xmtp.android.library.messages.Envelope
 import org.xmtp.android.library.messages.Pagination
@@ -40,12 +44,19 @@ class FakeWallet : SigningKey {
     }
 }
 
+class FakeStreamHolder {
+    private val flow = MutableSharedFlow<Envelope>()
+    suspend fun emit(value: Envelope) = flow.emit(value)
+    fun counts(): Flow<Envelope> = flow
+}
+
 class FakeApiClient : ApiClient {
     override val environment: XMTPEnvironment = XMTPEnvironment.LOCAL
     private var authToken: String? = null
     private val responses: MutableMap<String, List<Envelope>> = mutableMapOf()
     val published: MutableList<Envelope> = mutableListOf()
     var forbiddingQueries = false
+    private var stream = FakeStreamHolder()
 
     fun assertNoPublish(callback: () -> Unit) {
         val oldCount = published.size
@@ -75,21 +86,25 @@ class FakeApiClient : ApiClient {
         authToken = token
     }
 
-    override suspend fun query(
+    override suspend fun queryTopics(
         topics: List<Topic>,
         pagination: Pagination?,
     ): MessageApiOuterClass.QueryResponse {
-        return queryStrings(topics = topics.map { it.description }, pagination)
+        return query(topics = topics.map { it.description }, pagination)
+    }
+
+    suspend fun send(envelope: Envelope) {
+        stream.emit(envelope)
     }
 
     override suspend fun envelopes(
         topics: List<String>,
         pagination: Pagination?,
     ): List<MessageApiOuterClass.Envelope> {
-        return queryStrings(topics = topics, pagination = pagination).envelopesList
+        return query(topics = topics, pagination = pagination).envelopesList
     }
 
-    override suspend fun queryStrings(
+    override suspend fun query(
         topics: List<String>,
         pagination: Pagination?,
         cursor: MessageApiOuterClass.Cursor?,
@@ -138,9 +153,19 @@ class FakeApiClient : ApiClient {
 
     override suspend fun publish(envelopes: List<MessageApiOuterClass.Envelope>): MessageApiOuterClass.PublishResponse {
         for (envelope in envelopes) {
+            send(envelope)
         }
         published.addAll(envelopes)
         return PublishResponse.newBuilder().build()
+    }
+
+    override suspend fun subscribe(topics: List<String>): Flow<Envelope> {
+        val env = stream.counts().first()
+
+        if (topics.contains(env.contentTopic)) {
+            return flowOf(env)
+        }
+        return flowOf()
     }
 }
 
