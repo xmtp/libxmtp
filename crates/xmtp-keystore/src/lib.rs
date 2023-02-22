@@ -1,6 +1,3 @@
-use ethers::core::rand::thread_rng;
-use ethers::signers::coins_bip39::{English, Mnemonic};
-
 use protobuf;
 
 mod ecdh;
@@ -163,13 +160,19 @@ impl Keystore {
         }
     }
 
-    pub fn generate_mnemonic(&self) -> String {
-        let mut rng = thread_rng();
-        let mnemonic = Mnemonic::<English>::new_with_count(&mut rng, 12).unwrap();
-        let phrase = mnemonic.to_phrase();
-        // split the phrase by spaces
-        let words: Vec<String> = phrase.unwrap().split(" ").map(|s| s.to_string()).collect();
-        return words.join(" ");
+    // Save invites
+    pub fn save_invitation(&mut self, invitation_bytes: &[u8]) -> Result<bool, String> {
+        // Deserialize invitation bytes into a protobuf::invitation::InvitationV1 struct
+        let invitation_result: protobuf::Result<proto::invitation::InvitationV1> =
+            protobuf::Message::parse_from_bytes(invitation_bytes);
+        if invitation_result.is_err() {
+            return Err("could not parse invitation".to_string());
+        }
+        // Get the invitation from the result
+        let invitation = invitation_result.as_ref().unwrap();
+        // TODO: Need to check for dupes
+        self.saved_invites.push(invitation.clone());
+        return Ok(true);
     }
 }
 
@@ -397,5 +400,25 @@ mod tests {
 
     #[test]
     fn test_decrypt_invite() {
+        let alice_private_b64 = "EpgDCsoBCMDgu9Pks4+jFxIiCiAK+Z71jhC3sKwS3hk56BYKffYGjiEn5/It/mzAsJoqshqZAQpPCMDgu9Pks4+jFxpDCkEE90RiVOXoz1WiixaTurcPsF5DyceKVQzmrWD1JoGn6tlyMWZANG8VtQ7cMRKuvO7tbyDPXyeBGSfhnU5dCNrHHRJGEkQKQAEG36Nn8tmqmo2wZQbf+Yiengy5SN10QG4x3cS7LrYtJpQ1equrmb/VdMpqW40x/a68IjU1C5najcYtvZDMqN4QARLIAQjA05vt5LOPoxcSIgogzEAqyWpE3sVFk3WTSjgRA1KFxDrax20J6xct6MXX+KcalwEKTwjA05vt5LOPoxcaQwpBBMoBMkw7AdVFHmGU3eRWg8M4VWkVWdTHuG5TL8EcqFfJJnbX+FlTOSsUQ83KByfYbOlpUcy3fYK3zSZCt0nEHMQSRApCCkCwKFTk63QwCI7ZlDDprYt1HzIykF6lC5sg4pHhyRsUgw9LjDMrT9kJONKV23+oiUfeqhdsTJg3Rpw42Wldb/8o";
+        let bob_private_b64 = "EpYDCsgBCIDvoIvls4+jFxIiCiBH51l+v6hD/NuFPVc7/KJUZB6GPtQRlehmuGkw12fT9hqXAQpPCIDvoIvls4+jFxpDCkEEV/RauauY0qlA4wJjox78IWivxOWimYDQLcB8tlPoZp83N0p8oa5RrIo/Zm9DFHC/sIMvETVOrgsQ1ZhAqiZ3CxJEEkIKQHHCdnjCObd4QcuAAKnL40DnLMIQV1H17m0uSdd9KMFeGE1oCX8b5I4LiDE13uVO9XWZjUEd0T9kyUPMfQgHj+QSyAEIgNmGpOWzj6MXEiIKIHdX48W8yLiLzkVcsUx3AY+TOBHatnkun5Wb4y2oZBwYGpcBCk8IgNmGpOWzj6MXGkMKQQQvrb9KkmJI7CBCz7a6HORDYU22RFs5rzKJu2ynPaJepseWtb4+6v+XtSeQg1asJjeE1JrbVqdYfr26FrWabeEBEkQKQgpAtNcwob4ZC8GAOLU8oSivjAprid2/9kgT6XQg3Vn5JAY3BXyNmKqJlt0NmPBnKOGwTrm579plpk5e7SaV0MIOBA==";
+        let alice_invite_b64 = "CmsxMDEsODksMjQzLDcsNzUsNzMsODUsNyw0MCwxMjUsNDIsMTg5LDExNSwzMiwxNTYsMTMyLDI1NSwzOCw5OCw2MiwxNzYsMjE0LDIxOSwxNDksMjExLDIsOTcsMjI5LDU0LDksMTY3LDIxMRoiCiDjZMlsA8N8TTVJZl8TyWg11/FWiZe2/cURWs87sYQ0HQ==";
+        let bob_public_key_b64 = "CpcBCk8IgO+gi+Wzj6MXGkMKQQRX9Fq5q5jSqUDjAmOjHvwhaK/E5aKZgNAtwHy2U+hmnzc3SnyhrlGsij9mb0MUcL+wgy8RNU6uCxDVmECqJncLEkQSQgpAccJ2eMI5t3hBy4AAqcvjQOcswhBXUfXubS5J130owV4YTWgJfxvkjguIMTXe5U71dZmNQR3RP2TJQ8x9CAeP5BKXAQpPCIDZhqTls4+jFxpDCkEEL62/SpJiSOwgQs+2uhzkQ2FNtkRbOa8yibtspz2iXqbHlrW+Pur/l7UnkINWrCY3hNSa21anWH69uha1mm3hARJECkIKQLTXMKG+GQvBgDi1PKEor4wKa4ndv/ZIE+l0IN1Z+SQGNwV8jZiqiZbdDZjwZyjhsE65ue/aZaZOXu0mldDCDgQ=";
+        let alice_public_key_b64 = "CpkBCk8IwOC70+Szj6MXGkMKQQT3RGJU5ejPVaKLFpO6tw+wXkPJx4pVDOatYPUmgafq2XIxZkA0bxW1DtwxEq687u1vIM9fJ4EZJ+GdTl0I2scdEkYSRApAAQbfo2fy2aqajbBlBt/5iJ6eDLlI3XRAbjHdxLsuti0mlDV6q6uZv9V0ympbjTH9rrwiNTULmdqNxi29kMyo3hABEpcBCk8IwNOb7eSzj6MXGkMKQQTKATJMOwHVRR5hlN3kVoPDOFVpFVnUx7huUy/BHKhXySZ21/hZUzkrFEPNygcn2GzpaVHMt32Ct80mQrdJxBzEEkQKQgpAsChU5Ot0MAiO2ZQw6a2LdR8yMpBepQubIOKR4ckbFIMPS4wzK0/ZCTjSldt/qIlH3qoXbEyYN0acONlpXW//KA==";
+        let expected_key_material_b64 = "42TJbAPDfE01SWZfE8loNdfxVomXtv3FEVrPO7GENB0=";
+        let topic_bytes = [
+            101, 89, 243, 7, 75, 73, 85, 7, 40, 125, 42, 189, 115, 32, 156, 132, 255, 38, 98, 62,
+            176, 214, 219, 149, 211, 2, 97, 229, 54, 9, 167, 211,
+        ];
+
+        // Create a keystore, then save Alice's private key bundle
+        let mut x = Keystore::new();
+        x.set_private_key_bundle(
+            &general_purpose::STANDARD
+                .decode(alice_private_b64.as_bytes())
+                .unwrap(),
+        );
+
+        // Save an invite for alice
     }
 }

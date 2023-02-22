@@ -19,3 +19,5 @@ it("can set private_key_bundle", async () => {
   expect(res).toBe(true);
 });
 
+it("can set private_key_bundle and decode invites", async () => {
+});
