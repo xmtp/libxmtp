@@ -142,12 +142,12 @@ impl Keystore {
     }
 
     // Set private identity key from protobuf bytes
-    pub fn set_private_key_bundle(&mut self, private_key_bundle: &[u8]) {
+    pub fn set_private_key_bundle(&mut self, private_key_bundle: &[u8]) -> Result<(), String> {
         // Deserialize protobuf bytes into a SignedPrivateKey struct
         let private_key_result: protobuf::Result<proto::private_key::PrivateKeyBundle> =
             protobuf::Message::parse_from_bytes(private_key_bundle);
         if private_key_result.is_err() {
-            return;
+            return Err("could not parse private key bundle".to_string());
         }
         // Get the private key from the result
         let private_key = private_key_result.as_ref().unwrap();
@@ -157,6 +157,9 @@ impl Keystore {
         if private_key_result.is_ok() {
             self.private_key_bundle =
                 Some(PrivateKeyBundle::from_proto(&private_key_bundle).unwrap());
+            return Ok(());
+        } else {
+            return Err("could not parse private key bundle".to_string());
         }
     }
 
@@ -390,5 +393,9 @@ mod tests {
             shared_secret,
             general_purpose::STANDARD.decode(secret).unwrap()
         );
+    }
+
+    #[test]
+    fn test_decrypt_invite() {
     }
 }
