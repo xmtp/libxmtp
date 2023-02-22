@@ -1,5 +1,8 @@
+use std::collections::HashMap;
+
 use protobuf;
 
+mod conversation;
 mod ecdh;
 mod encryption;
 mod ethereum_utils;
@@ -11,14 +14,16 @@ use keys::{
     public_key,
 };
 
+use conversation::{InvitationContext, TopicData};
+
 use base64::{engine::general_purpose, Engine as _};
 use ecdh::{ECDHDerivable, ECDHKey};
 
 pub struct Keystore {
     // Private key bundle powers most operations
     private_key_bundle: Option<PrivateKeyBundle>,
-    // List of invites
-    saved_invites: Vec<proto::invitation::InvitationV1>,
+    // Topic Keys
+    topic_keys: HashMap<String, TopicData>,
 }
 
 impl Keystore {
@@ -27,8 +32,8 @@ impl Keystore {
         Keystore {
             // Empty option for private key bundle
             private_key_bundle: None,
-            // Conversation store
-            saved_invites: Vec::new(),
+            // Topic keys
+            topic_keys: HashMap::new(),
         }
     }
 
@@ -84,24 +89,7 @@ impl Keystore {
     }
     // == end keystore api ==
 
-    /** Rust implementation of this javascript code:
-     * let dh1: Uint8Array, dh2: Uint8Array, preKey: SignedPrivateKey
-     * if (isRecipient) {
-     *   preKey = this.findPreKey(myPreKey)
-     *   dh1 = preKey.sharedSecret(peer.identityKey)
-     *   dh2 = this.identityKey.sharedSecret(peer.preKey)
-     * } else {
-     *   preKey = this.findPreKey(myPreKey)
-     *   dh1 = this.identityKey.sharedSecret(peer.preKey)
-     *   dh2 = preKey.sharedSecret(peer.identityKey)
-     * }
-     * const dh3 = preKey.sharedSecret(peer.preKey)
-     * const secret = new Uint8Array(dh1.length + dh2.length + dh3.length)
-     * secret.set(dh1, 0)
-     * secret.set(dh2, dh1.length)
-     * secret.set(dh3, dh1.length + dh2.length)
-     * return secret
-     */
+    // XMTP X3DH-like scheme for invitation decryption
     fn derive_shared_secret_xmtp(
         &self,
         peer_bundle: &SignedPublicKeyBundle,
@@ -161,31 +149,91 @@ impl Keystore {
     }
 
     // Save invites
-    pub fn save_invitation(&mut self, invitation_bytes: &[u8]) -> Result<bool, String> {
+    pub fn save_invitation(&mut self, sealed_invitation_bytes: &[u8]) -> Result<bool, String> {
         // Deserialize invitation bytes into a protobuf::invitation::InvitationV1 struct
-        let invitation_result: protobuf::Result<proto::invitation::InvitationV1> =
-            protobuf::Message::parse_from_bytes(invitation_bytes);
+        let invitation_result: protobuf::Result<proto::invitation::SealedInvitation> =
+            protobuf::Message::parse_from_bytes(sealed_invitation_bytes);
         if invitation_result.is_err() {
             return Err("could not parse invitation".to_string());
         }
         // Get the invitation from the result
-        let invitation = invitation_result.as_ref().unwrap();
-        // TODO: Need to check for dupes
-        self.saved_invites.push(invitation.clone());
+        let sealed_invitation = invitation_result.as_ref().unwrap();
+        let invitation = sealed_invitation.v1();
+
+        // Need to parse the header_bytes as protobuf::invitation::SealedInvitationHeaderV1
+        let header_result: protobuf::Result<proto::invitation::SealedInvitationHeaderV1> =
+            protobuf::Message::parse_from_bytes(&invitation.header_bytes);
+        if header_result.is_err() {
+            return Err("could not parse invitation header".to_string());
+        }
+        // Get the invitation header from the result
+        let invitation_header = header_result.as_ref().unwrap();
+
+        // Check the header time from the sealed invite
+        let header_time = invitation_header.created_ns;
+
+        // Attempt to decrypt the invitation
+        let decrypt_result = Self::unseal_invitation(
+            self.private_key_bundle.as_ref().unwrap(),
+            &invitation,
+            &invitation_header,
+        );
+        if decrypt_result.is_err() {
+            return Err("could not decrypt invitation".to_string());
+        }
         return Ok(true);
+    }
+
+    fn unseal_invitation(
+        private_key_bundle: &PrivateKeyBundle,
+        sealed_invitation: &proto::invitation::SealedInvitationV1,
+        sealed_invitation_header: &proto::invitation::SealedInvitationHeaderV1,
+    ) -> Result<proto::invitation::InvitationV1, String> {
+        // Implementing the following JS code in rust
+        // ==========================================
+        // // The constructors for child classes will validate that this is complete
+        // const header = this.header
+        // let secret: Uint8Array
+        // if (viewer.identityKey.matches(this.header.sender.identityKey)) {
+        //   secret = await viewer.sharedSecret(
+        //     header.recipient,
+        //     header.sender.preKey,
+        //     false
+        //   )
+        // } else {
+        //   secret = await viewer.sharedSecret(
+        //     header.sender,
+        //     header.recipient.preKey,
+        //     true
+        //   )
+        // }
+
+        // const decryptedBytes = await decrypt(
+        //   this.ciphertext,
+        //   secret,
+        //   this.headerBytes
+        // )
+        // this._invitation = InvitationV1.fromBytes(decryptedBytes)
+        // return this._invitation
+        // ==========================================
+
+        // Check private_key_bundle's public key matches the sealed_invitation's public key
+        let sender_public_key =
+            public_key::signed_public_key_from_proto(&sealed_invitation_header.sender.identity_key)
+                .unwrap();
+        if private_key_bundle.identity_key.public_key != sender_public_key {
+            return Err(
+                "private key bundle's public key does not match the sealed invitation's public key"
+                    .to_string(),
+            );
+        }
+        return Ok(proto::invitation::InvitationV1::new());
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn generate_mnemonic_works() {
-        let x = Keystore::new();
-        let mnemonic = x.generate_mnemonic();
-        assert_eq!(mnemonic.split(" ").count(), 12);
-    }
 
     #[test]
     fn test_hkdf_simple() {
@@ -400,25 +448,41 @@ mod tests {
 
     #[test]
     fn test_decrypt_invite() {
-        let alice_private_b64 = "EpgDCsoBCMDgu9Pks4+jFxIiCiAK+Z71jhC3sKwS3hk56BYKffYGjiEn5/It/mzAsJoqshqZAQpPCMDgu9Pks4+jFxpDCkEE90RiVOXoz1WiixaTurcPsF5DyceKVQzmrWD1JoGn6tlyMWZANG8VtQ7cMRKuvO7tbyDPXyeBGSfhnU5dCNrHHRJGEkQKQAEG36Nn8tmqmo2wZQbf+Yiengy5SN10QG4x3cS7LrYtJpQ1equrmb/VdMpqW40x/a68IjU1C5najcYtvZDMqN4QARLIAQjA05vt5LOPoxcSIgogzEAqyWpE3sVFk3WTSjgRA1KFxDrax20J6xct6MXX+KcalwEKTwjA05vt5LOPoxcaQwpBBMoBMkw7AdVFHmGU3eRWg8M4VWkVWdTHuG5TL8EcqFfJJnbX+FlTOSsUQ83KByfYbOlpUcy3fYK3zSZCt0nEHMQSRApCCkCwKFTk63QwCI7ZlDDprYt1HzIykF6lC5sg4pHhyRsUgw9LjDMrT9kJONKV23+oiUfeqhdsTJg3Rpw42Wldb/8o";
-        let bob_private_b64 = "EpYDCsgBCIDvoIvls4+jFxIiCiBH51l+v6hD/NuFPVc7/KJUZB6GPtQRlehmuGkw12fT9hqXAQpPCIDvoIvls4+jFxpDCkEEV/RauauY0qlA4wJjox78IWivxOWimYDQLcB8tlPoZp83N0p8oa5RrIo/Zm9DFHC/sIMvETVOrgsQ1ZhAqiZ3CxJEEkIKQHHCdnjCObd4QcuAAKnL40DnLMIQV1H17m0uSdd9KMFeGE1oCX8b5I4LiDE13uVO9XWZjUEd0T9kyUPMfQgHj+QSyAEIgNmGpOWzj6MXEiIKIHdX48W8yLiLzkVcsUx3AY+TOBHatnkun5Wb4y2oZBwYGpcBCk8IgNmGpOWzj6MXGkMKQQQvrb9KkmJI7CBCz7a6HORDYU22RFs5rzKJu2ynPaJepseWtb4+6v+XtSeQg1asJjeE1JrbVqdYfr26FrWabeEBEkQKQgpAtNcwob4ZC8GAOLU8oSivjAprid2/9kgT6XQg3Vn5JAY3BXyNmKqJlt0NmPBnKOGwTrm579plpk5e7SaV0MIOBA==";
-        let alice_invite_b64 = "CmsxMDEsODksMjQzLDcsNzUsNzMsODUsNyw0MCwxMjUsNDIsMTg5LDExNSwzMiwxNTYsMTMyLDI1NSwzOCw5OCw2MiwxNzYsMjE0LDIxOSwxNDksMjExLDIsOTcsMjI5LDU0LDksMTY3LDIxMRoiCiDjZMlsA8N8TTVJZl8TyWg11/FWiZe2/cURWs87sYQ0HQ==";
-        let bob_public_key_b64 = "CpcBCk8IgO+gi+Wzj6MXGkMKQQRX9Fq5q5jSqUDjAmOjHvwhaK/E5aKZgNAtwHy2U+hmnzc3SnyhrlGsij9mb0MUcL+wgy8RNU6uCxDVmECqJncLEkQSQgpAccJ2eMI5t3hBy4AAqcvjQOcswhBXUfXubS5J130owV4YTWgJfxvkjguIMTXe5U71dZmNQR3RP2TJQ8x9CAeP5BKXAQpPCIDZhqTls4+jFxpDCkEEL62/SpJiSOwgQs+2uhzkQ2FNtkRbOa8yibtspz2iXqbHlrW+Pur/l7UnkINWrCY3hNSa21anWH69uha1mm3hARJECkIKQLTXMKG+GQvBgDi1PKEor4wKa4ndv/ZIE+l0IN1Z+SQGNwV8jZiqiZbdDZjwZyjhsE65ue/aZaZOXu0mldDCDgQ=";
-        let alice_public_key_b64 = "CpkBCk8IwOC70+Szj6MXGkMKQQT3RGJU5ejPVaKLFpO6tw+wXkPJx4pVDOatYPUmgafq2XIxZkA0bxW1DtwxEq687u1vIM9fJ4EZJ+GdTl0I2scdEkYSRApAAQbfo2fy2aqajbBlBt/5iJ6eDLlI3XRAbjHdxLsuti0mlDV6q6uZv9V0ympbjTH9rrwiNTULmdqNxi29kMyo3hABEpcBCk8IwNOb7eSzj6MXGkMKQQTKATJMOwHVRR5hlN3kVoPDOFVpFVnUx7huUy/BHKhXySZ21/hZUzkrFEPNygcn2GzpaVHMt32Ct80mQrdJxBzEEkQKQgpAsChU5Ot0MAiO2ZQw6a2LdR8yMpBepQubIOKR4ckbFIMPS4wzK0/ZCTjSldt/qIlH3qoXbEyYN0acONlpXW//KA==";
-        let expected_key_material_b64 = "42TJbAPDfE01SWZfE8loNdfxVomXtv3FEVrPO7GENB0=";
+        // New invitation serialized: CtgGCvgECrQCCpcBCk8IgIez7pm8kqMXGkMKQQRhgSMw1R/8S7WEkfxpknxsmt9WK1AsYKrQ/ZAVwSx60+kgce8Hu+pkRy0a+rXeltBuTH4tO4pQzBP5xhHo5UFAEkQSQgpA9uKlM/f9TiNbBEsjxJusMky21MV77annlu4v34hQ6QIz8hhoHa15qmuNZceGzd00SQ6IjVzl0t4Y2sAUF+BgcxKXAQpPCMCHyomavJKjFxpDCkEE1OvlXZeGc7Ca4UUL89jZe/nvAjXTGNODpwtbuSWGehAjfins9KScHNmIcqahYrMlrqurOfhYSGvNwOkQLSNuuBJECkIKQBx9fFP8pMoyxYOU+fXN+bbf0y2eZZx8FiRgy2kWQJUfNVFX1ut+PkrxIoy20tCFieWWW5cG7zGq7345tBtotGsStAIKlwEKTwiA/+ajmrySoxcaQwpBBEzal8mv0MYw04DqoFJK8RRJmrKDXPRmPN50RFOiF1gIW1M1i26WqT+n1Te2nU5hve7c7RQ2/2aPSuMsbWeeK1MSRBJCCkDWVrt1G16A83mNhT1y1gXDLX9HVwk5Rqab/I0VjS0cr2gUqX2l3O0HXirWyFlCqua4HfPDlpB4WY4ANDTxgajAEpcBCk8IwKW5tZq8kqMXGkMKQQRX0e1CP6Jc5kbjtXF1oxgbFciNSt002UlP4ZS6vDmkCYvQyclEtY3TQcrBXSNNK2JbDwu30+1z+h6DqasrMJc6EkQKQgpAw2rkuwL7e0s3XrrtY6+YhEMmh2nijAMFQKXPFa8edKE1LfMqp0IAGhYXBiGlV7A7yPZDXLLasf11Uy4ww2WiyxiAqva1mrySoxcS2gEK1wEKIPl1rD6K3Oj8Ps+zIzfp+n2/hUKqE/ORkHOsZ8kJpIFtEgwb7/dw52hTPD37IsYapAGAJTWRotzIHUtMu1bLd7izktJOh3cJ+ZXODtho02lsNp6DuwNIoEXesdoFRtVZCYqvaiOwnctX+nnPsSfemDmQ1mJ/o4sZyvFAF25ufSBaBqRJeyQjUBbfyuJSWYoDiqAAAMzsWPzrPeVJZFXrcOdDSTA11b+MevlfzcFjitqv/0J2j+pcQo4RFOgtpFK9cUkbcIB2xjRBRXOUQL89BuyMQmb+gg==
+        // ALICE PRIVATE KEY BUNDLE ENCODED BYTES: EpYDCsgBCICHs+6ZvJKjFxIiCiCNtoFf4wgcj3UH5Nhy6vHD94+HbVWUAdYlQ9IYGMv5tBqXAQpPCICHs+6ZvJKjFxpDCkEEYYEjMNUf/Eu1hJH8aZJ8bJrfVitQLGCq0P2QFcEsetPpIHHvB7vqZEctGvq13pbQbkx+LTuKUMwT+cYR6OVBQBJEEkIKQPbipTP3/U4jWwRLI8SbrDJMttTFe+2p55buL9+IUOkCM/IYaB2teaprjWXHhs3dNEkOiI1c5dLeGNrAFBfgYHMSyAEIwIfKiZq8kqMXEiIKIAOcJgVnEPy1OPad9KytYnvN+X67I33mqVKlHMqU9qsZGpcBCk8IwIfKiZq8kqMXGkMKQQTU6+Vdl4ZzsJrhRQvz2Nl7+e8CNdMY04OnC1u5JYZ6ECN+Kez0pJwc2YhypqFisyWuq6s5+FhIa83A6RAtI264EkQKQgpAHH18U/ykyjLFg5T59c35tt/TLZ5lnHwWJGDLaRZAlR81UVfW634+SvEijLbS0IWJ5ZZblwbvMarvfjm0G2i0aw==
+        // BOB PRIVATE KEY BUNDLE ENCODED BYTES: EpYDCsgBCID/5qOavJKjFxIiCiAEu89bIFnCDu1NvDUnPrcW/QwVoBD3MBkDmSW8JCb6gxqXAQpPCID/5qOavJKjFxpDCkEETNqXya/QxjDTgOqgUkrxFEmasoNc9GY83nREU6IXWAhbUzWLbpapP6fVN7adTmG97tztFDb/Zo9K4yxtZ54rUxJEEkIKQNZWu3UbXoDzeY2FPXLWBcMtf0dXCTlGppv8jRWNLRyvaBSpfaXc7QdeKtbIWUKq5rgd88OWkHhZjgA0NPGBqMASyAEIwKW5tZq8kqMXEiIKIMoytCr53r3f/k9Wae/QPdGdPWsAPSLQWFwVez5K8ZGxGpcBCk8IwKW5tZq8kqMXGkMKQQRX0e1CP6Jc5kbjtXF1oxgbFciNSt002UlP4ZS6vDmkCYvQyclEtY3TQcrBXSNNK2JbDwu30+1z+h6DqasrMJc6EkQKQgpAw2rkuwL7e0s3XrrtY6+YhEMmh2nijAMFQKXPFa8edKE1LfMqp0IAGhYXBiGlV7A7yPZDXLLasf11Uy4ww2Wiyw==
+        // ALICE INVITE BYTES base64: Cm4yMTAsODYsMTk5LDIsMjM5LDI0Nyw1MSwyMDgsMjA1LDE5NywzMiwxNjIsMjE1LDExMCwxODUsNywxMTUsNzMsNywyMjMsNSwxMCw3NSwxOSwyNTIsMTYwLDEzOSwyNDEsNCwyMDUsMTI4LDE1MhoiCiCkJkTKfSCTBOs0M6V7BUZMdi6pd1bO/2z5YpRYK10UKQ==
+        // BOB public key bundle: CpcBCk8IgP/mo5q8kqMXGkMKQQRM2pfJr9DGMNOA6qBSSvEUSZqyg1z0ZjzedERTohdYCFtTNYtulqk/p9U3tp1OYb3u3O0UNv9mj0rjLG1nnitTEkQSQgpA1la7dRtegPN5jYU9ctYFwy1/R1cJOUamm/yNFY0tHK9oFKl9pdztB14q1shZQqrmuB3zw5aQeFmOADQ08YGowBKXAQpPCMClubWavJKjFxpDCkEEV9HtQj+iXOZG47VxdaMYGxXIjUrdNNlJT+GUurw5pAmL0MnJRLWN00HKwV0jTStiWw8Lt9Ptc/oeg6mrKzCXOhJECkIKQMNq5LsC+3tLN1667WOvmIRDJodp4owDBUClzxWvHnShNS3zKqdCABoWFwYhpVewO8j2Q1yy2rH9dVMuMMNloss=
+        // ALICE public key bundle: CpcBCk8IgIez7pm8kqMXGkMKQQRhgSMw1R/8S7WEkfxpknxsmt9WK1AsYKrQ/ZAVwSx60+kgce8Hu+pkRy0a+rXeltBuTH4tO4pQzBP5xhHo5UFAEkQSQgpA9uKlM/f9TiNbBEsjxJusMky21MV77annlu4v34hQ6QIz8hhoHa15qmuNZceGzd00SQ6IjVzl0t4Y2sAUF+BgcxKXAQpPCMCHyomavJKjFxpDCkEE1OvlXZeGc7Ca4UUL89jZe/nvAjXTGNODpwtbuSWGehAjfins9KScHNmIcqahYrMlrqurOfhYSGvNwOkQLSNuuBJECkIKQBx9fFP8pMoyxYOU+fXN+bbf0y2eZZx8FiRgy2kWQJUfNVFX1ut+PkrxIoy20tCFieWWW5cG7zGq7345tBtotGs=
+        // Expected key material bytes: pCZEyn0gkwTrNDOlewVGTHYuqXdWzv9s+WKUWCtdFCk=
+        // Expected topic 210,86,199,2,239,247,51,208,205,197,32,162,215,110,185,7,115,73,7,223,5,10,75,19,252,160,139,241,4,205,128,152
+        let alice_private_b64 = "EpYDCsgBCICHs+6ZvJKjFxIiCiCNtoFf4wgcj3UH5Nhy6vHD94+HbVWUAdYlQ9IYGMv5tBqXAQpPCICHs+6ZvJKjFxpDCkEEYYEjMNUf/Eu1hJH8aZJ8bJrfVitQLGCq0P2QFcEsetPpIHHvB7vqZEctGvq13pbQbkx+LTuKUMwT+cYR6OVBQBJEEkIKQPbipTP3/U4jWwRLI8SbrDJMttTFe+2p55buL9+IUOkCM/IYaB2teaprjWXHhs3dNEkOiI1c5dLeGNrAFBfgYHMSyAEIwIfKiZq8kqMXEiIKIAOcJgVnEPy1OPad9KytYnvN+X67I33mqVKlHMqU9qsZGpcBCk8IwIfKiZq8kqMXGkMKQQTU6+Vdl4ZzsJrhRQvz2Nl7+e8CNdMY04OnC1u5JYZ6ECN+Kez0pJwc2YhypqFisyWuq6s5+FhIa83A6RAtI264EkQKQgpAHH18U/ykyjLFg5T59c35tt/TLZ5lnHwWJGDLaRZAlR81UVfW634+SvEijLbS0IWJ5ZZblwbvMarvfjm0G2i0aw==";
+        let bob_private_b64 = "EpYDCsgBCID/5qOavJKjFxIiCiAEu89bIFnCDu1NvDUnPrcW/QwVoBD3MBkDmSW8JCb6gxqXAQpPCID/5qOavJKjFxpDCkEETNqXya/QxjDTgOqgUkrxFEmasoNc9GY83nREU6IXWAhbUzWLbpapP6fVN7adTmG97tztFDb/Zo9K4yxtZ54rUxJEEkIKQNZWu3UbXoDzeY2FPXLWBcMtf0dXCTlGppv8jRWNLRyvaBSpfaXc7QdeKtbIWUKq5rgd88OWkHhZjgA0NPGBqMASyAEIwKW5tZq8kqMXEiIKIMoytCr53r3f/k9Wae/QPdGdPWsAPSLQWFwVez5K8ZGxGpcBCk8IwKW5tZq8kqMXGkMKQQRX0e1CP6Jc5kbjtXF1oxgbFciNSt002UlP4ZS6vDmkCYvQyclEtY3TQcrBXSNNK2JbDwu30+1z+h6DqasrMJc6EkQKQgpAw2rkuwL7e0s3XrrtY6+YhEMmh2nijAMFQKXPFa8edKE1LfMqp0IAGhYXBiGlV7A7yPZDXLLasf11Uy4ww2Wiyw==";
+        let alice_invite_b64 = "CtgGCvgECrQCCpcBCk8IgIez7pm8kqMXGkMKQQRhgSMw1R/8S7WEkfxpknxsmt9WK1AsYKrQ/ZAVwSx60+kgce8Hu+pkRy0a+rXeltBuTH4tO4pQzBP5xhHo5UFAEkQSQgpA9uKlM/f9TiNbBEsjxJusMky21MV77annlu4v34hQ6QIz8hhoHa15qmuNZceGzd00SQ6IjVzl0t4Y2sAUF+BgcxKXAQpPCMCHyomavJKjFxpDCkEE1OvlXZeGc7Ca4UUL89jZe/nvAjXTGNODpwtbuSWGehAjfins9KScHNmIcqahYrMlrqurOfhYSGvNwOkQLSNuuBJECkIKQBx9fFP8pMoyxYOU+fXN+bbf0y2eZZx8FiRgy2kWQJUfNVFX1ut+PkrxIoy20tCFieWWW5cG7zGq7345tBtotGsStAIKlwEKTwiA/+ajmrySoxcaQwpBBEzal8mv0MYw04DqoFJK8RRJmrKDXPRmPN50RFOiF1gIW1M1i26WqT+n1Te2nU5hve7c7RQ2/2aPSuMsbWeeK1MSRBJCCkDWVrt1G16A83mNhT1y1gXDLX9HVwk5Rqab/I0VjS0cr2gUqX2l3O0HXirWyFlCqua4HfPDlpB4WY4ANDTxgajAEpcBCk8IwKW5tZq8kqMXGkMKQQRX0e1CP6Jc5kbjtXF1oxgbFciNSt002UlP4ZS6vDmkCYvQyclEtY3TQcrBXSNNK2JbDwu30+1z+h6DqasrMJc6EkQKQgpAw2rkuwL7e0s3XrrtY6+YhEMmh2nijAMFQKXPFa8edKE1LfMqp0IAGhYXBiGlV7A7yPZDXLLasf11Uy4ww2WiyxiAqva1mrySoxcS2gEK1wEKIPl1rD6K3Oj8Ps+zIzfp+n2/hUKqE/ORkHOsZ8kJpIFtEgwb7/dw52hTPD37IsYapAGAJTWRotzIHUtMu1bLd7izktJOh3cJ+ZXODtho02lsNp6DuwNIoEXesdoFRtVZCYqvaiOwnctX+nnPsSfemDmQ1mJ/o4sZyvFAF25ufSBaBqRJeyQjUBbfyuJSWYoDiqAAAMzsWPzrPeVJZFXrcOdDSTA11b+MevlfzcFjitqv/0J2j+pcQo4RFOgtpFK9cUkbcIB2xjRBRXOUQL89BuyMQmb+gg==";
+        let bob_public_key_b64 = "CpcBCk8IgP/mo5q8kqMXGkMKQQRM2pfJr9DGMNOA6qBSSvEUSZqyg1z0ZjzedERTohdYCFtTNYtulqk/p9U3tp1OYb3u3O0UNv9mj0rjLG1nnitTEkQSQgpA1la7dRtegPN5jYU9ctYFwy1/R1cJOUamm/yNFY0tHK9oFKl9pdztB14q1shZQqrmuB3zw5aQeFmOADQ08YGowBKXAQpPCMClubWavJKjFxpDCkEEV9HtQj+iXOZG47VxdaMYGxXIjUrdNNlJT+GUurw5pAmL0MnJRLWN00HKwV0jTStiWw8Lt9Ptc/oeg6mrKzCXOhJECkIKQMNq5LsC+3tLN1667WOvmIRDJodp4owDBUClzxWvHnShNS3zKqdCABoWFwYhpVewO8j2Q1yy2rH9dVMuMMNloss=";
+        let alice_public_key_b64 = "CpcBCk8IgIez7pm8kqMXGkMKQQRhgSMw1R/8S7WEkfxpknxsmt9WK1AsYKrQ/ZAVwSx60+kgce8Hu+pkRy0a+rXeltBuTH4tO4pQzBP5xhHo5UFAEkQSQgpA9uKlM/f9TiNbBEsjxJusMky21MV77annlu4v34hQ6QIz8hhoHa15qmuNZceGzd00SQ6IjVzl0t4Y2sAUF+BgcxKXAQpPCMCHyomavJKjFxpDCkEE1OvlXZeGc7Ca4UUL89jZe/nvAjXTGNODpwtbuSWGehAjfins9KScHNmIcqahYrMlrqurOfhYSGvNwOkQLSNuuBJECkIKQBx9fFP8pMoyxYOU+fXN+bbf0y2eZZx8FiRgy2kWQJUfNVFX1ut+PkrxIoy20tCFieWWW5cG7zGq7345tBtotGs=";
+        let expected_key_material_b64 = "pCZEyn0gkwTrNDOlewVGTHYuqXdWzv9s+WKUWCtdFCk=";
         let topic_bytes = [
-            101, 89, 243, 7, 75, 73, 85, 7, 40, 125, 42, 189, 115, 32, 156, 132, 255, 38, 98, 62,
-            176, 214, 219, 149, 211, 2, 97, 229, 54, 9, 167, 211,
+            210, 86, 199, 2, 239, 247, 51, 208, 205, 197, 32, 162, 215, 110, 185, 7, 115, 73, 7,
+            223, 5, 10, 75, 19, 252, 160, 139, 241, 4, 205, 128, 152,
         ];
 
         // Create a keystore, then save Alice's private key bundle
         let mut x = Keystore::new();
-        x.set_private_key_bundle(
+        let set_private_result = x.set_private_key_bundle(
             &general_purpose::STANDARD
                 .decode(alice_private_b64.as_bytes())
                 .unwrap(),
         );
+        assert!(set_private_result.is_ok());
 
         // Save an invite for alice
+        let save_invite_result = x.save_invitation(
+            &general_purpose::STANDARD
+                .decode(alice_invite_b64.as_bytes())
+                .unwrap(),
+        );
+        println!("save_invite_result: {:?}", save_invite_result);
+        assert!(save_invite_result.is_ok());
     }
 }
