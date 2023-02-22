@@ -157,12 +157,12 @@ class MessageTest {
         val client = Client().create(account = PrivateKeyBuilder(key))
         assertEquals(client.apiClient.environment, XMTPEnvironment.DEV)
         val convo = client.conversations.list()[0]
-        val message = convo.messages().lastOrNull()!!
-        assertEquals("hello deflate", message.content())
         convo.send(
             text = "hello deflate from kotlin again",
             SendOptions(compression = EncodedContentCompression.DEFLATE)
         )
+        val message = convo.messages().lastOrNull()!!
+        assertEquals("hello deflate from kotlin again", message.content())
     }
 
     @Test

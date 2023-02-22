@@ -1,7 +1,12 @@
 <resources>
     <string name="app_name">XMTP Example</string>
     <string name="account_type">org.xmtp.example.android</string>
+    <string name="error">Something went wrong</string>
 
     <string name="generate_wallet">Generate wallet</string>
     <string name="disconnect_wallet">Disconnect wallet</string>
+    <string name="copy_address">Copy address</string>
+
+    <!-- Conversations -->
+    <string name="conversation_footer">Signed in as %1$s on %2$s</string>
 </resources>

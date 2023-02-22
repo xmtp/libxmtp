@@ -12,32 +12,87 @@ import org.xmtp.android.library.messages.PrivateKeyBuilder
 
 class MainViewModel : ViewModel() {
 
-    private val _uiState = MutableStateFlow<ClientUiState>(ClientUiState.Unknown)
-    val uiState: StateFlow<ClientUiState> = _uiState
-    private var client: Client? = null
+    private val _clientState = MutableStateFlow<ClientState>(ClientState.Unknown)
+    val clientState: StateFlow<ClientState> = _clientState
+    var client: Client? = null
+
+    private val _uiState = MutableStateFlow<UiState>(UiState.Loading(null))
+    val uiState: StateFlow<UiState> = _uiState
 
     @UiThread
     fun createClient(encodedPrivateKeyData: String) {
+        if (clientState.value is ClientState.Ready) return
         viewModelScope.launch(Dispatchers.IO) {
             try {
                 val wallet = PrivateKeyBuilder(encodedPrivateKeyData = encodedPrivateKeyData)
                 client = Client().create(wallet)
-                _uiState.value = ClientUiState.Ready(client?.address.orEmpty())
+                _clientState.value = ClientState.Ready
             } catch (e: Exception) {
-                _uiState.value = ClientUiState.Error(e.message.orEmpty())
+                _clientState.value = ClientState.Error(e.localizedMessage.orEmpty())
+            }
+        }
+    }
+
+    @UiThread
+    fun fetchConversations() {
+        when (val uiState = uiState.value) {
+            is UiState.Success -> _uiState.value = UiState.Loading(uiState.listItems)
+            else -> _uiState.value = UiState.Loading(null)
+        }
+        viewModelScope.launch(Dispatchers.IO) {
+            val listItems = mutableListOf<MainListItem>()
+            try {
+                client?.let {
+                    listItems.addAll(
+                        it.conversations.list().map { conversation ->
+                            MainListItem.Conversation(
+                                id = conversation.topic,
+                                conversation.peerAddress
+                            )
+                        }
+                    )
+                    listItems.add(
+                        MainListItem.Footer(
+                            id = "footer",
+                            it.address.orEmpty(),
+                            it.apiClient.environment.name
+                        )
+                    )
+                    _uiState.value = UiState.Success(listItems)
+                }
+            } catch (e: Exception) {
+                _uiState.value = UiState.Error(e.localizedMessage.orEmpty())
             }
         }
     }
 
     @UiThread
     fun clearClient() {
-        _uiState.value = ClientUiState.Unknown
+        _clientState.value = ClientState.Unknown
         client = null
     }
 
-    sealed class ClientUiState {
-        object Unknown : ClientUiState()
-        data class Ready(val address: String): ClientUiState()
-        data class Error(val message: String): ClientUiState()
+    sealed class ClientState {
+        object Unknown : ClientState()
+        object Ready : ClientState()
+        data class Error(val message: String) : ClientState()
+    }
+
+    sealed class UiState {
+        data class Loading(val listItems: List<MainListItem>?) : UiState()
+        data class Success(val listItems: List<MainListItem>) : UiState()
+        data class Error(val message: String) : UiState()
+    }
+
+    sealed class MainListItem(open val id: String, val itemType: Int) {
+        companion object {
+            const val ITEM_TYPE_CONVERSATION = 1
+            const val ITEM_TYPE_FOOTER = 2
+        }
+        data class Conversation(override val id: String, val peerAddress: String) :
+            MainListItem(id, ITEM_TYPE_CONVERSATION)
+
+        data class Footer(override val id: String, val address: String, val environment: String) :
+            MainListItem(id, ITEM_TYPE_FOOTER)
     }
 }
