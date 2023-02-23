@@ -66,6 +66,21 @@ impl PrivateKeyBundle {
         }
         return None;
     }
+
+    pub fn public_key_bundle(&self) -> PublicKeyBundle {
+        let identity_key = self.identity_key.public_key;
+        let pre_keys = self
+            .pre_keys
+            .iter()
+            .map(|pre_key| pre_key.public_key)
+            .collect::<Vec<_>>();
+
+        return PublicKeyBundle {
+            public_key_bundle_proto: proto::public_key::PublicKeyBundle::new(),
+            identity_key: Some(identity_key),
+            pre_key: Some(pre_keys[0]),
+        };
+    }
 }
 
 pub struct PublicKeyBundle {

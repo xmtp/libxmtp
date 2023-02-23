@@ -5,6 +5,7 @@ use generic_array::GenericArray;
 
 use aes_gcm::{
     aead::{Aead, KeyInit},
+    AeadInPlace,
     Aes256Gcm,
     Nonce, // Or `Aes128Gcm`
 };
@@ -38,4 +39,24 @@ pub fn decrypt_v1(
         return Err(res.err().unwrap().to_string());
     }
     Ok(res.unwrap())
+}
+
+// Decrypt but using associated data
+pub fn decrypt_v1_with_associated_data(
+    ciphertext_bytes: &[u8],
+    salt_bytes: &[u8],
+    nonce_bytes: &[u8],
+    secret_bytes: &[u8],
+    additional_data: &[u8],
+) -> Result<Vec<u8>, String> {
+    let derived_key = hkdf(secret_bytes, salt_bytes)?;
+    let key = Aes256Gcm::new(GenericArray::from_slice(&derived_key));
+    let nonce = Nonce::from_slice(nonce_bytes);
+    // Utilize decrypt_in_place_detached to allow associated data
+    let mutable_bytes = &mut ciphertext_bytes.to_vec();
+    let res = key.decrypt_in_place(nonce, additional_data, mutable_bytes);
+    if res.is_err() {
+        return Err(res.err().unwrap().to_string());
+    }
+    Ok(mutable_bytes.to_vec())
 }
