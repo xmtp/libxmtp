@@ -20,4 +20,5 @@ it("can set private_key_bundle", async () => {
 });
 
 it("can set private_key_bundle and decode invites", async () => {
+  const a = await XmtpApi.initialize();
 });

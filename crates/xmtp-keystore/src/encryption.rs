@@ -30,15 +30,13 @@ pub fn decrypt_v1(
     secret_bytes: &[u8],
     additional_data: Option<&[u8]>,
 ) -> Result<Vec<u8>, String> {
-    let derived_key = hkdf(secret_bytes, salt_bytes)?;
-    let key = Aes256Gcm::new(GenericArray::from_slice(&derived_key));
-    let nonce = Nonce::from_slice(nonce_bytes);
-    let _additional_data = additional_data.unwrap_or(&[]);
-    let res = key.decrypt(nonce, ciphertext_bytes);
-    if res.is_err() {
-        return Err(res.err().unwrap().to_string());
-    }
-    Ok(res.unwrap())
+    return decrypt_v1_with_associated_data(
+        ciphertext_bytes,
+        salt_bytes,
+        nonce_bytes,
+        secret_bytes,
+        additional_data.unwrap_or(&[]),
+    );
 }
 
 // Decrypt but using associated data
