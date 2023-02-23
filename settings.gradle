@@ -10,22 +10,6 @@ dependencyResolutionManagement {
     repositories {
         google()
         mavenCentral()
-        def user = System.getenv("GPR_USER")
-        def token = System.getenv("GPR_TOKEN")
-        if (token == null || token.allWhitespace) {
-            def githubProperties = new Properties()
-            githubProperties.load(new FileInputStream(file("github.properties" ?: "gradle.properties")))
-            user = githubProperties.getProperty("gpr.user")
-            token = githubProperties.getProperty("gpr.key")
-        }
-
-        maven {
-            url = uri("https://maven.pkg.github.com/xmtp/proto")
-            credentials {
-                username = user
-                password = token
-            }
-        }
     }
 }
 rootProject.name = "xmtp-android"

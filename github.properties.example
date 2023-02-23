@@ -1,4 +1,0 @@
-# See more information at https://docs.github.com/en/packages/working-with-a-github-packages-registry/working-with-the-gradle-registry
-
-gpr.user="USERNAME"
-gpr.key="GITHUBTOKEN"

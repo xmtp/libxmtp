@@ -3,6 +3,7 @@ package org.xmtp.android.library
 import com.google.protobuf.kotlin.toByteString
 import com.google.protobuf.kotlin.toByteStringUtf8
 import org.junit.Assert.assertEquals
+import org.junit.Ignore
 import org.junit.Test
 import org.web3j.crypto.Hash
 import org.web3j.utils.Numeric
@@ -138,6 +139,7 @@ class MessageTest {
     }
 
     @Test
+    @Ignore("Dev network flaky should be moved to local")
     fun testCanReadZipCompressedMessages() {
         val ints = arrayOf(
             60, 45, 240, 192, 223, 2, 14, 166,
