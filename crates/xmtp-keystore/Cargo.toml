@@ -4,7 +4,6 @@ version = "0.1.0"
 edition = "2021"
 rust-version = "1.64"
 [dependencies]
-ethers = "1.0.2"
 rand = "0.8.4"
 protobuf = "3.2.0"
 base64 = "0.21.0"
@@ -17,3 +16,4 @@ sha3 = "0.10.6"
 rlp = "0.5.2"
 aes-gcm = "0.10.1"
 generic-array = "0.14.6"
+getrandom = {version = "0.2.8", features = ["js"]}
