@@ -2,9 +2,11 @@ use k256::elliptic_curve::sec1::ToEncodedPoint;
 use k256::PublicKey;
 use sha3::{Digest, Keccak256};
 
-use super::super::proto;
+use super::super::{ecdh, encryption, proto};
 use super::private_key::SignedPrivateKey;
 use super::public_key;
+
+use crate::ecdh::ECDHDerivable;
 
 pub struct PrivateKeyBundle {
     // Underlying protos
@@ -80,6 +82,105 @@ impl PrivateKeyBundle {
             identity_key: Some(identity_key),
             pre_key: Some(pre_keys[0]),
         };
+    }
+
+    // XMTP X3DH-like scheme for invitation decryption
+    pub fn derive_shared_secret_xmtp(
+        &self,
+        peer_bundle: &SignedPublicKeyBundle,
+        my_prekey: &dyn ecdh::ECDHKey,
+        is_recipient: bool,
+    ) -> Result<Vec<u8>, String> {
+        let pre_key = self
+            .find_pre_key(my_prekey.get_public_key())
+            .ok_or("could not find prekey in private key bundle".to_string())?;
+        let dh1: Vec<u8>;
+        let dh2: Vec<u8>;
+        // (STOPSHIP) TODO: better error handling
+        // Get the private key bundle
+        if is_recipient {
+            dh1 = pre_key.shared_secret(&peer_bundle.identity_key).unwrap();
+            dh2 = self
+                .identity_key
+                .shared_secret(&peer_bundle.pre_key)
+                .unwrap();
+        } else {
+            dh1 = self
+                .identity_key
+                .shared_secret(&peer_bundle.pre_key)
+                .unwrap();
+            dh2 = pre_key.shared_secret(&peer_bundle.identity_key).unwrap();
+        }
+        let dh3 = pre_key.shared_secret(&peer_bundle.pre_key).unwrap();
+        let secret = [dh1, dh2, dh3].concat();
+        return Ok(secret);
+    }
+
+    pub fn unseal_invitation(
+        &self,
+        sealed_invitation: &proto::invitation::SealedInvitationV1,
+        sealed_invitation_header: &proto::invitation::SealedInvitationHeaderV1,
+    ) -> Result<proto::invitation::InvitationV1, String> {
+        // Parse public key bundles from sealed_invitation header
+        let sender_public_key_bundle =
+            SignedPublicKeyBundle::from_proto(&sealed_invitation_header.sender).unwrap();
+        let recipient_public_key_bundle =
+            SignedPublicKeyBundle::from_proto(&sealed_invitation_header.recipient).unwrap();
+
+        let secret: Vec<u8>;
+        // reference our own identity key
+        let viewer_identity_key = &self.identity_key;
+        if viewer_identity_key.public_key == sender_public_key_bundle.identity_key {
+            let secret_result = self.derive_shared_secret_xmtp(
+                &recipient_public_key_bundle,
+                &sender_public_key_bundle.pre_key,
+                false,
+            );
+            if secret_result.is_err() {
+                return Err("could not derive shared secret".to_string());
+            }
+            secret = secret_result.unwrap();
+        } else {
+            let secret_result = self.derive_shared_secret_xmtp(
+                &sender_public_key_bundle,
+                &recipient_public_key_bundle.pre_key,
+                true,
+            );
+            if secret_result.is_err() {
+                return Err("could not derive shared secret".to_string());
+            }
+            secret = secret_result.unwrap();
+        }
+
+        // Unwrap ciphertext
+        let ciphertext = sealed_invitation.ciphertext.aes256_gcm_hkdf_sha256();
+
+        let hkdf_salt = &ciphertext.hkdf_salt;
+        let gcm_nonce = &ciphertext.gcm_nonce;
+        let payload = &ciphertext.payload;
+
+        // Try decrypting the invitation
+        let decrypt_result = encryption::decrypt_v1_with_associated_data(
+            payload,
+            hkdf_salt,
+            gcm_nonce,
+            &secret,
+            &sealed_invitation.header_bytes,
+        );
+        if decrypt_result.is_err() {
+            return Err("could not decrypt invitation".to_string());
+        }
+        let decrypted_bytes = decrypt_result.unwrap();
+
+        // Deserialize invitation bytes into a protobuf::invitation::InvitationV1 struct
+        let invitation_result: protobuf::Result<proto::invitation::InvitationV1> =
+            protobuf::Message::parse_from_bytes(&decrypted_bytes);
+        if invitation_result.is_err() {
+            return Err("could not parse invitation from decrypted bytes".to_string());
+        }
+        // Get the invitation from the result
+        let invitation = invitation_result.as_ref().unwrap();
+        return Ok(invitation.clone());
     }
 }
 

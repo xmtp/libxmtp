@@ -17,7 +17,6 @@ use keys::{
 use conversation::{InvitationContext, TopicData};
 
 use base64::{engine::general_purpose, Engine as _};
-use ecdh::{ECDHDerivable, ECDHKey};
 
 pub struct Keystore {
     // Private key bundle powers most operations
@@ -38,6 +37,29 @@ impl Keystore {
     }
 
     // == Keystore methods ==
+    // Set private identity key from protobuf bytes
+    pub fn set_private_key_bundle(&mut self, private_key_bundle: &[u8]) -> Result<(), String> {
+        // Deserialize protobuf bytes into a SignedPrivateKey struct
+        let private_key_result: protobuf::Result<proto::private_key::PrivateKeyBundle> =
+            protobuf::Message::parse_from_bytes(private_key_bundle);
+        if private_key_result.is_err() {
+            return Err("could not parse private key bundle".to_string());
+        }
+        // Get the private key from the result
+        let private_key = private_key_result.as_ref().unwrap();
+        let private_key_bundle = private_key.v2();
+
+        // If the deserialization was successful, set the privateIdentityKey field
+        if private_key_result.is_ok() {
+            self.private_key_bundle =
+                Some(PrivateKeyBundle::from_proto(&private_key_bundle).unwrap());
+            return Ok(());
+        } else {
+            return Err("could not parse private key bundle".to_string());
+        }
+    }
+
+    // Process proto::keystore::DecryptV1Request
     pub fn decrypt_v1(
         &self,
         request: proto::keystore::DecryptV1Request,
@@ -87,69 +109,14 @@ impl Keystore {
         response_proto.responses = responses;
         return Ok(response_proto);
     }
-    // == end keystore api ==
-
-    // XMTP X3DH-like scheme for invitation decryption
-    fn derive_shared_secret_xmtp(
-        &self,
-        peer_bundle: &SignedPublicKeyBundle,
-        my_prekey: &dyn ecdh::ECDHKey,
-        is_recipient: bool,
-    ) -> Result<Vec<u8>, String> {
-        // Check if self.private_key_bundle is set
-        if self.private_key_bundle.is_none() {
-            return Err("private key bundle is not set".to_string());
-        }
-        let private_key_bundle_ref = self.private_key_bundle.as_ref().unwrap();
-        let pre_key = private_key_bundle_ref
-            .find_pre_key(my_prekey.get_public_key())
-            .ok_or("could not find prekey in private key bundle".to_string())?;
-        let dh1: Vec<u8>;
-        let dh2: Vec<u8>;
-        // (STOPSHIP) TODO: better error handling
-        // Get the private key bundle
-        if is_recipient {
-            dh1 = pre_key.shared_secret(&peer_bundle.identity_key).unwrap();
-            dh2 = private_key_bundle_ref
-                .identity_key
-                .shared_secret(&peer_bundle.pre_key)
-                .unwrap();
-        } else {
-            dh1 = private_key_bundle_ref
-                .identity_key
-                .shared_secret(&peer_bundle.pre_key)
-                .unwrap();
-            dh2 = pre_key.shared_secret(&peer_bundle.identity_key).unwrap();
-        }
-        let dh3 = pre_key.shared_secret(&peer_bundle.pre_key).unwrap();
-        let secret = [dh1, dh2, dh3].concat();
-        return Ok(secret);
-    }
-
-    // Set private identity key from protobuf bytes
-    pub fn set_private_key_bundle(&mut self, private_key_bundle: &[u8]) -> Result<(), String> {
-        // Deserialize protobuf bytes into a SignedPrivateKey struct
-        let private_key_result: protobuf::Result<proto::private_key::PrivateKeyBundle> =
-            protobuf::Message::parse_from_bytes(private_key_bundle);
-        if private_key_result.is_err() {
-            return Err("could not parse private key bundle".to_string());
-        }
-        // Get the private key from the result
-        let private_key = private_key_result.as_ref().unwrap();
-        let private_key_bundle = private_key.v2();
-
-        // If the deserialization was successful, set the privateIdentityKey field
-        if private_key_result.is_ok() {
-            self.private_key_bundle =
-                Some(PrivateKeyBundle::from_proto(&private_key_bundle).unwrap());
-            return Ok(());
-        } else {
-            return Err("could not parse private key bundle".to_string());
-        }
-    }
 
     // Save invites
     pub fn save_invitation(&mut self, sealed_invitation_bytes: &[u8]) -> Result<bool, String> {
+        // Check that self.private_key_bundle is set, otherwise return an error
+        if self.private_key_bundle.is_none() {
+            return Err("private key bundle not set yet".to_string());
+        }
+
         // Deserialize invitation bytes into a protobuf::invitation::InvitationV1 struct
         let invitation_result: protobuf::Result<proto::invitation::SealedInvitation> =
             protobuf::Message::parse_from_bytes(sealed_invitation_bytes);
@@ -174,7 +141,11 @@ impl Keystore {
         let header_time = invitation_header.created_ns;
 
         // Attempt to decrypt the invitation
-        let decrypt_result = self.unseal_invitation(&invitation, &invitation_header);
+        let decrypt_result = self
+            .private_key_bundle
+            .as_ref()
+            .unwrap()
+            .unseal_invitation(&invitation, &invitation_header);
         if decrypt_result.is_err() {
             return Err("could not decrypt invitation".to_string());
         }
@@ -215,73 +186,7 @@ impl Keystore {
 
         return Ok(true);
     }
-
-    fn unseal_invitation(
-        &self,
-        sealed_invitation: &proto::invitation::SealedInvitationV1,
-        sealed_invitation_header: &proto::invitation::SealedInvitationHeaderV1,
-    ) -> Result<proto::invitation::InvitationV1, String> {
-        // Parse public key bundles from sealed_invitation header
-        let sender_public_key_bundle =
-            SignedPublicKeyBundle::from_proto(&sealed_invitation_header.sender).unwrap();
-        let recipient_public_key_bundle =
-            SignedPublicKeyBundle::from_proto(&sealed_invitation_header.recipient).unwrap();
-
-        let secret: Vec<u8>;
-        // reference our own identity key
-        let viewer_identity_key = &self.private_key_bundle.as_ref().unwrap().identity_key;
-        if viewer_identity_key.public_key == sender_public_key_bundle.identity_key {
-            let secret_result = self.derive_shared_secret_xmtp(
-                &recipient_public_key_bundle,
-                &sender_public_key_bundle.pre_key,
-                false,
-            );
-            if secret_result.is_err() {
-                return Err("could not derive shared secret".to_string());
-            }
-            secret = secret_result.unwrap();
-        } else {
-            let secret_result = self.derive_shared_secret_xmtp(
-                &sender_public_key_bundle,
-                &recipient_public_key_bundle.pre_key,
-                true,
-            );
-            if secret_result.is_err() {
-                return Err("could not derive shared secret".to_string());
-            }
-            secret = secret_result.unwrap();
-        }
-
-        // Unwrap ciphertext
-        let ciphertext = sealed_invitation.ciphertext.aes256_gcm_hkdf_sha256();
-
-        let hkdf_salt = &ciphertext.hkdf_salt;
-        let gcm_nonce = &ciphertext.gcm_nonce;
-        let payload = &ciphertext.payload;
-
-        // Try decrypting the invitation
-        let decrypt_result = encryption::decrypt_v1_with_associated_data(
-            payload,
-            hkdf_salt,
-            gcm_nonce,
-            &secret,
-            &sealed_invitation.header_bytes,
-        );
-        if decrypt_result.is_err() {
-            return Err("could not decrypt invitation".to_string());
-        }
-        let decrypted_bytes = decrypt_result.unwrap();
-
-        // Deserialize invitation bytes into a protobuf::invitation::InvitationV1 struct
-        let invitation_result: protobuf::Result<proto::invitation::InvitationV1> =
-            protobuf::Message::parse_from_bytes(&decrypted_bytes);
-        if invitation_result.is_err() {
-            return Err("could not parse invitation from decrypted bytes".to_string());
-        }
-        // Get the invitation from the result
-        let invitation = invitation_result.as_ref().unwrap();
-        return Ok(invitation.clone());
-    }
+    // == end keystore api ==
 }
 
 #[cfg(test)]
@@ -489,8 +394,10 @@ mod tests {
         let pre_key_object = public_key::signed_public_key_from_proto(&pre_key_proto).unwrap();
 
         // Do a x3dh shared secret derivation
-        let shared_secret_result =
-            x.derive_shared_secret_xmtp(&peer_bundle_object, &pre_key_object, is_recipient);
+        let shared_secret_result = x
+            .private_key_bundle
+            .expect("Must be present for test")
+            .derive_shared_secret_xmtp(&peer_bundle_object, &pre_key_object, is_recipient);
         assert!(shared_secret_result.is_ok());
         let shared_secret = shared_secret_result.unwrap();
         assert_eq!(
