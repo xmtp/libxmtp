@@ -17,6 +17,24 @@ public struct Conversations {
 	var client: Client
 	var conversations: [Conversation] = []
 
+	public func fromInvite(envelope: Envelope) throws -> Conversation {
+		let sealedInvitation = try SealedInvitation(serializedData: envelope.message)
+		let unsealed = try sealedInvitation.v1.getInvitation(viewer: client.keys)
+
+		return .v2(try ConversationV2.create(client: client, invitation: unsealed, header: sealedInvitation.v1.header))
+	}
+
+	public func fromIntro(envelope: Envelope) throws -> Conversation {
+		let messageV1 = try MessageV1.fromBytes(envelope.message)
+		let senderAddress = try messageV1.header.sender.walletAddress
+		let recipientAddress = try messageV1.header.recipient.walletAddress
+
+		let peerAddress = client.address == senderAddress ? recipientAddress : senderAddress
+		let conversationV1 = ConversationV1(client: client, peerAddress: peerAddress, sentAt: messageV1.sentAt)
+
+		return .v1(conversationV1)
+	}
+
 	public mutating func newConversation(with peerAddress: String, context: InvitationV1.Context? = nil) async throws -> Conversation {
 		if peerAddress.lowercased() == client.address.lowercased() {
 			throw ConversationError.recipientIsSender
@@ -89,32 +107,25 @@ public struct Conversations {
 
 				for try await envelope in client.subscribe(topics: [.userIntro(client.address), .userInvite(client.address)]) {
 					if envelope.contentTopic == Topic.userIntro(client.address).description {
-						let messageV1 = try MessageV1.fromBytes(envelope.message)
-						let senderAddress = try messageV1.header.sender.walletAddress
-						let recipientAddress = try messageV1.header.recipient.walletAddress
-
-						let peerAddress = client.address == senderAddress ? recipientAddress : senderAddress
-						let conversationV1 = ConversationV1(client: client, peerAddress: peerAddress, sentAt: messageV1.sentAt)
+						let conversationV1 = try fromIntro(envelope: envelope)
 
 						if streamedConversationTopics.contains(conversationV1.topic.description) {
 							continue
 						}
 
 						streamedConversationTopics.insert(conversationV1.topic.description)
-						continuation.yield(Conversation.v1(conversationV1))
+						continuation.yield(conversationV1)
 					}
 
 					if envelope.contentTopic == Topic.userInvite(client.address).description {
-						let sealedInvitation = try SealedInvitation(serializedData: envelope.message)
-						let unsealed = try sealedInvitation.v1.getInvitation(viewer: client.keys)
-						let conversationV2 = try ConversationV2.create(client: client, invitation: unsealed, header: sealedInvitation.v1.header)
+						let conversationV2 = try fromInvite(envelope: envelope)
 
 						if streamedConversationTopics.contains(conversationV2.topic) {
 							continue
 						}
 
 						streamedConversationTopics.insert(conversationV2.topic)
-						continuation.yield(Conversation.v2(conversationV2))
+						continuation.yield(conversationV2)
 					}
 				}
 			}
