@@ -87,11 +87,12 @@ class MessageTests: XCTestCase {
 		let fixtures = await fixtures()
 		let conversation = try await fixtures.aliceClient.conversations.newConversation(with: fixtures.bob.walletAddress)
 
-		try await conversation.send(text: "hi")
+		let id = try await conversation.send(text: "hi")
 		let envelope = fixtures.fakeApiClient.published.last!
 		let decodedMessage = try conversation.decode(envelope)
 
 		XCTAssertEqual(Data(SHA256.hash(data: envelope.message).bytes).toHex, decodedMessage.id)
+		XCTAssertEqual(id, decodedMessage.id)
 	}
 
 	func testGetsV2ID() async throws {

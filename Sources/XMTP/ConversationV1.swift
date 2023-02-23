@@ -38,18 +38,18 @@ public struct ConversationV1 {
 		Topic.directMessageV1(client.address, peerAddress)
 	}
 
-	func send(content: String, options: SendOptions? = nil) async throws {
-		try await send(content: content, options: options, sentAt: nil)
+	func send(content: String, options: SendOptions? = nil) async throws -> String {
+		return try await send(content: content, options: options, sentAt: nil)
 	}
 
-	internal func send(content: String, options: SendOptions? = nil, sentAt: Date? = nil) async throws {
+	@discardableResult internal func send(content: String, options: SendOptions? = nil, sentAt: Date? = nil) async throws -> String {
 		let encoder = TextCodec()
 		let encodedContent = try encoder.encode(content: content)
 
-		try await send(content: encodedContent, options: options, sentAt: sentAt)
+		return try await send(content: encodedContent, options: options, sentAt: sentAt)
 	}
 
-	func send<T>(content: T, options: SendOptions? = nil) async throws {
+	func send<T>(content: T, options: SendOptions? = nil) async throws -> String {
 		let codec = Client.codecRegistry.find(for: options?.contentType)
 
 		func encode<Codec: ContentCodec>(codec: Codec, content: Any) throws -> EncodedContent {
@@ -63,10 +63,10 @@ public struct ConversationV1 {
 		let content = content as T
 		var encoded = try encode(codec: codec, content: content)
 		encoded.fallback = options?.contentFallback ?? ""
-		try await send(content: encoded, options: options)
+		return try await send(content: encoded, options: options)
 	}
 
-	internal func send(content encodedContent: EncodedContent, options: SendOptions? = nil, sentAt: Date? = nil) async throws {
+	internal func send(content encodedContent: EncodedContent, options: SendOptions? = nil, sentAt: Date? = nil) async throws -> String {
 		guard let contact = try await client.contacts.find(peerAddress) else {
 			throw ContactBundleError.notFound
 		}
@@ -92,13 +92,13 @@ public struct ConversationV1 {
 			timestamp: date
 		)
 
-		var envelopes = [
-			Envelope(
-				topic: .directMessageV1(client.address, peerAddress),
-				timestamp: date,
-				message: try Message(v1: message).serializedData()
-			),
-		]
+		let messageEnvelope = Envelope(
+			topic: .directMessageV1(client.address, peerAddress),
+			timestamp: date,
+			message: try Message(v1: message).serializedData()
+		)
+
+		var envelopes = [messageEnvelope]
 
 		if client.contacts.needsIntroduction(peerAddress) {
 			envelopes.append(contentsOf: [
@@ -118,6 +118,8 @@ public struct ConversationV1 {
 		}
 
 		try await client.publish(envelopes: envelopes)
+
+		return generateID(from: messageEnvelope)
 	}
 
 	public func streamMessages() -> AsyncThrowingStream<DecodedMessage, Error> {

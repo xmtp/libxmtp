@@ -75,22 +75,22 @@ public enum Conversation {
 		}
 	}
 
-	public func send<T>(content: T, options: SendOptions? = nil, fallback _: String? = nil) async throws {
+	@discardableResult public func send<T>(content: T, options: SendOptions? = nil, fallback _: String? = nil) async throws -> String {
 		switch self {
 		case let .v1(conversationV1):
-			try await conversationV1.send(content: content, options: options)
+			return try await conversationV1.send(content: content, options: options)
 		case let .v2(conversationV2):
-			try await conversationV2.send(content: content, options: options)
+			return try await conversationV2.send(content: content, options: options)
 		}
 	}
 
 	/// Send a message to the conversation
-	public func send(text: String, options: SendOptions? = nil) async throws {
+	public func send(text: String, options: SendOptions? = nil) async throws -> String {
 		switch self {
 		case let .v1(conversationV1):
-			try await conversationV1.send(content: text, options: options)
+			return try await conversationV1.send(content: text, options: options)
 		case let .v2(conversationV2):
-			try await conversationV2.send(content: text, options: options)
+			return try await conversationV2.send(content: text, options: options)
 		}
 	}
 
