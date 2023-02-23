@@ -170,6 +170,7 @@ impl Keystore {
         let invitation_header = header_result.as_ref().unwrap();
 
         // Check the header time from the sealed invite
+        // TODO: check header time from the sealed invite
         let header_time = invitation_header.created_ns;
 
         // Attempt to decrypt the invitation
@@ -179,8 +180,39 @@ impl Keystore {
         }
         // Get the decrypted invitation from the result
         let decrypted_invitation = decrypt_result.unwrap();
-        // Check the topic
-        println!("topic: {}", decrypted_invitation.topic);
+
+        // Encryption field should contain the key bytes
+        let key_bytes = decrypted_invitation
+            .aes256_gcm_hkdf_sha256()
+            .key_material
+            .as_slice();
+
+        // Context field should contain conversationId
+        let conversation_id = &decrypted_invitation.context.conversation_id;
+        let mut context_fields = HashMap::new();
+        // Iterate through metadata map and add to context_fields
+        for key in decrypted_invitation.context.metadata.keys() {
+            context_fields.insert(
+                key.to_string(),
+                decrypted_invitation.context.metadata[key].to_string(),
+            );
+        }
+
+        // TODO: process additional metadata here
+        let topic = &decrypted_invitation.topic;
+
+        self.topic_keys.insert(
+            conversation_id.clone(),
+            TopicData {
+                key: key_bytes.to_vec(),
+                context: Some(InvitationContext {
+                    conversation_id: conversation_id.to_string(),
+                    metadata: context_fields,
+                }),
+                created: header_time,
+            },
+        );
+
         return Ok(true);
     }
 
@@ -189,33 +221,6 @@ impl Keystore {
         sealed_invitation: &proto::invitation::SealedInvitationV1,
         sealed_invitation_header: &proto::invitation::SealedInvitationHeaderV1,
     ) -> Result<proto::invitation::InvitationV1, String> {
-        // Implementing the following JS code in rust
-        // ==========================================
-        // // The constructors for child classes will validate that this is complete
-        // const header = this.header
-        // let secret: Uint8Array
-        // if (viewer.identityKey.matches(this.header.sender.identityKey)) {
-        //   secret = await viewer.sharedSecret(
-        //     header.recipient,
-        //     header.sender.preKey,
-        //     false
-        //   )
-        // } else {
-        //   secret = await viewer.sharedSecret(
-        //     header.sender,
-        //     header.recipient.preKey,
-        //     true
-        //   )
-        // }
-        // const decryptedBytes = await decrypt(
-        //   this.ciphertext,
-        //   secret,
-        //   this.headerBytes
-        // )
-        // this._invitation = InvitationV1.fromBytes(decryptedBytes)
-        // return this._invitation
-        // ==========================================
-
         // Parse public key bundles from sealed_invitation header
         let sender_public_key_bundle =
             SignedPublicKeyBundle::from_proto(&sealed_invitation_header.sender).unwrap();
@@ -247,12 +252,6 @@ impl Keystore {
             secret = secret_result.unwrap();
         }
 
-        // Break up the sealed_invitation.ciphertext into fields
-        // message Aes256gcmHkdfsha256 {
-        //     bytes hkdf_salt = 1; // 32 bytes
-        //     bytes gcm_nonce = 2; // 12 bytes
-        //     bytes payload = 3; // encrypted payload
-        // }
         // Unwrap ciphertext
         let ciphertext = sealed_invitation.ciphertext.aes256_gcm_hkdf_sha256();
 
