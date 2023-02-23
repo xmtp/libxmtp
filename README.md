@@ -18,3 +18,10 @@ Top-level
 - cd `bindings/wasm`
 - Run `npm run build` to build the rust crate and Node.js bindings.
 - Run `npm run prepublishOnly` to run tests that 1) check XmtpApi instantiation and 2) check that a 12 word mnemonic can be generated
+
+## Tests
+
+This should compile the xmtp-keystore crate and the wasm bindings, then run tests in JS
+
+- cd `bindings/wasm`
+- Run `npm test`
