@@ -1,4 +1,4 @@
-import init, { InitInput, set_private_key_bundle } from "./pkg/libxmtp.js";
+import init, { InitInput, set_private_key_bundle, save_invitation } from "./pkg/libxmtp.js";
 
 export interface PackageLoadOptions {
   /**
@@ -19,6 +19,10 @@ export class XmtpApi {
 
   public setPrivateKeyBundle(bundle: Uint8Array): boolean {
     return set_private_key_bundle(bundle);
+  }
+
+  public saveInvitation(invite: Uint8Array): boolean {
+    return save_invitation(invite);
   }
 
   /**
