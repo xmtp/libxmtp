@@ -3,4 +3,19 @@ plugins {
     id 'com.android.application' version '7.3.1' apply false
     id 'com.android.library' version '7.3.1' apply false
     id 'org.jetbrains.kotlin.android' version '1.6.10' apply false
+    id 'io.github.gradle-nexus.publish-plugin' version "1.2.0"
+}
+
+group = "org.xmtp"
+version = System.getenv("RELEASE_VERSION")
+
+nexusPublishing {
+    repositories {
+        sonatype {
+            nexusUrl.set(uri("https://s01.oss.sonatype.org/service/local/"))
+            username = System.getenv("MAVEN_USERNAME")
+            password = System.getenv("MAVEN_PASSWORD")
+            stagingProfileId = System.getenv("MAVEN_PROFILE_ID")
+        }
+    }
 }

@@ -1,4 +1,6 @@
 plugins {
+    id 'signing'
+    id 'maven-publish'
     id 'com.android.library'
     id 'org.jetbrains.kotlin.android'
     id 'com.google.protobuf' version '0.9.1'
@@ -32,6 +34,13 @@ android {
     }
     kotlinOptions {
         jvmTarget = '11'
+    }
+
+    publishing {
+        singleVariant("release") {
+            withSourcesJar()
+            withJavadocJar()
+        }
     }
 }
 
@@ -73,4 +82,49 @@ dependencies {
     testImplementation 'org.jetbrains.kotlinx:kotlinx-coroutines-test:1.6.4'
     androidTestImplementation 'androidx.test.ext:junit:1.1.5'
     androidTestImplementation 'androidx.test.espresso:espresso-core:3.5.1'
+}
+
+afterEvaluate {
+    publishing {
+        publications {
+            release(MavenPublication) {
+                groupId = "org.xmtp"
+                artifactId = "android"
+                version = System.getenv("RELEASE_VERSION")
+                from components.release
+
+                pom {
+                    name = "XMTP"
+                    description = "XMTP Android Library"
+                    url = "https://github.com/xmtp/xmtp-android"
+                    packaging = "jar"
+
+                    licenses {
+                        license {
+                            name = "MIT License"
+                            url = "https://github.com/xmtp/xmtp-android/blob/main/LICENSE"
+                        }
+                    }
+                    developers {
+                        developer {
+                            id = "xmtp"
+                            name = "xmtp"
+                            email = "naomi@xmtp.com"
+                        }
+                    }
+                    scm {
+                        connection = "https://github.com/xmtp/xmtp-android.git"
+                        developerConnection = "https://github.com/xmtp/xmtp-android.git"
+                        url = "https://github.com/xmtp/xmtp-android/tree/main"
+                    }
+                }
+            }
+        }
+    }
+    signing {
+        def signingKey = System.getenv("SIGN_KEY")
+        def signingPassword = System.getenv("SIGN_PASSWORD")
+        useInMemoryPgpKeys(signingKey, signingPassword)
+        sign publishing.publications.release
+    }
 }
