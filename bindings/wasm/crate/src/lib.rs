@@ -1,51 +1,75 @@
 use once_cell::sync::Lazy;
 use std::sync::Mutex;
+// Include HashMap
+use std::collections::HashMap;
 
 use wasm_bindgen::prelude::*;
 use xmtp_keystore::Keystore;
 
 // Keep the keystore class in memory
-static KEYSTORE: Lazy<Mutex<Keystore>> = Lazy::new(|| Mutex::new(Keystore::new()));
+static KEYSTORE_MAP: Lazy<Mutex<HashMap<String, Keystore>>> =
+    Lazy::new(|| Mutex::new(HashMap::new()));
+
+// Returns a handle to a keystore instance
+#[wasm_bindgen]
+pub fn new_keystore() -> String {
+    let mut keystore = KEYSTORE_MAP.lock().unwrap();
+    let handle = (keystore.len() as u64).to_string();
+    keystore.insert(handle.clone(), Keystore::new());
+    return handle;
+}
 
 #[wasm_bindgen]
-pub fn set_private_key_bundle(key_bytes: &[u8]) -> Result<bool, JsValue> {
-    KEYSTORE
+pub fn set_private_key_bundle(handle: &str, key_bytes: &[u8]) -> Result<bool, JsValue> {
+    KEYSTORE_MAP
         .lock()
+        .unwrap()
+        .get_mut(handle)
         .unwrap()
         .set_private_key_bundle(key_bytes)
-        .map_err(|e| JsValue::from_str(&e.to_string()));
+        .map_err(|e| e.to_string());
     Ok(true)
 }
 
 #[wasm_bindgen]
-pub fn save_invitation(invite_bytes: &[u8]) -> Result<bool, JsValue> {
-    KEYSTORE
+pub fn save_invitation(handle: &str, invite_bytes: &[u8]) -> Result<bool, JsValue> {
+    KEYSTORE_MAP
         .lock()
+        .unwrap()
+        .get_mut(handle)
         .unwrap()
         .save_invitation(invite_bytes)
-        .map_err(|e| JsValue::from_str(&e.to_string()));
+        .map_err(|e| e.to_string());
     Ok(true)
 }
 
 #[wasm_bindgen]
-pub fn get_topic_key(topic_id: &str) -> Option<Vec<u8>> {
-    KEYSTORE.lock().unwrap().get_topic_key(topic_id)
+pub fn get_topic_key(handle: &str, topic_id: &str) -> Option<Vec<u8>> {
+    KEYSTORE_MAP
+        .lock()
+        .unwrap()
+        .get(handle)?
+        .get_topic_key(topic_id)
 }
 
 #[wasm_bindgen]
-pub fn decrypt_v1(decrypt_request_bytes: &[u8]) -> Result<Vec<u8>, JsValue> {
-    KEYSTORE
+pub fn decrypt_v1(handle: &str, decrypt_request_bytes: &[u8]) -> Result<Vec<u8>, JsValue> {
+    KEYSTORE_MAP
         .lock()
+        .unwrap()
+        .get(handle)
         .unwrap()
         .decrypt_v1(decrypt_request_bytes)
-        .map_err(|e| JsValue::from_str(&e.to_string()))
+        .map_err(|e| JsValue::from(e.to_string()))
 }
 
 #[wasm_bindgen]
-pub fn decrypt_v2(decrypt_request_bytes: &[u8]) -> Result<Vec<u8>, JsValue> {
-    KEYSTORE
+pub fn decrypt_v2(handle: &str, decrypt_request_bytes: &[u8]) -> Result<Vec<u8>, JsValue> {
+    KEYSTORE_MAP
         .lock()
         .unwrap()
+        .get(handle)
+        .unwrap()
         .decrypt_v2(decrypt_request_bytes)
-        .map_err(|e| JsValue::from_str(&e.to_string()))
+        .map_err(|e| JsValue::from(e.to_string()))
 }

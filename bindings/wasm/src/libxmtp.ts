@@ -1,4 +1,4 @@
-import init, { InitInput, set_private_key_bundle, save_invitation, decrypt_v1, decrypt_v2 } from "./pkg/libxmtp.js";
+import init, { InitInput, new_keystore, set_private_key_bundle, save_invitation, decrypt_v1, decrypt_v2 } from "./pkg/libxmtp.js";
 
 export interface PackageLoadOptions {
   /**
@@ -17,20 +17,24 @@ let initialized: Promise<void> | undefined = undefined;
 export class XmtpApi {
   private constructor() {}
 
-  public setPrivateKeyBundle(bundle: Uint8Array): boolean {
-    return set_private_key_bundle(bundle);
+  public newKeystore(): string {
+    return new_keystore();
   }
 
-  public saveInvitation(invite: Uint8Array): boolean {
-    return save_invitation(invite);
+  public setPrivateKeyBundle(handle: string, bundle: Uint8Array): boolean {
+    return set_private_key_bundle(handle, bundle);
   }
 
-  public decryptV2(ciphertext: Uint8Array): Uint8Array {
-    return decrypt_v2(ciphertext);
+  public saveInvitation(handle: string, invite: Uint8Array): boolean {
+    return save_invitation(handle, invite);
   }
 
-  public decryptV1(ciphertext: Uint8Array): Uint8Array {
-    return decrypt_v1(ciphertext);
+  public decryptV2(handle: string, ciphertext: Uint8Array): Uint8Array {
+    return decrypt_v2(handle, ciphertext);
+  }
+
+  public decryptV1(handle: string, ciphertext: Uint8Array): Uint8Array {
+    return decrypt_v1(handle, ciphertext);
   }
 
   /**
