@@ -10,7 +10,7 @@ mod ethereum_utils;
 pub mod keys;
 pub mod proto;
 use keys::{
-    key_bundle::{PrivateKeyBundle, SignedPublicKeyBundle},
+    key_bundle::{PrivateKeyBundle, PublicKeyBundle, SignedPublicKeyBundle},
     private_key::SignedPrivateKey,
     public_key,
 };
@@ -61,26 +61,50 @@ impl Keystore {
     }
 
     // Process proto::keystore::DecryptV1Request
-    pub fn decrypt_v1(
-        &self,
-        request: proto::keystore::DecryptV1Request,
-    ) -> Result<proto::keystore::DecryptResponse, String> {
-        // Get the list of requests inside request
-        let requests = request.requests;
+    pub fn decrypt_v1(&self, request_bytes: &[u8]) -> Result<Vec<u8>, String> {
+        // Decode request bytes into proto::keystore::DecryptV2Request
+        let request_result: protobuf::Result<proto::keystore::DecryptV1Request> =
+            protobuf::Message::parse_from_bytes(request_bytes);
+        if request_result.is_err() {
+            return Err("could not parse decrypt v1 request".to_string());
+        }
+        let request = request_result.as_ref().unwrap();
         // Create a list of responses
         let responses = Vec::new();
 
         // Iterate over the requests
-        for request in requests {
-            let _payload = request.payload;
-            let _peer_keys = request.peer_keys;
-            let _header_bytes = request.header_bytes;
-            let _is_sender = request.is_sender;
+        for request in &request.requests {
+            let payload = &request.payload;
+            let peer_keys = &request.peer_keys;
+            let header_bytes = &request.header_bytes;
+            let is_sender = &request.is_sender;
 
             let mut response = proto::keystore::decrypt_response::Response::new();
 
-            // let decrypt_result = encryption::decrypt_v1(payload, peer_keys, header_bytes, is_sender);
-            let decrypt_result = encryption::decrypt_v1(&[], &[], &[], &[], None);
+            let private_key_bundle = self.private_key_bundle.as_ref().unwrap();
+            // Extract XMTP-like X3DH secret
+            let secret_result = private_key_bundle.derive_shared_secret_xmtp(
+                &PublicKeyBundle::from_proto(&peer_keys)
+                    .unwrap()
+                    .to_fake_signed_public_key_bundle(),
+                &private_key_bundle.pre_keys[0].public_key,
+                !is_sender,
+            );
+            if secret_result.is_err() {
+                return Err("could not derive shared secret".to_string());
+            }
+            let secret = secret_result.unwrap();
+
+            let ciphertext = &payload.aes256_gcm_hkdf_sha256();
+
+            let decrypt_result = encryption::decrypt_v1(
+                ciphertext.payload.as_slice(),
+                ciphertext.hkdf_salt.as_slice(),
+                ciphertext.gcm_nonce.as_slice(),
+                &secret,
+                Some(header_bytes.as_slice()),
+            );
+
             match decrypt_result {
                 Ok(decrypted) => {
                     let mut success_response =
@@ -108,7 +132,7 @@ impl Keystore {
         }
         let mut response_proto = proto::keystore::DecryptResponse::new();
         response_proto.responses = responses;
-        return Ok(response_proto);
+        return Ok(response_proto.write_to_bytes().unwrap());
     }
 
     // Process proto::keystore::DecryptV2Request
@@ -150,7 +174,7 @@ impl Keystore {
                 ciphertext.hkdf_salt.as_slice(),
                 ciphertext.gcm_nonce.as_slice(),
                 &topic_data.key,
-                None,
+                Some(header_bytes.as_slice()),
             );
 
             let mut response = proto::keystore::decrypt_response::Response::new();
