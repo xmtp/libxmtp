@@ -169,11 +169,9 @@ impl Keystore {
             );
         }
 
-        // TODO: process additional metadata here
         let topic = &decrypted_invitation.topic;
-
         self.topic_keys.insert(
-            decrypted_invitation.topic.clone(),
+            topic.clone(),
             TopicData {
                 key: key_bytes.to_vec(),
                 context: Some(InvitationContext {
@@ -187,7 +185,7 @@ impl Keystore {
         return Ok(true);
     }
 
-    pub fn getTopicKey(&self, topic_id: &str) -> Option<Vec<u8>> {
+    pub fn get_topic_key(&self, topic_id: &str) -> Option<Vec<u8>> {
         let topic_data = self.topic_keys.get(topic_id);
         if topic_data.is_none() {
             return None;
@@ -422,10 +420,8 @@ mod tests {
         let bob_public_key_b64 = "CpcBCk8IgP/mo5q8kqMXGkMKQQRM2pfJr9DGMNOA6qBSSvEUSZqyg1z0ZjzedERTohdYCFtTNYtulqk/p9U3tp1OYb3u3O0UNv9mj0rjLG1nnitTEkQSQgpA1la7dRtegPN5jYU9ctYFwy1/R1cJOUamm/yNFY0tHK9oFKl9pdztB14q1shZQqrmuB3zw5aQeFmOADQ08YGowBKXAQpPCMClubWavJKjFxpDCkEEV9HtQj+iXOZG47VxdaMYGxXIjUrdNNlJT+GUurw5pAmL0MnJRLWN00HKwV0jTStiWw8Lt9Ptc/oeg6mrKzCXOhJECkIKQMNq5LsC+3tLN1667WOvmIRDJodp4owDBUClzxWvHnShNS3zKqdCABoWFwYhpVewO8j2Q1yy2rH9dVMuMMNloss=";
         let alice_public_key_b64 = "CpcBCk8IgIez7pm8kqMXGkMKQQRhgSMw1R/8S7WEkfxpknxsmt9WK1AsYKrQ/ZAVwSx60+kgce8Hu+pkRy0a+rXeltBuTH4tO4pQzBP5xhHo5UFAEkQSQgpA9uKlM/f9TiNbBEsjxJusMky21MV77annlu4v34hQ6QIz8hhoHa15qmuNZceGzd00SQ6IjVzl0t4Y2sAUF+BgcxKXAQpPCMCHyomavJKjFxpDCkEE1OvlXZeGc7Ca4UUL89jZe/nvAjXTGNODpwtbuSWGehAjfins9KScHNmIcqahYrMlrqurOfhYSGvNwOkQLSNuuBJECkIKQBx9fFP8pMoyxYOU+fXN+bbf0y2eZZx8FiRgy2kWQJUfNVFX1ut+PkrxIoy20tCFieWWW5cG7zGq7345tBtotGs=";
         let expected_key_material_b64 = "pCZEyn0gkwTrNDOlewVGTHYuqXdWzv9s+WKUWCtdFCk=";
-        let topic_bytes = [
-            210, 86, 199, 2, 239, 247, 51, 208, 205, 197, 32, 162, 215, 110, 185, 7, 115, 73, 7,
-            223, 5, 10, 75, 19, 252, 160, 139, 241, 4, 205, 128, 152,
-        ];
+        // xmtp-js unit tests generate this random byte array
+        let topic_string = "210,86,199,2,239,247,51,208,205,197,32,162,215,110,185,7,115,73,7,223,5,10,75,19,252,160,139,241,4,205,128,152";
 
         // Create a keystore, then save Alice's private key bundle
         let mut x = Keystore::new();
@@ -443,5 +439,9 @@ mod tests {
                 .unwrap(),
         );
         assert!(save_invite_result.is_ok());
+
+        // Assert that the invite was saved for the topic_string
+        let get_invite_result = x.get_topic_key(topic_string);
+        assert!(get_invite_result.is_some());
     }
 }
