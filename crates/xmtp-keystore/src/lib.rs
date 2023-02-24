@@ -173,7 +173,7 @@ impl Keystore {
         let topic = &decrypted_invitation.topic;
 
         self.topic_keys.insert(
-            conversation_id.clone(),
+            decrypted_invitation.topic.clone(),
             TopicData {
                 key: key_bytes.to_vec(),
                 context: Some(InvitationContext {
@@ -185,6 +185,14 @@ impl Keystore {
         );
 
         return Ok(true);
+    }
+
+    pub fn getTopicKey(&self, topic_id: &str) -> Option<Vec<u8>> {
+        let topic_data = self.topic_keys.get(topic_id);
+        if topic_data.is_none() {
+            return None;
+        }
+        return Some(topic_data.unwrap().key.clone());
     }
     // == end keystore api ==
 }
