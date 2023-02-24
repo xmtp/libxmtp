@@ -26,3 +26,12 @@ pub fn save_invitation(invite_bytes: &[u8]) -> Result<bool, JsValue> {
         .map_err(|e| JsValue::from_str(&e.to_string()));
     Ok(true)
 }
+
+#[wasm_bindgen]
+pub fn get_topic_key(topic_id: String) -> Result<Vec<u8>, JsValue> {
+    KEYSTORE
+        .lock()
+        .unwrap()
+        .get_topic_key(topic_id)
+        .map_err(|e| JsValue::from_str(&e.to_string()))
+}
