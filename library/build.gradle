@@ -35,13 +35,6 @@ android {
     kotlinOptions {
         jvmTarget = '11'
     }
-
-    publishing {
-        singleVariant("release") {
-            withSourcesJar()
-            withJavadocJar()
-        }
-    }
 }
 
 protobuf {
@@ -84,6 +77,34 @@ dependencies {
     androidTestImplementation 'androidx.test.espresso:espresso-core:3.5.1'
 }
 
+sourceSets {
+    main {
+        java {
+            srcDirs = ["src/main/java"]
+        }
+    }
+}
+
+task javadoc(type: Javadoc) {
+    failOnError false
+    source = sourceSets.main.java.srcDirs
+    classpath += project.files(android.getBootClasspath().join(File.pathSeparator))
+}
+
+task sourcesJar(type: Jar) {
+    classifier = "sources"
+    from sourceSets.main.java.srcDirs
+}
+
+task javadocJar(type: Jar, dependsOn: javadoc) {
+    classifier = "javadoc"
+    from javadoc.destinationDir
+}
+
+artifacts {
+    archives javadocJar, sourcesJar
+}
+
 afterEvaluate {
     publishing {
         publications {
@@ -92,6 +113,8 @@ afterEvaluate {
                 artifactId = "android"
                 version = System.getenv("RELEASE_VERSION")
                 from components.release
+                artifact sourcesJar
+                artifact javadocJar
 
                 pom {
                     name = "XMTP"
