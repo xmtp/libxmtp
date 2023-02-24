@@ -62,7 +62,7 @@ impl Keystore {
 
     // Process proto::keystore::DecryptV1Request
     pub fn decrypt_v1(&self, request_bytes: &[u8]) -> Result<Vec<u8>, String> {
-        // Decode request bytes into proto::keystore::DecryptV2Request
+        // Decode request bytes into proto::keystore::DecryptV1Request
         let request_result: protobuf::Result<proto::keystore::DecryptV1Request> =
             protobuf::Message::parse_from_bytes(request_bytes);
         if request_result.is_err() {
@@ -71,6 +71,8 @@ impl Keystore {
         let request = request_result.as_ref().unwrap();
         // Create a list of responses
         let mut responses = Vec::new();
+
+        let private_key_bundle = self.private_key_bundle.as_ref().unwrap();
 
         // Iterate over the requests
         for request in &request.requests {
@@ -81,7 +83,6 @@ impl Keystore {
 
             let mut response = proto::keystore::decrypt_response::Response::new();
 
-            let private_key_bundle = self.private_key_bundle.as_ref().unwrap();
             // Extract XMTP-like X3DH secret
             let secret_result = private_key_bundle.derive_shared_secret_xmtp(
                 &PublicKeyBundle::from_proto(&peer_keys)
