@@ -1,4 +1,4 @@
-import init, { InitInput, set_private_key_bundle, save_invitation, decrypt_v2 } from "./pkg/libxmtp.js";
+import init, { InitInput, set_private_key_bundle, save_invitation, decrypt_v1, decrypt_v2 } from "./pkg/libxmtp.js";
 
 export interface PackageLoadOptions {
   /**
@@ -27,6 +27,10 @@ export class XmtpApi {
 
   public decryptV2(ciphertext: Uint8Array): Uint8Array {
     return decrypt_v2(ciphertext);
+  }
+
+  public decryptV1(ciphertext: Uint8Array): Uint8Array {
+    return decrypt_v1(ciphertext);
   }
 
   /**

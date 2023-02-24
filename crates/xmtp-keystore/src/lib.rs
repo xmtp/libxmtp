@@ -70,7 +70,7 @@ impl Keystore {
         }
         let request = request_result.as_ref().unwrap();
         // Create a list of responses
-        let responses = Vec::new();
+        let mut responses = Vec::new();
 
         // Iterate over the requests
         for request in &request.requests {
@@ -129,6 +129,7 @@ impl Keystore {
                     );
                 }
             }
+            responses.push(response);
         }
         let mut response_proto = proto::keystore::DecryptResponse::new();
         response_proto.responses = responses;
@@ -145,7 +146,7 @@ impl Keystore {
         }
         let request = request_result.unwrap();
         // Create a list of responses
-        let responses = Vec::new();
+        let mut responses = Vec::new();
 
         // For each request in the request list
         for request in request.requests {
@@ -205,6 +206,7 @@ impl Keystore {
                     );
                 }
             }
+            responses.push(response);
         }
         let mut response_proto = proto::keystore::DecryptResponse::new();
         response_proto.responses = responses;

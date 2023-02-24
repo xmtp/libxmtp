@@ -33,6 +33,15 @@ pub fn get_topic_key(topic_id: &str) -> Option<Vec<u8>> {
 }
 
 #[wasm_bindgen]
+pub fn decrypt_v1(decrypt_request_bytes: &[u8]) -> Result<Vec<u8>, JsValue> {
+    KEYSTORE
+        .lock()
+        .unwrap()
+        .decrypt_v1(decrypt_request_bytes)
+        .map_err(|e| JsValue::from_str(&e.to_string()))
+}
+
+#[wasm_bindgen]
 pub fn decrypt_v2(decrypt_request_bytes: &[u8]) -> Result<Vec<u8>, JsValue> {
     KEYSTORE
         .lock()
