@@ -123,47 +123,7 @@ impl Keystore {
                 }
                 Err(e) => {
                     let mut error_response = proto::keystore::KeystoreError::new();
-                    // Replace error_response.message with large string of all debugging info
-                    // include:
-                    // - payload (base64)
-                    // - secret (base64)
-                    // - hkdf_salt (base64)
-                    // - gcm_nonce (base64)
-                    // - header_bytes (base64)
-                    // - error message
-                    // - is_sender
-                    // - peer_keys
-                    // - private_key_bundle
-                    let mut debug_info = String::new();
-                    debug_info.push_str("payload: ");
-                    debug_info
-                        .push_str(&general_purpose::STANDARD.encode(ciphertext.payload.as_slice()));
-                    debug_info.push_str("\nsecret: ");
-                    debug_info.push_str(&general_purpose::STANDARD.encode(&secret));
-                    debug_info.push_str("\nhkdf_salt: ");
-                    debug_info.push_str(
-                        &general_purpose::STANDARD
-                            .encode(&payload.aes256_gcm_hkdf_sha256().hkdf_salt),
-                    );
-                    debug_info.push_str("\ngcm_nonce: ");
-                    debug_info.push_str(
-                        &general_purpose::STANDARD
-                            .encode(&payload.aes256_gcm_hkdf_sha256().gcm_nonce),
-                    );
-                    debug_info.push_str("\nheader_bytes: ");
-                    debug_info.push_str(&general_purpose::STANDARD.encode(&header_bytes));
-                    debug_info.push_str("\nerror: ");
-                    debug_info.push_str(&e.to_string());
-                    debug_info.push_str("\nis_sender: ");
-                    debug_info.push_str(&is_sender.to_string());
-                    debug_info.push_str("\npeer_keys: ");
-                    debug_info.push_str(&peer_keys.to_string());
-                    debug_info.push_str("\nnum privatekey sets: ");
-                    debug_info.push_str(&self.num_sets.to_string());
-                    debug_info.push_str("\nprivate_key_bundle: ");
-                    debug_info.push_str(&self.private_key_bundle.as_ref().is_some().to_string());
-
-                    error_response.message = debug_info;
+                    error_response.message = e.to_string();
 
                     error_response.code = protobuf::EnumOrUnknown::new(
                         proto::keystore::ErrorCode::ERROR_CODE_UNSPECIFIED,
