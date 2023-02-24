@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 
 use protobuf;
+use protobuf::Message;
 
 mod conversation;
 mod ecdh;
@@ -108,6 +109,82 @@ impl Keystore {
         let mut response_proto = proto::keystore::DecryptResponse::new();
         response_proto.responses = responses;
         return Ok(response_proto);
+    }
+
+    // Process proto::keystore::DecryptV2Request
+    pub fn decrypt_v2(&self, request_bytes: &[u8]) -> Result<Vec<u8>, String> {
+        // Decode request bytes into proto::keystore::DecryptV2Request
+        let request_result: protobuf::Result<proto::keystore::DecryptV2Request> =
+            protobuf::Message::parse_from_bytes(request_bytes);
+        if request_result.is_err() {
+            return Err("could not parse decrypt v2 request".to_string());
+        }
+        let request = request_result.unwrap();
+        // Create a list of responses
+        let responses = Vec::new();
+
+        // For each request in the request list
+        for request in request.requests {
+            // TODO: validate the object
+
+            // Extract the payload, headerBytes and contentTopic
+            // const { payload, headerBytes, contentTopic } = req
+            let payload = request.payload;
+            let header_bytes = request.header_bytes;
+            let content_topic = request.content_topic;
+
+            // Try to get the topic data
+            // const topicData = this.topicKeys.get(contentTopic)
+            let topic_data = self.topic_keys.get(&content_topic);
+            if topic_data.is_none() {
+                // Error with the content_topic
+                return Err("could not find topic data".to_string());
+            }
+            let topic_data = topic_data.unwrap();
+
+            let ciphertext = payload.unwrap().aes256_gcm_hkdf_sha256().clone();
+
+            // Try to decrypt the payload
+            let decrypt_result = encryption::decrypt_v1(
+                ciphertext.payload.as_slice(),
+                ciphertext.hkdf_salt.as_slice(),
+                ciphertext.gcm_nonce.as_slice(),
+                &topic_data.key,
+                None,
+            );
+
+            let mut response = proto::keystore::decrypt_response::Response::new();
+
+            // If decryption was successful, return the decrypted payload
+            // If decryption failed, return an error
+            match decrypt_result {
+                Ok(decrypted) => {
+                    let mut success_response =
+                        proto::keystore::decrypt_response::response::Success::new();
+                    success_response.decrypted = decrypted;
+                    response.response = Some(
+                        proto::keystore::decrypt_response::response::Response::Result(
+                            success_response,
+                        ),
+                    );
+                }
+                Err(e) => {
+                    let mut error_response = proto::keystore::KeystoreError::new();
+                    error_response.message = e;
+                    error_response.code = protobuf::EnumOrUnknown::new(
+                        proto::keystore::ErrorCode::ERROR_CODE_UNSPECIFIED,
+                    );
+                    response.response = Some(
+                        proto::keystore::decrypt_response::response::Response::Error(
+                            error_response,
+                        ),
+                    );
+                }
+            }
+        }
+        let mut response_proto = proto::keystore::DecryptResponse::new();
+        response_proto.responses = responses;
+        return Ok(response_proto.write_to_bytes().unwrap());
     }
 
     // Save invites

@@ -28,10 +28,15 @@ pub fn save_invitation(invite_bytes: &[u8]) -> Result<bool, JsValue> {
 }
 
 #[wasm_bindgen]
-pub fn get_topic_key(topic_id: String) -> Result<Vec<u8>, JsValue> {
+pub fn get_topic_key(topic_id: &str) -> Option<Vec<u8>> {
+    KEYSTORE.lock().unwrap().get_topic_key(topic_id)
+}
+
+#[wasm_bindgen]
+pub fn decrypt_v2(decrypt_request_bytes: &[u8]) -> Result<Vec<u8>, JsValue> {
     KEYSTORE
         .lock()
         .unwrap()
-        .get_topic_key(topic_id)
+        .decrypt_v2(decrypt_request_bytes)
         .map_err(|e| JsValue::from_str(&e.to_string()))
 }
