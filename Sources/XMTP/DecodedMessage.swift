@@ -29,7 +29,7 @@ public struct DecodedMessage {
 		return try encodedContent.decoded()
 	}
 
-	var fallbackContent: String {
+	public var fallbackContent: String {
 		encodedContent.fallback
 	}
 

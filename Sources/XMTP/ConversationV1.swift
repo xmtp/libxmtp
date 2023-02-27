@@ -38,7 +38,7 @@ public struct ConversationV1 {
 		Topic.directMessageV1(client.address, peerAddress)
 	}
 
-	func send(content: String, options: SendOptions? = nil) async throws -> String {
+	@discardableResult func send(content: String, options: SendOptions? = nil) async throws -> String {
 		return try await send(content: content, options: options, sentAt: nil)
 	}
 

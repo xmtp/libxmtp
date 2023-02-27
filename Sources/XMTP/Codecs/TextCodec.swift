@@ -8,18 +8,20 @@
 import Foundation
 import XMTPProto
 
-let ContentTypeText = ContentTypeID(authorityID: "xmtp.org", typeID: "text", versionMajor: 1, versionMinor: 0)
+public let ContentTypeText = ContentTypeID(authorityID: "xmtp.org", typeID: "text", versionMajor: 1, versionMinor: 0)
 
 enum TextCodecError: Error {
 	case invalidEncoding, unknownDecodingError
 }
 
-struct TextCodec: ContentCodec {
-	typealias T = String
+public struct TextCodec: ContentCodec {
+	public typealias T = String
 
-	var contentType = ContentTypeText
+	public init() { }
 
-	func encode(content: String) throws -> EncodedContent {
+	public var contentType = ContentTypeText
+
+	public func encode(content: String) throws -> EncodedContent {
 		var encodedContent = EncodedContent()
 
 		encodedContent.type = ContentTypeText
@@ -29,7 +31,7 @@ struct TextCodec: ContentCodec {
 		return encodedContent
 	}
 
-	func decode(content: EncodedContent) throws -> String {
+	public func decode(content: EncodedContent) throws -> String {
 		if let encoding = content.parameters["encoding"], encoding != "UTF-8" {
 			throw TextCodecError.invalidEncoding
 		}

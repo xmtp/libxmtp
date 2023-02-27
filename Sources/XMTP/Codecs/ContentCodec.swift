@@ -15,7 +15,7 @@ enum CodecError: String, Error {
 public typealias EncodedContent = Xmtp_MessageContents_EncodedContent
 
 extension EncodedContent {
-	func decoded<T>() throws -> T {
+	public func decoded<T>() throws -> T {
 		let codec = Client.codecRegistry.find(for: type)
 
 		var encodedContent = self

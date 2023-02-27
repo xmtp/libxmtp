@@ -117,7 +117,7 @@ public struct ConversationV2 {
 		try MessageV2.decode(message, keyMaterial: keyMaterial)
 	}
 
-	func send<T>(content: T, options: SendOptions? = nil) async throws -> String {
+	@discardableResult func send<T>(content: T, options: SendOptions? = nil) async throws -> String {
 		let codec = Client.codecRegistry.find(for: options?.contentType)
 
 		func encode<Codec: ContentCodec>(codec: Codec, content: Any) throws -> EncodedContent {
@@ -137,6 +137,26 @@ public struct ConversationV2 {
 		let encoder = TextCodec()
 		let encodedContent = try encoder.encode(content: content)
 		return try await send(content: encodedContent, options: options, sentAt: sentAt)
+	}
+
+
+	public func encode<Codec: ContentCodec, T>(codec: Codec, content: T) async throws -> Data where Codec.T == T {
+		let content = try codec.encode(content: content)
+
+		let message = try await MessageV2.encode(
+			client: client,
+			content: content,
+			topic: topic,
+			keyMaterial: keyMaterial
+		)
+
+		let envelope = Envelope(
+			topic: topic,
+			timestamp: Date(),
+			message: try Message(v2: message).serializedData()
+		)
+
+		return try envelope.serializedData()
 	}
 
 	internal func send(content: EncodedContent, options: SendOptions? = nil, sentAt: Date) async throws -> String {
@@ -164,7 +184,7 @@ public struct ConversationV2 {
 		return generateID(from: envelope)
 	}
 
-	func send(content: String, options: SendOptions? = nil) async throws -> String {
+	@discardableResult func send(content: String, options: SendOptions? = nil) async throws -> String {
 		return try await send(content: content, options: options, sentAt: Date())
 	}
 

@@ -9,7 +9,7 @@ import CryptoKit
 import Foundation
 import XMTPProto
 
-typealias CipherText = Xmtp_MessageContents_Ciphertext
+public typealias CipherText = Xmtp_MessageContents_Ciphertext
 
 enum CryptoError: Error {
 	case randomBytes, combinedPayload
