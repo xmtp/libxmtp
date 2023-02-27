@@ -1,14 +1,15 @@
-use once_cell::sync::Lazy;
 use std::sync::Mutex;
-// Include HashMap
 use std::collections::HashMap;
 
 use wasm_bindgen::prelude::*;
 use xmtp_keystore::Keystore;
 
-// Keep the keystore class in memory
-static KEYSTORE_MAP: Lazy<Mutex<HashMap<String, Keystore>>> =
-    Lazy::new(|| Mutex::new(HashMap::new()));
+#[macro_use]
+extern crate lazy_static;
+
+lazy_static! {
+    static ref KEYSTORE_MAP: Mutex<HashMap<String, Keystore>> = Mutex::new(HashMap::new());
+}
 
 // Returns a handle to a keystore instance
 #[wasm_bindgen]
