@@ -291,7 +291,7 @@ impl Keystore {
             let mut success = proto::keystore::save_invites_response::response::Success::new();
             success.conversation = Some(success_conversation).into();
 
-            let mut success_response =
+            let success_response =
                 proto::keystore::save_invites_response::response::Response::Result(success);
             response.response = Some(success_response);
 
@@ -599,11 +599,12 @@ mod tests {
         let secret =  "BNOBBknXpaz9LWs2izeKYFAh3KRS8a7Mibefi38yhyunt3stLHjgvSYPWScBQ4E9VlzTFzOKzR2mnyYhAYrUDSgECK29BC8qeTsusEWZVZso3AC9jFDXV+T7Oyl4+p+pdHMXher5S4xAhJLNEqfGdBLn1Y436cVkppLF/kQjqE8DTwTTxG8VheDyy6sv9PFHZN1C0T6xJ01HH6yVMeZLIOkS13fibjhZ2SUNDYA+/muMyB9AnuG8UN3MNOGLQSPkcW3O";
 
         let mut x = Keystore::new();
-        x.set_private_key_bundle(
+        let res = x.set_private_key_bundle(
             &general_purpose::STANDARD
                 .decode(my_identity_bundle)
                 .unwrap(),
         );
+        assert!(res.is_ok());
 
         let peer_bundle_proto: proto::public_key::SignedPublicKeyBundle =
             protobuf::Message::parse_from_bytes(

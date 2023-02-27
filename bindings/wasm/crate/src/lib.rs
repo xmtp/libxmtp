@@ -23,26 +23,32 @@ pub fn new_keystore() -> String {
 
 #[wasm_bindgen]
 pub fn set_private_key_bundle(handle: &str, key_bytes: &[u8]) -> Result<bool, JsValue> {
-    KEYSTORE_MAP
+    let result = KEYSTORE_MAP
         .lock()
         .unwrap()
         .get_mut(handle)
         .unwrap()
         .set_private_key_bundle(key_bytes)
         .map_err(|e| e.to_string());
-    Ok(true)
+    if result.is_err() {
+        return Err(JsValue::from(result.err().unwrap()));
+    }
+    return Ok(true);
 }
 
 #[wasm_bindgen]
 pub fn save_invitation(handle: &str, invite_bytes: &[u8]) -> Result<bool, JsValue> {
-    KEYSTORE_MAP
+    let result = KEYSTORE_MAP
         .lock()
         .unwrap()
         .get_mut(handle)
         .unwrap()
         .save_invitation(invite_bytes)
         .map_err(|e| e.to_string());
-    Ok(true)
+    if result.is_err() {
+        return Err(JsValue::from(result.err().unwrap()));
+    }
+    return Ok(true);
 }
 
 #[wasm_bindgen]
