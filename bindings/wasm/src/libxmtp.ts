@@ -1,6 +1,6 @@
 import init, { InitInput, new_keystore, set_private_key_bundle, save_invitation, decrypt_v1, decrypt_v2 } from "./pkg/libxmtp.js";
 
-import { keystore } from '@xmtp/proto'
+import { keystore, publicKey } from '@xmtp/proto'
 
 export interface PackageLoadOptions {
   /**
@@ -28,10 +28,6 @@ export class Keystore {
     this.handle = handle;
   }
 
-  public setPrivateKeyBundle(bundle: Uint8Array): boolean {
-    return this.wasmModule.setPrivateKeyBundle(this.handle, bundle);
-  }
-
   public decryptV1(request: keystore.DecryptV1Request): keystore.DecryptResponse {
     // First, serialize the request to a Uint8Array
     const requestBytes = keystore.DecryptV1Request.encode(request).finish();
@@ -48,6 +44,12 @@ export class XMTPWasm {
 
   public newKeystore(): Keystore {
     const handle = new_keystore();
+    return new Keystore(this, handle);
+  }
+
+  public newKeystoreWithBundle(bundle: Uint8Array): Keystore {
+    const handle = new_keystore();
+    this.setPrivateKeyBundle(handle, bundle);
     return new Keystore(this, handle);
   }
 
