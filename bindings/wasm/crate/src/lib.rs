@@ -44,6 +44,17 @@ pub fn save_invitation(handle: &str, invite_bytes: &[u8]) -> Result<bool, JsValu
 }
 
 #[wasm_bindgen]
+pub fn save_invites(handle: &str, save_invite_request: &[u8]) -> Result<Vec<u8>, JsValue> {
+    KEYSTORE_MAP
+        .lock()
+        .unwrap()
+        .get_mut(handle)
+        .unwrap()
+        .save_invites(save_invite_request)
+        .map_err(|e| JsValue::from(&e.to_string()))
+}
+
+#[wasm_bindgen]
 pub fn get_topic_key(handle: &str, topic_id: &str) -> Option<Vec<u8>> {
     KEYSTORE_MAP
         .lock()

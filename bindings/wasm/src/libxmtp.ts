@@ -1,4 +1,6 @@
-import init, { InitInput, new_keystore, set_private_key_bundle, save_invitation, decrypt_v1, decrypt_v2 } from "./pkg/libxmtp.js";
+import init, {
+  InitInput, new_keystore, set_private_key_bundle, save_invitation, decrypt_v1, decrypt_v2, save_invites,
+} from "./pkg/libxmtp.js";
 
 import { keystore, publicKey } from '@xmtp/proto'
 
@@ -17,6 +19,28 @@ export const setWasmInit = (arg: () => InitInput) => {
 let initialized: Promise<void> | undefined = undefined;
 
 // The actual class exposed to consumers of this API
+//  // Decrypt a batch of V1 messages
+//  decryptV1(req: keystore.DecryptV1Request): Promise<keystore.DecryptResponse>
+//  // Decrypt a batch of V2 messages
+//  decryptV2(req: keystore.DecryptV2Request): Promise<keystore.DecryptResponse>
+//  // Encrypt a batch of V1 messages
+//  encryptV1(req: keystore.EncryptV1Request): Promise<keystore.EncryptResponse>
+//  // Encrypt a batch of V2 messages
+//  encryptV2(req: keystore.EncryptV2Request): Promise<keystore.EncryptResponse>
+//  // Decrypt and save a batch of invite for later use in decrypting messages on the invite topic
+//  saveInvites(
+//    req: keystore.SaveInvitesRequest
+//  ): Promise<keystore.SaveInvitesResponse>
+//  // Create the sealed invite and store the Topic keys in the Keystore for later use
+//  createInvite(
+//    req: keystore.CreateInviteRequest
+//  ): Promise<keystore.CreateInviteResponse>
+//  // Get V2 conversations
+//  getV2Conversations(): Promise<keystore.ConversationReference[]>
+//  // Used for publishing the contact
+//  getPublicKeyBundle(): Promise<publicKey.SignedPublicKeyBundle>
+//  // Technically duplicative of `getPublicKeyBundle`, but nice for ergonomics
+//  getAccountAddress(): Promise<string>
 export class Keystore {
   // Handle to the keystore object in the Wasm module
   private handle: string = "";
@@ -36,6 +60,13 @@ export class Keystore {
     // Finally, deserialize the response
     return keystore.DecryptResponse.decode(responseBytes);
   }
+
+public saveInvites(request: keystore.SaveInvitesRequest): keystore.SaveInvitesResponse {
+  const requestBytes = keystore.SaveInvitesRequest.encode(request).finish();
+  const responseBytes = this.wasmModule.saveInvites(this.handle, requestBytes);
+  return keystore.SaveInvitesResponse.decode(responseBytes);
+}
+
 }
 
 // Manages the Wasm module, which loads a singleton version of our Rust code
@@ -64,6 +95,10 @@ export class XMTPWasm {
 
   public saveInvitation(handle: string, invite: Uint8Array): boolean {
     return save_invitation(handle, invite);
+  }
+
+  public saveInvites(handle: string, invites: Uint8Array): Uint8Array {
+    return save_invites(handle, invites);
   }
 
   public decryptV2(handle: string, ciphertext: Uint8Array): Uint8Array {
