@@ -36,6 +36,9 @@
     "test": "vitest run && tsc",
     "prepublishOnly": "npm test"
   },
+  "dependencies": {
+    "@xmtp/proto": "^3.13.0"
+  },
   "devDependencies": {
     "@rollup/plugin-typescript": "^10.0.1",
     "@rollup/plugin-wasm": "^6.1.1",

@@ -1,1 +1,1 @@
-export { XmtpApi } from "./libxmtp.js";
+export { XMTPWasm, Keystore } from "./libxmtp.js";

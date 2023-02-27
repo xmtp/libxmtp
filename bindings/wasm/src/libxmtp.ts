@@ -1,5 +1,7 @@
 import init, { InitInput, new_keystore, set_private_key_bundle, save_invitation, decrypt_v1, decrypt_v2 } from "./pkg/libxmtp.js";
 
+import { keystore } from '@xmtp/proto'
+
 export interface PackageLoadOptions {
   /**
    * Controls how the Wasm module is instantiated.
@@ -14,10 +16,43 @@ export const setWasmInit = (arg: () => InitInput) => {
 
 let initialized: Promise<void> | undefined = undefined;
 
-export class XmtpApi {
+// The actual class exposed to consumers of this API
+export class Keystore {
+  // Handle to the keystore object in the Wasm module
+  private handle: string = "";
+  // Pointer to the XMTP Wasm
+  private wasmModule: XMTPWasm;
+
+  public constructor(wasmModule: XMTPWasm, handle: string) {
+    this.wasmModule = wasmModule;
+    this.handle = handle;
+  }
+
+  public setPrivateKeyBundle(bundle: Uint8Array): boolean {
+    return this.wasmModule.setPrivateKeyBundle(this.handle, bundle);
+  }
+
+  public decryptV1(request: keystore.DecryptV1Request): keystore.DecryptResponse {
+    // First, serialize the request to a Uint8Array
+    const requestBytes = keystore.DecryptV1Request.encode(request).finish();
+    // Then, call the Wasm module to decrypt the request
+    const responseBytes = this.wasmModule.decryptV1(this.handle, requestBytes);
+    // Finally, deserialize the response
+    return keystore.DecryptResponse.decode(responseBytes);
+  }
+}
+
+// Manages the Wasm module, which loads a singleton version of our Rust code
+export class XMTPWasm {
   private constructor() {}
 
-  public newKeystore(): string {
+  public newKeystore(): Keystore {
+    const handle = new_keystore();
+    return new Keystore(this, handle);
+  }
+
+  // Temporary measure for manual management of keystore handles
+  public newHandle(): string {
     return new_keystore();
   }
 
@@ -49,7 +84,7 @@ export class XmtpApi {
     }
 
     await initialized;
-    return new XmtpApi();
+    return new XMTPWasm();
   };
 
   /**
