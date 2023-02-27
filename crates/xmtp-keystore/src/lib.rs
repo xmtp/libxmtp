@@ -249,12 +249,16 @@ impl Keystore {
                 full_response.responses.push(response);
                 continue;
             }
+            // Do not use the request.content_topic as it's not tamper proof, instead use the
+            // returned unsealed topic
+            let unsealed_topic = save_result.unwrap();
             // Check if topic_keys has the content_topic
-            let topic_data = self.topic_keys.get(&request.content_topic);
+            let topic_data = self.topic_keys.get(unsealed_topic.as_str());
             // If not, then return an error
             if topic_data.is_none() {
                 let mut error_response = proto::keystore::KeystoreError::new();
-                error_response.message = "could not find topic data".to_string();
+                error_response.message =
+                    format!("could not find topic data for {}", request.content_topic);
                 error_response.code = protobuf::EnumOrUnknown::new(
                     proto::keystore::ErrorCode::ERROR_CODE_UNSPECIFIED,
                 );
@@ -263,13 +267,14 @@ impl Keystore {
                         error_response,
                     ),
                 );
+                full_response.responses.push(response);
                 continue;
             }
 
             // Finally, if we have the topic data then add success + conversation object
             let topic_data = topic_data.unwrap();
             let mut success_conversation = proto::keystore::ConversationReference::new();
-            success_conversation.topic = request.content_topic;
+            success_conversation.topic = unsealed_topic;
             success_conversation.created_ns = topic_data.created;
             // Create invitation context from topic data context
             let mut invitation_context = proto::invitation::invitation_v1::Context::new();
@@ -296,7 +301,7 @@ impl Keystore {
     }
 
     // Save single invitation
-    pub fn save_invitation(&mut self, sealed_invitation_bytes: &[u8]) -> Result<bool, String> {
+    pub fn save_invitation(&mut self, sealed_invitation_bytes: &[u8]) -> Result<String, String> {
         // Check that self.private_key_bundle is set, otherwise return an error
         if self.private_key_bundle.is_none() {
             return Err("private key bundle not set yet".to_string());
@@ -355,19 +360,49 @@ impl Keystore {
         }
 
         let topic = &decrypted_invitation.topic;
+
+        let optional_context = if decrypted_invitation.context.is_some() {
+            Some(InvitationContext {
+                conversation_id: conversation_id.to_string(),
+                metadata: context_fields,
+            })
+        } else {
+            None
+        };
         self.topic_keys.insert(
-            topic.clone(),
+            topic.to_string(),
             TopicData {
                 key: key_bytes.to_vec(),
-                context: Some(InvitationContext {
-                    conversation_id: conversation_id.to_string(),
-                    metadata: context_fields,
-                }),
+                // If the invitation has a context, then use the context, otherwise use None
+                context: optional_context,
                 created: header_time,
             },
         );
 
-        return Ok(true);
+        return Ok(topic.to_string());
+    }
+
+    // Get serialized keystore.ConversationReference
+    pub fn get_v2_conversations(&self) -> Result<Vec<Vec<u8>>, String> {
+        let mut conversations = Vec::new();
+        for (topic, topic_data) in self.topic_keys.iter() {
+            let mut conversation = proto::keystore::ConversationReference::new();
+            conversation.topic = topic.clone();
+            conversation.created_ns = topic_data.created;
+            if topic_data.context.is_some() {
+                let context = topic_data.context.as_ref().unwrap();
+                let mut invitation_context = proto::invitation::invitation_v1::Context::new();
+                invitation_context.conversation_id = context.conversation_id.clone();
+                for (key, value) in context.metadata.iter() {
+                    invitation_context
+                        .metadata
+                        .insert(key.to_string(), value.to_string());
+                }
+                conversation.context = Some(invitation_context).into();
+            }
+            conversations.push(conversation.write_to_bytes().unwrap());
+        }
+        return Ok(conversations);
     }
 
     pub fn get_topic_key(&self, topic_id: &str) -> Option<Vec<u8>> {

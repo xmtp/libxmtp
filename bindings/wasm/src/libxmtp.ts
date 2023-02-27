@@ -1,5 +1,6 @@
 import init, {
   InitInput, new_keystore, set_private_key_bundle, save_invitation, decrypt_v1, decrypt_v2, save_invites,
+  get_v2_conversations,
 } from "./pkg/libxmtp.js";
 
 import { keystore, publicKey } from '@xmtp/proto'
@@ -61,11 +62,20 @@ export class Keystore {
     return keystore.DecryptResponse.decode(responseBytes);
   }
 
-public saveInvites(request: keystore.SaveInvitesRequest): keystore.SaveInvitesResponse {
-  const requestBytes = keystore.SaveInvitesRequest.encode(request).finish();
-  const responseBytes = this.wasmModule.saveInvites(this.handle, requestBytes);
-  return keystore.SaveInvitesResponse.decode(responseBytes);
-}
+  public saveInvites(request: keystore.SaveInvitesRequest): keystore.SaveInvitesResponse {
+    const requestBytes = keystore.SaveInvitesRequest.encode(request).finish();
+    const responseBytes = this.wasmModule.saveInvites(this.handle, requestBytes);
+    return keystore.SaveInvitesResponse.decode(responseBytes);
+  }
+
+  public getV2Conversations(): keystore.ConversationReference[] {
+    const listResponsesSerialized = this.wasmModule.getV2Conversations(this.handle);
+    let listResponses: keystore.ConversationReference[] = [];
+    for (const serialized of listResponsesSerialized) {
+      listResponses.push(keystore.ConversationReference.decode(serialized));
+    }
+    return listResponses;
+  }
 
 }
 
@@ -99,6 +109,10 @@ export class XMTPWasm {
 
   public saveInvites(handle: string, invites: Uint8Array): Uint8Array {
     return save_invites(handle, invites);
+  }
+
+  public getV2Conversations(handle: string): Uint8Array[] {
+    return get_v2_conversations(handle);
   }
 
   public decryptV2(handle: string, ciphertext: Uint8Array): Uint8Array {

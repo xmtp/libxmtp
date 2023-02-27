@@ -3,6 +3,7 @@ use std::collections::HashMap;
 
 use wasm_bindgen::prelude::*;
 use xmtp_keystore::Keystore;
+use js_sys::{Array, Uint8Array};
 
 #[macro_use]
 extern crate lazy_static;
@@ -53,6 +54,23 @@ pub fn save_invites(handle: &str, save_invite_request: &[u8]) -> Result<Vec<u8>,
         .unwrap()
         .save_invites(save_invite_request)
         .map_err(|e| JsValue::from(&e.to_string()))
+}
+
+#[wasm_bindgen]
+pub fn get_v2_conversations(handle: &str) -> Result<Array, JsValue> {
+    let conversations = KEYSTORE_MAP
+        .lock()
+        .unwrap()
+        .get_mut(handle)
+        .unwrap()
+        .get_v2_conversations()
+        .map_err(|e| JsValue::from(e.to_string()));
+    // Cast Vec<Vec<u8>> to Array<Vec<u8>>
+    let array = Array::new();
+    for conversation in conversations.unwrap() {
+        array.push(&Uint8Array::from(conversation.as_slice()));
+    }
+    Ok(array)
 }
 
 #[wasm_bindgen]
