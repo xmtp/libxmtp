@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
 use protobuf;
-use protobuf::Message;
+use protobuf::{Message, MessageField};
 
 mod conversation;
 mod ecdh;
@@ -219,7 +219,83 @@ impl Keystore {
         return Ok(response_proto.write_to_bytes().unwrap());
     }
 
-    // Save invites
+    // Save invites keystore impl
+    pub fn save_invites(&mut self, request_bytes: &[u8]) -> Result<Vec<u8>, String> {
+        // Decode request bytes into proto::keystore::SaveInvitesRequest
+        let request_result: protobuf::Result<proto::keystore::SaveInvitesRequest> =
+            protobuf::Message::parse_from_bytes(request_bytes);
+        if request_result.is_err() {
+            return Err("could not parse save invites request".to_string());
+        }
+        let request = request_result.unwrap();
+
+        let mut full_response = proto::keystore::SaveInvitesResponse::new();
+        // For each request, process the sealed invite + other data to save a conversation
+        for request in request.requests {
+            let sealed_invitation_bytes = request.payload;
+            let save_result = self.save_invitation(&sealed_invitation_bytes);
+            let mut response = proto::keystore::save_invites_response::Response::new();
+            if save_result.is_err() {
+                let mut error_response = proto::keystore::KeystoreError::new();
+                error_response.message = save_result.err().unwrap();
+                error_response.code = protobuf::EnumOrUnknown::new(
+                    proto::keystore::ErrorCode::ERROR_CODE_UNSPECIFIED,
+                );
+                response.response = Some(
+                    proto::keystore::save_invites_response::response::Response::Error(
+                        error_response,
+                    ),
+                );
+                full_response.responses.push(response);
+                continue;
+            }
+            // Check if topic_keys has the content_topic
+            let topic_data = self.topic_keys.get(&request.content_topic);
+            // If not, then return an error
+            if topic_data.is_none() {
+                let mut error_response = proto::keystore::KeystoreError::new();
+                error_response.message = "could not find topic data".to_string();
+                error_response.code = protobuf::EnumOrUnknown::new(
+                    proto::keystore::ErrorCode::ERROR_CODE_UNSPECIFIED,
+                );
+                response.response = Some(
+                    proto::keystore::save_invites_response::response::Response::Error(
+                        error_response,
+                    ),
+                );
+                continue;
+            }
+
+            // Finally, if we have the topic data then add success + conversation object
+            let topic_data = topic_data.unwrap();
+            let mut success_conversation = proto::keystore::ConversationReference::new();
+            success_conversation.topic = request.content_topic;
+            success_conversation.created_ns = topic_data.created;
+            // Create invitation context from topic data context
+            let mut invitation_context = proto::invitation::invitation_v1::Context::new();
+            if topic_data.context.is_some() {
+                let context = topic_data.context.as_ref().unwrap();
+                invitation_context.conversation_id = context.conversation_id.clone();
+                for (key, value) in context.metadata.iter() {
+                    invitation_context
+                        .metadata
+                        .insert(key.to_string(), value.to_string());
+                }
+                success_conversation.context = Some(invitation_context).into();
+            }
+            let mut success = proto::keystore::save_invites_response::response::Success::new();
+            success.conversation = Some(success_conversation).into();
+
+            let mut success_response =
+                proto::keystore::save_invites_response::response::Response::Result(success);
+            response.response = Some(success_response);
+
+            full_response.responses.push(response);
+        }
+        return Ok(full_response.write_to_bytes().unwrap());
+    }
+
+    // Save single invitation
     pub fn save_invitation(&mut self, sealed_invitation_bytes: &[u8]) -> Result<bool, String> {
         // Check that self.private_key_bundle is set, otherwise return an error
         if self.private_key_bundle.is_none() {
