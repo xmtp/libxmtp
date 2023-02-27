@@ -1,8 +1,8 @@
-use ethers::core::rand::thread_rng;
-use ethers::signers::coins_bip39::{English, Mnemonic};
+use std::collections::HashMap;
 
 use protobuf;
 
+mod conversation;
 mod ecdh;
 mod encryption;
 mod ethereum_utils;
@@ -14,14 +14,15 @@ use keys::{
     public_key,
 };
 
+use conversation::{InvitationContext, TopicData};
+
 use base64::{engine::general_purpose, Engine as _};
-use ecdh::{ECDHDerivable, ECDHKey};
 
 pub struct Keystore {
     // Private key bundle powers most operations
     private_key_bundle: Option<PrivateKeyBundle>,
-    // List of invites
-    saved_invites: Vec<proto::invitation::InvitationV1>,
+    // Topic Keys
+    topic_keys: HashMap<String, TopicData>,
 }
 
 impl Keystore {
@@ -30,12 +31,35 @@ impl Keystore {
         Keystore {
             // Empty option for private key bundle
             private_key_bundle: None,
-            // Conversation store
-            saved_invites: Vec::new(),
+            // Topic keys
+            topic_keys: HashMap::new(),
         }
     }
 
     // == Keystore methods ==
+    // Set private identity key from protobuf bytes
+    pub fn set_private_key_bundle(&mut self, private_key_bundle: &[u8]) -> Result<(), String> {
+        // Deserialize protobuf bytes into a SignedPrivateKey struct
+        let private_key_result: protobuf::Result<proto::private_key::PrivateKeyBundle> =
+            protobuf::Message::parse_from_bytes(private_key_bundle);
+        if private_key_result.is_err() {
+            return Err("could not parse private key bundle".to_string());
+        }
+        // Get the private key from the result
+        let private_key = private_key_result.as_ref().unwrap();
+        let private_key_bundle = private_key.v2();
+
+        // If the deserialization was successful, set the privateIdentityKey field
+        if private_key_result.is_ok() {
+            self.private_key_bundle =
+                Some(PrivateKeyBundle::from_proto(&private_key_bundle).unwrap());
+            return Ok(());
+        } else {
+            return Err("could not parse private key bundle".to_string());
+        }
+    }
+
+    // Process proto::keystore::DecryptV1Request
     pub fn decrypt_v1(
         &self,
         request: proto::keystore::DecryptV1Request,
@@ -85,101 +109,97 @@ impl Keystore {
         response_proto.responses = responses;
         return Ok(response_proto);
     }
-    // == end keystore api ==
 
-    /** Rust implementation of this javascript code:
-     * let dh1: Uint8Array, dh2: Uint8Array, preKey: SignedPrivateKey
-     * if (isRecipient) {
-     *   preKey = this.findPreKey(myPreKey)
-     *   dh1 = preKey.sharedSecret(peer.identityKey)
-     *   dh2 = this.identityKey.sharedSecret(peer.preKey)
-     * } else {
-     *   preKey = this.findPreKey(myPreKey)
-     *   dh1 = this.identityKey.sharedSecret(peer.preKey)
-     *   dh2 = preKey.sharedSecret(peer.identityKey)
-     * }
-     * const dh3 = preKey.sharedSecret(peer.preKey)
-     * const secret = new Uint8Array(dh1.length + dh2.length + dh3.length)
-     * secret.set(dh1, 0)
-     * secret.set(dh2, dh1.length)
-     * secret.set(dh3, dh1.length + dh2.length)
-     * return secret
-     */
-    fn derive_shared_secret_xmtp(
-        &self,
-        peer_bundle: &SignedPublicKeyBundle,
-        my_prekey: &dyn ecdh::ECDHKey,
-        is_recipient: bool,
-    ) -> Result<Vec<u8>, String> {
-        // Check if self.private_key_bundle is set
+    // Save invites
+    pub fn save_invitation(&mut self, sealed_invitation_bytes: &[u8]) -> Result<bool, String> {
+        // Check that self.private_key_bundle is set, otherwise return an error
         if self.private_key_bundle.is_none() {
-            return Err("private key bundle is not set".to_string());
+            return Err("private key bundle not set yet".to_string());
         }
-        let private_key_bundle_ref = self.private_key_bundle.as_ref().unwrap();
-        let pre_key = private_key_bundle_ref
-            .find_pre_key(my_prekey.get_public_key())
-            .ok_or("could not find prekey in private key bundle".to_string())?;
-        let dh1: Vec<u8>;
-        let dh2: Vec<u8>;
-        // (STOPSHIP) TODO: better error handling
-        // Get the private key bundle
-        if is_recipient {
-            dh1 = pre_key.shared_secret(&peer_bundle.identity_key).unwrap();
-            dh2 = private_key_bundle_ref
-                .identity_key
-                .shared_secret(&peer_bundle.pre_key)
-                .unwrap();
-        } else {
-            dh1 = private_key_bundle_ref
-                .identity_key
-                .shared_secret(&peer_bundle.pre_key)
-                .unwrap();
-            dh2 = pre_key.shared_secret(&peer_bundle.identity_key).unwrap();
+
+        // Deserialize invitation bytes into a protobuf::invitation::InvitationV1 struct
+        let invitation_result: protobuf::Result<proto::invitation::SealedInvitation> =
+            protobuf::Message::parse_from_bytes(sealed_invitation_bytes);
+        if invitation_result.is_err() {
+            return Err("could not parse invitation".to_string());
         }
-        let dh3 = pre_key.shared_secret(&peer_bundle.pre_key).unwrap();
-        let secret = [dh1, dh2, dh3].concat();
-        return Ok(secret);
+        // Get the invitation from the result
+        let sealed_invitation = invitation_result.as_ref().unwrap();
+        let invitation = sealed_invitation.v1();
+
+        // Need to parse the header_bytes as protobuf::invitation::SealedInvitationHeaderV1
+        let header_result: protobuf::Result<proto::invitation::SealedInvitationHeaderV1> =
+            protobuf::Message::parse_from_bytes(&invitation.header_bytes);
+        if header_result.is_err() {
+            return Err("could not parse invitation header".to_string());
+        }
+        // Get the invitation header from the result
+        let invitation_header = header_result.as_ref().unwrap();
+
+        // Check the header time from the sealed invite
+        // TODO: check header time from the sealed invite
+        let header_time = invitation_header.created_ns;
+
+        // Attempt to decrypt the invitation
+        let decrypt_result = self
+            .private_key_bundle
+            .as_ref()
+            .unwrap()
+            .unseal_invitation(&invitation, &invitation_header);
+        if decrypt_result.is_err() {
+            return Err("could not decrypt invitation".to_string());
+        }
+        // Get the decrypted invitation from the result
+        let decrypted_invitation = decrypt_result.unwrap();
+
+        // Encryption field should contain the key bytes
+        let key_bytes = decrypted_invitation
+            .aes256_gcm_hkdf_sha256()
+            .key_material
+            .as_slice();
+
+        // Context field should contain conversationId
+        let conversation_id = &decrypted_invitation.context.conversation_id;
+        let mut context_fields = HashMap::new();
+        // Iterate through metadata map and add to context_fields
+        for key in decrypted_invitation.context.metadata.keys() {
+            context_fields.insert(
+                key.to_string(),
+                decrypted_invitation.context.metadata[key].to_string(),
+            );
+        }
+
+        // TODO: process additional metadata here
+        let topic = &decrypted_invitation.topic;
+
+        self.topic_keys.insert(
+            decrypted_invitation.topic.clone(),
+            TopicData {
+                key: key_bytes.to_vec(),
+                context: Some(InvitationContext {
+                    conversation_id: conversation_id.to_string(),
+                    metadata: context_fields,
+                }),
+                created: header_time,
+            },
+        );
+
+        return Ok(true);
     }
 
-    // Set private identity key from protobuf bytes
-    pub fn set_private_key_bundle(&mut self, private_key_bundle: &[u8]) {
-        // Deserialize protobuf bytes into a SignedPrivateKey struct
-        let private_key_result: protobuf::Result<proto::private_key::PrivateKeyBundle> =
-            protobuf::Message::parse_from_bytes(private_key_bundle);
-        if private_key_result.is_err() {
-            return;
+    pub fn getTopicKey(&self, topic_id: &str) -> Option<Vec<u8>> {
+        let topic_data = self.topic_keys.get(topic_id);
+        if topic_data.is_none() {
+            return None;
         }
-        // Get the private key from the result
-        let private_key = private_key_result.as_ref().unwrap();
-        let private_key_bundle = private_key.v2();
-
-        // If the deserialization was successful, set the privateIdentityKey field
-        if private_key_result.is_ok() {
-            self.private_key_bundle =
-                Some(PrivateKeyBundle::from_proto(&private_key_bundle).unwrap());
-        }
+        return Some(topic_data.unwrap().key.clone());
     }
-
-    pub fn generate_mnemonic(&self) -> String {
-        let mut rng = thread_rng();
-        let mnemonic = Mnemonic::<English>::new_with_count(&mut rng, 12).unwrap();
-        let phrase = mnemonic.to_phrase();
-        // split the phrase by spaces
-        let words: Vec<String> = phrase.unwrap().split(" ").map(|s| s.to_string()).collect();
-        return words.join(" ");
-    }
+    // == end keystore api ==
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn generate_mnemonic_works() {
-        let x = Keystore::new();
-        let mnemonic = x.generate_mnemonic();
-        assert_eq!(mnemonic.split(" ").count(), 12);
-    }
 
     #[test]
     fn test_hkdf_simple() {
@@ -382,13 +402,46 @@ mod tests {
         let pre_key_object = public_key::signed_public_key_from_proto(&pre_key_proto).unwrap();
 
         // Do a x3dh shared secret derivation
-        let shared_secret_result =
-            x.derive_shared_secret_xmtp(&peer_bundle_object, &pre_key_object, is_recipient);
+        let shared_secret_result = x
+            .private_key_bundle
+            .expect("Must be present for test")
+            .derive_shared_secret_xmtp(&peer_bundle_object, &pre_key_object, is_recipient);
         assert!(shared_secret_result.is_ok());
         let shared_secret = shared_secret_result.unwrap();
         assert_eq!(
             shared_secret,
             general_purpose::STANDARD.decode(secret).unwrap()
         );
+    }
+
+    #[test]
+    fn test_decrypt_invite() {
+        let alice_private_b64 = "EpYDCsgBCICHs+6ZvJKjFxIiCiCNtoFf4wgcj3UH5Nhy6vHD94+HbVWUAdYlQ9IYGMv5tBqXAQpPCICHs+6ZvJKjFxpDCkEEYYEjMNUf/Eu1hJH8aZJ8bJrfVitQLGCq0P2QFcEsetPpIHHvB7vqZEctGvq13pbQbkx+LTuKUMwT+cYR6OVBQBJEEkIKQPbipTP3/U4jWwRLI8SbrDJMttTFe+2p55buL9+IUOkCM/IYaB2teaprjWXHhs3dNEkOiI1c5dLeGNrAFBfgYHMSyAEIwIfKiZq8kqMXEiIKIAOcJgVnEPy1OPad9KytYnvN+X67I33mqVKlHMqU9qsZGpcBCk8IwIfKiZq8kqMXGkMKQQTU6+Vdl4ZzsJrhRQvz2Nl7+e8CNdMY04OnC1u5JYZ6ECN+Kez0pJwc2YhypqFisyWuq6s5+FhIa83A6RAtI264EkQKQgpAHH18U/ykyjLFg5T59c35tt/TLZ5lnHwWJGDLaRZAlR81UVfW634+SvEijLbS0IWJ5ZZblwbvMarvfjm0G2i0aw==";
+        let bob_private_b64 = "EpYDCsgBCID/5qOavJKjFxIiCiAEu89bIFnCDu1NvDUnPrcW/QwVoBD3MBkDmSW8JCb6gxqXAQpPCID/5qOavJKjFxpDCkEETNqXya/QxjDTgOqgUkrxFEmasoNc9GY83nREU6IXWAhbUzWLbpapP6fVN7adTmG97tztFDb/Zo9K4yxtZ54rUxJEEkIKQNZWu3UbXoDzeY2FPXLWBcMtf0dXCTlGppv8jRWNLRyvaBSpfaXc7QdeKtbIWUKq5rgd88OWkHhZjgA0NPGBqMASyAEIwKW5tZq8kqMXEiIKIMoytCr53r3f/k9Wae/QPdGdPWsAPSLQWFwVez5K8ZGxGpcBCk8IwKW5tZq8kqMXGkMKQQRX0e1CP6Jc5kbjtXF1oxgbFciNSt002UlP4ZS6vDmkCYvQyclEtY3TQcrBXSNNK2JbDwu30+1z+h6DqasrMJc6EkQKQgpAw2rkuwL7e0s3XrrtY6+YhEMmh2nijAMFQKXPFa8edKE1LfMqp0IAGhYXBiGlV7A7yPZDXLLasf11Uy4ww2Wiyw==";
+        let alice_invite_b64 = "CtgGCvgECrQCCpcBCk8IgIez7pm8kqMXGkMKQQRhgSMw1R/8S7WEkfxpknxsmt9WK1AsYKrQ/ZAVwSx60+kgce8Hu+pkRy0a+rXeltBuTH4tO4pQzBP5xhHo5UFAEkQSQgpA9uKlM/f9TiNbBEsjxJusMky21MV77annlu4v34hQ6QIz8hhoHa15qmuNZceGzd00SQ6IjVzl0t4Y2sAUF+BgcxKXAQpPCMCHyomavJKjFxpDCkEE1OvlXZeGc7Ca4UUL89jZe/nvAjXTGNODpwtbuSWGehAjfins9KScHNmIcqahYrMlrqurOfhYSGvNwOkQLSNuuBJECkIKQBx9fFP8pMoyxYOU+fXN+bbf0y2eZZx8FiRgy2kWQJUfNVFX1ut+PkrxIoy20tCFieWWW5cG7zGq7345tBtotGsStAIKlwEKTwiA/+ajmrySoxcaQwpBBEzal8mv0MYw04DqoFJK8RRJmrKDXPRmPN50RFOiF1gIW1M1i26WqT+n1Te2nU5hve7c7RQ2/2aPSuMsbWeeK1MSRBJCCkDWVrt1G16A83mNhT1y1gXDLX9HVwk5Rqab/I0VjS0cr2gUqX2l3O0HXirWyFlCqua4HfPDlpB4WY4ANDTxgajAEpcBCk8IwKW5tZq8kqMXGkMKQQRX0e1CP6Jc5kbjtXF1oxgbFciNSt002UlP4ZS6vDmkCYvQyclEtY3TQcrBXSNNK2JbDwu30+1z+h6DqasrMJc6EkQKQgpAw2rkuwL7e0s3XrrtY6+YhEMmh2nijAMFQKXPFa8edKE1LfMqp0IAGhYXBiGlV7A7yPZDXLLasf11Uy4ww2WiyxiAqva1mrySoxcS2gEK1wEKIPl1rD6K3Oj8Ps+zIzfp+n2/hUKqE/ORkHOsZ8kJpIFtEgwb7/dw52hTPD37IsYapAGAJTWRotzIHUtMu1bLd7izktJOh3cJ+ZXODtho02lsNp6DuwNIoEXesdoFRtVZCYqvaiOwnctX+nnPsSfemDmQ1mJ/o4sZyvFAF25ufSBaBqRJeyQjUBbfyuJSWYoDiqAAAMzsWPzrPeVJZFXrcOdDSTA11b+MevlfzcFjitqv/0J2j+pcQo4RFOgtpFK9cUkbcIB2xjRBRXOUQL89BuyMQmb+gg==";
+        let bob_public_key_b64 = "CpcBCk8IgP/mo5q8kqMXGkMKQQRM2pfJr9DGMNOA6qBSSvEUSZqyg1z0ZjzedERTohdYCFtTNYtulqk/p9U3tp1OYb3u3O0UNv9mj0rjLG1nnitTEkQSQgpA1la7dRtegPN5jYU9ctYFwy1/R1cJOUamm/yNFY0tHK9oFKl9pdztB14q1shZQqrmuB3zw5aQeFmOADQ08YGowBKXAQpPCMClubWavJKjFxpDCkEEV9HtQj+iXOZG47VxdaMYGxXIjUrdNNlJT+GUurw5pAmL0MnJRLWN00HKwV0jTStiWw8Lt9Ptc/oeg6mrKzCXOhJECkIKQMNq5LsC+3tLN1667WOvmIRDJodp4owDBUClzxWvHnShNS3zKqdCABoWFwYhpVewO8j2Q1yy2rH9dVMuMMNloss=";
+        let alice_public_key_b64 = "CpcBCk8IgIez7pm8kqMXGkMKQQRhgSMw1R/8S7WEkfxpknxsmt9WK1AsYKrQ/ZAVwSx60+kgce8Hu+pkRy0a+rXeltBuTH4tO4pQzBP5xhHo5UFAEkQSQgpA9uKlM/f9TiNbBEsjxJusMky21MV77annlu4v34hQ6QIz8hhoHa15qmuNZceGzd00SQ6IjVzl0t4Y2sAUF+BgcxKXAQpPCMCHyomavJKjFxpDCkEE1OvlXZeGc7Ca4UUL89jZe/nvAjXTGNODpwtbuSWGehAjfins9KScHNmIcqahYrMlrqurOfhYSGvNwOkQLSNuuBJECkIKQBx9fFP8pMoyxYOU+fXN+bbf0y2eZZx8FiRgy2kWQJUfNVFX1ut+PkrxIoy20tCFieWWW5cG7zGq7345tBtotGs=";
+        let expected_key_material_b64 = "pCZEyn0gkwTrNDOlewVGTHYuqXdWzv9s+WKUWCtdFCk=";
+        let topic_bytes = [
+            210, 86, 199, 2, 239, 247, 51, 208, 205, 197, 32, 162, 215, 110, 185, 7, 115, 73, 7,
+            223, 5, 10, 75, 19, 252, 160, 139, 241, 4, 205, 128, 152,
+        ];
+
+        // Create a keystore, then save Alice's private key bundle
+        let mut x = Keystore::new();
+        let set_private_result = x.set_private_key_bundle(
+            &general_purpose::STANDARD
+                .decode(alice_private_b64.as_bytes())
+                .unwrap(),
+        );
+        assert!(set_private_result.is_ok());
+
+        // Save an invite for alice
+        let save_invite_result = x.save_invitation(
+            &general_purpose::STANDARD
+                .decode(alice_invite_b64.as_bytes())
+                .unwrap(),
+        );
+        assert!(save_invite_result.is_ok());
     }
 }

@@ -1,4 +1,4 @@
-import init, { InitInput, generate_mnemonic } from "./pkg/libxmtp.js";
+import init, { InitInput, set_private_key_bundle, save_invitation } from "./pkg/libxmtp.js";
 
 export interface PackageLoadOptions {
   /**
@@ -17,8 +17,12 @@ let initialized: Promise<void> | undefined = undefined;
 export class XmtpApi {
   private constructor() {}
 
-  public generateMnemonic(): string {
-    return generate_mnemonic();
+  public setPrivateKeyBundle(bundle: Uint8Array): boolean {
+    return set_private_key_bundle(bundle);
+  }
+
+  public saveInvitation(invite: Uint8Array): boolean {
+    return save_invitation(invite);
   }
 
   /**
