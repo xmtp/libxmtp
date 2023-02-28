@@ -85,15 +85,21 @@ sourceSets {
     }
 }
 
-task javadoc(type: Javadoc) {
-    failOnError false
-    source = sourceSets.main.java.srcDirs
-    classpath += project.files(android.getBootClasspath().join(File.pathSeparator))
+task androidSourcesJar(type: Jar) {
+    archiveClassifier.set('sources')
+    if (project.plugins.findPlugin("com.android.library")) {
+        from android.sourceSets.main.java.srcDirs
+        from android.sourceSets.main.kotlin.srcDirs
+    } else {
+        from sourceSets.main.java.srcDirs
+        from sourceSets.main.kotlin.srcDirs
+    }
 }
 
-task sourcesJar(type: Jar) {
-    classifier = "sources"
-    from sourceSets.main.java.srcDirs
+task javadoc(type: Javadoc) {
+    failOnError false
+    source = android.sourceSets.main.java.srcDirs
+    classpath += project.files(android.getBootClasspath().join(File.pathSeparator))
 }
 
 task javadocJar(type: Jar, dependsOn: javadoc) {
@@ -102,7 +108,7 @@ task javadocJar(type: Jar, dependsOn: javadoc) {
 }
 
 artifacts {
-    archives javadocJar, sourcesJar
+    archives javadocJar, androidSourcesJar
 }
 
 afterEvaluate {
@@ -112,8 +118,14 @@ afterEvaluate {
                 groupId = "org.xmtp"
                 artifactId = "android"
                 version = System.getenv("RELEASE_VERSION")
-                from components.release
-                artifact sourcesJar
+
+                if (project.plugins.findPlugin("com.android.library")) {
+                    from components.release
+                } else {
+                    from components.java
+                }
+
+                artifact androidSourcesJar
                 artifact javadocJar
 
                 pom {
