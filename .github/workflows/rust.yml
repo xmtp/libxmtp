@@ -1,0 +1,26 @@
+name: Test
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+jobs:
+  test-keystore:
+   name: Test Keystore
+   runs-on: ubuntu-latest
+   steps:
+     - name: Checkout sources
+       uses: actions/checkout@v2
+
+     - name: Install stable toolchain
+       uses: actions-rs/toolchain@v1
+       with:
+         profile: minimal
+         toolchain: stable
+         override: true
+
+     - name: Run cargo test
+       uses: actions-rs/cargo@v1
+       with:
+         command: test
+         args: --manifest-path crates/xmtp-keystore/Cargo.toml
