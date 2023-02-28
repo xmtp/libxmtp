@@ -62,6 +62,13 @@ export class Keystore {
     return keystore.DecryptResponse.decode(responseBytes);
   }
 
+  decryptV2(request: keystore.DecryptV2Request): keystore.DecryptResponse {
+    // First, serialize the request to a Uint8Array
+    const requestBytes = keystore.DecryptV2Request.encode(request).finish();
+    const responseBytes = this.wasmModule.decryptV2(this.handle, requestBytes);
+    return keystore.DecryptResponse.decode(responseBytes);
+  }
+
   saveInvites(request: keystore.SaveInvitesRequest): keystore.SaveInvitesResponse {
     const requestBytes = keystore.SaveInvitesRequest.encode(request).finish();
     const responseBytes = this.wasmModule.saveInvites(this.handle, requestBytes);

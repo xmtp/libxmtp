@@ -7,8 +7,10 @@ mod conversation;
 mod ecdh;
 mod encryption;
 mod ethereum_utils;
+mod invitation;
 pub mod keys;
 pub mod proto;
+use invitation::Invitation;
 use keys::{
     key_bundle::{PrivateKeyBundle, PublicKeyBundle, SignedPublicKeyBundle},
     private_key::SignedPrivateKey,
@@ -308,14 +310,11 @@ impl Keystore {
         }
 
         // Deserialize invitation bytes into a protobuf::invitation::InvitationV1 struct
-        let invitation_result: protobuf::Result<proto::invitation::SealedInvitation> =
-            protobuf::Message::parse_from_bytes(sealed_invitation_bytes);
+        let invitation_result = Invitation::sealed_invitation_from_bytes(sealed_invitation_bytes);
         if invitation_result.is_err() {
             return Err("could not parse invitation".to_string());
         }
-        // Get the invitation from the result
-        let sealed_invitation = invitation_result.as_ref().unwrap();
-        let invitation = sealed_invitation.v1();
+        let invitation = invitation_result.unwrap();
 
         // Need to parse the header_bytes as protobuf::invitation::SealedInvitationHeaderV1
         let header_result: protobuf::Result<proto::invitation::SealedInvitationHeaderV1> =
