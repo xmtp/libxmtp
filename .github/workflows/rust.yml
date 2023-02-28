@@ -19,38 +19,5 @@ jobs:
 
      - name: Run cargo test
        uses: actions-rs/cargo@v1
-       continue-on-error: true  # WARNING: only for this example, remove it!
        with:
-         cwd: crates/xmtp-keystore
-         command: test
-
-  lints:
-    name: Lints
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout sources
-        uses: actions/checkout@v2
-
-      - name: Install stable toolchain
-        uses: actions-rs/toolchain@v1
-        with:
-          profile: minimal
-          toolchain: stable
-          override: true
-          components: rustfmt, clippy
-
-      - name: Run cargo fmt
-        uses: actions-rs/cargo@v1
-        continue-on-error: true  # WARNING: only for this example, remove it!
-        with:
-          cwd: crates/xmtp-keystore
-          command: fmt
-          args: --all -- --check
-
-      - name: Run cargo clippy
-        uses: actions-rs/cargo@v1
-        continue-on-error: true  # WARNING: only for this example, remove it!
-        with:
-          cwd: crates/xmtp-keystore
-          command: clippy
-          args: -- -D warnings
+         command: test --manifest-path crates/xmtp-keystore/Cargo.toml
