@@ -165,7 +165,13 @@ public class FakeApiClient: ApiClient {
 					result = []
 				}
 			} else {
-				result = Array(result[0 ... limit - 1])
+				let maxBound = min(result.count, limit) - 1
+
+				if maxBound <= 0 {
+					result = []
+				} else {
+					result = Array(result[0 ... maxBound])
+				}
 			}
 		}
 
