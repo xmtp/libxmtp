@@ -63,8 +63,6 @@ public class Client {
 	static var codecRegistry = {
 		var registry = CodecRegistry()
 		registry.register(codec: TextCodec())
-		registry.register(codec: AttachmentCodec())
-		registry.register(codec: RemoteAttachmentCodec())
 		return registry
 	}()
 

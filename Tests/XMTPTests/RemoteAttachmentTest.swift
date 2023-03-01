@@ -30,6 +30,9 @@ class RemoteAttachmentTests: XCTestCase {
 	}
 
 	func testBasic() async throws {
+		Client.register(codec: AttachmentCodec())
+		Client.register(codec: RemoteAttachmentCodec())
+
 		let fixtures = await fixtures()
 		let conversation = try await fixtures.aliceClient.conversations.newConversation(with: fixtures.bobClient.address)
 		let enecryptedEncodedContent = try RemoteAttachment.encodeEncrypted(content: "Hello", codec: TextCodec())
@@ -41,6 +44,9 @@ class RemoteAttachmentTests: XCTestCase {
 	}
 
 	func testCanUseAttachmentCodec() async throws {
+		Client.register(codec: AttachmentCodec())
+		Client.register(codec: RemoteAttachmentCodec())
+
 		let fixtures = await fixtures()
 		guard case let .v2(conversation) = try await fixtures.aliceClient.conversations.newConversation(with: fixtures.bobClient.address) else {
 			XCTFail("no v2 convo")
@@ -87,6 +93,9 @@ class RemoteAttachmentTests: XCTestCase {
 	}
 
 	func testCannotUseNonHTTPSUrl() async throws {
+		Client.register(codec: AttachmentCodec())
+		Client.register(codec: RemoteAttachmentCodec())
+
 		let fixtures = await fixtures()
 		guard case let .v2(conversation) = try await fixtures.aliceClient.conversations.newConversation(with: fixtures.bobClient.address) else {
 			XCTFail("no v2 convo")
