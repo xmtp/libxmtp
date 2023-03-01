@@ -64,7 +64,6 @@ class RemoteAttachmentTests: XCTestCase {
 		// We only allow https:// urls for remote attachments, but it didn't seem worthwhile to spin up a local web server
 		// for this, so we use the TestFetcher to swap the protocols
 		let fakeHTTPSFileURL = URL(string: tempFileURL.absoluteString.replacingOccurrences(of: "file://", with: "https://"))!
-		print("\(fakeHTTPSFileURL)")
 		var content = try RemoteAttachment(url: fakeHTTPSFileURL.absoluteString, encryptedEncodedContent: encryptedEncodedContent)
 		content.filename = "icon.png"
 		content.contentLength = 123
@@ -118,5 +117,39 @@ class RemoteAttachmentTests: XCTestCase {
 				XCTFail("did not raise correct error")
 			}
 		}
+	}
+
+	func testVerifiesContentDigest() async throws {
+		let fixtures = await fixtures()
+		guard case let .v2(conversation) = try await fixtures.aliceClient.conversations.newConversation(with: fixtures.bobClient.address) else {
+			XCTFail("no v2 convo")
+			return
+		}
+
+		let encryptedEncodedContent = try RemoteAttachment.encodeEncrypted(
+			content: Attachment(filename: "icon.png", mimeType: "image/png", data: iconData),
+			codec: AttachmentCodec()
+		)
+
+		let tempFileURL = URL.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+		try encryptedEncodedContent.payload.write(to: tempFileURL)
+		let fakeHTTPSFileURL = URL(string: tempFileURL.absoluteString.replacingOccurrences(of: "file://", with: "https://"))!
+		var remoteAttachment = try RemoteAttachment(url: fakeHTTPSFileURL.absoluteString, encryptedEncodedContent: encryptedEncodedContent)
+		remoteAttachment.fetcher = TestFetcher()
+		let expect = expectation(description: "raised error")
+
+		// Tamper with content
+		try Data([1,2,3,4,5]).write(to: tempFileURL)
+
+		do {
+			_ = try await remoteAttachment.content()
+		} catch {
+			if let error = error as? RemoteAttachmentError, case let .invalidDigest(message) = error {
+				XCTAssert(message.hasPrefix("content digest does not match"))
+				expect.fulfill()
+			}
+		}
+
+		wait(for: [expect], timeout: 3)
 	}
 }
