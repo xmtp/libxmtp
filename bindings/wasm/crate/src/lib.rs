@@ -1,9 +1,9 @@
-use std::sync::Mutex;
 use std::collections::HashMap;
+use std::sync::Mutex;
 
+use js_sys::{Array, Uint8Array};
 use wasm_bindgen::prelude::*;
 use xmtp_keystore::Keystore;
-use js_sys::{Array, Uint8Array};
 
 #[macro_use]
 extern crate lazy_static;

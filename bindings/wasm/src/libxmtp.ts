@@ -53,26 +53,32 @@ export class Keystore {
     this.handle = handle;
   }
 
-  decryptV1(request: keystore.DecryptV1Request): keystore.DecryptResponse {
+  decryptV1(request: keystore.DecryptV1Request): Promise<keystore.DecryptResponse> {
     // First, serialize the request to a Uint8Array
     const requestBytes = keystore.DecryptV1Request.encode(request).finish();
     // Then, call the Wasm module to decrypt the request
     const responseBytes = this.wasmModule.decryptV1(this.handle, requestBytes);
     // Finally, deserialize the response
-    return keystore.DecryptResponse.decode(responseBytes);
+    return new Promise((resolve, reject) => {
+      resolve(keystore.DecryptResponse.decode(responseBytes));
+    });
   }
 
-  decryptV2(request: keystore.DecryptV2Request): keystore.DecryptResponse {
+  decryptV2(request: keystore.DecryptV2Request): Promise<keystore.DecryptResponse> {
     // First, serialize the request to a Uint8Array
     const requestBytes = keystore.DecryptV2Request.encode(request).finish();
     const responseBytes = this.wasmModule.decryptV2(this.handle, requestBytes);
-    return keystore.DecryptResponse.decode(responseBytes);
+    return new Promise((resolve, reject) => {
+      resolve(keystore.DecryptResponse.decode(responseBytes));
+    });
   }
 
-  saveInvites(request: keystore.SaveInvitesRequest): keystore.SaveInvitesResponse {
+  saveInvites(request: keystore.SaveInvitesRequest): Promise<keystore.SaveInvitesResponse> {
     const requestBytes = keystore.SaveInvitesRequest.encode(request).finish();
     const responseBytes = this.wasmModule.saveInvites(this.handle, requestBytes);
-    return keystore.SaveInvitesResponse.decode(responseBytes);
+    return new Promise((resolve, reject) => {
+      resolve(keystore.SaveInvitesResponse.decode(responseBytes));
+    });
   }
 
   getV2Conversations(): keystore.ConversationReference[] {
