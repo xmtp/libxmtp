@@ -1,6 +1,6 @@
 # WARNING: DO NOT USE FOR PRODUCTION XMTP CLIENTS
 
-This code is preliminary and meant for benchmarking.
+This code is preliminary and meant for benchmarking. See latest progress `benchmark` branch.
 
 # Libxmtp
 
@@ -13,11 +13,16 @@ Top-level
  - crates/xmtp-keystore - first crate, implements the Keystore API in Rust
 - bindings/wasm - depends on libxmtp to generate a WASM library and bindings
 
+## Rust Keystore QuickStart
+
+- cd `crates/xmtp-keystore`
+- `cargo test`
+
 ## WASM QuickStart
 
 - cd `bindings/wasm`
 - Run `npm run build` to build the rust crate and Node.js bindings.
-- Run `npm run prepublishOnly` to run tests that 1) check XmtpApi instantiation and 2) check that a 12 word mnemonic can be generated
+- Run `npm run test` to build the xmtp-keystore crate, the wasm bindings crate and run against Node.js tests
 
 ## Tests
 
