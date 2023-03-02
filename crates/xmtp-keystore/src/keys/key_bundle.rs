@@ -160,12 +160,12 @@ impl PrivateKeyBundle {
         let payload = &ciphertext.payload;
 
         // Try decrypting the invitation
-        let decrypt_result = encryption::decrypt_v1_with_associated_data(
+        let decrypt_result = encryption::decrypt_v1(
             payload,
             hkdf_salt,
             gcm_nonce,
             &secret,
-            &sealed_invitation.header_bytes,
+            Some(&sealed_invitation.header_bytes),
         );
         if decrypt_result.is_err() {
             return Err("could not decrypt invitation".to_string());
