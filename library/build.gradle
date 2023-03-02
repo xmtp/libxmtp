@@ -77,38 +77,33 @@ dependencies {
     androidTestImplementation 'androidx.test.espresso:espresso-core:3.5.1'
 }
 
-sourceSets {
-    main {
-        java {
-            srcDirs = ["src/main/java"]
+task androidJavadocs(type: Javadoc) {
+    source = android.sourceSets.main.java.srcDirs
+    classpath += project.files(android.getBootClasspath().join(File.pathSeparator))
+    android.libraryVariants.all { variant ->
+        if (variant.name == 'release') {
+            owner.classpath += variant.javaCompileProvider.get().classpath
         }
     }
+    exclude '**/R.html', '**/R.*.html', '**/index.html'
+}
+
+task androidJavadocsJar(type: Jar, dependsOn: androidJavadocs) {
+    archiveClassifier.set('javadoc')
+    from androidJavadocs.destinationDir
 }
 
 task androidSourcesJar(type: Jar) {
     archiveClassifier.set('sources')
-    if (project.plugins.findPlugin("com.android.library")) {
-        from android.sourceSets.main.java.srcDirs
-        from android.sourceSets.main.kotlin.srcDirs
-    } else {
-        from sourceSets.main.java.srcDirs
-        from sourceSets.main.kotlin.srcDirs
-    }
+    from android.sourceSets.main.java.srcDirs
 }
 
-task javadoc(type: Javadoc) {
-    failOnError false
-    source = android.sourceSets.main.java.srcDirs
-    classpath += project.files(android.getBootClasspath().join(File.pathSeparator))
-}
-
-task javadocJar(type: Jar, dependsOn: javadoc) {
-    classifier = "javadoc"
-    from javadoc.destinationDir
+tasks.withType(Javadoc).all {
+    enabled = false
 }
 
 artifacts {
-    archives javadocJar, androidSourcesJar
+    archives androidJavadocsJar, androidSourcesJar
 }
 
 afterEvaluate {
@@ -126,7 +121,7 @@ afterEvaluate {
                 }
 
                 artifact androidSourcesJar
-                artifact javadocJar
+                artifact androidJavadocsJar
 
                 pom {
                     name = "XMTP"
