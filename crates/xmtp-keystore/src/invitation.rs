@@ -9,7 +9,6 @@ pub struct InvitationV1 {}
 
 // Contains a bunch of static methods to process invitations
 impl InvitationV1 {
-
     pub fn sealed_invitation_from_bytes(
         bytes: &[u8],
     ) -> Result<proto::invitation::SealedInvitationV1, String> {
@@ -50,16 +49,17 @@ impl InvitationV1 {
         // Fill bytes with thread_rng which  implements CryptoRng marker trait
         rand::thread_rng().fill_bytes(&mut random_bytes_buffer);
         // Generate 32 random bytes, then base64 encode, then remove trailing =, then replace / with -
-        let random_bytes_b64 = general_purpose::STANDARD
+        let mut random_bytes_b64 = general_purpose::STANDARD
             .encode(&random_bytes_buffer)
-            .replace("/", "-")
-            .trim_end_matches("=");
+            .replace("/", "-");
+        random_bytes_b64 = random_bytes_b64.trim_end_matches('=').to_string();
         // Build topic
         let topic = Topic::build_direct_message_topic_v2(&random_bytes_b64);
 
         let mut key_material_bytes = [0u8; 32];
         rand::thread_rng().fill_bytes(&mut key_material_bytes);
-        let mut aes256_gcm_hkdf_sha256 = proto::invitation::invitation_v1::Aes256gcmHkdfsha256::new();
+        let mut aes256_gcm_hkdf_sha256 =
+            proto::invitation::invitation_v1::Aes256gcmHkdfsha256::new();
         aes256_gcm_hkdf_sha256.key_material = key_material_bytes.to_vec();
         invitation.set_aes256_gcm_hkdf_sha256(aes256_gcm_hkdf_sha256);
         invitation.topic = topic;

@@ -54,7 +54,10 @@ pub fn to_unsigned_public_key_proto(
     return unsigned_public_key;
 }
 
-pub fn to_signed_public_key_proto(public_key: &PublicKey, created_at: u64) -> proto::public_key::SignedPublicKey {
+pub fn to_signed_public_key_proto(
+    public_key: &PublicKey,
+    created_at: u64,
+) -> proto::public_key::SignedPublicKey {
     // First, get the UnsignedPublicKey proto
     let unsigned_public_key = to_unsigned_public_key_proto(public_key, created_at);
 

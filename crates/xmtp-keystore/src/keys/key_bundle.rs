@@ -8,6 +8,8 @@ use super::public_key;
 
 use crate::ecdh::ECDHDerivable;
 
+use protobuf::Message;
+
 pub struct PrivateKeyBundle {
     // Underlying protos
     private_key_bundle_proto: proto::private_key::PrivateKeyBundleV2,
@@ -97,8 +99,16 @@ impl PrivateKeyBundle {
 
         let mut signed_public_key_bundle_proto = proto::public_key::SignedPublicKeyBundle::new();
         // Use SignedPublicKey types for both identity_key and pre_key
-        signed_public_key_bundle_proto.identity_key = Some(public_key::to_signed_public_key_proto(&public_key_bundle.identity_key.unwrap(), 0)).into();
-        signed_public_key_bundle_proto.pre_key = Some(public_key::to_signed_public_key_proto(&public_key_bundle.pre_key.unwrap(), 0)).into();
+        signed_public_key_bundle_proto.identity_key = Some(public_key::to_signed_public_key_proto(
+            &public_key_bundle.identity_key.unwrap(),
+            0,
+        ))
+        .into();
+        signed_public_key_bundle_proto.pre_key = Some(public_key::to_signed_public_key_proto(
+            &public_key_bundle.pre_key.unwrap(),
+            0,
+        ))
+        .into();
 
         return signed_public_key_bundle_proto;
     }
@@ -206,7 +216,7 @@ impl PrivateKeyBundle {
         &self,
         sealed_invitation_header: &proto::invitation::SealedInvitationHeaderV1,
         invitation: &proto::invitation::InvitationV1,
-    ) -> Result<proto::invitation::InvitationV1, String> {
+    ) -> Result<proto::invitation::SealedInvitationV1, String> {
         // Parse public key bundles from sealed_invitation header
         let sender_public_key_bundle =
             SignedPublicKeyBundle::from_proto(&sealed_invitation_header.sender).unwrap();
@@ -238,35 +248,33 @@ impl PrivateKeyBundle {
             secret = secret_result.unwrap();
         }
 
-        // Unwrap ciphertext
-        let ciphertext = sealed_invitation.ciphertext.aes256_gcm_hkdf_sha256();
+        // Serialize invitation into bytes
+        let invitation_bytes = invitation.write_to_bytes().unwrap();
+        let header_bytes = sealed_invitation_header.write_to_bytes().unwrap();
 
-        let hkdf_salt = &ciphertext.hkdf_salt;
-        let gcm_nonce = &ciphertext.gcm_nonce;
-        let payload = &ciphertext.payload;
-
-        // Try decrypting the invitation
-        let encrypt_result = encryption::decrypt_v1_with_associated_data(
-            payload,
-            hkdf_salt,
-            gcm_nonce,
-            &secret,
-            &sealed_invitation.header_bytes,
-        );
-        if decrypt_result.is_err() {
-            return Err("could not decrypt invitation".to_string());
+        // Encrypt invitation bytes
+        let ciphertext_result =
+            encryption::encrypt_v1(&invitation_bytes, &secret, Some(&header_bytes));
+        if ciphertext_result.is_err() {
+            return Err("could not encrypt invitation".to_string());
         }
-        let decrypted_bytes = decrypt_result.unwrap();
+        let ciphertext: encryption::Ciphertext = ciphertext_result.unwrap();
 
-        // Deserialize invitation bytes into a protobuf::invitation::InvitationV1 struct
-        let invitation_result: protobuf::Result<proto::invitation::InvitationV1> =
-            protobuf::Message::parse_from_bytes(&decrypted_bytes);
-        if invitation_result.is_err() {
-            return Err("could not parse invitation from decrypted bytes".to_string());
-        }
-        // Get the invitation from the result
-        let invitation = invitation_result.as_ref().unwrap();
-        return Ok(invitation.clone());
+        // Convert ciphertext to protobuf::encryption::Ciphertext
+        let mut ciphertext_aes256_gcm_hkdf_sha256 =
+            proto::ciphertext::ciphertext::Aes256gcmHkdfsha256::new();
+        ciphertext_aes256_gcm_hkdf_sha256.hkdf_salt = ciphertext.hkdf_salt;
+        ciphertext_aes256_gcm_hkdf_sha256.gcm_nonce = ciphertext.gcm_nonce;
+        ciphertext_aes256_gcm_hkdf_sha256.payload = ciphertext.payload;
+        let mut ciphertext_proto = proto::ciphertext::Ciphertext::new();
+        ciphertext_proto.set_aes256_gcm_hkdf_sha256(ciphertext_aes256_gcm_hkdf_sha256);
+
+        // New SealedInvitation
+        let mut sealed_invitation = proto::invitation::SealedInvitationV1::new();
+        sealed_invitation.header_bytes = header_bytes;
+        sealed_invitation.ciphertext = Some(ciphertext_proto).into();
+
+        return Ok(sealed_invitation);
     }
 }
 

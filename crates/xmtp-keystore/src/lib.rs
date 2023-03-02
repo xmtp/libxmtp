@@ -224,6 +224,33 @@ impl Keystore {
         return Ok(response_proto.write_to_bytes().unwrap());
     }
 
+    fn get_conversation_from_topic(
+        &self,
+        topic: &str,
+    ) -> Result<proto::keystore::ConversationReference, String> {
+        let topic_result = self.topic_keys.get(topic);
+        if topic_result.is_none() {
+            return Err("could not find topic data".to_string());
+        }
+        // Finally, if we have the topic data then add success + conversation object
+        let topic_data = topic_result.unwrap();
+        let mut success_conversation = proto::keystore::ConversationReference::new();
+        success_conversation.topic = topic.to_string();
+        success_conversation.created_ns = topic_data.created;
+        // Create invitation context from topic data context
+        let mut invitation_context = proto::invitation::invitation_v1::Context::new();
+        if topic_data.context.is_some() {
+            let context = topic_data.context.as_ref().unwrap();
+            invitation_context.conversation_id = context.conversation_id.clone();
+            for (key, value) in context.metadata.iter() {
+                invitation_context
+                    .metadata
+                    .insert(key.to_string(), value.to_string());
+            }
+            success_conversation.context = Some(invitation_context).into();
+        }
+        return Ok(success_conversation);
+    }
     // Create invite
     // async createInvite(
     //   req: keystore.CreateInviteRequest
@@ -253,7 +280,7 @@ impl Keystore {
     //     throw convertError(e as Error, ErrorCode.ERROR_CODE_INVALID_INPUT)
     //   }
     // }
-    pub fn create_invite(&self, request_bytes: &[u8]) -> Result<Vec<u8>, String> {
+    pub fn create_invite(&mut self, request_bytes: &[u8]) -> Result<Vec<u8>, String> {
         // Decode request bytes into proto::keystore::CreateInviteRequest
         let invite_request_result = InvitationV1::invite_request_from_bytes(request_bytes);
         if invite_request_result.is_err() {
@@ -272,30 +299,42 @@ impl Keystore {
 
         // Convert nanoseconds to date
         let created_nanos = invite_request.created_ns;
-		let seconds = (created_nanos / 1000000000) as i64;
-		let nanos = ((created_nanos % 1000000000)) as u32;
+        let seconds = (created_nanos / 1000000000) as i64;
+        let nanos = (created_nanos % 1000000000) as u32;
         let created = NaiveDateTime::from_timestamp(seconds, nanos);
 
         // Create a sealed invitation
         let mut sealed_invitation_header = proto::invitation::SealedInvitationHeaderV1::new();
-        sealed_invitation_header.sender = Some(self.private_key_bundle.signed_public_key_bundle());
-        sealed_invitation_header.recipient = Some(recipient);
-        sealed_invitation_header.created = Some(created);
+        let self_private_key_ref = self.private_key_bundle.as_ref().unwrap();
+        sealed_invitation_header.sender =
+            Some(self_private_key_ref.signed_public_key_bundle()).into();
+        sealed_invitation_header.recipient = Some(recipient).into();
+        sealed_invitation_header.created_ns = invite_request.created_ns;
 
-        let header_bytes = sealed_invitation_header.write_to_bytes().unwrap();
-        let mut sealed_invitation = proto::invitation::SealedInvitationV1::new();
-        sealed_invitation.header = header_bytes.clone();
+        // Now seal the invitation with our self_private_key_ref
+        let sealed_invitation_result =
+            self_private_key_ref.seal_invitation(&sealed_invitation_header, &invitation);
+        if sealed_invitation_result.is_err() {
+            return Err("could not seal invitation".to_string());
+        }
 
-        // Now encrypt the invitation
-
+        let sealed_invitation = sealed_invitation_result.unwrap();
 
         // Add the conversation from the invite
-        let conversation = self.add_conversation_from_v1_invite(&invitation, created);
+        let save_result = self.save_invitation(&sealed_invitation.write_to_bytes().unwrap());
+        if save_result.is_err() {
+            return Err("could not save own created invitation".to_string());
+        }
+        let topic = save_result.unwrap();
+        let conversation_result = self.get_conversation_from_topic(&topic);
+        if conversation_result.is_err() {
+            return Err("could not get conversation from topic".to_string());
+        }
 
         // Create the response
         let mut response = proto::keystore::CreateInviteResponse::new();
-        response.conversation = conversation;
-        response.payload = sealed_invitation.to_bytes();
+        response.conversation = Some(conversation_result.unwrap()).into();
+        response.payload = sealed_invitation.write_to_bytes().unwrap();
 
         return Ok(response.write_to_bytes().unwrap());
     }
