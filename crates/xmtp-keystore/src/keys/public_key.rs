@@ -1,8 +1,8 @@
-use k256::PublicKey;
 use k256::elliptic_curve::sec1::ToEncodedPoint;
+use k256::PublicKey;
 
 use super::super::proto;
-use protobuf;
+use protobuf::{Message, MessageField};
 
 // Need to do two layers of proto deserialization, key_bytes is just the bytes of the PublicKey proto
 pub fn signed_public_key_from_proto(
@@ -36,41 +36,30 @@ pub fn public_key_from_proto(proto: &proto::public_key::PublicKey) -> Result<Pub
     return Ok(public_key_result.unwrap());
 }
 
-// // UnsignedPublicKey represents a generalized public key,
-// // defined as a union to support cryptographic algorithm agility.
-// message UnsignedPublicKey {
-//     uint64 created_ns = 1;
-//     oneof union {
-//         Secp256k1Uncompressed secp256k1_uncompressed = 3;
-//     }
-// 
-//     // Supported key types
-// 
-//     // EC: SECP256k1
-//     message Secp256k1Uncompressed {
-//         // uncompressed point with prefix (0x04) [ P || X || Y ], 65 bytes
-//         bytes bytes = 1; 
-//     }
-// }
-// message SignedPublicKey {
-//     bytes key_bytes = 1;  // embeds an UnsignedPublicKey
-//     Signature signature = 2; // signs key_bytes, legacy association proof
-//     AssociationProof proof = 3; // proves association with a user identity
-// }
-pub fn public_key_to_proto(public_key: &PublicKey) -> proto::public_key::PublicKey {
+pub fn to_unsigned_public_key_proto(
+    public_key: &PublicKey,
+    created_at: u64,
+) -> proto::public_key::UnsignedPublicKey {
     // First, create the UnsignedPublicKey and set the secp256k1_uncompressed field
     let mut unsigned_public_key = proto::public_key::UnsignedPublicKey::new();
 
     // Get the uncompressed bytes of the public key
-    let public_key_bytes = public_key.to_encoded_point(false).as_bytes();
-    let mut secp256k1_uncompressed = proto::public_key::unsigned_public_key::Secp256k1Uncompressed(
-        public_key_bytes.to_vec(),
-    );
-    unsigned_public_key.secp256k1_uncompressed = secp256k1_uncompressed;
-    // TODO: STOPSHIP: the created timestamp needs to be carried with the signature
-    unsigned_public_key.created_ns = 0;
+    let binding = public_key.to_encoded_point(false);
+    let public_key_bytes = binding.as_bytes();
+    let mut secp256k1_uncompressed =
+        proto::public_key::unsigned_public_key::Secp256k1Uncompressed::new();
+    secp256k1_uncompressed.bytes = public_key_bytes.to_vec();
+    unsigned_public_key.set_secp256k1_uncompressed(secp256k1_uncompressed);
+    unsigned_public_key.created_ns = created_at;
+    return unsigned_public_key;
+}
+
+pub fn to_signed_public_key_proto(public_key: &PublicKey, created_at: u64) -> proto::public_key::SignedPublicKey {
+    // First, get the UnsignedPublicKey proto
+    let unsigned_public_key = to_unsigned_public_key_proto(public_key, created_at);
 
     let mut signed_public_key = proto::public_key::SignedPublicKey::new();
-    signed_public_key.set_key_bytes(unsigned_public_key.write_to_bytes().unwrap());
+    signed_public_key.key_bytes = unsigned_public_key.write_to_bytes().unwrap();
+    // TODO: STOPSHIP: Need to set the Signature
     return signed_public_key;
 }

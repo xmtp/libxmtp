@@ -277,11 +277,17 @@ impl Keystore {
         let created = NaiveDateTime::from_timestamp(seconds, nanos);
 
         // Create a sealed invitation
+        let mut sealed_invitation_header = proto::invitation::SealedInvitationHeaderV1::new();
+        sealed_invitation_header.sender = Some(self.private_key_bundle.signed_public_key_bundle());
+        sealed_invitation_header.recipient = Some(recipient);
+        sealed_invitation_header.created = Some(created);
+
+        let header_bytes = sealed_invitation_header.write_to_bytes().unwrap();
         let mut sealed_invitation = proto::invitation::SealedInvitationV1::new();
-        sealed_invitation.sender = Some(self.private_key_bundle.signed_public_key_bundle());
-        sealed_invitation.recipient = Some(recipient);
-        sealed_invitation.created = Some(created);
-        sealed_invitation.invitation = Some(invitation);
+        sealed_invitation.header = header_bytes.clone();
+
+        // Now encrypt the invitation
+
 
         // Add the conversation from the invite
         let conversation = self.add_conversation_from_v1_invite(&invitation, created);

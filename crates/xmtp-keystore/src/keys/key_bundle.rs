@@ -96,10 +96,11 @@ impl PrivateKeyBundle {
         let public_key_bundle = self.public_key_bundle();
 
         let mut signed_public_key_bundle_proto = proto::public_key::SignedPublicKeyBundle::new();
+        // Use SignedPublicKey types for both identity_key and pre_key
+        signed_public_key_bundle_proto.identity_key = Some(public_key::to_signed_public_key_proto(&public_key_bundle.identity_key.unwrap(), 0)).into();
+        signed_public_key_bundle_proto.pre_key = Some(public_key::to_signed_public_key_proto(&public_key_bundle.pre_key.unwrap(), 0)).into();
 
-        return proto::public_key::SignedPublicKeyBundle {
-
-        };
+        return signed_public_key_bundle_proto;
     }
 
     // XMTP X3DH-like scheme for invitation decryption
@@ -184,6 +185,73 @@ impl PrivateKeyBundle {
             gcm_nonce,
             &secret,
             Some(&sealed_invitation.header_bytes),
+        );
+        if decrypt_result.is_err() {
+            return Err("could not decrypt invitation".to_string());
+        }
+        let decrypted_bytes = decrypt_result.unwrap();
+
+        // Deserialize invitation bytes into a protobuf::invitation::InvitationV1 struct
+        let invitation_result: protobuf::Result<proto::invitation::InvitationV1> =
+            protobuf::Message::parse_from_bytes(&decrypted_bytes);
+        if invitation_result.is_err() {
+            return Err("could not parse invitation from decrypted bytes".to_string());
+        }
+        // Get the invitation from the result
+        let invitation = invitation_result.as_ref().unwrap();
+        return Ok(invitation.clone());
+    }
+
+    pub fn seal_invitation(
+        &self,
+        sealed_invitation_header: &proto::invitation::SealedInvitationHeaderV1,
+        invitation: &proto::invitation::InvitationV1,
+    ) -> Result<proto::invitation::InvitationV1, String> {
+        // Parse public key bundles from sealed_invitation header
+        let sender_public_key_bundle =
+            SignedPublicKeyBundle::from_proto(&sealed_invitation_header.sender).unwrap();
+        let recipient_public_key_bundle =
+            SignedPublicKeyBundle::from_proto(&sealed_invitation_header.recipient).unwrap();
+
+        let secret: Vec<u8>;
+        // reference our own identity key
+        let viewer_identity_key = &self.identity_key;
+        if viewer_identity_key.public_key == sender_public_key_bundle.identity_key {
+            let secret_result = self.derive_shared_secret_xmtp(
+                &recipient_public_key_bundle,
+                &sender_public_key_bundle.pre_key,
+                false,
+            );
+            if secret_result.is_err() {
+                return Err("could not derive shared secret".to_string());
+            }
+            secret = secret_result.unwrap();
+        } else {
+            let secret_result = self.derive_shared_secret_xmtp(
+                &sender_public_key_bundle,
+                &recipient_public_key_bundle.pre_key,
+                true,
+            );
+            if secret_result.is_err() {
+                return Err("could not derive shared secret".to_string());
+            }
+            secret = secret_result.unwrap();
+        }
+
+        // Unwrap ciphertext
+        let ciphertext = sealed_invitation.ciphertext.aes256_gcm_hkdf_sha256();
+
+        let hkdf_salt = &ciphertext.hkdf_salt;
+        let gcm_nonce = &ciphertext.gcm_nonce;
+        let payload = &ciphertext.payload;
+
+        // Try decrypting the invitation
+        let encrypt_result = encryption::decrypt_v1_with_associated_data(
+            payload,
+            hkdf_salt,
+            gcm_nonce,
+            &secret,
+            &sealed_invitation.header_bytes,
         );
         if decrypt_result.is_err() {
             return Err("could not decrypt invitation".to_string());
