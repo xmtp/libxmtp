@@ -35,6 +35,12 @@ android {
     kotlinOptions {
         jvmTarget = '11'
     }
+    publishing {
+        singleVariant("release") {
+            withSourcesJar()
+            withJavadocJar()
+        }
+    }
 }
 
 protobuf {
@@ -77,35 +83,6 @@ dependencies {
     androidTestImplementation 'androidx.test.espresso:espresso-core:3.5.1'
 }
 
-task androidJavadocs(type: Javadoc) {
-    source = android.sourceSets.main.java.srcDirs
-    classpath += project.files(android.getBootClasspath().join(File.pathSeparator))
-    android.libraryVariants.all { variant ->
-        if (variant.name == 'release') {
-            owner.classpath += variant.javaCompileProvider.get().classpath
-        }
-    }
-    exclude '**/R.html', '**/R.*.html', '**/index.html'
-}
-
-task androidJavadocsJar(type: Jar, dependsOn: androidJavadocs) {
-    archiveClassifier.set('javadoc')
-    from androidJavadocs.destinationDir
-}
-
-task androidSourcesJar(type: Jar) {
-    archiveClassifier.set('sources')
-    from android.sourceSets.main.java.srcDirs
-}
-
-tasks.withType(Javadoc).all {
-    enabled = false
-}
-
-artifacts {
-    archives androidJavadocsJar, androidSourcesJar
-}
-
 afterEvaluate {
     publishing {
         publications {
@@ -114,14 +91,7 @@ afterEvaluate {
                 artifactId = "android"
                 version = System.getenv("RELEASE_VERSION")
 
-                if (project.plugins.findPlugin("com.android.library")) {
-                    from components.release
-                } else {
-                    from components.java
-                }
-
-                artifact androidSourcesJar
-                artifact androidJavadocsJar
+                from components.release
 
                 pom {
                     name = "XMTP"
