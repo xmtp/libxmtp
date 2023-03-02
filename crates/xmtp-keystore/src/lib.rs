@@ -1,5 +1,7 @@
 use std::collections::HashMap;
 
+use chrono::NaiveDateTime;
+
 use protobuf;
 use protobuf::{Message, MessageField};
 
@@ -8,9 +10,10 @@ mod ecdh;
 mod encryption;
 mod ethereum_utils;
 mod invitation;
-pub mod keys;
-pub mod proto;
-use invitation::Invitation;
+mod keys;
+mod proto;
+mod topic;
+use invitation::InvitationV1;
 use keys::{
     key_bundle::{PrivateKeyBundle, PublicKeyBundle, SignedPublicKeyBundle},
     private_key::SignedPrivateKey,
@@ -221,6 +224,76 @@ impl Keystore {
         return Ok(response_proto.write_to_bytes().unwrap());
     }
 
+    // Create invite
+    // async createInvite(
+    //   req: keystore.CreateInviteRequest
+    // ): Promise<keystore.CreateInviteResponse> {
+    //   try {
+    //     if (!validateObject(req, ['recipient'], [])) {
+    //       throw new KeystoreError(
+    //         ErrorCode.ERROR_CODE_INVALID_INPUT,
+    //         'missing recipient'
+    //       )
+    //     }
+    //     const invitation = InvitationV1.createRandom(req.context)
+    //     const created = nsToDate(req.createdNs)
+    //     const sealed = await SealedInvitation.createV1({
+    //       sender: this.v2Keys,
+    //       recipient: toSignedPublicKeyBundle(req.recipient),
+    //       created,
+    //       invitation,
+    //     })
+    //     const convo = this.addConversationFromV1Invite(invitation, created)
+
+    //     return keystore.CreateInviteResponse.fromPartial({
+    //       conversation: convo,
+    //       payload: sealed.toBytes(),
+    //     })
+    //   } catch (e) {
+    //     throw convertError(e as Error, ErrorCode.ERROR_CODE_INVALID_INPUT)
+    //   }
+    // }
+    pub fn create_invite(&self, request_bytes: &[u8]) -> Result<Vec<u8>, String> {
+        // Decode request bytes into proto::keystore::CreateInviteRequest
+        let invite_request_result = InvitationV1::invite_request_from_bytes(request_bytes);
+        if invite_request_result.is_err() {
+            return Err("could not parse invite request".to_string());
+        }
+        let invite_request = invite_request_result.unwrap();
+
+        // Validate the request
+        if invite_request.recipient.is_none() {
+            return Err("missing recipient".to_string());
+        }
+        let recipient = invite_request.recipient.unwrap();
+
+        // Create a random invitation
+        let invitation = InvitationV1::create_random(invite_request.context);
+
+        // Convert nanoseconds to date
+        let created_nanos = invite_request.created_ns;
+		let seconds = (created_nanos / 1000000000) as i64;
+		let nanos = ((created_nanos % 1000000000)) as u32;
+        let created = NaiveDateTime::from_timestamp(seconds, nanos);
+
+        // Create a sealed invitation
+        let mut sealed_invitation = proto::invitation::SealedInvitationV1::new();
+        sealed_invitation.sender = Some(self.private_key_bundle.signed_public_key_bundle());
+        sealed_invitation.recipient = Some(recipient);
+        sealed_invitation.created = Some(created);
+        sealed_invitation.invitation = Some(invitation);
+
+        // Add the conversation from the invite
+        let conversation = self.add_conversation_from_v1_invite(&invitation, created);
+
+        // Create the response
+        let mut response = proto::keystore::CreateInviteResponse::new();
+        response.conversation = conversation;
+        response.payload = sealed_invitation.to_bytes();
+
+        return Ok(response.write_to_bytes().unwrap());
+    }
+
     // Save invites keystore impl
     pub fn save_invites(&mut self, request_bytes: &[u8]) -> Result<Vec<u8>, String> {
         // Decode request bytes into proto::keystore::SaveInvitesRequest
@@ -310,7 +383,7 @@ impl Keystore {
         }
 
         // Deserialize invitation bytes into a protobuf::invitation::InvitationV1 struct
-        let invitation_result = Invitation::sealed_invitation_from_bytes(sealed_invitation_bytes);
+        let invitation_result = InvitationV1::sealed_invitation_from_bytes(sealed_invitation_bytes);
         if invitation_result.is_err() {
             return Err("could not parse invitation".to_string());
         }

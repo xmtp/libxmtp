@@ -16,6 +16,13 @@ pub struct PrivateKeyBundle {
     pub pre_keys: Vec<SignedPrivateKey>,
 }
 
+pub struct SignedPrivateKeyBundle {
+    // Same as PrivateKeyBundle but with Signatures
+    private_key_bundle_proto: proto::private_key::PrivateKeyBundleV2,
+    pub identity_key: SignedPrivateKey,
+    pub pre_keys: Vec<SignedPrivateKey>,
+}
+
 impl PrivateKeyBundle {
     pub fn from_proto(
         private_key_bundle: &proto::private_key::PrivateKeyBundleV2,
@@ -81,6 +88,17 @@ impl PrivateKeyBundle {
             public_key_bundle_proto: proto::public_key::PublicKeyBundle::new(),
             identity_key: Some(identity_key),
             pre_key: Some(pre_keys[0]),
+        };
+    }
+
+    // TODO: STOPSHIP: This currently does not include signatures or process them
+    pub fn signed_public_key_bundle(&self) -> proto::public_key::SignedPublicKeyBundle {
+        let public_key_bundle = self.public_key_bundle();
+
+        let mut signed_public_key_bundle_proto = proto::public_key::SignedPublicKeyBundle::new();
+
+        return proto::public_key::SignedPublicKeyBundle {
+
         };
     }
 
@@ -269,5 +287,9 @@ impl SignedPublicKeyBundle {
             identity_key: identity_key,
             pre_key: pre_key,
         });
+    }
+
+    pub fn to_proto(&self) -> proto::public_key::SignedPublicKeyBundle {
+        return self.signed_public_key_bundle_proto.clone();
     }
 }
