@@ -1,15 +1,18 @@
 use std::collections::HashMap;
 
 use protobuf;
+use protobuf::{Message, MessageField};
 
 mod conversation;
 mod ecdh;
 mod encryption;
 mod ethereum_utils;
+mod invitation;
 pub mod keys;
 pub mod proto;
+use invitation::Invitation;
 use keys::{
-    key_bundle::{PrivateKeyBundle, SignedPublicKeyBundle},
+    key_bundle::{PrivateKeyBundle, PublicKeyBundle, SignedPublicKeyBundle},
     private_key::SignedPrivateKey,
     public_key,
 };
@@ -23,6 +26,8 @@ pub struct Keystore {
     private_key_bundle: Option<PrivateKeyBundle>,
     // Topic Keys
     topic_keys: HashMap<String, TopicData>,
+
+    num_sets: u32,
 }
 
 impl Keystore {
@@ -33,6 +38,7 @@ impl Keystore {
             private_key_bundle: None,
             // Topic keys
             topic_keys: HashMap::new(),
+            num_sets: 0,
         }
     }
 
@@ -53,6 +59,7 @@ impl Keystore {
         if private_key_result.is_ok() {
             self.private_key_bundle =
                 Some(PrivateKeyBundle::from_proto(&private_key_bundle).unwrap());
+            self.num_sets += 1;
             return Ok(());
         } else {
             return Err("could not parse private key bundle".to_string());
@@ -60,26 +67,129 @@ impl Keystore {
     }
 
     // Process proto::keystore::DecryptV1Request
-    pub fn decrypt_v1(
-        &self,
-        request: proto::keystore::DecryptV1Request,
-    ) -> Result<proto::keystore::DecryptResponse, String> {
-        // Get the list of requests inside request
-        let requests = request.requests;
+    pub fn decrypt_v1(&self, request_bytes: &[u8]) -> Result<Vec<u8>, String> {
+        // Decode request bytes into proto::keystore::DecryptV1Request
+        let request_result: protobuf::Result<proto::keystore::DecryptV1Request> =
+            protobuf::Message::parse_from_bytes(request_bytes);
+        if request_result.is_err() {
+            return Err("could not parse decrypt v1 request".to_string());
+        }
+        let request = request_result.as_ref().unwrap();
         // Create a list of responses
-        let responses = Vec::new();
+        let mut responses = Vec::new();
+
+        let private_key_bundle = self.private_key_bundle.as_ref().unwrap();
 
         // Iterate over the requests
-        for request in requests {
-            let _payload = request.payload;
-            let _peer_keys = request.peer_keys;
-            let _header_bytes = request.header_bytes;
-            let _is_sender = request.is_sender;
+        for request in &request.requests {
+            let payload = &request.payload;
+            let peer_keys = &request.peer_keys;
+            let header_bytes = &request.header_bytes;
+            let is_sender = &request.is_sender;
 
             let mut response = proto::keystore::decrypt_response::Response::new();
 
-            // let decrypt_result = encryption::decrypt_v1(payload, peer_keys, header_bytes, is_sender);
-            let decrypt_result = encryption::decrypt_v1(&[], &[], &[], &[], None);
+            // Extract XMTP-like X3DH secret
+            let secret_result = private_key_bundle.derive_shared_secret_xmtp(
+                &PublicKeyBundle::from_proto(&peer_keys)
+                    .unwrap()
+                    .to_fake_signed_public_key_bundle(),
+                &private_key_bundle.pre_keys[0].public_key,
+                !is_sender,
+            );
+            if secret_result.is_err() {
+                return Err("could not derive shared secret".to_string());
+            }
+            let secret = secret_result.unwrap();
+
+            let ciphertext = &payload.aes256_gcm_hkdf_sha256();
+
+            let decrypt_result = encryption::decrypt_v1(
+                ciphertext.payload.as_slice(),
+                ciphertext.hkdf_salt.as_slice(),
+                ciphertext.gcm_nonce.as_slice(),
+                &secret,
+                Some(header_bytes.as_slice()),
+            );
+
+            match decrypt_result {
+                Ok(decrypted) => {
+                    let mut success_response =
+                        proto::keystore::decrypt_response::response::Success::new();
+                    success_response.decrypted = decrypted;
+                    response.response = Some(
+                        proto::keystore::decrypt_response::response::Response::Result(
+                            success_response,
+                        ),
+                    );
+                }
+                Err(e) => {
+                    let mut error_response = proto::keystore::KeystoreError::new();
+                    error_response.message = e.to_string();
+
+                    error_response.code = protobuf::EnumOrUnknown::new(
+                        proto::keystore::ErrorCode::ERROR_CODE_UNSPECIFIED,
+                    );
+                    response.response = Some(
+                        proto::keystore::decrypt_response::response::Response::Error(
+                            error_response,
+                        ),
+                    );
+                }
+            }
+            responses.push(response);
+        }
+        let mut response_proto = proto::keystore::DecryptResponse::new();
+        response_proto.responses = responses;
+        return Ok(response_proto.write_to_bytes().unwrap());
+    }
+
+    // Process proto::keystore::DecryptV2Request
+    pub fn decrypt_v2(&self, request_bytes: &[u8]) -> Result<Vec<u8>, String> {
+        // Decode request bytes into proto::keystore::DecryptV2Request
+        let request_result: protobuf::Result<proto::keystore::DecryptV2Request> =
+            protobuf::Message::parse_from_bytes(request_bytes);
+        if request_result.is_err() {
+            return Err("could not parse decrypt v2 request".to_string());
+        }
+        let request = request_result.unwrap();
+        // Create a list of responses
+        let mut responses = Vec::new();
+
+        // For each request in the request list
+        for request in request.requests {
+            // TODO: validate the object
+
+            // Extract the payload, headerBytes and contentTopic
+            // const { payload, headerBytes, contentTopic } = req
+            let payload = request.payload;
+            let header_bytes = request.header_bytes;
+            let content_topic = request.content_topic;
+
+            // Try to get the topic data
+            // const topicData = this.topicKeys.get(contentTopic)
+            let topic_data = self.topic_keys.get(&content_topic);
+            if topic_data.is_none() {
+                // Error with the content_topic
+                return Err("could not find topic data".to_string());
+            }
+            let topic_data = topic_data.unwrap();
+
+            let ciphertext = payload.unwrap().aes256_gcm_hkdf_sha256().clone();
+
+            // Try to decrypt the payload
+            let decrypt_result = encryption::decrypt_v1(
+                ciphertext.payload.as_slice(),
+                ciphertext.hkdf_salt.as_slice(),
+                ciphertext.gcm_nonce.as_slice(),
+                &topic_data.key,
+                Some(header_bytes.as_slice()),
+            );
+
+            let mut response = proto::keystore::decrypt_response::Response::new();
+
+            // If decryption was successful, return the decrypted payload
+            // If decryption failed, return an error
             match decrypt_result {
                 Ok(decrypted) => {
                     let mut success_response =
@@ -104,28 +214,107 @@ impl Keystore {
                     );
                 }
             }
+            responses.push(response);
         }
         let mut response_proto = proto::keystore::DecryptResponse::new();
         response_proto.responses = responses;
-        return Ok(response_proto);
+        return Ok(response_proto.write_to_bytes().unwrap());
     }
 
-    // Save invites
-    pub fn save_invitation(&mut self, sealed_invitation_bytes: &[u8]) -> Result<bool, String> {
+    // Save invites keystore impl
+    pub fn save_invites(&mut self, request_bytes: &[u8]) -> Result<Vec<u8>, String> {
+        // Decode request bytes into proto::keystore::SaveInvitesRequest
+        let request_result: protobuf::Result<proto::keystore::SaveInvitesRequest> =
+            protobuf::Message::parse_from_bytes(request_bytes);
+        if request_result.is_err() {
+            return Err("could not parse save invites request".to_string());
+        }
+        let request = request_result.unwrap();
+
+        let mut full_response = proto::keystore::SaveInvitesResponse::new();
+        // For each request, process the sealed invite + other data to save a conversation
+        for request in request.requests {
+            let sealed_invitation_bytes = request.payload;
+            let save_result = self.save_invitation(&sealed_invitation_bytes);
+            let mut response = proto::keystore::save_invites_response::Response::new();
+            if save_result.is_err() {
+                let mut error_response = proto::keystore::KeystoreError::new();
+                error_response.message = save_result.err().unwrap();
+                error_response.code = protobuf::EnumOrUnknown::new(
+                    proto::keystore::ErrorCode::ERROR_CODE_UNSPECIFIED,
+                );
+                response.response = Some(
+                    proto::keystore::save_invites_response::response::Response::Error(
+                        error_response,
+                    ),
+                );
+                full_response.responses.push(response);
+                continue;
+            }
+            // Do not use the request.content_topic as it's not tamper proof, instead use the
+            // returned unsealed topic
+            let unsealed_topic = save_result.unwrap();
+            // Check if topic_keys has the content_topic
+            let topic_data = self.topic_keys.get(unsealed_topic.as_str());
+            // If not, then return an error
+            if topic_data.is_none() {
+                let mut error_response = proto::keystore::KeystoreError::new();
+                error_response.message =
+                    format!("could not find topic data for {}", request.content_topic);
+                error_response.code = protobuf::EnumOrUnknown::new(
+                    proto::keystore::ErrorCode::ERROR_CODE_UNSPECIFIED,
+                );
+                response.response = Some(
+                    proto::keystore::save_invites_response::response::Response::Error(
+                        error_response,
+                    ),
+                );
+                full_response.responses.push(response);
+                continue;
+            }
+
+            // Finally, if we have the topic data then add success + conversation object
+            let topic_data = topic_data.unwrap();
+            let mut success_conversation = proto::keystore::ConversationReference::new();
+            success_conversation.topic = unsealed_topic;
+            success_conversation.created_ns = topic_data.created;
+            // Create invitation context from topic data context
+            let mut invitation_context = proto::invitation::invitation_v1::Context::new();
+            if topic_data.context.is_some() {
+                let context = topic_data.context.as_ref().unwrap();
+                invitation_context.conversation_id = context.conversation_id.clone();
+                for (key, value) in context.metadata.iter() {
+                    invitation_context
+                        .metadata
+                        .insert(key.to_string(), value.to_string());
+                }
+                success_conversation.context = Some(invitation_context).into();
+            }
+            let mut success = proto::keystore::save_invites_response::response::Success::new();
+            success.conversation = Some(success_conversation).into();
+
+            let success_response =
+                proto::keystore::save_invites_response::response::Response::Result(success);
+            response.response = Some(success_response);
+
+            full_response.responses.push(response);
+        }
+        return Ok(full_response.write_to_bytes().unwrap());
+    }
+
+    // Save single invitation
+    pub fn save_invitation(&mut self, sealed_invitation_bytes: &[u8]) -> Result<String, String> {
         // Check that self.private_key_bundle is set, otherwise return an error
         if self.private_key_bundle.is_none() {
             return Err("private key bundle not set yet".to_string());
         }
 
         // Deserialize invitation bytes into a protobuf::invitation::InvitationV1 struct
-        let invitation_result: protobuf::Result<proto::invitation::SealedInvitation> =
-            protobuf::Message::parse_from_bytes(sealed_invitation_bytes);
+        let invitation_result = Invitation::sealed_invitation_from_bytes(sealed_invitation_bytes);
         if invitation_result.is_err() {
             return Err("could not parse invitation".to_string());
         }
-        // Get the invitation from the result
-        let sealed_invitation = invitation_result.as_ref().unwrap();
-        let invitation = sealed_invitation.v1();
+        let invitation = invitation_result.unwrap();
 
         // Need to parse the header_bytes as protobuf::invitation::SealedInvitationHeaderV1
         let header_result: protobuf::Result<proto::invitation::SealedInvitationHeaderV1> =
@@ -169,25 +358,53 @@ impl Keystore {
             );
         }
 
-        // TODO: process additional metadata here
         let topic = &decrypted_invitation.topic;
 
+        let optional_context = if decrypted_invitation.context.is_some() {
+            Some(InvitationContext {
+                conversation_id: conversation_id.to_string(),
+                metadata: context_fields,
+            })
+        } else {
+            None
+        };
         self.topic_keys.insert(
-            decrypted_invitation.topic.clone(),
+            topic.to_string(),
             TopicData {
                 key: key_bytes.to_vec(),
-                context: Some(InvitationContext {
-                    conversation_id: conversation_id.to_string(),
-                    metadata: context_fields,
-                }),
+                // If the invitation has a context, then use the context, otherwise use None
+                context: optional_context,
                 created: header_time,
             },
         );
 
-        return Ok(true);
+        return Ok(topic.to_string());
     }
 
-    pub fn getTopicKey(&self, topic_id: &str) -> Option<Vec<u8>> {
+    // Get serialized keystore.ConversationReference
+    pub fn get_v2_conversations(&self) -> Result<Vec<Vec<u8>>, String> {
+        let mut conversations = Vec::new();
+        for (topic, topic_data) in self.topic_keys.iter() {
+            let mut conversation = proto::keystore::ConversationReference::new();
+            conversation.topic = topic.clone();
+            conversation.created_ns = topic_data.created;
+            if topic_data.context.is_some() {
+                let context = topic_data.context.as_ref().unwrap();
+                let mut invitation_context = proto::invitation::invitation_v1::Context::new();
+                invitation_context.conversation_id = context.conversation_id.clone();
+                for (key, value) in context.metadata.iter() {
+                    invitation_context
+                        .metadata
+                        .insert(key.to_string(), value.to_string());
+                }
+                conversation.context = Some(invitation_context).into();
+            }
+            conversations.push(conversation.write_to_bytes().unwrap());
+        }
+        return Ok(conversations);
+    }
+
+    pub fn get_topic_key(&self, topic_id: &str) -> Option<Vec<u8>> {
         let topic_data = self.topic_keys.get(topic_id);
         if topic_data.is_none() {
             return None;
@@ -381,11 +598,12 @@ mod tests {
         let secret =  "BNOBBknXpaz9LWs2izeKYFAh3KRS8a7Mibefi38yhyunt3stLHjgvSYPWScBQ4E9VlzTFzOKzR2mnyYhAYrUDSgECK29BC8qeTsusEWZVZso3AC9jFDXV+T7Oyl4+p+pdHMXher5S4xAhJLNEqfGdBLn1Y436cVkppLF/kQjqE8DTwTTxG8VheDyy6sv9PFHZN1C0T6xJ01HH6yVMeZLIOkS13fibjhZ2SUNDYA+/muMyB9AnuG8UN3MNOGLQSPkcW3O";
 
         let mut x = Keystore::new();
-        x.set_private_key_bundle(
+        let res = x.set_private_key_bundle(
             &general_purpose::STANDARD
                 .decode(my_identity_bundle)
                 .unwrap(),
         );
+        assert!(res.is_ok());
 
         let peer_bundle_proto: proto::public_key::SignedPublicKeyBundle =
             protobuf::Message::parse_from_bytes(
@@ -422,10 +640,8 @@ mod tests {
         let bob_public_key_b64 = "CpcBCk8IgP/mo5q8kqMXGkMKQQRM2pfJr9DGMNOA6qBSSvEUSZqyg1z0ZjzedERTohdYCFtTNYtulqk/p9U3tp1OYb3u3O0UNv9mj0rjLG1nnitTEkQSQgpA1la7dRtegPN5jYU9ctYFwy1/R1cJOUamm/yNFY0tHK9oFKl9pdztB14q1shZQqrmuB3zw5aQeFmOADQ08YGowBKXAQpPCMClubWavJKjFxpDCkEEV9HtQj+iXOZG47VxdaMYGxXIjUrdNNlJT+GUurw5pAmL0MnJRLWN00HKwV0jTStiWw8Lt9Ptc/oeg6mrKzCXOhJECkIKQMNq5LsC+3tLN1667WOvmIRDJodp4owDBUClzxWvHnShNS3zKqdCABoWFwYhpVewO8j2Q1yy2rH9dVMuMMNloss=";
         let alice_public_key_b64 = "CpcBCk8IgIez7pm8kqMXGkMKQQRhgSMw1R/8S7WEkfxpknxsmt9WK1AsYKrQ/ZAVwSx60+kgce8Hu+pkRy0a+rXeltBuTH4tO4pQzBP5xhHo5UFAEkQSQgpA9uKlM/f9TiNbBEsjxJusMky21MV77annlu4v34hQ6QIz8hhoHa15qmuNZceGzd00SQ6IjVzl0t4Y2sAUF+BgcxKXAQpPCMCHyomavJKjFxpDCkEE1OvlXZeGc7Ca4UUL89jZe/nvAjXTGNODpwtbuSWGehAjfins9KScHNmIcqahYrMlrqurOfhYSGvNwOkQLSNuuBJECkIKQBx9fFP8pMoyxYOU+fXN+bbf0y2eZZx8FiRgy2kWQJUfNVFX1ut+PkrxIoy20tCFieWWW5cG7zGq7345tBtotGs=";
         let expected_key_material_b64 = "pCZEyn0gkwTrNDOlewVGTHYuqXdWzv9s+WKUWCtdFCk=";
-        let topic_bytes = [
-            210, 86, 199, 2, 239, 247, 51, 208, 205, 197, 32, 162, 215, 110, 185, 7, 115, 73, 7,
-            223, 5, 10, 75, 19, 252, 160, 139, 241, 4, 205, 128, 152,
-        ];
+        // xmtp-js unit tests generate this random byte array
+        let topic_string = "210,86,199,2,239,247,51,208,205,197,32,162,215,110,185,7,115,73,7,223,5,10,75,19,252,160,139,241,4,205,128,152";
 
         // Create a keystore, then save Alice's private key bundle
         let mut x = Keystore::new();
@@ -443,5 +659,9 @@ mod tests {
                 .unwrap(),
         );
         assert!(save_invite_result.is_ok());
+
+        // Assert that the invite was saved for the topic_string
+        let get_invite_result = x.get_topic_key(topic_string);
+        assert!(get_invite_result.is_some());
     }
 }

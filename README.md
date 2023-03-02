@@ -18,6 +18,7 @@ Top-level
 - cd `bindings/wasm`
 - Run `npm run build` to build the rust crate and Node.js bindings.
 - Run `npm run prepublishOnly` to run tests that 1) check XmtpApi instantiation and 2) check that a 12 word mnemonic can be generated
+- To include this package in `xmtp-js`, cd into the `xmtp-js` directory and run `npm install ../../path/to/libxmtp/bindings/wasm`
 
 ## Tests
 
@@ -25,3 +26,8 @@ This should compile the xmtp-keystore crate and the wasm bindings, then run test
 
 - cd `bindings/wasm`
 - Run `npm test`
+
+Testing in a browser (very crude)
+- cd `bindings/wasm/example_web`
+- run `./run-server.sh`
+- visit https://localhost:9099 and check console for any errors

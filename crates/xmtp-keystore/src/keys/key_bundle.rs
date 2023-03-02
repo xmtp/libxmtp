@@ -160,12 +160,12 @@ impl PrivateKeyBundle {
         let payload = &ciphertext.payload;
 
         // Try decrypting the invitation
-        let decrypt_result = encryption::decrypt_v1_with_associated_data(
+        let decrypt_result = encryption::decrypt_v1(
             payload,
             hkdf_salt,
             gcm_nonce,
             &secret,
-            &sealed_invitation.header_bytes,
+            Some(&sealed_invitation.header_bytes),
         );
         if decrypt_result.is_err() {
             return Err("could not decrypt invitation".to_string());
@@ -215,6 +215,14 @@ impl PublicKeyBundle {
             identity_key: identity_key,
             pre_key: pre_key,
         });
+    }
+
+    pub fn to_fake_signed_public_key_bundle(&self) -> SignedPublicKeyBundle {
+        return SignedPublicKeyBundle {
+            signed_public_key_bundle_proto: proto::public_key::SignedPublicKeyBundle::new(),
+            identity_key: self.identity_key.clone().unwrap(),
+            pre_key: self.pre_key.clone().unwrap(),
+        };
     }
 }
 
