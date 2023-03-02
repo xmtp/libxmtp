@@ -97,7 +97,6 @@ afterEvaluate {
                     name = "XMTP"
                     description = "XMTP Android Library"
                     url = "https://github.com/xmtp/xmtp-android"
-                    packaging = "jar"
 
                     licenses {
                         license {
