@@ -37,6 +37,21 @@ pub fn set_private_key_bundle(handle: &str, key_bytes: &[u8]) -> Result<bool, Js
 }
 
 #[wasm_bindgen]
+pub fn create_invite(handle: &str, request_bytes: &[u8]) -> Result<Vec<u8>, JsValue> {
+    let result = KEYSTORE_MAP
+        .lock()
+        .unwrap()
+        .get_mut(handle)
+        .unwrap()
+        .create_invite(request_bytes)
+        .map_err(|e| e.to_string());
+    if result.is_err() {
+        return Err(JsValue::from(result.err().unwrap()));
+    }
+    return Ok(result.unwrap());
+}
+
+#[wasm_bindgen]
 pub fn save_invitation(handle: &str, invite_bytes: &[u8]) -> Result<bool, JsValue> {
     let result = KEYSTORE_MAP
         .lock()
