@@ -22,7 +22,10 @@ pub fn signed_public_key_from_proto(
             .as_slice(),
     );
     if public_key_result.is_err() {
-        return Err(public_key_result.err().unwrap().to_string());
+        return Err(format!(
+            "Error parsing sec1 bytes: {}",
+            public_key_result.err().unwrap().to_string()
+        ));
     }
     return Ok(public_key_result.unwrap());
 }

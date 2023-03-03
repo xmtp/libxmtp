@@ -281,6 +281,10 @@ impl Keystore {
     //   }
     // }
     pub fn create_invite(&mut self, request_bytes: &[u8]) -> Result<Vec<u8>, String> {
+        // if no self.private_key_bundle, then return error
+        if self.private_key_bundle.is_none() {
+            return Err("no private key bundle".to_string());
+        }
         // Decode request bytes into proto::keystore::CreateInviteRequest
         let invite_request_result = InvitationV1::invite_request_from_bytes(request_bytes);
         if invite_request_result.is_err() {
@@ -319,6 +323,7 @@ impl Keystore {
         }
 
         let sealed_invitation = sealed_invitation_result.unwrap();
+        // Get the header again and deserialize it to print for debugging
 
         // Add the conversation from the invite
         let save_result = self.save_invitation(&sealed_invitation.write_to_bytes().unwrap());
@@ -639,10 +644,6 @@ mod tests {
         // Encode string as bytes
         let xmtp_identity_signature_payload =
             ethereum_utils::EthereumUtils::xmtp_identity_key_payload(&bytes_to_sign);
-        println!(
-            "xmtp_identity_signature_payload: {:?}",
-            std::str::from_utf8(&xmtp_identity_signature_payload).unwrap()
-        );
         let personal_signature_message =
             SignedPrivateKey::ethereum_personal_sign_payload(&xmtp_identity_signature_payload);
         let signature_verified = SignedPrivateKey::verify_wallet_signature(
@@ -781,5 +782,27 @@ mod tests {
         // Assert that the invite was saved for the topic_string
         let get_invite_result = x.get_topic_key(topic_string);
         assert!(get_invite_result.is_some());
+    }
+
+    #[test]
+    fn test_create_invite() {
+        let private_key_bundle = "EpIDCscBCID6r/ihgr+kFxIiCiA+69dhptWAhSZL61BrxdSObvBGu8h7LC0sebiEBL2DlBqWAQpMCNTC6MXqMBpDCkEEwyc/GHYo+O59IazB6A6IT7sL8aK8pPVV5woD3KWUW9mamD1BbADIRkj5NhsY12MoV3sV6Cdcy4gCOgLVyrKHohJGEkQKQG16AbOXa/zauUTg/OQ7r4iVwoD/gMSAF1vPXEl2ffN8dcamI9WM8F07RsguQCHlULAUY3510GX0wkS2xNq7fyoQARLFAQiAnMWJooK/pBcSIgognCDebi8hRgi5N3DCwGIIvJRt3GUfrp2dmp2SfyJNDOYalAEKTAj4wujF6jAaQwpBBM2XNmLQBhOiCg/sC08UcbCm0osKghqSJmb6Cfxvcu6gHNBP6KRt9E9gv4AMNu4/BNJo/ExTkydvZGyfSUsL90MSRApCCkCdiq2zIGScoXUEEFn7Fvqv0E5tGSxeNQujFLcSTguo+kmDgYOmN9XjfjZdUTjLBTKYuxeXJCXmFwFuqoAvvC2v";
+
+        let create_invite_request_b64 = "ErACCpQBCkwIm8PoxeowGkMKQQTeI6rFEL1eJh5WofKgzDfjP9TETM61G/heGOZP7vRACfMD0ZAzsQ858uvrmqbD7MCFZpTFM6pztTZm9aJ9tzytEkQSQgpA8BReRxtcqrI+aLLW4UKZiREHTo4ub7std5/Klgi7JAEtQTC9Ppp6ZoDPYmK2GWvbTwVOzCElBiZsM+qtUgsVURKWAQpMCL7D6MXqMBpDCkEEY0sZ7+E4hzrdZTpjWiZhuUJHmlwlf96oK/Nm5OyYgRhKNji0oKPe1JX8sij1bjI7XkFiVzZunNhl/Vkmot9g2hJGCkQKQJN3Z1GDiaUnG6N7NxEAuJFN+HKmNfos2XCHNqBjApzQJrVtQApxBntY0vUjtLZyHFFak/33uKYaxpam3EDlDw8QARiA4O+rooK/pBc=";
+        // Create a keystore, then save Alice's private key bundle
+        let mut x = Keystore::new();
+        let set_private_result = x.set_private_key_bundle(
+            &general_purpose::STANDARD
+                .decode(private_key_bundle.as_bytes())
+                .unwrap(),
+        );
+        assert!(set_private_result.is_ok());
+        // Create invite request
+        let create_invite_result = x.create_invite(
+            &general_purpose::STANDARD
+                .decode(create_invite_request_b64.as_bytes())
+                .unwrap(),
+        );
+        assert!(create_invite_result.err().is_none());
     }
 }

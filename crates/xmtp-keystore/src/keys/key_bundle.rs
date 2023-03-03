@@ -216,7 +216,7 @@ impl PrivateKeyBundle {
         &self,
         sealed_invitation_header: &proto::invitation::SealedInvitationHeaderV1,
         invitation: &proto::invitation::InvitationV1,
-    ) -> Result<proto::invitation::SealedInvitationV1, String> {
+    ) -> Result<proto::invitation::SealedInvitation, String> {
         // Parse public key bundles from sealed_invitation header
         let sender_public_key_bundle =
             SignedPublicKeyBundle::from_proto(&sealed_invitation_header.sender).unwrap();
@@ -274,7 +274,10 @@ impl PrivateKeyBundle {
         sealed_invitation.header_bytes = header_bytes;
         sealed_invitation.ciphertext = Some(ciphertext_proto).into();
 
-        return Ok(sealed_invitation);
+        // Wrap it in the SealedInvitation proto message
+        let mut sealed_invitation_proto = proto::invitation::SealedInvitation::new();
+        sealed_invitation_proto.set_v1(sealed_invitation);
+        return Ok(sealed_invitation_proto);
     }
 }
 
