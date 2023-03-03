@@ -63,6 +63,7 @@ pub fn decrypt_raw(
     Ok(res.unwrap())
 }
 
+// TODO: remove the v1 from these names, I misread the Keystore API
 pub fn encrypt_v1(
     plaintext_bytes: &[u8],
     secret_bytes: &[u8],

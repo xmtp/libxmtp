@@ -581,6 +581,7 @@ impl Keystore {
 
             match encrypt_result {
                 Ok(encrypted) => {
+                    // TODO: this can be modularized away
                     let mut success_response =
                         proto::keystore::encrypt_response::response::Success::new();
                     let mut aes256_gcm_hkdf_sha256 =
@@ -618,14 +619,13 @@ impl Keystore {
         return Ok(response_proto.write_to_bytes().unwrap());
     }
 
-    /*
     // Process proto::keystore::EncryptV2Request
     pub fn encrypt_v2(&self, request_bytes: &[u8]) -> Result<Vec<u8>, String> {
-        // Decode request bytes into proto::keystore::DecryptV2Request
-        let request_result: protobuf::Result<proto::keystore::DecryptV2Request> =
+        // Decode request bytes into proto::keystore::EncryptV2Request
+        let request_result: protobuf::Result<proto::keystore::EncryptV2Request> =
             protobuf::Message::parse_from_bytes(request_bytes);
         if request_result.is_err() {
-            return Err("could not parse decrypt v2 request".to_string());
+            return Err("could not parse encrypt v2 request".to_string());
         }
         let request = request_result.unwrap();
         // Create a list of responses
@@ -637,7 +637,7 @@ impl Keystore {
 
             // Extract the payload, headerBytes and contentTopic
             // const { payload, headerBytes, contentTopic } = req
-            let payload = request.payload;
+            let payload = request.payload.as_ref();
             let header_bytes = request.header_bytes;
             let content_topic = request.content_topic;
 
@@ -650,28 +650,28 @@ impl Keystore {
             }
             let topic_data = topic_data.unwrap();
 
-            let ciphertext = payload.unwrap().aes256_gcm_hkdf_sha256().clone();
+            // Try to encrypt the payload, (note: yes it says encrypt_v1, need to rename)
+            let encrypt_result =
+                encryption::encrypt_v1(payload, &topic_data.key, Some(header_bytes.as_slice()));
 
-            // Try to decrypt the payload
-            let decrypt_result = encryption::decrypt_v1(
-                ciphertext.payload.as_slice(),
-                ciphertext.hkdf_salt.as_slice(),
-                ciphertext.gcm_nonce.as_slice(),
-                &topic_data.key,
-                Some(header_bytes.as_slice()),
-            );
+            let mut response = proto::keystore::encrypt_response::Response::new();
 
-            let mut response = proto::keystore::decrypt_response::Response::new();
-
-            // If decryption was successful, return the decrypted payload
-            // If decryption failed, return an error
-            match decrypt_result {
-                Ok(decrypted) => {
+            // If encryption was successful, return the encrypted payload
+            // If encryption failed, return an error
+            match encrypt_result {
+                Ok(encrypted) => {
                     let mut success_response =
-                        proto::keystore::decrypt_response::response::Success::new();
-                    success_response.decrypted = decrypted;
+                        proto::keystore::encrypt_response::response::Success::new();
+                    let mut aes256_gcm_hkdf_sha256 =
+                        proto::ciphertext::ciphertext::Aes256gcmHkdfsha256::new();
+                    aes256_gcm_hkdf_sha256.payload = encrypted.payload;
+                    aes256_gcm_hkdf_sha256.hkdf_salt = encrypted.hkdf_salt;
+                    aes256_gcm_hkdf_sha256.gcm_nonce = encrypted.gcm_nonce;
+                    let mut ciphertext = proto::ciphertext::Ciphertext::new();
+                    ciphertext.set_aes256_gcm_hkdf_sha256(aes256_gcm_hkdf_sha256);
+                    success_response.encrypted = Some(ciphertext).into();
                     response.response = Some(
-                        proto::keystore::decrypt_response::response::Response::Result(
+                        proto::keystore::encrypt_response::response::Response::Result(
                             success_response,
                         ),
                     );
@@ -683,7 +683,7 @@ impl Keystore {
                         proto::keystore::ErrorCode::ERROR_CODE_UNSPECIFIED,
                     );
                     response.response = Some(
-                        proto::keystore::decrypt_response::response::Response::Error(
+                        proto::keystore::encrypt_response::response::Response::Error(
                             error_response,
                         ),
                     );
@@ -691,11 +691,10 @@ impl Keystore {
             }
             responses.push(response);
         }
-        let mut response_proto = proto::keystore::DecryptResponse::new();
+        let mut response_proto = proto::keystore::EncryptResponse::new();
         response_proto.responses = responses;
         return Ok(response_proto.write_to_bytes().unwrap());
     }
-    */
 
     // == end keystore api ==
 }
