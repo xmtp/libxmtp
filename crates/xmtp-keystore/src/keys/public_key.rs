@@ -1,8 +1,58 @@
+use k256::ecdsa::signature::DigestVerifier;
 use k256::elliptic_curve::sec1::ToEncodedPoint;
-use k256::PublicKey;
+use k256::{
+    ecdsa::{signature::Verifier, RecoveryId, Signature, VerifyingKey},
+    PublicKey,
+};
+use sha3::{Digest, Keccak256};
 
 use super::super::proto;
 use protobuf::{Message, MessageField};
+
+pub fn recover_wallet_public_key(
+    message: &[u8],
+    signature: &proto::signature::Signature,
+) -> Result<PublicKey, String> {
+    // Expect ecdsa_compact field with subfields: bytes, recovery_id
+    if !signature.has_wallet_ecdsa_compact() {
+        return Err("No wallet_ecdsa_compact field found".to_string());
+    }
+    let wallet_ecdsa_compact = signature.wallet_ecdsa_compact();
+    let signature_bytes = wallet_ecdsa_compact.bytes.as_slice();
+    let recovery_id_result = RecoveryId::try_from(wallet_ecdsa_compact.recovery as u8);
+    if recovery_id_result.is_err() {
+        return Err(recovery_id_result.err().unwrap().to_string());
+    }
+    let recovery_id = recovery_id_result.unwrap();
+    let ecdsa_signature_result = Signature::try_from(signature_bytes);
+    if ecdsa_signature_result.is_err() {
+        return Err(ecdsa_signature_result.err().unwrap().to_string());
+    }
+    let ec_signature = ecdsa_signature_result.unwrap();
+
+    let recovered_key_result = VerifyingKey::recover_from_digest(
+        Keccak256::new_with_prefix(message),
+        &ec_signature,
+        recovery_id,
+    );
+
+    if recovered_key_result.is_err() {
+        return Err(recovered_key_result.err().unwrap().to_string());
+    }
+    let recovered_key = recovered_key_result.unwrap();
+
+    // First extract the public key from the recovered key
+    let public_key = PublicKey::from(&recovered_key);
+
+    // Finally use the recovered key in a re-verification, may not strictly be required
+    if VerifyingKey::from(&public_key)
+        .verify_digest(Keccak256::new_with_prefix(&message), &ec_signature)
+        .is_err()
+    {
+        return Err("Signature verification failed".to_string());
+    }
+    return Ok(public_key);
+}
 
 // Need to do two layers of proto deserialization, key_bytes is just the bytes of the PublicKey proto
 pub fn signed_public_key_from_proto(

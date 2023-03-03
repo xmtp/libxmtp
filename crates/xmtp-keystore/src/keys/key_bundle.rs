@@ -2,7 +2,11 @@ use k256::elliptic_curve::sec1::ToEncodedPoint;
 use k256::PublicKey;
 use sha3::{Digest, Keccak256};
 
-use super::super::{ecdh, encryption, proto};
+use super::super::{
+    ecdh, encryption,
+    ethereum_utils::{EthereumCompatibleKey, EthereumUtils},
+    proto,
+};
 use super::private_key::SignedPrivateKey;
 use super::public_key;
 
@@ -63,10 +67,30 @@ impl PrivateKeyBundle {
     }
 
     pub fn eth_address(&self) -> Result<String, String> {
-        // Get the public key bytes
-        let binding = self.identity_key.public_key.to_encoded_point(false);
-        let public_key_bytes = binding.as_bytes();
-        return PrivateKeyBundle::eth_wallet_address_from_public_key(public_key_bytes);
+        // Introspect proto and get the identity_key as a SignedPublicKey, then take the signature
+        // and recover the wallet address
+        let public_identity_key = self
+            .private_key_bundle_proto
+            .identity_key
+            .public_key
+            .as_ref()
+            .unwrap()
+            .clone();
+
+        let xmtp_sig_request_bytes =
+            EthereumUtils::xmtp_identity_key_payload(public_identity_key.key_bytes.as_slice());
+        let personal_sign_message =
+            EthereumUtils::get_personal_sign_message(xmtp_sig_request_bytes.as_slice());
+        let eth_address_result = public_key::recover_wallet_public_key(
+            &personal_sign_message,
+            &public_identity_key.signature,
+        );
+        if eth_address_result.is_err() {
+            return Err(eth_address_result.err().unwrap().to_string());
+        }
+
+        let recovered_wallet_key = eth_address_result.unwrap();
+        return Ok(recovered_wallet_key.get_ethereum_address());
     }
 
     pub fn find_pre_key(&self, my_pre_key: PublicKey) -> Option<SignedPrivateKey> {
@@ -93,11 +117,9 @@ impl PrivateKeyBundle {
         };
     }
 
-    // TODO: STOPSHIP: This currently does not include signatures or process them
+    // Just shuffles the SignedPublicKeys out of the underlying proto and returns them in a
+    // SignedPublicKeyBundle
     pub fn signed_public_key_bundle(&self) -> proto::public_key::SignedPublicKeyBundle {
-        let public_key_bundle = self.public_key_bundle();
-
-        // TODO: HACK: extract the signatures from the original proto
         let mut signed_public_key_bundle_proto = proto::public_key::SignedPublicKeyBundle::new();
         // Use SignedPublicKey types for both identity_key and pre_key
         signed_public_key_bundle_proto.identity_key = Some(

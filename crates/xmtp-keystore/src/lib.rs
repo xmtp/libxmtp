@@ -969,4 +969,22 @@ mod tests {
         );
         assert!(create_invite_result.err().is_none());
     }
+
+    #[test]
+    fn test_get_wallet_address() {
+        let private_key_bundle = "EpIDCsUBCMDhxZ6FqsOkFxIiCiDw8Tzi1Ke4pqKSAb1vavGlfZ+AvjO3wODJ+UFZtBwqRxqUAQpMCOvW7c7qMBpDCkEEGoTeu8h3/uy+v5j3lDsNb7NAQoYIthqn2NnsKDJiY1AM0cCujfPDfIfnIE4RlKP6h9B3mzArBPh5gMowHT2d0RJEEkIKQGhQA4lJ+mQS2k966sjf3fkMOmTl9W/XUhstk3QPFM2cTHvSZktpMxqcX8ayRIrVZnb3KCaaUKEli7fsgvqgY0ISxwEIgPajroWqw6QXEiIKIHIogys5c9Cv9J/Qlbmao+4/xpY243vxZ3JoBOzoYKSDGpYBCkwIjNftzuowGkMKQQQ8Rsc0PVa8DOXZpUQutmTB+t2TmCO3inJaHMkdDfnaAf/4La6x1qf8NCUi9xv76CALCTGIGhENjveUdfGxrXNLEkYKRApAEI7tmQXGLSArJIJYpAyaDZPy8RV7Zvf+fat0awNHIGN3y0lDSo2d3xmqquwfodQJHjaoaz+Pe/iABQbq7PeGVBAB";
+        let wallet_address = "0xBcF6bEa45762d07025cEc882280675f44d12e41C";
+        // Create a keystore, then save Alice's private key bundle
+        let mut x = Keystore::new();
+        let set_private_result = x.set_private_key_bundle(
+            &general_purpose::STANDARD
+                .decode(private_key_bundle.as_bytes())
+                .unwrap(),
+        );
+        assert!(set_private_result.is_ok());
+
+        let get_wallet_address_result = x.get_account_address();
+        assert!(get_wallet_address_result.as_ref().err().is_none());
+        assert_eq!(get_wallet_address_result.as_ref().unwrap(), wallet_address);
+    }
 }
