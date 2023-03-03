@@ -5,9 +5,13 @@ import init, {
   save_invitation,
   decrypt_v1,
   decrypt_v2,
+  encrypt_v1,
+  encrypt_v2,
   save_invites,
   create_invite,
   get_v2_conversations,
+  get_public_key_bundle,
+  get_account_address,
 } from "./pkg/libxmtp.js";
 
 import { keystore, publicKey } from '@xmtp/proto'
@@ -80,6 +84,22 @@ export class Keystore {
     });
   }
 
+  encryptV1(request: keystore.EncryptV1Request): Promise<keystore.EncryptResponse> {
+    const requestBytes = keystore.EncryptV1Request.encode(request).finish();
+    const responseBytes = this.wasmModule.encryptV1(this.handle, requestBytes);
+    return new Promise((resolve, reject) => {
+      resolve(keystore.EncryptResponse.decode(responseBytes));
+    });
+  }
+
+  encryptV2(request: keystore.EncryptV2Request): Promise<keystore.EncryptResponse> {
+    const requestBytes = keystore.EncryptV2Request.encode(request).finish();
+    const responseBytes = this.wasmModule.encryptV2(this.handle, requestBytes);
+    return new Promise((resolve, reject) => {
+      resolve(keystore.EncryptResponse.decode(responseBytes));
+    });
+  }
+
   saveInvites(request: keystore.SaveInvitesRequest): Promise<keystore.SaveInvitesResponse> {
     const requestBytes = keystore.SaveInvitesRequest.encode(request).finish();
     const responseBytes = this.wasmModule.saveInvites(this.handle, requestBytes);
@@ -107,6 +127,18 @@ export class Keystore {
     });
   }
 
+  getPublicKeyBundle(): Promise<publicKey.SignedPublicKeyBundle> {
+    const responseBytes = this.wasmModule.getPublicKeyBundle(this.handle);
+    return new Promise((resolve, reject) => {
+      resolve(publicKey.SignedPublicKeyBundle.decode(responseBytes));
+    });
+  }
+
+  getAccountAddress(): Promise<string> {
+    return new Promise((resolve, reject) => {
+      resolve(this.wasmModule.getAccountAddress(this.handle));
+    });
+  }
 }
 
 // Manages the Wasm module, which loads a singleton version of our Rust code
@@ -149,12 +181,28 @@ export class XMTPWasm {
     return get_v2_conversations(handle);
   }
 
-  decryptV2(handle: string, ciphertext: Uint8Array): Uint8Array {
-    return decrypt_v2(handle, ciphertext);
+  decryptV1(handle: string, request: Uint8Array): Uint8Array {
+    return decrypt_v1(handle, request);
   }
 
-  decryptV1(handle: string, ciphertext: Uint8Array): Uint8Array {
-    return decrypt_v1(handle, ciphertext);
+  decryptV2(handle: string, request: Uint8Array): Uint8Array {
+    return decrypt_v2(handle, request);
+  }
+
+  encryptV1(handle: string, request: Uint8Array): Uint8Array {
+    return encrypt_v1(handle, request);
+  }
+
+  encryptV2(handle: string, request: Uint8Array): Uint8Array {
+    return encrypt_v2(handle, request);
+  }
+
+  getPublicKeyBundle(handle: string): Uint8Array {
+    return get_public_key_bundle(handle);
+  }
+
+  getAccountAddress(handle: string): string {
+    return get_account_address(handle);
   }
 
   /**

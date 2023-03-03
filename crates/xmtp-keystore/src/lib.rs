@@ -274,12 +274,6 @@ impl Keystore {
         // Create a random invitation
         let invitation = InvitationV1::create_random(invite_request.context);
 
-        // Convert nanoseconds to date
-        let created_nanos = invite_request.created_ns;
-        let seconds = (created_nanos / 1000000000) as i64;
-        let nanos = (created_nanos % 1000000000) as u32;
-        let created = NaiveDateTime::from_timestamp(seconds, nanos);
-
         // Create a sealed invitation
         let mut sealed_invitation_header = proto::invitation::SealedInvitationHeaderV1::new();
         let self_private_key_ref = self.private_key_bundle.as_ref().unwrap();
@@ -497,6 +491,16 @@ impl Keystore {
             }
             conversations.push(conversation.write_to_bytes().unwrap());
         }
+        // Sort the conversations by created_ns
+        conversations.sort_by(|a, b| {
+            let a_conversation = proto::keystore::ConversationReference::parse_from_bytes(a)
+                .unwrap()
+                .created_ns;
+            let b_conversation = proto::keystore::ConversationReference::parse_from_bytes(b)
+                .unwrap()
+                .created_ns;
+            a_conversation.cmp(&b_conversation)
+        });
         return Ok(conversations);
     }
 
@@ -506,6 +510,193 @@ impl Keystore {
             return None;
         }
         return Some(topic_data.unwrap().key.clone());
+    }
+
+    // Process proto::keystore::EncryptV1Request
+    pub fn encrypt_v1(&self, request_bytes: &[u8]) -> Result<Vec<u8>, String> {
+        // Decode request bytes into proto::keystore::EncryptV1Request
+        let request_result: protobuf::Result<proto::keystore::EncryptV1Request> =
+            protobuf::Message::parse_from_bytes(request_bytes);
+        if request_result.is_err() {
+            return Err("could not parse encrypt v1 request".to_string());
+        }
+        let request = request_result.as_ref().unwrap();
+        // Create a list of responses
+        let mut responses = Vec::new();
+
+        let private_key_bundle = self.private_key_bundle.as_ref().unwrap();
+
+        // Iterate over the requests
+        for request in &request.requests {
+            // Extract recipient, payload, header_bytes
+            // assert that they're not empty otherwise log error and continue
+            if request.recipient.is_none() {
+                println!("recipient is empty");
+                continue;
+            }
+            let recipient = request.recipient.as_ref().unwrap();
+            let payload = request.payload.as_ref();
+            let header_bytes = request.header_bytes.as_ref();
+
+            // TODO: STOPSHIP: hack: massage the recipient PublicKeyBundle into a fake SignedPublicKeyBundle
+            // so that we can use the existing sharedSecret function
+            let public_key_bundle = PublicKeyBundle::from_proto(&recipient).unwrap();
+            let signed_public_key_bundle = public_key_bundle.to_fake_signed_public_key_bundle();
+
+            let mut response = proto::keystore::encrypt_response::Response::new();
+
+            // Extract XMTP-like X3DH secret
+            let secret_result = private_key_bundle.derive_shared_secret_xmtp(
+                &signed_public_key_bundle,
+                &private_key_bundle.pre_keys[0].public_key,
+                false, // sender is doing the encrypting
+            );
+            if secret_result.is_err() {
+                return Err("could not derive shared secret".to_string());
+            }
+            let secret = secret_result.unwrap();
+
+            // Encrypt the payload
+            let encrypt_result = encryption::encrypt_v1(&payload, &secret, Some(&header_bytes));
+            if encrypt_result.is_err() {
+                return Err("could not encrypt payload".to_string());
+            }
+
+            match encrypt_result {
+                Ok(encrypted) => {
+                    // TODO: this can be modularized away
+                    let mut success_response =
+                        proto::keystore::encrypt_response::response::Success::new();
+                    let mut aes256_gcm_hkdf_sha256 =
+                        proto::ciphertext::ciphertext::Aes256gcmHkdfsha256::new();
+                    aes256_gcm_hkdf_sha256.payload = encrypted.payload;
+                    aes256_gcm_hkdf_sha256.hkdf_salt = encrypted.hkdf_salt;
+                    aes256_gcm_hkdf_sha256.gcm_nonce = encrypted.gcm_nonce;
+                    let mut ciphertext = proto::ciphertext::Ciphertext::new();
+                    ciphertext.set_aes256_gcm_hkdf_sha256(aes256_gcm_hkdf_sha256);
+                    success_response.encrypted = Some(ciphertext).into();
+                    response.response = Some(
+                        proto::keystore::encrypt_response::response::Response::Result(
+                            success_response,
+                        ),
+                    );
+                }
+                Err(e) => {
+                    let mut error_response = proto::keystore::KeystoreError::new();
+                    error_response.message = e.to_string();
+
+                    error_response.code = protobuf::EnumOrUnknown::new(
+                        proto::keystore::ErrorCode::ERROR_CODE_UNSPECIFIED,
+                    );
+                    response.response = Some(
+                        proto::keystore::encrypt_response::response::Response::Error(
+                            error_response,
+                        ),
+                    );
+                }
+            }
+            responses.push(response);
+        }
+        let mut response_proto = proto::keystore::EncryptResponse::new();
+        response_proto.responses = responses;
+        return Ok(response_proto.write_to_bytes().unwrap());
+    }
+
+    // Process proto::keystore::EncryptV2Request
+    pub fn encrypt_v2(&self, request_bytes: &[u8]) -> Result<Vec<u8>, String> {
+        // Decode request bytes into proto::keystore::EncryptV2Request
+        let request_result: protobuf::Result<proto::keystore::EncryptV2Request> =
+            protobuf::Message::parse_from_bytes(request_bytes);
+        if request_result.is_err() {
+            return Err("could not parse encrypt v2 request".to_string());
+        }
+        let request = request_result.unwrap();
+        // Create a list of responses
+        let mut responses = Vec::new();
+
+        // For each request in the request list
+        for request in request.requests {
+            // TODO: validate the object
+
+            // Extract the payload, headerBytes and contentTopic
+            // const { payload, headerBytes, contentTopic } = req
+            let payload = request.payload.as_ref();
+            let header_bytes = request.header_bytes;
+            let content_topic = request.content_topic;
+
+            // Try to get the topic data
+            // const topicData = this.topicKeys.get(contentTopic)
+            let topic_data = self.topic_keys.get(&content_topic);
+            if topic_data.is_none() {
+                // Error with the content_topic
+                return Err("could not find topic data".to_string());
+            }
+            let topic_data = topic_data.unwrap();
+
+            // Try to encrypt the payload, (note: yes it says encrypt_v1, need to rename)
+            let encrypt_result =
+                encryption::encrypt_v1(payload, &topic_data.key, Some(header_bytes.as_slice()));
+
+            let mut response = proto::keystore::encrypt_response::Response::new();
+
+            // If encryption was successful, return the encrypted payload
+            // If encryption failed, return an error
+            match encrypt_result {
+                Ok(encrypted) => {
+                    let mut success_response =
+                        proto::keystore::encrypt_response::response::Success::new();
+                    let mut aes256_gcm_hkdf_sha256 =
+                        proto::ciphertext::ciphertext::Aes256gcmHkdfsha256::new();
+                    aes256_gcm_hkdf_sha256.payload = encrypted.payload;
+                    aes256_gcm_hkdf_sha256.hkdf_salt = encrypted.hkdf_salt;
+                    aes256_gcm_hkdf_sha256.gcm_nonce = encrypted.gcm_nonce;
+                    let mut ciphertext = proto::ciphertext::Ciphertext::new();
+                    ciphertext.set_aes256_gcm_hkdf_sha256(aes256_gcm_hkdf_sha256);
+                    success_response.encrypted = Some(ciphertext).into();
+                    response.response = Some(
+                        proto::keystore::encrypt_response::response::Response::Result(
+                            success_response,
+                        ),
+                    );
+                }
+                Err(e) => {
+                    let mut error_response = proto::keystore::KeystoreError::new();
+                    error_response.message = e;
+                    error_response.code = protobuf::EnumOrUnknown::new(
+                        proto::keystore::ErrorCode::ERROR_CODE_UNSPECIFIED,
+                    );
+                    response.response = Some(
+                        proto::keystore::encrypt_response::response::Response::Error(
+                            error_response,
+                        ),
+                    );
+                }
+            }
+            responses.push(response);
+        }
+        let mut response_proto = proto::keystore::EncryptResponse::new();
+        response_proto.responses = responses;
+        return Ok(response_proto.write_to_bytes().unwrap());
+    }
+
+    pub fn get_public_key_bundle(&self) -> Result<Vec<u8>, String> {
+        if self.private_key_bundle.is_none() {
+            return Err("public key bundle is none".to_string());
+        }
+        // Go from private_key_bundle to public_key_bundle
+        let private_key_bundle = self
+            .private_key_bundle
+            .as_ref()
+            .unwrap()
+            .signed_public_key_bundle();
+        return Ok(private_key_bundle.write_to_bytes().unwrap());
+    }
+
+    pub fn get_account_address(&self) -> Result<String, String> {
+        if self.private_key_bundle.is_none() {
+            return Err("private key bundle is none".to_string());
+        }
+        self.private_key_bundle.as_ref().unwrap().eth_address()
     }
     // == end keystore api ==
 }
