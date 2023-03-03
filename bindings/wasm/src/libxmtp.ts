@@ -5,6 +5,8 @@ import init, {
   save_invitation,
   decrypt_v1,
   decrypt_v2,
+  encrypt_v1,
+  encrypt_v2,
   save_invites,
   create_invite,
   get_v2_conversations,
@@ -165,12 +167,20 @@ export class XMTPWasm {
     return get_v2_conversations(handle);
   }
 
-  decryptV2(handle: string, ciphertext: Uint8Array): Uint8Array {
-    return decrypt_v2(handle, ciphertext);
+  decryptV1(handle: string, request: Uint8Array): Uint8Array {
+    return decrypt_v1(handle, request);
   }
 
-  decryptV1(handle: string, ciphertext: Uint8Array): Uint8Array {
-    return decrypt_v1(handle, ciphertext);
+  decryptV2(handle: string, request: Uint8Array): Uint8Array {
+    return decrypt_v2(handle, request);
+  }
+
+  encryptV1(handle: string, request: Uint8Array): Uint8Array {
+    return encrypt_v1(handle, request);
+  }
+
+  encryptV2(handle: string, request: Uint8Array): Uint8Array {
+    return encrypt_v2(handle, request);
   }
 
   /**

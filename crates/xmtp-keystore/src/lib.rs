@@ -695,7 +695,6 @@ impl Keystore {
         response_proto.responses = responses;
         return Ok(response_proto.write_to_bytes().unwrap());
     }
-
     // == end keystore api ==
 }
 
