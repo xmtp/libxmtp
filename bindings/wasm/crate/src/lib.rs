@@ -124,3 +124,25 @@ pub fn decrypt_v2(handle: &str, decrypt_request_bytes: &[u8]) -> Result<Vec<u8>,
         .decrypt_v2(decrypt_request_bytes)
         .map_err(|e| JsValue::from(e.to_string()))
 }
+
+#[wasm_bindgen]
+pub fn encrypt_v1(handle: &str, encrypt_request_bytes: &[u8]) -> Result<Vec<u8>, JsValue> {
+    KEYSTORE_MAP
+        .lock()
+        .unwrap()
+        .get(handle)
+        .unwrap()
+        .encrypt_v1(encrypt_request_bytes)
+        .map_err(|e| JsValue::from(e.to_string()))
+}
+
+#[wasm_bindgen]
+pub fn encrypt_v2(handle: &str, encrypt_request_bytes: &[u8]) -> Result<Vec<u8>, JsValue> {
+    KEYSTORE_MAP
+        .lock()
+        .unwrap()
+        .get(handle)
+        .unwrap()
+        .encrypt_v2(encrypt_request_bytes)
+        .map_err(|e| JsValue::from(e.to_string()))
+}

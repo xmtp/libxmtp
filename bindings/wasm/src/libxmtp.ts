@@ -80,6 +80,22 @@ export class Keystore {
     });
   }
 
+  encryptV1(request: keystore.EncryptV1Request): Promise<keystore.EncryptResponse> {
+    const requestBytes = keystore.EncryptV1Request.encode(request).finish();
+    const responseBytes = this.wasmModule.encryptV1(this.handle, requestBytes);
+    return new Promise((resolve, reject) => {
+      resolve(keystore.EncryptResponse.decode(responseBytes));
+    });
+  }
+
+  encryptV2(request: keystore.EncryptV2Request): Promise<keystore.EncryptResponse> {
+    const requestBytes = keystore.EncryptV2Request.encode(request).finish();
+    const responseBytes = this.wasmModule.encryptV2(this.handle, requestBytes);
+    return new Promise((resolve, reject) => {
+      resolve(keystore.EncryptResponse.decode(responseBytes));
+    });
+  }
+
   saveInvites(request: keystore.SaveInvitesRequest): Promise<keystore.SaveInvitesResponse> {
     const requestBytes = keystore.SaveInvitesRequest.encode(request).finish();
     const responseBytes = this.wasmModule.saveInvites(this.handle, requestBytes);

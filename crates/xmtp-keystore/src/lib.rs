@@ -507,6 +507,196 @@ impl Keystore {
         }
         return Some(topic_data.unwrap().key.clone());
     }
+
+    // export const encryptV1 = async (
+    //   keys: PrivateKeyBundleV1,
+    //   recipient: PublicKeyBundle,
+    //   message: Uint8Array,
+    //   headerBytes: Uint8Array
+    // ): Promise<ciphertext.Ciphertext> => {
+    //   const secret = await keys.sharedSecret(
+    //     recipient,
+    //     keys.getCurrentPreKey().publicKey,
+    //     false // assumes that the sender is the party doing the encrypting
+    //   )
+    //
+    //   return encrypt(message, secret, headerBytes)
+    // }
+    //
+    // export const encryptV2 = (
+    //   payload: Uint8Array,
+    //   secret: Uint8Array,
+    //   headerBytes: Uint8Array
+    // ) => encrypt(payload, secret, headerBytes)
+
+    // Process proto::keystore::EncryptV1Request
+    pub fn encrypt_v1(&self, request_bytes: &[u8]) -> Result<Vec<u8>, String> {
+        // Decode request bytes into proto::keystore::EncryptV1Request
+        let request_result: protobuf::Result<proto::keystore::EncryptV1Request> =
+            protobuf::Message::parse_from_bytes(request_bytes);
+        if request_result.is_err() {
+            return Err("could not parse encrypt v1 request".to_string());
+        }
+        let request = request_result.as_ref().unwrap();
+        // Create a list of responses
+        let mut responses = Vec::new();
+
+        let private_key_bundle = self.private_key_bundle.as_ref().unwrap();
+
+        // Iterate over the requests
+        for request in &request.requests {
+            // Extract recipient, payload, header_bytes
+            // assert that they're not empty otherwise log error and continue
+            if request.recipient.is_none() {
+                println!("recipient is empty");
+                continue;
+            }
+            let recipient = request.recipient.as_ref().unwrap();
+            let payload = request.payload.as_ref();
+            let header_bytes = request.header_bytes.as_ref();
+
+            // TODO: STOPSHIP: hack: massage the recipient PublicKeyBundle into a fake SignedPublicKeyBundle
+            // so that we can use the existing sharedSecret function
+            let public_key_bundle = PublicKeyBundle::from_proto(&recipient).unwrap();
+            let signed_public_key_bundle = public_key_bundle.to_fake_signed_public_key_bundle();
+
+            let mut response = proto::keystore::encrypt_response::Response::new();
+
+            // Extract XMTP-like X3DH secret
+            let secret_result = private_key_bundle.derive_shared_secret_xmtp(
+                &signed_public_key_bundle,
+                &private_key_bundle.pre_keys[0].public_key,
+                false, // sender is doing the encrypting
+            );
+            if secret_result.is_err() {
+                return Err("could not derive shared secret".to_string());
+            }
+            let secret = secret_result.unwrap();
+
+            // Encrypt the payload
+            let encrypt_result = encryption::encrypt_v1(&payload, &secret, Some(&header_bytes));
+            if encrypt_result.is_err() {
+                return Err("could not encrypt payload".to_string());
+            }
+
+            match encrypt_result {
+                Ok(encrypted) => {
+                    let mut success_response =
+                        proto::keystore::encrypt_response::response::Success::new();
+                    let mut aes256_gcm_hkdf_sha256 =
+                        proto::ciphertext::ciphertext::Aes256gcmHkdfsha256::new();
+                    aes256_gcm_hkdf_sha256.payload = encrypted.payload;
+                    aes256_gcm_hkdf_sha256.hkdf_salt = encrypted.hkdf_salt;
+                    aes256_gcm_hkdf_sha256.gcm_nonce = encrypted.gcm_nonce;
+                    let mut ciphertext = proto::ciphertext::Ciphertext::new();
+                    ciphertext.set_aes256_gcm_hkdf_sha256(aes256_gcm_hkdf_sha256);
+                    success_response.encrypted = Some(ciphertext).into();
+                    response.response = Some(
+                        proto::keystore::encrypt_response::response::Response::Result(
+                            success_response,
+                        ),
+                    );
+                }
+                Err(e) => {
+                    let mut error_response = proto::keystore::KeystoreError::new();
+                    error_response.message = e.to_string();
+
+                    error_response.code = protobuf::EnumOrUnknown::new(
+                        proto::keystore::ErrorCode::ERROR_CODE_UNSPECIFIED,
+                    );
+                    response.response = Some(
+                        proto::keystore::encrypt_response::response::Response::Error(
+                            error_response,
+                        ),
+                    );
+                }
+            }
+            responses.push(response);
+        }
+        let mut response_proto = proto::keystore::EncryptResponse::new();
+        response_proto.responses = responses;
+        return Ok(response_proto.write_to_bytes().unwrap());
+    }
+
+    /*
+    // Process proto::keystore::EncryptV2Request
+    pub fn encrypt_v2(&self, request_bytes: &[u8]) -> Result<Vec<u8>, String> {
+        // Decode request bytes into proto::keystore::DecryptV2Request
+        let request_result: protobuf::Result<proto::keystore::DecryptV2Request> =
+            protobuf::Message::parse_from_bytes(request_bytes);
+        if request_result.is_err() {
+            return Err("could not parse decrypt v2 request".to_string());
+        }
+        let request = request_result.unwrap();
+        // Create a list of responses
+        let mut responses = Vec::new();
+
+        // For each request in the request list
+        for request in request.requests {
+            // TODO: validate the object
+
+            // Extract the payload, headerBytes and contentTopic
+            // const { payload, headerBytes, contentTopic } = req
+            let payload = request.payload;
+            let header_bytes = request.header_bytes;
+            let content_topic = request.content_topic;
+
+            // Try to get the topic data
+            // const topicData = this.topicKeys.get(contentTopic)
+            let topic_data = self.topic_keys.get(&content_topic);
+            if topic_data.is_none() {
+                // Error with the content_topic
+                return Err("could not find topic data".to_string());
+            }
+            let topic_data = topic_data.unwrap();
+
+            let ciphertext = payload.unwrap().aes256_gcm_hkdf_sha256().clone();
+
+            // Try to decrypt the payload
+            let decrypt_result = encryption::decrypt_v1(
+                ciphertext.payload.as_slice(),
+                ciphertext.hkdf_salt.as_slice(),
+                ciphertext.gcm_nonce.as_slice(),
+                &topic_data.key,
+                Some(header_bytes.as_slice()),
+            );
+
+            let mut response = proto::keystore::decrypt_response::Response::new();
+
+            // If decryption was successful, return the decrypted payload
+            // If decryption failed, return an error
+            match decrypt_result {
+                Ok(decrypted) => {
+                    let mut success_response =
+                        proto::keystore::decrypt_response::response::Success::new();
+                    success_response.decrypted = decrypted;
+                    response.response = Some(
+                        proto::keystore::decrypt_response::response::Response::Result(
+                            success_response,
+                        ),
+                    );
+                }
+                Err(e) => {
+                    let mut error_response = proto::keystore::KeystoreError::new();
+                    error_response.message = e;
+                    error_response.code = protobuf::EnumOrUnknown::new(
+                        proto::keystore::ErrorCode::ERROR_CODE_UNSPECIFIED,
+                    );
+                    response.response = Some(
+                        proto::keystore::decrypt_response::response::Response::Error(
+                            error_response,
+                        ),
+                    );
+                }
+            }
+            responses.push(response);
+        }
+        let mut response_proto = proto::keystore::DecryptResponse::new();
+        response_proto.responses = responses;
+        return Ok(response_proto.write_to_bytes().unwrap());
+    }
+    */
+
     // == end keystore api ==
 }
 
