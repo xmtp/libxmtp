@@ -146,3 +146,25 @@ pub fn encrypt_v2(handle: &str, encrypt_request_bytes: &[u8]) -> Result<Vec<u8>,
         .encrypt_v2(encrypt_request_bytes)
         .map_err(|e| JsValue::from(e.to_string()))
 }
+
+#[wasm_bindgen]
+pub fn get_public_key_bundle(handle: &str) -> Result<Vec<u8>, JsValue> {
+    KEYSTORE_MAP
+        .lock()
+        .unwrap()
+        .get(handle)
+        .unwrap()
+        .get_public_key_bundle()
+        .map_err(|e| JsValue::from(e.to_string()))
+}
+
+#[wasm_bindgen]
+pub fn get_account_address(handle: &str) -> Result<String, JsValue> {
+    KEYSTORE_MAP
+        .lock()
+        .unwrap()
+        .get(handle)
+        .unwrap()
+        .get_account_address()
+        .map_err(|e| JsValue::from(e.to_string()))
+}

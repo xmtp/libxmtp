@@ -274,12 +274,6 @@ impl Keystore {
         // Create a random invitation
         let invitation = InvitationV1::create_random(invite_request.context);
 
-        // Convert nanoseconds to date
-        let created_nanos = invite_request.created_ns;
-        let seconds = (created_nanos / 1000000000) as i64;
-        let nanos = (created_nanos % 1000000000) as u32;
-        let created = NaiveDateTime::from_timestamp(seconds, nanos);
-
         // Create a sealed invitation
         let mut sealed_invitation_header = proto::invitation::SealedInvitationHeaderV1::new();
         let self_private_key_ref = self.private_key_bundle.as_ref().unwrap();
@@ -497,6 +491,16 @@ impl Keystore {
             }
             conversations.push(conversation.write_to_bytes().unwrap());
         }
+        // Sort the conversations by created_ns
+        conversations.sort_by(|a, b| {
+            let a_conversation = proto::keystore::ConversationReference::parse_from_bytes(a)
+                .unwrap()
+                .created_ns;
+            let b_conversation = proto::keystore::ConversationReference::parse_from_bytes(b)
+                .unwrap()
+                .created_ns;
+            a_conversation.cmp(&b_conversation)
+        });
         return Ok(conversations);
     }
 
@@ -507,27 +511,6 @@ impl Keystore {
         }
         return Some(topic_data.unwrap().key.clone());
     }
-
-    // export const encryptV1 = async (
-    //   keys: PrivateKeyBundleV1,
-    //   recipient: PublicKeyBundle,
-    //   message: Uint8Array,
-    //   headerBytes: Uint8Array
-    // ): Promise<ciphertext.Ciphertext> => {
-    //   const secret = await keys.sharedSecret(
-    //     recipient,
-    //     keys.getCurrentPreKey().publicKey,
-    //     false // assumes that the sender is the party doing the encrypting
-    //   )
-    //
-    //   return encrypt(message, secret, headerBytes)
-    // }
-    //
-    // export const encryptV2 = (
-    //   payload: Uint8Array,
-    //   secret: Uint8Array,
-    //   headerBytes: Uint8Array
-    // ) => encrypt(payload, secret, headerBytes)
 
     // Process proto::keystore::EncryptV1Request
     pub fn encrypt_v1(&self, request_bytes: &[u8]) -> Result<Vec<u8>, String> {
@@ -694,6 +677,26 @@ impl Keystore {
         let mut response_proto = proto::keystore::EncryptResponse::new();
         response_proto.responses = responses;
         return Ok(response_proto.write_to_bytes().unwrap());
+    }
+
+    pub fn get_public_key_bundle(&self) -> Result<Vec<u8>, String> {
+        if self.private_key_bundle.is_none() {
+            return Err("public key bundle is none".to_string());
+        }
+        // Go from private_key_bundle to public_key_bundle
+        let private_key_bundle = self
+            .private_key_bundle
+            .as_ref()
+            .unwrap()
+            .signed_public_key_bundle();
+        return Ok(private_key_bundle.write_to_bytes().unwrap());
+    }
+
+    pub fn get_account_address(&self) -> Result<String, String> {
+        if self.private_key_bundle.is_none() {
+            return Err("private key bundle is none".to_string());
+        }
+        self.private_key_bundle.as_ref().unwrap().eth_address()
     }
     // == end keystore api ==
 }
