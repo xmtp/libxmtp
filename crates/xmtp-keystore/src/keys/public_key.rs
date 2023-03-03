@@ -21,6 +21,7 @@ pub fn signed_public_key_from_proto(
             .bytes
             .as_slice(),
     );
+
     if public_key_result.is_err() {
         return Err(format!(
             "Error parsing sec1 bytes: {}",

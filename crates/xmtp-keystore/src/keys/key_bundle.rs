@@ -97,17 +97,25 @@ impl PrivateKeyBundle {
     pub fn signed_public_key_bundle(&self) -> proto::public_key::SignedPublicKeyBundle {
         let public_key_bundle = self.public_key_bundle();
 
+        // TODO: HACK: extract the signatures from the original proto
         let mut signed_public_key_bundle_proto = proto::public_key::SignedPublicKeyBundle::new();
         // Use SignedPublicKey types for both identity_key and pre_key
-        signed_public_key_bundle_proto.identity_key = Some(public_key::to_signed_public_key_proto(
-            &public_key_bundle.identity_key.unwrap(),
-            0,
-        ))
+        signed_public_key_bundle_proto.identity_key = Some(
+            self.private_key_bundle_proto
+                .identity_key
+                .public_key
+                .as_ref()
+                .unwrap()
+                .clone(),
+        )
         .into();
-        signed_public_key_bundle_proto.pre_key = Some(public_key::to_signed_public_key_proto(
-            &public_key_bundle.pre_key.unwrap(),
-            0,
-        ))
+        signed_public_key_bundle_proto.pre_key = Some(
+            self.private_key_bundle_proto.pre_keys[0]
+                .public_key
+                .as_ref()
+                .unwrap()
+                .clone(),
+        )
         .into();
 
         return signed_public_key_bundle_proto;
