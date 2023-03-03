@@ -251,35 +251,8 @@ impl Keystore {
         }
         return Ok(success_conversation);
     }
-    // Create invite
-    // async createInvite(
-    //   req: keystore.CreateInviteRequest
-    // ): Promise<keystore.CreateInviteResponse> {
-    //   try {
-    //     if (!validateObject(req, ['recipient'], [])) {
-    //       throw new KeystoreError(
-    //         ErrorCode.ERROR_CODE_INVALID_INPUT,
-    //         'missing recipient'
-    //       )
-    //     }
-    //     const invitation = InvitationV1.createRandom(req.context)
-    //     const created = nsToDate(req.createdNs)
-    //     const sealed = await SealedInvitation.createV1({
-    //       sender: this.v2Keys,
-    //       recipient: toSignedPublicKeyBundle(req.recipient),
-    //       created,
-    //       invitation,
-    //     })
-    //     const convo = this.addConversationFromV1Invite(invitation, created)
 
-    //     return keystore.CreateInviteResponse.fromPartial({
-    //       conversation: convo,
-    //       payload: sealed.toBytes(),
-    //     })
-    //   } catch (e) {
-    //     throw convertError(e as Error, ErrorCode.ERROR_CODE_INVALID_INPUT)
-    //   }
-    // }
+    // Create invite
     pub fn create_invite(&mut self, request_bytes: &[u8]) -> Result<Vec<u8>, String> {
         // if no self.private_key_bundle, then return error
         if self.private_key_bundle.is_none() {
