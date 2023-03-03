@@ -1,9 +1,9 @@
-use std::sync::Mutex;
 use std::collections::HashMap;
+use std::sync::Mutex;
 
+use js_sys::{Array, Uint8Array};
 use wasm_bindgen::prelude::*;
 use xmtp_keystore::Keystore;
-use js_sys::{Array, Uint8Array};
 
 #[macro_use]
 extern crate lazy_static;
@@ -34,6 +34,21 @@ pub fn set_private_key_bundle(handle: &str, key_bytes: &[u8]) -> Result<bool, Js
         return Err(JsValue::from(result.err().unwrap()));
     }
     return Ok(true);
+}
+
+#[wasm_bindgen]
+pub fn create_invite(handle: &str, request_bytes: &[u8]) -> Result<Vec<u8>, JsValue> {
+    let result = KEYSTORE_MAP
+        .lock()
+        .unwrap()
+        .get_mut(handle)
+        .unwrap()
+        .create_invite(request_bytes)
+        .map_err(|e| e.to_string());
+    if result.is_err() {
+        return Err(JsValue::from(result.err().unwrap()));
+    }
+    return Ok(result.unwrap());
 }
 
 #[wasm_bindgen]

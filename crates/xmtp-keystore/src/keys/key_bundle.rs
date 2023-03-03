@@ -8,10 +8,19 @@ use super::public_key;
 
 use crate::ecdh::ECDHDerivable;
 
+use protobuf::Message;
+
 pub struct PrivateKeyBundle {
     // Underlying protos
     private_key_bundle_proto: proto::private_key::PrivateKeyBundleV2,
 
+    pub identity_key: SignedPrivateKey,
+    pub pre_keys: Vec<SignedPrivateKey>,
+}
+
+pub struct SignedPrivateKeyBundle {
+    // Same as PrivateKeyBundle but with Signatures
+    private_key_bundle_proto: proto::private_key::PrivateKeyBundleV2,
     pub identity_key: SignedPrivateKey,
     pub pre_keys: Vec<SignedPrivateKey>,
 }
@@ -82,6 +91,26 @@ impl PrivateKeyBundle {
             identity_key: Some(identity_key),
             pre_key: Some(pre_keys[0]),
         };
+    }
+
+    // TODO: STOPSHIP: This currently does not include signatures or process them
+    pub fn signed_public_key_bundle(&self) -> proto::public_key::SignedPublicKeyBundle {
+        let public_key_bundle = self.public_key_bundle();
+
+        let mut signed_public_key_bundle_proto = proto::public_key::SignedPublicKeyBundle::new();
+        // Use SignedPublicKey types for both identity_key and pre_key
+        signed_public_key_bundle_proto.identity_key = Some(public_key::to_signed_public_key_proto(
+            &public_key_bundle.identity_key.unwrap(),
+            0,
+        ))
+        .into();
+        signed_public_key_bundle_proto.pre_key = Some(public_key::to_signed_public_key_proto(
+            &public_key_bundle.pre_key.unwrap(),
+            0,
+        ))
+        .into();
+
+        return signed_public_key_bundle_proto;
     }
 
     // XMTP X3DH-like scheme for invitation decryption
@@ -182,6 +211,74 @@ impl PrivateKeyBundle {
         let invitation = invitation_result.as_ref().unwrap();
         return Ok(invitation.clone());
     }
+
+    pub fn seal_invitation(
+        &self,
+        sealed_invitation_header: &proto::invitation::SealedInvitationHeaderV1,
+        invitation: &proto::invitation::InvitationV1,
+    ) -> Result<proto::invitation::SealedInvitation, String> {
+        // Parse public key bundles from sealed_invitation header
+        let sender_public_key_bundle =
+            SignedPublicKeyBundle::from_proto(&sealed_invitation_header.sender).unwrap();
+        let recipient_public_key_bundle =
+            SignedPublicKeyBundle::from_proto(&sealed_invitation_header.recipient).unwrap();
+
+        let secret: Vec<u8>;
+        // reference our own identity key
+        let viewer_identity_key = &self.identity_key;
+        if viewer_identity_key.public_key == sender_public_key_bundle.identity_key {
+            let secret_result = self.derive_shared_secret_xmtp(
+                &recipient_public_key_bundle,
+                &sender_public_key_bundle.pre_key,
+                false,
+            );
+            if secret_result.is_err() {
+                return Err("could not derive shared secret".to_string());
+            }
+            secret = secret_result.unwrap();
+        } else {
+            let secret_result = self.derive_shared_secret_xmtp(
+                &sender_public_key_bundle,
+                &recipient_public_key_bundle.pre_key,
+                true,
+            );
+            if secret_result.is_err() {
+                return Err("could not derive shared secret".to_string());
+            }
+            secret = secret_result.unwrap();
+        }
+
+        // Serialize invitation into bytes
+        let invitation_bytes = invitation.write_to_bytes().unwrap();
+        let header_bytes = sealed_invitation_header.write_to_bytes().unwrap();
+
+        // Encrypt invitation bytes
+        let ciphertext_result =
+            encryption::encrypt_v1(&invitation_bytes, &secret, Some(&header_bytes));
+        if ciphertext_result.is_err() {
+            return Err("could not encrypt invitation".to_string());
+        }
+        let ciphertext: encryption::Ciphertext = ciphertext_result.unwrap();
+
+        // Convert ciphertext to protobuf::encryption::Ciphertext
+        let mut ciphertext_aes256_gcm_hkdf_sha256 =
+            proto::ciphertext::ciphertext::Aes256gcmHkdfsha256::new();
+        ciphertext_aes256_gcm_hkdf_sha256.hkdf_salt = ciphertext.hkdf_salt;
+        ciphertext_aes256_gcm_hkdf_sha256.gcm_nonce = ciphertext.gcm_nonce;
+        ciphertext_aes256_gcm_hkdf_sha256.payload = ciphertext.payload;
+        let mut ciphertext_proto = proto::ciphertext::Ciphertext::new();
+        ciphertext_proto.set_aes256_gcm_hkdf_sha256(ciphertext_aes256_gcm_hkdf_sha256);
+
+        // New SealedInvitation
+        let mut sealed_invitation = proto::invitation::SealedInvitationV1::new();
+        sealed_invitation.header_bytes = header_bytes;
+        sealed_invitation.ciphertext = Some(ciphertext_proto).into();
+
+        // Wrap it in the SealedInvitation proto message
+        let mut sealed_invitation_proto = proto::invitation::SealedInvitation::new();
+        sealed_invitation_proto.set_v1(sealed_invitation);
+        return Ok(sealed_invitation_proto);
+    }
 }
 
 pub struct PublicKeyBundle {
@@ -269,5 +366,9 @@ impl SignedPublicKeyBundle {
             identity_key: identity_key,
             pre_key: pre_key,
         });
+    }
+
+    pub fn to_proto(&self) -> proto::public_key::SignedPublicKeyBundle {
+        return self.signed_public_key_bundle_proto.clone();
     }
 }

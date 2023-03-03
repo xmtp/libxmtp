@@ -36,8 +36,17 @@ it("can set private_key_bundle and decode invites", async () => {
   expect(inviteRes).toBe(true);
 });
 
-it("use keystore to decode invites", async () => {
+it("use keystore to create an invites", async () => {
   const xmtp = await XMTPWasm.initialize();
-  const keystore = xmtp.newKeystore();
+
+  const privateKeyBundleBytes = Buffer.from("EpIDCscBCID6r/ihgr+kFxIiCiA+69dhptWAhSZL61BrxdSObvBGu8h7LC0sebiEBL2DlBqWAQpMCNTC6MXqMBpDCkEEwyc/GHYo+O59IazB6A6IT7sL8aK8pPVV5woD3KWUW9mamD1BbADIRkj5NhsY12MoV3sV6Cdcy4gCOgLVyrKHohJGEkQKQG16AbOXa/zauUTg/OQ7r4iVwoD/gMSAF1vPXEl2ffN8dcamI9WM8F07RsguQCHlULAUY3510GX0wkS2xNq7fyoQARLFAQiAnMWJooK/pBcSIgognCDebi8hRgi5N3DCwGIIvJRt3GUfrp2dmp2SfyJNDOYalAEKTAj4wujF6jAaQwpBBM2XNmLQBhOiCg/sC08UcbCm0osKghqSJmb6Cfxvcu6gHNBP6KRt9E9gv4AMNu4/BNJo/ExTkydvZGyfSUsL90MSRApCCkCdiq2zIGScoXUEEFn7Fvqv0E5tGSxeNQujFLcSTguo+kmDgYOmN9XjfjZdUTjLBTKYuxeXJCXmFwFuqoAvvC2v", "base64");
+
+  const inviteRequestBytes = Buffer.from("ErACCpQBCkwIm8PoxeowGkMKQQTeI6rFEL1eJh5WofKgzDfjP9TETM61G/heGOZP7vRACfMD0ZAzsQ858uvrmqbD7MCFZpTFM6pztTZm9aJ9tzytEkQSQgpA8BReRxtcqrI+aLLW4UKZiREHTo4ub7std5/Klgi7JAEtQTC9Ppp6ZoDPYmK2GWvbTwVOzCElBiZsM+qtUgsVURKWAQpMCL7D6MXqMBpDCkEEY0sZ7+E4hzrdZTpjWiZhuUJHmlwlf96oK/Nm5OyYgRhKNji0oKPe1JX8sij1bjI7XkFiVzZunNhl/Vkmot9g2hJGCkQKQJN3Z1GDiaUnG6N7NxEAuJFN+HKmNfos2XCHNqBjApzQJrVtQApxBntY0vUjtLZyHFFak/33uKYaxpam3EDlDw8QARiA4O+rooK/pBc=", "base64");
+  const handle = xmtp.newHandle();
+  const bundleRes = xmtp.setPrivateKeyBundle(handle, privateKeyBundleBytes);
+  expect(bundleRes).toBe(true);
+
+  const createdInviteRes = xmtp.createInvite(handle, inviteRequestBytes);
+  // Expect an array of bytes, contents tested later (TODO)
+  expect(createdInviteRes).toBeInstanceOf(Uint8Array);
 });
-  

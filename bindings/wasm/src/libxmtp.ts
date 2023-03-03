@@ -1,5 +1,12 @@
 import init, {
-  InitInput, new_keystore, set_private_key_bundle, save_invitation, decrypt_v1, decrypt_v2, save_invites,
+  InitInput,
+  new_keystore,
+  set_private_key_bundle,
+  save_invitation,
+  decrypt_v1,
+  decrypt_v2,
+  save_invites,
+  create_invite,
   get_v2_conversations,
 } from "./pkg/libxmtp.js";
 
@@ -53,35 +60,51 @@ export class Keystore {
     this.handle = handle;
   }
 
-  decryptV1(request: keystore.DecryptV1Request): keystore.DecryptResponse {
+  decryptV1(request: keystore.DecryptV1Request): Promise<keystore.DecryptResponse> {
     // First, serialize the request to a Uint8Array
     const requestBytes = keystore.DecryptV1Request.encode(request).finish();
     // Then, call the Wasm module to decrypt the request
     const responseBytes = this.wasmModule.decryptV1(this.handle, requestBytes);
     // Finally, deserialize the response
-    return keystore.DecryptResponse.decode(responseBytes);
+    return new Promise((resolve, reject) => {
+      resolve(keystore.DecryptResponse.decode(responseBytes));
+    });
   }
 
-  decryptV2(request: keystore.DecryptV2Request): keystore.DecryptResponse {
+  decryptV2(request: keystore.DecryptV2Request): Promise<keystore.DecryptResponse> {
     // First, serialize the request to a Uint8Array
     const requestBytes = keystore.DecryptV2Request.encode(request).finish();
     const responseBytes = this.wasmModule.decryptV2(this.handle, requestBytes);
-    return keystore.DecryptResponse.decode(responseBytes);
+    return new Promise((resolve, reject) => {
+      resolve(keystore.DecryptResponse.decode(responseBytes));
+    });
   }
 
-  saveInvites(request: keystore.SaveInvitesRequest): keystore.SaveInvitesResponse {
+  saveInvites(request: keystore.SaveInvitesRequest): Promise<keystore.SaveInvitesResponse> {
     const requestBytes = keystore.SaveInvitesRequest.encode(request).finish();
     const responseBytes = this.wasmModule.saveInvites(this.handle, requestBytes);
-    return keystore.SaveInvitesResponse.decode(responseBytes);
+    return new Promise((resolve, reject) => {
+      resolve(keystore.SaveInvitesResponse.decode(responseBytes));
+    });
   }
 
-  getV2Conversations(): keystore.ConversationReference[] {
+  createInvite(request: keystore.CreateInviteRequest): Promise<keystore.CreateInviteResponse> {
+    const requestBytes = keystore.CreateInviteRequest.encode(request).finish();
+    const responseBytes = this.wasmModule.createInvite(this.handle, requestBytes);
+    return new Promise((resolve, reject) => {
+      resolve(keystore.CreateInviteResponse.decode(responseBytes));
+    });
+  }
+
+  getV2Conversations(): Promise<keystore.ConversationReference[]> {
     const listResponsesSerialized = this.wasmModule.getV2Conversations(this.handle);
     let listResponses: keystore.ConversationReference[] = [];
     for (const serialized of listResponsesSerialized) {
       listResponses.push(keystore.ConversationReference.decode(serialized));
     }
-    return listResponses;
+    return new Promise((resolve, reject) => {
+      resolve(listResponses);
+    });
   }
 
 }
@@ -116,6 +139,10 @@ export class XMTPWasm {
 
   saveInvites(handle: string, invites: Uint8Array): Uint8Array {
     return save_invites(handle, invites);
+  }
+
+  createInvite(handle: string, request: Uint8Array): Uint8Array {
+    return create_invite(handle, request);
   }
 
   getV2Conversations(handle: string): Uint8Array[] {

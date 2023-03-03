@@ -1,5 +1,7 @@
 use std::collections::HashMap;
 
+use chrono::NaiveDateTime;
+
 use protobuf;
 use protobuf::{Message, MessageField};
 
@@ -8,9 +10,10 @@ mod ecdh;
 mod encryption;
 mod ethereum_utils;
 mod invitation;
-pub mod keys;
-pub mod proto;
-use invitation::Invitation;
+mod keys;
+mod proto;
+mod topic;
+use invitation::InvitationV1;
 use keys::{
     key_bundle::{PrivateKeyBundle, PublicKeyBundle, SignedPublicKeyBundle},
     private_key::SignedPrivateKey,
@@ -221,6 +224,99 @@ impl Keystore {
         return Ok(response_proto.write_to_bytes().unwrap());
     }
 
+    fn get_conversation_from_topic(
+        &self,
+        topic: &str,
+    ) -> Result<proto::keystore::ConversationReference, String> {
+        let topic_result = self.topic_keys.get(topic);
+        if topic_result.is_none() {
+            return Err("could not find topic data".to_string());
+        }
+        // Finally, if we have the topic data then add success + conversation object
+        let topic_data = topic_result.unwrap();
+        let mut success_conversation = proto::keystore::ConversationReference::new();
+        success_conversation.topic = topic.to_string();
+        success_conversation.created_ns = topic_data.created;
+        // Create invitation context from topic data context
+        let mut invitation_context = proto::invitation::invitation_v1::Context::new();
+        if topic_data.context.is_some() {
+            let context = topic_data.context.as_ref().unwrap();
+            invitation_context.conversation_id = context.conversation_id.clone();
+            for (key, value) in context.metadata.iter() {
+                invitation_context
+                    .metadata
+                    .insert(key.to_string(), value.to_string());
+            }
+            success_conversation.context = Some(invitation_context).into();
+        }
+        return Ok(success_conversation);
+    }
+
+    // Create invite
+    pub fn create_invite(&mut self, request_bytes: &[u8]) -> Result<Vec<u8>, String> {
+        // if no self.private_key_bundle, then return error
+        if self.private_key_bundle.is_none() {
+            return Err("no private key bundle".to_string());
+        }
+        // Decode request bytes into proto::keystore::CreateInviteRequest
+        let invite_request_result = InvitationV1::invite_request_from_bytes(request_bytes);
+        if invite_request_result.is_err() {
+            return Err("could not parse invite request".to_string());
+        }
+        let invite_request = invite_request_result.unwrap();
+
+        // Validate the request
+        if invite_request.recipient.is_none() {
+            return Err("missing recipient".to_string());
+        }
+        let recipient = invite_request.recipient.unwrap();
+
+        // Create a random invitation
+        let invitation = InvitationV1::create_random(invite_request.context);
+
+        // Convert nanoseconds to date
+        let created_nanos = invite_request.created_ns;
+        let seconds = (created_nanos / 1000000000) as i64;
+        let nanos = (created_nanos % 1000000000) as u32;
+        let created = NaiveDateTime::from_timestamp(seconds, nanos);
+
+        // Create a sealed invitation
+        let mut sealed_invitation_header = proto::invitation::SealedInvitationHeaderV1::new();
+        let self_private_key_ref = self.private_key_bundle.as_ref().unwrap();
+        sealed_invitation_header.sender =
+            Some(self_private_key_ref.signed_public_key_bundle()).into();
+        sealed_invitation_header.recipient = Some(recipient).into();
+        sealed_invitation_header.created_ns = invite_request.created_ns;
+
+        // Now seal the invitation with our self_private_key_ref
+        let sealed_invitation_result =
+            self_private_key_ref.seal_invitation(&sealed_invitation_header, &invitation);
+        if sealed_invitation_result.is_err() {
+            return Err("could not seal invitation".to_string());
+        }
+
+        let sealed_invitation = sealed_invitation_result.unwrap();
+        // Get the header again and deserialize it to print for debugging
+
+        // Add the conversation from the invite
+        let save_result = self.save_invitation(&sealed_invitation.write_to_bytes().unwrap());
+        if save_result.is_err() {
+            return Err("could not save own created invitation".to_string());
+        }
+        let topic = save_result.unwrap();
+        let conversation_result = self.get_conversation_from_topic(&topic);
+        if conversation_result.is_err() {
+            return Err("could not get conversation from topic".to_string());
+        }
+
+        // Create the response
+        let mut response = proto::keystore::CreateInviteResponse::new();
+        response.conversation = Some(conversation_result.unwrap()).into();
+        response.payload = sealed_invitation.write_to_bytes().unwrap();
+
+        return Ok(response.write_to_bytes().unwrap());
+    }
+
     // Save invites keystore impl
     pub fn save_invites(&mut self, request_bytes: &[u8]) -> Result<Vec<u8>, String> {
         // Decode request bytes into proto::keystore::SaveInvitesRequest
@@ -310,7 +406,7 @@ impl Keystore {
         }
 
         // Deserialize invitation bytes into a protobuf::invitation::InvitationV1 struct
-        let invitation_result = Invitation::sealed_invitation_from_bytes(sealed_invitation_bytes);
+        let invitation_result = InvitationV1::sealed_invitation_from_bytes(sealed_invitation_bytes);
         if invitation_result.is_err() {
             return Err("could not parse invitation".to_string());
         }
@@ -521,10 +617,6 @@ mod tests {
         // Encode string as bytes
         let xmtp_identity_signature_payload =
             ethereum_utils::EthereumUtils::xmtp_identity_key_payload(&bytes_to_sign);
-        println!(
-            "xmtp_identity_signature_payload: {:?}",
-            std::str::from_utf8(&xmtp_identity_signature_payload).unwrap()
-        );
         let personal_signature_message =
             SignedPrivateKey::ethereum_personal_sign_payload(&xmtp_identity_signature_payload);
         let signature_verified = SignedPrivateKey::verify_wallet_signature(
@@ -663,5 +755,27 @@ mod tests {
         // Assert that the invite was saved for the topic_string
         let get_invite_result = x.get_topic_key(topic_string);
         assert!(get_invite_result.is_some());
+    }
+
+    #[test]
+    fn test_create_invite() {
+        let private_key_bundle = "EpIDCscBCID6r/ihgr+kFxIiCiA+69dhptWAhSZL61BrxdSObvBGu8h7LC0sebiEBL2DlBqWAQpMCNTC6MXqMBpDCkEEwyc/GHYo+O59IazB6A6IT7sL8aK8pPVV5woD3KWUW9mamD1BbADIRkj5NhsY12MoV3sV6Cdcy4gCOgLVyrKHohJGEkQKQG16AbOXa/zauUTg/OQ7r4iVwoD/gMSAF1vPXEl2ffN8dcamI9WM8F07RsguQCHlULAUY3510GX0wkS2xNq7fyoQARLFAQiAnMWJooK/pBcSIgognCDebi8hRgi5N3DCwGIIvJRt3GUfrp2dmp2SfyJNDOYalAEKTAj4wujF6jAaQwpBBM2XNmLQBhOiCg/sC08UcbCm0osKghqSJmb6Cfxvcu6gHNBP6KRt9E9gv4AMNu4/BNJo/ExTkydvZGyfSUsL90MSRApCCkCdiq2zIGScoXUEEFn7Fvqv0E5tGSxeNQujFLcSTguo+kmDgYOmN9XjfjZdUTjLBTKYuxeXJCXmFwFuqoAvvC2v";
+
+        let create_invite_request_b64 = "ErACCpQBCkwIm8PoxeowGkMKQQTeI6rFEL1eJh5WofKgzDfjP9TETM61G/heGOZP7vRACfMD0ZAzsQ858uvrmqbD7MCFZpTFM6pztTZm9aJ9tzytEkQSQgpA8BReRxtcqrI+aLLW4UKZiREHTo4ub7std5/Klgi7JAEtQTC9Ppp6ZoDPYmK2GWvbTwVOzCElBiZsM+qtUgsVURKWAQpMCL7D6MXqMBpDCkEEY0sZ7+E4hzrdZTpjWiZhuUJHmlwlf96oK/Nm5OyYgRhKNji0oKPe1JX8sij1bjI7XkFiVzZunNhl/Vkmot9g2hJGCkQKQJN3Z1GDiaUnG6N7NxEAuJFN+HKmNfos2XCHNqBjApzQJrVtQApxBntY0vUjtLZyHFFak/33uKYaxpam3EDlDw8QARiA4O+rooK/pBc=";
+        // Create a keystore, then save Alice's private key bundle
+        let mut x = Keystore::new();
+        let set_private_result = x.set_private_key_bundle(
+            &general_purpose::STANDARD
+                .decode(private_key_bundle.as_bytes())
+                .unwrap(),
+        );
+        assert!(set_private_result.is_ok());
+        // Create invite request
+        let create_invite_result = x.create_invite(
+            &general_purpose::STANDARD
+                .decode(create_invite_request_b64.as_bytes())
+                .unwrap(),
+        );
+        assert!(create_invite_result.err().is_none());
     }
 }
