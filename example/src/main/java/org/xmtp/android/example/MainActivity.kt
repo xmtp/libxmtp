@@ -18,21 +18,24 @@ import androidx.lifecycle.repeatOnLifecycle
 import androidx.recyclerview.widget.LinearLayoutManager
 import kotlinx.coroutines.launch
 import org.xmtp.android.example.connect.ConnectWalletActivity
-import org.xmtp.android.example.conversation.ConversationFooterViewHolder
+import org.xmtp.android.example.conversation.ConversationDetailActivity
 import org.xmtp.android.example.conversation.ConversationsAdapter
+import org.xmtp.android.example.conversation.ConversationsClickListener
+import org.xmtp.android.example.conversation.NewConversationBottomSheet
 import org.xmtp.android.example.databinding.ActivityMainBinding
+import org.xmtp.android.library.Conversation
 
 class MainActivity : AppCompatActivity(),
-    ConversationFooterViewHolder.OnConversationFooterClickListener {
+    ConversationsClickListener {
 
     private val viewModel: MainViewModel by viewModels()
     private lateinit var binding: ActivityMainBinding
     private lateinit var accountManager: AccountManager
     private lateinit var adapter: ConversationsAdapter
+    private var bottomSheet: NewConversationBottomSheet? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-
         accountManager = AccountManager.get(this)
 
         val keys = loadKeys()
@@ -41,22 +44,28 @@ class MainActivity : AppCompatActivity(),
             return
         }
 
-        viewModel.createClient(keys)
+        ClientManager.createClient(keys)
 
         binding = ActivityMainBinding.inflate(layoutInflater)
         setContentView(binding.root)
         setSupportActionBar(binding.toolbar)
 
-        adapter = ConversationsAdapter(footerClickListener = this)
+        adapter = ConversationsAdapter(clickListener = this)
         binding.list.layoutManager = LinearLayoutManager(this)
         binding.list.adapter = adapter
         binding.refresh.setOnRefreshListener {
-            viewModel.fetchConversations()
+            if (ClientManager.clientState.value is ClientManager.ClientState.Ready) {
+                viewModel.fetchConversations()
+            }
+        }
+
+        binding.fab.setOnClickListener {
+            openConversationDetail()
         }
 
         lifecycleScope.launch {
             repeatOnLifecycle(Lifecycle.State.STARTED) {
-                viewModel.clientState.collect(::ensureClientState)
+                ClientManager.clientState.collect(::ensureClientState)
             }
         }
         lifecycleScope.launch {
@@ -64,6 +73,11 @@ class MainActivity : AppCompatActivity(),
                 viewModel.uiState.collect(::ensureUiState)
             }
         }
+    }
+
+    override fun onDestroy() {
+        bottomSheet?.dismiss()
+        super.onDestroy()
     }
 
     override fun onCreateOptionsMenu(menu: Menu): Boolean {
@@ -85,15 +99,28 @@ class MainActivity : AppCompatActivity(),
         }
     }
 
+    override fun onConversationClick(conversation: Conversation) {
+        startActivity(
+            ConversationDetailActivity.intent(
+                this,
+                topic = conversation.topic,
+                peerAddress = conversation.peerAddress
+            )
+        )
+    }
+
     override fun onFooterClick(address: String) {
         copyWalletAddress()
     }
 
-    private fun ensureClientState(clientState: MainViewModel.ClientState) {
+    private fun ensureClientState(clientState: ClientManager.ClientState) {
         when (clientState) {
-            is MainViewModel.ClientState.Ready -> viewModel.fetchConversations()
-            is MainViewModel.ClientState.Error -> showError(clientState.message)
-            is MainViewModel.ClientState.Unknown -> Unit
+            is ClientManager.ClientState.Ready -> {
+                viewModel.fetchConversations()
+                binding.fab.visibility = View.VISIBLE
+            }
+            is ClientManager.ClientState.Error -> showError(clientState.message)
+            is ClientManager.ClientState.Unknown -> Unit
         }
     }
 
@@ -135,7 +162,7 @@ class MainActivity : AppCompatActivity(),
     }
 
     private fun disconnectWallet() {
-        viewModel.clearClient()
+        ClientManager.clearClient()
         val accounts = accountManager.getAccountsByType(resources.getString(R.string.account_type))
         accounts.forEach { account ->
             accountManager.removeAccount(account, null, null, null)
@@ -145,7 +172,15 @@ class MainActivity : AppCompatActivity(),
 
     private fun copyWalletAddress() {
         val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-        val clip = ClipData.newPlainText("address", viewModel.client?.address.orEmpty())
+        val clip = ClipData.newPlainText("address", ClientManager.client.address)
         clipboard.setPrimaryClip(clip)
+    }
+
+    private fun openConversationDetail() {
+        bottomSheet = NewConversationBottomSheet.newInstance()
+        bottomSheet?.show(
+            supportFragmentManager,
+            NewConversationBottomSheet.TAG
+        )
     }
 }

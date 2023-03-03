@@ -77,4 +77,31 @@ class ClientTest {
         val message = conversations[0].messages().firstOrNull()
         assertEquals(message?.body, "hello")
     }
+
+    @Test
+    fun testFetchConversation() {
+        // Generated from JS script
+        val ints = arrayOf(
+            31, 116, 198, 193, 189, 122, 19, 254, 191, 189, 211, 215, 255, 131,
+            171, 239, 243, 33, 4, 62, 143, 86, 18, 195, 251, 61, 128, 90, 34, 126, 219, 236
+        )
+        val bytes =
+            ints.foldIndexed(ByteArray(ints.size)) { i, a, v -> a.apply { set(i, v.toByte()) } }
+        val key = PrivateKey.newBuilder().also {
+            it.secp256K1Builder.bytes = bytes.toByteString()
+            it.publicKeyBuilder.secp256K1UncompressedBuilder.bytes = KeyUtil.addUncompressedByte(KeyUtil.getPublicKey(bytes)).toByteString()
+        }.build()
+
+        val client = Client().create(account = PrivateKeyBuilder(key))
+        assertEquals(client.apiClient.environment, XMTPEnvironment.DEV)
+        val conversations = client.conversations.list()
+        assertEquals(1, conversations.size)
+        val topic = conversations[0].topic
+        val conversation = client.fetchConversation(topic)
+        assertEquals(conversations[0].topic, conversation?.topic)
+        assertEquals(conversations[0].peerAddress, conversation?.peerAddress)
+
+        val noConversation = client.fetchConversation("invalid_topic")
+        assertEquals(null, noConversation)
+    }
 }

@@ -27,7 +27,10 @@
             android:name=".connect.ConnectWalletActivity"
             android:exported="false">
         </activity>
-
+        <activity
+            android:name=".conversation.ConversationDetailActivity"
+            android:exported="false">
+        </activity>
         <service
             android:name=".account.AuthenticatorService"
             android:exported="false">
@@ -39,5 +42,4 @@
                 android:resource="@xml/authenticator" />
         </service>
     </application>
-
 </manifest>

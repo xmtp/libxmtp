@@ -22,10 +22,11 @@ import org.xmtp.android.library.messages.walletAddress
 import java.util.Date
 
 data class ConversationV1(
-    var client: Client,
-    var peerAddress: String,
-    var sentAt: Date,
+    val client: Client,
+    val peerAddress: String,
+    val sentAt: Date,
 ) {
+
     val topic: Topic
         get() = Topic.directMessageV1(client.address, peerAddress)
 

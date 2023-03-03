@@ -8,7 +8,7 @@ import org.xmtp.android.example.databinding.ListItemConversationBinding
 import org.xmtp.android.example.databinding.ListItemConversationFooterBinding
 
 class ConversationsAdapter(
-    private val footerClickListener: ConversationFooterViewHolder.OnConversationFooterClickListener
+    private val clickListener: ConversationsClickListener
 ) : RecyclerView.Adapter<RecyclerView.ViewHolder>() {
 
     private val listItems = mutableListOf<MainViewModel.MainListItem>()
@@ -24,11 +24,11 @@ class ConversationsAdapter(
         return when (viewType) {
             MainViewModel.MainListItem.ITEM_TYPE_CONVERSATION -> {
                 val binding = ListItemConversationBinding.inflate(inflater, parent, false)
-                ConversationViewHolder(binding)
+                ConversationViewHolder(binding, clickListener)
             }
             MainViewModel.MainListItem.ITEM_TYPE_FOOTER -> {
                 val binding = ListItemConversationFooterBinding.inflate(inflater, parent, false)
-                ConversationFooterViewHolder(binding, footerClickListener)
+                ConversationFooterViewHolder(binding, clickListener)
             }
             else -> throw IllegalArgumentException("Unsupported view type $viewType")
         }
@@ -38,7 +38,7 @@ class ConversationsAdapter(
         val item = listItems[position]
         when (holder) {
             is ConversationViewHolder -> {
-                holder.bind(item as MainViewModel.MainListItem.Conversation)
+                holder.bind(item as MainViewModel.MainListItem.ConversationItem)
             }
             is ConversationFooterViewHolder -> {
                 holder.bind(item as MainViewModel.MainListItem.Footer)

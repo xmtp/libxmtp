@@ -99,8 +99,8 @@ sealed class Conversation {
 
     fun streamMessages(): Flow<DecodedMessage> {
         return when (this) {
-            is V1 -> return conversationV1.streamMessages()
-            is V2 -> return conversationV2.streamMessages()
+            is V1 -> conversationV1.streamMessages()
+            is V2 -> conversationV2.streamMessages()
         }
     }
 }

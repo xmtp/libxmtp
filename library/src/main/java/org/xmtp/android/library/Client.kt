@@ -205,6 +205,11 @@ class Client() {
         return subscribe(topics.map { it.description })
     }
 
+    fun fetchConversation(topic: String?): Conversation? {
+        if (topic.isNullOrBlank()) return null
+        return conversations.list().firstOrNull { it.topic == topic }
+    }
+
     fun publish(envelopes: List<Envelope>): PublishResponse {
         val authorized = AuthorizedIdentity(
             address = address,

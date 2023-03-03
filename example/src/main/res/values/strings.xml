@@ -9,4 +9,7 @@
 
     <!-- Conversations -->
     <string name="conversation_footer">Signed in as %1$s on %2$s</string>
+    <string name="new_message">New message</string>
+    <string name="enter_address">Enter Ethereum address</string>
+    <string name="create_conversation">Create conversation</string>
 </resources>

@@ -22,23 +22,23 @@ import org.xmtp.proto.message.contents.Invitation
 import java.util.Date
 
 data class ConversationV2(
-    var topic: String,
-    var keyMaterial: ByteArray,
-    var context: Invitation.InvitationV1.Context,
-    var peerAddress: String,
-    var client: Client,
-    private var header: SealedInvitationHeaderV1,
+    val topic: String,
+    val keyMaterial: ByteArray,
+    val context: Invitation.InvitationV1.Context,
+    val peerAddress: String,
+    val client: Client,
+    private val header: SealedInvitationHeaderV1,
 ) {
-    companion object {
 
+    companion object {
         fun create(
             client: Client,
             invitation: Invitation.InvitationV1,
             header: SealedInvitationHeaderV1,
         ): ConversationV2 {
-            val myKeys = client.keys?.getPublicKeyBundle()
+            val myKeys = client.keys.getPublicKeyBundle()
             val peer =
-                if (myKeys?.walletAddress == (header.sender.walletAddress)) header.recipient else header.sender
+                if (myKeys.walletAddress == (header.sender.walletAddress)) header.recipient else header.sender
             val peerAddress = peer.walletAddress
             val keyMaterial = invitation.aes256GcmHkdfSha256.keyMaterial.toByteArray()
             return ConversationV2(

@@ -13,7 +13,7 @@ import org.xmtp.android.example.databinding.ListItemConversationFooterBinding
 
 class ConversationFooterViewHolder(
     private val binding: ListItemConversationFooterBinding,
-    onFooterClickListener: OnConversationFooterClickListener
+    onFooterClickListener: ConversationsClickListener
 ) : RecyclerView.ViewHolder(binding.root) {
 
     private var address: String? = null
@@ -24,10 +24,6 @@ class ConversationFooterViewHolder(
                 onFooterClickListener.onFooterClick(it)
             }
         }
-    }
-
-    interface OnConversationFooterClickListener {
-        fun onFooterClick(address: String)
     }
 
     fun bind(item: MainViewModel.MainListItem.Footer) {
