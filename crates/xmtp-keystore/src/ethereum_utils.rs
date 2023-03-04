@@ -7,6 +7,28 @@ use sha3::{Digest, Keccak256};
 pub struct EthereumUtils;
 
 impl EthereumUtils {
+    pub fn eip55_checksum(address: &str) -> String {
+        let mut address = address.to_lowercase();
+        let address_copy = address.clone();
+        let mut hash = Keccak256::new();
+        hash.update(address.as_bytes());
+        let hash = hash.finalize();
+        for (i, c) in address_copy.chars().enumerate() {
+            if c.is_digit(16) {
+                let hash_char = hash[i / 2];
+                let hash_digit = if i % 2 == 0 {
+                    hash_char >> 4
+                } else {
+                    hash_char & 0xf
+                };
+                if hash_digit > 7 {
+                    address.replace_range(i..i + 1, &c.to_uppercase().to_string());
+                }
+            }
+        }
+        address
+    }
+
     // Generate per EIP-191
     pub fn get_personal_sign_message(message: &[u8]) -> Vec<u8> {
         // Prefix byte array is: "\x19Ethereum Signed Message:\n"
@@ -24,9 +46,11 @@ impl EthereumUtils {
         let mut hasher = Keccak256::new();
         hasher.update(public_key);
         let hash = hasher.finalize();
-        // Return as hex string
-        // TODO: EIP-55 checksum address encoding
-        return format!("0x{}", hex::encode(&hash[12..]));
+        // Return as hex string with EIP-55 checksumming
+        return format!(
+            "0x{}",
+            EthereumUtils::eip55_checksum(&hex::encode(&hash[12..]))
+        );
     }
 
     // Place the XMTP payload in this utilities class
