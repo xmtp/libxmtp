@@ -139,7 +139,6 @@ public struct ConversationV2 {
 		return try await send(content: encodedContent, options: options, sentAt: sentAt)
 	}
 
-
 	public func encode<Codec: ContentCodec, T>(codec: Codec, content: T) async throws -> Data where Codec.T == T {
 		let content = try codec.encode(content: content)
 

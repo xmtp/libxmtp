@@ -215,6 +215,18 @@ public struct Fixtures {
 		aliceClient = try await Client.create(account: alice, apiClient: fakeApiClient)
 		bobClient = try await Client.create(account: bob, apiClient: fakeApiClient)
 	}
+
+	public func publishLegacyContact(client: Client) async throws {
+		var contactBundle = ContactBundle()
+		contactBundle.v1.keyBundle = client.privateKeyBundleV1.toPublicKeyBundle()
+
+		var envelope = Envelope()
+		envelope.contentTopic = Topic.contact(client.address).description
+		envelope.timestampNs = UInt64(Date().millisecondsSinceEpoch * 1_000_000)
+		envelope.message = try contactBundle.serializedData()
+
+		try await client.publish(envelopes: [envelope])
+	}
 }
 
 public extension XCTestCase {

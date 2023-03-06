@@ -13,7 +13,6 @@ However, we do **not** recommend using Developer Preview software in production 
 Specifically, this SDK is missing this functionality:
 
 - Specifying `apiUrl`, `keyStoreType`, `codecs`, `maxContentSize`, and `appVersion` when creating a `Client`
-- Streaming all messages from all conversations
 
 Follow along in the [tracking issue](https://github.com/xmtp/xmtp-ios/issues/7) for updates.
 
@@ -221,8 +220,6 @@ for try await message in conversation.streamMessages() {
   print("New message from \(message.senderAddress): \(message.body)")
 }
 ```
-
-**Note: This package does not currently include the `streamAllMessages()` functionality from the XMTP client SDK for JavaScript (xmtp-js).**
 
 ### Handling multiple conversations with the same blockchain address
 

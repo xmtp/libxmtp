@@ -145,7 +145,7 @@ public struct RemoteAttachmentCodec: ContentCodec {
 			"nonce": content.nonce.toHex,
 			"scheme": "https://",
 			"contentLength": String(content.contentLength ?? -1),
-			"filename": content.filename ?? ""
+			"filename": content.filename ?? "",
 		]
 
 		return encodedContent

@@ -139,7 +139,7 @@ class RemoteAttachmentTests: XCTestCase {
 		let expect = expectation(description: "raised error")
 
 		// Tamper with content
-		try Data([1,2,3,4,5]).write(to: tempFileURL)
+		try Data([1, 2, 3, 4, 5]).write(to: tempFileURL)
 
 		do {
 			_ = try await remoteAttachment.content()

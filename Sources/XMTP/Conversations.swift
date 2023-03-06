@@ -13,9 +13,52 @@ public enum ConversationError: Error {
 }
 
 /// Handles listing and creating Conversations.
-public struct Conversations {
+public class Conversations {
 	var client: Client
 	var conversations: [Conversation] = []
+
+	init(client: Client) {
+		self.client = client
+	}
+
+	public func streamAllMessages() async throws -> AsyncThrowingStream<DecodedMessage, Error> {
+		return AsyncThrowingStream { continuation in
+			Task {
+				while true {
+					var topics: [String] = [
+						Topic.userInvite(client.address).description,
+						Topic.userIntro(client.address).description,
+					]
+
+					for conversation in try await list() {
+						topics.append(conversation.topic)
+					}
+
+					do {
+						for try await envelope in client.subscribe(topics: topics) {
+							if let conversation = conversations.first(where: { $0.topic == envelope.contentTopic }) {
+								let decoded = try conversation.decode(envelope)
+								continuation.yield(decoded)
+							} else if envelope.contentTopic.hasPrefix("/xmtp/0/invite-") {
+								conversations.append(try fromInvite(envelope: envelope))
+								break // Break so we can resubscribe with the new conversation
+							} else if envelope.contentTopic.hasPrefix("/xmtp/0/intro-") {
+								let conversation = try fromIntro(envelope: envelope)
+								conversations.append(conversation)
+								let decoded = try conversation.decode(envelope)
+								continuation.yield(decoded)
+								break // Break so we can resubscribe with the new conversation
+							} else {
+								print("huh \(envelope)")
+							}
+						}
+					} catch {
+						continuation.finish(throwing: error)
+					}
+				}
+			}
+		}
+	}
 
 	public func fromInvite(envelope: Envelope) throws -> Conversation {
 		let sealedInvitation = try SealedInvitation(serializedData: envelope.message)
@@ -35,7 +78,7 @@ public struct Conversations {
 		return .v1(conversationV1)
 	}
 
-	public mutating func newConversation(with peerAddress: String, context: InvitationV1.Context? = nil) async throws -> Conversation {
+	public func newConversation(with peerAddress: String, context: InvitationV1.Context? = nil) async throws -> Conversation {
 		if peerAddress.lowercased() == client.address.lowercased() {
 			throw ConversationError.recipientIsSender
 		}
@@ -167,7 +210,9 @@ public struct Conversations {
 			}
 		}
 
-		return conversations.filter { $0.peerAddress != client.address }
+		self.conversations = conversations.filter { $0.peerAddress != client.address }
+
+		return self.conversations
 	}
 
 	func listIntroductionPeers() async throws -> [String: Date] {

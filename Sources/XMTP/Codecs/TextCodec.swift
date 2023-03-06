@@ -17,7 +17,7 @@ enum TextCodecError: Error {
 public struct TextCodec: ContentCodec {
 	public typealias T = String
 
-	public init() { }
+	public init() {}
 
 	public var contentType = ContentTypeText
 

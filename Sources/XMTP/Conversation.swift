@@ -26,6 +26,19 @@ public enum Conversation {
 	// TODO: It'd be nice to not have to expose these types as public, maybe we make this a struct with an enum prop instead of just an enum
 	case v1(ConversationV1), v2(ConversationV2)
 
+	public enum Version {
+		case v1, v2
+	}
+
+	public var version: Version {
+		switch self {
+		case let .v1:
+			return .v1
+		case let .v2:
+			return .v2
+		}
+	}
+
 	public var createdAt: Date {
 		switch self {
 		case let .v1(conversationV1):
@@ -74,7 +87,6 @@ public enum Conversation {
 			return try conversationV2.decode(envelope: envelope)
 		}
 	}
-
 
 	public func encode<Codec: ContentCodec, T>(codec: Codec, content: T) async throws -> Data where Codec.T == T {
 		switch self {
