@@ -9,6 +9,8 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
 import org.xmtp.android.example.ClientManager
+import org.xmtp.android.library.Conversation
+import org.xmtp.android.library.DecodedMessage
 
 class ConversationDetailViewModel(private val savedStateHandle: SavedStateHandle) : ViewModel() {
 
@@ -26,6 +28,8 @@ class ConversationDetailViewModel(private val savedStateHandle: SavedStateHandle
     private val _uiState = MutableStateFlow<UiState>(UiState.Loading(null))
     val uiState: StateFlow<UiState> = _uiState
 
+    private var conversation: Conversation? = null
+
     @UiThread
     fun fetchMessages() {
         when (val uiState = uiState.value) {
@@ -35,11 +39,15 @@ class ConversationDetailViewModel(private val savedStateHandle: SavedStateHandle
         viewModelScope.launch(Dispatchers.IO) {
             val listItems = mutableListOf<MessageListItem>()
             try {
-                val conversation = ClientManager.client.fetchConversation(conversationTopic)
+                if (conversation == null) {
+                    conversation = ClientManager.client.fetchConversation(conversationTopic)
+                }
                 conversation?.let {
-                    it.messages().map { message ->
-                        MessageListItem.Message(message.id, message.body)
-                    }
+                    listItems.addAll(
+                        it.messages().map { message ->
+                            MessageListItem.Message(message.id, message)
+                        }
+                    )
                 }
                 _uiState.value = UiState.Success(listItems)
             } catch (e: Exception) {
@@ -48,10 +56,30 @@ class ConversationDetailViewModel(private val savedStateHandle: SavedStateHandle
         }
     }
 
+    @UiThread
+    fun sendMessage(body: String): StateFlow<SendMessageState> {
+        val flow = MutableStateFlow<SendMessageState>(SendMessageState.Loading)
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                conversation?.send(body)
+                flow.value = SendMessageState.Success
+            } catch (e: Exception) {
+                flow.value = SendMessageState.Error(e.localizedMessage.orEmpty())
+            }
+        }
+        return flow
+    }
+
     sealed class UiState {
         data class Loading(val listItems: List<MessageListItem>?) : UiState()
         data class Success(val listItems: List<MessageListItem>) : UiState()
         data class Error(val message: String) : UiState()
+    }
+
+    sealed class SendMessageState {
+        object Loading : SendMessageState()
+        object Success : SendMessageState()
+        data class Error(val message: String) : SendMessageState()
     }
 
     sealed class MessageListItem(open val id: String, val itemType: Int) {
@@ -59,7 +87,7 @@ class ConversationDetailViewModel(private val savedStateHandle: SavedStateHandle
             const val ITEM_TYPE_MESSAGE = 1
         }
 
-        data class Message(override val id: String, val body: String) :
+        data class Message(override val id: String, val message: DecodedMessage) :
             MessageListItem(id, ITEM_TYPE_MESSAGE)
     }
 }

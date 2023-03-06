@@ -108,7 +108,7 @@ data class Conversations(
     }
 
     fun list(): List<Conversation> {
-        val conversations: MutableList<Conversation> = mutableListOf()
+        conversations = mutableListOf()
         val seenPeers = listIntroductionPeers()
         for ((peerAddress, sentAt) in seenPeers) {
             conversations.add(

@@ -178,8 +178,8 @@ class Client() {
         }
         val contactBundle = ContactBundle.newBuilder().also {
             it.v2Builder.keyBundle = keys.getPublicKeyBundle()
+            it.v2Builder.keyBundleBuilder.identityKeyBuilder.signature = it.v2.keyBundle.identityKey.signature.ensureWalletSignature()
         }.build()
-        contactBundle.v2.keyBundle.identityKey.signature.ensureWalletSignature()
         val envelope = MessageApiOuterClass.Envelope.newBuilder().apply {
             contentTopic = Topic.contact(address).description
             timestampNs = Date().time * 1_000_000

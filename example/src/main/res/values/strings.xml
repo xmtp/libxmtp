@@ -12,4 +12,7 @@
     <string name="new_message">New message</string>
     <string name="enter_address">Enter Ethereum address</string>
     <string name="create_conversation">Create conversation</string>
+
+    <!-- Messages -->
+    <string name="message_composer_hint">Type a message…</string>
 </resources>

@@ -48,17 +48,17 @@ fun Signature.verify(signedBy: PublicKey, digest: ByteArray): Boolean {
     return pubKey.contentEquals(signedBy.secp256K1Uncompressed.bytes.toByteArray())
 }
 
-fun Signature.ensureWalletSignature() {
+fun Signature.ensureWalletSignature(): Signature {
     when (unionCase) {
         SignatureOuterClass.Signature.UnionCase.ECDSA_COMPACT -> {
             val walletEcdsa = SignatureOuterClass.Signature.WalletECDSACompact.newBuilder().also {
                 it.bytes = ecdsaCompact.bytes
                 it.recovery = ecdsaCompact.recovery
             }.build()
-            this.toBuilder().apply {
-                walletEcdsaCompact = walletEcdsa
+            return this.toBuilder().also {
+                it.walletEcdsaCompact = walletEcdsa
             }.build()
         }
-        else -> return
+        else -> return this
     }
 }
