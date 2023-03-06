@@ -540,7 +540,12 @@ impl Keystore {
 
             // TODO: STOPSHIP: hack: massage the recipient PublicKeyBundle into a fake SignedPublicKeyBundle
             // so that we can use the existing sharedSecret function
-            let public_key_bundle = PublicKeyBundle::from_proto(&recipient).unwrap();
+            let public_key_bundle_result = PublicKeyBundle::from_proto(&recipient);
+            if public_key_bundle_result.is_err() {
+                println!("could not parse recipient");
+                continue;
+            }
+            let public_key_bundle = public_key_bundle_result.unwrap();
             let signed_public_key_bundle = public_key_bundle.to_fake_signed_public_key_bundle();
 
             let mut response = proto::keystore::encrypt_response::Response::new();
@@ -986,5 +991,37 @@ mod tests {
         let get_wallet_address_result = x.get_account_address();
         assert!(get_wallet_address_result.as_ref().err().is_none());
         assert_eq!(get_wallet_address_result.as_ref().unwrap(), wallet_address);
+    }
+
+    #[test]
+    fn test_encrypt_v1_with_invalid_params() {
+        let private_key_bundle = "EpIDCsUBCMDhxZ6FqsOkFxIiCiDw8Tzi1Ke4pqKSAb1vavGlfZ+AvjO3wODJ+UFZtBwqRxqUAQpMCOvW7c7qMBpDCkEEGoTeu8h3/uy+v5j3lDsNb7NAQoYIthqn2NnsKDJiY1AM0cCujfPDfIfnIE4RlKP6h9B3mzArBPh5gMowHT2d0RJEEkIKQGhQA4lJ+mQS2k966sjf3fkMOmTl9W/XUhstk3QPFM2cTHvSZktpMxqcX8ayRIrVZnb3KCaaUKEli7fsgvqgY0ISxwEIgPajroWqw6QXEiIKIHIogys5c9Cv9J/Qlbmao+4/xpY243vxZ3JoBOzoYKSDGpYBCkwIjNftzuowGkMKQQQ8Rsc0PVa8DOXZpUQutmTB+t2TmCO3inJaHMkdDfnaAf/4La6x1qf8NCUi9xv76CALCTGIGhENjveUdfGxrXNLEkYKRApAEI7tmQXGLSArJIJYpAyaDZPy8RV7Zvf+fat0awNHIGN3y0lDSo2d3xmqquwfodQJHjaoaz+Pe/iABQbq7PeGVBAB";
+        // Create a keystore, then save Alice's private key bundle
+        let mut x = Keystore::new();
+        let set_private_result = x.set_private_key_bundle(
+            &general_purpose::STANDARD
+                .decode(private_key_bundle.as_bytes())
+                .unwrap(),
+        );
+        assert!(set_private_result.is_ok());
+
+        let mut encrypt_request = proto::keystore::EncryptV1Request::new();
+
+        let mut single_encrypt_request = proto::keystore::encrypt_v1request::Request::new();
+        // Add an empty recipient
+        single_encrypt_request.recipient = Some(proto::public_key::PublicKeyBundle::new()).into();
+
+        let mut requests = Vec::new();
+        requests.push(single_encrypt_request);
+        encrypt_request.requests = requests;
+        let res = x.encrypt_v1(&encrypt_request.write_to_bytes().unwrap());
+        assert!(res.is_ok());
+        // Unwrap response
+        let response = res.unwrap();
+        let encrypt_response_result = protobuf::Message::parse_from_bytes(&response);
+        assert!(encrypt_response_result.is_ok());
+        // Assert response.responses length == 1
+        let encrypt_response: proto::keystore::EncryptResponse = encrypt_response_result.unwrap();
+        assert_eq!(0, encrypt_response.responses.len());
     }
 }
