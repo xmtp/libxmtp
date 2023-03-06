@@ -5,6 +5,7 @@ import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flowOf
 import org.junit.Assert.assertEquals
+import org.xmtp.android.library.codecs.Fetcher
 import org.xmtp.android.library.messages.Envelope
 import org.xmtp.android.library.messages.Pagination
 import org.xmtp.android.library.messages.PrivateKey
@@ -13,6 +14,14 @@ import org.xmtp.android.library.messages.Signature
 import org.xmtp.android.library.messages.Topic
 import org.xmtp.android.library.messages.walletAddress
 import org.xmtp.proto.message.api.v1.MessageApiOuterClass
+import java.io.File
+import java.net.URL
+
+class TestFetcher : Fetcher {
+    override fun fetch(url: URL): ByteArray {
+        return File(url.toString().replace("https://", "")).readBytes()
+    }
+}
 
 class FakeWallet : SigningKey {
     private var privateKey: PrivateKey
