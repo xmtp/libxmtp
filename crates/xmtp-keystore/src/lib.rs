@@ -512,6 +512,15 @@ impl Keystore {
         return Some(topic_data.unwrap().key.clone());
     }
 
+    fn create_unspecified_keystore_err(message: &str) -> proto::keystore::KeystoreError {
+        let mut error_response = proto::keystore::KeystoreError::new();
+        error_response.message = "Recipient is empty".to_string();
+
+        error_response.code =
+            protobuf::EnumOrUnknown::new(proto::keystore::ErrorCode::ERROR_CODE_UNSPECIFIED);
+        return error_response;
+    }
+
     // Process proto::keystore::EncryptV1Request
     pub fn encrypt_v1(&self, request_bytes: &[u8]) -> Result<Vec<u8>, String> {
         // Decode request bytes into proto::keystore::EncryptV1Request
@@ -528,10 +537,19 @@ impl Keystore {
 
         // Iterate over the requests
         for request in &request.requests {
+            let mut response = proto::keystore::encrypt_response::Response::new();
+
             // Extract recipient, payload, header_bytes
             // assert that they're not empty otherwise log error and continue
             if request.recipient.is_none() {
-                println!("recipient is empty");
+                response.response = Some(
+                    proto::keystore::encrypt_response::response::Response::Error(
+                        Keystore::create_unspecified_keystore_err(
+                            "Missing recipient in encrypt request",
+                        ),
+                    ),
+                );
+                responses.push(response);
                 continue;
             }
             let recipient = request.recipient.as_ref().unwrap();
@@ -542,13 +560,16 @@ impl Keystore {
             // so that we can use the existing sharedSecret function
             let public_key_bundle_result = PublicKeyBundle::from_proto(&recipient);
             if public_key_bundle_result.is_err() {
-                println!("could not parse recipient");
+                response.response = Some(
+                    proto::keystore::encrypt_response::response::Response::Error(
+                        Keystore::create_unspecified_keystore_err("Could not parse recipient"),
+                    ),
+                );
+                responses.push(response);
                 continue;
             }
             let public_key_bundle = public_key_bundle_result.unwrap();
             let signed_public_key_bundle = public_key_bundle.to_fake_signed_public_key_bundle();
-
-            let mut response = proto::keystore::encrypt_response::Response::new();
 
             // Extract XMTP-like X3DH secret
             let secret_result = private_key_bundle.derive_shared_secret_xmtp(
@@ -557,15 +578,20 @@ impl Keystore {
                 false, // sender is doing the encrypting
             );
             if secret_result.is_err() {
-                return Err("could not derive shared secret".to_string());
+                response.response = Some(
+                    proto::keystore::encrypt_response::response::Response::Error(
+                        Keystore::create_unspecified_keystore_err(
+                            &secret_result.as_ref().err().unwrap(),
+                        ),
+                    ),
+                );
+                responses.push(response);
+                continue;
             }
             let secret = secret_result.unwrap();
 
             // Encrypt the payload
             let encrypt_result = encryption::encrypt_v1(&payload, &secret, Some(&header_bytes));
-            if encrypt_result.is_err() {
-                return Err("could not encrypt payload".to_string());
-            }
 
             match encrypt_result {
                 Ok(encrypted) => {
@@ -1022,6 +1048,6 @@ mod tests {
         assert!(encrypt_response_result.is_ok());
         // Assert response.responses length == 1
         let encrypt_response: proto::keystore::EncryptResponse = encrypt_response_result.unwrap();
-        assert_eq!(0, encrypt_response.responses.len());
+        assert_eq!(1, encrypt_response.responses.len());
     }
 }

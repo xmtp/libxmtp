@@ -325,14 +325,22 @@ impl PublicKeyBundle {
     ) -> Result<PublicKeyBundle, String> {
         let mut identity_key: Option<PublicKey> = None;
         let mut pre_key: Option<PublicKey> = None;
-        let identity_key_result =
-            public_key::public_key_from_proto(public_key_bundle.identity_key.as_ref().unwrap());
+        // Check if identity key is set
+        let identity_key_field = public_key_bundle.identity_key.as_ref();
+        if identity_key_field.is_none() {
+            return Err("Missing identity key in PublicKeyBundle".to_string());
+        }
+        let identity_key_result = public_key::public_key_from_proto(identity_key_field.unwrap());
         if identity_key_result.is_ok() {
             identity_key = Some(identity_key_result.unwrap());
         }
 
-        let pre_key_result =
-            public_key::public_key_from_proto(public_key_bundle.pre_key.as_ref().unwrap());
+        let pre_key_field = public_key_bundle.pre_key.as_ref();
+        if pre_key_field.is_none() {
+            return Err("Missing pre key in PublicKeyBundle".to_string());
+        }
+
+        let pre_key_result = public_key::public_key_from_proto(pre_key_field.unwrap());
         if pre_key_result.is_ok() {
             pre_key = Some(pre_key_result.unwrap());
         }
