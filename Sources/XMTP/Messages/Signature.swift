@@ -60,7 +60,7 @@ extension Signature {
 		)
 	}
 
-	init(bytes: Data, recovery: Int) {
+	public init(bytes: Data, recovery: Int) {
 		self.init()
 		ecdsaCompact.bytes = bytes
 		ecdsaCompact.recovery = UInt32(recovery)
