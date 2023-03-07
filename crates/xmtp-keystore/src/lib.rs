@@ -269,6 +269,12 @@ impl Keystore {
         if invite_request.recipient.is_none() {
             return Err("missing recipient".to_string());
         }
+        // Try parsing the recipient into a SignedPublicKeyBundle for validation
+        let validation_parse_result =
+            SignedPublicKeyBundle::from_proto(invite_request.recipient.as_ref().unwrap());
+        if validation_parse_result.is_err() {
+            return Err("Could not validate recipient bundle".to_string());
+        }
         let recipient = invite_request.recipient.unwrap();
 
         // Create a random invitation
