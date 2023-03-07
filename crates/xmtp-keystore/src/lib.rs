@@ -269,6 +269,12 @@ impl Keystore {
         if invite_request.recipient.is_none() {
             return Err("missing recipient".to_string());
         }
+        // Try parsing the recipient into a SignedPublicKeyBundle for validation
+        let validation_parse_result =
+            SignedPublicKeyBundle::from_proto(invite_request.recipient.as_ref().unwrap());
+        if validation_parse_result.is_err() {
+            return Err("Could not validate recipient bundle".to_string());
+        }
         let recipient = invite_request.recipient.unwrap();
 
         // Create a random invitation
@@ -512,6 +518,15 @@ impl Keystore {
         return Some(topic_data.unwrap().key.clone());
     }
 
+    fn create_unspecified_keystore_err(message: &str) -> proto::keystore::KeystoreError {
+        let mut error_response = proto::keystore::KeystoreError::new();
+        error_response.message = "Recipient is empty".to_string();
+
+        error_response.code =
+            protobuf::EnumOrUnknown::new(proto::keystore::ErrorCode::ERROR_CODE_UNSPECIFIED);
+        return error_response;
+    }
+
     // Process proto::keystore::EncryptV1Request
     pub fn encrypt_v1(&self, request_bytes: &[u8]) -> Result<Vec<u8>, String> {
         // Decode request bytes into proto::keystore::EncryptV1Request
@@ -528,10 +543,19 @@ impl Keystore {
 
         // Iterate over the requests
         for request in &request.requests {
+            let mut response = proto::keystore::encrypt_response::Response::new();
+
             // Extract recipient, payload, header_bytes
             // assert that they're not empty otherwise log error and continue
             if request.recipient.is_none() {
-                println!("recipient is empty");
+                response.response = Some(
+                    proto::keystore::encrypt_response::response::Response::Error(
+                        Keystore::create_unspecified_keystore_err(
+                            "Missing recipient in encrypt request",
+                        ),
+                    ),
+                );
+                responses.push(response);
                 continue;
             }
             let recipient = request.recipient.as_ref().unwrap();
@@ -540,10 +564,18 @@ impl Keystore {
 
             // TODO: STOPSHIP: hack: massage the recipient PublicKeyBundle into a fake SignedPublicKeyBundle
             // so that we can use the existing sharedSecret function
-            let public_key_bundle = PublicKeyBundle::from_proto(&recipient).unwrap();
+            let public_key_bundle_result = PublicKeyBundle::from_proto(&recipient);
+            if public_key_bundle_result.is_err() {
+                response.response = Some(
+                    proto::keystore::encrypt_response::response::Response::Error(
+                        Keystore::create_unspecified_keystore_err("Could not parse recipient"),
+                    ),
+                );
+                responses.push(response);
+                continue;
+            }
+            let public_key_bundle = public_key_bundle_result.unwrap();
             let signed_public_key_bundle = public_key_bundle.to_fake_signed_public_key_bundle();
-
-            let mut response = proto::keystore::encrypt_response::Response::new();
 
             // Extract XMTP-like X3DH secret
             let secret_result = private_key_bundle.derive_shared_secret_xmtp(
@@ -552,15 +584,20 @@ impl Keystore {
                 false, // sender is doing the encrypting
             );
             if secret_result.is_err() {
-                return Err("could not derive shared secret".to_string());
+                response.response = Some(
+                    proto::keystore::encrypt_response::response::Response::Error(
+                        Keystore::create_unspecified_keystore_err(
+                            &secret_result.as_ref().err().unwrap(),
+                        ),
+                    ),
+                );
+                responses.push(response);
+                continue;
             }
             let secret = secret_result.unwrap();
 
             // Encrypt the payload
             let encrypt_result = encryption::encrypt_v1(&payload, &secret, Some(&header_bytes));
-            if encrypt_result.is_err() {
-                return Err("could not encrypt payload".to_string());
-            }
 
             match encrypt_result {
                 Ok(encrypted) => {
@@ -968,5 +1005,55 @@ mod tests {
                 .unwrap(),
         );
         assert!(create_invite_result.err().is_none());
+    }
+
+    #[test]
+    fn test_get_wallet_address() {
+        let private_key_bundle = "EpIDCsUBCMDhxZ6FqsOkFxIiCiDw8Tzi1Ke4pqKSAb1vavGlfZ+AvjO3wODJ+UFZtBwqRxqUAQpMCOvW7c7qMBpDCkEEGoTeu8h3/uy+v5j3lDsNb7NAQoYIthqn2NnsKDJiY1AM0cCujfPDfIfnIE4RlKP6h9B3mzArBPh5gMowHT2d0RJEEkIKQGhQA4lJ+mQS2k966sjf3fkMOmTl9W/XUhstk3QPFM2cTHvSZktpMxqcX8ayRIrVZnb3KCaaUKEli7fsgvqgY0ISxwEIgPajroWqw6QXEiIKIHIogys5c9Cv9J/Qlbmao+4/xpY243vxZ3JoBOzoYKSDGpYBCkwIjNftzuowGkMKQQQ8Rsc0PVa8DOXZpUQutmTB+t2TmCO3inJaHMkdDfnaAf/4La6x1qf8NCUi9xv76CALCTGIGhENjveUdfGxrXNLEkYKRApAEI7tmQXGLSArJIJYpAyaDZPy8RV7Zvf+fat0awNHIGN3y0lDSo2d3xmqquwfodQJHjaoaz+Pe/iABQbq7PeGVBAB";
+        let wallet_address = "0xBcF6bEa45762d07025cEc882280675f44d12e41C";
+        // Create a keystore, then save Alice's private key bundle
+        let mut x = Keystore::new();
+        let set_private_result = x.set_private_key_bundle(
+            &general_purpose::STANDARD
+                .decode(private_key_bundle.as_bytes())
+                .unwrap(),
+        );
+        assert!(set_private_result.is_ok());
+
+        let get_wallet_address_result = x.get_account_address();
+        assert!(get_wallet_address_result.as_ref().err().is_none());
+        assert_eq!(get_wallet_address_result.as_ref().unwrap(), wallet_address);
+    }
+
+    #[test]
+    fn test_encrypt_v1_with_invalid_params() {
+        let private_key_bundle = "EpIDCsUBCMDhxZ6FqsOkFxIiCiDw8Tzi1Ke4pqKSAb1vavGlfZ+AvjO3wODJ+UFZtBwqRxqUAQpMCOvW7c7qMBpDCkEEGoTeu8h3/uy+v5j3lDsNb7NAQoYIthqn2NnsKDJiY1AM0cCujfPDfIfnIE4RlKP6h9B3mzArBPh5gMowHT2d0RJEEkIKQGhQA4lJ+mQS2k966sjf3fkMOmTl9W/XUhstk3QPFM2cTHvSZktpMxqcX8ayRIrVZnb3KCaaUKEli7fsgvqgY0ISxwEIgPajroWqw6QXEiIKIHIogys5c9Cv9J/Qlbmao+4/xpY243vxZ3JoBOzoYKSDGpYBCkwIjNftzuowGkMKQQQ8Rsc0PVa8DOXZpUQutmTB+t2TmCO3inJaHMkdDfnaAf/4La6x1qf8NCUi9xv76CALCTGIGhENjveUdfGxrXNLEkYKRApAEI7tmQXGLSArJIJYpAyaDZPy8RV7Zvf+fat0awNHIGN3y0lDSo2d3xmqquwfodQJHjaoaz+Pe/iABQbq7PeGVBAB";
+        // Create a keystore, then save Alice's private key bundle
+        let mut x = Keystore::new();
+        let set_private_result = x.set_private_key_bundle(
+            &general_purpose::STANDARD
+                .decode(private_key_bundle.as_bytes())
+                .unwrap(),
+        );
+        assert!(set_private_result.is_ok());
+
+        let mut encrypt_request = proto::keystore::EncryptV1Request::new();
+
+        let mut single_encrypt_request = proto::keystore::encrypt_v1request::Request::new();
+        // Add an empty recipient
+        single_encrypt_request.recipient = Some(proto::public_key::PublicKeyBundle::new()).into();
+
+        let mut requests = Vec::new();
+        requests.push(single_encrypt_request);
+        encrypt_request.requests = requests;
+        let res = x.encrypt_v1(&encrypt_request.write_to_bytes().unwrap());
+        assert!(res.is_ok());
+        // Unwrap response
+        let response = res.unwrap();
+        let encrypt_response_result = protobuf::Message::parse_from_bytes(&response);
+        assert!(encrypt_response_result.is_ok());
+        // Assert response.responses length == 1
+        let encrypt_response: proto::keystore::EncryptResponse = encrypt_response_result.unwrap();
+        assert_eq!(1, encrypt_response.responses.len());
     }
 }
