@@ -34,6 +34,7 @@ import org.xmtp.android.library.messages.toSignedPublicKeyBundle
 import org.xmtp.android.library.messages.toV2
 import org.xmtp.android.library.messages.walletAddress
 import org.xmtp.proto.message.contents.Invitation
+import org.xmtp.proto.message.contents.Invitation.InvitationV1.Context
 import java.nio.charset.StandardCharsets
 import java.util.Date
 
@@ -515,6 +516,32 @@ class ConversationTest {
             )
             assertEquals("hi alice", awaitItem().encodedContent.content.toStringUtf8())
             awaitComplete()
+        }
+    }
+
+    @Test
+    fun testV2RejectsSpoofedContactBundles() {
+        val topic = "/xmtp/0/m-Gdb7oj5nNdfZ3MJFLAcS4WTABgr6al1hePy6JV1-QUE/proto"
+        val envelopeMessage =
+            com.google.crypto.tink.subtle.Base64.decode("Er0ECkcIwNruhKLgkKUXEjsveG10cC8wL20tR2RiN29qNW5OZGZaM01KRkxBY1M0V1RBQmdyNmFsMWhlUHk2SlYxLVFVRS9wcm90bxLxAwruAwognstLoG6LWgiBRsWuBOt+tYNJz+CqCj9zq6hYymLoak8SDFsVSy+cVAII0/r3sxq7A/GCOrVtKH6J+4ggfUuI5lDkFPJ8G5DHlysCfRyFMcQDIG/2SFUqSILAlpTNbeTC9eSI2hUjcnlpH9+ncFcBu8StGfmilVGfiADru2fGdThiQ+VYturqLIJQXCHO2DkvbbUOg9xI66E4Hj41R9vE8yRGeZ/eRGRLRm06HftwSQgzAYf2AukbvjNx/k+xCMqti49Qtv9AjzxVnwttLiA/9O+GDcOsiB1RQzbZZzaDjQ/nLDTF6K4vKI4rS9QwzTJqnoCdp0SbMZFf+KVZpq3VWnMGkMxLW5Fr6gMvKny1e1LAtUJSIclI/1xPXu5nsKd4IyzGb2ZQFXFQ/BVL9Z4CeOZTsjZLGTOGS75xzzGHDtKohcl79+0lgIhAuSWSLDa2+o2OYT0fAjChp+qqxXcisAyrD5FB6c9spXKfoDZsqMV/bnCg3+udIuNtk7zBk7jdTDMkofEtE3hyIm8d3ycmxKYOakDPqeo+Nk1hQ0ogxI8Z7cEoS2ovi9+rGBMwREzltUkTVR3BKvgV2EOADxxTWo7y8WRwWxQ+O6mYPACsiFNqjX5Nvah5lRjihphQldJfyVOG8Rgf4UwkFxmI")
+        val keyMaterial =
+            com.google.crypto.tink.subtle.Base64.decode("R0BBM5OPftNEuavH/991IKyJ1UqsgdEG4SrdxlIG2ZY=")
+
+        val conversation = ConversationV2(
+            topic = topic,
+            keyMaterial = keyMaterial,
+            context = Context.newBuilder().build(),
+            peerAddress = "0x2f25e33D7146602Ec08D43c1D6B1b65fc151A677",
+            client = aliceClient,
+            header = Invitation.SealedInvitationHeaderV1.newBuilder().build()
+        )
+        val envelope = EnvelopeBuilder.buildFromString(
+            topic = topic,
+            timestamp = Date(),
+            message = envelopeMessage
+        )
+        assertThrows("pre-key not signed by identity key", XMTPException::class.java) {
+            conversation.decodeEnvelope(envelope)
         }
     }
 }

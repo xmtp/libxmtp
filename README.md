@@ -22,9 +22,9 @@ To learn more about XMTP and get answers to frequently asked questions, see [FAQ
 
 For a basic demonstration of the core concepts and capabilities of the `xmtp-android` client SDK, see the [Example app project](https://github.com/xmtp/xmtp-android/tree/main/example). This is currently a work in progress.
 
-## Install from the GitHub Packages
+## Install from Maven Central
 
-While in Pre-Preview status, we plan to [release in GitHub Packages](https://github.com/xmtp/xmtp-android/packages/1797061). When this moves to Dev Preview status, we will have this released in Maven Central. For help consuming GitHub Packages, read [this doc](https://docs.github.com/en/packages/working-with-a-github-packages-registry/working-with-the-gradle-registry#using-a-published-package).
+You can find the latest package version on [Maven Central](https://central.sonatype.com/artifact/org.xmtp/android/0.0.4)
 
 ```gradle
     implementation 'org.xmtp:android:X.X.X'

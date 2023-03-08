@@ -29,6 +29,23 @@ class MessageV2Builder {
             val decrypted =
                 Crypto.decrypt(keyMaterial, message.ciphertext, message.headerBytes.toByteArray())
             val signed = SignedContent.parseFrom(decrypted)
+
+            if (!signed.sender.hasPreKey() || !signed.sender.hasIdentityKey()) {
+                throw XMTPException("missing sender pre-key or identity key")
+            }
+
+            val senderPreKey = PublicKeyBuilder.buildFromSignedPublicKey(signed.sender.preKey)
+            val senderIdentityKey =
+                PublicKeyBuilder.buildFromSignedPublicKey(signed.sender.identityKey)
+
+            if (!senderPreKey.signature.verify(
+                    senderIdentityKey,
+                    signed.sender.preKey.keyBytes.toByteArray()
+                )
+            ) {
+                throw XMTPException("pre-key not signed by identity key")
+            }
+
             // Verify content signature
             val digest =
                 Hash.sha256(message.headerBytes.toByteArray() + signed.payload.toByteArray())
@@ -69,9 +86,9 @@ class MessageV2Builder {
             val header = MessageHeaderV2Builder.buildFromTopic(topic, date)
             val headerBytes = header.toByteArray()
             val digest = Hash.sha256(headerBytes + payload)
-            val preKey = client.keys?.preKeysList?.get(0)
+            val preKey = client.keys.preKeysList?.get(0)
             val signature = preKey?.sign(digest)
-            val bundle = client.privateKeyBundleV1?.toV2()?.getPublicKeyBundle()
+            val bundle = client.privateKeyBundleV1.toV2().getPublicKeyBundle()
             val signedContent = SignedContentBuilder.builderFromPayload(payload, bundle, signature)
             val signedBytes = signedContent.toByteArray()
             val ciphertext = Crypto.encrypt(keyMaterial, signedBytes, additionalData = headerBytes)
