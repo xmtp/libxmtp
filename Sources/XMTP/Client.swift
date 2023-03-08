@@ -173,6 +173,10 @@ public class Client {
 		privateKeyBundleV1.toV2()
 	}
 
+	public func canMessage(_ peerAddress: String) async throws -> Bool {
+		return try await query(topics: [.contact(peerAddress)]).envelopes.count > 0
+	}
+
 	public func importConversation(from conversationData: Data) throws -> Conversation? {
 		let jsonDecoder = JSONDecoder()
 
