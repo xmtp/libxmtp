@@ -376,6 +376,7 @@ impl Keystore {
             let topic_data = topic_data.unwrap();
             let mut success_conversation = proto::keystore::ConversationReference::new();
             success_conversation.topic = unsealed_topic;
+            success_conversation.peer_address = topic_data.peer_address.clone();
             success_conversation.created_ns = topic_data.created;
             // Create invitation context from topic data context
             let mut invitation_context = proto::invitation::invitation_v1::Context::new();
