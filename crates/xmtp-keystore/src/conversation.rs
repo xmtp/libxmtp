@@ -8,6 +8,7 @@ pub struct InvitationContext {
 pub struct TopicData {
     pub key: Vec<u8>,
     pub context: Option<InvitationContext>,
+    pub peer_address: String,
     // timestamp in UTC
     pub created: u64,
 }

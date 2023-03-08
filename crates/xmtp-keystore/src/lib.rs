@@ -13,6 +13,7 @@ mod invitation;
 mod keys;
 mod proto;
 mod topic;
+mod traits;
 use invitation::InvitationV1;
 use keys::{
     key_bundle::{PrivateKeyBundle, PublicKeyBundle, SignedPublicKeyBundle},
@@ -23,6 +24,7 @@ use keys::{
 use conversation::{InvitationContext, TopicData};
 
 use base64::{engine::general_purpose, Engine as _};
+use traits::WalletAssociated;
 
 pub struct Keystore {
     // Private key bundle powers most operations
@@ -237,6 +239,7 @@ impl Keystore {
         let mut success_conversation = proto::keystore::ConversationReference::new();
         success_conversation.topic = topic.to_string();
         success_conversation.created_ns = topic_data.created;
+        success_conversation.peer_address = topic_data.peer_address.clone();
         // Create invitation context from topic data context
         let mut invitation_context = proto::invitation::invitation_v1::Context::new();
         if topic_data.context.is_some() {
@@ -284,7 +287,7 @@ impl Keystore {
         let mut sealed_invitation_header = proto::invitation::SealedInvitationHeaderV1::new();
         let self_private_key_ref = self.private_key_bundle.as_ref().unwrap();
         sealed_invitation_header.sender =
-            Some(self_private_key_ref.signed_public_key_bundle()).into();
+            Some(self_private_key_ref.signed_public_key_bundle_proto()).into();
         sealed_invitation_header.recipient = Some(recipient).into();
         sealed_invitation_header.created_ns = invite_request.created_ns;
 
@@ -421,6 +424,33 @@ impl Keystore {
         // Get the invitation header from the result
         let invitation_header = header_result.as_ref().unwrap();
 
+        // Extract sender and recipient from invitation_header
+        let recipient_bundle_proto = &invitation_header.recipient;
+        let sender_bundle_proto = &invitation_header.sender;
+
+        // Check if our public bundle equals
+        let Ok(recipient_bundle) = SignedPublicKeyBundle::from_proto(recipient_bundle_proto.as_ref().unwrap()) else {
+            return Err("Could not parse recipient bundle from v1 sealed invitation header".to_string());
+        };
+        let Ok(sender_bundle) = SignedPublicKeyBundle::from_proto(sender_bundle_proto.as_ref().unwrap()) else {
+            return Err("Could not parse sender bundle from v1 sealed invitation header".to_string());
+        };
+
+        // TODO: STOPSHIP: must update signed_public_key_bundle to use/check signatures
+        let is_sender = sender_bundle
+            == self
+                .private_key_bundle
+                .as_ref()
+                .unwrap()
+                .signed_public_key_bundle();
+        let Ok(peer_wallet_address) = (if is_sender {
+            recipient_bundle.wallet_address()
+        } else {
+            sender_bundle.wallet_address()
+        }) else {
+            return Err("Could not get wallet address from peer bundle".to_string());
+        };
+
         // Check the header time from the sealed invite
         // TODO: check header time from the sealed invite
         let header_time = invitation_header.created_ns;
@@ -464,10 +494,12 @@ impl Keystore {
         } else {
             None
         };
+
         self.topic_keys.insert(
             topic.to_string(),
             TopicData {
                 key: key_bytes.to_vec(),
+                peer_address: peer_wallet_address,
                 // If the invitation has a context, then use the context, otherwise use None
                 context: optional_context,
                 created: header_time,
@@ -725,7 +757,7 @@ impl Keystore {
             .private_key_bundle
             .as_ref()
             .unwrap()
-            .signed_public_key_bundle();
+            .signed_public_key_bundle_proto();
         return Ok(private_key_bundle.write_to_bytes().unwrap());
     }
 
