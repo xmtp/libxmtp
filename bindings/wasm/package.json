@@ -37,7 +37,7 @@
     "prepublishOnly": "npm test"
   },
   "dependencies": {
-    "@xmtp/proto": "^3.13.0"
+    "@xmtp/proto": "^3.18.0"
   },
   "devDependencies": {
     "@rollup/plugin-typescript": "^10.0.1",
