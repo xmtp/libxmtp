@@ -299,7 +299,6 @@ impl Keystore {
         }
 
         let sealed_invitation = sealed_invitation_result.unwrap();
-        // Get the header again and deserialize it to print for debugging
 
         // Add the conversation from the invite
         let save_result = self.save_invitation(&sealed_invitation.write_to_bytes().unwrap());
@@ -754,12 +753,12 @@ impl Keystore {
             return Err("public key bundle is none".to_string());
         }
         // Go from private_key_bundle to public_key_bundle
-        let private_key_bundle = self
+        let public_key_bundle = self
             .private_key_bundle
             .as_ref()
             .unwrap()
             .signed_public_key_bundle_proto();
-        return Ok(private_key_bundle.write_to_bytes().unwrap());
+        return Ok(public_key_bundle.write_to_bytes().unwrap());
     }
 
     pub fn get_account_address(&self) -> Result<String, String> {
