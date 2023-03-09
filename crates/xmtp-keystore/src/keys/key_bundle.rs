@@ -11,7 +11,7 @@ use super::private_key::SignedPrivateKey;
 use super::public_key;
 
 use crate::ecdh::ECDHDerivable;
-use crate::traits::WalletAssociated;
+use crate::traits::{Buffable, WalletAssociated};
 
 use protobuf::Message;
 
@@ -458,6 +458,56 @@ impl SignedPublicKeyBundle {
 
     pub fn to_proto(&self) -> proto::public_key::SignedPublicKeyBundle {
         return self.signed_public_key_bundle_proto.clone();
+    }
+}
+
+impl Buffable for SignedPublicKeyBundle {
+    // TODO: cannot continue to rely on keeping the original protobuf around
+    fn to_proto_bytes(&self) -> Result<Vec<u8>, String> {
+        let mut signed_public_key_bundle_proto = self.signed_public_key_bundle_proto.clone();
+        return signed_public_key_bundle_proto
+            .write_to_bytes()
+            .map_err(|e| e.to_string());
+    }
+
+    fn from_proto_bytes(bytes: &[u8]) -> Result<SignedPublicKeyBundle, String> {
+        let signed_public_key_bundle_proto =
+            proto::public_key::SignedPublicKeyBundle::parse_from_bytes(bytes);
+        if signed_public_key_bundle_proto.is_err() {
+            return Err(signed_public_key_bundle_proto.err().unwrap().to_string());
+        }
+        let signed_public_key_bundle = signed_public_key_bundle_proto.unwrap();
+        // Check identity_key is populated
+        if signed_public_key_bundle.identity_key.is_none() {
+            return Err("No identity key found".to_string());
+        }
+
+        // Derive public key from SignedPublicKey
+        let identity_key_result = public_key::signed_public_key_from_proto(
+            signed_public_key_bundle.identity_key.as_ref().unwrap(),
+        );
+        if identity_key_result.is_err() {
+            return Err(identity_key_result.err().unwrap().to_string());
+        }
+        let identity_key = identity_key_result.unwrap();
+
+        // Check pre_key is populated
+        if signed_public_key_bundle.pre_key.is_none() {
+            return Err("No pre key found".to_string());
+        }
+        let pre_key_result = public_key::signed_public_key_from_proto(
+            signed_public_key_bundle.pre_key.as_ref().unwrap(),
+        );
+        if pre_key_result.is_err() {
+            return Err(pre_key_result.err().unwrap().to_string());
+        }
+        let pre_key = pre_key_result.unwrap();
+        return Ok(SignedPublicKeyBundle {
+            signed_public_key_bundle_proto: signed_public_key_bundle.clone(),
+            identity_key: identity_key,
+            pre_key: pre_key,
+        });
+        return SignedPublicKeyBundle::from_proto(&signed_public_key_bundle_proto.unwrap());
     }
 }
 

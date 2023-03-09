@@ -9,6 +9,12 @@ use sha3::{Digest, Keccak256};
 use super::super::proto;
 use protobuf::{Message, MessageField};
 
+struct SignedPublicKey {
+    public_key: PublicKey,
+    //    signature:
+    created_at: u64,
+}
+
 pub fn recover_wallet_public_key(
     message: &[u8],
     signature: &proto::signature::Signature,
