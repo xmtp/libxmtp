@@ -8,5 +8,5 @@
 import Foundation
 
 struct Constants {
-	static let version = "0.0.0-development"
+	static let version = "xmtp-ios/0.0.0-development"
 }
