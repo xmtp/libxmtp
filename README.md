@@ -24,7 +24,7 @@ For a basic demonstration of the core concepts and capabilities of the `xmtp-and
 
 ## Install from Maven Central
 
-You can find the latest package version on [Maven Central](https://central.sonatype.com/artifact/org.xmtp/android/0.0.4)
+You can find the latest package version on [Maven Central](https://central.sonatype.com/artifact/org.xmtp/android/0.0.5/versions)
 
 ```gradle
     implementation 'org.xmtp:android:X.X.X'
@@ -210,9 +210,6 @@ conversation.streamMessages().collect {
     print("New message from ${it.senderAddress}: ${it.body}")
 }
 ```
-
-> **Note**  
-> This package does not currently include the `streamAllMessages()` functionality from the XMTP client SDK for JavaScript (xmtp-js).
 
 ### Handle multiple conversations with the same blockchain address
 

@@ -3,6 +3,7 @@ package org.xmtp.android.library
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.runBlocking
+import org.xmtp.android.library.messages.Envelope
 import org.xmtp.android.library.messages.EnvelopeBuilder
 import org.xmtp.android.library.messages.InvitationV1
 import org.xmtp.android.library.messages.MessageV1Builder
@@ -28,6 +29,32 @@ data class Conversations(
     var client: Client,
     var conversations: MutableList<Conversation> = mutableListOf(),
 ) {
+
+    fun fromInvite(envelope: Envelope): Conversation {
+        val sealedInvitation = Invitation.SealedInvitation.parseFrom(envelope.message)
+        val unsealed = sealedInvitation.v1.getInvitation(viewer = client.keys)
+        return Conversation.V2(
+            ConversationV2.create(
+                client = client,
+                invitation = unsealed,
+                header = sealedInvitation.v1.header
+            )
+        )
+    }
+
+    fun fromIntro(envelope: Envelope): Conversation {
+        val messageV1 = MessageV1Builder.buildFromBytes(envelope.message.toByteArray())
+        val senderAddress = messageV1.header.sender.walletAddress
+        val recipientAddress = messageV1.header.recipient.walletAddress
+        val peerAddress = if (client.address == senderAddress) recipientAddress else senderAddress
+        return Conversation.V1(
+            ConversationV1(
+                client = client,
+                peerAddress = peerAddress,
+                sentAt = messageV1.sentAt
+            )
+        )
+    }
 
     fun newConversation(
         peerAddress: String,
@@ -257,6 +284,31 @@ data class Conversations(
                     streamedConversationTopics.add(conversationV2.topic)
                     emit(Conversation.V2(conversationV2))
                 }
+            }
+        }
+    }
+
+    fun streamAllMessages(): Flow<DecodedMessage> = flow {
+        val topics: MutableList<String> =
+            mutableListOf(
+                Topic.userInvite(client.address).description,
+                Topic.userIntro(client.address).description
+            )
+        for (conversation in list()) {
+            topics.add(conversation.topic)
+        }
+        client.subscribe(topics).collect { envelope ->
+            val conversation = conversations.firstOrNull { it.topic == envelope.contentTopic }
+            if (conversation != null) {
+                val decoded = conversation.decode(envelope)
+                emit(decoded)
+            } else if (envelope.contentTopic.startsWith("/xmtp/0/invite-")) {
+                conversations.add(fromInvite(envelope = envelope))
+            } else if (envelope.contentTopic.startsWith("/xmtp/0/intro-")) {
+                val conversation2 = fromIntro(envelope = envelope)
+                conversations.add(conversation2)
+                val decoded = conversation2.decode(envelope)
+                emit(decoded)
             }
         }
     }

@@ -104,4 +104,14 @@ class ClientTest {
         val noConversation = client.fetchConversation("invalid_topic")
         assertEquals(null, noConversation)
     }
+
+    @Test
+    fun testCanMessage() {
+        val fixtures = fixtures()
+        val notOnNetwork = PrivateKeyBuilder()
+        val canMessage = fixtures.aliceClient.canMessage(fixtures.bobClient.address)
+        val cannotMessage = fixtures.aliceClient.canMessage(notOnNetwork.address)
+        assert(canMessage)
+        assert(!cannotMessage)
+    }
 }

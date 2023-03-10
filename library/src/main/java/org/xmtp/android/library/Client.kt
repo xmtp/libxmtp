@@ -286,6 +286,10 @@ class Client() {
         )
     }
 
+    fun canMessage(peerAddress: String): Boolean {
+        return runBlocking { query(listOf(Topic.contact(peerAddress))).envelopesList.size > 0 }
+    }
+
     val privateKeyBundle: PrivateKeyBundle
         get() = PrivateKeyBundleBuilder.buildFromV1Key(privateKeyBundleV1)
 

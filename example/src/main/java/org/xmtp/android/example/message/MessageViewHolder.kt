@@ -37,6 +37,7 @@ class MessageViewHolder(
             binding.messageContainer.setCardBackgroundColor(backgroundPeer)
             binding.messageBody.setTextColor(Color.WHITE)
         }
+        binding.messageContainer.layoutParams = params
         binding.messageBody.text = item.message.body
     }
 }

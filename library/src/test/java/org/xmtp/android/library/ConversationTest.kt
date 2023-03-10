@@ -50,7 +50,7 @@ class ConversationTest {
 
     private fun publishLegacyContact(client: Client) {
         val contactBundle = ContactBundle.newBuilder().apply {
-            v1Builder.keyBundle = client.privateKeyBundleV1?.toPublicKeyBundle()
+            v1Builder.keyBundle = client.privateKeyBundleV1.toPublicKeyBundle()
         }.build()
         val envelope = Envelope.newBuilder().apply {
             contentTopic = Topic.contact(client.address).description
@@ -515,6 +515,18 @@ class ConversationTest {
                 )
             )
             assertEquals("hi alice", awaitItem().encodedContent.content.toStringUtf8())
+            awaitComplete()
+        }
+    }
+
+    @Test
+    fun testStreamAllMessagesGetsMessageFromKnownConversation() = runTest {
+        val fixtures = fixtures()
+        val client = fixtures.aliceClient
+        val bobConversation = fixtures.bobClient.conversations.newConversation(client.address)
+        client.conversations.streamAllMessages().test {
+            bobConversation.send(text = "hi")
+            assertEquals("hi", awaitItem().encodedContent.content.toStringUtf8())
             awaitComplete()
         }
     }

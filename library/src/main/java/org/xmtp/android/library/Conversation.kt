@@ -8,6 +8,19 @@ sealed class Conversation {
     data class V1(val conversationV1: ConversationV1) : Conversation()
     data class V2(val conversationV2: ConversationV2) : Conversation()
 
+    enum class Version {
+        V1,
+        V2
+    }
+
+    val version: Version
+        get() {
+            return when (this) {
+                is V1 -> Version.V1
+                is V2 -> Version.V2
+            }
+        }
+
     val createdAt: Date
         get() {
             return when (this) {

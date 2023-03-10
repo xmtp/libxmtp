@@ -2,6 +2,8 @@ package org.xmtp.android.library
 
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.filters.FlakyTest
+import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.flow.mapLatest
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Test
@@ -15,7 +17,9 @@ import org.xmtp.android.library.messages.Topic
 import org.xmtp.android.library.messages.encrypted
 import org.xmtp.android.library.messages.generate
 import org.xmtp.android.library.messages.secp256K1Uncompressed
+import org.xmtp.android.library.messages.toPublicKeyBundle
 import org.xmtp.android.library.messages.walletAddress
+import org.xmtp.proto.message.contents.Contact
 import org.xmtp.proto.message.contents.PrivateKeyOuterClass
 import java.util.Date
 
@@ -160,5 +164,56 @@ class InstrumentedTest {
         assertEquals(1, messages3.size)
         val nowMessage2 = messages3[0]
         assertEquals("now", nowMessage2.body)
+    }
+
+    @OptIn(ExperimentalCoroutinesApi::class)
+    @Test
+    fun testStreamAllMessagesWorksWithInvites() {
+        val bob = PrivateKeyBuilder()
+        val alice = PrivateKeyBuilder()
+        val clientOptions =
+            ClientOptions(api = ClientOptions.Api(env = XMTPEnvironment.LOCAL, isSecure = false))
+        val bobClient = Client().create(bob, clientOptions)
+        val aliceClient = Client().create(alice, clientOptions)
+        aliceClient.conversations.streamAllMessages().mapLatest {
+            assertEquals("hi", it.encodedContent.content.toStringUtf8())
+        }
+        val bobConversation = bobClient.conversations.newConversation(aliceClient.address)
+        bobConversation.send(text = "hi")
+    }
+
+    @OptIn(ExperimentalCoroutinesApi::class)
+    @Test
+    fun testStreamAllMessagesWorksWithIntros() = runBlocking {
+        val bob = PrivateKeyBuilder()
+        val alice = PrivateKeyBuilder()
+        val clientOptions =
+            ClientOptions(api = ClientOptions.Api(env = XMTPEnvironment.LOCAL, isSecure = false))
+        val bobClient = Client().create(bob, clientOptions)
+        val aliceClient = Client().create(alice, clientOptions)
+
+        // Overwrite contact as legacy
+        publishLegacyContact(client = bobClient)
+        publishLegacyContact(client = aliceClient)
+
+        aliceClient.conversations.streamAllMessages().mapLatest {
+            assertEquals("hi", it.encodedContent.content.toStringUtf8())
+        }
+        val bobConversation = bobClient.conversations.newConversation(aliceClient.address)
+        assertEquals(bobConversation.version, Conversation.Version.V1)
+        bobConversation.send(text = "hi")
+    }
+
+    private fun publishLegacyContact(client: Client) {
+        val contactBundle = Contact.ContactBundle.newBuilder().also {
+            it.v1Builder.keyBundle = client.privateKeyBundleV1.toPublicKeyBundle()
+        }.build()
+        val envelope = Envelope.newBuilder().also {
+            it.contentTopic = Topic.contact(client.address).description
+            it.timestampNs = Date().time * 1_000_000
+            it.message = contactBundle.toByteString()
+        }.build()
+
+        client.publish(envelopes = listOf(envelope))
     }
 }

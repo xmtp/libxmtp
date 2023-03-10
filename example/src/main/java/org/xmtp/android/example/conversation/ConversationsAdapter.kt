@@ -11,12 +11,16 @@ class ConversationsAdapter(
     private val clickListener: ConversationsClickListener
 ) : RecyclerView.Adapter<RecyclerView.ViewHolder>() {
 
+    init {
+        setHasStableIds(true)
+    }
+
     private val listItems = mutableListOf<MainViewModel.MainListItem>()
 
     fun setData(newItems: List<MainViewModel.MainListItem>) {
         listItems.clear()
         listItems.addAll(newItems)
-        notifyItemRangeChanged(0, newItems.size)
+        notifyDataSetChanged()
     }
 
     override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): RecyclerView.ViewHolder {

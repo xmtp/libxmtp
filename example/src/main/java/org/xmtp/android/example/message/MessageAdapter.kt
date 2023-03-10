@@ -8,12 +8,21 @@ import org.xmtp.android.example.databinding.ListItemMessageBinding
 
 class MessageAdapter : RecyclerView.Adapter<RecyclerView.ViewHolder>() {
 
+    init {
+        setHasStableIds(true)
+    }
+
     private val listItems = mutableListOf<ConversationDetailViewModel.MessageListItem>()
 
     fun setData(newItems: List<ConversationDetailViewModel.MessageListItem>) {
         listItems.clear()
         listItems.addAll(newItems)
-        notifyItemRangeChanged(0, newItems.size)
+        notifyDataSetChanged()
+    }
+
+    fun addItem(item: ConversationDetailViewModel.MessageListItem) {
+        listItems.add(0, item)
+        notifyDataSetChanged()
     }
 
     override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): RecyclerView.ViewHolder {
@@ -39,7 +48,7 @@ class MessageAdapter : RecyclerView.Adapter<RecyclerView.ViewHolder>() {
 
     override fun getItemViewType(position: Int) = listItems[position].itemType
 
-    override fun getItemCount() = listItems.count()
+    override fun getItemCount() = listItems.size
 
     override fun getItemId(position: Int) = listItems[position].id.hashCode().toLong()
 }
