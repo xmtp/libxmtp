@@ -252,7 +252,7 @@ class MessageTest {
         val keyBundleData =
             Numeric.hexStringToByteArray("0a86030ac001089387b882df3012220a204a393d6ac64c10770a2585def70329f10ca480517311f0b321a5cfbbae0119951a9201089387b882df3012440a420a4092f66532cf0266d146a17060fb64148e4a6adc673c14511e45f40ac66551234a336a8feb6ef3fabdf32ea259c2a3bca32b9550c3d34e004ea59e86b42f8001ac1a430a41041c919edda3399ab7f20f5e1a9339b1c2e666e80a164fb1c6d8bc1b7dbf2be158f87c837a6364c7fb667a40c2d234d198a7c2168a928d39409ad7d35d653d319912c00108a087b882df3012220a202ade2eefefa5f8855e557d685278e8717e3f57682b66c3d73aa87896766acddc1a920108a087b882df3012440a420a404f4a90ef10e1536e4588f12c2320229008d870d2abaecd1acfefe9ca91eb6f6d56b1380b1bdebdcf9c46fb19ceb3247d5d986a4dd2bce40a4bdf694c24b08fbb1a430a4104a51efe7833c46d2f683e2eb1c07811bb96ab5e4c2000a6f06124968e8842ff8be737ad7ca92b2dabb13550cdc561df15771c8494eca7b7ca5519f6da02f76489")
         val keyBundle = PrivateKeyOuterClass.PrivateKeyBundle.parseFrom(keyBundleData)
-        val client = Client().buildFrom(bundle = keyBundle)
+        val client = Client().buildFrom(bundle = keyBundle.v1)
         val conversationJSON = (""" {"version":"v2","topic":"/xmtp/0/m-2SkdN5Qa0ZmiFI5t3RFbfwIS-OLv5jusqndeenTLvNg/proto","keyMaterial":"ATA1L0O2aTxHmskmlGKCudqfGqwA1H+bad3W/GpGOr8=","peerAddress":"0x436D906d1339fC4E951769b1699051f020373D04","createdAt":"2023-01-26T22:58:45.068Z","context":{"conversationId":"pat/messageid","metadata":{}}} """).toByteArray(UTF_8)
         val decodedConversation = client.importConversation(conversationJSON)
         val conversation = ConversationV2(

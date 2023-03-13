@@ -167,7 +167,7 @@ data class Conversations(
                 client.apiClient.queryTopics(
                     topics = listOf(
                         Topic.userIntro(
-                            client.address ?: ""
+                            client.address
                         )
                     )
                 ).envelopesList
@@ -202,7 +202,7 @@ data class Conversations(
             client.apiClient.queryTopics(
                 topics = listOf(
                     Topic.userInvite(
-                        client.address ?: ""
+                        client.address
                     )
                 )
             ).envelopesList
@@ -231,7 +231,7 @@ data class Conversations(
                     envelopes = listOf(
                         EnvelopeBuilder.buildFromTopic(
                             topic = Topic.userInvite(
-                                client.address ?: ""
+                                client.address
                             ),
                             timestamp = created,
                             message = sealed.toByteArray()

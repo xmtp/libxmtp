@@ -1,5 +1,7 @@
 package org.xmtp.android.library.messages
 
+import kotlinx.coroutines.runBlocking
+
 typealias SignedPrivateKey = org.xmtp.proto.message.contents.PrivateKeyOuterClass.SignedPrivateKey
 
 class SignedPrivateKeyBuilder {
@@ -19,7 +21,9 @@ class SignedPrivateKeyBuilder {
 
 fun SignedPrivateKey.sign(data: ByteArray): Signature {
     val key = PrivateKeyBuilder.buildFromPrivateKeyData(secp256K1.bytes.toByteArray())
-    return PrivateKeyBuilder(key).sign(data)
+    return runBlocking {
+        PrivateKeyBuilder(key).sign(data)
+    }
 }
 
 fun SignedPrivateKey.matches(signedPublicKey: SignedPublicKey): Boolean {

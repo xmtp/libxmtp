@@ -81,16 +81,16 @@ val options = ClientOptions(api = ClientOptions.Api(env = XMTPEnvironment.PRODUC
 val client = Client().create(account = account, options = options)
 
 // Get the key bundle
-val keys = client.privateKeyBundle
+val keys = client.privateKeyBundleV1
 
 // Serialize the key bundle and store it somewhere safe
-val keysData = keys.toByteArray()
+val serializedKeys = PrivateKeyBundleV1Builder.encodeData(v1)
 ```
 
-Once you have those keys, you can create a new client with `Client.from`:
+Once you have those keys, you can create a new client with `Client().buildFrom()`:
 
 ```kotlin
-val keys = PrivateKeyBundle.parseFrom(keysData)
+val keys = PrivateKeyBundleV1Builder.fromEncodedData(serializedKeys)
 val client = Client().buildFrom(bundle = keys, options = options)
 ```
 

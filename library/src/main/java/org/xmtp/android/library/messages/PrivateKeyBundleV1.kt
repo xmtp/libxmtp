@@ -1,10 +1,24 @@
 package org.xmtp.android.library.messages
 
+import com.google.crypto.tink.subtle.Base64
+import kotlinx.coroutines.runBlocking
 import org.web3j.crypto.Hash
 import org.xmtp.android.library.SigningKey
 import org.xmtp.android.library.createIdentity
 
 typealias PrivateKeyBundleV1 = org.xmtp.proto.message.contents.PrivateKeyOuterClass.PrivateKeyBundleV1
+
+class PrivateKeyBundleV1Builder {
+    companion object {
+        fun fromEncodedData(data: String): PrivateKeyBundleV1 {
+            return PrivateKeyBundleV1.parseFrom(Base64.decode(data, Base64.NO_WRAP))
+        }
+
+        fun encodeData(privateKeyBundleV1: PrivateKeyBundleV1): String {
+            return Base64.encodeToString(privateKeyBundleV1.toByteArray(), Base64.NO_WRAP)
+        }
+    }
+}
 
 fun PrivateKeyBundleV1.generate(wallet: SigningKey): PrivateKeyBundleV1 {
     val privateKey = PrivateKeyBuilder()
@@ -12,7 +26,9 @@ fun PrivateKeyBundleV1.generate(wallet: SigningKey): PrivateKeyBundleV1 {
     var bundle = authorizedIdentity.toBundle
     var preKey = PrivateKey.newBuilder().build().generate()
     val bytesToSign = UnsignedPublicKeyBuilder.buildFromPublicKey(preKey.publicKey).toByteArray()
-    val signature = privateKey.sign(Hash.sha256(bytesToSign))
+    val signature = runBlocking {
+        privateKey.sign(Hash.sha256(bytesToSign))
+    }
 
     preKey = preKey.toBuilder().apply {
         publicKeyBuilder.signature = signature

@@ -1,7 +1,7 @@
 package org.xmtp.android.library.messages
 
-import com.google.crypto.tink.subtle.Base64
 import com.google.protobuf.kotlin.toByteString
+import kotlinx.coroutines.runBlocking
 import org.web3j.crypto.ECKeyPair
 import org.web3j.crypto.Hash
 import org.web3j.crypto.Sign
@@ -36,10 +36,6 @@ class PrivateKeyBuilder : SigningKey {
         privateKey = key
     }
 
-    constructor(encodedPrivateKeyData: String) {
-        privateKey = PrivateKey.parseFrom(Base64.decode(encodedPrivateKeyData, Base64.NO_WRAP))
-    }
-
     companion object {
         fun buildFromPrivateKeyData(privateKeyData: ByteArray): PrivateKey {
             return PrivateKey.newBuilder().apply {
@@ -66,10 +62,6 @@ class PrivateKeyBuilder : SigningKey {
         }
     }
 
-    fun encodedPrivateKeyData(): String {
-        return Base64.encodeToString(privateKey.toByteArray(), Base64.NO_WRAP)
-    }
-
     fun getPrivateKey(): PrivateKey {
         return privateKey
     }
@@ -77,7 +69,7 @@ class PrivateKeyBuilder : SigningKey {
     override val address: String
         get() = privateKey.walletAddress
 
-    override fun sign(data: ByteArray): SignatureOuterClass.Signature {
+    override suspend fun sign(data: ByteArray): SignatureOuterClass.Signature {
         val signatureData =
             Sign.signMessage(
                 data,
@@ -93,7 +85,7 @@ class PrivateKeyBuilder : SigningKey {
         return signature.build()
     }
 
-    override fun sign(message: String): SignatureOuterClass.Signature {
+    override suspend fun sign(message: String): SignatureOuterClass.Signature {
         val digest = Signature.newBuilder().build().ethHash(message)
         return sign(digest)
     }
@@ -109,7 +101,10 @@ val PrivateKey.walletAddress: String
 fun PrivateKey.sign(key: PublicKeyOuterClass.UnsignedPublicKey): PublicKeyOuterClass.SignedPublicKey {
     val bytes = key.toByteArray()
     val signedPublicKey = PublicKeyOuterClass.SignedPublicKey.newBuilder()
-    val signature = PrivateKeyBuilder(this).sign(Hash.sha256(bytes))
+    val builder = PrivateKeyBuilder(this)
+    val signature = runBlocking {
+        builder.sign(Hash.sha256(bytes))
+    }
     signedPublicKey.signature = signature
     signedPublicKey.keyBytes = bytes.toByteString()
     return signedPublicKey.build()

@@ -42,12 +42,12 @@ class FakeWallet : SigningKey {
     override val address: String
         get() = privateKey.walletAddress
 
-    override fun sign(data: ByteArray): Signature {
+    override suspend fun sign(data: ByteArray): Signature {
         val signature = privateKeyBuilder.sign(data)
         return signature
     }
 
-    override fun sign(message: String): Signature {
+    override suspend fun sign(message: String): Signature {
         val signature = privateKeyBuilder.sign(message)
         return signature
     }

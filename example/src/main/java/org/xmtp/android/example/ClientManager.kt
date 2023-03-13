@@ -7,9 +7,13 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
 import org.xmtp.android.library.Client
-import org.xmtp.android.library.messages.PrivateKeyBuilder
+import org.xmtp.android.library.ClientOptions
+import org.xmtp.android.library.XMTPEnvironment
+import org.xmtp.android.library.messages.PrivateKeyBundleV1Builder
 
 object ClientManager {
+
+    val CLIENT_OPTIONS = ClientOptions(api = ClientOptions.Api(XMTPEnvironment.DEV))
 
     private val _clientState = MutableStateFlow<ClientState>(ClientState.Unknown)
     val clientState: StateFlow<ClientState> = _clientState
@@ -28,8 +32,9 @@ object ClientManager {
         if (clientState.value is ClientState.Ready) return
         GlobalScope.launch(Dispatchers.IO) {
             try {
-                val wallet = PrivateKeyBuilder(encodedPrivateKeyData = encodedPrivateKeyData)
-                _client = Client().create(wallet)
+                val v1Bundle =
+                    PrivateKeyBundleV1Builder.fromEncodedData(data = encodedPrivateKeyData)
+                _client = Client().buildFrom(v1Bundle, CLIENT_OPTIONS)
                 _clientState.value = ClientState.Ready
             } catch (e: Exception) {
                 _clientState.value = ClientState.Error(e.localizedMessage.orEmpty())

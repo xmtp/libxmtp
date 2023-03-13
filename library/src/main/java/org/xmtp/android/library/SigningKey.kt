@@ -1,6 +1,7 @@
 package org.xmtp.android.library
 
 import com.google.protobuf.kotlin.toByteString
+import kotlinx.coroutines.runBlocking
 import org.web3j.crypto.ECDSASignature
 import org.web3j.crypto.Keys
 import org.web3j.crypto.Sign
@@ -18,9 +19,9 @@ import java.util.Date
 interface SigningKey {
     val address: String
 
-    fun sign(data: ByteArray): SignatureOuterClass.Signature
+    suspend fun sign(data: ByteArray): SignatureOuterClass.Signature?
 
-    fun sign(message: String): SignatureOuterClass.Signature
+    suspend fun sign(message: String): SignatureOuterClass.Signature?
 }
 
 fun SigningKey.createIdentity(identity: PrivateKeyOuterClass.PrivateKey): AuthorizedIdentity {
@@ -31,7 +32,7 @@ fun SigningKey.createIdentity(identity: PrivateKeyOuterClass.PrivateKey): Author
     val signatureClass = Signature.newBuilder().build()
     val signatureText = signatureClass.createIdentityText(key = slimKey.toByteArray())
     val digest = signatureClass.ethHash(message = signatureText)
-    val signature = sign(digest)
+    val signature = runBlocking { sign(signatureText) } ?: throw XMTPException("Illegal signature")
 
     val signatureData = KeyUtil.getSignatureData(signature.rawData.toByteString().toByteArray())
     val publicKey = Sign.recoverFromSignature(

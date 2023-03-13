@@ -3,6 +3,15 @@
     xmlns:tools="http://schemas.android.com/tools">
 
     <uses-permission android:name="android.permission.GET_ACCOUNTS" />
+    <queries>
+        <intent>
+            <action android:name="android.intent.action.VIEW" />
+            <data android:scheme="wc" />
+        </intent>
+        <provider
+            android:authorities="list"
+            android:exported="false" />
+    </queries>
 
     <application
         android:allowBackup="true"
@@ -25,12 +34,11 @@
         </activity>
         <activity
             android:name=".connect.ConnectWalletActivity"
-            android:exported="false">
-        </activity>
+            android:exported="false"></activity>
         <activity
             android:name=".conversation.ConversationDetailActivity"
-            android:exported="false">
-        </activity>
+            android:exported="false"></activity>
+
         <service
             android:name=".account.AuthenticatorService"
             android:exported="false">

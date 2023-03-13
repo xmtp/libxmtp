@@ -75,12 +75,12 @@ class Client() {
         this.conversations = Conversations(client = this)
     }
 
-    fun buildFrom(bundle: PrivateKeyBundle, options: ClientOptions? = null): Client {
-        val address = bundle.v1.identityKey.publicKey.recoverWalletSignerPublicKey().walletAddress
+    fun buildFrom(bundle: PrivateKeyBundleV1, options: ClientOptions? = null): Client {
+        val address = bundle.identityKey.publicKey.recoverWalletSignerPublicKey().walletAddress
         val clientOptions = options ?: ClientOptions()
         val apiClient =
             GRPCApiClient(environment = clientOptions.api.env, secure = clientOptions.api.isSecure)
-        return Client(address = address, privateKeyBundleV1 = bundle.v1, apiClient = apiClient)
+        return Client(address = address, privateKeyBundleV1 = bundle, apiClient = apiClient)
     }
 
     fun create(account: SigningKey, options: ClientOptions? = null): Client {
@@ -237,15 +237,15 @@ class Client() {
             conversationData.toString(StandardCharsets.UTF_8),
             ConversationV2Export::class.java
         )
-        try {
-            return importV2Conversation(export = v2Export)
+        return try {
+            importV2Conversation(export = v2Export)
         } catch (e: java.lang.Exception) {
             val v1Export = gson.fromJson(
                 conversationData.toString(StandardCharsets.UTF_8),
                 ConversationV1Export::class.java
             )
             try {
-                return importV1Conversation(export = v1Export)
+                importV1Conversation(export = v1Export)
             } catch (e: java.lang.Exception) {
                 throw XMTPException("Invalid input data", e)
             }

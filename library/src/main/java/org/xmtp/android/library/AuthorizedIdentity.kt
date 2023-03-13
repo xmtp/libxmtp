@@ -2,6 +2,7 @@ package org.xmtp.android.library
 
 import android.util.Base64
 import com.google.crypto.tink.subtle.Base64.encodeToString
+import kotlinx.coroutines.runBlocking
 import org.xmtp.android.library.messages.AuthDataBuilder
 import org.xmtp.android.library.messages.PrivateKey
 import org.xmtp.android.library.messages.PrivateKeyBuilder
@@ -26,7 +27,9 @@ data class AuthorizedIdentity(
 
     fun createAuthToken(): String {
         val authData = AuthDataBuilder.buildFromWalletAddress(walletAddress = address)
-        val signature = PrivateKeyBuilder(identity).sign(Util.keccak256(authData.toByteArray()))
+        val signature = runBlocking {
+            PrivateKeyBuilder(identity).sign(Util.keccak256(authData.toByteArray()))
+        }
 
         val token = Token.newBuilder().also {
             it.identityKey = authorized
