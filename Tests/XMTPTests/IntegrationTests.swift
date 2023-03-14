@@ -38,7 +38,7 @@ final class IntegrationTests: XCTestCase {
 
 		try await Task.sleep(nanoseconds: 2_000_000_000)
 
-		let result = try await api.query(topics: [.userPrivateStoreKeyBundle(authorized.address)])
+		let result = try await api.query(topic: .userPrivateStoreKeyBundle(authorized.address))
 		XCTAssert(result.envelopes.count == 1)
 	}
 

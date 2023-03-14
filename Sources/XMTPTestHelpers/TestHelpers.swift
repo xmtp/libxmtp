@@ -51,8 +51,8 @@ class FakeStreamHolder: ObservableObject {
 
 @available(iOS 15, *)
 public class FakeApiClient: ApiClient {
-	public func envelopes(topics: [String], pagination: XMTP.Pagination?) async throws -> [XMTP.Envelope] {
-		try await query(topics: topics, pagination: pagination).envelopes
+	public func envelopes(topic: String, pagination: XMTP.Pagination?) async throws -> [XMTP.Envelope] {
+		try await query(topic: topic, pagination: pagination).envelopes
 	}
 
 	public var environment: XMTPEnvironment
@@ -129,21 +129,19 @@ public class FakeApiClient: ApiClient {
 		authToken = token
 	}
 
-	public func query(topics: [String], pagination: Pagination? = nil, cursor _: Xmtp_MessageApi_V1_Cursor? = nil) async throws -> XMTP.QueryResponse {
+	public func query(topic: String, pagination: Pagination? = nil, cursor _: Xmtp_MessageApi_V1_Cursor? = nil) async throws -> XMTP.QueryResponse {
 		if forbiddingQueries {
-			XCTFail("Attempted to query \(topics)")
+			XCTFail("Attempted to query \(topic)")
 			throw FakeApiClientError.queryAssertionFailure
 		}
 
 		var result: [Envelope] = []
 
-		for topic in topics {
-			if let response = responses.removeValue(forKey: topic) {
-				result.append(contentsOf: response)
-			}
-
-			result.append(contentsOf: published.filter { $0.contentTopic == topic }.reversed())
+		if let response = responses.removeValue(forKey: topic) {
+			result.append(contentsOf: response)
 		}
+
+		result.append(contentsOf: published.filter { $0.contentTopic == topic }.reversed())
 
 		if let startAt = pagination?.startTime {
 			result = result
@@ -181,8 +179,8 @@ public class FakeApiClient: ApiClient {
 		return queryResponse
 	}
 
-	public func query(topics: [XMTP.Topic], pagination: Pagination? = nil) async throws -> XMTP.QueryResponse {
-		return try await query(topics: topics.map(\.description), pagination: pagination, cursor: nil)
+	public func query(topic: XMTP.Topic, pagination: Pagination? = nil) async throws -> XMTP.QueryResponse {
+		return try await query(topic: topic.description, pagination: pagination, cursor: nil)
 	}
 
 	public func publish(envelopes: [XMTP.Envelope]) async throws -> XMTP.PublishResponse {

@@ -30,7 +30,7 @@ public struct Contacts {
 			return knownBundle
 		}
 
-		let response = try await client.query(topics: [.contact(peerAddress)])
+		let response = try await client.query(topic: .contact(peerAddress))
 
 		for envelope in response.envelopes {
 			// swiftlint:disable no_optional_try

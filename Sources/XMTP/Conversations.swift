@@ -216,9 +216,10 @@ public class Conversations {
 	}
 
 	func listIntroductionPeers() async throws -> [String: Date] {
-		let envelopes = try await client.apiClient.query(topics: [
-			.userIntro(client.address),
-		], pagination: nil).envelopes
+		let envelopes = try await client.apiClient.query(
+			topic: .userIntro(client.address),
+			pagination: nil
+		).envelopes
 
 		let messages = envelopes.compactMap { envelope in
 			do {
@@ -259,7 +260,7 @@ public class Conversations {
 
 	func listInvitations() async throws -> [SealedInvitation] {
 		let envelopes = try await client.apiClient.envelopes(
-			topics: [Topic.userInvite(client.address).description],
+			topic: Topic.userInvite(client.address).description,
 			pagination: nil
 		)
 

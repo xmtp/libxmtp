@@ -16,9 +16,9 @@ protocol ApiClient {
 	var environment: XMTPEnvironment { get }
 	init(environment: XMTPEnvironment, secure: Bool) throws
 	func setAuthToken(_ token: String)
-	func query(topics: [String], pagination: Pagination?, cursor: Xmtp_MessageApi_V1_Cursor?) async throws -> QueryResponse
-	func query(topics: [Topic], pagination: Pagination?) async throws -> QueryResponse
-	func envelopes(topics: [String], pagination: Pagination?) async throws -> [Envelope]
+	func query(topic: String, pagination: Pagination?, cursor: Xmtp_MessageApi_V1_Cursor?) async throws -> QueryResponse
+	func query(topic: Topic, pagination: Pagination?) async throws -> QueryResponse
+	func envelopes(topic: String, pagination: Pagination?) async throws -> [Envelope]
 	func publish(envelopes: [Envelope]) async throws -> PublishResponse
 	func subscribe(topics: [String]) -> AsyncThrowingStream<Envelope, Error>
 }
@@ -50,9 +50,9 @@ class GRPCApiClient: ApiClient {
 		authToken = token
 	}
 
-	func query(topics: [String], pagination: Pagination? = nil, cursor: Xmtp_MessageApi_V1_Cursor? = nil) async throws -> QueryResponse {
+	func query(topic: String, pagination: Pagination? = nil, cursor: Xmtp_MessageApi_V1_Cursor? = nil) async throws -> QueryResponse {
 		var request = Xmtp_MessageApi_V1_QueryRequest()
-		request.contentTopics = topics
+		request.contentTopics = [topic]
 
 		if let pagination {
 			request.pagingInfo = pagination.pagingInfo
@@ -79,13 +79,13 @@ class GRPCApiClient: ApiClient {
 		return try await client.query(request, callOptions: options)
 	}
 
-	func envelopes(topics: [String], pagination: Pagination? = nil) async throws -> [Envelope] {
+	func envelopes(topic: String, pagination: Pagination? = nil) async throws -> [Envelope] {
 		var envelopes: [Envelope] = []
 		var hasNextPage = true
 		var cursor: Xmtp_MessageApi_V1_Cursor?
 
 		while hasNextPage {
-			let response = try await query(topics: topics, pagination: pagination, cursor: cursor)
+			let response = try await query(topic: topic, pagination: pagination, cursor: cursor)
 
 			envelopes.append(contentsOf: response.envelopes)
 
@@ -96,8 +96,8 @@ class GRPCApiClient: ApiClient {
 		return envelopes
 	}
 
-	func query(topics: [Topic], pagination: Pagination? = nil) async throws -> Xmtp_MessageApi_V1_QueryResponse {
-		return try await query(topics: topics.map(\.description), pagination: pagination)
+	func query(topic: Topic, pagination: Pagination? = nil) async throws -> Xmtp_MessageApi_V1_QueryResponse {
+		return try await query(topic: topic.description, pagination: pagination)
 	}
 
 	func subscribe(topics: [String]) -> AsyncThrowingStream<Envelope, Error> {

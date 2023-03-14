@@ -136,9 +136,10 @@ public struct ConversationV1 {
 	func messages(limit: Int? = nil, before: Date? = nil, after: Date? = nil) async throws -> [DecodedMessage] {
 		let pagination = Pagination(limit: limit, startTime: before, endTime: after)
 
-		let envelopes = try await client.apiClient.query(topics: [
-			.directMessageV1(client.address, peerAddress),
-		], pagination: pagination).envelopes
+		let envelopes = try await client.apiClient.query(
+			topic: Topic.directMessageV1(client.address, peerAddress),
+			pagination: pagination
+		).envelopes
 
 		return envelopes.compactMap { envelope in
 			do {

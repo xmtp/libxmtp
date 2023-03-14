@@ -125,8 +125,10 @@ public class Client {
 	}
 
 	static func loadPrivateKeys(for account: SigningKey, apiClient: ApiClient) async throws -> PrivateKeyBundleV1? {
-		let topics: [Topic] = [.userPrivateStoreKeyBundle(account.address)]
-		let res = try await apiClient.query(topics: topics, pagination: nil)
+		let res = try await apiClient.query(
+			topic: .userPrivateStoreKeyBundle(account.address),
+			pagination: nil
+		)
 
 		for envelope in res.envelopes {
 			let encryptedBundle = try EncryptedPrivateKeyBundle(serializedData: envelope.message)
@@ -174,7 +176,7 @@ public class Client {
 	}
 
 	public func canMessage(_ peerAddress: String) async throws -> Bool {
-		return try await query(topics: [.contact(peerAddress)]).envelopes.count > 0
+		return try await query(topic: .contact(peerAddress)).envelopes.count > 0
 	}
 
 	public func importConversation(from conversationData: Data) throws -> Conversation? {
@@ -265,8 +267,11 @@ public class Client {
 		_ = try await publish(envelopes: envelopes)
 	}
 
-	func query(topics: [Topic], pagination: Pagination? = nil) async throws -> QueryResponse {
-		return try await apiClient.query(topics: topics, pagination: pagination)
+	func query(topic: Topic, pagination: Pagination? = nil) async throws -> QueryResponse {
+		return try await apiClient.query(
+			topic: topic,
+			pagination: pagination
+		)
 	}
 
 	@discardableResult func publish(envelopes: [Envelope]) async throws -> PublishResponse {
