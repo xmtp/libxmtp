@@ -167,12 +167,8 @@ data class Conversations(
     private fun listIntroductionPeers(): Map<String, Date> {
         val envelopes =
             runBlocking {
-                client.apiClient.queryTopics(
-                    topics = listOf(
-                        Topic.userIntro(
-                            client.address
-                        )
-                    )
+                client.apiClient.queryTopic(
+                    topic = Topic.userIntro(client.address)
                 ).envelopesList
             }
         val messages = envelopes.map { envelope ->
@@ -202,12 +198,8 @@ data class Conversations(
 
     fun listInvitations(): List<SealedInvitation> {
         val envelopes = runBlocking {
-            client.apiClient.queryTopics(
-                topics = listOf(
-                    Topic.userInvite(
-                        client.address
-                    )
-                )
+            client.apiClient.queryTopic(
+                topic = Topic.userInvite(client.address)
             ).envelopesList
         }
         return envelopes.map { envelope ->

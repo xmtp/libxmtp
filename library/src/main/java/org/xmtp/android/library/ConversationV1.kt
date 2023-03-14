@@ -120,7 +120,7 @@ data class ConversationV1(
     ): List<DecodedMessage> {
         val pagination = Pagination(limit = limit, startTime = before, endTime = after)
         val result = runBlocking {
-            client.apiClient.queryTopics(topics = listOf(topic), pagination = pagination)
+            client.apiClient.queryTopic(topic = topic, pagination = pagination)
         }
 
         return result.envelopesList.flatMap { envelope ->

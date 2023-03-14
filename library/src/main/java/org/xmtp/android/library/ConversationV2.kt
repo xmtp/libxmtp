@@ -62,7 +62,7 @@ data class ConversationV2(
         val pagination = Pagination(limit = limit, startTime = before, endTime = after)
         val result = runBlocking {
             client.apiClient.query(
-                topics = listOf(topic),
+                topic = topic,
                 pagination = pagination,
                 cursor = null
             )

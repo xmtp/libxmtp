@@ -146,8 +146,8 @@ class Client() {
         account: SigningKey,
         apiClient: ApiClient,
     ): PrivateKeyBundleV1? {
-        val topics: List<Topic> = listOf(Topic.userPrivateStoreKeyBundle(account.address))
-        val res = apiClient.queryTopics(topics = topics)
+        val topic: Topic = Topic.userPrivateStoreKeyBundle(account.address)
+        val res = apiClient.queryTopic(topic = topic)
         for (envelope in res.envelopesList) {
             try {
                 val encryptedBundle = EncryptedPrivateKeyBundle.parseFrom(envelope.message)
@@ -193,8 +193,8 @@ class Client() {
         return contacts.find(Keys.toChecksumAddress(peerAddress))
     }
 
-    suspend fun query(topics: List<Topic>, pagination: Pagination? = null): QueryResponse {
-        return apiClient.queryTopics(topics = topics, pagination = pagination)
+    suspend fun query(topic: Topic, pagination: Pagination? = null): QueryResponse {
+        return apiClient.queryTopic(topic = topic, pagination = pagination)
     }
 
     suspend fun subscribe(topics: List<String>): Flow<Envelope> {
@@ -287,7 +287,7 @@ class Client() {
     }
 
     fun canMessage(peerAddress: String): Boolean {
-        return runBlocking { query(listOf(Topic.contact(peerAddress))).envelopesList.size > 0 }
+        return runBlocking { query(Topic.contact(peerAddress)).envelopesList.size > 0 }
     }
 
     val privateKeyBundle: PrivateKeyBundle

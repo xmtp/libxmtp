@@ -23,13 +23,12 @@ interface ApiClient {
     val environment: XMTPEnvironment
     fun setAuthToken(token: String)
     suspend fun query(
-        topics: List<String>,
+        topic: String,
         pagination: Pagination? = null,
         cursor: Cursor? = null,
     ): QueryResponse
-
-    suspend fun queryTopics(topics: List<Topic>, pagination: Pagination? = null): QueryResponse
-    suspend fun envelopes(topics: List<String>, pagination: Pagination? = null): List<Envelope>
+    suspend fun queryTopic(topic: Topic, pagination: Pagination? = null): QueryResponse
+    suspend fun envelopes(topic: String, pagination: Pagination? = null): List<Envelope>
     suspend fun publish(envelopes: List<Envelope>): PublishResponse
     suspend fun subscribe(topics: List<String>): Flow<Envelope>
 }
@@ -67,12 +66,12 @@ data class GRPCApiClient(override val environment: XMTPEnvironment, val secure: 
     }
 
     override suspend fun query(
-        topics: List<String>,
+        topic: String,
         pagination: Pagination?,
         cursor: Cursor?,
     ): QueryResponse {
         val request = QueryRequest.newBuilder()
-            .addAllContentTopics(topics).also {
+            .addContentTopics(topic).also {
                 if (pagination != null) {
                     it.pagingInfo = pagination.pagingInfo
                 }
@@ -99,12 +98,12 @@ data class GRPCApiClient(override val environment: XMTPEnvironment, val secure: 
         return client.query(request, headers = headers)
     }
 
-    override suspend fun envelopes(topics: List<String>, pagination: Pagination?): List<Envelope> {
+    override suspend fun envelopes(topic: String, pagination: Pagination?): List<Envelope> {
         val envelopes: MutableList<Envelope> = mutableListOf()
         var hasNextPage = true
         var cursor: Cursor? = null
         while (hasNextPage) {
-            val response = query(topics = topics, pagination = pagination, cursor = cursor)
+            val response = query(topic = topic, pagination = pagination, cursor = cursor)
             envelopes.addAll(response.envelopesList)
             cursor = response.pagingInfo.cursor
             hasNextPage = response.envelopesList.isNotEmpty() && response.pagingInfo.hasCursor()
@@ -112,8 +111,8 @@ data class GRPCApiClient(override val environment: XMTPEnvironment, val secure: 
         return envelopes
     }
 
-    override suspend fun queryTopics(topics: List<Topic>, pagination: Pagination?): QueryResponse {
-        return query(topics.map { it.description }, pagination)
+    override suspend fun queryTopic(topic: Topic, pagination: Pagination?): QueryResponse {
+        return query(topic.description, pagination)
     }
 
     override suspend fun publish(envelopes: List<Envelope>): PublishResponse {

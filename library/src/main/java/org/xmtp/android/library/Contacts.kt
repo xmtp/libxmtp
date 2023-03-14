@@ -22,7 +22,7 @@ data class Contacts(
         if (knownBundle != null) {
             return knownBundle
         }
-        val response = runBlocking { client.query(topics = listOf(Topic.contact(peerAddress))) }
+        val response = runBlocking { client.query(topic = Topic.contact(peerAddress)) }
 
         if (response.envelopesList.isNullOrEmpty()) return null
 

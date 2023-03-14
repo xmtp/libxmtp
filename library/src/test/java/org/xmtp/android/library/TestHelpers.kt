@@ -95,11 +95,11 @@ class FakeApiClient : ApiClient {
         authToken = token
     }
 
-    override suspend fun queryTopics(
-        topics: List<Topic>,
+    override suspend fun queryTopic(
+        topic: Topic,
         pagination: Pagination?,
     ): MessageApiOuterClass.QueryResponse {
-        return query(topics = topics.map { it.description }, pagination)
+        return query(topic = topic.description, pagination)
     }
 
     suspend fun send(envelope: Envelope) {
@@ -107,29 +107,27 @@ class FakeApiClient : ApiClient {
     }
 
     override suspend fun envelopes(
-        topics: List<String>,
+        topic: String,
         pagination: Pagination?,
     ): List<MessageApiOuterClass.Envelope> {
-        return query(topics = topics, pagination = pagination).envelopesList
+        return query(topic = topic, pagination = pagination).envelopesList
     }
 
     override suspend fun query(
-        topics: List<String>,
+        topic: String,
         pagination: Pagination?,
         cursor: MessageApiOuterClass.Cursor?,
     ): MessageApiOuterClass.QueryResponse {
         var result: MutableList<Envelope> = mutableListOf()
-        for (topic in topics) {
-            val response = responses.toMutableMap().remove(topic)
-            if (response != null) {
-                result.addAll(response)
-            }
-            result.addAll(
-                published.filter {
-                    it.contentTopic == topic
-                }.reversed()
-            )
+        val response = responses.toMutableMap().remove(topic)
+        if (response != null) {
+            result.addAll(response)
         }
+        result.addAll(
+            published.filter {
+                it.contentTopic == topic
+            }.reversed()
+        )
 
         val startAt = pagination?.startTime
         if (startAt != null) {
