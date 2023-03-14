@@ -97,6 +97,15 @@ public enum Conversation {
 		}
 	}
 
+	public func prepareMessage<T>(content: T, options: SendOptions? = nil) async throws -> PreparedMessage {
+		switch self {
+		case let .v1(conversationV1):
+			return try await conversationV1.prepareMessage(content: content, options: options ?? .init())
+		case let .v2(conversationV2):
+			return try await conversationV2.prepareMessage(content: content, options: options ?? .init())
+		}
+	}
+
 	@discardableResult public func send<T>(content: T, options: SendOptions? = nil, fallback _: String? = nil) async throws -> String {
 		switch self {
 		case let .v1(conversationV1):

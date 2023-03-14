@@ -73,6 +73,37 @@ public struct ConversationV2 {
 		ConversationV2Container(topic: topic, keyMaterial: keyMaterial, conversationID: context.conversationID, metadata: context.metadata, peerAddress: peerAddress, header: header)
 	}
 
+	func prepareMessage<T>(content: T, options: SendOptions?) async throws -> PreparedMessage {
+		let codec = Client.codecRegistry.find(for: options?.contentType)
+
+		func encode<Codec: ContentCodec>(codec: Codec, content: Any) throws -> EncodedContent {
+			if let content = content as? Codec.T {
+				return try codec.encode(content: content)
+			} else {
+				throw CodecError.invalidContent
+			}
+		}
+
+		var encoded = try encode(codec: codec, content: content)
+		encoded.fallback = options?.contentFallback ?? ""
+
+		if let compression = options?.compression {
+			encoded = try encoded.compress(compression)
+		}
+
+		let message = try await MessageV2.encode(
+			client: client,
+			content: encoded,
+			topic: topic,
+			keyMaterial: keyMaterial
+		)
+
+		let envelope = Envelope(topic: topic, timestamp: Date(), message: try Message(v2: message).serializedData())
+		return PreparedMessage(messageEnvelope: envelope, conversation: .v2(self)) {
+			try await client.publish(envelopes: [envelope])
+		}
+	}
+
 	func messages(limit: Int? = nil, before: Date? = nil, after: Date? = nil) async throws -> [DecodedMessage] {
 		let pagination = Pagination(limit: limit, startTime: before, endTime: after)
 
@@ -118,25 +149,15 @@ public struct ConversationV2 {
 	}
 
 	@discardableResult func send<T>(content: T, options: SendOptions? = nil) async throws -> String {
-		let codec = Client.codecRegistry.find(for: options?.contentType)
-
-		func encode<Codec: ContentCodec>(codec: Codec, content: Any) throws -> EncodedContent {
-			if let content = content as? Codec.T {
-				return try codec.encode(content: content)
-			} else {
-				throw CodecError.invalidContent
-			}
-		}
-
-		var encoded = try encode(codec: codec, content: content)
-		encoded.fallback = options?.contentFallback ?? ""
-		return try await send(content: encoded, options: options, sentAt: Date())
+		let preparedMessage = try await prepareMessage(content: content, options: options)
+		try await preparedMessage.send()
+		return preparedMessage.messageID
 	}
 
-	@discardableResult func send(content: String, options: SendOptions? = nil, sentAt: Date) async throws -> String {
-		let encoder = TextCodec()
-		let encodedContent = try encoder.encode(content: content)
-		return try await send(content: encodedContent, options: options, sentAt: sentAt)
+	@discardableResult func send(content: String, options: SendOptions? = nil, sentAt _: Date) async throws -> String {
+		let preparedMessage = try await prepareMessage(content: content, options: options)
+		try await preparedMessage.send()
+		return preparedMessage.messageID
 	}
 
 	public func encode<Codec: ContentCodec, T>(codec: Codec, content: T) async throws -> Data where Codec.T == T {
@@ -156,31 +177,6 @@ public struct ConversationV2 {
 		)
 
 		return try envelope.serializedData()
-	}
-
-	internal func send(content: EncodedContent, options: SendOptions? = nil, sentAt: Date) async throws -> String {
-		guard try await client.getUserContact(peerAddress: peerAddress) != nil else {
-			throw ContactBundleError.notFound
-		}
-
-		var content = content
-
-		if let compression = options?.compression {
-			content = try content.compress(compression)
-		}
-
-		let message = try await MessageV2.encode(
-			client: client,
-			content: content,
-			topic: topic,
-			keyMaterial: keyMaterial
-		)
-
-		let envelope = Envelope(topic: topic, timestamp: sentAt, message: try Message(v2: message).serializedData())
-
-		try await client.publish(envelopes: [envelope])
-
-		return generateID(from: envelope)
 	}
 
 	@discardableResult func send(content: String, options: SendOptions? = nil) async throws -> String {

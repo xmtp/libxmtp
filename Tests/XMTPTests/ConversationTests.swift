@@ -20,14 +20,52 @@ class ConversationTests: XCTestCase {
 	var bob: PrivateKey!
 	var bobClient: Client!
 
+	var fixtures: Fixtures!
+
 	override func setUp() async throws {
-		alice = try PrivateKey.generate()
-		bob = try PrivateKey.generate()
+		fixtures = await fixtures()
 
-		fakeApiClient = FakeApiClient()
+		alice = fixtures.alice
+		bob = fixtures.bob
 
-		aliceClient = try await Client.create(account: alice, apiClient: fakeApiClient)
-		bobClient = try await Client.create(account: bob, apiClient: fakeApiClient)
+		fakeApiClient = fixtures.fakeApiClient
+
+		aliceClient = fixtures.aliceClient
+		bobClient = fixtures.bobClient
+	}
+
+	func testCanPrepareV1Message() async throws {
+		// Publish legacy contacts so we can get v1 conversations
+		try await fixtures.publishLegacyContact(client: bobClient)
+		try await fixtures.publishLegacyContact(client: aliceClient)
+
+		let conversation = try await aliceClient.conversations.newConversation(with: bob.address)
+		XCTAssertEqual(conversation.version, .v1)
+
+		let preparedMessage = try await conversation.prepareMessage(content: "hi")
+		let messageID = preparedMessage.messageID
+
+		try await preparedMessage.send()
+
+		let messages = try await conversation.messages()
+		let message = messages[0]
+
+		XCTAssertEqual("hi", message.body)
+		XCTAssertEqual(message.id, messageID)
+	}
+
+	func testCanPrepareV2Message() async throws {
+		let conversation = try await aliceClient.conversations.newConversation(with: bob.address)
+		let preparedMessage = try await conversation.prepareMessage(content: "hi")
+		let messageID = preparedMessage.messageID
+
+		try await preparedMessage.send()
+
+		let messages = try await conversation.messages()
+		let message = messages[0]
+
+		XCTAssertEqual("hi", message.body)
+		XCTAssertEqual(message.id, messageID)
 	}
 
 	func testV2RejectsSpoofedContactBundles() async throws {

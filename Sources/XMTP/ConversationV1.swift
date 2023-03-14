@@ -38,18 +38,11 @@ public struct ConversationV1 {
 		Topic.directMessageV1(client.address, peerAddress)
 	}
 
-	@discardableResult func send(content: String, options: SendOptions? = nil) async throws -> String {
-		return try await send(content: content, options: options, sentAt: nil)
-	}
+	func prepareMessage<T>(content: T, options: SendOptions?) async throws -> PreparedMessage {
+		guard let contact = try await client.contacts.find(peerAddress) else {
+			throw ContactBundleError.notFound
+		}
 
-	@discardableResult internal func send(content: String, options: SendOptions? = nil, sentAt: Date? = nil) async throws -> String {
-		let encoder = TextCodec()
-		let encodedContent = try encoder.encode(content: content)
-
-		return try await send(content: encodedContent, options: options, sentAt: sentAt)
-	}
-
-	func send<T>(content: T, options: SendOptions? = nil) async throws -> String {
 		let codec = Client.codecRegistry.find(for: options?.contentType)
 
 		func encode<Codec: ContentCodec>(codec: Codec, content: Any) throws -> EncodedContent {
@@ -63,18 +56,9 @@ public struct ConversationV1 {
 		let content = content as T
 		var encoded = try encode(codec: codec, content: content)
 		encoded.fallback = options?.contentFallback ?? ""
-		return try await send(content: encoded, options: options)
-	}
-
-	internal func send(content encodedContent: EncodedContent, options: SendOptions? = nil, sentAt: Date? = nil) async throws -> String {
-		guard let contact = try await client.contacts.find(peerAddress) else {
-			throw ContactBundleError.notFound
-		}
-
-		var encodedContent = encodedContent
 
 		if let compression = options?.compression {
-			encodedContent = try encodedContent.compress(compression)
+			encoded = try encoded.compress(compression)
 		}
 
 		let recipient = try contact.toPublicKeyBundle()
@@ -83,12 +67,12 @@ public struct ConversationV1 {
 			fatalError("no signature for id key")
 		}
 
-		let date = sentAt ?? Date()
+		let date = sentAt
 
 		let message = try MessageV1.encode(
 			sender: client.privateKeyBundleV1,
 			recipient: recipient,
-			message: try encodedContent.serializedData(),
+			message: try encoded.serializedData(),
 			timestamp: date
 		)
 
@@ -98,28 +82,44 @@ public struct ConversationV1 {
 			message: try Message(v1: message).serializedData()
 		)
 
-		var envelopes = [messageEnvelope]
+		return PreparedMessage(messageEnvelope: messageEnvelope, conversation: .v1(self)) {
+			var envelopes = [messageEnvelope]
 
-		if client.contacts.needsIntroduction(peerAddress) {
-			envelopes.append(contentsOf: [
-				Envelope(
-					topic: .userIntro(peerAddress),
-					timestamp: date,
-					message: try Message(v1: message).serializedData()
-				),
-				Envelope(
-					topic: .userIntro(client.address),
-					timestamp: date,
-					message: try Message(v1: message).serializedData()
-				),
-			])
+			if client.contacts.needsIntroduction(peerAddress) {
+				envelopes.append(contentsOf: [
+					Envelope(
+						topic: .userIntro(peerAddress),
+						timestamp: date,
+						message: try Message(v1: message).serializedData()
+					),
+					Envelope(
+						topic: .userIntro(client.address),
+						timestamp: date,
+						message: try Message(v1: message).serializedData()
+					),
+				])
 
-			client.contacts.hasIntroduced[peerAddress] = true
+				client.contacts.hasIntroduced[peerAddress] = true
+			}
+
+			try await client.publish(envelopes: envelopes)
 		}
+	}
 
-		try await client.publish(envelopes: envelopes)
+	@discardableResult func send(content: String, options: SendOptions? = nil) async throws -> String {
+		return try await send(content: content, options: options, sentAt: nil)
+	}
 
-		return generateID(from: messageEnvelope)
+	@discardableResult internal func send(content: String, options: SendOptions? = nil, sentAt _: Date? = nil) async throws -> String {
+		let preparedMessage = try await prepareMessage(content: content, options: options)
+		try await preparedMessage.send()
+		return preparedMessage.messageID
+	}
+
+	func send<T>(content: T, options: SendOptions? = nil) async throws -> String {
+		let preparedMessage = try await prepareMessage(content: content, options: options)
+		try await preparedMessage.send()
+		return preparedMessage.messageID
 	}
 
 	public func streamMessages() -> AsyncThrowingStream<DecodedMessage, Error> {

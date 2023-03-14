@@ -9,7 +9,7 @@ import Foundation
 import XMTPProto
 
 public enum ConversationError: Error {
-	case recipientNotOnNetwork, recipientIsSender
+	case recipientNotOnNetwork, recipientIsSender, v1NotSupported(String)
 }
 
 /// Handles listing and creating Conversations.
