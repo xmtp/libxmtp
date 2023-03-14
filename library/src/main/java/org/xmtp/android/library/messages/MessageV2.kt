@@ -25,7 +25,7 @@ class MessageV2Builder {
             }.build()
         }
 
-        fun buildDecode(message: MessageV2, keyMaterial: ByteArray): DecodedMessage {
+        fun buildDecode(message: MessageV2, keyMaterial: ByteArray, topic: String): DecodedMessage {
             val decrypted =
                 Crypto.decrypt(keyMaterial, message.ciphertext, message.headerBytes.toByteArray())
             val signed = SignedContent.parseFrom(decrypted)
@@ -64,10 +64,13 @@ class MessageV2Builder {
             }.build()
 
             if (key.walletAddress != (PublicKeyBuilder.buildFromSignedPublicKey(signed.sender.preKey).walletAddress)) {
-                throw throw XMTPException("Invalid signature")
+                throw XMTPException("Invalid signature")
             }
             val encodedMessage = EncodedContent.parseFrom(signed.payload)
             val header = MessageHeaderV2.parseFrom(message.headerBytes)
+            if (header.topic != topic) {
+                throw XMTPException("Topic mismatch")
+            }
             return DecodedMessage(
                 encodedContent = encodedMessage,
                 senderAddress = signed.sender.walletAddress,

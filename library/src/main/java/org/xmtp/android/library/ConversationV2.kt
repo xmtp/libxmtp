@@ -81,7 +81,7 @@ data class ConversationV2(
     }
 
     fun decode(message: MessageV2): DecodedMessage =
-        MessageV2Builder.buildDecode(message, keyMaterial = keyMaterial)
+        MessageV2Builder.buildDecode(message, keyMaterial = keyMaterial, topic = topic)
 
     fun <T> send(content: T, options: SendOptions? = null) {
         val codec = Client.codecRegistry.find(options?.contentType)

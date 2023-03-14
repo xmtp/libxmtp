@@ -4,6 +4,7 @@ import kotlinx.coroutines.runBlocking
 import org.xmtp.android.library.messages.ContactBundle
 import org.xmtp.android.library.messages.ContactBundleBuilder
 import org.xmtp.android.library.messages.Topic
+import org.xmtp.android.library.messages.walletAddress
 
 data class Contacts(
     var client: Client,
@@ -27,8 +28,14 @@ data class Contacts(
         if (response.envelopesList.isNullOrEmpty()) return null
 
         for (envelope in response.envelopesList) {
-            knownBundles[peerAddress] = ContactBundleBuilder.buildFromEnvelope(envelope)
+            val contactBundle = ContactBundleBuilder.buildFromEnvelope(envelope)
+            knownBundles[peerAddress] = contactBundle
+            val address = contactBundle.walletAddress
+            if (address == peerAddress) {
+                return contactBundle
+            }
         }
-        return ContactBundleBuilder.buildFromEnvelope(response.envelopesList.first())
+
+        return null
     }
 }

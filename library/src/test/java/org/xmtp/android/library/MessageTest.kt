@@ -83,7 +83,8 @@ class MessageTest {
         )
         val decoded = MessageV2Builder.buildDecode(
             message1,
-            keyMaterial = invitationv1.aes256GcmHkdfSha256.keyMaterial.toByteArray()
+            keyMaterial = invitationv1.aes256GcmHkdfSha256.keyMaterial.toByteArray(),
+            topic = invitationv1.topic
         )
         val result: String? = decoded.content()
         assertEquals(result, "Yo!")
