@@ -73,6 +73,11 @@ class MainActivity : AppCompatActivity(),
                 viewModel.uiState.collect(::ensureUiState)
             }
         }
+        lifecycleScope.launch {
+            repeatOnLifecycle(Lifecycle.State.STARTED) {
+                viewModel.stream.collect(::addStreamedItem)
+            }
+        }
     }
 
     override fun onDestroy() {
@@ -121,6 +126,12 @@ class MainActivity : AppCompatActivity(),
             }
             is ClientManager.ClientState.Error -> showError(clientState.message)
             is ClientManager.ClientState.Unknown -> Unit
+        }
+    }
+
+    private fun addStreamedItem(item: MainViewModel.MainListItem?) {
+        item?.let {
+            adapter.addItem(item)
         }
     }
 

@@ -135,10 +135,10 @@ data class Conversations(
     }
 
     fun list(): List<Conversation> {
-        conversations = mutableListOf()
+        val newConversations = mutableListOf<Conversation>()
         val seenPeers = listIntroductionPeers()
         for ((peerAddress, sentAt) in seenPeers) {
-            conversations.add(
+            newConversations.add(
                 Conversation.V1(
                     ConversationV1(
                         client = client,
@@ -156,9 +156,12 @@ data class Conversations(
                 invitation = unsealed,
                 header = sealedInvitation.v1.header
             )
-            conversations.add(Conversation.V2(conversation))
+            newConversations.add(Conversation.V2(conversation))
         }
-        return conversations.filter { it.peerAddress != client.address }
+
+        conversations.clear()
+        conversations.addAll(newConversations.filter { it.peerAddress != client.address })
+        return conversations
     }
 
     private fun listIntroductionPeers(): Map<String, Date> {

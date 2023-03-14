@@ -23,6 +23,11 @@ class ConversationsAdapter(
         notifyDataSetChanged()
     }
 
+    fun addItem(item: MainViewModel.MainListItem) {
+        listItems.add(0, item)
+        notifyDataSetChanged()
+    }
+
     override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): RecyclerView.ViewHolder {
         val inflater = LayoutInflater.from(parent.context)
         return when (viewType) {
