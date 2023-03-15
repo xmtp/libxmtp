@@ -168,7 +168,7 @@ impl PrivateKeyBundle {
     pub fn derive_shared_secret_xmtp(
         &self,
         peer_bundle: &SignedPublicKeyBundle,
-        my_prekey: &dyn ecdh::ECDHKey,
+        my_prekey: &impl ecdh::ECDHKey,
         is_recipient: bool,
     ) -> Result<Vec<u8>, String> {
         let pre_key = self

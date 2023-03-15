@@ -6,5 +6,5 @@ pub trait ECDHKey {
 
 // Diffie-hellman trait for keys
 pub trait ECDHDerivable {
-    fn shared_secret(&self, other_public_key: &dyn ECDHKey) -> Result<Vec<u8>, String>;
+    fn shared_secret(&self, other_public_key: &impl ECDHKey) -> Result<Vec<u8>, String>;
 }

@@ -309,3 +309,6 @@ fn test_encrypt_v1_with_invalid_params() {
     let encrypt_response: proto::keystore::EncryptResponse = encrypt_response_result.unwrap();
     assert_eq!(1, encrypt_response.responses.len());
 }
+
+#[test]
+fn test_improperly_signed_invitation_bundle() {}

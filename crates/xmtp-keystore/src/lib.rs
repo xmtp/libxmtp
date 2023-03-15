@@ -12,6 +12,7 @@ mod ethereum_utils;
 mod invitation;
 mod keys;
 mod proto;
+mod signature;
 mod topic;
 mod traits;
 use invitation::InvitationV1;

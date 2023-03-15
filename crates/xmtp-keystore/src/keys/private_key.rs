@@ -217,13 +217,13 @@ fn diffie_hellman(secret_key: &SecretKey, public_key: &PublicKey) -> Result<Vec<
 }
 
 impl ECDHDerivable for PrivateKey {
-    fn shared_secret(&self, other_key: &dyn ECDHKey) -> Result<Vec<u8>, String> {
+    fn shared_secret(&self, other_key: &impl ECDHKey) -> Result<Vec<u8>, String> {
         diffie_hellman(&self.private_key, &other_key.get_public_key())
     }
 }
 
 impl ECDHDerivable for SignedPrivateKey {
-    fn shared_secret(&self, other_key: &dyn ECDHKey) -> Result<Vec<u8>, String> {
+    fn shared_secret(&self, other_key: &impl ECDHKey) -> Result<Vec<u8>, String> {
         diffie_hellman(&self.private_key, &other_key.get_public_key())
     }
 }
