@@ -2,13 +2,12 @@ use k256::elliptic_curve::sec1::ToEncodedPoint;
 use k256::PublicKey;
 use sha3::{Digest, Keccak256};
 
-use super::super::{
+use crate::keys::{private_key::SignedPrivateKey, public_key};
+use crate::{
     ecdh, encryption,
     ethereum_utils::{EthereumCompatibleKey, EthereumUtils},
     proto,
 };
-use super::private_key::SignedPrivateKey;
-use super::public_key;
 
 use crate::ecdh::ECDHDerivable;
 use crate::traits::{Buffable, WalletAssociated};

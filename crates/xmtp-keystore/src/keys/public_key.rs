@@ -6,7 +6,7 @@ use k256::{
 };
 use sha3::{Digest, Keccak256};
 
-use super::super::proto;
+use crate::proto;
 use protobuf::{Message, MessageField};
 
 struct SignedPublicKey {

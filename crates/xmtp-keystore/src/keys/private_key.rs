@@ -6,10 +6,10 @@ use k256::{
 };
 use sha3::{Digest, Keccak256};
 
-use super::super::ecdh::{ECDHDerivable, ECDHKey};
-use super::super::ethereum_utils::{EthereumCompatibleKey, EthereumUtils};
+use crate::ecdh::{ECDHDerivable, ECDHKey};
+use crate::ethereum_utils::{EthereumCompatibleKey, EthereumUtils};
 
-use super::super::proto;
+use crate::proto;
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct PrivateKey {
