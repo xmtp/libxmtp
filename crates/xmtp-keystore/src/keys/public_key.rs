@@ -7,11 +7,12 @@ use k256::{
 use sha3::{Digest, Keccak256};
 
 use crate::proto;
+use crate::signature;
 use protobuf::{Message, MessageField};
 
 struct SignedPublicKey {
     public_key: PublicKey,
-    //    signature:
+    signature: signature::Signature,
     created_at: u64,
 }
 
@@ -77,6 +78,8 @@ pub fn signed_public_key_from_proto(
             .bytes
             .as_slice(),
     );
+
+    // Extract the signature
 
     if public_key_result.is_err() {
         return Err(format!(
