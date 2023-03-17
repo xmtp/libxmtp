@@ -6,8 +6,8 @@ use k256::{
 };
 use sha3::{Digest, Keccak256};
 
-use crate::ecdh::{ECDHDerivable, ECDHKey};
 use crate::ethereum_utils::{EthereumCompatibleKey, EthereumUtils};
+use crate::traits::{ECDHDerivable, ECDHKey};
 
 use crate::proto;
 

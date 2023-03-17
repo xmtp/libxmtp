@@ -6,7 +6,6 @@ use protobuf;
 use protobuf::{Message, MessageField};
 
 mod conversation;
-mod ecdh;
 mod encryption;
 mod ethereum_utils;
 mod invitation;

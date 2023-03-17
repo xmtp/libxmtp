@@ -4,13 +4,12 @@ use sha3::{Digest, Keccak256};
 
 use crate::keys::{private_key::SignedPrivateKey, public_key};
 use crate::{
-    ecdh, encryption,
+    encryption,
     ethereum_utils::{EthereumCompatibleKey, EthereumUtils},
     proto,
 };
 
-use crate::ecdh::ECDHDerivable;
-use crate::traits::{Buffable, WalletAssociated};
+use crate::traits::{Buffable, ECDHDerivable, ECDHKey, WalletAssociated};
 
 use protobuf::Message;
 
@@ -167,7 +166,7 @@ impl PrivateKeyBundle {
     pub fn derive_shared_secret_xmtp(
         &self,
         peer_bundle: &SignedPublicKeyBundle,
-        my_prekey: &impl ecdh::ECDHKey,
+        my_prekey: &impl ECDHKey,
         is_recipient: bool,
     ) -> Result<Vec<u8>, String> {
         let pre_key = self
@@ -175,6 +174,8 @@ impl PrivateKeyBundle {
             .ok_or("could not find prekey in private key bundle".to_string())?;
         let dh1: Vec<u8>;
         let dh2: Vec<u8>;
+
+        // TODO: Check prekey signed by identity key
         // (STOPSHIP) TODO: better error handling
         // Get the private key bundle
         if is_recipient {
