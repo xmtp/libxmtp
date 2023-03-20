@@ -14,6 +14,8 @@
     <string name="new_message">New message</string>
     <string name="enter_address">Enter Ethereum address</string>
     <string name="create_conversation">Create conversation</string>
+    <string name="empty_message">No messages yet</string>
+    <string name="your_message_body">You: %1$s</string>
 
     <!-- Messages -->
     <string name="message_composer_hint">Type a message…</string>

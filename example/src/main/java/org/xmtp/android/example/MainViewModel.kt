@@ -1,6 +1,7 @@
 package org.xmtp.android.example
 
 import androidx.annotation.UiThread
+import androidx.annotation.WorkerThread
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.Dispatchers
@@ -17,6 +18,7 @@ import kotlinx.coroutines.launch
 import org.xmtp.android.example.extension.flowWhileShared
 import org.xmtp.android.example.extension.stateFlow
 import org.xmtp.android.library.Conversation
+import org.xmtp.android.library.DecodedMessage
 
 class MainViewModel : ViewModel() {
 
@@ -34,9 +36,11 @@ class MainViewModel : ViewModel() {
             try {
                 listItems.addAll(
                     ClientManager.client.conversations.list().map { conversation ->
+                        val lastMessage = fetchMostRecentMessage(conversation)
                         MainListItem.ConversationItem(
                             id = conversation.topic,
-                            conversation
+                            conversation,
+                            lastMessage
                         )
                     }
                 )
@@ -54,6 +58,11 @@ class MainViewModel : ViewModel() {
         }
     }
 
+    @WorkerThread
+    private fun fetchMostRecentMessage(conversation: Conversation): DecodedMessage? {
+        return conversation.messages(limit = 1).firstOrNull()
+    }
+
     @OptIn(ExperimentalCoroutinesApi::class)
     val stream: StateFlow<MainListItem?> =
         stateFlow(viewModelScope, null) { subscriptionCount ->
@@ -66,7 +75,8 @@ class MainViewModel : ViewModel() {
                     .flowOn(Dispatchers.IO)
                     .distinctUntilChanged()
                     .mapLatest { conversation ->
-                        MainListItem.ConversationItem(conversation.topic, conversation)
+                        val lastMessage = fetchMostRecentMessage(conversation)
+                        MainListItem.ConversationItem(conversation.topic, conversation, lastMessage)
                     }
                     .catch { emptyFlow<MainListItem>() }
             } else {
@@ -86,10 +96,16 @@ class MainViewModel : ViewModel() {
             const val ITEM_TYPE_FOOTER = 2
         }
 
-        data class ConversationItem(override val id: String, val conversation: Conversation) :
-            MainListItem(id, ITEM_TYPE_CONVERSATION)
+        data class ConversationItem(
+            override val id: String,
+            val conversation: Conversation,
+            val mostRecentMessage: DecodedMessage?
+        ) : MainListItem(id, ITEM_TYPE_CONVERSATION)
 
-        data class Footer(override val id: String, val address: String, val environment: String) :
-            MainListItem(id, ITEM_TYPE_FOOTER)
+        data class Footer(
+            override val id: String,
+            val address: String,
+            val environment: String
+        ) : MainListItem(id, ITEM_TYPE_FOOTER)
     }
 }
