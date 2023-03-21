@@ -7,8 +7,8 @@ use k256::{
 use sha3::{Digest, Keccak256};
 
 use crate::ethereum_utils::{EthereumCompatibleKey, EthereumUtils};
-use crate::traits::{ECDHDerivable, ECDHKey, BridgeSignableVersion};
-use crate::keys::{public_key};
+use crate::keys::public_key;
+use crate::traits::{BridgeSignableVersion, ECDHDerivable, ECDHKey};
 
 use crate::proto;
 
@@ -73,12 +73,17 @@ impl SignedPrivateKey {
             return Err(secret_key_result.err().unwrap().to_string());
         }
         let secret_key = secret_key_result.unwrap();
-        let public_key = secret_key.public_key().clone();
+        // If .public_key is not present, then return error
+        if proto.public_key.is_none() {
+            return Err("SignedPrivateKey does not have public_key".to_string());
+        }
+        let signed_public_key =
+            public_key::signed_public_key_from_proto_v2(proto.public_key.as_ref().unwrap())?;
 
         return Ok(SignedPrivateKey {
             proto: proto.clone(),
             private_key: secret_key,
-            public_key: public_key,
+            public_key: signed_public_key,
         });
     }
 
@@ -93,7 +98,7 @@ impl SignedPrivateKey {
 
     pub fn eth_address(&self) -> Result<String, String> {
         // Get the public key bytes
-        let binding = self.public_key.to_encoded_point(false);
+        let binding = self.public_key.get_public_key().to_encoded_point(false);
         let public_key_bytes = binding.as_bytes();
         // Return the result as hex string, take the last 20 bytes
         // Need to remove the 04 prefix for uncompressed point representation
@@ -271,13 +276,11 @@ impl EthereumCompatibleKey for PublicKey {
 }
 
 impl BridgeSignableVersion<PrivateKey, SignedPrivateKey> for PrivateKey {
-
     fn to_signed(&self) -> SignedPrivateKey {
         SignedPrivateKey {
             proto: proto::private_key::SignedPrivateKey::new(),
             private_key: self.private_key.clone(),
             public_key: self.public_key.to_signed(),
-
         }
     }
 
@@ -287,7 +290,6 @@ impl BridgeSignableVersion<PrivateKey, SignedPrivateKey> for PrivateKey {
 }
 
 impl BridgeSignableVersion<PrivateKey, SignedPrivateKey> for SignedPrivateKey {
-
     fn to_signed(&self) -> SignedPrivateKey {
         self.clone()
     }

@@ -190,7 +190,7 @@ fn test_xmtp_x3dh_simple() {
         &general_purpose::STANDARD.decode(my_pre_key_public).unwrap(),
     )
     .unwrap();
-    let pre_key_object = public_key::signed_public_key_from_proto(&pre_key_proto).unwrap();
+    let pre_key_object = public_key::signed_public_key_from_proto_v2(&pre_key_proto).unwrap();
 
     // Do a x3dh shared secret derivation
     let shared_secret_result = x

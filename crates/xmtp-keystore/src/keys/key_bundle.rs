@@ -9,7 +9,9 @@ use crate::{
     proto,
 };
 
-use crate::traits::{Buffable, ECDHDerivable, SignedECDHKey, WalletAssociated, BridgeSignableVersion};
+use crate::traits::{
+    BridgeSignableVersion, Buffable, ECDHDerivable, SignedECDHKey, WalletAssociated,
+};
 
 use protobuf::Message;
 
@@ -102,11 +104,11 @@ impl PrivateKeyBundle {
     }
 
     pub fn public_key_bundle(&self) -> PublicKeyBundle {
-        let identity_key = self.identity_key.public_key;
+        let identity_key = &self.identity_key.public_key;
         let pre_keys = self
             .pre_keys
             .iter()
-            .map(|pre_key| pre_key.public_key)
+            .map(|pre_key| pre_key.public_key.clone())
             .collect::<Vec<_>>();
 
         return PublicKeyBundle {
@@ -158,7 +160,7 @@ impl PrivateKeyBundle {
         return SignedPublicKeyBundle {
             signed_public_key_bundle_proto: signed_public_key_bundle_proto,
             identity_key: self.identity_key.public_key.clone(),
-            pre_key: pre_keys[0],
+            pre_key: pre_keys[0].clone(),
         };
     }
 
@@ -177,7 +179,9 @@ impl PrivateKeyBundle {
 
         // TODO: Check prekey signed by identity key
         // Get validation signature from my_prekey
-        let prekey_signature = my_prekey.get_signature().ok_or("prekey has no signature".to_string())?;
+        let prekey_signature = my_prekey
+            .get_signature()
+            .ok_or("prekey has no signature".to_string())?;
         // Use my identity public key to validate the signature
 
         // (STOPSHIP) TODO: better error handling
@@ -409,8 +413,8 @@ impl PublicKeyBundle {
     pub fn to_fake_signed_public_key_bundle(&self) -> SignedPublicKeyBundle {
         return SignedPublicKeyBundle {
             signed_public_key_bundle_proto: proto::public_key::SignedPublicKeyBundle::new(),
-            identity_key: self.identity_key.clone().unwrap(),
-            pre_key: self.pre_key.clone().unwrap(),
+            identity_key: self.identity_key.as_ref().unwrap().to_signed(),
+            pre_key: self.pre_key.as_ref().unwrap().to_signed(),
         };
     }
 }
@@ -486,7 +490,7 @@ impl Buffable for SignedPublicKeyBundle {
         }
 
         // Derive public key from SignedPublicKey
-        let identity_key_result = public_key::signed_public_key_from_proto(
+        let identity_key_result = public_key::signed_public_key_from_proto_v2(
             signed_public_key_bundle.identity_key.as_ref().unwrap(),
         );
         if identity_key_result.is_err() {
@@ -498,7 +502,7 @@ impl Buffable for SignedPublicKeyBundle {
         if signed_public_key_bundle.pre_key.is_none() {
             return Err("No pre key found".to_string());
         }
-        let pre_key_result = public_key::signed_public_key_from_proto(
+        let pre_key_result = public_key::signed_public_key_from_proto_v2(
             signed_public_key_bundle.pre_key.as_ref().unwrap(),
         );
         if pre_key_result.is_err() {
@@ -510,7 +514,6 @@ impl Buffable for SignedPublicKeyBundle {
             identity_key: identity_key,
             pre_key: pre_key,
         });
-        return SignedPublicKeyBundle::from_proto(&signed_public_key_bundle_proto.unwrap());
     }
 }
 

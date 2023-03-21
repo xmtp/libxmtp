@@ -87,7 +87,7 @@ pub fn encrypt_raw(payload: Payload, secret_bytes: &[u8]) -> Result<Ciphertext, 
     if res.is_err() {
         return Err(res.err().unwrap().to_string());
     }
-    let mut ciphertext_bytes = res.unwrap();
+    let ciphertext_bytes = res.unwrap();
     Ok(Ciphertext {
         payload: ciphertext_bytes,
         hkdf_salt: salt_bytes.to_vec(),

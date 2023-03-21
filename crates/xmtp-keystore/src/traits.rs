@@ -33,9 +33,10 @@ pub trait ECDHDerivable {
 }
 
 // Combination of ECDHKey, ECDHDerivable and SignatureVerifiable
-pub trait SignedECDHKey: ECDHKey + SignatureVerifiable + {}
+pub trait SignedECDHKey: ECDHKey + SignatureVerifiable {}
 
-pub trait VerifiableKeyBundle<I,P>: ECDHKey + ECDHDerivable + SignatureVerifiable + WalletAssociated + Buffable + Sized
+pub trait VerifiableKeyBundle<I, P>:
+    ECDHKey + ECDHDerivable + SignatureVerifiable + WalletAssociated + Buffable + Sized
 where
     I: ECDHKey + ECDHDerivable + SignatureVerifiable + WalletAssociated + Buffable + Sized,
     P: ECDHKey + ECDHDerivable + SignatureVerifiable + WalletAssociated + Buffable + Sized,

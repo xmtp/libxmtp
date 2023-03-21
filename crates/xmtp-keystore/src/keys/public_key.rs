@@ -8,9 +8,10 @@ use sha3::{Digest, Keccak256};
 
 use crate::proto;
 use crate::signature;
-use crate::traits::{Buffable, BridgeSignableVersion, ECDHKey};
+use crate::traits::{BridgeSignableVersion, Buffable, ECDHKey, SignatureVerifiable, SignedECDHKey};
 use protobuf::{Message, MessageField};
 
+#[derive(Debug, Clone)]
 pub struct SignedPublicKey {
     public_key: PublicKey,
     signature: signature::Signature,
@@ -166,16 +167,6 @@ impl PartialEq for SignedPublicKey {
     }
 }
 
-impl Clone for SignedPublicKey {
-    fn clone(&self) -> SignedPublicKey {
-        SignedPublicKey {
-            public_key: self.public_key.clone(),
-            signature: self.signature.clone(),
-            created_at: self.created_at,
-        }
-    }
-}
-
 impl ECDHKey for SignedPublicKey {
     fn get_public_key(&self) -> PublicKey {
         self.to_unsigned()
@@ -183,7 +174,6 @@ impl ECDHKey for SignedPublicKey {
 }
 
 impl BridgeSignableVersion<PublicKey, SignedPublicKey> for PublicKey {
-
     fn to_signed(&self) -> SignedPublicKey {
         SignedPublicKey {
             public_key: self.clone(),
@@ -198,7 +188,6 @@ impl BridgeSignableVersion<PublicKey, SignedPublicKey> for PublicKey {
 }
 
 impl BridgeSignableVersion<PublicKey, SignedPublicKey> for SignedPublicKey {
-
     fn to_signed(&self) -> SignedPublicKey {
         self.clone()
     }
@@ -207,3 +196,19 @@ impl BridgeSignableVersion<PublicKey, SignedPublicKey> for SignedPublicKey {
         self.public_key.clone()
     }
 }
+
+impl SignatureVerifiable for SignedPublicKey {
+    fn get_signature(&self) -> Option<signature::Signature> {
+        Some(self.signature.clone())
+    }
+}
+
+// TODO: STOPSHIP: eliminate this trait when migration is complete
+impl SignatureVerifiable for PublicKey {
+    fn get_signature(&self) -> Option<signature::Signature> {
+        None
+    }
+}
+
+impl SignedECDHKey for SignedPublicKey {}
+impl SignedECDHKey for PublicKey {}
