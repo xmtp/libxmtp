@@ -11,8 +11,8 @@ use crate::{
 };
 
 use crate::traits::{
-    BridgeSignableVersion, Buffable, ECDHDerivable, SignedECDHKey, VerifiablePublicKeyBundle,
-    WalletAssociated,
+    BridgeSignableVersion, Buffable, ECDHDerivable, Sha256SignatureVerifier, SignedECDHKey,
+    VerifiablePublicKeyBundle, WalletAssociated,
 };
 
 use protobuf::Message;
@@ -176,6 +176,14 @@ impl PrivateKeyBundle {
         let dh1: Vec<u8>;
         let dh2: Vec<u8>;
 
+        // Check bundle binding on peer_bundle
+        match peer_bundle.verify_bundle_binding() {
+            Ok(_) => {}
+            Err(e) => {
+                return Err(format!("could not verify bundle binding: {}", e));
+            }
+        }
+
         let pre_key = self
             .find_pre_key(my_prekey.get_public_key())
             .ok_or("could not find prekey in private key bundle".to_string())?;
@@ -234,7 +242,10 @@ impl PrivateKeyBundle {
                 false,
             );
             if secret_result.is_err() {
-                return Err("could not derive shared secret".to_string());
+                return Err(format!(
+                    "could not derive shared secret: {}",
+                    secret_result.err().unwrap()
+                ));
             }
             secret = secret_result.unwrap();
         } else {
@@ -244,7 +255,10 @@ impl PrivateKeyBundle {
                 true,
             );
             if secret_result.is_err() {
-                return Err("could not derive shared secret".to_string());
+                return Err(format!(
+                    "could not derive shared secret: {}",
+                    secret_result.err().unwrap()
+                ));
             }
             secret = secret_result.unwrap();
         }
@@ -265,7 +279,10 @@ impl PrivateKeyBundle {
             Some(&sealed_invitation.header_bytes),
         );
         if decrypt_result.is_err() {
-            return Err("could not decrypt invitation".to_string());
+            return Err(format!(
+                "could not decrypt invitation with error: {:?}",
+                decrypt_result.err()
+            ));
         }
         let decrypted_bytes = decrypt_result.unwrap();
 
@@ -570,7 +587,30 @@ impl VerifiablePublicKeyBundle<SignedPublicKey, SignedPublicKey> for SignedPubli
     }
 
     fn verify_bundle_binding(&self) -> Result<(), String> {
-        // TODO: Check that prekey is signed by identitykey
+        // Get the identity key and the pre key
+        let identity_key = self.get_identity_key();
+        let pre_key = self.get_prekey();
+
+        // Get signed bytes from pre_key
+        let pre_key_signed_bytes = pre_key.signed_bytes;
+
+        // Parse the pre_key_signed_bytes into a PublicKey and check == pre_key
+        let pre_key_from_signed_bytes =
+            PublicKey::from_proto_bytes(pre_key_signed_bytes.as_slice())?;
+        if pre_key_from_signed_bytes != pre_key.public_key {
+            return Err("Pre key does not match signed bytes".to_string());
+        }
+
+        // Check the signature with the identity_key
+        let identity_key_public_key = identity_key.public_key;
+
+        let verify_result = identity_key_public_key.verify_sha256_signature(
+            pre_key_signed_bytes.as_slice(),
+            &pre_key.signature.signature_bytes,
+        )?;
+        if !verify_result {
+            return Err("Pre key signature does not match identity key".to_string());
+        }
         return Ok(());
     }
 }

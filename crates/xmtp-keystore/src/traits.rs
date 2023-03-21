@@ -12,6 +12,11 @@ pub trait SignatureVerifiable {
     fn get_signature(&self) -> Option<Signature>;
 }
 
+// Trait sha256 signature verifier
+pub trait Sha256SignatureVerifier {
+    fn verify_sha256_signature(&self, data: &[u8], signature: &[u8]) -> Result<bool, String>;
+}
+
 // Trait for Protobuf serialization / deserialization
 // - looked at other options online but for now we can
 // start by implementing this simple trait

@@ -3,17 +3,17 @@ use crate::traits::Buffable;
 use protobuf::Message;
 
 #[derive(Debug, Clone, Default)]
-enum SignatureType {
+pub enum SignatureType {
     #[default]
-    ecdsa_secp256k1_sha256_compact = 1,
-    wallet_personal_sign_compact = 2,
+    EcdsaSecp256k1Sha256Compact = 1,
+    WalletPersonalSignCompact = 2,
 }
 
 #[derive(Debug, Clone, Default)]
 pub struct Signature {
-    signature_type: SignatureType,
-    signature_bytes: Vec<u8>,
-    recovery_id: Option<u32>,
+    pub signature_type: SignatureType,
+    pub signature_bytes: Vec<u8>,
+    pub recovery_id: Option<u32>,
 }
 
 impl Buffable for Signature {
@@ -22,7 +22,7 @@ impl Buffable for Signature {
         let mut signature_proto = proto::signature::Signature::new();
         // Begin to construct the proto one field at a time
         match self.signature_type {
-            SignatureType::ecdsa_secp256k1_sha256_compact => {
+            SignatureType::EcdsaSecp256k1Sha256Compact => {
                 // Create ecdsa_compact proto
                 let mut ecdsa_compact_proto = proto::signature::signature::ECDSACompact::new();
                 // Set signature bytes
@@ -32,7 +32,7 @@ impl Buffable for Signature {
                 // Set ecdsa_compact proto
                 signature_proto.set_ecdsa_compact(ecdsa_compact_proto);
             }
-            SignatureType::wallet_personal_sign_compact => {
+            SignatureType::WalletPersonalSignCompact => {
                 // Create wallet_personal_sign_compact proto
                 let mut wallet_personal_sign_compact_proto =
                     proto::signature::signature::WalletECDSACompact::new();
@@ -58,7 +58,7 @@ impl Buffable for Signature {
             let signature_bytes = &ecdsa_compact.bytes;
             let recovery_id = ecdsa_compact.recovery;
             Ok(Signature {
-                signature_type: SignatureType::ecdsa_secp256k1_sha256_compact,
+                signature_type: SignatureType::EcdsaSecp256k1Sha256Compact,
                 signature_bytes: signature_bytes.to_vec(),
                 recovery_id: Some(recovery_id),
             })
@@ -67,7 +67,7 @@ impl Buffable for Signature {
             let signature_bytes = &wallet_personal_sign_compact.bytes;
             let recovery_id = wallet_personal_sign_compact.recovery;
             Ok(Signature {
-                signature_type: SignatureType::wallet_personal_sign_compact,
+                signature_type: SignatureType::WalletPersonalSignCompact,
                 signature_bytes: signature_bytes.to_vec(),
                 recovery_id: Some(recovery_id),
             })
