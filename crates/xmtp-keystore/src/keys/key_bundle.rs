@@ -7,10 +7,12 @@ use crate::{
     encryption,
     ethereum_utils::{EthereumCompatibleKey, EthereumUtils},
     proto,
+    public_key::SignedPublicKey,
 };
 
 use crate::traits::{
-    BridgeSignableVersion, Buffable, ECDHDerivable, SignedECDHKey, WalletAssociated,
+    BridgeSignableVersion, Buffable, ECDHDerivable, SignedECDHKey, VerifiablePublicKeyBundle,
+    WalletAssociated,
 };
 
 use protobuf::Message;
@@ -167,39 +169,46 @@ impl PrivateKeyBundle {
     // XMTP X3DH-like scheme for invitation decryption
     pub fn derive_shared_secret_xmtp(
         &self,
-        peer_bundle: &SignedPublicKeyBundle,
+        peer_bundle: &impl VerifiablePublicKeyBundle<SignedPublicKey, SignedPublicKey>,
         my_prekey: &impl SignedECDHKey,
         is_recipient: bool,
     ) -> Result<Vec<u8>, String> {
+        let dh1: Vec<u8>;
+        let dh2: Vec<u8>;
+
         let pre_key = self
             .find_pre_key(my_prekey.get_public_key())
             .ok_or("could not find prekey in private key bundle".to_string())?;
-        let dh1: Vec<u8>;
-        let dh2: Vec<u8>;
 
         // TODO: Check prekey signed by identity key
         // Get validation signature from my_prekey
         let prekey_signature = my_prekey
             .get_signature()
             .ok_or("prekey has no signature".to_string())?;
+
+        // TODO: move the creation of prekey digest to a different function
         // Use my identity public key to validate the signature
 
         // (STOPSHIP) TODO: better error handling
         // Get the private key bundle
         if is_recipient {
-            dh1 = pre_key.shared_secret(&peer_bundle.identity_key).unwrap();
+            dh1 = pre_key
+                .shared_secret(&peer_bundle.get_identity_key())
+                .unwrap();
             dh2 = self
                 .identity_key
-                .shared_secret(&peer_bundle.pre_key)
+                .shared_secret(&peer_bundle.get_prekey())
                 .unwrap();
         } else {
             dh1 = self
                 .identity_key
-                .shared_secret(&peer_bundle.pre_key)
+                .shared_secret(&peer_bundle.get_prekey())
                 .unwrap();
-            dh2 = pre_key.shared_secret(&peer_bundle.identity_key).unwrap();
+            dh2 = pre_key
+                .shared_secret(&peer_bundle.get_identity_key())
+                .unwrap();
         }
-        let dh3 = pre_key.shared_secret(&peer_bundle.pre_key).unwrap();
+        let dh3 = pre_key.shared_secret(&peer_bundle.get_prekey()).unwrap();
         let secret = [dh1, dh2, dh3].concat();
         return Ok(secret);
     }
@@ -548,5 +557,20 @@ impl WalletAssociated for SignedPublicKeyBundle {
 impl PartialEq for SignedPublicKeyBundle {
     fn eq(&self, other: &Self) -> bool {
         self.identity_key == other.identity_key && self.pre_key == other.pre_key
+    }
+}
+
+impl VerifiablePublicKeyBundle<SignedPublicKey, SignedPublicKey> for SignedPublicKeyBundle {
+    fn get_identity_key(&self) -> SignedPublicKey {
+        self.identity_key.clone()
+    }
+
+    fn get_prekey(&self) -> SignedPublicKey {
+        self.pre_key.clone()
+    }
+
+    fn verify_bundle_binding(&self) -> Result<(), String> {
+        // TODO: Check that prekey is signed by identitykey
+        return Ok(());
     }
 }

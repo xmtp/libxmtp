@@ -14,6 +14,7 @@ use protobuf::{Message, MessageField};
 #[derive(Debug, Clone)]
 pub struct SignedPublicKey {
     public_key: PublicKey,
+    signed_bytes: Vec<u8>,
     signature: signature::Signature,
     created_at: u64,
 }
@@ -116,6 +117,7 @@ pub fn signed_public_key_from_proto_v2(
 
     return Ok(SignedPublicKey {
         public_key: public_key_result.unwrap(),
+        signed_bytes: proto.key_bytes.clone(),
         signature,
         created_at: 0,
     });
@@ -178,6 +180,7 @@ impl BridgeSignableVersion<PublicKey, SignedPublicKey> for PublicKey {
         SignedPublicKey {
             public_key: self.clone(),
             signature: signature::Signature::default(),
+            signed_bytes: vec![],
             created_at: 0,
         }
     }

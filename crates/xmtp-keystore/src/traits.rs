@@ -35,14 +35,14 @@ pub trait ECDHDerivable {
 // Combination of ECDHKey, ECDHDerivable and SignatureVerifiable
 pub trait SignedECDHKey: ECDHKey + SignatureVerifiable {}
 
-pub trait VerifiableKeyBundle<I, P>:
-    ECDHKey + ECDHDerivable + SignatureVerifiable + WalletAssociated + Buffable + Sized
+pub trait VerifiablePublicKeyBundle<I, P>: WalletAssociated + Sized
 where
-    I: ECDHKey + ECDHDerivable + SignatureVerifiable + WalletAssociated + Buffable + Sized,
-    P: ECDHKey + ECDHDerivable + SignatureVerifiable + WalletAssociated + Buffable + Sized,
+    I: ECDHKey + SignatureVerifiable + Sized,
+    P: ECDHKey + SignatureVerifiable + Sized,
 {
     fn get_identity_key(&self) -> I;
     fn get_prekey(&self) -> P;
+    fn verify_bundle_binding(&self) -> Result<(), String>;
 }
 
 pub trait BridgeSignableVersion<U, S> {
