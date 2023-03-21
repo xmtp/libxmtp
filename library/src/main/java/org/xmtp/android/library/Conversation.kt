@@ -54,9 +54,20 @@ sealed class Conversation {
         }
 
     fun decode(envelope: Envelope): DecodedMessage {
-        when (this) {
-            is V1 -> return conversationV1.decode(envelope)
-            is V2 -> return conversationV2.decodeEnvelope(envelope)
+        return when (this) {
+            is V1 -> conversationV1.decode(envelope)
+            is V2 -> conversationV2.decodeEnvelope(envelope)
+        }
+    }
+
+    fun <T> prepareMessage(content: T, options: SendOptions? = null): PreparedMessage {
+        return when (this) {
+            is V1 -> {
+                conversationV1.prepareMessage(content = content, options = options)
+            }
+            is V2 -> {
+                conversationV2.prepareMessage(content = content, options = options)
+            }
         }
     }
 

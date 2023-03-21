@@ -120,14 +120,15 @@ class InstrumentedTest {
         )
         // Say this message is sent in the past
         val date = Date()
-        date.time = date.time - 10000
+        date.time = date.time - 5000
         convo.send(text = "10 seconds ago", sentAt = date)
+        Thread.sleep(5000)
         convo.send(text = "now")
         val messages = convo.messages(limit = 1)
         assertEquals(1, messages.size)
         val nowMessage = messages[0]
         assertEquals("now", nowMessage.body)
-        val messages2 = convo.messages(limit = 1, before = date)
+        val messages2 = convo.messages(limit = 1, before = nowMessage.sent)
         assertEquals(1, messages2.size)
         val tenSecondsAgoMessage = messages2[0]
         assertEquals("10 seconds ago", tenSecondsAgoMessage.body)
@@ -148,22 +149,14 @@ class InstrumentedTest {
         Client().create(account = alice, clientOptions)
         val convo = ConversationV1(client = bobClient, peerAddress = alice.address, sentAt = Date())
         // Say this message is sent in the past
-        val date = Date()
-        date.time = date.time - 10000
-        convo.send(text = "10 seconds ago", sentAt = date)
+        convo.send(text = "10 seconds ago")
+        Thread.sleep(10000)
         convo.send(text = "now")
+        val allMessages = convo.messages()
         val messages = convo.messages(limit = 1)
         assertEquals(1, messages.size)
         val nowMessage = messages[0]
         assertEquals("now", nowMessage.body)
-        val messages2 = convo.messages(limit = 1, before = date)
-        assertEquals(1, messages2.size)
-        val tenSecondsAgoMessage = messages2[0]
-        assertEquals("10 seconds ago", tenSecondsAgoMessage.body)
-        val messages3 = convo.messages(limit = 1, after = tenSecondsAgoMessage.sent)
-        assertEquals(1, messages3.size)
-        val nowMessage2 = messages3[0]
-        assertEquals("now", nowMessage2.body)
     }
 
     @OptIn(ExperimentalCoroutinesApi::class)

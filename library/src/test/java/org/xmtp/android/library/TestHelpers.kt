@@ -6,16 +6,19 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flowOf
 import org.junit.Assert.assertEquals
 import org.xmtp.android.library.codecs.Fetcher
+import org.xmtp.android.library.messages.ContactBundle
 import org.xmtp.android.library.messages.Envelope
 import org.xmtp.android.library.messages.Pagination
 import org.xmtp.android.library.messages.PrivateKey
 import org.xmtp.android.library.messages.PrivateKeyBuilder
 import org.xmtp.android.library.messages.Signature
 import org.xmtp.android.library.messages.Topic
+import org.xmtp.android.library.messages.toPublicKeyBundle
 import org.xmtp.android.library.messages.walletAddress
 import org.xmtp.proto.message.api.v1.MessageApiOuterClass
 import java.io.File
 import java.net.URL
+import java.util.Date
 
 class TestFetcher : Fetcher {
     override fun fetch(url: URL): ByteArray {
@@ -184,6 +187,19 @@ data class Fixtures(val aliceAccount: PrivateKeyBuilder, val bobAccount: Private
     var bobClient: Client = Client().create(account = bobAccount, apiClient = fakeApiClient)
 
     constructor() : this(aliceAccount = PrivateKeyBuilder(), bobAccount = PrivateKeyBuilder())
+
+    fun publishLegacyContact(client: Client) {
+        val contactBundle = ContactBundle.newBuilder().apply {
+            v1Builder.keyBundle = client.privateKeyBundleV1.toPublicKeyBundle()
+        }.build()
+        val envelope = Envelope.newBuilder().apply {
+            contentTopic = Topic.contact(client.address).description
+            timestampNs = (Date().time * 1_000_000)
+            message = contactBundle.toByteString()
+        }.build()
+
+        client.publish(envelopes = listOf(envelope))
+    }
 }
 
 fun fixtures(): Fixtures =
