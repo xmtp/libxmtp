@@ -9,7 +9,7 @@ use crate::{
     proto,
 };
 
-use crate::traits::{Buffable, ECDHDerivable, ECDHKey, WalletAssociated};
+use crate::traits::{Buffable, ECDHDerivable, SignedECDHKey, WalletAssociated, BridgeSignableVersion};
 
 use protobuf::Message;
 
@@ -94,7 +94,7 @@ impl PrivateKeyBundle {
 
     pub fn find_pre_key(&self, my_pre_key: PublicKey) -> Option<SignedPrivateKey> {
         for pre_key in self.pre_keys.iter() {
-            if pre_key.public_key == my_pre_key {
+            if pre_key.public_key.to_unsigned() == my_pre_key {
                 return Some(pre_key.clone());
             }
         }
@@ -111,8 +111,8 @@ impl PrivateKeyBundle {
 
         return PublicKeyBundle {
             public_key_bundle_proto: proto::public_key::PublicKeyBundle::new(),
-            identity_key: Some(identity_key),
-            pre_key: Some(pre_keys[0]),
+            identity_key: Some(identity_key.to_unsigned()),
+            pre_key: Some(pre_keys[0].to_unsigned()),
         };
     }
 
@@ -166,7 +166,7 @@ impl PrivateKeyBundle {
     pub fn derive_shared_secret_xmtp(
         &self,
         peer_bundle: &SignedPublicKeyBundle,
-        my_prekey: &impl ECDHKey,
+        my_prekey: &impl SignedECDHKey,
         is_recipient: bool,
     ) -> Result<Vec<u8>, String> {
         let pre_key = self
@@ -176,6 +176,10 @@ impl PrivateKeyBundle {
         let dh2: Vec<u8>;
 
         // TODO: Check prekey signed by identity key
+        // Get validation signature from my_prekey
+        let prekey_signature = my_prekey.get_signature().ok_or("prekey has no signature".to_string())?;
+        // Use my identity public key to validate the signature
+
         // (STOPSHIP) TODO: better error handling
         // Get the private key bundle
         if is_recipient {
@@ -415,9 +419,8 @@ pub struct SignedPublicKeyBundle {
     // Underlying protos
     signed_public_key_bundle_proto: proto::public_key::SignedPublicKeyBundle,
 
-    pub identity_key: PublicKey,
-    pub pre_key: PublicKey,
-    // TODO: keep signature information
+    pub identity_key: public_key::SignedPublicKey,
+    pub pre_key: public_key::SignedPublicKey,
 }
 
 impl SignedPublicKeyBundle {
@@ -430,7 +433,7 @@ impl SignedPublicKeyBundle {
         }
 
         // Derive public key from SignedPublicKey
-        let identity_key_result = public_key::signed_public_key_from_proto(
+        let identity_key_result = public_key::signed_public_key_from_proto_v2(
             signed_public_key_bundle.identity_key.as_ref().unwrap(),
         );
         if identity_key_result.is_err() {
@@ -442,7 +445,7 @@ impl SignedPublicKeyBundle {
         if signed_public_key_bundle.pre_key.is_none() {
             return Err("No pre key found".to_string());
         }
-        let pre_key_result = public_key::signed_public_key_from_proto(
+        let pre_key_result = public_key::signed_public_key_from_proto_v2(
             signed_public_key_bundle.pre_key.as_ref().unwrap(),
         );
         if pre_key_result.is_err() {

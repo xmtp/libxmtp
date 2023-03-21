@@ -7,7 +7,8 @@ use k256::{
 use sha3::{Digest, Keccak256};
 
 use crate::ethereum_utils::{EthereumCompatibleKey, EthereumUtils};
-use crate::traits::{ECDHDerivable, ECDHKey};
+use crate::traits::{ECDHDerivable, ECDHKey, BridgeSignableVersion};
+use crate::keys::{public_key};
 
 use crate::proto;
 
@@ -51,7 +52,7 @@ pub struct SignedPrivateKey {
 
     pub private_key: SecretKey,
     // (STOPSHIP) TODO: needs to be a signed PublicKey
-    pub public_key: PublicKey,
+    pub public_key: public_key::SignedPublicKey,
 }
 
 impl SignedPrivateKey {
@@ -182,7 +183,7 @@ impl SignedPrivateKey {
         let signature = signature_result.unwrap();
 
         // Verifying key from self.public_key
-        let verifying_key = VerifyingKey::from(&self.public_key);
+        let verifying_key = VerifyingKey::from(&self.public_key.to_unsigned());
         // Verify signature
         let verify_result = verifying_key.verify(message, &signature);
         // Check verify_result
@@ -266,5 +267,36 @@ impl EthereumCompatibleKey for PublicKey {
         let eth_address =
             EthereumUtils::get_ethereum_address_from_public_key_bytes(&public_key_bytes[1..]);
         return eth_address;
+    }
+}
+
+impl BridgeSignableVersion<PrivateKey, SignedPrivateKey> for PrivateKey {
+
+    fn to_signed(&self) -> SignedPrivateKey {
+        SignedPrivateKey {
+            proto: proto::private_key::SignedPrivateKey::new(),
+            private_key: self.private_key.clone(),
+            public_key: self.public_key.to_signed(),
+
+        }
+    }
+
+    fn to_unsigned(&self) -> PrivateKey {
+        self.clone()
+    }
+}
+
+impl BridgeSignableVersion<PrivateKey, SignedPrivateKey> for SignedPrivateKey {
+
+    fn to_signed(&self) -> SignedPrivateKey {
+        self.clone()
+    }
+
+    fn to_unsigned(&self) -> PrivateKey {
+        PrivateKey {
+            proto: proto::private_key::PrivateKey::new(),
+            private_key: self.private_key.clone(),
+            public_key: self.public_key.to_unsigned(),
+        }
     }
 }

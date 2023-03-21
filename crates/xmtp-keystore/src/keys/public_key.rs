@@ -8,7 +8,7 @@ use sha3::{Digest, Keccak256};
 
 use crate::proto;
 use crate::signature;
-use crate::traits::Buffable;
+use crate::traits::{Buffable, BridgeSignableVersion, ECDHKey};
 use protobuf::{Message, MessageField};
 
 pub struct SignedPublicKey {
@@ -158,4 +158,52 @@ pub fn to_signed_public_key_proto(
     signed_public_key.key_bytes = unsigned_public_key.write_to_bytes().unwrap();
     // TODO: STOPSHIP: Need to set the Signature
     return signed_public_key;
+}
+
+impl PartialEq for SignedPublicKey {
+    fn eq(&self, other: &SignedPublicKey) -> bool {
+        self.public_key == other.public_key
+    }
+}
+
+impl Clone for SignedPublicKey {
+    fn clone(&self) -> SignedPublicKey {
+        SignedPublicKey {
+            public_key: self.public_key.clone(),
+            signature: self.signature.clone(),
+            created_at: self.created_at,
+        }
+    }
+}
+
+impl ECDHKey for SignedPublicKey {
+    fn get_public_key(&self) -> PublicKey {
+        self.to_unsigned()
+    }
+}
+
+impl BridgeSignableVersion<PublicKey, SignedPublicKey> for PublicKey {
+
+    fn to_signed(&self) -> SignedPublicKey {
+        SignedPublicKey {
+            public_key: self.clone(),
+            signature: signature::Signature::default(),
+            created_at: 0,
+        }
+    }
+
+    fn to_unsigned(&self) -> PublicKey {
+        self.clone()
+    }
+}
+
+impl BridgeSignableVersion<PublicKey, SignedPublicKey> for SignedPublicKey {
+
+    fn to_signed(&self) -> SignedPublicKey {
+        self.clone()
+    }
+
+    fn to_unsigned(&self) -> PublicKey {
+        self.public_key.clone()
+    }
 }
