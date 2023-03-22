@@ -379,960 +379,6 @@ pub mod unsigned_public_key {
     }
 }
 
-///  Signed public key that uses self-describing signatures (aka
-///  'AssociationProof')
-#[derive(PartialEq,Clone,Default,Debug)]
-// @@protoc_insertion_point(message:xmtp.message_contents.SignedPublicKeyV2)
-pub struct SignedPublicKeyV2 {
-    // message fields
-    // @@protoc_insertion_point(field:xmtp.message_contents.SignedPublicKeyV2.key_bytes)
-    pub key_bytes: ::std::vec::Vec<u8>,
-    // @@protoc_insertion_point(field:xmtp.message_contents.SignedPublicKeyV2.proof)
-    pub proof: ::protobuf::MessageField<super::proof::AssociationProof>,
-    // special fields
-    // @@protoc_insertion_point(special_field:xmtp.message_contents.SignedPublicKeyV2.special_fields)
-    pub special_fields: ::protobuf::SpecialFields,
-}
-
-impl<'a> ::std::default::Default for &'a SignedPublicKeyV2 {
-    fn default() -> &'a SignedPublicKeyV2 {
-        <SignedPublicKeyV2 as ::protobuf::Message>::default_instance()
-    }
-}
-
-impl SignedPublicKeyV2 {
-    pub fn new() -> SignedPublicKeyV2 {
-        ::std::default::Default::default()
-    }
-
-    fn generated_message_descriptor_data() -> ::protobuf::reflect::GeneratedMessageDescriptorData {
-        let mut fields = ::std::vec::Vec::with_capacity(2);
-        let mut oneofs = ::std::vec::Vec::with_capacity(0);
-        fields.push(::protobuf::reflect::rt::v2::make_simpler_field_accessor::<_, _>(
-            "key_bytes",
-            |m: &SignedPublicKeyV2| { &m.key_bytes },
-            |m: &mut SignedPublicKeyV2| { &mut m.key_bytes },
-        ));
-        fields.push(::protobuf::reflect::rt::v2::make_message_field_accessor::<_, super::proof::AssociationProof>(
-            "proof",
-            |m: &SignedPublicKeyV2| { &m.proof },
-            |m: &mut SignedPublicKeyV2| { &mut m.proof },
-        ));
-        ::protobuf::reflect::GeneratedMessageDescriptorData::new_2::<SignedPublicKeyV2>(
-            "SignedPublicKeyV2",
-            fields,
-            oneofs,
-        )
-    }
-}
-
-impl ::protobuf::Message for SignedPublicKeyV2 {
-    const NAME: &'static str = "SignedPublicKeyV2";
-
-    fn is_initialized(&self) -> bool {
-        true
-    }
-
-    fn merge_from(&mut self, is: &mut ::protobuf::CodedInputStream<'_>) -> ::protobuf::Result<()> {
-        while let Some(tag) = is.read_raw_tag_or_eof()? {
-            match tag {
-                10 => {
-                    self.key_bytes = is.read_bytes()?;
-                },
-                18 => {
-                    ::protobuf::rt::read_singular_message_into_field(is, &mut self.proof)?;
-                },
-                tag => {
-                    ::protobuf::rt::read_unknown_or_skip_group(tag, is, self.special_fields.mut_unknown_fields())?;
-                },
-            };
-        }
-        ::std::result::Result::Ok(())
-    }
-
-    // Compute sizes of nested messages
-    #[allow(unused_variables)]
-    fn compute_size(&self) -> u64 {
-        let mut my_size = 0;
-        if !self.key_bytes.is_empty() {
-            my_size += ::protobuf::rt::bytes_size(1, &self.key_bytes);
-        }
-        if let Some(v) = self.proof.as_ref() {
-            let len = v.compute_size();
-            my_size += 1 + ::protobuf::rt::compute_raw_varint64_size(len) + len;
-        }
-        my_size += ::protobuf::rt::unknown_fields_size(self.special_fields.unknown_fields());
-        self.special_fields.cached_size().set(my_size as u32);
-        my_size
-    }
-
-    fn write_to_with_cached_sizes(&self, os: &mut ::protobuf::CodedOutputStream<'_>) -> ::protobuf::Result<()> {
-        if !self.key_bytes.is_empty() {
-            os.write_bytes(1, &self.key_bytes)?;
-        }
-        if let Some(v) = self.proof.as_ref() {
-            ::protobuf::rt::write_message_field_with_cached_size(2, v, os)?;
-        }
-        os.write_unknown_fields(self.special_fields.unknown_fields())?;
-        ::std::result::Result::Ok(())
-    }
-
-    fn special_fields(&self) -> &::protobuf::SpecialFields {
-        &self.special_fields
-    }
-
-    fn mut_special_fields(&mut self) -> &mut ::protobuf::SpecialFields {
-        &mut self.special_fields
-    }
-
-    fn new() -> SignedPublicKeyV2 {
-        SignedPublicKeyV2::new()
-    }
-
-    fn clear(&mut self) {
-        self.key_bytes.clear();
-        self.proof.clear();
-        self.special_fields.clear();
-    }
-
-    fn default_instance() -> &'static SignedPublicKeyV2 {
-        static instance: SignedPublicKeyV2 = SignedPublicKeyV2 {
-            key_bytes: ::std::vec::Vec::new(),
-            proof: ::protobuf::MessageField::none(),
-            special_fields: ::protobuf::SpecialFields::new(),
-        };
-        &instance
-    }
-}
-
-impl ::protobuf::MessageFull for SignedPublicKeyV2 {
-    fn descriptor() -> ::protobuf::reflect::MessageDescriptor {
-        static descriptor: ::protobuf::rt::Lazy<::protobuf::reflect::MessageDescriptor> = ::protobuf::rt::Lazy::new();
-        descriptor.get(|| file_descriptor().message_by_package_relative_name("SignedPublicKeyV2").unwrap()).clone()
-    }
-}
-
-impl ::std::fmt::Display for SignedPublicKeyV2 {
-    fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
-        ::protobuf::text_format::fmt(self, f)
-    }
-}
-
-impl ::protobuf::reflect::ProtobufValue for SignedPublicKeyV2 {
-    type RuntimeType = ::protobuf::reflect::rt::RuntimeTypeMessage<Self>;
-}
-
-///  A signed revocation of a public key
-#[derive(PartialEq,Clone,Default,Debug)]
-// @@protoc_insertion_point(message:xmtp.message_contents.SignedPublicKeyRevocationV1)
-pub struct SignedPublicKeyRevocationV1 {
-    // message fields
-    // @@protoc_insertion_point(field:xmtp.message_contents.SignedPublicKeyRevocationV1.key_bytes)
-    pub key_bytes: ::std::vec::Vec<u8>,
-    // @@protoc_insertion_point(field:xmtp.message_contents.SignedPublicKeyRevocationV1.proof)
-    pub proof: ::protobuf::MessageField<super::proof::RevocationProof>,
-    // special fields
-    // @@protoc_insertion_point(special_field:xmtp.message_contents.SignedPublicKeyRevocationV1.special_fields)
-    pub special_fields: ::protobuf::SpecialFields,
-}
-
-impl<'a> ::std::default::Default for &'a SignedPublicKeyRevocationV1 {
-    fn default() -> &'a SignedPublicKeyRevocationV1 {
-        <SignedPublicKeyRevocationV1 as ::protobuf::Message>::default_instance()
-    }
-}
-
-impl SignedPublicKeyRevocationV1 {
-    pub fn new() -> SignedPublicKeyRevocationV1 {
-        ::std::default::Default::default()
-    }
-
-    fn generated_message_descriptor_data() -> ::protobuf::reflect::GeneratedMessageDescriptorData {
-        let mut fields = ::std::vec::Vec::with_capacity(2);
-        let mut oneofs = ::std::vec::Vec::with_capacity(0);
-        fields.push(::protobuf::reflect::rt::v2::make_simpler_field_accessor::<_, _>(
-            "key_bytes",
-            |m: &SignedPublicKeyRevocationV1| { &m.key_bytes },
-            |m: &mut SignedPublicKeyRevocationV1| { &mut m.key_bytes },
-        ));
-        fields.push(::protobuf::reflect::rt::v2::make_message_field_accessor::<_, super::proof::RevocationProof>(
-            "proof",
-            |m: &SignedPublicKeyRevocationV1| { &m.proof },
-            |m: &mut SignedPublicKeyRevocationV1| { &mut m.proof },
-        ));
-        ::protobuf::reflect::GeneratedMessageDescriptorData::new_2::<SignedPublicKeyRevocationV1>(
-            "SignedPublicKeyRevocationV1",
-            fields,
-            oneofs,
-        )
-    }
-}
-
-impl ::protobuf::Message for SignedPublicKeyRevocationV1 {
-    const NAME: &'static str = "SignedPublicKeyRevocationV1";
-
-    fn is_initialized(&self) -> bool {
-        true
-    }
-
-    fn merge_from(&mut self, is: &mut ::protobuf::CodedInputStream<'_>) -> ::protobuf::Result<()> {
-        while let Some(tag) = is.read_raw_tag_or_eof()? {
-            match tag {
-                10 => {
-                    self.key_bytes = is.read_bytes()?;
-                },
-                18 => {
-                    ::protobuf::rt::read_singular_message_into_field(is, &mut self.proof)?;
-                },
-                tag => {
-                    ::protobuf::rt::read_unknown_or_skip_group(tag, is, self.special_fields.mut_unknown_fields())?;
-                },
-            };
-        }
-        ::std::result::Result::Ok(())
-    }
-
-    // Compute sizes of nested messages
-    #[allow(unused_variables)]
-    fn compute_size(&self) -> u64 {
-        let mut my_size = 0;
-        if !self.key_bytes.is_empty() {
-            my_size += ::protobuf::rt::bytes_size(1, &self.key_bytes);
-        }
-        if let Some(v) = self.proof.as_ref() {
-            let len = v.compute_size();
-            my_size += 1 + ::protobuf::rt::compute_raw_varint64_size(len) + len;
-        }
-        my_size += ::protobuf::rt::unknown_fields_size(self.special_fields.unknown_fields());
-        self.special_fields.cached_size().set(my_size as u32);
-        my_size
-    }
-
-    fn write_to_with_cached_sizes(&self, os: &mut ::protobuf::CodedOutputStream<'_>) -> ::protobuf::Result<()> {
-        if !self.key_bytes.is_empty() {
-            os.write_bytes(1, &self.key_bytes)?;
-        }
-        if let Some(v) = self.proof.as_ref() {
-            ::protobuf::rt::write_message_field_with_cached_size(2, v, os)?;
-        }
-        os.write_unknown_fields(self.special_fields.unknown_fields())?;
-        ::std::result::Result::Ok(())
-    }
-
-    fn special_fields(&self) -> &::protobuf::SpecialFields {
-        &self.special_fields
-    }
-
-    fn mut_special_fields(&mut self) -> &mut ::protobuf::SpecialFields {
-        &mut self.special_fields
-    }
-
-    fn new() -> SignedPublicKeyRevocationV1 {
-        SignedPublicKeyRevocationV1::new()
-    }
-
-    fn clear(&mut self) {
-        self.key_bytes.clear();
-        self.proof.clear();
-        self.special_fields.clear();
-    }
-
-    fn default_instance() -> &'static SignedPublicKeyRevocationV1 {
-        static instance: SignedPublicKeyRevocationV1 = SignedPublicKeyRevocationV1 {
-            key_bytes: ::std::vec::Vec::new(),
-            proof: ::protobuf::MessageField::none(),
-            special_fields: ::protobuf::SpecialFields::new(),
-        };
-        &instance
-    }
-}
-
-impl ::protobuf::MessageFull for SignedPublicKeyRevocationV1 {
-    fn descriptor() -> ::protobuf::reflect::MessageDescriptor {
-        static descriptor: ::protobuf::rt::Lazy<::protobuf::reflect::MessageDescriptor> = ::protobuf::rt::Lazy::new();
-        descriptor.get(|| file_descriptor().message_by_package_relative_name("SignedPublicKeyRevocationV1").unwrap()).clone()
-    }
-}
-
-impl ::std::fmt::Display for SignedPublicKeyRevocationV1 {
-    fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
-        ::protobuf::text_format::fmt(self, f)
-    }
-}
-
-impl ::protobuf::reflect::ProtobufValue for SignedPublicKeyRevocationV1 {
-    type RuntimeType = ::protobuf::reflect::rt::RuntimeTypeMessage<Self>;
-}
-
-///  Wrapper for send keys. There will likely be additional metadata in the
-///  future, for example app/device label
-#[derive(PartialEq,Clone,Default,Debug)]
-// @@protoc_insertion_point(message:xmtp.message_contents.SendKey)
-pub struct SendKey {
-    // message oneof groups
-    pub union: ::std::option::Option<send_key::Union>,
-    // special fields
-    // @@protoc_insertion_point(special_field:xmtp.message_contents.SendKey.special_fields)
-    pub special_fields: ::protobuf::SpecialFields,
-}
-
-impl<'a> ::std::default::Default for &'a SendKey {
-    fn default() -> &'a SendKey {
-        <SendKey as ::protobuf::Message>::default_instance()
-    }
-}
-
-impl SendKey {
-    pub fn new() -> SendKey {
-        ::std::default::Default::default()
-    }
-
-    // .xmtp.message_contents.SendKey.SendKeyV1 v1 = 1;
-
-    pub fn v1(&self) -> &send_key::SendKeyV1 {
-        match self.union {
-            ::std::option::Option::Some(send_key::Union::V1(ref v)) => v,
-            _ => <send_key::SendKeyV1 as ::protobuf::Message>::default_instance(),
-        }
-    }
-
-    pub fn clear_v1(&mut self) {
-        self.union = ::std::option::Option::None;
-    }
-
-    pub fn has_v1(&self) -> bool {
-        match self.union {
-            ::std::option::Option::Some(send_key::Union::V1(..)) => true,
-            _ => false,
-        }
-    }
-
-    // Param is passed by value, moved
-    pub fn set_v1(&mut self, v: send_key::SendKeyV1) {
-        self.union = ::std::option::Option::Some(send_key::Union::V1(v))
-    }
-
-    // Mutable pointer to the field.
-    pub fn mut_v1(&mut self) -> &mut send_key::SendKeyV1 {
-        if let ::std::option::Option::Some(send_key::Union::V1(_)) = self.union {
-        } else {
-            self.union = ::std::option::Option::Some(send_key::Union::V1(send_key::SendKeyV1::new()));
-        }
-        match self.union {
-            ::std::option::Option::Some(send_key::Union::V1(ref mut v)) => v,
-            _ => panic!(),
-        }
-    }
-
-    // Take field
-    pub fn take_v1(&mut self) -> send_key::SendKeyV1 {
-        if self.has_v1() {
-            match self.union.take() {
-                ::std::option::Option::Some(send_key::Union::V1(v)) => v,
-                _ => panic!(),
-            }
-        } else {
-            send_key::SendKeyV1::new()
-        }
-    }
-
-    fn generated_message_descriptor_data() -> ::protobuf::reflect::GeneratedMessageDescriptorData {
-        let mut fields = ::std::vec::Vec::with_capacity(1);
-        let mut oneofs = ::std::vec::Vec::with_capacity(1);
-        fields.push(::protobuf::reflect::rt::v2::make_oneof_message_has_get_mut_set_accessor::<_, send_key::SendKeyV1>(
-            "v1",
-            SendKey::has_v1,
-            SendKey::v1,
-            SendKey::mut_v1,
-            SendKey::set_v1,
-        ));
-        oneofs.push(send_key::Union::generated_oneof_descriptor_data());
-        ::protobuf::reflect::GeneratedMessageDescriptorData::new_2::<SendKey>(
-            "SendKey",
-            fields,
-            oneofs,
-        )
-    }
-}
-
-impl ::protobuf::Message for SendKey {
-    const NAME: &'static str = "SendKey";
-
-    fn is_initialized(&self) -> bool {
-        true
-    }
-
-    fn merge_from(&mut self, is: &mut ::protobuf::CodedInputStream<'_>) -> ::protobuf::Result<()> {
-        while let Some(tag) = is.read_raw_tag_or_eof()? {
-            match tag {
-                10 => {
-                    self.union = ::std::option::Option::Some(send_key::Union::V1(is.read_message()?));
-                },
-                tag => {
-                    ::protobuf::rt::read_unknown_or_skip_group(tag, is, self.special_fields.mut_unknown_fields())?;
-                },
-            };
-        }
-        ::std::result::Result::Ok(())
-    }
-
-    // Compute sizes of nested messages
-    #[allow(unused_variables)]
-    fn compute_size(&self) -> u64 {
-        let mut my_size = 0;
-        if let ::std::option::Option::Some(ref v) = self.union {
-            match v {
-                &send_key::Union::V1(ref v) => {
-                    let len = v.compute_size();
-                    my_size += 1 + ::protobuf::rt::compute_raw_varint64_size(len) + len;
-                },
-            };
-        }
-        my_size += ::protobuf::rt::unknown_fields_size(self.special_fields.unknown_fields());
-        self.special_fields.cached_size().set(my_size as u32);
-        my_size
-    }
-
-    fn write_to_with_cached_sizes(&self, os: &mut ::protobuf::CodedOutputStream<'_>) -> ::protobuf::Result<()> {
-        if let ::std::option::Option::Some(ref v) = self.union {
-            match v {
-                &send_key::Union::V1(ref v) => {
-                    ::protobuf::rt::write_message_field_with_cached_size(1, v, os)?;
-                },
-            };
-        }
-        os.write_unknown_fields(self.special_fields.unknown_fields())?;
-        ::std::result::Result::Ok(())
-    }
-
-    fn special_fields(&self) -> &::protobuf::SpecialFields {
-        &self.special_fields
-    }
-
-    fn mut_special_fields(&mut self) -> &mut ::protobuf::SpecialFields {
-        &mut self.special_fields
-    }
-
-    fn new() -> SendKey {
-        SendKey::new()
-    }
-
-    fn clear(&mut self) {
-        self.union = ::std::option::Option::None;
-        self.special_fields.clear();
-    }
-
-    fn default_instance() -> &'static SendKey {
-        static instance: SendKey = SendKey {
-            union: ::std::option::Option::None,
-            special_fields: ::protobuf::SpecialFields::new(),
-        };
-        &instance
-    }
-}
-
-impl ::protobuf::MessageFull for SendKey {
-    fn descriptor() -> ::protobuf::reflect::MessageDescriptor {
-        static descriptor: ::protobuf::rt::Lazy<::protobuf::reflect::MessageDescriptor> = ::protobuf::rt::Lazy::new();
-        descriptor.get(|| file_descriptor().message_by_package_relative_name("SendKey").unwrap()).clone()
-    }
-}
-
-impl ::std::fmt::Display for SendKey {
-    fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
-        ::protobuf::text_format::fmt(self, f)
-    }
-}
-
-impl ::protobuf::reflect::ProtobufValue for SendKey {
-    type RuntimeType = ::protobuf::reflect::rt::RuntimeTypeMessage<Self>;
-}
-
-/// Nested message and enums of message `SendKey`
-pub mod send_key {
-
-    #[derive(Clone,PartialEq,Debug)]
-    #[non_exhaustive]
-    // @@protoc_insertion_point(oneof:xmtp.message_contents.SendKey.union)
-    pub enum Union {
-        // @@protoc_insertion_point(oneof_field:xmtp.message_contents.SendKey.v1)
-        V1(SendKeyV1),
-    }
-
-    impl ::protobuf::Oneof for Union {
-    }
-
-    impl ::protobuf::OneofFull for Union {
-        fn descriptor() -> ::protobuf::reflect::OneofDescriptor {
-            static descriptor: ::protobuf::rt::Lazy<::protobuf::reflect::OneofDescriptor> = ::protobuf::rt::Lazy::new();
-            descriptor.get(|| <super::SendKey as ::protobuf::MessageFull>::descriptor().oneof_by_name("union").unwrap()).clone()
-        }
-    }
-
-    impl Union {
-        pub(in super) fn generated_oneof_descriptor_data() -> ::protobuf::reflect::GeneratedOneofDescriptorData {
-            ::protobuf::reflect::GeneratedOneofDescriptorData::new::<Union>("union")
-        }
-    }
-    ///  V1 of send keys
-    #[derive(PartialEq,Clone,Default,Debug)]
-    // @@protoc_insertion_point(message:xmtp.message_contents.SendKey.SendKeyV1)
-    pub struct SendKeyV1 {
-        // message fields
-        // @@protoc_insertion_point(field:xmtp.message_contents.SendKey.SendKeyV1.signed_public_key)
-        pub signed_public_key: ::protobuf::MessageField<super::SignedPublicKeyV2>,
-        // special fields
-        // @@protoc_insertion_point(special_field:xmtp.message_contents.SendKey.SendKeyV1.special_fields)
-        pub special_fields: ::protobuf::SpecialFields,
-    }
-
-    impl<'a> ::std::default::Default for &'a SendKeyV1 {
-        fn default() -> &'a SendKeyV1 {
-            <SendKeyV1 as ::protobuf::Message>::default_instance()
-        }
-    }
-
-    impl SendKeyV1 {
-        pub fn new() -> SendKeyV1 {
-            ::std::default::Default::default()
-        }
-
-        pub(in super) fn generated_message_descriptor_data() -> ::protobuf::reflect::GeneratedMessageDescriptorData {
-            let mut fields = ::std::vec::Vec::with_capacity(1);
-            let mut oneofs = ::std::vec::Vec::with_capacity(0);
-            fields.push(::protobuf::reflect::rt::v2::make_message_field_accessor::<_, super::SignedPublicKeyV2>(
-                "signed_public_key",
-                |m: &SendKeyV1| { &m.signed_public_key },
-                |m: &mut SendKeyV1| { &mut m.signed_public_key },
-            ));
-            ::protobuf::reflect::GeneratedMessageDescriptorData::new_2::<SendKeyV1>(
-                "SendKey.SendKeyV1",
-                fields,
-                oneofs,
-            )
-        }
-    }
-
-    impl ::protobuf::Message for SendKeyV1 {
-        const NAME: &'static str = "SendKeyV1";
-
-        fn is_initialized(&self) -> bool {
-            true
-        }
-
-        fn merge_from(&mut self, is: &mut ::protobuf::CodedInputStream<'_>) -> ::protobuf::Result<()> {
-            while let Some(tag) = is.read_raw_tag_or_eof()? {
-                match tag {
-                    10 => {
-                        ::protobuf::rt::read_singular_message_into_field(is, &mut self.signed_public_key)?;
-                    },
-                    tag => {
-                        ::protobuf::rt::read_unknown_or_skip_group(tag, is, self.special_fields.mut_unknown_fields())?;
-                    },
-                };
-            }
-            ::std::result::Result::Ok(())
-        }
-
-        // Compute sizes of nested messages
-        #[allow(unused_variables)]
-        fn compute_size(&self) -> u64 {
-            let mut my_size = 0;
-            if let Some(v) = self.signed_public_key.as_ref() {
-                let len = v.compute_size();
-                my_size += 1 + ::protobuf::rt::compute_raw_varint64_size(len) + len;
-            }
-            my_size += ::protobuf::rt::unknown_fields_size(self.special_fields.unknown_fields());
-            self.special_fields.cached_size().set(my_size as u32);
-            my_size
-        }
-
-        fn write_to_with_cached_sizes(&self, os: &mut ::protobuf::CodedOutputStream<'_>) -> ::protobuf::Result<()> {
-            if let Some(v) = self.signed_public_key.as_ref() {
-                ::protobuf::rt::write_message_field_with_cached_size(1, v, os)?;
-            }
-            os.write_unknown_fields(self.special_fields.unknown_fields())?;
-            ::std::result::Result::Ok(())
-        }
-
-        fn special_fields(&self) -> &::protobuf::SpecialFields {
-            &self.special_fields
-        }
-
-        fn mut_special_fields(&mut self) -> &mut ::protobuf::SpecialFields {
-            &mut self.special_fields
-        }
-
-        fn new() -> SendKeyV1 {
-            SendKeyV1::new()
-        }
-
-        fn clear(&mut self) {
-            self.signed_public_key.clear();
-            self.special_fields.clear();
-        }
-
-        fn default_instance() -> &'static SendKeyV1 {
-            static instance: SendKeyV1 = SendKeyV1 {
-                signed_public_key: ::protobuf::MessageField::none(),
-                special_fields: ::protobuf::SpecialFields::new(),
-            };
-            &instance
-        }
-    }
-
-    impl ::protobuf::MessageFull for SendKeyV1 {
-        fn descriptor() -> ::protobuf::reflect::MessageDescriptor {
-            static descriptor: ::protobuf::rt::Lazy<::protobuf::reflect::MessageDescriptor> = ::protobuf::rt::Lazy::new();
-            descriptor.get(|| super::file_descriptor().message_by_package_relative_name("SendKey.SendKeyV1").unwrap()).clone()
-        }
-    }
-
-    impl ::std::fmt::Display for SendKeyV1 {
-        fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
-            ::protobuf::text_format::fmt(self, f)
-        }
-    }
-
-    impl ::protobuf::reflect::ProtobufValue for SendKeyV1 {
-        type RuntimeType = ::protobuf::reflect::rt::RuntimeTypeMessage<Self>;
-    }
-}
-
-///  Wrapper for send key revocations.
-#[derive(PartialEq,Clone,Default,Debug)]
-// @@protoc_insertion_point(message:xmtp.message_contents.SendKeyRevocation)
-pub struct SendKeyRevocation {
-    // message oneof groups
-    pub union: ::std::option::Option<send_key_revocation::Union>,
-    // special fields
-    // @@protoc_insertion_point(special_field:xmtp.message_contents.SendKeyRevocation.special_fields)
-    pub special_fields: ::protobuf::SpecialFields,
-}
-
-impl<'a> ::std::default::Default for &'a SendKeyRevocation {
-    fn default() -> &'a SendKeyRevocation {
-        <SendKeyRevocation as ::protobuf::Message>::default_instance()
-    }
-}
-
-impl SendKeyRevocation {
-    pub fn new() -> SendKeyRevocation {
-        ::std::default::Default::default()
-    }
-
-    // .xmtp.message_contents.SendKeyRevocation.SendKeyRevocationV1 v1 = 1;
-
-    pub fn v1(&self) -> &send_key_revocation::SendKeyRevocationV1 {
-        match self.union {
-            ::std::option::Option::Some(send_key_revocation::Union::V1(ref v)) => v,
-            _ => <send_key_revocation::SendKeyRevocationV1 as ::protobuf::Message>::default_instance(),
-        }
-    }
-
-    pub fn clear_v1(&mut self) {
-        self.union = ::std::option::Option::None;
-    }
-
-    pub fn has_v1(&self) -> bool {
-        match self.union {
-            ::std::option::Option::Some(send_key_revocation::Union::V1(..)) => true,
-            _ => false,
-        }
-    }
-
-    // Param is passed by value, moved
-    pub fn set_v1(&mut self, v: send_key_revocation::SendKeyRevocationV1) {
-        self.union = ::std::option::Option::Some(send_key_revocation::Union::V1(v))
-    }
-
-    // Mutable pointer to the field.
-    pub fn mut_v1(&mut self) -> &mut send_key_revocation::SendKeyRevocationV1 {
-        if let ::std::option::Option::Some(send_key_revocation::Union::V1(_)) = self.union {
-        } else {
-            self.union = ::std::option::Option::Some(send_key_revocation::Union::V1(send_key_revocation::SendKeyRevocationV1::new()));
-        }
-        match self.union {
-            ::std::option::Option::Some(send_key_revocation::Union::V1(ref mut v)) => v,
-            _ => panic!(),
-        }
-    }
-
-    // Take field
-    pub fn take_v1(&mut self) -> send_key_revocation::SendKeyRevocationV1 {
-        if self.has_v1() {
-            match self.union.take() {
-                ::std::option::Option::Some(send_key_revocation::Union::V1(v)) => v,
-                _ => panic!(),
-            }
-        } else {
-            send_key_revocation::SendKeyRevocationV1::new()
-        }
-    }
-
-    fn generated_message_descriptor_data() -> ::protobuf::reflect::GeneratedMessageDescriptorData {
-        let mut fields = ::std::vec::Vec::with_capacity(1);
-        let mut oneofs = ::std::vec::Vec::with_capacity(1);
-        fields.push(::protobuf::reflect::rt::v2::make_oneof_message_has_get_mut_set_accessor::<_, send_key_revocation::SendKeyRevocationV1>(
-            "v1",
-            SendKeyRevocation::has_v1,
-            SendKeyRevocation::v1,
-            SendKeyRevocation::mut_v1,
-            SendKeyRevocation::set_v1,
-        ));
-        oneofs.push(send_key_revocation::Union::generated_oneof_descriptor_data());
-        ::protobuf::reflect::GeneratedMessageDescriptorData::new_2::<SendKeyRevocation>(
-            "SendKeyRevocation",
-            fields,
-            oneofs,
-        )
-    }
-}
-
-impl ::protobuf::Message for SendKeyRevocation {
-    const NAME: &'static str = "SendKeyRevocation";
-
-    fn is_initialized(&self) -> bool {
-        true
-    }
-
-    fn merge_from(&mut self, is: &mut ::protobuf::CodedInputStream<'_>) -> ::protobuf::Result<()> {
-        while let Some(tag) = is.read_raw_tag_or_eof()? {
-            match tag {
-                10 => {
-                    self.union = ::std::option::Option::Some(send_key_revocation::Union::V1(is.read_message()?));
-                },
-                tag => {
-                    ::protobuf::rt::read_unknown_or_skip_group(tag, is, self.special_fields.mut_unknown_fields())?;
-                },
-            };
-        }
-        ::std::result::Result::Ok(())
-    }
-
-    // Compute sizes of nested messages
-    #[allow(unused_variables)]
-    fn compute_size(&self) -> u64 {
-        let mut my_size = 0;
-        if let ::std::option::Option::Some(ref v) = self.union {
-            match v {
-                &send_key_revocation::Union::V1(ref v) => {
-                    let len = v.compute_size();
-                    my_size += 1 + ::protobuf::rt::compute_raw_varint64_size(len) + len;
-                },
-            };
-        }
-        my_size += ::protobuf::rt::unknown_fields_size(self.special_fields.unknown_fields());
-        self.special_fields.cached_size().set(my_size as u32);
-        my_size
-    }
-
-    fn write_to_with_cached_sizes(&self, os: &mut ::protobuf::CodedOutputStream<'_>) -> ::protobuf::Result<()> {
-        if let ::std::option::Option::Some(ref v) = self.union {
-            match v {
-                &send_key_revocation::Union::V1(ref v) => {
-                    ::protobuf::rt::write_message_field_with_cached_size(1, v, os)?;
-                },
-            };
-        }
-        os.write_unknown_fields(self.special_fields.unknown_fields())?;
-        ::std::result::Result::Ok(())
-    }
-
-    fn special_fields(&self) -> &::protobuf::SpecialFields {
-        &self.special_fields
-    }
-
-    fn mut_special_fields(&mut self) -> &mut ::protobuf::SpecialFields {
-        &mut self.special_fields
-    }
-
-    fn new() -> SendKeyRevocation {
-        SendKeyRevocation::new()
-    }
-
-    fn clear(&mut self) {
-        self.union = ::std::option::Option::None;
-        self.special_fields.clear();
-    }
-
-    fn default_instance() -> &'static SendKeyRevocation {
-        static instance: SendKeyRevocation = SendKeyRevocation {
-            union: ::std::option::Option::None,
-            special_fields: ::protobuf::SpecialFields::new(),
-        };
-        &instance
-    }
-}
-
-impl ::protobuf::MessageFull for SendKeyRevocation {
-    fn descriptor() -> ::protobuf::reflect::MessageDescriptor {
-        static descriptor: ::protobuf::rt::Lazy<::protobuf::reflect::MessageDescriptor> = ::protobuf::rt::Lazy::new();
-        descriptor.get(|| file_descriptor().message_by_package_relative_name("SendKeyRevocation").unwrap()).clone()
-    }
-}
-
-impl ::std::fmt::Display for SendKeyRevocation {
-    fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
-        ::protobuf::text_format::fmt(self, f)
-    }
-}
-
-impl ::protobuf::reflect::ProtobufValue for SendKeyRevocation {
-    type RuntimeType = ::protobuf::reflect::rt::RuntimeTypeMessage<Self>;
-}
-
-/// Nested message and enums of message `SendKeyRevocation`
-pub mod send_key_revocation {
-
-    #[derive(Clone,PartialEq,Debug)]
-    #[non_exhaustive]
-    // @@protoc_insertion_point(oneof:xmtp.message_contents.SendKeyRevocation.union)
-    pub enum Union {
-        // @@protoc_insertion_point(oneof_field:xmtp.message_contents.SendKeyRevocation.v1)
-        V1(SendKeyRevocationV1),
-    }
-
-    impl ::protobuf::Oneof for Union {
-    }
-
-    impl ::protobuf::OneofFull for Union {
-        fn descriptor() -> ::protobuf::reflect::OneofDescriptor {
-            static descriptor: ::protobuf::rt::Lazy<::protobuf::reflect::OneofDescriptor> = ::protobuf::rt::Lazy::new();
-            descriptor.get(|| <super::SendKeyRevocation as ::protobuf::MessageFull>::descriptor().oneof_by_name("union").unwrap()).clone()
-        }
-    }
-
-    impl Union {
-        pub(in super) fn generated_oneof_descriptor_data() -> ::protobuf::reflect::GeneratedOneofDescriptorData {
-            ::protobuf::reflect::GeneratedOneofDescriptorData::new::<Union>("union")
-        }
-    }
-    ///  V1 of send key revocations
-    #[derive(PartialEq,Clone,Default,Debug)]
-    // @@protoc_insertion_point(message:xmtp.message_contents.SendKeyRevocation.SendKeyRevocationV1)
-    pub struct SendKeyRevocationV1 {
-        // message fields
-        // @@protoc_insertion_point(field:xmtp.message_contents.SendKeyRevocation.SendKeyRevocationV1.signed_revocation)
-        pub signed_revocation: ::protobuf::MessageField<super::SignedPublicKeyRevocationV1>,
-        // special fields
-        // @@protoc_insertion_point(special_field:xmtp.message_contents.SendKeyRevocation.SendKeyRevocationV1.special_fields)
-        pub special_fields: ::protobuf::SpecialFields,
-    }
-
-    impl<'a> ::std::default::Default for &'a SendKeyRevocationV1 {
-        fn default() -> &'a SendKeyRevocationV1 {
-            <SendKeyRevocationV1 as ::protobuf::Message>::default_instance()
-        }
-    }
-
-    impl SendKeyRevocationV1 {
-        pub fn new() -> SendKeyRevocationV1 {
-            ::std::default::Default::default()
-        }
-
-        pub(in super) fn generated_message_descriptor_data() -> ::protobuf::reflect::GeneratedMessageDescriptorData {
-            let mut fields = ::std::vec::Vec::with_capacity(1);
-            let mut oneofs = ::std::vec::Vec::with_capacity(0);
-            fields.push(::protobuf::reflect::rt::v2::make_message_field_accessor::<_, super::SignedPublicKeyRevocationV1>(
-                "signed_revocation",
-                |m: &SendKeyRevocationV1| { &m.signed_revocation },
-                |m: &mut SendKeyRevocationV1| { &mut m.signed_revocation },
-            ));
-            ::protobuf::reflect::GeneratedMessageDescriptorData::new_2::<SendKeyRevocationV1>(
-                "SendKeyRevocation.SendKeyRevocationV1",
-                fields,
-                oneofs,
-            )
-        }
-    }
-
-    impl ::protobuf::Message for SendKeyRevocationV1 {
-        const NAME: &'static str = "SendKeyRevocationV1";
-
-        fn is_initialized(&self) -> bool {
-            true
-        }
-
-        fn merge_from(&mut self, is: &mut ::protobuf::CodedInputStream<'_>) -> ::protobuf::Result<()> {
-            while let Some(tag) = is.read_raw_tag_or_eof()? {
-                match tag {
-                    10 => {
-                        ::protobuf::rt::read_singular_message_into_field(is, &mut self.signed_revocation)?;
-                    },
-                    tag => {
-                        ::protobuf::rt::read_unknown_or_skip_group(tag, is, self.special_fields.mut_unknown_fields())?;
-                    },
-                };
-            }
-            ::std::result::Result::Ok(())
-        }
-
-        // Compute sizes of nested messages
-        #[allow(unused_variables)]
-        fn compute_size(&self) -> u64 {
-            let mut my_size = 0;
-            if let Some(v) = self.signed_revocation.as_ref() {
-                let len = v.compute_size();
-                my_size += 1 + ::protobuf::rt::compute_raw_varint64_size(len) + len;
-            }
-            my_size += ::protobuf::rt::unknown_fields_size(self.special_fields.unknown_fields());
-            self.special_fields.cached_size().set(my_size as u32);
-            my_size
-        }
-
-        fn write_to_with_cached_sizes(&self, os: &mut ::protobuf::CodedOutputStream<'_>) -> ::protobuf::Result<()> {
-            if let Some(v) = self.signed_revocation.as_ref() {
-                ::protobuf::rt::write_message_field_with_cached_size(1, v, os)?;
-            }
-            os.write_unknown_fields(self.special_fields.unknown_fields())?;
-            ::std::result::Result::Ok(())
-        }
-
-        fn special_fields(&self) -> &::protobuf::SpecialFields {
-            &self.special_fields
-        }
-
-        fn mut_special_fields(&mut self) -> &mut ::protobuf::SpecialFields {
-            &mut self.special_fields
-        }
-
-        fn new() -> SendKeyRevocationV1 {
-            SendKeyRevocationV1::new()
-        }
-
-        fn clear(&mut self) {
-            self.signed_revocation.clear();
-            self.special_fields.clear();
-        }
-
-        fn default_instance() -> &'static SendKeyRevocationV1 {
-            static instance: SendKeyRevocationV1 = SendKeyRevocationV1 {
-                signed_revocation: ::protobuf::MessageField::none(),
-                special_fields: ::protobuf::SpecialFields::new(),
-            };
-            &instance
-        }
-    }
-
-    impl ::protobuf::MessageFull for SendKeyRevocationV1 {
-        fn descriptor() -> ::protobuf::reflect::MessageDescriptor {
-            static descriptor: ::protobuf::rt::Lazy<::protobuf::reflect::MessageDescriptor> = ::protobuf::rt::Lazy::new();
-            descriptor.get(|| super::file_descriptor().message_by_package_relative_name("SendKeyRevocation.SendKeyRevocationV1").unwrap()).clone()
-        }
-    }
-
-    impl ::std::fmt::Display for SendKeyRevocationV1 {
-        fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
-            ::protobuf::text_format::fmt(self, f)
-        }
-    }
-
-    impl ::protobuf::reflect::ProtobufValue for SendKeyRevocationV1 {
-        type RuntimeType = ::protobuf::reflect::rt::RuntimeTypeMessage<Self>;
-    }
-}
-
 ///  SignedPublicKey 
 #[derive(PartialEq,Clone,Default,Debug)]
 // @@protoc_insertion_point(message:xmtp.message_contents.SignedPublicKey)
@@ -2141,152 +1187,99 @@ impl ::protobuf::reflect::ProtobufValue for PublicKeyBundle {
 
 static file_descriptor_proto_data: &'static [u8] = b"\
     \n!message_contents/public_key.proto\x12\x15xmtp.message_contents\x1a\
-    \x1cmessage_contents/proof.proto\x1a\x20message_contents/signature.proto\
-    \"\xe3\x01\n\x11UnsignedPublicKey\x12\x1d\n\ncreated_ns\x18\x01\x20\x01(\
-    \x04R\tcreatedNs\x12w\n\x16secp256k1_uncompressed\x18\x03\x20\x01(\x0b2>\
-    .xmtp.message_contents.UnsignedPublicKey.Secp256k1UncompressedH\0R\x15se\
-    cp256k1Uncompressed\x1a-\n\x15Secp256k1Uncompressed\x12\x14\n\x05bytes\
-    \x18\x01\x20\x01(\x0cR\x05bytesB\x07\n\x05union\"o\n\x11SignedPublicKeyV\
-    2\x12\x1b\n\tkey_bytes\x18\x01\x20\x01(\x0cR\x08keyBytes\x12=\n\x05proof\
-    \x18\x02\x20\x01(\x0b2'.xmtp.message_contents.AssociationProofR\x05proof\
-    \"x\n\x1bSignedPublicKeyRevocationV1\x12\x1b\n\tkey_bytes\x18\x01\x20\
-    \x01(\x0cR\x08keyBytes\x12<\n\x05proof\x18\x02\x20\x01(\x0b2&.xmtp.messa\
-    ge_contents.RevocationProofR\x05proof\"\xb1\x01\n\x07SendKey\x12:\n\x02v\
-    1\x18\x01\x20\x01(\x0b2(.xmtp.message_contents.SendKey.SendKeyV1H\0R\x02\
-    v1\x1aa\n\tSendKeyV1\x12T\n\x11signed_public_key\x18\x01\x20\x01(\x0b2(.\
-    xmtp.message_contents.SignedPublicKeyV2R\x0fsignedPublicKeyB\x07\n\x05un\
-    ion\"\xe4\x01\n\x11SendKeyRevocation\x12N\n\x02v1\x18\x01\x20\x01(\x0b2<\
-    .xmtp.message_contents.SendKeyRevocation.SendKeyRevocationV1H\0R\x02v1\
-    \x1av\n\x13SendKeyRevocationV1\x12_\n\x11signed_revocation\x18\x01\x20\
-    \x01(\x0b22.xmtp.message_contents.SignedPublicKeyRevocationV1R\x10signed\
-    RevocationB\x07\n\x05union\"n\n\x0fSignedPublicKey\x12\x1b\n\tkey_bytes\
-    \x18\x01\x20\x01(\x0cR\x08keyBytes\x12>\n\tsignature\x18\x02\x20\x01(\
-    \x0b2\x20.xmtp.message_contents.SignatureR\tsignature\"\xa3\x01\n\x15Sig\
-    nedPublicKeyBundle\x12I\n\x0cidentity_key\x18\x01\x20\x01(\x0b2&.xmtp.me\
-    ssage_contents.SignedPublicKeyR\x0bidentityKey\x12?\n\x07pre_key\x18\x02\
-    \x20\x01(\x0b2&.xmtp.message_contents.SignedPublicKeyR\x06preKey\"\xa5\
-    \x02\n\tPublicKey\x12\x1c\n\ttimestamp\x18\x01\x20\x01(\x04R\ttimestamp\
-    \x12C\n\tsignature\x18\x02\x20\x01(\x0b2\x20.xmtp.message_contents.Signa\
-    tureH\x01R\tsignature\x88\x01\x01\x12o\n\x16secp256k1_uncompressed\x18\
-    \x03\x20\x01(\x0b26.xmtp.message_contents.PublicKey.Secp256k1Uncompresse\
-    dH\0R\x15secp256k1Uncompressed\x1a-\n\x15Secp256k1Uncompressed\x12\x14\n\
-    \x05bytes\x18\x01\x20\x01(\x0cR\x05bytesB\x07\n\x05unionB\x0c\n\n_signat\
-    ure\"\x91\x01\n\x0fPublicKeyBundle\x12C\n\x0cidentity_key\x18\x01\x20\
-    \x01(\x0b2\x20.xmtp.message_contents.PublicKeyR\x0bidentityKey\x129\n\
-    \x07pre_key\x18\x02\x20\x01(\x0b2\x20.xmtp.message_contents.PublicKeyR\
-    \x06preKeyBO\n\x1forg.xmtp.proto.message.contentsZ,github.com/xmtp/proto\
-    /v3/go/message_contentsJ\x8d\x19\n\x06\x12\x04\x02\0i\x01\n{\n\x01\x0c\
-    \x12\x03\x02\0\x12\x1aq\x20Structure\x20for\x20representing\x20public\
-    \x20keys\x20of\x20different\x20types,\n\x20including\x20signatures\x20us\
-    ed\x20to\x20authenticate\x20the\x20keys.\n\n\x08\n\x01\x02\x12\x03\x04\0\
-    \x1e\n\t\n\x02\x03\0\x12\x03\x06\0&\n\t\n\x02\x03\x01\x12\x03\x07\0*\n\
-    \x08\n\x01\x08\x12\x03\t\0C\n\t\n\x02\x08\x0b\x12\x03\t\0C\n\x08\n\x01\
-    \x08\x12\x03\n\08\n\t\n\x02\x08\x01\x12\x03\n\08\n\x84\x01\n\x02\x04\0\
-    \x12\x04\x0e\0\x1b\x01\x1ax\x20UnsignedPublicKey\x20represents\x20a\x20g\
-    eneralized\x20public\x20key,\n\x20defined\x20as\x20a\x20union\x20to\x20s\
-    upport\x20cryptographic\x20algorithm\x20agility.\n\n\n\n\x03\x04\0\x01\
-    \x12\x03\x0e\x08\x19\n\x0b\n\x04\x04\0\x02\0\x12\x03\x0f\x04\x1a\n\x0c\n\
-    \x05\x04\0\x02\0\x05\x12\x03\x0f\x04\n\n\x0c\n\x05\x04\0\x02\0\x01\x12\
-    \x03\x0f\x0b\x15\n\x0c\n\x05\x04\0\x02\0\x03\x12\x03\x0f\x18\x19\n\x0c\n\
-    \x04\x04\0\x08\0\x12\x04\x10\x04\x12\x05\n\x0c\n\x05\x04\0\x08\0\x01\x12\
-    \x03\x10\n\x0f\n\x0b\n\x04\x04\0\x02\x01\x12\x03\x11\x089\n\x0c\n\x05\
-    \x04\0\x02\x01\x06\x12\x03\x11\x08\x1d\n\x0c\n\x05\x04\0\x02\x01\x01\x12\
-    \x03\x11\x1e4\n\x0c\n\x05\x04\0\x02\x01\x03\x12\x03\x1178\n4\n\x04\x04\0\
-    \x03\0\x12\x04\x17\x04\x1a\x05\x1a\x0f\x20EC:\x20SECP256k1\n2\x15\x20Sup\
-    ported\x20key\x20types\n\n\x0c\n\x05\x04\0\x03\0\x01\x12\x03\x17\x0c!\nP\
-    \n\x06\x04\0\x03\0\x02\0\x12\x03\x19\x08\x18\x1aA\x20uncompressed\x20poi\
-    nt\x20with\x20prefix\x20(0x04)\x20[\x20P\x20||\x20X\x20||\x20Y\x20],\x20\
-    65\x20bytes\n\n\x0e\n\x07\x04\0\x03\0\x02\0\x05\x12\x03\x19\x08\r\n\x0e\
-    \n\x07\x04\0\x03\0\x02\0\x01\x12\x03\x19\x0e\x13\n\x0e\n\x07\x04\0\x03\0\
-    \x02\0\x03\x12\x03\x19\x16\x17\n^\n\x02\x04\x01\x12\x04\x1f\0\"\x01\x1aR\
-    \x20Signed\x20public\x20key\x20that\x20uses\x20self-describing\x20signat\
-    ures\x20(aka\n\x20'AssociationProof')\n\n\n\n\x03\x04\x01\x01\x12\x03\
-    \x1f\x08\x19\n*\n\x04\x04\x01\x02\0\x12\x03\x20\x04\x18\"\x1d\x20embeds\
-    \x20an\x20UnsignedPublicKey\n\n\x0c\n\x05\x04\x01\x02\0\x05\x12\x03\x20\
-    \x04\t\n\x0c\n\x05\x04\x01\x02\0\x01\x12\x03\x20\n\x13\n\x0c\n\x05\x04\
-    \x01\x02\0\x03\x12\x03\x20\x16\x17\n\x1e\n\x04\x04\x01\x02\x01\x12\x03!\
-    \x04\x1f\"\x11\x20signs\x20key_bytes\n\n\x0c\n\x05\x04\x01\x02\x01\x06\
-    \x12\x03!\x04\x14\n\x0c\n\x05\x04\x01\x02\x01\x01\x12\x03!\x15\x1a\n\x0c\
-    \n\x05\x04\x01\x02\x01\x03\x12\x03!\x1d\x1e\n1\n\x02\x04\x02\x12\x04%\0(\
-    \x01\x1a%\x20A\x20signed\x20revocation\x20of\x20a\x20public\x20key\n\n\n\
-    \n\x03\x04\x02\x01\x12\x03%\x08#\n*\n\x04\x04\x02\x02\0\x12\x03&\x04\x18\
-    \"\x1d\x20embeds\x20an\x20UnsignedPublicKey\n\n\x0c\n\x05\x04\x02\x02\0\
-    \x05\x12\x03&\x04\t\n\x0c\n\x05\x04\x02\x02\0\x01\x12\x03&\n\x13\n\x0c\n\
-    \x05\x04\x02\x02\0\x03\x12\x03&\x16\x17\n\x1e\n\x04\x04\x02\x02\x01\x12\
-    \x03'\x04\x1e\"\x11\x20signs\x20key_bytes\n\n\x0c\n\x05\x04\x02\x02\x01\
-    \x06\x12\x03'\x04\x13\n\x0c\n\x05\x04\x02\x02\x01\x01\x12\x03'\x14\x19\n\
-    \x0c\n\x05\x04\x02\x02\x01\x03\x12\x03'\x1c\x1d\nz\n\x02\x04\x03\x12\x04\
-    ,\04\x01\x1an\x20Wrapper\x20for\x20send\x20keys.\x20There\x20will\x20lik\
-    ely\x20be\x20additional\x20metadata\x20in\x20the\n\x20future,\x20for\x20\
-    example\x20app/device\x20label\n\n\n\n\x03\x04\x03\x01\x12\x03,\x08\x0f\
-    \n\x1f\n\x04\x04\x03\x03\0\x12\x04.\x040\x05\x1a\x11\x20V1\x20of\x20send\
-    \x20keys\n\n\x0c\n\x05\x04\x03\x03\0\x01\x12\x03.\x0c\x15\n\r\n\x06\x04\
-    \x03\x03\0\x02\0\x12\x03/\x080\n\x0e\n\x07\x04\x03\x03\0\x02\0\x06\x12\
-    \x03/\x08\x19\n\x0e\n\x07\x04\x03\x03\0\x02\0\x01\x12\x03/\x1a+\n\x0e\n\
-    \x07\x04\x03\x03\0\x02\0\x03\x12\x03/./\n\x0c\n\x04\x04\x03\x08\0\x12\
-    \x041\x043\x05\n\x0c\n\x05\x04\x03\x08\0\x01\x12\x031\n\x0f\n\x0b\n\x04\
-    \x04\x03\x02\0\x12\x032\x08\x19\n\x0c\n\x05\x04\x03\x02\0\x06\x12\x032\
-    \x08\x11\n\x0c\n\x05\x04\x03\x02\0\x01\x12\x032\x12\x14\n\x0c\n\x05\x04\
-    \x03\x02\0\x03\x12\x032\x17\x18\n/\n\x02\x04\x04\x12\x047\0?\x01\x1a#\
-    \x20Wrapper\x20for\x20send\x20key\x20revocations.\n\n\n\n\x03\x04\x04\
-    \x01\x12\x037\x08\x19\n*\n\x04\x04\x04\x03\0\x12\x049\x04;\x05\x1a\x1c\
-    \x20V1\x20of\x20send\x20key\x20revocations\n\n\x0c\n\x05\x04\x04\x03\0\
-    \x01\x12\x039\x0c\x1f\n\r\n\x06\x04\x04\x03\0\x02\0\x12\x03:\x08:\n\x0e\
-    \n\x07\x04\x04\x03\0\x02\0\x06\x12\x03:\x08#\n\x0e\n\x07\x04\x04\x03\0\
-    \x02\0\x01\x12\x03:$5\n\x0e\n\x07\x04\x04\x03\0\x02\0\x03\x12\x03:89\n\
-    \x0c\n\x04\x04\x04\x08\0\x12\x04<\x04>\x05\n\x0c\n\x05\x04\x04\x08\0\x01\
-    \x12\x03<\n\x0f\n\x0b\n\x04\x04\x04\x02\0\x12\x03=\x08#\n\x0c\n\x05\x04\
-    \x04\x02\0\x06\x12\x03=\x08\x1b\n\x0c\n\x05\x04\x04\x02\0\x01\x12\x03=\
-    \x1c\x1e\n\x0c\n\x05\x04\x04\x02\0\x03\x12\x03=!\"\n9\n\x02\x04\x05\x12\
-    \x04D\0G\x01\x1a\x12\x20SignedPublicKey\x20\n2\x19\x20DEPRECATION\x20IN\
-    \x20PROGRESS\n\n\n\n\x03\x04\x05\x01\x12\x03D\x08\x17\n*\n\x04\x04\x05\
-    \x02\0\x12\x03E\x04\x18\"\x1d\x20embeds\x20an\x20UnsignedPublicKey\n\n\
-    \x0c\n\x05\x04\x05\x02\0\x05\x12\x03E\x04\t\n\x0c\n\x05\x04\x05\x02\0\
-    \x01\x12\x03E\n\x13\n\x0c\n\x05\x04\x05\x02\0\x03\x12\x03E\x16\x17\n\x1e\
-    \n\x04\x04\x05\x02\x01\x12\x03F\x04\x1c\"\x11\x20signs\x20key_bytes\n\n\
-    \x0c\n\x05\x04\x05\x02\x01\x06\x12\x03F\x04\r\n\x0c\n\x05\x04\x05\x02\
-    \x01\x01\x12\x03F\x0e\x17\n\x0c\n\x05\x04\x05\x02\x01\x03\x12\x03F\x1a\
-    \x1b\nW\n\x02\x04\x06\x12\x04J\0O\x01\x1aK\x20PublicKeyBundle\x20package\
-    s\x20the\x20cryptographic\x20keys\x20associated\x20with\x20a\x20wallet.\
-    \n\n\n\n\x03\x04\x06\x01\x12\x03J\x08\x1d\n9\n\x04\x04\x06\x02\0\x12\x03\
-    L\x04%\x1a,\x20Identity\x20key\x20MUST\x20be\x20signed\x20by\x20the\x20w\
-    allet.\n\n\x0c\n\x05\x04\x06\x02\0\x06\x12\x03L\x04\x13\n\x0c\n\x05\x04\
-    \x06\x02\0\x01\x12\x03L\x14\x20\n\x0c\n\x05\x04\x06\x02\0\x03\x12\x03L#$\
-    \n:\n\x04\x04\x06\x02\x01\x12\x03N\x04\x20\x1a-\x20Pre-key\x20MUST\x20be\
-    \x20signed\x20by\x20the\x20identity\x20key.\n\n\x0c\n\x05\x04\x06\x02\
-    \x01\x06\x12\x03N\x04\x13\n\x0c\n\x05\x04\x06\x02\x01\x01\x12\x03N\x14\
-    \x1b\n\x0c\n\x05\x04\x06\x02\x01\x03\x12\x03N\x1e\x1f\n\x86\x01\n\x02\
-    \x04\x07\x12\x04U\0`\x01\x1ap\x20PublicKey\x20represents\x20a\x20general\
+    \x20message_contents/signature.proto\"\xe3\x01\n\x11UnsignedPublicKey\
+    \x12\x1d\n\ncreated_ns\x18\x01\x20\x01(\x04R\tcreatedNs\x12w\n\x16secp25\
+    6k1_uncompressed\x18\x03\x20\x01(\x0b2>.xmtp.message_contents.UnsignedPu\
+    blicKey.Secp256k1UncompressedH\0R\x15secp256k1Uncompressed\x1a-\n\x15Sec\
+    p256k1Uncompressed\x12\x14\n\x05bytes\x18\x01\x20\x01(\x0cR\x05bytesB\
+    \x07\n\x05union\"n\n\x0fSignedPublicKey\x12\x1b\n\tkey_bytes\x18\x01\x20\
+    \x01(\x0cR\x08keyBytes\x12>\n\tsignature\x18\x02\x20\x01(\x0b2\x20.xmtp.\
+    message_contents.SignatureR\tsignature\"\xa3\x01\n\x15SignedPublicKeyBun\
+    dle\x12I\n\x0cidentity_key\x18\x01\x20\x01(\x0b2&.xmtp.message_contents.\
+    SignedPublicKeyR\x0bidentityKey\x12?\n\x07pre_key\x18\x02\x20\x01(\x0b2&\
+    .xmtp.message_contents.SignedPublicKeyR\x06preKey\"\xa5\x02\n\tPublicKey\
+    \x12\x1c\n\ttimestamp\x18\x01\x20\x01(\x04R\ttimestamp\x12C\n\tsignature\
+    \x18\x02\x20\x01(\x0b2\x20.xmtp.message_contents.SignatureH\x01R\tsignat\
+    ure\x88\x01\x01\x12o\n\x16secp256k1_uncompressed\x18\x03\x20\x01(\x0b26.\
+    xmtp.message_contents.PublicKey.Secp256k1UncompressedH\0R\x15secp256k1Un\
+    compressed\x1a-\n\x15Secp256k1Uncompressed\x12\x14\n\x05bytes\x18\x01\
+    \x20\x01(\x0cR\x05bytesB\x07\n\x05unionB\x0c\n\n_signature\"\x91\x01\n\
+    \x0fPublicKeyBundle\x12C\n\x0cidentity_key\x18\x01\x20\x01(\x0b2\x20.xmt\
+    p.message_contents.PublicKeyR\x0bidentityKey\x129\n\x07pre_key\x18\x02\
+    \x20\x01(\x0b2\x20.xmtp.message_contents.PublicKeyR\x06preKeyBO\n\x1forg\
+    .xmtp.proto.message.contentsZ,github.com/xmtp/proto/v3/go/message_conten\
+    tsJ\xaa\x10\n\x06\x12\x04\x02\0B\x01\n{\n\x01\x0c\x12\x03\x02\0\x12\x1aq\
+    \x20Structure\x20for\x20representing\x20public\x20keys\x20of\x20differen\
+    t\x20types,\n\x20including\x20signatures\x20used\x20to\x20authenticate\
+    \x20the\x20keys.\n\n\x08\n\x01\x02\x12\x03\x04\0\x1e\n\t\n\x02\x03\0\x12\
+    \x03\x06\0*\n\x08\n\x01\x08\x12\x03\x08\0C\n\t\n\x02\x08\x0b\x12\x03\x08\
+    \0C\n\x08\n\x01\x08\x12\x03\t\08\n\t\n\x02\x08\x01\x12\x03\t\08\n\x84\
+    \x01\n\x02\x04\0\x12\x04\r\0\x1a\x01\x1ax\x20UnsignedPublicKey\x20repres\
+    ents\x20a\x20generalized\x20public\x20key,\n\x20defined\x20as\x20a\x20un\
+    ion\x20to\x20support\x20cryptographic\x20algorithm\x20agility.\n\n\n\n\
+    \x03\x04\0\x01\x12\x03\r\x08\x19\n\x0b\n\x04\x04\0\x02\0\x12\x03\x0e\x04\
+    \x1a\n\x0c\n\x05\x04\0\x02\0\x05\x12\x03\x0e\x04\n\n\x0c\n\x05\x04\0\x02\
+    \0\x01\x12\x03\x0e\x0b\x15\n\x0c\n\x05\x04\0\x02\0\x03\x12\x03\x0e\x18\
+    \x19\n\x0c\n\x04\x04\0\x08\0\x12\x04\x0f\x04\x11\x05\n\x0c\n\x05\x04\0\
+    \x08\0\x01\x12\x03\x0f\n\x0f\n\x0b\n\x04\x04\0\x02\x01\x12\x03\x10\x089\
+    \n\x0c\n\x05\x04\0\x02\x01\x06\x12\x03\x10\x08\x1d\n\x0c\n\x05\x04\0\x02\
+    \x01\x01\x12\x03\x10\x1e4\n\x0c\n\x05\x04\0\x02\x01\x03\x12\x03\x1078\n4\
+    \n\x04\x04\0\x03\0\x12\x04\x16\x04\x19\x05\x1a\x0f\x20EC:\x20SECP256k1\n\
+    2\x15\x20Supported\x20key\x20types\n\n\x0c\n\x05\x04\0\x03\0\x01\x12\x03\
+    \x16\x0c!\nP\n\x06\x04\0\x03\0\x02\0\x12\x03\x18\x08\x18\x1aA\x20uncompr\
+    essed\x20point\x20with\x20prefix\x20(0x04)\x20[\x20P\x20||\x20X\x20||\
+    \x20Y\x20],\x2065\x20bytes\n\n\x0e\n\x07\x04\0\x03\0\x02\0\x05\x12\x03\
+    \x18\x08\r\n\x0e\n\x07\x04\0\x03\0\x02\0\x01\x12\x03\x18\x0e\x13\n\x0e\n\
+    \x07\x04\0\x03\0\x02\0\x03\x12\x03\x18\x16\x17\n\x1e\n\x02\x04\x01\x12\
+    \x04\x1d\0\x20\x01\x1a\x12\x20SignedPublicKey\x20\n\n\n\n\x03\x04\x01\
+    \x01\x12\x03\x1d\x08\x17\n*\n\x04\x04\x01\x02\0\x12\x03\x1e\x04\x18\"\
+    \x1d\x20embeds\x20an\x20UnsignedPublicKey\n\n\x0c\n\x05\x04\x01\x02\0\
+    \x05\x12\x03\x1e\x04\t\n\x0c\n\x05\x04\x01\x02\0\x01\x12\x03\x1e\n\x13\n\
+    \x0c\n\x05\x04\x01\x02\0\x03\x12\x03\x1e\x16\x17\n\x1e\n\x04\x04\x01\x02\
+    \x01\x12\x03\x1f\x04\x1c\"\x11\x20signs\x20key_bytes\n\n\x0c\n\x05\x04\
+    \x01\x02\x01\x06\x12\x03\x1f\x04\r\n\x0c\n\x05\x04\x01\x02\x01\x01\x12\
+    \x03\x1f\x0e\x17\n\x0c\n\x05\x04\x01\x02\x01\x03\x12\x03\x1f\x1a\x1b\nW\
+    \n\x02\x04\x02\x12\x04#\0(\x01\x1aK\x20PublicKeyBundle\x20packages\x20th\
+    e\x20cryptographic\x20keys\x20associated\x20with\x20a\x20wallet.\n\n\n\n\
+    \x03\x04\x02\x01\x12\x03#\x08\x1d\n9\n\x04\x04\x02\x02\0\x12\x03%\x04%\
+    \x1a,\x20Identity\x20key\x20MUST\x20be\x20signed\x20by\x20the\x20wallet.\
+    \n\n\x0c\n\x05\x04\x02\x02\0\x06\x12\x03%\x04\x13\n\x0c\n\x05\x04\x02\
+    \x02\0\x01\x12\x03%\x14\x20\n\x0c\n\x05\x04\x02\x02\0\x03\x12\x03%#$\n:\
+    \n\x04\x04\x02\x02\x01\x12\x03'\x04\x20\x1a-\x20Pre-key\x20MUST\x20be\
+    \x20signed\x20by\x20the\x20identity\x20key.\n\n\x0c\n\x05\x04\x02\x02\
+    \x01\x06\x12\x03'\x04\x13\n\x0c\n\x05\x04\x02\x02\x01\x01\x12\x03'\x14\
+    \x1b\n\x0c\n\x05\x04\x02\x02\x01\x03\x12\x03'\x1e\x1f\n\x86\x01\n\x02\
+    \x04\x03\x12\x04.\09\x01\x1ap\x20PublicKey\x20represents\x20a\x20general\
     ized\x20public\x20key,\n\x20defined\x20as\x20a\x20union\x20to\x20support\
     \x20cryptographic\x20algorithm\x20agility.\n2\x08\x20LEGACY\n\n\n\n\x03\
-    \x04\x07\x01\x12\x03U\x08\x11\n\x1d\n\x04\x04\x07\x03\0\x12\x04W\x04Z\
-    \x05\x1a\x0f\x20The\x20key\x20bytes\n\n\x0c\n\x05\x04\x07\x03\0\x01\x12\
-    \x03W\x0c!\nP\n\x06\x04\x07\x03\0\x02\0\x12\x03Y\x08\x18\x1aA\x20uncompr\
+    \x04\x03\x01\x12\x03.\x08\x11\n\x1d\n\x04\x04\x03\x03\0\x12\x040\x043\
+    \x05\x1a\x0f\x20The\x20key\x20bytes\n\n\x0c\n\x05\x04\x03\x03\0\x01\x12\
+    \x030\x0c!\nP\n\x06\x04\x03\x03\0\x02\0\x12\x032\x08\x18\x1aA\x20uncompr\
     essed\x20point\x20with\x20prefix\x20(0x04)\x20[\x20P\x20||\x20X\x20||\
-    \x20Y\x20],\x2065\x20bytes\n\n\x0e\n\x07\x04\x07\x03\0\x02\0\x05\x12\x03\
-    Y\x08\r\n\x0e\n\x07\x04\x07\x03\0\x02\0\x01\x12\x03Y\x0e\x13\n\x0e\n\x07\
-    \x04\x07\x03\0\x02\0\x03\x12\x03Y\x16\x17\n\x0b\n\x04\x04\x07\x02\0\x12\
-    \x03[\x04\x19\n\x0c\n\x05\x04\x07\x02\0\x05\x12\x03[\x04\n\n\x0c\n\x05\
-    \x04\x07\x02\0\x01\x12\x03[\x0b\x14\n\x0c\n\x05\x04\x07\x02\0\x03\x12\
-    \x03[\x17\x18\n\x0b\n\x04\x04\x07\x02\x01\x12\x03\\\x04%\n\x0c\n\x05\x04\
-    \x07\x02\x01\x04\x12\x03\\\x04\x0c\n\x0c\n\x05\x04\x07\x02\x01\x06\x12\
-    \x03\\\r\x16\n\x0c\n\x05\x04\x07\x02\x01\x01\x12\x03\\\x17\x20\n\x0c\n\
-    \x05\x04\x07\x02\x01\x03\x12\x03\\#$\n\x0c\n\x04\x04\x07\x08\0\x12\x04]\
-    \x04_\x05\n\x0c\n\x05\x04\x07\x08\0\x01\x12\x03]\n\x0f\n\x0b\n\x04\x04\
-    \x07\x02\x02\x12\x03^\x089\n\x0c\n\x05\x04\x07\x02\x02\x06\x12\x03^\x08\
-    \x1d\n\x0c\n\x05\x04\x07\x02\x02\x01\x12\x03^\x1e4\n\x0c\n\x05\x04\x07\
-    \x02\x02\x03\x12\x03^78\n\x9a\x01\n\x02\x04\x08\x12\x04d\0i\x01\x1a\x8d\
-    \x01\x20PublicKeyBundle\x20packages\x20the\x20cryptographic\x20keys\x20a\
-    ssociated\x20with\x20a\x20wallet,\n\x20both\x20senders\x20and\x20recipie\
-    nts\x20are\x20identified\x20by\x20their\x20key\x20bundles.\n\n\n\n\x03\
-    \x04\x08\x01\x12\x03d\x08\x17\n9\n\x04\x04\x08\x02\0\x12\x03f\x04\x1f\
-    \x1a,\x20Identity\x20key\x20MUST\x20be\x20signed\x20by\x20the\x20wallet.\
-    \n\n\x0c\n\x05\x04\x08\x02\0\x06\x12\x03f\x04\r\n\x0c\n\x05\x04\x08\x02\
-    \0\x01\x12\x03f\x0e\x1a\n\x0c\n\x05\x04\x08\x02\0\x03\x12\x03f\x1d\x1e\n\
-    :\n\x04\x04\x08\x02\x01\x12\x03h\x04\x1a\x1a-\x20Pre-key\x20MUST\x20be\
-    \x20signed\x20by\x20the\x20identity\x20key.\n\n\x0c\n\x05\x04\x08\x02\
-    \x01\x06\x12\x03h\x04\r\n\x0c\n\x05\x04\x08\x02\x01\x01\x12\x03h\x0e\x15\
-    \n\x0c\n\x05\x04\x08\x02\x01\x03\x12\x03h\x18\x19b\x06proto3\
+    \x20Y\x20],\x2065\x20bytes\n\n\x0e\n\x07\x04\x03\x03\0\x02\0\x05\x12\x03\
+    2\x08\r\n\x0e\n\x07\x04\x03\x03\0\x02\0\x01\x12\x032\x0e\x13\n\x0e\n\x07\
+    \x04\x03\x03\0\x02\0\x03\x12\x032\x16\x17\n\x0b\n\x04\x04\x03\x02\0\x12\
+    \x034\x04\x19\n\x0c\n\x05\x04\x03\x02\0\x05\x12\x034\x04\n\n\x0c\n\x05\
+    \x04\x03\x02\0\x01\x12\x034\x0b\x14\n\x0c\n\x05\x04\x03\x02\0\x03\x12\
+    \x034\x17\x18\n\x0b\n\x04\x04\x03\x02\x01\x12\x035\x04%\n\x0c\n\x05\x04\
+    \x03\x02\x01\x04\x12\x035\x04\x0c\n\x0c\n\x05\x04\x03\x02\x01\x06\x12\
+    \x035\r\x16\n\x0c\n\x05\x04\x03\x02\x01\x01\x12\x035\x17\x20\n\x0c\n\x05\
+    \x04\x03\x02\x01\x03\x12\x035#$\n\x0c\n\x04\x04\x03\x08\0\x12\x046\x048\
+    \x05\n\x0c\n\x05\x04\x03\x08\0\x01\x12\x036\n\x0f\n\x0b\n\x04\x04\x03\
+    \x02\x02\x12\x037\x089\n\x0c\n\x05\x04\x03\x02\x02\x06\x12\x037\x08\x1d\
+    \n\x0c\n\x05\x04\x03\x02\x02\x01\x12\x037\x1e4\n\x0c\n\x05\x04\x03\x02\
+    \x02\x03\x12\x03778\n\x9a\x01\n\x02\x04\x04\x12\x04=\0B\x01\x1a\x8d\x01\
+    \x20PublicKeyBundle\x20packages\x20the\x20cryptographic\x20keys\x20assoc\
+    iated\x20with\x20a\x20wallet,\n\x20both\x20senders\x20and\x20recipients\
+    \x20are\x20identified\x20by\x20their\x20key\x20bundles.\n\n\n\n\x03\x04\
+    \x04\x01\x12\x03=\x08\x17\n9\n\x04\x04\x04\x02\0\x12\x03?\x04\x1f\x1a,\
+    \x20Identity\x20key\x20MUST\x20be\x20signed\x20by\x20the\x20wallet.\n\n\
+    \x0c\n\x05\x04\x04\x02\0\x06\x12\x03?\x04\r\n\x0c\n\x05\x04\x04\x02\0\
+    \x01\x12\x03?\x0e\x1a\n\x0c\n\x05\x04\x04\x02\0\x03\x12\x03?\x1d\x1e\n:\
+    \n\x04\x04\x04\x02\x01\x12\x03A\x04\x1a\x1a-\x20Pre-key\x20MUST\x20be\
+    \x20signed\x20by\x20the\x20identity\x20key.\n\n\x0c\n\x05\x04\x04\x02\
+    \x01\x06\x12\x03A\x04\r\n\x0c\n\x05\x04\x04\x02\x01\x01\x12\x03A\x0e\x15\
+    \n\x0c\n\x05\x04\x04\x02\x01\x03\x12\x03A\x18\x19b\x06proto3\
 ";
 
 /// `FileDescriptorProto` object which was a source for this generated file
@@ -2303,22 +1296,15 @@ pub fn file_descriptor() -> &'static ::protobuf::reflect::FileDescriptor {
     static file_descriptor: ::protobuf::rt::Lazy<::protobuf::reflect::FileDescriptor> = ::protobuf::rt::Lazy::new();
     file_descriptor.get(|| {
         let generated_file_descriptor = generated_file_descriptor_lazy.get(|| {
-            let mut deps = ::std::vec::Vec::with_capacity(2);
-            deps.push(super::proof::file_descriptor().clone());
+            let mut deps = ::std::vec::Vec::with_capacity(1);
             deps.push(super::signature::file_descriptor().clone());
-            let mut messages = ::std::vec::Vec::with_capacity(13);
+            let mut messages = ::std::vec::Vec::with_capacity(7);
             messages.push(UnsignedPublicKey::generated_message_descriptor_data());
-            messages.push(SignedPublicKeyV2::generated_message_descriptor_data());
-            messages.push(SignedPublicKeyRevocationV1::generated_message_descriptor_data());
-            messages.push(SendKey::generated_message_descriptor_data());
-            messages.push(SendKeyRevocation::generated_message_descriptor_data());
             messages.push(SignedPublicKey::generated_message_descriptor_data());
             messages.push(SignedPublicKeyBundle::generated_message_descriptor_data());
             messages.push(PublicKey::generated_message_descriptor_data());
             messages.push(PublicKeyBundle::generated_message_descriptor_data());
             messages.push(unsigned_public_key::Secp256k1Uncompressed::generated_message_descriptor_data());
-            messages.push(send_key::SendKeyV1::generated_message_descriptor_data());
-            messages.push(send_key_revocation::SendKeyRevocationV1::generated_message_descriptor_data());
             messages.push(public_key::Secp256k1Uncompressed::generated_message_descriptor_data());
             let mut enums = ::std::vec::Vec::with_capacity(0);
             ::protobuf::reflect::GeneratedFileDescriptor::new_generated(
