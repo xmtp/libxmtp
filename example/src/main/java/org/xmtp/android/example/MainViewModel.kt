@@ -17,6 +17,7 @@ import kotlinx.coroutines.flow.mapLatest
 import kotlinx.coroutines.launch
 import org.xmtp.android.example.extension.flowWhileShared
 import org.xmtp.android.example.extension.stateFlow
+import org.xmtp.android.example.pushnotifications.PushNotificationTokenManager
 import org.xmtp.android.library.Conversation
 import org.xmtp.android.library.DecodedMessage
 
@@ -24,6 +25,13 @@ class MainViewModel : ViewModel() {
 
     private val _uiState = MutableStateFlow<UiState>(UiState.Loading(null))
     val uiState: StateFlow<UiState> = _uiState
+
+    @UiThread
+    fun setupPush() {
+        viewModelScope.launch(Dispatchers.IO) {
+            PushNotificationTokenManager.ensurePushTokenIsConfigured()
+        }
+    }
 
     @UiThread
     fun fetchConversations() {
@@ -34,8 +42,10 @@ class MainViewModel : ViewModel() {
         viewModelScope.launch(Dispatchers.IO) {
             val listItems = mutableListOf<MainListItem>()
             try {
+                val conversations = ClientManager.client.conversations.list()
+                PushNotificationTokenManager.xmtpPush.subscribe(conversations.map { it.topic })
                 listItems.addAll(
-                    ClientManager.client.conversations.list().map { conversation ->
+                    conversations.map { conversation ->
                         val lastMessage = fetchMostRecentMessage(conversation)
                         MainListItem.ConversationItem(
                             id = conversation.topic,
@@ -99,13 +109,13 @@ class MainViewModel : ViewModel() {
         data class ConversationItem(
             override val id: String,
             val conversation: Conversation,
-            val mostRecentMessage: DecodedMessage?
+            val mostRecentMessage: DecodedMessage?,
         ) : MainListItem(id, ITEM_TYPE_CONVERSATION)
 
         data class Footer(
             override val id: String,
             val address: String,
-            val environment: String
+            val environment: String,
         ) : MainListItem(id, ITEM_TYPE_FOOTER)
     }
 }

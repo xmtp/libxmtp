@@ -16,6 +16,7 @@
     <string name="create_conversation">Create conversation</string>
     <string name="empty_message">No messages yet</string>
     <string name="your_message_body">You: %1$s</string>
+    <string name="xmtp_direct_message">XMTP Direct Message</string>
 
     <!-- Messages -->
     <string name="message_composer_hint">Type a message…</string>

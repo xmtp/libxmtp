@@ -11,10 +11,10 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.repeatOnLifecycle
 import com.google.android.material.bottomsheet.BottomSheetDialogFragment
-import java.util.regex.Pattern
 import kotlinx.coroutines.launch
 import org.xmtp.android.example.R
 import org.xmtp.android.example.databinding.BottomSheetNewConversationBinding
+import java.util.regex.Pattern
 
 class NewConversationBottomSheet : BottomSheetDialogFragment() {
 

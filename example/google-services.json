@@ -1,0 +1,49 @@
+{
+  "project_info": {
+    "project_number": "609788839593",
+    "project_id": "example-notification-server",
+    "storage_bucket": "example-notification-server.appspot.com"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:609788839593:android:0ecb48b4bdb4d0bc240bb8",
+        "android_client_info": {
+          "package_name": "org.xmtp.android.example"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "609788839593-82gepnf8nv5ml9oh34or96qqijl1si0i.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBnPkGEV3VYzx0VK42Q2lmhZaxufb7VIWc"
+        },
+        {
+          "current_key": "AIzaSyA1jP-bfReDs_fGP4uJ7tFzItVS15tgFyg"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "609788839593-82gepnf8nv5ml9oh34or96qqijl1si0i.apps.googleusercontent.com",
+              "client_type": 3
+            },
+            {
+              "client_id": "609788839593-jvlrovi291ge1rblkb7blhvopoas2hpb.apps.googleusercontent.com",
+              "client_type": 2,
+              "ios_info": {
+                "bundle_id": "org.reactjs.native.example.example-chat-rn"
+              }
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
