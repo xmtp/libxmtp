@@ -398,42 +398,399 @@ pub mod ciphertext {
     }
 }
 
+///  SignedEciesCiphertext represents an ECIES encrypted payload and a signature
+#[derive(PartialEq,Clone,Default,Debug)]
+// @@protoc_insertion_point(message:xmtp.message_contents.SignedEciesCiphertext)
+pub struct SignedEciesCiphertext {
+    // message fields
+    ///  serialized Ecies message
+    // @@protoc_insertion_point(field:xmtp.message_contents.SignedEciesCiphertext.ecies_bytes)
+    pub ecies_bytes: ::std::vec::Vec<u8>,
+    ///  signature of sha256(ecies_bytes) signed with the IdentityKey
+    // @@protoc_insertion_point(field:xmtp.message_contents.SignedEciesCiphertext.signature)
+    pub signature: ::protobuf::MessageField<super::signature::Signature>,
+    // special fields
+    // @@protoc_insertion_point(special_field:xmtp.message_contents.SignedEciesCiphertext.special_fields)
+    pub special_fields: ::protobuf::SpecialFields,
+}
+
+impl<'a> ::std::default::Default for &'a SignedEciesCiphertext {
+    fn default() -> &'a SignedEciesCiphertext {
+        <SignedEciesCiphertext as ::protobuf::Message>::default_instance()
+    }
+}
+
+impl SignedEciesCiphertext {
+    pub fn new() -> SignedEciesCiphertext {
+        ::std::default::Default::default()
+    }
+
+    fn generated_message_descriptor_data() -> ::protobuf::reflect::GeneratedMessageDescriptorData {
+        let mut fields = ::std::vec::Vec::with_capacity(2);
+        let mut oneofs = ::std::vec::Vec::with_capacity(0);
+        fields.push(::protobuf::reflect::rt::v2::make_simpler_field_accessor::<_, _>(
+            "ecies_bytes",
+            |m: &SignedEciesCiphertext| { &m.ecies_bytes },
+            |m: &mut SignedEciesCiphertext| { &mut m.ecies_bytes },
+        ));
+        fields.push(::protobuf::reflect::rt::v2::make_message_field_accessor::<_, super::signature::Signature>(
+            "signature",
+            |m: &SignedEciesCiphertext| { &m.signature },
+            |m: &mut SignedEciesCiphertext| { &mut m.signature },
+        ));
+        ::protobuf::reflect::GeneratedMessageDescriptorData::new_2::<SignedEciesCiphertext>(
+            "SignedEciesCiphertext",
+            fields,
+            oneofs,
+        )
+    }
+}
+
+impl ::protobuf::Message for SignedEciesCiphertext {
+    const NAME: &'static str = "SignedEciesCiphertext";
+
+    fn is_initialized(&self) -> bool {
+        true
+    }
+
+    fn merge_from(&mut self, is: &mut ::protobuf::CodedInputStream<'_>) -> ::protobuf::Result<()> {
+        while let Some(tag) = is.read_raw_tag_or_eof()? {
+            match tag {
+                10 => {
+                    self.ecies_bytes = is.read_bytes()?;
+                },
+                18 => {
+                    ::protobuf::rt::read_singular_message_into_field(is, &mut self.signature)?;
+                },
+                tag => {
+                    ::protobuf::rt::read_unknown_or_skip_group(tag, is, self.special_fields.mut_unknown_fields())?;
+                },
+            };
+        }
+        ::std::result::Result::Ok(())
+    }
+
+    // Compute sizes of nested messages
+    #[allow(unused_variables)]
+    fn compute_size(&self) -> u64 {
+        let mut my_size = 0;
+        if !self.ecies_bytes.is_empty() {
+            my_size += ::protobuf::rt::bytes_size(1, &self.ecies_bytes);
+        }
+        if let Some(v) = self.signature.as_ref() {
+            let len = v.compute_size();
+            my_size += 1 + ::protobuf::rt::compute_raw_varint64_size(len) + len;
+        }
+        my_size += ::protobuf::rt::unknown_fields_size(self.special_fields.unknown_fields());
+        self.special_fields.cached_size().set(my_size as u32);
+        my_size
+    }
+
+    fn write_to_with_cached_sizes(&self, os: &mut ::protobuf::CodedOutputStream<'_>) -> ::protobuf::Result<()> {
+        if !self.ecies_bytes.is_empty() {
+            os.write_bytes(1, &self.ecies_bytes)?;
+        }
+        if let Some(v) = self.signature.as_ref() {
+            ::protobuf::rt::write_message_field_with_cached_size(2, v, os)?;
+        }
+        os.write_unknown_fields(self.special_fields.unknown_fields())?;
+        ::std::result::Result::Ok(())
+    }
+
+    fn special_fields(&self) -> &::protobuf::SpecialFields {
+        &self.special_fields
+    }
+
+    fn mut_special_fields(&mut self) -> &mut ::protobuf::SpecialFields {
+        &mut self.special_fields
+    }
+
+    fn new() -> SignedEciesCiphertext {
+        SignedEciesCiphertext::new()
+    }
+
+    fn clear(&mut self) {
+        self.ecies_bytes.clear();
+        self.signature.clear();
+        self.special_fields.clear();
+    }
+
+    fn default_instance() -> &'static SignedEciesCiphertext {
+        static instance: SignedEciesCiphertext = SignedEciesCiphertext {
+            ecies_bytes: ::std::vec::Vec::new(),
+            signature: ::protobuf::MessageField::none(),
+            special_fields: ::protobuf::SpecialFields::new(),
+        };
+        &instance
+    }
+}
+
+impl ::protobuf::MessageFull for SignedEciesCiphertext {
+    fn descriptor() -> ::protobuf::reflect::MessageDescriptor {
+        static descriptor: ::protobuf::rt::Lazy<::protobuf::reflect::MessageDescriptor> = ::protobuf::rt::Lazy::new();
+        descriptor.get(|| file_descriptor().message_by_package_relative_name("SignedEciesCiphertext").unwrap()).clone()
+    }
+}
+
+impl ::std::fmt::Display for SignedEciesCiphertext {
+    fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
+        ::protobuf::text_format::fmt(self, f)
+    }
+}
+
+impl ::protobuf::reflect::ProtobufValue for SignedEciesCiphertext {
+    type RuntimeType = ::protobuf::reflect::rt::RuntimeTypeMessage<Self>;
+}
+
+/// Nested message and enums of message `SignedEciesCiphertext`
+pub mod signed_ecies_ciphertext {
+    ///  Ecies is ciphertext encrypted using ECIES with a MAC
+    #[derive(PartialEq,Clone,Default,Debug)]
+    // @@protoc_insertion_point(message:xmtp.message_contents.SignedEciesCiphertext.Ecies)
+    pub struct Ecies {
+        // message fields
+        // @@protoc_insertion_point(field:xmtp.message_contents.SignedEciesCiphertext.Ecies.ephemeral_public_key)
+        pub ephemeral_public_key: ::std::vec::Vec<u8>,
+        // @@protoc_insertion_point(field:xmtp.message_contents.SignedEciesCiphertext.Ecies.iv)
+        pub iv: ::std::vec::Vec<u8>,
+        // @@protoc_insertion_point(field:xmtp.message_contents.SignedEciesCiphertext.Ecies.mac)
+        pub mac: ::std::vec::Vec<u8>,
+        // @@protoc_insertion_point(field:xmtp.message_contents.SignedEciesCiphertext.Ecies.ciphertext)
+        pub ciphertext: ::std::vec::Vec<u8>,
+        // special fields
+        // @@protoc_insertion_point(special_field:xmtp.message_contents.SignedEciesCiphertext.Ecies.special_fields)
+        pub special_fields: ::protobuf::SpecialFields,
+    }
+
+    impl<'a> ::std::default::Default for &'a Ecies {
+        fn default() -> &'a Ecies {
+            <Ecies as ::protobuf::Message>::default_instance()
+        }
+    }
+
+    impl Ecies {
+        pub fn new() -> Ecies {
+            ::std::default::Default::default()
+        }
+
+        pub(in super) fn generated_message_descriptor_data() -> ::protobuf::reflect::GeneratedMessageDescriptorData {
+            let mut fields = ::std::vec::Vec::with_capacity(4);
+            let mut oneofs = ::std::vec::Vec::with_capacity(0);
+            fields.push(::protobuf::reflect::rt::v2::make_simpler_field_accessor::<_, _>(
+                "ephemeral_public_key",
+                |m: &Ecies| { &m.ephemeral_public_key },
+                |m: &mut Ecies| { &mut m.ephemeral_public_key },
+            ));
+            fields.push(::protobuf::reflect::rt::v2::make_simpler_field_accessor::<_, _>(
+                "iv",
+                |m: &Ecies| { &m.iv },
+                |m: &mut Ecies| { &mut m.iv },
+            ));
+            fields.push(::protobuf::reflect::rt::v2::make_simpler_field_accessor::<_, _>(
+                "mac",
+                |m: &Ecies| { &m.mac },
+                |m: &mut Ecies| { &mut m.mac },
+            ));
+            fields.push(::protobuf::reflect::rt::v2::make_simpler_field_accessor::<_, _>(
+                "ciphertext",
+                |m: &Ecies| { &m.ciphertext },
+                |m: &mut Ecies| { &mut m.ciphertext },
+            ));
+            ::protobuf::reflect::GeneratedMessageDescriptorData::new_2::<Ecies>(
+                "SignedEciesCiphertext.Ecies",
+                fields,
+                oneofs,
+            )
+        }
+    }
+
+    impl ::protobuf::Message for Ecies {
+        const NAME: &'static str = "Ecies";
+
+        fn is_initialized(&self) -> bool {
+            true
+        }
+
+        fn merge_from(&mut self, is: &mut ::protobuf::CodedInputStream<'_>) -> ::protobuf::Result<()> {
+            while let Some(tag) = is.read_raw_tag_or_eof()? {
+                match tag {
+                    10 => {
+                        self.ephemeral_public_key = is.read_bytes()?;
+                    },
+                    18 => {
+                        self.iv = is.read_bytes()?;
+                    },
+                    26 => {
+                        self.mac = is.read_bytes()?;
+                    },
+                    34 => {
+                        self.ciphertext = is.read_bytes()?;
+                    },
+                    tag => {
+                        ::protobuf::rt::read_unknown_or_skip_group(tag, is, self.special_fields.mut_unknown_fields())?;
+                    },
+                };
+            }
+            ::std::result::Result::Ok(())
+        }
+
+        // Compute sizes of nested messages
+        #[allow(unused_variables)]
+        fn compute_size(&self) -> u64 {
+            let mut my_size = 0;
+            if !self.ephemeral_public_key.is_empty() {
+                my_size += ::protobuf::rt::bytes_size(1, &self.ephemeral_public_key);
+            }
+            if !self.iv.is_empty() {
+                my_size += ::protobuf::rt::bytes_size(2, &self.iv);
+            }
+            if !self.mac.is_empty() {
+                my_size += ::protobuf::rt::bytes_size(3, &self.mac);
+            }
+            if !self.ciphertext.is_empty() {
+                my_size += ::protobuf::rt::bytes_size(4, &self.ciphertext);
+            }
+            my_size += ::protobuf::rt::unknown_fields_size(self.special_fields.unknown_fields());
+            self.special_fields.cached_size().set(my_size as u32);
+            my_size
+        }
+
+        fn write_to_with_cached_sizes(&self, os: &mut ::protobuf::CodedOutputStream<'_>) -> ::protobuf::Result<()> {
+            if !self.ephemeral_public_key.is_empty() {
+                os.write_bytes(1, &self.ephemeral_public_key)?;
+            }
+            if !self.iv.is_empty() {
+                os.write_bytes(2, &self.iv)?;
+            }
+            if !self.mac.is_empty() {
+                os.write_bytes(3, &self.mac)?;
+            }
+            if !self.ciphertext.is_empty() {
+                os.write_bytes(4, &self.ciphertext)?;
+            }
+            os.write_unknown_fields(self.special_fields.unknown_fields())?;
+            ::std::result::Result::Ok(())
+        }
+
+        fn special_fields(&self) -> &::protobuf::SpecialFields {
+            &self.special_fields
+        }
+
+        fn mut_special_fields(&mut self) -> &mut ::protobuf::SpecialFields {
+            &mut self.special_fields
+        }
+
+        fn new() -> Ecies {
+            Ecies::new()
+        }
+
+        fn clear(&mut self) {
+            self.ephemeral_public_key.clear();
+            self.iv.clear();
+            self.mac.clear();
+            self.ciphertext.clear();
+            self.special_fields.clear();
+        }
+
+        fn default_instance() -> &'static Ecies {
+            static instance: Ecies = Ecies {
+                ephemeral_public_key: ::std::vec::Vec::new(),
+                iv: ::std::vec::Vec::new(),
+                mac: ::std::vec::Vec::new(),
+                ciphertext: ::std::vec::Vec::new(),
+                special_fields: ::protobuf::SpecialFields::new(),
+            };
+            &instance
+        }
+    }
+
+    impl ::protobuf::MessageFull for Ecies {
+        fn descriptor() -> ::protobuf::reflect::MessageDescriptor {
+            static descriptor: ::protobuf::rt::Lazy<::protobuf::reflect::MessageDescriptor> = ::protobuf::rt::Lazy::new();
+            descriptor.get(|| super::file_descriptor().message_by_package_relative_name("SignedEciesCiphertext.Ecies").unwrap()).clone()
+        }
+    }
+
+    impl ::std::fmt::Display for Ecies {
+        fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
+            ::protobuf::text_format::fmt(self, f)
+        }
+    }
+
+    impl ::protobuf::reflect::ProtobufValue for Ecies {
+        type RuntimeType = ::protobuf::reflect::rt::RuntimeTypeMessage<Self>;
+    }
+}
+
 static file_descriptor_proto_data: &'static [u8] = b"\
-    \n!message_contents/ciphertext.proto\x12\x15xmtp.message_contents\"\xee\
-    \x01\n\nCiphertext\x12l\n\x16aes256_gcm_hkdf_sha256\x18\x01\x20\x01(\x0b\
-    25.xmtp.message_contents.Ciphertext.Aes256gcmHkdfsha256H\0R\x13aes256Gcm\
-    HkdfSha256\x1ai\n\x13Aes256gcmHkdfsha256\x12\x1b\n\thkdf_salt\x18\x01\
-    \x20\x01(\x0cR\x08hkdfSalt\x12\x1b\n\tgcm_nonce\x18\x02\x20\x01(\x0cR\
-    \x08gcmNonce\x12\x18\n\x07payload\x18\x03\x20\x01(\x0cR\x07payloadB\x07\
-    \n\x05unionBO\n\x1forg.xmtp.proto.message.contentsZ,github.com/xmtp/prot\
-    o/v3/go/message_contentsJ\xb0\x06\n\x06\x12\x04\x01\0\x1a\x01\nD\n\x01\
-    \x0c\x12\x03\x01\0\x12\x1a:\x20Ciphertext\x20is\x20a\x20generic\x20struc\
-    ture\x20for\x20encrypted\x20payload.\n\n\x08\n\x01\x02\x12\x03\x03\0\x1e\
-    \n\x08\n\x01\x08\x12\x03\x05\0C\n\t\n\x02\x08\x0b\x12\x03\x05\0C\n\x08\n\
-    \x01\x08\x12\x03\x06\08\n\t\n\x02\x08\x01\x12\x03\x06\08\n\xe6\x01\n\x02\
-    \x04\0\x12\x04\x0c\0\x1a\x01\x1a\xd9\x01\x20Ciphertext\x20represents\x20\
-    encrypted\x20payload.\n\x20It\x20is\x20definited\x20as\x20a\x20union\x20\
-    to\x20support\x20cryptographic\x20algorithm\x20agility.\n\x20The\x20payl\
-    oad\x20is\x20accompanied\x20by\x20the\x20cryptographic\x20parameters\n\
-    \x20required\x20by\x20the\x20chosen\x20encryption\x20scheme.\n\n\n\n\x03\
-    \x04\0\x01\x12\x03\x0c\x08\x12\n\x0c\n\x04\x04\0\x08\0\x12\x04\r\x04\x0f\
-    \x05\n\x0c\n\x05\x04\0\x08\0\x01\x12\x03\r\n\x0f\n\x0b\n\x04\x04\0\x02\0\
-    \x12\x03\x0e\x087\n\x0c\n\x05\x04\0\x02\0\x06\x12\x03\x0e\x08\x1b\n\x0c\
-    \n\x05\x04\0\x02\0\x01\x12\x03\x0e\x1c2\n\x0c\n\x05\x04\0\x02\0\x03\x12\
-    \x03\x0e56\nl\n\x04\x04\0\x03\0\x12\x04\x15\x04\x19\x05\x1a>\x20Encrypti\
-    on:\x20AES256-GCM\n\x20Key\x20derivation\x20function:\x20HKDF-SHA256\n2\
-    \x1e\x20Supported\x20Encryption\x20Schemes\n\n\x0c\n\x05\x04\0\x03\0\x01\
-    \x12\x03\x15\x0c\x1f\n\x19\n\x06\x04\0\x03\0\x02\0\x12\x03\x16\x08\x1c\"\
-    \n\x2032\x20bytes\n\n\x0e\n\x07\x04\0\x03\0\x02\0\x05\x12\x03\x16\x08\r\
-    \n\x0e\n\x07\x04\0\x03\0\x02\0\x01\x12\x03\x16\x0e\x17\n\x0e\n\x07\x04\0\
-    \x03\0\x02\0\x03\x12\x03\x16\x1a\x1b\n\x19\n\x06\x04\0\x03\0\x02\x01\x12\
-    \x03\x17\x08\x1c\"\n\x2012\x20bytes\n\n\x0e\n\x07\x04\0\x03\0\x02\x01\
-    \x05\x12\x03\x17\x08\r\n\x0e\n\x07\x04\0\x03\0\x02\x01\x01\x12\x03\x17\
-    \x0e\x17\n\x0e\n\x07\x04\0\x03\0\x02\x01\x03\x12\x03\x17\x1a\x1b\n\"\n\
-    \x06\x04\0\x03\0\x02\x02\x12\x03\x18\x08\x1a\"\x13\x20encrypted\x20paylo\
-    ad\n\n\x0e\n\x07\x04\0\x03\0\x02\x02\x05\x12\x03\x18\x08\r\n\x0e\n\x07\
-    \x04\0\x03\0\x02\x02\x01\x12\x03\x18\x0e\x15\n\x0e\n\x07\x04\0\x03\0\x02\
-    \x02\x03\x12\x03\x18\x18\x19b\x06proto3\
+    \n!message_contents/ciphertext.proto\x12\x15xmtp.message_contents\x1a\
+    \x20message_contents/signature.proto\"\xee\x01\n\nCiphertext\x12l\n\x16a\
+    es256_gcm_hkdf_sha256\x18\x01\x20\x01(\x0b25.xmtp.message_contents.Ciphe\
+    rtext.Aes256gcmHkdfsha256H\0R\x13aes256GcmHkdfSha256\x1ai\n\x13Aes256gcm\
+    Hkdfsha256\x12\x1b\n\thkdf_salt\x18\x01\x20\x01(\x0cR\x08hkdfSalt\x12\
+    \x1b\n\tgcm_nonce\x18\x02\x20\x01(\x0cR\x08gcmNonce\x12\x18\n\x07payload\
+    \x18\x03\x20\x01(\x0cR\x07payloadB\x07\n\x05union\"\xf5\x01\n\x15SignedE\
+    ciesCiphertext\x12\x1f\n\x0becies_bytes\x18\x01\x20\x01(\x0cR\neciesByte\
+    s\x12>\n\tsignature\x18\x02\x20\x01(\x0b2\x20.xmtp.message_contents.Sign\
+    atureR\tsignature\x1a{\n\x05Ecies\x120\n\x14ephemeral_public_key\x18\x01\
+    \x20\x01(\x0cR\x12ephemeralPublicKey\x12\x0e\n\x02iv\x18\x02\x20\x01(\
+    \x0cR\x02iv\x12\x10\n\x03mac\x18\x03\x20\x01(\x0cR\x03mac\x12\x1e\n\ncip\
+    hertext\x18\x04\x20\x01(\x0cR\nciphertextBO\n\x1forg.xmtp.proto.message.\
+    contentsZ,github.com/xmtp/proto/v3/go/message_contentsJ\x8b\x0c\n\x06\
+    \x12\x04\x01\0,\x01\nD\n\x01\x0c\x12\x03\x01\0\x12\x1a:\x20Ciphertext\
+    \x20is\x20a\x20generic\x20structure\x20for\x20encrypted\x20payload.\n\n\
+    \x08\n\x01\x02\x12\x03\x03\0\x1e\n\t\n\x02\x03\0\x12\x03\x05\0*\n\x08\n\
+    \x01\x08\x12\x03\x07\0C\n\t\n\x02\x08\x0b\x12\x03\x07\0C\n\x08\n\x01\x08\
+    \x12\x03\x08\08\n\t\n\x02\x08\x01\x12\x03\x08\08\n\xe6\x01\n\x02\x04\0\
+    \x12\x04\x0e\0\x1c\x01\x1a\xd9\x01\x20Ciphertext\x20represents\x20encryp\
+    ted\x20payload.\n\x20It\x20is\x20definited\x20as\x20a\x20union\x20to\x20\
+    support\x20cryptographic\x20algorithm\x20agility.\n\x20The\x20payload\
+    \x20is\x20accompanied\x20by\x20the\x20cryptographic\x20parameters\n\x20r\
+    equired\x20by\x20the\x20chosen\x20encryption\x20scheme.\n\n\n\n\x03\x04\
+    \0\x01\x12\x03\x0e\x08\x12\n\x0c\n\x04\x04\0\x08\0\x12\x04\x0f\x04\x11\
+    \x05\n\x0c\n\x05\x04\0\x08\0\x01\x12\x03\x0f\n\x0f\n\x0b\n\x04\x04\0\x02\
+    \0\x12\x03\x10\x087\n\x0c\n\x05\x04\0\x02\0\x06\x12\x03\x10\x08\x1b\n\
+    \x0c\n\x05\x04\0\x02\0\x01\x12\x03\x10\x1c2\n\x0c\n\x05\x04\0\x02\0\x03\
+    \x12\x03\x1056\nl\n\x04\x04\0\x03\0\x12\x04\x17\x04\x1b\x05\x1a>\x20Encr\
+    yption:\x20AES256-GCM\n\x20Key\x20derivation\x20function:\x20HKDF-SHA256\
+    \n2\x1e\x20Supported\x20Encryption\x20Schemes\n\n\x0c\n\x05\x04\0\x03\0\
+    \x01\x12\x03\x17\x0c\x1f\n\x19\n\x06\x04\0\x03\0\x02\0\x12\x03\x18\x08\
+    \x1c\"\n\x2032\x20bytes\n\n\x0e\n\x07\x04\0\x03\0\x02\0\x05\x12\x03\x18\
+    \x08\r\n\x0e\n\x07\x04\0\x03\0\x02\0\x01\x12\x03\x18\x0e\x17\n\x0e\n\x07\
+    \x04\0\x03\0\x02\0\x03\x12\x03\x18\x1a\x1b\n\x19\n\x06\x04\0\x03\0\x02\
+    \x01\x12\x03\x19\x08\x1c\"\n\x2012\x20bytes\n\n\x0e\n\x07\x04\0\x03\0\
+    \x02\x01\x05\x12\x03\x19\x08\r\n\x0e\n\x07\x04\0\x03\0\x02\x01\x01\x12\
+    \x03\x19\x0e\x17\n\x0e\n\x07\x04\0\x03\0\x02\x01\x03\x12\x03\x19\x1a\x1b\
+    \n\"\n\x06\x04\0\x03\0\x02\x02\x12\x03\x1a\x08\x1a\"\x13\x20encrypted\
+    \x20payload\n\n\x0e\n\x07\x04\0\x03\0\x02\x02\x05\x12\x03\x1a\x08\r\n\
+    \x0e\n\x07\x04\0\x03\0\x02\x02\x01\x12\x03\x1a\x0e\x15\n\x0e\n\x07\x04\0\
+    \x03\0\x02\x02\x03\x12\x03\x1a\x18\x19\nY\n\x02\x04\x01\x12\x04\x1f\0,\
+    \x01\x1aM\x20SignedEciesCiphertext\x20represents\x20an\x20ECIES\x20encry\
+    pted\x20payload\x20and\x20a\x20signature\n\n\n\n\x03\x04\x01\x01\x12\x03\
+    \x1f\x08\x1d\nD\n\x04\x04\x01\x03\0\x12\x04!\x04&\x05\x1a6\x20Ecies\x20i\
+    s\x20ciphertext\x20encrypted\x20using\x20ECIES\x20with\x20a\x20MAC\n\n\
+    \x0c\n\x05\x04\x01\x03\0\x01\x12\x03!\x0c\x11\n\x19\n\x06\x04\x01\x03\0\
+    \x02\0\x12\x03\"\x08'\"\n\x2065\x20bytes\n\n\x0e\n\x07\x04\x01\x03\0\x02\
+    \0\x05\x12\x03\"\x08\r\n\x0e\n\x07\x04\x01\x03\0\x02\0\x01\x12\x03\"\x0e\
+    \"\n\x0e\n\x07\x04\x01\x03\0\x02\0\x03\x12\x03\"%&\n\x19\n\x06\x04\x01\
+    \x03\0\x02\x01\x12\x03#\x08\x15\"\n\x2016\x20bytes\n\n\x0e\n\x07\x04\x01\
+    \x03\0\x02\x01\x05\x12\x03#\x08\r\n\x0e\n\x07\x04\x01\x03\0\x02\x01\x01\
+    \x12\x03#\x0e\x10\n\x0e\n\x07\x04\x01\x03\0\x02\x01\x03\x12\x03#\x13\x14\
+    \n\x19\n\x06\x04\x01\x03\0\x02\x02\x12\x03$\x08\x16\"\n\x2032\x20bytes\n\
+    \n\x0e\n\x07\x04\x01\x03\0\x02\x02\x05\x12\x03$\x08\r\n\x0e\n\x07\x04\
+    \x01\x03\0\x02\x02\x01\x12\x03$\x0e\x11\n\x0e\n\x07\x04\x01\x03\0\x02\
+    \x02\x03\x12\x03$\x14\x15\n8\n\x06\x04\x01\x03\0\x02\x03\x12\x03%\x08\
+    \x1d\")\x20encrypted\x20payload\x20with\x20block\x20size\x20of\x2016\n\n\
+    \x0e\n\x07\x04\x01\x03\0\x02\x03\x05\x12\x03%\x08\r\n\x0e\n\x07\x04\x01\
+    \x03\0\x02\x03\x01\x12\x03%\x0e\x18\n\x0e\n\x07\x04\x01\x03\0\x02\x03\
+    \x03\x12\x03%\x1b\x1c\n'\n\x04\x04\x01\x02\0\x12\x03)\x04\x1a\x1a\x1a\
+    \x20serialized\x20Ecies\x20message\n\n\x0c\n\x05\x04\x01\x02\0\x05\x12\
+    \x03)\x04\t\n\x0c\n\x05\x04\x01\x02\0\x01\x12\x03)\n\x15\n\x0c\n\x05\x04\
+    \x01\x02\0\x03\x12\x03)\x18\x19\nK\n\x04\x04\x01\x02\x01\x12\x03+\x042\
+    \x1a>\x20signature\x20of\x20sha256(ecies_bytes)\x20signed\x20with\x20the\
+    \x20IdentityKey\n\n\x0c\n\x05\x04\x01\x02\x01\x06\x12\x03+\x04#\n\x0c\n\
+    \x05\x04\x01\x02\x01\x01\x12\x03+$-\n\x0c\n\x05\x04\x01\x02\x01\x03\x12\
+    \x03+01b\x06proto3\
 ";
 
 /// `FileDescriptorProto` object which was a source for this generated file
@@ -450,10 +807,13 @@ pub fn file_descriptor() -> &'static ::protobuf::reflect::FileDescriptor {
     static file_descriptor: ::protobuf::rt::Lazy<::protobuf::reflect::FileDescriptor> = ::protobuf::rt::Lazy::new();
     file_descriptor.get(|| {
         let generated_file_descriptor = generated_file_descriptor_lazy.get(|| {
-            let mut deps = ::std::vec::Vec::with_capacity(0);
-            let mut messages = ::std::vec::Vec::with_capacity(2);
+            let mut deps = ::std::vec::Vec::with_capacity(1);
+            deps.push(super::signature::file_descriptor().clone());
+            let mut messages = ::std::vec::Vec::with_capacity(4);
             messages.push(Ciphertext::generated_message_descriptor_data());
+            messages.push(SignedEciesCiphertext::generated_message_descriptor_data());
             messages.push(ciphertext::Aes256gcmHkdfsha256::generated_message_descriptor_data());
+            messages.push(signed_ecies_ciphertext::Ecies::generated_message_descriptor_data());
             let mut enums = ::std::vec::Vec::with_capacity(0);
             ::protobuf::reflect::GeneratedFileDescriptor::new_generated(
                 file_descriptor_proto(),

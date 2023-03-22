@@ -173,6 +173,8 @@ pub struct ConversationReference {
     // message fields
     // @@protoc_insertion_point(field:xmtp.keystore_api.v1.ConversationReference.topic)
     pub topic: ::std::string::String,
+    // @@protoc_insertion_point(field:xmtp.keystore_api.v1.ConversationReference.peer_address)
+    pub peer_address: ::std::string::String,
     // @@protoc_insertion_point(field:xmtp.keystore_api.v1.ConversationReference.created_ns)
     pub created_ns: u64,
     // @@protoc_insertion_point(field:xmtp.keystore_api.v1.ConversationReference.context)
@@ -194,12 +196,17 @@ impl ConversationReference {
     }
 
     fn generated_message_descriptor_data() -> ::protobuf::reflect::GeneratedMessageDescriptorData {
-        let mut fields = ::std::vec::Vec::with_capacity(3);
+        let mut fields = ::std::vec::Vec::with_capacity(4);
         let mut oneofs = ::std::vec::Vec::with_capacity(0);
         fields.push(::protobuf::reflect::rt::v2::make_simpler_field_accessor::<_, _>(
             "topic",
             |m: &ConversationReference| { &m.topic },
             |m: &mut ConversationReference| { &mut m.topic },
+        ));
+        fields.push(::protobuf::reflect::rt::v2::make_simpler_field_accessor::<_, _>(
+            "peer_address",
+            |m: &ConversationReference| { &m.peer_address },
+            |m: &mut ConversationReference| { &mut m.peer_address },
         ));
         fields.push(::protobuf::reflect::rt::v2::make_simpler_field_accessor::<_, _>(
             "created_ns",
@@ -232,10 +239,13 @@ impl ::protobuf::Message for ConversationReference {
                 10 => {
                     self.topic = is.read_string()?;
                 },
-                16 => {
+                18 => {
+                    self.peer_address = is.read_string()?;
+                },
+                24 => {
                     self.created_ns = is.read_uint64()?;
                 },
-                26 => {
+                34 => {
                     ::protobuf::rt::read_singular_message_into_field(is, &mut self.context)?;
                 },
                 tag => {
@@ -253,8 +263,11 @@ impl ::protobuf::Message for ConversationReference {
         if !self.topic.is_empty() {
             my_size += ::protobuf::rt::string_size(1, &self.topic);
         }
+        if !self.peer_address.is_empty() {
+            my_size += ::protobuf::rt::string_size(2, &self.peer_address);
+        }
         if self.created_ns != 0 {
-            my_size += ::protobuf::rt::uint64_size(2, self.created_ns);
+            my_size += ::protobuf::rt::uint64_size(3, self.created_ns);
         }
         if let Some(v) = self.context.as_ref() {
             let len = v.compute_size();
@@ -269,11 +282,14 @@ impl ::protobuf::Message for ConversationReference {
         if !self.topic.is_empty() {
             os.write_string(1, &self.topic)?;
         }
+        if !self.peer_address.is_empty() {
+            os.write_string(2, &self.peer_address)?;
+        }
         if self.created_ns != 0 {
-            os.write_uint64(2, self.created_ns)?;
+            os.write_uint64(3, self.created_ns)?;
         }
         if let Some(v) = self.context.as_ref() {
-            ::protobuf::rt::write_message_field_with_cached_size(3, v, os)?;
+            ::protobuf::rt::write_message_field_with_cached_size(4, v, os)?;
         }
         os.write_unknown_fields(self.special_fields.unknown_fields())?;
         ::std::result::Result::Ok(())
@@ -293,6 +309,7 @@ impl ::protobuf::Message for ConversationReference {
 
     fn clear(&mut self) {
         self.topic.clear();
+        self.peer_address.clear();
         self.created_ns = 0;
         self.context.clear();
         self.special_fields.clear();
@@ -301,6 +318,7 @@ impl ::protobuf::Message for ConversationReference {
     fn default_instance() -> &'static ConversationReference {
         static instance: ConversationReference = ConversationReference {
             topic: ::std::string::String::new(),
+            peer_address: ::std::string::String::new(),
             created_ns: 0,
             context: ::protobuf::MessageField::none(),
             special_fields: ::protobuf::SpecialFields::new(),
@@ -3670,6 +3688,683 @@ pub mod save_invites_response {
     }
 }
 
+///  CreateAuthTokenRequest is used to create an auth token for the XMTP API
+#[derive(PartialEq,Clone,Default,Debug)]
+// @@protoc_insertion_point(message:xmtp.keystore_api.v1.CreateAuthTokenRequest)
+pub struct CreateAuthTokenRequest {
+    // message fields
+    // @@protoc_insertion_point(field:xmtp.keystore_api.v1.CreateAuthTokenRequest.timestamp_ns)
+    pub timestamp_ns: ::std::option::Option<u64>,
+    // special fields
+    // @@protoc_insertion_point(special_field:xmtp.keystore_api.v1.CreateAuthTokenRequest.special_fields)
+    pub special_fields: ::protobuf::SpecialFields,
+}
+
+impl<'a> ::std::default::Default for &'a CreateAuthTokenRequest {
+    fn default() -> &'a CreateAuthTokenRequest {
+        <CreateAuthTokenRequest as ::protobuf::Message>::default_instance()
+    }
+}
+
+impl CreateAuthTokenRequest {
+    pub fn new() -> CreateAuthTokenRequest {
+        ::std::default::Default::default()
+    }
+
+    fn generated_message_descriptor_data() -> ::protobuf::reflect::GeneratedMessageDescriptorData {
+        let mut fields = ::std::vec::Vec::with_capacity(1);
+        let mut oneofs = ::std::vec::Vec::with_capacity(0);
+        fields.push(::protobuf::reflect::rt::v2::make_option_accessor::<_, _>(
+            "timestamp_ns",
+            |m: &CreateAuthTokenRequest| { &m.timestamp_ns },
+            |m: &mut CreateAuthTokenRequest| { &mut m.timestamp_ns },
+        ));
+        ::protobuf::reflect::GeneratedMessageDescriptorData::new_2::<CreateAuthTokenRequest>(
+            "CreateAuthTokenRequest",
+            fields,
+            oneofs,
+        )
+    }
+}
+
+impl ::protobuf::Message for CreateAuthTokenRequest {
+    const NAME: &'static str = "CreateAuthTokenRequest";
+
+    fn is_initialized(&self) -> bool {
+        true
+    }
+
+    fn merge_from(&mut self, is: &mut ::protobuf::CodedInputStream<'_>) -> ::protobuf::Result<()> {
+        while let Some(tag) = is.read_raw_tag_or_eof()? {
+            match tag {
+                8 => {
+                    self.timestamp_ns = ::std::option::Option::Some(is.read_uint64()?);
+                },
+                tag => {
+                    ::protobuf::rt::read_unknown_or_skip_group(tag, is, self.special_fields.mut_unknown_fields())?;
+                },
+            };
+        }
+        ::std::result::Result::Ok(())
+    }
+
+    // Compute sizes of nested messages
+    #[allow(unused_variables)]
+    fn compute_size(&self) -> u64 {
+        let mut my_size = 0;
+        if let Some(v) = self.timestamp_ns {
+            my_size += ::protobuf::rt::uint64_size(1, v);
+        }
+        my_size += ::protobuf::rt::unknown_fields_size(self.special_fields.unknown_fields());
+        self.special_fields.cached_size().set(my_size as u32);
+        my_size
+    }
+
+    fn write_to_with_cached_sizes(&self, os: &mut ::protobuf::CodedOutputStream<'_>) -> ::protobuf::Result<()> {
+        if let Some(v) = self.timestamp_ns {
+            os.write_uint64(1, v)?;
+        }
+        os.write_unknown_fields(self.special_fields.unknown_fields())?;
+        ::std::result::Result::Ok(())
+    }
+
+    fn special_fields(&self) -> &::protobuf::SpecialFields {
+        &self.special_fields
+    }
+
+    fn mut_special_fields(&mut self) -> &mut ::protobuf::SpecialFields {
+        &mut self.special_fields
+    }
+
+    fn new() -> CreateAuthTokenRequest {
+        CreateAuthTokenRequest::new()
+    }
+
+    fn clear(&mut self) {
+        self.timestamp_ns = ::std::option::Option::None;
+        self.special_fields.clear();
+    }
+
+    fn default_instance() -> &'static CreateAuthTokenRequest {
+        static instance: CreateAuthTokenRequest = CreateAuthTokenRequest {
+            timestamp_ns: ::std::option::Option::None,
+            special_fields: ::protobuf::SpecialFields::new(),
+        };
+        &instance
+    }
+}
+
+impl ::protobuf::MessageFull for CreateAuthTokenRequest {
+    fn descriptor() -> ::protobuf::reflect::MessageDescriptor {
+        static descriptor: ::protobuf::rt::Lazy<::protobuf::reflect::MessageDescriptor> = ::protobuf::rt::Lazy::new();
+        descriptor.get(|| file_descriptor().message_by_package_relative_name("CreateAuthTokenRequest").unwrap()).clone()
+    }
+}
+
+impl ::std::fmt::Display for CreateAuthTokenRequest {
+    fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
+        ::protobuf::text_format::fmt(self, f)
+    }
+}
+
+impl ::protobuf::reflect::ProtobufValue for CreateAuthTokenRequest {
+    type RuntimeType = ::protobuf::reflect::rt::RuntimeTypeMessage<Self>;
+}
+
+///  SignDigestRequest is used to sign a digest with either the identity key
+///  or a prekey
+#[derive(PartialEq,Clone,Default,Debug)]
+// @@protoc_insertion_point(message:xmtp.keystore_api.v1.SignDigestRequest)
+pub struct SignDigestRequest {
+    // message fields
+    // @@protoc_insertion_point(field:xmtp.keystore_api.v1.SignDigestRequest.digest)
+    pub digest: ::std::vec::Vec<u8>,
+    // message oneof groups
+    pub signer: ::std::option::Option<sign_digest_request::Signer>,
+    // special fields
+    // @@protoc_insertion_point(special_field:xmtp.keystore_api.v1.SignDigestRequest.special_fields)
+    pub special_fields: ::protobuf::SpecialFields,
+}
+
+impl<'a> ::std::default::Default for &'a SignDigestRequest {
+    fn default() -> &'a SignDigestRequest {
+        <SignDigestRequest as ::protobuf::Message>::default_instance()
+    }
+}
+
+impl SignDigestRequest {
+    pub fn new() -> SignDigestRequest {
+        ::std::default::Default::default()
+    }
+
+    // bool identity_key = 2;
+
+    pub fn identity_key(&self) -> bool {
+        match self.signer {
+            ::std::option::Option::Some(sign_digest_request::Signer::IdentityKey(v)) => v,
+            _ => false,
+        }
+    }
+
+    pub fn clear_identity_key(&mut self) {
+        self.signer = ::std::option::Option::None;
+    }
+
+    pub fn has_identity_key(&self) -> bool {
+        match self.signer {
+            ::std::option::Option::Some(sign_digest_request::Signer::IdentityKey(..)) => true,
+            _ => false,
+        }
+    }
+
+    // Param is passed by value, moved
+    pub fn set_identity_key(&mut self, v: bool) {
+        self.signer = ::std::option::Option::Some(sign_digest_request::Signer::IdentityKey(v))
+    }
+
+    // uint32 prekey_index = 3;
+
+    pub fn prekey_index(&self) -> u32 {
+        match self.signer {
+            ::std::option::Option::Some(sign_digest_request::Signer::PrekeyIndex(v)) => v,
+            _ => 0,
+        }
+    }
+
+    pub fn clear_prekey_index(&mut self) {
+        self.signer = ::std::option::Option::None;
+    }
+
+    pub fn has_prekey_index(&self) -> bool {
+        match self.signer {
+            ::std::option::Option::Some(sign_digest_request::Signer::PrekeyIndex(..)) => true,
+            _ => false,
+        }
+    }
+
+    // Param is passed by value, moved
+    pub fn set_prekey_index(&mut self, v: u32) {
+        self.signer = ::std::option::Option::Some(sign_digest_request::Signer::PrekeyIndex(v))
+    }
+
+    fn generated_message_descriptor_data() -> ::protobuf::reflect::GeneratedMessageDescriptorData {
+        let mut fields = ::std::vec::Vec::with_capacity(3);
+        let mut oneofs = ::std::vec::Vec::with_capacity(1);
+        fields.push(::protobuf::reflect::rt::v2::make_simpler_field_accessor::<_, _>(
+            "digest",
+            |m: &SignDigestRequest| { &m.digest },
+            |m: &mut SignDigestRequest| { &mut m.digest },
+        ));
+        fields.push(::protobuf::reflect::rt::v2::make_oneof_copy_has_get_set_simpler_accessors::<_, _>(
+            "identity_key",
+            SignDigestRequest::has_identity_key,
+            SignDigestRequest::identity_key,
+            SignDigestRequest::set_identity_key,
+        ));
+        fields.push(::protobuf::reflect::rt::v2::make_oneof_copy_has_get_set_simpler_accessors::<_, _>(
+            "prekey_index",
+            SignDigestRequest::has_prekey_index,
+            SignDigestRequest::prekey_index,
+            SignDigestRequest::set_prekey_index,
+        ));
+        oneofs.push(sign_digest_request::Signer::generated_oneof_descriptor_data());
+        ::protobuf::reflect::GeneratedMessageDescriptorData::new_2::<SignDigestRequest>(
+            "SignDigestRequest",
+            fields,
+            oneofs,
+        )
+    }
+}
+
+impl ::protobuf::Message for SignDigestRequest {
+    const NAME: &'static str = "SignDigestRequest";
+
+    fn is_initialized(&self) -> bool {
+        true
+    }
+
+    fn merge_from(&mut self, is: &mut ::protobuf::CodedInputStream<'_>) -> ::protobuf::Result<()> {
+        while let Some(tag) = is.read_raw_tag_or_eof()? {
+            match tag {
+                10 => {
+                    self.digest = is.read_bytes()?;
+                },
+                16 => {
+                    self.signer = ::std::option::Option::Some(sign_digest_request::Signer::IdentityKey(is.read_bool()?));
+                },
+                24 => {
+                    self.signer = ::std::option::Option::Some(sign_digest_request::Signer::PrekeyIndex(is.read_uint32()?));
+                },
+                tag => {
+                    ::protobuf::rt::read_unknown_or_skip_group(tag, is, self.special_fields.mut_unknown_fields())?;
+                },
+            };
+        }
+        ::std::result::Result::Ok(())
+    }
+
+    // Compute sizes of nested messages
+    #[allow(unused_variables)]
+    fn compute_size(&self) -> u64 {
+        let mut my_size = 0;
+        if !self.digest.is_empty() {
+            my_size += ::protobuf::rt::bytes_size(1, &self.digest);
+        }
+        if let ::std::option::Option::Some(ref v) = self.signer {
+            match v {
+                &sign_digest_request::Signer::IdentityKey(v) => {
+                    my_size += 1 + 1;
+                },
+                &sign_digest_request::Signer::PrekeyIndex(v) => {
+                    my_size += ::protobuf::rt::uint32_size(3, v);
+                },
+            };
+        }
+        my_size += ::protobuf::rt::unknown_fields_size(self.special_fields.unknown_fields());
+        self.special_fields.cached_size().set(my_size as u32);
+        my_size
+    }
+
+    fn write_to_with_cached_sizes(&self, os: &mut ::protobuf::CodedOutputStream<'_>) -> ::protobuf::Result<()> {
+        if !self.digest.is_empty() {
+            os.write_bytes(1, &self.digest)?;
+        }
+        if let ::std::option::Option::Some(ref v) = self.signer {
+            match v {
+                &sign_digest_request::Signer::IdentityKey(v) => {
+                    os.write_bool(2, v)?;
+                },
+                &sign_digest_request::Signer::PrekeyIndex(v) => {
+                    os.write_uint32(3, v)?;
+                },
+            };
+        }
+        os.write_unknown_fields(self.special_fields.unknown_fields())?;
+        ::std::result::Result::Ok(())
+    }
+
+    fn special_fields(&self) -> &::protobuf::SpecialFields {
+        &self.special_fields
+    }
+
+    fn mut_special_fields(&mut self) -> &mut ::protobuf::SpecialFields {
+        &mut self.special_fields
+    }
+
+    fn new() -> SignDigestRequest {
+        SignDigestRequest::new()
+    }
+
+    fn clear(&mut self) {
+        self.digest.clear();
+        self.signer = ::std::option::Option::None;
+        self.signer = ::std::option::Option::None;
+        self.special_fields.clear();
+    }
+
+    fn default_instance() -> &'static SignDigestRequest {
+        static instance: SignDigestRequest = SignDigestRequest {
+            digest: ::std::vec::Vec::new(),
+            signer: ::std::option::Option::None,
+            special_fields: ::protobuf::SpecialFields::new(),
+        };
+        &instance
+    }
+}
+
+impl ::protobuf::MessageFull for SignDigestRequest {
+    fn descriptor() -> ::protobuf::reflect::MessageDescriptor {
+        static descriptor: ::protobuf::rt::Lazy<::protobuf::reflect::MessageDescriptor> = ::protobuf::rt::Lazy::new();
+        descriptor.get(|| file_descriptor().message_by_package_relative_name("SignDigestRequest").unwrap()).clone()
+    }
+}
+
+impl ::std::fmt::Display for SignDigestRequest {
+    fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
+        ::protobuf::text_format::fmt(self, f)
+    }
+}
+
+impl ::protobuf::reflect::ProtobufValue for SignDigestRequest {
+    type RuntimeType = ::protobuf::reflect::rt::RuntimeTypeMessage<Self>;
+}
+
+/// Nested message and enums of message `SignDigestRequest`
+pub mod sign_digest_request {
+
+    #[derive(Clone,PartialEq,Debug)]
+    #[non_exhaustive]
+    // @@protoc_insertion_point(oneof:xmtp.keystore_api.v1.SignDigestRequest.signer)
+    pub enum Signer {
+        // @@protoc_insertion_point(oneof_field:xmtp.keystore_api.v1.SignDigestRequest.identity_key)
+        IdentityKey(bool),
+        // @@protoc_insertion_point(oneof_field:xmtp.keystore_api.v1.SignDigestRequest.prekey_index)
+        PrekeyIndex(u32),
+    }
+
+    impl ::protobuf::Oneof for Signer {
+    }
+
+    impl ::protobuf::OneofFull for Signer {
+        fn descriptor() -> ::protobuf::reflect::OneofDescriptor {
+            static descriptor: ::protobuf::rt::Lazy<::protobuf::reflect::OneofDescriptor> = ::protobuf::rt::Lazy::new();
+            descriptor.get(|| <super::SignDigestRequest as ::protobuf::MessageFull>::descriptor().oneof_by_name("signer").unwrap()).clone()
+        }
+    }
+
+    impl Signer {
+        pub(in super) fn generated_oneof_descriptor_data() -> ::protobuf::reflect::GeneratedOneofDescriptorData {
+            ::protobuf::reflect::GeneratedOneofDescriptorData::new::<Signer>("signer")
+        }
+    }
+}
+
+///  A mapping of topics to their decrypted invitations
+#[derive(PartialEq,Clone,Default,Debug)]
+// @@protoc_insertion_point(message:xmtp.keystore_api.v1.TopicMap)
+pub struct TopicMap {
+    // message fields
+    // @@protoc_insertion_point(field:xmtp.keystore_api.v1.TopicMap.topics)
+    pub topics: ::std::collections::HashMap<::std::string::String, topic_map::TopicData>,
+    // special fields
+    // @@protoc_insertion_point(special_field:xmtp.keystore_api.v1.TopicMap.special_fields)
+    pub special_fields: ::protobuf::SpecialFields,
+}
+
+impl<'a> ::std::default::Default for &'a TopicMap {
+    fn default() -> &'a TopicMap {
+        <TopicMap as ::protobuf::Message>::default_instance()
+    }
+}
+
+impl TopicMap {
+    pub fn new() -> TopicMap {
+        ::std::default::Default::default()
+    }
+
+    fn generated_message_descriptor_data() -> ::protobuf::reflect::GeneratedMessageDescriptorData {
+        let mut fields = ::std::vec::Vec::with_capacity(1);
+        let mut oneofs = ::std::vec::Vec::with_capacity(0);
+        fields.push(::protobuf::reflect::rt::v2::make_map_simpler_accessor::<_, _, _>(
+            "topics",
+            |m: &TopicMap| { &m.topics },
+            |m: &mut TopicMap| { &mut m.topics },
+        ));
+        ::protobuf::reflect::GeneratedMessageDescriptorData::new_2::<TopicMap>(
+            "TopicMap",
+            fields,
+            oneofs,
+        )
+    }
+}
+
+impl ::protobuf::Message for TopicMap {
+    const NAME: &'static str = "TopicMap";
+
+    fn is_initialized(&self) -> bool {
+        true
+    }
+
+    fn merge_from(&mut self, is: &mut ::protobuf::CodedInputStream<'_>) -> ::protobuf::Result<()> {
+        while let Some(tag) = is.read_raw_tag_or_eof()? {
+            match tag {
+                10 => {
+                    let len = is.read_raw_varint32()?;
+                    let old_limit = is.push_limit(len as u64)?;
+                    let mut key = ::std::default::Default::default();
+                    let mut value = ::std::default::Default::default();
+                    while let Some(tag) = is.read_raw_tag_or_eof()? {
+                        match tag {
+                            10 => key = is.read_string()?,
+                            18 => value = is.read_message()?,
+                            _ => ::protobuf::rt::skip_field_for_tag(tag, is)?,
+                        };
+                    }
+                    is.pop_limit(old_limit);
+                    self.topics.insert(key, value);
+                },
+                tag => {
+                    ::protobuf::rt::read_unknown_or_skip_group(tag, is, self.special_fields.mut_unknown_fields())?;
+                },
+            };
+        }
+        ::std::result::Result::Ok(())
+    }
+
+    // Compute sizes of nested messages
+    #[allow(unused_variables)]
+    fn compute_size(&self) -> u64 {
+        let mut my_size = 0;
+        for (k, v) in &self.topics {
+            let mut entry_size = 0;
+            entry_size += ::protobuf::rt::string_size(1, &k);
+            let len = v.compute_size();
+            entry_size += 1 + ::protobuf::rt::compute_raw_varint64_size(len) + len;
+            my_size += 1 + ::protobuf::rt::compute_raw_varint64_size(entry_size) + entry_size
+        };
+        my_size += ::protobuf::rt::unknown_fields_size(self.special_fields.unknown_fields());
+        self.special_fields.cached_size().set(my_size as u32);
+        my_size
+    }
+
+    fn write_to_with_cached_sizes(&self, os: &mut ::protobuf::CodedOutputStream<'_>) -> ::protobuf::Result<()> {
+        for (k, v) in &self.topics {
+            let mut entry_size = 0;
+            entry_size += ::protobuf::rt::string_size(1, &k);
+            let len = v.cached_size() as u64;
+            entry_size += 1 + ::protobuf::rt::compute_raw_varint64_size(len) + len;
+            os.write_raw_varint32(10)?; // Tag.
+            os.write_raw_varint32(entry_size as u32)?;
+            os.write_string(1, &k)?;
+            ::protobuf::rt::write_message_field_with_cached_size(2, v, os)?;
+        };
+        os.write_unknown_fields(self.special_fields.unknown_fields())?;
+        ::std::result::Result::Ok(())
+    }
+
+    fn special_fields(&self) -> &::protobuf::SpecialFields {
+        &self.special_fields
+    }
+
+    fn mut_special_fields(&mut self) -> &mut ::protobuf::SpecialFields {
+        &mut self.special_fields
+    }
+
+    fn new() -> TopicMap {
+        TopicMap::new()
+    }
+
+    fn clear(&mut self) {
+        self.topics.clear();
+        self.special_fields.clear();
+    }
+
+    fn default_instance() -> &'static TopicMap {
+        static instance: ::protobuf::rt::Lazy<TopicMap> = ::protobuf::rt::Lazy::new();
+        instance.get(TopicMap::new)
+    }
+}
+
+impl ::protobuf::MessageFull for TopicMap {
+    fn descriptor() -> ::protobuf::reflect::MessageDescriptor {
+        static descriptor: ::protobuf::rt::Lazy<::protobuf::reflect::MessageDescriptor> = ::protobuf::rt::Lazy::new();
+        descriptor.get(|| file_descriptor().message_by_package_relative_name("TopicMap").unwrap()).clone()
+    }
+}
+
+impl ::std::fmt::Display for TopicMap {
+    fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
+        ::protobuf::text_format::fmt(self, f)
+    }
+}
+
+impl ::protobuf::reflect::ProtobufValue for TopicMap {
+    type RuntimeType = ::protobuf::reflect::rt::RuntimeTypeMessage<Self>;
+}
+
+/// Nested message and enums of message `TopicMap`
+pub mod topic_map {
+    ///  TopicData wraps the invitation and the timestamp it was created
+    #[derive(PartialEq,Clone,Default,Debug)]
+    // @@protoc_insertion_point(message:xmtp.keystore_api.v1.TopicMap.TopicData)
+    pub struct TopicData {
+        // message fields
+        // @@protoc_insertion_point(field:xmtp.keystore_api.v1.TopicMap.TopicData.created_ns)
+        pub created_ns: u64,
+        // @@protoc_insertion_point(field:xmtp.keystore_api.v1.TopicMap.TopicData.peer_address)
+        pub peer_address: ::std::string::String,
+        // @@protoc_insertion_point(field:xmtp.keystore_api.v1.TopicMap.TopicData.invitation)
+        pub invitation: ::protobuf::MessageField<super::super::invitation::InvitationV1>,
+        // special fields
+        // @@protoc_insertion_point(special_field:xmtp.keystore_api.v1.TopicMap.TopicData.special_fields)
+        pub special_fields: ::protobuf::SpecialFields,
+    }
+
+    impl<'a> ::std::default::Default for &'a TopicData {
+        fn default() -> &'a TopicData {
+            <TopicData as ::protobuf::Message>::default_instance()
+        }
+    }
+
+    impl TopicData {
+        pub fn new() -> TopicData {
+            ::std::default::Default::default()
+        }
+
+        pub(in super) fn generated_message_descriptor_data() -> ::protobuf::reflect::GeneratedMessageDescriptorData {
+            let mut fields = ::std::vec::Vec::with_capacity(3);
+            let mut oneofs = ::std::vec::Vec::with_capacity(0);
+            fields.push(::protobuf::reflect::rt::v2::make_simpler_field_accessor::<_, _>(
+                "created_ns",
+                |m: &TopicData| { &m.created_ns },
+                |m: &mut TopicData| { &mut m.created_ns },
+            ));
+            fields.push(::protobuf::reflect::rt::v2::make_simpler_field_accessor::<_, _>(
+                "peer_address",
+                |m: &TopicData| { &m.peer_address },
+                |m: &mut TopicData| { &mut m.peer_address },
+            ));
+            fields.push(::protobuf::reflect::rt::v2::make_message_field_accessor::<_, super::super::invitation::InvitationV1>(
+                "invitation",
+                |m: &TopicData| { &m.invitation },
+                |m: &mut TopicData| { &mut m.invitation },
+            ));
+            ::protobuf::reflect::GeneratedMessageDescriptorData::new_2::<TopicData>(
+                "TopicMap.TopicData",
+                fields,
+                oneofs,
+            )
+        }
+    }
+
+    impl ::protobuf::Message for TopicData {
+        const NAME: &'static str = "TopicData";
+
+        fn is_initialized(&self) -> bool {
+            true
+        }
+
+        fn merge_from(&mut self, is: &mut ::protobuf::CodedInputStream<'_>) -> ::protobuf::Result<()> {
+            while let Some(tag) = is.read_raw_tag_or_eof()? {
+                match tag {
+                    8 => {
+                        self.created_ns = is.read_uint64()?;
+                    },
+                    18 => {
+                        self.peer_address = is.read_string()?;
+                    },
+                    26 => {
+                        ::protobuf::rt::read_singular_message_into_field(is, &mut self.invitation)?;
+                    },
+                    tag => {
+                        ::protobuf::rt::read_unknown_or_skip_group(tag, is, self.special_fields.mut_unknown_fields())?;
+                    },
+                };
+            }
+            ::std::result::Result::Ok(())
+        }
+
+        // Compute sizes of nested messages
+        #[allow(unused_variables)]
+        fn compute_size(&self) -> u64 {
+            let mut my_size = 0;
+            if self.created_ns != 0 {
+                my_size += ::protobuf::rt::uint64_size(1, self.created_ns);
+            }
+            if !self.peer_address.is_empty() {
+                my_size += ::protobuf::rt::string_size(2, &self.peer_address);
+            }
+            if let Some(v) = self.invitation.as_ref() {
+                let len = v.compute_size();
+                my_size += 1 + ::protobuf::rt::compute_raw_varint64_size(len) + len;
+            }
+            my_size += ::protobuf::rt::unknown_fields_size(self.special_fields.unknown_fields());
+            self.special_fields.cached_size().set(my_size as u32);
+            my_size
+        }
+
+        fn write_to_with_cached_sizes(&self, os: &mut ::protobuf::CodedOutputStream<'_>) -> ::protobuf::Result<()> {
+            if self.created_ns != 0 {
+                os.write_uint64(1, self.created_ns)?;
+            }
+            if !self.peer_address.is_empty() {
+                os.write_string(2, &self.peer_address)?;
+            }
+            if let Some(v) = self.invitation.as_ref() {
+                ::protobuf::rt::write_message_field_with_cached_size(3, v, os)?;
+            }
+            os.write_unknown_fields(self.special_fields.unknown_fields())?;
+            ::std::result::Result::Ok(())
+        }
+
+        fn special_fields(&self) -> &::protobuf::SpecialFields {
+            &self.special_fields
+        }
+
+        fn mut_special_fields(&mut self) -> &mut ::protobuf::SpecialFields {
+            &mut self.special_fields
+        }
+
+        fn new() -> TopicData {
+            TopicData::new()
+        }
+
+        fn clear(&mut self) {
+            self.created_ns = 0;
+            self.peer_address.clear();
+            self.invitation.clear();
+            self.special_fields.clear();
+        }
+
+        fn default_instance() -> &'static TopicData {
+            static instance: TopicData = TopicData {
+                created_ns: 0,
+                peer_address: ::std::string::String::new(),
+                invitation: ::protobuf::MessageField::none(),
+                special_fields: ::protobuf::SpecialFields::new(),
+            };
+            &instance
+        }
+    }
+
+    impl ::protobuf::MessageFull for TopicData {
+        fn descriptor() -> ::protobuf::reflect::MessageDescriptor {
+            static descriptor: ::protobuf::rt::Lazy<::protobuf::reflect::MessageDescriptor> = ::protobuf::rt::Lazy::new();
+            descriptor.get(|| super::file_descriptor().message_by_package_relative_name("TopicMap.TopicData").unwrap()).clone()
+        }
+    }
+
+    impl ::std::fmt::Display for TopicData {
+        fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
+            ::protobuf::text_format::fmt(self, f)
+        }
+    }
+
+    impl ::protobuf::reflect::ProtobufValue for TopicData {
+        type RuntimeType = ::protobuf::reflect::rt::RuntimeTypeMessage<Self>;
+    }
+}
+
 ///  Application-specific error codes for the Keystore API.
 #[derive(Clone,Copy,PartialEq,Eq,Debug,Hash)]
 // @@protoc_insertion_point(enum:xmtp.keystore_api.v1.ErrorCode)
@@ -3734,259 +4429,316 @@ static file_descriptor_proto_data: &'static [u8] = b"\
     sage_contents/ciphertext.proto\x1a!message_contents/invitation.proto\x1a\
     !message_contents/public_key.proto\"^\n\rKeystoreError\x12\x18\n\x07mess\
     age\x18\x01\x20\x01(\tR\x07message\x123\n\x04code\x18\x02\x20\x01(\x0e2\
-    \x1f.xmtp.keystore_api.v1.ErrorCodeR\x04code\"\x93\x01\n\x15Conversation\
-    Reference\x12\x14\n\x05topic\x18\x01\x20\x01(\tR\x05topic\x12\x1d\n\ncre\
-    ated_ns\x18\x02\x20\x01(\x04R\tcreatedNs\x12E\n\x07context\x18\x03\x20\
-    \x01(\x0b2+.xmtp.message_contents.InvitationV1.ContextR\x07context\"\xac\
-    \x02\n\x10DecryptV1Request\x12J\n\x08requests\x18\x01\x20\x03(\x0b2..xmt\
-    p.keystore_api.v1.DecryptV1Request.RequestR\x08requests\x1a\xcb\x01\n\
-    \x07Request\x12;\n\x07payload\x18\x01\x20\x01(\x0b2!.xmtp.message_conten\
-    ts.CiphertextR\x07payload\x12C\n\tpeer_keys\x18\x02\x20\x01(\x0b2&.xmtp.\
-    message_contents.PublicKeyBundleR\x08peerKeys\x12!\n\x0cheader_bytes\x18\
-    \x03\x20\x01(\x0cR\x0bheaderBytes\x12\x1b\n\tis_sender\x18\x04\x20\x01(\
-    \x08R\x08isSender\"\xb0\x02\n\x0fDecryptResponse\x12L\n\tresponses\x18\
-    \x01\x20\x03(\x0b2..xmtp.keystore_api.v1.DecryptResponse.ResponseR\tresp\
-    onses\x1a\xce\x01\n\x08Response\x12P\n\x06result\x18\x01\x20\x01(\x0b26.\
-    xmtp.keystore_api.v1.DecryptResponse.Response.SuccessH\0R\x06result\x12;\
-    \n\x05error\x18\x02\x20\x01(\x0b2#.xmtp.keystore_api.v1.KeystoreErrorH\0\
-    R\x05error\x1a'\n\x07Success\x12\x1c\n\tdecrypted\x18\x01\x20\x01(\x0cR\
-    \tdecryptedB\n\n\x08response\"\xef\x01\n\x10DecryptV2Request\x12J\n\x08r\
-    equests\x18\x01\x20\x03(\x0b2..xmtp.keystore_api.v1.DecryptV2Request.Req\
-    uestR\x08requests\x1a\x8e\x01\n\x07Request\x12;\n\x07payload\x18\x01\x20\
-    \x01(\x0b2!.xmtp.message_contents.CiphertextR\x07payload\x12!\n\x0cheade\
-    r_bytes\x18\x02\x20\x01(\x0cR\x0bheaderBytes\x12#\n\rcontent_topic\x18\
-    \x03\x20\x01(\tR\x0ccontentTopic\"\xed\x01\n\x10EncryptV1Request\x12J\n\
-    \x08requests\x18\x01\x20\x03(\x0b2..xmtp.keystore_api.v1.EncryptV1Reques\
-    t.RequestR\x08requests\x1a\x8c\x01\n\x07Request\x12D\n\trecipient\x18\
-    \x01\x20\x01(\x0b2&.xmtp.message_contents.PublicKeyBundleR\trecipient\
-    \x12\x18\n\x07payload\x18\x02\x20\x01(\x0cR\x07payload\x12!\n\x0cheader_\
-    bytes\x18\x03\x20\x01(\x0cR\x0bheaderBytes\"\xd3\x02\n\x0fEncryptRespons\
-    e\x12L\n\tresponses\x18\x01\x20\x03(\x0b2..xmtp.keystore_api.v1.EncryptR\
-    esponse.ResponseR\tresponses\x1a\xf1\x01\n\x08Response\x12P\n\x06result\
-    \x18\x01\x20\x01(\x0b26.xmtp.keystore_api.v1.EncryptResponse.Response.Su\
-    ccessH\0R\x06result\x12;\n\x05error\x18\x02\x20\x01(\x0b2#.xmtp.keystore\
-    _api.v1.KeystoreErrorH\0R\x05error\x1aJ\n\x07Success\x12?\n\tencrypted\
-    \x18\x01\x20\x01(\x0b2!.xmtp.message_contents.CiphertextR\tencryptedB\n\
-    \n\x08response\"\xcb\x01\n\x10EncryptV2Request\x12J\n\x08requests\x18\
-    \x01\x20\x03(\x0b2..xmtp.keystore_api.v1.EncryptV2Request.RequestR\x08re\
-    quests\x1ak\n\x07Request\x12\x18\n\x07payload\x18\x01\x20\x01(\x0cR\x07p\
-    ayload\x12!\n\x0cheader_bytes\x18\x02\x20\x01(\x0cR\x0bheaderBytes\x12#\
-    \n\rcontent_topic\x18\x03\x20\x01(\tR\x0ccontentTopic\"\xc7\x01\n\x13Cre\
-    ateInviteRequest\x12E\n\x07context\x18\x01\x20\x01(\x0b2+.xmtp.message_c\
-    ontents.InvitationV1.ContextR\x07context\x12J\n\trecipient\x18\x02\x20\
-    \x01(\x0b2,.xmtp.message_contents.SignedPublicKeyBundleR\trecipient\x12\
-    \x1d\n\ncreated_ns\x18\x03\x20\x01(\x04R\tcreatedNs\"\x81\x01\n\x14Creat\
-    eInviteResponse\x12O\n\x0cconversation\x18\x01\x20\x01(\x0b2+.xmtp.keyst\
-    ore_api.v1.ConversationReferenceR\x0cconversation\x12\x18\n\x07payload\
-    \x18\x02\x20\x01(\x0cR\x07payload\"\xcf\x01\n\x12SaveInvitesRequest\x12L\
-    \n\x08requests\x18\x01\x20\x03(\x0b20.xmtp.keystore_api.v1.SaveInvitesRe\
-    quest.RequestR\x08requests\x1ak\n\x07Request\x12#\n\rcontent_topic\x18\
-    \x01\x20\x01(\tR\x0ccontentTopic\x12!\n\x0ctimestamp_ns\x18\x02\x20\x01(\
-    \x04R\x0btimestampNs\x12\x18\n\x07payload\x18\x03\x20\x01(\x0cR\x07paylo\
-    ad\"\xef\x02\n\x13SaveInvitesResponse\x12P\n\tresponses\x18\x01\x20\x03(\
-    \x0b22.xmtp.keystore_api.v1.SaveInvitesResponse.ResponseR\tresponses\x1a\
-    \x85\x02\n\x08Response\x12T\n\x06result\x18\x01\x20\x01(\x0b2:.xmtp.keys\
-    tore_api.v1.SaveInvitesResponse.Response.SuccessH\0R\x06result\x12;\n\
-    \x05error\x18\x02\x20\x01(\x0b2#.xmtp.keystore_api.v1.KeystoreErrorH\0R\
-    \x05error\x1aZ\n\x07Success\x12O\n\x0cconversation\x18\x01\x20\x01(\x0b2\
-    +.xmtp.keystore_api.v1.ConversationReferenceR\x0cconversationB\n\n\x08re\
-    sponse*h\n\tErrorCode\x12\x1a\n\x16ERROR_CODE_UNSPECIFIED\x10\0\x12\x1c\
-    \n\x18ERROR_CODE_INVALID_INPUT\x10\x01\x12!\n\x1dERROR_CODE_NO_MATCHING_\
-    PREKEY\x10\x02J\xca%\n\x07\x12\x05\x01\0\x9b\x01\x01\n/\n\x01\x0c\x12\
+    \x1f.xmtp.keystore_api.v1.ErrorCodeR\x04code\"\xb6\x01\n\x15Conversation\
+    Reference\x12\x14\n\x05topic\x18\x01\x20\x01(\tR\x05topic\x12!\n\x0cpeer\
+    _address\x18\x02\x20\x01(\tR\x0bpeerAddress\x12\x1d\n\ncreated_ns\x18\
+    \x03\x20\x01(\x04R\tcreatedNs\x12E\n\x07context\x18\x04\x20\x01(\x0b2+.x\
+    mtp.message_contents.InvitationV1.ContextR\x07context\"\xac\x02\n\x10Dec\
+    ryptV1Request\x12J\n\x08requests\x18\x01\x20\x03(\x0b2..xmtp.keystore_ap\
+    i.v1.DecryptV1Request.RequestR\x08requests\x1a\xcb\x01\n\x07Request\x12;\
+    \n\x07payload\x18\x01\x20\x01(\x0b2!.xmtp.message_contents.CiphertextR\
+    \x07payload\x12C\n\tpeer_keys\x18\x02\x20\x01(\x0b2&.xmtp.message_conten\
+    ts.PublicKeyBundleR\x08peerKeys\x12!\n\x0cheader_bytes\x18\x03\x20\x01(\
+    \x0cR\x0bheaderBytes\x12\x1b\n\tis_sender\x18\x04\x20\x01(\x08R\x08isSen\
+    der\"\xb0\x02\n\x0fDecryptResponse\x12L\n\tresponses\x18\x01\x20\x03(\
+    \x0b2..xmtp.keystore_api.v1.DecryptResponse.ResponseR\tresponses\x1a\xce\
+    \x01\n\x08Response\x12P\n\x06result\x18\x01\x20\x01(\x0b26.xmtp.keystore\
+    _api.v1.DecryptResponse.Response.SuccessH\0R\x06result\x12;\n\x05error\
+    \x18\x02\x20\x01(\x0b2#.xmtp.keystore_api.v1.KeystoreErrorH\0R\x05error\
+    \x1a'\n\x07Success\x12\x1c\n\tdecrypted\x18\x01\x20\x01(\x0cR\tdecrypted\
+    B\n\n\x08response\"\xef\x01\n\x10DecryptV2Request\x12J\n\x08requests\x18\
+    \x01\x20\x03(\x0b2..xmtp.keystore_api.v1.DecryptV2Request.RequestR\x08re\
+    quests\x1a\x8e\x01\n\x07Request\x12;\n\x07payload\x18\x01\x20\x01(\x0b2!\
+    .xmtp.message_contents.CiphertextR\x07payload\x12!\n\x0cheader_bytes\x18\
+    \x02\x20\x01(\x0cR\x0bheaderBytes\x12#\n\rcontent_topic\x18\x03\x20\x01(\
+    \tR\x0ccontentTopic\"\xed\x01\n\x10EncryptV1Request\x12J\n\x08requests\
+    \x18\x01\x20\x03(\x0b2..xmtp.keystore_api.v1.EncryptV1Request.RequestR\
+    \x08requests\x1a\x8c\x01\n\x07Request\x12D\n\trecipient\x18\x01\x20\x01(\
+    \x0b2&.xmtp.message_contents.PublicKeyBundleR\trecipient\x12\x18\n\x07pa\
+    yload\x18\x02\x20\x01(\x0cR\x07payload\x12!\n\x0cheader_bytes\x18\x03\
+    \x20\x01(\x0cR\x0bheaderBytes\"\xd3\x02\n\x0fEncryptResponse\x12L\n\tres\
+    ponses\x18\x01\x20\x03(\x0b2..xmtp.keystore_api.v1.EncryptResponse.Respo\
+    nseR\tresponses\x1a\xf1\x01\n\x08Response\x12P\n\x06result\x18\x01\x20\
+    \x01(\x0b26.xmtp.keystore_api.v1.EncryptResponse.Response.SuccessH\0R\
+    \x06result\x12;\n\x05error\x18\x02\x20\x01(\x0b2#.xmtp.keystore_api.v1.K\
+    eystoreErrorH\0R\x05error\x1aJ\n\x07Success\x12?\n\tencrypted\x18\x01\
+    \x20\x01(\x0b2!.xmtp.message_contents.CiphertextR\tencryptedB\n\n\x08res\
+    ponse\"\xcb\x01\n\x10EncryptV2Request\x12J\n\x08requests\x18\x01\x20\x03\
+    (\x0b2..xmtp.keystore_api.v1.EncryptV2Request.RequestR\x08requests\x1ak\
+    \n\x07Request\x12\x18\n\x07payload\x18\x01\x20\x01(\x0cR\x07payload\x12!\
+    \n\x0cheader_bytes\x18\x02\x20\x01(\x0cR\x0bheaderBytes\x12#\n\rcontent_\
+    topic\x18\x03\x20\x01(\tR\x0ccontentTopic\"\xc7\x01\n\x13CreateInviteReq\
+    uest\x12E\n\x07context\x18\x01\x20\x01(\x0b2+.xmtp.message_contents.Invi\
+    tationV1.ContextR\x07context\x12J\n\trecipient\x18\x02\x20\x01(\x0b2,.xm\
+    tp.message_contents.SignedPublicKeyBundleR\trecipient\x12\x1d\n\ncreated\
+    _ns\x18\x03\x20\x01(\x04R\tcreatedNs\"\x81\x01\n\x14CreateInviteResponse\
+    \x12O\n\x0cconversation\x18\x01\x20\x01(\x0b2+.xmtp.keystore_api.v1.Conv\
+    ersationReferenceR\x0cconversation\x12\x18\n\x07payload\x18\x02\x20\x01(\
+    \x0cR\x07payload\"\xcf\x01\n\x12SaveInvitesRequest\x12L\n\x08requests\
+    \x18\x01\x20\x03(\x0b20.xmtp.keystore_api.v1.SaveInvitesRequest.RequestR\
+    \x08requests\x1ak\n\x07Request\x12#\n\rcontent_topic\x18\x01\x20\x01(\tR\
+    \x0ccontentTopic\x12!\n\x0ctimestamp_ns\x18\x02\x20\x01(\x04R\x0btimesta\
+    mpNs\x12\x18\n\x07payload\x18\x03\x20\x01(\x0cR\x07payload\"\xef\x02\n\
+    \x13SaveInvitesResponse\x12P\n\tresponses\x18\x01\x20\x03(\x0b22.xmtp.ke\
+    ystore_api.v1.SaveInvitesResponse.ResponseR\tresponses\x1a\x85\x02\n\x08\
+    Response\x12T\n\x06result\x18\x01\x20\x01(\x0b2:.xmtp.keystore_api.v1.Sa\
+    veInvitesResponse.Response.SuccessH\0R\x06result\x12;\n\x05error\x18\x02\
+    \x20\x01(\x0b2#.xmtp.keystore_api.v1.KeystoreErrorH\0R\x05error\x1aZ\n\
+    \x07Success\x12O\n\x0cconversation\x18\x01\x20\x01(\x0b2+.xmtp.keystore_\
+    api.v1.ConversationReferenceR\x0cconversationB\n\n\x08response\"Q\n\x16C\
+    reateAuthTokenRequest\x12&\n\x0ctimestamp_ns\x18\x01\x20\x01(\x04H\0R\
+    \x0btimestampNs\x88\x01\x01B\x0f\n\r_timestamp_ns\"\x7f\n\x11SignDigestR\
+    equest\x12\x16\n\x06digest\x18\x01\x20\x01(\x0cR\x06digest\x12#\n\x0cide\
+    ntity_key\x18\x02\x20\x01(\x08H\0R\x0bidentityKey\x12#\n\x0cprekey_index\
+    \x18\x03\x20\x01(\rH\0R\x0bprekeyIndexB\x08\n\x06signer\"\xc8\x02\n\x08T\
+    opicMap\x12B\n\x06topics\x18\x01\x20\x03(\x0b2*.xmtp.keystore_api.v1.Top\
+    icMap.TopicsEntryR\x06topics\x1a\x92\x01\n\tTopicData\x12\x1d\n\ncreated\
+    _ns\x18\x01\x20\x01(\x04R\tcreatedNs\x12!\n\x0cpeer_address\x18\x02\x20\
+    \x01(\tR\x0bpeerAddress\x12C\n\ninvitation\x18\x03\x20\x01(\x0b2#.xmtp.m\
+    essage_contents.InvitationV1R\ninvitation\x1ac\n\x0bTopicsEntry\x12\x10\
+    \n\x03key\x18\x01\x20\x01(\tR\x03key\x12>\n\x05value\x18\x02\x20\x01(\
+    \x0b2(.xmtp.keystore_api.v1.TopicMap.TopicDataR\x05value:\x028\x01*h\n\t\
+    ErrorCode\x12\x1a\n\x16ERROR_CODE_UNSPECIFIED\x10\0\x12\x1c\n\x18ERROR_C\
+    ODE_INVALID_INPUT\x10\x01\x12!\n\x1dERROR_CODE_NO_MATCHING_PREKEY\x10\
+    \x02BM\n\x1eorg.xmtp.proto.keystore.api.v1Z+github.com/xmtp/proto/v3/go/\
+    keystore_api/v1J\xda-\n\x07\x12\x05\x01\0\xb9\x01\x01\n/\n\x01\x0c\x12\
     \x03\x01\0\x12\x1a%\x20Message\x20content\x20encoding\x20structures\n\n\
     \x08\n\x01\x02\x12\x03\x03\0\x1d\n\t\n\x02\x03\0\x12\x03\x05\0+\n\t\n\
-    \x02\x03\x01\x12\x03\x06\0+\n\t\n\x02\x03\x02\x12\x03\x07\0+\nD\n\x02\
-    \x05\0\x12\x04\n\0\x0e\x01\x1a8\x20Application-specific\x20error\x20code\
-    s\x20for\x20the\x20Keystore\x20API.\n\n\n\n\x03\x05\0\x01\x12\x03\n\x05\
-    \x0e\n\x0b\n\x04\x05\0\x02\0\x12\x03\x0b\x04\x1f\n\x0c\n\x05\x05\0\x02\0\
-    \x01\x12\x03\x0b\x04\x1a\n\x0c\n\x05\x05\0\x02\0\x02\x12\x03\x0b\x1d\x1e\
-    \n\x0b\n\x04\x05\0\x02\x01\x12\x03\x0c\x04!\n\x0c\n\x05\x05\0\x02\x01\
-    \x01\x12\x03\x0c\x04\x1c\n\x0c\n\x05\x05\0\x02\x01\x02\x12\x03\x0c\x1f\
-    \x20\n\x0b\n\x04\x05\0\x02\x02\x12\x03\r\x04&\n\x0c\n\x05\x05\0\x02\x02\
-    \x01\x12\x03\r\x04!\n\x0c\n\x05\x05\0\x02\x02\x02\x12\x03\r$%\n<\n\x02\
-    \x04\0\x12\x04\x11\0\x14\x01\x1a0\x20Wrapper\x20class\x20for\x20errors\
-    \x20from\x20the\x20Keystore\x20API\n\n\n\n\x03\x04\0\x01\x12\x03\x11\x08\
-    \x15\n\x0b\n\x04\x04\0\x02\0\x12\x03\x12\x04\x17\n\x0c\n\x05\x04\0\x02\0\
-    \x05\x12\x03\x12\x04\n\n\x0c\n\x05\x04\0\x02\0\x01\x12\x03\x12\x0b\x12\n\
-    \x0c\n\x05\x04\0\x02\0\x03\x12\x03\x12\x15\x16\n\x0b\n\x04\x04\0\x02\x01\
-    \x12\x03\x13\x04\x17\n\x0c\n\x05\x04\0\x02\x01\x06\x12\x03\x13\x04\r\n\
-    \x0c\n\x05\x04\0\x02\x01\x01\x12\x03\x13\x0e\x12\n\x0c\n\x05\x04\0\x02\
-    \x01\x03\x12\x03\x13\x15\x16\nQ\n\x02\x04\x01\x12\x04\x17\0\x1b\x01\x1aE\
-    \x20A\x20light\x20pointer\x20for\x20a\x20conversation\x20that\x20contain\
-    s\x20no\x20decryption\x20keys\n\n\n\n\x03\x04\x01\x01\x12\x03\x17\x08\
-    \x1d\n\x0b\n\x04\x04\x01\x02\0\x12\x03\x18\x04\x15\n\x0c\n\x05\x04\x01\
-    \x02\0\x05\x12\x03\x18\x04\n\n\x0c\n\x05\x04\x01\x02\0\x01\x12\x03\x18\
-    \x0b\x10\n\x0c\n\x05\x04\x01\x02\0\x03\x12\x03\x18\x13\x14\n\x0b\n\x04\
-    \x04\x01\x02\x01\x12\x03\x19\x04\x1a\n\x0c\n\x05\x04\x01\x02\x01\x05\x12\
-    \x03\x19\x04\n\n\x0c\n\x05\x04\x01\x02\x01\x01\x12\x03\x19\x0b\x15\n\x0c\
-    \n\x05\x04\x01\x02\x01\x03\x12\x03\x19\x18\x19\n\x0b\n\x04\x04\x01\x02\
-    \x02\x12\x03\x1a\x04;\n\x0c\n\x05\x04\x01\x02\x02\x06\x12\x03\x1a\x04.\n\
-    \x0c\n\x05\x04\x01\x02\x02\x01\x12\x03\x1a/6\n\x0c\n\x05\x04\x01\x02\x02\
-    \x03\x12\x03\x1a9:\nB\n\x02\x04\x02\x12\x04\x1e\0(\x01\x1a6\x20Decrypt\
-    \x20a\x20batch\x20of\x20messages\x20using\x20X3DH\x20key\x20agreement\n\
-    \n\n\n\x03\x04\x02\x01\x12\x03\x1e\x08\x18\n+\n\x04\x04\x02\x03\0\x12\
-    \x04\x20\x04%\x05\x1a\x1d\x20A\x20single\x20decryption\x20request\n\n\
-    \x0c\n\x05\x04\x02\x03\0\x01\x12\x03\x20\x0c\x13\n\r\n\x06\x04\x02\x03\0\
-    \x02\0\x12\x03!\x085\n\x0e\n\x07\x04\x02\x03\0\x02\0\x06\x12\x03!\x08(\n\
-    \x0e\n\x07\x04\x02\x03\0\x02\0\x01\x12\x03!)0\n\x0e\n\x07\x04\x02\x03\0\
-    \x02\0\x03\x12\x03!34\n\r\n\x06\x04\x02\x03\0\x02\x01\x12\x03\"\x08<\n\
-    \x0e\n\x07\x04\x02\x03\0\x02\x01\x06\x12\x03\"\x08-\n\x0e\n\x07\x04\x02\
-    \x03\0\x02\x01\x01\x12\x03\".7\n\x0e\n\x07\x04\x02\x03\0\x02\x01\x03\x12\
-    \x03\":;\n\r\n\x06\x04\x02\x03\0\x02\x02\x12\x03#\x08\x1f\n\x0e\n\x07\
-    \x04\x02\x03\0\x02\x02\x05\x12\x03#\x08\r\n\x0e\n\x07\x04\x02\x03\0\x02\
-    \x02\x01\x12\x03#\x0e\x1a\n\x0e\n\x07\x04\x02\x03\0\x02\x02\x03\x12\x03#\
-    \x1d\x1e\n\r\n\x06\x04\x02\x03\0\x02\x03\x12\x03$\x08\x1b\n\x0e\n\x07\
-    \x04\x02\x03\0\x02\x03\x05\x12\x03$\x08\x0c\n\x0e\n\x07\x04\x02\x03\0\
-    \x02\x03\x01\x12\x03$\r\x16\n\x0e\n\x07\x04\x02\x03\0\x02\x03\x03\x12\
-    \x03$\x19\x1a\n\x0b\n\x04\x04\x02\x02\0\x12\x03'\x04\"\n\x0c\n\x05\x04\
-    \x02\x02\0\x04\x12\x03'\x04\x0c\n\x0c\n\x05\x04\x02\x02\0\x06\x12\x03'\r\
-    \x14\n\x0c\n\x05\x04\x02\x02\0\x01\x12\x03'\x15\x1d\n\x0c\n\x05\x04\x02\
-    \x02\0\x03\x12\x03'\x20!\nB\n\x02\x04\x03\x12\x04+\0:\x01\x1a6\x20Respon\
-    se\x20type\x20for\x20both\x20V1\x20and\x20V2\x20decryption\x20requests\n\
-    \n\n\n\x03\x04\x03\x01\x12\x03+\x08\x17\n,\n\x04\x04\x03\x03\0\x12\x04-\
-    \x047\x05\x1a\x1e\x20A\x20single\x20decryption\x20response\n\n\x0c\n\x05\
-    \x04\x03\x03\0\x01\x12\x03-\x0c\x14\n5\n\x06\x04\x03\x03\0\x03\0\x12\x04\
-    /\x081\t\x1a%\x20Wrapper\x20object\x20for\x20success\x20response\n\n\x0e\
-    \n\x07\x04\x03\x03\0\x03\0\x01\x12\x03/\x10\x17\n\x0f\n\x08\x04\x03\x03\
-    \0\x03\0\x02\0\x12\x030\x0c\x20\n\x10\n\t\x04\x03\x03\0\x03\0\x02\0\x05\
-    \x12\x030\x0c\x11\n\x10\n\t\x04\x03\x03\0\x03\0\x02\0\x01\x12\x030\x12\
-    \x1b\n\x10\n\t\x04\x03\x03\0\x03\0\x02\0\x03\x12\x030\x1e\x1f\n\x0e\n\
-    \x06\x04\x03\x03\0\x08\0\x12\x043\x086\t\n\x0e\n\x07\x04\x03\x03\0\x08\0\
-    \x01\x12\x033\x0e\x16\n\r\n\x06\x04\x03\x03\0\x02\0\x12\x034\x0c\x1f\n\
-    \x0e\n\x07\x04\x03\x03\0\x02\0\x06\x12\x034\x0c\x13\n\x0e\n\x07\x04\x03\
-    \x03\0\x02\0\x01\x12\x034\x14\x1a\n\x0e\n\x07\x04\x03\x03\0\x02\0\x03\
-    \x12\x034\x1d\x1e\n\r\n\x06\x04\x03\x03\0\x02\x01\x12\x035\x0c$\n\x0e\n\
-    \x07\x04\x03\x03\0\x02\x01\x06\x12\x035\x0c\x19\n\x0e\n\x07\x04\x03\x03\
-    \0\x02\x01\x01\x12\x035\x1a\x1f\n\x0e\n\x07\x04\x03\x03\0\x02\x01\x03\
-    \x12\x035\"#\n\x0b\n\x04\x04\x03\x02\0\x12\x039\x04$\n\x0c\n\x05\x04\x03\
-    \x02\0\x04\x12\x039\x04\x0c\n\x0c\n\x05\x04\x03\x02\0\x06\x12\x039\r\x15\
-    \n\x0c\n\x05\x04\x03\x02\0\x01\x12\x039\x16\x1f\n\x0c\n\x05\x04\x03\x02\
-    \0\x03\x12\x039\"#\nJ\n\x02\x04\x04\x12\x04=\0F\x01\x1a>\x20Decrypt\x20a\
-    \x20batch\x20of\x20messages\x20using\x20the\x20appropriate\x20topic\x20k\
-    eys\n\n\n\n\x03\x04\x04\x01\x12\x03=\x08\x18\n+\n\x04\x04\x04\x03\0\x12\
-    \x04?\x04C\x05\x1a\x1d\x20A\x20single\x20decryption\x20request\n\n\x0c\n\
-    \x05\x04\x04\x03\0\x01\x12\x03?\x0c\x13\n\r\n\x06\x04\x04\x03\0\x02\0\
-    \x12\x03@\x085\n\x0e\n\x07\x04\x04\x03\0\x02\0\x06\x12\x03@\x08(\n\x0e\n\
-    \x07\x04\x04\x03\0\x02\0\x01\x12\x03@)0\n\x0e\n\x07\x04\x04\x03\0\x02\0\
-    \x03\x12\x03@34\n\r\n\x06\x04\x04\x03\0\x02\x01\x12\x03A\x08\x1f\n\x0e\n\
-    \x07\x04\x04\x03\0\x02\x01\x05\x12\x03A\x08\r\n\x0e\n\x07\x04\x04\x03\0\
-    \x02\x01\x01\x12\x03A\x0e\x1a\n\x0e\n\x07\x04\x04\x03\0\x02\x01\x03\x12\
-    \x03A\x1d\x1e\n\r\n\x06\x04\x04\x03\0\x02\x02\x12\x03B\x08!\n\x0e\n\x07\
-    \x04\x04\x03\0\x02\x02\x05\x12\x03B\x08\x0e\n\x0e\n\x07\x04\x04\x03\0\
-    \x02\x02\x01\x12\x03B\x0f\x1c\n\x0e\n\x07\x04\x04\x03\0\x02\x02\x03\x12\
-    \x03B\x1f\x20\n\x0b\n\x04\x04\x04\x02\0\x12\x03E\x04\"\n\x0c\n\x05\x04\
-    \x04\x02\0\x04\x12\x03E\x04\x0c\n\x0c\n\x05\x04\x04\x02\0\x06\x12\x03E\r\
-    \x14\n\x0c\n\x05\x04\x04\x02\0\x01\x12\x03E\x15\x1d\n\x0c\n\x05\x04\x04\
-    \x02\0\x03\x12\x03E\x20!\nB\n\x02\x04\x05\x12\x04I\0R\x01\x1a6\x20Encryp\
-    t\x20a\x20batch\x20of\x20messages\x20using\x20X3DH\x20key\x20agreement\n\
-    \n\n\n\x03\x04\x05\x01\x12\x03I\x08\x18\n+\n\x04\x04\x05\x03\0\x12\x04K\
-    \x04O\x05\x1a\x1d\x20A\x20single\x20encryption\x20request\n\n\x0c\n\x05\
-    \x04\x05\x03\0\x01\x12\x03K\x0c\x13\n\r\n\x06\x04\x05\x03\0\x02\0\x12\
-    \x03L\x08<\n\x0e\n\x07\x04\x05\x03\0\x02\0\x06\x12\x03L\x08-\n\x0e\n\x07\
-    \x04\x05\x03\0\x02\0\x01\x12\x03L.7\n\x0e\n\x07\x04\x05\x03\0\x02\0\x03\
-    \x12\x03L:;\n\r\n\x06\x04\x05\x03\0\x02\x01\x12\x03M\x08\x1a\n\x0e\n\x07\
-    \x04\x05\x03\0\x02\x01\x05\x12\x03M\x08\r\n\x0e\n\x07\x04\x05\x03\0\x02\
-    \x01\x01\x12\x03M\x0e\x15\n\x0e\n\x07\x04\x05\x03\0\x02\x01\x03\x12\x03M\
-    \x18\x19\n\r\n\x06\x04\x05\x03\0\x02\x02\x12\x03N\x08\x1f\n\x0e\n\x07\
-    \x04\x05\x03\0\x02\x02\x05\x12\x03N\x08\r\n\x0e\n\x07\x04\x05\x03\0\x02\
-    \x02\x01\x12\x03N\x0e\x1a\n\x0e\n\x07\x04\x05\x03\0\x02\x02\x03\x12\x03N\
-    \x1d\x1e\n\x0b\n\x04\x04\x05\x02\0\x12\x03Q\x04\"\n\x0c\n\x05\x04\x05\
-    \x02\0\x04\x12\x03Q\x04\x0c\n\x0c\n\x05\x04\x05\x02\0\x06\x12\x03Q\r\x14\
-    \n\x0c\n\x05\x04\x05\x02\0\x01\x12\x03Q\x15\x1d\n\x0c\n\x05\x04\x05\x02\
-    \0\x03\x12\x03Q\x20!\nB\n\x02\x04\x06\x12\x04U\0d\x01\x1a6\x20Response\
-    \x20type\x20for\x20both\x20V1\x20and\x20V2\x20encryption\x20requests\n\n\
-    \n\n\x03\x04\x06\x01\x12\x03U\x08\x17\n,\n\x04\x04\x06\x03\0\x12\x04W\
-    \x04a\x05\x1a\x1e\x20A\x20single\x20encryption\x20response\n\n\x0c\n\x05\
-    \x04\x06\x03\0\x01\x12\x03W\x0c\x14\n5\n\x06\x04\x06\x03\0\x03\0\x12\x04\
-    Y\x08[\t\x1a%\x20Wrapper\x20object\x20for\x20success\x20response\n\n\x0e\
-    \n\x07\x04\x06\x03\0\x03\0\x01\x12\x03Y\x10\x17\n\x0f\n\x08\x04\x06\x03\
-    \0\x03\0\x02\0\x12\x03Z\x0c;\n\x10\n\t\x04\x06\x03\0\x03\0\x02\0\x06\x12\
-    \x03Z\x0c,\n\x10\n\t\x04\x06\x03\0\x03\0\x02\0\x01\x12\x03Z-6\n\x10\n\t\
-    \x04\x06\x03\0\x03\0\x02\0\x03\x12\x03Z9:\n\x0e\n\x06\x04\x06\x03\0\x08\
-    \0\x12\x04]\x08`\t\n\x0e\n\x07\x04\x06\x03\0\x08\0\x01\x12\x03]\x0e\x16\
-    \n\r\n\x06\x04\x06\x03\0\x02\0\x12\x03^\x0c\x1f\n\x0e\n\x07\x04\x06\x03\
-    \0\x02\0\x06\x12\x03^\x0c\x13\n\x0e\n\x07\x04\x06\x03\0\x02\0\x01\x12\
-    \x03^\x14\x1a\n\x0e\n\x07\x04\x06\x03\0\x02\0\x03\x12\x03^\x1d\x1e\n\r\n\
-    \x06\x04\x06\x03\0\x02\x01\x12\x03_\x0c$\n\x0e\n\x07\x04\x06\x03\0\x02\
-    \x01\x06\x12\x03_\x0c\x19\n\x0e\n\x07\x04\x06\x03\0\x02\x01\x01\x12\x03_\
-    \x1a\x1f\n\x0e\n\x07\x04\x06\x03\0\x02\x01\x03\x12\x03_\"#\n\x0b\n\x04\
-    \x04\x06\x02\0\x12\x03c\x04$\n\x0c\n\x05\x04\x06\x02\0\x04\x12\x03c\x04\
-    \x0c\n\x0c\n\x05\x04\x06\x02\0\x06\x12\x03c\r\x15\n\x0c\n\x05\x04\x06\
-    \x02\0\x01\x12\x03c\x16\x1f\n\x0c\n\x05\x04\x06\x02\0\x03\x12\x03c\"#\nJ\
-    \n\x02\x04\x07\x12\x04g\0p\x01\x1a>\x20Encrypt\x20a\x20batch\x20of\x20me\
-    ssages\x20using\x20the\x20appropriate\x20topic\x20keys\n\n\n\n\x03\x04\
-    \x07\x01\x12\x03g\x08\x18\n+\n\x04\x04\x07\x03\0\x12\x04i\x04m\x05\x1a\
-    \x1d\x20A\x20single\x20encryption\x20request\n\n\x0c\n\x05\x04\x07\x03\0\
-    \x01\x12\x03i\x0c\x13\n\r\n\x06\x04\x07\x03\0\x02\0\x12\x03j\x08\x1a\n\
-    \x0e\n\x07\x04\x07\x03\0\x02\0\x05\x12\x03j\x08\r\n\x0e\n\x07\x04\x07\
-    \x03\0\x02\0\x01\x12\x03j\x0e\x15\n\x0e\n\x07\x04\x07\x03\0\x02\0\x03\
-    \x12\x03j\x18\x19\n\r\n\x06\x04\x07\x03\0\x02\x01\x12\x03k\x08\x1f\n\x0e\
-    \n\x07\x04\x07\x03\0\x02\x01\x05\x12\x03k\x08\r\n\x0e\n\x07\x04\x07\x03\
-    \0\x02\x01\x01\x12\x03k\x0e\x1a\n\x0e\n\x07\x04\x07\x03\0\x02\x01\x03\
-    \x12\x03k\x1d\x1e\n\r\n\x06\x04\x07\x03\0\x02\x02\x12\x03l\x08!\n\x0e\n\
-    \x07\x04\x07\x03\0\x02\x02\x05\x12\x03l\x08\x0e\n\x0e\n\x07\x04\x07\x03\
-    \0\x02\x02\x01\x12\x03l\x0f\x1c\n\x0e\n\x07\x04\x07\x03\0\x02\x02\x03\
-    \x12\x03l\x1f\x20\n\x0b\n\x04\x04\x07\x02\0\x12\x03o\x04\"\n\x0c\n\x05\
-    \x04\x07\x02\0\x04\x12\x03o\x04\x0c\n\x0c\n\x05\x04\x07\x02\0\x06\x12\
-    \x03o\r\x14\n\x0c\n\x05\x04\x07\x02\0\x01\x12\x03o\x15\x1d\n\x0c\n\x05\
-    \x04\x07\x02\0\x03\x12\x03o\x20!\n[\n\x02\x04\x08\x12\x04s\0w\x01\x1aO\
-    \x20Request\x20to\x20create\x20an\x20invite\x20payload,\x20and\x20store\
-    \x20the\x20topic\x20keys\x20in\x20the\x20Keystore\n\n\n\n\x03\x04\x08\
-    \x01\x12\x03s\x08\x1b\n\x0b\n\x04\x04\x08\x02\0\x12\x03t\x04;\n\x0c\n\
-    \x05\x04\x08\x02\0\x06\x12\x03t\x04.\n\x0c\n\x05\x04\x08\x02\0\x01\x12\
-    \x03t/6\n\x0c\n\x05\x04\x08\x02\0\x03\x12\x03t9:\n\x0b\n\x04\x04\x08\x02\
-    \x01\x12\x03u\x04>\n\x0c\n\x05\x04\x08\x02\x01\x06\x12\x03u\x04/\n\x0c\n\
-    \x05\x04\x08\x02\x01\x01\x12\x03u09\n\x0c\n\x05\x04\x08\x02\x01\x03\x12\
-    \x03u<=\n\x0b\n\x04\x04\x08\x02\x02\x12\x03v\x04\x1a\n\x0c\n\x05\x04\x08\
-    \x02\x02\x05\x12\x03v\x04\n\n\x0c\n\x05\x04\x08\x02\x02\x01\x12\x03v\x0b\
-    \x15\n\x0c\n\x05\x04\x08\x02\x02\x03\x12\x03v\x18\x19\n/\n\x02\x04\t\x12\
-    \x04z\0}\x01\x1a#\x20Response\x20to\x20a\x20CreateInviteRequest\n\n\n\n\
-    \x03\x04\t\x01\x12\x03z\x08\x1c\n\x0b\n\x04\x04\t\x02\0\x12\x03{\x04+\n\
-    \x0c\n\x05\x04\t\x02\0\x06\x12\x03{\x04\x19\n\x0c\n\x05\x04\t\x02\0\x01\
-    \x12\x03{\x1a&\n\x0c\n\x05\x04\t\x02\0\x03\x12\x03{)*\n\x0b\n\x04\x04\t\
-    \x02\x01\x12\x03|\x04\x16\n\x0c\n\x05\x04\t\x02\x01\x05\x12\x03|\x04\t\n\
-    \x0c\n\x05\x04\t\x02\x01\x01\x12\x03|\n\x11\n\x0c\n\x05\x04\t\x02\x01\
-    \x03\x12\x03|\x14\x15\nJ\n\x02\x04\n\x12\x06\x80\x01\0\x89\x01\x01\x1a<\
-    \x20Request\x20to\x20save\x20a\x20batch\x20of\x20invite\x20messages\x20t\
-    o\x20the\x20Keystore\n\n\x0b\n\x03\x04\n\x01\x12\x04\x80\x01\x08\x1a\n.\
-    \n\x04\x04\n\x03\0\x12\x06\x82\x01\x04\x86\x01\x05\x1a\x1e\x20Mirrors\
-    \x20xmtp.envelope\x20schema\n\n\r\n\x05\x04\n\x03\0\x01\x12\x04\x82\x01\
-    \x0c\x13\n\x0e\n\x06\x04\n\x03\0\x02\0\x12\x04\x83\x01\x08!\n\x0f\n\x07\
-    \x04\n\x03\0\x02\0\x05\x12\x04\x83\x01\x08\x0e\n\x0f\n\x07\x04\n\x03\0\
-    \x02\0\x01\x12\x04\x83\x01\x0f\x1c\n\x0f\n\x07\x04\n\x03\0\x02\0\x03\x12\
-    \x04\x83\x01\x1f\x20\n\x0e\n\x06\x04\n\x03\0\x02\x01\x12\x04\x84\x01\x08\
-    \x20\n\x0f\n\x07\x04\n\x03\0\x02\x01\x05\x12\x04\x84\x01\x08\x0e\n\x0f\n\
-    \x07\x04\n\x03\0\x02\x01\x01\x12\x04\x84\x01\x0f\x1b\n\x0f\n\x07\x04\n\
-    \x03\0\x02\x01\x03\x12\x04\x84\x01\x1e\x1f\n\x0e\n\x06\x04\n\x03\0\x02\
-    \x02\x12\x04\x85\x01\x08\x1a\n\x0f\n\x07\x04\n\x03\0\x02\x02\x05\x12\x04\
-    \x85\x01\x08\r\n\x0f\n\x07\x04\n\x03\0\x02\x02\x01\x12\x04\x85\x01\x0e\
-    \x15\n\x0f\n\x07\x04\n\x03\0\x02\x02\x03\x12\x04\x85\x01\x18\x19\n\x0c\n\
-    \x04\x04\n\x02\0\x12\x04\x88\x01\x04\"\n\r\n\x05\x04\n\x02\0\x04\x12\x04\
-    \x88\x01\x04\x0c\n\r\n\x05\x04\n\x02\0\x06\x12\x04\x88\x01\r\x14\n\r\n\
-    \x05\x04\n\x02\0\x01\x12\x04\x88\x01\x15\x1d\n\r\n\x05\x04\n\x02\0\x03\
-    \x12\x04\x88\x01\x20!\n0\n\x02\x04\x0b\x12\x06\x8c\x01\0\x9b\x01\x01\x1a\
-    \"\x20Response\x20to\x20a\x20SaveInvitesRequest\n\n\x0b\n\x03\x04\x0b\
-    \x01\x12\x04\x8c\x01\x08\x1b\n#\n\x04\x04\x0b\x03\0\x12\x06\x8e\x01\x04\
-    \x98\x01\x05\x1a\x13\x20A\x20single\x20response\n\n\r\n\x05\x04\x0b\x03\
-    \0\x01\x12\x04\x8e\x01\x0c\x14\n7\n\x06\x04\x0b\x03\0\x03\0\x12\x06\x90\
-    \x01\x08\x92\x01\t\x1a%\x20Wrapper\x20object\x20for\x20success\x20respon\
-    se\n\n\x0f\n\x07\x04\x0b\x03\0\x03\0\x01\x12\x04\x90\x01\x10\x17\n\x10\n\
-    \x08\x04\x0b\x03\0\x03\0\x02\0\x12\x04\x91\x01\x0c3\n\x11\n\t\x04\x0b\
-    \x03\0\x03\0\x02\0\x06\x12\x04\x91\x01\x0c!\n\x11\n\t\x04\x0b\x03\0\x03\
-    \0\x02\0\x01\x12\x04\x91\x01\".\n\x11\n\t\x04\x0b\x03\0\x03\0\x02\0\x03\
-    \x12\x04\x91\x0112\n\x10\n\x06\x04\x0b\x03\0\x08\0\x12\x06\x94\x01\x08\
-    \x97\x01\t\n\x0f\n\x07\x04\x0b\x03\0\x08\0\x01\x12\x04\x94\x01\x0e\x16\n\
-    \x0e\n\x06\x04\x0b\x03\0\x02\0\x12\x04\x95\x01\x0c\x1f\n\x0f\n\x07\x04\
-    \x0b\x03\0\x02\0\x06\x12\x04\x95\x01\x0c\x13\n\x0f\n\x07\x04\x0b\x03\0\
-    \x02\0\x01\x12\x04\x95\x01\x14\x1a\n\x0f\n\x07\x04\x0b\x03\0\x02\0\x03\
-    \x12\x04\x95\x01\x1d\x1e\n\x0e\n\x06\x04\x0b\x03\0\x02\x01\x12\x04\x96\
-    \x01\x0c$\n\x0f\n\x07\x04\x0b\x03\0\x02\x01\x06\x12\x04\x96\x01\x0c\x19\
-    \n\x0f\n\x07\x04\x0b\x03\0\x02\x01\x01\x12\x04\x96\x01\x1a\x1f\n\x0f\n\
-    \x07\x04\x0b\x03\0\x02\x01\x03\x12\x04\x96\x01\"#\n\x0c\n\x04\x04\x0b\
-    \x02\0\x12\x04\x9a\x01\x04$\n\r\n\x05\x04\x0b\x02\0\x04\x12\x04\x9a\x01\
-    \x04\x0c\n\r\n\x05\x04\x0b\x02\0\x06\x12\x04\x9a\x01\r\x15\n\r\n\x05\x04\
-    \x0b\x02\0\x01\x12\x04\x9a\x01\x16\x1f\n\r\n\x05\x04\x0b\x02\0\x03\x12\
-    \x04\x9a\x01\"#b\x06proto3\
+    \x02\x03\x01\x12\x03\x06\0+\n\t\n\x02\x03\x02\x12\x03\x07\0+\n\x08\n\x01\
+    \x08\x12\x03\t\0B\n\t\n\x02\x08\x0b\x12\x03\t\0B\n\x08\n\x01\x08\x12\x03\
+    \n\07\n\t\n\x02\x08\x01\x12\x03\n\07\nD\n\x02\x05\0\x12\x04\r\0\x11\x01\
+    \x1a8\x20Application-specific\x20error\x20codes\x20for\x20the\x20Keystor\
+    e\x20API.\n\n\n\n\x03\x05\0\x01\x12\x03\r\x05\x0e\n\x0b\n\x04\x05\0\x02\
+    \0\x12\x03\x0e\x04\x1f\n\x0c\n\x05\x05\0\x02\0\x01\x12\x03\x0e\x04\x1a\n\
+    \x0c\n\x05\x05\0\x02\0\x02\x12\x03\x0e\x1d\x1e\n\x0b\n\x04\x05\0\x02\x01\
+    \x12\x03\x0f\x04!\n\x0c\n\x05\x05\0\x02\x01\x01\x12\x03\x0f\x04\x1c\n\
+    \x0c\n\x05\x05\0\x02\x01\x02\x12\x03\x0f\x1f\x20\n\x0b\n\x04\x05\0\x02\
+    \x02\x12\x03\x10\x04&\n\x0c\n\x05\x05\0\x02\x02\x01\x12\x03\x10\x04!\n\
+    \x0c\n\x05\x05\0\x02\x02\x02\x12\x03\x10$%\n<\n\x02\x04\0\x12\x04\x14\0\
+    \x17\x01\x1a0\x20Wrapper\x20class\x20for\x20errors\x20from\x20the\x20Key\
+    store\x20API\n\n\n\n\x03\x04\0\x01\x12\x03\x14\x08\x15\n\x0b\n\x04\x04\0\
+    \x02\0\x12\x03\x15\x04\x17\n\x0c\n\x05\x04\0\x02\0\x05\x12\x03\x15\x04\n\
+    \n\x0c\n\x05\x04\0\x02\0\x01\x12\x03\x15\x0b\x12\n\x0c\n\x05\x04\0\x02\0\
+    \x03\x12\x03\x15\x15\x16\n\x0b\n\x04\x04\0\x02\x01\x12\x03\x16\x04\x17\n\
+    \x0c\n\x05\x04\0\x02\x01\x06\x12\x03\x16\x04\r\n\x0c\n\x05\x04\0\x02\x01\
+    \x01\x12\x03\x16\x0e\x12\n\x0c\n\x05\x04\0\x02\x01\x03\x12\x03\x16\x15\
+    \x16\nQ\n\x02\x04\x01\x12\x04\x1a\0\x1f\x01\x1aE\x20A\x20light\x20pointe\
+    r\x20for\x20a\x20conversation\x20that\x20contains\x20no\x20decryption\
+    \x20keys\n\n\n\n\x03\x04\x01\x01\x12\x03\x1a\x08\x1d\n\x0b\n\x04\x04\x01\
+    \x02\0\x12\x03\x1b\x04\x15\n\x0c\n\x05\x04\x01\x02\0\x05\x12\x03\x1b\x04\
+    \n\n\x0c\n\x05\x04\x01\x02\0\x01\x12\x03\x1b\x0b\x10\n\x0c\n\x05\x04\x01\
+    \x02\0\x03\x12\x03\x1b\x13\x14\n\x0b\n\x04\x04\x01\x02\x01\x12\x03\x1c\
+    \x04\x1c\n\x0c\n\x05\x04\x01\x02\x01\x05\x12\x03\x1c\x04\n\n\x0c\n\x05\
+    \x04\x01\x02\x01\x01\x12\x03\x1c\x0b\x17\n\x0c\n\x05\x04\x01\x02\x01\x03\
+    \x12\x03\x1c\x1a\x1b\n\x0b\n\x04\x04\x01\x02\x02\x12\x03\x1d\x04\x1a\n\
+    \x0c\n\x05\x04\x01\x02\x02\x05\x12\x03\x1d\x04\n\n\x0c\n\x05\x04\x01\x02\
+    \x02\x01\x12\x03\x1d\x0b\x15\n\x0c\n\x05\x04\x01\x02\x02\x03\x12\x03\x1d\
+    \x18\x19\n\x0b\n\x04\x04\x01\x02\x03\x12\x03\x1e\x04;\n\x0c\n\x05\x04\
+    \x01\x02\x03\x06\x12\x03\x1e\x04.\n\x0c\n\x05\x04\x01\x02\x03\x01\x12\
+    \x03\x1e/6\n\x0c\n\x05\x04\x01\x02\x03\x03\x12\x03\x1e9:\nB\n\x02\x04\
+    \x02\x12\x04\"\0,\x01\x1a6\x20Decrypt\x20a\x20batch\x20of\x20messages\
+    \x20using\x20X3DH\x20key\x20agreement\n\n\n\n\x03\x04\x02\x01\x12\x03\"\
+    \x08\x18\n+\n\x04\x04\x02\x03\0\x12\x04$\x04)\x05\x1a\x1d\x20A\x20single\
+    \x20decryption\x20request\n\n\x0c\n\x05\x04\x02\x03\0\x01\x12\x03$\x0c\
+    \x13\n\r\n\x06\x04\x02\x03\0\x02\0\x12\x03%\x085\n\x0e\n\x07\x04\x02\x03\
+    \0\x02\0\x06\x12\x03%\x08(\n\x0e\n\x07\x04\x02\x03\0\x02\0\x01\x12\x03%)\
+    0\n\x0e\n\x07\x04\x02\x03\0\x02\0\x03\x12\x03%34\n\r\n\x06\x04\x02\x03\0\
+    \x02\x01\x12\x03&\x08<\n\x0e\n\x07\x04\x02\x03\0\x02\x01\x06\x12\x03&\
+    \x08-\n\x0e\n\x07\x04\x02\x03\0\x02\x01\x01\x12\x03&.7\n\x0e\n\x07\x04\
+    \x02\x03\0\x02\x01\x03\x12\x03&:;\n\r\n\x06\x04\x02\x03\0\x02\x02\x12\
+    \x03'\x08\x1f\n\x0e\n\x07\x04\x02\x03\0\x02\x02\x05\x12\x03'\x08\r\n\x0e\
+    \n\x07\x04\x02\x03\0\x02\x02\x01\x12\x03'\x0e\x1a\n\x0e\n\x07\x04\x02\
+    \x03\0\x02\x02\x03\x12\x03'\x1d\x1e\n\r\n\x06\x04\x02\x03\0\x02\x03\x12\
+    \x03(\x08\x1b\n\x0e\n\x07\x04\x02\x03\0\x02\x03\x05\x12\x03(\x08\x0c\n\
+    \x0e\n\x07\x04\x02\x03\0\x02\x03\x01\x12\x03(\r\x16\n\x0e\n\x07\x04\x02\
+    \x03\0\x02\x03\x03\x12\x03(\x19\x1a\n\x0b\n\x04\x04\x02\x02\0\x12\x03+\
+    \x04\"\n\x0c\n\x05\x04\x02\x02\0\x04\x12\x03+\x04\x0c\n\x0c\n\x05\x04\
+    \x02\x02\0\x06\x12\x03+\r\x14\n\x0c\n\x05\x04\x02\x02\0\x01\x12\x03+\x15\
+    \x1d\n\x0c\n\x05\x04\x02\x02\0\x03\x12\x03+\x20!\nB\n\x02\x04\x03\x12\
+    \x04/\0>\x01\x1a6\x20Response\x20type\x20for\x20both\x20V1\x20and\x20V2\
+    \x20decryption\x20requests\n\n\n\n\x03\x04\x03\x01\x12\x03/\x08\x17\n,\n\
+    \x04\x04\x03\x03\0\x12\x041\x04;\x05\x1a\x1e\x20A\x20single\x20decryptio\
+    n\x20response\n\n\x0c\n\x05\x04\x03\x03\0\x01\x12\x031\x0c\x14\n5\n\x06\
+    \x04\x03\x03\0\x03\0\x12\x043\x085\t\x1a%\x20Wrapper\x20object\x20for\
+    \x20success\x20response\n\n\x0e\n\x07\x04\x03\x03\0\x03\0\x01\x12\x033\
+    \x10\x17\n\x0f\n\x08\x04\x03\x03\0\x03\0\x02\0\x12\x034\x0c\x20\n\x10\n\
+    \t\x04\x03\x03\0\x03\0\x02\0\x05\x12\x034\x0c\x11\n\x10\n\t\x04\x03\x03\
+    \0\x03\0\x02\0\x01\x12\x034\x12\x1b\n\x10\n\t\x04\x03\x03\0\x03\0\x02\0\
+    \x03\x12\x034\x1e\x1f\n\x0e\n\x06\x04\x03\x03\0\x08\0\x12\x047\x08:\t\n\
+    \x0e\n\x07\x04\x03\x03\0\x08\0\x01\x12\x037\x0e\x16\n\r\n\x06\x04\x03\
+    \x03\0\x02\0\x12\x038\x0c\x1f\n\x0e\n\x07\x04\x03\x03\0\x02\0\x06\x12\
+    \x038\x0c\x13\n\x0e\n\x07\x04\x03\x03\0\x02\0\x01\x12\x038\x14\x1a\n\x0e\
+    \n\x07\x04\x03\x03\0\x02\0\x03\x12\x038\x1d\x1e\n\r\n\x06\x04\x03\x03\0\
+    \x02\x01\x12\x039\x0c$\n\x0e\n\x07\x04\x03\x03\0\x02\x01\x06\x12\x039\
+    \x0c\x19\n\x0e\n\x07\x04\x03\x03\0\x02\x01\x01\x12\x039\x1a\x1f\n\x0e\n\
+    \x07\x04\x03\x03\0\x02\x01\x03\x12\x039\"#\n\x0b\n\x04\x04\x03\x02\0\x12\
+    \x03=\x04$\n\x0c\n\x05\x04\x03\x02\0\x04\x12\x03=\x04\x0c\n\x0c\n\x05\
+    \x04\x03\x02\0\x06\x12\x03=\r\x15\n\x0c\n\x05\x04\x03\x02\0\x01\x12\x03=\
+    \x16\x1f\n\x0c\n\x05\x04\x03\x02\0\x03\x12\x03=\"#\nJ\n\x02\x04\x04\x12\
+    \x04A\0J\x01\x1a>\x20Decrypt\x20a\x20batch\x20of\x20messages\x20using\
+    \x20the\x20appropriate\x20topic\x20keys\n\n\n\n\x03\x04\x04\x01\x12\x03A\
+    \x08\x18\n+\n\x04\x04\x04\x03\0\x12\x04C\x04G\x05\x1a\x1d\x20A\x20single\
+    \x20decryption\x20request\n\n\x0c\n\x05\x04\x04\x03\0\x01\x12\x03C\x0c\
+    \x13\n\r\n\x06\x04\x04\x03\0\x02\0\x12\x03D\x085\n\x0e\n\x07\x04\x04\x03\
+    \0\x02\0\x06\x12\x03D\x08(\n\x0e\n\x07\x04\x04\x03\0\x02\0\x01\x12\x03D)\
+    0\n\x0e\n\x07\x04\x04\x03\0\x02\0\x03\x12\x03D34\n\r\n\x06\x04\x04\x03\0\
+    \x02\x01\x12\x03E\x08\x1f\n\x0e\n\x07\x04\x04\x03\0\x02\x01\x05\x12\x03E\
+    \x08\r\n\x0e\n\x07\x04\x04\x03\0\x02\x01\x01\x12\x03E\x0e\x1a\n\x0e\n\
+    \x07\x04\x04\x03\0\x02\x01\x03\x12\x03E\x1d\x1e\n\r\n\x06\x04\x04\x03\0\
+    \x02\x02\x12\x03F\x08!\n\x0e\n\x07\x04\x04\x03\0\x02\x02\x05\x12\x03F\
+    \x08\x0e\n\x0e\n\x07\x04\x04\x03\0\x02\x02\x01\x12\x03F\x0f\x1c\n\x0e\n\
+    \x07\x04\x04\x03\0\x02\x02\x03\x12\x03F\x1f\x20\n\x0b\n\x04\x04\x04\x02\
+    \0\x12\x03I\x04\"\n\x0c\n\x05\x04\x04\x02\0\x04\x12\x03I\x04\x0c\n\x0c\n\
+    \x05\x04\x04\x02\0\x06\x12\x03I\r\x14\n\x0c\n\x05\x04\x04\x02\0\x01\x12\
+    \x03I\x15\x1d\n\x0c\n\x05\x04\x04\x02\0\x03\x12\x03I\x20!\nB\n\x02\x04\
+    \x05\x12\x04M\0V\x01\x1a6\x20Encrypt\x20a\x20batch\x20of\x20messages\x20\
+    using\x20X3DH\x20key\x20agreement\n\n\n\n\x03\x04\x05\x01\x12\x03M\x08\
+    \x18\n+\n\x04\x04\x05\x03\0\x12\x04O\x04S\x05\x1a\x1d\x20A\x20single\x20\
+    encryption\x20request\n\n\x0c\n\x05\x04\x05\x03\0\x01\x12\x03O\x0c\x13\n\
+    \r\n\x06\x04\x05\x03\0\x02\0\x12\x03P\x08<\n\x0e\n\x07\x04\x05\x03\0\x02\
+    \0\x06\x12\x03P\x08-\n\x0e\n\x07\x04\x05\x03\0\x02\0\x01\x12\x03P.7\n\
+    \x0e\n\x07\x04\x05\x03\0\x02\0\x03\x12\x03P:;\n\r\n\x06\x04\x05\x03\0\
+    \x02\x01\x12\x03Q\x08\x1a\n\x0e\n\x07\x04\x05\x03\0\x02\x01\x05\x12\x03Q\
+    \x08\r\n\x0e\n\x07\x04\x05\x03\0\x02\x01\x01\x12\x03Q\x0e\x15\n\x0e\n\
+    \x07\x04\x05\x03\0\x02\x01\x03\x12\x03Q\x18\x19\n\r\n\x06\x04\x05\x03\0\
+    \x02\x02\x12\x03R\x08\x1f\n\x0e\n\x07\x04\x05\x03\0\x02\x02\x05\x12\x03R\
+    \x08\r\n\x0e\n\x07\x04\x05\x03\0\x02\x02\x01\x12\x03R\x0e\x1a\n\x0e\n\
+    \x07\x04\x05\x03\0\x02\x02\x03\x12\x03R\x1d\x1e\n\x0b\n\x04\x04\x05\x02\
+    \0\x12\x03U\x04\"\n\x0c\n\x05\x04\x05\x02\0\x04\x12\x03U\x04\x0c\n\x0c\n\
+    \x05\x04\x05\x02\0\x06\x12\x03U\r\x14\n\x0c\n\x05\x04\x05\x02\0\x01\x12\
+    \x03U\x15\x1d\n\x0c\n\x05\x04\x05\x02\0\x03\x12\x03U\x20!\nB\n\x02\x04\
+    \x06\x12\x04Y\0h\x01\x1a6\x20Response\x20type\x20for\x20both\x20V1\x20an\
+    d\x20V2\x20encryption\x20requests\n\n\n\n\x03\x04\x06\x01\x12\x03Y\x08\
+    \x17\n,\n\x04\x04\x06\x03\0\x12\x04[\x04e\x05\x1a\x1e\x20A\x20single\x20\
+    encryption\x20response\n\n\x0c\n\x05\x04\x06\x03\0\x01\x12\x03[\x0c\x14\
+    \n5\n\x06\x04\x06\x03\0\x03\0\x12\x04]\x08_\t\x1a%\x20Wrapper\x20object\
+    \x20for\x20success\x20response\n\n\x0e\n\x07\x04\x06\x03\0\x03\0\x01\x12\
+    \x03]\x10\x17\n\x0f\n\x08\x04\x06\x03\0\x03\0\x02\0\x12\x03^\x0c;\n\x10\
+    \n\t\x04\x06\x03\0\x03\0\x02\0\x06\x12\x03^\x0c,\n\x10\n\t\x04\x06\x03\0\
+    \x03\0\x02\0\x01\x12\x03^-6\n\x10\n\t\x04\x06\x03\0\x03\0\x02\0\x03\x12\
+    \x03^9:\n\x0e\n\x06\x04\x06\x03\0\x08\0\x12\x04a\x08d\t\n\x0e\n\x07\x04\
+    \x06\x03\0\x08\0\x01\x12\x03a\x0e\x16\n\r\n\x06\x04\x06\x03\0\x02\0\x12\
+    \x03b\x0c\x1f\n\x0e\n\x07\x04\x06\x03\0\x02\0\x06\x12\x03b\x0c\x13\n\x0e\
+    \n\x07\x04\x06\x03\0\x02\0\x01\x12\x03b\x14\x1a\n\x0e\n\x07\x04\x06\x03\
+    \0\x02\0\x03\x12\x03b\x1d\x1e\n\r\n\x06\x04\x06\x03\0\x02\x01\x12\x03c\
+    \x0c$\n\x0e\n\x07\x04\x06\x03\0\x02\x01\x06\x12\x03c\x0c\x19\n\x0e\n\x07\
+    \x04\x06\x03\0\x02\x01\x01\x12\x03c\x1a\x1f\n\x0e\n\x07\x04\x06\x03\0\
+    \x02\x01\x03\x12\x03c\"#\n\x0b\n\x04\x04\x06\x02\0\x12\x03g\x04$\n\x0c\n\
+    \x05\x04\x06\x02\0\x04\x12\x03g\x04\x0c\n\x0c\n\x05\x04\x06\x02\0\x06\
+    \x12\x03g\r\x15\n\x0c\n\x05\x04\x06\x02\0\x01\x12\x03g\x16\x1f\n\x0c\n\
+    \x05\x04\x06\x02\0\x03\x12\x03g\"#\nJ\n\x02\x04\x07\x12\x04k\0t\x01\x1a>\
+    \x20Encrypt\x20a\x20batch\x20of\x20messages\x20using\x20the\x20appropria\
+    te\x20topic\x20keys\n\n\n\n\x03\x04\x07\x01\x12\x03k\x08\x18\n+\n\x04\
+    \x04\x07\x03\0\x12\x04m\x04q\x05\x1a\x1d\x20A\x20single\x20encryption\
+    \x20request\n\n\x0c\n\x05\x04\x07\x03\0\x01\x12\x03m\x0c\x13\n\r\n\x06\
+    \x04\x07\x03\0\x02\0\x12\x03n\x08\x1a\n\x0e\n\x07\x04\x07\x03\0\x02\0\
+    \x05\x12\x03n\x08\r\n\x0e\n\x07\x04\x07\x03\0\x02\0\x01\x12\x03n\x0e\x15\
+    \n\x0e\n\x07\x04\x07\x03\0\x02\0\x03\x12\x03n\x18\x19\n\r\n\x06\x04\x07\
+    \x03\0\x02\x01\x12\x03o\x08\x1f\n\x0e\n\x07\x04\x07\x03\0\x02\x01\x05\
+    \x12\x03o\x08\r\n\x0e\n\x07\x04\x07\x03\0\x02\x01\x01\x12\x03o\x0e\x1a\n\
+    \x0e\n\x07\x04\x07\x03\0\x02\x01\x03\x12\x03o\x1d\x1e\n\r\n\x06\x04\x07\
+    \x03\0\x02\x02\x12\x03p\x08!\n\x0e\n\x07\x04\x07\x03\0\x02\x02\x05\x12\
+    \x03p\x08\x0e\n\x0e\n\x07\x04\x07\x03\0\x02\x02\x01\x12\x03p\x0f\x1c\n\
+    \x0e\n\x07\x04\x07\x03\0\x02\x02\x03\x12\x03p\x1f\x20\n\x0b\n\x04\x04\
+    \x07\x02\0\x12\x03s\x04\"\n\x0c\n\x05\x04\x07\x02\0\x04\x12\x03s\x04\x0c\
+    \n\x0c\n\x05\x04\x07\x02\0\x06\x12\x03s\r\x14\n\x0c\n\x05\x04\x07\x02\0\
+    \x01\x12\x03s\x15\x1d\n\x0c\n\x05\x04\x07\x02\0\x03\x12\x03s\x20!\n[\n\
+    \x02\x04\x08\x12\x04w\0{\x01\x1aO\x20Request\x20to\x20create\x20an\x20in\
+    vite\x20payload,\x20and\x20store\x20the\x20topic\x20keys\x20in\x20the\
+    \x20Keystore\n\n\n\n\x03\x04\x08\x01\x12\x03w\x08\x1b\n\x0b\n\x04\x04\
+    \x08\x02\0\x12\x03x\x04;\n\x0c\n\x05\x04\x08\x02\0\x06\x12\x03x\x04.\n\
+    \x0c\n\x05\x04\x08\x02\0\x01\x12\x03x/6\n\x0c\n\x05\x04\x08\x02\0\x03\
+    \x12\x03x9:\n\x0b\n\x04\x04\x08\x02\x01\x12\x03y\x04>\n\x0c\n\x05\x04\
+    \x08\x02\x01\x06\x12\x03y\x04/\n\x0c\n\x05\x04\x08\x02\x01\x01\x12\x03y0\
+    9\n\x0c\n\x05\x04\x08\x02\x01\x03\x12\x03y<=\n\x0b\n\x04\x04\x08\x02\x02\
+    \x12\x03z\x04\x1a\n\x0c\n\x05\x04\x08\x02\x02\x05\x12\x03z\x04\n\n\x0c\n\
+    \x05\x04\x08\x02\x02\x01\x12\x03z\x0b\x15\n\x0c\n\x05\x04\x08\x02\x02\
+    \x03\x12\x03z\x18\x19\n0\n\x02\x04\t\x12\x05~\0\x81\x01\x01\x1a#\x20Resp\
+    onse\x20to\x20a\x20CreateInviteRequest\n\n\n\n\x03\x04\t\x01\x12\x03~\
+    \x08\x1c\n\x0b\n\x04\x04\t\x02\0\x12\x03\x7f\x04+\n\x0c\n\x05\x04\t\x02\
+    \0\x06\x12\x03\x7f\x04\x19\n\x0c\n\x05\x04\t\x02\0\x01\x12\x03\x7f\x1a&\
+    \n\x0c\n\x05\x04\t\x02\0\x03\x12\x03\x7f)*\n\x0c\n\x04\x04\t\x02\x01\x12\
+    \x04\x80\x01\x04\x16\n\r\n\x05\x04\t\x02\x01\x05\x12\x04\x80\x01\x04\t\n\
+    \r\n\x05\x04\t\x02\x01\x01\x12\x04\x80\x01\n\x11\n\r\n\x05\x04\t\x02\x01\
+    \x03\x12\x04\x80\x01\x14\x15\nJ\n\x02\x04\n\x12\x06\x84\x01\0\x8d\x01\
+    \x01\x1a<\x20Request\x20to\x20save\x20a\x20batch\x20of\x20invite\x20mess\
+    ages\x20to\x20the\x20Keystore\n\n\x0b\n\x03\x04\n\x01\x12\x04\x84\x01\
+    \x08\x1a\n.\n\x04\x04\n\x03\0\x12\x06\x86\x01\x04\x8a\x01\x05\x1a\x1e\
+    \x20Mirrors\x20xmtp.envelope\x20schema\n\n\r\n\x05\x04\n\x03\0\x01\x12\
+    \x04\x86\x01\x0c\x13\n\x0e\n\x06\x04\n\x03\0\x02\0\x12\x04\x87\x01\x08!\
+    \n\x0f\n\x07\x04\n\x03\0\x02\0\x05\x12\x04\x87\x01\x08\x0e\n\x0f\n\x07\
+    \x04\n\x03\0\x02\0\x01\x12\x04\x87\x01\x0f\x1c\n\x0f\n\x07\x04\n\x03\0\
+    \x02\0\x03\x12\x04\x87\x01\x1f\x20\n\x0e\n\x06\x04\n\x03\0\x02\x01\x12\
+    \x04\x88\x01\x08\x20\n\x0f\n\x07\x04\n\x03\0\x02\x01\x05\x12\x04\x88\x01\
+    \x08\x0e\n\x0f\n\x07\x04\n\x03\0\x02\x01\x01\x12\x04\x88\x01\x0f\x1b\n\
+    \x0f\n\x07\x04\n\x03\0\x02\x01\x03\x12\x04\x88\x01\x1e\x1f\n\x0e\n\x06\
+    \x04\n\x03\0\x02\x02\x12\x04\x89\x01\x08\x1a\n\x0f\n\x07\x04\n\x03\0\x02\
+    \x02\x05\x12\x04\x89\x01\x08\r\n\x0f\n\x07\x04\n\x03\0\x02\x02\x01\x12\
+    \x04\x89\x01\x0e\x15\n\x0f\n\x07\x04\n\x03\0\x02\x02\x03\x12\x04\x89\x01\
+    \x18\x19\n\x0c\n\x04\x04\n\x02\0\x12\x04\x8c\x01\x04\"\n\r\n\x05\x04\n\
+    \x02\0\x04\x12\x04\x8c\x01\x04\x0c\n\r\n\x05\x04\n\x02\0\x06\x12\x04\x8c\
+    \x01\r\x14\n\r\n\x05\x04\n\x02\0\x01\x12\x04\x8c\x01\x15\x1d\n\r\n\x05\
+    \x04\n\x02\0\x03\x12\x04\x8c\x01\x20!\n0\n\x02\x04\x0b\x12\x06\x90\x01\0\
+    \x9f\x01\x01\x1a\"\x20Response\x20to\x20a\x20SaveInvitesRequest\n\n\x0b\
+    \n\x03\x04\x0b\x01\x12\x04\x90\x01\x08\x1b\n#\n\x04\x04\x0b\x03\0\x12\
+    \x06\x92\x01\x04\x9c\x01\x05\x1a\x13\x20A\x20single\x20response\n\n\r\n\
+    \x05\x04\x0b\x03\0\x01\x12\x04\x92\x01\x0c\x14\n7\n\x06\x04\x0b\x03\0\
+    \x03\0\x12\x06\x94\x01\x08\x96\x01\t\x1a%\x20Wrapper\x20object\x20for\
+    \x20success\x20response\n\n\x0f\n\x07\x04\x0b\x03\0\x03\0\x01\x12\x04\
+    \x94\x01\x10\x17\n\x10\n\x08\x04\x0b\x03\0\x03\0\x02\0\x12\x04\x95\x01\
+    \x0c3\n\x11\n\t\x04\x0b\x03\0\x03\0\x02\0\x06\x12\x04\x95\x01\x0c!\n\x11\
+    \n\t\x04\x0b\x03\0\x03\0\x02\0\x01\x12\x04\x95\x01\".\n\x11\n\t\x04\x0b\
+    \x03\0\x03\0\x02\0\x03\x12\x04\x95\x0112\n\x10\n\x06\x04\x0b\x03\0\x08\0\
+    \x12\x06\x98\x01\x08\x9b\x01\t\n\x0f\n\x07\x04\x0b\x03\0\x08\0\x01\x12\
+    \x04\x98\x01\x0e\x16\n\x0e\n\x06\x04\x0b\x03\0\x02\0\x12\x04\x99\x01\x0c\
+    \x1f\n\x0f\n\x07\x04\x0b\x03\0\x02\0\x06\x12\x04\x99\x01\x0c\x13\n\x0f\n\
+    \x07\x04\x0b\x03\0\x02\0\x01\x12\x04\x99\x01\x14\x1a\n\x0f\n\x07\x04\x0b\
+    \x03\0\x02\0\x03\x12\x04\x99\x01\x1d\x1e\n\x0e\n\x06\x04\x0b\x03\0\x02\
+    \x01\x12\x04\x9a\x01\x0c$\n\x0f\n\x07\x04\x0b\x03\0\x02\x01\x06\x12\x04\
+    \x9a\x01\x0c\x19\n\x0f\n\x07\x04\x0b\x03\0\x02\x01\x01\x12\x04\x9a\x01\
+    \x1a\x1f\n\x0f\n\x07\x04\x0b\x03\0\x02\x01\x03\x12\x04\x9a\x01\"#\n\x0c\
+    \n\x04\x04\x0b\x02\0\x12\x04\x9e\x01\x04$\n\r\n\x05\x04\x0b\x02\0\x04\
+    \x12\x04\x9e\x01\x04\x0c\n\r\n\x05\x04\x0b\x02\0\x06\x12\x04\x9e\x01\r\
+    \x15\n\r\n\x05\x04\x0b\x02\0\x01\x12\x04\x9e\x01\x16\x1f\n\r\n\x05\x04\
+    \x0b\x02\0\x03\x12\x04\x9e\x01\"#\nW\n\x02\x04\x0c\x12\x06\xa2\x01\0\xa4\
+    \x01\x01\x1aI\x20CreateAuthTokenRequest\x20is\x20used\x20to\x20create\
+    \x20an\x20auth\x20token\x20for\x20the\x20XMTP\x20API\n\n\x0b\n\x03\x04\
+    \x0c\x01\x12\x04\xa2\x01\x08\x1e\n\x0c\n\x04\x04\x0c\x02\0\x12\x04\xa3\
+    \x01\x04%\n\r\n\x05\x04\x0c\x02\0\x04\x12\x04\xa3\x01\x04\x0c\n\r\n\x05\
+    \x04\x0c\x02\0\x05\x12\x04\xa3\x01\r\x13\n\r\n\x05\x04\x0c\x02\0\x01\x12\
+    \x04\xa3\x01\x14\x20\n\r\n\x05\x04\x0c\x02\0\x03\x12\x04\xa3\x01#$\nd\n\
+    \x02\x04\r\x12\x06\xa8\x01\0\xae\x01\x01\x1aV\x20SignDigestRequest\x20is\
+    \x20used\x20to\x20sign\x20a\x20digest\x20with\x20either\x20the\x20identi\
+    ty\x20key\n\x20or\x20a\x20prekey\n\n\x0b\n\x03\x04\r\x01\x12\x04\xa8\x01\
+    \x08\x19\n\x0c\n\x04\x04\r\x02\0\x12\x04\xa9\x01\x04\x15\n\r\n\x05\x04\r\
+    \x02\0\x05\x12\x04\xa9\x01\x04\t\n\r\n\x05\x04\r\x02\0\x01\x12\x04\xa9\
+    \x01\n\x10\n\r\n\x05\x04\r\x02\0\x03\x12\x04\xa9\x01\x13\x14\n\x0e\n\x04\
+    \x04\r\x08\0\x12\x06\xaa\x01\x04\xad\x01\x05\n\r\n\x05\x04\r\x08\0\x01\
+    \x12\x04\xaa\x01\n\x10\n\x0c\n\x04\x04\r\x02\x01\x12\x04\xab\x01\x08\x1e\
+    \n\r\n\x05\x04\r\x02\x01\x05\x12\x04\xab\x01\x08\x0c\n\r\n\x05\x04\r\x02\
+    \x01\x01\x12\x04\xab\x01\r\x19\n\r\n\x05\x04\r\x02\x01\x03\x12\x04\xab\
+    \x01\x1c\x1d\n\x0c\n\x04\x04\r\x02\x02\x12\x04\xac\x01\x08\x20\n\r\n\x05\
+    \x04\r\x02\x02\x05\x12\x04\xac\x01\x08\x0e\n\r\n\x05\x04\r\x02\x02\x01\
+    \x12\x04\xac\x01\x0f\x1b\n\r\n\x05\x04\r\x02\x02\x03\x12\x04\xac\x01\x1e\
+    \x1f\nB\n\x02\x04\x0e\x12\x06\xb1\x01\0\xb9\x01\x01\x1a4\x20A\x20mapping\
+    \x20of\x20topics\x20to\x20their\x20decrypted\x20invitations\n\n\x0b\n\
+    \x03\x04\x0e\x01\x12\x04\xb1\x01\x08\x10\nQ\n\x04\x04\x0e\x03\0\x12\x06\
+    \xb3\x01\x04\xb7\x01\x05\x1aA\x20TopicData\x20wraps\x20the\x20invitation\
+    \x20and\x20the\x20timestamp\x20it\x20was\x20created\n\n\r\n\x05\x04\x0e\
+    \x03\0\x01\x12\x04\xb3\x01\x0c\x15\n\x0e\n\x06\x04\x0e\x03\0\x02\0\x12\
+    \x04\xb4\x01\x08\x1e\n\x0f\n\x07\x04\x0e\x03\0\x02\0\x05\x12\x04\xb4\x01\
+    \x08\x0e\n\x0f\n\x07\x04\x0e\x03\0\x02\0\x01\x12\x04\xb4\x01\x0f\x19\n\
+    \x0f\n\x07\x04\x0e\x03\0\x02\0\x03\x12\x04\xb4\x01\x1c\x1d\n\x0e\n\x06\
+    \x04\x0e\x03\0\x02\x01\x12\x04\xb5\x01\x08\x20\n\x0f\n\x07\x04\x0e\x03\0\
+    \x02\x01\x05\x12\x04\xb5\x01\x08\x0e\n\x0f\n\x07\x04\x0e\x03\0\x02\x01\
+    \x01\x12\x04\xb5\x01\x0f\x1b\n\x0f\n\x07\x04\x0e\x03\0\x02\x01\x03\x12\
+    \x04\xb5\x01\x1e\x1f\n\x0e\n\x06\x04\x0e\x03\0\x02\x02\x12\x04\xb6\x01\
+    \x08:\n\x0f\n\x07\x04\x0e\x03\0\x02\x02\x06\x12\x04\xb6\x01\x08*\n\x0f\n\
+    \x07\x04\x0e\x03\0\x02\x02\x01\x12\x04\xb6\x01+5\n\x0f\n\x07\x04\x0e\x03\
+    \0\x02\x02\x03\x12\x04\xb6\x0189\n\x0c\n\x04\x04\x0e\x02\0\x12\x04\xb8\
+    \x01\x04&\n\r\n\x05\x04\x0e\x02\0\x06\x12\x04\xb8\x01\x04\x1a\n\r\n\x05\
+    \x04\x0e\x02\0\x01\x12\x04\xb8\x01\x1b!\n\r\n\x05\x04\x0e\x02\0\x03\x12\
+    \x04\xb8\x01$%b\x06proto3\
 ";
 
 /// `FileDescriptorProto` object which was a source for this generated file
@@ -4007,7 +4759,7 @@ pub fn file_descriptor() -> &'static ::protobuf::reflect::FileDescriptor {
             deps.push(super::ciphertext::file_descriptor().clone());
             deps.push(super::invitation::file_descriptor().clone());
             deps.push(super::public_key::file_descriptor().clone());
-            let mut messages = ::std::vec::Vec::with_capacity(23);
+            let mut messages = ::std::vec::Vec::with_capacity(27);
             messages.push(KeystoreError::generated_message_descriptor_data());
             messages.push(ConversationReference::generated_message_descriptor_data());
             messages.push(DecryptV1Request::generated_message_descriptor_data());
@@ -4020,6 +4772,9 @@ pub fn file_descriptor() -> &'static ::protobuf::reflect::FileDescriptor {
             messages.push(CreateInviteResponse::generated_message_descriptor_data());
             messages.push(SaveInvitesRequest::generated_message_descriptor_data());
             messages.push(SaveInvitesResponse::generated_message_descriptor_data());
+            messages.push(CreateAuthTokenRequest::generated_message_descriptor_data());
+            messages.push(SignDigestRequest::generated_message_descriptor_data());
+            messages.push(TopicMap::generated_message_descriptor_data());
             messages.push(decrypt_v1request::Request::generated_message_descriptor_data());
             messages.push(decrypt_response::Response::generated_message_descriptor_data());
             messages.push(decrypt_response::response::Success::generated_message_descriptor_data());
@@ -4031,6 +4786,7 @@ pub fn file_descriptor() -> &'static ::protobuf::reflect::FileDescriptor {
             messages.push(save_invites_request::Request::generated_message_descriptor_data());
             messages.push(save_invites_response::Response::generated_message_descriptor_data());
             messages.push(save_invites_response::response::Success::generated_message_descriptor_data());
+            messages.push(topic_map::TopicData::generated_message_descriptor_data());
             let mut enums = ::std::vec::Vec::with_capacity(1);
             enums.push(ErrorCode::generated_enum_descriptor_data());
             ::protobuf::reflect::GeneratedFileDescriptor::new_generated(
