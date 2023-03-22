@@ -190,7 +190,7 @@ fn test_xmtp_x3dh_simple() {
         &general_purpose::STANDARD.decode(my_pre_key_public).unwrap(),
     )
     .unwrap();
-    let pre_key_object = public_key::signed_public_key_from_proto(&pre_key_proto).unwrap();
+    let pre_key_object = public_key::signed_public_key_from_proto_v2(&pre_key_proto).unwrap();
 
     // Do a x3dh shared secret derivation
     let shared_secret_result = x
@@ -308,4 +308,35 @@ fn test_encrypt_v1_with_invalid_params() {
     // Assert response.responses length == 1
     let encrypt_response: proto::keystore::EncryptResponse = encrypt_response_result.unwrap();
     assert_eq!(1, encrypt_response.responses.len());
+}
+
+#[test]
+fn test_improperly_signed_invitation_bundle() {
+    // Generated with xmtp-js with purposefully corrupted prekey signature (signed by identity key)
+    let bad_signature_invite = "CqkGCuwECq4CCpQBCkwIt+aw3+4wGkMKQQSc47OuPBPQMNol5NUCrpy1inCKQS1ry66zVR11UwXqIyVwEjrm8VuSM4hRRNH5slLblPmZTnDleALK+99aixqcEkQSQgpAAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBARKUAQpMCNnmsN/uMBpDCkEE6QYe7hp+IBXC/oACO/C9++Rn4Ol6YxjgAK00NmW57/H8jZVRmcPh2TFlleFbMKN2FxnJthqAMNdDkv4ktMhaOhJECkIKQAEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQESrgIKlAEKTAjc4rDf7jAaQwpBBDUbfgjAxUsZRIEOsGZmGWKRXY5VzyTxegkQjFeC8cyVgYRMufGR+D/c4E9qRt8HdArAD0xf1uC550xAG/BObRsSRBJCCkABAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBEpQBCkwI/+Kw3+4wGkMKQQRTNuW91ORxLVUWKDP+drhol29sG/OSiueFb92VtI2DxxTghUnAXHaYWCg9V2G3g+LBCfZQagbexHL26GdaUeWIEkQKQgpAAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBARiA/oDxzqy/phcStwEKtAEKIJHQ3HtVq7HAbHBlInwOf4t7aA2JBtgzsm8lBXCNRoD6EgzDBTN3lMBts6IQCo0agQEc9Cx/E+eOCovJqp+7rlKOQRb9i7GOF4QbPkCq01D3xG7uq2L6aSc9M68Ui69+/7UPkR1ulx3PaF73S4nvY3bnsP/0xE37R5X3qQcjSyZu7FKl+NQQPBtloo9N/2EvwIybPpsENDHdD1hubtjkmJtusnqrc5vBcrXfMWRp6Dmm5EQ=";
+    let encoded_sender_private_key_bundle_v2 = "EpADCsUBCMD354POrL+mFxIiCiB45wFPgSv3qwPTD87GqdAY/ut22wwyww+ywPfTdgRtixqUAQpMCLfmsN/uMBpDCkEEnOOzrjwT0DDaJeTVAq6ctYpwikEta8uus1UddVMF6iMlcBI65vFbkjOIUUTR+bJS25T5mU5w5XgCyvvfWosanBJEEkIKQAEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQESxQEIwJCDlM6sv6YXEiIKIKQPXVPigQFcnP4VfsTu6oUg8ClJiRWbz1qJMM4MAQ+2GpQBCkwI2eaw3+4wGkMKQQTpBh7uGn4gFcL+gAI78L375Gfg6XpjGOAArTQ2Zbnv8fyNlVGZw+HZMWWV4Vswo3YXGcm2GoAw10OS/iS0yFo6EkQKQgpAAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQ==";
+
+    // Create a keystore, then save Alice's private key bundle
+    let mut x = Keystore::new();
+    let set_private_result = x.set_private_key_bundle(
+        &general_purpose::STANDARD
+            .decode(encoded_sender_private_key_bundle_v2.as_bytes())
+            .unwrap(),
+    );
+    assert!(set_private_result.is_ok());
+
+    // Save the tampered invite
+    let save_invite_result = x.save_invitation(
+        &general_purpose::STANDARD
+            .decode(bad_signature_invite.as_bytes())
+            .unwrap(),
+    );
+    // Should throw an error because preKey <-> identityKey signature is checked by
+    // shared secret derivation
+    assert!(save_invite_result.is_err());
+    // Assert the error text contains "signature"
+    assert!(save_invite_result
+        .unwrap_err()
+        .to_string()
+        .contains("signature"));
 }

@@ -1,5 +1,4 @@
-use super::proto;
-use super::topic::Topic;
+use crate::{proto, topic::Topic};
 
 use base64::{engine::general_purpose, Engine as _};
 use protobuf::{Message, MessageField};

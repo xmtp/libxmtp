@@ -6,10 +6,11 @@ use k256::{
 };
 use sha3::{Digest, Keccak256};
 
-use super::super::ecdh::{ECDHDerivable, ECDHKey};
-use super::super::ethereum_utils::{EthereumCompatibleKey, EthereumUtils};
+use crate::ethereum_utils::{EthereumCompatibleKey, EthereumUtils};
+use crate::keys::public_key;
+use crate::traits::{BridgeSignableVersion, ECDHDerivable, ECDHKey};
 
-use super::super::proto;
+use crate::proto;
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct PrivateKey {
@@ -51,7 +52,7 @@ pub struct SignedPrivateKey {
 
     pub private_key: SecretKey,
     // (STOPSHIP) TODO: needs to be a signed PublicKey
-    pub public_key: PublicKey,
+    pub public_key: public_key::SignedPublicKey,
 }
 
 impl SignedPrivateKey {
@@ -72,12 +73,17 @@ impl SignedPrivateKey {
             return Err(secret_key_result.err().unwrap().to_string());
         }
         let secret_key = secret_key_result.unwrap();
-        let public_key = secret_key.public_key().clone();
+        // If .public_key is not present, then return error
+        if proto.public_key.is_none() {
+            return Err("SignedPrivateKey does not have public_key".to_string());
+        }
+        let signed_public_key =
+            public_key::signed_public_key_from_proto_v2(proto.public_key.as_ref().unwrap())?;
 
         return Ok(SignedPrivateKey {
             proto: proto.clone(),
             private_key: secret_key,
-            public_key: public_key,
+            public_key: signed_public_key,
         });
     }
 
@@ -92,7 +98,7 @@ impl SignedPrivateKey {
 
     pub fn eth_address(&self) -> Result<String, String> {
         // Get the public key bytes
-        let binding = self.public_key.to_encoded_point(false);
+        let binding = self.public_key.get_public_key().to_encoded_point(false);
         let public_key_bytes = binding.as_bytes();
         // Return the result as hex string, take the last 20 bytes
         // Need to remove the 04 prefix for uncompressed point representation
@@ -182,7 +188,7 @@ impl SignedPrivateKey {
         let signature = signature_result.unwrap();
 
         // Verifying key from self.public_key
-        let verifying_key = VerifyingKey::from(&self.public_key);
+        let verifying_key = VerifyingKey::from(&self.public_key.to_unsigned());
         // Verify signature
         let verify_result = verifying_key.verify(message, &signature);
         // Check verify_result
@@ -217,13 +223,13 @@ fn diffie_hellman(secret_key: &SecretKey, public_key: &PublicKey) -> Result<Vec<
 }
 
 impl ECDHDerivable for PrivateKey {
-    fn shared_secret(&self, other_key: &dyn ECDHKey) -> Result<Vec<u8>, String> {
+    fn shared_secret(&self, other_key: &impl ECDHKey) -> Result<Vec<u8>, String> {
         diffie_hellman(&self.private_key, &other_key.get_public_key())
     }
 }
 
 impl ECDHDerivable for SignedPrivateKey {
-    fn shared_secret(&self, other_key: &dyn ECDHKey) -> Result<Vec<u8>, String> {
+    fn shared_secret(&self, other_key: &impl ECDHKey) -> Result<Vec<u8>, String> {
         diffie_hellman(&self.private_key, &other_key.get_public_key())
     }
 }
@@ -266,5 +272,33 @@ impl EthereumCompatibleKey for PublicKey {
         let eth_address =
             EthereumUtils::get_ethereum_address_from_public_key_bytes(&public_key_bytes[1..]);
         return eth_address;
+    }
+}
+
+impl BridgeSignableVersion<PrivateKey, SignedPrivateKey> for PrivateKey {
+    fn to_signed(&self) -> SignedPrivateKey {
+        SignedPrivateKey {
+            proto: proto::private_key::SignedPrivateKey::new(),
+            private_key: self.private_key.clone(),
+            public_key: self.public_key.to_signed(),
+        }
+    }
+
+    fn to_unsigned(&self) -> PrivateKey {
+        self.clone()
+    }
+}
+
+impl BridgeSignableVersion<PrivateKey, SignedPrivateKey> for SignedPrivateKey {
+    fn to_signed(&self) -> SignedPrivateKey {
+        self.clone()
+    }
+
+    fn to_unsigned(&self) -> PrivateKey {
+        PrivateKey {
+            proto: proto::private_key::PrivateKey::new(),
+            private_key: self.private_key.clone(),
+            public_key: self.public_key.to_unsigned(),
+        }
     }
 }

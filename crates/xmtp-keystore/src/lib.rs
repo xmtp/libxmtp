@@ -6,12 +6,12 @@ use protobuf;
 use protobuf::{Message, MessageField};
 
 mod conversation;
-mod ecdh;
 mod encryption;
 mod ethereum_utils;
 mod invitation;
 mod keys;
 mod proto;
+mod signature;
 mod topic;
 mod traits;
 use invitation::InvitationV1;
@@ -465,7 +465,10 @@ impl Keystore {
             .unwrap()
             .unseal_invitation(&invitation, &invitation_header);
         if decrypt_result.is_err() {
-            return Err("could not decrypt invitation".to_string());
+            return Err(format!(
+                "could not decrypt invitation: {}",
+                decrypt_result.err().unwrap()
+            ));
         }
         // Get the decrypted invitation from the result
         let decrypted_invitation = decrypt_result.unwrap();

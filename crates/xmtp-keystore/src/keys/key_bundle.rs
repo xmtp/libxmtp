@@ -2,16 +2,18 @@ use k256::elliptic_curve::sec1::ToEncodedPoint;
 use k256::PublicKey;
 use sha3::{Digest, Keccak256};
 
-use super::super::{
-    ecdh, encryption,
+use crate::keys::{private_key::SignedPrivateKey, public_key};
+use crate::{
+    encryption,
     ethereum_utils::{EthereumCompatibleKey, EthereumUtils},
     proto,
+    public_key::SignedPublicKey,
 };
-use super::private_key::SignedPrivateKey;
-use super::public_key;
 
-use crate::ecdh::ECDHDerivable;
-use crate::traits::{Buffable, WalletAssociated};
+use crate::traits::{
+    BridgeSignableVersion, Buffable, ECDHDerivable, Sha256SignatureVerifier, SignedECDHKey,
+    VerifiablePublicKeyBundle, WalletAssociated,
+};
 
 use protobuf::Message;
 
@@ -96,7 +98,7 @@ impl PrivateKeyBundle {
 
     pub fn find_pre_key(&self, my_pre_key: PublicKey) -> Option<SignedPrivateKey> {
         for pre_key in self.pre_keys.iter() {
-            if pre_key.public_key == my_pre_key {
+            if pre_key.public_key.to_unsigned() == my_pre_key {
                 return Some(pre_key.clone());
             }
         }
@@ -104,17 +106,17 @@ impl PrivateKeyBundle {
     }
 
     pub fn public_key_bundle(&self) -> PublicKeyBundle {
-        let identity_key = self.identity_key.public_key;
+        let identity_key = &self.identity_key.public_key;
         let pre_keys = self
             .pre_keys
             .iter()
-            .map(|pre_key| pre_key.public_key)
+            .map(|pre_key| pre_key.public_key.clone())
             .collect::<Vec<_>>();
 
         return PublicKeyBundle {
             public_key_bundle_proto: proto::public_key::PublicKeyBundle::new(),
-            identity_key: Some(identity_key),
-            pre_key: Some(pre_keys[0]),
+            identity_key: Some(identity_key.to_unsigned()),
+            pre_key: Some(pre_keys[0].to_unsigned()),
         };
     }
 
@@ -160,38 +162,61 @@ impl PrivateKeyBundle {
         return SignedPublicKeyBundle {
             signed_public_key_bundle_proto: signed_public_key_bundle_proto,
             identity_key: self.identity_key.public_key.clone(),
-            pre_key: pre_keys[0],
+            pre_key: pre_keys[0].clone(),
         };
     }
 
     // XMTP X3DH-like scheme for invitation decryption
     pub fn derive_shared_secret_xmtp(
         &self,
-        peer_bundle: &SignedPublicKeyBundle,
-        my_prekey: &dyn ecdh::ECDHKey,
+        peer_bundle: &impl VerifiablePublicKeyBundle<SignedPublicKey, SignedPublicKey>,
+        my_prekey: &impl SignedECDHKey,
         is_recipient: bool,
     ) -> Result<Vec<u8>, String> {
+        let dh1: Vec<u8>;
+        let dh2: Vec<u8>;
+
+        // Check bundle binding on peer_bundle
+        match peer_bundle.verify_bundle_binding() {
+            Ok(_) => {}
+            Err(e) => {
+                return Err(format!("could not verify bundle binding: {}", e));
+            }
+        }
+
         let pre_key = self
             .find_pre_key(my_prekey.get_public_key())
             .ok_or("could not find prekey in private key bundle".to_string())?;
-        let dh1: Vec<u8>;
-        let dh2: Vec<u8>;
+
+        // TODO: Check prekey signed by identity key
+        // Get validation signature from my_prekey
+        let prekey_signature = my_prekey
+            .get_signature()
+            .ok_or("prekey has no signature".to_string())?;
+
+        // TODO: move the creation of prekey digest to a different function
+        // Use my identity public key to validate the signature
+
         // (STOPSHIP) TODO: better error handling
         // Get the private key bundle
         if is_recipient {
-            dh1 = pre_key.shared_secret(&peer_bundle.identity_key).unwrap();
+            dh1 = pre_key
+                .shared_secret(&peer_bundle.get_identity_key())
+                .unwrap();
             dh2 = self
                 .identity_key
-                .shared_secret(&peer_bundle.pre_key)
+                .shared_secret(&peer_bundle.get_prekey())
                 .unwrap();
         } else {
             dh1 = self
                 .identity_key
-                .shared_secret(&peer_bundle.pre_key)
+                .shared_secret(&peer_bundle.get_prekey())
                 .unwrap();
-            dh2 = pre_key.shared_secret(&peer_bundle.identity_key).unwrap();
+            dh2 = pre_key
+                .shared_secret(&peer_bundle.get_identity_key())
+                .unwrap();
         }
-        let dh3 = pre_key.shared_secret(&peer_bundle.pre_key).unwrap();
+        let dh3 = pre_key.shared_secret(&peer_bundle.get_prekey()).unwrap();
         let secret = [dh1, dh2, dh3].concat();
         return Ok(secret);
     }
@@ -217,7 +242,10 @@ impl PrivateKeyBundle {
                 false,
             );
             if secret_result.is_err() {
-                return Err("could not derive shared secret".to_string());
+                return Err(format!(
+                    "could not derive shared secret: {}",
+                    secret_result.err().unwrap()
+                ));
             }
             secret = secret_result.unwrap();
         } else {
@@ -227,7 +255,10 @@ impl PrivateKeyBundle {
                 true,
             );
             if secret_result.is_err() {
-                return Err("could not derive shared secret".to_string());
+                return Err(format!(
+                    "could not derive shared secret: {}",
+                    secret_result.err().unwrap()
+                ));
             }
             secret = secret_result.unwrap();
         }
@@ -248,7 +279,10 @@ impl PrivateKeyBundle {
             Some(&sealed_invitation.header_bytes),
         );
         if decrypt_result.is_err() {
-            return Err("could not decrypt invitation".to_string());
+            return Err(format!(
+                "could not decrypt invitation with error: {:?}",
+                decrypt_result.err()
+            ));
         }
         let decrypted_bytes = decrypt_result.unwrap();
 
@@ -405,8 +439,8 @@ impl PublicKeyBundle {
     pub fn to_fake_signed_public_key_bundle(&self) -> SignedPublicKeyBundle {
         return SignedPublicKeyBundle {
             signed_public_key_bundle_proto: proto::public_key::SignedPublicKeyBundle::new(),
-            identity_key: self.identity_key.clone().unwrap(),
-            pre_key: self.pre_key.clone().unwrap(),
+            identity_key: self.identity_key.as_ref().unwrap().to_signed(),
+            pre_key: self.pre_key.as_ref().unwrap().to_signed(),
         };
     }
 }
@@ -415,9 +449,8 @@ pub struct SignedPublicKeyBundle {
     // Underlying protos
     signed_public_key_bundle_proto: proto::public_key::SignedPublicKeyBundle,
 
-    pub identity_key: PublicKey,
-    pub pre_key: PublicKey,
-    // TODO: keep signature information
+    pub identity_key: public_key::SignedPublicKey,
+    pub pre_key: public_key::SignedPublicKey,
 }
 
 impl SignedPublicKeyBundle {
@@ -430,7 +463,7 @@ impl SignedPublicKeyBundle {
         }
 
         // Derive public key from SignedPublicKey
-        let identity_key_result = public_key::signed_public_key_from_proto(
+        let identity_key_result = public_key::signed_public_key_from_proto_v2(
             signed_public_key_bundle.identity_key.as_ref().unwrap(),
         );
         if identity_key_result.is_err() {
@@ -442,7 +475,7 @@ impl SignedPublicKeyBundle {
         if signed_public_key_bundle.pre_key.is_none() {
             return Err("No pre key found".to_string());
         }
-        let pre_key_result = public_key::signed_public_key_from_proto(
+        let pre_key_result = public_key::signed_public_key_from_proto_v2(
             signed_public_key_bundle.pre_key.as_ref().unwrap(),
         );
         if pre_key_result.is_err() {
@@ -483,7 +516,7 @@ impl Buffable for SignedPublicKeyBundle {
         }
 
         // Derive public key from SignedPublicKey
-        let identity_key_result = public_key::signed_public_key_from_proto(
+        let identity_key_result = public_key::signed_public_key_from_proto_v2(
             signed_public_key_bundle.identity_key.as_ref().unwrap(),
         );
         if identity_key_result.is_err() {
@@ -495,7 +528,7 @@ impl Buffable for SignedPublicKeyBundle {
         if signed_public_key_bundle.pre_key.is_none() {
             return Err("No pre key found".to_string());
         }
-        let pre_key_result = public_key::signed_public_key_from_proto(
+        let pre_key_result = public_key::signed_public_key_from_proto_v2(
             signed_public_key_bundle.pre_key.as_ref().unwrap(),
         );
         if pre_key_result.is_err() {
@@ -507,7 +540,6 @@ impl Buffable for SignedPublicKeyBundle {
             identity_key: identity_key,
             pre_key: pre_key,
         });
-        return SignedPublicKeyBundle::from_proto(&signed_public_key_bundle_proto.unwrap());
     }
 }
 
@@ -542,5 +574,43 @@ impl WalletAssociated for SignedPublicKeyBundle {
 impl PartialEq for SignedPublicKeyBundle {
     fn eq(&self, other: &Self) -> bool {
         self.identity_key == other.identity_key && self.pre_key == other.pre_key
+    }
+}
+
+impl VerifiablePublicKeyBundle<SignedPublicKey, SignedPublicKey> for SignedPublicKeyBundle {
+    fn get_identity_key(&self) -> SignedPublicKey {
+        self.identity_key.clone()
+    }
+
+    fn get_prekey(&self) -> SignedPublicKey {
+        self.pre_key.clone()
+    }
+
+    fn verify_bundle_binding(&self) -> Result<(), String> {
+        // Get the identity key and the pre key
+        let identity_key = self.get_identity_key();
+        let pre_key = self.get_prekey();
+
+        // Get signed bytes from pre_key
+        let pre_key_signed_bytes = pre_key.signed_bytes;
+
+        // Parse the pre_key_signed_bytes into a PublicKey and check == pre_key
+        let pre_key_from_signed_bytes =
+            PublicKey::from_proto_bytes(pre_key_signed_bytes.as_slice())?;
+        if pre_key_from_signed_bytes != pre_key.public_key {
+            return Err("Pre key does not match signed bytes".to_string());
+        }
+
+        // Check the signature with the identity_key
+        let identity_key_public_key = identity_key.public_key;
+
+        let verify_result = identity_key_public_key.verify_sha256_signature(
+            pre_key_signed_bytes.as_slice(),
+            &pre_key.signature.signature_bytes,
+        )?;
+        if !verify_result {
+            return Err("Pre key signature does not match identity key".to_string());
+        }
+        return Ok(());
     }
 }

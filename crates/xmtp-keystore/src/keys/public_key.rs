@@ -4,15 +4,23 @@ use k256::{
     ecdsa::{signature::Verifier, RecoveryId, Signature, VerifyingKey},
     PublicKey,
 };
+use sha2::Sha256;
 use sha3::{Digest, Keccak256};
 
-use super::super::proto;
+use crate::proto;
+use crate::signature;
+use crate::traits::{
+    BridgeSignableVersion, Buffable, ECDHKey, Sha256SignatureVerifier, SignatureVerifiable,
+    SignedECDHKey,
+};
 use protobuf::{Message, MessageField};
 
-struct SignedPublicKey {
-    public_key: PublicKey,
-    //    signature:
-    created_at: u64,
+#[derive(Debug, Clone)]
+pub struct SignedPublicKey {
+    pub public_key: PublicKey,
+    pub signed_bytes: Vec<u8>,
+    pub signature: signature::Signature,
+    pub created_at: u64,
 }
 
 pub fn recover_wallet_public_key(
@@ -87,6 +95,38 @@ pub fn signed_public_key_from_proto(
     return Ok(public_key_result.unwrap());
 }
 
+pub fn signed_public_key_from_proto_v2(
+    proto: &proto::public_key::SignedPublicKey,
+) -> Result<SignedPublicKey, String> {
+    let mut public_key_proto_bytes = proto.key_bytes.as_slice();
+    let public_key_proto_result: Result<proto::public_key::PublicKey, protobuf::Error> =
+        protobuf::Message::parse_from_bytes(&mut public_key_proto_bytes);
+    if public_key_proto_result.is_err() {
+        return Err(public_key_proto_result.err().unwrap().to_string());
+    }
+    let public_key_result = PublicKey::from_sec1_bytes(
+        public_key_proto_result
+            .unwrap()
+            .secp256k1_uncompressed()
+            .bytes
+            .as_slice(),
+    );
+
+    // Extract the signature
+    let signature_bytes = proto
+        .signature
+        .write_to_bytes()
+        .map_err(|e| e.to_string())?;
+    let signature = signature::Signature::from_proto_bytes(&signature_bytes)?;
+
+    return Ok(SignedPublicKey {
+        public_key: public_key_result.unwrap(),
+        signed_bytes: proto.key_bytes.clone(),
+        signature,
+        created_at: 0,
+    });
+}
+
 pub fn public_key_from_proto(proto: &proto::public_key::PublicKey) -> Result<PublicKey, String> {
     let public_key_bytes = proto.secp256k1_uncompressed().bytes.as_slice();
     let public_key_result = PublicKey::from_sec1_bytes(public_key_bytes);
@@ -125,4 +165,104 @@ pub fn to_signed_public_key_proto(
     signed_public_key.key_bytes = unsigned_public_key.write_to_bytes().unwrap();
     // TODO: STOPSHIP: Need to set the Signature
     return signed_public_key;
+}
+
+impl PartialEq for SignedPublicKey {
+    fn eq(&self, other: &SignedPublicKey) -> bool {
+        self.public_key == other.public_key
+    }
+}
+
+impl ECDHKey for SignedPublicKey {
+    fn get_public_key(&self) -> PublicKey {
+        self.to_unsigned()
+    }
+}
+
+impl BridgeSignableVersion<PublicKey, SignedPublicKey> for PublicKey {
+    fn to_signed(&self) -> SignedPublicKey {
+        SignedPublicKey {
+            public_key: self.clone(),
+            signature: signature::Signature::default(),
+            signed_bytes: vec![],
+            created_at: 0,
+        }
+    }
+
+    fn to_unsigned(&self) -> PublicKey {
+        self.clone()
+    }
+}
+
+impl BridgeSignableVersion<PublicKey, SignedPublicKey> for SignedPublicKey {
+    fn to_signed(&self) -> SignedPublicKey {
+        self.clone()
+    }
+
+    fn to_unsigned(&self) -> PublicKey {
+        self.public_key.clone()
+    }
+}
+
+impl SignatureVerifiable for SignedPublicKey {
+    fn get_signature(&self) -> Option<signature::Signature> {
+        Some(self.signature.clone())
+    }
+}
+
+// TODO: STOPSHIP: eliminate this trait when migration is complete
+impl SignatureVerifiable for PublicKey {
+    fn get_signature(&self) -> Option<signature::Signature> {
+        None
+    }
+}
+
+impl SignedECDHKey for SignedPublicKey {}
+impl SignedECDHKey for PublicKey {}
+
+impl Buffable for PublicKey {
+    fn to_proto_bytes(&self) -> Result<Vec<u8>, String> {
+        let unsigned_public_key_proto = to_unsigned_public_key_proto(self, 0);
+        return unsigned_public_key_proto
+            .write_to_bytes()
+            .map_err(|e| e.to_string());
+    }
+
+    fn from_proto_bytes(buff: &[u8]) -> Result<Self, String> {
+        let proto: proto::public_key::PublicKey =
+            if let Ok(proto) = protobuf::Message::parse_from_bytes(buff) {
+                proto
+            } else {
+                return Err("Error parsing PublicKey from bytes".to_string());
+            };
+        let public_key_bytes = proto.secp256k1_uncompressed().bytes.as_slice();
+        let public_key_result = PublicKey::from_sec1_bytes(public_key_bytes);
+        if public_key_result.is_err() {
+            return Err(public_key_result.err().unwrap().to_string());
+        }
+        return Ok(public_key_result.unwrap());
+    }
+}
+
+impl Sha256SignatureVerifier for PublicKey {
+    // TODO: move away from [u8] to using real Signature types
+    fn verify_sha256_signature(&self, message: &[u8], signature: &[u8]) -> Result<bool, String> {
+        // Parse signature from raw compressed bytes
+        let signature_result = Signature::try_from(signature);
+        // Check signature_result
+        if signature_result.is_err() {
+            return Err(signature_result.err().unwrap().to_string());
+        }
+        let signature = signature_result.unwrap();
+
+        // Verifying key from self.public_key
+        let verifying_key = VerifyingKey::from(self);
+        // Verify signature
+        let verify_result = verifying_key.verify(message, &signature);
+        // Check verify_result
+        if verify_result.is_err() {
+            return Err(verify_result.err().unwrap().to_string());
+        }
+        return Ok(true);
+    }
 }
