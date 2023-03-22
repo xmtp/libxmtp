@@ -237,6 +237,14 @@ impl PrivateKeyBundle {
         let viewer_identity_key = &self.identity_key;
         let is_local_sender =
             viewer_identity_key.public_key == sender_public_key_bundle.identity_key;
+
+        // Check that one of the public key bundles is ours
+        if !is_local_sender
+            && viewer_identity_key.public_key != recipient_public_key_bundle.identity_key
+        {
+            return Err("Neither public key bundle is ours".to_string());
+        }
+
         let local_public_key_bundle = if is_local_sender {
             &sender_public_key_bundle
         } else {
@@ -253,13 +261,12 @@ impl PrivateKeyBundle {
             &local_public_key_bundle.pre_key,
             !is_local_sender,
         );
-        if secret_result.is_err() {
-            return Err(format!(
-                "could not derive shared secret: {}",
-                secret_result.err().unwrap()
-            ));
-        }
-        secret = secret_result.unwrap();
+        secret = match secret_result {
+            Ok(secret) => secret,
+            Err(e) => {
+                return Err(format!("could not derive shared secret: {}", e));
+            }
+        };
 
         // Unwrap ciphertext
         let ciphertext = sealed_invitation.ciphertext.aes256_gcm_hkdf_sha256();
@@ -326,13 +333,12 @@ impl PrivateKeyBundle {
             &local_public_key_bundle.pre_key,
             !is_local_sender,
         );
-        if secret_result.is_err() {
-            return Err(format!(
-                "could not derive shared secret: {}",
-                secret_result.err().unwrap()
-            ));
-        }
-        secret = secret_result.unwrap();
+        secret = match secret_result {
+            Ok(secret) => secret,
+            Err(e) => {
+                return Err(format!("could not derive shared secret: {}", e));
+            }
+        };
 
         // Serialize invitation into bytes
         let invitation_bytes = invitation.write_to_bytes().unwrap();
