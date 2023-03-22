@@ -899,81 +899,369 @@ pub mod message {
     }
 }
 
+///  DecodedMessage represents the decrypted message contents.
+///  DecodedMessage instances are not stored on the network, but
+///  may be serialized and stored by clients
+#[derive(PartialEq,Clone,Default,Debug)]
+// @@protoc_insertion_point(message:xmtp.message_contents.DecodedMessage)
+pub struct DecodedMessage {
+    // message fields
+    // @@protoc_insertion_point(field:xmtp.message_contents.DecodedMessage.id)
+    pub id: ::std::string::String,
+    // @@protoc_insertion_point(field:xmtp.message_contents.DecodedMessage.message_version)
+    pub message_version: ::std::string::String,
+    // @@protoc_insertion_point(field:xmtp.message_contents.DecodedMessage.sender_address)
+    pub sender_address: ::std::string::String,
+    // @@protoc_insertion_point(field:xmtp.message_contents.DecodedMessage.recipient_address)
+    pub recipient_address: ::std::option::Option<::std::string::String>,
+    // @@protoc_insertion_point(field:xmtp.message_contents.DecodedMessage.sent_ns)
+    pub sent_ns: u64,
+    // @@protoc_insertion_point(field:xmtp.message_contents.DecodedMessage.content_topic)
+    pub content_topic: ::std::string::String,
+    // @@protoc_insertion_point(field:xmtp.message_contents.DecodedMessage.conversation)
+    pub conversation: ::protobuf::MessageField<super::keystore::ConversationReference>,
+    // @@protoc_insertion_point(field:xmtp.message_contents.DecodedMessage.content_bytes)
+    pub content_bytes: ::std::vec::Vec<u8>,
+    // special fields
+    // @@protoc_insertion_point(special_field:xmtp.message_contents.DecodedMessage.special_fields)
+    pub special_fields: ::protobuf::SpecialFields,
+}
+
+impl<'a> ::std::default::Default for &'a DecodedMessage {
+    fn default() -> &'a DecodedMessage {
+        <DecodedMessage as ::protobuf::Message>::default_instance()
+    }
+}
+
+impl DecodedMessage {
+    pub fn new() -> DecodedMessage {
+        ::std::default::Default::default()
+    }
+
+    fn generated_message_descriptor_data() -> ::protobuf::reflect::GeneratedMessageDescriptorData {
+        let mut fields = ::std::vec::Vec::with_capacity(8);
+        let mut oneofs = ::std::vec::Vec::with_capacity(0);
+        fields.push(::protobuf::reflect::rt::v2::make_simpler_field_accessor::<_, _>(
+            "id",
+            |m: &DecodedMessage| { &m.id },
+            |m: &mut DecodedMessage| { &mut m.id },
+        ));
+        fields.push(::protobuf::reflect::rt::v2::make_simpler_field_accessor::<_, _>(
+            "message_version",
+            |m: &DecodedMessage| { &m.message_version },
+            |m: &mut DecodedMessage| { &mut m.message_version },
+        ));
+        fields.push(::protobuf::reflect::rt::v2::make_simpler_field_accessor::<_, _>(
+            "sender_address",
+            |m: &DecodedMessage| { &m.sender_address },
+            |m: &mut DecodedMessage| { &mut m.sender_address },
+        ));
+        fields.push(::protobuf::reflect::rt::v2::make_option_accessor::<_, _>(
+            "recipient_address",
+            |m: &DecodedMessage| { &m.recipient_address },
+            |m: &mut DecodedMessage| { &mut m.recipient_address },
+        ));
+        fields.push(::protobuf::reflect::rt::v2::make_simpler_field_accessor::<_, _>(
+            "sent_ns",
+            |m: &DecodedMessage| { &m.sent_ns },
+            |m: &mut DecodedMessage| { &mut m.sent_ns },
+        ));
+        fields.push(::protobuf::reflect::rt::v2::make_simpler_field_accessor::<_, _>(
+            "content_topic",
+            |m: &DecodedMessage| { &m.content_topic },
+            |m: &mut DecodedMessage| { &mut m.content_topic },
+        ));
+        fields.push(::protobuf::reflect::rt::v2::make_message_field_accessor::<_, super::keystore::ConversationReference>(
+            "conversation",
+            |m: &DecodedMessage| { &m.conversation },
+            |m: &mut DecodedMessage| { &mut m.conversation },
+        ));
+        fields.push(::protobuf::reflect::rt::v2::make_simpler_field_accessor::<_, _>(
+            "content_bytes",
+            |m: &DecodedMessage| { &m.content_bytes },
+            |m: &mut DecodedMessage| { &mut m.content_bytes },
+        ));
+        ::protobuf::reflect::GeneratedMessageDescriptorData::new_2::<DecodedMessage>(
+            "DecodedMessage",
+            fields,
+            oneofs,
+        )
+    }
+}
+
+impl ::protobuf::Message for DecodedMessage {
+    const NAME: &'static str = "DecodedMessage";
+
+    fn is_initialized(&self) -> bool {
+        true
+    }
+
+    fn merge_from(&mut self, is: &mut ::protobuf::CodedInputStream<'_>) -> ::protobuf::Result<()> {
+        while let Some(tag) = is.read_raw_tag_or_eof()? {
+            match tag {
+                10 => {
+                    self.id = is.read_string()?;
+                },
+                18 => {
+                    self.message_version = is.read_string()?;
+                },
+                26 => {
+                    self.sender_address = is.read_string()?;
+                },
+                34 => {
+                    self.recipient_address = ::std::option::Option::Some(is.read_string()?);
+                },
+                40 => {
+                    self.sent_ns = is.read_uint64()?;
+                },
+                50 => {
+                    self.content_topic = is.read_string()?;
+                },
+                58 => {
+                    ::protobuf::rt::read_singular_message_into_field(is, &mut self.conversation)?;
+                },
+                66 => {
+                    self.content_bytes = is.read_bytes()?;
+                },
+                tag => {
+                    ::protobuf::rt::read_unknown_or_skip_group(tag, is, self.special_fields.mut_unknown_fields())?;
+                },
+            };
+        }
+        ::std::result::Result::Ok(())
+    }
+
+    // Compute sizes of nested messages
+    #[allow(unused_variables)]
+    fn compute_size(&self) -> u64 {
+        let mut my_size = 0;
+        if !self.id.is_empty() {
+            my_size += ::protobuf::rt::string_size(1, &self.id);
+        }
+        if !self.message_version.is_empty() {
+            my_size += ::protobuf::rt::string_size(2, &self.message_version);
+        }
+        if !self.sender_address.is_empty() {
+            my_size += ::protobuf::rt::string_size(3, &self.sender_address);
+        }
+        if let Some(v) = self.recipient_address.as_ref() {
+            my_size += ::protobuf::rt::string_size(4, &v);
+        }
+        if self.sent_ns != 0 {
+            my_size += ::protobuf::rt::uint64_size(5, self.sent_ns);
+        }
+        if !self.content_topic.is_empty() {
+            my_size += ::protobuf::rt::string_size(6, &self.content_topic);
+        }
+        if let Some(v) = self.conversation.as_ref() {
+            let len = v.compute_size();
+            my_size += 1 + ::protobuf::rt::compute_raw_varint64_size(len) + len;
+        }
+        if !self.content_bytes.is_empty() {
+            my_size += ::protobuf::rt::bytes_size(8, &self.content_bytes);
+        }
+        my_size += ::protobuf::rt::unknown_fields_size(self.special_fields.unknown_fields());
+        self.special_fields.cached_size().set(my_size as u32);
+        my_size
+    }
+
+    fn write_to_with_cached_sizes(&self, os: &mut ::protobuf::CodedOutputStream<'_>) -> ::protobuf::Result<()> {
+        if !self.id.is_empty() {
+            os.write_string(1, &self.id)?;
+        }
+        if !self.message_version.is_empty() {
+            os.write_string(2, &self.message_version)?;
+        }
+        if !self.sender_address.is_empty() {
+            os.write_string(3, &self.sender_address)?;
+        }
+        if let Some(v) = self.recipient_address.as_ref() {
+            os.write_string(4, v)?;
+        }
+        if self.sent_ns != 0 {
+            os.write_uint64(5, self.sent_ns)?;
+        }
+        if !self.content_topic.is_empty() {
+            os.write_string(6, &self.content_topic)?;
+        }
+        if let Some(v) = self.conversation.as_ref() {
+            ::protobuf::rt::write_message_field_with_cached_size(7, v, os)?;
+        }
+        if !self.content_bytes.is_empty() {
+            os.write_bytes(8, &self.content_bytes)?;
+        }
+        os.write_unknown_fields(self.special_fields.unknown_fields())?;
+        ::std::result::Result::Ok(())
+    }
+
+    fn special_fields(&self) -> &::protobuf::SpecialFields {
+        &self.special_fields
+    }
+
+    fn mut_special_fields(&mut self) -> &mut ::protobuf::SpecialFields {
+        &mut self.special_fields
+    }
+
+    fn new() -> DecodedMessage {
+        DecodedMessage::new()
+    }
+
+    fn clear(&mut self) {
+        self.id.clear();
+        self.message_version.clear();
+        self.sender_address.clear();
+        self.recipient_address = ::std::option::Option::None;
+        self.sent_ns = 0;
+        self.content_topic.clear();
+        self.conversation.clear();
+        self.content_bytes.clear();
+        self.special_fields.clear();
+    }
+
+    fn default_instance() -> &'static DecodedMessage {
+        static instance: DecodedMessage = DecodedMessage {
+            id: ::std::string::String::new(),
+            message_version: ::std::string::String::new(),
+            sender_address: ::std::string::String::new(),
+            recipient_address: ::std::option::Option::None,
+            sent_ns: 0,
+            content_topic: ::std::string::String::new(),
+            conversation: ::protobuf::MessageField::none(),
+            content_bytes: ::std::vec::Vec::new(),
+            special_fields: ::protobuf::SpecialFields::new(),
+        };
+        &instance
+    }
+}
+
+impl ::protobuf::MessageFull for DecodedMessage {
+    fn descriptor() -> ::protobuf::reflect::MessageDescriptor {
+        static descriptor: ::protobuf::rt::Lazy<::protobuf::reflect::MessageDescriptor> = ::protobuf::rt::Lazy::new();
+        descriptor.get(|| file_descriptor().message_by_package_relative_name("DecodedMessage").unwrap()).clone()
+    }
+}
+
+impl ::std::fmt::Display for DecodedMessage {
+    fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
+        ::protobuf::text_format::fmt(self, f)
+    }
+}
+
+impl ::protobuf::reflect::ProtobufValue for DecodedMessage {
+    type RuntimeType = ::protobuf::reflect::rt::RuntimeTypeMessage<Self>;
+}
+
 static file_descriptor_proto_data: &'static [u8] = b"\
-    \n\x1emessage_contents/message.proto\x12\x15xmtp.message_contents\x1a!me\
-    ssage_contents/ciphertext.proto\x1a!message_contents/public_key.proto\"\
-    \xb5\x01\n\x0fMessageHeaderV1\x12>\n\x06sender\x18\x01\x20\x01(\x0b2&.xm\
-    tp.message_contents.PublicKeyBundleR\x06sender\x12D\n\trecipient\x18\x02\
-    \x20\x01(\x0b2&.xmtp.message_contents.PublicKeyBundleR\trecipient\x12\
-    \x1c\n\ttimestamp\x18\x03\x20\x01(\x04R\ttimestamp\"q\n\tMessageV1\x12!\
-    \n\x0cheader_bytes\x18\x01\x20\x01(\x0cR\x0bheaderBytes\x12A\n\ncipherte\
-    xt\x18\x02\x20\x01(\x0b2!.xmtp.message_contents.CiphertextR\nciphertext\
-    \"F\n\x0fMessageHeaderV2\x12\x1d\n\ncreated_ns\x18\x01\x20\x01(\x04R\tcr\
-    eatedNs\x12\x14\n\x05topic\x18\x02\x20\x01(\tR\x05topic\"q\n\tMessageV2\
-    \x12!\n\x0cheader_bytes\x18\x01\x20\x01(\x0cR\x0bheaderBytes\x12A\n\ncip\
-    hertext\x18\x02\x20\x01(\x0b2!.xmtp.message_contents.CiphertextR\ncipher\
-    text\"|\n\x07Message\x122\n\x02v1\x18\x01\x20\x01(\x0b2\x20.xmtp.message\
-    _contents.MessageV1H\0R\x02v1\x122\n\x02v2\x18\x02\x20\x01(\x0b2\x20.xmt\
-    p.message_contents.MessageV2H\0R\x02v2B\t\n\x07versionBO\n\x1forg.xmtp.p\
-    roto.message.contentsZ,github.com/xmtp/proto/v3/go/message_contentsJ\xab\
-    \r\n\x06\x12\x04\x01\07\x01\nJ\n\x01\x0c\x12\x03\x01\0\x12\x1a@\x20Messa\
-    ges\x20used\x20for\x20transport\x20and\x20storage\x20of\x20user\x20conve\
-    rsations.\n\n\x08\n\x01\x02\x12\x03\x03\0\x1e\n\t\n\x02\x03\0\x12\x03\
-    \x05\0+\n\t\n\x02\x03\x01\x12\x03\x06\0+\n\x08\n\x01\x08\x12\x03\x08\0C\
-    \n\t\n\x02\x08\x0b\x12\x03\x08\0C\n\x08\n\x01\x08\x12\x03\t\08\n\t\n\x02\
-    \x08\x01\x12\x03\t\08\n\x8c\x01\n\x02\x04\0\x12\x04\x0f\0\x13\x01\x1ar\
-    \x20Message\x20header\x20is\x20encoded\x20separately\x20as\x20the\x20byt\
-    es\x20are\x20also\x20used\n\x20as\x20associated\x20data\x20for\x20authen\
-    ticated\x20encryption\n2\x0c\x20Message\x20V1\n\n\n\n\x03\x04\0\x01\x12\
-    \x03\x0f\x08\x17\n\x0b\n\x04\x04\0\x02\0\x12\x03\x10\x04\x1f\n\x0c\n\x05\
-    \x04\0\x02\0\x06\x12\x03\x10\x04\x13\n\x0c\n\x05\x04\0\x02\0\x01\x12\x03\
-    \x10\x14\x1a\n\x0c\n\x05\x04\0\x02\0\x03\x12\x03\x10\x1d\x1e\n\x0b\n\x04\
-    \x04\0\x02\x01\x12\x03\x11\x04\"\n\x0c\n\x05\x04\0\x02\x01\x06\x12\x03\
-    \x11\x04\x13\n\x0c\n\x05\x04\0\x02\x01\x01\x12\x03\x11\x14\x1d\n\x0c\n\
-    \x05\x04\0\x02\x01\x03\x12\x03\x11\x20!\n\x0b\n\x04\x04\0\x02\x02\x12\
-    \x03\x12\x04\x19\n\x0c\n\x05\x04\0\x02\x02\x05\x12\x03\x12\x04\n\n\x0c\n\
-    \x05\x04\0\x02\x02\x01\x12\x03\x12\x0b\x14\n\x0c\n\x05\x04\0\x02\x02\x03\
-    \x12\x03\x12\x17\x18\n7\n\x02\x04\x01\x12\x04\x16\0\x1a\x01\x1a+\x20Mess\
-    age\x20is\x20the\x20top\x20level\x20protocol\x20element\n\n\n\n\x03\x04\
-    \x01\x01\x12\x03\x16\x08\x11\n3\n\x04\x04\x01\x02\0\x12\x03\x17\x04\x1b\
-    \"&\x20encapsulates\x20encoded\x20MessageHeaderV1\n\n\x0c\n\x05\x04\x01\
-    \x02\0\x05\x12\x03\x17\x04\t\n\x0c\n\x05\x04\x01\x02\0\x01\x12\x03\x17\n\
-    \x16\n\x0c\n\x05\x04\x01\x02\0\x03\x12\x03\x17\x19\x1a\nG\n\x04\x04\x01\
-    \x02\x01\x12\x03\x19\x04\x1e\x1a:\x20Ciphertext.payload\x20MUST\x20conta\
-    in\x20encrypted\x20EncodedContent\n\n\x0c\n\x05\x04\x01\x02\x01\x06\x12\
-    \x03\x19\x04\x0e\n\x0c\n\x05\x04\x01\x02\x01\x01\x12\x03\x19\x0f\x19\n\
-    \x0c\n\x05\x04\x01\x02\x01\x03\x12\x03\x19\x1c\x1d\n\x88\x02\n\x02\x04\
-    \x02\x12\x04\"\0'\x01\x1a\xed\x01\x20Message\x20header\x20carries\x20inf\
-    ormation\x20that\x20is\x20not\x20encrypted,\x20and\x20is\x20therefore\n\
-    \x20observable\x20by\x20the\x20network.\x20It\x20is\x20however\x20authen\
-    ticated\x20as\x20associated\x20data\n\x20of\x20the\x20AEAD\x20encryption\
-    \x20used\x20to\x20protect\x20the\x20message,\n\x20thus\x20providing\x20t\
-    amper\x20evidence.\n2\x0c\x20Message\x20V2\n\n\n\n\x03\x04\x02\x01\x12\
-    \x03\"\x08\x17\n5\n\x04\x04\x02\x02\0\x12\x03$\x04\x1a\x1a(\x20sender\
-    \x20specified\x20message\x20creation\x20time\n\n\x0c\n\x05\x04\x02\x02\0\
-    \x05\x12\x03$\x04\n\n\x0c\n\x05\x04\x02\x02\0\x01\x12\x03$\x0b\x15\n\x0c\
-    \n\x05\x04\x02\x02\0\x03\x12\x03$\x18\x19\n/\n\x04\x04\x02\x02\x01\x12\
-    \x03&\x04\x15\x1a\"\x20the\x20topic\x20the\x20message\x20belongs\x20to\n\
-    \n\x0c\n\x05\x04\x02\x02\x01\x05\x12\x03&\x04\n\n\x0c\n\x05\x04\x02\x02\
-    \x01\x01\x12\x03&\x0b\x10\n\x0c\n\x05\x04\x02\x02\x01\x03\x12\x03&\x13\
-    \x14\nM\n\x02\x04\x03\x12\x04*\0.\x01\x1aA\x20Message\x20combines\x20the\
-    \x20encoded\x20header\x20with\x20the\x20encrypted\x20payload.\n\n\n\n\
-    \x03\x04\x03\x01\x12\x03*\x08\x11\n3\n\x04\x04\x03\x02\0\x12\x03+\x04\
-    \x1b\"&\x20encapsulates\x20encoded\x20MessageHeaderV2\n\n\x0c\n\x05\x04\
-    \x03\x02\0\x05\x12\x03+\x04\t\n\x0c\n\x05\x04\x03\x02\0\x01\x12\x03+\n\
-    \x16\n\x0c\n\x05\x04\x03\x02\0\x03\x12\x03+\x19\x1a\nF\n\x04\x04\x03\x02\
-    \x01\x12\x03-\x04\x1e\x1a9\x20Ciphertext.payload\x20MUST\x20contain\x20e\
-    ncrypted\x20SignedContent\n\n\x0c\n\x05\x04\x03\x02\x01\x06\x12\x03-\x04\
-    \x0e\n\x0c\n\x05\x04\x03\x02\x01\x01\x12\x03-\x0f\x19\n\x0c\n\x05\x04\
-    \x03\x02\x01\x03\x12\x03-\x1c\x1d\n\x1f\n\x02\x04\x04\x12\x042\07\x01\
-    \x1a\x13\x20Versioned\x20Message\n\n\n\n\x03\x04\x04\x01\x12\x032\x08\
-    \x0f\n\x0c\n\x04\x04\x04\x08\0\x12\x043\x046\x05\n\x0c\n\x05\x04\x04\x08\
-    \0\x01\x12\x033\n\x11\n\x0b\n\x04\x04\x04\x02\0\x12\x034\x08\x19\n\x0c\n\
-    \x05\x04\x04\x02\0\x06\x12\x034\x08\x11\n\x0c\n\x05\x04\x04\x02\0\x01\
-    \x12\x034\x12\x14\n\x0c\n\x05\x04\x04\x02\0\x03\x12\x034\x17\x18\n\x0b\n\
-    \x04\x04\x04\x02\x01\x12\x035\x08\x19\n\x0c\n\x05\x04\x04\x02\x01\x06\
-    \x12\x035\x08\x11\n\x0c\n\x05\x04\x04\x02\x01\x01\x12\x035\x12\x14\n\x0c\
-    \n\x05\x04\x04\x02\x01\x03\x12\x035\x17\x18b\x06proto3\
+    \n\x1emessage_contents/message.proto\x12\x15xmtp.message_contents\x1a\
+    \x1ekeystore_api/v1/keystore.proto\x1a!message_contents/ciphertext.proto\
+    \x1a!message_contents/public_key.proto\"\xb5\x01\n\x0fMessageHeaderV1\
+    \x12>\n\x06sender\x18\x01\x20\x01(\x0b2&.xmtp.message_contents.PublicKey\
+    BundleR\x06sender\x12D\n\trecipient\x18\x02\x20\x01(\x0b2&.xmtp.message_\
+    contents.PublicKeyBundleR\trecipient\x12\x1c\n\ttimestamp\x18\x03\x20\
+    \x01(\x04R\ttimestamp\"q\n\tMessageV1\x12!\n\x0cheader_bytes\x18\x01\x20\
+    \x01(\x0cR\x0bheaderBytes\x12A\n\nciphertext\x18\x02\x20\x01(\x0b2!.xmtp\
+    .message_contents.CiphertextR\nciphertext\"F\n\x0fMessageHeaderV2\x12\
+    \x1d\n\ncreated_ns\x18\x01\x20\x01(\x04R\tcreatedNs\x12\x14\n\x05topic\
+    \x18\x02\x20\x01(\tR\x05topic\"q\n\tMessageV2\x12!\n\x0cheader_bytes\x18\
+    \x01\x20\x01(\x0cR\x0bheaderBytes\x12A\n\nciphertext\x18\x02\x20\x01(\
+    \x0b2!.xmtp.message_contents.CiphertextR\nciphertext\"|\n\x07Message\x12\
+    2\n\x02v1\x18\x01\x20\x01(\x0b2\x20.xmtp.message_contents.MessageV1H\0R\
+    \x02v1\x122\n\x02v2\x18\x02\x20\x01(\x0b2\x20.xmtp.message_contents.Mess\
+    ageV2H\0R\x02v2B\t\n\x07version\"\xec\x02\n\x0eDecodedMessage\x12\x0e\n\
+    \x02id\x18\x01\x20\x01(\tR\x02id\x12'\n\x0fmessage_version\x18\x02\x20\
+    \x01(\tR\x0emessageVersion\x12%\n\x0esender_address\x18\x03\x20\x01(\tR\
+    \rsenderAddress\x120\n\x11recipient_address\x18\x04\x20\x01(\tH\0R\x10re\
+    cipientAddress\x88\x01\x01\x12\x17\n\x07sent_ns\x18\x05\x20\x01(\x04R\
+    \x06sentNs\x12#\n\rcontent_topic\x18\x06\x20\x01(\tR\x0ccontentTopic\x12\
+    O\n\x0cconversation\x18\x07\x20\x01(\x0b2+.xmtp.keystore_api.v1.Conversa\
+    tionReferenceR\x0cconversation\x12#\n\rcontent_bytes\x18\x08\x20\x01(\
+    \x0cR\x0ccontentBytesB\x14\n\x12_recipient_addressBO\n\x1forg.xmtp.proto\
+    .message.contentsZ,github.com/xmtp/proto/v3/go/message_contentsJ\xd8\x12\
+    \n\x06\x12\x04\x01\0F\x01\nJ\n\x01\x0c\x12\x03\x01\0\x12\x1a@\x20Message\
+    s\x20used\x20for\x20transport\x20and\x20storage\x20of\x20user\x20convers\
+    ations.\n\n\x08\n\x01\x02\x12\x03\x03\0\x1e\n\t\n\x02\x03\0\x12\x03\x05\
+    \0(\n\t\n\x02\x03\x01\x12\x03\x06\0+\n\t\n\x02\x03\x02\x12\x03\x07\0+\n\
+    \x08\n\x01\x08\x12\x03\t\0C\n\t\n\x02\x08\x0b\x12\x03\t\0C\n\x08\n\x01\
+    \x08\x12\x03\n\08\n\t\n\x02\x08\x01\x12\x03\n\08\n\x8c\x01\n\x02\x04\0\
+    \x12\x04\x10\0\x14\x01\x1ar\x20Message\x20header\x20is\x20encoded\x20sep\
+    arately\x20as\x20the\x20bytes\x20are\x20also\x20used\n\x20as\x20associat\
+    ed\x20data\x20for\x20authenticated\x20encryption\n2\x0c\x20Message\x20V1\
+    \n\n\n\n\x03\x04\0\x01\x12\x03\x10\x08\x17\n\x0b\n\x04\x04\0\x02\0\x12\
+    \x03\x11\x04\x1f\n\x0c\n\x05\x04\0\x02\0\x06\x12\x03\x11\x04\x13\n\x0c\n\
+    \x05\x04\0\x02\0\x01\x12\x03\x11\x14\x1a\n\x0c\n\x05\x04\0\x02\0\x03\x12\
+    \x03\x11\x1d\x1e\n\x0b\n\x04\x04\0\x02\x01\x12\x03\x12\x04\"\n\x0c\n\x05\
+    \x04\0\x02\x01\x06\x12\x03\x12\x04\x13\n\x0c\n\x05\x04\0\x02\x01\x01\x12\
+    \x03\x12\x14\x1d\n\x0c\n\x05\x04\0\x02\x01\x03\x12\x03\x12\x20!\n\x0b\n\
+    \x04\x04\0\x02\x02\x12\x03\x13\x04\x19\n\x0c\n\x05\x04\0\x02\x02\x05\x12\
+    \x03\x13\x04\n\n\x0c\n\x05\x04\0\x02\x02\x01\x12\x03\x13\x0b\x14\n\x0c\n\
+    \x05\x04\0\x02\x02\x03\x12\x03\x13\x17\x18\n7\n\x02\x04\x01\x12\x04\x17\
+    \0\x1b\x01\x1a+\x20Message\x20is\x20the\x20top\x20level\x20protocol\x20e\
+    lement\n\n\n\n\x03\x04\x01\x01\x12\x03\x17\x08\x11\n3\n\x04\x04\x01\x02\
+    \0\x12\x03\x18\x04\x1b\"&\x20encapsulates\x20encoded\x20MessageHeaderV1\
+    \n\n\x0c\n\x05\x04\x01\x02\0\x05\x12\x03\x18\x04\t\n\x0c\n\x05\x04\x01\
+    \x02\0\x01\x12\x03\x18\n\x16\n\x0c\n\x05\x04\x01\x02\0\x03\x12\x03\x18\
+    \x19\x1a\nG\n\x04\x04\x01\x02\x01\x12\x03\x1a\x04\x1e\x1a:\x20Ciphertext\
+    .payload\x20MUST\x20contain\x20encrypted\x20EncodedContent\n\n\x0c\n\x05\
+    \x04\x01\x02\x01\x06\x12\x03\x1a\x04\x0e\n\x0c\n\x05\x04\x01\x02\x01\x01\
+    \x12\x03\x1a\x0f\x19\n\x0c\n\x05\x04\x01\x02\x01\x03\x12\x03\x1a\x1c\x1d\
+    \n\x88\x02\n\x02\x04\x02\x12\x04#\0(\x01\x1a\xed\x01\x20Message\x20heade\
+    r\x20carries\x20information\x20that\x20is\x20not\x20encrypted,\x20and\
+    \x20is\x20therefore\n\x20observable\x20by\x20the\x20network.\x20It\x20is\
+    \x20however\x20authenticated\x20as\x20associated\x20data\n\x20of\x20the\
+    \x20AEAD\x20encryption\x20used\x20to\x20protect\x20the\x20message,\n\x20\
+    thus\x20providing\x20tamper\x20evidence.\n2\x0c\x20Message\x20V2\n\n\n\n\
+    \x03\x04\x02\x01\x12\x03#\x08\x17\n5\n\x04\x04\x02\x02\0\x12\x03%\x04\
+    \x1a\x1a(\x20sender\x20specified\x20message\x20creation\x20time\n\n\x0c\
+    \n\x05\x04\x02\x02\0\x05\x12\x03%\x04\n\n\x0c\n\x05\x04\x02\x02\0\x01\
+    \x12\x03%\x0b\x15\n\x0c\n\x05\x04\x02\x02\0\x03\x12\x03%\x18\x19\n/\n\
+    \x04\x04\x02\x02\x01\x12\x03'\x04\x15\x1a\"\x20the\x20topic\x20the\x20me\
+    ssage\x20belongs\x20to\n\n\x0c\n\x05\x04\x02\x02\x01\x05\x12\x03'\x04\n\
+    \n\x0c\n\x05\x04\x02\x02\x01\x01\x12\x03'\x0b\x10\n\x0c\n\x05\x04\x02\
+    \x02\x01\x03\x12\x03'\x13\x14\nM\n\x02\x04\x03\x12\x04+\0/\x01\x1aA\x20M\
+    essage\x20combines\x20the\x20encoded\x20header\x20with\x20the\x20encrypt\
+    ed\x20payload.\n\n\n\n\x03\x04\x03\x01\x12\x03+\x08\x11\n3\n\x04\x04\x03\
+    \x02\0\x12\x03,\x04\x1b\"&\x20encapsulates\x20encoded\x20MessageHeaderV2\
+    \n\n\x0c\n\x05\x04\x03\x02\0\x05\x12\x03,\x04\t\n\x0c\n\x05\x04\x03\x02\
+    \0\x01\x12\x03,\n\x16\n\x0c\n\x05\x04\x03\x02\0\x03\x12\x03,\x19\x1a\nF\
+    \n\x04\x04\x03\x02\x01\x12\x03.\x04\x1e\x1a9\x20Ciphertext.payload\x20MU\
+    ST\x20contain\x20encrypted\x20SignedContent\n\n\x0c\n\x05\x04\x03\x02\
+    \x01\x06\x12\x03.\x04\x0e\n\x0c\n\x05\x04\x03\x02\x01\x01\x12\x03.\x0f\
+    \x19\n\x0c\n\x05\x04\x03\x02\x01\x03\x12\x03.\x1c\x1d\n\x1f\n\x02\x04\
+    \x04\x12\x043\08\x01\x1a\x13\x20Versioned\x20Message\n\n\n\n\x03\x04\x04\
+    \x01\x12\x033\x08\x0f\n\x0c\n\x04\x04\x04\x08\0\x12\x044\x047\x05\n\x0c\
+    \n\x05\x04\x04\x08\0\x01\x12\x034\n\x11\n\x0b\n\x04\x04\x04\x02\0\x12\
+    \x035\x08\x19\n\x0c\n\x05\x04\x04\x02\0\x06\x12\x035\x08\x11\n\x0c\n\x05\
+    \x04\x04\x02\0\x01\x12\x035\x12\x14\n\x0c\n\x05\x04\x04\x02\0\x03\x12\
+    \x035\x17\x18\n\x0b\n\x04\x04\x04\x02\x01\x12\x036\x08\x19\n\x0c\n\x05\
+    \x04\x04\x02\x01\x06\x12\x036\x08\x11\n\x0c\n\x05\x04\x04\x02\x01\x01\
+    \x12\x036\x12\x14\n\x0c\n\x05\x04\x04\x02\x01\x03\x12\x036\x17\x18\n\xae\
+    \x01\n\x02\x04\x05\x12\x04=\0F\x01\x1a\xa1\x01\x20DecodedMessage\x20repr\
+    esents\x20the\x20decrypted\x20message\x20contents.\n\x20DecodedMessage\
+    \x20instances\x20are\x20not\x20stored\x20on\x20the\x20network,\x20but\n\
+    \x20may\x20be\x20serialized\x20and\x20stored\x20by\x20clients\n\n\n\n\
+    \x03\x04\x05\x01\x12\x03=\x08\x16\n\x0b\n\x04\x04\x05\x02\0\x12\x03>\x04\
+    \x12\n\x0c\n\x05\x04\x05\x02\0\x05\x12\x03>\x04\n\n\x0c\n\x05\x04\x05\
+    \x02\0\x01\x12\x03>\x0b\r\n\x0c\n\x05\x04\x05\x02\0\x03\x12\x03>\x10\x11\
+    \n\x0b\n\x04\x04\x05\x02\x01\x12\x03?\x04\x1f\n\x0c\n\x05\x04\x05\x02\
+    \x01\x05\x12\x03?\x04\n\n\x0c\n\x05\x04\x05\x02\x01\x01\x12\x03?\x0b\x1a\
+    \n\x0c\n\x05\x04\x05\x02\x01\x03\x12\x03?\x1d\x1e\n\x0b\n\x04\x04\x05\
+    \x02\x02\x12\x03@\x04\x1e\n\x0c\n\x05\x04\x05\x02\x02\x05\x12\x03@\x04\n\
+    \n\x0c\n\x05\x04\x05\x02\x02\x01\x12\x03@\x0b\x19\n\x0c\n\x05\x04\x05\
+    \x02\x02\x03\x12\x03@\x1c\x1d\n\x0b\n\x04\x04\x05\x02\x03\x12\x03A\x04*\
+    \n\x0c\n\x05\x04\x05\x02\x03\x04\x12\x03A\x04\x0c\n\x0c\n\x05\x04\x05\
+    \x02\x03\x05\x12\x03A\r\x13\n\x0c\n\x05\x04\x05\x02\x03\x01\x12\x03A\x14\
+    %\n\x0c\n\x05\x04\x05\x02\x03\x03\x12\x03A()\n\x0b\n\x04\x04\x05\x02\x04\
+    \x12\x03B\x04\x17\n\x0c\n\x05\x04\x05\x02\x04\x05\x12\x03B\x04\n\n\x0c\n\
+    \x05\x04\x05\x02\x04\x01\x12\x03B\x0b\x12\n\x0c\n\x05\x04\x05\x02\x04\
+    \x03\x12\x03B\x15\x16\n\x0b\n\x04\x04\x05\x02\x05\x12\x03C\x04\x1d\n\x0c\
+    \n\x05\x04\x05\x02\x05\x05\x12\x03C\x04\n\n\x0c\n\x05\x04\x05\x02\x05\
+    \x01\x12\x03C\x0b\x18\n\x0c\n\x05\x04\x05\x02\x05\x03\x12\x03C\x1b\x1c\n\
+    \x0b\n\x04\x04\x05\x02\x06\x12\x03D\x04@\n\x0c\n\x05\x04\x05\x02\x06\x06\
+    \x12\x03D\x04.\n\x0c\n\x05\x04\x05\x02\x06\x01\x12\x03D/;\n\x0c\n\x05\
+    \x04\x05\x02\x06\x03\x12\x03D>?\n*\n\x04\x04\x05\x02\x07\x12\x03E\x04\
+    \x1c\"\x1d\x20encapsulates\x20EncodedContent\n\n\x0c\n\x05\x04\x05\x02\
+    \x07\x05\x12\x03E\x04\t\n\x0c\n\x05\x04\x05\x02\x07\x01\x12\x03E\n\x17\n\
+    \x0c\n\x05\x04\x05\x02\x07\x03\x12\x03E\x1a\x1bb\x06proto3\
 ";
 
 /// `FileDescriptorProto` object which was a source for this generated file
@@ -990,15 +1278,17 @@ pub fn file_descriptor() -> &'static ::protobuf::reflect::FileDescriptor {
     static file_descriptor: ::protobuf::rt::Lazy<::protobuf::reflect::FileDescriptor> = ::protobuf::rt::Lazy::new();
     file_descriptor.get(|| {
         let generated_file_descriptor = generated_file_descriptor_lazy.get(|| {
-            let mut deps = ::std::vec::Vec::with_capacity(2);
+            let mut deps = ::std::vec::Vec::with_capacity(3);
+            deps.push(super::keystore::file_descriptor().clone());
             deps.push(super::ciphertext::file_descriptor().clone());
             deps.push(super::public_key::file_descriptor().clone());
-            let mut messages = ::std::vec::Vec::with_capacity(5);
+            let mut messages = ::std::vec::Vec::with_capacity(6);
             messages.push(MessageHeaderV1::generated_message_descriptor_data());
             messages.push(MessageV1::generated_message_descriptor_data());
             messages.push(MessageHeaderV2::generated_message_descriptor_data());
             messages.push(MessageV2::generated_message_descriptor_data());
             messages.push(Message::generated_message_descriptor_data());
+            messages.push(DecodedMessage::generated_message_descriptor_data());
             let mut enums = ::std::vec::Vec::with_capacity(0);
             ::protobuf::reflect::GeneratedFileDescriptor::new_generated(
                 file_descriptor_proto(),
