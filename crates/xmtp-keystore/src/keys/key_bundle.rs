@@ -233,35 +233,33 @@ impl PrivateKeyBundle {
             SignedPublicKeyBundle::from_proto(&sealed_invitation_header.recipient).unwrap();
 
         let secret: Vec<u8>;
-        // reference our own identity key
+        // Reference our own identity key
         let viewer_identity_key = &self.identity_key;
-        if viewer_identity_key.public_key == sender_public_key_bundle.identity_key {
-            let secret_result = self.derive_shared_secret_xmtp(
-                &recipient_public_key_bundle,
-                &sender_public_key_bundle.pre_key,
-                false,
-            );
-            if secret_result.is_err() {
-                return Err(format!(
-                    "could not derive shared secret: {}",
-                    secret_result.err().unwrap()
-                ));
-            }
-            secret = secret_result.unwrap();
+        let is_local_sender =
+            viewer_identity_key.public_key == sender_public_key_bundle.identity_key;
+        let local_public_key_bundle = if is_local_sender {
+            &sender_public_key_bundle
         } else {
-            let secret_result = self.derive_shared_secret_xmtp(
-                &sender_public_key_bundle,
-                &recipient_public_key_bundle.pre_key,
-                true,
-            );
-            if secret_result.is_err() {
-                return Err(format!(
-                    "could not derive shared secret: {}",
-                    secret_result.err().unwrap()
-                ));
-            }
-            secret = secret_result.unwrap();
+            &recipient_public_key_bundle
+        };
+        let remote_public_key_bundle = if is_local_sender {
+            &recipient_public_key_bundle
+        } else {
+            &sender_public_key_bundle
+        };
+
+        let secret_result = self.derive_shared_secret_xmtp(
+            remote_public_key_bundle,
+            &local_public_key_bundle.pre_key,
+            !is_local_sender,
+        );
+        if secret_result.is_err() {
+            return Err(format!(
+                "could not derive shared secret: {}",
+                secret_result.err().unwrap()
+            ));
         }
+        secret = secret_result.unwrap();
 
         // Unwrap ciphertext
         let ciphertext = sealed_invitation.ciphertext.aes256_gcm_hkdf_sha256();
@@ -309,29 +307,32 @@ impl PrivateKeyBundle {
             SignedPublicKeyBundle::from_proto(&sealed_invitation_header.recipient).unwrap();
 
         let secret: Vec<u8>;
-        // reference our own identity key
+        // Reference our own identity key
         let viewer_identity_key = &self.identity_key;
-        if viewer_identity_key.public_key == sender_public_key_bundle.identity_key {
-            let secret_result = self.derive_shared_secret_xmtp(
-                &recipient_public_key_bundle,
-                &sender_public_key_bundle.pre_key,
-                false,
-            );
-            if secret_result.is_err() {
-                return Err("could not derive shared secret".to_string());
-            }
-            secret = secret_result.unwrap();
+        let is_local_sender =
+            viewer_identity_key.public_key == sender_public_key_bundle.identity_key;
+        let local_public_key_bundle = if is_local_sender {
+            &sender_public_key_bundle
         } else {
-            let secret_result = self.derive_shared_secret_xmtp(
-                &sender_public_key_bundle,
-                &recipient_public_key_bundle.pre_key,
-                true,
-            );
-            if secret_result.is_err() {
-                return Err("could not derive shared secret".to_string());
-            }
-            secret = secret_result.unwrap();
+            &recipient_public_key_bundle
+        };
+        let remote_public_key_bundle = if is_local_sender {
+            &recipient_public_key_bundle
+        } else {
+            &sender_public_key_bundle
+        };
+        let secret_result = self.derive_shared_secret_xmtp(
+            remote_public_key_bundle,
+            &local_public_key_bundle.pre_key,
+            !is_local_sender,
+        );
+        if secret_result.is_err() {
+            return Err(format!(
+                "could not derive shared secret: {}",
+                secret_result.err().unwrap()
+            ));
         }
+        secret = secret_result.unwrap();
 
         // Serialize invitation into bytes
         let invitation_bytes = invitation.write_to_bytes().unwrap();

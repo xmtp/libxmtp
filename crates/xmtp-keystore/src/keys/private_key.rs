@@ -51,7 +51,6 @@ pub struct SignedPrivateKey {
     proto: proto::private_key::SignedPrivateKey,
 
     pub private_key: SecretKey,
-    // (STOPSHIP) TODO: needs to be a signed PublicKey
     pub public_key: public_key::SignedPublicKey,
 }
 
