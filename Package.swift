@@ -26,6 +26,7 @@ let package = Package(
 		.package(url: "https://github.com/argentlabs/web3.swift", from: "1.1.0"),
 		.package(url: "https://github.com/1024jp/GzipSwift", from: "5.2.0"),
 		.package(url: "https://github.com/bufbuild/connect-swift", from: "0.3.0"),
+		.package(url: "https://github.com/apple/swift-docc-plugin.git", from: "1.0.0"),
 	],
 	targets: [
 		// Targets are the basic building blocks of a package. A target can define a module or a test suite.
