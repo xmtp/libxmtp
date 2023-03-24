@@ -28,6 +28,7 @@ pub trait Buffable {
         Self: Sized;
 }
 
+// Bare minimum trait for a key that could be one party for ECDH
 pub trait ECDHKey {
     fn get_public_key(&self) -> PublicKey;
 }
@@ -50,6 +51,7 @@ where
     fn verify_bundle_binding(&self) -> Result<(), String>;
 }
 
+// Trait for any object that has a signed and unsigned version, ideally would not exist
 pub trait BridgeSignableVersion<U, S> {
     fn to_signed(&self) -> S;
     fn to_unsigned(&self) -> U;

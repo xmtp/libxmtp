@@ -4,9 +4,9 @@ use chrono::NaiveDateTime;
 
 use protobuf;
 use protobuf::{Message, MessageField};
+use corecrypto::encryption;
 
 mod conversation;
-mod encryption;
 mod ethereum_utils;
 mod invitation;
 mod keys;
