@@ -20,7 +20,6 @@ use keys::{
 
 use conversation::{InvitationContext, TopicData};
 
-use base64::{engine::general_purpose, Engine as _};
 use traits::WalletAssociated;
 
 // Tests
@@ -555,7 +554,7 @@ impl Keystore {
 
     fn create_unspecified_keystore_err(message: &str) -> proto::keystore::KeystoreError {
         let mut error_response = proto::keystore::KeystoreError::new();
-        error_response.message = "Recipient is empty".to_string();
+        error_response.message = message.to_string();
 
         error_response.code =
             protobuf::EnumOrUnknown::new(proto::keystore::ErrorCode::ERROR_CODE_UNSPECIFIED);

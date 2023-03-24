@@ -2,6 +2,7 @@
 mod test_lib {
     use crate::keys::private_key::SignedPrivateKey;
     use crate::*;
+    use base64::{engine::general_purpose, Engine as _};
 
     #[test]
     fn test_hkdf_simple() {

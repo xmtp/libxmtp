@@ -113,7 +113,6 @@ impl PrivateKeyBundle {
             .collect::<Vec<_>>();
 
         return PublicKeyBundle {
-            public_key_bundle_proto: proto::public_key::PublicKeyBundle::new(),
             identity_key: Some(identity_key.to_unsigned()),
             pre_key: Some(pre_keys[0].to_unsigned()),
         };
@@ -186,15 +185,6 @@ impl PrivateKeyBundle {
         let pre_key = self
             .find_pre_key(my_prekey.get_public_key())
             .ok_or("could not find prekey in private key bundle".to_string())?;
-
-        // TODO: Check prekey signed by identity key
-        // Get validation signature from my_prekey
-        let prekey_signature = my_prekey
-            .get_signature()
-            .ok_or("prekey has no signature".to_string())?;
-
-        // TODO: move the creation of prekey digest to a different function
-        // Use my identity public key to validate the signature
 
         // (STOPSHIP) TODO: better error handling
         // Get the private key bundle
@@ -402,9 +392,6 @@ impl WalletAssociated for SignedPrivateKeyBundle {
 }
 
 pub struct PublicKeyBundle {
-    // Underlying protos
-    public_key_bundle_proto: proto::public_key::PublicKeyBundle,
-
     pub identity_key: Option<PublicKey>,
     pub pre_key: Option<PublicKey>,
 }
@@ -436,7 +423,6 @@ impl PublicKeyBundle {
         }
 
         return Ok(PublicKeyBundle {
-            public_key_bundle_proto: public_key_bundle.clone(),
             identity_key: identity_key,
             pre_key: pre_key,
         });
@@ -503,7 +489,7 @@ impl SignedPublicKeyBundle {
 impl Buffable for SignedPublicKeyBundle {
     // TODO: cannot continue to rely on keeping the original protobuf around
     fn to_proto_bytes(&self) -> Result<Vec<u8>, String> {
-        let mut signed_public_key_bundle_proto = self.signed_public_key_bundle_proto.clone();
+        let signed_public_key_bundle_proto = self.signed_public_key_bundle_proto.clone();
         return signed_public_key_bundle_proto
             .write_to_bytes()
             .map_err(|e| e.to_string());
