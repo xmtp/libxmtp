@@ -1,6 +1,4 @@
-use k256::elliptic_curve::sec1::ToEncodedPoint;
 use k256::PublicKey;
-use sha3::{Digest, Keccak256};
 
 use crate::keys::{private_key::SignedPrivateKey, public_key};
 use crate::{
@@ -60,15 +58,6 @@ impl PrivateKeyBundle {
         });
     }
 
-    pub fn eth_wallet_address_from_public_key(public_key_bytes: &[u8]) -> Result<String, String> {
-        // Hash the public key bytes
-        let mut hasher = Keccak256::new();
-        hasher.update(public_key_bytes);
-        let result = hasher.finalize();
-        // Return the result as hex string, take the last 20 bytes
-        return Ok(format!("0x{}", hex::encode(&result[12..])));
-    }
-
     pub fn eth_address(&self) -> Result<String, String> {
         // Introspect proto and get the identity_key as a SignedPublicKey, then take the signature
         // and recover the wallet address
@@ -103,21 +92,6 @@ impl PrivateKeyBundle {
             }
         }
         return None;
-    }
-
-    pub fn public_key_bundle(&self) -> PublicKeyBundle {
-        let identity_key = &self.identity_key.public_key;
-        let pre_keys = self
-            .pre_keys
-            .iter()
-            .map(|pre_key| pre_key.public_key.clone())
-            .collect::<Vec<_>>();
-
-        return PublicKeyBundle {
-            public_key_bundle_proto: proto::public_key::PublicKeyBundle::new(),
-            identity_key: Some(identity_key.to_unsigned()),
-            pre_key: Some(pre_keys[0].to_unsigned()),
-        };
     }
 
     // Just shuffles the SignedPublicKeys out of the underlying proto and returns them in a
@@ -187,15 +161,6 @@ impl PrivateKeyBundle {
         let pre_key = self
             .find_pre_key(my_prekey.get_public_key())
             .ok_or("could not find prekey in private key bundle".to_string())?;
-
-        // TODO: Check prekey signed by identity key
-        // Get validation signature from my_prekey
-        let prekey_signature = my_prekey
-            .get_signature()
-            .ok_or("prekey has no signature".to_string())?;
-
-        // TODO: move the creation of prekey digest to a different function
-        // Use my identity public key to validate the signature
 
         // (STOPSHIP) TODO: better error handling
         // Get the private key bundle
@@ -276,7 +241,7 @@ impl PrivateKeyBundle {
         let payload = &ciphertext.payload;
 
         // Try decrypting the invitation
-        let decrypt_result = encryption::decrypt_v1(
+        let decrypt_result = encryption::decrypt(
             payload,
             hkdf_salt,
             gcm_nonce,
@@ -346,7 +311,7 @@ impl PrivateKeyBundle {
 
         // Encrypt invitation bytes
         let ciphertext_result =
-            encryption::encrypt_v1(&invitation_bytes, &secret, Some(&header_bytes));
+            encryption::encrypt(&invitation_bytes, &secret, Some(&header_bytes));
         if ciphertext_result.is_err() {
             return Err("could not encrypt invitation".to_string());
         }
@@ -403,9 +368,6 @@ impl WalletAssociated for SignedPrivateKeyBundle {
 }
 
 pub struct PublicKeyBundle {
-    // Underlying protos
-    public_key_bundle_proto: proto::public_key::PublicKeyBundle,
-
     pub identity_key: Option<PublicKey>,
     pub pre_key: Option<PublicKey>,
 }
@@ -437,7 +399,6 @@ impl PublicKeyBundle {
         }
 
         return Ok(PublicKeyBundle {
-            public_key_bundle_proto: public_key_bundle.clone(),
             identity_key: identity_key,
             pre_key: pre_key,
         });
@@ -495,16 +456,12 @@ impl SignedPublicKeyBundle {
             pre_key: pre_key,
         });
     }
-
-    pub fn to_proto(&self) -> proto::public_key::SignedPublicKeyBundle {
-        return self.signed_public_key_bundle_proto.clone();
-    }
 }
 
 impl Buffable for SignedPublicKeyBundle {
     // TODO: cannot continue to rely on keeping the original protobuf around
     fn to_proto_bytes(&self) -> Result<Vec<u8>, String> {
-        let mut signed_public_key_bundle_proto = self.signed_public_key_bundle_proto.clone();
+        let signed_public_key_bundle_proto = self.signed_public_key_bundle_proto.clone();
         return signed_public_key_bundle_proto
             .write_to_bytes()
             .map_err(|e| e.to_string());
