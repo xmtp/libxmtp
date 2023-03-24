@@ -1,10 +1,11 @@
 use std::collections::HashMap;
 
+use corecrypto::encryption;
+
 use protobuf;
 
 mod conversation;
 mod ecdh;
-mod encryption;
 mod ethereum_utils;
 pub mod keys;
 pub mod proto;
