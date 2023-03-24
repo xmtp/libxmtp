@@ -149,8 +149,8 @@ fn test_simple_decryption() {
     assert_eq!(aes_ciphertext.hkdf_salt.len(), 32);
     assert_eq!(aes_ciphertext.payload.len(), 411);
 
-    // Invoke decrypt_v1 on the ciphertext
-    let decrypt_result = encryption::decrypt_v1(
+    // Invoke decrypt on the ciphertext
+    let decrypt_result = encryption::decrypt(
         aes_ciphertext.payload.as_slice(),
         aes_ciphertext.hkdf_salt.as_slice(),
         aes_ciphertext.gcm_nonce.as_slice(),

@@ -1,10 +1,8 @@
 use std::collections::HashMap;
 
-use chrono::NaiveDateTime;
-
 use corecrypto::encryption;
 use protobuf;
-use protobuf::{Message, MessageField};
+use protobuf::Message;
 
 mod conversation;
 mod ethereum_utils;
@@ -112,7 +110,7 @@ impl Keystore {
 
             let ciphertext = &payload.aes256_gcm_hkdf_sha256();
 
-            let decrypt_result = encryption::decrypt_v1(
+            let decrypt_result = encryption::decrypt(
                 ciphertext.payload.as_slice(),
                 ciphertext.hkdf_salt.as_slice(),
                 ciphertext.gcm_nonce.as_slice(),
@@ -186,7 +184,7 @@ impl Keystore {
             let ciphertext = payload.unwrap().aes256_gcm_hkdf_sha256().clone();
 
             // Try to decrypt the payload
-            let decrypt_result = encryption::decrypt_v1(
+            let decrypt_result = encryption::decrypt(
                 ciphertext.payload.as_slice(),
                 ciphertext.hkdf_salt.as_slice(),
                 ciphertext.gcm_nonce.as_slice(),
@@ -635,7 +633,7 @@ impl Keystore {
             let secret = secret_result.unwrap();
 
             // Encrypt the payload
-            let encrypt_result = encryption::encrypt_v1(&payload, &secret, Some(&header_bytes));
+            let encrypt_result = encryption::encrypt(&payload, &secret, Some(&header_bytes));
 
             match encrypt_result {
                 Ok(encrypted) => {
@@ -708,9 +706,9 @@ impl Keystore {
             }
             let topic_data = topic_data.unwrap();
 
-            // Try to encrypt the payload, (note: yes it says encrypt_v1, need to rename)
+            // Try to encrypt the payload
             let encrypt_result =
-                encryption::encrypt_v1(payload, &topic_data.key, Some(header_bytes.as_slice()));
+                encryption::encrypt(payload, &topic_data.key, Some(header_bytes.as_slice()));
 
             let mut response = proto::keystore::encrypt_response::Response::new();
 

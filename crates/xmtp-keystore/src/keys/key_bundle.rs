@@ -276,7 +276,7 @@ impl PrivateKeyBundle {
         let payload = &ciphertext.payload;
 
         // Try decrypting the invitation
-        let decrypt_result = encryption::decrypt_v1(
+        let decrypt_result = encryption::decrypt(
             payload,
             hkdf_salt,
             gcm_nonce,
@@ -346,7 +346,7 @@ impl PrivateKeyBundle {
 
         // Encrypt invitation bytes
         let ciphertext_result =
-            encryption::encrypt_v1(&invitation_bytes, &secret, Some(&header_bytes));
+            encryption::encrypt(&invitation_bytes, &secret, Some(&header_bytes));
         if ciphertext_result.is_err() {
             return Err("could not encrypt invitation".to_string());
         }

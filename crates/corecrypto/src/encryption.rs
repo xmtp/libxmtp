@@ -29,8 +29,7 @@ pub fn hkdf(secret: &[u8], salt: &[u8]) -> Result<[u8; 32], String> {
         .map_err(|_| "hkdf failed to fit in 32 bytes".to_string())
 }
 
-// encryption::decrypt_v1_inner(payload, peer_keys, header_bytes, is_sender);
-pub fn decrypt_v1(
+pub fn decrypt(
     ciphertext_bytes: &[u8],
     salt_bytes: &[u8],
     nonce_bytes: &[u8],
@@ -45,7 +44,7 @@ pub fn decrypt_v1(
     return decrypt_raw(payload, salt_bytes, nonce_bytes, secret_bytes);
 }
 
-// Decrypt but using associated data
+// Decrypt but requiring a Payload struct
 pub fn decrypt_raw(
     payload: Payload,
     salt_bytes: &[u8],
@@ -62,8 +61,7 @@ pub fn decrypt_raw(
     Ok(res.unwrap())
 }
 
-// TODO: remove the v1 from these names, I misread the Keystore API
-pub fn encrypt_v1(
+pub fn encrypt(
     plaintext_bytes: &[u8],
     secret_bytes: &[u8],
     additional_data: Option<&[u8]>,
@@ -76,6 +74,7 @@ pub fn encrypt_v1(
     return encrypt_raw(payload, secret_bytes);
 }
 
+// Encrypt but requiring a Payload struct
 pub fn encrypt_raw(payload: Payload, secret_bytes: &[u8]) -> Result<Ciphertext, String> {
     let salt_bytes = rand::thread_rng().gen::<[u8; 32]>();
     let nonce_bytes = rand::thread_rng().gen::<[u8; 12]>();
