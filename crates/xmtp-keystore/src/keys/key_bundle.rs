@@ -1,4 +1,3 @@
-use k256::elliptic_curve::sec1::ToEncodedPoint;
 use k256::PublicKey;
 use sha3::{Digest, Keccak256};
 

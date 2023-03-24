@@ -4,7 +4,6 @@ use k256::{
     ecdsa::{signature::Verifier, RecoveryId, Signature, VerifyingKey},
     PublicKey,
 };
-use sha2::Sha256;
 use sha3::{Digest, Keccak256};
 
 use crate::proto;
@@ -13,7 +12,7 @@ use crate::traits::{
     BridgeSignableVersion, Buffable, ECDHKey, Sha256SignatureVerifier, SignatureVerifiable,
     SignedECDHKey,
 };
-use protobuf::{Message, MessageField};
+use protobuf::Message;
 
 #[derive(Debug, Clone)]
 pub struct SignedPublicKey {

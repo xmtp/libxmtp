@@ -2,7 +2,7 @@ use crate::{proto, topic::Topic};
 
 use base64::{engine::general_purpose, Engine as _};
 use protobuf::{Message, MessageField};
-use rand::{CryptoRng, RngCore};
+use rand::RngCore;
 
 pub struct InvitationV1 {}
 

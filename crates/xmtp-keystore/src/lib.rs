@@ -15,7 +15,6 @@ mod traits;
 use invitation::InvitationV1;
 use keys::{
     key_bundle::{PrivateKeyBundle, PublicKeyBundle, SignedPublicKeyBundle},
-    private_key::SignedPrivateKey,
     public_key,
 };
 
