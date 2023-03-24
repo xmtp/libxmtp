@@ -6,7 +6,6 @@ use generic_array::GenericArray;
 
 use aes_gcm::{
     aead::{Aead, KeyInit, Payload},
-    AeadInPlace,
     Aes256Gcm,
     Nonce, // Or `Aes128Gcm`
 };

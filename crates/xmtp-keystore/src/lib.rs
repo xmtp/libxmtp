@@ -2,9 +2,9 @@ use std::collections::HashMap;
 
 use chrono::NaiveDateTime;
 
+use corecrypto::encryption;
 use protobuf;
 use protobuf::{Message, MessageField};
-use corecrypto::encryption;
 
 mod conversation;
 mod ethereum_utils;
