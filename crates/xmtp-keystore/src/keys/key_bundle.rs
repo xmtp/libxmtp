@@ -1,5 +1,4 @@
 use k256::PublicKey;
-use sha3::{Digest, Keccak256};
 
 use crate::keys::{private_key::SignedPrivateKey, public_key};
 use crate::{
@@ -59,15 +58,6 @@ impl PrivateKeyBundle {
         });
     }
 
-    pub fn eth_wallet_address_from_public_key(public_key_bytes: &[u8]) -> Result<String, String> {
-        // Hash the public key bytes
-        let mut hasher = Keccak256::new();
-        hasher.update(public_key_bytes);
-        let result = hasher.finalize();
-        // Return the result as hex string, take the last 20 bytes
-        return Ok(format!("0x{}", hex::encode(&result[12..])));
-    }
-
     pub fn eth_address(&self) -> Result<String, String> {
         // Introspect proto and get the identity_key as a SignedPublicKey, then take the signature
         // and recover the wallet address
@@ -102,20 +92,6 @@ impl PrivateKeyBundle {
             }
         }
         return None;
-    }
-
-    pub fn public_key_bundle(&self) -> PublicKeyBundle {
-        let identity_key = &self.identity_key.public_key;
-        let pre_keys = self
-            .pre_keys
-            .iter()
-            .map(|pre_key| pre_key.public_key.clone())
-            .collect::<Vec<_>>();
-
-        return PublicKeyBundle {
-            identity_key: Some(identity_key.to_unsigned()),
-            pre_key: Some(pre_keys[0].to_unsigned()),
-        };
     }
 
     // Just shuffles the SignedPublicKeys out of the underlying proto and returns them in a
@@ -479,10 +455,6 @@ impl SignedPublicKeyBundle {
             identity_key: identity_key,
             pre_key: pre_key,
         });
-    }
-
-    pub fn to_proto(&self) -> proto::public_key::SignedPublicKeyBundle {
-        return self.signed_public_key_bundle_proto.clone();
     }
 }
 

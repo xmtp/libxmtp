@@ -67,33 +67,6 @@ pub fn recover_wallet_public_key(
     return Ok(public_key);
 }
 
-// Need to do two layers of proto deserialization, key_bytes is just the bytes of the PublicKey proto
-pub fn signed_public_key_from_proto(
-    proto: &proto::public_key::SignedPublicKey,
-) -> Result<PublicKey, String> {
-    let mut public_key_proto_bytes = proto.key_bytes.as_slice();
-    let public_key_proto_result: Result<proto::public_key::PublicKey, protobuf::Error> =
-        protobuf::Message::parse_from_bytes(&mut public_key_proto_bytes);
-    if public_key_proto_result.is_err() {
-        return Err(public_key_proto_result.err().unwrap().to_string());
-    }
-    let public_key_result = PublicKey::from_sec1_bytes(
-        public_key_proto_result
-            .unwrap()
-            .secp256k1_uncompressed()
-            .bytes
-            .as_slice(),
-    );
-
-    if public_key_result.is_err() {
-        return Err(format!(
-            "Error parsing sec1 bytes: {}",
-            public_key_result.err().unwrap().to_string()
-        ));
-    }
-    return Ok(public_key_result.unwrap());
-}
-
 pub fn signed_public_key_from_proto_v2(
     proto: &proto::public_key::SignedPublicKey,
 ) -> Result<SignedPublicKey, String> {
@@ -151,19 +124,6 @@ pub fn to_unsigned_public_key_proto(
     unsigned_public_key.set_secp256k1_uncompressed(secp256k1_uncompressed);
     unsigned_public_key.created_ns = created_at;
     return unsigned_public_key;
-}
-
-pub fn to_signed_public_key_proto(
-    public_key: &PublicKey,
-    created_at: u64,
-) -> proto::public_key::SignedPublicKey {
-    // First, get the UnsignedPublicKey proto
-    let unsigned_public_key = to_unsigned_public_key_proto(public_key, created_at);
-
-    let mut signed_public_key = proto::public_key::SignedPublicKey::new();
-    signed_public_key.key_bytes = unsigned_public_key.write_to_bytes().unwrap();
-    // TODO: STOPSHIP: Need to set the Signature
-    return signed_public_key;
 }
 
 impl PartialEq for SignedPublicKey {
