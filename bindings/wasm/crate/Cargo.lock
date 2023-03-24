@@ -161,6 +161,23 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "5827cebf4670468b8772dd191856768aedcb1b0278a04f989f7766351917b9dc"
 
 [[package]]
+name = "corecrypto"
+version = "0.1.0"
+dependencies = [
+ "aes-gcm",
+ "chrono",
+ "ecdsa",
+ "generic-array",
+ "getrandom",
+ "hkdf",
+ "k256",
+ "rand",
+ "rlp",
+ "sha2",
+ "sha3",
+]
+
+[[package]]
 name = "cpufeatures"
 version = "0.2.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -945,6 +962,7 @@ dependencies = [
  "aes-gcm",
  "base64",
  "chrono",
+ "corecrypto",
  "ecdsa",
  "generic-array",
  "getrandom",
