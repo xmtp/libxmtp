@@ -169,6 +169,7 @@ dependencies = [
  "ecdsa",
  "generic-array",
  "getrandom",
+ "hex",
  "hkdf",
  "k256",
  "rand",
