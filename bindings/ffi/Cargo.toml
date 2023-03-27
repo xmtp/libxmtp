@@ -1,0 +1,26 @@
+[package]
+authors = ["Michael Xu <michaelx@xmtp.com>"]
+edition = "2021"
+homepage = ""
+repository = ""
+description = "Example uniffi bindings for corecrypto crate"
+license = "Apache-2.0"
+name = "corecrypto-ffi"
+version = "0.1.0"
+rust-version = "1.60"
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+uniffi = { version = "0.23.0" }
+uniffi_macros = "0.23.0"
+corecrypto = { path = "../../crates/corecrypto" }
+
+[build_dependencies]
+uniffi = { version = "0.23.0", features = [ "build" ] }
+
+# = Gen Kotlin - leave commented unless needing to run the ./gen_kotlin.sh script =
+# [[bin]]
+# name = "uniffi-bindgen"
+# path = "uniffi-bindgen.rs"

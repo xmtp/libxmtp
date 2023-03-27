@@ -1,0 +1,9 @@
+namespace corecrypto {
+    sequence<u8> decrypt(
+      sequence<u8> ciphertext_bytes,
+      sequence<u8> salt_bytes,
+      sequence<u8> nonce_bytes,
+      sequence<u8> secret_bytes,
+      sequence<u8> additional_data
+    );
+};
