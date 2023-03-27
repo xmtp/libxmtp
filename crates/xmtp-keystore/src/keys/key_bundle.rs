@@ -1,8 +1,9 @@
 use k256::elliptic_curve::sec1::ToEncodedPoint;
 use k256::PublicKey;
 use sha3::{Digest, Keccak256};
+use corecrypto::encryption;
 
-use super::super::{ecdh, encryption, proto};
+use super::super::{ecdh, proto};
 use super::private_key::SignedPrivateKey;
 use super::public_key;
 
@@ -160,12 +161,12 @@ impl PrivateKeyBundle {
         let payload = &ciphertext.payload;
 
         // Try decrypting the invitation
-        let decrypt_result = encryption::decrypt_v1_with_associated_data(
+        let decrypt_result = encryption::decrypt(
             payload,
             hkdf_salt,
             gcm_nonce,
             &secret,
-            &sealed_invitation.header_bytes,
+            Some(&sealed_invitation.header_bytes),
         );
         if decrypt_result.is_err() {
             return Err("could not decrypt invitation".to_string());

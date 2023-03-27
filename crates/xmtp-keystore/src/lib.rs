@@ -1,10 +1,11 @@
 use std::collections::HashMap;
 
+use corecrypto::encryption;
+
 use protobuf;
 
 mod conversation;
 mod ecdh;
-mod encryption;
 mod ethereum_utils;
 pub mod keys;
 pub mod proto;
@@ -78,8 +79,7 @@ impl Keystore {
 
             let mut response = proto::keystore::decrypt_response::Response::new();
 
-            // let decrypt_result = encryption::decrypt_v1(payload, peer_keys, header_bytes, is_sender);
-            let decrypt_result = encryption::decrypt_v1(&[], &[], &[], &[], None);
+            let decrypt_result = encryption::decrypt(&[], &[], &[], &[], None);
             match decrypt_result {
                 Ok(decrypted) => {
                     let mut success_response =
@@ -202,58 +202,6 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_hkdf_simple() {
-        // Test Vectors generated with xmtp-js
-        // Test 1
-        let secret1 = hex::decode("aff491a0fe153a4ac86065b4b4f6953a4cb33477aa233facb94d5fb88c82778c39167f453aa0690b5358abe9e027ddca5a6185bce3699d8b2ac7efa30510a7991b").unwrap();
-        let salt1 = hex::decode("e3412c112c28353088c99bd5c7350c81b1bc879b4d08ea1192ec3c03202ff337")
-            .unwrap();
-        let expected1 =
-            hex::decode("0159d9ad511263c3754a8e2045fadc657c0016b1801720e67bbeb2661c60f176")
-                .unwrap();
-        let derived1_result = encryption::hkdf(&secret1, &salt1);
-        // Check result
-        assert!(derived1_result.is_ok());
-        assert_eq!(derived1_result.unwrap().to_vec(), expected1);
-
-        // Test 2
-        let secret2 = hex::decode("af43ad68d9fcf40967f194497246a6e30515b6c4f574ee2ff58e31df32f5f18040812188cfb5ce34e74ae27b73be08dca626b3eb55c55e6733f32a59dd1b8e021c").unwrap();
-        let salt2 = hex::decode("a8500ae6f90a7ccaa096adc55857b90c03508f7d5f8d103a49d58e69058f0c3c")
-            .unwrap();
-        let expected2 =
-            hex::decode("6181d0905f3f31cc3940336696afe1337d9e4d7f6655b9a6eaed2880be38150c")
-                .unwrap();
-        let derived2_result = encryption::hkdf(&secret2, &salt2);
-        // Check result
-        assert!(derived2_result.is_ok());
-        assert_eq!(derived2_result.unwrap().to_vec(), expected2);
-    }
-
-    #[test]
-    fn test_hkdf_error() {
-        let secret1 = hex::decode("bff491a0fe153a4ac86065b4b4f6953a4cb33477aa233facb94d5fb88c82778c39167f453aa0690b5358abe9e027ddca5a6185bce3699d8b2ac7efa30510a7991b").unwrap();
-        let salt1 = hex::decode("e3412c112c28353088c99bd5c7350c81b1bc879b4d08ea1192ec3c03202ff337")
-            .unwrap();
-        let expected1 =
-            hex::decode("0159d9ad511263c3754a8e2045fadc657c0016b1801720e67bbeb2661c60f176")
-                .unwrap();
-        let derived1_result = encryption::hkdf(&secret1, &salt1);
-        // Check result
-        assert!(derived1_result.is_ok());
-        // Assert not equal
-        assert_ne!(derived1_result.unwrap().to_vec(), expected1);
-    }
-
-    #[test]
-    fn test_hkdf_invalid_key() {
-        let secret1 = hex::decode("").unwrap();
-        let salt1 = hex::decode("").unwrap();
-        let derived1_result = encryption::hkdf(&secret1, &salt1);
-        // Check result
-        assert!(derived1_result.is_ok());
-    }
-
-    #[test]
     fn test_private_key_from_v2_bundle() {
         // = test vectors generated with xmtp-js =
         let private_key_bundle_raw = "EpYDCsgBCMDw7ZjWtOygFxIiCiAvph+Hg/Gk9G1g2EoW1ZDlWVH1nCkn6uRL7GBG3iNophqXAQpPCMDw7ZjWtOygFxpDCkEEeH4w/gK5HMaKu51aec/jiosmqDduIaEA67V7Lbox1cPhz9SIEi6sY/6jVQQXeIjKxzsZSVrM0LXCXjc0VkRmxhJEEkIKQNSujk9ApV5gIKltm0CFhLLuN3Xt2fjkKZBoUH/mswjTaUMTc3qZZzde3ZKMfkNVZYqns4Sn0sgopXzpjQGgjyUSyAEIwPXBtNa07KAXEiIKIOekWIyRJCelxqX+mR8i76KuDO2QV3e42nv8CxJQL0DXGpcBCk8IwPXBtNa07KAXGkMKQQTIePKpkAHxREbLbXfn6XCOwx9YqQWmqLuTHAnqRNj1q5xDLpbgkiyAORFZmVOK8iVq3dT/PWm6WMasPrqdzD7iEkQKQgpAqIj/yKx2wn8VjeWV6wm/neNDEQ6282p3CeJsPDKS56B11Nqc5Y5vUPKcrC1nB2dqBkwvop0fU49Yx4k0CB2evQ==";
@@ -358,8 +306,8 @@ mod tests {
         assert_eq!(aes_ciphertext.hkdf_salt.len(), 32);
         assert_eq!(aes_ciphertext.payload.len(), 411);
 
-        // Invoke decrypt_v1 on the ciphertext
-        let decrypt_result = encryption::decrypt_v1(
+        // Invoke decrypt on the ciphertext
+        let decrypt_result = encryption::decrypt(
             aes_ciphertext.payload.as_slice(),
             aes_ciphertext.hkdf_salt.as_slice(),
             aes_ciphertext.gcm_nonce.as_slice(),
