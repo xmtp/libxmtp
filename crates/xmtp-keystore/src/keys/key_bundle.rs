@@ -161,7 +161,7 @@ impl PrivateKeyBundle {
         let payload = &ciphertext.payload;
 
         // Try decrypting the invitation
-        let decrypt_result = encryption::decrypt_v1(
+        let decrypt_result = encryption::decrypt(
             payload,
             hkdf_salt,
             gcm_nonce,
