@@ -1,4 +1,6 @@
 pub mod encryption;
+pub mod signature;
+pub mod traits;
 
 #[cfg(test)]
 mod tests {
