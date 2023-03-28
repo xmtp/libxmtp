@@ -330,7 +330,7 @@ Older versions of the SDK will eventually be deprecated, which means:
 The following table provides the deprecation schedule.
 
 | Announced  | Effective  | Minimum Version | Rationale                                                                                                         |
-| ---------- | ---------- | --------------- | ----------------------------------------------------------------------------------------------------------------- |
+| ---------- | ---------- | --------------- | ---------------------------------------------------------------------------------------------------------------- |
 | There are no deprecations scheduled for `xmtp-ios` at this time. |  |          |  |
 
 Bug reports, feature requests, and PRs are welcome in accordance with these [contribution guidelines](https://github.com/xmtp/xmtp-ios/blob/main/CONTRIBUTING.md).
