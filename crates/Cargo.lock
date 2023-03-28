@@ -958,14 +958,11 @@ checksum = "9aec5da331524158c6d1a4ac0ab1541149c0b9505fde06423b02f5ef0106b9f0"
 name = "xmtp-keystore"
 version = "0.1.0"
 dependencies = [
- "aes-gcm",
  "base64",
  "corecrypto",
  "ecdsa",
  "generic-array",
- "getrandom",
  "hex",
- "hkdf",
  "k256",
  "protobuf",
  "rand",
