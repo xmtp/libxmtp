@@ -6,8 +6,7 @@ use generic_array::GenericArray;
 
 use aes_gcm::{
     aead::{Aead, KeyInit, Payload},
-    Aes256Gcm,
-    Nonce,
+    Aes256Gcm, Nonce,
 };
 
 // Lightweight ciphertext holder
