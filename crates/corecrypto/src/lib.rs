@@ -58,7 +58,7 @@ mod tests {
     }
 
     #[test]
-    fn test_simple_decryption() {
+    fn test_hardcoded_decryption() {
         // Generated from xmtp-js with simple console.log statements around unit-tests that use the decrypt function
         let hkdf_salt: Vec<u8> = vec![
             139, 45, 107, 41, 87, 173, 15, 163, 250, 14, 194, 152, 200, 180, 226, 48, 140, 198, 1,
@@ -96,7 +96,19 @@ mod tests {
             62, 220, 151, 225, 136, 193, 228, 82, 28,
         ];
 
-        let plaintext_hex = "0a88030ac00108b08b90bfe53012220a20b1d1ae465df4258351c462ea592723753a366263146c69120b4901e4c7a56c8b1a920108b08b90bfe53012440a420a401051d42da81190bbbe080f0cef3356cb476ecf87b112b22a4623f1d22ac358fa08a6160720051acf6ac651335c9114a052a7885ecfaf7c9725f9700075ac22b11a430a41046520443dc4358499e8f0269567bcc27d7264771de694eb84d5c5334e152ede227f3a1606b6dd47129d7c999a6655855cb02dc2b32ee9bf02c01578277dd4ddeb12c20108d88b90bfe53012220a20744cabc19d4d84d9753eed7091bc3047d2e46578cce75193add548f530c7f1d31a940108d88b90bfe53012460a440a409e12294d043420f762ed24e7d21f26328f0f787a964d07f7ebf288f2ab9f750b76b820339ff8cffd4be83adf7177fd29265c4479bf9ab4dc8ed9e5af399a9fab10011a430a4104e0f94416fc0431050a7f4561f8dfdd89e23d24c1d05c50710ef0524316a3bd5ed938c0f111133348fc2aeff399838ce3bd8505182e8582efc6beda0d5144330f";
+        let plaintext_hex =
+            "0a88030ac00108b08b90bfe53012220a20b1d1ae465df4258351c462ea592723753a36\
+             6263146c69120b4901e4c7a56c8b1a920108b08b90bfe53012440a420a401051d42da8\
+             1190bbbe080f0cef3356cb476ecf87b112b22a4623f1d22ac358fa08a6160720051acf\
+             6ac651335c9114a052a7885ecfaf7c9725f9700075ac22b11a430a41046520443dc435\
+             8499e8f0269567bcc27d7264771de694eb84d5c5334e152ede227f3a1606b6dd47129d\
+             7c999a6655855cb02dc2b32ee9bf02c01578277dd4ddeb12c20108d88b90bfe5301222\
+             0a20744cabc19d4d84d9753eed7091bc3047d2e46578cce75193add548f530c7f1d31a\
+             940108d88b90bfe53012460a440a409e12294d043420f762ed24e7d21f26328f0f787a\
+             964d07f7ebf288f2ab9f750b76b820339ff8cffd4be83adf7177fd29265c4479bf9ab4\
+             dc8ed9e5af399a9fab10011a430a4104e0f94416fc0431050a7f4561f8dfdd89e23d24\
+             c1d05c50710ef0524316a3bd5ed938c0f111133348fc2aeff399838ce3bd8505182e85\
+             82efc6beda0d5144330f";
 
         // Invoke decrypt on the ciphertext
         let decrypt_result = encryption::decrypt(
@@ -109,5 +121,86 @@ mod tests {
 
         assert!(decrypt_result.is_ok());
         assert_eq!(hex::encode(decrypt_result.unwrap()), plaintext_hex);
+    }
+
+    #[test]
+    fn test_roundtrip_encryption_short() {
+        // Simple key choice, same as previous test but I chopped a digit off the first column
+        let secret: Vec<u8> = vec![
+            24, 230, 18, 30, 212, 117, 106, 175, 141, 208, 177, 22, 206, 183, 244, 74, 178, 241, 9,
+            79, 76, 175, 89, 36, 228, 189, 7, 3, 83, 115, 158, 106, 60, 139, 3, 156, 222, 117, 37,
+            194, 19, 76, 127, 247, 107, 202, 93, 122, 222, 63, 229, 155, 215, 145, 243, 231, 2,
+            220, 151, 225, 136, 193, 228, 82, 28,
+        ];
+
+        let plaintext: Vec<u8> = vec![0, 1, 2, 3, 4, 5, 6, 7, 8, 9];
+        let aead: Vec<u8> = vec![10, 11, 12, 13, 14, 15, 16, 17, 18, 19];
+
+        // Invoke encrypt on the plaintext
+        let encrypt_result = encryption::encrypt(
+            plaintext.as_slice(),
+            secret.as_slice(),
+            Some(aead.as_slice()),
+        );
+
+        assert!(encrypt_result.is_ok());
+        let encryption::Ciphertext {
+            payload,
+            hkdf_salt,
+            gcm_nonce,
+        } = encrypt_result.unwrap();
+
+        // Invoke decrypt on the ciphertext
+        let decrypt_result = encryption::decrypt(
+            payload.as_slice(),
+            hkdf_salt.as_slice(),
+            gcm_nonce.as_slice(),
+            secret.as_slice(),
+            Some(&aead),
+        );
+
+        assert!(decrypt_result.is_ok());
+        assert_eq!(decrypt_result.unwrap(), plaintext);
+    }
+
+    #[test]
+    fn test_roundtrip_aead_failure() {
+        // Simple key choice, same as previous test but I chopped a digit off the first column
+        let secret: Vec<u8> = vec![
+            24, 230, 18, 30, 212, 117, 106, 175, 141, 208, 177, 22, 206, 183, 244, 74, 178, 241, 9,
+            79, 76, 175, 89, 36, 228, 189, 7, 3, 83, 115, 158, 106, 60, 139, 3, 156, 222, 117, 37,
+            194, 19, 76, 127, 247, 107, 202, 93, 122, 222, 63, 229, 155, 215, 145, 243, 231, 2,
+            220, 151, 225, 136, 193, 228, 82, 28,
+        ];
+
+        let plaintext: Vec<u8> = vec![0, 1, 2, 3, 4, 5, 6, 7, 8, 9];
+        let aead: Vec<u8> = vec![10, 11, 12, 13, 14, 15, 16, 17, 18, 19];
+        // Last byte is 20 instead of 19
+        let bad_aead: Vec<u8> = vec![10, 11, 12, 13, 14, 15, 16, 17, 18, 20];
+
+        // Invoke encrypt on the plaintext
+        let encrypt_result = encryption::encrypt(
+            plaintext.as_slice(),
+            secret.as_slice(),
+            Some(aead.as_slice()),
+        );
+
+        assert!(encrypt_result.is_ok());
+        let encryption::Ciphertext {
+            payload,
+            hkdf_salt,
+            gcm_nonce,
+        } = encrypt_result.unwrap();
+
+        // Invoke decrypt on the ciphertext
+        let decrypt_result = encryption::decrypt(
+            payload.as_slice(),
+            hkdf_salt.as_slice(),
+            gcm_nonce.as_slice(),
+            secret.as_slice(),
+            Some(&bad_aead),
+        );
+
+        assert!(decrypt_result.is_err());
     }
 }
