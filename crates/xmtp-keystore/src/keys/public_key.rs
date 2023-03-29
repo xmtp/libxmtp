@@ -7,9 +7,9 @@ use protobuf;
 pub fn signed_public_key_from_proto(
     proto: &proto::public_key::SignedPublicKey,
 ) -> Result<PublicKey, String> {
-    let mut public_key_proto_bytes = proto.key_bytes.as_slice();
+    let public_key_proto_bytes = proto.key_bytes.as_slice();
     let public_key_proto_result: Result<proto::public_key::PublicKey, protobuf::Error> =
-        protobuf::Message::parse_from_bytes(&mut public_key_proto_bytes);
+        protobuf::Message::parse_from_bytes(public_key_proto_bytes);
     if public_key_proto_result.is_err() {
         return Err(public_key_proto_result.err().unwrap().to_string());
     }
@@ -23,7 +23,7 @@ pub fn signed_public_key_from_proto(
     if public_key_result.is_err() {
         return Err(public_key_result.err().unwrap().to_string());
     }
-    return Ok(public_key_result.unwrap());
+    Ok(public_key_result.unwrap())
 }
 
 pub fn public_key_from_proto(proto: &proto::public_key::PublicKey) -> Result<PublicKey, String> {
@@ -32,5 +32,5 @@ pub fn public_key_from_proto(proto: &proto::public_key::PublicKey) -> Result<Pub
     if public_key_result.is_err() {
         return Err(public_key_result.err().unwrap().to_string());
     }
-    return Ok(public_key_result.unwrap());
+    Ok(public_key_result.unwrap())
 }
