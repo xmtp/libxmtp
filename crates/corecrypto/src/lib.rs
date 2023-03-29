@@ -5,7 +5,6 @@ pub mod traits;
 #[cfg(test)]
 mod tests {
     use crate::*;
-    use hex;
 
     #[test]
     fn test_hkdf_simple() {

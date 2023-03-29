@@ -2,8 +2,6 @@ use std::collections::HashMap;
 
 use corecrypto::encryption;
 
-use protobuf;
-
 mod conversation;
 mod ecdh;
 mod ethereum_utils;
@@ -18,6 +16,12 @@ pub struct Keystore {
     private_key_bundle: Option<PrivateKeyBundle>,
     // Topic Keys
     topic_keys: HashMap<String, TopicData>,
+}
+
+impl Default for Keystore {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl Keystore {
@@ -47,10 +51,10 @@ impl Keystore {
         // If the deserialization was successful, set the privateIdentityKey field
         if private_key_result.is_ok() {
             self.private_key_bundle =
-                Some(PrivateKeyBundle::from_proto(&private_key_bundle).unwrap());
-            return Ok(());
+                Some(PrivateKeyBundle::from_proto(private_key_bundle).unwrap());
+            Ok(())
         } else {
-            return Err("could not parse private key bundle".to_string());
+            Err("could not parse private key bundle".to_string())
         }
     }
 
@@ -101,7 +105,7 @@ impl Keystore {
         }
         let mut response_proto = proto::keystore::DecryptResponse::new();
         response_proto.responses = responses;
-        return Ok(response_proto);
+        Ok(response_proto)
     }
 
     // Save invites
@@ -139,7 +143,7 @@ impl Keystore {
             .private_key_bundle
             .as_ref()
             .unwrap()
-            .unseal_invitation(&invitation, &invitation_header);
+            .unseal_invitation(invitation, invitation_header);
         if decrypt_result.is_err() {
             return Err("could not decrypt invitation".to_string());
         }
@@ -175,7 +179,7 @@ impl Keystore {
             },
         );
 
-        return Ok(true);
+        Ok(true)
     }
     // == end keystore api ==
 }

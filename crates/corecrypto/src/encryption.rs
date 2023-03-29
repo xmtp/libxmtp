@@ -17,7 +17,7 @@ pub struct Ciphertext {
 }
 
 pub fn hkdf(secret: &[u8], salt: &[u8]) -> Result<[u8; 32], String> {
-    let hk = Hkdf::<Sha256>::new(Some(&salt), &secret);
+    let hk = Hkdf::<Sha256>::new(Some(salt), secret);
     let mut okm = [0u8; 42];
     let res = hk.expand(&[], &mut okm);
     if res.is_err() {
@@ -37,10 +37,10 @@ pub fn decrypt(
 ) -> Result<Vec<u8>, String> {
     // Form a Payload struct from ciphertext_bytes and additional_data if it's present
     let mut payload = Payload::from(ciphertext_bytes);
-    if additional_data.is_some() {
-        payload.aad = additional_data.unwrap();
+    if let Some(aad_data) = additional_data {
+        payload.aad = aad_data;
     }
-    return decrypt_raw(payload, salt_bytes, nonce_bytes, secret_bytes);
+    decrypt_raw(payload, salt_bytes, nonce_bytes, secret_bytes)
 }
 
 // Decrypt but using associated data
@@ -67,10 +67,10 @@ pub fn encrypt(
 ) -> Result<Ciphertext, String> {
     // Form a Payload struct from plaintext_bytes and additional_data if it's present
     let mut payload = Payload::from(plaintext_bytes);
-    if additional_data.is_some() {
-        payload.aad = additional_data.unwrap();
+    if let Some(aad_data) = additional_data {
+        payload.aad = aad_data;
     }
-    return encrypt_raw(payload, secret_bytes);
+    encrypt_raw(payload, secret_bytes)
 }
 
 fn encrypt_raw(payload: Payload, secret_bytes: &[u8]) -> Result<Ciphertext, String> {
