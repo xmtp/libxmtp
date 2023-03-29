@@ -5,27 +5,18 @@ on:
       - main
   pull_request:
 jobs:
-  corecrypto:
+  clippy:
     runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: ./crates/corecrypto
     steps:
       - uses: actions/checkout@v1
       - run: rustup component add clippy
       - uses: actions-rs/clippy-check@v1
+        name: xmtp-keystore
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
-          args: --all-features
-  keystore:
-    runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: ./crates/xmtp-keystore
-    steps:
-      - uses: actions/checkout@v1
-      - run: rustup component add clippy
+          args: --all-features --manifest-path crates/xmtp-keystore/Cargo.toml
       - uses: actions-rs/clippy-check@v1
+        name: corecrypto
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
-          args: --all-features
+          args: --all-features --manifest-path crates/corecrypto/Cargo.toml
