@@ -35,13 +35,13 @@ impl PrivateKey {
             return Err(secret_key_result.err().unwrap().to_string());
         }
         let secret_key = secret_key_result.unwrap();
-        let public_key = secret_key.public_key().clone();
+        let public_key = secret_key.public_key();
 
-        return Ok(PrivateKey {
+        Ok(PrivateKey {
             proto: proto.clone(),
             private_key: secret_key,
-            public_key: public_key,
-        });
+            public_key,
+        })
     }
 }
 
@@ -72,13 +72,13 @@ impl SignedPrivateKey {
             return Err(secret_key_result.err().unwrap().to_string());
         }
         let secret_key = secret_key_result.unwrap();
-        let public_key = secret_key.public_key().clone();
+        let public_key = secret_key.public_key();
 
-        return Ok(SignedPrivateKey {
+        Ok(SignedPrivateKey {
             proto: proto.clone(),
             private_key: secret_key,
-            public_key: public_key,
-        });
+            public_key,
+        })
     }
 
     pub fn eth_wallet_address_from_public_key(public_key_bytes: &[u8]) -> Result<String, String> {
@@ -87,7 +87,7 @@ impl SignedPrivateKey {
         hasher.update(public_key_bytes);
         let result = hasher.finalize();
         // Return the result as hex string, take the last 20 bytes
-        return Ok(format!("0x{}", hex::encode(&result[12..])));
+        Ok(format!("0x{}", hex::encode(&result[12..])))
     }
 
     pub fn eth_address(&self) -> Result<String, String> {
@@ -96,7 +96,7 @@ impl SignedPrivateKey {
         let public_key_bytes = binding.as_bytes();
         // Return the result as hex string, take the last 20 bytes
         // Need to remove the 04 prefix for uncompressed point representation
-        return Self::eth_wallet_address_from_public_key(&public_key_bytes[1..]);
+        Self::eth_wallet_address_from_public_key(&public_key_bytes[1..])
     }
 
     // https://github.com/ethereumjs/ethereumjs-util/blob/ebf40a0fba8b00ba9acae58405bca4415e383a0d/src/signature.ts#L168
@@ -106,7 +106,7 @@ impl SignedPrivateKey {
             .as_bytes()
             .to_vec();
         prefix.append(&mut xmtp_payload.to_vec());
-        return prefix;
+        prefix
     }
 
     pub fn ethereum_personal_digest(xmtp_payload: &[u8]) -> Vec<u8> {
@@ -115,7 +115,7 @@ impl SignedPrivateKey {
         let mut hasher = Keccak256::new();
         hasher.update(personal_sign_payload);
         let result = hasher.finalize();
-        return result.to_vec();
+        result.to_vec()
     }
 
     // Verify wallet signature from proto
@@ -163,12 +163,12 @@ impl SignedPrivateKey {
         }
         // Finally use the recovered key in a re-verification, may not strictly be required
         if recovered_key
-            .verify_digest(Keccak256::new_with_prefix(&message), &ec_signature)
+            .verify_digest(Keccak256::new_with_prefix(message), &ec_signature)
             .is_err()
         {
             return Err("Signature verification failed".to_string());
         }
-        return Ok(());
+        Ok(())
     }
 
     // Verify signature with default sha256 digest mechanism
@@ -189,13 +189,16 @@ impl SignedPrivateKey {
         if verify_result.is_err() {
             return Err(verify_result.err().unwrap().to_string());
         }
-        return Ok(verify_result.unwrap());
+        {
+            verify_result.unwrap();
+            Ok(())
+        }
     }
 }
 
 impl ECDHKey for PublicKey {
     fn get_public_key(&self) -> PublicKey {
-        return self.clone();
+        *self
     }
 }
 
@@ -235,7 +238,7 @@ impl EthereumCompatibleKey for proto::private_key::PrivateKey {
             return "".to_string();
         }
         let private_key = private_key_result.unwrap();
-        return private_key.private_key.get_ethereum_address();
+        private_key.private_key.get_ethereum_address()
     }
 }
 
@@ -250,9 +253,8 @@ impl EthereumCompatibleKey for SecretKey {
         // Get public key bytes
         let public_key_bytes = encoded_public_key.as_bytes();
         // Get ethereum address from public key bytes
-        let eth_address =
-            EthereumUtils::get_ethereum_address_from_public_key_bytes(&public_key_bytes[1..]);
-        return eth_address;
+        
+        EthereumUtils::get_ethereum_address_from_public_key_bytes(&public_key_bytes[1..])
     }
 }
 
@@ -263,8 +265,7 @@ impl EthereumCompatibleKey for PublicKey {
         // Get public key bytes
         let public_key_bytes = encoded_public_key.as_bytes();
         // Get ethereum address from public key bytes
-        let eth_address =
-            EthereumUtils::get_ethereum_address_from_public_key_bytes(&public_key_bytes[1..]);
-        return eth_address;
+        
+        EthereumUtils::get_ethereum_address_from_public_key_bytes(&public_key_bytes[1..])
     }
 }

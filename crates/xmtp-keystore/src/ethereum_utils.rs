@@ -14,7 +14,7 @@ impl EthereumUtils {
             .as_bytes()
             .to_vec();
         prefix.append(&mut message.to_vec());
-        return prefix;
+        prefix
     }
 
     // Generate an ethereum address, no EIP-55  mixed-case checksum address encoding for now
@@ -26,7 +26,7 @@ impl EthereumUtils {
         let hash = hasher.finalize();
         // Return as hex string
         // TODO: EIP-55 checksum address encoding
-        return format!("0x{}", hex::encode(&hash[12..]));
+        format!("0x{}", hex::encode(&hash[12..]))
     }
 
     // Place the XMTP payload in this utilities class
