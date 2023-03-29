@@ -13,7 +13,8 @@ pub enum EcdsaSignature {
 }
 
 // This means that EcdsaSignature implements the SignatureVerifiable trait, allowing
-// us to implement a SignatureVerifier<EcdsaSignature>
+// us to implement a SignatureVerifier<EcdsaSignature> we could imagine also implementing
+// the SignatureVerifiable<EcdsaSignature> trait for a SignedBundle type, etc
 impl traits::SignatureVerifiable<EcdsaSignature> for EcdsaSignature {
     fn get_signature(&self) -> Option<EcdsaSignature> {
         Some(self.clone())
