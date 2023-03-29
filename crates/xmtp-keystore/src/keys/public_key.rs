@@ -1,6 +1,6 @@
 use k256::PublicKey;
 
-use super::super::proto;
+use crate::proto;
 use protobuf;
 
 // Need to do two layers of proto deserialization, key_bytes is just the bytes of the PublicKey proto

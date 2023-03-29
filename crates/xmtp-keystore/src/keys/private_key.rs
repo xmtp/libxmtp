@@ -1,15 +1,15 @@
-use k256::ecdsa::signature::DigestVerifier;
 use k256::elliptic_curve::sec1::ToEncodedPoint;
 use k256::{
-    ecdsa::{signature::Verifier, RecoveryId, Signature, VerifyingKey},
+    ecdsa::{RecoveryId, Signature, VerifyingKey},
     PublicKey, SecretKey,
 };
 use sha3::{Digest, Keccak256};
 
-use super::super::ecdh::{ECDHDerivable, ECDHKey};
-use super::super::ethereum_utils::{EthereumCompatibleKey, EthereumUtils};
+use crate::ecdh::{ECDHDerivable, ECDHKey};
+use crate::ethereum_utils::{EthereumCompatibleKey, EthereumUtils};
+use crate::proto;
 
-use super::super::proto;
+use corecrypto::{signature::EcdsaSignature, traits::SignatureVerifier};
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct PrivateKey {
@@ -99,19 +99,9 @@ impl SignedPrivateKey {
         return Self::eth_wallet_address_from_public_key(&public_key_bytes[1..]);
     }
 
-    // https://github.com/ethereumjs/ethereumjs-util/blob/ebf40a0fba8b00ba9acae58405bca4415e383a0d/src/signature.ts#L168
-    pub fn ethereum_personal_sign_payload(xmtp_payload: &[u8]) -> Vec<u8> {
-        // Prefix byte array is: "\x19Ethereum Signed Message:\n32"
-        let mut prefix = format!("\x19Ethereum Signed Message:\n{}", xmtp_payload.len())
-            .as_bytes()
-            .to_vec();
-        prefix.append(&mut xmtp_payload.to_vec());
-        return prefix;
-    }
-
     pub fn ethereum_personal_digest(xmtp_payload: &[u8]) -> Vec<u8> {
         // Hash the entire thing one more time with keccak256
-        let personal_sign_payload = Self::ethereum_personal_sign_payload(xmtp_payload);
+        let personal_sign_payload = EthereumUtils::get_personal_sign_message(xmtp_payload);
         let mut hasher = Keccak256::new();
         hasher.update(personal_sign_payload);
         let result = hasher.finalize();
@@ -161,35 +151,22 @@ impl SignedPrivateKey {
         if address.to_lowercase() != eth_address.to_lowercase() {
             return Err("Recovered address does not match the address from the proto".to_string());
         }
-        // Finally use the recovered key in a re-verification, may not strictly be required
-        if recovered_key
-            .verify_digest(Keccak256::new_with_prefix(&message), &ec_signature)
-            .is_err()
-        {
-            return Err("Signature verification failed".to_string());
-        }
+        // Reverify (not strictly necessary, but exercises the trait)
+        // move signature bytes into this enum: EcdsaSecp256k1Sha256Compact(Vec<u8>, u32),
+        let ecdsa_signature =
+            EcdsaSignature::WalletPersonalSignCompact(signature_bytes.to_vec(), 0);
+        // PublicKey already implements the SignatureVerifier trait for ecdsa signatures
+        public_key.verify_signature(message, &ecdsa_signature)?;
         return Ok(());
     }
 
     // Verify signature with default sha256 digest mechanism
     pub fn verify_signature(&self, message: &[u8], signature: &[u8]) -> Result<(), String> {
-        // Parse signature from raw compressed bytes
-        let signature_result = Signature::try_from(signature);
-        // Check signature_result
-        if signature_result.is_err() {
-            return Err(signature_result.err().unwrap().to_string());
-        }
-        let signature = signature_result.unwrap();
-
-        // Verifying key from self.public_key
-        let verifying_key = VerifyingKey::from(&self.public_key);
-        // Verify signature
-        let verify_result = verifying_key.verify(message, &signature);
-        // Check verify_result
-        if verify_result.is_err() {
-            return Err(verify_result.err().unwrap().to_string());
-        }
-        return Ok(verify_result.unwrap());
+        // Move signature bytes into this enum: EcdsaSecp256k1Sha256Compact(Vec<u8>, u32),
+        let ecdsa_signature = EcdsaSignature::EcdsaSecp256k1Sha256Compact(signature.to_vec(), 0);
+        // PublicKey already implements the SignatureVerifier trait for ecdsa signatures
+        self.public_key
+            .verify_signature(message, &ecdsa_signature)
     }
 }
 
