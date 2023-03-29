@@ -167,7 +167,6 @@ impl SignedPrivateKey {
         // PublicKey already implements the SignatureVerifier trait for ecdsa signatures
         self.public_key
             .verify_signature(message, &ecdsa_signature)
-            .map(|_| ())
     }
 }
 
