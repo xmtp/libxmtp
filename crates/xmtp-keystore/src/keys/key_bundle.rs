@@ -89,7 +89,7 @@ impl PrivateKeyBundle {
     ) -> Result<Vec<u8>, String> {
         let pre_key = self
             .find_pre_key(my_prekey.get_public_key())
-            .ok_or("could not find prekey in private key bundle".to_string())?;
+            .ok_or_else(|| "could not find pre key".to_string())?;
         let dh1: Vec<u8>;
         let dh2: Vec<u8>;
         // (STOPSHIP) TODO: better error handling
@@ -193,14 +193,14 @@ impl PublicKeyBundle {
         let mut pre_key: Option<PublicKey> = None;
         let identity_key_result =
             public_key::public_key_from_proto(public_key_bundle.identity_key.as_ref().unwrap());
-        if identity_key_result.is_ok() {
-            identity_key = Some(identity_key_result.unwrap());
+        if let Ok(identity_key_result) = identity_key_result {
+            identity_key = Some(identity_key_result);
         }
 
         let pre_key_result =
             public_key::public_key_from_proto(public_key_bundle.pre_key.as_ref().unwrap());
-        if pre_key_result.is_ok() {
-            pre_key = Some(pre_key_result.unwrap());
+        if let Ok(pre_key_result) = pre_key_result {
+            pre_key = Some(pre_key_result);
         }
 
         Ok(PublicKeyBundle {

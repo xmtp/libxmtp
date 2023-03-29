@@ -11,7 +11,7 @@ use crate::proto;
 
 use corecrypto::{signature::EcdsaSignature, traits::SignatureVerifier};
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct PrivateKey {
     pub private_key: SecretKey,
     pub public_key: PublicKey,

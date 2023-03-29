@@ -29,7 +29,8 @@ impl EthereumUtils {
         format!("0x{}", hex::encode(&hash[12..]))
     }
 
-    // Place the XMTP payload in this utilities class
+    #[cfg(test)]
+    // For now, only required for tests
     pub fn xmtp_identity_key_payload(public_key_bytes: &[u8]) -> Vec<u8> {
         let raw_string = format!(
             "XMTP : Create Identity\n{}\n\nFor more info: https://xmtp.org/signatures/",
