@@ -5,8 +5,8 @@ on:
       - main
   pull_request:
 jobs:
-  test-keystore:
-   name: Test Keystore
+  test-libxmtp:
+   name: Test libxmtp
    runs-on: ubuntu-latest
    steps:
      - name: Checkout sources
@@ -23,4 +23,4 @@ jobs:
        uses: actions-rs/cargo@v1
        with:
          command: test
-         args: --manifest-path crates/xmtp-keystore/Cargo.toml
+         args: --manifest-path crates/Cargo.toml
