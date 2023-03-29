@@ -27,22 +27,22 @@ impl PrivateKeyBundle {
         }
 
         let identity_key_result =
-            SignedPrivateKey::from_proto(&private_key_bundle.identity_key.as_ref().unwrap());
+            SignedPrivateKey::from_proto(private_key_bundle.identity_key.as_ref().unwrap());
         if identity_key_result.is_err() {
-            return Err(identity_key_result.err().unwrap().to_string());
+            return Err(identity_key_result.err().unwrap());
         }
 
         let pre_keys = private_key_bundle
             .pre_keys
             .iter()
-            .map(|pre_key| SignedPrivateKey::from_proto(pre_key))
+            .map(SignedPrivateKey::from_proto)
             .collect::<Result<Vec<SignedPrivateKey>, String>>()?;
 
-        return Ok(PrivateKeyBundle {
+        Ok(PrivateKeyBundle {
             private_key_bundle_proto: private_key_bundle.clone(),
             identity_key: identity_key_result.unwrap(),
-            pre_keys: pre_keys,
-        });
+            pre_keys,
+        })
     }
 
     pub fn eth_wallet_address_from_public_key(public_key_bytes: &[u8]) -> Result<String, String> {
@@ -51,14 +51,14 @@ impl PrivateKeyBundle {
         hasher.update(public_key_bytes);
         let result = hasher.finalize();
         // Return the result as hex string, take the last 20 bytes
-        return Ok(format!("0x{}", hex::encode(&result[12..])));
+        Ok(format!("0x{}", hex::encode(&result[12..])))
     }
 
     pub fn eth_address(&self) -> Result<String, String> {
         // Get the public key bytes
         let binding = self.identity_key.public_key.to_encoded_point(false);
         let public_key_bytes = binding.as_bytes();
-        return PrivateKeyBundle::eth_wallet_address_from_public_key(public_key_bytes);
+        PrivateKeyBundle::eth_wallet_address_from_public_key(public_key_bytes)
     }
 
     pub fn find_pre_key(&self, my_pre_key: PublicKey) -> Option<SignedPrivateKey> {
@@ -67,7 +67,7 @@ impl PrivateKeyBundle {
                 return Some(pre_key.clone());
             }
         }
-        return None;
+        None
     }
 
     pub fn public_key_bundle(&self) -> PublicKeyBundle {
@@ -78,11 +78,11 @@ impl PrivateKeyBundle {
             .map(|pre_key| pre_key.public_key)
             .collect::<Vec<_>>();
 
-        return PublicKeyBundle {
+        PublicKeyBundle {
             public_key_bundle_proto: proto::public_key::PublicKeyBundle::new(),
             identity_key: Some(identity_key),
             pre_key: Some(pre_keys[0]),
-        };
+        }
     }
 
     // XMTP X3DH-like scheme for invitation decryption
@@ -114,7 +114,7 @@ impl PrivateKeyBundle {
         }
         let dh3 = pre_key.shared_secret(&peer_bundle.pre_key).unwrap();
         let secret = [dh1, dh2, dh3].concat();
-        return Ok(secret);
+        Ok(secret)
     }
 
     pub fn unseal_invitation(
@@ -181,7 +181,7 @@ impl PrivateKeyBundle {
         }
         // Get the invitation from the result
         let invitation = invitation_result.as_ref().unwrap();
-        return Ok(invitation.clone());
+        Ok(invitation.clone())
     }
 }
 
@@ -211,11 +211,11 @@ impl PublicKeyBundle {
             pre_key = Some(pre_key_result.unwrap());
         }
 
-        return Ok(PublicKeyBundle {
+        Ok(PublicKeyBundle {
             public_key_bundle_proto: public_key_bundle.clone(),
-            identity_key: identity_key,
-            pre_key: pre_key,
-        });
+            identity_key,
+            pre_key,
+        })
     }
 }
 
@@ -242,7 +242,7 @@ impl SignedPublicKeyBundle {
             signed_public_key_bundle.identity_key.as_ref().unwrap(),
         );
         if identity_key_result.is_err() {
-            return Err(identity_key_result.err().unwrap().to_string());
+            return Err(identity_key_result.err().unwrap());
         }
         let identity_key = identity_key_result.unwrap();
 
@@ -254,13 +254,13 @@ impl SignedPublicKeyBundle {
             signed_public_key_bundle.pre_key.as_ref().unwrap(),
         );
         if pre_key_result.is_err() {
-            return Err(pre_key_result.err().unwrap().to_string());
+            return Err(pre_key_result.err().unwrap());
         }
         let pre_key = pre_key_result.unwrap();
-        return Ok(SignedPublicKeyBundle {
+        Ok(SignedPublicKeyBundle {
             signed_public_key_bundle_proto: signed_public_key_bundle.clone(),
-            identity_key: identity_key,
-            pre_key: pre_key,
-        });
+            identity_key,
+            pre_key,
+        })
     }
 }
