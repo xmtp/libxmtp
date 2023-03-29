@@ -12,6 +12,7 @@ pub enum Signature {
     WalletPersonalSignCompact(Vec<u8>, u32),
 }
 
+// This trait acts as a abstraction layer to allow "SignatureVerifiers" to be used with other types of Signature-like enums one day
 impl traits::SignatureVerifiable<Signature> for Signature {
     fn get_signature(&self) -> Option<Signature> {
         Some(self.clone())
