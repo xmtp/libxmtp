@@ -1,12 +1,27 @@
-name: Clippy check
+name: Lint
 on:
   push:
     branches:
       - main
   pull_request:
 jobs:
-  clippy_check:
+  corecrypto:
     runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ./crates/corecrypto
+    steps:
+      - uses: actions/checkout@v1
+      - run: rustup component add clippy
+      - uses: actions-rs/clippy-check@v1
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          args: --all-features
+  keystore:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ./crates/xmtp-keystore
     steps:
       - uses: actions/checkout@v1
       - run: rustup component add clippy
