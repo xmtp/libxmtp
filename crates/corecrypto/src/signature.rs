@@ -18,6 +18,7 @@ impl traits::SignatureVerifiable<Signature> for Signature {
     }
 }
 
+// Implements the verification process for supported signature types in k256
 impl traits::SignatureVerifier<Signature> for PublicKey {
     fn verify_signature(
         &self,
@@ -44,6 +45,8 @@ impl traits::SignatureVerifier<Signature> for PublicKey {
                     .verify_digest(digest, &signature)
                     .map_err(|e| e.to_string())
             }
+            // The idea for unsupported types is to uncomment this catch-all
+            // _ => Err("Unsupported signature type for k256 public key".to_string()),
         }
     }
 }
