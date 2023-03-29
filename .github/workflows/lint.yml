@@ -14,4 +14,4 @@ jobs:
         name: xmtp-keystore
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
-          args: --all-features --manifest-path crates/xmtp-keystore/Cargo.toml
+          args: --all-features --no-deps --manifest-path crates/xmtp-keystore/Cargo.toml
