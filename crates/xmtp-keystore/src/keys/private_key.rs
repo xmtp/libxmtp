@@ -9,7 +9,7 @@ use crate::ecdh::{ECDHDerivable, ECDHKey};
 use crate::ethereum_utils::{EthereumCompatibleKey, EthereumUtils};
 use crate::proto;
 
-use corecrypto::traits::SignatureVerifier;
+use corecrypto::{signature::EcdsaSignature, traits::SignatureVerifier};
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct PrivateKey {
@@ -153,10 +153,8 @@ impl SignedPrivateKey {
         }
         // Reverify (not strictly necessary, but exercises the trait)
         // move signature bytes into this enum: EcdsaSecp256k1Sha256Compact(Vec<u8>, u32),
-        let ecdsa_signature = corecrypto::signature::Signature::WalletPersonalSignCompact(
-            signature_bytes.to_vec(),
-            0,
-        );
+        let ecdsa_signature =
+            EcdsaSignature::WalletPersonalSignCompact(signature_bytes.to_vec(), 0);
         // PublicKey already implements the SignatureVerifier trait for ecdsa signatures
         public_key.verify_signature(message, &ecdsa_signature)?;
         return Ok(());
@@ -165,8 +163,7 @@ impl SignedPrivateKey {
     // Verify signature with default sha256 digest mechanism
     pub fn verify_signature(&self, message: &[u8], signature: &[u8]) -> Result<(), String> {
         // Move signature bytes into this enum: EcdsaSecp256k1Sha256Compact(Vec<u8>, u32),
-        let ecdsa_signature =
-            corecrypto::signature::Signature::EcdsaSecp256k1Sha256Compact(signature.to_vec(), 0);
+        let ecdsa_signature = EcdsaSignature::EcdsaSecp256k1Sha256Compact(signature.to_vec(), 0);
         // PublicKey already implements the SignatureVerifier trait for ecdsa signatures
         self.public_key
             .verify_signature(message, &ecdsa_signature)

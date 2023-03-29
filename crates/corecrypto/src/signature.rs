@@ -6,28 +6,28 @@ use sha2::Sha256;
 use sha3::{Digest, Keccak256};
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub enum Signature {
+pub enum EcdsaSignature {
     // Both carry signature bytes and a recovery id
     EcdsaSecp256k1Sha256Compact(Vec<u8>, u32),
     WalletPersonalSignCompact(Vec<u8>, u32),
 }
 
 // This trait acts as a abstraction layer to allow "SignatureVerifiers" to be used with other types of Signature-like enums one day
-impl traits::SignatureVerifiable<Signature> for Signature {
-    fn get_signature(&self) -> Option<Signature> {
+impl traits::SignatureVerifiable<EcdsaSignature> for EcdsaSignature {
+    fn get_signature(&self) -> Option<EcdsaSignature> {
         Some(self.clone())
     }
 }
 
 // Implements the verification process for supported signature types in k256
-impl traits::SignatureVerifier<Signature> for PublicKey {
+impl traits::SignatureVerifier<EcdsaSignature> for PublicKey {
     fn verify_signature(
         &self,
         predigest_message: &[u8],
-        signature: &Signature,
+        signature: &EcdsaSignature,
     ) -> Result<(), String> {
         match signature {
-            Signature::EcdsaSecp256k1Sha256Compact(signature_bytes, _) => {
+            EcdsaSignature::EcdsaSecp256k1Sha256Compact(signature_bytes, _) => {
                 let signature = ecdsa::Signature::try_from(signature_bytes.as_slice())
                     .map_err(|e| e.to_string())?;
                 let verifying_key = VerifyingKey::from(self);
@@ -37,7 +37,7 @@ impl traits::SignatureVerifier<Signature> for PublicKey {
                     .map_err(|e| e.to_string())
             }
             // Assumes the predigest_messages ie EIP191 processed already
-            Signature::WalletPersonalSignCompact(signature_bytes, _) => {
+            EcdsaSignature::WalletPersonalSignCompact(signature_bytes, _) => {
                 let signature = ecdsa::Signature::try_from(signature_bytes.as_slice())
                     .map_err(|e| e.to_string())?;
                 let verifying_key = VerifyingKey::from(self);
