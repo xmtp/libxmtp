@@ -1,9 +1,9 @@
-// Simple helper trait that returns a signature to be used for verification
+// This trait acts as a abstraction layer to allow "SignatureVerifiers" to be used with other types of Signature-like enums one day
 pub trait SignatureVerifiable<T> {
     fn get_signature(&self) -> Option<T>;
 }
 
-// For a given signature type, this trait abstracts the verification process
+// For a given type that is SignatureVerifiable, implement the verification process
 pub trait SignatureVerifier<T>
 where
     T: SignatureVerifiable<T>,

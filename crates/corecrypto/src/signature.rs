@@ -12,7 +12,8 @@ pub enum EcdsaSignature {
     WalletPersonalSignCompact(Vec<u8>, u32),
 }
 
-// This trait acts as a abstraction layer to allow "SignatureVerifiers" to be used with other types of Signature-like enums one day
+// This means that EcdsaSignature implements the SignatureVerifiable trait, allowing
+// us to implement a SignatureVerifier<EcdsaSignature>
 impl traits::SignatureVerifiable<EcdsaSignature> for EcdsaSignature {
     fn get_signature(&self) -> Option<EcdsaSignature> {
         Some(self.clone())
