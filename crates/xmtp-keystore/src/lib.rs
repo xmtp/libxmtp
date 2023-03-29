@@ -2,8 +2,6 @@ use std::collections::HashMap;
 
 use corecrypto::encryption;
 
-
-
 mod conversation;
 mod ecdh;
 mod ethereum_utils;
@@ -18,6 +16,12 @@ pub struct Keystore {
     private_key_bundle: Option<PrivateKeyBundle>,
     // Topic Keys
     topic_keys: HashMap<String, TopicData>,
+}
+
+impl Default for Keystore {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl Keystore {

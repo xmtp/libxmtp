@@ -13,8 +13,6 @@ use corecrypto::{signature::EcdsaSignature, traits::SignatureVerifier};
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct PrivateKey {
-    // Underlying protos
-    proto: proto::private_key::PrivateKey,
     pub private_key: SecretKey,
     pub public_key: PublicKey,
 }
@@ -38,7 +36,6 @@ impl PrivateKey {
         let public_key = secret_key.public_key();
 
         Ok(PrivateKey {
-            proto: proto.clone(),
             private_key: secret_key,
             public_key,
         })
@@ -165,8 +162,7 @@ impl SignedPrivateKey {
         // Move signature bytes into this enum: EcdsaSecp256k1Sha256Compact(Vec<u8>, u32),
         let ecdsa_signature = EcdsaSignature::EcdsaSecp256k1Sha256Compact(signature.to_vec(), 0);
         // PublicKey already implements the SignatureVerifier trait for ecdsa signatures
-        self.public_key
-            .verify_signature(message, &ecdsa_signature)
+        self.public_key.verify_signature(message, &ecdsa_signature)
     }
 }
 
@@ -227,7 +223,7 @@ impl EthereumCompatibleKey for SecretKey {
         // Get public key bytes
         let public_key_bytes = encoded_public_key.as_bytes();
         // Get ethereum address from public key bytes
-        
+
         EthereumUtils::get_ethereum_address_from_public_key_bytes(&public_key_bytes[1..])
     }
 }
@@ -239,7 +235,7 @@ impl EthereumCompatibleKey for PublicKey {
         // Get public key bytes
         let public_key_bytes = encoded_public_key.as_bytes();
         // Get ethereum address from public key bytes
-        
+
         EthereumUtils::get_ethereum_address_from_public_key_bytes(&public_key_bytes[1..])
     }
 }

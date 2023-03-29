@@ -37,8 +37,8 @@ pub fn decrypt(
 ) -> Result<Vec<u8>, String> {
     // Form a Payload struct from ciphertext_bytes and additional_data if it's present
     let mut payload = Payload::from(ciphertext_bytes);
-    if additional_data.is_some() {
-        payload.aad = additional_data.unwrap();
+    if let Some(aad_data) = additional_data {
+        payload.aad = aad_data;
     }
     decrypt_raw(payload, salt_bytes, nonce_bytes, secret_bytes)
 }
@@ -67,8 +67,8 @@ pub fn encrypt(
 ) -> Result<Ciphertext, String> {
     // Form a Payload struct from plaintext_bytes and additional_data if it's present
     let mut payload = Payload::from(plaintext_bytes);
-    if additional_data.is_some() {
-        payload.aad = additional_data.unwrap();
+    if let Some(aad_data) = additional_data {
+        payload.aad = aad_data;
     }
     encrypt_raw(payload, secret_bytes)
 }

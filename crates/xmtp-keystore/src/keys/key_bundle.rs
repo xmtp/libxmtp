@@ -10,9 +10,6 @@ use super::public_key;
 use crate::ecdh::ECDHDerivable;
 
 pub struct PrivateKeyBundle {
-    // Underlying protos
-    private_key_bundle_proto: proto::private_key::PrivateKeyBundleV2,
-
     pub identity_key: SignedPrivateKey,
     pub pre_keys: Vec<SignedPrivateKey>,
 }
@@ -39,7 +36,6 @@ impl PrivateKeyBundle {
             .collect::<Result<Vec<SignedPrivateKey>, String>>()?;
 
         Ok(PrivateKeyBundle {
-            private_key_bundle_proto: private_key_bundle.clone(),
             identity_key: identity_key_result.unwrap(),
             pre_keys,
         })
@@ -79,7 +75,6 @@ impl PrivateKeyBundle {
             .collect::<Vec<_>>();
 
         PublicKeyBundle {
-            public_key_bundle_proto: proto::public_key::PublicKeyBundle::new(),
             identity_key: Some(identity_key),
             pre_key: Some(pre_keys[0]),
         }
@@ -128,30 +123,30 @@ impl PrivateKeyBundle {
         let recipient_public_key_bundle =
             SignedPublicKeyBundle::from_proto(&sealed_invitation_header.recipient).unwrap();
 
-        let secret: Vec<u8>;
         // reference our own identity key
         let viewer_identity_key = &self.identity_key;
-        if viewer_identity_key.public_key == sender_public_key_bundle.identity_key {
-            let secret_result = self.derive_shared_secret_xmtp(
-                &recipient_public_key_bundle,
-                &sender_public_key_bundle.pre_key,
-                false,
-            );
-            if secret_result.is_err() {
-                return Err("could not derive shared secret".to_string());
-            }
-            secret = secret_result.unwrap();
-        } else {
-            let secret_result = self.derive_shared_secret_xmtp(
-                &sender_public_key_bundle,
-                &recipient_public_key_bundle.pre_key,
-                true,
-            );
-            if secret_result.is_err() {
-                return Err("could not derive shared secret".to_string());
-            }
-            secret = secret_result.unwrap();
-        }
+        let secret: Vec<u8> =
+            if viewer_identity_key.public_key == sender_public_key_bundle.identity_key {
+                let secret_result = self.derive_shared_secret_xmtp(
+                    &recipient_public_key_bundle,
+                    &sender_public_key_bundle.pre_key,
+                    false,
+                );
+                if secret_result.is_err() {
+                    return Err("could not derive shared secret".to_string());
+                }
+                secret_result.unwrap()
+            } else {
+                let secret_result = self.derive_shared_secret_xmtp(
+                    &sender_public_key_bundle,
+                    &recipient_public_key_bundle.pre_key,
+                    true,
+                );
+                if secret_result.is_err() {
+                    return Err("could not derive shared secret".to_string());
+                }
+                secret_result.unwrap()
+            };
 
         // Unwrap ciphertext
         let ciphertext = sealed_invitation.ciphertext.aes256_gcm_hkdf_sha256();
@@ -186,9 +181,6 @@ impl PrivateKeyBundle {
 }
 
 pub struct PublicKeyBundle {
-    // Underlying protos
-    public_key_bundle_proto: proto::public_key::PublicKeyBundle,
-
     pub identity_key: Option<PublicKey>,
     pub pre_key: Option<PublicKey>,
 }
@@ -212,7 +204,6 @@ impl PublicKeyBundle {
         }
 
         Ok(PublicKeyBundle {
-            public_key_bundle_proto: public_key_bundle.clone(),
             identity_key,
             pre_key,
         })
@@ -220,9 +211,6 @@ impl PublicKeyBundle {
 }
 
 pub struct SignedPublicKeyBundle {
-    // Underlying protos
-    signed_public_key_bundle_proto: proto::public_key::SignedPublicKeyBundle,
-
     pub identity_key: PublicKey,
     pub pre_key: PublicKey,
     // TODO: keep signature information
@@ -258,7 +246,6 @@ impl SignedPublicKeyBundle {
         }
         let pre_key = pre_key_result.unwrap();
         Ok(SignedPublicKeyBundle {
-            signed_public_key_bundle_proto: signed_public_key_bundle.clone(),
             identity_key,
             pre_key,
         })
