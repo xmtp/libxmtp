@@ -13,6 +13,7 @@ import org.xmtp.android.library.messages.InvitationV1ContextBuilder
 import org.xmtp.android.library.messages.PrivateKey
 import org.xmtp.android.library.messages.PrivateKeyBuilder
 import org.xmtp.android.library.messages.PrivateKeyBundleBuilder
+import org.xmtp.android.library.messages.PrivateKeyBundleV1Builder
 import org.xmtp.android.library.messages.Topic
 import org.xmtp.android.library.messages.encrypted
 import org.xmtp.android.library.messages.generate
@@ -208,5 +209,14 @@ class InstrumentedTest {
         }.build()
 
         client.publish(envelopes = listOf(envelope))
+    }
+
+    @Test
+    fun testBundleMatchesWhatJSGenerates() {
+        val jsBytes = arrayOf(10, 134, 3, 10, 192, 1, 8, 212, 239, 181, 224, 235, 48, 18, 34, 10, 32, 253, 223, 55, 200, 191, 179, 50, 251, 142, 186, 142, 144, 120, 55, 133, 66, 62, 227, 207, 137, 96, 29, 252, 171, 22, 50, 211, 201, 114, 170, 219, 35, 26, 146, 1, 8, 212, 239, 181, 224, 235, 48, 18, 68, 10, 66, 10, 64, 128, 94, 43, 155, 99, 38, 128, 57, 37, 120, 14, 252, 31, 231, 47, 9, 128, 134, 90, 150, 231, 9, 36, 119, 119, 177, 93, 241, 169, 185, 104, 166, 105, 25, 244, 26, 197, 83, 94, 171, 35, 9, 189, 13, 103, 141, 68, 129, 134, 121, 23, 84, 209, 102, 56, 207, 194, 238, 9, 213, 72, 74, 220, 198, 26, 67, 10, 65, 4, 93, 157, 228, 228, 120, 5, 159, 157, 196, 163, 132, 142, 147, 218, 144, 247, 192, 180, 221, 177, 31, 97, 59, 48, 110, 204, 155, 208, 233, 140, 180, 54, 136, 127, 78, 81, 49, 185, 30, 73, 110, 43, 50, 179, 76, 230, 99, 118, 58, 150, 51, 136, 13, 188, 69, 79, 81, 135, 70, 115, 91, 58, 177, 95, 18, 192, 1, 8, 215, 150, 182, 224, 235, 48, 18, 34, 10, 32, 157, 32, 14, 227, 139, 112, 46, 218, 54, 217, 214, 220, 159, 105, 220, 13, 164, 50, 168, 234, 81, 48, 224, 112, 187, 138, 18, 160, 129, 195, 187, 30, 26, 146, 1, 8, 215, 150, 182, 224, 235, 48, 18, 68, 10, 66, 10, 64, 248, 197, 168, 69, 172, 44, 172, 107, 56, 177, 111, 167, 54, 162, 189, 76, 115, 240, 113, 202, 235, 50, 168, 137, 161, 188, 111, 139, 185, 215, 159, 145, 38, 250, 224, 77, 107, 107, 9, 226, 93, 235, 71, 215, 85, 247, 141, 14, 156, 85, 144, 200, 94, 160, 108, 190, 111, 219, 29, 61, 11, 57, 237, 156, 26, 67, 10, 65, 4, 123, 22, 77, 71, 125, 86, 127, 27, 156, 189, 27, 30, 102, 185, 38, 134, 239, 69, 53, 232, 48, 104, 70, 118, 242, 114, 201, 89, 36, 94, 133, 210, 228, 205, 1, 17, 119, 121, 20, 113, 160, 64, 102, 224, 193, 9, 76, 166, 7, 4, 155, 241, 217, 116, 135, 206, 62, 77, 216, 54, 204, 39, 24, 96)
+        val bytes = jsBytes.foldIndexed(ByteArray(jsBytes.size)) { i, a, v -> a.apply { set(i, v.toByte()) } }
+        val options = ClientOptions(api = ClientOptions.Api(env = XMTPEnvironment.LOCAL, isSecure = true))
+        val keys = PrivateKeyBundleV1Builder.buildFromBundle(bytes)
+        Client().buildFrom(bundle = keys, options = options)
     }
 }

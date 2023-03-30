@@ -4,7 +4,9 @@ import com.google.crypto.tink.subtle.Base64
 import kotlinx.coroutines.runBlocking
 import org.web3j.crypto.Hash
 import org.xmtp.android.library.SigningKey
+import org.xmtp.android.library.XMTPException
 import org.xmtp.android.library.createIdentity
+import org.xmtp.proto.message.contents.PrivateKeyOuterClass
 
 typealias PrivateKeyBundleV1 = org.xmtp.proto.message.contents.PrivateKeyOuterClass.PrivateKeyBundleV1
 
@@ -16,6 +18,15 @@ class PrivateKeyBundleV1Builder {
 
         fun encodeData(privateKeyBundleV1: PrivateKeyBundleV1): String {
             return Base64.encodeToString(privateKeyBundleV1.toByteArray(), Base64.NO_WRAP)
+        }
+
+        fun buildFromBundle(bundleBytes: ByteArray): PrivateKeyBundleV1 {
+            val keys = PrivateKeyOuterClass.PrivateKeyBundle.parseFrom(bundleBytes)
+            if (keys.hasV1()) {
+                return keys.v1
+            } else {
+                throw XMTPException("No v1 bundle present")
+            }
         }
     }
 }
@@ -74,7 +85,7 @@ fun PrivateKeyBundleV1.toPublicKeyBundle(): PublicKeyBundle {
 fun PrivateKeyBundleV1.sharedSecret(
     peer: PublicKeyBundle,
     myPreKey: PublicKey,
-    isRecipient: Boolean
+    isRecipient: Boolean,
 ): ByteArray {
     val peerBundle = SignedPublicKeyBundleBuilder.buildFromKeyBundle(peer)
     val preKey = SignedPublicKeyBuilder.buildFromLegacy(myPreKey)
