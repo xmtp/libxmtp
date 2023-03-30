@@ -1,0 +1,17 @@
+{
+  "include": ["src", "tests"],
+  "compilerOptions": {
+    "target": "ES2022",
+    "noEmit": true,
+    "module": "ES2022",
+    "lib": ["dom", "ES2022"],
+    "declaration": true,
+    "declarationDir": "dist/types",
+    "strict": true,
+    "moduleResolution": "node",
+    "resolveJsonModule": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "forceConsistentCasingInFileNames": true
+  }
+}

@@ -1,0 +1,14 @@
+[package]
+name = "xmtpv3"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+vodozemac = "0.3.0"
+anyhow = "1.0"
+console_error_panic_hook = "0.1.7"
+
+[profile.release]
+debug = true

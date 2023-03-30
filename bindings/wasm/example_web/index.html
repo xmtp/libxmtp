@@ -1,0 +1,23 @@
+<!DOCTYPE html>
+<html>
+    <head>
+        <meta content="text/html;charset=utf-8" http-equiv="Content-Type"/>
+    </head>
+    <body>
+        <p id="pid">Self test running...</p>
+
+        <script type="module">
+            import { XMTPWasm }from './dist/es/index.js';
+
+            async function run() {
+                const wasm = await XMTPWasm.initialize();
+                const xmtpv3 = wasm.getXMTPv3();
+                console.log(xmtpv3);
+
+                document.getElementById("pid").innerText = `Self test ${xmtpv3.selfTest() ? "passed" : "failed"}`;
+            }
+
+            run();
+        </script>
+    </body>
+</html>
