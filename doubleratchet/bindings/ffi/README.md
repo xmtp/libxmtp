@@ -1,4 +1,4 @@
-# Uniffi-based bindings for libxmtp corecrypto
+# Uniffi-based bindings for xmtpv3
 
 This repo provides Uniffi bindings for native libraries in other platforms.
 
