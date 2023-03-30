@@ -1,0 +1,15 @@
+[package]
+name = "xmptv3"
+version = "0.1.0"
+authors = []
+edition = "2018"
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+xmtpv3 = { path = "../../../crates/xmtpv3" }
+node-bindgen = { version = "5.1" }
+
+[build-dependencies]
+node-bindgen = { version = "5.1", features = ["build"] }
