@@ -2,6 +2,13 @@
 
 This repo contains Rust crates, platform-bindings and examples needed to build a new XMTP protocol using [vodozemac](https://github.com/matrix-org/vodozemac)
 
+## Prerequisites
+
+- Go get Rust: [website](https://www.rust-lang.org/tools/install) or [script install](https://doc.rust-lang.org/cargo/getting-started/installation.html)
+- For Android: [Android Studio](https://developer.android.com/studio)
+- For wasm and Node you need [npm](https://www.npmjs.com/)
+- You need [Docker](https://www.docker.com/) for cross-compilation along with [cross-rs](https://github.com/cross-rs/cross)
+
 ## Structure
 
 Top-level
@@ -27,13 +34,6 @@ The development flow will most commonly be:
 
 Note you can write unit tests in `xmptv3` and the binding crate.
 
-## Prerequisites
-
-- Go get Rust: [website](https://www.rust-lang.org/tools/install) or [script install](https://doc.rust-lang.org/cargo/getting-started/installation.html)
-- For Android: [Android Studio](https://developer.android.com/studio)
-- For wasm and Node you need [npm](https://www.npmjs.com/)
-- You need [Docker](https://www.docker.com/) for cross-compilation along with [cross-rs](https://github.com/cross-rs/cross)
-
 ## xmtpv3 quickstart
 
 - cd `crates/xmtpv3` then utter `cargo test`, this installs dependencies, builds and runs the unit tests.
@@ -46,6 +46,8 @@ The future idea is that `lib.rs` will expose our higher level messaging API, bui
 - Run `npm install`
 - Run `npm run build` to build the rust crate and Node.js bindings.
 - Run `npm run test` to build the xmtpv3 crate, the wasm bindings crate and run against Node.js tests
+
+NOTE: currently broken due to thread-rng dependency in Rust. You should see a "panic unreachable" message.
 
 ## Running in browser
 
