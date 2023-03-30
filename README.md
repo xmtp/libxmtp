@@ -12,6 +12,21 @@ Top-level
  - ffi - uses Mozilla [uniffi](https://github.com/mozilla/uniffi-rs) to create native libraries with FFI bindings
    - Currently supports Android via Kotlin
 
+## Bindings
+
+All the variations of bindings have their own Rust crate with some wrapper code. So the normal structure is:
+
+`binding crate` depends on `xmtpv3` (via path dependency) and platform/binding-specific logic links this to the non-Rust part of the binding.
+
+The development flow will most commonly be:
+1. Make a change in `xmtpv3`
+2. Write unit tests for those changes in `xmtpv3/src`
+3. Make a change in the binding crate you're working in e.g. `bindings/ffi/src/lib.rs`
+4. Write unit tests for those changes in the binding Rust crate
+5. Finally, run it end-to-end.
+
+Note you can write unit tests in `xmptv3` and the binding crate.
+
 ## Prerequisites
 
 - Go get Rust: [website](https://www.rust-lang.org/tools/install) or [script install](https://doc.rust-lang.org/cargo/getting-started/installation.html)
