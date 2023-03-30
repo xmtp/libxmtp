@@ -1,6 +1,0 @@
-[workspace]
-
-members = [
-  "xmtp-keystore",
-  "corecrypto",
-]
