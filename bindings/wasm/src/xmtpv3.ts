@@ -31,15 +31,15 @@ export class VoodooInstance {
     this.handle = handle;
   }
 
-  createOutboundSession(otherHandle: string, msg: string): Promise<string> {
+  createOutboundSession(other: VoodooInstance, msg: string): Promise<string> {
     return new Promise((resolve, reject) => {
-      resolve(this.wasmModule.createOutboundSession(this.handle, otherHandle, msg));
+      resolve(this.wasmModule.createOutboundSession(this.handle, other.handle, msg));
     });
   }
 
-  createInboundSession(otherHandle: string, msg: string): Promise<string> {
+  createInboundSession(other: VoodooInstance, msg: string): Promise<string> {
     return new Promise((resolve, reject) => {
-      resolve(this.wasmModule.createInboundSession(otherHandle, this.handle, msg));
+      resolve(this.wasmModule.createInboundSession(other.handle, this.handle, msg));
     });
   }
 }

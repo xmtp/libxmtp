@@ -16,12 +16,11 @@
 
                 const instance1 = await wasm.newVoodooInstance();
                 const instance2 = await wasm.newVoodooInstance();
-                console.log("handle1: " + instance1.handle);
-                console.log("handle2: " + instance1.handle);
-                const result = await instance1.createOutboundSession(instance1.handle, "hello");
+                const outbound = await instance1.createOutboundSession(instance2, "hello this was encrypted then decrypted");
+                const plaintext = await instance2.createInboundSession(instance1, outbound);
 
 
-                document.getElementById("pid").innerText = `Self test ${xmtpv3.selfTest() ? "passed" : "failed"}`;
+                document.getElementById("pid").innerText = plaintext;
             }
 
             run();
