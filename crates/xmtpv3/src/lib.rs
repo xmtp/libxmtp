@@ -1,5 +1,5 @@
 use anyhow::Result;
-use console_error_panic_hook;
+
 use std::collections::HashMap;
 use vodozemac::olm::{Account, OlmMessage, Session, SessionConfig};
 
@@ -7,6 +7,12 @@ use vodozemac::olm::{Account, OlmMessage, Session, SessionConfig};
 pub struct VoodooInstance {
     pub account: Account,
     pub sessions: HashMap<String, Session>,
+}
+
+impl Default for VoodooInstance {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl VoodooInstance {
@@ -23,8 +29,8 @@ impl VoodooInstance {
 
     pub fn pickle_account(&self) -> String {
         const PICKLE_KEY: [u8; 32] = [0u8; 32];
-        let pickle = self.account.pickle().encrypt(&PICKLE_KEY);
-        pickle
+        
+        self.account.pickle().encrypt(&PICKLE_KEY)
     }
 
     // Creates an outbound session and returns a handle which is just the index
@@ -39,7 +45,7 @@ impl VoodooInstance {
             .one_time_keys()
             .values()
             .next()
-            .ok_or(anyhow::anyhow!("No remaining OTKs"))?;
+            .ok_or_else(|| anyhow::anyhow!("No remaining OTKs"))?;
         let mut session = self.account.create_outbound_session(
             SessionConfig::version_2(),
             other_account.curve25519_key(),
@@ -61,7 +67,7 @@ impl VoodooInstance {
         if let OlmMessage::PreKey(m) = message {
             let result = self
                 .account
-                .create_inbound_session(other_account.curve25519_key(), &m)?;
+                .create_inbound_session(other_account.curve25519_key(), m)?;
 
             let self_session = result.session;
             let received_plaintext = result.plaintext;
@@ -161,8 +167,8 @@ mod tests {
 
     #[test]
     pub fn simple_conversation() {
-        let inst1 = VoodooInstance::new();
-        let inst2 = VoodooInstance::new();
+        let _inst1 = VoodooInstance::new();
+        let _inst2 = VoodooInstance::new();
     }
 
     #[test]
