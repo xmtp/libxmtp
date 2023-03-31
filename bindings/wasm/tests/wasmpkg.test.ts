@@ -19,11 +19,16 @@ it("can run self test", async () => {
 
 it("can do a simple conversation", async () => {
   const wasm = await XMTPWasm.initialize();
-  const alice = wasm.newVoodooInstance();
-  const bob = wasm.newVoodooInstance();
+  const alice = await wasm.newVoodooInstance();
+  const bob = await wasm.newVoodooInstance();
 
-  const outboundJson = alice.createOutboundSession(bob, "hello there");
-//  const outbound = JSON.parse(outboundJson);
-//  console.log(outbound);
-//  expect(outbound).toBe("");
+  const outboundJson = await alice.createOutboundSession(bob.handle, "hello there");
+  // Unused, but test JSON parseable
+  const outbound = JSON.parse(outboundJson);
+  const inboundJson = await bob.createInboundSession(alice.handle, outboundJson);
+  const inbound = JSON.parse(inboundJson);
+  console.log("outbound", outbound);
+  console.log("inbound", inbound);
+  // This inbound should have a plaintext field with "hello there"
+  expect(inbound.plaintext).toBe("hello there");
 });

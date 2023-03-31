@@ -22,7 +22,7 @@ let initialized: Promise<void> | undefined = undefined;
 
 export class VoodooInstance {
   // Handle to the voodooinstance object in the Wasm module
-  private handle: string = "";
+  public handle: string = "";
   // Pointer to the XMTP Wasm
   private wasmModule: XMTPWasm;
 
@@ -31,12 +31,16 @@ export class VoodooInstance {
     this.handle = handle;
   }
 
-  createOutboundSession(otherHandle: string, msg: string): string {
-    return this.wasmModule.createOutboundSession(this.handle, otherHandle, msg);
+  createOutboundSession(otherHandle: string, msg: string): Promise<string> {
+    return new Promise((resolve, reject) => {
+      resolve(this.wasmModule.createOutboundSession(this.handle, otherHandle, msg));
+    });
   }
 
-  createInboundSession(otherHandle: string, msg: string): string {
-    return this.wasmModule.createInboundSession(this.handle, otherHandle, msg);
+  createInboundSession(otherHandle: string, msg: string): Promise<string> {
+    return new Promise((resolve, reject) => {
+      resolve(this.wasmModule.createInboundSession(this.handle, otherHandle, msg));
+    });
   }
 }
 

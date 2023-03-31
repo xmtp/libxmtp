@@ -14,6 +14,13 @@
                 const xmtpv3 = wasm.getXMTPv3();
                 console.log(xmtpv3);
 
+                const instance1 = await wasm.newVoodooInstance();
+                const instance2 = await wasm.newVoodooInstance();
+                console.log("handle1: " + instance1.handle);
+                console.log("handle2: " + instance1.handle);
+                const result = await instance1.createOutboundSession(instance1.handle, "hello");
+
+
                 document.getElementById("pid").innerText = `Self test ${xmtpv3.selfTest() ? "passed" : "failed"}`;
             }
 
