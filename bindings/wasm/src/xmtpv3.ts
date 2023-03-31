@@ -39,7 +39,7 @@ export class VoodooInstance {
 
   createInboundSession(otherHandle: string, msg: string): Promise<string> {
     return new Promise((resolve, reject) => {
-      resolve(this.wasmModule.createInboundSession(this.handle, otherHandle, msg));
+      resolve(this.wasmModule.createInboundSession(otherHandle, this.handle, msg));
     });
   }
 }

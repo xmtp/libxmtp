@@ -24,11 +24,7 @@ it("can do a simple conversation", async () => {
 
   const outboundJson = await alice.createOutboundSession(bob.handle, "hello there");
   // Unused, but test JSON parseable
-  const outbound = JSON.parse(outboundJson);
-  const inboundJson = await bob.createInboundSession(alice.handle, outboundJson);
-  const inbound = JSON.parse(inboundJson);
-  console.log("outbound", outbound);
-  console.log("inbound", inbound);
-  // This inbound should have a plaintext field with "hello there"
-  expect(inbound.plaintext).toBe("hello there");
+  const _ = JSON.parse(outboundJson);
+  const inboundPlaintext = await bob.createInboundSession(alice.handle, outboundJson);
+  expect(inboundPlaintext).toBe("hello there");
 });

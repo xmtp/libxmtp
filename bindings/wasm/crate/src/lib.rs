@@ -2,7 +2,6 @@ use std::cell::Cell;
 use std::collections::HashMap;
 use std::sync::Mutex;
 
-use serde_json::json;
 use wasm_bindgen::prelude::*;
 
 use xmtpv3::VoodooInstance;
@@ -53,11 +52,7 @@ pub fn create_outbound_session(
         .unwrap()
         .set(receiving_instance);
     match result {
-        Ok((session_id, ciphertext_json)) => Ok(json!({
-            "session_id": session_id,
-            "ciphertext": ciphertext_json
-        })
-        .to_string()),
+        Ok((_, ciphertext_json)) => Ok(ciphertext_json),
         Err(e) => Err(JsValue::from_str(&e.to_string())),
     }
 }
@@ -91,11 +86,7 @@ pub fn create_inbound_session(
         .set(receiving_instance);
 
     match result {
-        Ok((session_id, plaintext)) => Ok(json!({
-            "session_id": session_id,
-            "plaintext": plaintext
-        })
-        .to_string()),
+        Ok((_, plaintext)) => Ok(plaintext),
         Err(e) => Err(JsValue::from_str(&e.to_string())),
     }
 }
