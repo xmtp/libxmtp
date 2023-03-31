@@ -1,18 +1,19 @@
+use std::cell::Cell;
 use std::collections::HashMap;
 use std::sync::Mutex;
 
-use js_sys::{Array, Uint8Array};
 use serde_json::json;
 use wasm_bindgen::prelude::*;
 
-use xmtpv3::{VoodooInstance};
+use xmtpv3::VoodooInstance;
 
 #[macro_use]
 extern crate lazy_static;
 
 // This whole strategy is to keep a singleton in WASM memory world
 lazy_static! {
-    static ref INSTANCE_MAP: Mutex<HashMap<String, VoodooInstance>> = Mutex::new(HashMap::new());
+    static ref INSTANCE_MAP: Mutex<HashMap<String, Cell<VoodooInstance>>> =
+        Mutex::new(HashMap::new());
 }
 
 // Returns a handle to a keystore instance
@@ -20,55 +21,88 @@ lazy_static! {
 pub fn new_voodoo_instance() -> String {
     let mut instances = INSTANCE_MAP.lock().unwrap();
     let handle = (instances.len() as u64).to_string();
-    instances.insert(handle.clone(), VoodooInstance::new());
-    return handle;
+    instances.insert(handle.clone(), Cell::new(VoodooInstance::new()));
+    handle
 }
 
 #[wasm_bindgen]
-pub fn create_outbound_session(sending_handle: &str, receiving_handle: &str, message: &str) -> Result<String, JsValue> {
+pub fn create_outbound_session(
+    sending_handle: &str,
+    receiving_handle: &str,
+    message: &str,
+) -> Result<String, JsValue> {
     // Look up both handles in INSTANCE_MAP
     let instances = INSTANCE_MAP.lock().unwrap();
-    let sending_instance = instances.get_mut(sending_handle).ok_or("sending_handle not found")?;
-    let receiving_instance = instances.get_mut(receiving_handle).ok_or("receiving_handle not found")?;
+    let mut sending_instance = instances
+        .get(sending_handle)
+        .ok_or("sending_handle not found")?
+        .take();
+    let mut receiving_instance = instances
+        .get(receiving_handle)
+        .ok_or("receiving_handle not found")?
+        .take();
 
     // Create the session
-    let session = sending_instance.create_outbound_session(receiving_instance, message).map_err(|e| JsValue::from_str(&e.to_string()))?;
+    let result = sending_instance
+        .create_outbound_session_serialized(&mut receiving_instance.account, message);
 
-    // Serialize the session
-    let session_json = json!({
-        "sending_handle": sending_handle,
-        "receiving_handle": receiving_handle,
-        "session": session,
-    });
-    let session_json_string = session_json.to_string();
-
-    // Return the serialized session
-    Ok(session_json_string)
+    // Put the sending_instance and receiving_instance back, we know the cells exist
+    instances.get(sending_handle).unwrap().set(sending_instance);
+    instances
+        .get(receiving_handle)
+        .unwrap()
+        .set(receiving_instance);
+    match result {
+        Ok((session_id, ciphertext_json)) => Ok(json!({
+            "session_id": session_id,
+            "ciphertext": ciphertext_json
+        })
+        .to_string()),
+        Err(e) => Err(JsValue::from_str(&e.to_string())),
+    }
 }
 
 #[wasm_bindgen]
-pub fn create_inbound_session(sending_handle: &str, receiving_handle: &str, message: &str) -> Result<String, JsValue> {
+pub fn create_inbound_session(
+    sending_handle: &str,
+    receiving_handle: &str,
+    message: &str,
+) -> Result<String, JsValue> {
     // Look up both handles in INSTANCE_MAP
     let instances = INSTANCE_MAP.lock().unwrap();
-    let sending_instance = instances.get(sending_handle).ok_or("sending_handle not found")?;
-    let receiving_instance = instances.get(receiving_handle).ok_or("receiving_handle not found")?;
+    let mut sending_instance = instances
+        .get(sending_handle)
+        .ok_or("sending_handle not found")?
+        .take();
+    let mut receiving_instance = instances
+        .get(receiving_handle)
+        .ok_or("receiving_handle not found")?
+        .take();
 
     // Create the session
-    let session = receiving_instance.create_inbound_session(sending_instance, message).map_err(|e| JsValue::from_str(&e.to_string()))?;
+    let result = receiving_instance
+        .create_inbound_session_serialized(&mut sending_instance.account, message);
 
-    // Serialize the session
-    let session_json = json!({
-        "sending_handle": sending_handle,
-        "receiving_handle": receiving_handle,
-        "session": session,
-    });
-    let session_json_string = session_json.to_string();
+    // Put the instances back in their cells
+    instances.get(sending_handle).unwrap().set(sending_instance);
+    instances
+        .get(receiving_handle)
+        .unwrap()
+        .set(receiving_instance);
 
-    // Return the serialized session
-    Ok(session_json_string)
+    match result {
+        Ok((session_id, plaintext)) => Ok(json!({
+            "session_id": session_id,
+            "plaintext": plaintext
+        })
+        .to_string()),
+        Err(e) => Err(JsValue::from_str(&e.to_string())),
+    }
 }
 
 #[wasm_bindgen]
 pub fn e2e_selftest() -> Result<bool, JsValue> {
-    xmtpv3::e2e_selftest().map(|x| x == "Self test successful").map_err(|e| JsValue::from_str(&e.to_string()))
+    xmtpv3::e2e_selftest()
+        .map(|x| x == "Self test successful")
+        .map_err(|e| JsValue::from_str(&e.to_string()))
 }
