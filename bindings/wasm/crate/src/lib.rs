@@ -106,3 +106,36 @@ pub fn e2e_selftest() -> Result<bool, JsValue> {
         .map(|x| x == "Self test successful")
         .map_err(|e| JsValue::from_str(&e.to_string()))
 }
+
+// TODO: can't run a test like this with wasm targets
+// #[cfg(test)]
+// mod tests {
+//     use crate::*;
+//
+//     #[test]
+//     pub fn test_anything() {
+//         // This test isn't perfect because we're utilizing a static instance but suffices for now
+//         // Try creating two voodoo instances and doing a simple conversation
+//         let alice_handle = new_voodoo_instance();
+//         let bob_handle = new_voodoo_instance();
+//
+//         // Create a session from Alice to Bob
+//         let alice_to_bob = create_outbound_session(&alice_handle, &bob_handle, "{}").unwrap();
+//         let alice_to_bob: serde_json::Value = serde_json::from_str(&alice_to_bob).unwrap();
+//         let alice_to_bob_session_id = alice_to_bob["session_id"].as_str().unwrap();
+//         let alice_to_bob_ciphertext = alice_to_bob["ciphertext"].as_str().unwrap();
+//
+//         // Create a session from Bob to Alice
+//         let bob_to_alice = create_inbound_session(&bob_handle, &alice_handle, alice_to_bob_ciphertext)
+//             .unwrap();
+//         let bob_to_alice: serde_json::Value = serde_json::from_str(&bob_to_alice).unwrap();
+//         let bob_to_alice_session_id = bob_to_alice["session_id"].as_str().unwrap();
+//         let bob_to_alice_plaintext = bob_to_alice["plaintext"].as_str().unwrap();
+//
+//         // Make sure the session ids match
+//         assert_eq!(alice_to_bob_session_id, bob_to_alice_session_id);
+//
+//         // Make sure the plaintext matches
+//         assert_eq!(bob_to_alice_plaintext, "{}");
+//     }
+// }

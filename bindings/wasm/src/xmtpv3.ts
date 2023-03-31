@@ -1,5 +1,8 @@
 import init, {
   InitInput,
+  new_voodoo_instance,
+  create_outbound_session,
+  create_inbound_session,
   e2e_selftest,
 } from "./pkg/libxmtp.js";
 
@@ -17,6 +20,27 @@ export const setWasmInit = (arg: () => InitInput) => {
 
 let initialized: Promise<void> | undefined = undefined;
 
+export class VoodooInstance {
+  // Handle to the voodooinstance object in the Wasm module
+  private handle: string = "";
+  // Pointer to the XMTP Wasm
+  private wasmModule: XMTPWasm;
+
+  constructor(wasmModule: XMTPWasm, handle: string) {
+    this.wasmModule = wasmModule;
+    this.handle = handle;
+  }
+
+  createOutboundSession(otherHandle: string, msg: string): string {
+    return this.wasmModule.createOutboundSession(this.handle, otherHandle, msg);
+  }
+
+  createInboundSession(otherHandle: string, msg: string): string {
+    return this.wasmModule.createInboundSession(this.handle, otherHandle, msg);
+  }
+}
+
+// Keep around for old test cases
 export class XMTPv3 {
   constructor() {}
 
@@ -34,6 +58,19 @@ export class XMTPWasm {
   // Get a new XMTPv3 instance
   getXMTPv3(): XMTPv3 {
     return new XMTPv3();
+  }
+
+  newVoodooInstance(): VoodooInstance {
+    const handle = new_voodoo_instance();
+    return new VoodooInstance(this, handle);
+  }
+
+  createOutboundSession(sendHandle: string, receiveHandle: string, msg: string): string {
+    return create_outbound_session(sendHandle, receiveHandle, msg);
+  }
+
+  createInboundSession(sendHandle: string, receiveHandle: string, msg: string): string {
+    return create_inbound_session(sendHandle, receiveHandle, msg);
   }
 
   /**
