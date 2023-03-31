@@ -16,3 +16,15 @@ it("can run self test", async () => {
   const res = await xmtpv3.selfTest();
   expect(res).toBe(true);
 });
+
+it("can do a simple conversation", async () => {
+  const wasm = await XMTPWasm.initialize();
+  const alice = await wasm.newVoodooInstance();
+  const bob = await wasm.newVoodooInstance();
+
+  const outboundJson = await alice.createOutboundSession(bob, "hello there");
+  // Unused, but test JSON parseable
+  const _ = JSON.parse(outboundJson);
+  const inboundPlaintext = await bob.createInboundSession(alice, outboundJson);
+  expect(inboundPlaintext).toBe("hello there");
+});
