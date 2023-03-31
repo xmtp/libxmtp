@@ -307,6 +307,7 @@ dependencies = [
  "js-sys",
  "lazy_static",
  "rand",
+ "serde_json",
  "wasm-bindgen",
  "wasm-bindgen-test",
  "xmtpv3",

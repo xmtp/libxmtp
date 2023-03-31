@@ -1,5 +1,6 @@
 use anyhow::Result;
 
+use serde_json::json;
 use std::collections::HashMap;
 use vodozemac::olm::{Account, OlmMessage, Session, SessionConfig};
 
@@ -19,6 +20,7 @@ impl VoodooInstance {
     // Create a new VoodooInstance
     pub fn new() -> Self {
         let mut account = Account::new();
+        // TODO: how many one-time keys should we generate?
         account.generate_one_time_keys(10);
         account.generate_fallback_key();
         Self {
@@ -28,13 +30,13 @@ impl VoodooInstance {
     }
 
     pub fn pickle_account(&self) -> String {
+        // TODO: hardcoded pickle key for now just for testing
         const PICKLE_KEY: [u8; 32] = [0u8; 32];
-        
         self.account.pickle().encrypt(&PICKLE_KEY)
     }
 
     // Creates an outbound session and returns a handle which is just the index
-    // NOTE: this function for testing assumes access to the recipient's account instance
+    // TODO: STOPSHIP: this function for testing assumes access to the recipient's account instance
     // this will not happen in practice
     pub fn create_outbound_session(
         &mut self,
@@ -58,7 +60,20 @@ impl VoodooInstance {
         Ok((session_id, ciphertext))
     }
 
+    // Wrapper that serializes the output message
+    pub fn create_outbound_session_serialized(
+        &mut self,
+        other_account: &mut Account,
+        message: &str,
+    ) -> Result<(String, String)> {
+        // Call self.create_outbound_session, but then serialize the OlmMessage response with json!
+        let (session_id, ciphertext) = self.create_outbound_session(other_account, message)?;
+        let ciphertext_json = json!(ciphertext);
+        Ok((session_id, ciphertext_json.to_string()))
+    }
+
     // Receive incoming session start message
+    // TODO: STOPSHIP: this function for testing assumes access to the sender's account instance
     pub fn create_inbound_session(
         &mut self,
         other_account: &mut Account,
@@ -90,19 +105,50 @@ impl VoodooInstance {
         }
     }
 
+    // Wrapper that receives the input message and deserializes it first
+    pub fn create_inbound_session_serialized(
+        &mut self,
+        other_account: &mut Account,
+        message: &str,
+    ) -> Result<(String, String)> {
+        let message: OlmMessage = serde_json::from_value(serde_json::from_str(message)?)?;
+        self.create_inbound_session(other_account, &message)
+    }
+
     // Encrypts a message for a given session
-    pub fn encrypt_message(&mut self, session_id: String, message: &str) -> Result<OlmMessage> {
-        let session = self.sessions.get_mut(&session_id).unwrap();
+    pub fn encrypt_message(&mut self, session_id: &str, message: &str) -> Result<OlmMessage> {
+        let session = self.sessions.get_mut(session_id).unwrap();
         let ciphertext = session.encrypt(message);
         Ok(ciphertext)
     }
 
     // Decrypts a message for a given session
-    pub fn decrypt_message(&mut self, session_id: String, message: &OlmMessage) -> Result<String> {
-        let session = self.sessions.get_mut(&session_id).unwrap();
+    pub fn decrypt_message(&mut self, session_id: &str, message: &OlmMessage) -> Result<String> {
+        let session = self.sessions.get_mut(session_id).unwrap();
         let plaintext = session.decrypt(message)?;
         let utf8_decoded_plaintext = String::from_utf8(plaintext)?;
         Ok(utf8_decoded_plaintext)
+    }
+
+    // Serialized helpers
+    pub fn encrypt_message_serialized(
+        &mut self,
+        session_id: &str,
+        message: &str,
+    ) -> Result<String> {
+        let ciphertext = self.encrypt_message(session_id, message)?;
+        let ciphertext_json = json!(ciphertext);
+        Ok(ciphertext_json.to_string())
+    }
+
+    pub fn decrypt_message_serialized(
+        &mut self,
+        session_id: &str,
+        ciphertext: &str,
+    ) -> Result<String> {
+        let ciphertext_message: OlmMessage =
+            serde_json::from_value(serde_json::from_str(ciphertext)?)?;
+        self.decrypt_message(session_id, &ciphertext_message)
     }
 }
 
@@ -166,7 +212,7 @@ mod tests {
     }
 
     #[test]
-    pub fn simple_conversation() {
+    pub fn test_simple_conversation() {
         let mut alice = VoodooInstance::new();
         let mut bob = VoodooInstance::new();
 
@@ -181,12 +227,37 @@ mod tests {
         assert_eq!(alice_session_id, bob_session_id);
         assert_eq!(bob_plaintext, "Hello Bob");
 
+        let bob_msg = bob.encrypt_message(&bob_session_id, "Hello Alice").unwrap();
+
+        let alice_plaintext = alice.decrypt_message(&alice_session_id, &bob_msg).unwrap();
+
+        assert_eq!(alice_plaintext, "Hello Alice");
+    }
+
+    #[test]
+    pub fn test_serialized_conversation() {
+        let mut alice = VoodooInstance::new();
+        let mut bob = VoodooInstance::new();
+
+        let (alice_session_id, alice_msg) = alice
+            .create_outbound_session_serialized(&mut bob.account, "Hello Bob")
+            .unwrap();
+
+        let (bob_session_id, bob_plaintext) = bob
+            .create_inbound_session_serialized(&mut alice.account, &alice_msg)
+            .unwrap();
+
+        // Assert that alice_msg is valid JSON string
+        let _alice_msg_json: serde_json::Value = serde_json::from_str(&alice_msg).unwrap();
+        assert_eq!(alice_session_id, bob_session_id);
+        assert_eq!(bob_plaintext, "Hello Bob");
+
         let bob_msg = bob
-            .encrypt_message(alice_session_id.clone(), "Hello Alice")
+            .encrypt_message_serialized(&bob_session_id, "Hello Alice")
             .unwrap();
 
         let alice_plaintext = alice
-            .decrypt_message(alice_session_id, &bob_msg)
+            .decrypt_message_serialized(&alice_session_id, &bob_msg)
             .unwrap();
 
         assert_eq!(alice_plaintext, "Hello Alice");
