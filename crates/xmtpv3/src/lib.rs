@@ -167,8 +167,29 @@ mod tests {
 
     #[test]
     pub fn simple_conversation() {
-        let _inst1 = VoodooInstance::new();
-        let _inst2 = VoodooInstance::new();
+        let mut alice = VoodooInstance::new();
+        let mut bob = VoodooInstance::new();
+
+        let (alice_session_id, alice_msg) = alice
+            .create_outbound_session(&mut bob.account, "Hello Bob")
+            .unwrap();
+
+        let (bob_session_id, bob_plaintext) = bob
+            .create_inbound_session(&mut alice.account, &alice_msg)
+            .unwrap();
+
+        assert_eq!(alice_session_id, bob_session_id);
+        assert_eq!(bob_plaintext, "Hello Bob");
+
+        let bob_msg = bob
+            .encrypt_message(alice_session_id.clone(), "Hello Alice")
+            .unwrap();
+
+        let alice_plaintext = alice
+            .decrypt_message(alice_session_id, &bob_msg)
+            .unwrap();
+
+        assert_eq!(alice_plaintext, "Hello Alice");
     }
 
     #[test]
