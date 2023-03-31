@@ -29,6 +29,13 @@ impl VoodooInstance {
         }
     }
 
+    // TODO: STARTINGTASK: implement this function
+    // This function should provide a pickled version of public parts of the account
+    // This is used for sharing the account with other users
+    // pub fn pickle_public_account(&self) -> String {
+    //     // TODO
+    // }
+
     pub fn pickle_account(&self) -> String {
         // TODO: hardcoded pickle key for now just for testing
         const PICKLE_KEY: [u8; 32] = [0u8; 32];
@@ -36,7 +43,7 @@ impl VoodooInstance {
     }
 
     // Creates an outbound session and returns a handle which is just the index
-    // TODO: STOPSHIP: this function for testing assumes access to the recipient's account instance
+    // STOPSHIP: this function for testing assumes access to the recipient's account instance
     // this will not happen in practice
     pub fn create_outbound_session(
         &mut self,
@@ -73,7 +80,9 @@ impl VoodooInstance {
     }
 
     // Receive incoming session start message
-    // TODO: STOPSHIP: this function for testing assumes access to the sender's account instance
+    // STOPSHIP: this function for testing assumes access to the sender's account instance
+    // TODO: STARTINGTASK: how can we consolidate this so receiving a message doesn't require
+    // knowing it's a PreMessage etc? 
     pub fn create_inbound_session(
         &mut self,
         other_account: &mut Account,
