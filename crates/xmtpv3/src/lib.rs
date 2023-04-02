@@ -1,12 +1,9 @@
-mod account;
-mod manager;
-
-use manager::{e2e_selftest, VoodooInstance};
+pub mod account;
+pub mod manager;
 
 #[cfg(test)]
 mod tests {
-    use crate::*;
-    use vodozemac::olm::{Account, AccountPickle};
+    use crate::manager::{e2e_selftest, VoodooInstance};
 
     #[test]
     pub fn test_e2e() {
