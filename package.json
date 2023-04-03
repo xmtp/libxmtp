@@ -26,7 +26,7 @@
     "./package.json": "./bindings/wasm/package.json"
   },
   "files": [
-    "dist"
+    "bindings/wasm/dist"
   ],
   "scripts": {
     "prepare": "cd bindings/wasm && npm install && npm run build",
