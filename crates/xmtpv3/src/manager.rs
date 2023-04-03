@@ -78,7 +78,6 @@ impl VoodooInstance {
     }
 
     // Receive incoming session start message
-    // STOPSHIP: this function for testing assumes access to the sender's account instance
     // TODO: STARTINGTASK: how can we consolidate this so receiving a message doesn't require
     // knowing it's a PreMessage etc?
     pub fn create_inbound_session(
