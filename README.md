@@ -1,4 +1,6 @@
-# v-mac dev
+# XMTP <> Vodozemac Development (WIP!)
+
+> :warning: :warning: :warning: **Under Construction**: This code is WIP and should not be used in any real-world context
 
 This repo contains Rust crates, platform-bindings and examples needed to build a new XMTP protocol using [vodozemac](https://github.com/matrix-org/vodozemac)
 
