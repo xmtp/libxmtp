@@ -40,7 +40,7 @@ pub fn create_outbound_session(
     let receiving_instance = instances
         .get(receiving_handle)
         .ok_or("receiving_handle not found")?
-        .borrow_mut();
+        .borrow();
 
     // Get other party's public situation
     let receiving_public = receiving_instance.public_account();
@@ -69,7 +69,7 @@ pub fn create_inbound_session(
     let sending_instance = instances
         .get(sending_handle)
         .ok_or("sending_handle not found")?
-        .borrow_mut();
+        .borrow();
     let mut receiving_instance = instances
         .get(receiving_handle)
         .ok_or("receiving_handle not found")?
