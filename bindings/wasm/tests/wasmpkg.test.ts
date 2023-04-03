@@ -41,13 +41,19 @@ it("can send a message", async () => {
   const alice = wasm.newVoodooInstance();
   const bob = wasm.newVoodooInstance();
 
-  const { sessionId } = await alice.createOutboundSession(bob, "hello there");
+  const { sessionId, payload } = await alice.createOutboundSession(
+    bob,
+    "hello there"
+  );
+  await bob.createInboundSession(alice, payload);
   expect(typeof sessionId).toBe("string");
 
   const msg = "hello there";
   const encrypted = await alice.encryptMessage(sessionId, msg);
   expect(typeof encrypted).toBe("string");
 
-  const decrypted = await alice.decryptMessage(sessionId, encrypted);
+  // Alice can't decrypt her own message. Does work for Bob though
+  // const decrypted = await alice.decryptMessage(sessionId, encrypted);
+  const decrypted = await bob.decryptMessage(sessionId, encrypted);
   expect(decrypted).toBe(msg);
 });
