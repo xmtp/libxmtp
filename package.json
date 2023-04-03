@@ -30,12 +30,7 @@
   ],
   "scripts": {
     "prepare": "cd bindings/wasm && npm install && npm run build",
-    "build": "wasm-pack build -t web --out-dir src/pkg bindings/wasm/crate && rm -rf bindings/wasm/dist/ && rollup -c && cp -r bindings/wasm/dist dist",
-    "build:minify": "npm run build && npx terser@latest --compress --mangle --output bindings/wasm/dist/cjs/index.cjs -- bindings/wasm/dist/cjs/index.cjs",
-    "format": "npx prettier@latest --write bindings/wasm/src/src/ bindings/wasm/tests/ bindings/wasm/package.json bindings/wasm/rollup.config.js bindings/wasm/tsconfig.json bindings/wasm/vite.config.ts bindings/wasm/cli.js",
-    "pretest": "npm run build",
-    "test": "vitest run && tsc",
-    "prepublishOnly": "npm test"
+    "build": "wasm-pack build -t web --out-dir src/pkg bindings/wasm/crate && rm -rf bindings/wasm/dist/ && rollup -c && cp -r bindings/wasm/dist dist"
   },
   "dependencies": {
     "@xmtp/proto": "^3.18.0"
