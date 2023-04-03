@@ -34,7 +34,7 @@ The development flow will most commonly be:
 4. Write unit tests for those changes in the binding Rust crate
 5. Finally, run it end-to-end.
 
-Note you can write unit tests in `xmptv3` and the binding crate.
+Note you can write unit tests in `xmtpv3` and the binding crate.
 
 ## xmtpv3 quickstart
 

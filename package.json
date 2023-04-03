@@ -1,0 +1,47 @@
+{
+  "name": "xmtpv3_wasm",
+  "version": "0.0.1",
+  "author": "jazzz <jazz@xmtp.com",
+  "license": "MIT",
+  "description": "Node.js package for the core XMTP utilities library",
+  "sideEffects": false,
+  "type": "module",
+  "main": "./bindings/wasm/dist/umd/index.js",
+  "module": "./bindings/wasm/dist/es/index.js",
+  "types": "./bindings/wasm/dist/types/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./bindings/wasm/dist/types/index.d.ts",
+      "node": "./bindings/wasm/dist/node/index.cjs",
+      "import": "./bindings/wasm/dist/es/index.js",
+      "default": "./bindings/wasm/dist/cjs/index.cjs"
+    },
+    "./slim": {
+      "types": "./bindings/wasm/dist/types/index.d.ts",
+      "node": "./bindings/wasm/dist/node/index.cjs",
+      "import": "./bindings/wasm/dist/es-slim/index_slim.js",
+      "default": "./bindings/wasm/dist/cjs-slim/index_slim.cjs"
+    },
+    "./libxmtp.wasm": "./bindings/wasm/dist/libxmtp_bg.wasm",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "./bindings/wasm/dist"
+  ],
+  "scripts": {
+    "prepare": "cd bindings/wasm && npm install && npm run build",
+    "build": "cd bindings/wasm && wasm-pack build -t web --out-dir src/pkg crate && rm -rf dist/ && rollup -c"
+  },
+  "dependencies": {
+    "@xmtp/proto": "^3.18.0"
+  },
+  "devDependencies": {
+    "@rollup/plugin-typescript": "^10.0.1",
+    "@rollup/plugin-wasm": "^6.1.1",
+    "@types/node": "^18.11.10",
+    "rollup": "^3.11.0",
+    "tslib": "^2.4.1",
+    "typescript": "^4.9.3",
+    "vitest": "^0.25.3"
+  }
+}
