@@ -29,7 +29,7 @@
     "./bindings/wasm/dist"
   ],
   "scripts": {
-    "prepare": "cd bindings/wasm && npm install && npm run build",
+    "prepare": "cd bindings/wasm && npm run build",
     "build": "cd bindings/wasm && wasm-pack build -t web --out-dir src/pkg crate && rm -rf dist/ && rollup -c"
   },
   "dependencies": {
