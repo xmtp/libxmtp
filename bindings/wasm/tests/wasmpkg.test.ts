@@ -12,19 +12,48 @@ it("can instantiate", async () => {
 
 it("can run self test", async () => {
   const xmtp = await XMTPWasm.initialize();
-  const xmtpv3 = await xmtp.getXMTPv3();
-  const res = await xmtpv3.selfTest();
+  const xmtpv3 = xmtp.getXMTPv3();
+  const res = xmtpv3.selfTest();
   expect(res).toBe(true);
 });
 
 it("can do a simple conversation", async () => {
   const wasm = await XMTPWasm.initialize();
-  const alice = await wasm.newVoodooInstance();
-  const bob = await wasm.newVoodooInstance();
+  const alice = wasm.newVoodooInstance();
+  const bob = wasm.newVoodooInstance();
 
-  const outboundJson = await alice.createOutboundSession(bob, "hello there");
+  const { sessionId, payload } = await alice.createOutboundSession(
+    bob,
+    "hello there"
+  );
+  expect(typeof sessionId).toBe("string");
   // Unused, but test JSON parseable
-  const _ = JSON.parse(outboundJson);
-  const inboundPlaintext = await bob.createInboundSession(alice, outboundJson);
-  expect(inboundPlaintext).toBe("hello there");
+  const _ = JSON.parse(payload);
+  const { payload: inboundPayload } = await bob.createInboundSession(
+    alice,
+    payload
+  );
+  expect(inboundPayload).toBe("hello there");
+});
+
+it("can send a message", async () => {
+  const wasm = await XMTPWasm.initialize();
+  const alice = wasm.newVoodooInstance();
+  const bob = wasm.newVoodooInstance();
+
+  const { sessionId, payload } = await alice.createOutboundSession(
+    bob,
+    "hello there"
+  );
+  await bob.createInboundSession(alice, payload);
+  expect(typeof sessionId).toBe("string");
+
+  const msg = "hello there";
+  const encrypted = await alice.encryptMessage(sessionId, msg);
+  expect(typeof encrypted).toBe("string");
+
+  // Alice can't decrypt her own message. Does work for Bob though
+  // const decrypted = await alice.decryptMessage(sessionId, encrypted);
+  const decrypted = await bob.decryptMessage(sessionId, encrypted);
+  expect(decrypted).toBe(msg);
 });

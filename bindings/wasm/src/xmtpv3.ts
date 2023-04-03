@@ -3,6 +3,8 @@ import init, {
   new_voodoo_instance,
   create_outbound_session,
   create_inbound_session,
+  decrypt_message,
+  encrypt_message,
   e2e_selftest,
 } from "./pkg/libxmtp.js";
 
@@ -20,6 +22,11 @@ export const setWasmInit = (arg: () => InitInput) => {
 
 let initialized: Promise<void> | undefined = undefined;
 
+type SessionResult = {
+  sessionId: string;
+  payload: string;
+};
+
 export class VoodooInstance {
   // Handle to the voodooinstance object in the Wasm module
   public handle: string = "";
@@ -31,16 +38,37 @@ export class VoodooInstance {
     this.handle = handle;
   }
 
-  createOutboundSession(other: VoodooInstance, msg: string): Promise<string> {
-    return new Promise((resolve, reject) => {
-      resolve(this.wasmModule.createOutboundSession(this.handle, other.handle, msg));
-    });
+  async createOutboundSession(
+    other: VoodooInstance,
+    msg: string
+  ): Promise<SessionResult> {
+    const [sessionId, payload] = this.wasmModule.createOutboundSession(
+      this.handle,
+      other.handle,
+      msg
+    );
+
+    return { sessionId, payload };
   }
 
-  createInboundSession(other: VoodooInstance, msg: string): Promise<string> {
-    return new Promise((resolve, reject) => {
-      resolve(this.wasmModule.createInboundSession(other.handle, this.handle, msg));
-    });
+  async createInboundSession(
+    other: VoodooInstance,
+    msg: string
+  ): Promise<SessionResult> {
+    const [sessionId, payload] = this.wasmModule.createInboundSession(
+      other.handle,
+      this.handle,
+      msg
+    );
+    return { sessionId, payload };
+  }
+
+  async encryptMessage(sessionId: string, msg: string): Promise<string> {
+    return this.wasmModule.encryptMessage(this.handle, sessionId, msg);
+  }
+
+  async decryptMessage(sessionId: string, ciphertext: string): Promise<string> {
+    return this.wasmModule.decryptMessage(this.handle, sessionId, ciphertext);
   }
 }
 
@@ -53,7 +81,6 @@ export class XMTPv3 {
     return e2e_selftest();
   }
 }
-
 
 // Manages the Wasm module, which loads a singleton version of our Rust code
 export class XMTPWasm {
@@ -69,12 +96,42 @@ export class XMTPWasm {
     return new VoodooInstance(this, handle);
   }
 
-  createOutboundSession(sendHandle: string, receiveHandle: string, msg: string): string {
-    return create_outbound_session(sendHandle, receiveHandle, msg);
+  createOutboundSession(
+    sendHandle: string,
+    receiveHandle: string,
+    msg: string
+  ): [string, string] {
+    return create_outbound_session(sendHandle, receiveHandle, msg) as [
+      string,
+      string
+    ];
   }
 
-  createInboundSession(sendHandle: string, receiveHandle: string, msg: string): string {
-    return create_inbound_session(sendHandle, receiveHandle, msg);
+  createInboundSession(
+    sendHandle: string,
+    receiveHandle: string,
+    msg: string
+  ): [string, string] {
+    return create_inbound_session(sendHandle, receiveHandle, msg) as [
+      string,
+      string
+    ];
+  }
+
+  encryptMessage(
+    sendHandle: string,
+    sessionId: string,
+    message: string
+  ): string {
+    return encrypt_message(sendHandle, sessionId, message);
+  }
+
+  decryptMessage(
+    handle: string,
+    sessionId: string,
+    ciphertext: string
+  ): string {
+    return decrypt_message(handle, sessionId, ciphertext);
   }
 
   /**

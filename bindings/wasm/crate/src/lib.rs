@@ -1,4 +1,4 @@
-use std::cell::Cell;
+use std::cell::RefCell;
 use std::collections::HashMap;
 use std::sync::Mutex;
 
@@ -11,7 +11,7 @@ extern crate lazy_static;
 
 // This whole strategy is to keep a singleton in WASM memory world
 lazy_static! {
-    static ref INSTANCE_MAP: Mutex<HashMap<String, Cell<VoodooInstance>>> =
+    static ref INSTANCE_MAP: Mutex<HashMap<String, RefCell<VoodooInstance>>> =
         Mutex::new(HashMap::new());
 }
 
@@ -20,7 +20,7 @@ lazy_static! {
 pub fn new_voodoo_instance() -> String {
     let mut instances = INSTANCE_MAP.lock().unwrap();
     let handle = (instances.len() as u64).to_string();
-    instances.insert(handle.clone(), Cell::new(VoodooInstance::new()));
+    instances.insert(handle.clone(), RefCell::new(VoodooInstance::new()));
     handle
 }
 
@@ -29,17 +29,18 @@ pub fn create_outbound_session(
     sending_handle: &str,
     receiving_handle: &str,
     message: &str,
-) -> Result<String, JsValue> {
+) -> Result<Box<[JsValue]>, JsValue> {
     // Look up both handles in INSTANCE_MAP
     let instances = INSTANCE_MAP.lock().unwrap();
     let mut sending_instance = instances
         .get(sending_handle)
         .ok_or("sending_handle not found")?
-        .take();
+        .borrow_mut();
+
     let receiving_instance = instances
         .get(receiving_handle)
         .ok_or("receiving_handle not found")?
-        .take();
+        .borrow();
 
     // Get other party's public situation
     let receiving_public = receiving_instance.public_account();
@@ -47,14 +48,12 @@ pub fn create_outbound_session(
     // Create the session
     let result = sending_instance.create_outbound_session_serialized(&receiving_public, message);
 
-    // Put the sending_instance and receiving_instance back, we know the cells exist
-    instances.get(sending_handle).unwrap().set(sending_instance);
-    instances
-        .get(receiving_handle)
-        .unwrap()
-        .set(receiving_instance);
     match result {
-        Ok((_, ciphertext_json)) => Ok(ciphertext_json),
+        Ok((session_id, ciphertext_json)) => Ok(vec![
+            JsValue::from_str(&session_id),
+            JsValue::from_str(&ciphertext_json),
+        ]
+        .into_boxed_slice()),
         Err(e) => Err(JsValue::from_str(&e.to_string())),
     }
 }
@@ -64,17 +63,17 @@ pub fn create_inbound_session(
     sending_handle: &str,
     receiving_handle: &str,
     message: &str,
-) -> Result<String, JsValue> {
+) -> Result<Box<[JsValue]>, JsValue> {
     // Look up both handles in INSTANCE_MAP
     let instances = INSTANCE_MAP.lock().unwrap();
     let sending_instance = instances
         .get(sending_handle)
         .ok_or("sending_handle not found")?
-        .take();
+        .borrow();
     let mut receiving_instance = instances
         .get(receiving_handle)
         .ok_or("receiving_handle not found")?
-        .take();
+        .borrow_mut();
 
     // Get sender party public
     let sending_public = sending_instance.public_account();
@@ -82,15 +81,52 @@ pub fn create_inbound_session(
     // Create the session
     let result = receiving_instance.create_inbound_session_serialized(&sending_public, message);
 
-    // Put the instances back in their cells
-    instances.get(sending_handle).unwrap().set(sending_instance);
-    instances
-        .get(receiving_handle)
-        .unwrap()
-        .set(receiving_instance);
+    match result {
+        Ok((session_id, ciphertext_json)) => Ok(vec![
+            JsValue::from_str(&session_id),
+            JsValue::from_str(&ciphertext_json),
+        ]
+        .into_boxed_slice()),
+        Err(e) => Err(JsValue::from_str(&e.to_string())),
+    }
+}
+
+#[wasm_bindgen]
+pub fn encrypt_message(
+    sending_handle: &str,
+    session_id: &str,
+    message: &str,
+) -> Result<String, JsValue> {
+    let instances = INSTANCE_MAP.lock().unwrap();
+    let mut instance = instances
+        .get(sending_handle)
+        .ok_or("sending_handle not found")?
+        .borrow_mut();
+
+    let result = instance.encrypt_message_serialized(session_id, message);
 
     match result {
-        Ok((_, plaintext)) => Ok(plaintext),
+        Ok(ciphertext_json) => Ok(ciphertext_json),
+        Err(e) => Err(JsValue::from_str(&e.to_string())),
+    }
+}
+
+#[wasm_bindgen]
+pub fn decrypt_message(
+    handle: &str,
+    session_id: &str,
+    ciphertext: &str,
+) -> Result<String, JsValue> {
+    let instances = INSTANCE_MAP.lock().unwrap();
+    let mut instance = instances
+        .get(handle)
+        .ok_or("handle not found")?
+        .borrow_mut();
+
+    let result = instance.decrypt_message_serialized(session_id, ciphertext);
+
+    match result {
+        Ok(plaintext) => Ok(plaintext),
         Err(e) => Err(JsValue::from_str(&e.to_string())),
     }
 }
