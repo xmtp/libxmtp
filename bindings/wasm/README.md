@@ -1,7 +1,12 @@
 
-# Libxmtp
+# xmtpv3_wasm
 
-Libxmtp is a platform agnostic implementation of the core cryptographic functionality to be used in XMTP sdk's
+xmtpv3_wasm is a WASM binding library for xmtpv3
+
+## Prerequisites
+
+- Install Rust
+- Install [wasm-pack](https://rustwasm.github.io/wasm-pack/)
 
 ## QuickStart
 
