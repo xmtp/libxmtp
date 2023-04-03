@@ -23,7 +23,7 @@
       "default": "./bindings/wasm/dist/cjs-slim/index_slim.cjs"
     },
     "./libxmtp.wasm": "./bindings/wasm/dist/libxmtp_bg.wasm",
-    "./package.json": "./bindings/wasm/package.json"
+    "./package.json": "package.json"
   },
   "files": [
     "dist"
