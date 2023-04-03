@@ -30,7 +30,7 @@
   ],
   "scripts": {
     "prepare": "cd bindings/wasm && npm install && npm run build",
-    "build": "wasm-pack build -t web --out-dir src/pkg bindings/wasm/crate && rm -rf bindings/wasm/dist/ && rollup -c && cp -r bindings/wasm/dist dist"
+    "build": "cd bindings/wasm && wasm-pack build -t web --out-dir src/pkg crate && rm -rf dist/ && rollup -c"
   },
   "dependencies": {
     "@xmtp/proto": "^3.18.0"
