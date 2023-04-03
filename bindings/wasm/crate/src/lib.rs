@@ -29,7 +29,7 @@ pub fn create_outbound_session(
     sending_handle: &str,
     receiving_handle: &str,
     message: &str,
-) -> Result<String, JsValue> {
+) -> Result<Box<[JsValue]>, JsValue> {
     // Look up both handles in INSTANCE_MAP
     let instances = INSTANCE_MAP.lock().unwrap();
     let mut sending_instance = instances
@@ -53,8 +53,13 @@ pub fn create_outbound_session(
         .get(receiving_handle)
         .unwrap()
         .set(receiving_instance);
+
     match result {
-        Ok((_, ciphertext_json)) => Ok(ciphertext_json),
+        Ok((session_id, ciphertext_json)) => Ok(vec![
+            JsValue::from_str(&session_id),
+            JsValue::from_str(&ciphertext_json),
+        ]
+        .into_boxed_slice()),
         Err(e) => Err(JsValue::from_str(&e.to_string())),
     }
 }
@@ -64,7 +69,7 @@ pub fn create_inbound_session(
     sending_handle: &str,
     receiving_handle: &str,
     message: &str,
-) -> Result<String, JsValue> {
+) -> Result<Box<[JsValue]>, JsValue> {
     // Look up both handles in INSTANCE_MAP
     let instances = INSTANCE_MAP.lock().unwrap();
     let sending_instance = instances
@@ -90,7 +95,52 @@ pub fn create_inbound_session(
         .set(receiving_instance);
 
     match result {
-        Ok((_, plaintext)) => Ok(plaintext),
+        Ok((session_id, ciphertext_json)) => Ok(vec![
+            JsValue::from_str(&session_id),
+            JsValue::from_str(&ciphertext_json),
+        ]
+        .into_boxed_slice()),
+        Err(e) => Err(JsValue::from_str(&e.to_string())),
+    }
+}
+
+#[wasm_bindgen]
+pub fn encrypt_message(
+    sending_handle: &str,
+    session_id: &str,
+    message: &str,
+) -> Result<String, JsValue> {
+    let instances = INSTANCE_MAP.lock().unwrap();
+    let mut instance = instances
+        .get(sending_handle)
+        .ok_or("sending_handle not found")?
+        .take();
+
+    let result = instance.encrypt_message_serialized(session_id, message);
+    // Do we actually need to do this?
+    instances.get(sending_handle).unwrap().set(instance);
+
+    match result {
+        Ok(ciphertext_json) => Ok(ciphertext_json),
+        Err(e) => Err(JsValue::from_str(&e.to_string())),
+    }
+}
+
+#[wasm_bindgen]
+pub fn decrypt_message(
+    handle: &str,
+    session_id: &str,
+    ciphertext: &str,
+) -> Result<String, JsValue> {
+    let instances = INSTANCE_MAP.lock().unwrap();
+    let mut instance = instances.get(handle).ok_or("handle not found")?.take();
+
+    let result = instance.decrypt_message_serialized(session_id, ciphertext);
+    // Do we actually need to do this?
+    instances.get(handle).unwrap().set(instance);
+
+    match result {
+        Ok(plaintext) => Ok(plaintext),
         Err(e) => Err(JsValue::from_str(&e.to_string())),
     }
 }
