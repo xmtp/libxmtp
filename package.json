@@ -1,0 +1,52 @@
+{
+  "name": "libxmtp",
+  "version": "0.0.1",
+  "author": "jazzz <jazz@xmtp.com",
+  "license": "MIT",
+  "description": "Node.js package for the core XMTP utilities library",
+  "sideEffects": false,
+  "type": "module",
+  "main": "./bindings/wasm/dist/umd/index.js",
+  "module": "./bindings/wasm/dist/es/index.js",
+  "types": "./bindings/wasm/dist/types/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./bindings/wasm/dist/types/index.d.ts",
+      "node": "./bindings/wasm/dist/node/index.cjs",
+      "import": "./bindings/wasm/dist/es/index.js",
+      "default": "./bindings/wasm/dist/cjs/index.cjs"
+    },
+    "./slim": {
+      "types": "./bindings/wasm/dist/types/index.d.ts",
+      "node": "./bindings/wasm/dist/node/index.cjs",
+      "import": "./bindings/wasm/dist/es-slim/index_slim.js",
+      "default": "./bindings/wasm/dist/cjs-slim/index_slim.cjs"
+    },
+    "./libxmtp.wasm": "./bindings/wasm/dist/libxmtp_bg.wasm",
+    "./package.json": "./bindings/wasm/package.json"
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "prepare": "cd bindings/wasm && npm install && npm run build",
+    "build": "wasm-pack build -t web --out-dir src/pkg bindings/wasm/crate && rm -rf bindings/wasm/dist/ && rollup -c",
+    "build:minify": "npm run build && npx terser@latest --compress --mangle --output bindings/wasm/dist/cjs/index.cjs -- bindings/wasm/dist/cjs/index.cjs",
+    "format": "npx prettier@latest --write bindings/wasm/src/src/ bindings/wasm/tests/ bindings/wasm/package.json bindings/wasm/rollup.config.js bindings/wasm/tsconfig.json bindings/wasm/vite.config.ts bindings/wasm/cli.js",
+    "pretest": "npm run build",
+    "test": "vitest run && tsc",
+    "prepublishOnly": "npm test"
+  },
+  "dependencies": {
+    "@xmtp/proto": "^3.18.0"
+  },
+  "devDependencies": {
+    "@rollup/plugin-typescript": "^10.0.1",
+    "@rollup/plugin-wasm": "^6.1.1",
+    "@types/node": "^18.11.10",
+    "rollup": "^3.11.0",
+    "tslib": "^2.4.1",
+    "typescript": "^4.9.3",
+    "vitest": "^0.25.3"
+  }
+}
