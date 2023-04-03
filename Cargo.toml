@@ -1,0 +1,8 @@
+[workspace]
+
+members = [
+    "crates/xmtpv3",
+    "bindings/wasm/crate",
+    "bindings/ffi",
+    "bindings/node-bindgen/crate"
+]
