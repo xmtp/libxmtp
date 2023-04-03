@@ -39,8 +39,8 @@ impl VoodooInstance {
     }
 
     // Creates an outbound session and returns a handle which is just the index
-    // STOPSHIP: this function for testing assumes access to the recipient's account instance
-    // this will not happen in practice
+    // // TODO: STARTINGTASK: this should take the one-time-keys and pre-keys as
+    // arguments too, part of the VoodooPublicIdentity maybe?
     pub fn create_outbound_session(
         &mut self,
         other_account_public: &VoodooPublicIdentity,
