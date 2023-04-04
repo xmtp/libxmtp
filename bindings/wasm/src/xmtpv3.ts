@@ -5,6 +5,8 @@ import init, {
   create_inbound_session,
   decrypt_message,
   encrypt_message,
+  get_public_account_json,
+  add_or_get_public_account_from_json,
   e2e_selftest,
 } from "./pkg/libxmtp.js";
 
@@ -70,6 +72,10 @@ export class VoodooInstance {
   async decryptMessage(sessionId: string, ciphertext: string): Promise<string> {
     return this.wasmModule.decryptMessage(this.handle, sessionId, ciphertext);
   }
+
+  toPublicJSON(): string {
+    return this.wasmModule.getPublicAccountJSON(this.handle);
+  }
 }
 
 // Keep around for old test cases
@@ -132,6 +138,16 @@ export class XMTPWasm {
     ciphertext: string
   ): string {
     return decrypt_message(handle, sessionId, ciphertext);
+  }
+
+  getPublicAccountJSON(handle: string): string {
+    return get_public_account_json(handle);
+  }
+
+  // TODO: currently returns VoodooInstance as there is no corresponding public type yet
+  addOrGetPublicAccountFromJSON(json: string): VoodooInstance {
+    const handle = add_or_get_public_account_from_json(json);
+    return new VoodooInstance(this, handle);
   }
 
   /**
