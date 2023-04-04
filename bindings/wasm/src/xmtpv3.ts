@@ -144,6 +144,7 @@ export class XMTPWasm {
     return get_public_account_json(handle);
   }
 
+  // TODO: currently returns VoodooInstance as there is no corresponding public type yet
   addOrGetPublicAccountFromJSON(json: string): VoodooInstance {
     const handle = add_or_get_public_account_from_json(json);
     return new VoodooInstance(this, handle);

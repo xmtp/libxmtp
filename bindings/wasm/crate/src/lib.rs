@@ -31,7 +31,9 @@ pub fn create_outbound_session(
     message: &str,
 ) -> Result<Box<[JsValue]>, JsValue> {
     // Look up both handles in INSTANCE_MAP
-    let instances = INSTANCE_MAP.lock().unwrap();
+    let instances = INSTANCE_MAP.lock().map_err(|e| {
+        JsValue::from_str(&format!("Error getting instance map lock: {}", e))
+    })?;
     let mut sending_instance = instances
         .get(sending_handle)
         .ok_or("sending_handle not found")?
@@ -65,7 +67,9 @@ pub fn create_inbound_session(
     message: &str,
 ) -> Result<Box<[JsValue]>, JsValue> {
     // Look up both handles in INSTANCE_MAP
-    let instances = INSTANCE_MAP.lock().unwrap();
+    let instances = INSTANCE_MAP.lock().map_err(|e| {
+        JsValue::from_str(&format!("Error getting instance map lock: {}", e))
+    })?;
     let sending_instance = instances
         .get(sending_handle)
         .ok_or("sending_handle not found")?
@@ -97,7 +101,9 @@ pub fn encrypt_message(
     session_id: &str,
     message: &str,
 ) -> Result<String, JsValue> {
-    let instances = INSTANCE_MAP.lock().unwrap();
+    let instances = INSTANCE_MAP.lock().map_err(|e| {
+        JsValue::from_str(&format!("Error getting instance map lock: {}", e))
+    })?;
     let mut instance = instances
         .get(sending_handle)
         .ok_or("sending_handle not found")?
@@ -117,7 +123,9 @@ pub fn decrypt_message(
     session_id: &str,
     ciphertext: &str,
 ) -> Result<String, JsValue> {
-    let instances = INSTANCE_MAP.lock().unwrap();
+    let instances = INSTANCE_MAP.lock().map_err(|e| {
+        JsValue::from_str(&format!("Error getting instance map lock: {}", e))
+    })?;
     let mut instance = instances
         .get(handle)
         .ok_or("handle not found")?
@@ -136,7 +144,9 @@ pub fn decrypt_message(
 // is a JSON object which can subsequently be imported into another VoodooInstance
 #[wasm_bindgen]
 pub fn get_public_account_json(handle: &str) -> Result<String, JsValue> {
-    let instances = INSTANCE_MAP.lock().unwrap();
+    let instances = INSTANCE_MAP.lock().map_err(|e| {
+        JsValue::from_str(&format!("Error getting instance map lock: {}", e))
+    })?;
     let instance = instances
         .get(handle)
         .ok_or("handle not found")?
@@ -151,7 +161,9 @@ pub fn get_public_account_json(handle: &str) -> Result<String, JsValue> {
 // no distinction between "public" and "private" accounts in this implementation yet.
 #[wasm_bindgen]
 pub fn add_or_get_public_account_from_json(public_account_json: &str) -> Result<String, JsValue> {
-    let mut instances = INSTANCE_MAP.lock().unwrap();
+    let mut instances = INSTANCE_MAP.lock().map_err(|e| {
+        JsValue::from_str(&format!("Error getting instance map lock: {}", e))
+    })?;
 
     let public_instance = VoodooInstance::from_public_account_json(public_account_json).map_err(|e| {
         JsValue::from_str(&format!("Error creating VoodooInstance from public account json: {}", e))
