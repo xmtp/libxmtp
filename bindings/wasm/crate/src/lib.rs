@@ -15,7 +15,7 @@ lazy_static! {
         Mutex::new(HashMap::new());
 }
 
-// Returns a handle to a keystore instance
+// Returns a handle to a voodoo instance
 #[wasm_bindgen]
 pub fn new_voodoo_instance() -> String {
     let mut instances = INSTANCE_MAP.lock().unwrap();
@@ -129,6 +129,47 @@ pub fn decrypt_message(
         Ok(plaintext) => Ok(plaintext),
         Err(e) => Err(JsValue::from_str(&e.to_string())),
     }
+}
+
+// This function is the most barebones (incorrect) implementation of obtaining
+// a "contact bundle" for a given VoodooIdentity by handle. The output string
+// is a JSON object which can subsequently be imported into another VoodooInstance
+#[wasm_bindgen]
+pub fn get_public_account_json(handle: &str) -> Result<String, JsValue> {
+    let instances = INSTANCE_MAP.lock().unwrap();
+    let instance = instances
+        .get(handle)
+        .ok_or("handle not found")?
+        .borrow_mut();
+    instance.public_account_json().map_err(|e| {
+        JsValue::from_str(&format!("Error getting public account json: {}", e))
+    })
+}
+
+// This function takes a public account json (as returned by get_public_account_json)
+// and creates a new Voodoo instance referenced by the returned handle. TODO: there is
+// no distinction between "public" and "private" accounts in this implementation yet.
+#[wasm_bindgen]
+pub fn add_or_get_public_account_from_json(public_account_json: &str) -> Result<String, JsValue> {
+    let mut instances = INSTANCE_MAP.lock().unwrap();
+
+    let public_instance = VoodooInstance::from_public_account_json(public_account_json).map_err(|e| {
+        JsValue::from_str(&format!("Error creating VoodooInstance from public account json: {}", e))
+    })?;
+    // First, check if we have this account already
+    // TODO: this is a linear search, which is not ideal, but we're reworking the entire contact
+    // system anyways, so this is fine for now.
+    for (handle, instance) in instances.iter() {
+        // NOTE: this uses PartialEq trait which relies on identity_key() comparison (Eq is a
+        // derived trait for identity_keys)
+        if instance.borrow_mut().account.identity_keys() == public_instance.account.identity_keys() {
+            return Ok(handle.clone());
+        }
+    }
+
+    let handle = (instances.len() as u64).to_string();
+    instances.insert(handle.clone(), RefCell::new(public_instance));
+    Ok(handle)
 }
 
 #[wasm_bindgen]

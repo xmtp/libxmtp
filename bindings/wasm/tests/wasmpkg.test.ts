@@ -57,3 +57,28 @@ it("can send a message", async () => {
   const decrypted = await bob.decryptMessage(sessionId, encrypted);
   expect(decrypted).toBe(msg);
 });
+
+it("can send a message to a public instance", async () => {
+  const wasm = await XMTPWasm.initialize();
+  const alice = wasm.newVoodooInstance();
+  const bob = wasm.newVoodooInstance();
+
+  const bobJson = bob.toPublicJSON();
+  const publicBob = wasm.addOrGetPublicAccountFromJSON(bobJson);
+  // Use publicBob to create the session
+  const { sessionId, payload } = await alice.createOutboundSession(
+    publicBob,
+    "hello there"
+  );
+  await bob.createInboundSession(alice, payload);
+  expect(typeof sessionId).toBe("string");
+
+  // Test another round trip
+  const msg = "hello there";
+  const encrypted = await alice.encryptMessage(sessionId, msg);
+  expect(typeof encrypted).toBe("string");
+
+  const decrypted = await bob.decryptMessage(sessionId, encrypted);
+  expect(decrypted).toBe(msg);
+
+});

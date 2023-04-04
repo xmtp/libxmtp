@@ -38,6 +38,23 @@ impl VoodooInstance {
         VoodooPublicIdentity::new(&self.account)
     }
 
+    pub fn public_account_json(&self) -> Result<String> {
+        let public_account = self.public_account();
+        serde_json::to_string(&public_account).map_err(|e| e.into())
+    }
+
+    // TODO: STARTINGTASK: The goal is to remove this pattern altogether and
+    // build a better abstraction for the public account, rather than creating
+    // new VoodooInstances for all contacts
+    pub fn from_public_account_json(public_account_json: &str) -> Result<Self> {
+        let public_account: VoodooPublicIdentity = serde_json::from_str(public_account_json)?;
+        let account = public_account.get_account()?;
+        Ok(Self {
+            account,
+            sessions: HashMap::new(),
+        })
+    }
+
     // Creates an outbound session and returns a handle which is just the index
     // // TODO: STARTINGTASK: this should take the one-time-keys and pre-keys as
     // arguments too, part of the VoodooPublicIdentity maybe?
