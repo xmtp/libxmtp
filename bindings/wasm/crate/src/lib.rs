@@ -100,10 +100,11 @@ pub fn encrypt_message(
     sending_handle: &str,
     session_id: &str,
     message: &str,
-) -> Result<String, JsValue> {
+) -> Result<JsValue, JsValue> {
     let instances = INSTANCE_MAP.lock().map_err(|e| {
         JsValue::from_str(&format!("Error getting instance map lock: {}", e))
     })?;
+
     let mut instance = instances
         .get(sending_handle)
         .ok_or("sending_handle not found")?
@@ -111,10 +112,9 @@ pub fn encrypt_message(
 
     let result = instance.encrypt_message_serialized(session_id, message);
 
-    match result {
-        Ok(ciphertext_json) => Ok(ciphertext_json),
-        Err(e) => Err(JsValue::from_str(&e.to_string())),
-    }
+    result
+        .map(|ciphertext| JsValue::from_str(&ciphertext))
+        .map_err(|e| JsValue::from_str(&e.to_string()))
 }
 
 #[wasm_bindgen]
@@ -122,10 +122,11 @@ pub fn decrypt_message(
     handle: &str,
     session_id: &str,
     ciphertext: &str,
-) -> Result<String, JsValue> {
+) -> Result<JsValue, JsValue> {
     let instances = INSTANCE_MAP.lock().map_err(|e| {
         JsValue::from_str(&format!("Error getting instance map lock: {}", e))
     })?;
+    
     let mut instance = instances
         .get(handle)
         .ok_or("handle not found")?
@@ -133,10 +134,9 @@ pub fn decrypt_message(
 
     let result = instance.decrypt_message_serialized(session_id, ciphertext);
 
-    match result {
-        Ok(plaintext) => Ok(plaintext),
-        Err(e) => Err(JsValue::from_str(&e.to_string())),
-    }
+    result
+        .map(|plaintext| JsValue::from_str(&plaintext))
+        .map_err(|e| JsValue::from_str(&e.to_string()))
 }
 
 // This function is the most barebones (incorrect) implementation of obtaining
