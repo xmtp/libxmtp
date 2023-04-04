@@ -4,7 +4,7 @@
 //
 //  Created by Pat Nakajima on 1/20/23.
 //
-
+#if canImport(UIKit)
 import Connect
 import UIKit
 import UserNotifications
@@ -90,3 +90,31 @@ public struct XMTPPush {
 		return Notifications_V1_NotificationsClient(client: protocolClient)
 	}
 }
+#else
+public struct XMTPPush {
+	public static var shared = XMTPPush()
+	private init() {
+		fatalError("XMTPPush not available")
+	}
+	
+	public mutating func setPushServer(_ server: String) {
+		fatalError("XMTPPush not available")
+	}
+	
+	public func request() async throws -> Bool {
+		fatalError("XMTPPush not available")
+	}
+	
+	public func register(token: String) async throws {
+		fatalError("XMTPPush not available")
+	}
+	
+	public func subscribe(topics: [String]) async throws {
+		fatalError("XMTPPush not available")
+	}
+	
+	var client: Notifications_V1_NotificationsClient {
+		fatalError("XMTPPush not available")
+	}
+}
+#endif
