@@ -23,5 +23,6 @@ jobs:
          profile: minimal
          toolchain: stable
          override: true
+     - uses: jetli/wasm-pack-action@v0.4.0
      - uses: actions/setup-node@v3
      - run: npm test
