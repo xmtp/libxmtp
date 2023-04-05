@@ -35,6 +35,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9e1b586273c5702936fe7b7d6896644d8be71e6314cfe09d3167c95f712589e8"
 
 [[package]]
+name = "base64"
+version = "0.21.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a4a4ddaa51a5bc52a6948f74c06d20aaaddb71924eab79b8c97a8c556e942d6a"
+
+[[package]]
 name = "block-buffer"
 version = "0.9.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -434,7 +440,7 @@ checksum = "4c614d17805b093df4b147b51339e7e44bf05ef59fba1e45d83500bcfb4d8585"
 dependencies = [
  "proc-macro2",
  "quote",
- "syn 2.0.11",
+ "syn 2.0.12",
 ]
 
 [[package]]
@@ -506,9 +512,9 @@ dependencies = [
 
 [[package]]
 name = "syn"
-version = "2.0.11"
+version = "2.0.12"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "21e3787bb71465627110e7d87ed4faaa36c1f61042ee67badb9e2ef173accc40"
+checksum = "79d9531f94112cfc3e4c8f5f02cb2b58f72c97b7efd85f70203cc6d8efda5927"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -532,7 +538,7 @@ checksum = "f9456a42c5b0d803c8cd86e73dd7cc9edd429499f37a3550d286d5e86720569f"
 dependencies = [
  "proc-macro2",
  "quote",
- "syn 2.0.11",
+ "syn 2.0.12",
 ]
 
 [[package]]
@@ -561,7 +567,7 @@ checksum = "f6f20153a1c82ac5f1243b62e80f067ae608facc415c6ef82f88426a61c79886"
 dependencies = [
  "aes",
  "arrayvec",
- "base64",
+ "base64 0.13.1",
  "cbc",
  "ed25519-dalek",
  "hkdf",
@@ -655,6 +661,7 @@ name = "xmtpv3"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "base64 0.21.0",
  "console_error_panic_hook",
  "serde",
  "serde_json",
@@ -672,11 +679,11 @@ dependencies = [
 
 [[package]]
 name = "zeroize_derive"
-version = "1.4.1"
+version = "1.4.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "25588073e5216b50bca71d61cb8595cdb9745e87032a58c199730def2862c934"
+checksum = "ce36e65b0d2999d2aafac989fb249189a141aee1f53c612c1f37d72631959f69"
 dependencies = [
  "proc-macro2",
  "quote",
- "syn 2.0.11",
+ "syn 2.0.12",
 ]
