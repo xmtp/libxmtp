@@ -4,7 +4,7 @@ pub use xmtpv3;
 
 pub fn e2e_selftest() -> String {
     // Returns Result<String>
-    xmtpv3::e2e_selftest()
+    xmtpv3::manager::e2e_selftest()
         .map_err(|e| format!("{:?}", e))
         .unwrap()
 }
