@@ -5,10 +5,10 @@ set -ex
 # Change to "release" to generate much smaller libraries
 PROFILE="release"
 
-cross build --target x86_64-linux-android --$PROFILE && \
-    cross build --target i686-linux-android --$PROFILE && \
-    cross build --target armv7-linux-androideabi --$PROFILE && \
-    cross build --target aarch64-linux-android --$PROFILE
+cross build --target x86_64-linux-android --target-dir ./target --$PROFILE && \
+    cross build --target i686-linux-android --target-dir ./target --$PROFILE && \
+    cross build --target armv7-linux-androideabi --target-dir ./target --$PROFILE && \
+    cross build --target aarch64-linux-android --target-dir ./target --$PROFILE
 
 # Move everything to jniLibs folder and rename, TODO: should be the same name
 LIBRARY_NAME="libxmtpv3_ffi"
