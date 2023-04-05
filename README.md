@@ -1,20 +1,14 @@
 # XMTP-iOS
 
-![Lint](https://github.com/xmtp/xmtp-ios/actions/workflows/lint.yml/badge.svg) ![Status](https://img.shields.io/badge/Project_Status-Developer_Preview-yellow)
+![Lint](https://github.com/xmtp/xmtp-ios/actions/workflows/lint.yml/badge.svg) ![Status](https://img.shields.io/badge/Project_Status-General_Availability-31CA54)
 
 `xmtp-ios` provides a Swift implementation of an XMTP message API client for use with iOS apps.
 
 Use `xmtp-ios` to build with XMTP to send messages between blockchain accounts, including DMs, notifications, announcements, and more.
 
-This SDK is in **Developer Preview** status and ready for you to start building.
+This SDK is in **General Availability** status and ready for use in production. 
 
-However, we do **not** recommend using Developer Preview software in production apps. Software in this status may change based on feedback.
-
-Specifically, this SDK is missing this functionality:
-
-- Specifying `apiUrl`, `keyStoreType`, `codecs`, `maxContentSize`, and `appVersion` when creating a `Client`
-
-Follow along in the [tracking issue](https://github.com/xmtp/xmtp-ios/issues/7) for updates.
+To keep up with the latest SDK developments, see the [Issues tab](https://github.com/xmtp/xmtp-ios/issues) in this repo.
 
 To learn more about XMTP and get answers to frequently asked questions, see [FAQ about XMTP](https://xmtp.org/docs/dev-concepts/faq).
 
@@ -24,6 +18,10 @@ To learn more about XMTP and get answers to frequently asked questions, see [FAQ
 
 For a basic demonstration of the core concepts and capabilities of the `xmtp-ios` client SDK, see the [Example app project](https://github.com/xmtp/xmtp-ios/tree/main/XMTPiOSExample/XMTPiOSExample).
 
+## Reference docs
+
+> **View the reference**  
+> Access the [Swift client SDK reference documentation](https://xmtp.github.io/xmtp-ios/documentation/xmtp).
 
 ## Install with Swift Package Manager
 
@@ -67,7 +65,8 @@ A client is created with `Client.create(account: SigningKey) async throws -> Cli
 1. To sign the newly generated key bundle. This happens only the very first time when a key bundle is not found in storage.
 2. To sign a random salt used to encrypt the key bundle in storage. This happens every time the client is started, including the very first time).
 
-**Important:** The client connects to the XMTP `dev` environment by default. [Use `ClientOptions`](#configuring-the-client) to change this and other parameters of the network connection.
+> **Important:**  
+> The client connects to the XMTP `dev` environment by default. [Use `ClientOptions`](#configuring-the-client) to change this and other parameters of the network connection.
 
 ```swift
 import XMTP
@@ -102,9 +101,11 @@ let client = try Client.from(bundle: keys, options: .init(api: .init(env: .produ
 
 You can configure the client's network connection and key storage method with these optional parameters of `Client.create`:
 
-| Parameter | Default | Description                                                                                                                                                                                                                                                                     |
+| Parameter | Default | Description |
 | --------- | ------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| env       | `dev`   | Connect to the specified XMTP network environment. Valid values include `.dev`, `.production`, or `.local`. For important details about working with these environments, see [XMTP `production` and `dev` network environments](#xmtp-production-and-dev-network-environments). |
+| env       | `dev`   | Connect to the specified XMTP network environment. Valid values include `.dev`, `.production`, or `.local`. For important details about working with these environments, see [XMTP `production` and `dev` network environments](#xmtp-production-and-dev-network-environments).        |
+
+#### Configure `env`
 
 ```swift
 // Configure the client to use the `production` network
@@ -112,7 +113,16 @@ let clientOptions = ClientOptions(api: .init(env: .production))
 let client = try await Client.create(account: account, options: clientOptions)
 ```
 
-**Note: The `apiUrl`, `keyStoreType`, `codecs`, `maxContentSize` and `appVersion` parameters from the XMTP client SDK for JavaScript (xmtp-js) are not yet supported.**
+## Configure content types
+
+You can use custom content types by calling `Client.register`. The SDK comes with two commonly used content type codecs, `AttachmentCodec` and `RemoteAttachmentCodec`:
+
+```swift
+Client.register(AttachmentCodec())
+Client.register(RemoteAttachmentCodec())
+```
+
+To learn more about using `AttachmentCodec` and `RemoteAttachmentCodec`, see [Handle different content types](#handle-different-content-types).
 
 ## Handle conversations
 
@@ -140,13 +150,14 @@ for conversation in allConversations {
 
 These conversations include all conversations for a user **regardless of which app created the conversation.** This functionality provides the concept of an [interoperable inbox](https://xmtp.org/docs/dev-concepts/interoperable-inbox), which enables a user to access all of their conversations in any app built with XMTP.
 
-You might choose to provide an additional filtered view of conversations. To learn more, see [Handling multiple conversations with the same blockchain address](#handling-multiple-conversations-with-the-same-blockchain-address) and [Filter conversations using conversation IDs and metadata](https://xmtp.org/docs/client-sdk/javascript/tutorials/filter-conversations).
+You might choose to provide an additional filtered view of conversations. To learn more, see [Handle multiple conversations with the same blockchain address](#handle-multiple-conversations-with-the-same-blockchain-address) and [Filter conversations using conversation IDs and metadata](https://xmtp.org/docs/client-sdk/javascript/tutorials/filter-conversations).
 
 ### Listen for new conversations
 
 You can also listen for new conversations being started in real-time. This will allow apps to display incoming messages from new contacts.
 
-**Warning: This stream will continue infinitely. To end the stream, break from the loop.**
+> **Warning:**  
+> This stream will continue infinitely. To end the stream, break from the loop.
 
 ```swift
 for try await conversation in client.conversations.stream() {
@@ -170,9 +181,9 @@ let newConversation = try await client.conversations.newConversation(with: "0x3F
 
 ### Send messages
 
-To be able to send a message, the recipient must have already created a client at least once and consequently advertised their key bundle on the network. Messages are addressed using account addresses. The message payload must be a plain string.
+To be able to send a message, the recipient must have already created a client at least once and consequently advertised their key bundle on the network. Messages are addressed using account addresses. By default, the message payload supports plain strings.
 
-**Note: Other types of content are currently not supported.**
+To learn about support for other content types, see [Handle different content types](#handle-different-content-types).
 
 ```swift
 let conversation = try await client.conversations.newConversation(with: "0x3F11b27F323b62B159D2642964fa27C46C841897")
@@ -221,7 +232,7 @@ for try await message in conversation.streamMessages() {
 }
 ```
 
-### Handling multiple conversations with the same blockchain address
+### Handle multiple conversations with the same blockchain address
 
 With XMTP, you can have multiple ongoing conversations with the same blockchain address. For example, you might want to have a conversation scoped to your particular app, or even a conversation scoped to a particular item in your app.
 
@@ -253,7 +264,7 @@ let myAppConversations = conversations.filter {
 }
 ```
 
-### Decoding a single message
+### Decode a single message
 
 You can decode a single `Envelope` from XMTP using the `decode` method:
 
@@ -290,21 +301,152 @@ let decodedConversation = containerAgain.decode(with: client)
 try await decodedConversation.send(text: "hi")
 ```
 
-### Different types of content
+## Handle different content types
 
-All the send functions support SendOptions as an optional parameter. The contentType option allows specifying different types of content than the default simple string, which is identified with content type identifier ContentTypeText. Support for other types of content can be added by registering additional ContentCodecs with the Client. Every codec is associated with a content type identifier, ContentTypeId, which is used to signal to the Client which codec should be used to process the content that is being sent or received. See XIP-5 for more details on codecs and content types.
+All of the send functions support `SendOptions` as an optional parameter. The `contentType` option allows specifying different types of content other than the default simple string standard content type, which is identified with content type identifier `ContentTypeText`. 
 
-Codecs and content types may be proposed as interoperable standards through XRCs. If there is a concern that the recipient may not be able to handle a non-standard content type, the sender can use the contentFallback option to provide a string that describes the content being sent. If the recipient fails to decode the original content, the fallback will replace it and can be used to inform the recipient what the original content was.
+To learn more about content types, see [Content types with XMTP](https://xmtp.org/docs/dev-concepts/content-types).
+
+Support for other content types can be added by registering additional `ContentCodec`s with the client. Every codec is associated with a content type identifier, `ContentTypeID`, which is used to signal to the client which codec should be used to process the content that is being sent or received. 
+
+For example, see the [Codecs](https://github.com/xmtp/xmtp-ios/tree/main/Sources/XMTP/Codecs) available in `xmtp-ios`.
+
+### Send a remote attachment
+
+Use the [RemoteAttachmentCodec](https://github.com/xmtp/xmtp-ios/blob/main/Sources/XMTP/Codecs/RemoteAttachmentCodec.swift) package to enable your app to send and receive message attachments.
+
+Message attachments are files. More specifically, attachments are objects that have:
+
+- `filename` Most files have names, at least the most common file types.
+- `mimeType` What kind of file is it? You can often assume this from the file extension, but it's nice to have a specific field for it. [Here's a list of common mime types.](https://developer.mozilla.org/en-US/docs/Web/HTTP/Basics_of_HTTP/MIME_types/Common_types)
+- `data` What is this file's data? Most files have data. If the file doesn't have data then it's probably not the most interesting thing to send.
+
+Because XMTP messages can only be up to 1MB in size, we need to store the attachment somewhere other than the XMTP network. In other words, we need to store it in a remote location.
+
+End-to-end encryption must apply not only to XMTP messages, but to message attachments as well. For this reason, we need to encrypt the attachment before we store it.
+
+#### Create an attachment object
 
 ```swift
-// Assuming we've loaded a fictional NumberCodec that can be used to encode numbers,
-// and is identified with ContentTypeNumber, we can use it as follows.
-Client.register(codec: NumberCodec())
-
-try await aliceConversation.send(content: 3.14, options: .init(contentType: ContentTypeNumber, contentFallback: "sending you a pie"))
+let attachment = Attachment(
+  filename: "screenshot.png",
+  mimeType: "image/png",
+  data: Data(somePNGData)
+)
 ```
 
-### Compression
+#### Encrypt the attachment
+
+Use the `RemoteAttachmentCodec.encodeEncrypted` to encrypt the attachment:
+
+```swift
+// Encode the attachment and encrypt that encoded content
+const encryptedAttachment = try RemoteAttachment.encodeEncrypted(
+	content: attachment,
+	codec: AttachmentCodec()
+)
+```
+
+#### Upload the encrypted attachment
+
+Upload the encrypted attachment anywhere where it will be accessible via an HTTPS GET request. For example, you can use web3.storage:
+
+```swift
+func upload(data: Data, token: String): String {
+  let url = URL(string: "https://api.web3.storage/upload")!
+  var request = URLRequest(url: url)
+  request.addValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+  request.addValue("XMTP", forHTTPHeaderField: "X-NAME")
+  request.httpMethod = "POST"
+
+  let responseData = try await URLSession.shared.upload(for: request, from: data).0
+  let response = try JSONDecoder().decode(Web3Storage.Response.self, from: responseData)
+
+  return "https://\(response.cid).ipfs.w3s.link"
+}
+
+let url = upload(data: encryptedAttachment.payload, token: YOUR_WEB3_STORAGE_TOKEN)
+```
+
+#### Create a remote attachment
+
+Now that you have a `url`, you can create a `RemoteAttachment`.
+
+```swift
+let remoteAttachment = try RemoteAttachment(
+  url: url,
+  encryptedEncodedContent: encryptedEncodedContent
+)
+```
+
+#### Send a remote attachment
+
+Now that you have a remote attachment, you can send it:
+
+```swift
+try await conversation.send(
+	content: remoteAttachment,
+	options: .init(
+		contentType: ContentTypeRemoteAttachment,
+		contentFallback: "a description of the image"
+	)
+)
+```
+
+Note that we’re using `contentFallback` to enable clients that don't support these content types to still display something. For cases where clients *do* support these types, they can use the content fallback as alt text for accessibility purposes.
+
+#### Receive a remote attachment
+
+Now that you can send a remote attachment, you need a way to receive a remote attachment. For example:
+
+```swift
+let messages = try await conversation.messages()
+let message = messages[0]
+
+guard message.encodedContent.contentType == ContentTypeRemoteAttachment else {
+	return
+}
+
+const remoteAttachment: RemoteAttachment = try message.content()
+```
+
+#### Download, decrypt, and decode the attachment
+
+Now that you can receive a remote attachment, you need to download, decrypt, and decode it so your app can display it. For example:
+
+```swift
+let attachment: Attachment = try await remoteAttachment.content()
+```
+
+You now have the original attachment:
+
+```swift
+attachment.filename // => "screenshot.png"
+attachment.mimeType // => "image/png",
+attachment.data // => [the PNG data]
+```
+
+#### Display the attachment
+
+Display the attachment in your app as you please. For example, you can display it as an image:
+
+```swift
+import UIKIt
+import SwiftUI
+
+struct ContentView: View {
+	var body: some View {
+		Image(uiImage: UIImage(data: attachment.data))
+	}
+}
+
+```
+
+#### Handle custom content types
+
+Beyond this, custom codecs and content types may be proposed as interoperable standards through XRCs. To learn more about the custom content type proposal process, see [XIP-5](https://github.com/xmtp/XIPs/blob/main/XIPs/xip-5-message-content-types.md).
+
+## Compression
 
 Message content can be optionally compressed using the compression option. The value of the option is the name of the compression algorithm to use. Currently supported are gzip and deflate. Compression is applied to the bytes produced by the content codec.
 
@@ -342,7 +484,8 @@ XMTP provides both `production` and `dev` network environments to support the de
 The `production` and `dev` networks are completely separate and not interchangeable.
 For example, for a given blockchain account, its XMTP identity on `dev` network is completely distinct from its XMTP identity on the `production` network, as are the messages associated with these identities. In addition, XMTP identities and messages created on the `dev` network can't be accessed from or moved to the `production` network, and vice versa.
 
-**Important:** When you [create a client](#create-a-client), it connects to the XMTP `dev` environment by default. To learn how to use the `env` parameter to set your client's network environment, see [Configure the client](#configure-the-client).
+> **Important:**  
+> When you [create a client](#create-a-client), it connects to the XMTP `dev` environment by default. To learn how to use the `env` parameter to set your client's network environment, see [Configure the client](#configure-the-client).
 
 The `env` parameter accepts one of three valid values: `dev`, `production`, or `local`. Here are some best practices for when to use each environment:
 
