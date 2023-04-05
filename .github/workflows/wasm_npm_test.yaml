@@ -25,4 +25,5 @@ jobs:
          override: true
      - uses: jetli/wasm-pack-action@v0.4.0
      - uses: actions/setup-node@v3
+     - run: npm ci
      - run: npm test
