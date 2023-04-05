@@ -23,5 +23,5 @@ jobs:
          profile: minimal
          toolchain: stable
          override: true
-      - uses: actions/setup-node@v3
-      - run: npm test
+     - uses: actions/setup-node@v3
+     - run: npm test
