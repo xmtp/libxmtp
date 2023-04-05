@@ -1,0 +1,24 @@
+name: Lint
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v1
+      - run: rustup component add clippy
+      - uses: actions-rs/clippy-check@v1
+        name: xmtpv3
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          name: xmtpv3
+          args: --all-features --no-deps --manifest-path crates/xmtpv3/Cargo.toml
+      - uses: actions-rs/clippy-check@v1
+        name: xmtpv3_wasm
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          name: xmtpv3_wasm
+          args: --all-features --no-deps --manifest-path bindings/wasm/crate/Cargo.toml

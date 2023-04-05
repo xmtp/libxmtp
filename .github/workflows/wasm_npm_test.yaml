@@ -1,0 +1,29 @@
+name: Test WASM npm
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+jobs:
+  test:
+    name: Test
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        env: ['node', 'jsdom']
+    defaults:
+      run:
+        working-directory: ./bindings/wasm
+    steps:
+     - name: Checkout sources
+       uses: actions/checkout@v2
+     - name: Install stable toolchain
+       uses: actions-rs/toolchain@v1
+       with:
+         profile: minimal
+         toolchain: stable
+         override: true
+     - uses: jetli/wasm-pack-action@v0.4.0
+     - uses: actions/setup-node@v3
+     - run: npm ci
+     - run: npm test
