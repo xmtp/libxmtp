@@ -21,6 +21,30 @@ Top-level
  - ffi - uses Mozilla [uniffi](https://github.com/mozilla/uniffi-rs) to create native libraries with FFI bindings
    - Currently supports Android via Kotlin
 
+## Diagram
+
+```
+    CORE LIBRARY     │       BINDINGS          │    PLATFORM SDKs    │     APP
+─────────────────────┼─────────────────────────┼─────────────────────┼──────────────────
+ xmtp/libxmtp/crates │ xmtp/libxmtp/bindings   │                     │
+─────────────────────┼─────────────────────────┼─────────────────────┼──────────────────
+ xmtp protocol devs  │ protocol and sdk devs   │   xmtp sdk devs     │  app developers
+                     │                         │                     │  e.g. orb,converse
+                     │    ┌────────────────┐   │  ┌─────────────┐    │
+                     │    │   FFI          │   │  │   ANDROID   │    │
+             ┌───────┼───►│                ├───┼─►│             │    │
+             │       │    │                │   │  │    or iOS   │    │
+             │       │    └────────────────┘   │  └─────────────┘    │
+             │       │                         │                     │
+┌────────────┴────┐  │    ┌─────────────────┐  │  ┌──────────────┐   │ ┌───────────────┐
+│   XMTPv3 Rust   │  │    │                 │  │  │              │   │ │               │
+│                 ├──┼───►│   WASM Rust     ├──┼─►│   XMTP-JS    ├───┤►│  cli-starter  │
+│ Shared Crypto   │  │    │    NPM package  │  │  │     Browser  │   │ │               │
+│      Code       │  │    │                 │  │  │     Node     │   │ │               │
+└─────────────────┘  │    └─────────────────┘  │  └──────────────┘   │ └───────────────┘
+```
+
+
 ## Bindings
 
 All the variations of bindings have their own Rust crate with some wrapper code. So the normal structure is:
