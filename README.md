@@ -28,8 +28,8 @@ Top-level
 ─────────────────────┼─────────────────────────┼─────────────────────┼──────────────────
  xmtp/libxmtp/crates │ xmtp/libxmtp/bindings   │                     │
 ─────────────────────┼─────────────────────────┼─────────────────────┼──────────────────
-    protocol         │      protocol/dx        │    dx               │    devs
-                     │                         │                     │
+ xmtp protocol devs  │ protocol and sdk devs   │   xmtp sdk devs     │  app developers
+                     │                         │                     │  e.g. orb,converse
                      │    ┌────────────────┐   │  ┌─────────────┐    │
                      │    │   FFI          │   │  │   ANDROID   │    │
              ┌───────┼───►│                ├───┼─►│             │    │
