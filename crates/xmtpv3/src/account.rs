@@ -1,7 +1,47 @@
 use anyhow::Result;
-use vodozemac::olm::{Account, AccountPickle};
+use vodozemac::{olm::{Account, AccountPickle}, Curve25519PublicKey};
 
 use serde::{Deserialize, Serialize};
+
+// Public bundle for a voodoo account
+// Served from the client for now but should eventually be served by the server
+// The one_time_key is hardcoded to the fallback key for now but should eventually rotate
+// with each request to the server
+#[derive(Serialize, Deserialize)]
+pub struct VoodooContactBundlePickle {
+    identity_key: Curve25519PublicKey,
+    one_time_key: Curve25519PublicKey,
+}
+
+impl VoodooContactBundlePickle {
+    // Create a new VoodooInstance
+    pub fn new(account: &Account) -> Self {
+        Self {
+            identity_key: account.curve25519_key(),
+            one_time_key: account.fallback_key()
+                            .values()
+                            .next()
+                            .expect("Expecting an unpublished fallback key on the account for now")
+                            .clone(),
+        }
+    }
+
+    pub fn identity_key(&self) -> Curve25519PublicKey {
+        self.identity_key
+    }
+
+    pub fn one_time_key(&self) -> Curve25519PublicKey {
+        self.one_time_key
+    }
+
+    pub fn from_json(json: &str) -> Self {
+        serde_json::from_str(json).unwrap()
+    }
+
+    pub fn to_json(&self) -> String {
+        serde_json::to_string(&self).unwrap()
+    }
+}
 
 // Public identity for a voodoo account
 // TODO: STARTINGTASK: Implement this correctly so it

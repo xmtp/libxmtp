@@ -15,15 +15,13 @@ mod tests {
     pub fn test_simple_conversation() {
         let mut alice = VoodooInstance::new();
         let mut bob = VoodooInstance::new();
-        let bob_public = bob.public_account();
-        let alice_public = alice.public_account();
 
         let (alice_session_id, alice_msg) = alice
-            .create_outbound_session(&bob_public, "Hello Bob")
+            .create_outbound_session(&bob.next_contact_bundle(), "Hello Bob")
             .unwrap();
 
         let (bob_session_id, bob_plaintext) = bob
-            .create_inbound_session(&alice_public, &alice_msg)
+            .create_inbound_session(alice.identity_key(), &alice_msg)
             .unwrap();
 
         assert_eq!(alice_session_id, bob_session_id);
@@ -40,15 +38,13 @@ mod tests {
     pub fn test_serialized_conversation() {
         let mut alice = VoodooInstance::new();
         let mut bob = VoodooInstance::new();
-        let bob_public = bob.public_account();
-        let alice_public = alice.public_account();
 
         let (alice_session_id, alice_msg) = alice
-            .create_outbound_session_serialized(&bob_public, "Hello Bob")
+            .create_outbound_session_serialized(&bob.next_contact_bundle(), "Hello Bob")
             .unwrap();
 
         let (bob_session_id, bob_plaintext) = bob
-            .create_inbound_session_serialized(&alice_public, &alice_msg)
+            .create_inbound_session_serialized(alice.identity_key(), &alice_msg)
             .unwrap();
 
         // Assert that alice_msg is valid JSON string

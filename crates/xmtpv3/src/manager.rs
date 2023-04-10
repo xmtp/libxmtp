@@ -2,9 +2,9 @@ use anyhow::Result;
 
 use serde_json::json;
 use std::collections::HashMap;
-use vodozemac::olm::{Account, OlmMessage, Session, SessionConfig};
+use vodozemac::{olm::{Account, OlmMessage, Session, SessionConfig}, Curve25519PublicKey};
 
-use crate::account::VoodooPublicIdentity;
+use crate::account::{VoodooContactBundlePickle, VoodooPublicIdentity};
 
 // This struct contains all logic for a Voodoo messaging session
 pub struct VoodooInstance {
@@ -55,26 +55,35 @@ impl VoodooInstance {
         })
     }
 
+    pub fn identity_key(&self) -> Curve25519PublicKey {
+        self.account.curve25519_key()
+    }
+
+    // TODO: For now we serve the contact bundle from the client, but eventually
+    // we want to upload a public bundle to the server containing a batch of prekeys,
+    // and have the server rotate through the prekeys with each contact bundle
+    // request
+    pub fn next_contact_bundle(&self) -> VoodooContactBundlePickle {
+        VoodooContactBundlePickle::new(&self.account)
+    }
+
+    pub fn next_contact_bundle_json(&self) -> Result<String> {
+        let public_account = self.public_account();
+        serde_json::to_string(&public_account).map_err(|e| e.into())
+    }
+
     // Creates an outbound session and returns a handle which is just the index
     // // TODO: STARTINGTASK: this should take the one-time-keys and pre-keys as
     // arguments too, part of the VoodooPublicIdentity maybe?
     pub fn create_outbound_session(
         &mut self,
-        other_account_public: &VoodooPublicIdentity,
+        contact_bundle: &VoodooContactBundlePickle,
         message: &str,
     ) -> Result<(String, OlmMessage)> {
-        // TODO: STARTINGTASK: replace this with a trait or something on VoodooPublicIdentity key
-        let other_account: Account = other_account_public.get_account()?;
-
-        let other_otk = *other_account
-            .one_time_keys()
-            .values()
-            .next()
-            .ok_or_else(|| anyhow::anyhow!("No remaining OTKs"))?;
         let mut session = self.account.create_outbound_session(
             SessionConfig::version_2(),
-            other_account.curve25519_key(),
-            other_otk,
+            contact_bundle.identity_key(),
+            contact_bundle.one_time_key(),
         );
         let ciphertext = session.encrypt(message);
         let session_id = session.session_id();
@@ -85,11 +94,11 @@ impl VoodooInstance {
     // Wrapper that serializes the output message
     pub fn create_outbound_session_serialized(
         &mut self,
-        other_account: &VoodooPublicIdentity,
+        contact_bundle: &VoodooContactBundlePickle,
         message: &str,
     ) -> Result<(String, String)> {
         // Call self.create_outbound_session, but then serialize the OlmMessage response with json!
-        let (session_id, ciphertext) = self.create_outbound_session(other_account, message)?;
+        let (session_id, ciphertext) = self.create_outbound_session(contact_bundle, message)?;
         let ciphertext_json = json!(ciphertext);
         Ok((session_id, ciphertext_json.to_string()))
     }
@@ -99,16 +108,13 @@ impl VoodooInstance {
     // knowing it's a PreMessage etc?
     pub fn create_inbound_session(
         &mut self,
-        other_account_public: &VoodooPublicIdentity,
+        their_identity_key: Curve25519PublicKey,
         message: &OlmMessage,
     ) -> Result<(String, String)> {
-        // TODO: STARTINGTASK: replace this with a trait or something on VoodooPublicIdentity key
-        let other_account: Account = other_account_public.get_account()?;
-
         if let OlmMessage::PreKey(m) = message {
             let result = self
-                .account
-                .create_inbound_session(other_account.curve25519_key(), m)?;
+            .account
+                .create_inbound_session(their_identity_key, m)?;
 
             let self_session = result.session;
             let received_plaintext = result.plaintext;
@@ -134,11 +140,11 @@ impl VoodooInstance {
     // Wrapper that receives the input message and deserializes it first
     pub fn create_inbound_session_serialized(
         &mut self,
-        other_account: &VoodooPublicIdentity,
+        their_identity_key: Curve25519PublicKey,
         message: &str,
     ) -> Result<(String, String)> {
         let message: OlmMessage = serde_json::from_value(serde_json::from_str(message)?)?;
-        self.create_inbound_session(other_account, &message)
+        self.create_inbound_session(their_identity_key, &message)
     }
 
     // Encrypts a message for a given session

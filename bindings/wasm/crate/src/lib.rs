@@ -45,10 +45,10 @@ pub fn create_outbound_session(
         .borrow();
 
     // Get other party's public situation
-    let receiving_public = receiving_instance.public_account();
+    let contact_bundle = receiving_instance.next_contact_bundle();
 
     // Create the session
-    let result = sending_instance.create_outbound_session_serialized(&receiving_public, message);
+    let result = sending_instance.create_outbound_session_serialized(&contact_bundle, message);
 
     match result {
         Ok((session_id, ciphertext_json)) => Ok(vec![
@@ -79,11 +79,8 @@ pub fn create_inbound_session(
         .ok_or("receiving_handle not found")?
         .borrow_mut();
 
-    // Get sender party public
-    let sending_public = sending_instance.public_account();
-
     // Create the session
-    let result = receiving_instance.create_inbound_session_serialized(&sending_public, message);
+    let result = receiving_instance.create_inbound_session_serialized(sending_instance.identity_key(), message);
 
     match result {
         Ok((session_id, ciphertext_json)) => Ok(vec![

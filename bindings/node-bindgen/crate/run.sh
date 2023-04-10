@@ -2,4 +2,4 @@
 
 rm -rf dist
 nj-cli build
-node app.js
+node app.cjs
