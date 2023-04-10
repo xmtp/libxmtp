@@ -18,11 +18,10 @@ impl VoodooContactBundlePickle {
     pub fn new(account: &Account) -> Self {
         Self {
             identity_key: account.curve25519_key(),
-            one_time_key: account.fallback_key()
+            one_time_key: *account.fallback_key()
                             .values()
                             .next()
                             .expect("Expecting an unpublished fallback key on the account for now")
-                            .clone(),
         }
     }
 
