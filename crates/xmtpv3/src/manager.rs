@@ -2,7 +2,10 @@ use anyhow::Result;
 
 use serde_json::json;
 use std::collections::HashMap;
-use vodozemac::{olm::{Account, OlmMessage, SessionConfig}, Curve25519PublicKey};
+use vodozemac::{
+    olm::{Account, OlmMessage, SessionConfig},
+    Curve25519PublicKey,
+};
 
 use crate::account::{VoodooContactBundlePickle, VoodooPublicIdentity};
 use crate::session::VoodooSession;
@@ -88,7 +91,8 @@ impl VoodooInstance {
         );
         let ciphertext = session.encrypt(message);
         let session_id = session.session_id();
-        self.sessions.insert(session_id.clone(), VoodooSession::new(session));
+        self.sessions
+            .insert(session_id.clone(), VoodooSession::new(session));
         Ok((session_id, ciphertext))
     }
 
@@ -113,9 +117,7 @@ impl VoodooInstance {
         message: &OlmMessage,
     ) -> Result<(String, String)> {
         if let OlmMessage::PreKey(m) = message {
-            let result = self
-            .account
-                .create_inbound_session(their_identity_key, m)?;
+            let result = self.account.create_inbound_session(their_identity_key, m)?;
 
             let self_session = result.session;
             let received_plaintext = result.plaintext;
@@ -127,7 +129,8 @@ impl VoodooInstance {
                 }
                 None => {
                     // We don't have the session, so we need to store it and return the plaintext
-                    self.sessions.insert(session_id.clone(), VoodooSession::new(self_session));
+                    self.sessions
+                        .insert(session_id.clone(), VoodooSession::new(self_session));
                 }
             }
             // Decode received_plaintext bytes as utf-8

@@ -28,7 +28,8 @@ impl VoodooSession {
 
     pub fn decrypt(&mut self, message: &OlmMessage) -> Result<Vec<u8>> {
         let plaintext = self.session.decrypt(message)?;
-        self.their_messages.push(String::from_utf8(plaintext.clone())?);
+        self.their_messages
+            .push(String::from_utf8(plaintext.clone())?);
         Ok(plaintext)
     }
 }

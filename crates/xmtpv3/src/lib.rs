@@ -68,15 +68,14 @@ mod tests {
     pub fn test_conversation_and_message_counts() {
         let mut alice = VoodooInstance::new();
         let mut bob = VoodooInstance::new();
-        let bob_public = bob.public_account();
-        let alice_public = alice.public_account();
+        let bob_public = bob.next_contact_bundle();
 
         let (alice_session_id, alice_msg) = alice
             .create_outbound_session(&bob_public, "Hello Bob")
             .unwrap();
 
         let (bob_session_id, bob_plaintext) = bob
-            .create_inbound_session(&alice_public, &alice_msg)
+            .create_inbound_session(alice.identity_key(), &alice_msg)
             .unwrap();
 
         assert_eq!(alice_session_id, bob_session_id);
@@ -96,7 +95,7 @@ mod tests {
         let bob_session = bob.sessions.get(&bob_session_id).unwrap();
         assert_eq!(bob_session.my_messages.len(), 3);
         assert_eq!(bob_session.their_messages.len(), 0);
-        
+
         let alice_session = alice.sessions.get(&alice_session_id).unwrap();
         assert_eq!(alice_session.my_messages.len(), 0);
         // Will not be 3 because two messages have not been fed into Alice's decrypt

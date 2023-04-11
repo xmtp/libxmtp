@@ -1,5 +1,8 @@
 use anyhow::Result;
-use vodozemac::{olm::{Account, AccountPickle}, Curve25519PublicKey};
+use vodozemac::{
+    olm::{Account, AccountPickle},
+    Curve25519PublicKey,
+};
 
 use serde::{Deserialize, Serialize};
 
@@ -18,10 +21,11 @@ impl VoodooContactBundlePickle {
     pub fn new(account: &Account) -> Self {
         Self {
             identity_key: account.curve25519_key(),
-            one_time_key: *account.fallback_key()
-                            .values()
-                            .next()
-                            .expect("Expecting an unpublished fallback key on the account for now")
+            one_time_key: *account
+                .fallback_key()
+                .values()
+                .next()
+                .expect("Expecting an unpublished fallback key on the account for now"),
         }
     }
 
