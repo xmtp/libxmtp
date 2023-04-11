@@ -1,11 +1,13 @@
 package org.xmtp.android.library
 
 import android.os.Build
+import android.util.Log
 import com.google.crypto.tink.subtle.Base64
 import com.google.gson.GsonBuilder
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.runBlocking
 import org.web3j.crypto.Keys
+import org.web3j.crypto.Keys.toChecksumAddress
 import org.xmtp.android.library.codecs.ContentCodec
 import org.xmtp.android.library.codecs.TextCodec
 import org.xmtp.android.library.messages.ContactBundle
@@ -52,6 +54,8 @@ class Client() {
     lateinit var conversations: Conversations
 
     companion object {
+        private const val TAG = "Client"
+
         var codecRegistry = run {
             val registry = CodecRegistry()
             registry.register(codec = TextCodec())
@@ -60,6 +64,49 @@ class Client() {
 
         fun register(codec: ContentCodec<*>) {
             codecRegistry.register(codec = codec)
+        }
+
+        /**
+         * Use the {@param api} to fetch any stored keys belonging to {@param address}.
+         *
+         * The user will need to be prompted to sign to decrypt each bundle.
+         */
+        suspend fun authCheck(api: ApiClient, address: String): List<EncryptedPrivateKeyBundle> {
+            val topic = Topic.userPrivateStoreKeyBundle(toChecksumAddress(address))
+            val res = api.queryTopic(topic)
+            return res.envelopesList.mapNotNull {
+                try {
+                    EncryptedPrivateKeyBundle.parseFrom(it.message)
+                } catch (e: Exception) {
+                    Log.e(TAG, "discarding malformed private key bundle: ${e.message}", e)
+                    null
+                }
+            }
+        }
+
+        /**
+         * Use the {@param api} to save the {@param encryptedKeys} for {@param address}.
+         *
+         * The {@param keys} are used to authorize the publish request.
+         */
+        suspend fun authSave(
+            api: ApiClient,
+            v1Key: PrivateKeyBundleV1,
+            encryptedKeys: EncryptedPrivateKeyBundle,
+        ) {
+            val authorizedIdentity = AuthorizedIdentity(v1Key)
+            authorizedIdentity.address = v1Key.walletAddress
+            val authToken = authorizedIdentity.createAuthToken()
+            api.setAuthToken(authToken)
+            api.publish(
+                envelopes = listOf(
+                    EnvelopeBuilder.buildFromTopic(
+                        topic = Topic.userPrivateStoreKeyBundle(v1Key.walletAddress),
+                        timestamp = Date(),
+                        message = encryptedKeys.toByteArray()
+                    )
+                )
+            )
         }
     }
 
@@ -119,26 +166,14 @@ class Client() {
         apiClient: ApiClient,
     ): PrivateKeyBundleV1 {
         val keys = loadPrivateKeys(account, apiClient)
-        if (keys != null) {
-            return keys
+        return if (keys != null) {
+            keys
         } else {
             val v1Keys = PrivateKeyBundleV1.newBuilder().build().generate(account)
             val keyBundle = PrivateKeyBundleBuilder.buildFromV1Key(v1Keys)
             val encryptedKeys = keyBundle.encrypted(account)
-            val authorizedIdentity = AuthorizedIdentity(privateKeyBundleV1 = v1Keys)
-            authorizedIdentity.address = account.address
-            val authToken = authorizedIdentity.createAuthToken()
-            apiClient.setAuthToken(authToken)
-            apiClient.publish(
-                envelopes = listOf(
-                    EnvelopeBuilder.buildFromTopic(
-                        topic = Topic.userPrivateStoreKeyBundle(account.address),
-                        timestamp = Date(),
-                        message = encryptedKeys.toByteArray()
-                    )
-                )
-            )
-            return v1Keys
+            authSave(apiClient, keyBundle.v1, encryptedKeys)
+            v1Keys
         }
     }
 
@@ -146,11 +181,9 @@ class Client() {
         account: SigningKey,
         apiClient: ApiClient,
     ): PrivateKeyBundleV1? {
-        val topic: Topic = Topic.userPrivateStoreKeyBundle(account.address)
-        val res = apiClient.queryTopic(topic = topic)
-        for (envelope in res.envelopesList) {
+        val encryptedBundles = authCheck(apiClient, account.address)
+        for (encryptedBundle in encryptedBundles) {
             try {
-                val encryptedBundle = EncryptedPrivateKeyBundle.parseFrom(envelope.message)
                 val bundle = encryptedBundle.decrypted(account)
                 return bundle.v1
             } catch (e: Throwable) {
@@ -178,7 +211,8 @@ class Client() {
         }
         val contactBundle = ContactBundle.newBuilder().also {
             it.v2Builder.keyBundle = keys.getPublicKeyBundle()
-            it.v2Builder.keyBundleBuilder.identityKeyBuilder.signature = it.v2.keyBundle.identityKey.signature.ensureWalletSignature()
+            it.v2Builder.keyBundleBuilder.identityKeyBuilder.signature =
+                it.v2.keyBundle.identityKey.signature.ensureWalletSignature()
         }.build()
         val envelope = MessageApiOuterClass.Envelope.newBuilder().apply {
             contentTopic = Topic.contact(address).description
