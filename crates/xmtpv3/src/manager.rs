@@ -2,14 +2,16 @@ use anyhow::Result;
 
 use serde_json::json;
 use std::collections::HashMap;
-use vodozemac::olm::{Account, OlmMessage, Session, SessionConfig};
+use vodozemac::olm::{Account, OlmMessage, SessionConfig};
 
 use crate::account::VoodooPublicIdentity;
+use crate::session::VoodooSession;
+
 
 // This struct contains all logic for a Voodoo messaging session
 pub struct VoodooInstance {
     pub account: Account,
-    pub sessions: HashMap<String, Session>,
+    pub sessions: HashMap<String, VoodooSession>,
 }
 
 impl Default for VoodooInstance {
@@ -78,7 +80,7 @@ impl VoodooInstance {
         );
         let ciphertext = session.encrypt(message);
         let session_id = session.session_id();
-        self.sessions.insert(session_id.clone(), session);
+        self.sessions.insert(session_id.clone(), VoodooSession::new(session));
         Ok((session_id, ciphertext))
     }
 
@@ -120,7 +122,7 @@ impl VoodooInstance {
                 }
                 None => {
                     // We don't have the session, so we need to store it and return the plaintext
-                    self.sessions.insert(session_id.clone(), self_session);
+                    self.sessions.insert(session_id.clone(), VoodooSession::new(self_session));
                 }
             }
             // Decode received_plaintext bytes as utf-8
