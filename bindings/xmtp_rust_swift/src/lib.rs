@@ -49,20 +49,8 @@ pub extern "C" fn encryption_selftest() -> bool {
 }
 
 #[no_mangle]
-/// This function is a wrapper around the networking selftest function
-/// # Safety
-///
-/// This function is unsafe because it returns a raw pointer to a String
-/// TODO: check for memory leaks here?
-pub unsafe extern "C" fn networking_selftest() -> *mut String {
-    // Start with String result
-    let result = xmtp_networking::selftest();
-    // Convert to Boxed String
-    let boxed_result = Box::new(result);
-    // Convert to raw pointer
-    
-    // Return raw pointer
-    Box::into_raw(boxed_result)
+pub extern "C" fn networking_selftest() -> u16 {
+    xmtp_networking::selftest()
 }
 
 #[cfg(test)]
@@ -76,11 +64,7 @@ mod tests {
 
     #[test]
     fn test_networking() {
-        unsafe {
-            let result_box = networking_selftest();
-            let result = Box::from_raw(result_box);
-            // Assert "error not in result"
-            assert!(!result.contains("error"));
-        }
+        let status_code = networking_selftest();
+        assert_eq!(status_code, 200);
     }
 }

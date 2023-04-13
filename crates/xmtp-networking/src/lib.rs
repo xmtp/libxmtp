@@ -1,21 +1,18 @@
 
 
-pub fn test_request() -> Result<String, String> {
+pub fn test_request() -> Result<u16, String> {
     let resp = reqwest::blocking::get("https://httpbin.org/ip").map_err(|e| format!("{}", e))?;
     // if resp is successful, return the body otherwise return "Error: {}" with response code
     if resp.status().is_success() {
-        Ok(resp.text().map_err(|e| format!("{}", e))?)
+        Ok(resp.status().as_u16())
     } else {
         Err(format!("{}", resp.status()))
     }
 }
 
-pub fn selftest() -> String {
+pub fn selftest() -> u16 {
     let resp = test_request();
-    match resp {
-        Ok(s) => s,
-        Err(e) => format!("error: {}", e),
-    }
+    resp.unwrap_or(777)
 }
 
 #[cfg(test)]
@@ -25,7 +22,7 @@ mod tests {
     #[test]
     fn it_works() {
         let resp = selftest();
-        // Assert "Error" is not in the response
-        assert!(!resp.contains("error"));
+        // Assert 200
+        assert_eq!(resp, 200);
     }
 }
