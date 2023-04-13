@@ -1,0 +1,4 @@
+module XMTPRustSwift {
+    header "xmtp_rust_swift.h"
+    export *
+}

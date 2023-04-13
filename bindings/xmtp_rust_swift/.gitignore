@@ -1,0 +1,14 @@
+# No ctags files
+tags
+
+# No vim swap files
+*.swp
+*.swo
+
+# Ignore intermediate build files
+*.a
+XMTPRustSwift.xcframework
+
+/target
+/Cargo.lock
+.build
