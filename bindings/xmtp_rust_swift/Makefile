@@ -7,7 +7,6 @@ LIB=libxmtp_rust_swift.a
 
 all: pkg
 
-.PHONY: $(ARCHS_IOS) $(ARCHS_MAC) pkg all aarch64-apple-ios
 $(ARCHS_IOS): %:
 	cargo build --target $@ --release --no-default-features
 
@@ -35,3 +34,8 @@ pkg: $(LIB)
 	rm -f bundle.zip
 	zip -r bundle.zip XMTPRustSwift.xcframework
 	openssl dgst -sha256 bundle.zip
+
+push-to-derived:
+	./copy_xcframework_to_deriveddata.sh
+
+.PHONY: $(ARCHS_IOS) $(ARCHS_MAC) pkg all aarch64-apple-ios push-to-derived
