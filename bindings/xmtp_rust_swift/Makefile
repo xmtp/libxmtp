@@ -5,6 +5,11 @@ ARCHS_MAC = x86_64-apple-darwin aarch64-apple-darwin
 # ARCHS_MACCATALYST = x86_64-apple-ios-macabi aarch64-apple-ios-macabi
 LIB=libxmtp_rust_swift.a
 
+download-toolchains:
+	rustup target add $(ARCHS_IOS)
+	rustup target add $(ARCHS_MAC)
+	rustup target add aarch64-apple-ios
+
 all: pkg
 
 $(ARCHS_IOS): %:
@@ -38,4 +43,4 @@ pkg: $(LIB)
 push-to-derived:
 	./copy_xcframework_to_deriveddata.sh
 
-.PHONY: $(ARCHS_IOS) $(ARCHS_MAC) pkg all aarch64-apple-ios push-to-derived
+.PHONY: $(ARCHS_IOS) $(ARCHS_MAC) pkg all aarch64-apple-ios push-to-derived download-toolchains

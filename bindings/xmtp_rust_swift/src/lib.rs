@@ -1,23 +1,13 @@
-use corecrypto::{encryption};
-
-#[no_mangle]
-pub extern "C" fn add(a: i32, b: i32) -> i32 {
-    a + b
-}
-
-#[no_mangle]
-pub extern "C" fn flip(a: bool) -> bool {
-    !a
-}
+use corecrypto::encryption;
 
 #[no_mangle]
 pub extern "C" fn encryption_selftest() -> bool {
     // Simple key choice, same as previous test but I chopped a digit off the first column
     let secret: Vec<u8> = vec![
-        24, 230, 18, 30, 212, 117, 106, 175, 141, 208, 177, 22, 206, 183, 244, 74, 178, 241, 9,
-        79, 76, 175, 89, 36, 228, 189, 7, 3, 83, 115, 158, 106, 60, 139, 3, 156, 222, 117, 37,
-        194, 19, 76, 127, 247, 107, 202, 93, 122, 222, 63, 229, 155, 215, 145, 243, 231, 2,
-        220, 151, 225, 136, 193, 228, 82, 28,
+        24, 230, 18, 30, 212, 117, 106, 175, 141, 208, 177, 22, 206, 183, 244, 74, 178, 241, 9, 79,
+        76, 175, 89, 36, 228, 189, 7, 3, 83, 115, 158, 106, 60, 139, 3, 156, 222, 117, 37, 194, 19,
+        76, 127, 247, 107, 202, 93, 122, 222, 63, 229, 155, 215, 145, 243, 231, 2, 220, 151, 225,
+        136, 193, 228, 82, 28,
     ];
 
     let plaintext: Vec<u8> = vec![0, 1, 2, 3, 4, 5, 6, 7, 8, 9];
@@ -62,8 +52,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn it_works() {
-        let result = add(2, 2);
-        assert_eq!(result, 4);
+    fn test_encryption() {
+        assert!(encryption_selftest());
     }
 }

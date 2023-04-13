@@ -10,9 +10,15 @@ It pairs with [xmtp-rust-swift](https://github.com/xmtp/xmtp-rust-swift) which i
 - `include/module.modulemap` - can remain untouched as it just imports the `xmtp_rust_swift.h` header
 - `include/xmtp_rust_swift.h` - contains C function declarations that are exported into Swift land
 
+## Prerequisites
+
+- Rust
+- Run `make download-toolchains` to get all the iOS and MacOS toolchains
+
 ## Workflow
 
 - Write code in `./src` to expose functionality to Swift
+- Run `cargo test` to make sure your code works
 - Then update `include/xmtp_rust_swift.h` with any new functions or declarations
 - Run `make pkg` to produce the XMTPRustFramework.xcframework
 
