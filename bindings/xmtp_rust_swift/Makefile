@@ -18,10 +18,12 @@ aarch64-apple-ios:
 	cargo build --target $@ --release
 
 $(LIB): $(ARCHS_IOS) $(ARCHS_MAC) aarch64-apple-ios
+	rm -f libxmtp_rust_swift_iossimulator.a libxmtp_rust_swift_macos.a
 	lipo -create -output libxmtp_rust_swift_iossimulator.a $(foreach arch,$(ARCHS_IOS),$(wildcard target/$(arch)/release/$(LIB)))
 	lipo -create -output libxmtp_rust_swift_macos.a $(foreach arch,$(ARCHS_MAC),$(wildcard target/$(arch)/release/$(LIB)))
 
 pkg: $(LIB)
+	rm -rf XMTPRustSwift.xcframework
 	xcodebuild -create-xcframework \
 		-library ./libxmtp_rust_swift_macos.a \
 		-headers ./include/ \
@@ -30,3 +32,6 @@ pkg: $(LIB)
 		-library ./target/aarch64-apple-ios/release/libxmtp_rust_swift.a \
 		-headers ./include/ \
 		-output XMTPRustSwift.xcframework
+	rm -f bundle.zip
+	zip -r bundle.zip XMTPRustSwift.xcframework
+	openssl dgst -sha256 bundle.zip
