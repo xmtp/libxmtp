@@ -3,4 +3,5 @@
 members = [
   "xmtp-keystore",
   "corecrypto",
+  "xmtp-networking",
 ]
