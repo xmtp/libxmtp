@@ -1,5 +1,6 @@
 use corecrypto::encryption;
 
+
 #[no_mangle]
 pub extern "C" fn encryption_selftest() -> bool {
     // Simple key choice, same as previous test but I chopped a digit off the first column
@@ -44,7 +45,24 @@ pub extern "C" fn encryption_selftest() -> bool {
     if decrypt_result.unwrap() != plaintext {
         return false;
     }
-    return true;
+    true
+}
+
+#[no_mangle]
+/// This function is a wrapper around the networking selftest function
+/// # Safety
+///
+/// This function is unsafe because it returns a raw pointer to a String
+/// TODO: check for memory leaks here?
+pub unsafe extern "C" fn networking_selftest() -> *mut String {
+    // Start with String result
+    let result = xmtp_networking::selftest();
+    // Convert to Boxed String
+    let boxed_result = Box::new(result);
+    // Convert to raw pointer
+    
+    // Return raw pointer
+    Box::into_raw(boxed_result)
 }
 
 #[cfg(test)]
@@ -54,5 +72,15 @@ mod tests {
     #[test]
     fn test_encryption() {
         assert!(encryption_selftest());
+    }
+
+    #[test]
+    fn test_networking() {
+        unsafe {
+            let result_box = networking_selftest();
+            let result = Box::from_raw(result_box);
+            // Assert "error not in result"
+            assert!(!result.contains("error"));
+        }
     }
 }
