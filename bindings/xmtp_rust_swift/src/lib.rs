@@ -1,5 +1,6 @@
 use corecrypto::encryption;
 
+
 #[no_mangle]
 pub extern "C" fn encryption_selftest() -> bool {
     // Simple key choice, same as previous test but I chopped a digit off the first column
@@ -44,7 +45,12 @@ pub extern "C" fn encryption_selftest() -> bool {
     if decrypt_result.unwrap() != plaintext {
         return false;
     }
-    return true;
+    true
+}
+
+#[no_mangle]
+pub extern "C" fn networking_selftest() -> u16 {
+    xmtp_networking::selftest()
 }
 
 #[cfg(test)]
@@ -54,5 +60,11 @@ mod tests {
     #[test]
     fn test_encryption() {
         assert!(encryption_selftest());
+    }
+
+    #[test]
+    fn test_networking() {
+        let status_code = networking_selftest();
+        assert_eq!(status_code, 200);
     }
 }
