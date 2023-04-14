@@ -2237,6 +2237,7 @@ version = "0.1.0"
 dependencies = [
  "prost",
  "reqwest",
+ "tokio",
  "tonic 0.9.1",
  "tonic-build",
  "tonic-reflection",
