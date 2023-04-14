@@ -1,6 +1,8 @@
 pub mod proto_helper;
 use crate::proto_helper::xmtp::message_api::v1;
 
+use tonic::{metadata::MetadataValue, transport::Channel, Request};
+
 pub fn test_request() -> Result<u16, String> {
     let resp = reqwest::blocking::get("https://httpbin.org/ip").map_err(|e| format!("{}", e))?;
     // if resp is successful, return the body otherwise return "Error: {}" with response code
@@ -31,37 +33,36 @@ pub async fn test_grpc() -> bool {
 // 	func query(topic: String, pagination: Pagination? = nil, cursor: Xmtp_MessageApi_V1_Cursor? = nil) async throws -> QueryResponse {
 // 		var request = Xmtp_MessageApi_V1_QueryRequest()
 // 		request.contentTopics = [topic]
-// 
+//
 // 		if let pagination {
 // 			request.pagingInfo = pagination.pagingInfo
 // 		}
-// 
+//
 // 		if let startAt = pagination?.startTime {
 // 			request.endTimeNs = UInt64(startAt.millisecondsSinceEpoch) * 1_000_000
 // 			request.pagingInfo.direction = .descending
 // 		}
-// 
+//
 // 		if let endAt = pagination?.endTime {
 // 			request.startTimeNs = UInt64(endAt.millisecondsSinceEpoch) * 1_000_000
 // 			request.pagingInfo.direction = .descending
 // 		}
-// 
+//
 // 		if let cursor {
 // 			request.pagingInfo.cursor = cursor
 // 		}
-// 
+//
 // 		var options = CallOptions()
 // 		options.customMetadata.add(name: "authorization", value: "Bearer \(authToken)")
 // 		options.timeLimit = .timeout(.seconds(5))
-// 
+//
 // 		return try await client.query(request, callOptions: options)
 // 	}
-pub async fn query(
-    topic: String,
-) -> Result<v1::QueryResponse, tonic::Status> {
+pub async fn query(topic: String) -> Result<v1::QueryResponse, tonic::Status> {
+    // NOTE: had to edit e2e/docker compose to map port 15555->5556 instead of 5555
     let mut client =
         proto_helper::xmtp::message_api::v1::message_api_client::MessageApiClient::connect(
-            "http://dev.xmtp.network:5556",
+            "https://localhost:15555",
         )
         .await
         .unwrap();
@@ -70,6 +71,56 @@ pub async fn query(
     request.content_topics = vec![topic];
     // Do the query and get a Tonic response that we need to process
     let response = client.query(request).await;
+    response.map(|r| r.into_inner())
+}
+
+// Publish a message to the XMTP server at a topic with some string content
+// var request = Xmtp_MessageApi_V1_PublishRequest()
+// request.envelopes = envelopes
+//
+// var options = CallOptions()
+// options.customMetadata.add(name: "authorization", value: "Bearer \(authToken)")
+// options.customMetadata.add(name: ClientVersionHeaderKey, value: Constants.version)
+// options.customMetadata.add(name: AppVersionHeaderKey, value: Constants.version)
+// options.timeLimit = .timeout(.seconds(5))
+//
+// return try await client.publish(request, callOptions: options)
+// RUST EXAMPLE FOR AUTH TOKEN
+// let channel = Channel::from_static("http://[::1]:50051").connect().await?;
+//
+// let token: MetadataValue<_> = "Bearer some-auth-token".parse()?;
+//
+// let mut client = EchoClient::with_interceptor(channel, move |mut req: Request<()>| {
+//     req.metadata_mut().insert("authorization", token.clone());
+//     Ok(req)
+// });
+//
+// let request = tonic::Request::new(EchoRequest {
+//     message: "hello".into(),
+// });
+pub async fn publish(topic: String, content: String) -> Result<v1::PublishResponse, tonic::Status> {
+    // NOTE: had to edit e2e/docker compose to map port 15555->5556 instead of 5555
+    let channel = Channel::from_static("https://localhost:15555")
+        .connect()
+        .await
+        .map_err(|e| tonic::Status::new(tonic::Code::Internal, format!("{}", e)))?;
+    let token: MetadataValue<_> = "Bearer CpIBCIKUi4X4MBJECkIKQHAB57G9n+afftmrFy0S2avtyh2VNKUPPTn8n1rlUtYiTnBkwGlYgb2CMaG7KTE56qAfcnkWYC/XbWxl2CM61kYaQwpBBOvn8X5EepteFT6E1BXMLi/zhgUl+TV7GLJo/kAcEYhXEIbw//nciuv6f6R2y77sHLJmQssTT2PEG/lBgk640w0SNgoqMHgyZDM4MEQ4QUY0NmQ4MEM5YjE4MkExOWYzOWZDNjIwMTQ5NDBGQjVmEIC0o8m/0vaqFxpGCkQKQDrJyRW9avQxCdrP804eygA9rsWp7HxeYkhjcg7DF8NiFI1eJnEWk0dOUqkSGtwyV8Afmu4ckqA8vy5YwHQCudgQAQ==".parse().map_err(|e| tonic::Status::new(tonic::Code::Internal, format!("{}", e)))?;
+
+    let mut client =
+        proto_helper::xmtp::message_api::v1::message_api_client::MessageApiClient::with_interceptor(
+            channel,
+            move |mut req: Request<()>| {
+                req.metadata_mut().insert("authorization", token.clone());
+                Ok(req)
+            },
+        );
+
+    let mut request = proto_helper::xmtp::message_api::v1::PublishRequest::default();
+    let mut envelope = proto_helper::xmtp::message_api::v1::Envelope::default();
+    envelope.message = content.into_bytes();
+    envelope.content_topic = topic;
+    request.envelopes = vec![envelope];
+    let response = client.publish(request).await;
     response.map(|r| r.into_inner())
 }
 
@@ -91,6 +142,29 @@ mod tests {
             let resp = query("test".to_string()).await;
             println!("{:?}", resp);
             assert!(resp.is_ok());
+            // Check that the response has some messages
+            assert!(resp.unwrap().envelopes.len() == 0);
+        });
+    }
+
+    #[test]
+    fn grpc_roundtrip_test() {
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        rt.block_on(async {
+            let resp = publish("topic".to_string(), "test".to_string()).await;
+            println!("{:?}", resp);
+            assert!(resp.is_ok());
+            // Fetch it
+            let query_resp = query("topic".to_string()).await;
+            println!("{:?}", query_resp);
+            assert!(query_resp.is_ok());
+            // Check that the response has some messages, and that the content inside is "test"
+            let envelopes = query_resp.unwrap().envelopes;
+            assert!(envelopes.len() == 1);
+            let topic = envelopes[0].content_topic.clone();
+            let message = String::from_utf8(envelopes[0].message.clone()).unwrap();
+            assert_eq!(topic, "topic");
+            assert_eq!(message, "test");
         });
     }
 }

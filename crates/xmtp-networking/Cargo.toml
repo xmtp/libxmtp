@@ -14,6 +14,7 @@ tokio = { version = "1.24", features = ["macros", "rt-multi-thread"] }
 #futures = "0.3"
 #clap = { version = "4.1.4", features = ["derive"] }
 tonic-reflection = "0.6.0"
+tokio-rustls = "0.24.0"
 
 [build-dependencies]
 tonic-build = "^0.9"
