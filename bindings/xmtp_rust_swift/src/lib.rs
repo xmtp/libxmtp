@@ -1,5 +1,35 @@
 use corecrypto::encryption;
 
+#[swift_bridge::bridge]
+mod ffi {
+    #[swift_bridge(swift_repr = "struct")]
+    struct ResponseJson {
+        error: String,
+        json: String
+    }
+
+    extern "Rust" {
+        async fn query_topic(topic: String) -> ResponseJson;
+    }
+}
+
+// TODO: Return a `Result<MyIpAddress, SomeErrorType>`
+//  Once we support returning Result from an async function.
+async fn query_topic(topic: String) -> ffi::ResponseJson {
+    println!("Received a request to query topic: {}", topic);
+    let query_result = xmtp_networking::query_serialized(topic).await;
+    match query_result {
+        Ok(json) => ffi::ResponseJson {
+            error: "".to_string(),
+            json,
+        },
+        Err(e) => ffi::ResponseJson {
+            error: e.to_string(),
+            json: "".to_string(),
+        },
+    }
+}
+
 #[no_mangle]
 pub extern "C" fn encryption_selftest() -> bool {
     // Simple key choice, same as previous test but I chopped a digit off the first column

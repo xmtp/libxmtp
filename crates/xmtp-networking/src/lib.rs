@@ -2,6 +2,7 @@ pub mod proto_helper;
 use crate::proto_helper::xmtp::message_api::v1;
 
 use tonic::{metadata::MetadataValue, transport::Channel, Request};
+use serde_json;
 
 pub fn test_request() -> Result<u16, String> {
     let resp = reqwest::blocking::get("https://httpbin.org/ip").map_err(|e| format!("{}", e))?;
@@ -44,6 +45,14 @@ pub async fn query(topic: String) -> Result<v1::QueryResponse, tonic::Status> {
     // Do the query and get a Tonic response that we need to process
     let response = client.query(request).await;
     response.map(|r| r.into_inner())
+}
+
+// Do a JSON serialized version of query, where the v1::QueryResponse is JSON serialized
+pub async fn query_serialized(topic: String) -> Result<String, String> {
+    let response = query(topic).await.map_err(|e| format!("{}", e))?;
+    // Response is a v1::QueryResponse protobuf message, which we need to serialize to JSON
+    let json = serde_json::to_string(&response).map_err(|e| format!("{}", e))?;
+    Ok(json)
 }
 
 // This is a test-only function that provides a safe hardcoded auth token

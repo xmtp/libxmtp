@@ -1,5 +1,6 @@
 /// Token is used by clients to prove to the nodes
 /// that they are serving a specific wallet.
+#[derive(serde::Deserialize, serde::Serialize)]
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct Token {
@@ -20,6 +21,7 @@ pub struct Token {
 /// It is embedded in the Token structure as bytes
 /// so that the bytes don't need to be reconstructed
 /// to verify the token signature.
+#[derive(serde::Deserialize, serde::Serialize)]
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct AuthData {
@@ -33,6 +35,7 @@ pub struct AuthData {
 /// This is based off of the go-waku Index type, but with the
 /// receiverTime and pubsubTopic removed for simplicity.
 /// Both removed fields are optional
+#[derive(serde::Deserialize, serde::Serialize)]
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct IndexCursor {
@@ -42,6 +45,7 @@ pub struct IndexCursor {
     pub sender_time_ns: u64,
 }
 /// Wrapper for potentially multiple types of cursor
+#[derive(serde::Deserialize, serde::Serialize)]
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct Cursor {
@@ -56,6 +60,7 @@ pub mod cursor {
     /// Making the cursor a one-of type, as I would like to change the way we
     /// handle pagination to use a precomputed sort field.
     /// This way we can handle both methods
+    #[derive(serde::Deserialize, serde::Serialize)]
     #[allow(clippy::derive_partial_eq_without_eq)]
     #[derive(Clone, PartialEq, ::prost::Oneof)]
     pub enum Cursor {
@@ -65,6 +70,7 @@ pub mod cursor {
 }
 /// This is based off of the go-waku PagingInfo struct, but with the direction
 /// changed to our SortDirection enum format
+#[derive(serde::Deserialize, serde::Serialize)]
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct PagingInfo {
@@ -77,6 +83,7 @@ pub struct PagingInfo {
     pub direction: i32,
 }
 /// Envelope encapsulates a message while in transit.
+#[derive(serde::Deserialize, serde::Serialize)]
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct Envelope {
@@ -94,6 +101,7 @@ pub struct Envelope {
     pub message: ::prost::alloc::vec::Vec<u8>,
 }
 /// Publish
+#[derive(serde::Deserialize, serde::Serialize)]
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct PublishRequest {
@@ -101,10 +109,12 @@ pub struct PublishRequest {
     pub envelopes: ::prost::alloc::vec::Vec<Envelope>,
 }
 /// Empty message as a response for Publish
+#[derive(serde::Deserialize, serde::Serialize)]
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct PublishResponse {}
 /// Subscribe
+#[derive(serde::Deserialize, serde::Serialize)]
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct SubscribeRequest {
@@ -112,10 +122,12 @@ pub struct SubscribeRequest {
     pub content_topics: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
 }
 /// SubscribeAll
+#[derive(serde::Deserialize, serde::Serialize)]
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct SubscribeAllRequest {}
 /// Query
+#[derive(serde::Deserialize, serde::Serialize)]
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct QueryRequest {
@@ -129,6 +141,7 @@ pub struct QueryRequest {
     pub paging_info: ::core::option::Option<PagingInfo>,
 }
 /// The response, containing envelopes, for a query
+#[derive(serde::Deserialize, serde::Serialize)]
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct QueryResponse {
@@ -138,6 +151,7 @@ pub struct QueryResponse {
     pub paging_info: ::core::option::Option<PagingInfo>,
 }
 /// BatchQuery
+#[derive(serde::Deserialize, serde::Serialize)]
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct BatchQueryRequest {
@@ -145,6 +159,7 @@ pub struct BatchQueryRequest {
     pub requests: ::prost::alloc::vec::Vec<QueryRequest>,
 }
 /// Response containing a list of QueryResponse messages
+#[derive(serde::Deserialize, serde::Serialize)]
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct BatchQueryResponse {
@@ -152,6 +167,7 @@ pub struct BatchQueryResponse {
     pub responses: ::prost::alloc::vec::Vec<QueryResponse>,
 }
 /// Sort direction
+#[derive(serde::Deserialize, serde::Serialize)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
 #[repr(i32)]
 pub enum SortDirection {

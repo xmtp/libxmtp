@@ -1,5 +1,6 @@
 /// Signature represents a generalized public key signature,
 /// defined as a union to support cryptographic algorithm agility.
+#[derive(serde::Deserialize, serde::Serialize)]
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct Signature {
@@ -9,6 +10,7 @@ pub struct Signature {
 /// Nested message and enum types in `Signature`.
 pub mod signature {
     /// ECDSA signature bytes and the recovery bit
+    #[derive(serde::Deserialize, serde::Serialize)]
     #[allow(clippy::derive_partial_eq_without_eq)]
     #[derive(Clone, PartialEq, ::prost::Message)]
     pub struct EcdsaCompact {
@@ -23,6 +25,7 @@ pub mod signature {
     /// produced by xmtp-js::PublicKey.signWithWallet function, i.e.
     /// EIP-191 signature of a "Create Identity" message with the key embedded.
     /// Used to sign identity keys.
+    #[derive(serde::Deserialize, serde::Serialize)]
     #[allow(clippy::derive_partial_eq_without_eq)]
     #[derive(Clone, PartialEq, ::prost::Message)]
     pub struct WalletEcdsaCompact {
@@ -33,6 +36,7 @@ pub mod signature {
         #[prost(uint32, tag = "2")]
         pub recovery: u32,
     }
+    #[derive(serde::Deserialize, serde::Serialize)]
     #[allow(clippy::derive_partial_eq_without_eq)]
     #[derive(Clone, PartialEq, ::prost::Oneof)]
     pub enum Union {
@@ -44,6 +48,7 @@ pub mod signature {
 }
 /// UnsignedPublicKey represents a generalized public key,
 /// defined as a union to support cryptographic algorithm agility.
+#[derive(serde::Deserialize, serde::Serialize)]
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct UnsignedPublicKey {
@@ -55,6 +60,7 @@ pub struct UnsignedPublicKey {
 /// Nested message and enum types in `UnsignedPublicKey`.
 pub mod unsigned_public_key {
     /// EC: SECP256k1
+    #[derive(serde::Deserialize, serde::Serialize)]
     #[allow(clippy::derive_partial_eq_without_eq)]
     #[derive(Clone, PartialEq, ::prost::Message)]
     pub struct Secp256k1Uncompressed {
@@ -62,6 +68,7 @@ pub mod unsigned_public_key {
         #[prost(bytes = "vec", tag = "1")]
         pub bytes: ::prost::alloc::vec::Vec<u8>,
     }
+    #[derive(serde::Deserialize, serde::Serialize)]
     #[allow(clippy::derive_partial_eq_without_eq)]
     #[derive(Clone, PartialEq, ::prost::Oneof)]
     pub enum Union {
@@ -70,6 +77,7 @@ pub mod unsigned_public_key {
     }
 }
 /// SignedPublicKey
+#[derive(serde::Deserialize, serde::Serialize)]
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct SignedPublicKey {
@@ -81,6 +89,7 @@ pub struct SignedPublicKey {
     pub signature: ::core::option::Option<Signature>,
 }
 /// PublicKeyBundle packages the cryptographic keys associated with a wallet.
+#[derive(serde::Deserialize, serde::Serialize)]
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct SignedPublicKeyBundle {
@@ -93,6 +102,7 @@ pub struct SignedPublicKeyBundle {
 }
 /// PublicKey represents a generalized public key,
 /// defined as a union to support cryptographic algorithm agility.
+#[derive(serde::Deserialize, serde::Serialize)]
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct PublicKey {
@@ -106,6 +116,7 @@ pub struct PublicKey {
 /// Nested message and enum types in `PublicKey`.
 pub mod public_key {
     /// The key bytes
+    #[derive(serde::Deserialize, serde::Serialize)]
     #[allow(clippy::derive_partial_eq_without_eq)]
     #[derive(Clone, PartialEq, ::prost::Message)]
     pub struct Secp256k1Uncompressed {
@@ -113,6 +124,7 @@ pub mod public_key {
         #[prost(bytes = "vec", tag = "1")]
         pub bytes: ::prost::alloc::vec::Vec<u8>,
     }
+    #[derive(serde::Deserialize, serde::Serialize)]
     #[allow(clippy::derive_partial_eq_without_eq)]
     #[derive(Clone, PartialEq, ::prost::Oneof)]
     pub enum Union {
@@ -122,6 +134,7 @@ pub mod public_key {
 }
 /// PublicKeyBundle packages the cryptographic keys associated with a wallet,
 /// both senders and recipients are identified by their key bundles.
+#[derive(serde::Deserialize, serde::Serialize)]
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct PublicKeyBundle {
@@ -133,6 +146,7 @@ pub struct PublicKeyBundle {
     pub pre_key: ::core::option::Option<PublicKey>,
 }
 /// ContentTypeId is used to identify the type of content stored in a Message.
+#[derive(serde::Deserialize, serde::Serialize)]
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct ContentTypeId {
@@ -151,6 +165,7 @@ pub struct ContentTypeId {
 }
 /// EncodedContent bundles the content with metadata identifying its type
 /// and parameters required for correct decoding and presentation of the content.
+#[derive(serde::Deserialize, serde::Serialize)]
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct EncodedContent {
@@ -177,6 +192,7 @@ pub struct EncodedContent {
     pub content: ::prost::alloc::vec::Vec<u8>,
 }
 /// SignedContent attaches a signature to EncodedContent.
+#[derive(serde::Deserialize, serde::Serialize)]
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct SignedContent {
@@ -193,6 +209,7 @@ pub struct SignedContent {
 }
 /// Recognized compression algorithms
 /// protolint:disable ENUM_FIELD_NAMES_ZERO_VALUE_END_WITH
+#[derive(serde::Deserialize, serde::Serialize)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
 #[repr(i32)]
 pub enum Compression {
@@ -220,6 +237,7 @@ impl Compression {
     }
 }
 /// Composite is used to implement xmtp.org/composite content type
+#[derive(serde::Deserialize, serde::Serialize)]
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct Composite {
@@ -229,6 +247,7 @@ pub struct Composite {
 /// Nested message and enum types in `Composite`.
 pub mod composite {
     /// Part represents one section of a composite message
+    #[derive(serde::Deserialize, serde::Serialize)]
     #[allow(clippy::derive_partial_eq_without_eq)]
     #[derive(Clone, PartialEq, ::prost::Message)]
     pub struct Part {
@@ -237,6 +256,7 @@ pub mod composite {
     }
     /// Nested message and enum types in `Part`.
     pub mod part {
+        #[derive(serde::Deserialize, serde::Serialize)]
         #[allow(clippy::derive_partial_eq_without_eq)]
         #[derive(Clone, PartialEq, ::prost::Oneof)]
         pub enum Element {
@@ -251,6 +271,7 @@ pub mod composite {
 /// It is definited as a union to support cryptographic algorithm agility.
 /// The payload is accompanied by the cryptographic parameters
 /// required by the chosen encryption scheme.
+#[derive(serde::Deserialize, serde::Serialize)]
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct Ciphertext {
@@ -261,6 +282,7 @@ pub struct Ciphertext {
 pub mod ciphertext {
     /// Encryption: AES256-GCM
     /// Key derivation function: HKDF-SHA256
+    #[derive(serde::Deserialize, serde::Serialize)]
     #[allow(clippy::derive_partial_eq_without_eq)]
     #[derive(Clone, PartialEq, ::prost::Message)]
     pub struct Aes256gcmHkdfsha256 {
@@ -274,6 +296,7 @@ pub mod ciphertext {
         #[prost(bytes = "vec", tag = "3")]
         pub payload: ::prost::alloc::vec::Vec<u8>,
     }
+    #[derive(serde::Deserialize, serde::Serialize)]
     #[allow(clippy::derive_partial_eq_without_eq)]
     #[derive(Clone, PartialEq, ::prost::Oneof)]
     pub enum Union {
@@ -282,6 +305,7 @@ pub mod ciphertext {
     }
 }
 /// SignedEciesCiphertext represents an ECIES encrypted payload and a signature
+#[derive(serde::Deserialize, serde::Serialize)]
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct SignedEciesCiphertext {
@@ -295,6 +319,7 @@ pub struct SignedEciesCiphertext {
 /// Nested message and enum types in `SignedEciesCiphertext`.
 pub mod signed_ecies_ciphertext {
     /// Ecies is ciphertext encrypted using ECIES with a MAC
+    #[derive(serde::Deserialize, serde::Serialize)]
     #[allow(clippy::derive_partial_eq_without_eq)]
     #[derive(Clone, PartialEq, ::prost::Message)]
     pub struct Ecies {
@@ -314,6 +339,7 @@ pub mod signed_ecies_ciphertext {
 }
 /// LEGACY: User key bundle V1 using PublicKeys.
 /// The PublicKeys MUST be signed.
+#[derive(serde::Deserialize, serde::Serialize)]
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct ContactBundleV1 {
@@ -321,6 +347,7 @@ pub struct ContactBundleV1 {
     pub key_bundle: ::core::option::Option<PublicKeyBundle>,
 }
 /// User key bundle V2 using SignedPublicKeys.
+#[derive(serde::Deserialize, serde::Serialize)]
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct ContactBundleV2 {
@@ -328,6 +355,7 @@ pub struct ContactBundleV2 {
     pub key_bundle: ::core::option::Option<SignedPublicKeyBundle>,
 }
 /// Versioned ContactBundle
+#[derive(serde::Deserialize, serde::Serialize)]
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct ContactBundle {
@@ -336,6 +364,7 @@ pub struct ContactBundle {
 }
 /// Nested message and enum types in `ContactBundle`.
 pub mod contact_bundle {
+    #[derive(serde::Deserialize, serde::Serialize)]
     #[allow(clippy::derive_partial_eq_without_eq)]
     #[derive(Clone, PartialEq, ::prost::Oneof)]
     pub enum Version {
@@ -346,6 +375,7 @@ pub mod contact_bundle {
     }
 }
 /// Unsealed invitation V1
+#[derive(serde::Deserialize, serde::Serialize)]
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct InvitationV1 {
@@ -365,6 +395,7 @@ pub struct InvitationV1 {
 pub mod invitation_v1 {
     /// Supported encryption schemes
     /// AES256-GCM-HKDF-SHA256
+    #[derive(serde::Deserialize, serde::Serialize)]
     #[allow(clippy::derive_partial_eq_without_eq)]
     #[derive(Clone, PartialEq, ::prost::Message)]
     pub struct Aes256gcmHkdfsha256 {
@@ -373,6 +404,7 @@ pub mod invitation_v1 {
         pub key_material: ::prost::alloc::vec::Vec<u8>,
     }
     /// The context type
+    #[derive(serde::Deserialize, serde::Serialize)]
     #[allow(clippy::derive_partial_eq_without_eq)]
     #[derive(Clone, PartialEq, ::prost::Message)]
     pub struct Context {
@@ -388,6 +420,7 @@ pub mod invitation_v1 {
         >,
     }
     /// message encryption scheme and keys for this conversation.
+    #[derive(serde::Deserialize, serde::Serialize)]
     #[allow(clippy::derive_partial_eq_without_eq)]
     #[derive(Clone, PartialEq, ::prost::Oneof)]
     pub enum Encryption {
@@ -400,6 +433,7 @@ pub mod invitation_v1 {
 /// Header carries information that is unencrypted, thus readable by the network
 /// it is however authenticated as associated data with the AEAD scheme used
 /// to encrypt the invitation body, thus providing tamper evidence.
+#[derive(serde::Deserialize, serde::Serialize)]
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct SealedInvitationHeaderV1 {
@@ -414,6 +448,7 @@ pub struct SealedInvitationHeaderV1 {
 /// Invitation encrypted with key material derived from the sender's and
 /// recipient's public key bundles using simplified X3DH where
 /// the sender's ephemeral key is replaced with sender's pre-key.
+#[derive(serde::Deserialize, serde::Serialize)]
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct SealedInvitationV1 {
@@ -425,6 +460,7 @@ pub struct SealedInvitationV1 {
     pub ciphertext: ::core::option::Option<Ciphertext>,
 }
 /// Versioned Sealed Invitation
+#[derive(serde::Deserialize, serde::Serialize)]
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct SealedInvitation {
@@ -433,6 +469,7 @@ pub struct SealedInvitation {
 }
 /// Nested message and enum types in `SealedInvitation`.
 pub mod sealed_invitation {
+    #[derive(serde::Deserialize, serde::Serialize)]
     #[allow(clippy::derive_partial_eq_without_eq)]
     #[derive(Clone, PartialEq, ::prost::Oneof)]
     pub enum Version {
@@ -441,6 +478,7 @@ pub mod sealed_invitation {
     }
 }
 /// PrivateKey generalized to support different key types
+#[derive(serde::Deserialize, serde::Serialize)]
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct SignedPrivateKey {
@@ -457,6 +495,7 @@ pub struct SignedPrivateKey {
 /// Nested message and enum types in `SignedPrivateKey`.
 pub mod signed_private_key {
     /// EC: SECP256k1
+    #[derive(serde::Deserialize, serde::Serialize)]
     #[allow(clippy::derive_partial_eq_without_eq)]
     #[derive(Clone, PartialEq, ::prost::Message)]
     pub struct Secp256k1 {
@@ -465,6 +504,7 @@ pub mod signed_private_key {
         pub bytes: ::prost::alloc::vec::Vec<u8>,
     }
     /// private key
+    #[derive(serde::Deserialize, serde::Serialize)]
     #[allow(clippy::derive_partial_eq_without_eq)]
     #[derive(Clone, PartialEq, ::prost::Oneof)]
     pub enum Union {
@@ -474,6 +514,7 @@ pub mod signed_private_key {
 }
 /// PrivateKeyBundle wraps the identityKey and the preKeys,
 /// enforces usage of signed keys.
+#[derive(serde::Deserialize, serde::Serialize)]
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct PrivateKeyBundleV2 {
@@ -484,6 +525,7 @@ pub struct PrivateKeyBundleV2 {
     pub pre_keys: ::prost::alloc::vec::Vec<SignedPrivateKey>,
 }
 /// LEGACY: PrivateKey generalized to support different key types
+#[derive(serde::Deserialize, serde::Serialize)]
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct PrivateKey {
@@ -500,6 +542,7 @@ pub struct PrivateKey {
 /// Nested message and enum types in `PrivateKey`.
 pub mod private_key {
     /// EC: SECP256k1
+    #[derive(serde::Deserialize, serde::Serialize)]
     #[allow(clippy::derive_partial_eq_without_eq)]
     #[derive(Clone, PartialEq, ::prost::Message)]
     pub struct Secp256k1 {
@@ -508,6 +551,7 @@ pub mod private_key {
         pub bytes: ::prost::alloc::vec::Vec<u8>,
     }
     /// private key
+    #[derive(serde::Deserialize, serde::Serialize)]
     #[allow(clippy::derive_partial_eq_without_eq)]
     #[derive(Clone, PartialEq, ::prost::Oneof)]
     pub enum Union {
@@ -516,6 +560,7 @@ pub mod private_key {
     }
 }
 /// LEGACY: PrivateKeyBundleV1 wraps the identityKey and the preKeys
+#[derive(serde::Deserialize, serde::Serialize)]
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct PrivateKeyBundleV1 {
@@ -526,6 +571,7 @@ pub struct PrivateKeyBundleV1 {
     pub pre_keys: ::prost::alloc::vec::Vec<PrivateKey>,
 }
 /// Versioned PrivateKeyBundle
+#[derive(serde::Deserialize, serde::Serialize)]
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct PrivateKeyBundle {
@@ -534,6 +580,7 @@ pub struct PrivateKeyBundle {
 }
 /// Nested message and enum types in `PrivateKeyBundle`.
 pub mod private_key_bundle {
+    #[derive(serde::Deserialize, serde::Serialize)]
     #[allow(clippy::derive_partial_eq_without_eq)]
     #[derive(Clone, PartialEq, ::prost::Oneof)]
     pub enum Version {
@@ -548,6 +595,7 @@ pub mod private_key_bundle {
 /// i.e. EIP-191 signature of a "storage signature" message with
 /// the pre-key embedded in it.
 /// (see xmtp-js::PrivateKeyBundle.toEncryptedBytes for details)
+#[derive(serde::Deserialize, serde::Serialize)]
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct EncryptedPrivateKeyBundleV1 {
@@ -561,6 +609,7 @@ pub struct EncryptedPrivateKeyBundleV1 {
     pub ciphertext: ::core::option::Option<Ciphertext>,
 }
 /// Versioned encrypted PrivateKeyBundle
+#[derive(serde::Deserialize, serde::Serialize)]
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct EncryptedPrivateKeyBundle {
@@ -569,6 +618,7 @@ pub struct EncryptedPrivateKeyBundle {
 }
 /// Nested message and enum types in `EncryptedPrivateKeyBundle`.
 pub mod encrypted_private_key_bundle {
+    #[derive(serde::Deserialize, serde::Serialize)]
     #[allow(clippy::derive_partial_eq_without_eq)]
     #[derive(Clone, PartialEq, ::prost::Oneof)]
     pub enum Version {
@@ -578,6 +628,7 @@ pub mod encrypted_private_key_bundle {
 }
 /// Message header is encoded separately as the bytes are also used
 /// as associated data for authenticated encryption
+#[derive(serde::Deserialize, serde::Serialize)]
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct MessageHeaderV1 {
@@ -589,6 +640,7 @@ pub struct MessageHeaderV1 {
     pub timestamp: u64,
 }
 /// Message is the top level protocol element
+#[derive(serde::Deserialize, serde::Serialize)]
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct MessageV1 {
@@ -603,6 +655,7 @@ pub struct MessageV1 {
 /// observable by the network. It is however authenticated as associated data
 /// of the AEAD encryption used to protect the message,
 /// thus providing tamper evidence.
+#[derive(serde::Deserialize, serde::Serialize)]
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct MessageHeaderV2 {
@@ -614,6 +667,7 @@ pub struct MessageHeaderV2 {
     pub topic: ::prost::alloc::string::String,
 }
 /// Message combines the encoded header with the encrypted payload.
+#[derive(serde::Deserialize, serde::Serialize)]
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct MessageV2 {
@@ -625,6 +679,7 @@ pub struct MessageV2 {
     pub ciphertext: ::core::option::Option<Ciphertext>,
 }
 /// Versioned Message
+#[derive(serde::Deserialize, serde::Serialize)]
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct Message {
@@ -633,6 +688,7 @@ pub struct Message {
 }
 /// Nested message and enum types in `Message`.
 pub mod message {
+    #[derive(serde::Deserialize, serde::Serialize)]
     #[allow(clippy::derive_partial_eq_without_eq)]
     #[derive(Clone, PartialEq, ::prost::Oneof)]
     pub enum Version {
@@ -645,6 +701,7 @@ pub mod message {
 /// DecodedMessage represents the decrypted message contents.
 /// DecodedMessage instances are not stored on the network, but
 /// may be serialized and stored by clients
+#[derive(serde::Deserialize, serde::Serialize)]
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct DecodedMessage {

@@ -1,4 +1,5 @@
 /// Wrapper class for errors from the Keystore API
+#[derive(serde::Deserialize, serde::Serialize)]
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct KeystoreError {
@@ -8,6 +9,7 @@ pub struct KeystoreError {
     pub code: i32,
 }
 /// A light pointer for a conversation that contains no decryption keys
+#[derive(serde::Deserialize, serde::Serialize)]
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct ConversationReference {
@@ -23,6 +25,7 @@ pub struct ConversationReference {
     >,
 }
 /// Decrypt a batch of messages using X3DH key agreement
+#[derive(serde::Deserialize, serde::Serialize)]
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct DecryptV1Request {
@@ -32,6 +35,7 @@ pub struct DecryptV1Request {
 /// Nested message and enum types in `DecryptV1Request`.
 pub mod decrypt_v1_request {
     /// A single decryption request
+    #[derive(serde::Deserialize, serde::Serialize)]
     #[allow(clippy::derive_partial_eq_without_eq)]
     #[derive(Clone, PartialEq, ::prost::Message)]
     pub struct Request {
@@ -50,6 +54,7 @@ pub mod decrypt_v1_request {
     }
 }
 /// Response type for both V1 and V2 decryption requests
+#[derive(serde::Deserialize, serde::Serialize)]
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct DecryptResponse {
@@ -59,6 +64,7 @@ pub struct DecryptResponse {
 /// Nested message and enum types in `DecryptResponse`.
 pub mod decrypt_response {
     /// A single decryption response
+    #[derive(serde::Deserialize, serde::Serialize)]
     #[allow(clippy::derive_partial_eq_without_eq)]
     #[derive(Clone, PartialEq, ::prost::Message)]
     pub struct Response {
@@ -68,12 +74,14 @@ pub mod decrypt_response {
     /// Nested message and enum types in `Response`.
     pub mod response {
         /// Wrapper object for success response
+        #[derive(serde::Deserialize, serde::Serialize)]
         #[allow(clippy::derive_partial_eq_without_eq)]
         #[derive(Clone, PartialEq, ::prost::Message)]
         pub struct Success {
             #[prost(bytes = "vec", tag = "1")]
             pub decrypted: ::prost::alloc::vec::Vec<u8>,
         }
+        #[derive(serde::Deserialize, serde::Serialize)]
         #[allow(clippy::derive_partial_eq_without_eq)]
         #[derive(Clone, PartialEq, ::prost::Oneof)]
         pub enum Response {
@@ -85,6 +93,7 @@ pub mod decrypt_response {
     }
 }
 /// Decrypt a batch of messages using the appropriate topic keys
+#[derive(serde::Deserialize, serde::Serialize)]
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct DecryptV2Request {
@@ -94,6 +103,7 @@ pub struct DecryptV2Request {
 /// Nested message and enum types in `DecryptV2Request`.
 pub mod decrypt_v2_request {
     /// A single decryption request
+    #[derive(serde::Deserialize, serde::Serialize)]
     #[allow(clippy::derive_partial_eq_without_eq)]
     #[derive(Clone, PartialEq, ::prost::Message)]
     pub struct Request {
@@ -108,6 +118,7 @@ pub mod decrypt_v2_request {
     }
 }
 /// Encrypt a batch of messages using X3DH key agreement
+#[derive(serde::Deserialize, serde::Serialize)]
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct EncryptV1Request {
@@ -117,6 +128,7 @@ pub struct EncryptV1Request {
 /// Nested message and enum types in `EncryptV1Request`.
 pub mod encrypt_v1_request {
     /// A single encryption request
+    #[derive(serde::Deserialize, serde::Serialize)]
     #[allow(clippy::derive_partial_eq_without_eq)]
     #[derive(Clone, PartialEq, ::prost::Message)]
     pub struct Request {
@@ -131,6 +143,7 @@ pub mod encrypt_v1_request {
     }
 }
 /// Response type for both V1 and V2 encryption requests
+#[derive(serde::Deserialize, serde::Serialize)]
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct EncryptResponse {
@@ -140,6 +153,7 @@ pub struct EncryptResponse {
 /// Nested message and enum types in `EncryptResponse`.
 pub mod encrypt_response {
     /// A single encryption response
+    #[derive(serde::Deserialize, serde::Serialize)]
     #[allow(clippy::derive_partial_eq_without_eq)]
     #[derive(Clone, PartialEq, ::prost::Message)]
     pub struct Response {
@@ -149,6 +163,7 @@ pub mod encrypt_response {
     /// Nested message and enum types in `Response`.
     pub mod response {
         /// Wrapper object for success response
+        #[derive(serde::Deserialize, serde::Serialize)]
         #[allow(clippy::derive_partial_eq_without_eq)]
         #[derive(Clone, PartialEq, ::prost::Message)]
         pub struct Success {
@@ -157,6 +172,7 @@ pub mod encrypt_response {
                 super::super::super::super::message_contents::Ciphertext,
             >,
         }
+        #[derive(serde::Deserialize, serde::Serialize)]
         #[allow(clippy::derive_partial_eq_without_eq)]
         #[derive(Clone, PartialEq, ::prost::Oneof)]
         pub enum Response {
@@ -168,6 +184,7 @@ pub mod encrypt_response {
     }
 }
 /// Encrypt a batch of messages using the appropriate topic keys
+#[derive(serde::Deserialize, serde::Serialize)]
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct EncryptV2Request {
@@ -177,6 +194,7 @@ pub struct EncryptV2Request {
 /// Nested message and enum types in `EncryptV2Request`.
 pub mod encrypt_v2_request {
     /// A single encryption request
+    #[derive(serde::Deserialize, serde::Serialize)]
     #[allow(clippy::derive_partial_eq_without_eq)]
     #[derive(Clone, PartialEq, ::prost::Message)]
     pub struct Request {
@@ -189,6 +207,7 @@ pub mod encrypt_v2_request {
     }
 }
 /// Request to create an invite payload, and store the topic keys in the Keystore
+#[derive(serde::Deserialize, serde::Serialize)]
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct CreateInviteRequest {
@@ -204,6 +223,7 @@ pub struct CreateInviteRequest {
     pub created_ns: u64,
 }
 /// Response to a CreateInviteRequest
+#[derive(serde::Deserialize, serde::Serialize)]
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct CreateInviteResponse {
@@ -213,6 +233,7 @@ pub struct CreateInviteResponse {
     pub payload: ::prost::alloc::vec::Vec<u8>,
 }
 /// Request to save a batch of invite messages to the Keystore
+#[derive(serde::Deserialize, serde::Serialize)]
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct SaveInvitesRequest {
@@ -222,6 +243,7 @@ pub struct SaveInvitesRequest {
 /// Nested message and enum types in `SaveInvitesRequest`.
 pub mod save_invites_request {
     /// Mirrors xmtp.envelope schema
+    #[derive(serde::Deserialize, serde::Serialize)]
     #[allow(clippy::derive_partial_eq_without_eq)]
     #[derive(Clone, PartialEq, ::prost::Message)]
     pub struct Request {
@@ -234,6 +256,7 @@ pub mod save_invites_request {
     }
 }
 /// Response to a SaveInvitesRequest
+#[derive(serde::Deserialize, serde::Serialize)]
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct SaveInvitesResponse {
@@ -243,6 +266,7 @@ pub struct SaveInvitesResponse {
 /// Nested message and enum types in `SaveInvitesResponse`.
 pub mod save_invites_response {
     /// A single response
+    #[derive(serde::Deserialize, serde::Serialize)]
     #[allow(clippy::derive_partial_eq_without_eq)]
     #[derive(Clone, PartialEq, ::prost::Message)]
     pub struct Response {
@@ -252,6 +276,7 @@ pub mod save_invites_response {
     /// Nested message and enum types in `Response`.
     pub mod response {
         /// Wrapper object for success response
+        #[derive(serde::Deserialize, serde::Serialize)]
         #[allow(clippy::derive_partial_eq_without_eq)]
         #[derive(Clone, PartialEq, ::prost::Message)]
         pub struct Success {
@@ -260,6 +285,7 @@ pub mod save_invites_response {
                 super::super::ConversationReference,
             >,
         }
+        #[derive(serde::Deserialize, serde::Serialize)]
         #[allow(clippy::derive_partial_eq_without_eq)]
         #[derive(Clone, PartialEq, ::prost::Oneof)]
         pub enum Response {
@@ -271,6 +297,7 @@ pub mod save_invites_response {
     }
 }
 /// CreateAuthTokenRequest is used to create an auth token for the XMTP API
+#[derive(serde::Deserialize, serde::Serialize)]
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct CreateAuthTokenRequest {
@@ -279,6 +306,7 @@ pub struct CreateAuthTokenRequest {
 }
 /// SignDigestRequest is used to sign a digest with either the identity key
 /// or a prekey
+#[derive(serde::Deserialize, serde::Serialize)]
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct SignDigestRequest {
@@ -289,6 +317,7 @@ pub struct SignDigestRequest {
 }
 /// Nested message and enum types in `SignDigestRequest`.
 pub mod sign_digest_request {
+    #[derive(serde::Deserialize, serde::Serialize)]
     #[allow(clippy::derive_partial_eq_without_eq)]
     #[derive(Clone, PartialEq, ::prost::Oneof)]
     pub enum Signer {
@@ -299,6 +328,7 @@ pub mod sign_digest_request {
     }
 }
 /// A mapping of topics to their decrypted invitations
+#[derive(serde::Deserialize, serde::Serialize)]
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct TopicMap {
@@ -311,6 +341,7 @@ pub struct TopicMap {
 /// Nested message and enum types in `TopicMap`.
 pub mod topic_map {
     /// TopicData wraps the invitation and the timestamp it was created
+    #[derive(serde::Deserialize, serde::Serialize)]
     #[allow(clippy::derive_partial_eq_without_eq)]
     #[derive(Clone, PartialEq, ::prost::Message)]
     pub struct TopicData {
@@ -325,6 +356,7 @@ pub mod topic_map {
     }
 }
 /// Application-specific error codes for the Keystore API.
+#[derive(serde::Deserialize, serde::Serialize)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
 #[repr(i32)]
 pub enum ErrorCode {

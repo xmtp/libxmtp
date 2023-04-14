@@ -8,7 +8,11 @@ edition = "2021"
 [dependencies]
 corecrypto = { path = "../../crates/corecrypto" }
 xmtp-networking = { path = "../../crates/xmtp-networking" }
+swift-bridge = {version = "0.1", features = ["async"]}
 
 [lib]
 name = "xmtp_rust_swift"
 crate-type = [ "staticlib" ]
+
+[build-dependencies]
+swift-bridge-build = "0.1"

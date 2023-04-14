@@ -15,6 +15,8 @@ tokio = { version = "1.24", features = ["macros", "rt-multi-thread"] }
 #clap = { version = "4.1.4", features = ["derive"] }
 tonic-reflection = "0.6.0"
 tokio-rustls = "0.24.0"
+serde = { version = "1.0.160", features = ["derive"] }
+serde_json = "1.0"
 
 [build-dependencies]
 tonic-build = "^0.9"
