@@ -26,7 +26,7 @@ async fn query(host: String, topic: String, json_paging_info: String) -> ffi::Re
             json,
         },
         Err(e) => ffi::ResponseJson {
-            error: e.to_string(),
+            error: e,
             json: "".to_string(),
         },
     }
@@ -44,7 +44,7 @@ async fn publish(host: String, token: String, json_envelopes: String) -> ffi::Re
             json,
         },
         Err(e) => ffi::ResponseJson {
-            error: e.to_string(),
+            error: e,
             json: "".to_string(),
         },
     }

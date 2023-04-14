@@ -21,8 +21,8 @@ mod tests {
             // Check that the response has some messages
             // Assert response is a string that isn't empty and starts with a { like JSON
             let resp_str = resp.unwrap();
-            assert!(resp_str.len() > 0);
-            assert!(resp_str.starts_with("{"));
+            assert!(!resp_str.is_empty());
+            assert!(resp_str.starts_with('{'));
         });
     }
 }

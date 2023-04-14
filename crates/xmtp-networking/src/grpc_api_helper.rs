@@ -12,8 +12,10 @@ pub async fn query(
     let mut client = v1::message_api_client::MessageApiClient::connect(host)
         .await
         .map_err(|e| tonic::Status::new(tonic::Code::Internal, format!("{}", e)))?;
-    let mut request = v1::QueryRequest::default();
-    request.content_topics = vec![topic];
+    let mut request = v1::QueryRequest {
+        content_topics: vec![topic],
+        ..Default::default()
+    };
     // Check if paging_info is not None
     if let Some(p) = paging_info {
         request.paging_info = Some(p);
@@ -30,7 +32,7 @@ pub async fn query_serialized(
     json_paging_info: String,
 ) -> Result<String, String> {
     // Check if json_paging_info is not an empty string, if so deserialize it
-    let paging_info = if json_paging_info != "" {
+    let paging_info = if !json_paging_info.is_empty() {
         let p: v1::PagingInfo =
             serde_json::from_str(&json_paging_info).map_err(|e| format!("{}", e))?;
         Some(p)
@@ -53,7 +55,7 @@ pub async fn publish(
     token: String,
     json_envelopes: String,
 ) -> Result<v1::PublishResponse, tonic::Status> {
-    let host = format!("{}", host);
+    let host = host.to_string();
     let channel = Channel::from_shared(host)
         .map_err(|e| tonic::Status::new(tonic::Code::Internal, format!("{}", e)))?
         .connect()
