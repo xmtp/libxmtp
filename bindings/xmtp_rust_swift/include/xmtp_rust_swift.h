@@ -6,4 +6,4 @@
 // Functions
 uint16_t networking_selftest(void);
 bool encryption_selftest(void);
-bool grpc_selftest(void);
+uint16_t grpc_selftest(void);
