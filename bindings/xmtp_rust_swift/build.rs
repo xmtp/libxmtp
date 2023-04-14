@@ -1,5 +1,3 @@
-
-
 // TODO: took from swift-bridge example, but not sure if this is needed
 // https://chinedufn.github.io/swift-bridge/building/xcode-and-cargo/index.html
 const XCODE_CONFIGURATION_ENV: &str = "CONFIGURATION";

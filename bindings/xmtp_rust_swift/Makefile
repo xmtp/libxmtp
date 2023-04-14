@@ -26,7 +26,12 @@ $(LIB): $(ARCHS_IOS) $(ARCHS_MAC) aarch64-apple-ios
 	lipo -create -output libxmtp_rust_swift_iossimulator.a $(foreach arch,$(ARCHS_IOS),$(wildcard target/$(arch)/release/$(LIB)))
 	lipo -create -output libxmtp_rust_swift_macos.a $(foreach arch,$(ARCHS_MAC),$(wildcard target/$(arch)/release/$(LIB)))
 
-pkg: $(LIB)
+move_gen:
+	# Move "Generated" directory to "include"
+	rm -rf include/Generated
+	cp -r Generated include/
+
+pkg: $(LIB) move_gen
 	rm -rf XMTPRustSwift.xcframework
 	xcodebuild -create-xcframework \
 		-library ./libxmtp_rust_swift_macos.a \
@@ -42,5 +47,8 @@ pkg: $(LIB)
 
 push-to-derived:
 	./copy_xcframework_to_deriveddata.sh
+
+push-to-swift:
+	./copy_xcframework_to_swift.sh
 
 .PHONY: $(ARCHS_IOS) $(ARCHS_MAC) pkg all aarch64-apple-ios push-to-derived download-toolchains
