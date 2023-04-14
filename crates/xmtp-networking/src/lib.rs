@@ -30,34 +30,6 @@ pub async fn test_grpc() -> bool {
 }
 
 // Do a barebones unpaginated Query gRPC request, similar to this Swift code:
-// 	func query(topic: String, pagination: Pagination? = nil, cursor: Xmtp_MessageApi_V1_Cursor? = nil) async throws -> QueryResponse {
-// 		var request = Xmtp_MessageApi_V1_QueryRequest()
-// 		request.contentTopics = [topic]
-//
-// 		if let pagination {
-// 			request.pagingInfo = pagination.pagingInfo
-// 		}
-//
-// 		if let startAt = pagination?.startTime {
-// 			request.endTimeNs = UInt64(startAt.millisecondsSinceEpoch) * 1_000_000
-// 			request.pagingInfo.direction = .descending
-// 		}
-//
-// 		if let endAt = pagination?.endTime {
-// 			request.startTimeNs = UInt64(endAt.millisecondsSinceEpoch) * 1_000_000
-// 			request.pagingInfo.direction = .descending
-// 		}
-//
-// 		if let cursor {
-// 			request.pagingInfo.cursor = cursor
-// 		}
-//
-// 		var options = CallOptions()
-// 		options.customMetadata.add(name: "authorization", value: "Bearer \(authToken)")
-// 		options.timeLimit = .timeout(.seconds(5))
-//
-// 		return try await client.query(request, callOptions: options)
-// 	}
 pub async fn query(topic: String) -> Result<v1::QueryResponse, tonic::Status> {
     // NOTE: had to edit e2e/docker compose to map port 15555->5556 instead of 5555
     let mut client =
@@ -75,35 +47,13 @@ pub async fn query(topic: String) -> Result<v1::QueryResponse, tonic::Status> {
 }
 
 // Publish a message to the XMTP server at a topic with some string content
-// var request = Xmtp_MessageApi_V1_PublishRequest()
-// request.envelopes = envelopes
-//
-// var options = CallOptions()
-// options.customMetadata.add(name: "authorization", value: "Bearer \(authToken)")
-// options.customMetadata.add(name: ClientVersionHeaderKey, value: Constants.version)
-// options.customMetadata.add(name: AppVersionHeaderKey, value: Constants.version)
-// options.timeLimit = .timeout(.seconds(5))
-//
-// return try await client.publish(request, callOptions: options)
-// RUST EXAMPLE FOR AUTH TOKEN
-// let channel = Channel::from_static("http://[::1]:50051").connect().await?;
-//
-// let token: MetadataValue<_> = "Bearer some-auth-token".parse()?;
-//
-// let mut client = EchoClient::with_interceptor(channel, move |mut req: Request<()>| {
-//     req.metadata_mut().insert("authorization", token.clone());
-//     Ok(req)
-// });
-//
-// let request = tonic::Request::new(EchoRequest {
-//     message: "hello".into(),
-// });
 pub async fn publish(topic: String, content: String) -> Result<v1::PublishResponse, tonic::Status> {
     // NOTE: had to edit e2e/docker compose to map port 15555->5556 instead of 5555
     let channel = Channel::from_static("https://localhost:15555")
         .connect()
         .await
         .map_err(|e| tonic::Status::new(tonic::Code::Internal, format!("{}", e)))?;
+    // TODO: replace hardcoded token
     let token: MetadataValue<_> = "Bearer CpIBCIKUi4X4MBJECkIKQHAB57G9n+afftmrFy0S2avtyh2VNKUPPTn8n1rlUtYiTnBkwGlYgb2CMaG7KTE56qAfcnkWYC/XbWxl2CM61kYaQwpBBOvn8X5EepteFT6E1BXMLi/zhgUl+TV7GLJo/kAcEYhXEIbw//nciuv6f6R2y77sHLJmQssTT2PEG/lBgk640w0SNgoqMHgyZDM4MEQ4QUY0NmQ4MEM5YjE4MkExOWYzOWZDNjIwMTQ5NDBGQjVmEIC0o8m/0vaqFxpGCkQKQDrJyRW9avQxCdrP804eygA9rsWp7HxeYkhjcg7DF8NiFI1eJnEWk0dOUqkSGtwyV8Afmu4ckqA8vy5YwHQCudgQAQ==".parse().map_err(|e| tonic::Status::new(tonic::Code::Internal, format!("{}", e)))?;
 
     let mut client =
