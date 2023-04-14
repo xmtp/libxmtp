@@ -2,22 +2,6 @@ pub mod proto_helper;
 use crate::proto_helper::xmtp::message_api::v1;
 
 use tonic::{metadata::MetadataValue, transport::Channel, Request};
-use serde_json;
-
-pub fn test_request() -> Result<u16, String> {
-    let resp = reqwest::blocking::get("https://httpbin.org/ip").map_err(|e| format!("{}", e))?;
-    // if resp is successful, return the body otherwise return "Error: {}" with response code
-    if resp.status().is_success() {
-        Ok(resp.status().as_u16())
-    } else {
-        Err(format!("{}", resp.status()))
-    }
-}
-
-pub fn selftest() -> u16 {
-    let resp = test_request();
-    resp.unwrap_or(777)
-}
 
 pub async fn test_grpc() -> bool {
     let _client =
@@ -37,8 +21,7 @@ pub async fn query(topic: String) -> Result<v1::QueryResponse, tonic::Status> {
         proto_helper::xmtp::message_api::v1::message_api_client::MessageApiClient::connect(
             "https://localhost:15555",
         )
-        .await
-        .unwrap();
+        .await.map_err(|e| tonic::Status::new(tonic::Code::Internal, format!("{}", e)))?;
 
     let mut request = proto_helper::xmtp::message_api::v1::QueryRequest::default();
     request.content_topics = vec![topic];
@@ -132,13 +115,6 @@ pub fn grpc_roundtrip() -> u16 {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn http_works() {
-        let resp = selftest();
-        // Assert 200
-        assert_eq!(resp, 200);
-    }
 
     #[test]
     fn grpc_query_test() {
