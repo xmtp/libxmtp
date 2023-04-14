@@ -54,8 +54,8 @@ pub extern "C" fn networking_selftest() -> u16 {
 
 #[no_mangle]
 pub extern "C" fn grpc_selftest() -> u16 {
-    xmtp_networking::test_grpc();
-    0
+    // Returns 0 if successful, >0 if failed
+    xmtp_networking::grpc_roundtrip()
 }
 
 #[cfg(test)]

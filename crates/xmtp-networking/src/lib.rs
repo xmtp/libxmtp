@@ -74,6 +74,38 @@ pub async fn publish(topic: String, content: String) -> Result<v1::PublishRespon
     response.map(|r| r.into_inner())
 }
 
+// Blocking roundtrip test, returns an error code (0) for pass, non-zero for fail
+pub fn grpc_roundtrip() -> u16 {
+    let rt = tokio::runtime::Runtime::new().unwrap();
+    rt.block_on(async {
+        let resp = publish("topic".to_string(), "test".to_string()).await;
+        println!("{:?}", resp);
+        if resp.is_err() {
+            return 1;
+        }
+        // Fetch it
+        let query_resp = query("topic".to_string()).await;
+        println!("{:?}", query_resp);
+        if query_resp.is_err() {
+            return 2;
+        }
+        // Check that the response has some messages, and that the content inside is "test"
+        let envelopes = query_resp.unwrap().envelopes;
+        if envelopes.len() != 1 {
+            return 3;
+        }
+        let topic = envelopes[0].content_topic.clone();
+        if topic != "topic" {
+            return 4;
+        }
+        let content = String::from_utf8(envelopes[0].message.clone()).unwrap();
+        if content != "test" {
+            return 5;
+        }
+        0
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -99,22 +131,8 @@ mod tests {
 
     #[test]
     fn grpc_roundtrip_test() {
-        let rt = tokio::runtime::Runtime::new().unwrap();
-        rt.block_on(async {
-            let resp = publish("topic".to_string(), "test".to_string()).await;
-            println!("{:?}", resp);
-            assert!(resp.is_ok());
-            // Fetch it
-            let query_resp = query("topic".to_string()).await;
-            println!("{:?}", query_resp);
-            assert!(query_resp.is_ok());
-            // Check that the response has some messages, and that the content inside is "test"
-            let envelopes = query_resp.unwrap().envelopes;
-            assert!(envelopes.len() == 1);
-            let topic = envelopes[0].content_topic.clone();
-            let message = String::from_utf8(envelopes[0].message.clone()).unwrap();
-            assert_eq!(topic, "topic");
-            assert_eq!(message, "test");
-        });
+        let resp = grpc_roundtrip();
+        // Assert 0
+        assert_eq!(resp, 0);
     }
 }
