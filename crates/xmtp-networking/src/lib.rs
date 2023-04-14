@@ -61,7 +61,7 @@ pub async fn query(
 ) -> Result<v1::QueryResponse, tonic::Status> {
     let mut client =
         proto_helper::xmtp::message_api::v1::message_api_client::MessageApiClient::connect(
-            "http://localhost:5556",
+            "http://dev.xmtp.network:5556",
         )
         .await
         .unwrap();
@@ -89,6 +89,7 @@ mod tests {
         let rt = tokio::runtime::Runtime::new().unwrap();
         rt.block_on(async {
             let resp = query("test".to_string()).await;
+            println!("{:?}", resp);
             assert!(resp.is_ok());
         });
     }
