@@ -46,6 +46,17 @@ pub async fn query(topic: String) -> Result<v1::QueryResponse, tonic::Status> {
     response.map(|r| r.into_inner())
 }
 
+// This is a test-only function that provides a safe hardcoded auth token
+fn testonly_generate_auth_token() -> String {
+    // Chunk the above token up and stich it back together
+    let mut token = String::new();
+    token.push_str("CpIBCIKUi4X4MBJECkIKQHAB57G9n+afftmrFy0S2avtyh2VNKUPPTn8n1rlUtYiTnBkwGlYgb2CMaG7KTE56qAfcnkWYC");
+    token.push_str("/XbWxl2CM61kYaQwpBBOvn8X5EepteFT6E1BXMLi/zhgUl+TV7GLJo/kAcEYhXEIbw//nciuv6f6R2y77sHLJmQssTT2PE");
+    token.push_str("G/lBgk640w0SNgoqMHgyZDM4MEQ4QUY0NmQ4MEM5YjE4MkExOWYzOWZDNjIwMTQ5NDBGQjVmEIC0o8m/0vaqFxpGCkQKQD");
+    token.push_str("rJyRW9avQxCdrP804eygA9rsWp7HxeYkhjcg7DF8NiFI1eJnEWk0dOUqkSGtwyV8Afmu4ckqA8vy5YwHQCudgQAQ==");
+    token
+}
+
 // Publish a message to the XMTP server at a topic with some string content
 pub async fn publish(topic: String, content: String) -> Result<v1::PublishResponse, tonic::Status> {
     // NOTE: had to edit e2e/docker compose to map port 15555->5556 instead of 5555
@@ -53,8 +64,11 @@ pub async fn publish(topic: String, content: String) -> Result<v1::PublishRespon
         .connect()
         .await
         .map_err(|e| tonic::Status::new(tonic::Code::Internal, format!("{}", e)))?;
-    // TODO: replace hardcoded token
-    let token: MetadataValue<_> = "Bearer CpIBCIKUi4X4MBJECkIKQHAB57G9n+afftmrFy0S2avtyh2VNKUPPTn8n1rlUtYiTnBkwGlYgb2CMaG7KTE56qAfcnkWYC/XbWxl2CM61kYaQwpBBOvn8X5EepteFT6E1BXMLi/zhgUl+TV7GLJo/kAcEYhXEIbw//nciuv6f6R2y77sHLJmQssTT2PEG/lBgk640w0SNgoqMHgyZDM4MEQ4QUY0NmQ4MEM5YjE4MkExOWYzOWZDNjIwMTQ5NDBGQjVmEIC0o8m/0vaqFxpGCkQKQDrJyRW9avQxCdrP804eygA9rsWp7HxeYkhjcg7DF8NiFI1eJnEWk0dOUqkSGtwyV8Afmu4ckqA8vy5YwHQCudgQAQ==".parse().map_err(|e| tonic::Status::new(tonic::Code::Internal, format!("{}", e)))?;
+    let auth_token_string = format!("Bearer {}", testonly_generate_auth_token());
+    // TODO: replace hardcoded test token
+    let token: MetadataValue<_> = auth_token_string
+        .parse()
+        .map_err(|e| tonic::Status::new(tonic::Code::Internal, format!("{}", e)))?;
 
     let mut client =
         proto_helper::xmtp::message_api::v1::message_api_client::MessageApiClient::with_interceptor(
