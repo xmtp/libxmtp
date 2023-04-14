@@ -15,6 +15,17 @@ pub fn selftest() -> u16 {
     resp.unwrap_or(777)
 }
 
+pub async fn test_grpc() -> bool {
+    let mut client =
+        proto_helper::xmtp::message_api::v1::message_api_client::MessageApiClient::connect(
+            "http://localhost:5556",
+        )
+        .await
+        .unwrap();
+    // TODO: Return true if client was able to connect
+    true
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
