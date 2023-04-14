@@ -21,7 +21,8 @@ pub async fn query(topic: String) -> Result<v1::QueryResponse, tonic::Status> {
         proto_helper::xmtp::message_api::v1::message_api_client::MessageApiClient::connect(
             "https://localhost:15555",
         )
-        .await.map_err(|e| tonic::Status::new(tonic::Code::Internal, format!("{}", e)))?;
+        .await
+        .map_err(|e| tonic::Status::new(tonic::Code::Internal, format!("{}", e)))?;
 
     let mut request = proto_helper::xmtp::message_api::v1::QueryRequest::default();
     request.content_topics = vec![topic];

@@ -3,7 +3,7 @@ mod ffi {
     #[swift_bridge(swift_repr = "struct")]
     struct ResponseJson {
         error: String,
-        json: String
+        json: String,
     }
 
     extern "Rust" {
