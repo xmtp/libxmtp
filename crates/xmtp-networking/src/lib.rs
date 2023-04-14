@@ -4,22 +4,25 @@ pub mod proto_helper;
 #[cfg(test)]
 mod tests {
     use super::*;
-    use grpc_api_helper::{query};
+    use grpc_api_helper::query_serialized;
 
     #[test]
     fn grpc_query_test() {
         let rt = tokio::runtime::Runtime::new().unwrap();
         rt.block_on(async {
-            let resp = query(
+            let resp = query_serialized(
                 "http://localhost:15555".to_string(),
                 "test".to_string(),
-                None,
+                "".to_string(),
             )
             .await;
             println!("{:?}", resp);
             assert!(resp.is_ok());
             // Check that the response has some messages
-            assert!(resp.unwrap().envelopes.len() == 0);
+            // Assert response is a string that isn't empty and starts with a { like JSON
+            let resp_str = resp.unwrap();
+            assert!(resp_str.len() > 0);
+            assert!(resp_str.starts_with("{"));
         });
     }
 }

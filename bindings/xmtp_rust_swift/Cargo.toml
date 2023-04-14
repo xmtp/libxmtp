@@ -16,6 +16,9 @@ crate-type = [ "staticlib" ]
 [build-dependencies]
 swift-bridge-build = "0.1"
 
+[dev-dependencies]
+tokio = { version = "1.0", features = ["full"] }
+
 # NOTE: Thei release profile reduce bundle size from 230M to 41M - may have performance impliciations
 # https://stackoverflow.com/a/54842093
 [profile.release]

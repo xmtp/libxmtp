@@ -1,3 +1,5 @@
+use xmtp_networking::grpc_api_helper;
+
 #[swift_bridge::bridge]
 mod ffi {
     #[swift_bridge(swift_repr = "struct")]
@@ -7,15 +9,17 @@ mod ffi {
     }
 
     extern "Rust" {
-        async fn query_topic(topic: String) -> ResponseJson;
+        async fn query(host: String, topic: String, json_paging_info: String) -> ResponseJson;
+        async fn publish(host: String, token: String, json_envelopes: String) -> ResponseJson;
     }
 }
 
-// TODO: Return a `Result<MyIpAddress, SomeErrorType>`
-//  Once we support returning Result from an async function.
-async fn query_topic(topic: String) -> ffi::ResponseJson {
-    println!("Received a request to query topic: {}", topic);
-    let query_result = xmtp_networking::query_serialized(topic).await;
+async fn query(host: String, topic: String, json_paging_info: String) -> ffi::ResponseJson {
+    println!(
+        "Received a request to query host: {}, topic: {}, paging info: {}",
+        host, topic, json_paging_info
+    );
+    let query_result = grpc_api_helper::query_serialized(host, topic, json_paging_info).await;
     match query_result {
         Ok(json) => ffi::ResponseJson {
             error: "".to_string(),
@@ -28,19 +32,36 @@ async fn query_topic(topic: String) -> ffi::ResponseJson {
     }
 }
 
-#[no_mangle]
-pub extern "C" fn grpc_selftest() -> u16 {
-    // Returns 0 if successful, >0 if failed
-    xmtp_networking::grpc_roundtrip()
+async fn publish(host: String, token: String, json_envelopes: String) -> ffi::ResponseJson {
+    println!(
+        "Received a request to publish host: {}, token: {}, envelopes: {}",
+        host, token, json_envelopes
+    );
+    let publish_result = grpc_api_helper::publish_serialized(host, token, json_envelopes).await;
+    match publish_result {
+        Ok(json) => ffi::ResponseJson {
+            error: "".to_string(),
+            json,
+        },
+        Err(e) => ffi::ResponseJson {
+            error: e.to_string(),
+            json: "".to_string(),
+        },
+    }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-
+    // Try a query on a test topic, and make sure we get a response
     #[test]
-    fn test_networking() {
-        let status_code = networking_selftest();
-        assert_eq!(status_code, 200);
+    fn test_query() {
+        let runtime = tokio::runtime::Runtime::new().unwrap();
+        let result = runtime.block_on(super::query(
+            "http://localhost:15555".to_string(),
+            "test".to_string(),
+            "".to_string(),
+        ));
+        assert_eq!(result.error, "");
+        println!("Got result: {}", result.json);
     }
 }
