@@ -1,0 +1,45 @@
+// Ciphertext is a generic structure for encrypted payload.
+syntax = "proto3";
+
+package xmtp.message_contents;
+
+import "message_contents/signature.proto";
+
+option go_package = "github.com/xmtp/proto/v3/go/message_contents";
+option java_package = "org.xmtp.proto.message.contents";
+
+// Ciphertext represents encrypted payload.
+// It is definited as a union to support cryptographic algorithm agility.
+// The payload is accompanied by the cryptographic parameters
+// required by the chosen encryption scheme.
+message Ciphertext {
+    oneof union {
+        Aes256gcmHkdfsha256 aes256_gcm_hkdf_sha256 = 1;
+    }
+
+    // Supported Encryption Schemes
+
+    // Encryption: AES256-GCM
+    // Key derivation function: HKDF-SHA256
+    message Aes256gcmHkdfsha256 {
+        bytes hkdf_salt = 1;  // 32 bytes
+        bytes gcm_nonce = 2;  // 12 bytes
+        bytes payload = 3;    // encrypted payload
+    }
+}
+
+// SignedEciesCiphertext represents an ECIES encrypted payload and a signature
+message SignedEciesCiphertext {
+    // Ecies is ciphertext encrypted using ECIES with a MAC
+    message Ecies {
+        bytes ephemeral_public_key = 1;  // 65 bytes
+        bytes iv = 2;                    // 16 bytes
+        bytes mac = 3;                   // 32 bytes
+        bytes ciphertext = 4;  // encrypted payload with block size of 16
+    }
+
+    // serialized Ecies message
+    bytes ecies_bytes = 1;
+    // signature of sha256(ecies_bytes) signed with the IdentityKey
+    xmtp.message_contents.Signature signature = 2;
+}

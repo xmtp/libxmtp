@@ -1,0 +1,55 @@
+// Message content encoding structures
+syntax = "proto3";
+
+package xmtp.message_contents;
+
+import "message_contents/public_key.proto";
+import "message_contents/signature.proto";
+
+option go_package = "github.com/xmtp/proto/v3/go/message_contents";
+option java_package = "org.xmtp.proto.message.contents";
+
+// ContentTypeId is used to identify the type of content stored in a Message.
+message ContentTypeId {
+    string authority_id = 1;  // authority governing this content type
+    string type_id = 2;  // type identifier
+    uint32 version_major = 3; // major version of the type
+    uint32 version_minor = 4; // minor version of the type
+}
+
+// Recognized compression algorithms
+// protolint:disable ENUM_FIELD_NAMES_ZERO_VALUE_END_WITH
+enum Compression {
+    COMPRESSION_DEFLATE = 0;
+    COMPRESSION_GZIP = 1;
+}
+// protolint:enable ENUM_FIELD_NAMES_ZERO_VALUE_END_WITH
+
+// EncodedContent bundles the content with metadata identifying its type
+// and parameters required for correct decoding and presentation of the content.
+message EncodedContent {
+    // content type identifier used to match the payload with
+    // the correct decoding machinery
+    ContentTypeId type = 1;
+    // optional encoding parameters required to correctly decode the content
+    map<string, string> parameters = 2;
+    // optional fallback description of the content that can be used in case
+    // the client cannot decode or render the content
+    optional string fallback = 3;
+    // optional compression; the value indicates algorithm used to
+    // compress the encoded content bytes
+    optional Compression compression = 5;
+    // encoded content itself
+    bytes content = 4;
+}
+
+// SignedContent attaches a signature to EncodedContent.
+message SignedContent {
+    // MUST contain EncodedContent
+    bytes payload = 1;
+    SignedPublicKeyBundle sender = 2;
+    // MUST be a signature of a concatenation of
+    // the message header bytes and the payload bytes,
+    // signed by the sender's pre-key.
+    Signature signature = 3; 
+}

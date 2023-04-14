@@ -1,0 +1,29 @@
+// Signature is a generic structure for public key signatures.
+syntax = "proto3";
+
+package xmtp.message_contents;
+
+option go_package = "github.com/xmtp/proto/v3/go/message_contents";
+option java_package = "org.xmtp.proto.message.contents";
+
+// Signature represents a generalized public key signature,
+// defined as a union to support cryptographic algorithm agility.
+message Signature {
+    // ECDSA signature bytes and the recovery bit
+    message ECDSACompact {
+        bytes bytes = 1; // compact representation [ R || S ], 64 bytes
+        uint32 recovery = 2; // recovery bit
+    }
+    // ECDSA signature bytes and the recovery bit
+    // produced by xmtp-js::PublicKey.signWithWallet function, i.e.
+    // EIP-191 signature of a "Create Identity" message with the key embedded.
+    // Used to sign identity keys.
+    message WalletECDSACompact {
+        bytes bytes = 1; // compact representation [ R || S ], 64 bytes
+        uint32 recovery = 2; // recovery bit
+    }
+    oneof union {
+        ECDSACompact ecdsa_compact = 1;
+        WalletECDSACompact wallet_ecdsa_compact = 2;
+    }
+}

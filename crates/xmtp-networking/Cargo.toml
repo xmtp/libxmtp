@@ -7,3 +7,13 @@ edition = "2021"
 
 [dependencies]
 reqwest = { version = "0.11.16", features = ["blocking", "json"]}
+tonic = "^0.9"
+prost = "^0.11"
+#tokio = { version = "1.24", features = ["macros", "rt-multi-thread"] }
+#tokio-stream = { version = "0.1", features = ["net"] }
+#futures = "0.3"
+#clap = { version = "4.1.4", features = ["derive"] }
+tonic-reflection = "0.6.0"
+
+[build-dependencies]
+tonic-build = "^0.9"

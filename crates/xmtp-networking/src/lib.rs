@@ -1,5 +1,3 @@
-
-
 pub fn test_request() -> Result<u16, String> {
     let resp = reqwest::blocking::get("https://httpbin.org/ip").map_err(|e| format!("{}", e))?;
     // if resp is successful, return the body otherwise return "Error: {}" with response code

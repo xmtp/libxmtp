@@ -1,0 +1,71 @@
+// Messages used for transport and storage of user conversations.
+syntax = "proto3";
+
+package xmtp.message_contents;
+
+import "keystore_api/v1/keystore.proto";
+import "message_contents/ciphertext.proto";
+import "message_contents/public_key.proto";
+
+option go_package = "github.com/xmtp/proto/v3/go/message_contents";
+option java_package = "org.xmtp.proto.message.contents";
+
+// Message V1
+
+// Message header is encoded separately as the bytes are also used
+// as associated data for authenticated encryption
+message MessageHeaderV1 {
+    PublicKeyBundle sender = 1;
+    PublicKeyBundle recipient = 2;
+    uint64 timestamp = 3;
+}
+
+// Message is the top level protocol element
+message MessageV1 {
+    bytes header_bytes = 1; // encapsulates encoded MessageHeaderV1
+    // Ciphertext.payload MUST contain encrypted EncodedContent
+    Ciphertext ciphertext = 2; 
+}
+
+// Message V2
+
+// Message header carries information that is not encrypted, and is therefore
+// observable by the network. It is however authenticated as associated data
+// of the AEAD encryption used to protect the message,
+// thus providing tamper evidence.
+message MessageHeaderV2 {
+    // sender specified message creation time
+    uint64 created_ns = 1;
+    // the topic the message belongs to
+    string topic = 2;
+}
+
+// Message combines the encoded header with the encrypted payload.
+message MessageV2 {
+    bytes header_bytes = 1; // encapsulates encoded MessageHeaderV2
+    // Ciphertext.payload MUST contain encrypted SignedContent
+    Ciphertext ciphertext = 2;
+}
+
+
+// Versioned Message
+message Message {
+    oneof version {
+        MessageV1 v1 = 1;
+        MessageV2 v2 = 2;
+    }
+}
+
+// DecodedMessage represents the decrypted message contents.
+// DecodedMessage instances are not stored on the network, but
+// may be serialized and stored by clients
+message DecodedMessage {
+    string id = 1;
+    string message_version = 2;
+    string sender_address = 3;
+    optional string recipient_address = 4;
+    uint64 sent_ns = 5;
+    string content_topic = 6;
+    xmtp.keystore_api.v1.ConversationReference conversation = 7;
+    bytes content_bytes = 8; // encapsulates EncodedContent
+}
