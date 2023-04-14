@@ -19,7 +19,7 @@ pub fn selftest() -> u16 {
 }
 
 pub async fn test_grpc() -> bool {
-    let mut client =
+    let _client =
         proto_helper::xmtp::message_api::v1::message_api_client::MessageApiClient::connect(
             "http://localhost:5556",
         )
