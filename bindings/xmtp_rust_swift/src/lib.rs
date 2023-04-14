@@ -1,6 +1,5 @@
 use corecrypto::encryption;
 
-
 #[no_mangle]
 pub extern "C" fn encryption_selftest() -> bool {
     // Simple key choice, same as previous test but I chopped a digit off the first column
@@ -51,6 +50,12 @@ pub extern "C" fn encryption_selftest() -> bool {
 #[no_mangle]
 pub extern "C" fn networking_selftest() -> u16 {
     xmtp_networking::selftest()
+}
+
+#[no_mangle]
+pub extern "C" fn grpc_selftest() -> u16 {
+    xmtp_networking::test_grpc();
+    0
 }
 
 #[cfg(test)]
