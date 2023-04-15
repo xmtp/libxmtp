@@ -5,6 +5,7 @@ use tonic::{metadata::MetadataValue, transport::Channel, Request, Streaming};
 use xmtp_proto::xmtp::message_api::v1::{self, Envelope};
 use hyper::{client::HttpConnector, Uri};
 use tokio_rustls::rustls::{ClientConfig, OwnedTrustAnchor, RootCertStore};
+use tonic::{metadata::MetadataValue, Request};
 
 use std::str::FromStr;
 
@@ -27,6 +28,8 @@ fn tls_config() -> Result<ClientConfig, tonic::Status> {
     Ok(tls)
 }
 
+// This does some magic to hook up our TLS config as the "Connector" for our eventual
+// hyper client. The connector is in charge of turning a URI into a TCP stream.
 fn get_tls_connector() -> Result<hyper_rustls::HttpsConnector<HttpConnector>, tonic::Status> {
     let tls =
         tls_config().map_err(|e| tonic::Status::new(tonic::Code::Internal, format!("{}", e)))?;
@@ -75,7 +78,8 @@ pub async fn query(
                 format!("Failed to create TLS connector: {}", e),
             )
         })?;
-        // TODO: I can't get this part into a helper function because of lifetime woes
+        // TODO: Ideally I'd get the entire hyper::Client created in a separate function
+        // but I'm hitting some lifetime issues
         let client = hyper::Client::builder().build(connector);
         let uri = Uri::from_str(&host)
             .map_err(|e| tonic::Status::new(tonic::Code::Internal, format!("{}", e)))?;
@@ -129,13 +133,13 @@ pub async fn publish(
     envelopes: Vec<v1::Envelope>,
 ) -> Result<v1::PublishResponse, tonic::Status> {
     let host = host.to_string();
+    // Prepare the auth token as a MetadataValue
     let auth_token_string = format!("Bearer {}", token);
     let token: MetadataValue<_> = auth_token_string
         .parse()
         .map_err(|e| tonic::Status::new(tonic::Code::Internal, format!("{}", e)))?;
 
-    let mut request = v1::PublishRequest::default();
-    request.envelopes = envelopes;
+    let request = v1::PublishRequest { envelopes };
 
     // TODO: this code sucks, but if the host was TLS, we need to use the tls_client otherwise
     // we need to use the non_tls_client. It's hard to DRY up because both clients have
@@ -143,26 +147,29 @@ pub async fn publish(
     let response = if host.starts_with("https://") {
         println!("Using TLS client");
         // Set up the TLS client
-        let connector = get_tls_connector().map_err(|e| {
-            tonic::Status::new(
-                tonic::Code::Internal,
-                format!("Failed to create TLS connector: {}", e),
-            )
-        })?;
-        // TODO: I can't get this part into a helper function because of lifetime woes
-        let client = hyper::Client::builder().build(connector);
+        let tls = tls_config()
+            .map_err(|e| tonic::Status::new(tonic::Code::Internal, format!("{}", e)))?;
+        let mut http = HttpConnector::new();
+        http.enforce_http(false);
         let uri = Uri::from_str(&host)
             .map_err(|e| tonic::Status::new(tonic::Code::Internal, format!("{}", e)))?;
+        let connector = tower::ServiceBuilder::new()
+            .layer_fn(move |s| {
+                let tls = tls.clone();
 
-//        let mut tls_client = v1::message_api_client::MessageApiClient::with_origin(client, uri);
-        let mut tls_client = v1::message_api_client::MessageApiClient::with_interceptor(
-            client,
-            move |mut req: Request<()>| {
-                req.metadata_mut().insert("authorization", token.clone());
-                Ok(req)
-            },
-        );
-        tls_client.publish(Request::new(request)).await
+                hyper_rustls::HttpsConnectorBuilder::new()
+                    .with_tls_config(tls)
+                    .https_or_http()
+                    .enable_http2()
+                    .wrap_connector(s)
+            })
+            .service(http);
+        let client = hyper::Client::builder().build(connector);
+        let mut tls_client = v1::message_api_client::MessageApiClient::with_origin(client, uri);
+        let mut tonic_request = Request::new(request);
+        // Insert the auth token into the request
+        tonic_request.metadata_mut().insert("authorization", token);
+        tls_client.publish(tonic_request).await
     } else {
         println!("Using non-TLS client");
         let mut non_tls_client =
@@ -174,7 +181,10 @@ pub async fn publish(
                         format!("Failed to connect to {}: {}", host, e),
                     )
                 })?;
-        non_tls_client.publish(Request::new(request)).await
+        let mut tonic_request = Request::new(request);
+        // Insert the auth token into the request
+        tonic_request.metadata_mut().insert("authorization", token);
+        non_tls_client.publish(tonic_request).await
     };
     response.map(|r| r.into_inner())
 }
