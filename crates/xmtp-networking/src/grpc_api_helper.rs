@@ -126,34 +126,56 @@ pub async fn query_serialized(
 pub async fn publish(
     host: String,
     token: String,
-    json_envelopes: String,
+    envelopes: Vec<v1::Envelope>,
 ) -> Result<v1::PublishResponse, tonic::Status> {
     let host = host.to_string();
-    let channel = Channel::from_shared(host)
-        .map_err(|e| tonic::Status::new(tonic::Code::Internal, format!("{}", e)))?
-        .connect()
-        .await
-        .map_err(|e| tonic::Status::new(tonic::Code::Internal, format!("{}", e)))?;
-
     let auth_token_string = format!("Bearer {}", token);
     let token: MetadataValue<_> = auth_token_string
         .parse()
         .map_err(|e| tonic::Status::new(tonic::Code::Internal, format!("{}", e)))?;
 
-    let mut client = v1::message_api_client::MessageApiClient::with_interceptor(
-        channel,
-        move |mut req: Request<()>| {
-            req.metadata_mut().insert("authorization", token.clone());
-            Ok(req)
-        },
-    );
-
     let mut request = v1::PublishRequest::default();
-    // Deserialize the JSON string into a vector of Envelopes
-    let envelopes: Vec<v1::Envelope> = serde_json::from_str(&json_envelopes)
-        .map_err(|e| tonic::Status::new(tonic::Code::Internal, format!("{}", e)))?;
     request.envelopes = envelopes;
-    let response = client.publish(request).await;
+
+    // TODO: this code sucks, but if the host was TLS, we need to use the tls_client otherwise
+    // we need to use the non_tls_client. It's hard to DRY up because both clients have
+    // different types and can't be assigned to the same variable.
+    let response = if host.starts_with("https://") {
+        println!("Using TLS client");
+        // Set up the TLS client
+        let connector = get_tls_connector().map_err(|e| {
+            tonic::Status::new(
+                tonic::Code::Internal,
+                format!("Failed to create TLS connector: {}", e),
+            )
+        })?;
+        // TODO: I can't get this part into a helper function because of lifetime woes
+        let client = hyper::Client::builder().build(connector);
+        let uri = Uri::from_str(&host)
+            .map_err(|e| tonic::Status::new(tonic::Code::Internal, format!("{}", e)))?;
+
+//        let mut tls_client = v1::message_api_client::MessageApiClient::with_origin(client, uri);
+        let mut tls_client = v1::message_api_client::MessageApiClient::with_interceptor(
+            client,
+            move |mut req: Request<()>| {
+                req.metadata_mut().insert("authorization", token.clone());
+                Ok(req)
+            },
+        );
+        tls_client.publish(Request::new(request)).await
+    } else {
+        println!("Using non-TLS client");
+        let mut non_tls_client =
+            v1::message_api_client::MessageApiClient::connect(host.to_string())
+                .await
+                .map_err(|e| {
+                    tonic::Status::new(
+                        tonic::Code::Internal,
+                        format!("Failed to connect to {}: {}", host, e),
+                    )
+                })?;
+        non_tls_client.publish(Request::new(request)).await
+    };
     response.map(|r| r.into_inner())
 }
 
@@ -163,7 +185,10 @@ pub async fn publish_serialized(
     token: String,
     json_envelopes: String,
 ) -> Result<String, String> {
-    let response = publish(host, token, json_envelopes)
+    // Deserialize the JSON string into a vector of Envelopes
+    let envelopes: Vec<v1::Envelope> = serde_json::from_str(&json_envelopes)
+        .map_err(|e| format!("Failed to deserialize JSON: {}", e))?;
+    let response = publish(host, token, envelopes)
         .await
         .map_err(|e| format!("{}", e))?;
     // Response is a v1::PublishResponse protobuf message, which we need to serialize to JSON
