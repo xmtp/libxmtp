@@ -98,6 +98,41 @@ pub async fn publish_serialized(
     Ok(json)
 }
 
+// Subscribe to a topic and get a stream of messages, but as soon as you get on message, subscribe
+// the consumer will call this method again to get the next message
+pub async fn subscribe_once(
+    host: String,
+    topics: Vec<String>,
+) -> Result<v1::Envelope, tonic::Status> {
+    let mut client = v1::message_api_client::MessageApiClient::connect(host)
+        .await
+        .map_err(|e| tonic::Status::new(tonic::Code::Internal, format!("{}", e)))?;
+    let request = v1::SubscribeRequest {
+        content_topics: topics,
+        ..Default::default()
+    };
+    let mut stream = client.subscribe(request).await?.into_inner();
+    // Get the first message from the stream
+    let response = stream.message().await;
+    // If Option has Envelope, return it, otherwise return an error
+    response
+        .map(|e| e.unwrap())
+        .map_err(|e| tonic::Status::new(tonic::Code::Internal, format!("{}", e)))
+}
+
+// Subscribe serialized version
+pub async fn subscribe_once_serialized(
+    host: String,
+    topics: Vec<String>,
+) -> Result<String, String> {
+    let response = subscribe_once(host, topics)
+        .await
+        .map_err(|e| format!("{}", e))?;
+    // Response is a v1::Envelope protobuf message, which we need to serialize to JSON
+    let json = serde_json::to_string(&response).map_err(|e| format!("{}", e))?;
+    Ok(json)
+}
+
 // Return the json serialization of an Envelope with bytes
 pub fn test_envelope() -> String {
     let envelope = v1::Envelope {
