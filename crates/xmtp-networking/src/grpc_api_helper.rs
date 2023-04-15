@@ -104,6 +104,6 @@ pub fn test_envelope() -> String {
         message: vec![65],
         ..Default::default()
     };
-    let json = serde_json::to_string(&envelope).unwrap();
-    json
+
+    serde_json::to_string(&envelope).unwrap()
 }

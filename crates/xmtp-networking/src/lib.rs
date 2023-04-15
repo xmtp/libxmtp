@@ -1,5 +1,8 @@
 pub mod grpc_api_helper;
 pub mod proto_helper;
+// Custom patching of protobuf serialization for bytes -> base64
+// https://github.com/tokio-rs/prost/issues/75#issuecomment-1383233271
+pub mod serialize_utils;
 
 #[cfg(test)]
 mod tests {
@@ -12,7 +15,7 @@ mod tests {
         let serialized = test_envelope();
         assert_eq!(
             serialized,
-            "{\"content_topic\":\"\",\"timestamp_ns\":0,\"message\":[QQ==]}"
+            "{\"content_topic\":\"\",\"timestamp_ns\":0,\"message\":\"QQ==\"}"
         );
     }
 

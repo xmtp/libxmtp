@@ -15,6 +15,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .build_client(true)
         .type_attribute(".", "#[derive(serde::Deserialize, serde::Serialize)]")
         .file_descriptor_set_path(out_dir.join("store_descriptor.bin"))
+        .field_attribute(
+            "xmtp.message_api.v1.Envelope.message",
+            "#[serde(serialize_with = \"crate::serialize_utils::as_base64\")]",
+        )
+        .field_attribute(
+            "xmtp.message_api.v1.IndexCursor.digest",
+            "#[serde(serialize_with = \"crate::serialize_utils::as_base64\")]",
+        )
         .out_dir("./src")
         .compile(
             &[

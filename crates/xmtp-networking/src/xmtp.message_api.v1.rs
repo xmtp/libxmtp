@@ -40,6 +40,7 @@ pub struct AuthData {
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct IndexCursor {
     #[prost(bytes = "vec", tag = "1")]
+    #[serde(serialize_with = "crate::serialize_utils::as_base64")]
     pub digest: ::prost::alloc::vec::Vec<u8>,
     #[prost(uint64, tag = "2")]
     pub sender_time_ns: u64,
@@ -98,6 +99,7 @@ pub struct Envelope {
     #[prost(uint64, tag = "2")]
     pub timestamp_ns: u64,
     #[prost(bytes = "vec", tag = "3")]
+    #[serde(serialize_with = "crate::serialize_utils::as_base64")]
     pub message: ::prost::alloc::vec::Vec<u8>,
 }
 /// Publish
