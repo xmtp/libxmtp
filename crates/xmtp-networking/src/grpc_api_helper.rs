@@ -53,17 +53,7 @@ pub async fn query(
     topic: String,
     paging_info: Option<v1::PagingInfo>,
 ) -> Result<v1::QueryResponse, tonic::Status> {
-    // Set up the TLS client
-    let connector = get_tls_connector().map_err(|e| {
-        tonic::Status::new(
-            tonic::Code::Internal,
-            format!("Failed to create TLS connector: {}", e),
-        )
-    })?;
-    let client = hyper::Client::builder().build(connector);
-    let uri = Uri::from_str(&host)
-        .map_err(|e| tonic::Status::new(tonic::Code::Internal, format!("{}", e)))?;
-
+    // Set up the request
     let mut request = v1::QueryRequest {
         content_topics: vec![topic],
         ..Default::default()
@@ -72,11 +62,24 @@ pub async fn query(
     if let Some(p) = paging_info {
         request.paging_info = Some(p);
     }
-    // Do the query and get a Tonic response that we need to process
+
     // TODO: this code sucks, but if the host was TLS, we need to use the tls_client otherwise
-    // we need to use the non_tls_client
+    // we need to use the non_tls_client. It's hard to DRY up because both clients have
+    // different types and can't be assigned to the same variable.
     let response = if host.starts_with("https://") {
         println!("Using TLS client");
+        // Set up the TLS client
+        let connector = get_tls_connector().map_err(|e| {
+            tonic::Status::new(
+                tonic::Code::Internal,
+                format!("Failed to create TLS connector: {}", e),
+            )
+        })?;
+        // TODO: I can't get this part into a helper function because of lifetime woes
+        let client = hyper::Client::builder().build(connector);
+        let uri = Uri::from_str(&host)
+            .map_err(|e| tonic::Status::new(tonic::Code::Internal, format!("{}", e)))?;
+
         let mut tls_client = v1::message_api_client::MessageApiClient::with_origin(client, uri);
         tls_client.query(Request::new(request)).await
     } else {
