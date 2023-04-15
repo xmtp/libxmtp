@@ -27,38 +27,17 @@ fn tls_config() -> Result<ClientConfig, tonic::Status> {
     Ok(tls)
 }
 
-// Get a hyper client with TLS config but optional https enforcement
-//    let mut http = HttpConnector::new();
-//    http.enforce_http(false);
-//
-//    // We have to do some wrapping here to map the request type from
-//    // `https://example.com` -> `https://[::1]:50051` because `rustls`
-//    // doesn't accept ip's as `ServerName`.
-//    let connector = tower::ServiceBuilder::new()
-//        .layer_fn(move |s| {
-//            let tls = tls.clone();
-//
-//            hyper_rustls::HttpsConnectorBuilder::new()
-//                .with_tls_config(tls)
-//                .https_or_http()
-//                .enable_http2()
-//                .wrap_connector(s)
-//        })
-//        // Since our cert is signed with `example.com` but we actually want to connect
-//        // to a local server we will override the Uri passed from the `HttpsConnector`
-//        // and map it to the correct `Uri` that will connect us directly to the local server.
-//        .map_request(|_| Uri::from_static("https://[::1]:50051"))
-//        .service(http);
-//
-//    let client = hyper::Client::builder().build(connector);
-fn hyper_client(
-    enforce_https: bool,
-) -> Result<hyper::Client<hyper_rustls::HttpsConnector<HttpConnector>>, tonic::Status> {
+// Do a barebones unpaginated Query gRPC request
+// With optional PagingInfo
+pub async fn query(
+    host: String,
+    topic: String,
+    paging_info: Option<v1::PagingInfo>,
+) -> Result<v1::QueryResponse, tonic::Status> {
     let tls =
         tls_config().map_err(|e| tonic::Status::new(tonic::Code::Internal, format!("{}", e)))?;
     let mut http = HttpConnector::new();
-    http.enforce_http(enforce_https);
-
+    http.enforce_http(false);
 
     let connector = tower::ServiceBuilder::new()
         .layer_fn(move |s| {
@@ -73,19 +52,7 @@ fn hyper_client(
         .service(http);
 
     let client = hyper::Client::builder().build(connector);
-    Ok(client)
-}
-
-// Do a barebones unpaginated Query gRPC request
-// With optional PagingInfo
-pub async fn query(
-    host: String,
-    topic: String,
-    paging_info: Option<v1::PagingInfo>,
-) -> Result<v1::QueryResponse, tonic::Status> {
     let uri = Uri::from_str(&host)
-        .map_err(|e| tonic::Status::new(tonic::Code::Internal, format!("{}", e)))?;
-    let client = hyper_client(uri.scheme_str().unwrap_or("http") == "https")
         .map_err(|e| tonic::Status::new(tonic::Code::Internal, format!("{}", e)))?;
 
     let mut client = v1::message_api_client::MessageApiClient::with_origin(client, uri);
@@ -181,7 +148,6 @@ pub async fn subscribe(host: String, topics: Vec<String>) -> Result<Subscription
         .map_err(|e| tonic::Status::new(tonic::Code::Internal, format!("{}", e)))?;
     let request = v1::SubscribeRequest {
         content_topics: topics,
-        ..Default::default()
     };
     let stream = client.subscribe(request).await.unwrap().into_inner();
 
