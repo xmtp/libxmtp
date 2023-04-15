@@ -27,18 +27,11 @@ fn tls_config() -> Result<ClientConfig, tonic::Status> {
     Ok(tls)
 }
 
-// Do a barebones unpaginated Query gRPC request
-// With optional PagingInfo
-pub async fn query(
-    host: String,
-    topic: String,
-    paging_info: Option<v1::PagingInfo>,
-) -> Result<v1::QueryResponse, tonic::Status> {
+fn get_tls_connector() -> Result<hyper_rustls::HttpsConnector<HttpConnector>, tonic::Status> {
     let tls =
         tls_config().map_err(|e| tonic::Status::new(tonic::Code::Internal, format!("{}", e)))?;
     let mut http = HttpConnector::new();
     http.enforce_http(false);
-
     let connector = tower::ServiceBuilder::new()
         .layer_fn(move |s| {
             let tls = tls.clone();
@@ -50,12 +43,27 @@ pub async fn query(
                 .wrap_connector(s)
         })
         .service(http);
+    Ok(connector)
+}
 
+// Do a barebones unpaginated Query gRPC request
+// With optional PagingInfo
+pub async fn query(
+    host: String,
+    topic: String,
+    paging_info: Option<v1::PagingInfo>,
+) -> Result<v1::QueryResponse, tonic::Status> {
+    // Set up the TLS client
+    let connector = get_tls_connector().map_err(|e| {
+        tonic::Status::new(
+            tonic::Code::Internal,
+            format!("Failed to create TLS connector: {}", e),
+        )
+    })?;
     let client = hyper::Client::builder().build(connector);
     let uri = Uri::from_str(&host)
         .map_err(|e| tonic::Status::new(tonic::Code::Internal, format!("{}", e)))?;
 
-    let mut client = v1::message_api_client::MessageApiClient::with_origin(client, uri);
     let mut request = v1::QueryRequest {
         content_topics: vec![topic],
         ..Default::default()
@@ -65,7 +73,25 @@ pub async fn query(
         request.paging_info = Some(p);
     }
     // Do the query and get a Tonic response that we need to process
-    let response = client.query(request).await;
+    // TODO: this code sucks, but if the host was TLS, we need to use the tls_client otherwise
+    // we need to use the non_tls_client
+    let response = if host.starts_with("https://") {
+        println!("Using TLS client");
+        let mut tls_client = v1::message_api_client::MessageApiClient::with_origin(client, uri);
+        tls_client.query(Request::new(request)).await
+    } else {
+        println!("Using non-TLS client");
+        let mut non_tls_client =
+            v1::message_api_client::MessageApiClient::connect(host.to_string())
+                .await
+                .map_err(|e| {
+                    tonic::Status::new(
+                        tonic::Code::Internal,
+                        format!("Failed to connect to {}: {}", host, e),
+                    )
+                })?;
+        non_tls_client.query(Request::new(request)).await
+    };
     response.map(|r| r.into_inner())
 }
 
