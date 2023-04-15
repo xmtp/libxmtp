@@ -5,7 +5,6 @@ use tonic::{metadata::MetadataValue, transport::Channel, Request, Streaming};
 use xmtp_proto::xmtp::message_api::v1::{self, Envelope};
 use hyper::{client::HttpConnector, Uri};
 use tokio_rustls::rustls::{ClientConfig, OwnedTrustAnchor, RootCertStore};
-use tonic::{metadata::MetadataValue, Request};
 
 use std::str::FromStr;
 

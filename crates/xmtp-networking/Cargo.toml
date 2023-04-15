@@ -10,10 +10,7 @@ xmtp-proto = { path = "../xmtp-proto", features = ["proto_full"] }
 prost = { version  = "^0.11", features = ["prost-derive"] }
 tonic = { version = "^0.9", features = ["tls"] }
 tokio = { version = "1.24", features = ["macros", "rt-multi-thread"] }
-<<<<<<< HEAD
-=======
 tonic-reflection = "0.6.0"
->>>>>>> fcfa6c0 (fix: need to somehow rework the URI for publish)
 tokio-rustls = "0.24.0"
 serde = { version = "1.0.160", features = ["derive"] }
 serde_json = "1.0"
