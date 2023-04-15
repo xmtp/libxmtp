@@ -13,4 +13,10 @@ bundle.zip
 /target
 /Cargo.lock
 .build
+
+# Ignore swift files in include/
+./include/Generated/*.swift
+./include/Generated/xmtp_rust_swift/*.swift
+
+# Ignore Generated, gets rebuilt on cargo build
 ./Generated
