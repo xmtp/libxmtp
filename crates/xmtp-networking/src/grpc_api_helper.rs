@@ -77,8 +77,7 @@ pub async fn query(
                 format!("Failed to create TLS connector: {}", e),
             )
         })?;
-        // TODO: Ideally I'd get the entire hyper::Client created in a separate function
-        // but I'm hitting some lifetime issues
+        // TODO: I can't get this part into a helper function because of lifetime woes
         let client = hyper::Client::builder().build(connector);
         let uri = Uri::from_str(&host)
             .map_err(|e| tonic::Status::new(tonic::Code::Internal, format!("{}", e)))?;

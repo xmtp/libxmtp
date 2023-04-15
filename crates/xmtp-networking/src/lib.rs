@@ -37,7 +37,7 @@ mod tests {
 
             // Skipping the auth token because we have authn disabled on the local
             // xmtp-node-go instance
-            publish(
+            publish_serialized(
                 host.to_string(),
                 "".to_string(),
                 test_envelope(String::from(topic)),
