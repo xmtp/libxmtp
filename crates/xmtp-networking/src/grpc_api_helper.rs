@@ -97,3 +97,13 @@ pub async fn publish_serialized(
     let json = serde_json::to_string(&response).map_err(|e| format!("{}", e))?;
     Ok(json)
 }
+
+// Return the json serialization of an Envelope with bytes
+pub fn test_envelope() -> String {
+    let envelope = v1::Envelope {
+        message: vec![65],
+        ..Default::default()
+    };
+    let json = serde_json::to_string(&envelope).unwrap();
+    json
+}

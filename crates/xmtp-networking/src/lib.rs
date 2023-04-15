@@ -5,6 +5,16 @@ pub mod proto_helper;
 mod tests {
     use super::*;
     use grpc_api_helper::query_serialized;
+    use grpc_api_helper::test_envelope;
+
+    #[test]
+    fn test() {
+        let serialized = test_envelope();
+        assert_eq!(
+            serialized,
+            "{\"content_topic\":\"\",\"timestamp_ns\":0,\"message\":[QQ==]}"
+        );
+    }
 
     #[test]
     fn grpc_query_test() {
