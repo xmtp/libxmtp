@@ -1,10 +1,10 @@
+use hyper::{client::HttpConnector, Uri};
 use std::sync::{Arc, Mutex};
 use std::time::{SystemTime, UNIX_EPOCH};
 use tokio::sync::oneshot;
-use tonic::{metadata::MetadataValue, transport::Channel, Request, Streaming};
-use xmtp_proto::xmtp::message_api::v1::{self, Envelope};
-use hyper::{client::HttpConnector, Uri};
 use tokio_rustls::rustls::{ClientConfig, OwnedTrustAnchor, RootCertStore};
+use tonic::{metadata::MetadataValue, Request, Streaming};
+use xmtp_proto::xmtp::message_api::v1::{self, Envelope};
 
 use std::str::FromStr;
 
@@ -214,7 +214,7 @@ pub async fn subscribe(host: String, topics: Vec<String>) -> Result<Subscription
     };
     let stream = client.subscribe(request).await.unwrap().into_inner();
 
-    return Ok(Subscription::start(stream).await);
+    Ok(Subscription::start(stream).await)
 }
 
 // Return the json serialization of an Envelope with bytes
@@ -222,7 +222,7 @@ pub fn test_envelope(topic: String) -> String {
     let time_since_epoch = SystemTime::now().duration_since(UNIX_EPOCH).unwrap();
     let envelope = v1::Envelope {
         timestamp_ns: time_since_epoch.as_nanos() as u64,
-        content_topic: topic.to_string(),
+        content_topic: topic,
         message: vec![65],
         ..Default::default()
     };

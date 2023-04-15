@@ -8,7 +8,7 @@ pub mod serialize_utils;
 mod tests {
     use super::*;
     use grpc_api_helper::test_envelope;
-    use grpc_api_helper::{publish, publish_serialized, query_serialized, subscribe};
+    use grpc_api_helper::{publish_serialized, query_serialized, subscribe};
 
     #[tokio::test]
     async fn grpc_query_test() {
