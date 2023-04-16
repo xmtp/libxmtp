@@ -9,7 +9,11 @@ edition = "2021"
 xmtp-keystore = { path = "../../crates/xmtp-keystore" }
 corecrypto = { path = "../../crates/corecrypto" }
 xmtp-networking = { path = "../../crates/xmtp-networking" }
-xmtp-proto = { path = "../../crates/xmtp-proto" }
+xmtp_proto = { path = "../../crates/xmtp_proto", features = ["proto_full"] }
+prost = { version = "0.11", features = ["prost-derive"] }
+async-ffi = "0.4.1"
+tonic = "0.9.1"
+tokio = "1.27.0"
 
 [lib]
 name = "xmtp_rust_swift"

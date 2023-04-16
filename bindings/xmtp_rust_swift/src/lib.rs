@@ -1,5 +1,29 @@
+use async_ffi::{FfiFuture, FutureExt};
 use corecrypto::encryption;
+use tonic::Request;
+use xmtp_proto;
 
+#[no_mangle]
+pub extern "C" fn proto_selftest() -> FfiFuture<bool> {
+    async {
+        let mut client = xmtp_proto::create_client("http://localhost:5556".to_string()).await;
+        let request = xmtp_proto::xmtp::message_api::v1::QueryRequest {
+            content_topics: vec!["test".to_string()],
+            start_time_ns: 0,
+            end_time_ns: 0,
+            paging_info: None,
+        };
+        let result = client.query(Request::new(request)).await;
+        match result {
+            Ok(response) => {
+                println!("RESPONSE: {:?}", response);
+                true
+            }
+            Err(_e) => false,
+        }
+    }
+    .into_ffi()
+}
 
 #[no_mangle]
 pub extern "C" fn encryption_selftest() -> bool {
@@ -56,6 +80,12 @@ pub extern "C" fn networking_selftest() -> u16 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    async fn test_proto() {
+        let result = proto_selftest();
+        assert!(result.await);
+    }
 
     #[test]
     fn test_encryption() {

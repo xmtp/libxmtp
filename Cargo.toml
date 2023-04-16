@@ -1,0 +1,10 @@
+[workspace]
+
+members = [
+    "crates/corecrypto",
+    "crates/xmtp_proto",
+    "crates/xmtp-networking",
+    "crates/xmtp-keystore",
+    "bindings/wasm/crate",
+    "bindings/xmtp_rust_swift",
+]
