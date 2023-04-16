@@ -1,6 +1,6 @@
-include!("gen/mod.rs");
-
 pub mod grpc_api_helper;
+
+include!("gen/mod.rs");
 // Custom patching of protobuf serialization for bytes -> base64
 // https://github.com/tokio-rs/prost/issues/75#issuecomment-1383233271
 pub mod serialize_utils;
