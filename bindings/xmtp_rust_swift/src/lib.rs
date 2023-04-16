@@ -14,7 +14,7 @@ mod ffi {
 
     extern "Rust" {
         async fn query(host: String, topic: String, json_paging_info: String) -> ResponseJson;
-        async fn publish(host: String, token: String, json_envelopes: String) -> ResponseJson;
+        async fn publish(host: String, token: String, json_envelopes: Vec<String>) -> ResponseJson;
         async fn subscribe(host: String, topics: Vec<String>) -> ResponseJson;
         fn poll_subscription(subscription_id: String) -> ResponseJson;
     }
@@ -38,9 +38,9 @@ async fn query(host: String, topic: String, json_paging_info: String) -> ffi::Re
     }
 }
 
-async fn publish(host: String, token: String, json_envelopes: String) -> ffi::ResponseJson {
+async fn publish(host: String, token: String, json_envelopes: Vec<String>) -> ffi::ResponseJson {
     println!(
-        "Received a request to publish host: {}, token: {}, envelopes: {}",
+        "Received a request to publish host: {}, token: {}, envelopes: {:?}",
         host, token, json_envelopes
     );
     let publish_result = grpc_api_helper::publish_serialized(host, token, json_envelopes).await;
@@ -137,7 +137,7 @@ mod tests {
         let publish_result = super::publish(
             ADDRESS.to_string(),
             "test".to_string(),
-            xmtp_networking::grpc_api_helper::test_envelope(topic.to_string()),
+            vec!(xmtp_networking::grpc_api_helper::test_envelope(topic.to_string())),
         )
         .await;
         assert_eq!(publish_result.error, "");

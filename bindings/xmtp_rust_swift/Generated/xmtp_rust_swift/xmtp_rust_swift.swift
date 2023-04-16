@@ -22,7 +22,7 @@ class CbWrapper$query {
         self.cb = cb
     }
 }
-public func publish<GenericIntoRustString: IntoRustString>(_ host: GenericIntoRustString, _ token: GenericIntoRustString, _ json_envelopes: GenericIntoRustString) async -> ResponseJson {
+public func publish<GenericIntoRustString: IntoRustString>(_ host: GenericIntoRustString, _ token: GenericIntoRustString, _ json_envelopes: RustVec<GenericIntoRustString>) async -> ResponseJson {
     func onComplete(cbWrapperPtr: UnsafeMutableRawPointer?, rustFnRetVal: __swift_bridge__$ResponseJson) {
         let wrapper = Unmanaged<CbWrapper$publish>.fromOpaque(cbWrapperPtr!).takeRetainedValue()
         wrapper.cb(.success(rustFnRetVal.intoSwiftRepr()))
@@ -36,7 +36,7 @@ public func publish<GenericIntoRustString: IntoRustString>(_ host: GenericIntoRu
         let wrapper = CbWrapper$publish(cb: callback)
         let wrapperPtr = Unmanaged.passRetained(wrapper).toOpaque()
 
-        __swift_bridge__$publish(wrapperPtr, onComplete, { let rustString = host.intoRustString(); rustString.isOwned = false; return rustString.ptr }(), { let rustString = token.intoRustString(); rustString.isOwned = false; return rustString.ptr }(), { let rustString = json_envelopes.intoRustString(); rustString.isOwned = false; return rustString.ptr }())
+        __swift_bridge__$publish(wrapperPtr, onComplete, { let rustString = host.intoRustString(); rustString.isOwned = false; return rustString.ptr }(), { let rustString = token.intoRustString(); rustString.isOwned = false; return rustString.ptr }(), { let val = json_envelopes; val.isOwned = false; return val.ptr }())
     })
 }
 class CbWrapper$publish {

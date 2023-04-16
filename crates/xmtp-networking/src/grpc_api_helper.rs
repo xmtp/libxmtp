@@ -192,11 +192,13 @@ pub async fn publish(
 pub async fn publish_serialized(
     host: String,
     token: String,
-    json_envelopes: String,
+    json_envelopes: Vec<String>,
 ) -> Result<String, String> {
-    // Deserialize the JSON string into a vector of Envelopes
-    let envelopes: Vec<v1::Envelope> = serde_json::from_str(&json_envelopes)
-        .map_err(|e| format!("Failed to deserialize JSON: {}", e))?;
+    // Map the json_envelops to a Vec<v1::Envelope> using serde_json
+    let envelopes: Vec<v1::Envelope> = json_envelopes
+        .iter()
+        .map(|e| serde_json::from_str(e).map_err(|e| format!("{}", e)))
+        .collect::<Result<Vec<v1::Envelope>, String>>()?;
     let response = publish(host, token, envelopes)
         .await
         .map_err(|e| format!("{}", e))?;

@@ -40,7 +40,7 @@ mod tests {
             publish_serialized(
                 host.to_string(),
                 "".to_string(),
-                test_envelope(String::from(topic)),
+                vec!(test_envelope(String::from(topic))),
             )
             .await
             .unwrap();
@@ -61,7 +61,7 @@ mod tests {
         let rt = tokio::runtime::Runtime::new().unwrap();
         rt.block_on(async {
             let resp = query_serialized(
-                "http://localhost:15555".to_string(),
+                "http://localhost:5556".to_string(),
                 "test".to_string(),
                 "".to_string(),
             )
@@ -83,7 +83,7 @@ mod tests {
             let resp = publish_serialized(
                 "https://dev.xmtp.network:5556".to_string(),
                 "token".to_string(),
-                "[]".to_string(),
+                Vec::new(),
             )
             .await;
             println!("{:?}", resp);

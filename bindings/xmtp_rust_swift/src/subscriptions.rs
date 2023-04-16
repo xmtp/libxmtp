@@ -22,9 +22,9 @@ pub fn get_messages(id: String) -> Option<Vec<Envelope>> {
     let sub = subscriptions.get(&id);
     let new_messages = sub?.get_and_reset_pending();
 
-    if new_messages.len() > 0 {
+    if !new_messages.is_empty() {
         return Some(new_messages);
     }
 
-    return None;
+    None
 }
