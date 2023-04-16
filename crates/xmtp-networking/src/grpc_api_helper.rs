@@ -1,4 +1,4 @@
-use crate::xmtp::message_api::v1;
+use xmtp::message_api::v1;
 
 use tonic::{metadata::MetadataValue, transport::Channel, Request};
 
