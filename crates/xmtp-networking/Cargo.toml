@@ -7,7 +7,8 @@ edition = "2021"
 
 [dependencies]
 tonic = "^0.9"
-prost = "^0.11"
+xmtp-proto = { path = "../xmtp-proto", features = ["proto_full"] }
+prost = { version  = "^0.11", features = ["prost-derive"] }
 tokio = { version = "1.24", features = ["macros", "rt-multi-thread"] }
 #tokio-stream = { version = "0.1", features = ["net"] }
 #futures = "0.3"
@@ -17,6 +18,5 @@ tokio-rustls = "0.24.0"
 serde = { version = "1.0.160", features = ["derive"] }
 serde_json = "1.0"
 base64 = "0.21.0"
-
-[build-dependencies]
-tonic-build = "^0.9"
+pbjson = "0.5.1"
+pbjson-types = "0.5.1"

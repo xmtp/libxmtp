@@ -1,5 +1,5 @@
 pub mod grpc_api_helper;
-pub mod proto_helper;
+
 // Custom patching of protobuf serialization for bytes -> base64
 // https://github.com/tokio-rs/prost/issues/75#issuecomment-1383233271
 pub mod serialize_utils;
@@ -15,7 +15,9 @@ mod tests {
         let serialized = test_envelope();
         assert_eq!(
             serialized,
-            "{\"content_topic\":\"\",\"timestamp_ns\":0,\"message\":\"QQ==\"}"
+            // NOTE: I removed the empty content_topic and timestamp_ns fields, since
+            // the serializer I am using doesn't include them
+            "{\"message\":\"QQ==\"}"
         );
     }
 
@@ -24,7 +26,7 @@ mod tests {
         let rt = tokio::runtime::Runtime::new().unwrap();
         rt.block_on(async {
             let resp = query_serialized(
-                "http://localhost:15555".to_string(),
+                "http://localhost:5556".to_string(),
                 "test".to_string(),
                 "".to_string(),
             )
