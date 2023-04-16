@@ -9,6 +9,7 @@ edition = "2021"
 xmtp-keystore = { path = "../../crates/xmtp-keystore" }
 corecrypto = { path = "../../crates/corecrypto" }
 xmtp-networking = { path = "../../crates/xmtp-networking" }
+xmtp-proto = { path = "../../crates/xmtp-proto" }
 
 [lib]
 name = "xmtp_rust_swift"

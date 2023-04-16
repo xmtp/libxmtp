@@ -1,4 +1,8 @@
+pub mod proto;
 
+pub fn build_proto() {
+    let mut req = proto::message_api::v1::PublishRequest::default();
+}
 
 pub fn test_request() -> Result<u16, String> {
     let resp = reqwest::blocking::get("https://httpbin.org/ip").map_err(|e| format!("{}", e))?;
