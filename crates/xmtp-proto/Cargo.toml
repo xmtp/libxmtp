@@ -1,5 +1,5 @@
 [package]
-name = "xmtp_proto"
+name = "xmtp-proto"
 version = "0.1.0"
 edition = "2021"
 

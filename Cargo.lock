@@ -2155,11 +2155,11 @@ dependencies = [
  "tonic 0.9.1",
  "tonic-build",
  "tonic-reflection",
- "xmtp_proto",
+ "xmtp-proto",
 ]
 
 [[package]]
-name = "xmtp_proto"
+name = "xmtp-proto"
 version = "0.1.0"
 dependencies = [
  "pbjson",
