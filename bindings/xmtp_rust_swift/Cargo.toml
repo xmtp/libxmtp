@@ -6,7 +6,7 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-xmtp-networking = { path = "../../crates/xmtp-networking", features = ["proto-full"] }
+xmtp-networking = { path = "../../crates/xmtp-networking" }
 swift-bridge = {version = "0.1", features = ["async"]}
 
 [lib]

@@ -1,5 +1,3 @@
-include!("gen/mod.rs");
-
 pub mod grpc_api_helper;
 
 // Custom patching of protobuf serialization for bytes -> base64
@@ -26,7 +24,7 @@ mod tests {
         let rt = tokio::runtime::Runtime::new().unwrap();
         rt.block_on(async {
             let resp = query_serialized(
-                "http://localhost:15555".to_string(),
+                "http://localhost:5556".to_string(),
                 "test".to_string(),
                 "".to_string(),
             )
