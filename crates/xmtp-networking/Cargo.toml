@@ -6,9 +6,9 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-tonic = "^0.9"
 xmtp-proto = { path = "../xmtp-proto", features = ["proto_full"] }
 prost = { version  = "^0.11", features = ["prost-derive"] }
+tonic = { version = "^0.9", features = ["tls"] }
 tokio = { version = "1.24", features = ["macros", "rt-multi-thread"] }
 tokio-rustls = "0.24.0"
 serde = { version = "1.0.160", features = ["derive"] }
@@ -16,3 +16,7 @@ serde_json = "1.0"
 base64 = "0.21.0"
 pbjson = "0.5.1"
 pbjson-types = "0.5.1"
+webpki-roots = "0.23.0"
+hyper = "0.14.26"
+hyper-rustls = { version = "0.24.0", features = ["http2"]}
+tower = "0.4.13"

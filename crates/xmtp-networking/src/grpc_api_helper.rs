@@ -3,6 +3,78 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use tokio::sync::oneshot;
 use tonic::{metadata::MetadataValue, transport::Channel, Request, Streaming};
 use xmtp_proto::xmtp::message_api::v1::{self, Envelope};
+use hyper::{client::HttpConnector, Uri};
+use tokio_rustls::rustls::{ClientConfig, OwnedTrustAnchor, RootCertStore};
+
+use std::str::FromStr;
+
+// Set up an initial TLS config with webpki-roots and connector
+fn tls_config() -> Result<ClientConfig, tonic::Status> {
+    let mut roots = RootCertStore::empty();
+    // Need to convert into OwnedTrustAnchor
+    roots.add_server_trust_anchors(webpki_roots::TLS_SERVER_ROOTS.0.iter().map(|ta| {
+        OwnedTrustAnchor::from_subject_spki_name_constraints(
+            ta.subject,
+            ta.spki,
+            ta.name_constraints,
+        )
+    }));
+
+    let tls = ClientConfig::builder()
+        .with_safe_defaults()
+        .with_root_certificates(roots)
+        .with_no_client_auth();
+    Ok(tls)
+}
+
+// Get a hyper client with TLS config but optional https enforcement
+//    let mut http = HttpConnector::new();
+//    http.enforce_http(false);
+//
+//    // We have to do some wrapping here to map the request type from
+//    // `https://example.com` -> `https://[::1]:50051` because `rustls`
+//    // doesn't accept ip's as `ServerName`.
+//    let connector = tower::ServiceBuilder::new()
+//        .layer_fn(move |s| {
+//            let tls = tls.clone();
+//
+//            hyper_rustls::HttpsConnectorBuilder::new()
+//                .with_tls_config(tls)
+//                .https_or_http()
+//                .enable_http2()
+//                .wrap_connector(s)
+//        })
+//        // Since our cert is signed with `example.com` but we actually want to connect
+//        // to a local server we will override the Uri passed from the `HttpsConnector`
+//        // and map it to the correct `Uri` that will connect us directly to the local server.
+//        .map_request(|_| Uri::from_static("https://[::1]:50051"))
+//        .service(http);
+//
+//    let client = hyper::Client::builder().build(connector);
+fn hyper_client(
+    enforce_https: bool,
+) -> Result<hyper::Client<hyper_rustls::HttpsConnector<HttpConnector>>, tonic::Status> {
+    let tls =
+        tls_config().map_err(|e| tonic::Status::new(tonic::Code::Internal, format!("{}", e)))?;
+    let mut http = HttpConnector::new();
+    http.enforce_http(enforce_https);
+
+
+    let connector = tower::ServiceBuilder::new()
+        .layer_fn(move |s| {
+            let tls = tls.clone();
+
+            hyper_rustls::HttpsConnectorBuilder::new()
+                .with_tls_config(tls)
+                .https_or_http()
+                .enable_http2()
+                .wrap_connector(s)
+        })
+        .service(http);
+
+    let client = hyper::Client::builder().build(connector);
+    Ok(client)
+}
 
 // Do a barebones unpaginated Query gRPC request
 // With optional PagingInfo
@@ -11,9 +83,12 @@ pub async fn query(
     topic: String,
     paging_info: Option<v1::PagingInfo>,
 ) -> Result<v1::QueryResponse, tonic::Status> {
-    let mut client = v1::message_api_client::MessageApiClient::connect(host)
-        .await
+    let uri = Uri::from_str(&host)
         .map_err(|e| tonic::Status::new(tonic::Code::Internal, format!("{}", e)))?;
+    let client = hyper_client(uri.scheme_str().unwrap_or("http") == "https")
+        .map_err(|e| tonic::Status::new(tonic::Code::Internal, format!("{}", e)))?;
+
+    let mut client = v1::message_api_client::MessageApiClient::with_origin(client, uri);
     let mut request = v1::QueryRequest {
         content_topics: vec![topic],
         ..Default::default()
