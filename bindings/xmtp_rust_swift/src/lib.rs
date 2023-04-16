@@ -57,7 +57,7 @@ mod tests {
     fn test_query() {
         let runtime = tokio::runtime::Runtime::new().unwrap();
         let result = runtime.block_on(super::query(
-            "http://localhost:15555".to_string(),
+            "http://localhost:5556".to_string(),
             "test".to_string(),
             "".to_string(),
         ));
