@@ -13,13 +13,13 @@ download-toolchains:
 all: pkg
 
 $(ARCHS_IOS): %:
-	cargo build --target $@ --release --no-default-features
+	cargo build --target $@ --target-dir ./target --release --no-default-features
 
 $(ARCHS_MAC): %:
-	cargo build --target $@ --release --no-default-features
+	cargo build --target $@ --target-dir ./target --release --no-default-features
 
 aarch64-apple-ios:
-	cargo build --target $@ --release
+	cargo build --target $@ --target-dir ./target --release
 
 $(LIB): $(ARCHS_IOS) $(ARCHS_MAC) aarch64-apple-ios
 	rm -f libxmtp_rust_swift_iossimulator.a libxmtp_rust_swift_macos.a
