@@ -15,8 +15,8 @@ bundle.zip
 .build
 
 # Ignore swift files in include/
-./include/Generated/*.swift
-./include/Generated/xmtp_rust_swift/*.swift
+/include/Generated/*.swift
+/include/Generated/xmtp_rust_swift/*.swift
 
 # Ignore Generated, gets rebuilt on cargo build
-./Generated
+/Generated
