@@ -1,4 +1,6 @@
 module XMTPRustSwift {
     header "xmtp_rust_swift.h"
+    header "Generated/SwiftBridgeCore.h"
+    header "Generated/xmtp_rust_swift/xmtp_rust_swift.h"
     export *
 }

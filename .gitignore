@@ -124,3 +124,7 @@ dist
 # Swap files for vim
 *.swp
 *.swo
+
+
+# Generated code
+crates/xmtp-proto/src/gen

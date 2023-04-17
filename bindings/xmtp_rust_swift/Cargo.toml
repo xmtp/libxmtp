@@ -6,10 +6,24 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-xmtp-keystore = { path = "../../crates/xmtp-keystore" }
-corecrypto = { path = "../../crates/corecrypto" }
 xmtp-networking = { path = "../../crates/xmtp-networking" }
+swift-bridge = {version = "0.1", features = ["async"]}
 
 [lib]
 name = "xmtp_rust_swift"
 crate-type = [ "staticlib" ]
+
+[build-dependencies]
+swift-bridge-build = "0.1"
+
+[dev-dependencies]
+tokio = { version = "1.0", features = ["full"] }
+
+# NOTE: Thei release profile reduce bundle size from 230M to 41M - may have performance impliciations
+# https://stackoverflow.com/a/54842093
+[profile.release]
+opt-level = 'z'     # Optimize for size
+lto = true          # Enable link-time optimization
+codegen-units = 1   # Reduce number of codegen units to increase optimizations
+panic = 'abort'     # Abort on panic
+strip = true        # Strip symbols from binary*

@@ -6,4 +6,17 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-reqwest = { version = "0.11.16", features = ["blocking", "json"]}
+tonic = "^0.9"
+xmtp-proto = { path = "../xmtp-proto", features = ["proto_full"] }
+prost = { version  = "^0.11", features = ["prost-derive"] }
+tokio = { version = "1.24", features = ["macros", "rt-multi-thread"] }
+#tokio-stream = { version = "0.1", features = ["net"] }
+#futures = "0.3"
+#clap = { version = "4.1.4", features = ["derive"] }
+tonic-reflection = "0.6.0"
+tokio-rustls = "0.24.0"
+serde = { version = "1.0.160", features = ["derive"] }
+serde_json = "1.0"
+base64 = "0.21.0"
+pbjson = "0.5.1"
+pbjson-types = "0.5.1"

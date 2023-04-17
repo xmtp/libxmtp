@@ -13,3 +13,4 @@ bundle.zip
 /target
 /Cargo.lock
 .build
+./Generated
