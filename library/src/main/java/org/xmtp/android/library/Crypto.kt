@@ -36,10 +36,10 @@ class Crypto {
                 val final = cipher.doFinal(message)
 
                 CiphertextOuterClass.Ciphertext.newBuilder().apply {
-                    aes256GcmHkdfSha256Builder.apply {
-                        payload = final.toByteString()
-                        hkdfSalt = salt.toByteString()
-                        gcmNonce = nonceData.toByteString()
+                    aes256GcmHkdfSha256 = aes256GcmHkdfSha256.toBuilder().also {
+                        it.payload = final.toByteString()
+                        it.hkdfSalt = salt.toByteString()
+                        it.gcmNonce = nonceData.toByteString()
                     }.build()
                 }.build()
             } catch (err: GeneralSecurityException) {

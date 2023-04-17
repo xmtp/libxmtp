@@ -18,15 +18,16 @@ class PublicKeyBuilder {
             val unsignedPublicKey = PublicKey.parseFrom(signedPublicKey.keyBytes)
             return PublicKey.newBuilder().apply {
                 timestamp = unsignedPublicKey.timestamp
-                secp256K1UncompressedBuilder.bytes = unsignedPublicKey.secp256K1Uncompressed.bytes
-
+                secp256K1Uncompressed = secp256K1Uncompressed.toBuilder().also {
+                    it.bytes = unsignedPublicKey.secp256K1Uncompressed.bytes
+                }.build()
                 var sig = signedPublicKey.signature
                 if (!sig.walletEcdsaCompact.bytes.isEmpty) {
                     sig = sig.toBuilder().apply {
-                        ecdsaCompactBuilder.bytes =
-                            signedPublicKey.signature.walletEcdsaCompact.bytes
-                        ecdsaCompactBuilder.recovery =
-                            signedPublicKey.signature.walletEcdsaCompact.recovery
+                        ecdsaCompact = ecdsaCompact.toBuilder().also {
+                            it.bytes = signedPublicKey.signature.walletEcdsaCompact.bytes
+                            it.recovery = signedPublicKey.signature.walletEcdsaCompact.recovery
+                        }.build()
                     }.build()
                 }
                 signature = sig
@@ -36,7 +37,7 @@ class PublicKeyBuilder {
         fun buildFromBytes(data: ByteArray): PublicKey {
             return PublicKey.newBuilder().apply {
                 timestamp = Date().time
-                secp256K1UncompressedBuilder.apply {
+                secp256K1Uncompressed = secp256K1Uncompressed.toBuilder().apply {
                     bytes = data.toByteString()
                 }.build()
             }.build()
@@ -63,7 +64,9 @@ fun PublicKey.recoverWalletSignerPublicKey(): PublicKey {
 
     val slimKey = PublicKey.newBuilder().also {
         it.timestamp = timestamp
-        it.secp256K1UncompressedBuilder.bytes = secp256K1Uncompressed.bytes
+        it.secp256K1Uncompressed = it.secp256K1Uncompressed.toBuilder().also { keyBuilder ->
+            keyBuilder.bytes = secp256K1Uncompressed.bytes
+        }.build()
     }.build()
     val signatureClass = Signature.newBuilder().build()
     val sigText = signatureClass.createIdentityText(slimKey.toByteArray())

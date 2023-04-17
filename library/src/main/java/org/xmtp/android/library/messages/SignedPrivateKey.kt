@@ -9,11 +9,13 @@ class SignedPrivateKeyBuilder {
         fun buildFromLegacy(key: PrivateKey): SignedPrivateKey {
             return SignedPrivateKey.newBuilder().apply {
                 createdNs = key.timestamp * 1_000_000
-                secp256K1Builder.bytes = key.secp256K1.bytes
-                publicKey = SignedPublicKeyBuilder.buildFromLegacy(
-                    key.publicKey,
-                )
-                publicKeyBuilder.signature = key.publicKey.signature
+                secp256K1 = secp256K1.toBuilder().also {
+                    it.bytes = key.secp256K1.bytes
+                }.build()
+                publicKey = SignedPublicKeyBuilder.buildFromLegacy(key.publicKey)
+                publicKey = publicKey.toBuilder().also {
+                    it.signature = key.publicKey.signature
+                }.build()
             }.build()
         }
     }

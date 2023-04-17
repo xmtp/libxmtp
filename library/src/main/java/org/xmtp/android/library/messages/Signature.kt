@@ -23,8 +23,10 @@ class SignatureBuilder {
     companion object {
         fun buildFromSignatureData(data: ByteArray): Signature {
             return Signature.newBuilder().also {
-                it.ecdsaCompactBuilder.bytes = data.take(64).toByteArray().toByteString()
-                it.ecdsaCompactBuilder.recovery = data[64].toInt()
+                it.ecdsaCompact = it.ecdsaCompact.toBuilder().also { builder ->
+                    builder.bytes = data.take(64).toByteArray().toByteString()
+                    builder.recovery = data[64].toInt()
+                }.build()
             }.build()
         }
     }
@@ -100,16 +102,16 @@ private fun getPublicKeyFromBytes(pubKey: ByteArray): java.security.PublicKey {
 }
 
 fun Signature.ensureWalletSignature(): Signature {
-    when (unionCase) {
+    return when (unionCase) {
         SignatureOuterClass.Signature.UnionCase.ECDSA_COMPACT -> {
             val walletEcdsa = SignatureOuterClass.Signature.WalletECDSACompact.newBuilder().also {
                 it.bytes = ecdsaCompact.bytes
                 it.recovery = ecdsaCompact.recovery
             }.build()
-            return this.toBuilder().also {
+            this.toBuilder().also {
                 it.walletEcdsaCompact = walletEcdsa
             }.build()
         }
-        else -> return this
+        else -> this
     }
 }

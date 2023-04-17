@@ -15,15 +15,16 @@ class ContactBundleBuilder {
     companion object {
         fun buildFromEnvelope(envelope: MessageApiOuterClass.Envelope): ContactBundle {
             val data = envelope.message
-            val contactBundle = ContactBundle.newBuilder()
             // Try to deserialize legacy v1 bundle
             val publicKeyBundle = PublicKeyBundle.parseFrom(data)
-            contactBundle.v1Builder.keyBundle = publicKeyBundle
-            // It's not a legacy bundle so just deserialize as a ContactBundle
-            if (contactBundle.v1.keyBundle.identityKey.secp256K1Uncompressed.bytes.isEmpty) {
-                contactBundle.mergeFrom(data)
-            }
-            return contactBundle.build()
+            return ContactBundle.newBuilder().also { builder ->
+                builder.v1 = builder.v1.toBuilder().also {
+                    it.keyBundle = publicKeyBundle
+                }.build()
+                if (builder.v1.keyBundle.identityKey.secp256K1Uncompressed.bytes.isEmpty) {
+                    builder.mergeFrom(data)
+                }
+            }.build()
         }
     }
 }

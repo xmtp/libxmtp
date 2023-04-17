@@ -59,8 +59,10 @@ class MessageV2Builder {
             )
 
             val key = PublicKey.newBuilder().also {
-                it.secp256K1UncompressedBuilder.bytes =
-                    KeyUtil.addUncompressedByte(publicKey.toByteArray()).toByteString()
+                it.secp256K1Uncompressed = it.secp256K1Uncompressed.toBuilder().also { keyBuilder ->
+                    keyBuilder.bytes =
+                        KeyUtil.addUncompressedByte(publicKey.toByteArray()).toByteString()
+                }.build()
             }.build()
 
             if (key.walletAddress != (PublicKeyBuilder.buildFromSignedPublicKey(signed.sender.preKey).walletAddress)) {
@@ -82,7 +84,7 @@ class MessageV2Builder {
             client: Client,
             encodedContent: EncodedContent,
             topic: String,
-            keyMaterial: ByteArray
+            keyMaterial: ByteArray,
         ): MessageV2 {
             val payload = encodedContent.toByteArray()
             val date = Date()

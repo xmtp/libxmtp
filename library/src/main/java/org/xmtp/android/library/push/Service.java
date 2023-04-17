@@ -4,32 +4,34 @@
 package org.xmtp.android.library.push;
 
 public final class Service {
-    private Service() {}
+    private Service() {
+    }
+
     public static void registerAllExtensions(
             com.google.protobuf.ExtensionRegistryLite registry) {
     }
 
-    public static void registerAllExtensions(
-            com.google.protobuf.ExtensionRegistry registry) {
-        registerAllExtensions(
-                (com.google.protobuf.ExtensionRegistryLite) registry);
-    }
     public interface DeliveryMechanismOrBuilder extends
             // @@protoc_insertion_point(interface_extends:notifications.v1.DeliveryMechanism)
-            com.google.protobuf.MessageOrBuilder {
+            com.google.protobuf.MessageLiteOrBuilder {
 
         /**
          * <code>string apns_device_token = 1;</code>
+         *
          * @return Whether the apnsDeviceToken field is set.
          */
         boolean hasApnsDeviceToken();
+
         /**
          * <code>string apns_device_token = 1;</code>
+         *
          * @return The apnsDeviceToken.
          */
         java.lang.String getApnsDeviceToken();
+
         /**
          * <code>string apns_device_token = 1;</code>
+         *
          * @return The bytes for apnsDeviceToken.
          */
         com.google.protobuf.ByteString
@@ -37,16 +39,21 @@ public final class Service {
 
         /**
          * <code>string firebase_device_token = 2;</code>
+         *
          * @return Whether the firebaseDeviceToken field is set.
          */
         boolean hasFirebaseDeviceToken();
+
         /**
          * <code>string firebase_device_token = 2;</code>
+         *
          * @return The firebaseDeviceToken.
          */
         java.lang.String getFirebaseDeviceToken();
+
         /**
          * <code>string firebase_device_token = 2;</code>
+         *
          * @return The bytes for firebaseDeviceToken.
          */
         com.google.protobuf.ByteString
@@ -54,61 +61,32 @@ public final class Service {
 
         public org.xmtp.android.library.push.Service.DeliveryMechanism.DeliveryMechanismTypeCase getDeliveryMechanismTypeCase();
     }
+
     /**
      * Protobuf type {@code notifications.v1.DeliveryMechanism}
      */
     public static final class DeliveryMechanism extends
-            com.google.protobuf.GeneratedMessageV3 implements
+            com.google.protobuf.GeneratedMessageLite<
+                    DeliveryMechanism, DeliveryMechanism.Builder> implements
             // @@protoc_insertion_point(message_implements:notifications.v1.DeliveryMechanism)
             DeliveryMechanismOrBuilder {
-        private static final long serialVersionUID = 0L;
-        // Use DeliveryMechanism.newBuilder() to construct.
-        private DeliveryMechanism(com.google.protobuf.GeneratedMessageV3.Builder<?> builder) {
-            super(builder);
-        }
         private DeliveryMechanism() {
-        }
-
-        @java.lang.Override
-        @SuppressWarnings({"unused"})
-        protected java.lang.Object newInstance(
-                UnusedPrivateParameter unused) {
-            return new DeliveryMechanism();
-        }
-
-        @java.lang.Override
-        public final com.google.protobuf.UnknownFieldSet
-        getUnknownFields() {
-            return this.unknownFields;
-        }
-        public static final com.google.protobuf.Descriptors.Descriptor
-        getDescriptor() {
-            return org.xmtp.android.library.push.Service.internal_static_notifications_v1_DeliveryMechanism_descriptor;
-        }
-
-        @java.lang.Override
-        protected com.google.protobuf.GeneratedMessageV3.FieldAccessorTable
-        internalGetFieldAccessorTable() {
-            return org.xmtp.android.library.push.Service.internal_static_notifications_v1_DeliveryMechanism_fieldAccessorTable
-                    .ensureFieldAccessorsInitialized(
-                            org.xmtp.android.library.push.Service.DeliveryMechanism.class, org.xmtp.android.library.push.Service.DeliveryMechanism.Builder.class);
         }
 
         private int deliveryMechanismTypeCase_ = 0;
         private java.lang.Object deliveryMechanismType_;
-        public enum DeliveryMechanismTypeCase
-                implements com.google.protobuf.Internal.EnumLite,
-                com.google.protobuf.AbstractMessage.InternalOneOfEnum {
+
+        public enum DeliveryMechanismTypeCase {
             APNS_DEVICE_TOKEN(1),
             FIREBASE_DEVICE_TOKEN(2),
             DELIVERYMECHANISMTYPE_NOT_SET(0);
             private final int value;
+
             private DeliveryMechanismTypeCase(int value) {
                 this.value = value;
             }
+
             /**
-             * @param value The number of the enum to look for.
-             * @return The enum associated with the given number.
              * @deprecated Use {@link #forNumber(int)} instead.
              */
             @java.lang.Deprecated
@@ -118,776 +96,533 @@ public final class Service {
 
             public static DeliveryMechanismTypeCase forNumber(int value) {
                 switch (value) {
-                    case 1: return APNS_DEVICE_TOKEN;
-                    case 2: return FIREBASE_DEVICE_TOKEN;
-                    case 0: return DELIVERYMECHANISMTYPE_NOT_SET;
-                    default: return null;
+                    case 1:
+                        return APNS_DEVICE_TOKEN;
+                    case 2:
+                        return FIREBASE_DEVICE_TOKEN;
+                    case 0:
+                        return DELIVERYMECHANISMTYPE_NOT_SET;
+                    default:
+                        return null;
                 }
             }
+
             public int getNumber() {
                 return this.value;
             }
-        };
+        }
 
+        ;
+
+        @java.lang.Override
         public DeliveryMechanismTypeCase
         getDeliveryMechanismTypeCase() {
             return DeliveryMechanismTypeCase.forNumber(
                     deliveryMechanismTypeCase_);
         }
 
+        private void clearDeliveryMechanismType() {
+            deliveryMechanismTypeCase_ = 0;
+            deliveryMechanismType_ = null;
+        }
+
         public static final int APNS_DEVICE_TOKEN_FIELD_NUMBER = 1;
+
         /**
          * <code>string apns_device_token = 1;</code>
+         *
          * @return Whether the apnsDeviceToken field is set.
          */
+        @java.lang.Override
         public boolean hasApnsDeviceToken() {
             return deliveryMechanismTypeCase_ == 1;
         }
+
         /**
          * <code>string apns_device_token = 1;</code>
+         *
          * @return The apnsDeviceToken.
          */
+        @java.lang.Override
         public java.lang.String getApnsDeviceToken() {
-            java.lang.Object ref = "";
+            java.lang.String ref = "";
             if (deliveryMechanismTypeCase_ == 1) {
-                ref = deliveryMechanismType_;
+                ref = (java.lang.String) deliveryMechanismType_;
             }
-            if (ref instanceof java.lang.String) {
-                return (java.lang.String) ref;
-            } else {
-                com.google.protobuf.ByteString bs =
-                        (com.google.protobuf.ByteString) ref;
-                java.lang.String s = bs.toStringUtf8();
-                if (deliveryMechanismTypeCase_ == 1) {
-                    deliveryMechanismType_ = s;
-                }
-                return s;
-            }
+            return ref;
         }
+
         /**
          * <code>string apns_device_token = 1;</code>
+         *
          * @return The bytes for apnsDeviceToken.
          */
+        @java.lang.Override
         public com.google.protobuf.ByteString
         getApnsDeviceTokenBytes() {
-            java.lang.Object ref = "";
+            java.lang.String ref = "";
             if (deliveryMechanismTypeCase_ == 1) {
-                ref = deliveryMechanismType_;
+                ref = (java.lang.String) deliveryMechanismType_;
             }
-            if (ref instanceof java.lang.String) {
-                com.google.protobuf.ByteString b =
-                        com.google.protobuf.ByteString.copyFromUtf8(
-                                (java.lang.String) ref);
-                if (deliveryMechanismTypeCase_ == 1) {
-                    deliveryMechanismType_ = b;
-                }
-                return b;
-            } else {
-                return (com.google.protobuf.ByteString) ref;
+            return com.google.protobuf.ByteString.copyFromUtf8(ref);
+        }
+
+        /**
+         * <code>string apns_device_token = 1;</code>
+         *
+         * @param value The apnsDeviceToken to set.
+         */
+        private void setApnsDeviceToken(
+                java.lang.String value) {
+            java.lang.Class<?> valueClass = value.getClass();
+            deliveryMechanismTypeCase_ = 1;
+            deliveryMechanismType_ = value;
+        }
+
+        /**
+         * <code>string apns_device_token = 1;</code>
+         */
+        private void clearApnsDeviceToken() {
+            if (deliveryMechanismTypeCase_ == 1) {
+                deliveryMechanismTypeCase_ = 0;
+                deliveryMechanismType_ = null;
             }
+        }
+
+        /**
+         * <code>string apns_device_token = 1;</code>
+         *
+         * @param value The bytes for apnsDeviceToken to set.
+         */
+        private void setApnsDeviceTokenBytes(
+                com.google.protobuf.ByteString value) {
+            checkByteStringIsUtf8(value);
+            deliveryMechanismType_ = value.toStringUtf8();
+            deliveryMechanismTypeCase_ = 1;
         }
 
         public static final int FIREBASE_DEVICE_TOKEN_FIELD_NUMBER = 2;
+
         /**
          * <code>string firebase_device_token = 2;</code>
+         *
          * @return Whether the firebaseDeviceToken field is set.
          */
+        @java.lang.Override
         public boolean hasFirebaseDeviceToken() {
             return deliveryMechanismTypeCase_ == 2;
         }
+
         /**
          * <code>string firebase_device_token = 2;</code>
+         *
          * @return The firebaseDeviceToken.
          */
+        @java.lang.Override
         public java.lang.String getFirebaseDeviceToken() {
-            java.lang.Object ref = "";
+            java.lang.String ref = "";
             if (deliveryMechanismTypeCase_ == 2) {
-                ref = deliveryMechanismType_;
+                ref = (java.lang.String) deliveryMechanismType_;
             }
-            if (ref instanceof java.lang.String) {
-                return (java.lang.String) ref;
-            } else {
-                com.google.protobuf.ByteString bs =
-                        (com.google.protobuf.ByteString) ref;
-                java.lang.String s = bs.toStringUtf8();
-                if (deliveryMechanismTypeCase_ == 2) {
-                    deliveryMechanismType_ = s;
-                }
-                return s;
-            }
+            return ref;
         }
+
         /**
          * <code>string firebase_device_token = 2;</code>
+         *
          * @return The bytes for firebaseDeviceToken.
          */
+        @java.lang.Override
         public com.google.protobuf.ByteString
         getFirebaseDeviceTokenBytes() {
-            java.lang.Object ref = "";
+            java.lang.String ref = "";
             if (deliveryMechanismTypeCase_ == 2) {
-                ref = deliveryMechanismType_;
+                ref = (java.lang.String) deliveryMechanismType_;
             }
-            if (ref instanceof java.lang.String) {
-                com.google.protobuf.ByteString b =
-                        com.google.protobuf.ByteString.copyFromUtf8(
-                                (java.lang.String) ref);
-                if (deliveryMechanismTypeCase_ == 2) {
-                    deliveryMechanismType_ = b;
-                }
-                return b;
-            } else {
-                return (com.google.protobuf.ByteString) ref;
-            }
+            return com.google.protobuf.ByteString.copyFromUtf8(ref);
         }
 
-        private byte memoizedIsInitialized = -1;
-        @java.lang.Override
-        public final boolean isInitialized() {
-            byte isInitialized = memoizedIsInitialized;
-            if (isInitialized == 1) return true;
-            if (isInitialized == 0) return false;
-
-            memoizedIsInitialized = 1;
-            return true;
+        /**
+         * <code>string firebase_device_token = 2;</code>
+         *
+         * @param value The firebaseDeviceToken to set.
+         */
+        private void setFirebaseDeviceToken(
+                java.lang.String value) {
+            java.lang.Class<?> valueClass = value.getClass();
+            deliveryMechanismTypeCase_ = 2;
+            deliveryMechanismType_ = value;
         }
 
-        @java.lang.Override
-        public void writeTo(com.google.protobuf.CodedOutputStream output)
-                throws java.io.IOException {
-            if (deliveryMechanismTypeCase_ == 1) {
-                com.google.protobuf.GeneratedMessageV3.writeString(output, 1, deliveryMechanismType_);
-            }
+        /**
+         * <code>string firebase_device_token = 2;</code>
+         */
+        private void clearFirebaseDeviceToken() {
             if (deliveryMechanismTypeCase_ == 2) {
-                com.google.protobuf.GeneratedMessageV3.writeString(output, 2, deliveryMechanismType_);
+                deliveryMechanismTypeCase_ = 0;
+                deliveryMechanismType_ = null;
             }
-            getUnknownFields().writeTo(output);
         }
 
-        @java.lang.Override
-        public int getSerializedSize() {
-            int size = memoizedSize;
-            if (size != -1) return size;
-
-            size = 0;
-            if (deliveryMechanismTypeCase_ == 1) {
-                size += com.google.protobuf.GeneratedMessageV3.computeStringSize(1, deliveryMechanismType_);
-            }
-            if (deliveryMechanismTypeCase_ == 2) {
-                size += com.google.protobuf.GeneratedMessageV3.computeStringSize(2, deliveryMechanismType_);
-            }
-            size += getUnknownFields().getSerializedSize();
-            memoizedSize = size;
-            return size;
-        }
-
-        @java.lang.Override
-        public boolean equals(final java.lang.Object obj) {
-            if (obj == this) {
-                return true;
-            }
-            if (!(obj instanceof org.xmtp.android.library.push.Service.DeliveryMechanism)) {
-                return super.equals(obj);
-            }
-            org.xmtp.android.library.push.Service.DeliveryMechanism other = (org.xmtp.android.library.push.Service.DeliveryMechanism) obj;
-
-            if (!getDeliveryMechanismTypeCase().equals(other.getDeliveryMechanismTypeCase())) return false;
-            switch (deliveryMechanismTypeCase_) {
-                case 1:
-                    if (!getApnsDeviceToken()
-                            .equals(other.getApnsDeviceToken())) return false;
-                    break;
-                case 2:
-                    if (!getFirebaseDeviceToken()
-                            .equals(other.getFirebaseDeviceToken())) return false;
-                    break;
-                case 0:
-                default:
-            }
-            if (!getUnknownFields().equals(other.getUnknownFields())) return false;
-            return true;
-        }
-
-        @java.lang.Override
-        public int hashCode() {
-            if (memoizedHashCode != 0) {
-                return memoizedHashCode;
-            }
-            int hash = 41;
-            hash = (19 * hash) + getDescriptor().hashCode();
-            switch (deliveryMechanismTypeCase_) {
-                case 1:
-                    hash = (37 * hash) + APNS_DEVICE_TOKEN_FIELD_NUMBER;
-                    hash = (53 * hash) + getApnsDeviceToken().hashCode();
-                    break;
-                case 2:
-                    hash = (37 * hash) + FIREBASE_DEVICE_TOKEN_FIELD_NUMBER;
-                    hash = (53 * hash) + getFirebaseDeviceToken().hashCode();
-                    break;
-                case 0:
-                default:
-            }
-            hash = (29 * hash) + getUnknownFields().hashCode();
-            memoizedHashCode = hash;
-            return hash;
+        /**
+         * <code>string firebase_device_token = 2;</code>
+         *
+         * @param value The bytes for firebaseDeviceToken to set.
+         */
+        private void setFirebaseDeviceTokenBytes(
+                com.google.protobuf.ByteString value) {
+            checkByteStringIsUtf8(value);
+            deliveryMechanismType_ = value.toStringUtf8();
+            deliveryMechanismTypeCase_ = 2;
         }
 
         public static org.xmtp.android.library.push.Service.DeliveryMechanism parseFrom(
                 java.nio.ByteBuffer data)
                 throws com.google.protobuf.InvalidProtocolBufferException {
-            return PARSER.parseFrom(data);
+            return com.google.protobuf.GeneratedMessageLite.parseFrom(
+                    DEFAULT_INSTANCE, data);
         }
+
         public static org.xmtp.android.library.push.Service.DeliveryMechanism parseFrom(
                 java.nio.ByteBuffer data,
                 com.google.protobuf.ExtensionRegistryLite extensionRegistry)
                 throws com.google.protobuf.InvalidProtocolBufferException {
-            return PARSER.parseFrom(data, extensionRegistry);
+            return com.google.protobuf.GeneratedMessageLite.parseFrom(
+                    DEFAULT_INSTANCE, data, extensionRegistry);
         }
+
         public static org.xmtp.android.library.push.Service.DeliveryMechanism parseFrom(
                 com.google.protobuf.ByteString data)
                 throws com.google.protobuf.InvalidProtocolBufferException {
-            return PARSER.parseFrom(data);
+            return com.google.protobuf.GeneratedMessageLite.parseFrom(
+                    DEFAULT_INSTANCE, data);
         }
+
         public static org.xmtp.android.library.push.Service.DeliveryMechanism parseFrom(
                 com.google.protobuf.ByteString data,
                 com.google.protobuf.ExtensionRegistryLite extensionRegistry)
                 throws com.google.protobuf.InvalidProtocolBufferException {
-            return PARSER.parseFrom(data, extensionRegistry);
+            return com.google.protobuf.GeneratedMessageLite.parseFrom(
+                    DEFAULT_INSTANCE, data, extensionRegistry);
         }
+
         public static org.xmtp.android.library.push.Service.DeliveryMechanism parseFrom(byte[] data)
                 throws com.google.protobuf.InvalidProtocolBufferException {
-            return PARSER.parseFrom(data);
+            return com.google.protobuf.GeneratedMessageLite.parseFrom(
+                    DEFAULT_INSTANCE, data);
         }
+
         public static org.xmtp.android.library.push.Service.DeliveryMechanism parseFrom(
                 byte[] data,
                 com.google.protobuf.ExtensionRegistryLite extensionRegistry)
                 throws com.google.protobuf.InvalidProtocolBufferException {
-            return PARSER.parseFrom(data, extensionRegistry);
+            return com.google.protobuf.GeneratedMessageLite.parseFrom(
+                    DEFAULT_INSTANCE, data, extensionRegistry);
         }
+
         public static org.xmtp.android.library.push.Service.DeliveryMechanism parseFrom(java.io.InputStream input)
                 throws java.io.IOException {
-            return com.google.protobuf.GeneratedMessageV3
-                    .parseWithIOException(PARSER, input);
+            return com.google.protobuf.GeneratedMessageLite.parseFrom(
+                    DEFAULT_INSTANCE, input);
         }
+
         public static org.xmtp.android.library.push.Service.DeliveryMechanism parseFrom(
                 java.io.InputStream input,
                 com.google.protobuf.ExtensionRegistryLite extensionRegistry)
                 throws java.io.IOException {
-            return com.google.protobuf.GeneratedMessageV3
-                    .parseWithIOException(PARSER, input, extensionRegistry);
+            return com.google.protobuf.GeneratedMessageLite.parseFrom(
+                    DEFAULT_INSTANCE, input, extensionRegistry);
         }
+
         public static org.xmtp.android.library.push.Service.DeliveryMechanism parseDelimitedFrom(java.io.InputStream input)
                 throws java.io.IOException {
-            return com.google.protobuf.GeneratedMessageV3
-                    .parseDelimitedWithIOException(PARSER, input);
+            return parseDelimitedFrom(DEFAULT_INSTANCE, input);
         }
+
         public static org.xmtp.android.library.push.Service.DeliveryMechanism parseDelimitedFrom(
                 java.io.InputStream input,
                 com.google.protobuf.ExtensionRegistryLite extensionRegistry)
                 throws java.io.IOException {
-            return com.google.protobuf.GeneratedMessageV3
-                    .parseDelimitedWithIOException(PARSER, input, extensionRegistry);
+            return parseDelimitedFrom(DEFAULT_INSTANCE, input, extensionRegistry);
         }
+
         public static org.xmtp.android.library.push.Service.DeliveryMechanism parseFrom(
                 com.google.protobuf.CodedInputStream input)
                 throws java.io.IOException {
-            return com.google.protobuf.GeneratedMessageV3
-                    .parseWithIOException(PARSER, input);
+            return com.google.protobuf.GeneratedMessageLite.parseFrom(
+                    DEFAULT_INSTANCE, input);
         }
+
         public static org.xmtp.android.library.push.Service.DeliveryMechanism parseFrom(
                 com.google.protobuf.CodedInputStream input,
                 com.google.protobuf.ExtensionRegistryLite extensionRegistry)
                 throws java.io.IOException {
-            return com.google.protobuf.GeneratedMessageV3
-                    .parseWithIOException(PARSER, input, extensionRegistry);
+            return com.google.protobuf.GeneratedMessageLite.parseFrom(
+                    DEFAULT_INSTANCE, input, extensionRegistry);
         }
 
-        @java.lang.Override
-        public Builder newBuilderForType() { return newBuilder(); }
         public static Builder newBuilder() {
-            return DEFAULT_INSTANCE.toBuilder();
-        }
-        public static Builder newBuilder(org.xmtp.android.library.push.Service.DeliveryMechanism prototype) {
-            return DEFAULT_INSTANCE.toBuilder().mergeFrom(prototype);
-        }
-        @java.lang.Override
-        public Builder toBuilder() {
-            return this == DEFAULT_INSTANCE
-                    ? new Builder() : new Builder().mergeFrom(this);
+            return (Builder) DEFAULT_INSTANCE.createBuilder();
         }
 
-        @java.lang.Override
-        protected Builder newBuilderForType(
-                com.google.protobuf.GeneratedMessageV3.BuilderParent parent) {
-            Builder builder = new Builder(parent);
-            return builder;
+        public static Builder newBuilder(org.xmtp.android.library.push.Service.DeliveryMechanism prototype) {
+            return (Builder) DEFAULT_INSTANCE.createBuilder(prototype);
         }
+
         /**
          * Protobuf type {@code notifications.v1.DeliveryMechanism}
          */
         public static final class Builder extends
-                com.google.protobuf.GeneratedMessageV3.Builder<Builder> implements
+                com.google.protobuf.GeneratedMessageLite.Builder<
+                        org.xmtp.android.library.push.Service.DeliveryMechanism, Builder> implements
                 // @@protoc_insertion_point(builder_implements:notifications.v1.DeliveryMechanism)
                 org.xmtp.android.library.push.Service.DeliveryMechanismOrBuilder {
-            public static final com.google.protobuf.Descriptors.Descriptor
-            getDescriptor() {
-                return org.xmtp.android.library.push.Service.internal_static_notifications_v1_DeliveryMechanism_descriptor;
-            }
-
-            @java.lang.Override
-            protected com.google.protobuf.GeneratedMessageV3.FieldAccessorTable
-            internalGetFieldAccessorTable() {
-                return org.xmtp.android.library.push.Service.internal_static_notifications_v1_DeliveryMechanism_fieldAccessorTable
-                        .ensureFieldAccessorsInitialized(
-                                org.xmtp.android.library.push.Service.DeliveryMechanism.class, org.xmtp.android.library.push.Service.DeliveryMechanism.Builder.class);
-            }
-
             // Construct using org.xmtp.android.library.push.Service.DeliveryMechanism.newBuilder()
             private Builder() {
-
-            }
-
-            private Builder(
-                    com.google.protobuf.GeneratedMessageV3.BuilderParent parent) {
-                super(parent);
-
-            }
-            @java.lang.Override
-            public Builder clear() {
-                super.clear();
-                bitField0_ = 0;
-                deliveryMechanismTypeCase_ = 0;
-                deliveryMechanismType_ = null;
-                return this;
+                super(DEFAULT_INSTANCE);
             }
 
             @java.lang.Override
-            public com.google.protobuf.Descriptors.Descriptor
-            getDescriptorForType() {
-                return org.xmtp.android.library.push.Service.internal_static_notifications_v1_DeliveryMechanism_descriptor;
-            }
-
-            @java.lang.Override
-            public org.xmtp.android.library.push.Service.DeliveryMechanism getDefaultInstanceForType() {
-                return org.xmtp.android.library.push.Service.DeliveryMechanism.getDefaultInstance();
-            }
-
-            @java.lang.Override
-            public org.xmtp.android.library.push.Service.DeliveryMechanism build() {
-                org.xmtp.android.library.push.Service.DeliveryMechanism result = buildPartial();
-                if (!result.isInitialized()) {
-                    throw newUninitializedMessageException(result);
-                }
-                return result;
-            }
-
-            @java.lang.Override
-            public org.xmtp.android.library.push.Service.DeliveryMechanism buildPartial() {
-                org.xmtp.android.library.push.Service.DeliveryMechanism result = new org.xmtp.android.library.push.Service.DeliveryMechanism(this);
-                if (bitField0_ != 0) { buildPartial0(result); }
-                buildPartialOneofs(result);
-                onBuilt();
-                return result;
-            }
-
-            private void buildPartial0(org.xmtp.android.library.push.Service.DeliveryMechanism result) {
-                int from_bitField0_ = bitField0_;
-            }
-
-            private void buildPartialOneofs(org.xmtp.android.library.push.Service.DeliveryMechanism result) {
-                result.deliveryMechanismTypeCase_ = deliveryMechanismTypeCase_;
-                result.deliveryMechanismType_ = this.deliveryMechanismType_;
-            }
-
-            @java.lang.Override
-            public Builder clone() {
-                return super.clone();
-            }
-            @java.lang.Override
-            public Builder setField(
-                    com.google.protobuf.Descriptors.FieldDescriptor field,
-                    java.lang.Object value) {
-                return super.setField(field, value);
-            }
-            @java.lang.Override
-            public Builder clearField(
-                    com.google.protobuf.Descriptors.FieldDescriptor field) {
-                return super.clearField(field);
-            }
-            @java.lang.Override
-            public Builder clearOneof(
-                    com.google.protobuf.Descriptors.OneofDescriptor oneof) {
-                return super.clearOneof(oneof);
-            }
-            @java.lang.Override
-            public Builder setRepeatedField(
-                    com.google.protobuf.Descriptors.FieldDescriptor field,
-                    int index, java.lang.Object value) {
-                return super.setRepeatedField(field, index, value);
-            }
-            @java.lang.Override
-            public Builder addRepeatedField(
-                    com.google.protobuf.Descriptors.FieldDescriptor field,
-                    java.lang.Object value) {
-                return super.addRepeatedField(field, value);
-            }
-            @java.lang.Override
-            public Builder mergeFrom(com.google.protobuf.Message other) {
-                if (other instanceof org.xmtp.android.library.push.Service.DeliveryMechanism) {
-                    return mergeFrom((org.xmtp.android.library.push.Service.DeliveryMechanism)other);
-                } else {
-                    super.mergeFrom(other);
-                    return this;
-                }
-            }
-
-            public Builder mergeFrom(org.xmtp.android.library.push.Service.DeliveryMechanism other) {
-                if (other == org.xmtp.android.library.push.Service.DeliveryMechanism.getDefaultInstance()) return this;
-                switch (other.getDeliveryMechanismTypeCase()) {
-                    case APNS_DEVICE_TOKEN: {
-                        deliveryMechanismTypeCase_ = 1;
-                        deliveryMechanismType_ = other.deliveryMechanismType_;
-                        onChanged();
-                        break;
-                    }
-                    case FIREBASE_DEVICE_TOKEN: {
-                        deliveryMechanismTypeCase_ = 2;
-                        deliveryMechanismType_ = other.deliveryMechanismType_;
-                        onChanged();
-                        break;
-                    }
-                    case DELIVERYMECHANISMTYPE_NOT_SET: {
-                        break;
-                    }
-                }
-                this.mergeUnknownFields(other.getUnknownFields());
-                onChanged();
-                return this;
-            }
-
-            @java.lang.Override
-            public final boolean isInitialized() {
-                return true;
-            }
-
-            @java.lang.Override
-            public Builder mergeFrom(
-                    com.google.protobuf.CodedInputStream input,
-                    com.google.protobuf.ExtensionRegistryLite extensionRegistry)
-                    throws java.io.IOException {
-                if (extensionRegistry == null) {
-                    throw new java.lang.NullPointerException();
-                }
-                try {
-                    boolean done = false;
-                    while (!done) {
-                        int tag = input.readTag();
-                        switch (tag) {
-                            case 0:
-                                done = true;
-                                break;
-                            case 10: {
-                                java.lang.String s = input.readStringRequireUtf8();
-                                deliveryMechanismTypeCase_ = 1;
-                                deliveryMechanismType_ = s;
-                                break;
-                            } // case 10
-                            case 18: {
-                                java.lang.String s = input.readStringRequireUtf8();
-                                deliveryMechanismTypeCase_ = 2;
-                                deliveryMechanismType_ = s;
-                                break;
-                            } // case 18
-                            default: {
-                                if (!super.parseUnknownField(input, extensionRegistry, tag)) {
-                                    done = true; // was an endgroup tag
-                                }
-                                break;
-                            } // default:
-                        } // switch (tag)
-                    } // while (!done)
-                } catch (com.google.protobuf.InvalidProtocolBufferException e) {
-                    throw e.unwrapIOException();
-                } finally {
-                    onChanged();
-                } // finally
-                return this;
-            }
-            private int deliveryMechanismTypeCase_ = 0;
-            private java.lang.Object deliveryMechanismType_;
             public DeliveryMechanismTypeCase
             getDeliveryMechanismTypeCase() {
-                return DeliveryMechanismTypeCase.forNumber(
-                        deliveryMechanismTypeCase_);
+                return instance.getDeliveryMechanismTypeCase();
             }
 
             public Builder clearDeliveryMechanismType() {
-                deliveryMechanismTypeCase_ = 0;
-                deliveryMechanismType_ = null;
-                onChanged();
+                copyOnWrite();
+                instance.clearDeliveryMechanismType();
                 return this;
             }
 
-            private int bitField0_;
 
             /**
              * <code>string apns_device_token = 1;</code>
+             *
              * @return Whether the apnsDeviceToken field is set.
              */
             @java.lang.Override
             public boolean hasApnsDeviceToken() {
-                return deliveryMechanismTypeCase_ == 1;
+                return instance.hasApnsDeviceToken();
             }
+
             /**
              * <code>string apns_device_token = 1;</code>
+             *
              * @return The apnsDeviceToken.
              */
             @java.lang.Override
             public java.lang.String getApnsDeviceToken() {
-                java.lang.Object ref = "";
-                if (deliveryMechanismTypeCase_ == 1) {
-                    ref = deliveryMechanismType_;
-                }
-                if (!(ref instanceof java.lang.String)) {
-                    com.google.protobuf.ByteString bs =
-                            (com.google.protobuf.ByteString) ref;
-                    java.lang.String s = bs.toStringUtf8();
-                    if (deliveryMechanismTypeCase_ == 1) {
-                        deliveryMechanismType_ = s;
-                    }
-                    return s;
-                } else {
-                    return (java.lang.String) ref;
-                }
+                return instance.getApnsDeviceToken();
             }
+
             /**
              * <code>string apns_device_token = 1;</code>
+             *
              * @return The bytes for apnsDeviceToken.
              */
             @java.lang.Override
             public com.google.protobuf.ByteString
             getApnsDeviceTokenBytes() {
-                java.lang.Object ref = "";
-                if (deliveryMechanismTypeCase_ == 1) {
-                    ref = deliveryMechanismType_;
-                }
-                if (ref instanceof String) {
-                    com.google.protobuf.ByteString b =
-                            com.google.protobuf.ByteString.copyFromUtf8(
-                                    (java.lang.String) ref);
-                    if (deliveryMechanismTypeCase_ == 1) {
-                        deliveryMechanismType_ = b;
-                    }
-                    return b;
-                } else {
-                    return (com.google.protobuf.ByteString) ref;
-                }
+                return instance.getApnsDeviceTokenBytes();
             }
+
             /**
              * <code>string apns_device_token = 1;</code>
+             *
              * @param value The apnsDeviceToken to set.
              * @return This builder for chaining.
              */
             public Builder setApnsDeviceToken(
                     java.lang.String value) {
-                if (value == null) { throw new NullPointerException(); }
-                deliveryMechanismTypeCase_ = 1;
-                deliveryMechanismType_ = value;
-                onChanged();
+                copyOnWrite();
+                instance.setApnsDeviceToken(value);
                 return this;
             }
+
             /**
              * <code>string apns_device_token = 1;</code>
+             *
              * @return This builder for chaining.
              */
             public Builder clearApnsDeviceToken() {
-                if (deliveryMechanismTypeCase_ == 1) {
-                    deliveryMechanismTypeCase_ = 0;
-                    deliveryMechanismType_ = null;
-                    onChanged();
-                }
+                copyOnWrite();
+                instance.clearApnsDeviceToken();
                 return this;
             }
+
             /**
              * <code>string apns_device_token = 1;</code>
+             *
              * @param value The bytes for apnsDeviceToken to set.
              * @return This builder for chaining.
              */
             public Builder setApnsDeviceTokenBytes(
                     com.google.protobuf.ByteString value) {
-                if (value == null) { throw new NullPointerException(); }
-                checkByteStringIsUtf8(value);
-                deliveryMechanismTypeCase_ = 1;
-                deliveryMechanismType_ = value;
-                onChanged();
+                copyOnWrite();
+                instance.setApnsDeviceTokenBytes(value);
                 return this;
             }
 
             /**
              * <code>string firebase_device_token = 2;</code>
+             *
              * @return Whether the firebaseDeviceToken field is set.
              */
             @java.lang.Override
             public boolean hasFirebaseDeviceToken() {
-                return deliveryMechanismTypeCase_ == 2;
+                return instance.hasFirebaseDeviceToken();
             }
+
             /**
              * <code>string firebase_device_token = 2;</code>
+             *
              * @return The firebaseDeviceToken.
              */
             @java.lang.Override
             public java.lang.String getFirebaseDeviceToken() {
-                java.lang.Object ref = "";
-                if (deliveryMechanismTypeCase_ == 2) {
-                    ref = deliveryMechanismType_;
-                }
-                if (!(ref instanceof java.lang.String)) {
-                    com.google.protobuf.ByteString bs =
-                            (com.google.protobuf.ByteString) ref;
-                    java.lang.String s = bs.toStringUtf8();
-                    if (deliveryMechanismTypeCase_ == 2) {
-                        deliveryMechanismType_ = s;
-                    }
-                    return s;
-                } else {
-                    return (java.lang.String) ref;
-                }
+                return instance.getFirebaseDeviceToken();
             }
+
             /**
              * <code>string firebase_device_token = 2;</code>
+             *
              * @return The bytes for firebaseDeviceToken.
              */
             @java.lang.Override
             public com.google.protobuf.ByteString
             getFirebaseDeviceTokenBytes() {
-                java.lang.Object ref = "";
-                if (deliveryMechanismTypeCase_ == 2) {
-                    ref = deliveryMechanismType_;
-                }
-                if (ref instanceof String) {
-                    com.google.protobuf.ByteString b =
-                            com.google.protobuf.ByteString.copyFromUtf8(
-                                    (java.lang.String) ref);
-                    if (deliveryMechanismTypeCase_ == 2) {
-                        deliveryMechanismType_ = b;
-                    }
-                    return b;
-                } else {
-                    return (com.google.protobuf.ByteString) ref;
-                }
+                return instance.getFirebaseDeviceTokenBytes();
             }
+
             /**
              * <code>string firebase_device_token = 2;</code>
+             *
              * @param value The firebaseDeviceToken to set.
              * @return This builder for chaining.
              */
             public Builder setFirebaseDeviceToken(
                     java.lang.String value) {
-                if (value == null) { throw new NullPointerException(); }
-                deliveryMechanismTypeCase_ = 2;
-                deliveryMechanismType_ = value;
-                onChanged();
+                copyOnWrite();
+                instance.setFirebaseDeviceToken(value);
                 return this;
             }
+
             /**
              * <code>string firebase_device_token = 2;</code>
+             *
              * @return This builder for chaining.
              */
             public Builder clearFirebaseDeviceToken() {
-                if (deliveryMechanismTypeCase_ == 2) {
-                    deliveryMechanismTypeCase_ = 0;
-                    deliveryMechanismType_ = null;
-                    onChanged();
-                }
+                copyOnWrite();
+                instance.clearFirebaseDeviceToken();
                 return this;
             }
+
             /**
              * <code>string firebase_device_token = 2;</code>
+             *
              * @param value The bytes for firebaseDeviceToken to set.
              * @return This builder for chaining.
              */
             public Builder setFirebaseDeviceTokenBytes(
                     com.google.protobuf.ByteString value) {
-                if (value == null) { throw new NullPointerException(); }
-                checkByteStringIsUtf8(value);
-                deliveryMechanismTypeCase_ = 2;
-                deliveryMechanismType_ = value;
-                onChanged();
+                copyOnWrite();
+                instance.setFirebaseDeviceTokenBytes(value);
                 return this;
             }
-            @java.lang.Override
-            public final Builder setUnknownFields(
-                    final com.google.protobuf.UnknownFieldSet unknownFields) {
-                return super.setUnknownFields(unknownFields);
-            }
-
-            @java.lang.Override
-            public final Builder mergeUnknownFields(
-                    final com.google.protobuf.UnknownFieldSet unknownFields) {
-                return super.mergeUnknownFields(unknownFields);
-            }
-
 
             // @@protoc_insertion_point(builder_scope:notifications.v1.DeliveryMechanism)
         }
 
+        @java.lang.Override
+        @java.lang.SuppressWarnings({"unchecked", "fallthrough"})
+        protected final java.lang.Object dynamicMethod(
+                com.google.protobuf.GeneratedMessageLite.MethodToInvoke method,
+                java.lang.Object arg0, java.lang.Object arg1) {
+            switch (method) {
+                case NEW_MUTABLE_INSTANCE: {
+                    return new org.xmtp.android.library.push.Service.DeliveryMechanism();
+                }
+                case NEW_BUILDER: {
+                    return new Builder();
+                }
+                case BUILD_MESSAGE_INFO: {
+                    java.lang.Object[] objects = new java.lang.Object[]{
+                            "deliveryMechanismType_",
+                            "deliveryMechanismTypeCase_",
+                    };
+                    java.lang.String info =
+                            "\u0000\u0002\u0001\u0000\u0001\u0002\u0002\u0000\u0000\u0000\u0001\u023b\u0000\u0002" +
+                                    "\u023b\u0000";
+                    return newMessageInfo(DEFAULT_INSTANCE, info, objects);
+                }
+                // fall through
+                case GET_DEFAULT_INSTANCE: {
+                    return DEFAULT_INSTANCE;
+                }
+                case GET_PARSER: {
+                    com.google.protobuf.Parser<org.xmtp.android.library.push.Service.DeliveryMechanism> parser = PARSER;
+                    if (parser == null) {
+                        synchronized (org.xmtp.android.library.push.Service.DeliveryMechanism.class) {
+                            parser = PARSER;
+                            if (parser == null) {
+                                parser =
+                                        new DefaultInstanceBasedParser<org.xmtp.android.library.push.Service.DeliveryMechanism>(
+                                                DEFAULT_INSTANCE);
+                                PARSER = parser;
+                            }
+                        }
+                    }
+                    return parser;
+                }
+                case GET_MEMOIZED_IS_INITIALIZED: {
+                    return (byte) 1;
+                }
+                case SET_MEMOIZED_IS_INITIALIZED: {
+                    return null;
+                }
+            }
+            throw new UnsupportedOperationException();
+        }
+
+
         // @@protoc_insertion_point(class_scope:notifications.v1.DeliveryMechanism)
         private static final org.xmtp.android.library.push.Service.DeliveryMechanism DEFAULT_INSTANCE;
+
         static {
-            DEFAULT_INSTANCE = new org.xmtp.android.library.push.Service.DeliveryMechanism();
+            DeliveryMechanism defaultInstance = new DeliveryMechanism();
+            // New instances are implicitly immutable so no need to make
+            // immutable.
+            DEFAULT_INSTANCE = defaultInstance;
+            com.google.protobuf.GeneratedMessageLite.registerDefaultInstance(
+                    DeliveryMechanism.class, defaultInstance);
         }
 
         public static org.xmtp.android.library.push.Service.DeliveryMechanism getDefaultInstance() {
             return DEFAULT_INSTANCE;
         }
 
-        private static final com.google.protobuf.Parser<DeliveryMechanism>
-                PARSER = new com.google.protobuf.AbstractParser<DeliveryMechanism>() {
-            @java.lang.Override
-            public DeliveryMechanism parsePartialFrom(
-                    com.google.protobuf.CodedInputStream input,
-                    com.google.protobuf.ExtensionRegistryLite extensionRegistry)
-                    throws com.google.protobuf.InvalidProtocolBufferException {
-                Builder builder = newBuilder();
-                try {
-                    builder.mergeFrom(input, extensionRegistry);
-                } catch (com.google.protobuf.InvalidProtocolBufferException e) {
-                    throw e.setUnfinishedMessage(builder.buildPartial());
-                } catch (com.google.protobuf.UninitializedMessageException e) {
-                    throw e.asInvalidProtocolBufferException().setUnfinishedMessage(builder.buildPartial());
-                } catch (java.io.IOException e) {
-                    throw new com.google.protobuf.InvalidProtocolBufferException(e)
-                            .setUnfinishedMessage(builder.buildPartial());
-                }
-                return builder.buildPartial();
-            }
-        };
+        private static volatile com.google.protobuf.Parser<DeliveryMechanism> PARSER;
 
         public static com.google.protobuf.Parser<DeliveryMechanism> parser() {
-            return PARSER;
+            return DEFAULT_INSTANCE.getParserForType();
         }
-
-        @java.lang.Override
-        public com.google.protobuf.Parser<DeliveryMechanism> getParserForType() {
-            return PARSER;
-        }
-
-        @java.lang.Override
-        public org.xmtp.android.library.push.Service.DeliveryMechanism getDefaultInstanceForType() {
-            return DEFAULT_INSTANCE;
-        }
-
     }
 
     public interface RegisterInstallationRequestOrBuilder extends
             // @@protoc_insertion_point(interface_extends:notifications.v1.RegisterInstallationRequest)
-            com.google.protobuf.MessageOrBuilder {
+            com.google.protobuf.MessageLiteOrBuilder {
 
         /**
          * <code>string installation_id = 1;</code>
+         *
          * @return The installationId.
          */
         java.lang.String getInstallationId();
+
         /**
          * <code>string installation_id = 1;</code>
+         *
          * @return The bytes for installationId.
          */
         com.google.protobuf.ByteString
@@ -895,750 +630,449 @@ public final class Service {
 
         /**
          * <code>.notifications.v1.DeliveryMechanism delivery_mechanism = 2;</code>
+         *
          * @return Whether the deliveryMechanism field is set.
          */
         boolean hasDeliveryMechanism();
+
         /**
          * <code>.notifications.v1.DeliveryMechanism delivery_mechanism = 2;</code>
+         *
          * @return The deliveryMechanism.
          */
         org.xmtp.android.library.push.Service.DeliveryMechanism getDeliveryMechanism();
-        /**
-         * <code>.notifications.v1.DeliveryMechanism delivery_mechanism = 2;</code>
-         */
-        org.xmtp.android.library.push.Service.DeliveryMechanismOrBuilder getDeliveryMechanismOrBuilder();
     }
+
     /**
      * Protobuf type {@code notifications.v1.RegisterInstallationRequest}
      */
     public static final class RegisterInstallationRequest extends
-            com.google.protobuf.GeneratedMessageV3 implements
+            com.google.protobuf.GeneratedMessageLite<
+                    RegisterInstallationRequest, RegisterInstallationRequest.Builder> implements
             // @@protoc_insertion_point(message_implements:notifications.v1.RegisterInstallationRequest)
             RegisterInstallationRequestOrBuilder {
-        private static final long serialVersionUID = 0L;
-        // Use RegisterInstallationRequest.newBuilder() to construct.
-        private RegisterInstallationRequest(com.google.protobuf.GeneratedMessageV3.Builder<?> builder) {
-            super(builder);
-        }
         private RegisterInstallationRequest() {
             installationId_ = "";
         }
 
-        @java.lang.Override
-        @SuppressWarnings({"unused"})
-        protected java.lang.Object newInstance(
-                UnusedPrivateParameter unused) {
-            return new RegisterInstallationRequest();
-        }
-
-        @java.lang.Override
-        public final com.google.protobuf.UnknownFieldSet
-        getUnknownFields() {
-            return this.unknownFields;
-        }
-        public static final com.google.protobuf.Descriptors.Descriptor
-        getDescriptor() {
-            return org.xmtp.android.library.push.Service.internal_static_notifications_v1_RegisterInstallationRequest_descriptor;
-        }
-
-        @java.lang.Override
-        protected com.google.protobuf.GeneratedMessageV3.FieldAccessorTable
-        internalGetFieldAccessorTable() {
-            return org.xmtp.android.library.push.Service.internal_static_notifications_v1_RegisterInstallationRequest_fieldAccessorTable
-                    .ensureFieldAccessorsInitialized(
-                            org.xmtp.android.library.push.Service.RegisterInstallationRequest.class, org.xmtp.android.library.push.Service.RegisterInstallationRequest.Builder.class);
-        }
-
         public static final int INSTALLATION_ID_FIELD_NUMBER = 1;
-        @SuppressWarnings("serial")
-        private volatile java.lang.Object installationId_ = "";
+        private java.lang.String installationId_;
+
         /**
          * <code>string installation_id = 1;</code>
+         *
          * @return The installationId.
          */
         @java.lang.Override
         public java.lang.String getInstallationId() {
-            java.lang.Object ref = installationId_;
-            if (ref instanceof java.lang.String) {
-                return (java.lang.String) ref;
-            } else {
-                com.google.protobuf.ByteString bs =
-                        (com.google.protobuf.ByteString) ref;
-                java.lang.String s = bs.toStringUtf8();
-                installationId_ = s;
-                return s;
-            }
+            return installationId_;
         }
+
         /**
          * <code>string installation_id = 1;</code>
+         *
          * @return The bytes for installationId.
          */
         @java.lang.Override
         public com.google.protobuf.ByteString
         getInstallationIdBytes() {
-            java.lang.Object ref = installationId_;
-            if (ref instanceof java.lang.String) {
-                com.google.protobuf.ByteString b =
-                        com.google.protobuf.ByteString.copyFromUtf8(
-                                (java.lang.String) ref);
-                installationId_ = b;
-                return b;
-            } else {
-                return (com.google.protobuf.ByteString) ref;
-            }
+            return com.google.protobuf.ByteString.copyFromUtf8(installationId_);
+        }
+
+        /**
+         * <code>string installation_id = 1;</code>
+         *
+         * @param value The installationId to set.
+         */
+        private void setInstallationId(
+                java.lang.String value) {
+            java.lang.Class<?> valueClass = value.getClass();
+
+            installationId_ = value;
+        }
+
+        /**
+         * <code>string installation_id = 1;</code>
+         */
+        private void clearInstallationId() {
+
+            installationId_ = getDefaultInstance().getInstallationId();
+        }
+
+        /**
+         * <code>string installation_id = 1;</code>
+         *
+         * @param value The bytes for installationId to set.
+         */
+        private void setInstallationIdBytes(
+                com.google.protobuf.ByteString value) {
+            checkByteStringIsUtf8(value);
+            installationId_ = value.toStringUtf8();
+
         }
 
         public static final int DELIVERY_MECHANISM_FIELD_NUMBER = 2;
         private org.xmtp.android.library.push.Service.DeliveryMechanism deliveryMechanism_;
+
         /**
          * <code>.notifications.v1.DeliveryMechanism delivery_mechanism = 2;</code>
-         * @return Whether the deliveryMechanism field is set.
          */
         @java.lang.Override
         public boolean hasDeliveryMechanism() {
             return deliveryMechanism_ != null;
         }
+
         /**
          * <code>.notifications.v1.DeliveryMechanism delivery_mechanism = 2;</code>
-         * @return The deliveryMechanism.
          */
         @java.lang.Override
         public org.xmtp.android.library.push.Service.DeliveryMechanism getDeliveryMechanism() {
             return deliveryMechanism_ == null ? org.xmtp.android.library.push.Service.DeliveryMechanism.getDefaultInstance() : deliveryMechanism_;
         }
+
         /**
          * <code>.notifications.v1.DeliveryMechanism delivery_mechanism = 2;</code>
          */
-        @java.lang.Override
-        public org.xmtp.android.library.push.Service.DeliveryMechanismOrBuilder getDeliveryMechanismOrBuilder() {
-            return deliveryMechanism_ == null ? org.xmtp.android.library.push.Service.DeliveryMechanism.getDefaultInstance() : deliveryMechanism_;
+        private void setDeliveryMechanism(org.xmtp.android.library.push.Service.DeliveryMechanism value) {
+            value.getClass();
+            deliveryMechanism_ = value;
+
         }
 
-        private byte memoizedIsInitialized = -1;
-        @java.lang.Override
-        public final boolean isInitialized() {
-            byte isInitialized = memoizedIsInitialized;
-            if (isInitialized == 1) return true;
-            if (isInitialized == 0) return false;
+        /**
+         * <code>.notifications.v1.DeliveryMechanism delivery_mechanism = 2;</code>
+         */
+        @java.lang.SuppressWarnings({"ReferenceEquality"})
+        private void mergeDeliveryMechanism(org.xmtp.android.library.push.Service.DeliveryMechanism value) {
+            value.getClass();
+            if (deliveryMechanism_ != null &&
+                    deliveryMechanism_ != org.xmtp.android.library.push.Service.DeliveryMechanism.getDefaultInstance()) {
+                deliveryMechanism_ =
+                        org.xmtp.android.library.push.Service.DeliveryMechanism.newBuilder(deliveryMechanism_).mergeFrom(value).buildPartial();
+            } else {
+                deliveryMechanism_ = value;
+            }
 
-            memoizedIsInitialized = 1;
-            return true;
         }
 
-        @java.lang.Override
-        public void writeTo(com.google.protobuf.CodedOutputStream output)
-                throws java.io.IOException {
-            if (!com.google.protobuf.GeneratedMessageV3.isStringEmpty(installationId_)) {
-                com.google.protobuf.GeneratedMessageV3.writeString(output, 1, installationId_);
-            }
-            if (deliveryMechanism_ != null) {
-                output.writeMessage(2, getDeliveryMechanism());
-            }
-            getUnknownFields().writeTo(output);
-        }
+        /**
+         * <code>.notifications.v1.DeliveryMechanism delivery_mechanism = 2;</code>
+         */
+        private void clearDeliveryMechanism() {
+            deliveryMechanism_ = null;
 
-        @java.lang.Override
-        public int getSerializedSize() {
-            int size = memoizedSize;
-            if (size != -1) return size;
-
-            size = 0;
-            if (!com.google.protobuf.GeneratedMessageV3.isStringEmpty(installationId_)) {
-                size += com.google.protobuf.GeneratedMessageV3.computeStringSize(1, installationId_);
-            }
-            if (deliveryMechanism_ != null) {
-                size += com.google.protobuf.CodedOutputStream
-                        .computeMessageSize(2, getDeliveryMechanism());
-            }
-            size += getUnknownFields().getSerializedSize();
-            memoizedSize = size;
-            return size;
-        }
-
-        @java.lang.Override
-        public boolean equals(final java.lang.Object obj) {
-            if (obj == this) {
-                return true;
-            }
-            if (!(obj instanceof org.xmtp.android.library.push.Service.RegisterInstallationRequest)) {
-                return super.equals(obj);
-            }
-            org.xmtp.android.library.push.Service.RegisterInstallationRequest other = (org.xmtp.android.library.push.Service.RegisterInstallationRequest) obj;
-
-            if (!getInstallationId()
-                    .equals(other.getInstallationId())) return false;
-            if (hasDeliveryMechanism() != other.hasDeliveryMechanism()) return false;
-            if (hasDeliveryMechanism()) {
-                if (!getDeliveryMechanism()
-                        .equals(other.getDeliveryMechanism())) return false;
-            }
-            if (!getUnknownFields().equals(other.getUnknownFields())) return false;
-            return true;
-        }
-
-        @java.lang.Override
-        public int hashCode() {
-            if (memoizedHashCode != 0) {
-                return memoizedHashCode;
-            }
-            int hash = 41;
-            hash = (19 * hash) + getDescriptor().hashCode();
-            hash = (37 * hash) + INSTALLATION_ID_FIELD_NUMBER;
-            hash = (53 * hash) + getInstallationId().hashCode();
-            if (hasDeliveryMechanism()) {
-                hash = (37 * hash) + DELIVERY_MECHANISM_FIELD_NUMBER;
-                hash = (53 * hash) + getDeliveryMechanism().hashCode();
-            }
-            hash = (29 * hash) + getUnknownFields().hashCode();
-            memoizedHashCode = hash;
-            return hash;
         }
 
         public static org.xmtp.android.library.push.Service.RegisterInstallationRequest parseFrom(
                 java.nio.ByteBuffer data)
                 throws com.google.protobuf.InvalidProtocolBufferException {
-            return PARSER.parseFrom(data);
+            return com.google.protobuf.GeneratedMessageLite.parseFrom(
+                    DEFAULT_INSTANCE, data);
         }
+
         public static org.xmtp.android.library.push.Service.RegisterInstallationRequest parseFrom(
                 java.nio.ByteBuffer data,
                 com.google.protobuf.ExtensionRegistryLite extensionRegistry)
                 throws com.google.protobuf.InvalidProtocolBufferException {
-            return PARSER.parseFrom(data, extensionRegistry);
+            return com.google.protobuf.GeneratedMessageLite.parseFrom(
+                    DEFAULT_INSTANCE, data, extensionRegistry);
         }
+
         public static org.xmtp.android.library.push.Service.RegisterInstallationRequest parseFrom(
                 com.google.protobuf.ByteString data)
                 throws com.google.protobuf.InvalidProtocolBufferException {
-            return PARSER.parseFrom(data);
+            return com.google.protobuf.GeneratedMessageLite.parseFrom(
+                    DEFAULT_INSTANCE, data);
         }
+
         public static org.xmtp.android.library.push.Service.RegisterInstallationRequest parseFrom(
                 com.google.protobuf.ByteString data,
                 com.google.protobuf.ExtensionRegistryLite extensionRegistry)
                 throws com.google.protobuf.InvalidProtocolBufferException {
-            return PARSER.parseFrom(data, extensionRegistry);
+            return com.google.protobuf.GeneratedMessageLite.parseFrom(
+                    DEFAULT_INSTANCE, data, extensionRegistry);
         }
+
         public static org.xmtp.android.library.push.Service.RegisterInstallationRequest parseFrom(byte[] data)
                 throws com.google.protobuf.InvalidProtocolBufferException {
-            return PARSER.parseFrom(data);
+            return com.google.protobuf.GeneratedMessageLite.parseFrom(
+                    DEFAULT_INSTANCE, data);
         }
+
         public static org.xmtp.android.library.push.Service.RegisterInstallationRequest parseFrom(
                 byte[] data,
                 com.google.protobuf.ExtensionRegistryLite extensionRegistry)
                 throws com.google.protobuf.InvalidProtocolBufferException {
-            return PARSER.parseFrom(data, extensionRegistry);
+            return com.google.protobuf.GeneratedMessageLite.parseFrom(
+                    DEFAULT_INSTANCE, data, extensionRegistry);
         }
+
         public static org.xmtp.android.library.push.Service.RegisterInstallationRequest parseFrom(java.io.InputStream input)
                 throws java.io.IOException {
-            return com.google.protobuf.GeneratedMessageV3
-                    .parseWithIOException(PARSER, input);
+            return com.google.protobuf.GeneratedMessageLite.parseFrom(
+                    DEFAULT_INSTANCE, input);
         }
+
         public static org.xmtp.android.library.push.Service.RegisterInstallationRequest parseFrom(
                 java.io.InputStream input,
                 com.google.protobuf.ExtensionRegistryLite extensionRegistry)
                 throws java.io.IOException {
-            return com.google.protobuf.GeneratedMessageV3
-                    .parseWithIOException(PARSER, input, extensionRegistry);
+            return com.google.protobuf.GeneratedMessageLite.parseFrom(
+                    DEFAULT_INSTANCE, input, extensionRegistry);
         }
+
         public static org.xmtp.android.library.push.Service.RegisterInstallationRequest parseDelimitedFrom(java.io.InputStream input)
                 throws java.io.IOException {
-            return com.google.protobuf.GeneratedMessageV3
-                    .parseDelimitedWithIOException(PARSER, input);
+            return parseDelimitedFrom(DEFAULT_INSTANCE, input);
         }
+
         public static org.xmtp.android.library.push.Service.RegisterInstallationRequest parseDelimitedFrom(
                 java.io.InputStream input,
                 com.google.protobuf.ExtensionRegistryLite extensionRegistry)
                 throws java.io.IOException {
-            return com.google.protobuf.GeneratedMessageV3
-                    .parseDelimitedWithIOException(PARSER, input, extensionRegistry);
+            return parseDelimitedFrom(DEFAULT_INSTANCE, input, extensionRegistry);
         }
+
         public static org.xmtp.android.library.push.Service.RegisterInstallationRequest parseFrom(
                 com.google.protobuf.CodedInputStream input)
                 throws java.io.IOException {
-            return com.google.protobuf.GeneratedMessageV3
-                    .parseWithIOException(PARSER, input);
+            return com.google.protobuf.GeneratedMessageLite.parseFrom(
+                    DEFAULT_INSTANCE, input);
         }
+
         public static org.xmtp.android.library.push.Service.RegisterInstallationRequest parseFrom(
                 com.google.protobuf.CodedInputStream input,
                 com.google.protobuf.ExtensionRegistryLite extensionRegistry)
                 throws java.io.IOException {
-            return com.google.protobuf.GeneratedMessageV3
-                    .parseWithIOException(PARSER, input, extensionRegistry);
+            return com.google.protobuf.GeneratedMessageLite.parseFrom(
+                    DEFAULT_INSTANCE, input, extensionRegistry);
         }
 
-        @java.lang.Override
-        public Builder newBuilderForType() { return newBuilder(); }
         public static Builder newBuilder() {
-            return DEFAULT_INSTANCE.toBuilder();
-        }
-        public static Builder newBuilder(org.xmtp.android.library.push.Service.RegisterInstallationRequest prototype) {
-            return DEFAULT_INSTANCE.toBuilder().mergeFrom(prototype);
-        }
-        @java.lang.Override
-        public Builder toBuilder() {
-            return this == DEFAULT_INSTANCE
-                    ? new Builder() : new Builder().mergeFrom(this);
+            return (Builder) DEFAULT_INSTANCE.createBuilder();
         }
 
-        @java.lang.Override
-        protected Builder newBuilderForType(
-                com.google.protobuf.GeneratedMessageV3.BuilderParent parent) {
-            Builder builder = new Builder(parent);
-            return builder;
+        public static Builder newBuilder(org.xmtp.android.library.push.Service.RegisterInstallationRequest prototype) {
+            return (Builder) DEFAULT_INSTANCE.createBuilder(prototype);
         }
+
         /**
          * Protobuf type {@code notifications.v1.RegisterInstallationRequest}
          */
         public static final class Builder extends
-                com.google.protobuf.GeneratedMessageV3.Builder<Builder> implements
+                com.google.protobuf.GeneratedMessageLite.Builder<
+                        org.xmtp.android.library.push.Service.RegisterInstallationRequest, Builder> implements
                 // @@protoc_insertion_point(builder_implements:notifications.v1.RegisterInstallationRequest)
                 org.xmtp.android.library.push.Service.RegisterInstallationRequestOrBuilder {
-            public static final com.google.protobuf.Descriptors.Descriptor
-            getDescriptor() {
-                return org.xmtp.android.library.push.Service.internal_static_notifications_v1_RegisterInstallationRequest_descriptor;
-            }
-
-            @java.lang.Override
-            protected com.google.protobuf.GeneratedMessageV3.FieldAccessorTable
-            internalGetFieldAccessorTable() {
-                return org.xmtp.android.library.push.Service.internal_static_notifications_v1_RegisterInstallationRequest_fieldAccessorTable
-                        .ensureFieldAccessorsInitialized(
-                                org.xmtp.android.library.push.Service.RegisterInstallationRequest.class, org.xmtp.android.library.push.Service.RegisterInstallationRequest.Builder.class);
-            }
-
             // Construct using org.xmtp.android.library.push.Service.RegisterInstallationRequest.newBuilder()
             private Builder() {
-
+                super(DEFAULT_INSTANCE);
             }
 
-            private Builder(
-                    com.google.protobuf.GeneratedMessageV3.BuilderParent parent) {
-                super(parent);
 
-            }
-            @java.lang.Override
-            public Builder clear() {
-                super.clear();
-                bitField0_ = 0;
-                installationId_ = "";
-                deliveryMechanism_ = null;
-                if (deliveryMechanismBuilder_ != null) {
-                    deliveryMechanismBuilder_.dispose();
-                    deliveryMechanismBuilder_ = null;
-                }
-                return this;
-            }
-
-            @java.lang.Override
-            public com.google.protobuf.Descriptors.Descriptor
-            getDescriptorForType() {
-                return org.xmtp.android.library.push.Service.internal_static_notifications_v1_RegisterInstallationRequest_descriptor;
-            }
-
-            @java.lang.Override
-            public org.xmtp.android.library.push.Service.RegisterInstallationRequest getDefaultInstanceForType() {
-                return org.xmtp.android.library.push.Service.RegisterInstallationRequest.getDefaultInstance();
-            }
-
-            @java.lang.Override
-            public org.xmtp.android.library.push.Service.RegisterInstallationRequest build() {
-                org.xmtp.android.library.push.Service.RegisterInstallationRequest result = buildPartial();
-                if (!result.isInitialized()) {
-                    throw newUninitializedMessageException(result);
-                }
-                return result;
-            }
-
-            @java.lang.Override
-            public org.xmtp.android.library.push.Service.RegisterInstallationRequest buildPartial() {
-                org.xmtp.android.library.push.Service.RegisterInstallationRequest result = new org.xmtp.android.library.push.Service.RegisterInstallationRequest(this);
-                if (bitField0_ != 0) { buildPartial0(result); }
-                onBuilt();
-                return result;
-            }
-
-            private void buildPartial0(org.xmtp.android.library.push.Service.RegisterInstallationRequest result) {
-                int from_bitField0_ = bitField0_;
-                if (((from_bitField0_ & 0x00000001) != 0)) {
-                    result.installationId_ = installationId_;
-                }
-                if (((from_bitField0_ & 0x00000002) != 0)) {
-                    result.deliveryMechanism_ = deliveryMechanismBuilder_ == null
-                            ? deliveryMechanism_
-                            : deliveryMechanismBuilder_.build();
-                }
-            }
-
-            @java.lang.Override
-            public Builder clone() {
-                return super.clone();
-            }
-            @java.lang.Override
-            public Builder setField(
-                    com.google.protobuf.Descriptors.FieldDescriptor field,
-                    java.lang.Object value) {
-                return super.setField(field, value);
-            }
-            @java.lang.Override
-            public Builder clearField(
-                    com.google.protobuf.Descriptors.FieldDescriptor field) {
-                return super.clearField(field);
-            }
-            @java.lang.Override
-            public Builder clearOneof(
-                    com.google.protobuf.Descriptors.OneofDescriptor oneof) {
-                return super.clearOneof(oneof);
-            }
-            @java.lang.Override
-            public Builder setRepeatedField(
-                    com.google.protobuf.Descriptors.FieldDescriptor field,
-                    int index, java.lang.Object value) {
-                return super.setRepeatedField(field, index, value);
-            }
-            @java.lang.Override
-            public Builder addRepeatedField(
-                    com.google.protobuf.Descriptors.FieldDescriptor field,
-                    java.lang.Object value) {
-                return super.addRepeatedField(field, value);
-            }
-            @java.lang.Override
-            public Builder mergeFrom(com.google.protobuf.Message other) {
-                if (other instanceof org.xmtp.android.library.push.Service.RegisterInstallationRequest) {
-                    return mergeFrom((org.xmtp.android.library.push.Service.RegisterInstallationRequest)other);
-                } else {
-                    super.mergeFrom(other);
-                    return this;
-                }
-            }
-
-            public Builder mergeFrom(org.xmtp.android.library.push.Service.RegisterInstallationRequest other) {
-                if (other == org.xmtp.android.library.push.Service.RegisterInstallationRequest.getDefaultInstance()) return this;
-                if (!other.getInstallationId().isEmpty()) {
-                    installationId_ = other.installationId_;
-                    bitField0_ |= 0x00000001;
-                    onChanged();
-                }
-                if (other.hasDeliveryMechanism()) {
-                    mergeDeliveryMechanism(other.getDeliveryMechanism());
-                }
-                this.mergeUnknownFields(other.getUnknownFields());
-                onChanged();
-                return this;
-            }
-
-            @java.lang.Override
-            public final boolean isInitialized() {
-                return true;
-            }
-
-            @java.lang.Override
-            public Builder mergeFrom(
-                    com.google.protobuf.CodedInputStream input,
-                    com.google.protobuf.ExtensionRegistryLite extensionRegistry)
-                    throws java.io.IOException {
-                if (extensionRegistry == null) {
-                    throw new java.lang.NullPointerException();
-                }
-                try {
-                    boolean done = false;
-                    while (!done) {
-                        int tag = input.readTag();
-                        switch (tag) {
-                            case 0:
-                                done = true;
-                                break;
-                            case 10: {
-                                installationId_ = input.readStringRequireUtf8();
-                                bitField0_ |= 0x00000001;
-                                break;
-                            } // case 10
-                            case 18: {
-                                input.readMessage(
-                                        getDeliveryMechanismFieldBuilder().getBuilder(),
-                                        extensionRegistry);
-                                bitField0_ |= 0x00000002;
-                                break;
-                            } // case 18
-                            default: {
-                                if (!super.parseUnknownField(input, extensionRegistry, tag)) {
-                                    done = true; // was an endgroup tag
-                                }
-                                break;
-                            } // default:
-                        } // switch (tag)
-                    } // while (!done)
-                } catch (com.google.protobuf.InvalidProtocolBufferException e) {
-                    throw e.unwrapIOException();
-                } finally {
-                    onChanged();
-                } // finally
-                return this;
-            }
-            private int bitField0_;
-
-            private java.lang.Object installationId_ = "";
             /**
              * <code>string installation_id = 1;</code>
+             *
              * @return The installationId.
              */
+            @java.lang.Override
             public java.lang.String getInstallationId() {
-                java.lang.Object ref = installationId_;
-                if (!(ref instanceof java.lang.String)) {
-                    com.google.protobuf.ByteString bs =
-                            (com.google.protobuf.ByteString) ref;
-                    java.lang.String s = bs.toStringUtf8();
-                    installationId_ = s;
-                    return s;
-                } else {
-                    return (java.lang.String) ref;
-                }
+                return instance.getInstallationId();
             }
+
             /**
              * <code>string installation_id = 1;</code>
+             *
              * @return The bytes for installationId.
              */
+            @java.lang.Override
             public com.google.protobuf.ByteString
             getInstallationIdBytes() {
-                java.lang.Object ref = installationId_;
-                if (ref instanceof String) {
-                    com.google.protobuf.ByteString b =
-                            com.google.protobuf.ByteString.copyFromUtf8(
-                                    (java.lang.String) ref);
-                    installationId_ = b;
-                    return b;
-                } else {
-                    return (com.google.protobuf.ByteString) ref;
-                }
+                return instance.getInstallationIdBytes();
             }
+
             /**
              * <code>string installation_id = 1;</code>
+             *
              * @param value The installationId to set.
              * @return This builder for chaining.
              */
             public Builder setInstallationId(
                     java.lang.String value) {
-                if (value == null) { throw new NullPointerException(); }
-                installationId_ = value;
-                bitField0_ |= 0x00000001;
-                onChanged();
+                copyOnWrite();
+                instance.setInstallationId(value);
                 return this;
             }
+
             /**
              * <code>string installation_id = 1;</code>
+             *
              * @return This builder for chaining.
              */
             public Builder clearInstallationId() {
-                installationId_ = getDefaultInstance().getInstallationId();
-                bitField0_ = (bitField0_ & ~0x00000001);
-                onChanged();
+                copyOnWrite();
+                instance.clearInstallationId();
                 return this;
             }
+
             /**
              * <code>string installation_id = 1;</code>
+             *
              * @param value The bytes for installationId to set.
              * @return This builder for chaining.
              */
             public Builder setInstallationIdBytes(
                     com.google.protobuf.ByteString value) {
-                if (value == null) { throw new NullPointerException(); }
-                checkByteStringIsUtf8(value);
-                installationId_ = value;
-                bitField0_ |= 0x00000001;
-                onChanged();
+                copyOnWrite();
+                instance.setInstallationIdBytes(value);
                 return this;
             }
 
-            private org.xmtp.android.library.push.Service.DeliveryMechanism deliveryMechanism_;
-            private com.google.protobuf.SingleFieldBuilderV3<
-                    org.xmtp.android.library.push.Service.DeliveryMechanism, org.xmtp.android.library.push.Service.DeliveryMechanism.Builder, org.xmtp.android.library.push.Service.DeliveryMechanismOrBuilder> deliveryMechanismBuilder_;
             /**
              * <code>.notifications.v1.DeliveryMechanism delivery_mechanism = 2;</code>
-             * @return Whether the deliveryMechanism field is set.
              */
+            @java.lang.Override
             public boolean hasDeliveryMechanism() {
-                return ((bitField0_ & 0x00000002) != 0);
+                return instance.hasDeliveryMechanism();
             }
+
             /**
              * <code>.notifications.v1.DeliveryMechanism delivery_mechanism = 2;</code>
-             * @return The deliveryMechanism.
              */
+            @java.lang.Override
             public org.xmtp.android.library.push.Service.DeliveryMechanism getDeliveryMechanism() {
-                if (deliveryMechanismBuilder_ == null) {
-                    return deliveryMechanism_ == null ? org.xmtp.android.library.push.Service.DeliveryMechanism.getDefaultInstance() : deliveryMechanism_;
-                } else {
-                    return deliveryMechanismBuilder_.getMessage();
-                }
+                return instance.getDeliveryMechanism();
             }
+
             /**
              * <code>.notifications.v1.DeliveryMechanism delivery_mechanism = 2;</code>
              */
             public Builder setDeliveryMechanism(org.xmtp.android.library.push.Service.DeliveryMechanism value) {
-                if (deliveryMechanismBuilder_ == null) {
-                    if (value == null) {
-                        throw new NullPointerException();
-                    }
-                    deliveryMechanism_ = value;
-                } else {
-                    deliveryMechanismBuilder_.setMessage(value);
-                }
-                bitField0_ |= 0x00000002;
-                onChanged();
+                copyOnWrite();
+                instance.setDeliveryMechanism(value);
                 return this;
             }
+
             /**
              * <code>.notifications.v1.DeliveryMechanism delivery_mechanism = 2;</code>
              */
             public Builder setDeliveryMechanism(
                     org.xmtp.android.library.push.Service.DeliveryMechanism.Builder builderForValue) {
-                if (deliveryMechanismBuilder_ == null) {
-                    deliveryMechanism_ = builderForValue.build();
-                } else {
-                    deliveryMechanismBuilder_.setMessage(builderForValue.build());
-                }
-                bitField0_ |= 0x00000002;
-                onChanged();
+                copyOnWrite();
+                instance.setDeliveryMechanism(builderForValue.build());
                 return this;
             }
+
             /**
              * <code>.notifications.v1.DeliveryMechanism delivery_mechanism = 2;</code>
              */
             public Builder mergeDeliveryMechanism(org.xmtp.android.library.push.Service.DeliveryMechanism value) {
-                if (deliveryMechanismBuilder_ == null) {
-                    if (((bitField0_ & 0x00000002) != 0) &&
-                            deliveryMechanism_ != null &&
-                            deliveryMechanism_ != org.xmtp.android.library.push.Service.DeliveryMechanism.getDefaultInstance()) {
-                        getDeliveryMechanismBuilder().mergeFrom(value);
-                    } else {
-                        deliveryMechanism_ = value;
-                    }
-                } else {
-                    deliveryMechanismBuilder_.mergeFrom(value);
-                }
-                bitField0_ |= 0x00000002;
-                onChanged();
+                copyOnWrite();
+                instance.mergeDeliveryMechanism(value);
                 return this;
             }
+
             /**
              * <code>.notifications.v1.DeliveryMechanism delivery_mechanism = 2;</code>
              */
             public Builder clearDeliveryMechanism() {
-                bitField0_ = (bitField0_ & ~0x00000002);
-                deliveryMechanism_ = null;
-                if (deliveryMechanismBuilder_ != null) {
-                    deliveryMechanismBuilder_.dispose();
-                    deliveryMechanismBuilder_ = null;
-                }
-                onChanged();
+                copyOnWrite();
+                instance.clearDeliveryMechanism();
                 return this;
             }
-            /**
-             * <code>.notifications.v1.DeliveryMechanism delivery_mechanism = 2;</code>
-             */
-            public org.xmtp.android.library.push.Service.DeliveryMechanism.Builder getDeliveryMechanismBuilder() {
-                bitField0_ |= 0x00000002;
-                onChanged();
-                return getDeliveryMechanismFieldBuilder().getBuilder();
-            }
-            /**
-             * <code>.notifications.v1.DeliveryMechanism delivery_mechanism = 2;</code>
-             */
-            public org.xmtp.android.library.push.Service.DeliveryMechanismOrBuilder getDeliveryMechanismOrBuilder() {
-                if (deliveryMechanismBuilder_ != null) {
-                    return deliveryMechanismBuilder_.getMessageOrBuilder();
-                } else {
-                    return deliveryMechanism_ == null ?
-                            org.xmtp.android.library.push.Service.DeliveryMechanism.getDefaultInstance() : deliveryMechanism_;
-                }
-            }
-            /**
-             * <code>.notifications.v1.DeliveryMechanism delivery_mechanism = 2;</code>
-             */
-            private com.google.protobuf.SingleFieldBuilderV3<
-                    org.xmtp.android.library.push.Service.DeliveryMechanism, org.xmtp.android.library.push.Service.DeliveryMechanism.Builder, org.xmtp.android.library.push.Service.DeliveryMechanismOrBuilder>
-            getDeliveryMechanismFieldBuilder() {
-                if (deliveryMechanismBuilder_ == null) {
-                    deliveryMechanismBuilder_ = new com.google.protobuf.SingleFieldBuilderV3<
-                            org.xmtp.android.library.push.Service.DeliveryMechanism, org.xmtp.android.library.push.Service.DeliveryMechanism.Builder, org.xmtp.android.library.push.Service.DeliveryMechanismOrBuilder>(
-                            getDeliveryMechanism(),
-                            getParentForChildren(),
-                            isClean());
-                    deliveryMechanism_ = null;
-                }
-                return deliveryMechanismBuilder_;
-            }
-            @java.lang.Override
-            public final Builder setUnknownFields(
-                    final com.google.protobuf.UnknownFieldSet unknownFields) {
-                return super.setUnknownFields(unknownFields);
-            }
-
-            @java.lang.Override
-            public final Builder mergeUnknownFields(
-                    final com.google.protobuf.UnknownFieldSet unknownFields) {
-                return super.mergeUnknownFields(unknownFields);
-            }
-
 
             // @@protoc_insertion_point(builder_scope:notifications.v1.RegisterInstallationRequest)
         }
 
+        @java.lang.Override
+        @java.lang.SuppressWarnings({"unchecked", "fallthrough"})
+        protected final java.lang.Object dynamicMethod(
+                com.google.protobuf.GeneratedMessageLite.MethodToInvoke method,
+                java.lang.Object arg0, java.lang.Object arg1) {
+            switch (method) {
+                case NEW_MUTABLE_INSTANCE: {
+                    return new org.xmtp.android.library.push.Service.RegisterInstallationRequest();
+                }
+                case NEW_BUILDER: {
+                    return new Builder();
+                }
+                case BUILD_MESSAGE_INFO: {
+                    java.lang.Object[] objects = new java.lang.Object[]{
+                            "installationId_",
+                            "deliveryMechanism_",
+                    };
+                    java.lang.String info =
+                            "\u0000\u0002\u0000\u0000\u0001\u0002\u0002\u0000\u0000\u0000\u0001\u0208\u0002\t" +
+                                    "";
+                    return newMessageInfo(DEFAULT_INSTANCE, info, objects);
+                }
+                // fall through
+                case GET_DEFAULT_INSTANCE: {
+                    return DEFAULT_INSTANCE;
+                }
+                case GET_PARSER: {
+                    com.google.protobuf.Parser<org.xmtp.android.library.push.Service.RegisterInstallationRequest> parser = PARSER;
+                    if (parser == null) {
+                        synchronized (org.xmtp.android.library.push.Service.RegisterInstallationRequest.class) {
+                            parser = PARSER;
+                            if (parser == null) {
+                                parser =
+                                        new DefaultInstanceBasedParser<org.xmtp.android.library.push.Service.RegisterInstallationRequest>(
+                                                DEFAULT_INSTANCE);
+                                PARSER = parser;
+                            }
+                        }
+                    }
+                    return parser;
+                }
+                case GET_MEMOIZED_IS_INITIALIZED: {
+                    return (byte) 1;
+                }
+                case SET_MEMOIZED_IS_INITIALIZED: {
+                    return null;
+                }
+            }
+            throw new UnsupportedOperationException();
+        }
+
+
         // @@protoc_insertion_point(class_scope:notifications.v1.RegisterInstallationRequest)
         private static final org.xmtp.android.library.push.Service.RegisterInstallationRequest DEFAULT_INSTANCE;
+
         static {
-            DEFAULT_INSTANCE = new org.xmtp.android.library.push.Service.RegisterInstallationRequest();
+            RegisterInstallationRequest defaultInstance = new RegisterInstallationRequest();
+            // New instances are implicitly immutable so no need to make
+            // immutable.
+            DEFAULT_INSTANCE = defaultInstance;
+            com.google.protobuf.GeneratedMessageLite.registerDefaultInstance(
+                    RegisterInstallationRequest.class, defaultInstance);
         }
 
         public static org.xmtp.android.library.push.Service.RegisterInstallationRequest getDefaultInstance() {
             return DEFAULT_INSTANCE;
         }
 
-        private static final com.google.protobuf.Parser<RegisterInstallationRequest>
-                PARSER = new com.google.protobuf.AbstractParser<RegisterInstallationRequest>() {
-            @java.lang.Override
-            public RegisterInstallationRequest parsePartialFrom(
-                    com.google.protobuf.CodedInputStream input,
-                    com.google.protobuf.ExtensionRegistryLite extensionRegistry)
-                    throws com.google.protobuf.InvalidProtocolBufferException {
-                Builder builder = newBuilder();
-                try {
-                    builder.mergeFrom(input, extensionRegistry);
-                } catch (com.google.protobuf.InvalidProtocolBufferException e) {
-                    throw e.setUnfinishedMessage(builder.buildPartial());
-                } catch (com.google.protobuf.UninitializedMessageException e) {
-                    throw e.asInvalidProtocolBufferException().setUnfinishedMessage(builder.buildPartial());
-                } catch (java.io.IOException e) {
-                    throw new com.google.protobuf.InvalidProtocolBufferException(e)
-                            .setUnfinishedMessage(builder.buildPartial());
-                }
-                return builder.buildPartial();
-            }
-        };
+        private static volatile com.google.protobuf.Parser<RegisterInstallationRequest> PARSER;
 
         public static com.google.protobuf.Parser<RegisterInstallationRequest> parser() {
-            return PARSER;
+            return DEFAULT_INSTANCE.getParserForType();
         }
-
-        @java.lang.Override
-        public com.google.protobuf.Parser<RegisterInstallationRequest> getParserForType() {
-            return PARSER;
-        }
-
-        @java.lang.Override
-        public org.xmtp.android.library.push.Service.RegisterInstallationRequest getDefaultInstanceForType() {
-            return DEFAULT_INSTANCE;
-        }
-
     }
 
     public interface RegisterInstallationResponseOrBuilder extends
             // @@protoc_insertion_point(interface_extends:notifications.v1.RegisterInstallationResponse)
-            com.google.protobuf.MessageOrBuilder {
+            com.google.protobuf.MessageLiteOrBuilder {
 
         /**
          * <code>string installation_id = 1;</code>
+         *
          * @return The installationId.
          */
         java.lang.String getInstallationId();
+
         /**
          * <code>string installation_id = 1;</code>
+         *
          * @return The bytes for installationId.
          */
         com.google.protobuf.ByteString
@@ -1646,94 +1080,86 @@ public final class Service {
 
         /**
          * <code>uint64 valid_until = 2;</code>
+         *
          * @return The validUntil.
          */
         long getValidUntil();
     }
+
     /**
      * Protobuf type {@code notifications.v1.RegisterInstallationResponse}
      */
     public static final class RegisterInstallationResponse extends
-            com.google.protobuf.GeneratedMessageV3 implements
+            com.google.protobuf.GeneratedMessageLite<
+                    RegisterInstallationResponse, RegisterInstallationResponse.Builder> implements
             // @@protoc_insertion_point(message_implements:notifications.v1.RegisterInstallationResponse)
             RegisterInstallationResponseOrBuilder {
-        private static final long serialVersionUID = 0L;
-        // Use RegisterInstallationResponse.newBuilder() to construct.
-        private RegisterInstallationResponse(com.google.protobuf.GeneratedMessageV3.Builder<?> builder) {
-            super(builder);
-        }
         private RegisterInstallationResponse() {
             installationId_ = "";
         }
 
-        @java.lang.Override
-        @SuppressWarnings({"unused"})
-        protected java.lang.Object newInstance(
-                UnusedPrivateParameter unused) {
-            return new RegisterInstallationResponse();
-        }
-
-        @java.lang.Override
-        public final com.google.protobuf.UnknownFieldSet
-        getUnknownFields() {
-            return this.unknownFields;
-        }
-        public static final com.google.protobuf.Descriptors.Descriptor
-        getDescriptor() {
-            return org.xmtp.android.library.push.Service.internal_static_notifications_v1_RegisterInstallationResponse_descriptor;
-        }
-
-        @java.lang.Override
-        protected com.google.protobuf.GeneratedMessageV3.FieldAccessorTable
-        internalGetFieldAccessorTable() {
-            return org.xmtp.android.library.push.Service.internal_static_notifications_v1_RegisterInstallationResponse_fieldAccessorTable
-                    .ensureFieldAccessorsInitialized(
-                            org.xmtp.android.library.push.Service.RegisterInstallationResponse.class, org.xmtp.android.library.push.Service.RegisterInstallationResponse.Builder.class);
-        }
-
         public static final int INSTALLATION_ID_FIELD_NUMBER = 1;
-        @SuppressWarnings("serial")
-        private volatile java.lang.Object installationId_ = "";
+        private java.lang.String installationId_;
+
         /**
          * <code>string installation_id = 1;</code>
+         *
          * @return The installationId.
          */
         @java.lang.Override
         public java.lang.String getInstallationId() {
-            java.lang.Object ref = installationId_;
-            if (ref instanceof java.lang.String) {
-                return (java.lang.String) ref;
-            } else {
-                com.google.protobuf.ByteString bs =
-                        (com.google.protobuf.ByteString) ref;
-                java.lang.String s = bs.toStringUtf8();
-                installationId_ = s;
-                return s;
-            }
+            return installationId_;
         }
+
         /**
          * <code>string installation_id = 1;</code>
+         *
          * @return The bytes for installationId.
          */
         @java.lang.Override
         public com.google.protobuf.ByteString
         getInstallationIdBytes() {
-            java.lang.Object ref = installationId_;
-            if (ref instanceof java.lang.String) {
-                com.google.protobuf.ByteString b =
-                        com.google.protobuf.ByteString.copyFromUtf8(
-                                (java.lang.String) ref);
-                installationId_ = b;
-                return b;
-            } else {
-                return (com.google.protobuf.ByteString) ref;
-            }
+            return com.google.protobuf.ByteString.copyFromUtf8(installationId_);
+        }
+
+        /**
+         * <code>string installation_id = 1;</code>
+         *
+         * @param value The installationId to set.
+         */
+        private void setInstallationId(
+                java.lang.String value) {
+            java.lang.Class<?> valueClass = value.getClass();
+
+            installationId_ = value;
+        }
+
+        /**
+         * <code>string installation_id = 1;</code>
+         */
+        private void clearInstallationId() {
+
+            installationId_ = getDefaultInstance().getInstallationId();
+        }
+
+        /**
+         * <code>string installation_id = 1;</code>
+         *
+         * @param value The bytes for installationId to set.
+         */
+        private void setInstallationIdBytes(
+                com.google.protobuf.ByteString value) {
+            checkByteStringIsUtf8(value);
+            installationId_ = value.toStringUtf8();
+
         }
 
         public static final int VALID_UNTIL_FIELD_NUMBER = 2;
-        private long validUntil_ = 0L;
+        private long validUntil_;
+
         /**
          * <code>uint64 valid_until = 2;</code>
+         *
          * @return The validUntil.
          */
         @java.lang.Override
@@ -1741,1087 +1167,643 @@ public final class Service {
             return validUntil_;
         }
 
-        private byte memoizedIsInitialized = -1;
-        @java.lang.Override
-        public final boolean isInitialized() {
-            byte isInitialized = memoizedIsInitialized;
-            if (isInitialized == 1) return true;
-            if (isInitialized == 0) return false;
+        /**
+         * <code>uint64 valid_until = 2;</code>
+         *
+         * @param value The validUntil to set.
+         */
+        private void setValidUntil(long value) {
 
-            memoizedIsInitialized = 1;
-            return true;
+            validUntil_ = value;
         }
 
-        @java.lang.Override
-        public void writeTo(com.google.protobuf.CodedOutputStream output)
-                throws java.io.IOException {
-            if (!com.google.protobuf.GeneratedMessageV3.isStringEmpty(installationId_)) {
-                com.google.protobuf.GeneratedMessageV3.writeString(output, 1, installationId_);
-            }
-            if (validUntil_ != 0L) {
-                output.writeUInt64(2, validUntil_);
-            }
-            getUnknownFields().writeTo(output);
-        }
+        /**
+         * <code>uint64 valid_until = 2;</code>
+         */
+        private void clearValidUntil() {
 
-        @java.lang.Override
-        public int getSerializedSize() {
-            int size = memoizedSize;
-            if (size != -1) return size;
-
-            size = 0;
-            if (!com.google.protobuf.GeneratedMessageV3.isStringEmpty(installationId_)) {
-                size += com.google.protobuf.GeneratedMessageV3.computeStringSize(1, installationId_);
-            }
-            if (validUntil_ != 0L) {
-                size += com.google.protobuf.CodedOutputStream
-                        .computeUInt64Size(2, validUntil_);
-            }
-            size += getUnknownFields().getSerializedSize();
-            memoizedSize = size;
-            return size;
-        }
-
-        @java.lang.Override
-        public boolean equals(final java.lang.Object obj) {
-            if (obj == this) {
-                return true;
-            }
-            if (!(obj instanceof org.xmtp.android.library.push.Service.RegisterInstallationResponse)) {
-                return super.equals(obj);
-            }
-            org.xmtp.android.library.push.Service.RegisterInstallationResponse other = (org.xmtp.android.library.push.Service.RegisterInstallationResponse) obj;
-
-            if (!getInstallationId()
-                    .equals(other.getInstallationId())) return false;
-            if (getValidUntil()
-                    != other.getValidUntil()) return false;
-            if (!getUnknownFields().equals(other.getUnknownFields())) return false;
-            return true;
-        }
-
-        @java.lang.Override
-        public int hashCode() {
-            if (memoizedHashCode != 0) {
-                return memoizedHashCode;
-            }
-            int hash = 41;
-            hash = (19 * hash) + getDescriptor().hashCode();
-            hash = (37 * hash) + INSTALLATION_ID_FIELD_NUMBER;
-            hash = (53 * hash) + getInstallationId().hashCode();
-            hash = (37 * hash) + VALID_UNTIL_FIELD_NUMBER;
-            hash = (53 * hash) + com.google.protobuf.Internal.hashLong(
-                    getValidUntil());
-            hash = (29 * hash) + getUnknownFields().hashCode();
-            memoizedHashCode = hash;
-            return hash;
+            validUntil_ = 0L;
         }
 
         public static org.xmtp.android.library.push.Service.RegisterInstallationResponse parseFrom(
                 java.nio.ByteBuffer data)
                 throws com.google.protobuf.InvalidProtocolBufferException {
-            return PARSER.parseFrom(data);
+            return com.google.protobuf.GeneratedMessageLite.parseFrom(
+                    DEFAULT_INSTANCE, data);
         }
+
         public static org.xmtp.android.library.push.Service.RegisterInstallationResponse parseFrom(
                 java.nio.ByteBuffer data,
                 com.google.protobuf.ExtensionRegistryLite extensionRegistry)
                 throws com.google.protobuf.InvalidProtocolBufferException {
-            return PARSER.parseFrom(data, extensionRegistry);
+            return com.google.protobuf.GeneratedMessageLite.parseFrom(
+                    DEFAULT_INSTANCE, data, extensionRegistry);
         }
+
         public static org.xmtp.android.library.push.Service.RegisterInstallationResponse parseFrom(
                 com.google.protobuf.ByteString data)
                 throws com.google.protobuf.InvalidProtocolBufferException {
-            return PARSER.parseFrom(data);
+            return com.google.protobuf.GeneratedMessageLite.parseFrom(
+                    DEFAULT_INSTANCE, data);
         }
+
         public static org.xmtp.android.library.push.Service.RegisterInstallationResponse parseFrom(
                 com.google.protobuf.ByteString data,
                 com.google.protobuf.ExtensionRegistryLite extensionRegistry)
                 throws com.google.protobuf.InvalidProtocolBufferException {
-            return PARSER.parseFrom(data, extensionRegistry);
+            return com.google.protobuf.GeneratedMessageLite.parseFrom(
+                    DEFAULT_INSTANCE, data, extensionRegistry);
         }
+
         public static org.xmtp.android.library.push.Service.RegisterInstallationResponse parseFrom(byte[] data)
                 throws com.google.protobuf.InvalidProtocolBufferException {
-            return PARSER.parseFrom(data);
+            return com.google.protobuf.GeneratedMessageLite.parseFrom(
+                    DEFAULT_INSTANCE, data);
         }
+
         public static org.xmtp.android.library.push.Service.RegisterInstallationResponse parseFrom(
                 byte[] data,
                 com.google.protobuf.ExtensionRegistryLite extensionRegistry)
                 throws com.google.protobuf.InvalidProtocolBufferException {
-            return PARSER.parseFrom(data, extensionRegistry);
+            return com.google.protobuf.GeneratedMessageLite.parseFrom(
+                    DEFAULT_INSTANCE, data, extensionRegistry);
         }
+
         public static org.xmtp.android.library.push.Service.RegisterInstallationResponse parseFrom(java.io.InputStream input)
                 throws java.io.IOException {
-            return com.google.protobuf.GeneratedMessageV3
-                    .parseWithIOException(PARSER, input);
+            return com.google.protobuf.GeneratedMessageLite.parseFrom(
+                    DEFAULT_INSTANCE, input);
         }
+
         public static org.xmtp.android.library.push.Service.RegisterInstallationResponse parseFrom(
                 java.io.InputStream input,
                 com.google.protobuf.ExtensionRegistryLite extensionRegistry)
                 throws java.io.IOException {
-            return com.google.protobuf.GeneratedMessageV3
-                    .parseWithIOException(PARSER, input, extensionRegistry);
+            return com.google.protobuf.GeneratedMessageLite.parseFrom(
+                    DEFAULT_INSTANCE, input, extensionRegistry);
         }
+
         public static org.xmtp.android.library.push.Service.RegisterInstallationResponse parseDelimitedFrom(java.io.InputStream input)
                 throws java.io.IOException {
-            return com.google.protobuf.GeneratedMessageV3
-                    .parseDelimitedWithIOException(PARSER, input);
+            return parseDelimitedFrom(DEFAULT_INSTANCE, input);
         }
+
         public static org.xmtp.android.library.push.Service.RegisterInstallationResponse parseDelimitedFrom(
                 java.io.InputStream input,
                 com.google.protobuf.ExtensionRegistryLite extensionRegistry)
                 throws java.io.IOException {
-            return com.google.protobuf.GeneratedMessageV3
-                    .parseDelimitedWithIOException(PARSER, input, extensionRegistry);
+            return parseDelimitedFrom(DEFAULT_INSTANCE, input, extensionRegistry);
         }
+
         public static org.xmtp.android.library.push.Service.RegisterInstallationResponse parseFrom(
                 com.google.protobuf.CodedInputStream input)
                 throws java.io.IOException {
-            return com.google.protobuf.GeneratedMessageV3
-                    .parseWithIOException(PARSER, input);
+            return com.google.protobuf.GeneratedMessageLite.parseFrom(
+                    DEFAULT_INSTANCE, input);
         }
+
         public static org.xmtp.android.library.push.Service.RegisterInstallationResponse parseFrom(
                 com.google.protobuf.CodedInputStream input,
                 com.google.protobuf.ExtensionRegistryLite extensionRegistry)
                 throws java.io.IOException {
-            return com.google.protobuf.GeneratedMessageV3
-                    .parseWithIOException(PARSER, input, extensionRegistry);
+            return com.google.protobuf.GeneratedMessageLite.parseFrom(
+                    DEFAULT_INSTANCE, input, extensionRegistry);
         }
 
-        @java.lang.Override
-        public Builder newBuilderForType() { return newBuilder(); }
         public static Builder newBuilder() {
-            return DEFAULT_INSTANCE.toBuilder();
-        }
-        public static Builder newBuilder(org.xmtp.android.library.push.Service.RegisterInstallationResponse prototype) {
-            return DEFAULT_INSTANCE.toBuilder().mergeFrom(prototype);
-        }
-        @java.lang.Override
-        public Builder toBuilder() {
-            return this == DEFAULT_INSTANCE
-                    ? new Builder() : new Builder().mergeFrom(this);
+            return (Builder) DEFAULT_INSTANCE.createBuilder();
         }
 
-        @java.lang.Override
-        protected Builder newBuilderForType(
-                com.google.protobuf.GeneratedMessageV3.BuilderParent parent) {
-            Builder builder = new Builder(parent);
-            return builder;
+        public static Builder newBuilder(org.xmtp.android.library.push.Service.RegisterInstallationResponse prototype) {
+            return (Builder) DEFAULT_INSTANCE.createBuilder(prototype);
         }
+
         /**
          * Protobuf type {@code notifications.v1.RegisterInstallationResponse}
          */
         public static final class Builder extends
-                com.google.protobuf.GeneratedMessageV3.Builder<Builder> implements
+                com.google.protobuf.GeneratedMessageLite.Builder<
+                        org.xmtp.android.library.push.Service.RegisterInstallationResponse, Builder> implements
                 // @@protoc_insertion_point(builder_implements:notifications.v1.RegisterInstallationResponse)
                 org.xmtp.android.library.push.Service.RegisterInstallationResponseOrBuilder {
-            public static final com.google.protobuf.Descriptors.Descriptor
-            getDescriptor() {
-                return org.xmtp.android.library.push.Service.internal_static_notifications_v1_RegisterInstallationResponse_descriptor;
-            }
-
-            @java.lang.Override
-            protected com.google.protobuf.GeneratedMessageV3.FieldAccessorTable
-            internalGetFieldAccessorTable() {
-                return org.xmtp.android.library.push.Service.internal_static_notifications_v1_RegisterInstallationResponse_fieldAccessorTable
-                        .ensureFieldAccessorsInitialized(
-                                org.xmtp.android.library.push.Service.RegisterInstallationResponse.class, org.xmtp.android.library.push.Service.RegisterInstallationResponse.Builder.class);
-            }
-
             // Construct using org.xmtp.android.library.push.Service.RegisterInstallationResponse.newBuilder()
             private Builder() {
-
+                super(DEFAULT_INSTANCE);
             }
 
-            private Builder(
-                    com.google.protobuf.GeneratedMessageV3.BuilderParent parent) {
-                super(parent);
 
-            }
-            @java.lang.Override
-            public Builder clear() {
-                super.clear();
-                bitField0_ = 0;
-                installationId_ = "";
-                validUntil_ = 0L;
-                return this;
-            }
-
-            @java.lang.Override
-            public com.google.protobuf.Descriptors.Descriptor
-            getDescriptorForType() {
-                return org.xmtp.android.library.push.Service.internal_static_notifications_v1_RegisterInstallationResponse_descriptor;
-            }
-
-            @java.lang.Override
-            public org.xmtp.android.library.push.Service.RegisterInstallationResponse getDefaultInstanceForType() {
-                return org.xmtp.android.library.push.Service.RegisterInstallationResponse.getDefaultInstance();
-            }
-
-            @java.lang.Override
-            public org.xmtp.android.library.push.Service.RegisterInstallationResponse build() {
-                org.xmtp.android.library.push.Service.RegisterInstallationResponse result = buildPartial();
-                if (!result.isInitialized()) {
-                    throw newUninitializedMessageException(result);
-                }
-                return result;
-            }
-
-            @java.lang.Override
-            public org.xmtp.android.library.push.Service.RegisterInstallationResponse buildPartial() {
-                org.xmtp.android.library.push.Service.RegisterInstallationResponse result = new org.xmtp.android.library.push.Service.RegisterInstallationResponse(this);
-                if (bitField0_ != 0) { buildPartial0(result); }
-                onBuilt();
-                return result;
-            }
-
-            private void buildPartial0(org.xmtp.android.library.push.Service.RegisterInstallationResponse result) {
-                int from_bitField0_ = bitField0_;
-                if (((from_bitField0_ & 0x00000001) != 0)) {
-                    result.installationId_ = installationId_;
-                }
-                if (((from_bitField0_ & 0x00000002) != 0)) {
-                    result.validUntil_ = validUntil_;
-                }
-            }
-
-            @java.lang.Override
-            public Builder clone() {
-                return super.clone();
-            }
-            @java.lang.Override
-            public Builder setField(
-                    com.google.protobuf.Descriptors.FieldDescriptor field,
-                    java.lang.Object value) {
-                return super.setField(field, value);
-            }
-            @java.lang.Override
-            public Builder clearField(
-                    com.google.protobuf.Descriptors.FieldDescriptor field) {
-                return super.clearField(field);
-            }
-            @java.lang.Override
-            public Builder clearOneof(
-                    com.google.protobuf.Descriptors.OneofDescriptor oneof) {
-                return super.clearOneof(oneof);
-            }
-            @java.lang.Override
-            public Builder setRepeatedField(
-                    com.google.protobuf.Descriptors.FieldDescriptor field,
-                    int index, java.lang.Object value) {
-                return super.setRepeatedField(field, index, value);
-            }
-            @java.lang.Override
-            public Builder addRepeatedField(
-                    com.google.protobuf.Descriptors.FieldDescriptor field,
-                    java.lang.Object value) {
-                return super.addRepeatedField(field, value);
-            }
-            @java.lang.Override
-            public Builder mergeFrom(com.google.protobuf.Message other) {
-                if (other instanceof org.xmtp.android.library.push.Service.RegisterInstallationResponse) {
-                    return mergeFrom((org.xmtp.android.library.push.Service.RegisterInstallationResponse)other);
-                } else {
-                    super.mergeFrom(other);
-                    return this;
-                }
-            }
-
-            public Builder mergeFrom(org.xmtp.android.library.push.Service.RegisterInstallationResponse other) {
-                if (other == org.xmtp.android.library.push.Service.RegisterInstallationResponse.getDefaultInstance()) return this;
-                if (!other.getInstallationId().isEmpty()) {
-                    installationId_ = other.installationId_;
-                    bitField0_ |= 0x00000001;
-                    onChanged();
-                }
-                if (other.getValidUntil() != 0L) {
-                    setValidUntil(other.getValidUntil());
-                }
-                this.mergeUnknownFields(other.getUnknownFields());
-                onChanged();
-                return this;
-            }
-
-            @java.lang.Override
-            public final boolean isInitialized() {
-                return true;
-            }
-
-            @java.lang.Override
-            public Builder mergeFrom(
-                    com.google.protobuf.CodedInputStream input,
-                    com.google.protobuf.ExtensionRegistryLite extensionRegistry)
-                    throws java.io.IOException {
-                if (extensionRegistry == null) {
-                    throw new java.lang.NullPointerException();
-                }
-                try {
-                    boolean done = false;
-                    while (!done) {
-                        int tag = input.readTag();
-                        switch (tag) {
-                            case 0:
-                                done = true;
-                                break;
-                            case 10: {
-                                installationId_ = input.readStringRequireUtf8();
-                                bitField0_ |= 0x00000001;
-                                break;
-                            } // case 10
-                            case 16: {
-                                validUntil_ = input.readUInt64();
-                                bitField0_ |= 0x00000002;
-                                break;
-                            } // case 16
-                            default: {
-                                if (!super.parseUnknownField(input, extensionRegistry, tag)) {
-                                    done = true; // was an endgroup tag
-                                }
-                                break;
-                            } // default:
-                        } // switch (tag)
-                    } // while (!done)
-                } catch (com.google.protobuf.InvalidProtocolBufferException e) {
-                    throw e.unwrapIOException();
-                } finally {
-                    onChanged();
-                } // finally
-                return this;
-            }
-            private int bitField0_;
-
-            private java.lang.Object installationId_ = "";
             /**
              * <code>string installation_id = 1;</code>
+             *
              * @return The installationId.
              */
+            @java.lang.Override
             public java.lang.String getInstallationId() {
-                java.lang.Object ref = installationId_;
-                if (!(ref instanceof java.lang.String)) {
-                    com.google.protobuf.ByteString bs =
-                            (com.google.protobuf.ByteString) ref;
-                    java.lang.String s = bs.toStringUtf8();
-                    installationId_ = s;
-                    return s;
-                } else {
-                    return (java.lang.String) ref;
-                }
+                return instance.getInstallationId();
             }
+
             /**
              * <code>string installation_id = 1;</code>
+             *
              * @return The bytes for installationId.
              */
+            @java.lang.Override
             public com.google.protobuf.ByteString
             getInstallationIdBytes() {
-                java.lang.Object ref = installationId_;
-                if (ref instanceof String) {
-                    com.google.protobuf.ByteString b =
-                            com.google.protobuf.ByteString.copyFromUtf8(
-                                    (java.lang.String) ref);
-                    installationId_ = b;
-                    return b;
-                } else {
-                    return (com.google.protobuf.ByteString) ref;
-                }
+                return instance.getInstallationIdBytes();
             }
+
             /**
              * <code>string installation_id = 1;</code>
+             *
              * @param value The installationId to set.
              * @return This builder for chaining.
              */
             public Builder setInstallationId(
                     java.lang.String value) {
-                if (value == null) { throw new NullPointerException(); }
-                installationId_ = value;
-                bitField0_ |= 0x00000001;
-                onChanged();
+                copyOnWrite();
+                instance.setInstallationId(value);
                 return this;
             }
+
             /**
              * <code>string installation_id = 1;</code>
+             *
              * @return This builder for chaining.
              */
             public Builder clearInstallationId() {
-                installationId_ = getDefaultInstance().getInstallationId();
-                bitField0_ = (bitField0_ & ~0x00000001);
-                onChanged();
+                copyOnWrite();
+                instance.clearInstallationId();
                 return this;
             }
+
             /**
              * <code>string installation_id = 1;</code>
+             *
              * @param value The bytes for installationId to set.
              * @return This builder for chaining.
              */
             public Builder setInstallationIdBytes(
                     com.google.protobuf.ByteString value) {
-                if (value == null) { throw new NullPointerException(); }
-                checkByteStringIsUtf8(value);
-                installationId_ = value;
-                bitField0_ |= 0x00000001;
-                onChanged();
+                copyOnWrite();
+                instance.setInstallationIdBytes(value);
                 return this;
             }
 
-            private long validUntil_ ;
             /**
              * <code>uint64 valid_until = 2;</code>
+             *
              * @return The validUntil.
              */
             @java.lang.Override
             public long getValidUntil() {
-                return validUntil_;
+                return instance.getValidUntil();
             }
+
             /**
              * <code>uint64 valid_until = 2;</code>
+             *
              * @param value The validUntil to set.
              * @return This builder for chaining.
              */
             public Builder setValidUntil(long value) {
-
-                validUntil_ = value;
-                bitField0_ |= 0x00000002;
-                onChanged();
+                copyOnWrite();
+                instance.setValidUntil(value);
                 return this;
             }
+
             /**
              * <code>uint64 valid_until = 2;</code>
+             *
              * @return This builder for chaining.
              */
             public Builder clearValidUntil() {
-                bitField0_ = (bitField0_ & ~0x00000002);
-                validUntil_ = 0L;
-                onChanged();
+                copyOnWrite();
+                instance.clearValidUntil();
                 return this;
             }
-            @java.lang.Override
-            public final Builder setUnknownFields(
-                    final com.google.protobuf.UnknownFieldSet unknownFields) {
-                return super.setUnknownFields(unknownFields);
-            }
-
-            @java.lang.Override
-            public final Builder mergeUnknownFields(
-                    final com.google.protobuf.UnknownFieldSet unknownFields) {
-                return super.mergeUnknownFields(unknownFields);
-            }
-
 
             // @@protoc_insertion_point(builder_scope:notifications.v1.RegisterInstallationResponse)
         }
 
+        @java.lang.Override
+        @java.lang.SuppressWarnings({"unchecked", "fallthrough"})
+        protected final java.lang.Object dynamicMethod(
+                com.google.protobuf.GeneratedMessageLite.MethodToInvoke method,
+                java.lang.Object arg0, java.lang.Object arg1) {
+            switch (method) {
+                case NEW_MUTABLE_INSTANCE: {
+                    return new org.xmtp.android.library.push.Service.RegisterInstallationResponse();
+                }
+                case NEW_BUILDER: {
+                    return new Builder();
+                }
+                case BUILD_MESSAGE_INFO: {
+                    java.lang.Object[] objects = new java.lang.Object[]{
+                            "installationId_",
+                            "validUntil_",
+                    };
+                    java.lang.String info =
+                            "\u0000\u0002\u0000\u0000\u0001\u0002\u0002\u0000\u0000\u0000\u0001\u0208\u0002\u0003" +
+                                    "";
+                    return newMessageInfo(DEFAULT_INSTANCE, info, objects);
+                }
+                // fall through
+                case GET_DEFAULT_INSTANCE: {
+                    return DEFAULT_INSTANCE;
+                }
+                case GET_PARSER: {
+                    com.google.protobuf.Parser<org.xmtp.android.library.push.Service.RegisterInstallationResponse> parser = PARSER;
+                    if (parser == null) {
+                        synchronized (org.xmtp.android.library.push.Service.RegisterInstallationResponse.class) {
+                            parser = PARSER;
+                            if (parser == null) {
+                                parser =
+                                        new DefaultInstanceBasedParser<org.xmtp.android.library.push.Service.RegisterInstallationResponse>(
+                                                DEFAULT_INSTANCE);
+                                PARSER = parser;
+                            }
+                        }
+                    }
+                    return parser;
+                }
+                case GET_MEMOIZED_IS_INITIALIZED: {
+                    return (byte) 1;
+                }
+                case SET_MEMOIZED_IS_INITIALIZED: {
+                    return null;
+                }
+            }
+            throw new UnsupportedOperationException();
+        }
+
+
         // @@protoc_insertion_point(class_scope:notifications.v1.RegisterInstallationResponse)
         private static final org.xmtp.android.library.push.Service.RegisterInstallationResponse DEFAULT_INSTANCE;
+
         static {
-            DEFAULT_INSTANCE = new org.xmtp.android.library.push.Service.RegisterInstallationResponse();
+            RegisterInstallationResponse defaultInstance = new RegisterInstallationResponse();
+            // New instances are implicitly immutable so no need to make
+            // immutable.
+            DEFAULT_INSTANCE = defaultInstance;
+            com.google.protobuf.GeneratedMessageLite.registerDefaultInstance(
+                    RegisterInstallationResponse.class, defaultInstance);
         }
 
         public static org.xmtp.android.library.push.Service.RegisterInstallationResponse getDefaultInstance() {
             return DEFAULT_INSTANCE;
         }
 
-        private static final com.google.protobuf.Parser<RegisterInstallationResponse>
-                PARSER = new com.google.protobuf.AbstractParser<RegisterInstallationResponse>() {
-            @java.lang.Override
-            public RegisterInstallationResponse parsePartialFrom(
-                    com.google.protobuf.CodedInputStream input,
-                    com.google.protobuf.ExtensionRegistryLite extensionRegistry)
-                    throws com.google.protobuf.InvalidProtocolBufferException {
-                Builder builder = newBuilder();
-                try {
-                    builder.mergeFrom(input, extensionRegistry);
-                } catch (com.google.protobuf.InvalidProtocolBufferException e) {
-                    throw e.setUnfinishedMessage(builder.buildPartial());
-                } catch (com.google.protobuf.UninitializedMessageException e) {
-                    throw e.asInvalidProtocolBufferException().setUnfinishedMessage(builder.buildPartial());
-                } catch (java.io.IOException e) {
-                    throw new com.google.protobuf.InvalidProtocolBufferException(e)
-                            .setUnfinishedMessage(builder.buildPartial());
-                }
-                return builder.buildPartial();
-            }
-        };
+        private static volatile com.google.protobuf.Parser<RegisterInstallationResponse> PARSER;
 
         public static com.google.protobuf.Parser<RegisterInstallationResponse> parser() {
-            return PARSER;
+            return DEFAULT_INSTANCE.getParserForType();
         }
-
-        @java.lang.Override
-        public com.google.protobuf.Parser<RegisterInstallationResponse> getParserForType() {
-            return PARSER;
-        }
-
-        @java.lang.Override
-        public org.xmtp.android.library.push.Service.RegisterInstallationResponse getDefaultInstanceForType() {
-            return DEFAULT_INSTANCE;
-        }
-
     }
 
     public interface DeleteInstallationRequestOrBuilder extends
             // @@protoc_insertion_point(interface_extends:notifications.v1.DeleteInstallationRequest)
-            com.google.protobuf.MessageOrBuilder {
+            com.google.protobuf.MessageLiteOrBuilder {
 
         /**
          * <code>string installation_id = 1;</code>
+         *
          * @return The installationId.
          */
         java.lang.String getInstallationId();
+
         /**
          * <code>string installation_id = 1;</code>
+         *
          * @return The bytes for installationId.
          */
         com.google.protobuf.ByteString
         getInstallationIdBytes();
     }
+
     /**
      * Protobuf type {@code notifications.v1.DeleteInstallationRequest}
      */
     public static final class DeleteInstallationRequest extends
-            com.google.protobuf.GeneratedMessageV3 implements
+            com.google.protobuf.GeneratedMessageLite<
+                    DeleteInstallationRequest, DeleteInstallationRequest.Builder> implements
             // @@protoc_insertion_point(message_implements:notifications.v1.DeleteInstallationRequest)
             DeleteInstallationRequestOrBuilder {
-        private static final long serialVersionUID = 0L;
-        // Use DeleteInstallationRequest.newBuilder() to construct.
-        private DeleteInstallationRequest(com.google.protobuf.GeneratedMessageV3.Builder<?> builder) {
-            super(builder);
-        }
         private DeleteInstallationRequest() {
             installationId_ = "";
         }
 
-        @java.lang.Override
-        @SuppressWarnings({"unused"})
-        protected java.lang.Object newInstance(
-                UnusedPrivateParameter unused) {
-            return new DeleteInstallationRequest();
-        }
-
-        @java.lang.Override
-        public final com.google.protobuf.UnknownFieldSet
-        getUnknownFields() {
-            return this.unknownFields;
-        }
-        public static final com.google.protobuf.Descriptors.Descriptor
-        getDescriptor() {
-            return org.xmtp.android.library.push.Service.internal_static_notifications_v1_DeleteInstallationRequest_descriptor;
-        }
-
-        @java.lang.Override
-        protected com.google.protobuf.GeneratedMessageV3.FieldAccessorTable
-        internalGetFieldAccessorTable() {
-            return org.xmtp.android.library.push.Service.internal_static_notifications_v1_DeleteInstallationRequest_fieldAccessorTable
-                    .ensureFieldAccessorsInitialized(
-                            org.xmtp.android.library.push.Service.DeleteInstallationRequest.class, org.xmtp.android.library.push.Service.DeleteInstallationRequest.Builder.class);
-        }
-
         public static final int INSTALLATION_ID_FIELD_NUMBER = 1;
-        @SuppressWarnings("serial")
-        private volatile java.lang.Object installationId_ = "";
+        private java.lang.String installationId_;
+
         /**
          * <code>string installation_id = 1;</code>
+         *
          * @return The installationId.
          */
         @java.lang.Override
         public java.lang.String getInstallationId() {
-            java.lang.Object ref = installationId_;
-            if (ref instanceof java.lang.String) {
-                return (java.lang.String) ref;
-            } else {
-                com.google.protobuf.ByteString bs =
-                        (com.google.protobuf.ByteString) ref;
-                java.lang.String s = bs.toStringUtf8();
-                installationId_ = s;
-                return s;
-            }
+            return installationId_;
         }
+
         /**
          * <code>string installation_id = 1;</code>
+         *
          * @return The bytes for installationId.
          */
         @java.lang.Override
         public com.google.protobuf.ByteString
         getInstallationIdBytes() {
-            java.lang.Object ref = installationId_;
-            if (ref instanceof java.lang.String) {
-                com.google.protobuf.ByteString b =
-                        com.google.protobuf.ByteString.copyFromUtf8(
-                                (java.lang.String) ref);
-                installationId_ = b;
-                return b;
-            } else {
-                return (com.google.protobuf.ByteString) ref;
-            }
+            return com.google.protobuf.ByteString.copyFromUtf8(installationId_);
         }
 
-        private byte memoizedIsInitialized = -1;
-        @java.lang.Override
-        public final boolean isInitialized() {
-            byte isInitialized = memoizedIsInitialized;
-            if (isInitialized == 1) return true;
-            if (isInitialized == 0) return false;
+        /**
+         * <code>string installation_id = 1;</code>
+         *
+         * @param value The installationId to set.
+         */
+        private void setInstallationId(
+                java.lang.String value) {
+            java.lang.Class<?> valueClass = value.getClass();
 
-            memoizedIsInitialized = 1;
-            return true;
+            installationId_ = value;
         }
 
-        @java.lang.Override
-        public void writeTo(com.google.protobuf.CodedOutputStream output)
-                throws java.io.IOException {
-            if (!com.google.protobuf.GeneratedMessageV3.isStringEmpty(installationId_)) {
-                com.google.protobuf.GeneratedMessageV3.writeString(output, 1, installationId_);
-            }
-            getUnknownFields().writeTo(output);
+        /**
+         * <code>string installation_id = 1;</code>
+         */
+        private void clearInstallationId() {
+
+            installationId_ = getDefaultInstance().getInstallationId();
         }
 
-        @java.lang.Override
-        public int getSerializedSize() {
-            int size = memoizedSize;
-            if (size != -1) return size;
+        /**
+         * <code>string installation_id = 1;</code>
+         *
+         * @param value The bytes for installationId to set.
+         */
+        private void setInstallationIdBytes(
+                com.google.protobuf.ByteString value) {
+            checkByteStringIsUtf8(value);
+            installationId_ = value.toStringUtf8();
 
-            size = 0;
-            if (!com.google.protobuf.GeneratedMessageV3.isStringEmpty(installationId_)) {
-                size += com.google.protobuf.GeneratedMessageV3.computeStringSize(1, installationId_);
-            }
-            size += getUnknownFields().getSerializedSize();
-            memoizedSize = size;
-            return size;
-        }
-
-        @java.lang.Override
-        public boolean equals(final java.lang.Object obj) {
-            if (obj == this) {
-                return true;
-            }
-            if (!(obj instanceof org.xmtp.android.library.push.Service.DeleteInstallationRequest)) {
-                return super.equals(obj);
-            }
-            org.xmtp.android.library.push.Service.DeleteInstallationRequest other = (org.xmtp.android.library.push.Service.DeleteInstallationRequest) obj;
-
-            if (!getInstallationId()
-                    .equals(other.getInstallationId())) return false;
-            if (!getUnknownFields().equals(other.getUnknownFields())) return false;
-            return true;
-        }
-
-        @java.lang.Override
-        public int hashCode() {
-            if (memoizedHashCode != 0) {
-                return memoizedHashCode;
-            }
-            int hash = 41;
-            hash = (19 * hash) + getDescriptor().hashCode();
-            hash = (37 * hash) + INSTALLATION_ID_FIELD_NUMBER;
-            hash = (53 * hash) + getInstallationId().hashCode();
-            hash = (29 * hash) + getUnknownFields().hashCode();
-            memoizedHashCode = hash;
-            return hash;
         }
 
         public static org.xmtp.android.library.push.Service.DeleteInstallationRequest parseFrom(
                 java.nio.ByteBuffer data)
                 throws com.google.protobuf.InvalidProtocolBufferException {
-            return PARSER.parseFrom(data);
+            return com.google.protobuf.GeneratedMessageLite.parseFrom(
+                    DEFAULT_INSTANCE, data);
         }
+
         public static org.xmtp.android.library.push.Service.DeleteInstallationRequest parseFrom(
                 java.nio.ByteBuffer data,
                 com.google.protobuf.ExtensionRegistryLite extensionRegistry)
                 throws com.google.protobuf.InvalidProtocolBufferException {
-            return PARSER.parseFrom(data, extensionRegistry);
+            return com.google.protobuf.GeneratedMessageLite.parseFrom(
+                    DEFAULT_INSTANCE, data, extensionRegistry);
         }
+
         public static org.xmtp.android.library.push.Service.DeleteInstallationRequest parseFrom(
                 com.google.protobuf.ByteString data)
                 throws com.google.protobuf.InvalidProtocolBufferException {
-            return PARSER.parseFrom(data);
+            return com.google.protobuf.GeneratedMessageLite.parseFrom(
+                    DEFAULT_INSTANCE, data);
         }
+
         public static org.xmtp.android.library.push.Service.DeleteInstallationRequest parseFrom(
                 com.google.protobuf.ByteString data,
                 com.google.protobuf.ExtensionRegistryLite extensionRegistry)
                 throws com.google.protobuf.InvalidProtocolBufferException {
-            return PARSER.parseFrom(data, extensionRegistry);
+            return com.google.protobuf.GeneratedMessageLite.parseFrom(
+                    DEFAULT_INSTANCE, data, extensionRegistry);
         }
+
         public static org.xmtp.android.library.push.Service.DeleteInstallationRequest parseFrom(byte[] data)
                 throws com.google.protobuf.InvalidProtocolBufferException {
-            return PARSER.parseFrom(data);
+            return com.google.protobuf.GeneratedMessageLite.parseFrom(
+                    DEFAULT_INSTANCE, data);
         }
+
         public static org.xmtp.android.library.push.Service.DeleteInstallationRequest parseFrom(
                 byte[] data,
                 com.google.protobuf.ExtensionRegistryLite extensionRegistry)
                 throws com.google.protobuf.InvalidProtocolBufferException {
-            return PARSER.parseFrom(data, extensionRegistry);
+            return com.google.protobuf.GeneratedMessageLite.parseFrom(
+                    DEFAULT_INSTANCE, data, extensionRegistry);
         }
+
         public static org.xmtp.android.library.push.Service.DeleteInstallationRequest parseFrom(java.io.InputStream input)
                 throws java.io.IOException {
-            return com.google.protobuf.GeneratedMessageV3
-                    .parseWithIOException(PARSER, input);
+            return com.google.protobuf.GeneratedMessageLite.parseFrom(
+                    DEFAULT_INSTANCE, input);
         }
+
         public static org.xmtp.android.library.push.Service.DeleteInstallationRequest parseFrom(
                 java.io.InputStream input,
                 com.google.protobuf.ExtensionRegistryLite extensionRegistry)
                 throws java.io.IOException {
-            return com.google.protobuf.GeneratedMessageV3
-                    .parseWithIOException(PARSER, input, extensionRegistry);
+            return com.google.protobuf.GeneratedMessageLite.parseFrom(
+                    DEFAULT_INSTANCE, input, extensionRegistry);
         }
+
         public static org.xmtp.android.library.push.Service.DeleteInstallationRequest parseDelimitedFrom(java.io.InputStream input)
                 throws java.io.IOException {
-            return com.google.protobuf.GeneratedMessageV3
-                    .parseDelimitedWithIOException(PARSER, input);
+            return parseDelimitedFrom(DEFAULT_INSTANCE, input);
         }
+
         public static org.xmtp.android.library.push.Service.DeleteInstallationRequest parseDelimitedFrom(
                 java.io.InputStream input,
                 com.google.protobuf.ExtensionRegistryLite extensionRegistry)
                 throws java.io.IOException {
-            return com.google.protobuf.GeneratedMessageV3
-                    .parseDelimitedWithIOException(PARSER, input, extensionRegistry);
+            return parseDelimitedFrom(DEFAULT_INSTANCE, input, extensionRegistry);
         }
+
         public static org.xmtp.android.library.push.Service.DeleteInstallationRequest parseFrom(
                 com.google.protobuf.CodedInputStream input)
                 throws java.io.IOException {
-            return com.google.protobuf.GeneratedMessageV3
-                    .parseWithIOException(PARSER, input);
+            return com.google.protobuf.GeneratedMessageLite.parseFrom(
+                    DEFAULT_INSTANCE, input);
         }
+
         public static org.xmtp.android.library.push.Service.DeleteInstallationRequest parseFrom(
                 com.google.protobuf.CodedInputStream input,
                 com.google.protobuf.ExtensionRegistryLite extensionRegistry)
                 throws java.io.IOException {
-            return com.google.protobuf.GeneratedMessageV3
-                    .parseWithIOException(PARSER, input, extensionRegistry);
+            return com.google.protobuf.GeneratedMessageLite.parseFrom(
+                    DEFAULT_INSTANCE, input, extensionRegistry);
         }
 
-        @java.lang.Override
-        public Builder newBuilderForType() { return newBuilder(); }
         public static Builder newBuilder() {
-            return DEFAULT_INSTANCE.toBuilder();
-        }
-        public static Builder newBuilder(org.xmtp.android.library.push.Service.DeleteInstallationRequest prototype) {
-            return DEFAULT_INSTANCE.toBuilder().mergeFrom(prototype);
-        }
-        @java.lang.Override
-        public Builder toBuilder() {
-            return this == DEFAULT_INSTANCE
-                    ? new Builder() : new Builder().mergeFrom(this);
+            return (Builder) DEFAULT_INSTANCE.createBuilder();
         }
 
-        @java.lang.Override
-        protected Builder newBuilderForType(
-                com.google.protobuf.GeneratedMessageV3.BuilderParent parent) {
-            Builder builder = new Builder(parent);
-            return builder;
+        public static Builder newBuilder(org.xmtp.android.library.push.Service.DeleteInstallationRequest prototype) {
+            return (Builder) DEFAULT_INSTANCE.createBuilder(prototype);
         }
+
         /**
          * Protobuf type {@code notifications.v1.DeleteInstallationRequest}
          */
         public static final class Builder extends
-                com.google.protobuf.GeneratedMessageV3.Builder<Builder> implements
+                com.google.protobuf.GeneratedMessageLite.Builder<
+                        org.xmtp.android.library.push.Service.DeleteInstallationRequest, Builder> implements
                 // @@protoc_insertion_point(builder_implements:notifications.v1.DeleteInstallationRequest)
                 org.xmtp.android.library.push.Service.DeleteInstallationRequestOrBuilder {
-            public static final com.google.protobuf.Descriptors.Descriptor
-            getDescriptor() {
-                return org.xmtp.android.library.push.Service.internal_static_notifications_v1_DeleteInstallationRequest_descriptor;
-            }
-
-            @java.lang.Override
-            protected com.google.protobuf.GeneratedMessageV3.FieldAccessorTable
-            internalGetFieldAccessorTable() {
-                return org.xmtp.android.library.push.Service.internal_static_notifications_v1_DeleteInstallationRequest_fieldAccessorTable
-                        .ensureFieldAccessorsInitialized(
-                                org.xmtp.android.library.push.Service.DeleteInstallationRequest.class, org.xmtp.android.library.push.Service.DeleteInstallationRequest.Builder.class);
-            }
-
             // Construct using org.xmtp.android.library.push.Service.DeleteInstallationRequest.newBuilder()
             private Builder() {
-
+                super(DEFAULT_INSTANCE);
             }
 
-            private Builder(
-                    com.google.protobuf.GeneratedMessageV3.BuilderParent parent) {
-                super(parent);
 
-            }
-            @java.lang.Override
-            public Builder clear() {
-                super.clear();
-                bitField0_ = 0;
-                installationId_ = "";
-                return this;
-            }
-
-            @java.lang.Override
-            public com.google.protobuf.Descriptors.Descriptor
-            getDescriptorForType() {
-                return org.xmtp.android.library.push.Service.internal_static_notifications_v1_DeleteInstallationRequest_descriptor;
-            }
-
-            @java.lang.Override
-            public org.xmtp.android.library.push.Service.DeleteInstallationRequest getDefaultInstanceForType() {
-                return org.xmtp.android.library.push.Service.DeleteInstallationRequest.getDefaultInstance();
-            }
-
-            @java.lang.Override
-            public org.xmtp.android.library.push.Service.DeleteInstallationRequest build() {
-                org.xmtp.android.library.push.Service.DeleteInstallationRequest result = buildPartial();
-                if (!result.isInitialized()) {
-                    throw newUninitializedMessageException(result);
-                }
-                return result;
-            }
-
-            @java.lang.Override
-            public org.xmtp.android.library.push.Service.DeleteInstallationRequest buildPartial() {
-                org.xmtp.android.library.push.Service.DeleteInstallationRequest result = new org.xmtp.android.library.push.Service.DeleteInstallationRequest(this);
-                if (bitField0_ != 0) { buildPartial0(result); }
-                onBuilt();
-                return result;
-            }
-
-            private void buildPartial0(org.xmtp.android.library.push.Service.DeleteInstallationRequest result) {
-                int from_bitField0_ = bitField0_;
-                if (((from_bitField0_ & 0x00000001) != 0)) {
-                    result.installationId_ = installationId_;
-                }
-            }
-
-            @java.lang.Override
-            public Builder clone() {
-                return super.clone();
-            }
-            @java.lang.Override
-            public Builder setField(
-                    com.google.protobuf.Descriptors.FieldDescriptor field,
-                    java.lang.Object value) {
-                return super.setField(field, value);
-            }
-            @java.lang.Override
-            public Builder clearField(
-                    com.google.protobuf.Descriptors.FieldDescriptor field) {
-                return super.clearField(field);
-            }
-            @java.lang.Override
-            public Builder clearOneof(
-                    com.google.protobuf.Descriptors.OneofDescriptor oneof) {
-                return super.clearOneof(oneof);
-            }
-            @java.lang.Override
-            public Builder setRepeatedField(
-                    com.google.protobuf.Descriptors.FieldDescriptor field,
-                    int index, java.lang.Object value) {
-                return super.setRepeatedField(field, index, value);
-            }
-            @java.lang.Override
-            public Builder addRepeatedField(
-                    com.google.protobuf.Descriptors.FieldDescriptor field,
-                    java.lang.Object value) {
-                return super.addRepeatedField(field, value);
-            }
-            @java.lang.Override
-            public Builder mergeFrom(com.google.protobuf.Message other) {
-                if (other instanceof org.xmtp.android.library.push.Service.DeleteInstallationRequest) {
-                    return mergeFrom((org.xmtp.android.library.push.Service.DeleteInstallationRequest)other);
-                } else {
-                    super.mergeFrom(other);
-                    return this;
-                }
-            }
-
-            public Builder mergeFrom(org.xmtp.android.library.push.Service.DeleteInstallationRequest other) {
-                if (other == org.xmtp.android.library.push.Service.DeleteInstallationRequest.getDefaultInstance()) return this;
-                if (!other.getInstallationId().isEmpty()) {
-                    installationId_ = other.installationId_;
-                    bitField0_ |= 0x00000001;
-                    onChanged();
-                }
-                this.mergeUnknownFields(other.getUnknownFields());
-                onChanged();
-                return this;
-            }
-
-            @java.lang.Override
-            public final boolean isInitialized() {
-                return true;
-            }
-
-            @java.lang.Override
-            public Builder mergeFrom(
-                    com.google.protobuf.CodedInputStream input,
-                    com.google.protobuf.ExtensionRegistryLite extensionRegistry)
-                    throws java.io.IOException {
-                if (extensionRegistry == null) {
-                    throw new java.lang.NullPointerException();
-                }
-                try {
-                    boolean done = false;
-                    while (!done) {
-                        int tag = input.readTag();
-                        switch (tag) {
-                            case 0:
-                                done = true;
-                                break;
-                            case 10: {
-                                installationId_ = input.readStringRequireUtf8();
-                                bitField0_ |= 0x00000001;
-                                break;
-                            } // case 10
-                            default: {
-                                if (!super.parseUnknownField(input, extensionRegistry, tag)) {
-                                    done = true; // was an endgroup tag
-                                }
-                                break;
-                            } // default:
-                        } // switch (tag)
-                    } // while (!done)
-                } catch (com.google.protobuf.InvalidProtocolBufferException e) {
-                    throw e.unwrapIOException();
-                } finally {
-                    onChanged();
-                } // finally
-                return this;
-            }
-            private int bitField0_;
-
-            private java.lang.Object installationId_ = "";
             /**
              * <code>string installation_id = 1;</code>
+             *
              * @return The installationId.
              */
+            @java.lang.Override
             public java.lang.String getInstallationId() {
-                java.lang.Object ref = installationId_;
-                if (!(ref instanceof java.lang.String)) {
-                    com.google.protobuf.ByteString bs =
-                            (com.google.protobuf.ByteString) ref;
-                    java.lang.String s = bs.toStringUtf8();
-                    installationId_ = s;
-                    return s;
-                } else {
-                    return (java.lang.String) ref;
-                }
+                return instance.getInstallationId();
             }
+
             /**
              * <code>string installation_id = 1;</code>
+             *
              * @return The bytes for installationId.
              */
+            @java.lang.Override
             public com.google.protobuf.ByteString
             getInstallationIdBytes() {
-                java.lang.Object ref = installationId_;
-                if (ref instanceof String) {
-                    com.google.protobuf.ByteString b =
-                            com.google.protobuf.ByteString.copyFromUtf8(
-                                    (java.lang.String) ref);
-                    installationId_ = b;
-                    return b;
-                } else {
-                    return (com.google.protobuf.ByteString) ref;
-                }
+                return instance.getInstallationIdBytes();
             }
+
             /**
              * <code>string installation_id = 1;</code>
+             *
              * @param value The installationId to set.
              * @return This builder for chaining.
              */
             public Builder setInstallationId(
                     java.lang.String value) {
-                if (value == null) { throw new NullPointerException(); }
-                installationId_ = value;
-                bitField0_ |= 0x00000001;
-                onChanged();
+                copyOnWrite();
+                instance.setInstallationId(value);
                 return this;
             }
+
             /**
              * <code>string installation_id = 1;</code>
+             *
              * @return This builder for chaining.
              */
             public Builder clearInstallationId() {
-                installationId_ = getDefaultInstance().getInstallationId();
-                bitField0_ = (bitField0_ & ~0x00000001);
-                onChanged();
+                copyOnWrite();
+                instance.clearInstallationId();
                 return this;
             }
+
             /**
              * <code>string installation_id = 1;</code>
+             *
              * @param value The bytes for installationId to set.
              * @return This builder for chaining.
              */
             public Builder setInstallationIdBytes(
                     com.google.protobuf.ByteString value) {
-                if (value == null) { throw new NullPointerException(); }
-                checkByteStringIsUtf8(value);
-                installationId_ = value;
-                bitField0_ |= 0x00000001;
-                onChanged();
+                copyOnWrite();
+                instance.setInstallationIdBytes(value);
                 return this;
             }
-            @java.lang.Override
-            public final Builder setUnknownFields(
-                    final com.google.protobuf.UnknownFieldSet unknownFields) {
-                return super.setUnknownFields(unknownFields);
-            }
-
-            @java.lang.Override
-            public final Builder mergeUnknownFields(
-                    final com.google.protobuf.UnknownFieldSet unknownFields) {
-                return super.mergeUnknownFields(unknownFields);
-            }
-
 
             // @@protoc_insertion_point(builder_scope:notifications.v1.DeleteInstallationRequest)
         }
 
+        @java.lang.Override
+        @java.lang.SuppressWarnings({"unchecked", "fallthrough"})
+        protected final java.lang.Object dynamicMethod(
+                com.google.protobuf.GeneratedMessageLite.MethodToInvoke method,
+                java.lang.Object arg0, java.lang.Object arg1) {
+            switch (method) {
+                case NEW_MUTABLE_INSTANCE: {
+                    return new org.xmtp.android.library.push.Service.DeleteInstallationRequest();
+                }
+                case NEW_BUILDER: {
+                    return new Builder();
+                }
+                case BUILD_MESSAGE_INFO: {
+                    java.lang.Object[] objects = new java.lang.Object[]{
+                            "installationId_",
+                    };
+                    java.lang.String info =
+                            "\u0000\u0001\u0000\u0000\u0001\u0001\u0001\u0000\u0000\u0000\u0001\u0208";
+                    return newMessageInfo(DEFAULT_INSTANCE, info, objects);
+                }
+                // fall through
+                case GET_DEFAULT_INSTANCE: {
+                    return DEFAULT_INSTANCE;
+                }
+                case GET_PARSER: {
+                    com.google.protobuf.Parser<org.xmtp.android.library.push.Service.DeleteInstallationRequest> parser = PARSER;
+                    if (parser == null) {
+                        synchronized (org.xmtp.android.library.push.Service.DeleteInstallationRequest.class) {
+                            parser = PARSER;
+                            if (parser == null) {
+                                parser =
+                                        new DefaultInstanceBasedParser<org.xmtp.android.library.push.Service.DeleteInstallationRequest>(
+                                                DEFAULT_INSTANCE);
+                                PARSER = parser;
+                            }
+                        }
+                    }
+                    return parser;
+                }
+                case GET_MEMOIZED_IS_INITIALIZED: {
+                    return (byte) 1;
+                }
+                case SET_MEMOIZED_IS_INITIALIZED: {
+                    return null;
+                }
+            }
+            throw new UnsupportedOperationException();
+        }
+
+
         // @@protoc_insertion_point(class_scope:notifications.v1.DeleteInstallationRequest)
         private static final org.xmtp.android.library.push.Service.DeleteInstallationRequest DEFAULT_INSTANCE;
+
         static {
-            DEFAULT_INSTANCE = new org.xmtp.android.library.push.Service.DeleteInstallationRequest();
+            DeleteInstallationRequest defaultInstance = new DeleteInstallationRequest();
+            // New instances are implicitly immutable so no need to make
+            // immutable.
+            DEFAULT_INSTANCE = defaultInstance;
+            com.google.protobuf.GeneratedMessageLite.registerDefaultInstance(
+                    DeleteInstallationRequest.class, defaultInstance);
         }
 
         public static org.xmtp.android.library.push.Service.DeleteInstallationRequest getDefaultInstance() {
             return DEFAULT_INSTANCE;
         }
 
-        private static final com.google.protobuf.Parser<DeleteInstallationRequest>
-                PARSER = new com.google.protobuf.AbstractParser<DeleteInstallationRequest>() {
-            @java.lang.Override
-            public DeleteInstallationRequest parsePartialFrom(
-                    com.google.protobuf.CodedInputStream input,
-                    com.google.protobuf.ExtensionRegistryLite extensionRegistry)
-                    throws com.google.protobuf.InvalidProtocolBufferException {
-                Builder builder = newBuilder();
-                try {
-                    builder.mergeFrom(input, extensionRegistry);
-                } catch (com.google.protobuf.InvalidProtocolBufferException e) {
-                    throw e.setUnfinishedMessage(builder.buildPartial());
-                } catch (com.google.protobuf.UninitializedMessageException e) {
-                    throw e.asInvalidProtocolBufferException().setUnfinishedMessage(builder.buildPartial());
-                } catch (java.io.IOException e) {
-                    throw new com.google.protobuf.InvalidProtocolBufferException(e)
-                            .setUnfinishedMessage(builder.buildPartial());
-                }
-                return builder.buildPartial();
-            }
-        };
+        private static volatile com.google.protobuf.Parser<DeleteInstallationRequest> PARSER;
 
         public static com.google.protobuf.Parser<DeleteInstallationRequest> parser() {
-            return PARSER;
+            return DEFAULT_INSTANCE.getParserForType();
         }
-
-        @java.lang.Override
-        public com.google.protobuf.Parser<DeleteInstallationRequest> getParserForType() {
-            return PARSER;
-        }
-
-        @java.lang.Override
-        public org.xmtp.android.library.push.Service.DeleteInstallationRequest getDefaultInstanceForType() {
-            return DEFAULT_INSTANCE;
-        }
-
     }
 
     public interface SubscribeRequestOrBuilder extends
             // @@protoc_insertion_point(interface_extends:notifications.v1.SubscribeRequest)
-            com.google.protobuf.MessageOrBuilder {
+            com.google.protobuf.MessageLiteOrBuilder {
 
         /**
          * <code>string installation_id = 1;</code>
+         *
          * @return The installationId.
          */
         java.lang.String getInstallationId();
+
         /**
          * <code>string installation_id = 1;</code>
+         *
          * @return The bytes for installationId.
          */
         com.google.protobuf.ByteString
@@ -2829,764 +1811,584 @@ public final class Service {
 
         /**
          * <code>repeated string topics = 2;</code>
+         *
          * @return A list containing the topics.
          */
         java.util.List<java.lang.String>
         getTopicsList();
+
         /**
          * <code>repeated string topics = 2;</code>
+         *
          * @return The count of topics.
          */
         int getTopicsCount();
+
         /**
          * <code>repeated string topics = 2;</code>
+         *
          * @param index The index of the element to return.
          * @return The topics at the given index.
          */
         java.lang.String getTopics(int index);
+
         /**
          * <code>repeated string topics = 2;</code>
-         * @param index The index of the value to return.
-         * @return The bytes of the topics at the given index.
+         *
+         * @param index The index of the element to return.
+         * @return The topics at the given index.
          */
         com.google.protobuf.ByteString
         getTopicsBytes(int index);
     }
+
     /**
      * Protobuf type {@code notifications.v1.SubscribeRequest}
      */
     public static final class SubscribeRequest extends
-            com.google.protobuf.GeneratedMessageV3 implements
+            com.google.protobuf.GeneratedMessageLite<
+                    SubscribeRequest, SubscribeRequest.Builder> implements
             // @@protoc_insertion_point(message_implements:notifications.v1.SubscribeRequest)
             SubscribeRequestOrBuilder {
-        private static final long serialVersionUID = 0L;
-        // Use SubscribeRequest.newBuilder() to construct.
-        private SubscribeRequest(com.google.protobuf.GeneratedMessageV3.Builder<?> builder) {
-            super(builder);
-        }
         private SubscribeRequest() {
             installationId_ = "";
-            topics_ = com.google.protobuf.LazyStringArrayList.EMPTY;
-        }
-
-        @java.lang.Override
-        @SuppressWarnings({"unused"})
-        protected java.lang.Object newInstance(
-                UnusedPrivateParameter unused) {
-            return new SubscribeRequest();
-        }
-
-        @java.lang.Override
-        public final com.google.protobuf.UnknownFieldSet
-        getUnknownFields() {
-            return this.unknownFields;
-        }
-        public static final com.google.protobuf.Descriptors.Descriptor
-        getDescriptor() {
-            return org.xmtp.android.library.push.Service.internal_static_notifications_v1_SubscribeRequest_descriptor;
-        }
-
-        @java.lang.Override
-        protected com.google.protobuf.GeneratedMessageV3.FieldAccessorTable
-        internalGetFieldAccessorTable() {
-            return org.xmtp.android.library.push.Service.internal_static_notifications_v1_SubscribeRequest_fieldAccessorTable
-                    .ensureFieldAccessorsInitialized(
-                            org.xmtp.android.library.push.Service.SubscribeRequest.class, org.xmtp.android.library.push.Service.SubscribeRequest.Builder.class);
+            topics_ = com.google.protobuf.GeneratedMessageLite.emptyProtobufList();
         }
 
         public static final int INSTALLATION_ID_FIELD_NUMBER = 1;
-        @SuppressWarnings("serial")
-        private volatile java.lang.Object installationId_ = "";
+        private java.lang.String installationId_;
+
         /**
          * <code>string installation_id = 1;</code>
+         *
          * @return The installationId.
          */
         @java.lang.Override
         public java.lang.String getInstallationId() {
-            java.lang.Object ref = installationId_;
-            if (ref instanceof java.lang.String) {
-                return (java.lang.String) ref;
-            } else {
-                com.google.protobuf.ByteString bs =
-                        (com.google.protobuf.ByteString) ref;
-                java.lang.String s = bs.toStringUtf8();
-                installationId_ = s;
-                return s;
-            }
+            return installationId_;
         }
+
         /**
          * <code>string installation_id = 1;</code>
+         *
          * @return The bytes for installationId.
          */
         @java.lang.Override
         public com.google.protobuf.ByteString
         getInstallationIdBytes() {
-            java.lang.Object ref = installationId_;
-            if (ref instanceof java.lang.String) {
-                com.google.protobuf.ByteString b =
-                        com.google.protobuf.ByteString.copyFromUtf8(
-                                (java.lang.String) ref);
-                installationId_ = b;
-                return b;
-            } else {
-                return (com.google.protobuf.ByteString) ref;
-            }
+            return com.google.protobuf.ByteString.copyFromUtf8(installationId_);
+        }
+
+        /**
+         * <code>string installation_id = 1;</code>
+         *
+         * @param value The installationId to set.
+         */
+        private void setInstallationId(
+                java.lang.String value) {
+            java.lang.Class<?> valueClass = value.getClass();
+
+            installationId_ = value;
+        }
+
+        /**
+         * <code>string installation_id = 1;</code>
+         */
+        private void clearInstallationId() {
+
+            installationId_ = getDefaultInstance().getInstallationId();
+        }
+
+        /**
+         * <code>string installation_id = 1;</code>
+         *
+         * @param value The bytes for installationId to set.
+         */
+        private void setInstallationIdBytes(
+                com.google.protobuf.ByteString value) {
+            checkByteStringIsUtf8(value);
+            installationId_ = value.toStringUtf8();
+
         }
 
         public static final int TOPICS_FIELD_NUMBER = 2;
-        @SuppressWarnings("serial")
-        private com.google.protobuf.LazyStringList topics_;
+        private com.google.protobuf.Internal.ProtobufList<java.lang.String> topics_;
+
         /**
          * <code>repeated string topics = 2;</code>
+         *
          * @return A list containing the topics.
          */
-        public com.google.protobuf.ProtocolStringList
-        getTopicsList() {
+        @java.lang.Override
+        public java.util.List<java.lang.String> getTopicsList() {
             return topics_;
         }
+
         /**
          * <code>repeated string topics = 2;</code>
+         *
          * @return The count of topics.
          */
+        @java.lang.Override
         public int getTopicsCount() {
             return topics_.size();
         }
+
         /**
          * <code>repeated string topics = 2;</code>
+         *
          * @param index The index of the element to return.
          * @return The topics at the given index.
          */
+        @java.lang.Override
         public java.lang.String getTopics(int index) {
             return topics_.get(index);
         }
+
         /**
          * <code>repeated string topics = 2;</code>
+         *
          * @param index The index of the value to return.
          * @return The bytes of the topics at the given index.
          */
+        @java.lang.Override
         public com.google.protobuf.ByteString
         getTopicsBytes(int index) {
-            return topics_.getByteString(index);
+            return com.google.protobuf.ByteString.copyFromUtf8(
+                    topics_.get(index));
         }
 
-        private byte memoizedIsInitialized = -1;
-        @java.lang.Override
-        public final boolean isInitialized() {
-            byte isInitialized = memoizedIsInitialized;
-            if (isInitialized == 1) return true;
-            if (isInitialized == 0) return false;
-
-            memoizedIsInitialized = 1;
-            return true;
+        private void ensureTopicsIsMutable() {
+            com.google.protobuf.Internal.ProtobufList<java.lang.String> tmp =
+                    topics_;
+            if (!tmp.isModifiable()) {
+                topics_ =
+                        com.google.protobuf.GeneratedMessageLite.mutableCopy(tmp);
+            }
         }
 
-        @java.lang.Override
-        public void writeTo(com.google.protobuf.CodedOutputStream output)
-                throws java.io.IOException {
-            if (!com.google.protobuf.GeneratedMessageV3.isStringEmpty(installationId_)) {
-                com.google.protobuf.GeneratedMessageV3.writeString(output, 1, installationId_);
-            }
-            for (int i = 0; i < topics_.size(); i++) {
-                com.google.protobuf.GeneratedMessageV3.writeString(output, 2, topics_.getRaw(i));
-            }
-            getUnknownFields().writeTo(output);
+        /**
+         * <code>repeated string topics = 2;</code>
+         *
+         * @param index The index to set the value at.
+         * @param value The topics to set.
+         */
+        private void setTopics(
+                int index, java.lang.String value) {
+            java.lang.Class<?> valueClass = value.getClass();
+            ensureTopicsIsMutable();
+            topics_.set(index, value);
         }
 
-        @java.lang.Override
-        public int getSerializedSize() {
-            int size = memoizedSize;
-            if (size != -1) return size;
-
-            size = 0;
-            if (!com.google.protobuf.GeneratedMessageV3.isStringEmpty(installationId_)) {
-                size += com.google.protobuf.GeneratedMessageV3.computeStringSize(1, installationId_);
-            }
-            {
-                int dataSize = 0;
-                for (int i = 0; i < topics_.size(); i++) {
-                    dataSize += computeStringSizeNoTag(topics_.getRaw(i));
-                }
-                size += dataSize;
-                size += 1 * getTopicsList().size();
-            }
-            size += getUnknownFields().getSerializedSize();
-            memoizedSize = size;
-            return size;
+        /**
+         * <code>repeated string topics = 2;</code>
+         *
+         * @param value The topics to add.
+         */
+        private void addTopics(
+                java.lang.String value) {
+            java.lang.Class<?> valueClass = value.getClass();
+            ensureTopicsIsMutable();
+            topics_.add(value);
         }
 
-        @java.lang.Override
-        public boolean equals(final java.lang.Object obj) {
-            if (obj == this) {
-                return true;
-            }
-            if (!(obj instanceof org.xmtp.android.library.push.Service.SubscribeRequest)) {
-                return super.equals(obj);
-            }
-            org.xmtp.android.library.push.Service.SubscribeRequest other = (org.xmtp.android.library.push.Service.SubscribeRequest) obj;
-
-            if (!getInstallationId()
-                    .equals(other.getInstallationId())) return false;
-            if (!getTopicsList()
-                    .equals(other.getTopicsList())) return false;
-            if (!getUnknownFields().equals(other.getUnknownFields())) return false;
-            return true;
+        /**
+         * <code>repeated string topics = 2;</code>
+         *
+         * @param values The topics to add.
+         */
+        private void addAllTopics(
+                java.lang.Iterable<java.lang.String> values) {
+            ensureTopicsIsMutable();
+            com.google.protobuf.AbstractMessageLite.addAll(
+                    values, topics_);
         }
 
-        @java.lang.Override
-        public int hashCode() {
-            if (memoizedHashCode != 0) {
-                return memoizedHashCode;
-            }
-            int hash = 41;
-            hash = (19 * hash) + getDescriptor().hashCode();
-            hash = (37 * hash) + INSTALLATION_ID_FIELD_NUMBER;
-            hash = (53 * hash) + getInstallationId().hashCode();
-            if (getTopicsCount() > 0) {
-                hash = (37 * hash) + TOPICS_FIELD_NUMBER;
-                hash = (53 * hash) + getTopicsList().hashCode();
-            }
-            hash = (29 * hash) + getUnknownFields().hashCode();
-            memoizedHashCode = hash;
-            return hash;
+        /**
+         * <code>repeated string topics = 2;</code>
+         */
+        private void clearTopics() {
+            topics_ = com.google.protobuf.GeneratedMessageLite.emptyProtobufList();
+        }
+
+        /**
+         * <code>repeated string topics = 2;</code>
+         *
+         * @param value The bytes of the topics to add.
+         */
+        private void addTopicsBytes(
+                com.google.protobuf.ByteString value) {
+            checkByteStringIsUtf8(value);
+            ensureTopicsIsMutable();
+            topics_.add(value.toStringUtf8());
         }
 
         public static org.xmtp.android.library.push.Service.SubscribeRequest parseFrom(
                 java.nio.ByteBuffer data)
                 throws com.google.protobuf.InvalidProtocolBufferException {
-            return PARSER.parseFrom(data);
+            return com.google.protobuf.GeneratedMessageLite.parseFrom(
+                    DEFAULT_INSTANCE, data);
         }
+
         public static org.xmtp.android.library.push.Service.SubscribeRequest parseFrom(
                 java.nio.ByteBuffer data,
                 com.google.protobuf.ExtensionRegistryLite extensionRegistry)
                 throws com.google.protobuf.InvalidProtocolBufferException {
-            return PARSER.parseFrom(data, extensionRegistry);
+            return com.google.protobuf.GeneratedMessageLite.parseFrom(
+                    DEFAULT_INSTANCE, data, extensionRegistry);
         }
+
         public static org.xmtp.android.library.push.Service.SubscribeRequest parseFrom(
                 com.google.protobuf.ByteString data)
                 throws com.google.protobuf.InvalidProtocolBufferException {
-            return PARSER.parseFrom(data);
+            return com.google.protobuf.GeneratedMessageLite.parseFrom(
+                    DEFAULT_INSTANCE, data);
         }
+
         public static org.xmtp.android.library.push.Service.SubscribeRequest parseFrom(
                 com.google.protobuf.ByteString data,
                 com.google.protobuf.ExtensionRegistryLite extensionRegistry)
                 throws com.google.protobuf.InvalidProtocolBufferException {
-            return PARSER.parseFrom(data, extensionRegistry);
+            return com.google.protobuf.GeneratedMessageLite.parseFrom(
+                    DEFAULT_INSTANCE, data, extensionRegistry);
         }
+
         public static org.xmtp.android.library.push.Service.SubscribeRequest parseFrom(byte[] data)
                 throws com.google.protobuf.InvalidProtocolBufferException {
-            return PARSER.parseFrom(data);
+            return com.google.protobuf.GeneratedMessageLite.parseFrom(
+                    DEFAULT_INSTANCE, data);
         }
+
         public static org.xmtp.android.library.push.Service.SubscribeRequest parseFrom(
                 byte[] data,
                 com.google.protobuf.ExtensionRegistryLite extensionRegistry)
                 throws com.google.protobuf.InvalidProtocolBufferException {
-            return PARSER.parseFrom(data, extensionRegistry);
+            return com.google.protobuf.GeneratedMessageLite.parseFrom(
+                    DEFAULT_INSTANCE, data, extensionRegistry);
         }
+
         public static org.xmtp.android.library.push.Service.SubscribeRequest parseFrom(java.io.InputStream input)
                 throws java.io.IOException {
-            return com.google.protobuf.GeneratedMessageV3
-                    .parseWithIOException(PARSER, input);
+            return com.google.protobuf.GeneratedMessageLite.parseFrom(
+                    DEFAULT_INSTANCE, input);
         }
+
         public static org.xmtp.android.library.push.Service.SubscribeRequest parseFrom(
                 java.io.InputStream input,
                 com.google.protobuf.ExtensionRegistryLite extensionRegistry)
                 throws java.io.IOException {
-            return com.google.protobuf.GeneratedMessageV3
-                    .parseWithIOException(PARSER, input, extensionRegistry);
+            return com.google.protobuf.GeneratedMessageLite.parseFrom(
+                    DEFAULT_INSTANCE, input, extensionRegistry);
         }
+
         public static org.xmtp.android.library.push.Service.SubscribeRequest parseDelimitedFrom(java.io.InputStream input)
                 throws java.io.IOException {
-            return com.google.protobuf.GeneratedMessageV3
-                    .parseDelimitedWithIOException(PARSER, input);
+            return parseDelimitedFrom(DEFAULT_INSTANCE, input);
         }
+
         public static org.xmtp.android.library.push.Service.SubscribeRequest parseDelimitedFrom(
                 java.io.InputStream input,
                 com.google.protobuf.ExtensionRegistryLite extensionRegistry)
                 throws java.io.IOException {
-            return com.google.protobuf.GeneratedMessageV3
-                    .parseDelimitedWithIOException(PARSER, input, extensionRegistry);
+            return parseDelimitedFrom(DEFAULT_INSTANCE, input, extensionRegistry);
         }
+
         public static org.xmtp.android.library.push.Service.SubscribeRequest parseFrom(
                 com.google.protobuf.CodedInputStream input)
                 throws java.io.IOException {
-            return com.google.protobuf.GeneratedMessageV3
-                    .parseWithIOException(PARSER, input);
+            return com.google.protobuf.GeneratedMessageLite.parseFrom(
+                    DEFAULT_INSTANCE, input);
         }
+
         public static org.xmtp.android.library.push.Service.SubscribeRequest parseFrom(
                 com.google.protobuf.CodedInputStream input,
                 com.google.protobuf.ExtensionRegistryLite extensionRegistry)
                 throws java.io.IOException {
-            return com.google.protobuf.GeneratedMessageV3
-                    .parseWithIOException(PARSER, input, extensionRegistry);
+            return com.google.protobuf.GeneratedMessageLite.parseFrom(
+                    DEFAULT_INSTANCE, input, extensionRegistry);
         }
 
-        @java.lang.Override
-        public Builder newBuilderForType() { return newBuilder(); }
         public static Builder newBuilder() {
-            return DEFAULT_INSTANCE.toBuilder();
-        }
-        public static Builder newBuilder(org.xmtp.android.library.push.Service.SubscribeRequest prototype) {
-            return DEFAULT_INSTANCE.toBuilder().mergeFrom(prototype);
-        }
-        @java.lang.Override
-        public Builder toBuilder() {
-            return this == DEFAULT_INSTANCE
-                    ? new Builder() : new Builder().mergeFrom(this);
+            return (Builder) DEFAULT_INSTANCE.createBuilder();
         }
 
-        @java.lang.Override
-        protected Builder newBuilderForType(
-                com.google.protobuf.GeneratedMessageV3.BuilderParent parent) {
-            Builder builder = new Builder(parent);
-            return builder;
+        public static Builder newBuilder(org.xmtp.android.library.push.Service.SubscribeRequest prototype) {
+            return (Builder) DEFAULT_INSTANCE.createBuilder(prototype);
         }
+
         /**
          * Protobuf type {@code notifications.v1.SubscribeRequest}
          */
         public static final class Builder extends
-                com.google.protobuf.GeneratedMessageV3.Builder<Builder> implements
+                com.google.protobuf.GeneratedMessageLite.Builder<
+                        org.xmtp.android.library.push.Service.SubscribeRequest, Builder> implements
                 // @@protoc_insertion_point(builder_implements:notifications.v1.SubscribeRequest)
                 org.xmtp.android.library.push.Service.SubscribeRequestOrBuilder {
-            public static final com.google.protobuf.Descriptors.Descriptor
-            getDescriptor() {
-                return org.xmtp.android.library.push.Service.internal_static_notifications_v1_SubscribeRequest_descriptor;
-            }
-
-            @java.lang.Override
-            protected com.google.protobuf.GeneratedMessageV3.FieldAccessorTable
-            internalGetFieldAccessorTable() {
-                return org.xmtp.android.library.push.Service.internal_static_notifications_v1_SubscribeRequest_fieldAccessorTable
-                        .ensureFieldAccessorsInitialized(
-                                org.xmtp.android.library.push.Service.SubscribeRequest.class, org.xmtp.android.library.push.Service.SubscribeRequest.Builder.class);
-            }
-
             // Construct using org.xmtp.android.library.push.Service.SubscribeRequest.newBuilder()
             private Builder() {
-
+                super(DEFAULT_INSTANCE);
             }
 
-            private Builder(
-                    com.google.protobuf.GeneratedMessageV3.BuilderParent parent) {
-                super(parent);
 
-            }
-            @java.lang.Override
-            public Builder clear() {
-                super.clear();
-                bitField0_ = 0;
-                installationId_ = "";
-                topics_ = com.google.protobuf.LazyStringArrayList.EMPTY;
-                bitField0_ = (bitField0_ & ~0x00000002);
-                return this;
-            }
-
-            @java.lang.Override
-            public com.google.protobuf.Descriptors.Descriptor
-            getDescriptorForType() {
-                return org.xmtp.android.library.push.Service.internal_static_notifications_v1_SubscribeRequest_descriptor;
-            }
-
-            @java.lang.Override
-            public org.xmtp.android.library.push.Service.SubscribeRequest getDefaultInstanceForType() {
-                return org.xmtp.android.library.push.Service.SubscribeRequest.getDefaultInstance();
-            }
-
-            @java.lang.Override
-            public org.xmtp.android.library.push.Service.SubscribeRequest build() {
-                org.xmtp.android.library.push.Service.SubscribeRequest result = buildPartial();
-                if (!result.isInitialized()) {
-                    throw newUninitializedMessageException(result);
-                }
-                return result;
-            }
-
-            @java.lang.Override
-            public org.xmtp.android.library.push.Service.SubscribeRequest buildPartial() {
-                org.xmtp.android.library.push.Service.SubscribeRequest result = new org.xmtp.android.library.push.Service.SubscribeRequest(this);
-                buildPartialRepeatedFields(result);
-                if (bitField0_ != 0) { buildPartial0(result); }
-                onBuilt();
-                return result;
-            }
-
-            private void buildPartialRepeatedFields(org.xmtp.android.library.push.Service.SubscribeRequest result) {
-                if (((bitField0_ & 0x00000002) != 0)) {
-                    topics_ = topics_.getUnmodifiableView();
-                    bitField0_ = (bitField0_ & ~0x00000002);
-                }
-                result.topics_ = topics_;
-            }
-
-            private void buildPartial0(org.xmtp.android.library.push.Service.SubscribeRequest result) {
-                int from_bitField0_ = bitField0_;
-                if (((from_bitField0_ & 0x00000001) != 0)) {
-                    result.installationId_ = installationId_;
-                }
-            }
-
-            @java.lang.Override
-            public Builder clone() {
-                return super.clone();
-            }
-            @java.lang.Override
-            public Builder setField(
-                    com.google.protobuf.Descriptors.FieldDescriptor field,
-                    java.lang.Object value) {
-                return super.setField(field, value);
-            }
-            @java.lang.Override
-            public Builder clearField(
-                    com.google.protobuf.Descriptors.FieldDescriptor field) {
-                return super.clearField(field);
-            }
-            @java.lang.Override
-            public Builder clearOneof(
-                    com.google.protobuf.Descriptors.OneofDescriptor oneof) {
-                return super.clearOneof(oneof);
-            }
-            @java.lang.Override
-            public Builder setRepeatedField(
-                    com.google.protobuf.Descriptors.FieldDescriptor field,
-                    int index, java.lang.Object value) {
-                return super.setRepeatedField(field, index, value);
-            }
-            @java.lang.Override
-            public Builder addRepeatedField(
-                    com.google.protobuf.Descriptors.FieldDescriptor field,
-                    java.lang.Object value) {
-                return super.addRepeatedField(field, value);
-            }
-            @java.lang.Override
-            public Builder mergeFrom(com.google.protobuf.Message other) {
-                if (other instanceof org.xmtp.android.library.push.Service.SubscribeRequest) {
-                    return mergeFrom((org.xmtp.android.library.push.Service.SubscribeRequest)other);
-                } else {
-                    super.mergeFrom(other);
-                    return this;
-                }
-            }
-
-            public Builder mergeFrom(org.xmtp.android.library.push.Service.SubscribeRequest other) {
-                if (other == org.xmtp.android.library.push.Service.SubscribeRequest.getDefaultInstance()) return this;
-                if (!other.getInstallationId().isEmpty()) {
-                    installationId_ = other.installationId_;
-                    bitField0_ |= 0x00000001;
-                    onChanged();
-                }
-                if (!other.topics_.isEmpty()) {
-                    if (topics_.isEmpty()) {
-                        topics_ = other.topics_;
-                        bitField0_ = (bitField0_ & ~0x00000002);
-                    } else {
-                        ensureTopicsIsMutable();
-                        topics_.addAll(other.topics_);
-                    }
-                    onChanged();
-                }
-                this.mergeUnknownFields(other.getUnknownFields());
-                onChanged();
-                return this;
-            }
-
-            @java.lang.Override
-            public final boolean isInitialized() {
-                return true;
-            }
-
-            @java.lang.Override
-            public Builder mergeFrom(
-                    com.google.protobuf.CodedInputStream input,
-                    com.google.protobuf.ExtensionRegistryLite extensionRegistry)
-                    throws java.io.IOException {
-                if (extensionRegistry == null) {
-                    throw new java.lang.NullPointerException();
-                }
-                try {
-                    boolean done = false;
-                    while (!done) {
-                        int tag = input.readTag();
-                        switch (tag) {
-                            case 0:
-                                done = true;
-                                break;
-                            case 10: {
-                                installationId_ = input.readStringRequireUtf8();
-                                bitField0_ |= 0x00000001;
-                                break;
-                            } // case 10
-                            case 18: {
-                                java.lang.String s = input.readStringRequireUtf8();
-                                ensureTopicsIsMutable();
-                                topics_.add(s);
-                                break;
-                            } // case 18
-                            default: {
-                                if (!super.parseUnknownField(input, extensionRegistry, tag)) {
-                                    done = true; // was an endgroup tag
-                                }
-                                break;
-                            } // default:
-                        } // switch (tag)
-                    } // while (!done)
-                } catch (com.google.protobuf.InvalidProtocolBufferException e) {
-                    throw e.unwrapIOException();
-                } finally {
-                    onChanged();
-                } // finally
-                return this;
-            }
-            private int bitField0_;
-
-            private java.lang.Object installationId_ = "";
             /**
              * <code>string installation_id = 1;</code>
+             *
              * @return The installationId.
              */
+            @java.lang.Override
             public java.lang.String getInstallationId() {
-                java.lang.Object ref = installationId_;
-                if (!(ref instanceof java.lang.String)) {
-                    com.google.protobuf.ByteString bs =
-                            (com.google.protobuf.ByteString) ref;
-                    java.lang.String s = bs.toStringUtf8();
-                    installationId_ = s;
-                    return s;
-                } else {
-                    return (java.lang.String) ref;
-                }
+                return instance.getInstallationId();
             }
+
             /**
              * <code>string installation_id = 1;</code>
+             *
              * @return The bytes for installationId.
              */
+            @java.lang.Override
             public com.google.protobuf.ByteString
             getInstallationIdBytes() {
-                java.lang.Object ref = installationId_;
-                if (ref instanceof String) {
-                    com.google.protobuf.ByteString b =
-                            com.google.protobuf.ByteString.copyFromUtf8(
-                                    (java.lang.String) ref);
-                    installationId_ = b;
-                    return b;
-                } else {
-                    return (com.google.protobuf.ByteString) ref;
-                }
+                return instance.getInstallationIdBytes();
             }
+
             /**
              * <code>string installation_id = 1;</code>
+             *
              * @param value The installationId to set.
              * @return This builder for chaining.
              */
             public Builder setInstallationId(
                     java.lang.String value) {
-                if (value == null) { throw new NullPointerException(); }
-                installationId_ = value;
-                bitField0_ |= 0x00000001;
-                onChanged();
+                copyOnWrite();
+                instance.setInstallationId(value);
                 return this;
             }
+
             /**
              * <code>string installation_id = 1;</code>
+             *
              * @return This builder for chaining.
              */
             public Builder clearInstallationId() {
-                installationId_ = getDefaultInstance().getInstallationId();
-                bitField0_ = (bitField0_ & ~0x00000001);
-                onChanged();
+                copyOnWrite();
+                instance.clearInstallationId();
                 return this;
             }
+
             /**
              * <code>string installation_id = 1;</code>
+             *
              * @param value The bytes for installationId to set.
              * @return This builder for chaining.
              */
             public Builder setInstallationIdBytes(
                     com.google.protobuf.ByteString value) {
-                if (value == null) { throw new NullPointerException(); }
-                checkByteStringIsUtf8(value);
-                installationId_ = value;
-                bitField0_ |= 0x00000001;
-                onChanged();
+                copyOnWrite();
+                instance.setInstallationIdBytes(value);
                 return this;
             }
 
-            private com.google.protobuf.LazyStringList topics_ = com.google.protobuf.LazyStringArrayList.EMPTY;
-            private void ensureTopicsIsMutable() {
-                if (!((bitField0_ & 0x00000002) != 0)) {
-                    topics_ = new com.google.protobuf.LazyStringArrayList(topics_);
-                    bitField0_ |= 0x00000002;
-                }
-            }
             /**
              * <code>repeated string topics = 2;</code>
+             *
              * @return A list containing the topics.
              */
-            public com.google.protobuf.ProtocolStringList
+            @java.lang.Override
+            public java.util.List<java.lang.String>
             getTopicsList() {
-                return topics_.getUnmodifiableView();
+                return java.util.Collections.unmodifiableList(
+                        instance.getTopicsList());
             }
+
             /**
              * <code>repeated string topics = 2;</code>
+             *
              * @return The count of topics.
              */
+            @java.lang.Override
             public int getTopicsCount() {
-                return topics_.size();
+                return instance.getTopicsCount();
             }
+
             /**
              * <code>repeated string topics = 2;</code>
+             *
              * @param index The index of the element to return.
              * @return The topics at the given index.
              */
+            @java.lang.Override
             public java.lang.String getTopics(int index) {
-                return topics_.get(index);
+                return instance.getTopics(index);
             }
+
             /**
              * <code>repeated string topics = 2;</code>
+             *
              * @param index The index of the value to return.
              * @return The bytes of the topics at the given index.
              */
+            @java.lang.Override
             public com.google.protobuf.ByteString
             getTopicsBytes(int index) {
-                return topics_.getByteString(index);
+                return instance.getTopicsBytes(index);
             }
+
             /**
              * <code>repeated string topics = 2;</code>
+             *
              * @param index The index to set the value at.
              * @param value The topics to set.
              * @return This builder for chaining.
              */
             public Builder setTopics(
                     int index, java.lang.String value) {
-                if (value == null) { throw new NullPointerException(); }
-                ensureTopicsIsMutable();
-                topics_.set(index, value);
-                onChanged();
+                copyOnWrite();
+                instance.setTopics(index, value);
                 return this;
             }
+
             /**
              * <code>repeated string topics = 2;</code>
+             *
              * @param value The topics to add.
              * @return This builder for chaining.
              */
             public Builder addTopics(
                     java.lang.String value) {
-                if (value == null) { throw new NullPointerException(); }
-                ensureTopicsIsMutable();
-                topics_.add(value);
-                onChanged();
+                copyOnWrite();
+                instance.addTopics(value);
                 return this;
             }
+
             /**
              * <code>repeated string topics = 2;</code>
+             *
              * @param values The topics to add.
              * @return This builder for chaining.
              */
             public Builder addAllTopics(
                     java.lang.Iterable<java.lang.String> values) {
-                ensureTopicsIsMutable();
-                com.google.protobuf.AbstractMessageLite.Builder.addAll(
-                        values, topics_);
-                onChanged();
+                copyOnWrite();
+                instance.addAllTopics(values);
                 return this;
             }
+
             /**
              * <code>repeated string topics = 2;</code>
+             *
              * @return This builder for chaining.
              */
             public Builder clearTopics() {
-                topics_ = com.google.protobuf.LazyStringArrayList.EMPTY;
-                bitField0_ = (bitField0_ & ~0x00000002);
-                onChanged();
+                copyOnWrite();
+                instance.clearTopics();
                 return this;
             }
+
             /**
              * <code>repeated string topics = 2;</code>
+             *
              * @param value The bytes of the topics to add.
              * @return This builder for chaining.
              */
             public Builder addTopicsBytes(
                     com.google.protobuf.ByteString value) {
-                if (value == null) { throw new NullPointerException(); }
-                checkByteStringIsUtf8(value);
-                ensureTopicsIsMutable();
-                topics_.add(value);
-                onChanged();
+                copyOnWrite();
+                instance.addTopicsBytes(value);
                 return this;
             }
-            @java.lang.Override
-            public final Builder setUnknownFields(
-                    final com.google.protobuf.UnknownFieldSet unknownFields) {
-                return super.setUnknownFields(unknownFields);
-            }
-
-            @java.lang.Override
-            public final Builder mergeUnknownFields(
-                    final com.google.protobuf.UnknownFieldSet unknownFields) {
-                return super.mergeUnknownFields(unknownFields);
-            }
-
 
             // @@protoc_insertion_point(builder_scope:notifications.v1.SubscribeRequest)
         }
 
+        @java.lang.Override
+        @java.lang.SuppressWarnings({"unchecked", "fallthrough"})
+        protected final java.lang.Object dynamicMethod(
+                com.google.protobuf.GeneratedMessageLite.MethodToInvoke method,
+                java.lang.Object arg0, java.lang.Object arg1) {
+            switch (method) {
+                case NEW_MUTABLE_INSTANCE: {
+                    return new org.xmtp.android.library.push.Service.SubscribeRequest();
+                }
+                case NEW_BUILDER: {
+                    return new Builder();
+                }
+                case BUILD_MESSAGE_INFO: {
+                    java.lang.Object[] objects = new java.lang.Object[]{
+                            "installationId_",
+                            "topics_",
+                    };
+                    java.lang.String info =
+                            "\u0000\u0002\u0000\u0000\u0001\u0002\u0002\u0000\u0001\u0000\u0001\u0208\u0002\u021a" +
+                                    "";
+                    return newMessageInfo(DEFAULT_INSTANCE, info, objects);
+                }
+                // fall through
+                case GET_DEFAULT_INSTANCE: {
+                    return DEFAULT_INSTANCE;
+                }
+                case GET_PARSER: {
+                    com.google.protobuf.Parser<org.xmtp.android.library.push.Service.SubscribeRequest> parser = PARSER;
+                    if (parser == null) {
+                        synchronized (org.xmtp.android.library.push.Service.SubscribeRequest.class) {
+                            parser = PARSER;
+                            if (parser == null) {
+                                parser =
+                                        new DefaultInstanceBasedParser<org.xmtp.android.library.push.Service.SubscribeRequest>(
+                                                DEFAULT_INSTANCE);
+                                PARSER = parser;
+                            }
+                        }
+                    }
+                    return parser;
+                }
+                case GET_MEMOIZED_IS_INITIALIZED: {
+                    return (byte) 1;
+                }
+                case SET_MEMOIZED_IS_INITIALIZED: {
+                    return null;
+                }
+            }
+            throw new UnsupportedOperationException();
+        }
+
+
         // @@protoc_insertion_point(class_scope:notifications.v1.SubscribeRequest)
         private static final org.xmtp.android.library.push.Service.SubscribeRequest DEFAULT_INSTANCE;
+
         static {
-            DEFAULT_INSTANCE = new org.xmtp.android.library.push.Service.SubscribeRequest();
+            SubscribeRequest defaultInstance = new SubscribeRequest();
+            // New instances are implicitly immutable so no need to make
+            // immutable.
+            DEFAULT_INSTANCE = defaultInstance;
+            com.google.protobuf.GeneratedMessageLite.registerDefaultInstance(
+                    SubscribeRequest.class, defaultInstance);
         }
 
         public static org.xmtp.android.library.push.Service.SubscribeRequest getDefaultInstance() {
             return DEFAULT_INSTANCE;
         }
 
-        private static final com.google.protobuf.Parser<SubscribeRequest>
-                PARSER = new com.google.protobuf.AbstractParser<SubscribeRequest>() {
-            @java.lang.Override
-            public SubscribeRequest parsePartialFrom(
-                    com.google.protobuf.CodedInputStream input,
-                    com.google.protobuf.ExtensionRegistryLite extensionRegistry)
-                    throws com.google.protobuf.InvalidProtocolBufferException {
-                Builder builder = newBuilder();
-                try {
-                    builder.mergeFrom(input, extensionRegistry);
-                } catch (com.google.protobuf.InvalidProtocolBufferException e) {
-                    throw e.setUnfinishedMessage(builder.buildPartial());
-                } catch (com.google.protobuf.UninitializedMessageException e) {
-                    throw e.asInvalidProtocolBufferException().setUnfinishedMessage(builder.buildPartial());
-                } catch (java.io.IOException e) {
-                    throw new com.google.protobuf.InvalidProtocolBufferException(e)
-                            .setUnfinishedMessage(builder.buildPartial());
-                }
-                return builder.buildPartial();
-            }
-        };
+        private static volatile com.google.protobuf.Parser<SubscribeRequest> PARSER;
 
         public static com.google.protobuf.Parser<SubscribeRequest> parser() {
-            return PARSER;
+            return DEFAULT_INSTANCE.getParserForType();
         }
-
-        @java.lang.Override
-        public com.google.protobuf.Parser<SubscribeRequest> getParserForType() {
-            return PARSER;
-        }
-
-        @java.lang.Override
-        public org.xmtp.android.library.push.Service.SubscribeRequest getDefaultInstanceForType() {
-            return DEFAULT_INSTANCE;
-        }
-
     }
 
     public interface UnsubscribeRequestOrBuilder extends
             // @@protoc_insertion_point(interface_extends:notifications.v1.UnsubscribeRequest)
-            com.google.protobuf.MessageOrBuilder {
+            com.google.protobuf.MessageLiteOrBuilder {
 
         /**
          * <code>string installation_id = 1;</code>
+         *
          * @return The installationId.
          */
         java.lang.String getInstallationId();
+
         /**
          * <code>string installation_id = 1;</code>
+         *
          * @return The bytes for installationId.
          */
         com.google.protobuf.ByteString
@@ -3594,861 +2396,572 @@ public final class Service {
 
         /**
          * <code>repeated string topics = 2;</code>
+         *
          * @return A list containing the topics.
          */
         java.util.List<java.lang.String>
         getTopicsList();
+
         /**
          * <code>repeated string topics = 2;</code>
+         *
          * @return The count of topics.
          */
         int getTopicsCount();
+
         /**
          * <code>repeated string topics = 2;</code>
+         *
          * @param index The index of the element to return.
          * @return The topics at the given index.
          */
         java.lang.String getTopics(int index);
+
         /**
          * <code>repeated string topics = 2;</code>
-         * @param index The index of the value to return.
-         * @return The bytes of the topics at the given index.
+         *
+         * @param index The index of the element to return.
+         * @return The topics at the given index.
          */
         com.google.protobuf.ByteString
         getTopicsBytes(int index);
     }
+
     /**
      * Protobuf type {@code notifications.v1.UnsubscribeRequest}
      */
     public static final class UnsubscribeRequest extends
-            com.google.protobuf.GeneratedMessageV3 implements
+            com.google.protobuf.GeneratedMessageLite<
+                    UnsubscribeRequest, UnsubscribeRequest.Builder> implements
             // @@protoc_insertion_point(message_implements:notifications.v1.UnsubscribeRequest)
             UnsubscribeRequestOrBuilder {
-        private static final long serialVersionUID = 0L;
-        // Use UnsubscribeRequest.newBuilder() to construct.
-        private UnsubscribeRequest(com.google.protobuf.GeneratedMessageV3.Builder<?> builder) {
-            super(builder);
-        }
         private UnsubscribeRequest() {
             installationId_ = "";
-            topics_ = com.google.protobuf.LazyStringArrayList.EMPTY;
-        }
-
-        @java.lang.Override
-        @SuppressWarnings({"unused"})
-        protected java.lang.Object newInstance(
-                UnusedPrivateParameter unused) {
-            return new UnsubscribeRequest();
-        }
-
-        @java.lang.Override
-        public final com.google.protobuf.UnknownFieldSet
-        getUnknownFields() {
-            return this.unknownFields;
-        }
-        public static final com.google.protobuf.Descriptors.Descriptor
-        getDescriptor() {
-            return org.xmtp.android.library.push.Service.internal_static_notifications_v1_UnsubscribeRequest_descriptor;
-        }
-
-        @java.lang.Override
-        protected com.google.protobuf.GeneratedMessageV3.FieldAccessorTable
-        internalGetFieldAccessorTable() {
-            return org.xmtp.android.library.push.Service.internal_static_notifications_v1_UnsubscribeRequest_fieldAccessorTable
-                    .ensureFieldAccessorsInitialized(
-                            org.xmtp.android.library.push.Service.UnsubscribeRequest.class, org.xmtp.android.library.push.Service.UnsubscribeRequest.Builder.class);
+            topics_ = com.google.protobuf.GeneratedMessageLite.emptyProtobufList();
         }
 
         public static final int INSTALLATION_ID_FIELD_NUMBER = 1;
-        @SuppressWarnings("serial")
-        private volatile java.lang.Object installationId_ = "";
+        private java.lang.String installationId_;
+
         /**
          * <code>string installation_id = 1;</code>
+         *
          * @return The installationId.
          */
         @java.lang.Override
         public java.lang.String getInstallationId() {
-            java.lang.Object ref = installationId_;
-            if (ref instanceof java.lang.String) {
-                return (java.lang.String) ref;
-            } else {
-                com.google.protobuf.ByteString bs =
-                        (com.google.protobuf.ByteString) ref;
-                java.lang.String s = bs.toStringUtf8();
-                installationId_ = s;
-                return s;
-            }
+            return installationId_;
         }
+
         /**
          * <code>string installation_id = 1;</code>
+         *
          * @return The bytes for installationId.
          */
         @java.lang.Override
         public com.google.protobuf.ByteString
         getInstallationIdBytes() {
-            java.lang.Object ref = installationId_;
-            if (ref instanceof java.lang.String) {
-                com.google.protobuf.ByteString b =
-                        com.google.protobuf.ByteString.copyFromUtf8(
-                                (java.lang.String) ref);
-                installationId_ = b;
-                return b;
-            } else {
-                return (com.google.protobuf.ByteString) ref;
-            }
+            return com.google.protobuf.ByteString.copyFromUtf8(installationId_);
+        }
+
+        /**
+         * <code>string installation_id = 1;</code>
+         *
+         * @param value The installationId to set.
+         */
+        private void setInstallationId(
+                java.lang.String value) {
+            java.lang.Class<?> valueClass = value.getClass();
+
+            installationId_ = value;
+        }
+
+        /**
+         * <code>string installation_id = 1;</code>
+         */
+        private void clearInstallationId() {
+
+            installationId_ = getDefaultInstance().getInstallationId();
+        }
+
+        /**
+         * <code>string installation_id = 1;</code>
+         *
+         * @param value The bytes for installationId to set.
+         */
+        private void setInstallationIdBytes(
+                com.google.protobuf.ByteString value) {
+            checkByteStringIsUtf8(value);
+            installationId_ = value.toStringUtf8();
+
         }
 
         public static final int TOPICS_FIELD_NUMBER = 2;
-        @SuppressWarnings("serial")
-        private com.google.protobuf.LazyStringList topics_;
+        private com.google.protobuf.Internal.ProtobufList<java.lang.String> topics_;
+
         /**
          * <code>repeated string topics = 2;</code>
+         *
          * @return A list containing the topics.
          */
-        public com.google.protobuf.ProtocolStringList
-        getTopicsList() {
+        @java.lang.Override
+        public java.util.List<java.lang.String> getTopicsList() {
             return topics_;
         }
+
         /**
          * <code>repeated string topics = 2;</code>
+         *
          * @return The count of topics.
          */
+        @java.lang.Override
         public int getTopicsCount() {
             return topics_.size();
         }
+
         /**
          * <code>repeated string topics = 2;</code>
+         *
          * @param index The index of the element to return.
          * @return The topics at the given index.
          */
+        @java.lang.Override
         public java.lang.String getTopics(int index) {
             return topics_.get(index);
         }
+
         /**
          * <code>repeated string topics = 2;</code>
+         *
          * @param index The index of the value to return.
          * @return The bytes of the topics at the given index.
          */
+        @java.lang.Override
         public com.google.protobuf.ByteString
         getTopicsBytes(int index) {
-            return topics_.getByteString(index);
+            return com.google.protobuf.ByteString.copyFromUtf8(
+                    topics_.get(index));
         }
 
-        private byte memoizedIsInitialized = -1;
-        @java.lang.Override
-        public final boolean isInitialized() {
-            byte isInitialized = memoizedIsInitialized;
-            if (isInitialized == 1) return true;
-            if (isInitialized == 0) return false;
-
-            memoizedIsInitialized = 1;
-            return true;
+        private void ensureTopicsIsMutable() {
+            com.google.protobuf.Internal.ProtobufList<java.lang.String> tmp =
+                    topics_;
+            if (!tmp.isModifiable()) {
+                topics_ =
+                        com.google.protobuf.GeneratedMessageLite.mutableCopy(tmp);
+            }
         }
 
-        @java.lang.Override
-        public void writeTo(com.google.protobuf.CodedOutputStream output)
-                throws java.io.IOException {
-            if (!com.google.protobuf.GeneratedMessageV3.isStringEmpty(installationId_)) {
-                com.google.protobuf.GeneratedMessageV3.writeString(output, 1, installationId_);
-            }
-            for (int i = 0; i < topics_.size(); i++) {
-                com.google.protobuf.GeneratedMessageV3.writeString(output, 2, topics_.getRaw(i));
-            }
-            getUnknownFields().writeTo(output);
+        /**
+         * <code>repeated string topics = 2;</code>
+         *
+         * @param index The index to set the value at.
+         * @param value The topics to set.
+         */
+        private void setTopics(
+                int index, java.lang.String value) {
+            java.lang.Class<?> valueClass = value.getClass();
+            ensureTopicsIsMutable();
+            topics_.set(index, value);
         }
 
-        @java.lang.Override
-        public int getSerializedSize() {
-            int size = memoizedSize;
-            if (size != -1) return size;
-
-            size = 0;
-            if (!com.google.protobuf.GeneratedMessageV3.isStringEmpty(installationId_)) {
-                size += com.google.protobuf.GeneratedMessageV3.computeStringSize(1, installationId_);
-            }
-            {
-                int dataSize = 0;
-                for (int i = 0; i < topics_.size(); i++) {
-                    dataSize += computeStringSizeNoTag(topics_.getRaw(i));
-                }
-                size += dataSize;
-                size += 1 * getTopicsList().size();
-            }
-            size += getUnknownFields().getSerializedSize();
-            memoizedSize = size;
-            return size;
+        /**
+         * <code>repeated string topics = 2;</code>
+         *
+         * @param value The topics to add.
+         */
+        private void addTopics(
+                java.lang.String value) {
+            java.lang.Class<?> valueClass = value.getClass();
+            ensureTopicsIsMutable();
+            topics_.add(value);
         }
 
-        @java.lang.Override
-        public boolean equals(final java.lang.Object obj) {
-            if (obj == this) {
-                return true;
-            }
-            if (!(obj instanceof org.xmtp.android.library.push.Service.UnsubscribeRequest)) {
-                return super.equals(obj);
-            }
-            org.xmtp.android.library.push.Service.UnsubscribeRequest other = (org.xmtp.android.library.push.Service.UnsubscribeRequest) obj;
-
-            if (!getInstallationId()
-                    .equals(other.getInstallationId())) return false;
-            if (!getTopicsList()
-                    .equals(other.getTopicsList())) return false;
-            if (!getUnknownFields().equals(other.getUnknownFields())) return false;
-            return true;
+        /**
+         * <code>repeated string topics = 2;</code>
+         *
+         * @param values The topics to add.
+         */
+        private void addAllTopics(
+                java.lang.Iterable<java.lang.String> values) {
+            ensureTopicsIsMutable();
+            com.google.protobuf.AbstractMessageLite.addAll(
+                    values, topics_);
         }
 
-        @java.lang.Override
-        public int hashCode() {
-            if (memoizedHashCode != 0) {
-                return memoizedHashCode;
-            }
-            int hash = 41;
-            hash = (19 * hash) + getDescriptor().hashCode();
-            hash = (37 * hash) + INSTALLATION_ID_FIELD_NUMBER;
-            hash = (53 * hash) + getInstallationId().hashCode();
-            if (getTopicsCount() > 0) {
-                hash = (37 * hash) + TOPICS_FIELD_NUMBER;
-                hash = (53 * hash) + getTopicsList().hashCode();
-            }
-            hash = (29 * hash) + getUnknownFields().hashCode();
-            memoizedHashCode = hash;
-            return hash;
+        /**
+         * <code>repeated string topics = 2;</code>
+         */
+        private void clearTopics() {
+            topics_ = com.google.protobuf.GeneratedMessageLite.emptyProtobufList();
+        }
+
+        /**
+         * <code>repeated string topics = 2;</code>
+         *
+         * @param value The bytes of the topics to add.
+         */
+        private void addTopicsBytes(
+                com.google.protobuf.ByteString value) {
+            checkByteStringIsUtf8(value);
+            ensureTopicsIsMutable();
+            topics_.add(value.toStringUtf8());
         }
 
         public static org.xmtp.android.library.push.Service.UnsubscribeRequest parseFrom(
                 java.nio.ByteBuffer data)
                 throws com.google.protobuf.InvalidProtocolBufferException {
-            return PARSER.parseFrom(data);
+            return com.google.protobuf.GeneratedMessageLite.parseFrom(
+                    DEFAULT_INSTANCE, data);
         }
+
         public static org.xmtp.android.library.push.Service.UnsubscribeRequest parseFrom(
                 java.nio.ByteBuffer data,
                 com.google.protobuf.ExtensionRegistryLite extensionRegistry)
                 throws com.google.protobuf.InvalidProtocolBufferException {
-            return PARSER.parseFrom(data, extensionRegistry);
+            return com.google.protobuf.GeneratedMessageLite.parseFrom(
+                    DEFAULT_INSTANCE, data, extensionRegistry);
         }
+
         public static org.xmtp.android.library.push.Service.UnsubscribeRequest parseFrom(
                 com.google.protobuf.ByteString data)
                 throws com.google.protobuf.InvalidProtocolBufferException {
-            return PARSER.parseFrom(data);
+            return com.google.protobuf.GeneratedMessageLite.parseFrom(
+                    DEFAULT_INSTANCE, data);
         }
+
         public static org.xmtp.android.library.push.Service.UnsubscribeRequest parseFrom(
                 com.google.protobuf.ByteString data,
                 com.google.protobuf.ExtensionRegistryLite extensionRegistry)
                 throws com.google.protobuf.InvalidProtocolBufferException {
-            return PARSER.parseFrom(data, extensionRegistry);
+            return com.google.protobuf.GeneratedMessageLite.parseFrom(
+                    DEFAULT_INSTANCE, data, extensionRegistry);
         }
+
         public static org.xmtp.android.library.push.Service.UnsubscribeRequest parseFrom(byte[] data)
                 throws com.google.protobuf.InvalidProtocolBufferException {
-            return PARSER.parseFrom(data);
+            return com.google.protobuf.GeneratedMessageLite.parseFrom(
+                    DEFAULT_INSTANCE, data);
         }
+
         public static org.xmtp.android.library.push.Service.UnsubscribeRequest parseFrom(
                 byte[] data,
                 com.google.protobuf.ExtensionRegistryLite extensionRegistry)
                 throws com.google.protobuf.InvalidProtocolBufferException {
-            return PARSER.parseFrom(data, extensionRegistry);
+            return com.google.protobuf.GeneratedMessageLite.parseFrom(
+                    DEFAULT_INSTANCE, data, extensionRegistry);
         }
+
         public static org.xmtp.android.library.push.Service.UnsubscribeRequest parseFrom(java.io.InputStream input)
                 throws java.io.IOException {
-            return com.google.protobuf.GeneratedMessageV3
-                    .parseWithIOException(PARSER, input);
+            return com.google.protobuf.GeneratedMessageLite.parseFrom(
+                    DEFAULT_INSTANCE, input);
         }
+
         public static org.xmtp.android.library.push.Service.UnsubscribeRequest parseFrom(
                 java.io.InputStream input,
                 com.google.protobuf.ExtensionRegistryLite extensionRegistry)
                 throws java.io.IOException {
-            return com.google.protobuf.GeneratedMessageV3
-                    .parseWithIOException(PARSER, input, extensionRegistry);
+            return com.google.protobuf.GeneratedMessageLite.parseFrom(
+                    DEFAULT_INSTANCE, input, extensionRegistry);
         }
+
         public static org.xmtp.android.library.push.Service.UnsubscribeRequest parseDelimitedFrom(java.io.InputStream input)
                 throws java.io.IOException {
-            return com.google.protobuf.GeneratedMessageV3
-                    .parseDelimitedWithIOException(PARSER, input);
+            return parseDelimitedFrom(DEFAULT_INSTANCE, input);
         }
+
         public static org.xmtp.android.library.push.Service.UnsubscribeRequest parseDelimitedFrom(
                 java.io.InputStream input,
                 com.google.protobuf.ExtensionRegistryLite extensionRegistry)
                 throws java.io.IOException {
-            return com.google.protobuf.GeneratedMessageV3
-                    .parseDelimitedWithIOException(PARSER, input, extensionRegistry);
+            return parseDelimitedFrom(DEFAULT_INSTANCE, input, extensionRegistry);
         }
+
         public static org.xmtp.android.library.push.Service.UnsubscribeRequest parseFrom(
                 com.google.protobuf.CodedInputStream input)
                 throws java.io.IOException {
-            return com.google.protobuf.GeneratedMessageV3
-                    .parseWithIOException(PARSER, input);
+            return com.google.protobuf.GeneratedMessageLite.parseFrom(
+                    DEFAULT_INSTANCE, input);
         }
+
         public static org.xmtp.android.library.push.Service.UnsubscribeRequest parseFrom(
                 com.google.protobuf.CodedInputStream input,
                 com.google.protobuf.ExtensionRegistryLite extensionRegistry)
                 throws java.io.IOException {
-            return com.google.protobuf.GeneratedMessageV3
-                    .parseWithIOException(PARSER, input, extensionRegistry);
+            return com.google.protobuf.GeneratedMessageLite.parseFrom(
+                    DEFAULT_INSTANCE, input, extensionRegistry);
         }
 
-        @java.lang.Override
-        public Builder newBuilderForType() { return newBuilder(); }
         public static Builder newBuilder() {
-            return DEFAULT_INSTANCE.toBuilder();
-        }
-        public static Builder newBuilder(org.xmtp.android.library.push.Service.UnsubscribeRequest prototype) {
-            return DEFAULT_INSTANCE.toBuilder().mergeFrom(prototype);
-        }
-        @java.lang.Override
-        public Builder toBuilder() {
-            return this == DEFAULT_INSTANCE
-                    ? new Builder() : new Builder().mergeFrom(this);
+            return (Builder) DEFAULT_INSTANCE.createBuilder();
         }
 
-        @java.lang.Override
-        protected Builder newBuilderForType(
-                com.google.protobuf.GeneratedMessageV3.BuilderParent parent) {
-            Builder builder = new Builder(parent);
-            return builder;
+        public static Builder newBuilder(org.xmtp.android.library.push.Service.UnsubscribeRequest prototype) {
+            return (Builder) DEFAULT_INSTANCE.createBuilder(prototype);
         }
+
         /**
          * Protobuf type {@code notifications.v1.UnsubscribeRequest}
          */
         public static final class Builder extends
-                com.google.protobuf.GeneratedMessageV3.Builder<Builder> implements
+                com.google.protobuf.GeneratedMessageLite.Builder<
+                        org.xmtp.android.library.push.Service.UnsubscribeRequest, Builder> implements
                 // @@protoc_insertion_point(builder_implements:notifications.v1.UnsubscribeRequest)
                 org.xmtp.android.library.push.Service.UnsubscribeRequestOrBuilder {
-            public static final com.google.protobuf.Descriptors.Descriptor
-            getDescriptor() {
-                return org.xmtp.android.library.push.Service.internal_static_notifications_v1_UnsubscribeRequest_descriptor;
-            }
-
-            @java.lang.Override
-            protected com.google.protobuf.GeneratedMessageV3.FieldAccessorTable
-            internalGetFieldAccessorTable() {
-                return org.xmtp.android.library.push.Service.internal_static_notifications_v1_UnsubscribeRequest_fieldAccessorTable
-                        .ensureFieldAccessorsInitialized(
-                                org.xmtp.android.library.push.Service.UnsubscribeRequest.class, org.xmtp.android.library.push.Service.UnsubscribeRequest.Builder.class);
-            }
-
             // Construct using org.xmtp.android.library.push.Service.UnsubscribeRequest.newBuilder()
             private Builder() {
-
+                super(DEFAULT_INSTANCE);
             }
 
-            private Builder(
-                    com.google.protobuf.GeneratedMessageV3.BuilderParent parent) {
-                super(parent);
 
-            }
-            @java.lang.Override
-            public Builder clear() {
-                super.clear();
-                bitField0_ = 0;
-                installationId_ = "";
-                topics_ = com.google.protobuf.LazyStringArrayList.EMPTY;
-                bitField0_ = (bitField0_ & ~0x00000002);
-                return this;
-            }
-
-            @java.lang.Override
-            public com.google.protobuf.Descriptors.Descriptor
-            getDescriptorForType() {
-                return org.xmtp.android.library.push.Service.internal_static_notifications_v1_UnsubscribeRequest_descriptor;
-            }
-
-            @java.lang.Override
-            public org.xmtp.android.library.push.Service.UnsubscribeRequest getDefaultInstanceForType() {
-                return org.xmtp.android.library.push.Service.UnsubscribeRequest.getDefaultInstance();
-            }
-
-            @java.lang.Override
-            public org.xmtp.android.library.push.Service.UnsubscribeRequest build() {
-                org.xmtp.android.library.push.Service.UnsubscribeRequest result = buildPartial();
-                if (!result.isInitialized()) {
-                    throw newUninitializedMessageException(result);
-                }
-                return result;
-            }
-
-            @java.lang.Override
-            public org.xmtp.android.library.push.Service.UnsubscribeRequest buildPartial() {
-                org.xmtp.android.library.push.Service.UnsubscribeRequest result = new org.xmtp.android.library.push.Service.UnsubscribeRequest(this);
-                buildPartialRepeatedFields(result);
-                if (bitField0_ != 0) { buildPartial0(result); }
-                onBuilt();
-                return result;
-            }
-
-            private void buildPartialRepeatedFields(org.xmtp.android.library.push.Service.UnsubscribeRequest result) {
-                if (((bitField0_ & 0x00000002) != 0)) {
-                    topics_ = topics_.getUnmodifiableView();
-                    bitField0_ = (bitField0_ & ~0x00000002);
-                }
-                result.topics_ = topics_;
-            }
-
-            private void buildPartial0(org.xmtp.android.library.push.Service.UnsubscribeRequest result) {
-                int from_bitField0_ = bitField0_;
-                if (((from_bitField0_ & 0x00000001) != 0)) {
-                    result.installationId_ = installationId_;
-                }
-            }
-
-            @java.lang.Override
-            public Builder clone() {
-                return super.clone();
-            }
-            @java.lang.Override
-            public Builder setField(
-                    com.google.protobuf.Descriptors.FieldDescriptor field,
-                    java.lang.Object value) {
-                return super.setField(field, value);
-            }
-            @java.lang.Override
-            public Builder clearField(
-                    com.google.protobuf.Descriptors.FieldDescriptor field) {
-                return super.clearField(field);
-            }
-            @java.lang.Override
-            public Builder clearOneof(
-                    com.google.protobuf.Descriptors.OneofDescriptor oneof) {
-                return super.clearOneof(oneof);
-            }
-            @java.lang.Override
-            public Builder setRepeatedField(
-                    com.google.protobuf.Descriptors.FieldDescriptor field,
-                    int index, java.lang.Object value) {
-                return super.setRepeatedField(field, index, value);
-            }
-            @java.lang.Override
-            public Builder addRepeatedField(
-                    com.google.protobuf.Descriptors.FieldDescriptor field,
-                    java.lang.Object value) {
-                return super.addRepeatedField(field, value);
-            }
-            @java.lang.Override
-            public Builder mergeFrom(com.google.protobuf.Message other) {
-                if (other instanceof org.xmtp.android.library.push.Service.UnsubscribeRequest) {
-                    return mergeFrom((org.xmtp.android.library.push.Service.UnsubscribeRequest)other);
-                } else {
-                    super.mergeFrom(other);
-                    return this;
-                }
-            }
-
-            public Builder mergeFrom(org.xmtp.android.library.push.Service.UnsubscribeRequest other) {
-                if (other == org.xmtp.android.library.push.Service.UnsubscribeRequest.getDefaultInstance()) return this;
-                if (!other.getInstallationId().isEmpty()) {
-                    installationId_ = other.installationId_;
-                    bitField0_ |= 0x00000001;
-                    onChanged();
-                }
-                if (!other.topics_.isEmpty()) {
-                    if (topics_.isEmpty()) {
-                        topics_ = other.topics_;
-                        bitField0_ = (bitField0_ & ~0x00000002);
-                    } else {
-                        ensureTopicsIsMutable();
-                        topics_.addAll(other.topics_);
-                    }
-                    onChanged();
-                }
-                this.mergeUnknownFields(other.getUnknownFields());
-                onChanged();
-                return this;
-            }
-
-            @java.lang.Override
-            public final boolean isInitialized() {
-                return true;
-            }
-
-            @java.lang.Override
-            public Builder mergeFrom(
-                    com.google.protobuf.CodedInputStream input,
-                    com.google.protobuf.ExtensionRegistryLite extensionRegistry)
-                    throws java.io.IOException {
-                if (extensionRegistry == null) {
-                    throw new java.lang.NullPointerException();
-                }
-                try {
-                    boolean done = false;
-                    while (!done) {
-                        int tag = input.readTag();
-                        switch (tag) {
-                            case 0:
-                                done = true;
-                                break;
-                            case 10: {
-                                installationId_ = input.readStringRequireUtf8();
-                                bitField0_ |= 0x00000001;
-                                break;
-                            } // case 10
-                            case 18: {
-                                java.lang.String s = input.readStringRequireUtf8();
-                                ensureTopicsIsMutable();
-                                topics_.add(s);
-                                break;
-                            } // case 18
-                            default: {
-                                if (!super.parseUnknownField(input, extensionRegistry, tag)) {
-                                    done = true; // was an endgroup tag
-                                }
-                                break;
-                            } // default:
-                        } // switch (tag)
-                    } // while (!done)
-                } catch (com.google.protobuf.InvalidProtocolBufferException e) {
-                    throw e.unwrapIOException();
-                } finally {
-                    onChanged();
-                } // finally
-                return this;
-            }
-            private int bitField0_;
-
-            private java.lang.Object installationId_ = "";
             /**
              * <code>string installation_id = 1;</code>
+             *
              * @return The installationId.
              */
+            @java.lang.Override
             public java.lang.String getInstallationId() {
-                java.lang.Object ref = installationId_;
-                if (!(ref instanceof java.lang.String)) {
-                    com.google.protobuf.ByteString bs =
-                            (com.google.protobuf.ByteString) ref;
-                    java.lang.String s = bs.toStringUtf8();
-                    installationId_ = s;
-                    return s;
-                } else {
-                    return (java.lang.String) ref;
-                }
+                return instance.getInstallationId();
             }
+
             /**
              * <code>string installation_id = 1;</code>
+             *
              * @return The bytes for installationId.
              */
+            @java.lang.Override
             public com.google.protobuf.ByteString
             getInstallationIdBytes() {
-                java.lang.Object ref = installationId_;
-                if (ref instanceof String) {
-                    com.google.protobuf.ByteString b =
-                            com.google.protobuf.ByteString.copyFromUtf8(
-                                    (java.lang.String) ref);
-                    installationId_ = b;
-                    return b;
-                } else {
-                    return (com.google.protobuf.ByteString) ref;
-                }
+                return instance.getInstallationIdBytes();
             }
+
             /**
              * <code>string installation_id = 1;</code>
+             *
              * @param value The installationId to set.
              * @return This builder for chaining.
              */
             public Builder setInstallationId(
                     java.lang.String value) {
-                if (value == null) { throw new NullPointerException(); }
-                installationId_ = value;
-                bitField0_ |= 0x00000001;
-                onChanged();
+                copyOnWrite();
+                instance.setInstallationId(value);
                 return this;
             }
+
             /**
              * <code>string installation_id = 1;</code>
+             *
              * @return This builder for chaining.
              */
             public Builder clearInstallationId() {
-                installationId_ = getDefaultInstance().getInstallationId();
-                bitField0_ = (bitField0_ & ~0x00000001);
-                onChanged();
+                copyOnWrite();
+                instance.clearInstallationId();
                 return this;
             }
+
             /**
              * <code>string installation_id = 1;</code>
+             *
              * @param value The bytes for installationId to set.
              * @return This builder for chaining.
              */
             public Builder setInstallationIdBytes(
                     com.google.protobuf.ByteString value) {
-                if (value == null) { throw new NullPointerException(); }
-                checkByteStringIsUtf8(value);
-                installationId_ = value;
-                bitField0_ |= 0x00000001;
-                onChanged();
+                copyOnWrite();
+                instance.setInstallationIdBytes(value);
                 return this;
             }
 
-            private com.google.protobuf.LazyStringList topics_ = com.google.protobuf.LazyStringArrayList.EMPTY;
-            private void ensureTopicsIsMutable() {
-                if (!((bitField0_ & 0x00000002) != 0)) {
-                    topics_ = new com.google.protobuf.LazyStringArrayList(topics_);
-                    bitField0_ |= 0x00000002;
-                }
-            }
             /**
              * <code>repeated string topics = 2;</code>
+             *
              * @return A list containing the topics.
              */
-            public com.google.protobuf.ProtocolStringList
+            @java.lang.Override
+            public java.util.List<java.lang.String>
             getTopicsList() {
-                return topics_.getUnmodifiableView();
+                return java.util.Collections.unmodifiableList(
+                        instance.getTopicsList());
             }
+
             /**
              * <code>repeated string topics = 2;</code>
+             *
              * @return The count of topics.
              */
+            @java.lang.Override
             public int getTopicsCount() {
-                return topics_.size();
+                return instance.getTopicsCount();
             }
+
             /**
              * <code>repeated string topics = 2;</code>
+             *
              * @param index The index of the element to return.
              * @return The topics at the given index.
              */
+            @java.lang.Override
             public java.lang.String getTopics(int index) {
-                return topics_.get(index);
+                return instance.getTopics(index);
             }
+
             /**
              * <code>repeated string topics = 2;</code>
+             *
              * @param index The index of the value to return.
              * @return The bytes of the topics at the given index.
              */
+            @java.lang.Override
             public com.google.protobuf.ByteString
             getTopicsBytes(int index) {
-                return topics_.getByteString(index);
+                return instance.getTopicsBytes(index);
             }
+
             /**
              * <code>repeated string topics = 2;</code>
+             *
              * @param index The index to set the value at.
              * @param value The topics to set.
              * @return This builder for chaining.
              */
             public Builder setTopics(
                     int index, java.lang.String value) {
-                if (value == null) { throw new NullPointerException(); }
-                ensureTopicsIsMutable();
-                topics_.set(index, value);
-                onChanged();
+                copyOnWrite();
+                instance.setTopics(index, value);
                 return this;
             }
+
             /**
              * <code>repeated string topics = 2;</code>
+             *
              * @param value The topics to add.
              * @return This builder for chaining.
              */
             public Builder addTopics(
                     java.lang.String value) {
-                if (value == null) { throw new NullPointerException(); }
-                ensureTopicsIsMutable();
-                topics_.add(value);
-                onChanged();
+                copyOnWrite();
+                instance.addTopics(value);
                 return this;
             }
+
             /**
              * <code>repeated string topics = 2;</code>
+             *
              * @param values The topics to add.
              * @return This builder for chaining.
              */
             public Builder addAllTopics(
                     java.lang.Iterable<java.lang.String> values) {
-                ensureTopicsIsMutable();
-                com.google.protobuf.AbstractMessageLite.Builder.addAll(
-                        values, topics_);
-                onChanged();
+                copyOnWrite();
+                instance.addAllTopics(values);
                 return this;
             }
+
             /**
              * <code>repeated string topics = 2;</code>
+             *
              * @return This builder for chaining.
              */
             public Builder clearTopics() {
-                topics_ = com.google.protobuf.LazyStringArrayList.EMPTY;
-                bitField0_ = (bitField0_ & ~0x00000002);
-                onChanged();
+                copyOnWrite();
+                instance.clearTopics();
                 return this;
             }
+
             /**
              * <code>repeated string topics = 2;</code>
+             *
              * @param value The bytes of the topics to add.
              * @return This builder for chaining.
              */
             public Builder addTopicsBytes(
                     com.google.protobuf.ByteString value) {
-                if (value == null) { throw new NullPointerException(); }
-                checkByteStringIsUtf8(value);
-                ensureTopicsIsMutable();
-                topics_.add(value);
-                onChanged();
+                copyOnWrite();
+                instance.addTopicsBytes(value);
                 return this;
             }
-            @java.lang.Override
-            public final Builder setUnknownFields(
-                    final com.google.protobuf.UnknownFieldSet unknownFields) {
-                return super.setUnknownFields(unknownFields);
-            }
-
-            @java.lang.Override
-            public final Builder mergeUnknownFields(
-                    final com.google.protobuf.UnknownFieldSet unknownFields) {
-                return super.mergeUnknownFields(unknownFields);
-            }
-
 
             // @@protoc_insertion_point(builder_scope:notifications.v1.UnsubscribeRequest)
         }
 
+        @java.lang.Override
+        @java.lang.SuppressWarnings({"unchecked", "fallthrough"})
+        protected final java.lang.Object dynamicMethod(
+                com.google.protobuf.GeneratedMessageLite.MethodToInvoke method,
+                java.lang.Object arg0, java.lang.Object arg1) {
+            switch (method) {
+                case NEW_MUTABLE_INSTANCE: {
+                    return new org.xmtp.android.library.push.Service.UnsubscribeRequest();
+                }
+                case NEW_BUILDER: {
+                    return new Builder();
+                }
+                case BUILD_MESSAGE_INFO: {
+                    java.lang.Object[] objects = new java.lang.Object[]{
+                            "installationId_",
+                            "topics_",
+                    };
+                    java.lang.String info =
+                            "\u0000\u0002\u0000\u0000\u0001\u0002\u0002\u0000\u0001\u0000\u0001\u0208\u0002\u021a" +
+                                    "";
+                    return newMessageInfo(DEFAULT_INSTANCE, info, objects);
+                }
+                // fall through
+                case GET_DEFAULT_INSTANCE: {
+                    return DEFAULT_INSTANCE;
+                }
+                case GET_PARSER: {
+                    com.google.protobuf.Parser<org.xmtp.android.library.push.Service.UnsubscribeRequest> parser = PARSER;
+                    if (parser == null) {
+                        synchronized (org.xmtp.android.library.push.Service.UnsubscribeRequest.class) {
+                            parser = PARSER;
+                            if (parser == null) {
+                                parser =
+                                        new DefaultInstanceBasedParser<org.xmtp.android.library.push.Service.UnsubscribeRequest>(
+                                                DEFAULT_INSTANCE);
+                                PARSER = parser;
+                            }
+                        }
+                    }
+                    return parser;
+                }
+                case GET_MEMOIZED_IS_INITIALIZED: {
+                    return (byte) 1;
+                }
+                case SET_MEMOIZED_IS_INITIALIZED: {
+                    return null;
+                }
+            }
+            throw new UnsupportedOperationException();
+        }
+
+
         // @@protoc_insertion_point(class_scope:notifications.v1.UnsubscribeRequest)
         private static final org.xmtp.android.library.push.Service.UnsubscribeRequest DEFAULT_INSTANCE;
+
         static {
-            DEFAULT_INSTANCE = new org.xmtp.android.library.push.Service.UnsubscribeRequest();
+            UnsubscribeRequest defaultInstance = new UnsubscribeRequest();
+            // New instances are implicitly immutable so no need to make
+            // immutable.
+            DEFAULT_INSTANCE = defaultInstance;
+            com.google.protobuf.GeneratedMessageLite.registerDefaultInstance(
+                    UnsubscribeRequest.class, defaultInstance);
         }
 
         public static org.xmtp.android.library.push.Service.UnsubscribeRequest getDefaultInstance() {
             return DEFAULT_INSTANCE;
         }
 
-        private static final com.google.protobuf.Parser<UnsubscribeRequest>
-                PARSER = new com.google.protobuf.AbstractParser<UnsubscribeRequest>() {
-            @java.lang.Override
-            public UnsubscribeRequest parsePartialFrom(
-                    com.google.protobuf.CodedInputStream input,
-                    com.google.protobuf.ExtensionRegistryLite extensionRegistry)
-                    throws com.google.protobuf.InvalidProtocolBufferException {
-                Builder builder = newBuilder();
-                try {
-                    builder.mergeFrom(input, extensionRegistry);
-                } catch (com.google.protobuf.InvalidProtocolBufferException e) {
-                    throw e.setUnfinishedMessage(builder.buildPartial());
-                } catch (com.google.protobuf.UninitializedMessageException e) {
-                    throw e.asInvalidProtocolBufferException().setUnfinishedMessage(builder.buildPartial());
-                } catch (java.io.IOException e) {
-                    throw new com.google.protobuf.InvalidProtocolBufferException(e)
-                            .setUnfinishedMessage(builder.buildPartial());
-                }
-                return builder.buildPartial();
-            }
-        };
+        private static volatile com.google.protobuf.Parser<UnsubscribeRequest> PARSER;
 
         public static com.google.protobuf.Parser<UnsubscribeRequest> parser() {
-            return PARSER;
+            return DEFAULT_INSTANCE.getParserForType();
         }
-
-        @java.lang.Override
-        public com.google.protobuf.Parser<UnsubscribeRequest> getParserForType() {
-            return PARSER;
-        }
-
-        @java.lang.Override
-        public org.xmtp.android.library.push.Service.UnsubscribeRequest getDefaultInstanceForType() {
-            return DEFAULT_INSTANCE;
-        }
-
     }
 
-    private static final com.google.protobuf.Descriptors.Descriptor
-            internal_static_notifications_v1_DeliveryMechanism_descriptor;
-    private static final
-    com.google.protobuf.GeneratedMessageV3.FieldAccessorTable
-            internal_static_notifications_v1_DeliveryMechanism_fieldAccessorTable;
-    private static final com.google.protobuf.Descriptors.Descriptor
-            internal_static_notifications_v1_RegisterInstallationRequest_descriptor;
-    private static final
-    com.google.protobuf.GeneratedMessageV3.FieldAccessorTable
-            internal_static_notifications_v1_RegisterInstallationRequest_fieldAccessorTable;
-    private static final com.google.protobuf.Descriptors.Descriptor
-            internal_static_notifications_v1_RegisterInstallationResponse_descriptor;
-    private static final
-    com.google.protobuf.GeneratedMessageV3.FieldAccessorTable
-            internal_static_notifications_v1_RegisterInstallationResponse_fieldAccessorTable;
-    private static final com.google.protobuf.Descriptors.Descriptor
-            internal_static_notifications_v1_DeleteInstallationRequest_descriptor;
-    private static final
-    com.google.protobuf.GeneratedMessageV3.FieldAccessorTable
-            internal_static_notifications_v1_DeleteInstallationRequest_fieldAccessorTable;
-    private static final com.google.protobuf.Descriptors.Descriptor
-            internal_static_notifications_v1_SubscribeRequest_descriptor;
-    private static final
-    com.google.protobuf.GeneratedMessageV3.FieldAccessorTable
-            internal_static_notifications_v1_SubscribeRequest_fieldAccessorTable;
-    private static final com.google.protobuf.Descriptors.Descriptor
-            internal_static_notifications_v1_UnsubscribeRequest_descriptor;
-    private static final
-    com.google.protobuf.GeneratedMessageV3.FieldAccessorTable
-            internal_static_notifications_v1_UnsubscribeRequest_fieldAccessorTable;
 
-    public static com.google.protobuf.Descriptors.FileDescriptor
-    getDescriptor() {
-        return descriptor;
-    }
-    private static  com.google.protobuf.Descriptors.FileDescriptor
-            descriptor;
     static {
-        java.lang.String[] descriptorData = {
-                "\n\rservice.proto\022\020notifications.v1\032\033googl" +
-                        "e/protobuf/empty.proto\"l\n\021DeliveryMechan" +
-                        "ism\022\033\n\021apns_device_token\030\001 \001(\tH\000\022\037\n\025fire" +
-                        "base_device_token\030\002 \001(\tH\000B\031\n\027delivery_me" +
-                        "chanism_type\"w\n\033RegisterInstallationRequ" +
-                        "est\022\027\n\017installation_id\030\001 \001(\t\022?\n\022delivery" +
-                        "_mechanism\030\002 \001(\0132#.notifications.v1.Deli" +
-                        "veryMechanism\"L\n\034RegisterInstallationRes" +
-                        "ponse\022\027\n\017installation_id\030\001 \001(\t\022\023\n\013valid_" +
-                        "until\030\002 \001(\004\"4\n\031DeleteInstallationRequest" +
-                        "\022\027\n\017installation_id\030\001 \001(\t\";\n\020SubscribeRe" +
-                        "quest\022\027\n\017installation_id\030\001 \001(\t\022\016\n\006topics" +
-                        "\030\002 \003(\t\"=\n\022UnsubscribeRequest\022\027\n\017installa" +
-                        "tion_id\030\001 \001(\t\022\016\n\006topics\030\002 \003(\t2\367\002\n\rNotifi" +
-                        "cations\022u\n\024RegisterInstallation\022-.notifi" +
-                        "cations.v1.RegisterInstallationRequest\032." +
-                        ".notifications.v1.RegisterInstallationRe" +
-                        "sponse\022Y\n\022DeleteInstallation\022+.notificat" +
-                        "ions.v1.DeleteInstallationRequest\032\026.goog" +
-                        "le.protobuf.Empty\022G\n\tSubscribe\022\".notific" +
-                        "ations.v1.SubscribeRequest\032\026.google.prot" +
-                        "obuf.Empty\022K\n\013Unsubscribe\022$.notification" +
-                        "s.v1.UnsubscribeRequest\032\026.google.protobu" +
-                        "f.EmptyBY\n\035org.xmtp.android.library.push" +
-                        "Z8github.com/xmtp/example-notification-s" +
-                        "erver-go/pkg/protob\006proto3"
-        };
-        descriptor = com.google.protobuf.Descriptors.FileDescriptor
-                .internalBuildGeneratedFileFrom(descriptorData,
-                        new com.google.protobuf.Descriptors.FileDescriptor[] {
-                                com.google.protobuf.EmptyProto.getDescriptor(),
-                        });
-        internal_static_notifications_v1_DeliveryMechanism_descriptor =
-                getDescriptor().getMessageTypes().get(0);
-        internal_static_notifications_v1_DeliveryMechanism_fieldAccessorTable = new
-                com.google.protobuf.GeneratedMessageV3.FieldAccessorTable(
-                internal_static_notifications_v1_DeliveryMechanism_descriptor,
-                new java.lang.String[] { "ApnsDeviceToken", "FirebaseDeviceToken", "DeliveryMechanismType", });
-        internal_static_notifications_v1_RegisterInstallationRequest_descriptor =
-                getDescriptor().getMessageTypes().get(1);
-        internal_static_notifications_v1_RegisterInstallationRequest_fieldAccessorTable = new
-                com.google.protobuf.GeneratedMessageV3.FieldAccessorTable(
-                internal_static_notifications_v1_RegisterInstallationRequest_descriptor,
-                new java.lang.String[] { "InstallationId", "DeliveryMechanism", });
-        internal_static_notifications_v1_RegisterInstallationResponse_descriptor =
-                getDescriptor().getMessageTypes().get(2);
-        internal_static_notifications_v1_RegisterInstallationResponse_fieldAccessorTable = new
-                com.google.protobuf.GeneratedMessageV3.FieldAccessorTable(
-                internal_static_notifications_v1_RegisterInstallationResponse_descriptor,
-                new java.lang.String[] { "InstallationId", "ValidUntil", });
-        internal_static_notifications_v1_DeleteInstallationRequest_descriptor =
-                getDescriptor().getMessageTypes().get(3);
-        internal_static_notifications_v1_DeleteInstallationRequest_fieldAccessorTable = new
-                com.google.protobuf.GeneratedMessageV3.FieldAccessorTable(
-                internal_static_notifications_v1_DeleteInstallationRequest_descriptor,
-                new java.lang.String[] { "InstallationId", });
-        internal_static_notifications_v1_SubscribeRequest_descriptor =
-                getDescriptor().getMessageTypes().get(4);
-        internal_static_notifications_v1_SubscribeRequest_fieldAccessorTable = new
-                com.google.protobuf.GeneratedMessageV3.FieldAccessorTable(
-                internal_static_notifications_v1_SubscribeRequest_descriptor,
-                new java.lang.String[] { "InstallationId", "Topics", });
-        internal_static_notifications_v1_UnsubscribeRequest_descriptor =
-                getDescriptor().getMessageTypes().get(5);
-        internal_static_notifications_v1_UnsubscribeRequest_fieldAccessorTable = new
-                com.google.protobuf.GeneratedMessageV3.FieldAccessorTable(
-                internal_static_notifications_v1_UnsubscribeRequest_descriptor,
-                new java.lang.String[] { "InstallationId", "Topics", });
-        com.google.protobuf.EmptyProto.getDescriptor();
     }
 
     // @@protoc_insertion_point(outer_class_scope)

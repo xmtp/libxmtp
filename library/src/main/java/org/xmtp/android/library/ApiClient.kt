@@ -27,6 +27,7 @@ interface ApiClient {
         pagination: Pagination? = null,
         cursor: Cursor? = null,
     ): QueryResponse
+
     suspend fun queryTopic(topic: Topic, pagination: Pagination? = null): QueryResponse
     suspend fun envelopes(topic: String, pagination: Pagination? = null): List<Envelope>
     suspend fun publish(envelopes: List<Envelope>): PublishResponse
@@ -77,16 +78,22 @@ data class GRPCApiClient(override val environment: XMTPEnvironment, val secure: 
                 }
                 if (pagination?.startTime != null) {
                     it.endTimeNs = pagination.startTime.time * 1_000_000
-                    it.pagingInfoBuilder.direction =
-                        MessageApiOuterClass.SortDirection.SORT_DIRECTION_DESCENDING
+                    it.pagingInfo = it.pagingInfo.toBuilder().also { info ->
+                        info.direction =
+                            MessageApiOuterClass.SortDirection.SORT_DIRECTION_DESCENDING
+                    }.build()
                 }
                 if (pagination?.endTime != null) {
                     it.startTimeNs = pagination.endTime.time * 1_000_000
-                    it.pagingInfoBuilder.direction =
-                        MessageApiOuterClass.SortDirection.SORT_DIRECTION_DESCENDING
+                    it.pagingInfo = it.pagingInfo.toBuilder().also { info ->
+                        info.direction =
+                            MessageApiOuterClass.SortDirection.SORT_DIRECTION_DESCENDING
+                    }.build()
                 }
                 if (cursor != null) {
-                    it.pagingInfoBuilder.cursor = cursor
+                    it.pagingInfo = it.pagingInfo.toBuilder().also { info ->
+                        info.cursor = cursor
+                    }.build()
                 }
             }.build()
 

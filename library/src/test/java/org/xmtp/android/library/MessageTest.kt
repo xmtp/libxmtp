@@ -105,9 +105,11 @@ class MessageTest {
         val additionalData =
             Numeric.hexStringToByteArray("0aac020a940108d995eeadcc3012460a440a408f20c9fc03909edeb21538b0a568c423f8829e95c0270779ca704f72a45f02416f6071f6faaf421cac3bacc6bb432fc4b5f92bc4391349953c7c98f12253cdd710011a430a4104b7eb7b56059a4f08bf3dd8f1b329e21d486e39822f17db15bad0d7f689f6c8081ae2800b9014fc9ef355a39e10503fddfdfa0b07ccc1946c2275b10e660d5ded12920108e995eeadcc3012440a420a40da669aa014468ffe34d5b962443d8b1e353b1e39f252bbcffa5c6c70adf9f7d2484de944213f345bac869e8c1942657b9c59f6fc12d139171b22789bc76ffb971a430a4104901d3a7f728bde1f871bcf46d44dcf34eead4c532135913583268d35bd93ca0a1571a8cb6546ab333f2d77c3bb9839be7e8f27795ea4d6e979b6670dec20636d12aa020a920108bad3eaadcc3012440a420a4016d83a6e44ee8b9764f18fbb390f2a4049d92ff904ebd75c76a71d58a7f943744f8bed7d3696f9fb41ce450c5ab9f4a7f9a83e3d10f401bbe85e3992c5156d491a430a41047cebe3a23e573672363665d13220d368d37776e10232de9bd382d5af36392956dbd806f8b78bec5cdc111763e4ef4aff7dee65a8a15fee8d338c387320c5b23912920108bad3eaadcc3012440a420a404a751f28001f34a4136529a99e738279856da6b32a1ee9dba20849d9cd84b6165166a6abeae1139ed8df8be3b4594d9701309075f2b8d5d4de1f713fb62ae37e1a430a41049c45e552ac9f69c083bd358acac31a2e3cf7d9aa9298fef11b43252730949a39c68272302a61b548b13452e19272c119b5189a5d7b5c3283a37d5d9db5ed0c6818b286deaecc30")
         val ciphertext = CipherText.newBuilder().apply {
-            aes256GcmHkdfSha256Builder.gcmNonce = nonce.toByteString()
-            aes256GcmHkdfSha256Builder.hkdfSalt = salt.toByteString()
-            aes256GcmHkdfSha256Builder.payload = payload.toByteString()
+            aes256GcmHkdfSha256 = aes256GcmHkdfSha256.toBuilder().also {
+                it.gcmNonce = nonce.toByteString()
+                it.hkdfSalt = salt.toByteString()
+                it.payload = payload.toByteString()
+            }.build()
         }.build()
 
         val decrypted = Crypto.decrypt(secret, ciphertext, additionalData = additionalData)
@@ -127,9 +129,17 @@ class MessageTest {
             ints.foldIndexed(ByteArray(ints.size)) { i, a, v -> a.apply { set(i, v.toByte()) } }
 
         val key = PrivateKeyOuterClass.PrivateKey.newBuilder().also {
-            it.secp256K1Builder.bytes = keyBytes.toByteString()
-            it.publicKeyBuilder.secp256K1UncompressedBuilder.bytes =
-                KeyUtil.addUncompressedByte(KeyUtil.getPublicKey(keyBytes)).toByteString()
+            it.secp256K1 = it.secp256K1.toBuilder().also { builder ->
+                builder.bytes = keyBytes.toByteString()
+            }.build()
+            it.publicKey = it.publicKey.toBuilder().also { builder ->
+                builder.secp256K1Uncompressed =
+                    builder.secp256K1Uncompressed.toBuilder().also { keyBuilder ->
+                        keyBuilder.bytes =
+                            KeyUtil.addUncompressedByte(KeyUtil.getPublicKey(keyBytes))
+                                .toByteString()
+                    }.build()
+            }.build()
         }.build()
 
         val client = Client().create(account = PrivateKeyBuilder(key))
@@ -152,9 +162,17 @@ class MessageTest {
             ints.foldIndexed(ByteArray(ints.size)) { i, a, v -> a.apply { set(i, v.toByte()) } }
 
         val key = PrivateKeyOuterClass.PrivateKey.newBuilder().also {
-            it.secp256K1Builder.bytes = keyBytes.toByteString()
-            it.publicKeyBuilder.secp256K1UncompressedBuilder.bytes =
-                KeyUtil.addUncompressedByte(KeyUtil.getPublicKey(keyBytes)).toByteString()
+            it.secp256K1 = it.secp256K1.toBuilder().also { builder ->
+                builder.bytes = keyBytes.toByteString()
+            }.build()
+            it.publicKey = it.publicKey.toBuilder().also { builder ->
+                builder.secp256K1Uncompressed =
+                    builder.secp256K1Uncompressed.toBuilder().also { keyBuilder ->
+                        keyBuilder.bytes =
+                            KeyUtil.addUncompressedByte(KeyUtil.getPublicKey(keyBytes))
+                                .toByteString()
+                    }.build()
+            }.build()
         }.build()
 
         val client = Client().create(account = PrivateKeyBuilder(key))
@@ -180,9 +198,17 @@ class MessageTest {
             ints.foldIndexed(ByteArray(ints.size)) { i, a, v -> a.apply { set(i, v.toByte()) } }
 
         val key = PrivateKeyOuterClass.PrivateKey.newBuilder().also {
-            it.secp256K1Builder.bytes = keyBytes.toByteString()
-            it.publicKeyBuilder.secp256K1UncompressedBuilder.bytes =
-                KeyUtil.addUncompressedByte(KeyUtil.getPublicKey(keyBytes)).toByteString()
+            it.secp256K1 = it.secp256K1.toBuilder().also { builder ->
+                builder.bytes = keyBytes.toByteString()
+            }.build()
+            it.publicKey = it.publicKey.toBuilder().also { builder ->
+                builder.secp256K1Uncompressed =
+                    builder.secp256K1Uncompressed.toBuilder().also { keyBuilder ->
+                        keyBuilder.bytes =
+                            KeyUtil.addUncompressedByte(KeyUtil.getPublicKey(keyBytes))
+                                .toByteString()
+                    }.build()
+            }.build()
         }.build()
         val client = Client().create(account = PrivateKeyBuilder(key))
         val conversations = client.conversations.list()
@@ -246,9 +272,16 @@ class MessageTest {
         val bytes =
             ints.foldIndexed(ByteArray(ints.size)) { i, a, v -> a.apply { set(i, v.toByte()) } }
         val key = PrivateKeyOuterClass.PrivateKey.newBuilder().also {
-            it.secp256K1Builder.bytes = bytes.toByteString()
-            it.publicKeyBuilder.secp256K1UncompressedBuilder.bytes =
-                KeyUtil.addUncompressedByte(KeyUtil.getPublicKey(bytes)).toByteString()
+            it.secp256K1 = it.secp256K1.toBuilder().also { builder ->
+                builder.bytes = bytes.toByteString()
+            }.build()
+            it.publicKey = it.publicKey.toBuilder().also { builder ->
+                builder.secp256K1Uncompressed =
+                    builder.secp256K1Uncompressed.toBuilder().also { keyBuilder ->
+                        keyBuilder.bytes =
+                            KeyUtil.addUncompressedByte(KeyUtil.getPublicKey(bytes)).toByteString()
+                    }.build()
+            }.build()
         }.build()
         val keyBundleData =
             Numeric.hexStringToByteArray("0a86030ac001089387b882df3012220a204a393d6ac64c10770a2585def70329f10ca480517311f0b321a5cfbbae0119951a9201089387b882df3012440a420a4092f66532cf0266d146a17060fb64148e4a6adc673c14511e45f40ac66551234a336a8feb6ef3fabdf32ea259c2a3bca32b9550c3d34e004ea59e86b42f8001ac1a430a41041c919edda3399ab7f20f5e1a9339b1c2e666e80a164fb1c6d8bc1b7dbf2be158f87c837a6364c7fb667a40c2d234d198a7c2168a928d39409ad7d35d653d319912c00108a087b882df3012220a202ade2eefefa5f8855e557d685278e8717e3f57682b66c3d73aa87896766acddc1a920108a087b882df3012440a420a404f4a90ef10e1536e4588f12c2320229008d870d2abaecd1acfefe9ca91eb6f6d56b1380b1bdebdcf9c46fb19ceb3247d5d986a4dd2bce40a4bdf694c24b08fbb1a430a4104a51efe7833c46d2f683e2eb1c07811bb96ab5e4c2000a6f06124968e8842ff8be737ad7ca92b2dabb13550cdc561df15771c8494eca7b7ca5519f6da02f76489")

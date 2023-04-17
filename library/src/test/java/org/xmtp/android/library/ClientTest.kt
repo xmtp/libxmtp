@@ -66,8 +66,16 @@ class ClientTest {
         val bytes =
             ints.foldIndexed(ByteArray(ints.size)) { i, a, v -> a.apply { set(i, v.toByte()) } }
         val key = PrivateKey.newBuilder().also {
-            it.secp256K1Builder.bytes = bytes.toByteString()
-            it.publicKeyBuilder.secp256K1UncompressedBuilder.bytes = KeyUtil.addUncompressedByte(KeyUtil.getPublicKey(bytes)).toByteString()
+            it.secp256K1 =
+                it.secp256K1.toBuilder().also { builder -> builder.bytes = bytes.toByteString() }
+                    .build()
+            it.publicKey = it.publicKey.toBuilder().also { builder ->
+                builder.secp256K1Uncompressed =
+                    builder.secp256K1Uncompressed.toBuilder().also { keyBuilder ->
+                        keyBuilder.bytes =
+                            KeyUtil.addUncompressedByte(KeyUtil.getPublicKey(bytes)).toByteString()
+                    }.build()
+            }.build()
         }.build()
 
         val client = Client().create(account = PrivateKeyBuilder(key))
@@ -87,9 +95,18 @@ class ClientTest {
         )
         val bytes =
             ints.foldIndexed(ByteArray(ints.size)) { i, a, v -> a.apply { set(i, v.toByte()) } }
+
         val key = PrivateKey.newBuilder().also {
-            it.secp256K1Builder.bytes = bytes.toByteString()
-            it.publicKeyBuilder.secp256K1UncompressedBuilder.bytes = KeyUtil.addUncompressedByte(KeyUtil.getPublicKey(bytes)).toByteString()
+            it.secp256K1 = it.secp256K1.toBuilder().also { builder ->
+                builder.bytes = bytes.toByteString()
+            }.build()
+            it.publicKey = it.publicKey.toBuilder().also { builder ->
+                builder.secp256K1Uncompressed =
+                    builder.secp256K1Uncompressed.toBuilder().also { keyBuilder ->
+                        keyBuilder.bytes =
+                            KeyUtil.addUncompressedByte(KeyUtil.getPublicKey(bytes)).toByteString()
+                    }.build()
+            }.build()
         }.build()
 
         val client = Client().create(account = PrivateKeyBuilder(key))
