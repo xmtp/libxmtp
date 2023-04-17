@@ -1,9 +1,12 @@
 [workspace]
 
 members = [
-  "bindings/xmtp_rust_swift",
   "crates/xmtp-proto",
   "crates/xmtp-keystore",
   "crates/corecrypto",
   "crates/xmtp-networking",
+]
+
+exclude = [
+  "bindings/xmtp_rust_swift"
 ]
