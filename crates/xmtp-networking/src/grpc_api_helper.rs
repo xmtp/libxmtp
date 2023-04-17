@@ -140,9 +140,8 @@ pub async fn publish(
 
     let request = v1::PublishRequest { envelopes };
 
-    // TODO: this code sucks, but if the host was TLS, we need to use the tls_client otherwise
-    // we need to use the non_tls_client. It's hard to DRY up because both clients have
-    // different types and can't be assigned to the same variable.
+    // TODO: See above about DRY-ing up clients. Probably want to re-use the same client
+    // in the future.
     let response = if host.starts_with("https://") {
         println!("Using TLS client");
         // Set up the TLS client
