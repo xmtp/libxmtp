@@ -1,3 +1,0 @@
-[submodule "crates/xmtp-networking/proto/googleapis"]
-	path = crates/xmtp-networking/proto/googleapis
-	url = https://github.com/googleapis/googleapis
