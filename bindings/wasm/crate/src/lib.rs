@@ -8,6 +8,11 @@ use xmtp_keystore::Keystore;
 static KEYSTORE: Lazy<Mutex<Keystore>> = Lazy::new(|| Mutex::new(Keystore::new()));
 
 #[wasm_bindgen]
+pub fn add_two_numbers(left: usize, right: usize) -> usize {
+    libxmtp_core::add(left, right)
+}
+
+#[wasm_bindgen]
 pub fn set_private_key_bundle(key_bytes: &[u8]) -> Result<bool, JsValue> {
     KEYSTORE
         .lock()
