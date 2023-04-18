@@ -1,6 +1,7 @@
-use xmtp_proto::xmtp::message_api::v1;
-
-use tonic::{metadata::MetadataValue, transport::Channel, Request};
+use std::sync::{Arc, Mutex};
+use tokio::sync::oneshot;
+use tonic::{metadata::MetadataValue, transport::Channel, Request, Streaming};
+use xmtp_proto::xmtp::message_api::v1::{self, Envelope};
 
 // Do a barebones unpaginated Query gRPC request
 // With optional PagingInfo
@@ -133,6 +134,24 @@ pub async fn subscribe_once_serialized(
     Ok(json)
 }
 
+pub async fn subscribe_stream(
+    host: String,
+    topics: Vec<String>,
+) -> Result<StreamHandler, tonic::Status> {
+    println!("Starting subscribe process");
+    let mut client = v1::message_api_client::MessageApiClient::connect(host)
+        .await
+        .map_err(|e| tonic::Status::new(tonic::Code::Internal, format!("{}", e)))?;
+    let request = v1::SubscribeRequest {
+        content_topics: topics,
+        ..Default::default()
+    };
+    println!("Sending request: {:?}", request);
+    let stream = client.subscribe(request).await.unwrap().into_inner();
+    println!("This code never gets hit");
+    return Ok(StreamHandler::new(stream).await);
+}
+
 // Return the json serialization of an Envelope with bytes
 pub fn test_envelope() -> String {
     let envelope = v1::Envelope {
@@ -141,4 +160,56 @@ pub fn test_envelope() -> String {
     };
 
     serde_json::to_string(&envelope).unwrap()
+}
+
+pub struct StreamHandler {
+    pending: Arc<Mutex<Vec<Envelope>>>,
+    close_tx: Option<oneshot::Sender<()>>,
+}
+
+impl StreamHandler {
+    pub async fn new(stream: Streaming<Envelope>) -> Self {
+        println!("Starting stream handler");
+        let pending = Arc::new(Mutex::new(Vec::new()));
+        let pending_clone = pending.clone();
+        let (close_tx, close_rx) = oneshot::channel::<()>();
+        tokio::spawn(async move {
+            let mut stream = Box::pin(stream);
+            let mut close_rx = Box::pin(close_rx);
+
+            loop {
+                tokio::select! {
+                    item = stream.message() => {
+                        match item {
+                            Ok(Some(envelope)) => {
+                                let mut pending = pending_clone.lock().unwrap();
+                                pending.push(envelope);
+                            }
+                            _ => break,
+                        }
+                    },
+                    _ = &mut close_rx => {
+                        break;
+                    }
+                }
+            }
+        });
+
+        StreamHandler {
+            pending,
+            close_tx: Some(close_tx),
+        }
+    }
+
+    pub fn get_and_reset_pending(&self) -> Vec<Envelope> {
+        let mut pending = self.pending.lock().unwrap();
+        let items = pending.drain(..).collect::<Vec<Envelope>>();
+        items
+    }
+
+    pub fn close_stream(&mut self) {
+        if let Some(close_tx) = self.close_tx.take() {
+            let _ = close_tx.send(());
+        }
+    }
 }
