@@ -22,7 +22,7 @@ aarch64-apple-ios:
 	cargo build --target $@ --target-dir ./target --release
 
 $(LIB): $(ARCHS_IOS) $(ARCHS_MAC) aarch64-apple-ios
-	rm -f lipo_macos lipo_ios_simulator
+	rm -rf lipo_macos lipo_ios_simulator
 	mkdir -p lipo_macos lipo_ios_simulator
 	lipo -create -output lipo_ios_simulator/libxmtp_rust_swift.a $(foreach arch,$(ARCHS_IOS),$(wildcard target/$(arch)/release/$(LIB)))
 	lipo -create -output lipo_macos/libxmtp_rust_swift.a $(foreach arch,$(ARCHS_MAC),$(wildcard target/$(arch)/release/$(LIB)))
