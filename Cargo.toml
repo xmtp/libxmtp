@@ -5,6 +5,8 @@ members = [
   "crates/xmtp-keystore",
   "crates/corecrypto",
   "crates/xmtp-networking",
+  "crates/libxmtp-core",
+  "bindings/wasm/crate",
 ]
 
 # Exclude since
