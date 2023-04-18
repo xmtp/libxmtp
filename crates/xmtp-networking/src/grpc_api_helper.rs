@@ -137,7 +137,7 @@ pub async fn subscribe_once_serialized(
 pub async fn subscribe_stream(
     host: String,
     topics: Vec<String>,
-) -> Result<StreamHandler, tonic::Status> {
+) -> Result<Subscription, tonic::Status> {
     println!("Starting subscribe process");
     let mut client = v1::message_api_client::MessageApiClient::connect(host)
         .await
@@ -149,7 +149,7 @@ pub async fn subscribe_stream(
     println!("Sending request: {:?}", request);
     let stream = client.subscribe(request).await.unwrap().into_inner();
     println!("This code never gets hit");
-    return Ok(StreamHandler::new(stream).await);
+    return Ok(Subscription::new(stream).await);
 }
 
 // Return the json serialization of an Envelope with bytes
@@ -162,12 +162,12 @@ pub fn test_envelope() -> String {
     serde_json::to_string(&envelope).unwrap()
 }
 
-pub struct StreamHandler {
+pub struct Subscription {
     pending: Arc<Mutex<Vec<Envelope>>>,
     close_tx: Option<oneshot::Sender<()>>,
 }
 
-impl StreamHandler {
+impl Subscription {
     pub async fn new(stream: Streaming<Envelope>) -> Self {
         println!("Starting stream handler");
         let pending = Arc::new(Mutex::new(Vec::new()));
@@ -195,7 +195,7 @@ impl StreamHandler {
             }
         });
 
-        StreamHandler {
+        Subscription {
             pending,
             close_tx: Some(close_tx),
         }

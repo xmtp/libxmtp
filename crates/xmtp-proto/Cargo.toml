@@ -8,7 +8,7 @@ edition = "2021"
 prost = { version = "0.11", features = ["prost-derive"] }
 # Only necessary if using Protobuf well-known types:
 prost-types = "0.11"
-tonic = "0.9.1"
+tonic = "^0.9"
 serde = "1.0.160"
 pbjson = "0.5.1"
 pbjson-types = "0.5.1"
