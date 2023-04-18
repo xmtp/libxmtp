@@ -22,3 +22,9 @@ jobs:
           token: ${{ secrets.GITHUB_TOKEN }}
           name: corecrypto
           args: --all-features --no-deps --manifest-path crates/xmtp-keystore/Cargo.toml
+      - uses: actions-rs/clippy-check@v1
+        name: libxmtp-core
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          name: libxmtp-core
+          args: --all-features --no-deps --manifest-path crates/libxmtp-core/Cargo.toml
