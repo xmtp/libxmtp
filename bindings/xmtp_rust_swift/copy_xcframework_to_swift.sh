@@ -7,7 +7,7 @@ set -ex
 
 # Look for an xmtp_rust_swift repo at the sibling layer of the top level of this repo so ../../../
 
-REPONAME="xmtp_rust_swift"
+REPONAME="xmtp-rust-swift"
 REPOPATH="../../../$REPONAME"
 # Now move the XMTPRustSwift.xcframework to the Swift package
 rm -rf "$REPOPATH/XMTPRustSwift.xcframework"

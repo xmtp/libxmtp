@@ -22,9 +22,10 @@ aarch64-apple-ios:
 	cargo build --target $@ --target-dir ./target --release
 
 $(LIB): $(ARCHS_IOS) $(ARCHS_MAC) aarch64-apple-ios
-	rm -f libxmtp_rust_swift_iossimulator.a libxmtp_rust_swift_macos.a
-	lipo -create -output libxmtp_rust_swift_iossimulator.a $(foreach arch,$(ARCHS_IOS),$(wildcard target/$(arch)/release/$(LIB)))
-	lipo -create -output libxmtp_rust_swift_macos.a $(foreach arch,$(ARCHS_MAC),$(wildcard target/$(arch)/release/$(LIB)))
+	rm -rf lipo_macos lipo_ios_simulator
+	mkdir -p lipo_macos lipo_ios_simulator
+	lipo -create -output lipo_ios_simulator/libxmtp_rust_swift.a $(foreach arch,$(ARCHS_IOS),$(wildcard target/$(arch)/release/$(LIB)))
+	lipo -create -output lipo_macos/libxmtp_rust_swift.a $(foreach arch,$(ARCHS_MAC),$(wildcard target/$(arch)/release/$(LIB)))
 
 move_gen:
 	# Move "Generated" directory to "include"
@@ -34,9 +35,9 @@ move_gen:
 pkg: $(LIB) move_gen
 	rm -rf XMTPRustSwift.xcframework
 	xcodebuild -create-xcframework \
-		-library ./libxmtp_rust_swift_macos.a \
+		-library ./lipo_macos/libxmtp_rust_swift.a \
 		-headers ./include/ \
-		-library ./libxmtp_rust_swift_iossimulator.a \
+		-library ./lipo_ios_simulator/libxmtp_rust_swift.a \
 		-headers ./include/ \
 		-library ./target/aarch64-apple-ios/release/libxmtp_rust_swift.a \
 		-headers ./include/ \
