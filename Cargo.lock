@@ -822,10 +822,8 @@ version = "0.1.0"
 dependencies = [
  "js-sys",
  "libxmtp-core",
- "once_cell",
  "wasm-bindgen",
  "wasm-bindgen-test",
- "xmtp-keystore",
 ]
 
 [[package]]

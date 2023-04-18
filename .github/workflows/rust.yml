@@ -19,8 +19,14 @@ jobs:
          toolchain: stable
          override: true
 
-     - name: Run cargo test
+     - name: Run cargo test on xmtp-keystore
        uses: actions-rs/cargo@v1
        with:
          command: test
          args: --manifest-path crates/xmtp-keystore/Cargo.toml
+
+     - name: Run cargo test on libxmtp-core
+       uses: actions-rs/cargo@v1
+       with:
+         command: test
+         args: --manifest-path crates/libxmtp-core/Cargo.toml
