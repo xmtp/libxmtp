@@ -2,8 +2,6 @@
 
 members = [
   "crates/xmtp-proto",
-  "crates/xmtp-keystore",
-  "crates/corecrypto",
   "crates/xmtp-networking",
   "crates/libxmtp-core",
   "bindings/wasm/crate",
@@ -13,5 +11,7 @@ members = [
 # 1) no reason to share profile with other core crates
 # 2) moreover, xmtp_rust_swift needs its own size-optimized profile
 exclude = [
-  "bindings/xmtp_rust_swift"
+  "bindings/xmtp_rust_swift",
+  "crates/xmtp-keystore",
+  "crates/corecrypto",
 ]
