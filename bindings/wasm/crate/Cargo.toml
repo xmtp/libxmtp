@@ -10,10 +10,7 @@ crate-type = ["cdylib", "rlib"]
 [dependencies]
 js-sys = "0.3"
 libxmtp-core = { path = "../../../crates/libxmtp-core" }
-once_cell = "1.17.1"
 wasm-bindgen = "0.2"
-xmtp-keystore = { path = "../../../crates/xmtp-keystore" }
-
 
 [dev-dependencies]
 wasm-bindgen-test = "0.3"
