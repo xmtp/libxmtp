@@ -6,6 +6,6 @@ typedef struct __swift_bridge__$Option$ResponseJson { bool is_some; __swift_brid
 void __swift_bridge__$query(void* callback_wrapper, void __swift_bridge__$query$async(void* callback_wrapper, struct __swift_bridge__$ResponseJson ret), void* host, void* topic, void* json_paging_info);
 void __swift_bridge__$publish(void* callback_wrapper, void __swift_bridge__$publish$async(void* callback_wrapper, struct __swift_bridge__$ResponseJson ret), void* host, void* token, void* json_envelopes);
 void __swift_bridge__$subscribe(void* callback_wrapper, void __swift_bridge__$subscribe$async(void* callback_wrapper, struct __swift_bridge__$ResponseJson ret), void* host, void* topics);
-void __swift_bridge__$poll_subscription(void* callback_wrapper, void __swift_bridge__$poll_subscription$async(void* callback_wrapper, struct __swift_bridge__$ResponseJson ret), void* subscription_id);
+struct __swift_bridge__$ResponseJson __swift_bridge__$poll_subscription(void* subscription_id);
 
 

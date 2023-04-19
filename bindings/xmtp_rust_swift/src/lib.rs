@@ -144,7 +144,7 @@ mod tests {
 
         std::thread::sleep(std::time::Duration::from_millis(200));
         // Poll the subscription
-        let new_message_result = super::poll_subscription(subscription_id.to_string()).await;
+        let new_message_result = super::poll_subscription(subscription_id.to_string());
         assert_eq!(new_message_result.error, "");
         // Ensure messages are present
         let new_message_result_json: serde_json::Value =

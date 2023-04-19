@@ -70,29 +70,8 @@ class CbWrapper$subscribe {
         self.cb = cb
     }
 }
-public func poll_subscription<GenericIntoRustString: IntoRustString>(_ subscription_id: GenericIntoRustString) async -> ResponseJson {
-    func onComplete(cbWrapperPtr: UnsafeMutableRawPointer?, rustFnRetVal: __swift_bridge__$ResponseJson) {
-        let wrapper = Unmanaged<CbWrapper$poll_subscription>.fromOpaque(cbWrapperPtr!).takeRetainedValue()
-        wrapper.cb(.success(rustFnRetVal.intoSwiftRepr()))
-    }
-
-    return await withCheckedContinuation({ (continuation: CheckedContinuation<ResponseJson, Never>) in
-        let callback = { rustFnRetVal in
-            continuation.resume(with: rustFnRetVal)
-        }
-
-        let wrapper = CbWrapper$poll_subscription(cb: callback)
-        let wrapperPtr = Unmanaged.passRetained(wrapper).toOpaque()
-
-        __swift_bridge__$poll_subscription(wrapperPtr, onComplete, { let rustString = subscription_id.intoRustString(); rustString.isOwned = false; return rustString.ptr }())
-    })
-}
-class CbWrapper$poll_subscription {
-    var cb: (Result<ResponseJson, Never>) -> ()
-
-    public init(cb: @escaping (Result<ResponseJson, Never>) -> ()) {
-        self.cb = cb
-    }
+public func poll_subscription<GenericIntoRustString: IntoRustString>(_ subscription_id: GenericIntoRustString) -> ResponseJson {
+    __swift_bridge__$poll_subscription({ let rustString = subscription_id.intoRustString(); rustString.isOwned = false; return rustString.ptr }()).intoSwiftRepr()
 }
 public struct ResponseJson {
     public var error: RustString
