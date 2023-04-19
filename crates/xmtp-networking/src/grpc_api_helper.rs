@@ -2,7 +2,6 @@ use std::sync::{Arc, Mutex};
 use std::time::{SystemTime, UNIX_EPOCH};
 use tokio::sync::oneshot;
 use tonic::{metadata::MetadataValue, transport::Channel, Request, Streaming};
-use xmtp_proto::xmtp::message_api::v1;
 use xmtp_proto::xmtp::message_api::v1::{self, Envelope};
 
 // Do a barebones unpaginated Query gRPC request

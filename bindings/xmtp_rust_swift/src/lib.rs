@@ -56,6 +56,52 @@ async fn publish(host: String, token: String, json_envelopes: String) -> ffi::Re
     }
 }
 
+async fn subscribe(host: String, topics: Vec<String>) -> ffi::ResponseJson {
+    let id = Uuid::new_v4();
+    println!(
+        "Received a request to subscribe to topics: {:?}. ID is {}",
+        topics, id
+    );
+
+    let subscription = grpc_api_helper::subscribe(host, topics).await;
+    match subscription {
+        Ok(subscription) => {
+            subscriptions::add_subscription(id.to_string(), subscription);
+            ffi::ResponseJson {
+                error: "".to_string(),
+                json: json!({
+                    "subscription_id": id.to_string(),
+                })
+                .to_string(),
+            }
+        }
+        Err(e) => ffi::ResponseJson {
+            error: e.to_string(),
+            json: "".to_string(),
+        },
+    }
+}
+
+async fn poll_subscription(subscription_id: String) -> ffi::ResponseJson {
+    let messages = subscriptions::get_messages(subscription_id);
+    match messages {
+        Some(messages) => ffi::ResponseJson {
+            error: "".to_string(),
+            json: json!({
+                "messages": messages,
+            })
+            .to_string(),
+        },
+        None => ffi::ResponseJson {
+            error: "".to_string(),
+            json: json!({
+                "messages": [],
+            })
+            .to_string(),
+        },
+    }
+}
+
 #[cfg(test)]
 mod tests {
     static ADDRESS: &str = "http://localhost:5556";
