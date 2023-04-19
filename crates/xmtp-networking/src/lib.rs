@@ -1,55 +1,84 @@
 pub mod grpc_api_helper;
 
-// Custom patching of protobuf serialization for bytes -> base64
-// https://github.com/tokio-rs/prost/issues/75#issuecomment-1383233271
-pub mod serialize_utils;
-
 #[cfg(test)]
 mod tests {
+    use std::time::{SystemTime, UNIX_EPOCH};
+
     use super::*;
-    use grpc_api_helper::test_envelope;
-    use grpc_api_helper::{publish, query_serialized, subscribe};
+    use grpc_api_helper::Client;
+    use xmtp_proto::xmtp::message_api::v1::Envelope;
+
+    // Return the json serialization of an Envelope with bytes
+    pub fn test_envelope(topic: String) -> Envelope {
+        let time_since_epoch = SystemTime::now().duration_since(UNIX_EPOCH).unwrap();
+
+        return Envelope {
+            timestamp_ns: time_since_epoch.as_nanos() as u64,
+            content_topic: topic.to_string(),
+            message: vec![65],
+            ..Default::default()
+        };
+    }
 
     #[tokio::test]
     async fn grpc_query_test() {
-        let resp = query_serialized(
-            "http://localhost:5556".to_string(),
-            "test".to_string(),
-            "".to_string(),
-        )
-        .await;
-        assert!(resp.is_ok());
-        // Check that the response has some messages
-        // Assert response is a string that isn't empty and starts with a { like JSON
-        let resp_str = resp.unwrap();
-        assert!(!resp_str.is_empty());
-        assert!(resp_str.starts_with('{'));
+        let mut client = Client::create("http://localhost:5556".to_string())
+            .await
+            .unwrap();
+
+        let result = client
+            .query("test-query".to_string(), None, None, None)
+            .await
+            .unwrap();
+
+        assert_eq!(result.envelopes.len(), 0);
+    }
+
+    #[tokio::test]
+    async fn publish_test() {
+        let mut client = Client::create("http://localhost:5556".to_string())
+            .await
+            .unwrap();
+
+        let topic = "test-publish";
+        let env = test_envelope(topic.to_string());
+
+        let _result = client.publish("".to_string(), vec![env]).await.unwrap();
+
+        let query_result = client
+            .query(topic.to_string(), None, None, None)
+            .await
+            .unwrap();
+        assert_eq!(query_result.envelopes.len(), 1);
     }
 
     #[tokio::test]
     async fn subscribe_test() {
         tokio::time::timeout(std::time::Duration::from_secs(5), async move {
-            let host = "http://localhost:5556";
-            let topic = "test-subscribe";
-            let mut stream_handler = subscribe(host.to_string(), vec![topic.to_string()])
+            let mut client = Client::create("http://localhost:5556".to_string())
                 .await
                 .unwrap();
 
+            let topic = "test-subscribe";
+            let mut stream_handler = client.subscribe(vec![topic.to_string()]).await.unwrap();
+
             // Skipping the auth token because we have authn disabled on the local
             // xmtp-node-go instance
-            publish(
-                host.to_string(),
-                "".to_string(),
-                test_envelope(String::from(topic)),
-            )
-            .await
-            .unwrap();
+            client
+                .publish("".to_string(), vec![test_envelope(topic.to_string())])
+                .await
+                .unwrap();
+
             // Sleep to give the response time to come back
             std::thread::sleep(std::time::Duration::from_millis(100));
 
-            let results = stream_handler.get_and_reset_pending();
+            let results = stream_handler.get_messages();
             println!("{}", results.len());
             assert!(results.len() == 1);
+
+            let second_results = stream_handler.get_messages();
+            assert!(second_results.len() == 0);
+
             stream_handler.close_stream();
         })
         .await
