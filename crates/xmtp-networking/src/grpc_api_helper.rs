@@ -1,18 +1,95 @@
+use http_body::combinators::UnsyncBoxBody;
+use hyper::{client::HttpConnector, Uri};
+use hyper_rustls::HttpsConnector;
 use std::sync::{Arc, Mutex};
 use tokio::sync::oneshot;
-use tonic::{metadata::MetadataValue, transport::Channel, Request, Streaming};
+use std::str::FromStr
+use tokio_rustls::rustls::{ClientConfig, OwnedTrustAnchor, RootCertStore};
+use tonic::{metadata::MetadataValue, transport::Channel, Request, Status, Streaming};
 use xmtp_proto::xmtp::message_api::v1::{
     message_api_client::MessageApiClient, Envelope, PagingInfo, PublishRequest, PublishResponse,
     QueryRequest, QueryResponse, SubscribeRequest,
 };
 
-pub struct Client {
-    client: MessageApiClient<Channel>,
-    channel: Channel,
+fn tls_config() -> Result<ClientConfig, tonic::Status> {
+    let mut roots = RootCertStore::empty();
+    // Need to convert into OwnedTrustAnchor
+    roots.add_server_trust_anchors(webpki_roots::TLS_SERVER_ROOTS.0.iter().map(|ta| {
+        OwnedTrustAnchor::from_subject_spki_name_constraints(
+            ta.subject,
+            ta.spki,
+            ta.name_constraints,
+        )
+    }));
+    let tls = ClientConfig::builder()
+        .with_safe_defaults()
+        .with_root_certificates(roots)
+        .with_no_client_auth();
+    Ok(tls)
 }
 
-impl Client {
-    pub async fn create(host: String) -> Result<Self, tonic::Status> {
+fn get_tls_connector() -> Result<HttpsConnector<HttpConnector>, tonic::Status> {
+    let tls =
+        tls_config().map_err(|e| tonic::Status::new(tonic::Code::Internal, format!("{}", e)))?;
+    let mut http = HttpConnector::new();
+    http.enforce_http(false);
+    let connector = tower::ServiceBuilder::new()
+        .layer_fn(move |s| {
+            let tls = tls.clone();
+            hyper_rustls::HttpsConnectorBuilder::new()
+                .with_tls_config(tls)
+                .https_or_http()
+                .enable_http2()
+                .wrap_connector(s)
+        })
+        .service(http);
+    Ok(connector)
+}
+
+async fn make_non_tls_client(host: String) -> Result<MessageApiClient<Channel>, tonic::Status> {
+    println!("Using non-TLS client");
+
+    let error_str_host = host.clone();
+    let non_tls_client = MessageApiClient::connect(host).await.map_err(|e| {
+        tonic::Status::new(
+            tonic::Code::Internal,
+            format!("Failed to connect to {}: {}", error_str_host, e),
+        )
+    })?;
+    Ok(non_tls_client)
+}
+
+fn make_tls_client(
+    host: String,
+) -> Result<
+    MessageApiClient<
+        hyper::Client<HttpsConnector<HttpConnector>, UnsyncBoxBody<hyper::body::Bytes, Status>>,
+    >,
+    tonic::Status,
+> {
+    println!("Using TLS client");
+    // Set up the TLS client
+    let connector = get_tls_connector().map_err(|e| {
+        tonic::Status::new(
+            tonic::Code::Internal,
+            format!("Failed to create TLS connector: {}", e),
+        )
+    })?;
+
+    let client = hyper::Client::builder().build(connector);
+    let uri = Uri::from_str(&host)
+        .map_err(|e| tonic::Status::new(tonic::Code::Internal, format!("{}", e)))?;
+
+    Ok(MessageApiClient::with_origin(client, uri))
+}
+
+pub struct Client<T> {
+    client: MessageApiClient<T>,
+    channel: T,
+}
+
+impl<T> Client<T> {
+    pub async fn create(host: String, is_secure: bool) -> Result<Self, tonic::Status> {
         let host = host.to_string();
         let channel = Channel::from_shared(host)
             .map_err(|e| tonic::Status::new(tonic::Code::Internal, format!("{}", e)))?
@@ -20,7 +97,10 @@ impl Client {
             .await
             .map_err(|e| tonic::Status::new(tonic::Code::Internal, format!("{}", e)))?;
 
-        let client = MessageApiClient::new(channel.clone());
+        let client: MessageApiClient<T> = match is_secure {
+            true => make_tls_client(host)?,
+            false => MessageApiClient::new(channel.clone()),
+        };
 
         Ok(Self { client, channel })
     }
