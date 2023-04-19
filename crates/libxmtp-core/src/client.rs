@@ -1,12 +1,15 @@
+type WriteToPersistenceFn = Box<dyn FnMut(String, &[u8]) -> Result<(), String>>;
+type ReadFromPersistenceFn = Box<dyn FnMut(String) -> Result<Vec<u8>, String>>;
+
 pub struct Client {
-    write_to_persistence_fn: Box<dyn FnMut(String, &[u8]) -> Result<(), String>>,
-    read_from_persistence_fn: Box<dyn FnMut(String) -> Result<Vec<u8>, String>>,
+    write_to_persistence_fn: WriteToPersistenceFn,
+    read_from_persistence_fn: ReadFromPersistenceFn,
 }
 
 impl Client {
     pub fn new(
-        write_to_persistence_fn: Box<dyn FnMut(String, &[u8]) -> Result<(), String>>,
-        read_from_persistence_fn: Box<dyn FnMut(String) -> Result<Vec<u8>, String>>,
+        write_to_persistence_fn: WriteToPersistenceFn,
+        read_from_persistence_fn: ReadFromPersistenceFn,
     ) -> Client {
         Client {
             write_to_persistence_fn,
