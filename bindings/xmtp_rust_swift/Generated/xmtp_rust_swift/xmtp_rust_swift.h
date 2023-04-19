@@ -62,5 +62,6 @@ struct __swift_bridge__$Option$PagingInfo __swift_bridge__$QueryResponse$paging_
 void __swift_bridge__$create_client(void* callback_wrapper, void __swift_bridge__$create_client$async(void* callback_wrapper, struct __private__ResultPtrAndPtr ret), void* host);
 void __swift_bridge__$RustClient$query(void* callback_wrapper, void __swift_bridge__$RustClient$query$async(void* callback_wrapper, struct __private__ResultPtrAndPtr ret), void* self, void* topic, struct __private__OptionU64 start_time_ns, struct __private__OptionU64 end_time_ns, struct __swift_bridge__$Option$PagingInfo paging_info);
 void __swift_bridge__$RustClient$publish(void* callback_wrapper, void __swift_bridge__$RustClient$publish$async(void* callback_wrapper, struct __private__ResultVoidAndPtr ret), void* self, void* token, void* envelopes);
+void __swift_bridge__$RustClient$subscribe(void* callback_wrapper, void __swift_bridge__$RustClient$subscribe$async(void* callback_wrapper, struct __private__ResultPtrAndPtr ret), void* self, void* topics);
 
 

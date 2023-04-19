@@ -64,8 +64,7 @@ mod ffi {
             envelopes: Vec<Envelope>,
         ) -> Result<(), String>;
 
-        // async fn subscribe(&mut self, topics: Vec<String>) -> Result<Subscription, String>;
-
+        async fn subscribe(&mut self, topics: Vec<String>) -> Result<RustSubscription, String>;
     }
 }
 
@@ -120,6 +119,16 @@ impl RustClient {
 
         return Ok(());
     }
+
+    async fn subscribe(&mut self, topics: Vec<String>) -> Result<RustSubscription, String> {
+        let subscription = self
+            .client
+            .subscribe(topics)
+            .await
+            .map_err(|e| format!("{}", e))?;
+
+        return Ok(RustSubscription { subscription });
+    }
 }
 
 pub struct RustSubscription {
@@ -149,6 +158,7 @@ impl RustSubscription {
 #[cfg(test)]
 mod tests {
     use std::time::{SystemTime, UNIX_EPOCH};
+    use uuid::Uuid;
 
     static ADDRESS: &str = "http://localhost:5556";
 
@@ -166,7 +176,7 @@ mod tests {
     #[tokio::test]
     async fn test_publish_query() {
         let mut client = super::create_client(ADDRESS.to_string()).await.unwrap();
-        let topic = uuid::Uuid::new_v4();
+        let topic = Uuid::new_v4();
         let publish_result = client
             .publish("".to_string(), vec![test_envelope(topic.to_string())])
             .await
@@ -188,39 +198,22 @@ mod tests {
         assert!(first_envelope.message.len() > 0);
     }
 
-    // #[tokio::test]
-    // async fn test_subscribe() {
-    //     let topic = "test-subscribe-binding";
-    //     // Create a subscription
-    //     let result = super::subscribe(ADDRESS.to_string(), vec![topic.to_string()]).await;
-    //     assert_eq!(result.error, "");
-    //     let v: serde_json::Value = serde_json::from_str(&result.json).unwrap();
-    //     let subscription_id = v
-    //         .get("subscription_id")
-    //         .unwrap()
-    //         .as_str()
-    //         .unwrap()
-    //         .to_string();
-    //     assert!(!subscription_id.is_empty());
+    #[tokio::test]
+    async fn test_subscribe() {
+        let topic = Uuid::new_v4();
+        let mut client = super::create_client(ADDRESS.to_string()).await.unwrap();
+        let sub = client.subscribe(vec![topic.to_string()]).await.unwrap();
+        std::thread::sleep(std::time::Duration::from_millis(100));
+        let publish_result = client
+            .publish("".to_string(), vec![test_envelope(topic.to_string())])
+            .await
+            .unwrap();
+        assert_eq!(publish_result, ());
+        std::thread::sleep(std::time::Duration::from_millis(200));
 
-    //     std::thread::sleep(std::time::Duration::from_millis(100));
-    //     // Send a message
-    //     let publish_result = super::publish(
-    //         ADDRESS.to_string(),
-    //         "test".to_string(),
-    //         xmtp_networking::grpc_api_helper::test_envelope(topic.to_string()),
-    //     )
-    //     .await;
-    //     assert_eq!(publish_result.error, "");
-
-    //     std::thread::sleep(std::time::Duration::from_millis(200));
-    //     // Poll the subscription
-    //     let new_message_result = super::poll_subscription(subscription_id.to_string());
-    //     assert_eq!(new_message_result.error, "");
-    //     // Ensure messages are present
-    //     let new_message_result_json: serde_json::Value =
-    //         serde_json::from_str(&new_message_result.json).unwrap();
-    //     let messages = new_message_result_json.get("messages").unwrap();
-    //     assert_eq!(messages.as_array().unwrap().len(), 1);
-    // }
+        let messages = sub.get_messages().unwrap();
+        assert_eq!(messages.len(), 1);
+        let messages = sub.get_messages().unwrap();
+        assert_eq!(messages.len(), 0);
+    }
 }

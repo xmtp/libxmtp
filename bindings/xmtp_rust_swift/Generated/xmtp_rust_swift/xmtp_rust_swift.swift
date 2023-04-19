@@ -466,6 +466,35 @@ extension RustClientRefMut {
             self.cb = cb
         }
     }
+
+    public func subscribe<GenericIntoRustString: IntoRustString>(_ topics: RustVec<GenericIntoRustString>) async throws -> RustSubscription {
+        func onComplete(cbWrapperPtr: UnsafeMutableRawPointer?, rustFnRetVal: __private__ResultPtrAndPtr) {
+            let wrapper = Unmanaged<CbWrapper$RustClient$subscribe>.fromOpaque(cbWrapperPtr!).takeRetainedValue()
+            if rustFnRetVal.is_ok {
+                wrapper.cb(.success(RustSubscription(ptr: rustFnRetVal.ok_or_err!)))
+            } else {
+                wrapper.cb(.failure(RustString(ptr: rustFnRetVal.ok_or_err!)))
+            }
+        }
+
+        return try await withCheckedThrowingContinuation({ (continuation: CheckedContinuation<RustSubscription, Error>) in
+            let callback = { rustFnRetVal in
+                continuation.resume(with: rustFnRetVal)
+            }
+
+            let wrapper = CbWrapper$RustClient$subscribe(cb: callback)
+            let wrapperPtr = Unmanaged.passRetained(wrapper).toOpaque()
+
+            __swift_bridge__$RustClient$subscribe(wrapperPtr, onComplete, ptr, { let val = topics; val.isOwned = false; return val.ptr }())
+        })
+    }
+    class CbWrapper$RustClient$subscribe {
+        var cb: (Result<RustSubscription, Error>) -> ()
+    
+        public init(cb: @escaping (Result<RustSubscription, Error>) -> ()) {
+            self.cb = cb
+        }
+    }
 }
 public class RustClientRef {
     var ptr: UnsafeMutableRawPointer
