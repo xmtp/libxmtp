@@ -1,6 +1,8 @@
-use xmtp_proto::xmtp::message_api::v1;
-
-use tonic::{metadata::MetadataValue, transport::Channel, Request};
+use std::sync::{Arc, Mutex};
+use std::time::{SystemTime, UNIX_EPOCH};
+use tokio::sync::oneshot;
+use tonic::{metadata::MetadataValue, transport::Channel, Request, Streaming};
+use xmtp_proto::xmtp::message_api::v1::{self, Envelope};
 
 // Do a barebones unpaginated Query gRPC request
 // With optional PagingInfo
@@ -98,12 +100,7 @@ pub async fn publish_serialized(
     Ok(json)
 }
 
-// Subscribe to a topic and get a stream of messages, but as soon as you get on message, subscribe
-// the consumer will call this method again to get the next message
-pub async fn subscribe_once(
-    host: String,
-    topics: Vec<String>,
-) -> Result<v1::Envelope, tonic::Status> {
+pub async fn subscribe(host: String, topics: Vec<String>) -> Result<Subscription, tonic::Status> {
     let mut client = v1::message_api_client::MessageApiClient::connect(host)
         .await
         .map_err(|e| tonic::Status::new(tonic::Code::Internal, format!("{}", e)))?;
@@ -111,34 +108,70 @@ pub async fn subscribe_once(
         content_topics: topics,
         ..Default::default()
     };
-    let mut stream = client.subscribe(request).await?.into_inner();
-    // Get the first message from the stream
-    let response = stream.message().await;
-    // If Option has Envelope, return it, otherwise return an error
-    response
-        .map(|e| e.unwrap())
-        .map_err(|e| tonic::Status::new(tonic::Code::Internal, format!("{}", e)))
-}
+    let stream = client.subscribe(request).await.unwrap().into_inner();
 
-// Subscribe serialized version
-pub async fn subscribe_once_serialized(
-    host: String,
-    topics: Vec<String>,
-) -> Result<String, String> {
-    let response = subscribe_once(host, topics)
-        .await
-        .map_err(|e| format!("{}", e))?;
-    // Response is a v1::Envelope protobuf message, which we need to serialize to JSON
-    let json = serde_json::to_string(&response).map_err(|e| format!("{}", e))?;
-    Ok(json)
+    return Ok(Subscription::start(stream).await);
 }
 
 // Return the json serialization of an Envelope with bytes
-pub fn test_envelope() -> String {
+pub fn test_envelope(topic: String) -> String {
+    let time_since_epoch = SystemTime::now().duration_since(UNIX_EPOCH).unwrap();
     let envelope = v1::Envelope {
+        timestamp_ns: time_since_epoch.as_nanos() as u64,
+        content_topic: topic.to_string(),
         message: vec![65],
         ..Default::default()
     };
+    serde_json::to_string(&vec![envelope]).unwrap()
+}
 
-    serde_json::to_string(&envelope).unwrap()
+pub struct Subscription {
+    pending: Arc<Mutex<Vec<Envelope>>>,
+    close_tx: Option<oneshot::Sender<()>>,
+}
+
+impl Subscription {
+    pub async fn start(stream: Streaming<Envelope>) -> Self {
+        let pending = Arc::new(Mutex::new(Vec::new()));
+        let pending_clone = pending.clone();
+        let (close_tx, close_rx) = oneshot::channel::<()>();
+        tokio::spawn(async move {
+            let mut stream = Box::pin(stream);
+            let mut close_rx = Box::pin(close_rx);
+
+            loop {
+                tokio::select! {
+                    item = stream.message() => {
+                        match item {
+                            Ok(Some(envelope)) => {
+                                let mut pending = pending_clone.lock().unwrap();
+                                pending.push(envelope);
+                            }
+                            _ => break,
+                        }
+                    },
+                    _ = &mut close_rx => {
+                        break;
+                    }
+                }
+            }
+        });
+
+        Subscription {
+            pending,
+            close_tx: Some(close_tx),
+        }
+    }
+
+    pub fn get_and_reset_pending(&self) -> Vec<Envelope> {
+        let mut pending = self.pending.lock().unwrap();
+        let items = pending.drain(..).collect::<Vec<Envelope>>();
+        items
+    }
+
+    pub fn close_stream(&mut self) {
+        if let Some(close_tx) = self.close_tx.take() {
+            let _ = close_tx.send(());
+        }
+    }
 }
