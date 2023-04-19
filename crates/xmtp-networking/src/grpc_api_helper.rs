@@ -1,12 +1,14 @@
-use hyper::{client::HttpConnector, Uri};
 use std::sync::{Arc, Mutex};
 use std::time::{SystemTime, UNIX_EPOCH};
 use tokio::sync::oneshot;
 use tokio_rustls::rustls::{ClientConfig, OwnedTrustAnchor, RootCertStore};
-use tonic::{metadata::MetadataValue, Request, Streaming};
-use xmtp_proto::xmtp::message_api::v1::{self, Envelope};
+use xmtp_proto::xmtp::message_api::v1::{self, Envelope, message_api_client::MessageApiClient};
 
+use http_body::combinators::UnsyncBoxBody;
+use hyper::{client::HttpConnector, Uri};
+use hyper_rustls::HttpsConnector;
 use std::str::FromStr;
+use tonic::{metadata::MetadataValue, transport::Channel, Request, Status, Streaming};
 
 // Set up an initial TLS config with webpki-roots and connector
 fn tls_config() -> Result<ClientConfig, tonic::Status> {
@@ -48,6 +50,47 @@ fn get_tls_connector() -> Result<hyper_rustls::HttpsConnector<HttpConnector>, to
     Ok(connector)
 }
 
+async fn make_non_tls_client(host: String) -> Result<MessageApiClient<Channel>, tonic::Status> {
+    println!("Using non-TLS client");
+
+    let error_str_host = host.clone();
+    let non_tls_client = v1::message_api_client::MessageApiClient::connect(host)
+        .await
+        .map_err(|e| {
+            tonic::Status::new(
+                tonic::Code::Internal,
+                format!("Failed to connect to {}: {}", error_str_host, e),
+            )
+        })?;
+    Ok(non_tls_client)
+}
+
+fn make_tls_client(
+    host: String,
+) -> Result<
+    MessageApiClient<
+        hyper::Client<HttpsConnector<HttpConnector>, UnsyncBoxBody<hyper::body::Bytes, Status>>,
+    >,
+    tonic::Status,
+> {
+    println!("Using TLS client");
+    // Set up the TLS client
+    let connector = get_tls_connector().map_err(|e| {
+        tonic::Status::new(
+            tonic::Code::Internal,
+            format!("Failed to create TLS connector: {}", e),
+        )
+    })?;
+
+    let client = hyper::Client::builder().build(connector);
+    let uri = Uri::from_str(&host)
+        .map_err(|e| tonic::Status::new(tonic::Code::Internal, format!("{}", e)))?;
+
+    Ok(v1::message_api_client::MessageApiClient::with_origin(
+        client, uri,
+    ))
+}
+
 // Do a barebones unpaginated Query gRPC request
 // With optional PagingInfo
 pub async fn query(
@@ -65,39 +108,14 @@ pub async fn query(
         request.paging_info = Some(p);
     }
 
-    // TODO: this code sucks, but if the host was TLS, we need to use the tls_client otherwise
-    // we need to use the non_tls_client. It's hard to DRY up because both clients have
-    // different types and can't be assigned to the same variable.
     let response = if host.starts_with("https://") {
-        println!("Using TLS client");
-        // Set up the TLS client
-        let connector = get_tls_connector().map_err(|e| {
-            tonic::Status::new(
-                tonic::Code::Internal,
-                format!("Failed to create TLS connector: {}", e),
-            )
-        })?;
-        // TODO: Ideally I'd get the entire hyper::Client created in a separate function
-        // but I'm hitting some lifetime issues
-        let client = hyper::Client::builder().build(connector);
-        let uri = Uri::from_str(&host)
-            .map_err(|e| tonic::Status::new(tonic::Code::Internal, format!("{}", e)))?;
-
-        let mut tls_client = v1::message_api_client::MessageApiClient::with_origin(client, uri);
+        let mut tls_client = make_tls_client(host)?;
         tls_client.query(Request::new(request)).await
     } else {
-        println!("Using non-TLS client");
-        let mut non_tls_client =
-            v1::message_api_client::MessageApiClient::connect(host.to_string())
-                .await
-                .map_err(|e| {
-                    tonic::Status::new(
-                        tonic::Code::Internal,
-                        format!("Failed to connect to {}: {}", host, e),
-                    )
-                })?;
+        let mut non_tls_client = make_non_tls_client(host).await?;
         non_tls_client.query(Request::new(request)).await
     };
+
     response.map(|r| r.into_inner())
 }
 
@@ -140,50 +158,17 @@ pub async fn publish(
 
     let request = v1::PublishRequest { envelopes };
 
-    // TODO: See above about DRY-ing up clients. Probably want to re-use the same client
-    // in the future.
-    let response = if host.starts_with("https://") {
-        println!("Using TLS client");
-        // Set up the TLS client
-        let tls = tls_config()
-            .map_err(|e| tonic::Status::new(tonic::Code::Internal, format!("{}", e)))?;
-        let mut http = HttpConnector::new();
-        http.enforce_http(false);
-        let uri = Uri::from_str(&host)
-            .map_err(|e| tonic::Status::new(tonic::Code::Internal, format!("{}", e)))?;
-        let connector = tower::ServiceBuilder::new()
-            .layer_fn(move |s| {
-                let tls = tls.clone();
+    let mut tonic_request = Request::new(request);
+    tonic_request.metadata_mut().insert("authorization", token);
 
-                hyper_rustls::HttpsConnectorBuilder::new()
-                    .with_tls_config(tls)
-                    .https_or_http()
-                    .enable_http2()
-                    .wrap_connector(s)
-            })
-            .service(http);
-        let client = hyper::Client::builder().build(connector);
-        let mut tls_client = v1::message_api_client::MessageApiClient::with_origin(client, uri);
-        let mut tonic_request = Request::new(request);
-        // Insert the auth token into the request
-        tonic_request.metadata_mut().insert("authorization", token);
+    let response = if host.starts_with("https://") {
+        let mut tls_client = make_tls_client(host)?;
         tls_client.publish(tonic_request).await
     } else {
-        println!("Using non-TLS client");
-        let mut non_tls_client =
-            v1::message_api_client::MessageApiClient::connect(host.to_string())
-                .await
-                .map_err(|e| {
-                    tonic::Status::new(
-                        tonic::Code::Internal,
-                        format!("Failed to connect to {}: {}", host, e),
-                    )
-                })?;
-        let mut tonic_request = Request::new(request);
-        // Insert the auth token into the request
-        tonic_request.metadata_mut().insert("authorization", token);
+        let mut non_tls_client = make_non_tls_client(host).await?;
         non_tls_client.publish(tonic_request).await
     };
+
     response.map(|r| r.into_inner())
 }
 
@@ -207,13 +192,22 @@ pub async fn publish_serialized(
 }
 
 pub async fn subscribe(host: String, topics: Vec<String>) -> Result<Subscription, tonic::Status> {
-    let mut client = v1::message_api_client::MessageApiClient::connect(host)
-        .await
-        .map_err(|e| tonic::Status::new(tonic::Code::Internal, format!("{}", e)))?;
     let request = v1::SubscribeRequest {
         content_topics: topics,
     };
-    let stream = client.subscribe(request).await.unwrap().into_inner();
+    let stream = if host.starts_with("https://") {
+        let mut tls_client = make_tls_client(host)?;
+        tls_client
+            .subscribe(Request::new(request))
+            .await?
+            .into_inner()
+    } else {
+        let mut non_tls_client = make_non_tls_client(host).await?;
+        non_tls_client
+            .subscribe(Request::new(request))
+            .await?
+            .into_inner()
+    };
 
     Ok(Subscription::start(stream).await)
 }
@@ -225,7 +219,6 @@ pub fn test_envelope(topic: String) -> String {
         timestamp_ns: time_since_epoch.as_nanos() as u64,
         content_topic: topic,
         message: vec![65],
-        ..Default::default()
     };
     serde_json::to_string(&vec![envelope]).unwrap()
 }
