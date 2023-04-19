@@ -16,5 +16,6 @@ let package = Package(
             .binaryTarget(
                 name: "XMTPRustSwift",
                 path: "XMTPRustSwift.xcframework"
+            ),
         ]
 )
