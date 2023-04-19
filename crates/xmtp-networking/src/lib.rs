@@ -8,20 +8,7 @@ pub mod serialize_utils;
 mod tests {
     use super::*;
     use grpc_api_helper::test_envelope;
-    use grpc_api_helper::{publish, query_serialized, subscribe_stream};
-    use tracing::Level;
-    use tracing_subscriber;
-
-    #[test]
-    fn test() {
-        let serialized = test_envelope();
-        assert_eq!(
-            serialized,
-            // NOTE: I removed the empty content_topic and timestamp_ns fields, since
-            // the serializer I am using doesn't include them
-            "{\"message\":\"QQ==\"}"
-        );
-    }
+    use grpc_api_helper::{publish, query_serialized, subscribe};
 
     #[tokio::test]
     async fn grpc_query_test() {
@@ -31,7 +18,6 @@ mod tests {
             "".to_string(),
         )
         .await;
-        println!("{:?}", resp);
         assert!(resp.is_ok());
         // Check that the response has some messages
         // Assert response is a string that isn't empty and starts with a { like JSON
@@ -42,26 +28,28 @@ mod tests {
 
     #[tokio::test]
     async fn subscribe_test() {
-        // Enable debug logging
-        tracing_subscriber::fmt()
-            .with_max_level(Level::DEBUG) // Change this to the desired log level
-            .init();
-
         tokio::time::timeout(std::time::Duration::from_secs(5), async move {
             let host = "http://localhost:5556";
-            let topic = "test";
-            let mut stream_handler = subscribe_stream(host.to_string(), vec![topic.to_string()])
-                .await
-                .unwrap();
-            println!("Got stream");
-            std::thread::sleep(std::time::Duration::from_millis(100));
-            publish(host.to_string(), topic.to_string(), test_envelope())
+            let topic = "test-subscribe";
+            let mut stream_handler = subscribe(host.to_string(), vec![topic.to_string()])
                 .await
                 .unwrap();
 
-            println!("Got results");
+            // Skipping the auth token because we have authn disabled on the local
+            // xmtp-node-go instance
+            publish(
+                host.to_string(),
+                "".to_string(),
+                test_envelope(String::from(topic)),
+            )
+            .await
+            .unwrap();
+            // Sleep to give the response time to come back
+            std::thread::sleep(std::time::Duration::from_millis(100));
+
             let results = stream_handler.get_and_reset_pending();
-            assert!(results.len() == 2);
+            println!("{}", results.len());
+            assert!(results.len() == 1);
             stream_handler.close_stream();
         })
         .await

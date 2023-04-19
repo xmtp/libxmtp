@@ -1,4 +1,5 @@
 use std::sync::{Arc, Mutex};
+use std::time::{SystemTime, UNIX_EPOCH};
 use tokio::sync::oneshot;
 use tonic::{metadata::MetadataValue, transport::Channel, Request, Streaming};
 use xmtp_proto::xmtp::message_api::v1::{self, Envelope};
@@ -99,12 +100,7 @@ pub async fn publish_serialized(
     Ok(json)
 }
 
-// Subscribe to a topic and get a stream of messages, but as soon as you get on message, subscribe
-// the consumer will call this method again to get the next message
-pub async fn subscribe_once(
-    host: String,
-    topics: Vec<String>,
-) -> Result<v1::Envelope, tonic::Status> {
+pub async fn subscribe(host: String, topics: Vec<String>) -> Result<Subscription, tonic::Status> {
     let mut client = v1::message_api_client::MessageApiClient::connect(host)
         .await
         .map_err(|e| tonic::Status::new(tonic::Code::Internal, format!("{}", e)))?;
@@ -112,54 +108,21 @@ pub async fn subscribe_once(
         content_topics: topics,
         ..Default::default()
     };
-    let mut stream = client.subscribe(request).await?.into_inner();
-    // Get the first message from the stream
-    let response = stream.message().await;
-    // If Option has Envelope, return it, otherwise return an error
-    response
-        .map(|e| e.unwrap())
-        .map_err(|e| tonic::Status::new(tonic::Code::Internal, format!("{}", e)))
-}
-
-// Subscribe serialized version
-pub async fn subscribe_once_serialized(
-    host: String,
-    topics: Vec<String>,
-) -> Result<String, String> {
-    let response = subscribe_once(host, topics)
-        .await
-        .map_err(|e| format!("{}", e))?;
-    // Response is a v1::Envelope protobuf message, which we need to serialize to JSON
-    let json = serde_json::to_string(&response).map_err(|e| format!("{}", e))?;
-    Ok(json)
-}
-
-pub async fn subscribe_stream(
-    host: String,
-    topics: Vec<String>,
-) -> Result<Subscription, tonic::Status> {
-    println!("Starting subscribe process");
-    let mut client = v1::message_api_client::MessageApiClient::connect(host)
-        .await
-        .map_err(|e| tonic::Status::new(tonic::Code::Internal, format!("{}", e)))?;
-    let request = v1::SubscribeRequest {
-        content_topics: topics,
-        ..Default::default()
-    };
-    println!("Sending request: {:?}", request);
     let stream = client.subscribe(request).await.unwrap().into_inner();
-    println!("This code never gets hit");
-    return Ok(Subscription::new(stream).await);
+
+    return Ok(Subscription::start(stream).await);
 }
 
 // Return the json serialization of an Envelope with bytes
-pub fn test_envelope() -> String {
+pub fn test_envelope(topic: String) -> String {
+    let time_since_epoch = SystemTime::now().duration_since(UNIX_EPOCH).unwrap();
     let envelope = v1::Envelope {
+        timestamp_ns: time_since_epoch.as_nanos() as u64,
+        content_topic: topic.to_string(),
         message: vec![65],
         ..Default::default()
     };
-
-    serde_json::to_string(&envelope).unwrap()
+    serde_json::to_string(&vec![envelope]).unwrap()
 }
 
 pub struct Subscription {
@@ -168,8 +131,7 @@ pub struct Subscription {
 }
 
 impl Subscription {
-    pub async fn new(stream: Streaming<Envelope>) -> Self {
-        println!("Starting stream handler");
+    pub async fn start(stream: Streaming<Envelope>) -> Self {
         let pending = Arc::new(Mutex::new(Vec::new()));
         let pending_clone = pending.clone();
         let (close_tx, close_rx) = oneshot::channel::<()>();

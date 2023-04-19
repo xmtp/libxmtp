@@ -1,4 +1,8 @@
+use serde_json::json;
+use uuid::Uuid;
 use xmtp_networking::grpc_api_helper;
+
+pub mod subscriptions;
 
 #[swift_bridge::bridge]
 mod ffi {
@@ -11,6 +15,8 @@ mod ffi {
     extern "Rust" {
         async fn query(host: String, topic: String, json_paging_info: String) -> ResponseJson;
         async fn publish(host: String, token: String, json_envelopes: String) -> ResponseJson;
+        async fn subscribe(host: String, topics: Vec<String>) -> ResponseJson;
+        async fn poll_subscription(subscription_id: String) -> ResponseJson;
     }
 }
 
@@ -50,18 +56,100 @@ async fn publish(host: String, token: String, json_envelopes: String) -> ffi::Re
     }
 }
 
+async fn subscribe(host: String, topics: Vec<String>) -> ffi::ResponseJson {
+    let id = Uuid::new_v4();
+    println!(
+        "Received a request to subscribe to topics: {:?}. ID is {}",
+        topics, id
+    );
+
+    let subscription = grpc_api_helper::subscribe(host, topics).await;
+    match subscription {
+        Ok(subscription) => {
+            subscriptions::add_subscription(id.to_string(), subscription);
+            ffi::ResponseJson {
+                error: "".to_string(),
+                json: json!({
+                    "subscription_id": id.to_string(),
+                })
+                .to_string(),
+            }
+        }
+        Err(e) => ffi::ResponseJson {
+            error: e.to_string(),
+            json: "".to_string(),
+        },
+    }
+}
+
+async fn poll_subscription(subscription_id: String) -> ffi::ResponseJson {
+    let messages = subscriptions::get_messages(subscription_id);
+    match messages {
+        Some(messages) => ffi::ResponseJson {
+            error: "".to_string(),
+            json: json!({
+                "messages": messages,
+            })
+            .to_string(),
+        },
+        None => ffi::ResponseJson {
+            error: "".to_string(),
+            json: json!({
+                "messages": [],
+            })
+            .to_string(),
+        },
+    }
+}
+
 #[cfg(test)]
 mod tests {
+    static ADDRESS: &str = "http://localhost:5556";
     // Try a query on a test topic, and make sure we get a response
     #[test]
     fn test_query() {
         let runtime = tokio::runtime::Runtime::new().unwrap();
         let result = runtime.block_on(super::query(
-            "http://localhost:5556".to_string(),
-            "test".to_string(),
+            ADDRESS.to_string(),
+            "test-query".to_string(),
             "".to_string(),
         ));
         assert_eq!(result.error, "");
-        println!("Got result: {}", result.json);
+    }
+
+    #[tokio::test]
+    async fn test_subscribe() {
+        let topic = "test-subscribe-binding";
+        // Create a subscription
+        let result = super::subscribe(ADDRESS.to_string(), vec![topic.to_string()]).await;
+        assert_eq!(result.error, "");
+        let v: serde_json::Value = serde_json::from_str(&result.json).unwrap();
+        let subscription_id = v
+            .get("subscription_id")
+            .unwrap()
+            .as_str()
+            .unwrap()
+            .to_string();
+        assert!(!subscription_id.is_empty());
+
+        std::thread::sleep(std::time::Duration::from_millis(100));
+        // Send a message
+        let publish_result = super::publish(
+            ADDRESS.to_string(),
+            "test".to_string(),
+            xmtp_networking::grpc_api_helper::test_envelope(topic.to_string()),
+        )
+        .await;
+        assert_eq!(publish_result.error, "");
+
+        std::thread::sleep(std::time::Duration::from_millis(200));
+        // Poll the subscription
+        let new_message_result = super::poll_subscription(subscription_id.to_string()).await;
+        assert_eq!(new_message_result.error, "");
+        // Ensure messages are present
+        let new_message_result_json: serde_json::Value =
+            serde_json::from_str(&new_message_result.json).unwrap();
+        let messages = new_message_result_json.get("messages").unwrap();
+        assert_eq!(messages.as_array().unwrap().len(), 1);
     }
 }
