@@ -136,8 +136,8 @@ impl Subscription {
         let pending_clone = pending.clone();
         let (close_tx, close_rx) = oneshot::channel::<()>();
         tokio::spawn(async move {
-            let mut stream = Box::pin(stream);
-            let mut close_rx = Box::pin(close_rx);
+            let mut stream = stream;
+            let mut close_rx = close_rx;
 
             loop {
                 tokio::select! {

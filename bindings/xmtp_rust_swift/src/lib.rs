@@ -16,7 +16,7 @@ mod ffi {
         async fn query(host: String, topic: String, json_paging_info: String) -> ResponseJson;
         async fn publish(host: String, token: String, json_envelopes: String) -> ResponseJson;
         async fn subscribe(host: String, topics: Vec<String>) -> ResponseJson;
-        async fn poll_subscription(subscription_id: String) -> ResponseJson;
+        fn poll_subscription(subscription_id: String) -> ResponseJson;
     }
 }
 
@@ -82,7 +82,7 @@ async fn subscribe(host: String, topics: Vec<String>) -> ffi::ResponseJson {
     }
 }
 
-async fn poll_subscription(subscription_id: String) -> ffi::ResponseJson {
+fn poll_subscription(subscription_id: String) -> ffi::ResponseJson {
     let messages = subscriptions::get_messages(subscription_id);
     match messages {
         Some(messages) => ffi::ResponseJson {
