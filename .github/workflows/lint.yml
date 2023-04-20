@@ -15,7 +15,7 @@ jobs:
         name: Lint main workspace
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
-          name: root
+          name: workspace
           args: --all-features --no-deps
       - uses: actions-rs/clippy-check@v1
         name: Lint xmtp_rust_swift

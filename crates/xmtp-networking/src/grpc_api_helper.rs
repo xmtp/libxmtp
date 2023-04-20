@@ -145,7 +145,7 @@ impl Client {
                 .into_inner(),
         };
 
-        return Ok(Subscription::start(stream).await);
+        Ok(Subscription::start(stream).await)
     }
 
     pub async fn query(
