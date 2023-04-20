@@ -13,4 +13,8 @@ bundle.zip
 /target
 /Cargo.lock
 .build
-./Generated
+/Generated
+
+# Ignore any swift files in include/Generated
+/include/Generated/SwiftBridgeCore.swift
+/include/Generated/xmtp_rust_swift/xmtp_rust_swift.swift
