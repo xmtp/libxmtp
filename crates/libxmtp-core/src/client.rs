@@ -13,10 +13,6 @@ impl<P: Persistence> Client<P> {
         }
     }
 
-    pub fn add(left: usize, right: usize) -> usize {
-        left + right
-    }
-
     pub fn write_to_persistence(&mut self, s: String, b: &[u8]) -> Result<(), String> {
         self.persistence.write(s, b)
     }
