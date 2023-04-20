@@ -1,6 +1,6 @@
 use types::QueryResponse;
 use xmtp_networking::grpc_api_helper;
-use xmtp_proto::xmtp::message_api::v1::{Envelope, PagingInfo};
+use xmtp_proto::xmtp::message_api::v1::{Envelope as EnvelopeProto, PagingInfo};
 pub mod types;
 
 #[swift_bridge::bridge]
@@ -22,12 +22,20 @@ mod ffi {
         cursor: Option<IndexCursor>,
         direction: SortDirection,
     }
-    #[swift_bridge(swift_repr = "struct")]
-    struct Envelope {
-        content_topic: String,
-        timestamp_ns: u64,
-        message: Vec<u8>,
-    }
+
+    extern "Rust" {
+        type Envelope;
+
+        fn create_envelope(
+            topic: String,
+            sender_time_ns: u64,
+            payload: Vec<u8>,
+        ) -> Envelope;
+
+        fn get_topic(&self) -> String;
+        fn get_sender_time_ns(&self) -> u64;
+        fn get_payload(&self) -> Vec<u8>;
+     }
 
     extern "Rust" {
         type RustSubscription;
@@ -59,7 +67,7 @@ mod ffi {
         ) -> Result<QueryResponse, String>;
 
         async fn publish(
-            self: &mut RustClient,
+            &mut self,
             token: String,
             envelopes: Vec<Envelope>,
         ) -> Result<(), String>;
@@ -102,11 +110,11 @@ impl RustClient {
     async fn publish(
         &mut self,
         token: String,
-        envelopes: Vec<ffi::Envelope>,
+        envelopes: Vec<Envelope>,
     ) -> Result<(), String> {
         let mut xmtp_envelopes = vec![];
         for envelope in envelopes {
-            xmtp_envelopes.push(Envelope::from(envelope));
+            xmtp_envelopes.push(EnvelopeProto::from(envelope));
         }
 
         self.client
@@ -133,13 +141,13 @@ pub struct RustSubscription {
 }
 
 impl RustSubscription {
-    pub fn get_messages(&self) -> Result<Vec<ffi::Envelope>, String> {
+    pub fn get_messages(&self) -> Result<Vec<Envelope>, String> {
         let new_messages = self.subscription.get_messages();
         // TODO: Figure out how to return an error if the stream is closed
         if !new_messages.is_empty() {
             return Ok(new_messages
                 .iter()
-                .map(|e| ffi::Envelope::from(e.clone()))
+                .map(|e| Envelope::from(e.clone()))
                 .collect());
         }
 
@@ -152,6 +160,36 @@ impl RustSubscription {
     }
 }
 
+// Define as an opaque type so we can make it Vectorizable
+pub struct Envelope {
+    pub content_topic: String,
+    pub timestamp_ns: u64,
+    pub message: Vec<u8>,
+}
+
+pub fn create_envelope(topic: String, timestamp_ns: u64, message: Vec<u8>) -> Envelope {
+    Envelope {
+        content_topic: topic,
+        timestamp_ns,
+        message,
+    }
+}
+
+impl Envelope {
+    pub fn get_topic(&self) -> String {
+        self.content_topic.clone()
+    }
+
+    pub fn get_sender_time_ns(&self) -> u64 {
+        self.timestamp_ns
+    }
+
+    pub fn get_payload(&self) -> Vec<u8> {
+        self.message.clone()
+    }
+}
+
+
 #[cfg(test)]
 mod tests {
     use std::time::{SystemTime, UNIX_EPOCH};
@@ -159,10 +197,10 @@ mod tests {
 
     static ADDRESS: &str = "http://localhost:5556";
 
-    pub fn test_envelope(topic: String) -> super::ffi::Envelope {
+    pub fn test_envelope(topic: String) -> super::Envelope {
         let time_since_epoch = SystemTime::now().duration_since(UNIX_EPOCH).unwrap();
 
-        return super::ffi::Envelope {
+        return super::Envelope {
             timestamp_ns: time_since_epoch.as_nanos() as u64,
             content_topic: topic.to_string(),
             message: vec![65],

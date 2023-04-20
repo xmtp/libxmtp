@@ -1,5 +1,5 @@
 use xmtp_proto::xmtp::message_api::v1::{
-    cursor as cursor_proto, Cursor, Envelope, IndexCursor, PagingInfo,
+    cursor as cursor_proto, Cursor, Envelope as EnvelopeProto, IndexCursor, PagingInfo,
     QueryResponse as ProtoQueryResponse, SortDirection,
 };
 
@@ -66,9 +66,9 @@ impl From<PagingInfo> for crate::ffi::PagingInfo {
     }
 }
 
-impl From<crate::ffi::Envelope> for Envelope {
-    fn from(envelope: crate::ffi::Envelope) -> Self {
-        Envelope {
+impl From<crate::Envelope> for EnvelopeProto {
+    fn from(envelope: crate::Envelope) -> Self {
+        EnvelopeProto {
             content_topic: envelope.content_topic,
             timestamp_ns: envelope.timestamp_ns,
             message: envelope.message,
@@ -76,9 +76,9 @@ impl From<crate::ffi::Envelope> for Envelope {
     }
 }
 
-impl From<Envelope> for crate::ffi::Envelope {
-    fn from(envelope: Envelope) -> Self {
-        crate::ffi::Envelope {
+impl From<EnvelopeProto> for crate::Envelope {
+    fn from(envelope: EnvelopeProto) -> Self {
+        crate::Envelope {
             content_topic: envelope.content_topic,
             timestamp_ns: envelope.timestamp_ns,
             message: envelope.message,
@@ -87,12 +87,12 @@ impl From<Envelope> for crate::ffi::Envelope {
 }
 
 pub struct QueryResponse {
-    _envelopes: Vec<crate::ffi::Envelope>,
+    _envelopes: Vec<crate::Envelope>,
     _paging_info: Option<crate::ffi::PagingInfo>,
 }
 
 impl QueryResponse {
-    pub fn envelopes(self) -> Vec<crate::ffi::Envelope> {
+    pub fn envelopes(self) -> Vec<crate::Envelope> {
         self._envelopes
     }
 
@@ -106,7 +106,7 @@ impl From<ProtoQueryResponse> for QueryResponse {
         let envelopes = query_response
             .envelopes
             .into_iter()
-            .map(crate::ffi::Envelope::from)
+            .map(crate::Envelope::from)
             .collect();
 
         let paging_info = query_response.paging_info.map(crate::ffi::PagingInfo::from);

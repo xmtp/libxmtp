@@ -1,3 +1,6 @@
+public func create_envelope<GenericIntoRustString: IntoRustString>(_ topic: GenericIntoRustString, _ sender_time_ns: UInt64, _ payload: RustVec<UInt8>) -> Envelope {
+    Envelope(ptr: __swift_bridge__$create_envelope({ let rustString = topic.intoRustString(); rustString.isOwned = false; return rustString.ptr }(), sender_time_ns, { let val = payload; val.isOwned = false; return val.ptr }()))
+}
 public func create_client<GenericIntoRustString: IntoRustString>(_ host: GenericIntoRustString, _ is_secure: Bool) async throws -> RustClient {
     func onComplete(cbWrapperPtr: UnsafeMutableRawPointer?, rustFnRetVal: __private__ResultPtrAndPtr) {
         let wrapper = Unmanaged<CbWrapper$create_client>.fromOpaque(cbWrapperPtr!).takeRetainedValue()
@@ -187,47 +190,90 @@ extension __swift_bridge__$Option$PagingInfo {
         }
     }
 }
-public struct Envelope {
-    public var content_topic: RustString
-    public var timestamp_ns: UInt64
-    public var message: RustVec<UInt8>
 
-    public init(content_topic: RustString,timestamp_ns: UInt64,message: RustVec<UInt8>) {
-        self.content_topic = content_topic
-        self.timestamp_ns = timestamp_ns
-        self.message = message
+public class Envelope: EnvelopeRefMut {
+    var isOwned: Bool = true
+
+    public override init(ptr: UnsafeMutableRawPointer) {
+        super.init(ptr: ptr)
     }
 
-    @inline(__always)
-    func intoFfiRepr() -> __swift_bridge__$Envelope {
-        { let val = self; return __swift_bridge__$Envelope(content_topic: { let rustString = val.content_topic.intoRustString(); rustString.isOwned = false; return rustString.ptr }(), timestamp_ns: val.timestamp_ns, message: { let val = val.message; val.isOwned = false; return val.ptr }()); }()
+    deinit {
+        if isOwned {
+            __swift_bridge__$Envelope$_free(ptr)
+        }
     }
 }
-extension __swift_bridge__$Envelope {
-    @inline(__always)
-    func intoSwiftRepr() -> Envelope {
-        { let val = self; return Envelope(content_topic: RustString(ptr: val.content_topic), timestamp_ns: val.timestamp_ns, message: RustVec(ptr: val.message)); }()
+public class EnvelopeRefMut: EnvelopeRef {
+    public override init(ptr: UnsafeMutableRawPointer) {
+        super.init(ptr: ptr)
     }
 }
-extension __swift_bridge__$Option$Envelope {
-    @inline(__always)
-    func intoSwiftRepr() -> Optional<Envelope> {
-        if self.is_some {
-            return self.val.intoSwiftRepr()
-        } else {
+public class EnvelopeRef {
+    var ptr: UnsafeMutableRawPointer
+
+    public init(ptr: UnsafeMutableRawPointer) {
+        self.ptr = ptr
+    }
+}
+extension EnvelopeRef {
+    public func get_topic() -> RustString {
+        RustString(ptr: __swift_bridge__$Envelope$get_topic(ptr))
+    }
+
+    public func get_sender_time_ns() -> UInt64 {
+        __swift_bridge__$Envelope$get_sender_time_ns(ptr)
+    }
+
+    public func get_payload() -> RustVec<UInt8> {
+        RustVec(ptr: __swift_bridge__$Envelope$get_payload(ptr))
+    }
+}
+extension Envelope: Vectorizable {
+    public static func vecOfSelfNew() -> UnsafeMutableRawPointer {
+        __swift_bridge__$Vec_Envelope$new()
+    }
+
+    public static func vecOfSelfFree(vecPtr: UnsafeMutableRawPointer) {
+        __swift_bridge__$Vec_Envelope$drop(vecPtr)
+    }
+
+    public static func vecOfSelfPush(vecPtr: UnsafeMutableRawPointer, value: Envelope) {
+        __swift_bridge__$Vec_Envelope$push(vecPtr, {value.isOwned = false; return value.ptr;}())
+    }
+
+    public static func vecOfSelfPop(vecPtr: UnsafeMutableRawPointer) -> Optional<Self> {
+        let pointer = __swift_bridge__$Vec_Envelope$pop(vecPtr)
+        if pointer == nil {
             return nil
+        } else {
+            return (Envelope(ptr: pointer!) as! Self)
         }
     }
 
-    @inline(__always)
-    static func fromSwiftRepr(_ val: Optional<Envelope>) -> __swift_bridge__$Option$Envelope {
-        if let v = val {
-            return __swift_bridge__$Option$Envelope(is_some: true, val: v.intoFfiRepr())
+    public static func vecOfSelfGet(vecPtr: UnsafeMutableRawPointer, index: UInt) -> Optional<EnvelopeRef> {
+        let pointer = __swift_bridge__$Vec_Envelope$get(vecPtr, index)
+        if pointer == nil {
+            return nil
         } else {
-            return __swift_bridge__$Option$Envelope(is_some: false, val: __swift_bridge__$Envelope())
+            return EnvelopeRef(ptr: pointer!)
         }
     }
+
+    public static func vecOfSelfGetMut(vecPtr: UnsafeMutableRawPointer, index: UInt) -> Optional<EnvelopeRefMut> {
+        let pointer = __swift_bridge__$Vec_Envelope$get_mut(vecPtr, index)
+        if pointer == nil {
+            return nil
+        } else {
+            return EnvelopeRefMut(ptr: pointer!)
+        }
+    }
+
+    public static func vecOfSelfLen(vecPtr: UnsafeMutableRawPointer) -> UInt {
+        __swift_bridge__$Vec_Envelope$len(vecPtr)
+    }
 }
+
 
 public class RustSubscription: RustSubscriptionRefMut {
     var isOwned: Bool = true

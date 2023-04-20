@@ -17,8 +17,18 @@ typedef struct __swift_bridge__$IndexCursor { void* digest; uint64_t sender_time
 typedef struct __swift_bridge__$Option$IndexCursor { bool is_some; __swift_bridge__$IndexCursor val; } __swift_bridge__$Option$IndexCursor;
 typedef struct __swift_bridge__$PagingInfo { uint32_t limit; struct __swift_bridge__$Option$IndexCursor cursor; struct __swift_bridge__$SortDirection direction; } __swift_bridge__$PagingInfo;
 typedef struct __swift_bridge__$Option$PagingInfo { bool is_some; __swift_bridge__$PagingInfo val; } __swift_bridge__$Option$PagingInfo;
-typedef struct __swift_bridge__$Envelope { void* content_topic; uint64_t timestamp_ns; void* message; } __swift_bridge__$Envelope;
-typedef struct __swift_bridge__$Option$Envelope { bool is_some; __swift_bridge__$Envelope val; } __swift_bridge__$Option$Envelope;
+typedef struct Envelope Envelope;
+void __swift_bridge__$Envelope$_free(void* self);
+
+void* __swift_bridge__$Vec_Envelope$new(void);
+void __swift_bridge__$Vec_Envelope$drop(void* vec_ptr);
+void __swift_bridge__$Vec_Envelope$push(void* vec_ptr, void* item_ptr);
+void* __swift_bridge__$Vec_Envelope$pop(void* vec_ptr);
+void* __swift_bridge__$Vec_Envelope$get(void* vec_ptr, uintptr_t index);
+void* __swift_bridge__$Vec_Envelope$get_mut(void* vec_ptr, uintptr_t index);
+uintptr_t __swift_bridge__$Vec_Envelope$len(void* vec_ptr);
+void* __swift_bridge__$Vec_Envelope$as_ptr(void* vec_ptr);
+
 typedef struct RustSubscription RustSubscription;
 void __swift_bridge__$RustSubscription$_free(void* self);
 
@@ -55,6 +65,10 @@ void* __swift_bridge__$Vec_RustClient$get_mut(void* vec_ptr, uintptr_t index);
 uintptr_t __swift_bridge__$Vec_RustClient$len(void* vec_ptr);
 void* __swift_bridge__$Vec_RustClient$as_ptr(void* vec_ptr);
 
+void* __swift_bridge__$create_envelope(void* topic, uint64_t sender_time_ns, void* payload);
+void* __swift_bridge__$Envelope$get_topic(void* self);
+uint64_t __swift_bridge__$Envelope$get_sender_time_ns(void* self);
+void* __swift_bridge__$Envelope$get_payload(void* self);
 struct __private__ResultPtrAndPtr __swift_bridge__$RustSubscription$get_messages(void* self);
 void __swift_bridge__$RustSubscription$close(void* self);
 void* __swift_bridge__$QueryResponse$envelopes(void* self);
