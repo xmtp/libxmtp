@@ -1,19 +1,15 @@
-type WriteToPersistenceFn = Box<dyn Fn(String, &[u8]) -> Result<(), String>>;
-type ReadFromPersistenceFn = Box<dyn Fn(String) -> Result<Vec<u8>, String>>;
+use crate::persistence::Persistence;
 
-pub struct Client {
-    write_to_persistence_fn: WriteToPersistenceFn,
-    read_from_persistence_fn: ReadFromPersistenceFn,
+pub struct Client<P: Persistence> {
+    persistence: P,
 }
 
-impl Client {
+impl<P: Persistence> Client<P> {
     pub fn new(
-        write_to_persistence_fn: WriteToPersistenceFn,
-        read_from_persistence_fn: ReadFromPersistenceFn,
-    ) -> Client {
+        persistence: P,
+    ) -> Client<P> {
         Client {
-            write_to_persistence_fn,
-            read_from_persistence_fn,
+            persistence,
         }
     }
 
@@ -21,11 +17,11 @@ impl Client {
         left + right
     }
 
-    pub fn write_to_persistence(&self, s: String, b: &[u8]) -> Result<(), String> {
-        (self.write_to_persistence_fn)(s, b)
+    pub fn write_to_persistence(&mut self, s: String, b: &[u8]) -> Result<(), String> {
+        self.persistence.write(s, b)
     }
 
-    pub fn read_from_persistence(&self, s: String) -> Result<Vec<u8>, String> {
-        (self.read_from_persistence_fn)(s)
+    pub fn read_from_persistence(&self, s: String) -> Result<Option<Vec<u8>>, String> {
+        self.persistence.read(s)
     }
 }
