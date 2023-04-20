@@ -2,6 +2,7 @@ use http_body::combinators::UnsyncBoxBody;
 use hyper::{client::HttpConnector, Uri};
 use hyper_rustls::HttpsConnector;
 use std::str::FromStr;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use tokio::sync::oneshot;
 use tokio_rustls::rustls::{ClientConfig, OwnedTrustAnchor, RootCertStore};
@@ -177,6 +178,7 @@ impl Client {
 pub struct Subscription {
     pending: Arc<Mutex<Vec<Envelope>>>,
     close_sender: Option<oneshot::Sender<()>>,
+    closed: Arc<AtomicBool>,
 }
 
 impl Subscription {
@@ -184,6 +186,8 @@ impl Subscription {
         let pending = Arc::new(Mutex::new(Vec::new()));
         let pending_clone = pending.clone();
         let (close_sender, close_receiver) = oneshot::channel::<()>();
+        let closed = Arc::new(AtomicBool::new(false));
+        let closed_clone = closed.clone();
         tokio::spawn(async move {
             let mut stream = Box::pin(stream);
             let mut close_receiver = Box::pin(close_receiver);
@@ -204,12 +208,19 @@ impl Subscription {
                     }
                 }
             }
+
+            closed_clone.store(true, Ordering::SeqCst);
         });
 
         Subscription {
             pending,
+            closed,
             close_sender: Some(close_sender),
         }
+    }
+
+    pub fn is_closed(&self) -> bool {
+        self.closed.load(Ordering::SeqCst)
     }
 
     pub fn get_messages(&self) -> Vec<Envelope> {
@@ -219,6 +230,9 @@ impl Subscription {
     }
 
     pub fn close_stream(&mut self) {
+        // Set this value here, even if it will be eventually set again when the loop exits
+        // This makes the `closed` status immediately correct
+        self.closed.store(true, Ordering::SeqCst);
         if let Some(close_tx) = self.close_sender.take() {
             let _ = close_tx.send(());
         }
