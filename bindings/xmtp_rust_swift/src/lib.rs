@@ -88,10 +88,7 @@ impl RustClient {
         end_time_ns: Option<u64>,
         paging_info: Option<ffi::PagingInfo>,
     ) -> Result<QueryResponse, String> {
-        let info = match paging_info {
-            Some(info) => Some(PagingInfo::from(info)),
-            None => None,
-        };
+        let info = paging_info.map(PagingInfo::from);
 
         let result = self
             .client
@@ -99,7 +96,7 @@ impl RustClient {
             .await
             .map_err(|e| format!("{}", e))?;
 
-        return Ok(QueryResponse::from(result));
+        Ok(QueryResponse::from(result))
     }
 
     async fn publish(
@@ -117,7 +114,7 @@ impl RustClient {
             .await
             .map_err(|e| format!("{}", e))?;
 
-        return Ok(());
+        Ok(())
     }
 
     async fn subscribe(&mut self, topics: Vec<String>) -> Result<RustSubscription, String> {
@@ -127,7 +124,7 @@ impl RustClient {
             .await
             .map_err(|e| format!("{}", e))?;
 
-        return Ok(RustSubscription { subscription });
+        Ok(RustSubscription { subscription })
     }
 }
 
@@ -139,14 +136,14 @@ impl RustSubscription {
     pub fn get_messages(&self) -> Result<Vec<ffi::Envelope>, String> {
         let new_messages = self.subscription.get_messages();
         // TODO: Figure out how to return an error if the stream is closed
-        if new_messages.len() > 0 {
+        if !new_messages.is_empty() {
             return Ok(new_messages
                 .iter()
                 .map(|e| ffi::Envelope::from(e.clone()))
                 .collect());
         }
 
-        return Ok(vec![]);
+        Ok(vec![])
     }
 
     pub fn close(&mut self) {

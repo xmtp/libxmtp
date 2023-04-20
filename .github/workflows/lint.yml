@@ -10,21 +10,16 @@ jobs:
     steps:
       - uses: actions/checkout@v1
       - run: rustup component add clippy
+      - uses: bufbuild/buf-setup-action@v1.17.0
       - uses: actions-rs/clippy-check@v1
-        name: xmtp-keystore
+        name: Lint main workspace
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
-          name: xmtp-keystore
-          args: --all-features --no-deps --manifest-path crates/xmtp-keystore/Cargo.toml
+          name: workspace
+          args: --all-features --no-deps
       - uses: actions-rs/clippy-check@v1
-        name: corecrypto
+        name: Lint xmtp_rust_swift
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
-          name: corecrypto
-          args: --all-features --no-deps --manifest-path crates/xmtp-keystore/Cargo.toml
-      - uses: actions-rs/clippy-check@v1
-        name: libxmtp-core
-        with:
-          token: ${{ secrets.GITHUB_TOKEN }}
-          name: libxmtp-core
-          args: --all-features --no-deps --manifest-path crates/libxmtp-core/Cargo.toml
+          name: xmtp_rust_swift
+          args: --all-features --no-deps --manifest-path bindings/xmtp_rust_swift/Cargo.toml

@@ -106,13 +106,10 @@ impl From<ProtoQueryResponse> for QueryResponse {
         let envelopes = query_response
             .envelopes
             .into_iter()
-            .map(|envelope| crate::ffi::Envelope::from(envelope))
+            .map(crate::ffi::Envelope::from)
             .collect();
 
-        let paging_info = match query_response.paging_info {
-            Some(paging_info) => Some(crate::ffi::PagingInfo::from(paging_info)),
-            None => None,
-        };
+        let paging_info = query_response.paging_info.map(crate::ffi::PagingInfo::from);
 
         QueryResponse {
             _envelopes: envelopes,

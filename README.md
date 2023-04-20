@@ -6,12 +6,20 @@ This code is preliminary and meant for benchmarking. See latest progress `benchm
 
 Libxmtp is a platform agnostic implementation of the core cryptographic functionality to be used in XMTP sdk's
 
+## Requirements
+
+- To build `xmtp-proto` Buf must be installed on your machine. Visit the [Buf documentation](https://buf.build/docs/installation) for more info
+
 ## Structure
 
 Top-level
+
 - crates/ - the pure Rust implementation of XMTP APIs, agnostic to any per-language or per-platform binding
- - crates/xmtp-keystore - first crate, implements the Keystore API in Rust
+- crates/xmtp-keystore - first crate, implements the Keystore API in Rust
+- crates/xmtp-proto - Generated code for handling XMTP protocol buffers
+- crates/xmtp-networking - API client for XMTP's GRPC API, using code from `crates/xmtp-proto`
 - bindings/wasm - depends on libxmtp to generate a WASM library and bindings
+- bindings/xmtp_rust_swift - Swift bindings
 
 ## Rust Keystore QuickStart
 
