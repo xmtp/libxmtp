@@ -32,7 +32,7 @@ mod tests {
             }
         };
 
-        let mut client = Client::new(
+        let client = Client::new(
             Box::new(write_to_persist_fn),
             Box::new(read_from_persist_fn));
         client.write_to_persistence("foo".to_string(), b"bar").unwrap();
