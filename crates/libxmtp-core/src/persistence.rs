@@ -1,4 +1,3 @@
-
 pub trait Persistence {
     fn write(&mut self, key: String, value: &[u8]) -> Result<(), String>;
     fn read(&self, key: String) -> Result<Option<Vec<u8>>, String>;
