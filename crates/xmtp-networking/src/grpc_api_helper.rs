@@ -79,11 +79,11 @@ impl Client {
             let uri = Uri::from_str(&host)
                 .map_err(|e| tonic::Status::new(tonic::Code::Internal, format!("{}", e)))?;
 
-            let tls_client = MessageApiClient::with_origin(tls_conn.clone(), uri);
+            let tls_client = MessageApiClient::with_origin(tls_conn, uri);
 
-            return Ok(Self {
+            Ok(Self {
                 client: InnerApiClient::Tls(tls_client),
-            });
+            })
         } else {
             let channel = Channel::from_shared(host)
                 .map_err(|e| tonic::Status::new(tonic::Code::Internal, format!("{}", e)))?
@@ -91,11 +91,11 @@ impl Client {
                 .await
                 .map_err(|e| tonic::Status::new(tonic::Code::Internal, format!("{}", e)))?;
 
-            let client = MessageApiClient::new(channel.clone());
+            let client = MessageApiClient::new(channel);
 
-            return Ok(Self {
+            Ok(Self {
                 client: InnerApiClient::Plain(client),
-            });
+            })
         }
     }
 
