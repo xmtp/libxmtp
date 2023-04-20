@@ -1,10 +1,8 @@
-# WARNING: DO NOT USE FOR PRODUCTION XMTP CLIENTS
-
-This code is preliminary and meant for benchmarking. See latest progress `benchmark` branch.
+> :warning: :warning: :warning: **Under Construction**: Parts of this code are in WIP and should not be used in production without guidance from the XMTP team
 
 # Libxmtp
 
-Libxmtp is a platform agnostic implementation of the core cryptographic functionality to be used in XMTP sdk's
+Libxmtp is a monorepo with multiple crates that encapsulate parts of XMTP messaging functionality, cryptography or bindings to other languages.
 
 ## Requirements
 
