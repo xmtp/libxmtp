@@ -1,4 +1,4 @@
-public func create_client<GenericIntoRustString: IntoRustString>(_ host: GenericIntoRustString) async throws -> RustClient {
+public func create_client<GenericIntoRustString: IntoRustString>(_ host: GenericIntoRustString, _ is_secure: Bool) async throws -> RustClient {
     func onComplete(cbWrapperPtr: UnsafeMutableRawPointer?, rustFnRetVal: __private__ResultPtrAndPtr) {
         let wrapper = Unmanaged<CbWrapper$create_client>.fromOpaque(cbWrapperPtr!).takeRetainedValue()
         if rustFnRetVal.is_ok {
@@ -16,7 +16,7 @@ public func create_client<GenericIntoRustString: IntoRustString>(_ host: Generic
         let wrapper = CbWrapper$create_client(cb: callback)
         let wrapperPtr = Unmanaged.passRetained(wrapper).toOpaque()
 
-        __swift_bridge__$create_client(wrapperPtr, onComplete, { let rustString = host.intoRustString(); rustString.isOwned = false; return rustString.ptr }())
+        __swift_bridge__$create_client(wrapperPtr, onComplete, { let rustString = host.intoRustString(); rustString.isOwned = false; return rustString.ptr }(), is_secure)
     })
 }
 class CbWrapper$create_client {
