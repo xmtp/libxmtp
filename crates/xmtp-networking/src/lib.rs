@@ -22,7 +22,7 @@ mod tests {
 
     #[tokio::test]
     async fn grpc_query_test() {
-        let mut client = Client::create("http://localhost:5556".to_string())
+        let mut client = Client::create("http://localhost:5556".to_string(), false)
             .await
             .unwrap();
 
@@ -36,11 +36,11 @@ mod tests {
 
     #[tokio::test]
     async fn publish_test() {
-        let mut client = Client::create("http://localhost:5556".to_string())
+        let mut client = Client::create("http://localhost:5556".to_string(), false)
             .await
             .unwrap();
 
-        let topic = "test-publish";
+        let topic = uuid::Uuid::new_v4();
         let env = test_envelope(topic.to_string());
 
         let _result = client.publish("".to_string(), vec![env]).await.unwrap();
@@ -55,7 +55,7 @@ mod tests {
     #[tokio::test]
     async fn subscribe_test() {
         tokio::time::timeout(std::time::Duration::from_secs(5), async move {
-            let mut client = Client::create("http://localhost:5556".to_string())
+            let mut client = Client::create("http://localhost:5556".to_string(), false)
                 .await
                 .unwrap();
 
@@ -83,5 +83,19 @@ mod tests {
         })
         .await
         .expect("Timed out");
+    }
+
+    #[tokio::test]
+    async fn tls_test() {
+        let mut client = Client::create("https://dev.xmtp.network:5556".to_string(), true)
+            .await
+            .unwrap();
+
+        let result = client
+            .query(uuid::Uuid::new_v4().to_string(), None, None, None)
+            .await
+            .unwrap();
+
+        assert_eq!(result.envelopes.len(), 0);
     }
 }
