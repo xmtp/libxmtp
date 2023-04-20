@@ -137,7 +137,7 @@ let conversations = try await client.conversations.list()
 
 ### List existing conversations
 
-You can get a list of all conversations that have had one or more messages exchanged in the last 30 days.
+You can get a list of all conversations that have one or more messages.
 
 ```swift
 let allConversations = try await client.conversations.list()
