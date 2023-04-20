@@ -6,27 +6,29 @@ on:
   pull_request:
 jobs:
   test-keystore:
-   name: Test Keystore
-   runs-on: ubuntu-latest
-   steps:
-     - name: Checkout sources
-       uses: actions/checkout@v2
+    name: Test Keystore
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout sources
+        uses: actions/checkout@v2
 
-     - name: Install stable toolchain
-       uses: actions-rs/toolchain@v1
-       with:
-         profile: minimal
-         toolchain: stable
-         override: true
+      - name: Start Docker containers
+        run: docker-compose -f ./dev/docker-compose.yml up -d
 
-     - name: Run cargo test on xmtp-keystore
-       uses: actions-rs/cargo@v1
-       with:
-         command: test
-         args: --manifest-path crates/xmtp-keystore/Cargo.toml
+      - name: Install stable toolchain
+        uses: actions-rs/toolchain@v1
+        with:
+          profile: minimal
+          toolchain: stable
+          override: true
 
-     - name: Run cargo test on libxmtp-core
-       uses: actions-rs/cargo@v1
-       with:
-         command: test
-         args: --manifest-path crates/libxmtp-core/Cargo.toml
+      - name: Run cargo test on main workspace
+        uses: actions-rs/cargo@v1
+        with:
+          command: test
+
+      - name: Run cargo test on Swift bindings
+        uses: actions-rs/cargo@v1
+        with:
+          command: test
+          args: --manifest-path bindings/xmtp_rust_swift/Cargo.toml
