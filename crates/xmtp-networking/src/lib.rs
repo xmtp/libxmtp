@@ -59,9 +59,10 @@ mod tests {
                 .await
                 .unwrap();
 
-            let topic = "test-subscribe";
+            let topic = uuid::Uuid::new_v4();
             let mut stream_handler = client.subscribe(vec![topic.to_string()]).await.unwrap();
 
+            assert_eq!(stream_handler.is_closed(), false);
             // Skipping the auth token because we have authn disabled on the local
             // xmtp-node-go instance
             client
@@ -70,16 +71,20 @@ mod tests {
                 .unwrap();
 
             // Sleep to give the response time to come back
-            std::thread::sleep(std::time::Duration::from_millis(100));
+            tokio::time::sleep(std::time::Duration::from_millis(100)).await;
 
+            // Ensure that messages appear
             let results = stream_handler.get_messages();
             println!("{}", results.len());
             assert!(results.len() == 1);
 
+            // Ensure that the messages array has been cleared
             let second_results = stream_handler.get_messages();
             assert!(second_results.len() == 0);
 
+            // Ensure the is_closed status is propagated
             stream_handler.close_stream();
+            assert_eq!(stream_handler.is_closed(), true);
         })
         .await
         .expect("Timed out");

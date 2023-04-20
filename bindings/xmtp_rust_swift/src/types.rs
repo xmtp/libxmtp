@@ -55,6 +55,7 @@ impl From<PagingInfo> for crate::ffi::PagingInfo {
             },
             None => None,
         };
+        
         crate::ffi::PagingInfo {
             limit: paging_info.limit,
             direction: crate::ffi::SortDirection::from(

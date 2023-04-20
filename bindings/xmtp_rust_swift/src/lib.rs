@@ -135,12 +135,16 @@ pub struct RustSubscription {
 impl RustSubscription {
     pub fn get_messages(&self) -> Result<Vec<ffi::Envelope>, String> {
         let new_messages = self.subscription.get_messages();
-        // TODO: Figure out how to return an error if the stream is closed
+        // Return the last envelopes even if the stream is closed
         if !new_messages.is_empty() {
             return Ok(new_messages
                 .iter()
                 .map(|e| ffi::Envelope::from(e.clone()))
                 .collect());
+        }
+        // If the stream is closed AND empty, return an error
+        if self.subscription.is_closed() {
+            return Err("subscription_closed".to_string());
         }
 
         Ok(vec![])
@@ -203,7 +207,7 @@ mod tests {
         let mut client = super::create_client(ADDRESS.to_string(), false)
             .await
             .unwrap();
-        let sub = client.subscribe(vec![topic.to_string()]).await.unwrap();
+        let mut sub = client.subscribe(vec![topic.to_string()]).await.unwrap();
         std::thread::sleep(std::time::Duration::from_millis(100));
         let publish_result = client
             .publish("".to_string(), vec![test_envelope(topic.to_string())])
@@ -216,5 +220,8 @@ mod tests {
         assert_eq!(messages.len(), 1);
         let messages = sub.get_messages().unwrap();
         assert_eq!(messages.len(), 0);
+
+        sub.close();
+        assert_eq!(sub.get_messages().is_err(), true);
     }
 }
