@@ -1,11 +1,15 @@
 use http_body::combinators::UnsyncBoxBody;
-use hyper::{client::HttpConnector, Uri};
+use hyper::{body::Bytes, client::HttpConnector, Uri};
 use hyper_rustls::HttpsConnector;
+use std::str::FromStr;
 use std::sync::{Arc, Mutex};
 use tokio::sync::oneshot;
-use std::str::FromStr
 use tokio_rustls::rustls::{ClientConfig, OwnedTrustAnchor, RootCertStore};
-use tonic::{metadata::MetadataValue, transport::Channel, Request, Status, Streaming};
+use tonic::client::GrpcService;
+use tonic::codegen::Body;
+use tonic::{
+    codegen::StdError, metadata::MetadataValue, transport::Channel, Request, Status, Streaming,
+};
 use xmtp_proto::xmtp::message_api::v1::{
     message_api_client::MessageApiClient, Envelope, PagingInfo, PublishRequest, PublishResponse,
     QueryRequest, QueryResponse, SubscribeRequest,
@@ -47,9 +51,8 @@ fn get_tls_connector() -> Result<HttpsConnector<HttpConnector>, tonic::Status> {
 }
 
 async fn make_non_tls_client(host: String) -> Result<MessageApiClient<Channel>, tonic::Status> {
-    println!("Using non-TLS client");
-
     let error_str_host = host.clone();
+    let client = tonic::transport::Endpoint::new(host)?.connect().await.unwrap();
     let non_tls_client = MessageApiClient::connect(host).await.map_err(|e| {
         tonic::Status::new(
             tonic::Code::Internal,
@@ -61,12 +64,7 @@ async fn make_non_tls_client(host: String) -> Result<MessageApiClient<Channel>, 
 
 fn make_tls_client(
     host: String,
-) -> Result<
-    MessageApiClient<
-        hyper::Client<HttpsConnector<HttpConnector>, UnsyncBoxBody<hyper::body::Bytes, Status>>,
-    >,
-    tonic::Status,
-> {
+) -> Result<hyper::Client<HttpsConnector<HttpConnector>>, tonic::Status> {
     println!("Using TLS client");
     // Set up the TLS client
     let connector = get_tls_connector().map_err(|e| {
@@ -77,18 +75,17 @@ fn make_tls_client(
     })?;
 
     let client = hyper::Client::builder().build(connector);
-    let uri = Uri::from_str(&host)
-        .map_err(|e| tonic::Status::new(tonic::Code::Internal, format!("{}", e)))?;
 
-    Ok(MessageApiClient::with_origin(client, uri))
+    Ok(client)
 }
 
-pub struct Client<T> {
-    client: MessageApiClient<T>,
-    channel: T,
+pub struct Client {
+    client: Option<MessageApiClient<Channel>>,
+    tls_client: Option<MessageApiClient<
+    channel: Channel,
 }
 
-impl<T> Client<T> {
+impl Client {
     pub async fn create(host: String, is_secure: bool) -> Result<Self, tonic::Status> {
         let host = host.to_string();
         let channel = Channel::from_shared(host)
@@ -97,10 +94,7 @@ impl<T> Client<T> {
             .await
             .map_err(|e| tonic::Status::new(tonic::Code::Internal, format!("{}", e)))?;
 
-        let client: MessageApiClient<T> = match is_secure {
-            true => make_tls_client(host)?,
-            false => MessageApiClient::new(channel.clone()),
-        };
+        
 
         Ok(Self { client, channel })
     }
