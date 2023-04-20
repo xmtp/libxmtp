@@ -48,7 +48,7 @@ mod ffi {
     extern "Rust" {
         type RustClient;
 
-        async fn create_client(host: String) -> Result<RustClient, String>;
+        async fn create_client(host: String, is_secure: bool) -> Result<RustClient, String>;
 
         async fn query(
             &mut self,
@@ -72,8 +72,8 @@ pub struct RustClient {
     client: grpc_api_helper::Client,
 }
 
-async fn create_client(host: String) -> Result<RustClient, String> {
-    let client = grpc_api_helper::Client::create(host)
+async fn create_client(host: String, is_secure: bool) -> Result<RustClient, String> {
+    let client = grpc_api_helper::Client::create(host, is_secure)
         .await
         .map_err(|e| format!("{}", e))?;
 
@@ -175,7 +175,9 @@ mod tests {
     // Try a query on a test topic, and make sure we get a response
     #[tokio::test]
     async fn test_publish_query() {
-        let mut client = super::create_client(ADDRESS.to_string()).await.unwrap();
+        let mut client = super::create_client(ADDRESS.to_string(), false)
+            .await
+            .unwrap();
         let topic = Uuid::new_v4();
         let publish_result = client
             .publish("".to_string(), vec![test_envelope(topic.to_string())])
@@ -201,7 +203,9 @@ mod tests {
     #[tokio::test]
     async fn test_subscribe() {
         let topic = Uuid::new_v4();
-        let mut client = super::create_client(ADDRESS.to_string()).await.unwrap();
+        let mut client = super::create_client(ADDRESS.to_string(), false)
+            .await
+            .unwrap();
         let sub = client.subscribe(vec![topic.to_string()]).await.unwrap();
         std::thread::sleep(std::time::Duration::from_millis(100));
         let publish_result = client

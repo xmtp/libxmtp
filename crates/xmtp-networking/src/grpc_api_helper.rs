@@ -1,9 +1,11 @@
+use http_body::combinators::UnsyncBoxBody;
 use hyper::{client::HttpConnector, Uri};
 use hyper_rustls::HttpsConnector;
 use std::str::FromStr;
 use std::sync::{Arc, Mutex};
 use tokio::sync::oneshot;
 use tokio_rustls::rustls::{ClientConfig, OwnedTrustAnchor, RootCertStore};
+use tonic::Status;
 use tonic::{metadata::MetadataValue, transport::Channel, Request, Streaming};
 use xmtp_proto::xmtp::message_api::v1::{
     message_api_client::MessageApiClient, Envelope, PagingInfo, PublishRequest, PublishResponse,
@@ -24,12 +26,14 @@ fn tls_config() -> Result<ClientConfig, tonic::Status> {
         .with_safe_defaults()
         .with_root_certificates(roots)
         .with_no_client_auth();
+
     Ok(tls)
 }
 
 fn get_tls_connector() -> Result<HttpsConnector<HttpConnector>, tonic::Status> {
     let tls =
         tls_config().map_err(|e| tonic::Status::new(tonic::Code::Internal, format!("{}", e)))?;
+
     let mut http = HttpConnector::new();
     http.enforce_http(false);
     let connector = tower::ServiceBuilder::new()
@@ -42,25 +46,27 @@ fn get_tls_connector() -> Result<HttpsConnector<HttpConnector>, tonic::Status> {
                 .wrap_connector(s)
         })
         .service(http);
+
     Ok(connector)
 }
 
-async fn make_non_tls_client(host: String) -> Result<MessageApiClient<Channel>, tonic::Status> {
-    let error_str_host = host.clone();
-    let non_tls_client = MessageApiClient::connect(host).await.map_err(|e| {
-        tonic::Status::new(
-            tonic::Code::Internal,
-            format!("Failed to connect to {}: {}", error_str_host, e),
-        )
-    })?;
-    Ok(non_tls_client)
+pub enum InnerApiClient {
+    Plain(MessageApiClient<Channel>),
+    Tls(
+        MessageApiClient<
+            hyper::Client<HttpsConnector<HttpConnector>, UnsyncBoxBody<hyper::body::Bytes, Status>>,
+        >,
+    ),
+}
+
+pub enum InnerApiConnection {
+    Plain(Channel),
+    Tls(hyper::Client<HttpsConnector<HttpConnector>, UnsyncBoxBody<hyper::body::Bytes, Status>>),
 }
 
 pub struct Client {
-    client: Option<MessageApiClient<Channel>>,
-    tls_client: Option<MessageApiClient<Channel>>,
-    tls_conn: Option<hyper::Client<HttpsConnector<HttpConnector>>>,
-    channel: Option<Channel>,
+    client: InnerApiClient,
+    conn: InnerApiConnection,
 }
 
 impl Client {
@@ -79,13 +85,11 @@ impl Client {
             let uri = Uri::from_str(&host)
                 .map_err(|e| tonic::Status::new(tonic::Code::Internal, format!("{}", e)))?;
 
-            let tls_client = MessageApiClient::with_origin(tls_conn, uri);
+            let tls_client = MessageApiClient::with_origin(tls_conn.clone(), uri);
 
             return Ok(Self {
-                client: None,
-                channel: None,
-                tls_client: Some(tls_client),
-                tls_conn: Some(tls_conn),
+                client: InnerApiClient::Tls(tls_client),
+                conn: InnerApiConnection::Tls(tls_conn),
             });
         } else {
             let channel = Channel::from_shared(host)
@@ -97,10 +101,8 @@ impl Client {
             let client = MessageApiClient::new(channel.clone());
 
             return Ok(Self {
-                client: Some(client),
-                channel: Some(channel),
-                tls_client: None,
-                tls_conn: None,
+                client: InnerApiClient::Plain(client),
+                conn: InnerApiConnection::Plain(channel),
             });
         }
     }
@@ -115,36 +117,46 @@ impl Client {
             .parse()
             .map_err(|e| tonic::Status::new(tonic::Code::Internal, format!("{}", e)))?;
 
-        if self.channel.is_some() {
-            return MessageApiClient::with_interceptor(
-                self.channel.unwrap().clone(),
-                move |mut req: Request<()>| {
+        match &mut self.conn {
+            InnerApiConnection::Plain(c) => {
+                return MessageApiClient::with_interceptor(c, move |mut req: Request<()>| {
                     req.metadata_mut().insert("authorization", token.clone());
                     Ok(req)
-                },
-            )
-            .publish(PublishRequest { envelopes })
-            .await
-            .map(|r| r.into_inner());
-        } else {
-            return MessageApiClient::with_interceptor(
-                self.tls_conn.unwrap().clone(),
-                move |mut req: Request<()>| {
+                })
+                .publish(PublishRequest { envelopes })
+                .await
+                .map(|r| r.into_inner());
+            }
+            InnerApiConnection::Tls(c) => {
+                return MessageApiClient::with_interceptor(c, move |mut req: Request<()>| {
                     req.metadata_mut().insert("authorization", token.clone());
                     Ok(req)
-                },
-            )
-            .publish(PublishRequest { envelopes })
-            .await
-            .map(|r| r.into_inner());
-        }
+                })
+                .publish(PublishRequest { envelopes })
+                .await
+                .map(|r| r.into_inner());
+            }
+        };
     }
 
     pub async fn subscribe(&mut self, topics: Vec<String>) -> Result<Subscription, tonic::Status> {
         let request = SubscribeRequest {
             content_topics: topics,
         };
-        let stream = self.client.subscribe(request).await.unwrap().into_inner();
+        let stream = match &self.client {
+            InnerApiClient::Plain(c) => c
+                .clone()
+                .subscribe(request)
+                .await
+                .map_err(|e| tonic::Status::new(tonic::Code::Internal, format!("{}", e)))?
+                .into_inner(),
+            InnerApiClient::Tls(c) => c
+                .clone()
+                .subscribe(request)
+                .await
+                .map_err(|e| tonic::Status::new(tonic::Code::Internal, format!("{}", e)))?
+                .into_inner(),
+        };
 
         return Ok(Subscription::start(stream).await);
     }
@@ -162,8 +174,12 @@ impl Client {
             end_time_ns: end_time.unwrap_or(0),
             paging_info,
         };
+        let res = match &self.client {
+            InnerApiClient::Plain(c) => c.clone().query(request).await,
+            InnerApiClient::Tls(c) => c.clone().query(request).await,
+        };
 
-        match self.client.query(request).await {
+        match res {
             Ok(response) => Ok(response.into_inner()),
             Err(e) => Err(e),
         }
