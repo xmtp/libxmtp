@@ -5,8 +5,8 @@ on:
       - main
   pull_request:
 jobs:
-  test-keystore:
-    name: Test Keystore
+  test:
+    name: Test
     runs-on: ubuntu-latest
     steps:
       - name: Checkout sources
