@@ -1,6 +1,7 @@
+use corecrypto::{hashes, k256_helper};
 use types::QueryResponse;
 use xmtp_networking::grpc_api_helper;
-use xmtp_proto::xmtp::message_api::v1::{Envelope, PagingInfo};
+use xmtp_proto::xmtp::message_api::v1::{Envelope as EnvelopeProto, PagingInfo};
 pub mod types;
 
 #[swift_bridge::bridge]
@@ -22,11 +23,15 @@ mod ffi {
         cursor: Option<IndexCursor>,
         direction: SortDirection,
     }
-    #[swift_bridge(swift_repr = "struct")]
-    struct Envelope {
-        content_topic: String,
-        timestamp_ns: u64,
-        message: Vec<u8>,
+
+    extern "Rust" {
+        type Envelope;
+
+        fn create_envelope(topic: String, sender_time_ns: u64, payload: Vec<u8>) -> Envelope;
+
+        fn get_topic(&self) -> String;
+        fn get_sender_time_ns(&self) -> u64;
+        fn get_payload(&self) -> Vec<u8>;
     }
 
     extern "Rust" {
@@ -59,12 +64,36 @@ mod ffi {
         ) -> Result<QueryResponse, String>;
 
         async fn publish(
-            self: &mut RustClient,
+            &mut self,
             token: String,
             envelopes: Vec<Envelope>,
-        ) -> Result<(), String>;
+        ) -> Result<String, String>;
 
         async fn subscribe(&mut self, topics: Vec<String>) -> Result<RustSubscription, String>;
+    }
+
+    extern "Rust" {
+        fn sha256(data: Vec<u8>) -> Vec<u8>;
+        fn keccak256(data: Vec<u8>) -> Vec<u8>;
+        fn verify_k256_sha256(
+            public_key_bytes: Vec<u8>,
+            message: Vec<u8>,
+            signature: Vec<u8>,
+            recovery_id: u8,
+        ) -> Result<String, String>;
+        fn diffie_hellman_k256(
+            private_key_bytes: Vec<u8>,
+            public_key_bytes: Vec<u8>,
+        ) -> Result<Vec<u8>, String>;
+        fn public_key_from_private_key_k256(private_key_bytes: Vec<u8>) -> Result<Vec<u8>, String>;
+        fn recover_public_key_k256_sha256(
+            message: Vec<u8>,
+            signature: Vec<u8>,
+        ) -> Result<Vec<u8>, String>;
+        fn recover_public_key_k256_keccak256(
+            message: Vec<u8>,
+            signature: Vec<u8>,
+        ) -> Result<Vec<u8>, String>;
     }
 }
 
@@ -99,14 +128,11 @@ impl RustClient {
         Ok(QueryResponse::from(result))
     }
 
-    async fn publish(
-        &mut self,
-        token: String,
-        envelopes: Vec<ffi::Envelope>,
-    ) -> Result<(), String> {
+    // Left a u32 in there to either 1) return the number of envelopes published or 2) return an error code
+    async fn publish(&mut self, token: String, envelopes: Vec<Envelope>) -> Result<String, String> {
         let mut xmtp_envelopes = vec![];
         for envelope in envelopes {
-            xmtp_envelopes.push(Envelope::from(envelope));
+            xmtp_envelopes.push(EnvelopeProto::from(envelope));
         }
 
         self.client
@@ -114,7 +140,9 @@ impl RustClient {
             .await
             .map_err(|e| format!("{}", e))?;
 
-        Ok(())
+        // Swift-Bridge needs this to be a type that has an initializer in Swift
+        // after conversion, such as RustString
+        Ok("".to_string())
     }
 
     async fn subscribe(&mut self, topics: Vec<String>) -> Result<RustSubscription, String> {
@@ -133,13 +161,13 @@ pub struct RustSubscription {
 }
 
 impl RustSubscription {
-    pub fn get_messages(&self) -> Result<Vec<ffi::Envelope>, String> {
+    pub fn get_messages(&self) -> Result<Vec<Envelope>, String> {
         let new_messages = self.subscription.get_messages();
         // Return the last envelopes even if the stream is closed
         if !new_messages.is_empty() {
             return Ok(new_messages
                 .iter()
-                .map(|e| ffi::Envelope::from(e.clone()))
+                .map(|e| Envelope::from(e.clone()))
                 .collect());
         }
         // If the stream is closed AND empty, return an error
@@ -156,6 +184,92 @@ impl RustSubscription {
     }
 }
 
+// Define as an opaque type so we can make it Vectorizable
+pub struct Envelope {
+    pub content_topic: String,
+    pub timestamp_ns: u64,
+    pub message: Vec<u8>,
+}
+
+pub fn create_envelope(topic: String, timestamp_ns: u64, message: Vec<u8>) -> Envelope {
+    Envelope {
+        content_topic: topic,
+        timestamp_ns,
+        message,
+    }
+}
+
+impl Envelope {
+    pub fn get_topic(&self) -> String {
+        self.content_topic.clone()
+    }
+
+    pub fn get_sender_time_ns(&self) -> u64 {
+        self.timestamp_ns
+    }
+
+    pub fn get_payload(&self) -> Vec<u8> {
+        self.message.clone()
+    }
+}
+
+// Cryptography helper functions
+fn sha256(data: Vec<u8>) -> Vec<u8> {
+    let result = hashes::sha256(data.as_slice());
+    result.to_vec()
+}
+
+fn keccak256(data: Vec<u8>) -> Vec<u8> {
+    let result = hashes::keccak256(data.as_slice());
+    result.to_vec()
+}
+
+fn verify_k256_sha256(
+    public_key_bytes: Vec<u8>,
+    message: Vec<u8>,
+    signature: Vec<u8>,
+    recovery_id: u8,
+) -> Result<String, String> {
+    k256_helper::verify_sha256(
+        public_key_bytes.as_slice(),
+        message.as_slice(),
+        signature.as_slice(),
+        recovery_id,
+    )
+    .map(|_| "ok".to_string())
+    .map_err(|e| format!("VerifyError: {}", e))
+}
+
+fn diffie_hellman_k256(
+    private_key_bytes: Vec<u8>,
+    public_key_bytes: Vec<u8>,
+) -> Result<Vec<u8>, String> {
+    k256_helper::diffie_hellman_byte_params(
+        private_key_bytes.as_slice(),
+        public_key_bytes.as_slice(),
+    )
+    .map_err(|e| format!("ECDHError: {}", e))
+}
+
+fn public_key_from_private_key_k256(private_key_bytes: Vec<u8>) -> Result<Vec<u8>, String> {
+    k256_helper::get_public_key(private_key_bytes.as_slice())
+        .map_err(|e| format!("PublicKeyError: {}", e))
+}
+
+// Expects signature to be 65 bytes (last byte is recovery id 0-3)
+fn recover_public_key_k256_sha256(message: Vec<u8>, signature: Vec<u8>) -> Result<Vec<u8>, String> {
+    k256_helper::recover_public_key_predigest_sha256(message.as_slice(), signature.as_slice())
+        .map_err(|e| format!("RecoverError: k256_sha256: {}", e))
+}
+
+fn recover_public_key_k256_keccak256(
+    message: Vec<u8>,
+    signature: Vec<u8>,
+) -> Result<Vec<u8>, String> {
+    k256_helper::recover_public_key_predigest_keccak256(message.as_slice(), signature.as_slice())
+        .map_err(|e| format!("RecoverError k256_keccak256: {}", e))
+}
+
 #[cfg(test)]
 mod tests {
     use std::time::{SystemTime, UNIX_EPOCH};
@@ -163,14 +277,14 @@ mod tests {
 
     static ADDRESS: &str = "http://localhost:5556";
 
-    pub fn test_envelope(topic: String) -> super::ffi::Envelope {
+    pub fn test_envelope(topic: String) -> super::Envelope {
         let time_since_epoch = SystemTime::now().duration_since(UNIX_EPOCH).unwrap();
 
-        return super::ffi::Envelope {
+        super::Envelope {
             timestamp_ns: time_since_epoch.as_nanos() as u64,
-            content_topic: topic.to_string(),
+            content_topic: topic,
             message: vec![65],
-        };
+        }
     }
 
     // Try a query on a test topic, and make sure we get a response
@@ -185,7 +299,7 @@ mod tests {
             .await
             .unwrap();
 
-        assert_eq!(publish_result, ());
+        assert_eq!(publish_result, "".to_string());
 
         let result = client
             .query(topic.to_string(), None, None, None)
@@ -198,7 +312,7 @@ mod tests {
         let first_envelope = envelopes.get(0).unwrap();
         assert_eq!(first_envelope.content_topic, topic.to_string());
         assert!(first_envelope.timestamp_ns > 0);
-        assert!(first_envelope.message.len() > 0);
+        assert!(!first_envelope.message.is_empty());
     }
 
     #[tokio::test]
@@ -213,7 +327,7 @@ mod tests {
             .publish("".to_string(), vec![test_envelope(topic.to_string())])
             .await
             .unwrap();
-        assert_eq!(publish_result, ());
+        assert_eq!(publish_result, "".to_string());
         std::thread::sleep(std::time::Duration::from_millis(200));
 
         let messages = sub.get_messages().unwrap();

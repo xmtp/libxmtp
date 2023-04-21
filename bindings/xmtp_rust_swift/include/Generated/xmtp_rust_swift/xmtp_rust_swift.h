@@ -17,8 +17,18 @@ typedef struct __swift_bridge__$IndexCursor { void* digest; uint64_t sender_time
 typedef struct __swift_bridge__$Option$IndexCursor { bool is_some; __swift_bridge__$IndexCursor val; } __swift_bridge__$Option$IndexCursor;
 typedef struct __swift_bridge__$PagingInfo { uint32_t limit; struct __swift_bridge__$Option$IndexCursor cursor; struct __swift_bridge__$SortDirection direction; } __swift_bridge__$PagingInfo;
 typedef struct __swift_bridge__$Option$PagingInfo { bool is_some; __swift_bridge__$PagingInfo val; } __swift_bridge__$Option$PagingInfo;
-typedef struct __swift_bridge__$Envelope { void* content_topic; uint64_t timestamp_ns; void* message; } __swift_bridge__$Envelope;
-typedef struct __swift_bridge__$Option$Envelope { bool is_some; __swift_bridge__$Envelope val; } __swift_bridge__$Option$Envelope;
+typedef struct Envelope Envelope;
+void __swift_bridge__$Envelope$_free(void* self);
+
+void* __swift_bridge__$Vec_Envelope$new(void);
+void __swift_bridge__$Vec_Envelope$drop(void* vec_ptr);
+void __swift_bridge__$Vec_Envelope$push(void* vec_ptr, void* item_ptr);
+void* __swift_bridge__$Vec_Envelope$pop(void* vec_ptr);
+void* __swift_bridge__$Vec_Envelope$get(void* vec_ptr, uintptr_t index);
+void* __swift_bridge__$Vec_Envelope$get_mut(void* vec_ptr, uintptr_t index);
+uintptr_t __swift_bridge__$Vec_Envelope$len(void* vec_ptr);
+void* __swift_bridge__$Vec_Envelope$as_ptr(void* vec_ptr);
+
 typedef struct RustSubscription RustSubscription;
 void __swift_bridge__$RustSubscription$_free(void* self);
 
@@ -55,13 +65,24 @@ void* __swift_bridge__$Vec_RustClient$get_mut(void* vec_ptr, uintptr_t index);
 uintptr_t __swift_bridge__$Vec_RustClient$len(void* vec_ptr);
 void* __swift_bridge__$Vec_RustClient$as_ptr(void* vec_ptr);
 
+void* __swift_bridge__$create_envelope(void* topic, uint64_t sender_time_ns, void* payload);
+void* __swift_bridge__$Envelope$get_topic(void* self);
+uint64_t __swift_bridge__$Envelope$get_sender_time_ns(void* self);
+void* __swift_bridge__$Envelope$get_payload(void* self);
 struct __private__ResultPtrAndPtr __swift_bridge__$RustSubscription$get_messages(void* self);
 void __swift_bridge__$RustSubscription$close(void* self);
 void* __swift_bridge__$QueryResponse$envelopes(void* self);
 struct __swift_bridge__$Option$PagingInfo __swift_bridge__$QueryResponse$paging_info(void* self);
 void __swift_bridge__$create_client(void* callback_wrapper, void __swift_bridge__$create_client$async(void* callback_wrapper, struct __private__ResultPtrAndPtr ret), void* host, bool is_secure);
 void __swift_bridge__$RustClient$query(void* callback_wrapper, void __swift_bridge__$RustClient$query$async(void* callback_wrapper, struct __private__ResultPtrAndPtr ret), void* self, void* topic, struct __private__OptionU64 start_time_ns, struct __private__OptionU64 end_time_ns, struct __swift_bridge__$Option$PagingInfo paging_info);
-void __swift_bridge__$RustClient$publish(void* callback_wrapper, void __swift_bridge__$RustClient$publish$async(void* callback_wrapper, struct __private__ResultVoidAndPtr ret), void* self, void* token, void* envelopes);
+void __swift_bridge__$RustClient$publish(void* callback_wrapper, void __swift_bridge__$RustClient$publish$async(void* callback_wrapper, struct __private__ResultPtrAndPtr ret), void* self, void* token, void* envelopes);
 void __swift_bridge__$RustClient$subscribe(void* callback_wrapper, void __swift_bridge__$RustClient$subscribe$async(void* callback_wrapper, struct __private__ResultPtrAndPtr ret), void* self, void* topics);
+void* __swift_bridge__$sha256(void* data);
+void* __swift_bridge__$keccak256(void* data);
+struct __private__ResultPtrAndPtr __swift_bridge__$verify_k256_sha256(void* public_key_bytes, void* message, void* signature, uint8_t recovery_id);
+struct __private__ResultPtrAndPtr __swift_bridge__$diffie_hellman_k256(void* private_key_bytes, void* public_key_bytes);
+struct __private__ResultPtrAndPtr __swift_bridge__$public_key_from_private_key_k256(void* private_key_bytes);
+struct __private__ResultPtrAndPtr __swift_bridge__$recover_public_key_k256_sha256(void* message, void* signature);
+struct __private__ResultPtrAndPtr __swift_bridge__$recover_public_key_k256_keccak256(void* message, void* signature);
 
 
