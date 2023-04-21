@@ -70,7 +70,7 @@ mod ffi {
             &mut self,
             token: String,
             envelopes: Vec<Envelope>,
-        ) -> Result<(), String>;
+        ) -> Result<String, String>;
 
         async fn subscribe(&mut self, topics: Vec<String>) -> Result<RustSubscription, String>;
     }
@@ -107,11 +107,12 @@ impl RustClient {
         Ok(QueryResponse::from(result))
     }
 
+    // Left a u32 in there to either 1) return the number of envelopes published or 2) return an error code
     async fn publish(
         &mut self,
         token: String,
         envelopes: Vec<Envelope>,
-    ) -> Result<(), String> {
+    ) -> Result<String, String> {
         let mut xmtp_envelopes = vec![];
         for envelope in envelopes {
             xmtp_envelopes.push(EnvelopeProto::from(envelope));
@@ -122,7 +123,9 @@ impl RustClient {
             .await
             .map_err(|e| format!("{}", e))?;
 
-        Ok(())
+        // Swift-Bridge needs this to be a type that has an initializer in Swift
+        // after conversion, such as RustString
+        Ok("".to_string())
     }
 
     async fn subscribe(&mut self, topics: Vec<String>) -> Result<RustSubscription, String> {
@@ -219,7 +222,7 @@ mod tests {
             .await
             .unwrap();
 
-        assert_eq!(publish_result, ());
+        assert_eq!(publish_result, "".to_string());
 
         let result = client
             .query(topic.to_string(), None, None, None)
@@ -247,7 +250,7 @@ mod tests {
             .publish("".to_string(), vec![test_envelope(topic.to_string())])
             .await
             .unwrap();
-        assert_eq!(publish_result, ());
+        assert_eq!(publish_result, "".to_string());
         std::thread::sleep(std::time::Duration::from_millis(200));
 
         let messages = sub.get_messages().unwrap();

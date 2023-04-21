@@ -484,17 +484,17 @@ extension RustClientRefMut {
         }
     }
 
-    public func publish<GenericIntoRustString: IntoRustString>(_ token: GenericIntoRustString, _ envelopes: RustVec<Envelope>) async throws -> () {
+    public func publish<GenericIntoRustString: IntoRustString>(_ token: GenericIntoRustString, _ envelopes: RustVec<Envelope>) async throws -> RustString {
         func onComplete(cbWrapperPtr: UnsafeMutableRawPointer?, rustFnRetVal: __private__ResultPtrAndPtr) {
             let wrapper = Unmanaged<CbWrapper$RustClient$publish>.fromOpaque(cbWrapperPtr!).takeRetainedValue()
             if rustFnRetVal.is_ok {
-                wrapper.cb(.success(()(ptr: rustFnRetVal.ok_or_err!)))
+                wrapper.cb(.success(RustString(ptr: rustFnRetVal.ok_or_err!)))
             } else {
                 wrapper.cb(.failure(RustString(ptr: rustFnRetVal.ok_or_err!)))
             }
         }
 
-        return try await withCheckedThrowingContinuation({ (continuation: CheckedContinuation<(), Error>) in
+        return try await withCheckedThrowingContinuation({ (continuation: CheckedContinuation<RustString, Error>) in
             let callback = { rustFnRetVal in
                 continuation.resume(with: rustFnRetVal)
             }
@@ -506,9 +506,9 @@ extension RustClientRefMut {
         })
     }
     class CbWrapper$RustClient$publish {
-        var cb: (Result<(), Error>) -> ()
+        var cb: (Result<RustString, Error>) -> ()
     
-        public init(cb: @escaping (Result<(), Error>) -> ()) {
+        public init(cb: @escaping (Result<RustString, Error>) -> ()) {
             self.cb = cb
         }
     }
