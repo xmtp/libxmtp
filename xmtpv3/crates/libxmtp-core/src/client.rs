@@ -8,6 +8,7 @@ impl<P: Persistence> Client<P> {
     pub fn new(
         persistence: P,
     ) -> Client<P> {
+        let a = 1;
         Client {
             persistence,
         }
