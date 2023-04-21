@@ -31,9 +31,13 @@ FILES=$(find ./include/Generated -name "*.swift")
 #         return NSLocalizedString("XMTP Rust Error: \(self.as_str().toString())", comment: self.as_str().toString())
 #     }
 # }
-add_import() {
+add_xmtprustswift_import() {
     echo "Injecting 'import XMTPRustSwift' text as first line into $1"
-    sed -i '' '1s/^/import Foundation\nimport XMTPRustSwift\n\n/' "$1"
+    sed -i '' '1s/^/import XMTPRustSwift\n\n/' "$1"
+}
+add_foundation_import() {
+    echo "Injecting 'import Foundation' text as first line into $1"
+    sed -i '' '1s/^/import Foundation\n\n/' "$1"
 }
 add_nserror_helpers() {
     sed -i '' '1s/^/extension RustString: @unchecked Sendable {}\nextension RustString: LocalizedError {\n    public var errorDescription: String? {\n        return NSLocalizedString("XMTP Rust Error: \(self.as_str().toString())", comment: self.as_str().toString())\n    }\n}\n\n/' "$1"
@@ -43,8 +47,11 @@ do
     # If it's a xmtp_rust_swift.swift file, then do the injection
     if [[ $f == *"xmtp_rust_swift.swift" ]]; then
       add_nserror_helpers "$f"
+      # Only the xmtp_rust_swift.swift file needs Foundation
+      add_foundation_import "$f"
     fi
-    add_import "$f"
+    # All files need "import XMTPRustSwift"
+    add_xmtprustswift_import "$f"
     echo "Copying $f"
     mv "$f" "$REPOPATH/Sources/XMTPRust/"
 done
