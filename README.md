@@ -73,7 +73,7 @@ val options = ClientOptions(api = ClientOptions.Api(env = XMTPEnvironment.PRODUC
 val client = Client().create(account = account, options = options)
 ```
 
-### Creating a client from saved keys
+### Create a client from saved keys
 
 You can save your keys from the client via the `privateKeyBundle` property:
 
@@ -125,7 +125,7 @@ val conversations = client.conversations.list()
 
 ### List existing conversations
 
-You can get a list of all conversations that have had one or more messages exchanged in the last 30 days.
+You can get a list of all conversations that have one or more messages.
 
 ```kotlin
 val allConversations = client.conversations.list()
@@ -242,7 +242,7 @@ val myAppConversations = conversations.filter {
 }
 ```
 
-### Decoding a single message
+### Decode a single message
 
 You can decode a single `Envelope` from XMTP using the `decode` method:
 
@@ -321,7 +321,7 @@ val conversations = JSON.parse(loadConversationsFromSomewhere())
 val client.importConversation(conversations)
 ```
 
-## 🏗 **Breaking revisions**
+## 🏗 Breaking revisions
 
 Because `xmtp-android` is in active development, you should expect breaking revisions that might require you to adopt the latest SDK release to enable your app to continue working as expected.
 
