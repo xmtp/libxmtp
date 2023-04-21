@@ -77,6 +77,7 @@ void __swift_bridge__$create_client(void* callback_wrapper, void __swift_bridge_
 void __swift_bridge__$RustClient$query(void* callback_wrapper, void __swift_bridge__$RustClient$query$async(void* callback_wrapper, struct __private__ResultPtrAndPtr ret), void* self, void* topic, struct __private__OptionU64 start_time_ns, struct __private__OptionU64 end_time_ns, struct __swift_bridge__$Option$PagingInfo paging_info);
 void __swift_bridge__$RustClient$publish(void* callback_wrapper, void __swift_bridge__$RustClient$publish$async(void* callback_wrapper, struct __private__ResultPtrAndPtr ret), void* self, void* token, void* envelopes);
 void __swift_bridge__$RustClient$subscribe(void* callback_wrapper, void __swift_bridge__$RustClient$subscribe$async(void* callback_wrapper, struct __private__ResultPtrAndPtr ret), void* self, void* topics);
+void* __swift_bridge__$sha256(void* data);
 void* __swift_bridge__$keccak256(void* data);
 struct __private__ResultPtrAndPtr __swift_bridge__$verify_k256_sha256(void* public_key_bytes, void* message, void* signature, uint8_t recovery_id);
 struct __private__ResultPtrAndPtr __swift_bridge__$diffie_hellman_k256(void* private_key_bytes, void* public_key_bytes);

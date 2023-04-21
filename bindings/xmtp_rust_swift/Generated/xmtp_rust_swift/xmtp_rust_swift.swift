@@ -29,6 +29,9 @@ class CbWrapper$create_client {
         self.cb = cb
     }
 }
+public func sha256(_ data: RustVec<UInt8>) -> RustVec<UInt8> {
+    RustVec(ptr: __swift_bridge__$sha256({ let val = data; val.isOwned = false; return val.ptr }()))
+}
 public func keccak256(_ data: RustVec<UInt8>) -> RustVec<UInt8> {
     RustVec(ptr: __swift_bridge__$keccak256({ let val = data; val.isOwned = false; return val.ptr }()))
 }

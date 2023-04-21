@@ -73,6 +73,7 @@ mod ffi {
     }
 
     extern "Rust" {
+        fn sha256(data: Vec<u8>) -> Vec<u8>;
         fn keccak256(data: Vec<u8>) -> Vec<u8>;
         fn verify_k256_sha256(
             public_key_bytes: Vec<u8>,
@@ -209,6 +210,11 @@ impl Envelope {
 }
 
 // Cryptography helper functions
+fn sha256(data: Vec<u8>) -> Vec<u8> {
+    let result = hashes::sha256(data.as_slice());
+    result.to_vec()
+}
+
 fn keccak256(data: Vec<u8>) -> Vec<u8> {
     let result = hashes::keccak256(data.as_slice());
     result.to_vec()
