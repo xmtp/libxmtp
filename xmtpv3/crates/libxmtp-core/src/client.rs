@@ -1,13 +1,13 @@
 use crate::persistence::Persistence;
 
-pub struct Client<P: Persistence> {
-    persistence: P,
+pub struct Client {
+    persistence: Box<dyn Persistence>,
 }
 
-impl<P: Persistence> Client<P> {
+impl Client {
     pub fn new(
-        persistence: P,
-    ) -> Client<P> {
+        persistence: Box<dyn Persistence>,
+    ) -> Client {
         Client {
             persistence,
         }
