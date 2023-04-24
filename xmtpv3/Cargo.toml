@@ -1,0 +1,9 @@
+[workspace]
+
+members = [
+  "crates/libxmtp-core",
+  "bindings/wasm/crate",
+]
+
+exclude = [
+]
