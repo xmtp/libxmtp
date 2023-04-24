@@ -1,0 +1,20 @@
+<!DOCTYPE html>
+<html>
+    <head>
+        <meta content="text/html;charset=utf-8" http-equiv="Content-Type"/>
+    </head>
+    <body>
+        <p id="pid">Mnemonic goes here</p>
+
+        <script type="module">
+            import { XmtpApi }from './dist/es/index.js';
+
+            async function run() {
+                const xmtp = await XmtpApi.initialize();
+                document.getElementById("pid").innerText = xmtp.e2e_test("hello world");
+            }
+
+            run();
+        </script>
+    </body>
+</html>
