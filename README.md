@@ -23,3 +23,7 @@ Top-level
 - cd `crates/xmtp-keystore`
 - `cargo test`
 
+## XMTP v3
+
+This repo also contains development on the next version of the XMTP protocol, XMTP v3, featuring double-ratchet encryption built on the vodozemac library. For more information see the [README](xmtpv3/README.md) in the xmtpv3 directory.
+

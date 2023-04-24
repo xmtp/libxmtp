@@ -7,7 +7,7 @@ This code is still under development.
 Top-level
 - crates/ - the pure Rust implementation of XMTP APIs, agnostic to any per-language or per-platform binding
  - crates/libxmtp-core - first crate, entrypoint for the Rust API
-- bindings/wasm - depends on libxmtp to generate a WASM library and bindings
+- bindings/wasm - depends on libxmtp-core to generate a WASM library and bindings
 
 ## Rust QuickStart
 
