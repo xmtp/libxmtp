@@ -1,18 +1,15 @@
 use crate::persistence::Persistence;
 
 pub struct Client<P>
-where P: Persistence
+where
+    P: Persistence,
 {
     persistence: P,
 }
 
 impl<P: Persistence> Client<P> {
-    pub fn new(
-        persistence: P,
-    ) -> Client<P> {
-        Client {
-            persistence,
-        }
+    pub fn new(persistence: P) -> Client<P> {
+        Client { persistence }
     }
 
     pub fn write_to_persistence(&mut self, s: String, b: &[u8]) -> Result<(), String> {
