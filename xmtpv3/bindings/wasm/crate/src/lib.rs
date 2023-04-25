@@ -4,12 +4,12 @@ use libxmtp_core::persistence::InMemoryPersistence;
 use libxmtp_core::{client::Client};
 use wasm_bindgen::prelude::*;
 
-static CLIENT_LIST: Mutex<Vec<Client>> = Mutex::new(Vec::new());
+static CLIENT_LIST: Mutex<Vec<Client<InMemoryPersistence>>> = Mutex::new(Vec::new());
 
 #[wasm_bindgen]
 pub fn client_create() -> usize {
     let mut clients = CLIENT_LIST.lock().unwrap();
-    clients.push(Client::new(Box::new(InMemoryPersistence::new())));
+    clients.push(Client::new(InMemoryPersistence::new()));
     clients.len() - 1
 }
 

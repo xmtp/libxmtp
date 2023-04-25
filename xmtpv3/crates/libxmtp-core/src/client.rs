@@ -1,16 +1,15 @@
 use crate::persistence::Persistence;
 
-pub struct Client {
-    persistence: Box<dyn Persistence>,
+pub struct Client<P>
+where
+    P: Persistence,
+{
+    persistence: P,
 }
 
-impl Client {
-    pub fn new(
-        persistence: Box<dyn Persistence>,
-    ) -> Client {
-        Client {
-            persistence,
-        }
+impl<P: Persistence> Client<P> {
+    pub fn new(persistence: P) -> Client<P> {
+        Client { persistence }
     }
 
     pub fn write_to_persistence(&mut self, s: String, b: &[u8]) -> Result<(), String> {
