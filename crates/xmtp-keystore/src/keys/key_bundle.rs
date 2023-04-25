@@ -1,7 +1,7 @@
-use corecrypto::encryption;
 use k256::elliptic_curve::sec1::ToEncodedPoint;
 use k256::PublicKey;
 use sha3::{Digest, Keccak256};
+use xmtp_crypto::encryption;
 
 use super::super::{ecdh, proto};
 use super::private_key::SignedPrivateKey;

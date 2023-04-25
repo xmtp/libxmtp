@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use corecrypto::encryption;
+use xmtp_crypto::encryption;
 
 mod conversation;
 mod ecdh;

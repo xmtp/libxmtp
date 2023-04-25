@@ -1,5 +1,5 @@
 [package]
-name = "corecrypto"
+name = "xmtp_crypto"
 version = "0.1.0"
 edition = "2021"
 rust-version = "1.64"

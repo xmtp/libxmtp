@@ -9,7 +9,7 @@ use crate::ecdh::{ECDHDerivable, ECDHKey};
 use crate::ethereum_utils::{EthereumCompatibleKey, EthereumUtils};
 use crate::proto;
 
-use corecrypto::{signature::EcdsaSignature, traits::SignatureVerifier};
+use xmtp_crypto::{signature::EcdsaSignature, traits::SignatureVerifier};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct PrivateKey {

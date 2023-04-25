@@ -1,8 +1,8 @@
 use std::sync::Mutex;
 
-use libxmtp_core::client::Client;
-use libxmtp_core::persistence::InMemoryPersistence;
 use wasm_bindgen::prelude::*;
+use xmtp::client::Client;
+use xmtp::persistence::InMemoryPersistence;
 
 static CLIENT_LIST: Mutex<Vec<Client<InMemoryPersistence>>> = Mutex::new(Vec::new());
 
