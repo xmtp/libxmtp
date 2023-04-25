@@ -40,7 +40,7 @@ add_foundation_import() {
     sed -i '' '1s/^/import Foundation\n\n/' "$1"
 }
 add_nserror_helpers() {
-    sed -i '' '1s/^/extension RustString: @unchecked Sendable {}\nextension RustString: LocalizedError {\n    public var errorDescription: String? {\n        return NSLocalizedString("XMTP Rust Error: \(self.as_str().toString())", comment: self.as_str().toString())\n    }\n}\n\n/' "$1"
+    sed -i '' '1s/^/extension RustString: @unchecked Sendable {}\nextension RustString: LocalizedError {\n    public var errorDescription: String? {\n        return NSLocalizedString("XMTP Rust Error: \\(self.as_str().toString())", comment: self.as_str().toString())\n    }\n}\n\n/' "$1"
 }
 for f in $FILES
 do
