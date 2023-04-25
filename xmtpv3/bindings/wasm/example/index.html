@@ -7,13 +7,15 @@
         <p id="pid">Mnemonic goes here</p>
 
         <script type="module">
-            import { XmtpApi }from './dist/es/index.js';
+            import { Client } from './dist/es/index.js';
 
             async function run() {
-                const xmtp = await XmtpApi.initialize();
-                document.getElementById("pid").innerText = xmtp.e2e_test("hello world");
-            }
+		            Client.resetAll();
+		            var client = await Client.create();
 
+	              client.writeToPersistence("foo", [65, 65, 65]);
+                document.getElementById("pid").innerText = client.readFromPersistence("foo");
+            }
             run();
         </script>
     </body>

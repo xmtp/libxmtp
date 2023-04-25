@@ -27,6 +27,7 @@ impl Persistence for LocalStoragePersistence {
     fn write(&mut self, key: String, value: &[u8]) -> Result<(), String> {
         let value = String::from_utf8(value.to_vec()).unwrap();
         let key = format!("xmtp_{}", key);
+        println!("Writing to local storage: {} = {}", key, value);
         web_sys::window()
             .unwrap()
             .local_storage()
@@ -39,6 +40,7 @@ impl Persistence for LocalStoragePersistence {
 
     fn read(&self, key: String) -> Result<Option<Vec<u8>>, String> {
         let key = format!("xmtp_{}", key);
+        println!("Reading from local storage: {}", key);
         let value = web_sys::window()
             .unwrap()
             .local_storage()
@@ -46,10 +48,10 @@ impl Persistence for LocalStoragePersistence {
             .unwrap()
             .get_item(&key)
             .unwrap();
-        if value.is_null() {
+        if value.is_none() {
             return Ok(None);
         }
-        let value = value.as_string().unwrap();
+        let value = value.unwrap();
         Ok(Some(value.as_bytes().to_vec()))
     }
 }
