@@ -6,5 +6,6 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
+serde_json = "1.0.96"
 vodozemac = "0.3.0"
-
+xmtp-proto = { path = "../../../crates/xmtp-proto", features = ["proto_full"] }

@@ -1,9 +1,12 @@
 pub mod client;
 pub mod persistence;
+pub mod vmac;
 
 #[cfg(test)]
 mod tests {
-    use crate::{client::Client, persistence::InMemoryPersistence};
+    use crate::{
+        client::Client, persistence::InMemoryPersistence, vmac::{generate_test_contact_bundle, generate_outbound_session},
+    };
 
     #[test]
     fn can_pass_persistence_methods() {
@@ -19,5 +22,16 @@ mod tests {
             client.read_from_persistence("foo".to_string()).unwrap(),
             Some(b"bar".to_vec())
         );
+    }
+
+    #[test]
+    fn test_can_generate_test_contact_bundle_and_session() {
+        let bundle = generate_test_contact_bundle();
+        assert_eq!(bundle.identity_key.is_some(), true);
+        assert_eq!(bundle.prekey.is_some(), true);
+
+        // Generate an outbound session (Olm Prekey Message) given a VmacContactBundle
+        let session = generate_outbound_session(bundle);
+        assert_eq!(!session.is_empty(), true);
     }
 }
