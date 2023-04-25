@@ -12,6 +12,7 @@ use vodozemac::{
 };
 
 // Can't impl From<Curve25519PublicKey> for VmacUnsignedPublicKey because of orphan rules
+// - Need to come back and write a better translation trait, we can discuss
 fn vmac_unsigned_public_key_from_curve25519_public_key(
     key: Curve25519PublicKey,
 ) -> VmacUnsignedPublicKey {
@@ -42,7 +43,6 @@ fn curve25519_public_key_from_vmac_unsigned_public_key(
         Union::Curve25519(curve25519) => {
             Curve25519PublicKey::from_bytes(curve25519.bytes.as_slice().try_into().unwrap())
         }
-        _ => panic!("Invalid key type"),
     }
 }
 
@@ -54,7 +54,6 @@ fn curve25519_public_key_from_vmac_account_linked_key(
         Union::Curve25519(curve25519) => {
             Curve25519PublicKey::from_bytes(curve25519.bytes.as_slice().try_into().unwrap())
         }
-        _ => panic!("Invalid key type"),
     }
 }
 
