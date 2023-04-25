@@ -1,6 +1,35 @@
+use std::sync::Mutex;
+
+use libxmtp_core::client::Client;
+use libxmtp_core::persistence::InMemoryPersistence;
 use wasm_bindgen::prelude::*;
 
+static CLIENT_LIST: Mutex<Vec<Client<InMemoryPersistence>>> = Mutex::new(Vec::new());
+
 #[wasm_bindgen]
-pub fn add_two_numbers(left: usize, right: usize) -> usize {
-    left + right
+pub fn client_create() -> usize {
+    let mut clients = CLIENT_LIST.lock().unwrap();
+    clients.push(Client::new(InMemoryPersistence::new()));
+    clients.len() - 1
+}
+
+#[wasm_bindgen]
+pub fn client_write_to_persistence(
+    client_id: usize,
+    key: String,
+    value: &[u8],
+) -> Result<(), String> {
+    let mut clients = CLIENT_LIST.lock().unwrap();
+    let client = clients.get_mut(client_id).expect("Client not found");
+    client.write_to_persistence(key, value)
+}
+
+#[wasm_bindgen]
+pub fn client_read_from_persistence(
+    client_id: usize,
+    key: String,
+) -> Result<Option<Vec<u8>>, String> {
+    let mut clients = CLIENT_LIST.lock().unwrap();
+    let client = clients.get_mut(client_id).expect("Client not found");
+    client.read_from_persistence(key)
 }

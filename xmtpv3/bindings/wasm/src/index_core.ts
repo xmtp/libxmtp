@@ -1,1 +1,1 @@
-export { XmtpApi } from "./libxmtp.js";
+export { Client } from "./libxmtp.js";
