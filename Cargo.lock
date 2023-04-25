@@ -2387,28 +2387,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "xmtp-networking"
-version = "0.1.0"
-dependencies = [
- "base64 0.21.0",
- "http-body",
- "hyper",
- "hyper-rustls",
- "pbjson",
- "pbjson-types",
- "prost",
- "serde",
- "serde_json",
- "tokio",
- "tokio-rustls",
- "tonic",
- "tower",
- "uuid",
- "webpki-roots",
- "xmtp-proto",
-]
-
-[[package]]
 name = "xmtp-proto"
 version = "0.1.0"
 dependencies = [
@@ -2452,6 +2430,28 @@ dependencies = [
  "rlp",
  "sha3",
  "xmtp_crypto",
+]
+
+[[package]]
+name = "xmtp_networking"
+version = "0.1.0"
+dependencies = [
+ "base64 0.21.0",
+ "http-body",
+ "hyper",
+ "hyper-rustls",
+ "pbjson",
+ "pbjson-types",
+ "prost",
+ "serde",
+ "serde_json",
+ "tokio",
+ "tokio-rustls",
+ "tonic",
+ "tower",
+ "uuid",
+ "webpki-roots",
+ "xmtp-proto",
 ]
 
 [[package]]
