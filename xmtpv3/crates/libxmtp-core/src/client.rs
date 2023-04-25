@@ -8,7 +8,7 @@ where
 }
 
 impl<P: Persistence> Client<P> {
-    pub fn new(persistence: P) -> Client<P> {
+    pub fn new(persistence: P) -> Self {
         Client { persistence }
     }
 
