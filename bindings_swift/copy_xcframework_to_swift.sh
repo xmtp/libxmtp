@@ -5,10 +5,10 @@ set -ex
 # This script copies the built XCFramework to a the xmtp_rust_swift repo, which is a Swift package
 # that encapsulates all of the good stuff here.
 
-# Look for an xmtp_rust_swift repo at the sibling layer of the top level of this repo so ../../../
+# Look for an xmtp_rust_swift repo at the sibling layer of the top level of this repo so ../../
 
 REPONAME="xmtp-rust-swift"
-REPOPATH="../../../$REPONAME"
+REPOPATH="../../$REPONAME"
 # Now move the XMTPRustSwift.xcframework to the Swift package
 rm -rf "$REPOPATH/XMTPRustSwift.xcframework"
 cp -R "XMTPRustSwift.xcframework" "$REPOPATH"
