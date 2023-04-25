@@ -2387,22 +2387,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "xmtp-keystore"
-version = "0.1.0"
-dependencies = [
- "base64 0.21.0",
- "ecdsa",
- "generic-array",
- "hex",
- "k256",
- "protobuf",
- "rand",
- "rlp",
- "sha3",
- "xmtp_crypto",
-]
-
-[[package]]
 name = "xmtp-networking"
 version = "0.1.0"
 dependencies = [
@@ -2452,6 +2436,22 @@ dependencies = [
  "rlp",
  "sha2",
  "sha3",
+]
+
+[[package]]
+name = "xmtp_keystore"
+version = "0.1.0"
+dependencies = [
+ "base64 0.21.0",
+ "ecdsa",
+ "generic-array",
+ "hex",
+ "k256",
+ "protobuf",
+ "rand",
+ "rlp",
+ "sha3",
+ "xmtp_crypto",
 ]
 
 [[package]]

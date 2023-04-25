@@ -2,12 +2,11 @@
 
 members = [
   "bindings_wasm",
-  "crates/xmtp-keystore",
   "crates/xmtp-proto",
   "crates/xmtp-networking",
   "xmtp",
   "xmtp_crypto",
-
+  "xmtp_keystore",
 ]
 
 # Exclude since
