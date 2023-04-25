@@ -1,5 +1,6 @@
 package org.xmtp.android.library
 
+import android.util.Log
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.runBlocking
@@ -23,12 +24,17 @@ import org.xmtp.android.library.messages.toSignedPublicKeyBundle
 import org.xmtp.android.library.messages.walletAddress
 import org.xmtp.proto.message.contents.Contact
 import org.xmtp.proto.message.contents.Invitation
+import java.lang.Exception
 import java.util.Date
 
 data class Conversations(
     var client: Client,
     var conversations: MutableList<Conversation> = mutableListOf(),
 ) {
+
+    companion object {
+        private const val TAG = "CONVERSATIONS"
+    }
 
     fun fromInvite(envelope: Envelope): Conversation {
         val sealedInvitation = Invitation.SealedInvitation.parseFrom(envelope.message)
@@ -171,11 +177,16 @@ data class Conversations(
                     topic = Topic.userIntro(client.address)
                 ).envelopesList
             }
-        val messages = envelopes.map { envelope ->
-            val message = MessageV1Builder.buildFromBytes(envelope.message.toByteArray())
-            // Attempt to decrypt, just to make sure we can
-            message.decrypt(client.privateKeyBundleV1)
-            message
+        val messages = envelopes.mapNotNull { envelope ->
+            try {
+                val message = MessageV1Builder.buildFromBytes(envelope.message.toByteArray())
+                // Attempt to decrypt, just to make sure we can
+                message.decrypt(client.privateKeyBundleV1)
+                message
+            } catch (e: Exception) {
+                Log.d(TAG, e.message.toString())
+                null
+            }
         }
         val seenPeers: MutableMap<String, Date> = mutableMapOf()
         for (message in messages) {
