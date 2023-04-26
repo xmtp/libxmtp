@@ -1,6 +1,6 @@
 use crate::{
     client::{Client, Network},
-    persistence::{InMemoryPersistence, Persistence},
+    persistence::Persistence,
 };
 
 #[derive(Default)]
