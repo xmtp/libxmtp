@@ -156,13 +156,17 @@ data class Conversations(
         }
         val invitations = listInvitations()
         for (sealedInvitation in invitations) {
-            val unsealed = sealedInvitation.v1.getInvitation(viewer = client.keys)
-            val conversation = ConversationV2.create(
-                client = client,
-                invitation = unsealed,
-                header = sealedInvitation.v1.header
-            )
-            newConversations.add(Conversation.V2(conversation))
+            try {
+                val unsealed = sealedInvitation.v1.getInvitation(viewer = client.keys)
+                val conversation = ConversationV2.create(
+                    client = client,
+                    invitation = unsealed,
+                    header = sealedInvitation.v1.header
+                )
+                newConversations.add(Conversation.V2(conversation))
+            } catch (e: Exception) {
+                Log.d(TAG, e.message.toString())
+            }
         }
 
         conversations.clear()
