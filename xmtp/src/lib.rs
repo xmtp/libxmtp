@@ -1,6 +1,7 @@
 pub mod client;
 pub mod persistence;
 pub mod vmac;
+pub mod vmac_traits;
 
 #[cfg(test)]
 mod tests {
