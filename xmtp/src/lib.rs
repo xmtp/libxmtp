@@ -1,7 +1,7 @@
 pub mod builder;
 pub mod client;
 pub mod persistence;
-pub mod vmac;
+pub mod vmac_protos;
 
 pub use builder::ClientBuilder;
 pub use client::Client;

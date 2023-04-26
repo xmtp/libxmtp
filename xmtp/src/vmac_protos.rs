@@ -64,6 +64,7 @@ mod test {
     use xmtp_proto::xmtp::v3::message_contents::{
         VmacAccountLinkedKey, VmacContactBundle, VmacDeviceLinkedKey, VmacUnsignedPublicKey,
     };
+    use vodozemac::{Account, SessionConfig};
 
     // Generate a VmacContactBundle
     fn generate_test_contact_bundle() -> VmacContactBundle {
