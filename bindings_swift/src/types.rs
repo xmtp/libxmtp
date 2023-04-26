@@ -55,7 +55,7 @@ impl From<PagingInfo> for crate::ffi::PagingInfo {
             },
             None => None,
         };
-        
+
         crate::ffi::PagingInfo {
             limit: paging_info.limit,
             direction: crate::ffi::SortDirection::from(
@@ -93,12 +93,13 @@ pub struct QueryResponse {
 }
 
 impl QueryResponse {
-    pub fn envelopes(self) -> Vec<crate::Envelope> {
-        self._envelopes
+    pub fn envelopes(&self) -> Vec<crate::Envelope> {
+        self._envelopes.clone()
     }
 
-    pub fn paging_info(self) -> Option<crate::ffi::PagingInfo> {
-        self._paging_info
+    pub fn paging_info(&self) -> Option<crate::ffi::PagingInfo> {
+        self._paging_info.as_ref()?;
+        self._paging_info.clone()
     }
 }
 
