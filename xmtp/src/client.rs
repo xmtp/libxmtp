@@ -1,17 +1,27 @@
 use crate::persistence::Persistence;
 
+#[derive(Clone, Copy)]
+pub enum Network {
+    Local(&'static str),
+    Dev,
+    Prod,
+}
+
+impl Default for Network {
+    fn default() -> Self {
+        Network::Dev
+    }
+}
+
 pub struct Client<P>
 where
     P: Persistence,
 {
-    persistence: P,
+    pub network: Network,
+    pub persistence: P,
 }
 
 impl<P: Persistence> Client<P> {
-    pub fn new(persistence: P) -> Self {
-        Client { persistence }
-    }
-
     pub fn write_to_persistence(&mut self, s: String, b: &[u8]) -> Result<(), String> {
         self.persistence.write(s, b)
     }

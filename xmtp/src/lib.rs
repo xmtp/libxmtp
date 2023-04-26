@@ -1,13 +1,17 @@
+pub mod builder;
 pub mod client;
 pub mod persistence;
 
+pub use builder::ClientBuilder;
+pub use client::Client;
+
 #[cfg(test)]
 mod tests {
-    use crate::{client::Client, persistence::InMemoryPersistence};
+    use crate::builder::ClientBuilder;
 
     #[test]
     fn can_pass_persistence_methods() {
-        let mut client = Client::new(InMemoryPersistence::new());
+        let mut client = ClientBuilder::new_test().build();
         assert_eq!(
             client.read_from_persistence("foo".to_string()).unwrap(),
             None
