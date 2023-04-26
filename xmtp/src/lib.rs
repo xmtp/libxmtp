@@ -10,8 +10,6 @@ pub use client::Client;
 #[cfg(test)]
 mod tests {
     use crate::{
-        client::Client,
-        persistence::InMemoryPersistence,
         vmac::{generate_outbound_session, generate_test_contact_bundle},
         builder::ClientBuilder, 
     };
