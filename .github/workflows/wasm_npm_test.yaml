@@ -25,10 +25,6 @@ jobs:
          override: true
      - uses: jetli/wasm-pack-action@v0.4.0
      - uses: actions/setup-node@v3
-     - name: Run cargo test on WASM bindings
-       uses: actions-rs/cargo@v1
-       with:
-         command: test
-         args: --manifest-path bindings_wasm/Cargo.toml
+     - uses: bufbuild/buf-setup-action@v1.17.0
      - run: npm ci
      - run: npm test
