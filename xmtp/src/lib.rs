@@ -1,3 +1,4 @@
+pub mod account;
 pub mod builder;
 pub mod client;
 pub mod persistence;

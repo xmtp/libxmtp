@@ -12,6 +12,8 @@ pub fn client_create() -> usize {
     clients.push(
         ClientBuilder::new()
             .persistence(InMemoryPersistence::new())
+            .find_or_create_account("unknown".to_string())
+            .unwrap()
             .build(),
     );
     clients.len() - 1
