@@ -1,16 +1,11 @@
 use crate::{account::VmacAccount, persistence::Persistence};
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Default)]
 pub enum Network {
     Local(&'static str),
+    #[default]
     Dev,
     Prod,
-}
-
-impl Default for Network {
-    fn default() -> Self {
-        Network::Dev
-    }
 }
 
 pub struct Client<P>

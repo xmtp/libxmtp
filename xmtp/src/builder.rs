@@ -55,7 +55,7 @@ where
                 let account = VmacAccount::generate();
                 let data = serde_json::to_string(&account).map_err(|e| format!("{}", e))?;
 
-                persistence.write(key.clone(), data.as_bytes())?;
+                persistence.write(key, data.as_bytes())?;
 
                 self.account = Some(account)
             }
