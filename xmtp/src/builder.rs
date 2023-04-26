@@ -41,18 +41,18 @@ where
     }
 }
 
-impl ClientBuilder<InMemoryPersistence> {
-    pub fn new_test() -> Self {
-        Self::new().persistence(InMemoryPersistence::new())
-    }
-}
-
 #[cfg(test)]
 mod tests {
 
     use crate::{client::Network, persistence::InMemoryPersistence};
 
     use super::ClientBuilder;
+
+    impl ClientBuilder<InMemoryPersistence> {
+        pub fn new_test() -> Self {
+            Self::new().persistence(InMemoryPersistence::new())
+        }
+    }
 
     #[test]
     fn builder_test() {
