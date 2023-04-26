@@ -36,7 +36,7 @@ where
         self
     }
 
-    pub fn account(mut self, wallet_address: String) -> Result<Self, String> {
+    pub fn find_or_create_account(mut self, wallet_address: String) -> Result<Self, String> {
         let key = get_account_storage_key(wallet_address);
         let persistence = self.persistence.as_mut().ok_or_else(|| {
             "Persistence engine must be set before setting the account".to_string()
@@ -88,7 +88,7 @@ mod tests {
         pub fn new_test() -> Self {
             Self::new()
                 .persistence(InMemoryPersistence::new())
-                .account("unknown".to_string())
+                .find_or_create_account("unknown".to_string())
                 .unwrap()
         }
     }
@@ -110,13 +110,13 @@ mod tests {
         let persistence = InMemoryPersistence::new();
         let client_a = ClientBuilder::new()
             .persistence(persistence)
-            .account("foo".to_string())
+            .find_or_create_account("foo".to_string())
             .unwrap()
             .build();
 
         let client_b = ClientBuilder::new()
             .persistence(client_a.persistence)
-            .account("foo".to_string())
+            .find_or_create_account("foo".to_string())
             .unwrap()
             .build();
 
