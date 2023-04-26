@@ -10,7 +10,7 @@ download-toolchains:
 	rustup target add $(ARCHS_MAC)
 	rustup target add aarch64-apple-ios
 
-all: pkg
+all: framework
 
 $(ARCHS_IOS): %:
 	cargo build --target $@ --target-dir ./target --release --no-default-features
@@ -31,9 +31,14 @@ move_gen:
 	# Move "Generated" directory to "include"
 	rm -rf include/Generated
 	cp -r Generated include/
+	# Keep top-level Generated for push-to-swift step where .swift files are
+	# copied over to another repo (xmtp-rust-swift)
 
-pkg: $(LIB) move_gen
+framework: $(LIB) move_gen
 	rm -rf XMTPRustSwift.xcframework
+	rm -rf Generated
+	# Build to regenerate swift-bridge stuff
+	cargo build
 	xcodebuild -create-xcframework \
 		-library ./lipo_macos/libxmtp_rust_swift.a \
 		-headers ./include/ \
@@ -46,10 +51,7 @@ pkg: $(LIB) move_gen
 	zip -r bundle.zip XMTPRustSwift.xcframework
 	openssl dgst -sha256 bundle.zip
 
-push-to-derived:
-	./copy_xcframework_to_deriveddata.sh
-
-push-to-swift:
+swift: framework
 	./copy_xcframework_to_swift.sh
 
-.PHONY: $(ARCHS_IOS) $(ARCHS_MAC) pkg all aarch64-apple-ios push-to-derived download-toolchains
+.PHONY: $(ARCHS_IOS) $(ARCHS_MAC) framework all aarch64-apple-ios download-toolchains swift
