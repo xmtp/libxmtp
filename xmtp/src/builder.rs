@@ -45,7 +45,6 @@ where
         let existing = persistence.read(key.clone());
         match existing {
             Ok(Some(data)) => {
-                println!("Found data in key {}", key.clone());
                 let data_string = std::str::from_utf8(&data).map_err(|e| format!("{}", e))?;
                 let account: VmacAccount =
                     serde_json::from_str(data_string).map_err(|e| format!("{}", e))?;
