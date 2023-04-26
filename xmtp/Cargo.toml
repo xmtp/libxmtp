@@ -6,6 +6,5 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-serde_json = "1.0.96"
 vodozemac = {git= "https://github.com/xmtp/vodozemac", branch="dev"}
 xmtp_proto = { path = "../xmtp_proto", features = ["xmtp-v3-message_contents"] }

@@ -1,54 +1,116 @@
+// Generic wrapper for proto classes, so we can implement From trait without violating orphan rules
+use xmtp_proto::xmtp::v3::message_contents::vmac_unsigned_public_key::{
+    Union, VodozemacCurve25519,
+};
 use xmtp_proto::xmtp::v3::message_contents::{
-    VmacAccountLinkedKey, VmacContactBundle, VmacDeviceLinkedKey, VmacUnsignedPublicKey,
+    VmacAccountLinkedKey, VmacDeviceLinkedKey, VmacUnsignedPublicKey,
 };
 
-use serde_json::json;
 use vodozemac::{
-    olm::{Account, SessionConfig},
+    Curve25519PublicKey,
 };
 
-use crate::vmac_traits::ProtoWrapper;
+pub struct ProtoWrapper<T> {
+    pub proto: T,
+}
 
-// Generate a VmacContactBundle
-pub fn generate_test_contact_bundle() -> VmacContactBundle {
-    let mut account = Account::new();
-    // Get account identity key
-    let identity_key = account.curve25519_key();
-    account.generate_fallback_key();
-    let fallback_key = account.fallback_key().values().next().unwrap().to_owned();
-
-    let identity_key_proto: ProtoWrapper<VmacUnsignedPublicKey> = identity_key.into();
-    let fallback_key_proto: ProtoWrapper<VmacUnsignedPublicKey> = fallback_key.into();
-    let identity_key = VmacAccountLinkedKey {
-        key: Some(identity_key_proto.proto),
-    };
-    let fallback_key = VmacDeviceLinkedKey {
-        key: Some(fallback_key_proto.proto),
-    };
-    VmacContactBundle {
-        identity_key: Some(identity_key),
-        prekey: Some(fallback_key),
+impl From<Curve25519PublicKey> for ProtoWrapper<VmacUnsignedPublicKey> {
+    fn from(key: Curve25519PublicKey) -> Self {
+        ProtoWrapper {
+            proto: VmacUnsignedPublicKey {
+                // TODO: this timestamp is hardcoded to 0 for now, this conversion is lossy
+                created_ns: 0,
+                union: Some(Union::Curve25519(VodozemacCurve25519 {
+                    bytes: key.to_bytes().to_vec(),
+                })),
+            },
+        }
     }
 }
 
-// Generate an outbound session (Olm Prekey Message) given a VmacContactBundle
-pub fn generate_outbound_session(bundle: VmacContactBundle) -> Vec<u8> {
-    let account = Account::new();
-
-    let identity_key = bundle.identity_key.unwrap();
-    let fallback_key = bundle.prekey.unwrap().key.unwrap();
-
-    let identity_key = ProtoWrapper {
-        proto: identity_key,
+impl From<ProtoWrapper<VmacUnsignedPublicKey>> for Curve25519PublicKey {
+    fn from(key: ProtoWrapper<VmacUnsignedPublicKey>) -> Self {
+        match key.proto.union.unwrap() {
+            Union::Curve25519(curve25519) => {
+                Curve25519PublicKey::from_bytes(curve25519.bytes.as_slice().try_into().unwrap())
+            }
+        }
     }
-    .into();
-    let fallback_key = ProtoWrapper {
-        proto: fallback_key,
-    }
-    .into();
+}
 
-    let mut session =
-        account.create_outbound_session(SessionConfig::version_2(), identity_key, fallback_key);
-    let message = session.encrypt("Hello, world!");
-    json!(message).to_string().as_bytes().to_vec()
+impl From<ProtoWrapper<VmacAccountLinkedKey>> for Curve25519PublicKey {
+    fn from(key: ProtoWrapper<VmacAccountLinkedKey>) -> Self {
+        match key.proto.key.unwrap().union.unwrap() {
+            Union::Curve25519(curve25519) => {
+                Curve25519PublicKey::from_bytes(curve25519.bytes.as_slice().try_into().unwrap())
+            }
+        }
+    }
+}
+
+impl From<ProtoWrapper<VmacDeviceLinkedKey>> for Curve25519PublicKey {
+    fn from(key: ProtoWrapper<VmacDeviceLinkedKey>) -> Self {
+        match key.proto.key.unwrap().union.unwrap() {
+            Union::Curve25519(curve25519) => {
+                Curve25519PublicKey::from_bytes(curve25519.bytes.as_slice().try_into().unwrap())
+            }
+        }
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+    use xmtp_proto::xmtp::v3::message_contents::{
+        VmacAccountLinkedKey, VmacContactBundle, VmacDeviceLinkedKey, VmacUnsignedPublicKey,
+    };
+
+    // Generate a VmacContactBundle
+    fn generate_test_contact_bundle() -> VmacContactBundle {
+        let mut account = Account::new();
+        // Get account identity key
+        let identity_key = account.curve25519_key();
+        account.generate_fallback_key();
+        let fallback_key = account.fallback_key().values().next().unwrap().to_owned();
+
+        let identity_key_proto: ProtoWrapper<VmacUnsignedPublicKey> = identity_key.into();
+        let fallback_key_proto: ProtoWrapper<VmacUnsignedPublicKey> = fallback_key.into();
+        let identity_key = VmacAccountLinkedKey {
+            key: Some(identity_key_proto.proto),
+        };
+        let fallback_key = VmacDeviceLinkedKey {
+            key: Some(fallback_key_proto.proto),
+        };
+        VmacContactBundle {
+            identity_key: Some(identity_key),
+            prekey: Some(fallback_key),
+        }
+    }
+
+    #[test]
+    fn test_can_generate_test_contact_bundle_and_session() {
+        let bundle = generate_test_contact_bundle();
+        assert!(bundle.identity_key.is_some());
+        assert!(bundle.prekey.is_some());
+
+        let account = Account::new();
+
+        let identity_key = bundle.identity_key.unwrap();
+        let fallback_key = bundle.prekey.unwrap().key.unwrap();
+
+        let identity_key = ProtoWrapper {
+            proto: identity_key,
+        }
+        .into();
+        let fallback_key = ProtoWrapper {
+            proto: fallback_key,
+        }
+        .into();
+
+        let mut session =
+            account.create_outbound_session(SessionConfig::version_2(), identity_key, fallback_key);
+        let message = session.encrypt("Hello, world!");
+        // Assert message is not empty
+        assert!(!message.message().is_empty());
+    }
 }
