@@ -11,6 +11,8 @@ crate-type = ["cdylib", "rlib"]
 js-sys = "0.3"
 xmtp = { path = "../xmtp" }
 wasm-bindgen = "0.2"
+rand = { version = "0.7.3", features = ["wasm-bindgen"] }
+getrandom = { version = "0.2", features = ["js"] }
 
 [dev-dependencies]
 wasm-bindgen-test = "0.3"
