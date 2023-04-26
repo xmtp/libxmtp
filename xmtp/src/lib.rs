@@ -1,7 +1,11 @@
+pub mod builder;
 pub mod client;
 pub mod persistence;
 pub mod vmac;
 pub mod vmac_traits;
+
+pub use builder::ClientBuilder;
+pub use client::Client;
 
 #[cfg(test)]
 mod tests {
@@ -9,11 +13,12 @@ mod tests {
         client::Client,
         persistence::InMemoryPersistence,
         vmac::{generate_outbound_session, generate_test_contact_bundle},
+        builder::ClientBuilder, 
     };
 
     #[test]
     fn can_pass_persistence_methods() {
-        let mut client = Client::new(InMemoryPersistence::new());
+        let mut client = ClientBuilder::new_test().build();
         assert_eq!(
             client.read_from_persistence("foo".to_string()).unwrap(),
             None

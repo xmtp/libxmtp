@@ -1,1 +1,1 @@
-export { Client } from "./libxmtp.js";
+export { Client } from "./bindings_wasm.js";

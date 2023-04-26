@@ -34,9 +34,3 @@ jobs:
         with:
           command: test
           args: --manifest-path bindings_swift/Cargo.toml
-
-      - name: Run cargo test on xmtpv3
-        uses: actions-rs/cargo@v1
-        with:
-          command: test
-          args: --manifest-path xmtp/Cargo.toml

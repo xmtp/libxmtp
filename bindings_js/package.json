@@ -22,14 +22,14 @@
       "import": "./dist/es-slim/index_slim.js",
       "default": "./dist/cjs-slim/index_slim.cjs"
     },
-    "./libxmtp.wasm": "./dist/libxmtp_bg.wasm",
+    "./bindings_wasm.wasm": "./dist/bindings_wasm_bg.wasm",
     "./package.json": "./package.json"
   },
   "files": [
     "dist"
   ],
   "scripts": {
-    "build": "wasm-pack build -t web --out-dir ../src/pkg crate && rm -rf dist/ && rollup -c",
+    "build": "wasm-pack build -t web --out-dir ../bindings_js/src/pkg ../bindings_wasm && rm -rf dist/ && rollup -c",
     "build:minify": "npm run build && npx terser@latest --compress --mangle --output dist/cjs/index.cjs -- dist/cjs/index.cjs",
     "format": "npx prettier@latest --write src/ tests/ package.json rollup.config.js tsconfig.json vite.config.ts cli.js",
     "pretest": "npm run build",
