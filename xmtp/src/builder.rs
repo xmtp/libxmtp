@@ -1,5 +1,3 @@
-use std::borrow::Borrow;
-
 use crate::{
     account::VmacAccount,
     client::{Client, Network},
@@ -108,27 +106,27 @@ mod tests {
             .is_empty())
     }
 
-    // #[test]
-    // fn persistence_test() {
-    //     let persistence = InMemoryPersistence::new();
-    //     let client_a = ClientBuilder::new()
-    //         .persistence(persistence)
-    //         .account("foo".to_string())
-    //         .unwrap()
-    //         .build();
+    #[test]
+    fn persistence_test() {
+        let persistence = InMemoryPersistence::new();
+        let client_a = ClientBuilder::new()
+            .persistence(persistence)
+            .account("foo".to_string())
+            .unwrap()
+            .build();
 
-    //     let client_b = ClientBuilder::new()
-    //         .persistence(persistence)
-    //         .account("foo".to_string())
-    //         .unwrap()
-    //         .build();
+        let client_b = ClientBuilder::new()
+            .persistence(client_a.persistence)
+            .account("foo".to_string())
+            .unwrap()
+            .build();
 
-    //     // Ensure the persistence was used to store the generated keys
-    //     assert_eq!(
-    //         client_a.account.account.curve25519_key().to_bytes(),
-    //         client_b.account.account.curve25519_key().to_bytes()
-    //     )
-    // }
+        // Ensure the persistence was used to store the generated keys
+        assert_eq!(
+            client_a.account.account.curve25519_key().to_bytes(),
+            client_b.account.account.curve25519_key().to_bytes()
+        )
+    }
 
     #[test]
     #[should_panic]
