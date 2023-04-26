@@ -127,4 +127,4 @@ dist
 
 
 # Generated code
-crates/xmtp-proto/src/gen
+xmtp_proto/src/gen
