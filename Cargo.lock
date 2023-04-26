@@ -2007,7 +2007,7 @@ checksum = "49874b5167b65d7193b8aba1567f5c7d93d001cafc34600cee003eda787e483f"
 [[package]]
 name = "vodozemac"
 version = "0.3.0"
-source = "git+https://github.com/xmtp/vodozemac?branch=jazzz/update-dalek#a862b778fa5e0e34b18b429adff9aafa89628f40"
+source = "git+https://github.com/xmtp/vodozemac?branch=dev#6533d8fb1c14bd7b33d48bb5f258e0c66222f37d"
 dependencies = [
  "aes",
  "arrayvec",
@@ -2387,18 +2387,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "xmtp-proto"
-version = "0.1.0"
-dependencies = [
- "pbjson",
- "pbjson-types",
- "prost",
- "prost-types",
- "serde",
- "tonic",
-]
-
-[[package]]
 name = "xmtp_crypto"
 version = "0.1.0"
 dependencies = [
@@ -2451,7 +2439,19 @@ dependencies = [
  "tower",
  "uuid",
  "webpki-roots",
- "xmtp-proto",
+ "xmtp_proto",
+]
+
+[[package]]
+name = "xmtp_proto"
+version = "0.1.0"
+dependencies = [
+ "pbjson",
+ "pbjson-types",
+ "prost",
+ "prost-types",
+ "serde",
+ "tonic",
 ]
 
 [[package]]

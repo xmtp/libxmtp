@@ -1,4 +1,4 @@
-use corecrypto::{hashes, k256_helper};
+use xmtp_crypto::{hashes, k256_helper};
 use types::QueryResponse;
 use xmtp_networking::grpc_api_helper;
 use xmtp_proto::xmtp::message_api::v1::{Envelope as EnvelopeProto, PagingInfo};

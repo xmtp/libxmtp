@@ -6,7 +6,7 @@ It pairs with [xmtp-rust-swift](https://github.com/xmtp/xmtp-rust-swift) which i
 
 ## Structure
 
-- `Cargo.toml` here can reference any local crate in `libxmtp`, such as corecrypto or keystore
+- `Cargo.toml` here can reference any local crate in `libxmtp`, such as `xmtp_crypto` or `xmtp_keystore`
 - `include/module.modulemap` - can remain untouched as it just imports the `xmtp_rust_swift.h` header
 - `include/xmtp_rust_swift.h` - contains C function declarations that are exported into Swift land
 

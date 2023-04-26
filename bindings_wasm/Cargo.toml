@@ -9,7 +9,7 @@ crate-type = ["cdylib", "rlib"]
 
 [dependencies]
 js-sys = "0.3"
-xmtp= { path = "../xmtp" }
+xmtp = { path = "../xmtp" }
 wasm-bindgen = "0.2"
 
 [dev-dependencies]
