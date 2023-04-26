@@ -2,29 +2,30 @@ use crate::{account::VmacAccount, persistence::Persistence};
 use serde_json;
 use vodozemac::olm::Account;
 
+#[derive(Clone, Copy)]
+pub enum Network {
+    Local(&'static str),
+    Dev,
+    Prod,
+}
+
+impl Default for Network {
+    fn default() -> Self {
+        Network::Dev
+    }
+}
+
 pub struct Client<P>
 where
     P: Persistence,
 {
-    persistence: P,
-    account: Option<VmacAccount>,
+    pub network: Network,
+    pub persistence: P,
 }
 
 impl<P: Persistence> Client<P> {
-    pub fn new(persistence: P) -> Self {
-        Client {
-            persistence,
-            account: None,
-        }
-    }
-
-    pub fn create(persistence: P) -> Result<Self, String> {
-        // Right now we don't know the wallet address, which would ideally be prefixed in the key for the storage.
-        // This is because many clients may be instantiated with the same shared storage (ie. LocalStorage.)
-        // Defaulting wallet address to "unknown" for now
-        let account = Client::get_or_create_account(persistence, "unknown".to_string())?;
-
-        Ok(Self::new(persistence, account))
+    pub fn write_to_persistence(&mut self, s: String, b: &[u8]) -> Result<(), String> {
+        self.persistence.write(s, b)
     }
 
     pub fn get_or_create_account(
@@ -49,10 +50,6 @@ impl<P: Persistence> Client<P> {
             }
             Err(e) => Err(format!("Failed to read from persistence: {}", e)),
         }
-    }
-
-    pub fn write_to_persistence(&mut self, s: String, b: &[u8]) -> Result<(), String> {
-        self.persistence.write(s, b)
     }
 
     pub fn read_from_persistence(&self, s: String) -> Result<Option<Vec<u8>>, String> {

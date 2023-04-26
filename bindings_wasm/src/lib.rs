@@ -1,15 +1,19 @@
 use std::sync::Mutex;
 
 use wasm_bindgen::prelude::*;
-use xmtp::client::Client;
 use xmtp::persistence::InMemoryPersistence;
+use xmtp::{Client, ClientBuilder};
 
 static CLIENT_LIST: Mutex<Vec<Client<InMemoryPersistence>>> = Mutex::new(Vec::new());
 
 #[wasm_bindgen]
 pub fn client_create() -> usize {
     let mut clients = CLIENT_LIST.lock().unwrap();
-    clients.push(Client::new(InMemoryPersistence::new()));
+    clients.push(
+        ClientBuilder::new()
+            .persistence(InMemoryPersistence::new())
+            .build(),
+    );
     clients.len() - 1
 }
 

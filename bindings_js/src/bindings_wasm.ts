@@ -1,4 +1,4 @@
-import init, { InitInput, client_create, client_read_from_persistence, client_write_to_persistence } from "./pkg/libxmtp.js";
+import init, { InitInput, client_create, client_read_from_persistence, client_write_to_persistence } from "./pkg/bindings_wasm.js";
 
 export interface PackageLoadOptions {
   /**

@@ -1,5 +1,5 @@
-use xmtp_crypto::{hashes, k256_helper};
 use types::QueryResponse;
+use xmtp_crypto::{hashes, k256_helper};
 use xmtp_networking::grpc_api_helper;
 use xmtp_proto::xmtp::message_api::v1::{Envelope as EnvelopeProto, PagingInfo};
 pub mod types;
@@ -45,8 +45,8 @@ mod ffi {
     extern "Rust" {
         type QueryResponse;
 
-        fn envelopes(self) -> Vec<Envelope>;
-        fn paging_info(self) -> Option<PagingInfo>;
+        fn envelopes(&self) -> Vec<Envelope>;
+        fn paging_info(&self) -> Option<PagingInfo>;
 
     }
 
@@ -185,6 +185,7 @@ impl RustSubscription {
 }
 
 // Define as an opaque type so we can make it Vectorizable
+#[derive(Clone)]
 pub struct Envelope {
     pub content_topic: String,
     pub timestamp_ns: u64,
@@ -210,6 +211,25 @@ impl Envelope {
 
     pub fn get_payload(&self) -> Vec<u8> {
         self.message.clone()
+    }
+}
+
+impl Clone for ffi::IndexCursor {
+    fn clone(&self) -> Self {
+        ffi::IndexCursor {
+            digest: self.digest.clone(),
+            sender_time_ns: self.sender_time_ns,
+        }
+    }
+}
+
+impl Clone for ffi::PagingInfo {
+    fn clone(&self) -> Self {
+        ffi::PagingInfo {
+            limit: self.limit,
+            cursor: self.cursor.clone(),
+            direction: self.direction,
+        }
     }
 }
 
@@ -336,6 +356,6 @@ mod tests {
         assert_eq!(messages.len(), 0);
 
         sub.close();
-        assert_eq!(sub.get_messages().is_err(), true);
+        assert!(sub.get_messages().is_err());
     }
 }
