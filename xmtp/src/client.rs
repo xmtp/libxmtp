@@ -1,5 +1,4 @@
 use crate::{account::VmacAccount, persistence::Persistence};
-use serde_json;
 
 #[derive(Clone, Copy)]
 pub enum Network {
