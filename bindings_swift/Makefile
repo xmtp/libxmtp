@@ -28,17 +28,20 @@ $(LIB): $(ARCHS_IOS) $(ARCHS_MAC) aarch64-apple-ios
 	lipo -create -output lipo_macos/libxmtp_rust_swift.a $(foreach arch,$(ARCHS_MAC),$(wildcard target/$(arch)/release/$(LIB)))
 
 move_gen:
-	# Move "Generated" directory to "include"
+	rm -rf Generated
+	# Clean and build to regenerate swift-bridge "Generated" directory
+	cargo clean
+	cargo build
 	rm -rf include/Generated
+	# Move "Generated" directory to "include"
 	cp -r Generated include/
+	# Delete the *.swift files within include/Generated but
 	# Keep top-level Generated for push-to-swift step where .swift files are
 	# copied over to another repo (xmtp-rust-swift)
+	find include/Generated -type f -name "*.swift" -delete
 
-framework: $(LIB) move_gen
+framework: move_gen $(LIB)
 	rm -rf XMTPRustSwift.xcframework
-	rm -rf Generated
-	# Build to regenerate swift-bridge stuff
-	cargo build
 	xcodebuild -create-xcframework \
 		-library ./lipo_macos/libxmtp_rust_swift.a \
 		-headers ./include/ \
