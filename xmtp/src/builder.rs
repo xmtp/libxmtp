@@ -71,7 +71,7 @@ where
 
                 Ok(account)
             }
-            Err(e) => return Err(format!("Failed to read from persistence: {}", e)),
+            Err(e) => Err(format!("Failed to read from persistence: {}", e)),
         }
     }
 
