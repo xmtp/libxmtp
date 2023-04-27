@@ -41,7 +41,7 @@ where
         self
     }
 
-    pub fn find_or_create_account(&mut self) -> Result<VmacAccount, String> {
+    fn find_or_create_account(&mut self) -> Result<VmacAccount, String> {
         let wallet_address = self
             .wallet_address
             .as_ref()
