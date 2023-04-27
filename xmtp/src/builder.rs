@@ -48,7 +48,7 @@ where
             .ok_or_else(|| "Wallet address must be set before setting the account".to_string())?;
 
         let key = get_account_storage_key(wallet_address.to_string());
-        let persistence = self.persistence.as_mut().ok_or_else(|| {
+        let persistence = self.persistence.as_ref().ok_or_else(|| {
             "Persistence engine must be set before setting the account".to_string()
         })?;
 
@@ -64,7 +64,10 @@ where
                 let account = VmacAccount::generate();
                 let data = serde_json::to_string(&account).map_err(|e| format!("{}", e))?;
 
-                persistence.write(key, data.as_bytes())?;
+                self.persistence
+                    .as_mut()
+                    .unwrap()
+                    .write(key, data.as_bytes())?;
 
                 Ok(account)
             }
