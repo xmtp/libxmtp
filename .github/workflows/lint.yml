@@ -18,14 +18,14 @@ jobs:
           name: workspace
           args: --all-features --no-deps
       - uses: actions-rs/clippy-check@v1
-        name: Lint xmtp_rust_swift
+        name: Lint bindings_swift
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
-          name: xmtp_rust_swift
-          args: --all-features --no-deps --manifest-path bindings/xmtp_rust_swift/Cargo.toml
+          name: bindings_swift
+          args: --all-features --no-deps --manifest-path bindings_swift/Cargo.toml
       - uses: actions-rs/clippy-check@v1
         name: Lint xmtpv3
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
-          name: xmtpv3
-          args: --all-features --no-deps --manifest-path xmtpv3/Cargo.toml
+          name: xmtp
+          args: --all-features --no-deps --manifest-path xmtp/Cargo.toml

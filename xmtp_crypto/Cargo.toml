@@ -1,0 +1,21 @@
+[package]
+name = "xmtp_crypto"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.64"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+rand = "0.8.4"
+hkdf = "0.12.3"
+sha2 = "0.10.6"
+k256 = {version = "0.12.0", features = ["ecdh"]}
+ecdsa = "0.15.1"
+sha3 = "0.10.6"
+hex = "0.4"
+rlp = "0.5.2"
+aes-gcm = "0.10.1"
+generic-array = "0.14.6"
+getrandom = {version = "0.2.8", features = ["js"]}
+chrono = "0.4.23"
