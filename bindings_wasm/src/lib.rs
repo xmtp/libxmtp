@@ -62,13 +62,12 @@ pub fn client_create() -> usize {
     clients.push(
         ClientBuilder::new()
             .persistence(LocalStoragePersistence::new())
-            .find_or_create_account("unknown".to_string())
-            .unwrap()
-            .build(),
+            .wallet_address("unknown".to_string())
+            .build()
+            .unwrap(),
     );
     clients.len() - 1
 }
-
 
 #[wasm_bindgen]
 pub fn client_write_to_persistence(

@@ -2448,6 +2448,7 @@ dependencies = [
  "serde",
  "serde_json",
  "vodozemac",
+ "xmtp_proto",
 ]
 
 [[package]]

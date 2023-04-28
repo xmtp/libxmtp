@@ -14,7 +14,7 @@ rm -rf "$REPOPATH/XMTPRustSwift.xcframework"
 cp -R "XMTPRustSwift.xcframework" "$REPOPATH"
 
 # Need to copy any Swift file in ./include/Generated to $REPOPATH/Sources/XMTPRust/*
-FILES=$(find ./include/Generated -name "*.swift")
+FILES=$(find ./Generated -name "*.swift")
 
 # HACK HACK HACK
 # Here's the ultra-hack, we need to inject "import XMTPRustSwift" into the top of the Swift files
