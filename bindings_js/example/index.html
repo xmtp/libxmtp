@@ -14,7 +14,7 @@
                 Client.resetAll();
                 let client = await Client.create();
                 let input = [65, 65, 65];
-	            client.writeToPersistence("foo", input);
+                client.writeToPersistence("foo", input);
                 if (client.readFromPersistence("foo").toString() === input.toString()) {
                     document.getElementById("result").innerText = "Test passed!";
                 } else {
