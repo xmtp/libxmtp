@@ -8,6 +8,7 @@ edition = "2018"
 crate-type = ["cdylib", "rlib"]
 
 [dependencies]
+console_error_panic_hook = "0.1.7"
 js-sys = "0.3"
 xmtp = { path = "../xmtp" }
 wasm-bindgen = "0.2"
