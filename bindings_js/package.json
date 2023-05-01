@@ -30,9 +30,10 @@
   ],
   "scripts": {
     "build": "wasm-pack build -t web --out-dir ../bindings_js/src/pkg ../bindings_wasm && rm -rf dist/ && rollup -c",
+    "build:debug": "wasm-pack build --debug -t web --out-dir ../bindings_js/src/pkg ../bindings_wasm && rm -rf dist/ && rollup -c",
     "build:minify": "npm run build && npx terser@latest --compress --mangle --output dist/cjs/index.cjs -- dist/cjs/index.cjs",
     "format": "npx prettier@latest --write src/ tests/ package.json rollup.config.js tsconfig.json vite.config.ts cli.js",
-    "pretest": "npm run build",
+    "pretest": "npm run build:debug",
     "test": "vitest run && tsc",
     "prepublishOnly": "npm test"
   },

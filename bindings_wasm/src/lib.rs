@@ -58,6 +58,7 @@ impl Persistence for LocalStoragePersistence {
 
 #[wasm_bindgen]
 pub fn client_create() -> usize {
+    console_error_panic_hook::set_once();
     let mut clients = CLIENT_LIST.lock().unwrap();
     clients.push(
         ClientBuilder::new()
