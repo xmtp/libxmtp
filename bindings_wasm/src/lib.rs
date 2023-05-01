@@ -2,7 +2,7 @@ use std::sync::Mutex;
 
 use wasm_bindgen::prelude::*;
 use web_sys;
-use xmtp::persistence::{InMemoryPersistence, Persistence};
+use xmtp::persistence::Persistence;
 use xmtp::{Client, ClientBuilder};
 
 static CLIENT_LIST: Mutex<Vec<Client<LocalStoragePersistence>>> = Mutex::new(Vec::new());
@@ -87,14 +87,3 @@ pub fn client_read_from_persistence(
     let client = clients.get_mut(client_id).expect("Client not found");
     client.read_from_persistence(key)
 }
-
-// #[wasm_bindgen]
-// pub fn e2e_test(word: &str) -> String {
-//     let key = "test";
-//     let value = word.to_string();
-//     let bytes = value.as_bytes();
-//     write_wrapper(key, bytes);
-//     let result = read_wrapper(key);
-//     let result = String::from_utf8(result).unwrap();
-//     result
-// }
