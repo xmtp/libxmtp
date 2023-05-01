@@ -23,7 +23,7 @@ impl Default for LocalStoragePersistence {
 }
 
 impl Persistence for LocalStoragePersistence {
-    fn write(&mut self, key: String, value: &[u8]) -> Result<(), String> {
+    fn write(&mut self, key: &str, value: &[u8]) -> Result<(), String> {
         let value = String::from_utf8(value.to_vec()).unwrap();
         let key = format!("xmtp_{}", key);
         self.storage()
@@ -32,7 +32,7 @@ impl Persistence for LocalStoragePersistence {
         Ok(())
     }
 
-    fn read(&self, key: String) -> Result<Option<Vec<u8>>, String> {
+    fn read(&self, key: &str) -> Result<Option<Vec<u8>>, String> {
         let key = format!("xmtp_{}", key);
         let value = self
             .storage()

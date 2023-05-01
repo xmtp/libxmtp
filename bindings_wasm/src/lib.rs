@@ -25,7 +25,7 @@ pub fn client_create() -> usize {
 #[wasm_bindgen]
 pub fn client_write_to_persistence(
     client_id: usize,
-    key: String,
+    key: &str,
     value: &[u8],
 ) -> Result<(), String> {
     let mut clients = CLIENT_LIST.lock().unwrap();
@@ -36,7 +36,7 @@ pub fn client_write_to_persistence(
 #[wasm_bindgen]
 pub fn client_read_from_persistence(
     client_id: usize,
-    key: String,
+    key: &str,
 ) -> Result<Option<Vec<u8>>, String> {
     let mut clients = CLIENT_LIST.lock().unwrap();
     let client = clients.get_mut(client_id).expect("Client not found");
@@ -48,15 +48,15 @@ wasm_bindgen_test_configure!(run_in_browser);
 fn can_pass_persistence_methods() {
     let client_id = client_create();
     assert_eq!(
-        client_read_from_persistence(client_id, "foo".to_string()).unwrap(),
+        client_read_from_persistence(client_id, "foo").unwrap(),
         None
     );
     assert_eq!(
-        client_write_to_persistence(client_id, "foo".to_string(), b"bar").unwrap(),
+        client_write_to_persistence(client_id, "foo", b"bar").unwrap(),
         ()
     );
     assert_eq!(
-        client_read_from_persistence(client_id, "foo".to_string()).unwrap(),
+        client_read_from_persistence(client_id, "foo").unwrap(),
         Some(b"bar".to_vec())
     );
 }

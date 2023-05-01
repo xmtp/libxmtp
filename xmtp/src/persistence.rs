@@ -1,6 +1,6 @@
 pub trait Persistence {
-    fn write(&mut self, key: String, value: &[u8]) -> Result<(), String>;
-    fn read(&self, key: String) -> Result<Option<Vec<u8>>, String>;
+    fn write(&mut self, key: &str, value: &[u8]) -> Result<(), String>;
+    fn read(&self, key: &str) -> Result<Option<Vec<u8>>, String>;
 }
 
 pub struct NamespacedPersistence<P: Persistence> {
@@ -18,11 +18,11 @@ impl<P: Persistence> NamespacedPersistence<P> {
 
     pub fn write(&mut self, key: &str, value: &[u8]) -> Result<(), String> {
         let key = format!("{}/{}", self.namespace, key);
-        self.persistence.write(key, value)
+        self.persistence.write(&key, value)
     }
 
     pub fn read(&self, key: &str) -> Result<Option<Vec<u8>>, String> {
         let key = format!("{}/{}", self.namespace, key);
-        self.persistence.read(key)
+        self.persistence.read(&key)
     }
 }
