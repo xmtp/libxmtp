@@ -73,7 +73,7 @@ where
             .take()
             .expect("Persistence engine must be set");
         let mut persistence =
-            NamespacedPersistence::new(&get_account_storage_prefix(wallet_address), persistence);
+            NamespacedPersistence::new(&get_account_namespace(wallet_address), persistence);
         let account = Self::find_or_create_account(&mut persistence)?;
 
         Ok(Client {
@@ -84,8 +84,8 @@ where
     }
 }
 
-fn get_account_storage_prefix(wallet_address: &str) -> String {
-    format!("account_{}", wallet_address)
+fn get_account_namespace(wallet_address: &str) -> String {
+    format!("xmtp/account_{}", wallet_address)
 }
 
 #[cfg(test)]
