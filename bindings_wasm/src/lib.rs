@@ -7,19 +7,25 @@ use xmtp::{Client, ClientBuilder};
 
 static CLIENT_LIST: Mutex<Vec<Client<LocalStoragePersistence>>> = Mutex::new(Vec::new());
 
-#[wasm_bindgen(module = "/js/foo.js")]
-extern "C" {
-    #[wasm_bindgen(js_name = writeWrapper)]
-    fn write_wrapper(key: &str, bytes: &[u8]) -> bool;
-    #[wasm_bindgen(js_name = readWrapper)]
-    fn read_wrapper(key: &str) -> Vec<u8>;
-}
-
-struct LocalStoragePersistence {}
+pub struct LocalStoragePersistence {}
 
 impl LocalStoragePersistence {
     pub fn new() -> Self {
         LocalStoragePersistence {}
+    }
+
+    fn storage(&self) -> web_sys::Storage {
+        web_sys::window()
+            .expect("Global Window not found - are you running in a browser?")
+            .local_storage()
+            .expect("Local Storage not found - are you running in a browser?")
+            .expect("Window.localStorage not found - are you running in a browser?")
+    }
+}
+
+impl Default for LocalStoragePersistence {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
@@ -27,27 +33,18 @@ impl Persistence for LocalStoragePersistence {
     fn write(&mut self, key: String, value: &[u8]) -> Result<(), String> {
         let value = String::from_utf8(value.to_vec()).unwrap();
         let key = format!("xmtp_{}", key);
-        println!("Writing to local storage: {} = {}", key, value);
-        web_sys::window()
-            .unwrap()
-            .local_storage()
-            .unwrap()
-            .unwrap()
+        self.storage()
             .set_item(&key, &value)
-            .unwrap();
+            .expect("Failed to write to local storage");
         Ok(())
     }
 
     fn read(&self, key: String) -> Result<Option<Vec<u8>>, String> {
         let key = format!("xmtp_{}", key);
-        println!("Reading from local storage: {}", key);
-        let value = web_sys::window()
-            .unwrap()
-            .local_storage()
-            .unwrap()
-            .unwrap()
+        let value = self
+            .storage()
             .get_item(&key)
-            .unwrap();
+            .expect("Failed to read from local storage");
         if value.is_none() {
             return Ok(None);
         }
@@ -65,7 +62,7 @@ pub fn client_create() -> usize {
             .persistence(LocalStoragePersistence::new())
             .wallet_address("unknown".to_string())
             .build()
-            .unwrap(),
+            .expect("Failed to create client"),
     );
     clients.len() - 1
 }
@@ -91,13 +88,13 @@ pub fn client_read_from_persistence(
     client.read_from_persistence(key)
 }
 
-#[wasm_bindgen]
-pub fn e2e_test(word: &str) -> String {
-    let key = "test";
-    let value = word.to_string();
-    let bytes = value.as_bytes();
-    write_wrapper(key, bytes);
-    let result = read_wrapper(key);
-    let result = String::from_utf8(result).unwrap();
-    result
-}
+// #[wasm_bindgen]
+// pub fn e2e_test(word: &str) -> String {
+//     let key = "test";
+//     let value = word.to_string();
+//     let bytes = value.as_bytes();
+//     write_wrapper(key, bytes);
+//     let result = read_wrapper(key);
+//     let result = String::from_utf8(result).unwrap();
+//     result
+// }

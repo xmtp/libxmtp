@@ -157,6 +157,7 @@ dependencies = [
  "rand 0.7.3",
  "wasm-bindgen",
  "wasm-bindgen-test",
+ "web-sys",
  "xmtp",
 ]
 

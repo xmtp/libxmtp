@@ -9,4 +9,9 @@ npm run build
 popd
 cp -r ../dist dist
 
-python -m http.server 9099
+python3 -m http.server 9099 &
+serverPID=$!
+echo "Running tests in browser..."
+open http://localhost:9099
+sleep 5
+kill $serverPID
