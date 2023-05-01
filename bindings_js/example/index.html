@@ -4,17 +4,22 @@
         <meta content="text/html;charset=utf-8" http-equiv="Content-Type"/>
     </head>
     <body>
-        <p id="pid">Running tests...</p>
+        <p id="preamble">Running test...</p>
+        <p id="result"></p>
 
         <script type="module">
             import { Client } from './dist/es/index.js';
 
             async function run() {
-		            Client.resetAll();
-		            var client = await Client.create();
-
-	              client.writeToPersistence("foo", [65, 65, 65]);
-                document.getElementById("pid").innerText = client.readFromPersistence("foo");
+		        Client.resetAll();
+		        let client = await Client.create();
+                let input = [65, 65, 65];
+	            client.writeToPersistence("foo", input);
+                if (client.readFromPersistence("foo").toString() === input.toString()) {
+                    document.getElementById("result").innerText = "Test passed!";
+                } else {
+                    document.getElementById("result").innerText = "Test failed";
+                }
             }
             run();
         </script>
