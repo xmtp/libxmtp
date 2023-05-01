@@ -3,31 +3,26 @@ pub trait Persistence {
     fn read(&self, key: String) -> Result<Option<Vec<u8>>, String>;
 }
 
-pub struct InMemoryPersistence {
-    data: std::collections::HashMap<String, Vec<u8>>,
+pub struct NamespacedPersistence<P: Persistence> {
+    pub namespace: String,
+    pub persistence: P,
 }
 
-impl InMemoryPersistence {
-    pub fn new() -> Self {
-        InMemoryPersistence {
-            data: std::collections::HashMap::new(),
+impl<P: Persistence> NamespacedPersistence<P> {
+    pub fn new(namespace: &str, persistence: P) -> Self {
+        NamespacedPersistence {
+            namespace: namespace.to_string(),
+            persistence,
         }
     }
-}
 
-impl Default for InMemoryPersistence {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-impl Persistence for InMemoryPersistence {
-    fn write(&mut self, key: String, value: &[u8]) -> Result<(), String> {
-        self.data.insert(key, value.to_vec());
-        Ok(())
+    pub fn write(&mut self, key: &str, value: &[u8]) -> Result<(), String> {
+        let key = format!("{}/{}", self.namespace, key);
+        self.persistence.write(key, value)
     }
 
-    fn read(&self, key: String) -> Result<Option<Vec<u8>>, String> {
-        Ok(self.data.get(&key).cloned())
+    pub fn read(&self, key: &str) -> Result<Option<Vec<u8>>, String> {
+        let key = format!("{}/{}", self.namespace, key);
+        self.persistence.read(key)
     }
 }
