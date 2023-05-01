@@ -11,8 +11,8 @@
             import { Client } from './dist/es/index.js';
 
             async function run() {
-		        Client.resetAll();
-		        let client = await Client.create();
+                Client.resetAll();
+                let client = await Client.create();
                 let input = [65, 65, 65];
 	            client.writeToPersistence("foo", input);
                 if (client.readFromPersistence("foo").toString() === input.toString()) {
