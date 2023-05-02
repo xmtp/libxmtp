@@ -1,3 +1,4 @@
+use base64::{engine::general_purpose, Engine as _};
 use xmtp::persistence::Persistence;
 
 pub struct LocalStoragePersistence {}
@@ -24,7 +25,7 @@ impl Default for LocalStoragePersistence {
 
 impl Persistence for LocalStoragePersistence {
     fn write(&mut self, key: &str, value: &[u8]) -> Result<(), String> {
-        let value = String::from_utf8(value.to_vec()).unwrap();
+        let value = general_purpose::STANDARD.encode(value);
         self.storage()
             .set_item(key, &value)
             .expect("Failed to write to local storage");
@@ -40,6 +41,7 @@ impl Persistence for LocalStoragePersistence {
             return Ok(None);
         }
         let value = value.unwrap();
-        Ok(Some(value.as_bytes().to_vec()))
+        let value = general_purpose::STANDARD.decode(value).unwrap();
+        Ok(Some(value))
     }
 }
