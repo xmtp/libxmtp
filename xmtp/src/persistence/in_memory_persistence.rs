@@ -1,7 +1,4 @@
-pub trait Persistence {
-    fn write(&mut self, key: String, value: &[u8]) -> Result<(), String>;
-    fn read(&self, key: String) -> Result<Option<Vec<u8>>, String>;
-}
+use crate::persistence::Persistence;
 
 pub struct InMemoryPersistence {
     data: std::collections::HashMap<String, Vec<u8>>,
@@ -22,12 +19,12 @@ impl Default for InMemoryPersistence {
 }
 
 impl Persistence for InMemoryPersistence {
-    fn write(&mut self, key: String, value: &[u8]) -> Result<(), String> {
-        self.data.insert(key, value.to_vec());
+    fn write(&mut self, key: &str, value: &[u8]) -> Result<(), String> {
+        self.data.insert(key.to_string(), value.to_vec());
         Ok(())
     }
 
-    fn read(&self, key: String) -> Result<Option<Vec<u8>>, String> {
-        Ok(self.data.get(&key).cloned())
+    fn read(&self, key: &str) -> Result<Option<Vec<u8>>, String> {
+        Ok(self.data.get(&key.to_string()).cloned())
     }
 }

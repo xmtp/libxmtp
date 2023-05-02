@@ -23,20 +23,18 @@ impl Default for LocalStoragePersistence {
 }
 
 impl Persistence for LocalStoragePersistence {
-    fn write(&mut self, key: String, value: &[u8]) -> Result<(), String> {
+    fn write(&mut self, key: &str, value: &[u8]) -> Result<(), String> {
         let value = String::from_utf8(value.to_vec()).unwrap();
-        let key = format!("xmtp_{}", key);
         self.storage()
-            .set_item(&key, &value)
+            .set_item(key, &value)
             .expect("Failed to write to local storage");
         Ok(())
     }
 
-    fn read(&self, key: String) -> Result<Option<Vec<u8>>, String> {
-        let key = format!("xmtp_{}", key);
+    fn read(&self, key: &str) -> Result<Option<Vec<u8>>, String> {
         let value = self
             .storage()
-            .get_item(&key)
+            .get_item(key)
             .expect("Failed to read from local storage");
         if value.is_none() {
             return Ok(None);

@@ -1,7 +1,7 @@
 use crate::{
     account::VmacAccount,
     client::{Client, Network},
-    persistence::Persistence,
+    persistence::{NamespacedPersistence, Persistence},
 };
 
 #[derive(Default)]
@@ -41,18 +41,11 @@ where
         self
     }
 
-    fn find_or_create_account(&mut self) -> Result<VmacAccount, String> {
-        let wallet_address = self
-            .wallet_address
-            .as_ref()
-            .ok_or_else(|| "Wallet address must be set before setting the account".to_string())?;
-
-        let key = get_account_storage_key(wallet_address.to_string());
-        let persistence = self.persistence.as_ref().ok_or_else(|| {
-            "Persistence engine must be set before setting the account".to_string()
-        })?;
-
-        let existing = persistence.read(key.clone());
+    fn find_or_create_account(
+        persistence: &mut NamespacedPersistence<P>,
+    ) -> Result<VmacAccount, String> {
+        let key = "vmac_account";
+        let existing = persistence.read(key);
         match existing {
             Ok(Some(data)) => {
                 let data_string = std::str::from_utf8(&data).map_err(|e| format!("{}", e))?;
@@ -63,12 +56,7 @@ where
             Ok(None) => {
                 let account = VmacAccount::generate();
                 let data = serde_json::to_string(&account).map_err(|e| format!("{}", e))?;
-
-                self.persistence
-                    .as_mut()
-                    .unwrap()
-                    .write(key, data.as_bytes())?;
-
+                persistence.write(key, data.as_bytes())?;
                 Ok(account)
             }
             Err(e) => Err(format!("Failed to read from persistence: {}", e)),
@@ -76,11 +64,17 @@ where
     }
 
     pub fn build(&mut self) -> Result<Client<P>, String> {
-        let account = self.find_or_create_account()?;
+        let wallet_address = self
+            .wallet_address
+            .as_ref()
+            .ok_or_else(|| "Wallet address must be set before setting the account".to_string())?;
         let persistence = self
             .persistence
             .take()
             .expect("Persistence engine must be set");
+        let mut persistence =
+            NamespacedPersistence::new(&get_account_namespace(wallet_address), persistence);
+        let account = Self::find_or_create_account(&mut persistence)?;
 
         Ok(Client {
             network: self.network,
@@ -90,14 +84,14 @@ where
     }
 }
 
-pub fn get_account_storage_key(wallet_address: String) -> String {
-    format!("account_{}", wallet_address)
+fn get_account_namespace(wallet_address: &str) -> String {
+    format!("xmtp/account_{}", wallet_address)
 }
 
 #[cfg(test)]
 mod tests {
 
-    use crate::{client::Network, persistence::InMemoryPersistence};
+    use crate::{client::Network, persistence::in_memory_persistence::InMemoryPersistence};
 
     use super::ClientBuilder;
 
@@ -131,7 +125,7 @@ mod tests {
             .unwrap();
 
         let client_b = ClientBuilder::new()
-            .persistence(client_a.persistence)
+            .persistence(client_a.persistence.persistence)
             .wallet_address("foo".to_string())
             .build()
             .unwrap();

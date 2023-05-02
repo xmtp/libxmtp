@@ -24,7 +24,7 @@ pub fn client_create() -> usize {
 #[wasm_bindgen]
 pub fn client_write_to_persistence(
     client_id: usize,
-    key: String,
+    key: &str,
     value: &[u8],
 ) -> Result<(), String> {
     let mut clients = CLIENT_LIST.lock().unwrap();
@@ -35,7 +35,7 @@ pub fn client_write_to_persistence(
 #[wasm_bindgen]
 pub fn client_read_from_persistence(
     client_id: usize,
-    key: String,
+    key: &str,
 ) -> Result<Option<Vec<u8>>, String> {
     let mut clients = CLIENT_LIST.lock().unwrap();
     let client = clients.get_mut(client_id).expect("Client not found");
