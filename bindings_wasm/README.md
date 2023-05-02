@@ -6,4 +6,4 @@ This code is still under development.
 
 - cd `bindings_wasm`
 - Run `npm run build` to build the rust crate and Node.js bindings.
-- Run `./test.sh` to run headless browser tests
+- Run `./run_tests.sh` to run headless browser tests
