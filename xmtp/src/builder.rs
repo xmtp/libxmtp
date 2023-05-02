@@ -43,7 +43,7 @@ where
 
     fn find_or_create_account(
         persistence: &mut NamespacedPersistence<P>,
-    ) -> Result<VmacAccount, String> {
+    ) -> Result<VmacAccount, P::Error> {
         let key = "vmac_account";
         let existing = persistence.read(key);
         match existing {
@@ -59,11 +59,11 @@ where
                 persistence.write(key, data.as_bytes())?;
                 Ok(account)
             }
-            Err(e) => Err(format!("Failed to read from persistence: {}", e)),
+            Err(e) => Err(e),
         }
     }
 
-    pub fn build(&mut self) -> Result<Client<P>, String> {
+    pub fn build(&mut self) -> Result<Client<P>, P::Error> {
         let wallet_address = self
             .wallet_address
             .as_ref()

@@ -1,8 +1,9 @@
 pub mod in_memory_persistence;
 
 pub trait Persistence {
-    fn write(&mut self, key: &str, value: &[u8]) -> Result<(), String>;
-    fn read(&self, key: &str) -> Result<Option<Vec<u8>>, String>;
+    type Error;
+    fn write(&mut self, key: &str, value: &[u8]) -> Result<(), Self::Error>;
+    fn read(&self, key: &str) -> Result<Option<Vec<u8>>, Self::Error>;
 }
 
 pub struct NamespacedPersistence<P: Persistence> {
@@ -18,12 +19,12 @@ impl<P: Persistence> NamespacedPersistence<P> {
         }
     }
 
-    pub fn write(&mut self, key: &str, value: &[u8]) -> Result<(), String> {
+    pub fn write(&mut self, key: &str, value: &[u8]) -> Result<(), P::Error> {
         let key = format!("{}/{}", self.namespace, key);
         self.persistence.write(&key, value)
     }
 
-    pub fn read(&self, key: &str) -> Result<Option<Vec<u8>>, String> {
+    pub fn read(&self, key: &str) -> Result<Option<Vec<u8>>, P::Error> {
         let key = format!("{}/{}", self.namespace, key);
         self.persistence.read(&key)
     }
