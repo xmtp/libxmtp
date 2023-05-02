@@ -1,7 +1,6 @@
 pub mod account;
 pub mod builder;
 pub mod client;
-pub mod in_memory_persistence;
 pub mod persistence;
 pub mod vmac_protos;
 

@@ -45,7 +45,7 @@ where
         persistence: &mut NamespacedPersistence<P>,
     ) -> Result<VmacAccount, String> {
         let key = "vmac_account";
-        let existing = persistence.read(&key);
+        let existing = persistence.read(key);
         match existing {
             Ok(Some(data)) => {
                 let data_string = std::str::from_utf8(&data).map_err(|e| format!("{}", e))?;
@@ -56,7 +56,7 @@ where
             Ok(None) => {
                 let account = VmacAccount::generate();
                 let data = serde_json::to_string(&account).map_err(|e| format!("{}", e))?;
-                persistence.write(&key, data.as_bytes())?;
+                persistence.write(key, data.as_bytes())?;
                 Ok(account)
             }
             Err(e) => Err(format!("Failed to read from persistence: {}", e)),
@@ -91,7 +91,7 @@ fn get_account_namespace(wallet_address: &str) -> String {
 #[cfg(test)]
 mod tests {
 
-    use crate::{client::Network, in_memory_persistence::InMemoryPersistence};
+    use crate::{client::Network, persistence::in_memory_persistence::InMemoryPersistence};
 
     use super::ClientBuilder;
 

@@ -1,3 +1,5 @@
+pub mod in_memory_persistence;
+
 pub trait Persistence {
     fn write(&mut self, key: &str, value: &[u8]) -> Result<(), String>;
     fn read(&self, key: &str) -> Result<Option<Vec<u8>>, String>;
