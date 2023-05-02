@@ -1,10 +1,11 @@
-use std::sync::Mutex;
+mod local_storage_persistence;
 
+use local_storage_persistence::LocalStoragePersistence;
+use std::sync::Mutex;
 use wasm_bindgen::prelude::*;
-use xmtp::persistence::InMemoryPersistence;
 use xmtp::{Client, ClientBuilder};
 
-static CLIENT_LIST: Mutex<Vec<Client<InMemoryPersistence>>> = Mutex::new(Vec::new());
+static CLIENT_LIST: Mutex<Vec<Client<LocalStoragePersistence>>> = Mutex::new(Vec::new());
 
 #[wasm_bindgen]
 pub fn client_create() -> usize {
@@ -12,10 +13,10 @@ pub fn client_create() -> usize {
     let mut clients = CLIENT_LIST.lock().unwrap();
     clients.push(
         ClientBuilder::new()
-            .persistence(InMemoryPersistence::new())
+            .persistence(LocalStoragePersistence::new())
             .wallet_address("unknown".to_string())
             .build()
-            .unwrap(),
+            .expect("Failed to create client"),
     );
     clients.len() - 1
 }
