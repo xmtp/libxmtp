@@ -21,11 +21,11 @@ where
 }
 
 impl<P: Persistence> Client<P> {
-    pub fn write_to_persistence(&mut self, s: &str, b: &[u8]) -> Result<(), String> {
+    pub fn write_to_persistence(&mut self, s: &str, b: &[u8]) -> Result<(), P::Error> {
         self.persistence.write(s, b)
     }
 
-    pub fn read_from_persistence(&self, s: &str) -> Result<Option<Vec<u8>>, String> {
+    pub fn read_from_persistence(&self, s: &str) -> Result<Option<Vec<u8>>, P::Error> {
         self.persistence.read(s)
     }
 }
