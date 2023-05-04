@@ -46,7 +46,7 @@ This example branch can serve as the basis for what you might want to provide fo
 
 ## Update the example app to send push notifications
 
-1. Copy the contents of `google-services.json` into the example app's `google-services.json` file, if you haven't already done it as a part of the FCM project creation process.
+1. Add your `google-services.json` file to the `example` folder, if you haven't already done it as a part of the FCM project creation process.
 
 2. Uncomment `id 'com.google.gms.google-services'` in the example app's `build.gradle` file.
 

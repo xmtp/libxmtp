@@ -57,7 +57,9 @@ object PushNotificationTokenManager {
 
     internal fun syncPushNotificationsToken(token: String) {
         if (xmtpPushState.value is XMTPPushState.Ready) {
-            runBlocking { xmtpPush.register(token) }
+            runBlocking {
+                xmtpPush.register(token)
+            }
         }
     }
 

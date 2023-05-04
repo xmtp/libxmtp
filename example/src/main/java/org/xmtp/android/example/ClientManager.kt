@@ -13,7 +13,7 @@ import org.xmtp.android.library.messages.PrivateKeyBundleV1Builder
 
 object ClientManager {
 
-    val CLIENT_OPTIONS = ClientOptions(api = ClientOptions.Api(XMTPEnvironment.PRODUCTION))
+    val CLIENT_OPTIONS = ClientOptions(api = ClientOptions.Api(XMTPEnvironment.DEV))
 
     private val _clientState = MutableStateFlow<ClientState>(ClientState.Unknown)
     val clientState: StateFlow<ClientState> = _clientState
