@@ -156,6 +156,7 @@ dependencies = [
  "getrandom 0.2.9",
  "js-sys",
  "rand 0.7.3",
+ "thiserror",
  "wasm-bindgen",
  "wasm-bindgen-test",
  "web-sys",
