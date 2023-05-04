@@ -10,10 +10,10 @@ pub enum ClientBuilderError<PE> {
     #[error("Missing parameter: {parameter}")]
     MissingParameterError { parameter: &'static str },
 
-    #[error("Failed to serialize/deserialize state for persistence")]
-    SerializationError(#[from] serde_json::Error),
+    #[error("Failed to serialize/deserialize state for persistence: {source}")]
+    SerializationError { source: serde_json::Error },
 
-    #[error("Failed to read/write state to persistence")]
+    #[error("Failed to read/write state to persistence: {source}")]
     PersistenceError { source: PE },
 }
 
@@ -67,13 +67,15 @@ where
                 // Remove expect() afterwards
                 let data_string = std::str::from_utf8(&data)
                     .expect("Data read from persistence is not valid UTF-8");
-                let account: VmacAccount = serde_json::from_str(data_string)?;
+                let account: VmacAccount = serde_json::from_str(data_string)
+                    .map_err(|source| ClientBuilderError::SerializationError { source })?;
                 Ok(account)
             }
             None => {
                 let account = VmacAccount::generate();
                 // TODO: use proto bytes instead of string here (or use base64 instead of utf8)
-                let data = serde_json::to_string(&account)?;
+                let data = serde_json::to_string(&account)
+                    .map_err(|source| ClientBuilderError::SerializationError { source })?;
                 persistence
                     .write(key, data.as_bytes())
                     .map_err(|source| ClientBuilderError::PersistenceError { source })?;
