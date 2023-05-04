@@ -11,6 +11,7 @@ pub enum LocalStoragePersistenceError {
     #[error("Failed to deserialize from local storage")]
     DeserializationError(#[from] base64::DecodeError),
 }
+
 pub struct LocalStoragePersistence {}
 
 impl LocalStoragePersistence {
