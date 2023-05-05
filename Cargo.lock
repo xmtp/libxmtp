@@ -2447,9 +2447,11 @@ dependencies = [
 name = "xmtp"
 version = "0.1.0"
 dependencies = [
+ "prost",
  "serde",
  "serde_json",
  "vodozemac",
+ "xmtp_networking",
  "xmtp_proto",
 ]
 

@@ -13,7 +13,9 @@ impl VmacAccount {
     }
 
     pub fn generate() -> Self {
-        Self::new(Account::new())
+        let mut acc = Account::new();
+        acc.generate_fallback_key();
+        Self::new(acc) 
     }
 }
 

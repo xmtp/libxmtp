@@ -3,9 +3,10 @@ mod local_storage_persistence;
 use local_storage_persistence::LocalStoragePersistence;
 use std::sync::Mutex;
 use wasm_bindgen::prelude::*;
-use xmtp::{Client, ClientBuilder};
+use xmtp::{networking::MockXmtpApiClient, Client, ClientBuilder};
 
-static CLIENT_LIST: Mutex<Vec<Client<LocalStoragePersistence>>> = Mutex::new(Vec::new());
+static CLIENT_LIST: Mutex<Vec<Client<LocalStoragePersistence, MockXmtpApiClient>>> =
+    Mutex::new(Vec::new());
 
 #[wasm_bindgen]
 pub fn client_create() -> usize {

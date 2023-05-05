@@ -1,6 +1,8 @@
 use crate::{
     account::VmacAccount,
     client::{Client, Network},
+    constants::ACCOUNT_PERSISTENCE_KEY,
+    networking::MockXmtpApiClient,
     persistence::{NamespacedPersistence, Persistence},
 };
 
@@ -44,8 +46,7 @@ where
     fn find_or_create_account(
         persistence: &mut NamespacedPersistence<P>,
     ) -> Result<VmacAccount, String> {
-        let key = "vmac_account";
-        let existing = persistence.read(key);
+        let existing = persistence.read(ACCOUNT_PERSISTENCE_KEY);
         match existing {
             Ok(Some(data)) => {
                 let data_string = std::str::from_utf8(&data).map_err(|e| format!("{}", e))?;
@@ -56,14 +57,14 @@ where
             Ok(None) => {
                 let account = VmacAccount::generate();
                 let data = serde_json::to_string(&account).map_err(|e| format!("{}", e))?;
-                persistence.write(key, data.as_bytes())?;
+                persistence.write(ACCOUNT_PERSISTENCE_KEY, data.as_bytes())?;
                 Ok(account)
             }
             Err(e) => Err(format!("Failed to read from persistence: {}", e)),
         }
     }
 
-    pub fn build(&mut self) -> Result<Client<P>, String> {
+    pub fn build(&mut self) -> Result<Client<P, MockXmtpApiClient>, String> {
         let wallet_address = self
             .wallet_address
             .as_ref()
@@ -80,6 +81,9 @@ where
             network: self.network,
             persistence,
             account,
+            wallet_address: wallet_address.clone(),
+            // TODO: Replace with real client and set address from the network
+            api_client: Box::new(MockXmtpApiClient::new()),
         })
     }
 }
