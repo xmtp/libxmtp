@@ -1,0 +1,7 @@
+#!/bin/bash
+set -eou pipefail
+
+markdownlint \
+    "**/*.md" \
+    --disable MD001 MD013 \
+    "$@"

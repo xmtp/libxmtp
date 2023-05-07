@@ -1,0 +1,9 @@
+#!/bin/bash
+set -eou pipefail
+
+rustup component add clippy
+
+dev/lint-shellcheck
+dev/lint-markdown
+
+cargo clippy
