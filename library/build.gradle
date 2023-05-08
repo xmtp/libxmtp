@@ -5,6 +5,11 @@ plugins {
     id 'org.jetbrains.kotlin.android'
     id 'com.google.protobuf' version '0.9.1'
     id "org.jlleitschuh.gradle.ktlint" version "11.0.0"
+    id 'org.jetbrains.dokka'
+}
+
+dokkaGfmPartial {
+    outputDirectory.set(file("build/docs/partial"))
 }
 
 android {
