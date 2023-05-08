@@ -22,6 +22,7 @@ It pairs with [xmtp-rust-swift](https://github.com/xmtp/xmtp-rust-swift) which i
 - Run `make swift` to build local crate, generate Swift bindings, package the xcframework, and push all files to `../xmtp-rust-swift`
 
 ### Just xcframework
+
 - Run `make framework`
 
 ## Optional Steps for xmtp-ios integration
@@ -31,8 +32,10 @@ It pairs with [xmtp-rust-swift](https://github.com/xmtp/xmtp-rust-swift) which i
 - Open Xcode, then open the `xmtp-ios` folder at the top-level in Xcode
 - Follow README.md there to get Xcode roughly set up
 - Go to `Package.swift` and find the dependencies section. Add:
-```
+
+```swift
         .package(url: "../xmtp-rust-swift/", branch: "your-local-branch")
 ```
+
 - Make a local commit in xmtp-rust-swift (must be a commit to get picked up by Swift Package) and reference it in Xcode
 - Note: commits to the same branch will not be picked up by Xcode, you must right-click the Swift package and do "Update Package"
