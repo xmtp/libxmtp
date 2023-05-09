@@ -7,18 +7,19 @@ use xmtp::{Client, ClientBuilder};
 
 static CLIENT_LIST: Mutex<Vec<Client<LocalStoragePersistence>>> = Mutex::new(Vec::new());
 
+// TODO: Custom JS Error subclasses (https://github.com/xmtp/libxmtp/issues/104)
+
 #[wasm_bindgen]
-pub fn client_create() -> usize {
+pub fn client_create() -> Result<usize, JsError> {
     console_error_panic_hook::set_once();
     let mut clients = CLIENT_LIST.lock().unwrap();
     clients.push(
         ClientBuilder::new()
             .persistence(LocalStoragePersistence::new())
             .wallet_address("unknown".to_string())
-            .build()
-            .expect("Failed to create client"),
+            .build()?,
     );
-    clients.len() - 1
+    Ok(clients.len() - 1)
 }
 
 #[wasm_bindgen]
@@ -26,18 +27,20 @@ pub fn client_write_to_persistence(
     client_id: usize,
     key: &str,
     value: &[u8],
-) -> Result<(), String> {
+) -> Result<(), JsError> {
     let mut clients = CLIENT_LIST.lock().unwrap();
     let client = clients.get_mut(client_id).expect("Client not found");
-    client.write_to_persistence(key, value)
+    client.write_to_persistence(key, value)?;
+    Ok(())
 }
 
 #[wasm_bindgen]
 pub fn client_read_from_persistence(
     client_id: usize,
     key: &str,
-) -> Result<Option<Vec<u8>>, String> {
+) -> Result<Option<Vec<u8>>, JsError> {
     let mut clients = CLIENT_LIST.lock().unwrap();
     let client = clients.get_mut(client_id).expect("Client not found");
-    client.read_from_persistence(key)
+    let value = client.read_from_persistence(key)?;
+    Ok(value)
 }

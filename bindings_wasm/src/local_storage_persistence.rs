@@ -1,4 +1,16 @@
+use base64::{engine::general_purpose, Engine as _};
+use thiserror::Error;
+use wasm_bindgen::JsValue;
 use xmtp::persistence::Persistence;
+
+#[derive(Error, Debug)]
+pub enum LocalStoragePersistenceError {
+    #[error("Failed to read/write from local storage")]
+    ReadWriteError { native_error: JsValue },
+
+    #[error("Failed to deserialize from local storage")]
+    DeserializationError(#[from] base64::DecodeError),
+}
 
 pub struct LocalStoragePersistence {}
 
@@ -23,23 +35,24 @@ impl Default for LocalStoragePersistence {
 }
 
 impl Persistence for LocalStoragePersistence {
-    fn write(&mut self, key: &str, value: &[u8]) -> Result<(), String> {
-        let value = String::from_utf8(value.to_vec()).unwrap();
+    type Error = LocalStoragePersistenceError;
+
+    fn write(&mut self, key: &str, value: &[u8]) -> Result<(), Self::Error> {
+        let value = general_purpose::STANDARD.encode(value);
         self.storage()
             .set_item(key, &value)
-            .expect("Failed to write to local storage");
-        Ok(())
+            .map_err(|native_error| LocalStoragePersistenceError::ReadWriteError { native_error })
     }
 
-    fn read(&self, key: &str) -> Result<Option<Vec<u8>>, String> {
-        let value = self
-            .storage()
-            .get_item(key)
-            .expect("Failed to read from local storage");
+    fn read(&self, key: &str) -> Result<Option<Vec<u8>>, Self::Error> {
+        let value = self.storage().get_item(key).map_err(|native_error| {
+            LocalStoragePersistenceError::ReadWriteError { native_error }
+        })?;
         if value.is_none() {
             return Ok(None);
         }
         let value = value.unwrap();
-        Ok(Some(value.as_bytes().to_vec()))
+        let value = general_purpose::STANDARD.decode(value)?;
+        Ok(Some(value))
     }
 }

@@ -19,12 +19,14 @@ impl Default for InMemoryPersistence {
 }
 
 impl Persistence for InMemoryPersistence {
-    fn write(&mut self, key: &str, value: &[u8]) -> Result<(), String> {
+    type Error = ();
+
+    fn write(&mut self, key: &str, value: &[u8]) -> Result<(), Self::Error> {
         self.data.insert(key.to_string(), value.to_vec());
         Ok(())
     }
 
-    fn read(&self, key: &str) -> Result<Option<Vec<u8>>, String> {
+    fn read(&self, key: &str) -> Result<Option<Vec<u8>>, Self::Error> {
         Ok(self.data.get(&key.to_string()).cloned())
     }
 }

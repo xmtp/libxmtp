@@ -3,6 +3,19 @@ use crate::{
     client::{Client, Network},
     persistence::{NamespacedPersistence, Persistence},
 };
+use thiserror::Error;
+
+#[derive(Error, Debug)]
+pub enum ClientBuilderError<PE> {
+    #[error("Missing parameter: {parameter}")]
+    MissingParameterError { parameter: &'static str },
+
+    #[error("Failed to serialize/deserialize state for persistence: {source}")]
+    SerializationError { source: serde_json::Error },
+
+    #[error("Failed to read/write state to persistence: {source}")]
+    PersistenceError { source: PE },
+}
 
 #[derive(Default)]
 pub struct ClientBuilder<P>
@@ -43,35 +56,47 @@ where
 
     fn find_or_create_account(
         persistence: &mut NamespacedPersistence<P>,
-    ) -> Result<VmacAccount, String> {
+    ) -> Result<VmacAccount, ClientBuilderError<P::Error>> {
         let key = "vmac_account";
-        let existing = persistence.read(key);
+        let existing = persistence
+            .read(key)
+            .map_err(|source| ClientBuilderError::PersistenceError { source })?;
         match existing {
-            Ok(Some(data)) => {
-                let data_string = std::str::from_utf8(&data).map_err(|e| format!("{}", e))?;
-                let account: VmacAccount =
-                    serde_json::from_str(data_string).map_err(|e| format!("{}", e))?;
+            Some(data) => {
+                // TODO: use proto bytes instead of string here (or use base64 instead of utf8)
+                // Remove expect() afterwards
+                let data_string = std::str::from_utf8(&data)
+                    .expect("Data read from persistence is not valid UTF-8");
+                let account: VmacAccount = serde_json::from_str(data_string)
+                    .map_err(|source| ClientBuilderError::SerializationError { source })?;
                 Ok(account)
             }
-            Ok(None) => {
+            None => {
                 let account = VmacAccount::generate();
-                let data = serde_json::to_string(&account).map_err(|e| format!("{}", e))?;
-                persistence.write(key, data.as_bytes())?;
+                // TODO: use proto bytes instead of string here (or use base64 instead of utf8)
+                let data = serde_json::to_string(&account)
+                    .map_err(|source| ClientBuilderError::SerializationError { source })?;
+                persistence
+                    .write(key, data.as_bytes())
+                    .map_err(|source| ClientBuilderError::PersistenceError { source })?;
                 Ok(account)
             }
-            Err(e) => Err(format!("Failed to read from persistence: {}", e)),
         }
     }
 
-    pub fn build(&mut self) -> Result<Client<P>, String> {
-        let wallet_address = self
-            .wallet_address
-            .as_ref()
-            .ok_or_else(|| "Wallet address must be set before setting the account".to_string())?;
-        let persistence = self
-            .persistence
-            .take()
-            .expect("Persistence engine must be set");
+    pub fn build(&mut self) -> Result<Client<P>, ClientBuilderError<P::Error>> {
+        let wallet_address =
+            self.wallet_address
+                .as_ref()
+                .ok_or(ClientBuilderError::MissingParameterError {
+                    parameter: "wallet_address",
+                })?;
+        let persistence =
+            self.persistence
+                .take()
+                .ok_or(ClientBuilderError::MissingParameterError {
+                    parameter: "persistence",
+                })?;
         let mut persistence =
             NamespacedPersistence::new(&get_account_namespace(wallet_address), persistence);
         let account = Self::find_or_create_account(&mut persistence)?;
@@ -91,7 +116,10 @@ fn get_account_namespace(wallet_address: &str) -> String {
 #[cfg(test)]
 mod tests {
 
-    use crate::{client::Network, persistence::in_memory_persistence::InMemoryPersistence};
+    use crate::{
+        builder::ClientBuilderError, client::Network,
+        persistence::in_memory_persistence::InMemoryPersistence,
+    };
 
     use super::ClientBuilder;
 
@@ -138,11 +166,13 @@ mod tests {
     }
 
     #[test]
-    #[should_panic]
-    fn test_runtime_panic() {
-        ClientBuilder::<InMemoryPersistence>::new()
+    fn test_error_result() {
+        let e = ClientBuilder::<InMemoryPersistence>::new()
             .network(Network::Dev)
-            .build()
-            .unwrap();
+            .build();
+        match e {
+            Err(ClientBuilderError::MissingParameterError { parameter: _ }) => {}
+            _ => panic!("Should error with MissingParameterError type"),
+        }
     }
 }
