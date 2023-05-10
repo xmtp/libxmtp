@@ -112,6 +112,29 @@ impl Account {
     }
 }
 
+pub struct AccountFactory {
+    keys: Vec<VmacAccount>,
+    f: Box<dyn Fn(Vec<u8>) -> Association + Send>,
+}
+
+impl AccountFactory {
+    pub fn new(f: impl Fn(Vec<u8>) -> Association + 'static) -> Self {
+        let a = Vec::new();
+        Self {
+            keys: a,
+            f: Box::new(f),
+        }
+    }
+
+    pub fn gen_key(&mut self) -> Association {
+        let key = VmacAccount::generate();
+        let l = key.bytes_to_sign();
+
+        self.keys.push(key);
+        return (*self.f)(l);
+    }
+}
+
 pub fn test_wallet_signer(_: Vec<u8>) -> Association {
     Association::test()
 }
@@ -120,7 +143,9 @@ pub fn test_wallet_signer(_: Vec<u8>) -> Association {
 mod tests {
     use serde_json::json;
 
-    use super::{test_wallet_signer, Account};
+    use crate::account::Association;
+
+    use super::{test_wallet_signer, Account, AccountFactory};
 
     #[test]
     fn account_serialize() {
@@ -132,5 +157,13 @@ mod tests {
 
         let recovered_account: Account = serde_json::from_str(&serialized_account).unwrap();
         assert_eq!(account.addr(), recovered_account.addr());
+    }
+
+    #[test]
+    fn account_generate() {
+        let mut factory = AccountFactory::new(|v| test_wallet_signer(v));
+        let association = factory.gen_key();
+
+        assert_eq!(association, Association::test())
     }
 }
