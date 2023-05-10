@@ -1,17 +1,16 @@
 mod local_storage_persistence;
 
 use base64::{engine::general_purpose, Engine as _};
-use js_sys::{Float32Array, Uint8Array};
 use local_storage_persistence::LocalStoragePersistence;
-use std::{error::Error, sync::Mutex};
+use std::sync::Mutex;
 use wasm_bindgen::prelude::*;
 use xmtp::{
-    account::{Account, AccountFactory, Association},
+    account::{Account, AccountCreator},
     Client, ClientBuilder, Signable,
 };
 
 static CLIENT_LIST: Mutex<Vec<Client<LocalStoragePersistence>>> = Mutex::new(Vec::new());
-static ACCOUNT_FACTORY: Mutex<Vec<Account>> = Mutex::new(Vec::new());
+static ACCOUNTS: Mutex<Vec<Account>> = Mutex::new(Vec::new());
 
 // TODO: Custom JS Error subclasses (https://github.com/xmtp/libxmtp/issues/104)
 
@@ -65,16 +64,16 @@ pub fn client_read_from_persistence(
 pub fn register(f: js_sys::Function) -> Result<usize, JsError> {
     console_error_panic_hook::set_once();
 
-    let af = AccountFactory::new();
-    let key_bytes = to_base64(af.bytes_to_sign());
+    let account_creator = AccountCreator::new();
+    let key_bytes = to_base64(account_creator.bytes_to_sign());
     let sig = f
         .call1(&JsValue::NULL, &JsValue::from_str(&key_bytes))
         .unwrap()
         .as_string()
         .unwrap();
 
-    let account = af.finalize_key(from_base64(&sig)?);
-    let mut accounts = ACCOUNT_FACTORY.lock().unwrap();
+    let account = account_creator.finalize_key(from_base64(&sig)?);
+    let mut accounts = ACCOUNTS.lock().unwrap();
     accounts.push(account);
     Ok(accounts.len() - 1)
 }

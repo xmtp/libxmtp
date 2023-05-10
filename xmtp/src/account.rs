@@ -112,11 +112,11 @@ impl Account {
     }
 }
 
-pub struct AccountFactory {
+pub struct AccountCreator {
     key: VmacAccount,
 }
 
-impl AccountFactory {
+impl AccountCreator {
     pub fn new() -> Self {
         Self {
             key: VmacAccount::generate(),
@@ -128,7 +128,7 @@ impl AccountFactory {
     }
 }
 
-impl Signable for AccountFactory {
+impl Signable for AccountCreator {
     fn bytes_to_sign(&self) -> Vec<u8> {
         self.key.bytes_to_sign()
     }
@@ -144,7 +144,7 @@ mod tests {
 
     use crate::{account::Association, Signable};
 
-    use super::{test_wallet_signer, Account, AccountFactory};
+    use super::{test_wallet_signer, Account, AccountCreator};
 
     #[test]
     fn account_serialize() {
@@ -160,9 +160,9 @@ mod tests {
 
     #[test]
     fn account_generate() {
-        let factory = AccountFactory::new();
-        let _ = factory.bytes_to_sign();
-        let account = factory.finalize_key(vec![11, 22, 33]);
+        let ac = AccountCreator::new();
+        let _ = ac.bytes_to_sign();
+        let account = ac.finalize_key(vec![11, 22, 33]);
 
         assert_eq!(account.assoc, Association::test())
     }
