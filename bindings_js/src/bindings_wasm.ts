@@ -69,6 +69,16 @@ export class Client {
     return new Client(clientId);
   }
 
+  public static async createTest() {
+    await initializeModule();
+
+    const account_id = register((s: String) => {
+      return "VGhpc0lzQVRlc3RTdHJpbmc="; // TODO: Replace with valid signature
+    });
+    let clientId = client_create(account_id);
+    return new Client(clientId);
+  }
+
   public static resetAll() {
     resetModule();
   }

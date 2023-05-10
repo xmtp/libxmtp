@@ -17,10 +17,10 @@ static ACCOUNTS: Mutex<Vec<Account>> = Mutex::new(Vec::new());
 // Passing Vecs across wasm boundary using Uint8Array views results in unsafe code
 // use base64 instead
 pub fn to_base64(bytes: Vec<u8>) -> String {
-    general_purpose::STANDARD_NO_PAD.encode(bytes)
+    general_purpose::STANDARD.encode(bytes)
 }
 pub fn from_base64(s: &str) -> Result<Vec<u8>, base64::DecodeError> {
-    let bytes = general_purpose::STANDARD_NO_PAD.decode(s)?;
+    let bytes = general_purpose::STANDARD.decode(s)?;
     Ok(bytes)
 }
 

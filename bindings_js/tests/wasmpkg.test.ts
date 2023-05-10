@@ -2,11 +2,11 @@ import { beforeEach, expect, it } from "vitest";
 import { Client } from "..";
 
 it("can instantiate multiple instances", async () => {
-  const a = await Client.create();
+  const a = await Client.createTest();
   expect(a).toBeDefined();
 
   // Make sure we can call it again
-  const b = await Client.create();
+  const b = await Client.createTest();
   expect(b).toBeDefined();
 
   expect(a).not.toEqual(b);
@@ -16,7 +16,7 @@ let client: Client;
 
 beforeEach(async () => {
   Client.resetAll();
-  client = await Client.create();
+  client = await Client.createTest();
 });
 
 it("can read and write to in-memory storage", async () => {
