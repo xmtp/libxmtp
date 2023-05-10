@@ -136,7 +136,7 @@ mod tests {
         let client = ClientBuilder::new_test().build().unwrap();
         assert!(!client
             .account
-            .account
+            .get()
             .identity_keys()
             .curve25519
             .to_bytes()
@@ -160,8 +160,8 @@ mod tests {
 
         // Ensure the persistence was used to store the generated keys
         assert_eq!(
-            client_a.account.account.curve25519_key().to_bytes(),
-            client_b.account.account.curve25519_key().to_bytes()
+            client_a.account.get().curve25519_key().to_bytes(),
+            client_b.account.get().curve25519_key().to_bytes()
         )
     }
 
