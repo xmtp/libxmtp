@@ -1,5 +1,5 @@
 use crate::{
-    account::VmacAccount,
+    account::{Account, VmacAccount},
     client::{Client, Network},
     persistence::{NamespacedPersistence, Persistence},
 };
@@ -25,6 +25,7 @@ where
     network: Network,
     persistence: Option<P>,
     wallet_address: Option<String>,
+    account: Option<Account>,
 }
 
 impl<P> ClientBuilder<P>
@@ -36,6 +37,7 @@ where
             network: Network::Dev,
             persistence: None,
             wallet_address: None,
+            account: None,
         }
     }
 
@@ -46,6 +48,11 @@ where
 
     pub fn persistence(mut self, persistence: P) -> Self {
         self.persistence = Some(persistence);
+        self
+    }
+
+    pub fn account(mut self, account: Account) -> Self {
+        self.account = Some(account);
         self
     }
 
