@@ -31,7 +31,7 @@ class InstrumentedTest {
         val aliceWallet = PrivateKeyBuilder()
         val alicePrivateKey = aliceWallet.getPrivateKey()
         val clientOptions =
-            ClientOptions(api = ClientOptions.Api(env = XMTPEnvironment.LOCAL, isSecure = false))
+            ClientOptions(api = ClientOptions.Api(env = XMTPEnvironment.LOCAL, isSecure = false, appVersion = "XMTPTest/v1.0.0"))
         val client = Client().create(aliceWallet, clientOptions)
         assertEquals(XMTPEnvironment.LOCAL, client.apiClient.environment)
         runBlocking {

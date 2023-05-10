@@ -43,7 +43,7 @@ typealias PublishResponse = org.xmtp.proto.message.api.v1.MessageApiOuterClass.P
 typealias QueryResponse = org.xmtp.proto.message.api.v1.MessageApiOuterClass.QueryResponse
 
 data class ClientOptions(val api: Api = Api()) {
-    data class Api(val env: XMTPEnvironment = XMTPEnvironment.DEV, val isSecure: Boolean = true)
+    data class Api(val env: XMTPEnvironment = XMTPEnvironment.DEV, val isSecure: Boolean = true, val appVersion: String? = null)
 }
 
 class Client() {

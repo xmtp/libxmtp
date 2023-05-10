@@ -34,7 +34,7 @@ interface ApiClient {
     suspend fun subscribe(topics: List<String>): Flow<Envelope>
 }
 
-data class GRPCApiClient(override val environment: XMTPEnvironment, val secure: Boolean = true) :
+data class GRPCApiClient(override val environment: XMTPEnvironment, val secure: Boolean = true, val appVersion: String? = null) :
     ApiClient, Closeable {
     companion object {
         val AUTHORIZATION_HEADER_KEY: Metadata.Key<String> =
@@ -102,6 +102,10 @@ data class GRPCApiClient(override val environment: XMTPEnvironment, val secure: 
         authToken?.let { token ->
             headers.put(AUTHORIZATION_HEADER_KEY, "Bearer $token")
         }
+        headers.put(CLIENT_VERSION_HEADER_KEY, Constants.VERSION)
+        if (appVersion != null) {
+            headers.put(APP_VERSION_HEADER_KEY, appVersion)
+        }
         return client.query(request, headers = headers)
     }
 
@@ -131,7 +135,9 @@ data class GRPCApiClient(override val environment: XMTPEnvironment, val secure: 
         }
 
         headers.put(CLIENT_VERSION_HEADER_KEY, Constants.VERSION)
-        headers.put(APP_VERSION_HEADER_KEY, Constants.VERSION)
+        if (appVersion != null) {
+            headers.put(APP_VERSION_HEADER_KEY, appVersion)
+        }
 
         return client.publish(request, headers)
     }
@@ -139,7 +145,14 @@ data class GRPCApiClient(override val environment: XMTPEnvironment, val secure: 
     override suspend fun subscribe(topics: List<String>): Flow<Envelope> {
         val request =
             MessageApiOuterClass.SubscribeRequest.newBuilder().addAllContentTopics(topics).build()
-        return client.subscribe(request)
+        val headers = Metadata()
+
+        headers.put(CLIENT_VERSION_HEADER_KEY, Constants.VERSION)
+        if (appVersion != null) {
+            headers.put(APP_VERSION_HEADER_KEY, appVersion)
+        }
+
+        return client.subscribe(request, headers)
     }
 
     override fun close() {
