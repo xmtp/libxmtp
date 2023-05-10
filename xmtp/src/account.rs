@@ -7,17 +7,17 @@ use crate::Signable;
 
 type Address = String;
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, PartialEq, Debug)]
 pub enum AssociationFormat {
     Eip191,
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, PartialEq, Debug)]
 pub enum AssociationType {
     Static,
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, PartialEq, Debug)]
 pub struct Association {
     pub addr: Address,
     pub key_bytes: String,
@@ -113,25 +113,24 @@ impl Account {
 }
 
 pub struct AccountFactory {
-    keys: Vec<VmacAccount>,
-    f: Box<dyn Fn(Vec<u8>) -> Association + Send>,
+    key: VmacAccount,
 }
 
 impl AccountFactory {
-    pub fn new(f: impl Fn(Vec<u8>) -> Association + 'static) -> Self {
-        let a = Vec::new();
+    pub fn new() -> Self {
         Self {
-            keys: a,
-            f: Box::new(f),
+            key: VmacAccount::generate(),
         }
     }
 
-    pub fn gen_key(&mut self) -> Association {
-        let key = VmacAccount::generate();
-        let l = key.bytes_to_sign();
+    pub fn finalize_key(mut self, sig: Vec<u8>) -> Account {
+        Account::new(self.key, Association::test())
+    }
+}
 
-        self.keys.push(key);
-        return (*self.f)(l);
+impl Signable for AccountFactory {
+    fn bytes_to_sign(&self) -> Vec<u8> {
+        self.key.bytes_to_sign()
     }
 }
 
@@ -143,7 +142,7 @@ pub fn test_wallet_signer(_: Vec<u8>) -> Association {
 mod tests {
     use serde_json::json;
 
-    use crate::account::Association;
+    use crate::{account::Association, Signable};
 
     use super::{test_wallet_signer, Account, AccountFactory};
 
@@ -161,9 +160,10 @@ mod tests {
 
     #[test]
     fn account_generate() {
-        let mut factory = AccountFactory::new(|v| test_wallet_signer(v));
-        let association = factory.gen_key();
+        let factory = AccountFactory::new();
+        let _ = factory.bytes_to_sign();
+        let account = factory.finalize_key(vec![11, 22, 33]);
 
-        assert_eq!(association, Association::test())
+        assert_eq!(account.assoc, Association::test())
     }
 }
