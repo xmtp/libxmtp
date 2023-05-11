@@ -84,9 +84,9 @@ export class Client {
   }
 
   public static async create_account(
-    f: (s: String) => String
+    signFunc: (s: String) => String
   ): Promise<AccountHandle> {
     await initializeModule();
-    return register(f);
+    return register(signFunc);
   }
 }
