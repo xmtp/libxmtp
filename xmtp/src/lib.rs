@@ -7,6 +7,10 @@ pub mod vmac_protos;
 pub use builder::ClientBuilder;
 pub use client::Client;
 
+pub trait Signable {
+    fn bytes_to_sign(&self) -> Vec<u8>;
+}
+
 #[cfg(test)]
 mod tests {
     use crate::builder::ClientBuilder;

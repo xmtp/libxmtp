@@ -1,4 +1,12 @@
-import init, { InitInput, client_create, client_read_from_persistence, client_write_to_persistence } from "./pkg/bindings_wasm.js";
+import init, {
+  InitInput,
+  client_create,
+  client_read_from_persistence,
+  client_write_to_persistence,
+  register,
+} from "./pkg/bindings_wasm.js";
+
+type AccountHandle = number;
 
 export interface PackageLoadOptions {
   /**
@@ -55,14 +63,30 @@ export class Client {
     return client_read_from_persistence(this.clientId, key);
   }
 
-  public static async create() {
+  public static async create(account_id: number) {
     await initializeModule();
-    let clientId = client_create();
+    let clientId = client_create(account_id);
+    return new Client(clientId);
+  }
+
+  public static async createTest() {
+    await initializeModule();
+
+    const account_id = register((s: String) => {
+      return "VGhpc0lzQVRlc3RTdHJpbmc="; // TODO: Replace with valid signature
+    });
+    let clientId = client_create(account_id);
     return new Client(clientId);
   }
 
   public static resetAll() {
     resetModule();
   }
-}
 
+  public static async create_account(
+    signFunc: (s: String) => String
+  ): Promise<AccountHandle> {
+    await initializeModule();
+    return register(signFunc);
+  }
+}
