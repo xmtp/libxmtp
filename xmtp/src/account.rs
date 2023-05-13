@@ -28,6 +28,10 @@ pub struct Association {
 }
 
 impl Association {
+    pub fn new_ethereum(text: String, sig: EcdsaSignature) -> Self {
+        Self::test()
+    }
+
     pub fn test() -> Self {
         Self {
             addr: "ADDR".to_string(),
@@ -165,5 +169,34 @@ mod tests {
         let account = ac.finalize_key(vec![11, 22, 33]);
 
         assert_eq!(account.assoc, Association::test())
+    }
+
+    async fn generate_random_signature(msg: &str) -> (String, Vec<u8>) {
+        let wallet = LocalWallet::new(&mut thread_rng());
+        let signature = wallet.sign_message(msg).await.unwrap();
+        (
+            hex::encode(wallet.address().to_fixed_bytes()),
+            signature.to_vec(),
+        )
+    }
+
+    #[tokio::test]
+    async fn local_sign() {
+        let msg = "hello";
+
+        let (addr, bytes) = generate_random_signature(msg).await;
+        let (other_addr, _) = generate_random_signature(msg).await;
+
+        let signature = Signature::try_from(bytes.as_slice()).unwrap();
+        let wallet_addr = hex::decode(addr).unwrap();
+        let other_wallet_addr = hex::decode(other_addr).unwrap();
+
+        assert!(signature
+            .verify(msg, Address::from_slice(&wallet_addr))
+            .is_ok());
+        assert!(signature
+            .verify(msg, Address::from_slice(&other_wallet_addr))
+            .is_err());
+        // println!("Verified signature produced by {:?}!", wallet.address());
     }
 }
