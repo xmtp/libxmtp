@@ -1,6 +1,7 @@
 [workspace]
 
 members = [
+  "bindings_swift",
   "bindings_wasm",
   "xmtp",
   "xmtp_crypto",
@@ -14,5 +15,4 @@ members = [
 # 2) moreover, xmtp_rust_swift needs its own size-optimized profile
 exclude = [
   "bindings_js",
-  "bindings_swift",
 ]
