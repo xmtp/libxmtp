@@ -15,16 +15,18 @@ jobs:
       run:
         working-directory: ./bindings_js
     steps:
-     - name: Checkout sources
-       uses: actions/checkout@v2
-     - name: Install stable toolchain
-       uses: actions-rs/toolchain@v1
-       with:
-         profile: minimal
-         toolchain: stable
-         override: true
-     - uses: jetli/wasm-pack-action@v0.4.0
-     - uses: actions/setup-node@v3
-     - uses: bufbuild/buf-setup-action@v1.17.0
-     - run: npm ci
-     - run: npm test
+    - name: Checkout sources
+      uses: actions/checkout@v2
+    - name: Install stable toolchain
+      uses: actions-rs/toolchain@v1
+      with:
+        profile: minimal
+        toolchain: stable
+        override: true
+    - uses: jetli/wasm-pack-action@v0.4.0
+    - uses: actions/setup-node@v3
+    - uses: bufbuild/buf-setup-action@v1.17.0
+      with:
+        github_token: ${{ secrets.GITHUB_TOKEN }}
+    - run: npm ci
+    - run: npm test
