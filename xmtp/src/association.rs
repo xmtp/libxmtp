@@ -1,5 +1,4 @@
 use crate::types::Address;
-use hex;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 use xmtp_crypto::signature::{RecoverableSignature, SignatureError, SigningKey};
@@ -30,7 +29,7 @@ pub enum AssociationText {
 impl AssociationText {
     pub fn get_address(&self) -> Address {
         match self {
-            Self::Static { addr, .. } => return addr.clone(),
+            Self::Static { addr, .. } => addr.clone(),
         }
     }
 
@@ -50,8 +49,8 @@ impl AssociationText {
 
     pub fn new_static(addr: String, key_bytes: Vec<u8>) -> Self {
         AssociationText::Static {
-            addr: addr,
-            key_bytes: key_bytes,
+            addr,
+            key_bytes,
         }
     }
 }

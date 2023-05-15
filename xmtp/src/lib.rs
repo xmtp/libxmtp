@@ -1,5 +1,5 @@
 pub mod account;
-mod association;
+pub mod association;
 pub mod builder;
 pub mod client;
 pub mod persistence;

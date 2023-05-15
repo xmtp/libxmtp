@@ -97,10 +97,8 @@ impl RecoverableSignature {
     ) -> Result<(), SignatureError> {
         match self {
             Self::Eip191Signature(signature_bytes) => {
-                let address = ethers_types::Address::from_slice(&hex::decode(&addr)?);
+                let address = ethers_types::Address::from_slice(&hex::decode(addr)?);
                 let signature = ethers_types::Signature::try_from(signature_bytes.as_slice())?;
-                // let digest = Keccak256::new_with_prefix(eth_191_prefix(predigest_message));
-
                 if let Err(e) = signature.verify(predigest_message, address) {
                     return Err(SignatureError::BadSignature {
                         addr: String::from(addr),

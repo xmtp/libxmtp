@@ -137,11 +137,8 @@ mod tests {
     use ethers_core::utils::hex;
     use serde_json::json;
     use xmtp_crypto::utils::rng;
-
-    // use crate::types::Address;
-    use crate::{account::Association, Signable};
-
-    use super::{Account, AccountCreator};
+    use crate::Signable;
+    use super::{Account, AccountCreator, Association};
 
     pub fn test_wallet_signer(_: Vec<u8>) -> Association {
         Association::test().expect("Test Association failed to generate")
