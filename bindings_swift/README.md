@@ -86,19 +86,24 @@ fn keccak256(data: Vec<u8>) -> Vec<u8> {
 Possible issues: You need toolchains (run `make download-toolchains` from above)
 
 3. **Go into `xmtp-rust-swift` and check that there are diffs `git diff`**
-- Create a new local branch like `git checkout -b my_local_hello_from_rust`
-- Add and commit the new changeset (similar but not identical to):
+- You should see a changeset similar but not identical to:
   ```
-	modified:   Sources/XMTPRust/xmtp_rust_swift.swift
-	modified:   XMTPRustSwift.xcframework/Info.plist
-	modified:   XMTPRustSwift.xcframework/ios-arm64/Headers/Generated/xmtp_rust_swift/xmtp_rust_swift.h
-	modified:   XMTPRustSwift.xcframework/ios-arm64/libxmtp_rust_swift.a
-	modified:   XMTPRustSwift.xcframework/ios-arm64_x86_64-simulator/Headers/Generated/xmtp_rust_swift/xmtp_rust_swift.h
-	modified:   XMTPRustSwift.xcframework/ios-arm64_x86_64-simulator/libxmtp_rust_swift.a
-	modified:   XMTPRustSwift.xcframework/macos-arm64_x86_64/Headers/Generated/xmtp_rust_swift/xmtp_rust_swift.h
-	modified:   XMTPRustSwift.xcframework/macos-arm64_x86_64/libxmtp_rust_swift.a
+    modified:   Sources/XMTPRust/xmtp_rust_swift.swift
+    modified:   XMTPRustSwift.xcframework/Info.plist
+    modified:   XMTPRustSwift.xcframework/ios-arm64/Headers/Generated/xmtp_rust_swift/xmtp_rust_swift.h
+    modified:   XMTPRustSwift.xcframework/ios-arm64/libxmtp_rust_swift.a
+    modified:   XMTPRustSwift.xcframework/ios-arm64_x86_64-simulator/Headers/Generated/xmtp_rust_swift/xmtp_rust_swift.h
+    modified:   XMTPRustSwift.xcframework/ios-arm64_x86_64-simulator/libxmtp_rust_swift.a
+    modified:   XMTPRustSwift.xcframework/macos-arm64_x86_64/Headers/Generated/xmtp_rust_swift/xmtp_rust_swift.h
+    modified:   XMTPRustSwift.xcframework/macos-arm64_x86_64/libxmtp_rust_swift.a
     modified:   Sources/XMTPRust/xmtp_rust_swift.swift
   ```
+- Check that XMTPRustSwift.xcframework is roughly ~50-60MB, if not then the `bindings_swift` build profile is messed up and not optimizing built binary size correctly. Check the Cargo.toml and check the top-level Cargo.toml workspace for libxmtp.
+```
+$ du -hs XMTPRustSwift.xcframework
+55M    XMTPRustSwift.xcframework
+```
+- Create a new local branch like `git checkout -b my_local_hello_from_rust`
 
 4. **Now switch repos again to `xmtp-ios`**
 - Follow README steps in xmtp-ios to get set up
