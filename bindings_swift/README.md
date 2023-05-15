@@ -81,7 +81,7 @@ fn keccak256(data: Vec<u8>) -> Vec<u8> {
 
 2. **Build a new XMTPRustSwift.xcframework and push it to the `xmtp-rust-swift` repo**
 - Make sure you're in `bindings_swift` crate
-- After you make your code changes (and maybe even add a unit test) the utter: `make swift` to build and push the XMTPRustSwift.xcframework file to xmtp-rust-swift
+- After you make your code changes (and maybe even add a unit test) then utter: `make swift` to build and push the XMTPRustSwift.xcframework file to xmtp-rust-swift
 
 Possible issues: You need toolchains (run `make download-toolchains` from above)
 
