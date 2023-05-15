@@ -2643,6 +2643,7 @@ dependencies = [
 name = "xmtp_rust_swift"
 version = "0.1.0"
 dependencies = [
+ "async-trait",
  "swift-bridge",
  "swift-bridge-build",
  "tokio",

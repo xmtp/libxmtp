@@ -1,18 +1,20 @@
 use std::collections::HashMap;
 
+use async_trait::async_trait;
 use xmtp_networking::grpc_api_helper::Subscription;
 use xmtp_proto::xmtp::message_api::v1::{Envelope, PagingInfo, PublishResponse, QueryResponse};
 
+#[async_trait]
 pub trait XmtpApiClient {
-    fn publish(
+    async fn publish(
         &mut self,
         token: String,
         envelopes: Vec<Envelope>,
         // TODO: use error enums
     ) -> Result<PublishResponse, String>;
 
-    fn query(
-        self,
+    async fn query(
+        &mut self,
         topic: String,
         start_time: Option<u64>,
         end_time: Option<u64>,
@@ -21,7 +23,7 @@ pub trait XmtpApiClient {
     ) -> Result<QueryResponse, String>;
 
     // TODO: use error enums
-    fn subscribe(self, topics: Vec<String>) -> Result<Subscription, String>;
+    async fn subscribe(&mut self, topics: Vec<String>) -> Result<Subscription, String>;
 }
 
 pub struct MockXmtpApiClient {
@@ -40,8 +42,9 @@ impl MockXmtpApiClient {
     }
 }
 
+#[async_trait]
 impl XmtpApiClient for MockXmtpApiClient {
-    fn publish(
+    async fn publish(
         &mut self,
         token: String,
         envelopes: Vec<Envelope>,
@@ -56,8 +59,8 @@ impl XmtpApiClient for MockXmtpApiClient {
         Ok(PublishResponse {})
     }
 
-    fn query(
-        self,
+    async fn query(
+        &mut self,
         topic: String,
         _start_time: Option<u64>,
         _end_time: Option<u64>,
@@ -74,7 +77,7 @@ impl XmtpApiClient for MockXmtpApiClient {
         })
     }
 
-    fn subscribe(self, _topics: Vec<String>) -> Result<Subscription, String> {
+    async fn subscribe(&mut self, _topics: Vec<String>) -> Result<Subscription, String> {
         Err("Not implemented".to_string())
     }
 }

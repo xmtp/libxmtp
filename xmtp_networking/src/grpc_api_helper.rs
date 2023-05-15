@@ -101,7 +101,7 @@ impl Client {
     }
 
     pub async fn publish(
-        &mut self,
+        &self,
         token: String,
         envelopes: Vec<Envelope>,
     ) -> Result<PublishResponse, tonic::Status> {
@@ -127,7 +127,7 @@ impl Client {
         }
     }
 
-    pub async fn subscribe(&mut self, topics: Vec<String>) -> Result<Subscription, tonic::Status> {
+    pub async fn subscribe(&self, topics: Vec<String>) -> Result<Subscription, tonic::Status> {
         let request = SubscribeRequest {
             content_topics: topics,
         };
@@ -150,7 +150,7 @@ impl Client {
     }
 
     pub async fn query(
-        &mut self,
+        &self,
         topic: String,
         start_time: Option<u64>,
         end_time: Option<u64>,
