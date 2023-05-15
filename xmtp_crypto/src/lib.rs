@@ -4,6 +4,8 @@ pub mod k256_helper;
 pub mod signature;
 pub mod traits;
 
+pub mod utils;
+
 #[cfg(test)]
 mod tests {
     use crate::*;
