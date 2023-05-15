@@ -123,7 +123,7 @@ impl AccountCreator {
         }
     }
 
-    pub fn finalize_key(mut self, sig: Vec<u8>) -> Account {
+    pub fn finalize_key(self, _sig: Vec<u8>) -> Account {
         Account::new(self.key, Association::test())
     }
 }

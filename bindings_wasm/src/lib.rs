@@ -25,7 +25,7 @@ pub fn from_base64(s: &str) -> Result<Vec<u8>, base64::DecodeError> {
 }
 
 #[wasm_bindgen]
-pub fn client_create(account_id: usize) -> Result<usize, JsError> {
+pub fn client_create(_account_id: usize) -> Result<usize, JsError> {
     console_error_panic_hook::set_once();
     let mut clients = CLIENT_LIST.lock().unwrap();
     clients.push(
