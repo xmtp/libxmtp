@@ -1,6 +1,7 @@
 pub mod account;
 pub mod builder;
 pub mod client;
+pub mod networking;
 pub mod persistence;
 pub mod vmac_protos;
 

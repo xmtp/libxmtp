@@ -2453,6 +2453,7 @@ dependencies = [
  "serde_json",
  "thiserror",
  "vodozemac",
+ "xmtp_networking",
  "xmtp_proto",
 ]
 
