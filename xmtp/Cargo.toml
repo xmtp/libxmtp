@@ -12,3 +12,4 @@ thiserror = "1.0.40"
 vodozemac = {git= "https://github.com/xmtp/vodozemac", branch="dev"}
 xmtp_proto = { path = "../xmtp_proto", features = ["xmtp-v3-message_contents"] }
 xmtp_networking = { path = "../xmtp_networking" }
+async-trait = "0.1.68"
