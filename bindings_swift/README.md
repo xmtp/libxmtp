@@ -50,7 +50,7 @@ Repositories you'll need:
 
 Goal: add a "hello from Rust" function that a React Native app can call in JS (xmtp-react-native), that invokes Swift code (xmtp-ios), that calls into Rust code (xmtp-rust-swift + libxmtp/bindings_swift)
 
-1. Add the "hello from Rust" function to `libxmtp/bindings_swift/lib.rs`
+1. **Add the "hello from Rust" function to `libxmtp/bindings_swift/lib.rs`**
 
 Since we're exposing a stateless and static function, we can use `sha256` and `keccak256` as examples. Notice in `lib.rs` the ffi module declarations for these functions
 ```
@@ -79,13 +79,13 @@ fn keccak256(data: Vec<u8>) -> Vec<u8> {
 + }
 ```
 
-2. Build a new XMTPRustSwift.xcframework and push it to the `xmtp-rust-swift` repo
+2. **Build a new XMTPRustSwift.xcframework and push it to the `xmtp-rust-swift` repo**
 - Make sure you're in `bindings_swift` crate
 - After you make your code changes (and maybe even add a unit test) the utter: `make swift` to build and push the XMTPRustSwift.xcframework file to xmtp-rust-swift
 
 Possible issues: You need toolchains (run `make download-toolchains` from above)
 
-3. Go into `xmtp-rust-swift` and check that there are diffs `git diff`
+3. **Go into `xmtp-rust-swift` and check that there are diffs `git diff`**
 - Create a new local branch like `git checkout -b my_local_hello_from_rust`
 - Add and commit the new changeset (similar but not identical to):
   ```
@@ -100,7 +100,8 @@ Possible issues: You need toolchains (run `make download-toolchains` from above)
     modified:   Sources/XMTPRust/xmtp_rust_swift.swift
   ```
 
-4. Now switch repos again to `xmtp-ios`
+4. **Now switch repos again to `xmtp-ios`**
+- Follow README steps in xmtp-ios to get set up
 - Open xmtp-ios in Xcode as a directory. Do not open the `example/*.xcodeproject` file as the entrypoint
 - You should see Swift packages syncing on the left side
 - Open up `Package.swift` and replace the xmtp-rust-swift branch (see a few sections above for xmtp-ios integration)
@@ -108,7 +109,7 @@ Possible issues: You need toolchains (run `make download-toolchains` from above)
 - Find a location in the code that uses `XMTPRust`'s sha256 or keccak256 functions. Add an additional call to `hello_from_rust`.
 - Test that the call compiles correctly and emits the correct string
 
-5. OPTIONAL: You want to push a Cocoapod
+5. **OPTIONAL: You want to push a Cocoapod**
 - There are two cocoapods in play. Cocoapod `XMTPRust` comes from the `xmtp-rust-swift` repo and `XMTP` comes from `xmtp-ios` and depends on `XMTPRust`
 - Make sure your local branch of xmtp-rust-swift passes `pod lib lint XMTPRust.podspec --allow-warnings`
 - To push the `XMTPRust` cocoapod, go to `xmtp-rust-swift` and bump the version in the `XMTPRust.podspec` file to your intended one
@@ -124,3 +125,12 @@ Possible issues: You need toolchains (run `make download-toolchains` from above)
 [Search Query for XMTP Pod Versions](https://github.com/search?q=repo%3ACocoaPods%2FSpecs+XMTP&type=commits)
 
 NOTE: The XMTP cocoapod is pushed from xmtp-ios and requires documentation in that repository. Make sure to update the podspec dependency in `XMTP.podspec` that references `XMTPRust`.
+
+6. **Extra Credit: Create a helloFromRust function in @xmtp/react-native-sdk**
+- Write code that surfaces the `hello_from_rust` XMTPRust function as part of the `xmtp-ios` SDK i.e. Write a Swift function that wraps it, add it to Client or make it static etc
+- Publish the XMTP cocoapod (touched on but not fully covered above)
+- Clone and cd into `xmtp-react-native`
+- Update `ios/XMTPReactNative.podspec` to use your newly publishec version of the `XMTP` Cocoapod
+- Follow development instructions within xmtp-react-native to create a new function for the `XMTPModule` Typescript interface
+- Write code in `XMTPModule.swift` that calls into `XMTP` to invoke your Swift wrapper for `hello_from_rust`. You might need to make an Android shim or throw a not-implemented error of sorts for Android
+- Follow the xmtp-react-native instructions to run the iOS RN example app
