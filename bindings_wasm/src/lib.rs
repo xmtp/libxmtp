@@ -64,7 +64,7 @@ pub fn client_read_from_persistence(
 pub fn register(f: js_sys::Function) -> Result<usize, JsError> {
     console_error_panic_hook::set_once();
 
-    let account_creator = AccountCreator::new();
+    let account_creator = AccountCreator::new(String::from("0x000001"));
     let key_bytes = to_base64(account_creator.bytes_to_sign());
     let sig = f
         .call1(&JsValue::NULL, &JsValue::from_str(&key_bytes))
@@ -72,7 +72,7 @@ pub fn register(f: js_sys::Function) -> Result<usize, JsError> {
         .as_string()
         .unwrap();
 
-    let account = account_creator.finalize_key(from_base64(&sig)?);
+    let account = account_creator.finalize(from_base64(&sig)?);
     let mut accounts = ACCOUNTS.lock().unwrap();
     accounts.push(account);
     Ok(accounts.len() - 1)
