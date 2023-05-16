@@ -23,7 +23,10 @@ pub enum AssociationError {
 
 #[derive(Serialize, Deserialize, PartialEq, Debug, Clone)]
 pub enum AssociationText {
-    Static { addr: Address, key_bytes: Vec<u8> },
+    Static {
+        addr: Address,
+        account_public_key: Vec<u8>,
+    },
 }
 
 impl AssociationText {
@@ -35,20 +38,26 @@ impl AssociationText {
 
     pub fn text(&self) -> String {
         match self {
-            Self::Static { addr, key_bytes } => gen_static_text_v1(addr, key_bytes),
+            Self::Static {
+                addr,
+                account_public_key,
+            } => gen_static_text_v1(addr, account_public_key),
         }
     }
 
-    pub fn is_valid(&self, addr: &str, key_bytes: &[u8]) -> Result<(), AssociationError> {
-        if self.text() == gen_static_text_v1(addr, key_bytes) {
+    pub fn is_valid(&self, addr: &str, account_public_key: &[u8]) -> Result<(), AssociationError> {
+        if self.text() == gen_static_text_v1(addr, account_public_key) {
             return Ok(());
         }
 
         Err(AssociationError::TextMismatch)
     }
 
-    pub fn new_static(addr: String, key_bytes: Vec<u8>) -> Self {
-        AssociationText::Static { addr, key_bytes }
+    pub fn new_static(addr: String, account_public_key: Vec<u8>) -> Self {
+        AssociationText::Static {
+            addr,
+            account_public_key,
+        }
     }
 }
 
@@ -128,22 +137,22 @@ pub mod tests {
         let other_addr = h160addr_to_string(other_wallet.address());
         let text = AssociationText::Static {
             addr: addr.clone(),
-            key_bytes: key_bytes.clone(),
+            account_public_key: key_bytes.clone(),
         };
         let sig = wallet.sign_message(text.text()).await.expect("BadSign");
 
         let bad_key_bytes = vec![11, 22, 33];
         let bad_text1 = AssociationText::Static {
             addr: addr.clone(),
-            key_bytes: bad_key_bytes.clone(),
+            account_public_key: bad_key_bytes.clone(),
         };
         let bad_text2 = AssociationText::Static {
             addr: other_addr.clone(),
-            key_bytes: key_bytes.clone(),
+            account_public_key: key_bytes.clone(),
         };
         let other_text = AssociationText::Static {
             addr: other_addr.clone(),
-            key_bytes: key_bytes.clone(),
+            account_public_key: key_bytes.clone(),
         };
 
         let other_sig = wallet

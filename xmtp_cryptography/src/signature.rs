@@ -24,7 +24,8 @@ pub enum SignatureError {
 
 #[derive(Debug, Serialize, Deserialize, PartialEq)]
 pub enum RecoverableSignature {
-    // This stores an RSV encoded ECDSA signature
+    // This Signature is primary used by EVM compatible accounts. It assumes that the recoveryid is included in the signature and
+    // that all messages passed in have not been prefixed with '\0x19Ethereum....'
     Eip191Signature(Vec<u8>),
 }
 
