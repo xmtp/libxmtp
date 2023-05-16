@@ -47,7 +47,7 @@ impl RecoverableSignature {
     ) -> Result<(), SignatureError> {
         match self {
             Self::Eip191Signature(signature_bytes) => {
-                let address = ethers_types::Address::from_slice(&hex::decode(addr)?);
+                let address = ethers_types::Address::from_slice(&addr_string_to_bytes(addr)?);
                 let signature = ethers_types::Signature::try_from(signature_bytes.as_slice())?;
                 if let Err(e) = signature.verify(predigest_message, address) {
                     return Err(SignatureError::BadSignature {
@@ -82,6 +82,11 @@ impl From<(ecdsa::Signature<Secp256k1>, RecoveryId)> for RecoverableSignature {
 
 fn eip_191_prefix(msg: &str) -> String {
     format!("\x19Ethereum Signed Message:\n{}.", msg.len())
+}
+
+fn addr_string_to_bytes(str: &str) -> Result<Vec<u8>, SignatureError> {
+    let unprefixed_address = str::strip_prefix(str, "0x").unwrap_or(str);
+    hex::decode(unprefixed_address).map_err(SignatureError::BadAddressFormat)
 }
 
 #[cfg(test)]
