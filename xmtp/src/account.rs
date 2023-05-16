@@ -6,7 +6,7 @@ use crate::{
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 use vodozemac::olm::{Account as OlmAccount, AccountPickle as OlmAccountPickle};
-use xmtp_crypto::signature::RecoverableSignature;
+use xmtp_cryptography::signature::RecoverableSignature;
 
 #[derive(Debug, Error)]
 pub enum AccountError {
@@ -141,7 +141,7 @@ mod tests {
     use ethers_core::types::{Address as EthAddress, Signature};
     use ethers_core::utils::hex;
     use serde_json::json;
-    use xmtp_crypto::utils::rng;
+    use xmtp_cryptography::utils::rng;
 
     pub fn test_wallet_signer(_: Vec<u8>) -> Association {
         Association::test().expect("Test Association failed to generate")

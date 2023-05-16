@@ -4677,7 +4677,7 @@ dependencies = [
  "thiserror",
  "tokio",
  "vodozemac",
- "xmtp_crypto",
+ "xmtp_cryptography",
  "xmtp_proto",
 ]
 
@@ -4700,6 +4700,23 @@ dependencies = [
  "rlp",
  "serde",
  "sha2 0.10.6",
+ "sha3",
+ "thiserror",
+ "tokio",
+]
+
+[[package]]
+name = "xmtp_cryptography"
+version = "0.1.0"
+dependencies = [
+ "ecdsa 0.15.1",
+ "ethers",
+ "ethers-core",
+ "hex",
+ "k256 0.12.0",
+ "rand 0.8.5",
+ "rand_chacha 0.3.1",
+ "serde",
  "sha3",
  "thiserror",
  "tokio",

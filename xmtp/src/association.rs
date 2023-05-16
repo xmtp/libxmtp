@@ -1,8 +1,8 @@
 use crate::types::Address;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
-use xmtp_crypto::signature::{RecoverableSignature, SignatureError, SigningKey};
-use xmtp_crypto::utils::{self, eth_address};
+use xmtp_cryptography::signature::{RecoverableSignature, SignatureError, SigningKey};
+use xmtp_cryptography::utils::{self, eth_address};
 
 #[derive(Debug, Error)]
 pub enum AssociationError {
@@ -48,10 +48,7 @@ impl AssociationText {
     }
 
     pub fn new_static(addr: String, key_bytes: Vec<u8>) -> Self {
-        AssociationText::Static {
-            addr,
-            key_bytes,
-        }
+        AssociationText::Static { addr, key_bytes }
     }
 }
 
