@@ -1,12 +1,12 @@
 use crate::{
-    association::{Association, AssociationText, AssociationError},
+    association::{Association, AssociationError, AssociationText},
     types::Address,
     Signable,
 };
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 use vodozemac::olm::{Account as OlmAccount, AccountPickle as OlmAccountPickle};
-use xmtp_crypto::signature::{RecoverableSignature, SignatureError};
+use xmtp_crypto::signature::RecoverableSignature;
 
 #[derive(Debug, Error)]
 pub enum AccountError {
@@ -89,8 +89,10 @@ impl Account {
         self.assoc.address()
     }
 
-    pub(crate) fn is_valid(&self) -> Result<(), AccountError>{
-        self.assoc.is_valid(&self.keys.bytes_to_sign()).map_err(|e| AccountError::BadAssocation(e))
+    pub(crate) fn is_valid(&self) -> Result<(), AccountError> {
+        self.assoc
+            .is_valid(&self.keys.bytes_to_sign())
+            .map_err(AccountError::BadAssocation)
     }
 }
 
@@ -100,7 +102,6 @@ pub struct AccountCreator {
 }
 
 impl AccountCreator {
-
     pub fn new(addr: Address) -> Self {
         let key = VmacAccount::generate();
         let key_bytes = key.bytes_to_sign();
@@ -134,14 +135,13 @@ impl Signable for AccountCreator {
 #[cfg(test)]
 mod tests {
 
+    use super::{Account, AccountCreator, Association};
     use ethers::core::rand::thread_rng;
     use ethers::signers::{LocalWallet, Signer};
     use ethers_core::types::{Address as EthAddress, Signature};
     use ethers_core::utils::hex;
     use serde_json::json;
     use xmtp_crypto::utils::rng;
-    use crate::Signable;
-    use super::{Account, AccountCreator, Association};
 
     pub fn test_wallet_signer(_: Vec<u8>) -> Association {
         Association::test().expect("Test Association failed to generate")
@@ -173,7 +173,7 @@ mod tests {
         let account = ac.finalize(sig.to_vec());
 
         // Ensure Account is valid
-        assert_eq!(true, account.is_valid().is_ok())
+        assert!(account.is_valid().is_ok())
     }
 
     async fn generate_random_signature(msg: &str) -> (String, Vec<u8>) {
@@ -202,6 +202,5 @@ mod tests {
         assert!(signature
             .verify(msg, EthAddress::from_slice(&other_wallet_addr))
             .is_err());
-        // println!("Verified signature produced by {:?}!", wallet.address());
     }
 }

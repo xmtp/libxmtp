@@ -149,7 +149,7 @@ pub mod tests {
         )
     }
 
-    fn toggle(index: usize, v: &mut Vec<u8>) {
+    fn toggle(index: usize, v: &mut [u8]) {
         v[index] += 1;
     }
 
@@ -159,7 +159,7 @@ pub mod tests {
 
         let (addr, bytes) = generate_random_signature(msg).await;
         let sig = RecoverableSignature::Eip191Signature(bytes);
-        sig.verify_signature(&addr, msg.into())
+        sig.verify_signature(&addr, msg)
             .expect("Baseline Signature failed");
 
         let (other_addr, mut other_bytes) = generate_random_signature(msg).await;
@@ -167,12 +167,9 @@ pub mod tests {
         let other = RecoverableSignature::Eip191Signature(other_bytes);
 
         // Check for Bad Signature Error
-        assert_eq!(
-            true,
-            other.verify_signature(&other_addr, msg.into()).is_err()
-        );
+        assert!(other.verify_signature(&other_addr, msg).is_err());
 
         // Check for bad Addr
-        assert_eq!(true, sig.verify_signature(&other_addr, msg.into()).is_err());
+        assert!(sig.verify_signature(&other_addr, msg).is_err());
     }
 }
