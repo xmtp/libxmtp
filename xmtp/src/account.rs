@@ -141,7 +141,7 @@ mod tests {
     use ethers_core::types::{Address as EthAddress, Signature};
     use ethers_core::utils::hex;
     use serde_json::json;
-    use xmtp_cryptography::utils::rng;
+    use xmtp_cryptography::{signature::h160addr_to_string, utils::rng};
 
     pub fn test_wallet_signer(_: Vec<u8>) -> Association {
         Association::test().expect("Test Association failed to generate")
@@ -162,7 +162,7 @@ mod tests {
     #[tokio::test]
     async fn account_generate() {
         let wallet = LocalWallet::new(&mut rng());
-        let addr = wallet.address().to_string();
+        let addr = h160addr_to_string(wallet.address());
 
         let ac = AccountCreator::new(addr);
         let msg = ac.text_to_sign();

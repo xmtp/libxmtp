@@ -1,6 +1,6 @@
 // use crate::traits;
 
-use ethers_core::types as ethers_types;
+use ethers_core::types::{self as ethers_types, H160};
 // use k256::ecdsa::signature::DigestVerifier;
 pub use k256::ecdsa::{RecoveryId, SigningKey, VerifyingKey};
 use k256::Secp256k1;
@@ -65,7 +65,8 @@ impl RecoverableSignature {
         match self {
             Self::Eip191Signature(signature_bytes) => {
                 let signature = ethers_types::Signature::try_from(signature_bytes.as_slice())?;
-                Ok(signature.recover(predigest_message)?.to_string())
+                let addr = h160addr_to_string(signature.recover(predigest_message)?);
+                Ok(addr)
             }
         }
     }
@@ -87,6 +88,12 @@ fn eip_191_prefix(msg: &str) -> String {
 fn addr_string_to_bytes(str: &str) -> Result<Vec<u8>, SignatureError> {
     let unprefixed_address = str::strip_prefix(str, "0x").unwrap_or(str);
     hex::decode(unprefixed_address).map_err(SignatureError::BadAddressFormat)
+}
+
+pub fn h160addr_to_string(bytes: H160) -> String {
+    let mut s = String::from("0x");
+    s.push_str(&hex::encode(bytes));
+    s
 }
 
 #[cfg(test)]
@@ -126,5 +133,27 @@ pub mod tests {
 
         // Check for bad Addr
         assert!(sig.verify_signature(&other_addr, msg).is_err());
+    }
+
+    #[test]
+    fn known_test_vector() {
+        // This test was generated using Etherscans Signature tool: https://etherscan.io/verifySig/18959
+        let addr = "0x1B2a516d691aBb8f08a75B2C73c95c62A1632431";
+        let msg = "TestVector1";
+        let sig_hash = "19d6bec562518e365d07ba3cce26d08a5fffa2cbb1e7fe03c1f2d6a722fd3a5e544097b91f8f8cd11d43b032659f30529139ab1a9ecb6c81ed4a762179e87db81c";
+
+        let addr_alt = addr.strip_prefix("0x").unwrap();
+        let addr_bad = &addr.replacen('b', "c", 1);
+        let sig_bytes = hex::decode(sig_hash).unwrap();
+        let sig = RecoverableSignature::Eip191Signature(sig_bytes);
+        let msg_bad = "Testvector1";
+
+        let recovered_addr = sig.recover_address(msg).unwrap();
+        assert_eq!(recovered_addr, addr.to_lowercase());
+
+        assert!(sig.verify_signature(addr, msg).is_ok());
+        assert!(sig.verify_signature(addr_alt, msg).is_ok());
+        assert!(sig.verify_signature(addr_bad, msg).is_err());
+        assert!(sig.verify_signature(addr, msg_bad).is_err());
     }
 }
