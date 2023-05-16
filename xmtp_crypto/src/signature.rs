@@ -135,12 +135,12 @@ fn eip_191_prefix(msg: &str) -> String {
 }
 
 #[cfg(test)]
-mod tests {
+pub mod tests {
     use crate::signature::RecoverableSignature;
     use ethers::core::rand::thread_rng;
     use ethers::signers::{LocalWallet, Signer};
 
-    async fn generate_random_signature(msg: &str) -> (String, Vec<u8>) {
+    pub async fn generate_random_signature(msg: &str) -> (String, Vec<u8>) {
         let wallet = LocalWallet::new(&mut thread_rng());
         let signature = wallet.sign_message(msg).await.unwrap();
         (

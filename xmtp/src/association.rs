@@ -107,12 +107,3 @@ impl Association {
         })
     }
 }
-
-#[cfg(test)]
-mod tests {
-
-    #[test]
-    fn gen_static() {
-        // let x = Association::new_ethereum("")
-    }
-}

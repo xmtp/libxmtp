@@ -1,5 +1,5 @@
 use crate::{
-    association::{Association, AssociationText},
+    association::{Association, AssociationText, AssociationError},
     types::Address,
     Signable,
 };
@@ -10,11 +10,9 @@ use xmtp_crypto::signature::{RecoverableSignature, SignatureError};
 
 #[derive(Debug, Error)]
 pub enum AccountError {
-    #[error("bad signature")]
-    BadSignature(#[from] SignatureError),
-    #[error("Association text mismatch")]
-    TextMismatch,
-    #[error("unknown association error")]
+    #[error("bad association")]
+    BadAssocation(#[from] AssociationError),
+    #[error("unknown error")]
     Unknown,
 }
 
@@ -90,6 +88,10 @@ impl Account {
     pub fn addr(&self) -> Address {
         self.assoc.address()
     }
+
+    pub(crate) fn is_valid(&self) -> Result<(), AccountError>{
+        self.assoc.is_valid(&self.keys.bytes_to_sign()).map_err(|e| AccountError::BadAssocation(e))
+    }
 }
 
 pub struct AccountCreator {
@@ -98,6 +100,7 @@ pub struct AccountCreator {
 }
 
 impl AccountCreator {
+
     pub fn new(addr: Address) -> Self {
         let key = VmacAccount::generate();
         let key_bytes = key.bytes_to_sign();
@@ -162,7 +165,6 @@ mod tests {
         let addr = wallet.address().to_string();
 
         let ac = AccountCreator::new(addr);
-        let key_bytes = ac.bytes_to_sign();
         let msg = ac.text_to_sign();
         let sig = wallet
             .sign_message(msg)
@@ -171,7 +173,7 @@ mod tests {
         let account = ac.finalize(sig.to_vec());
 
         // Ensure Account is valid
-        assert_eq!(true, account.assoc.is_valid(&key_bytes).is_ok())
+        assert_eq!(true, account.is_valid().is_ok())
     }
 
     async fn generate_random_signature(msg: &str) -> (String, Vec<u8>) {
