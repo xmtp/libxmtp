@@ -21,7 +21,7 @@ pub enum AssociationError {
     Unknown,
 }
 
-#[derive(Serialize, Deserialize, PartialEq, Debug)]
+#[derive(Serialize, Deserialize, PartialEq, Debug, Clone)]
 pub enum AssociationText {
     Static { addr: Address, key_bytes: Vec<u8> },
 }
@@ -108,5 +108,53 @@ impl Association {
             text: assoc_text,
             signature: RecoverableSignature::new_eth_signature(&key, &text)?,
         })
+    }
+}
+
+#[cfg(test)]
+pub mod tests {
+    use ethers::signers::{LocalWallet, Signer};
+    use xmtp_cryptography::{signature::h160addr_to_string, utils::rng};
+
+    use super::{Association, AssociationText};
+
+    #[tokio::test]
+    async fn assoc_gen() {
+        let key_bytes = vec![22, 33, 44, 55];
+
+        let wallet = LocalWallet::new(&mut rng());
+        let other_wallet = LocalWallet::new(&mut rng());
+        let addr = h160addr_to_string(wallet.address());
+        let other_addr = h160addr_to_string(other_wallet.address());
+        let text = AssociationText::Static {
+            addr: addr.clone(),
+            key_bytes: key_bytes.clone(),
+        };
+        let sig = wallet.sign_message(text.text()).await.expect("BadSign");
+
+        let bad_key_bytes = vec![11, 22, 33];
+        let bad_text1 = AssociationText::Static {
+            addr: addr.clone(),
+            key_bytes: bad_key_bytes.clone(),
+        };
+        let bad_text2 = AssociationText::Static {
+            addr: other_addr.clone(),
+            key_bytes: key_bytes.clone(),
+        };
+        let other_text = AssociationText::Static {
+            addr: other_addr.clone(),
+            key_bytes: key_bytes.clone(),
+        };
+
+        let other_sig = wallet
+            .sign_message(other_text.text())
+            .await
+            .expect("BadSign");
+
+        assert!(Association::new(&key_bytes, text.clone(), sig.into()).is_ok());
+        assert!(Association::new(&bad_key_bytes, text.clone(), sig.into()).is_err());
+        assert!(Association::new(&key_bytes, bad_text1.clone(), sig.into()).is_err());
+        assert!(Association::new(&key_bytes, bad_text2.clone(), sig.into()).is_err());
+        assert!(Association::new(&key_bytes, text.clone(), other_sig.into()).is_err());
     }
 }

@@ -1,7 +1,4 @@
-// use crate::traits;
-
 use ethers_core::types::{self as ethers_types, H160};
-// use k256::ecdsa::signature::DigestVerifier;
 pub use k256::ecdsa::{RecoveryId, SigningKey, VerifyingKey};
 use k256::Secp256k1;
 use serde::{Deserialize, Serialize};
@@ -78,6 +75,12 @@ impl From<(ecdsa::Signature<Secp256k1>, RecoveryId)> for RecoverableSignature {
         bytes.push(recid.to_byte());
 
         RecoverableSignature::Eip191Signature(bytes)
+    }
+}
+
+impl From<ethers_core::types::Signature> for RecoverableSignature {
+    fn from(value: ethers_core::types::Signature) -> Self {
+        RecoverableSignature::Eip191Signature(value.to_vec())
     }
 }
 
