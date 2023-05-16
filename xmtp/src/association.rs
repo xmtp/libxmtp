@@ -58,16 +58,22 @@ fn gen_static_text_v1(addr: &str, key_bytes: &[u8]) -> String {
 
 #[derive(Serialize, Deserialize, PartialEq, Debug)]
 pub struct Association {
-    pub text: AssociationText,
-    pub signature: RecoverableSignature,
+    text: AssociationText,
+    signature: RecoverableSignature,
 }
 
 impl Association {
-    pub fn new(text: AssociationText, signature: RecoverableSignature) -> Self {
-        Self { text, signature }
+    pub fn new(
+        key_bytes: &[u8],
+        text: AssociationText,
+        signature: RecoverableSignature,
+    ) -> Result<Self, AssociationError> {
+        let this = Self { text, signature };
+        this.is_valid(key_bytes)?;
+        Ok(this)
     }
 
-    pub fn is_valid(&self, key_bytes: &[u8]) -> Result<(), AssociationError> {
+    fn is_valid(&self, key_bytes: &[u8]) -> Result<(), AssociationError> {
         let assumed_addr = self.text.get_address();
 
         // Ensure the Text properly links the Address and Keybytes

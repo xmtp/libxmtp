@@ -72,7 +72,7 @@ pub fn register(f: js_sys::Function) -> Result<usize, JsError> {
         .as_string()
         .unwrap();
 
-    let account = account_creator.finalize(from_base64(&sig)?);
+    let account = account_creator.finalize(from_base64(&sig)?)?;
     let mut accounts = ACCOUNTS.lock().unwrap();
     accounts.push(account);
     Ok(accounts.len() - 1)

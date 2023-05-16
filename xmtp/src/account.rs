@@ -88,12 +88,6 @@ impl Account {
     pub fn addr(&self) -> Address {
         self.assoc.address()
     }
-
-    pub(crate) fn is_valid(&self) -> Result<(), AccountError> {
-        self.assoc
-            .is_valid(&self.keys.bytes_to_sign())
-            .map_err(AccountError::BadAssocation)
-    }
 }
 
 pub struct AccountCreator {
@@ -115,14 +109,14 @@ impl AccountCreator {
         self.assoc_text.text()
     }
 
-    pub fn finalize(self, signature: Vec<u8>) -> Account {
-        Account::new(
-            self.key,
-            Association {
-                text: self.assoc_text,
-                signature: RecoverableSignature::Eip191Signature(signature),
-            },
+    pub fn finalize(self, signature: Vec<u8>) -> Result<Account, AccountError> {
+        let assoc = Association::new(
+            &self.key.bytes_to_sign(),
+            self.assoc_text,
+            RecoverableSignature::Eip191Signature(signature),
         )
+        .map_err(AccountError::BadAssocation)?;
+        Ok(Account::new(self.key, assoc))
     }
 }
 
@@ -170,10 +164,7 @@ mod tests {
             .sign_message(msg)
             .await
             .expect("Bad Signature in test");
-        let account = ac.finalize(sig.to_vec());
-
-        // Ensure Account is valid
-        assert!(account.is_valid().is_ok())
+        assert!(ac.finalize(sig.to_vec()).is_ok());
     }
 
     async fn generate_random_signature(msg: &str) -> (String, Vec<u8>) {
