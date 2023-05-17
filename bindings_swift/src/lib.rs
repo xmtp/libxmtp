@@ -1,6 +1,4 @@
-use async_trait::async_trait;
 use types::QueryResponse;
-use xmtp::networking::XmtpApiClient;
 use xmtp_crypto::{hashes, k256_helper};
 use xmtp_networking::grpc_api_helper;
 use xmtp_proto::xmtp::message_api::v1::{Envelope as EnvelopeProto, PagingInfo};
@@ -99,75 +97,62 @@ mod ffi {
     }
 }
 
-async fn create_client(
-    wallet_address: string,
-    host: String,
-    is_secure: bool,
-) -> Result<xmtp::Client, String> {
-    let persistence = xmtp::persistence::in_memory_persistence::InMemoryPersistence::new();
-    let apiClient = IosApiClient::new(host, is_secure)
-        .await
-        .map_err(|e| format!("{}", e))?;
-    // TODO
-    let xmtpClient = xmtp::ClientBuilder::new()
-        .account(account)
-        .persistence(persistence)
-        .build()
-        .unwrap();
-
-    Ok(xmtpClient)
-}
-
-struct IosApiClient {
+pub struct RustClient {
     client: grpc_api_helper::Client,
 }
 
-impl IosApiClient {
-    async fn new(host: String, is_secure: bool) -> Result<Self, String> {
-        let client = grpc_api_helper::Client::create(host, is_secure)
-            .await
-            .map_err(|e| format!("{}", e))?;
+async fn create_client(host: String, is_secure: bool) -> Result<RustClient, String> {
+    let client = grpc_api_helper::Client::create(host, is_secure)
+        .await
+        .map_err(|e| format!("{}", e))?;
 
-        Ok(Self { client })
-    }
+    Ok(RustClient { client })
 }
 
-#[async_trait]
-impl XmtpApiClient for IosApiClient {
-    async fn publish(
-        &mut self,
-        token: String,
-        envelopes: Vec<EnvelopeProto>,
-        // TODO: use error enums
-    ) -> Result<xmtp_proto::xmtp::message_api::v1::PublishResponse, String> {
-        self.client
-            .publish(token, envelopes)
-            .await
-            .map_err(|e| format!("{}", e))
-    }
-
+impl RustClient {
     async fn query(
         &mut self,
         topic: String,
-        start_time: Option<u64>,
-        end_time: Option<u64>,
-        paging_info: Option<PagingInfo>,
-        // TODO: use error enums
-    ) -> Result<xmtp_proto::xmtp::message_api::v1::QueryResponse, String> {
-        self.client
-            .query(topic, start_time, end_time, paging_info)
+        start_time_ns: Option<u64>,
+        end_time_ns: Option<u64>,
+        paging_info: Option<ffi::PagingInfo>,
+    ) -> Result<QueryResponse, String> {
+        let info = paging_info.map(PagingInfo::from);
+
+        let result = self
+            .client
+            .query(topic, start_time_ns, end_time_ns, info)
             .await
-            .map_err(|e| format!("{}", e))
+            .map_err(|e| format!("{}", e))?;
+
+        Ok(QueryResponse::from(result))
     }
 
-    async fn subscribe(
-        &mut self,
-        topics: Vec<String>,
-    ) -> Result<grpc_api_helper::Subscription, String> {
+    // Left a u32 in there to either 1) return the number of envelopes published or 2) return an error code
+    async fn publish(&mut self, token: String, envelopes: Vec<Envelope>) -> Result<String, String> {
+        let mut xmtp_envelopes = vec![];
+        for envelope in envelopes {
+            xmtp_envelopes.push(EnvelopeProto::from(envelope));
+        }
+
         self.client
+            .publish(token, xmtp_envelopes)
+            .await
+            .map_err(|e| format!("{}", e))?;
+
+        // Swift-Bridge needs this to be a type that has an initializer in Swift
+        // after conversion, such as RustString
+        Ok("".to_string())
+    }
+
+    async fn subscribe(&mut self, topics: Vec<String>) -> Result<RustSubscription, String> {
+        let subscription = self
+            .client
             .subscribe(topics)
             .await
-            .map_err(|e| format!("{}", e))
+            .map_err(|e| format!("{}", e))?;
+
+        Ok(RustSubscription { subscription })
     }
 }
 
