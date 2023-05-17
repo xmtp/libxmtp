@@ -4,6 +4,7 @@ members = [
   "bindings_wasm",
   "xmtp",
   "xmtp_crypto",
+  "xmtp_cryptography",
   "xmtp_keystore",
   "xmtp_networking",
   "xmtp_proto",
