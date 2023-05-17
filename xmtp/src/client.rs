@@ -4,6 +4,7 @@ use crate::{
     account::VmacAccount,
     persistence::{NamespacedPersistence, Persistence},
     types::Message,
+    MessageReceivedHookType,
 };
 
 #[derive(Clone, Copy, Default)]
@@ -27,18 +28,18 @@ where
     pub network: Network,
     pub persistence: NamespacedPersistence<P>,
     pub account: VmacAccount,
-    pub message_hook: Box<dyn FnMut(Message) + 'c>,
+    pub(super) message_hook: Box<MessageReceivedHookType!(dyn, 'c)>,
 }
 
 impl<'c, P> Client<'c, P>
 where
     P: Persistence,
 {
-    pub fn set_message_hook(&mut self, hook: impl FnMut(Message) + 'c) {
+    pub fn set_message_hook(&mut self, hook: MessageReceivedHookType!(impl,'c)) {
         self.message_hook = Box::new(hook);
     }
 
-    pub fn fire_message_hook(&mut self, msg: Message) -> Result<(), ClientError> {
+    pub(super) fn fire_message_hook(&mut self, msg: Message) -> Result<(), ClientError> {
         (self.message_hook)(msg);
         Ok(())
     }

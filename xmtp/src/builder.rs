@@ -3,6 +3,7 @@ use crate::{
     client::{Client, Network},
     persistence::{NamespacedPersistence, Persistence},
     types::Message,
+    MessageReceivedHookType,
 };
 use thiserror::Error;
 
@@ -27,7 +28,7 @@ where
     persistence: Option<P>,
     wallet_address: Option<String>,
     account: Option<Account>,
-    message_hook: Option<Box<dyn FnMut(Message) + 'static>>,
+    message_hook: Option<Box<dyn FnMut(Message) + 'static>>, // Cannot use type macro as Derive is n use.
 }
 
 impl<P> ClientBuilder<P>
@@ -64,7 +65,10 @@ where
         self
     }
 
-    pub fn message_hook(mut self, message_hook: Box<dyn FnMut(Message) + 'static>) -> Self {
+    pub fn message_hook(
+        mut self,
+        message_hook: Box<MessageReceivedHookType!(dyn,'static)>,
+    ) -> Self {
         self.message_hook = Some(message_hook);
         self
     }
