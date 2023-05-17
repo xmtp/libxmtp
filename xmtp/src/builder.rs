@@ -66,8 +66,8 @@ where
         self
     }
 
-    pub fn wallet_address(mut self, wallet_address: String) -> Self {
-        self.wallet_address = Some(wallet_address);
+    pub fn wallet_address(mut self, wallet_address: &str) -> Self {
+        self.wallet_address = Some(wallet_address.to_string());
         self
     }
 

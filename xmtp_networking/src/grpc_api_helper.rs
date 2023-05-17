@@ -65,7 +65,7 @@ pub struct Client {
 }
 
 impl Client {
-    pub async fn create(host: String, is_secure: bool) -> Result<Self, tonic::Status> {
+    pub async fn create(host: &str, is_secure: bool) -> Result<Self, tonic::Status> {
         let host = host.to_string();
         if is_secure {
             let connector = get_tls_connector().map_err(|e| {
