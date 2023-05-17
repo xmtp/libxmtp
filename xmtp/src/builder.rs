@@ -141,15 +141,16 @@ fn get_account_namespace(wallet_address: &str) -> String {
 mod tests {
 
     use crate::{
-        builder::ClientBuilderError, client::Network,
+        builder::ClientBuilderError, client::Network, networking::MockXmtpApiClient,
         persistence::in_memory_persistence::InMemoryPersistence,
     };
 
     use super::ClientBuilder;
 
-    impl ClientBuilder<InMemoryPersistence> {
+    impl ClientBuilder<MockXmtpApiClient, InMemoryPersistence> {
         pub fn new_test() -> Self {
             Self::new()
+                .api_client(MockXmtpApiClient::new())
                 .persistence(InMemoryPersistence::new())
                 .wallet_address("unknown".to_string())
         }
@@ -171,12 +172,14 @@ mod tests {
     fn persistence_test() {
         let persistence = InMemoryPersistence::new();
         let client_a = ClientBuilder::new()
+            .api_client(MockXmtpApiClient::new())
             .persistence(persistence)
             .wallet_address("foo".to_string())
             .build()
             .unwrap();
 
         let client_b = ClientBuilder::new()
+            .api_client(MockXmtpApiClient::new())
             .persistence(client_a.persistence.persistence)
             .wallet_address("foo".to_string())
             .build()
@@ -191,7 +194,8 @@ mod tests {
 
     #[test]
     fn test_error_result() {
-        let e = ClientBuilder::<InMemoryPersistence>::new()
+        let e = ClientBuilder::<MockXmtpApiClient, InMemoryPersistence>::new()
+            .api_client(MockXmtpApiClient::new())
             .network(Network::Dev)
             .build();
         match e {
