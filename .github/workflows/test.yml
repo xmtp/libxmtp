@@ -16,6 +16,8 @@ jobs:
         run: dev/up
 
       - uses: bufbuild/buf-setup-action@v1.17.0
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Install stable toolchain
         uses: actions-rs/toolchain@v1
