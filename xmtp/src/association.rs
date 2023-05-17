@@ -21,6 +21,67 @@ pub enum AssociationError {
     Unknown,
 }
 
+/// An Association is link between a blockchain account and an xmtp account for the purposes of
+/// authentication. This certifies the user address (0xadd12e555c541A063cDbBD3Feb3C006d6f996745)
+///  is associated to the XMTP Account.
+#[derive(Serialize, Deserialize, PartialEq, Debug)]
+pub struct Association {
+    text: AssociationText,
+    signature: RecoverableSignature,
+}
+
+impl Association {
+    pub fn new(
+        account_public_key: &[u8],
+        text: AssociationText,
+        signature: RecoverableSignature,
+    ) -> Result<Self, AssociationError> {
+        let this = Self { text, signature };
+        this.is_valid(account_public_key)?;
+        Ok(this)
+    }
+
+    fn is_valid(&self, account_public_key: &[u8]) -> Result<(), AssociationError> {
+        let assumed_addr = self.text.get_address();
+
+        // Ensure the Text properly links the Address and Keybytes
+        self.text.is_valid(&assumed_addr, account_public_key)?;
+
+        let addr = self.signature.recover_address(&self.text.text())?;
+
+        if assumed_addr != addr {
+            Err(AssociationError::AddressMismatch {
+                provided_addr: assumed_addr,
+                signing_addr: addr,
+            })
+        } else {
+            Ok(())
+        }
+    }
+
+    // The address returned is unverified, call is_valid to ensure the address is correct
+    pub fn address(&self) -> String {
+        self.text.get_address()
+    }
+
+    pub fn test() -> Result<Self, AssociationError> {
+        let key = SigningKey::random(&mut utils::rng());
+        let pubkey = key.verifying_key();
+        let addr = eth_address(pubkey).unwrap();
+
+        let assoc_text =
+            AssociationText::new_static(addr, pubkey.to_encoded_point(false).to_bytes().to_vec());
+        let text = assoc_text.text();
+        Ok(Self {
+            text: assoc_text,
+            signature: RecoverableSignature::new_eth_signature(&key, &text)?,
+        })
+    }
+}
+
+/// AssociationText represents the string which was signed by the authorizing blockchain account. a valid AssociationTest must
+/// contain the address of the blockchain account and a representation of the XMTP Account publicKey. Different standards may
+/// choose how this information is encoded, as well as adding extra requirements for increased security.
 #[derive(Serialize, Deserialize, PartialEq, Debug, Clone)]
 pub enum AssociationText {
     Static {
@@ -62,62 +123,10 @@ impl AssociationText {
 }
 
 fn gen_static_text_v1(addr: &str, key_bytes: &[u8]) -> String {
-    format!("XMTPv3 Link:{addr} -> keyBytes:{}", &hex::encode(key_bytes))
-}
-
-#[derive(Serialize, Deserialize, PartialEq, Debug)]
-pub struct Association {
-    text: AssociationText,
-    signature: RecoverableSignature,
-}
-
-impl Association {
-    pub fn new(
-        key_bytes: &[u8],
-        text: AssociationText,
-        signature: RecoverableSignature,
-    ) -> Result<Self, AssociationError> {
-        let this = Self { text, signature };
-        this.is_valid(key_bytes)?;
-        Ok(this)
-    }
-
-    fn is_valid(&self, key_bytes: &[u8]) -> Result<(), AssociationError> {
-        let assumed_addr = self.text.get_address();
-
-        // Ensure the Text properly links the Address and Keybytes
-        self.text.is_valid(&assumed_addr, key_bytes)?;
-
-        let addr = self.signature.recover_address(&self.text.text())?;
-
-        if assumed_addr != addr {
-            Err(AssociationError::AddressMismatch {
-                provided_addr: assumed_addr,
-                signing_addr: addr,
-            })
-        } else {
-            Ok(())
-        }
-    }
-
-    // The address returned is unverified, call is_valid to ensure the address is correct
-    pub fn address(&self) -> String {
-        self.text.get_address()
-    }
-
-    pub fn test() -> Result<Self, AssociationError> {
-        let key = SigningKey::random(&mut utils::rng());
-        let pubkey = key.verifying_key();
-        let addr = eth_address(pubkey).unwrap();
-
-        let assoc_text =
-            AssociationText::new_static(addr, pubkey.to_encoded_point(false).to_bytes().to_vec());
-        let text = assoc_text.text();
-        Ok(Self {
-            text: assoc_text,
-            signature: RecoverableSignature::new_eth_signature(&key, &text)?,
-        })
-    }
+    format!(
+        "AccountAssociation(XMTPv3): {addr} -> keyBytes:{}",
+        &hex::encode(key_bytes)
+    )
 }
 
 #[cfg(test)]
