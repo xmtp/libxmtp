@@ -1,6 +1,7 @@
 use crate::{
     account::{Account, VmacAccount},
     client::{Client, Network},
+    networking::XmtpApiClient,
     persistence::{NamespacedPersistence, Persistence},
 };
 use thiserror::Error;
@@ -18,27 +19,36 @@ pub enum ClientBuilderError<PE> {
 }
 
 #[derive(Default)]
-pub struct ClientBuilder<P>
+pub struct ClientBuilder<A, P>
 where
+    A: XmtpApiClient,
     P: Persistence,
 {
+    api_client: Option<A>,
     network: Network,
     persistence: Option<P>,
     wallet_address: Option<String>,
     account: Option<Account>,
 }
 
-impl<P> ClientBuilder<P>
+impl<A, P> ClientBuilder<A, P>
 where
+    A: XmtpApiClient,
     P: Persistence,
 {
     pub fn new() -> Self {
         Self {
+            api_client: None,
             network: Network::Dev,
             persistence: None,
             wallet_address: None,
             account: None,
         }
+    }
+
+    pub fn api_client(mut self, api_client: A) -> Self {
+        self.api_client = Some(api_client);
+        self
     }
 
     pub fn network(mut self, network: Network) -> Self {
@@ -91,7 +101,13 @@ where
         }
     }
 
-    pub fn build(&mut self) -> Result<Client<P>, ClientBuilderError<P::Error>> {
+    pub fn build(&mut self) -> Result<Client<A, P>, ClientBuilderError<P::Error>> {
+        let api_client =
+            self.api_client
+                .take()
+                .ok_or(ClientBuilderError::MissingParameterError {
+                    parameter: "api_client",
+                })?;
         let wallet_address =
             self.wallet_address
                 .as_ref()
@@ -109,6 +125,7 @@ where
         let account = Self::find_or_create_account(&mut persistence)?;
 
         Ok(Client {
+            api_client,
             network: self.network,
             persistence,
             account,
