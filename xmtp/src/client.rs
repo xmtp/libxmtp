@@ -1,6 +1,9 @@
+use thiserror::Error;
+
 use crate::{
     account::VmacAccount,
     persistence::{NamespacedPersistence, Persistence},
+    types::Message,
 };
 
 #[derive(Clone, Copy, Default)]
@@ -11,16 +14,37 @@ pub enum Network {
     Prod,
 }
 
-pub struct Client<P>
+#[derive(Debug, Error)]
+pub enum ClientError {
+    #[error("unknown client error")]
+    Unknown,
+}
+
+pub struct Client<'c, P>
 where
     P: Persistence,
 {
     pub network: Network,
     pub persistence: NamespacedPersistence<P>,
     pub account: VmacAccount,
+    pub message_hook: Box<dyn FnMut(Message) + 'c>,
 }
 
-impl<P: Persistence> Client<P> {
+impl<'c, P> Client<'c, P>
+where
+    P: Persistence,
+{
+    pub fn set_message_hook(&mut self, hook: impl FnMut(Message) + 'c) {
+        self.message_hook = Box::new(hook);
+    }
+
+    pub fn fire_message_hook(&mut self, msg: Message) -> Result<(), ClientError> {
+        (self.message_hook)(msg);
+        Ok(())
+    }
+}
+
+impl<'c, P: Persistence> Client<'c, P> {
     pub fn write_to_persistence(&mut self, s: &str, b: &[u8]) -> Result<(), P::Error> {
         self.persistence.write(s, b)
     }

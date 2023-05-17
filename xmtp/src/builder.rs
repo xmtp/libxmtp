@@ -2,6 +2,7 @@ use crate::{
     account::{Account, VmacAccount},
     client::{Client, Network},
     persistence::{NamespacedPersistence, Persistence},
+    types::Message,
 };
 use thiserror::Error;
 
@@ -26,6 +27,7 @@ where
     persistence: Option<P>,
     wallet_address: Option<String>,
     account: Option<Account>,
+    message_hook: Option<Box<dyn FnMut(Message) + 'static>>,
 }
 
 impl<P> ClientBuilder<P>
@@ -38,6 +40,7 @@ where
             persistence: None,
             wallet_address: None,
             account: None,
+            message_hook: None,
         }
     }
 
@@ -58,6 +61,11 @@ where
 
     pub fn wallet_address(mut self, wallet_address: String) -> Self {
         self.wallet_address = Some(wallet_address);
+        self
+    }
+
+    pub fn message_hook(mut self, message_hook: Box<dyn FnMut(Message) + 'static>) -> Self {
+        self.message_hook = Some(message_hook);
         self
     }
 
@@ -91,7 +99,7 @@ where
         }
     }
 
-    pub fn build(&mut self) -> Result<Client<P>, ClientBuilderError<P::Error>> {
+    pub fn build<'c>(mut self) -> Result<Client<'c, P>, ClientBuilderError<P::Error>> {
         let wallet_address =
             self.wallet_address
                 .as_ref()
@@ -108,10 +116,16 @@ where
             NamespacedPersistence::new(&get_account_namespace(wallet_address), persistence);
         let account = Self::find_or_create_account(&mut persistence)?;
 
+        let message_hook = self
+            .message_hook
+            .take()
+            .unwrap_or_else(move || Box::new(|_: Message| {}));
+
         Ok(Client {
             network: self.network,
             persistence,
             account,
+            message_hook,
         })
     }
 }
@@ -125,7 +139,7 @@ mod tests {
 
     use crate::{
         builder::ClientBuilderError, client::Network,
-        persistence::in_memory_persistence::InMemoryPersistence,
+        persistence::in_memory_persistence::InMemoryPersistence, types::Message,
     };
 
     use super::ClientBuilder;
@@ -170,6 +184,27 @@ mod tests {
             client_a.account.get().curve25519_key().to_bytes(),
             client_b.account.get().curve25519_key().to_bytes()
         )
+    }
+
+    #[test]
+    fn message_hook_instantiation() {
+        let builder = ClientBuilder::new_test()
+            .message_hook(Box::new(|m: Message| println!("-------- {}", m)));
+
+        let mut client = builder.build().expect("BadClientInit");
+
+        client
+            .fire_message_hook(String::from("Hello"))
+            .expect("Bad Msg Fire");
+    }
+
+    #[test]
+    fn message_hook_lifetime() {
+        let mut client = ClientBuilder::new_test().build().expect("BadClientInit");
+
+        client
+            .fire_message_hook(String::from("Bye"))
+            .expect("Bad Msg Fire");
     }
 
     #[test]
