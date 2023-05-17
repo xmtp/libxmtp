@@ -1,7 +1,6 @@
 [workspace]
 
 members = [
-  "bindings_wasm",
   "xmtp",
   "xmtp_crypto",
   "xmtp_cryptography",
@@ -16,4 +15,5 @@ members = [
 exclude = [
   "bindings_js",
   "bindings_swift",
+  "bindings_wasm",
 ]
