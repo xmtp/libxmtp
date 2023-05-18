@@ -152,7 +152,7 @@ mod tests {
             Self::new()
                 .api_client(MockXmtpApiClient::new())
                 .persistence(InMemoryPersistence::new())
-                .wallet_address("unknown".to_string())
+                .wallet_address("unknown")
         }
     }
 
@@ -174,14 +174,14 @@ mod tests {
         let client_a = ClientBuilder::new()
             .api_client(MockXmtpApiClient::new())
             .persistence(persistence)
-            .wallet_address("foo".to_string())
+            .wallet_address("foo")
             .build()
             .unwrap();
 
         let client_b = ClientBuilder::new()
             .api_client(MockXmtpApiClient::new())
             .persistence(client_a.persistence.persistence)
-            .wallet_address("foo".to_string())
+            .wallet_address("foo")
             .build()
             .unwrap();
 

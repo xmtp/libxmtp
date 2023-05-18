@@ -1,7 +1,6 @@
 use async_trait::async_trait;
-// use types::QueryResponse;
 use xmtp::{
-    account::AccountCreator, networking::XmtpApiClient,
+    account::Account, networking::XmtpApiClient,
     persistence::in_memory_persistence::InMemoryPersistence,
 };
 use xmtp_networking::grpc_api_helper::{self, Subscription};
@@ -12,10 +11,11 @@ pub type FfiXmtpClient = xmtp::Client<FfiApiClient, InMemoryPersistence>;
 #[swift_bridge::bridge]
 mod ffi {
     extern "Rust" {
+        type Account;
         type FfiXmtpClient;
 
         async fn create_client(
-            wallet_address: &str,
+            account: Account,
             host: &str,
             is_secure: bool,
         ) -> Result<FfiXmtpClient, String>;
@@ -23,34 +23,34 @@ mod ffi {
 }
 
 async fn create_client(
-    wallet_address: &str,
+    account: Account,
     host: &str,
     is_secure: bool,
+    // TODO proper error handling
 ) -> Result<xmtp::Client<FfiApiClient, InMemoryPersistence>, String> {
-    let account = AccountCreator::new().finalize_key(Vec::new()); // TODO sign key with wallet address
     let api_client = FfiApiClient::new(host, is_secure)
         .await
         .map_err(|e| format!("{}", e))?;
     let persistence = InMemoryPersistence::new();
 
     let xmtp_client = xmtp::ClientBuilder::new()
+        .wallet_address(&account.addr())
         .account(account)
         .api_client(api_client)
         .persistence(persistence)
-        .wallet_address(wallet_address)
         .build()
-        .unwrap();
+        .map_err(|e| format!("{:?}", e))?;
 
     Ok(xmtp_client)
 }
 
-struct FfiApiClient {
+pub struct FfiApiClient {
     client: grpc_api_helper::Client,
 }
 
 impl FfiApiClient {
     async fn new(host: &str, is_secure: bool) -> Result<Self, String> {
-        let client = grpc_api_helper::Client::create(host, is_secure)
+        let client = grpc_api_helper::Client::create(host.to_string(), is_secure)
             .await
             .map_err(|e| format!("{}", e))?;
 
@@ -98,8 +98,13 @@ impl XmtpApiClient for FfiApiClient {
 mod tests {
     use std::time::{SystemTime, UNIX_EPOCH};
 
+    use ethers::signers::{LocalWallet, Signer};
     use uuid::Uuid;
-    use xmtp::networking::XmtpApiClient;
+    use xmtp::{
+        account::{Account, AccountCreator},
+        networking::XmtpApiClient,
+    };
+    use xmtp_cryptography::{signature::h160addr_to_string, utils::rng};
 
     static ADDRESS: &str = "http://localhost:5556";
 
@@ -113,12 +118,24 @@ mod tests {
         }
     }
 
+    async fn gen_test_account() -> Account {
+        let wallet = LocalWallet::new(&mut rng());
+        let addr = h160addr_to_string(wallet.address());
+
+        let ac = AccountCreator::new(addr);
+        let msg = ac.text_to_sign();
+        let sig = wallet
+            .sign_message(msg)
+            .await
+            .expect("Bad Signature in test");
+        ac.finalize(sig.to_vec()).unwrap()
+    }
+
     // Try a query on a test topic, and make sure we get a response
     #[tokio::test]
     async fn test_publish_query() {
-        let mut client = super::create_client("0xABCD", ADDRESS, false)
-            .await
-            .unwrap();
+        let account = gen_test_account().await;
+        let mut client = super::create_client(account, ADDRESS, false).await.unwrap();
         let topic = Uuid::new_v4();
         client
             .api_client
@@ -143,10 +160,9 @@ mod tests {
 
     #[tokio::test]
     async fn test_subscribe() {
+        let account = gen_test_account().await;
         let topic = Uuid::new_v4();
-        let mut client = super::create_client("0xABCD", ADDRESS, false)
-            .await
-            .unwrap();
+        let mut client = super::create_client(account, ADDRESS, false).await.unwrap();
         let mut sub = client
             .api_client
             .subscribe(vec![topic.to_string()])
