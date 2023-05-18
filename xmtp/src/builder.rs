@@ -203,15 +203,6 @@ mod tests {
     }
 
     #[test]
-    fn message_hook_lifetime() {
-        let mut client = ClientBuilder::new_test().build().expect("BadClientInit");
-
-        client
-            .fire_message_hook(String::from("Bye"))
-            .expect("Bad Msg Fire");
-    }
-
-    #[test]
     fn test_error_result() {
         let e = ClientBuilder::<InMemoryPersistence>::new()
             .network(Network::Dev)

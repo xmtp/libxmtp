@@ -3,11 +3,15 @@ pub mod association;
 pub mod builder;
 pub mod client;
 pub mod persistence;
+mod storage;
 mod types;
 pub mod vmac_protos;
 
 pub use builder::ClientBuilder;
 pub use client::Client;
+
+#[macro_use]
+extern crate diesel_migrations;
 
 pub trait Signable {
     fn bytes_to_sign(&self) -> Vec<u8>;
