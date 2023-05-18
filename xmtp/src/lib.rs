@@ -10,11 +10,17 @@ pub mod vmac_protos;
 pub use builder::ClientBuilder;
 pub use client::Client;
 
-#[macro_use]
-extern crate diesel_migrations;
-
 pub trait Signable {
     fn bytes_to_sign(&self) -> Vec<u8>;
+}
+
+pub trait Store<I> {
+    fn store(&self, into: &mut I) -> Result<(), String>;
+}
+
+pub trait Fetch<T> {
+    type E;
+    fn fetch(&mut self) -> Result<Vec<T>, Self::E>;
 }
 
 #[cfg(test)]

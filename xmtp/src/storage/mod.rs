@@ -1,12 +1,8 @@
 pub mod models;
 pub mod schema;
-
-use std::time::{SystemTime, UNIX_EPOCH};
-
 use self::{models::*, schema::messages};
-use crate::types::Message;
+use crate::{Fetch, Store};
 use diesel::{prelude::*, sql_query, Connection};
-use diesel_migrations::{embed_migrations, EmbeddedMigrations, MigrationHarness};
 use thiserror::Error;
 
 const DB_PATH: &str = "./xmtp_embedded.db3";
@@ -23,21 +19,7 @@ pub enum StoreError {
     Unknown,
 }
 
-pub trait MsgStore {
-    // Client Required Methods
-    fn insert_message(account_id: String, msg: Message) -> Result<(), StoreError>;
-
-    // App Required Methods
-    // fn list_conversations() -> Vec<&Conversation>;
-    // fn get_conversation(cursor: u64) -> Vec<&Message>;
-    // fn delete_conversation(convo_id: String) -> Result<(),StoreError>;
-
-    // fn get_message()-> &Message;
-    // fn delete_message() ->  Result<(),StoreError>;
-    // fn on_new_message() -> ??;
-}
-
-enum StorageOption {
+pub enum StorageOption {
     Ephemeral,
     Peristent(String),
 }
@@ -48,13 +30,21 @@ impl Default for StorageOption {
     }
 }
 
-struct UnencryptedMessageStore {
+#[allow(dead_code)]
+pub struct UnencryptedMessageStore {
     connect_opt: StorageOption,
     conn: SqliteConnection,
 }
 
+impl Default for UnencryptedMessageStore {
+    fn default() -> Self {
+        Self::new(StorageOption::Ephemeral)
+            .expect("Error Occured: tring to create default Ephemeral store")
+    }
+}
+
 impl UnencryptedMessageStore {
-    fn new(opts: StorageOption) -> Result<Self, StoreError> {
+    pub fn new(opts: StorageOption) -> Result<Self, StoreError> {
         let db_path = match opts {
             StorageOption::Ephemeral => ":memory:",
             StorageOption::Peristent(ref path) => path,
@@ -73,58 +63,29 @@ impl UnencryptedMessageStore {
     fn init_db(&mut self) -> Result<(), StoreError> {
         DbInitializer::initialize(&mut self.conn)
     }
+}
 
-    fn get_messages(&mut self, convo_id: &str) -> Result<(), StoreError> {
-        use self::schema::messages::dsl::*;
-        let conn = &mut self.conn;
-        let results = messages
-            .filter(convoid.eq(convo_id))
-            .limit(5)
-            .load::<DecryptedMessage>(conn)
-            .expect("Error loading messages");
-
-        println!("Displaying {} messages", results.len());
-        for msg in results {
-            println!(
-                "[{}]   {}   ->>  {}",
-                msg.created_at, msg.addr_from, msg.content
-            );
-        }
-        Ok(())
-    }
-
-    // TODO: Change signature to support encoded content
-    pub fn insert_message(
-        &mut self,
-        convo_id: String,
-        addr_from: String,
-        content: String,
-    ) -> Result<(), StoreError> {
-        let conn = &mut self.conn;
-
-        let new_msg = NewDecryptedMessage {
-            created_at: now(),
-            convoid: convo_id,
-            addr_from,
-            content,
-        };
-
+impl Store<UnencryptedMessageStore> for NewDecryptedMessage {
+    fn store(&self, into: &mut UnencryptedMessageStore) -> Result<(), String> {
         diesel::insert_into(messages::table)
-            .values(&new_msg)
-            .execute(conn)
+            .values(self)
+            .execute(&mut into.conn)
             .expect("Error saving new message");
 
         Ok(())
     }
 }
 
-// Diesel + Sqlite is giving trouble when trying to use f64 with REAL type. Downgraded to f32 timestamps
-fn now() -> f32 {
-    let start = SystemTime::now();
-    start
-        .duration_since(UNIX_EPOCH)
-        .expect("Time went backwards")
-        .as_secs_f32()
+// TODO: Add Filtering to Query
+impl Fetch<DecryptedMessage> for UnencryptedMessageStore {
+    type E = StoreError;
+    fn fetch(&mut self) -> Result<Vec<DecryptedMessage>, Self::E> {
+        use self::schema::messages::dsl::*;
+        messages
+            .limit(5)
+            .load::<DecryptedMessage>(&mut self.conn)
+            .map_err(StoreError::DieselResultError)
+    }
 }
 
 // TODO: Repalce with Embedded Migrations
@@ -171,28 +132,44 @@ impl DbInitializer {
 mod tests {
     use diesel::{Connection, SqliteConnection};
 
-    use super::{DbInitializer, StorageOption, StoreError, UnencryptedMessageStore, DB_PATH};
+    use crate::{Fetch, Store};
 
-    #[test]
-    fn store_init() {
-        let mut store = UnencryptedMessageStore::new(StorageOption::Ephemeral).unwrap();
-        store
-            .insert_message("Bola".into(), "0x000A".into(), "Hello Bola".into())
-            .unwrap();
-        store
-            .insert_message("Mark".into(), "0x000A".into(), "Hi Mark".into())
-            .unwrap();
-        store
-            .insert_message("Bola".into(), "0x000B".into(), "Hi Amal".into())
-            .unwrap();
-        store.get_messages("Bola".into()).unwrap();
-    }
+    use super::{
+        models::{DecryptedMessage, NewDecryptedMessage},
+        DbInitializer, StorageOption, StoreError, UnencryptedMessageStore, DB_PATH,
+    };
 
-    #[test]
+    #[allow(dead_code)]
     fn task_init_db() {
         let conn = &mut SqliteConnection::establish(DB_PATH)
             .map_err(StoreError::DieselConnectError)
             .unwrap();
         DbInitializer::initialize(conn).unwrap()
     }
+
+    #[test]
+    fn store_check() {
+        let mut store = UnencryptedMessageStore::new(StorageOption::Ephemeral).unwrap();
+
+        NewDecryptedMessage::new("Bola".into(), "0x000A".into(), "Hello Bola".into())
+            .store(&mut store)
+            .unwrap();
+
+        NewDecryptedMessage::new("Mark".into(), "0x000A".into(), "Sup Mark".into())
+            .store(&mut store)
+            .unwrap();
+
+        NewDecryptedMessage::new("Bola".into(), "0x000B".into(), "Hey Amal".into())
+            .store(&mut store)
+            .unwrap();
+
+        NewDecryptedMessage::new("Bola".into(), "0x000A".into(), "bye".into())
+            .store(&mut store)
+            .unwrap();
+
+        let v: Vec<DecryptedMessage> = store.fetch().unwrap();
+        assert_eq!(4, v.len());
+    }
+
+    // TODO: Add Content Tests
 }

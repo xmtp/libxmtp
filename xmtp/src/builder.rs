@@ -2,8 +2,7 @@ use crate::{
     account::{Account, VmacAccount},
     client::{Client, Network},
     persistence::{NamespacedPersistence, Persistence},
-    types::Message,
-    MessageReceivedHookType,
+    storage::StoreError,
 };
 use thiserror::Error;
 
@@ -17,23 +16,28 @@ pub enum ClientBuilderError<PE> {
 
     #[error("Failed to read/write state to persistence: {source}")]
     PersistenceError { source: PE },
+
+    #[error("Error Initalizing Store")]
+    StoreInitialization(#[from] StoreError),
 }
 
 #[derive(Default)]
-pub struct ClientBuilder<P>
+pub struct ClientBuilder<P, S>
 where
     P: Persistence,
+    S: Default,
 {
     network: Network,
     persistence: Option<P>,
     wallet_address: Option<String>,
     account: Option<Account>,
-    message_hook: Option<Box<dyn FnMut(Message) + 'static>>, // Cannot use type macro as Derive is n use.
+    store: Option<S>,
 }
 
-impl<P> ClientBuilder<P>
+impl<P, S> ClientBuilder<P, S>
 where
     P: Persistence,
+    S: Default,
 {
     pub fn new() -> Self {
         Self {
@@ -41,7 +45,7 @@ where
             persistence: None,
             wallet_address: None,
             account: None,
-            message_hook: None,
+            store: None,
         }
     }
 
@@ -65,11 +69,8 @@ where
         self
     }
 
-    pub fn message_hook(
-        mut self,
-        message_hook: Box<MessageReceivedHookType!(dyn,'static)>,
-    ) -> Self {
-        self.message_hook = Some(message_hook);
+    pub fn store(mut self, store: S) -> Self {
+        self.store = Some(store);
         self
     }
 
@@ -103,7 +104,7 @@ where
         }
     }
 
-    pub fn build<'c>(mut self) -> Result<Client<'c, P>, ClientBuilderError<P::Error>> {
+    pub fn build(mut self) -> Result<Client<P, S>, ClientBuilderError<P::Error>> {
         let wallet_address =
             self.wallet_address
                 .as_ref()
@@ -120,16 +121,13 @@ where
             NamespacedPersistence::new(&get_account_namespace(wallet_address), persistence);
         let account = Self::find_or_create_account(&mut persistence)?;
 
-        let message_hook = self
-            .message_hook
-            .take()
-            .unwrap_or_else(move || Box::new(|_: Message| {}));
+        let store = self.store.take().unwrap_or_default();
 
         Ok(Client {
             network: self.network,
             persistence,
             account,
-            message_hook,
+            _store: store,
         })
     }
 }
@@ -142,13 +140,15 @@ fn get_account_namespace(wallet_address: &str) -> String {
 mod tests {
 
     use crate::{
-        builder::ClientBuilderError, client::Network,
-        persistence::in_memory_persistence::InMemoryPersistence, types::Message,
+        builder::ClientBuilderError,
+        client::Network,
+        persistence::in_memory_persistence::InMemoryPersistence,
+        storage::{StorageOption, UnencryptedMessageStore},
     };
 
     use super::ClientBuilder;
 
-    impl ClientBuilder<InMemoryPersistence> {
+    impl ClientBuilder<InMemoryPersistence, UnencryptedMessageStore> {
         pub fn new_test() -> Self {
             Self::new()
                 .persistence(InMemoryPersistence::new())
@@ -173,12 +173,14 @@ mod tests {
         let persistence = InMemoryPersistence::new();
         let client_a = ClientBuilder::new()
             .persistence(persistence)
+            .store(UnencryptedMessageStore::new(StorageOption::Ephemeral).unwrap())
             .wallet_address("foo".to_string())
             .build()
             .unwrap();
 
         let client_b = ClientBuilder::new()
             .persistence(client_a.persistence.persistence)
+            .store(UnencryptedMessageStore::new(StorageOption::Ephemeral).unwrap())
             .wallet_address("foo".to_string())
             .build()
             .unwrap();
@@ -191,20 +193,8 @@ mod tests {
     }
 
     #[test]
-    fn message_hook_instantiation() {
-        let builder = ClientBuilder::new_test()
-            .message_hook(Box::new(|m: Message| println!("-------- {}", m)));
-
-        let mut client = builder.build().expect("BadClientInit");
-
-        client
-            .fire_message_hook(String::from("Hello"))
-            .expect("Bad Msg Fire");
-    }
-
-    #[test]
     fn test_error_result() {
-        let e = ClientBuilder::<InMemoryPersistence>::new()
+        let e = ClientBuilder::<InMemoryPersistence, UnencryptedMessageStore>::new()
             .network(Network::Dev)
             .build();
         match e {

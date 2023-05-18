@@ -1,7 +1,9 @@
+use std::time::{SystemTime, UNIX_EPOCH};
+
 use super::schema::messages;
 use diesel::prelude::*;
 
-#[derive(Queryable)]
+#[derive(Queryable, Debug)]
 pub struct DecryptedMessage {
     pub id: i32,
     pub created_at: f32,
@@ -19,6 +21,17 @@ pub struct NewDecryptedMessage {
     pub content: String,
 }
 
+impl NewDecryptedMessage {
+    pub fn new(convo_id: String, addr_from: String, content: String) -> Self {
+        Self {
+            created_at: now(),
+            convoid: convo_id,
+            addr_from,
+            content,
+        }
+    }
+}
+
 #[derive(Queryable)]
 pub struct Channel {
     pub id: i32,
@@ -26,4 +39,13 @@ pub struct Channel {
     pub created_at: f32,
     pub sent_at: bool,
     pub contents: String,
+}
+
+// Diesel + Sqlite is giving trouble when trying to use f64 with REAL type. Downgraded to f32 timestamps
+fn now() -> f32 {
+    let start = SystemTime::now();
+    start
+        .duration_since(UNIX_EPOCH)
+        .expect("Time went backwards")
+        .as_secs_f32()
 }
