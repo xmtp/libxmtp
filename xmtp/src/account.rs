@@ -1,43 +1,19 @@
-use std::vec;
-
+use crate::{
+    association::{Association, AssociationError, AssociationText},
+    types::Address,
+    Signable,
+};
 use serde::{Deserialize, Serialize};
+use thiserror::Error;
 use vodozemac::olm::{Account as OlmAccount, AccountPickle as OlmAccountPickle};
+use xmtp_cryptography::signature::RecoverableSignature;
 
-use crate::Signable;
-
-type Address = String;
-
-#[derive(Serialize, Deserialize, PartialEq, Debug)]
-pub enum AssociationFormat {
-    Eip191,
-}
-
-#[derive(Serialize, Deserialize, PartialEq, Debug)]
-pub enum AssociationType {
-    Static,
-}
-
-#[derive(Serialize, Deserialize, PartialEq, Debug)]
-pub struct Association {
-    pub addr: Address,
-    pub key_bytes: String,
-    pub text: String,
-    pub format: AssociationFormat,
-    pub proof: Vec<u8>,
-    pub proof_type: AssociationType,
-}
-
-impl Association {
-    pub fn test() -> Self {
-        Self {
-            addr: "ADDR".to_string(),
-            key_bytes: "KEY_BYTES".to_string(),
-            text: "TEXT".to_string(),
-            format: AssociationFormat::Eip191,
-            proof: vec![0, 2, 3, 5, 67],
-            proof_type: AssociationType::Static,
-        }
-    }
+#[derive(Debug, Error)]
+pub enum AccountError {
+    #[error("bad association")]
+    BadAssocation(#[from] AssociationError),
+    #[error("unknown error")]
+    Unknown,
 }
 
 pub struct VmacAccount {
@@ -98,6 +74,8 @@ pub struct Account {
 
 impl Account {
     pub fn new(keys: VmacAccount, assoc: Association) -> Self {
+        // TODO: Validate Association on initialization
+
         Self { keys, assoc }
     }
 
@@ -108,23 +86,37 @@ impl Account {
     }
 
     pub fn addr(&self) -> Address {
-        self.assoc.addr.clone()
+        self.assoc.address()
     }
 }
 
 pub struct AccountCreator {
     key: VmacAccount,
+    assoc_text: AssociationText,
 }
 
 impl AccountCreator {
-    pub fn new() -> Self {
+    pub fn new(addr: Address) -> Self {
+        let key = VmacAccount::generate();
+        let key_bytes = key.bytes_to_sign();
         Self {
-            key: VmacAccount::generate(),
+            key,
+            assoc_text: AssociationText::new_static(addr, key_bytes),
         }
     }
 
-    pub fn finalize_key(self, _sig: Vec<u8>) -> Account {
-        Account::new(self.key, Association::test())
+    pub fn text_to_sign(&self) -> String {
+        self.assoc_text.text()
+    }
+
+    pub fn finalize(self, signature: Vec<u8>) -> Result<Account, AccountError> {
+        let assoc = Association::new(
+            &self.key.bytes_to_sign(),
+            self.assoc_text,
+            RecoverableSignature::Eip191Signature(signature),
+        )
+        .map_err(AccountError::BadAssocation)?;
+        Ok(Account::new(self.key, assoc))
     }
 }
 
@@ -134,17 +126,20 @@ impl Signable for AccountCreator {
     }
 }
 
-pub fn test_wallet_signer(_: Vec<u8>) -> Association {
-    Association::test()
-}
-
 #[cfg(test)]
 mod tests {
+
+    use super::{Account, AccountCreator, Association};
+    use ethers::core::rand::thread_rng;
+    use ethers::signers::{LocalWallet, Signer};
+    use ethers_core::types::{Address as EthAddress, Signature};
+    use ethers_core::utils::hex;
     use serde_json::json;
+    use xmtp_cryptography::{signature::h160addr_to_string, utils::rng};
 
-    use crate::{account::Association, Signable};
-
-    use super::{test_wallet_signer, Account, AccountCreator};
+    pub fn test_wallet_signer(_: Vec<u8>) -> Association {
+        Association::test().expect("Test Association failed to generate")
+    }
 
     #[test]
     fn account_serialize() {
@@ -158,12 +153,45 @@ mod tests {
         assert_eq!(account.addr(), recovered_account.addr());
     }
 
-    #[test]
-    fn account_generate() {
-        let ac = AccountCreator::new();
-        let _ = ac.bytes_to_sign();
-        let account = ac.finalize_key(vec![11, 22, 33]);
+    #[tokio::test]
+    async fn account_generate() {
+        let wallet = LocalWallet::new(&mut rng());
+        let addr = h160addr_to_string(wallet.address());
 
-        assert_eq!(account.assoc, Association::test())
+        let ac = AccountCreator::new(addr);
+        let msg = ac.text_to_sign();
+        let sig = wallet
+            .sign_message(msg)
+            .await
+            .expect("Bad Signature in test");
+        assert!(ac.finalize(sig.to_vec()).is_ok());
+    }
+
+    async fn generate_random_signature(msg: &str) -> (String, Vec<u8>) {
+        let wallet = LocalWallet::new(&mut thread_rng());
+        let signature = wallet.sign_message(msg).await.unwrap();
+        (
+            hex::encode(wallet.address().to_fixed_bytes()),
+            signature.to_vec(),
+        )
+    }
+
+    #[tokio::test]
+    async fn local_sign() {
+        let msg = "hello";
+
+        let (addr, bytes) = generate_random_signature(msg).await;
+        let (other_addr, _) = generate_random_signature(msg).await;
+
+        let signature = Signature::try_from(bytes.as_slice()).unwrap();
+        let wallet_addr = hex::decode(addr).unwrap();
+        let other_wallet_addr = hex::decode(other_addr).unwrap();
+
+        assert!(signature
+            .verify(msg, EthAddress::from_slice(&wallet_addr))
+            .is_ok());
+        assert!(signature
+            .verify(msg, EthAddress::from_slice(&other_wallet_addr))
+            .is_err());
     }
 }

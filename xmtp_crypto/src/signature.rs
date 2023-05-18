@@ -1,7 +1,8 @@
 use crate::traits;
 
 use k256::ecdsa::signature::DigestVerifier;
-use k256::{ecdsa::VerifyingKey, PublicKey};
+pub use k256::ecdsa::{RecoveryId, SigningKey, VerifyingKey};
+use k256::PublicKey;
 use sha2::Sha256;
 use sha3::{Digest, Keccak256};
 

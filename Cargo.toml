@@ -2,9 +2,9 @@
 
 members = [
   "bindings_ffi",
-  "bindings_wasm",
   "xmtp",
   "xmtp_crypto",
+  "xmtp_cryptography",
   "xmtp_keystore",
   "xmtp_networking",
   "xmtp_proto",
@@ -16,4 +16,5 @@ members = [
 exclude = [
   "bindings_js",
   "bindings_swift",
+  "bindings_wasm",
 ]

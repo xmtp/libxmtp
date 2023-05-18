@@ -1,0 +1,20 @@
+[package]
+name = "xmtp_cryptography"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.64"
+
+[dependencies]
+ecdsa = "0.15.1"
+ethers-core = "2.0.4"
+hex = "0.4"
+k256 = {version = "0.12.0", features = ["ecdh"]}
+rand = "0.8.4"
+rand_chacha = "0.3.1"
+serde = "1.0.163"
+sha3 = "0.10.6"
+thiserror = "1.0.40"
+
+[dev-dependencies]
+ethers = "2.0.4"
+tokio = {version="1.28.1", features=["rt", "macros"]}

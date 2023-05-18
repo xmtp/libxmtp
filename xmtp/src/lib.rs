@@ -1,8 +1,10 @@
 pub mod account;
+pub mod association;
 pub mod builder;
 pub mod client;
 pub mod networking;
 pub mod persistence;
+mod types;
 pub mod vmac_protos;
 
 pub use builder::ClientBuilder;
