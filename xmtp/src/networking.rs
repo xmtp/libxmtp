@@ -30,15 +30,17 @@ pub struct MockXmtpApiClient {
     messages: HashMap<String, Vec<Envelope>>,
 }
 
-/**
- * Temporarily adding this so I don't have to deal with Tonic issues making something work for tests
- * TODO: Replace me with real networking client
- */
 impl MockXmtpApiClient {
     pub fn new() -> Self {
         Self {
             messages: HashMap::new(),
         }
+    }
+}
+
+impl Default for MockXmtpApiClient {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
@@ -72,7 +74,7 @@ impl XmtpApiClient for MockXmtpApiClient {
         };
 
         Ok(QueryResponse {
-            envelopes: envelopes,
+            envelopes,
             paging_info: None,
         })
     }
