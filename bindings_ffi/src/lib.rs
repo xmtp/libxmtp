@@ -4,12 +4,10 @@ use xmtp::{
     account::AccountCreator, networking::XmtpApiClient,
     persistence::in_memory_persistence::InMemoryPersistence,
 };
-use xmtp_crypto::{hashes, k256_helper};
-use xmtp_networking::grpc_api_helper;
-use xmtp_proto::xmtp::message_api::v1::{Envelope, PagingInfo};
-pub mod types;
+use xmtp_networking::grpc_api_helper::{self, Subscription};
+use xmtp_proto::xmtp::message_api::v1::{Envelope, PagingInfo, PublishResponse, QueryResponse};
 
-type FfiXmtpClient = xmtp::Client<FfiApiClient, InMemoryPersistence>;
+pub type FfiXmtpClient = xmtp::Client<FfiApiClient, InMemoryPersistence>;
 
 #[swift_bridge::bridge]
 mod ffi {
@@ -67,7 +65,7 @@ impl XmtpApiClient for FfiApiClient {
         token: String,
         envelopes: Vec<Envelope>,
         // TODO: use error enums
-    ) -> Result<xmtp_proto::xmtp::message_api::v1::PublishResponse, String> {
+    ) -> Result<PublishResponse, String> {
         self.client
             .publish(token, envelopes)
             .await
@@ -81,17 +79,14 @@ impl XmtpApiClient for FfiApiClient {
         end_time: Option<u64>,
         paging_info: Option<PagingInfo>,
         // TODO: use error enums
-    ) -> Result<xmtp_proto::xmtp::message_api::v1::QueryResponse, String> {
+    ) -> Result<QueryResponse, String> {
         self.client
             .query(topic, start_time, end_time, paging_info)
             .await
             .map_err(|e| format!("{}", e))
     }
 
-    async fn subscribe(
-        &mut self,
-        topics: Vec<String>,
-    ) -> Result<grpc_api_helper::Subscription, String> {
+    async fn subscribe(&mut self, topics: Vec<String>) -> Result<Subscription, String> {
         self.client
             .subscribe(topics)
             .await
@@ -102,19 +97,21 @@ impl XmtpApiClient for FfiApiClient {
 #[cfg(test)]
 mod tests {
     use std::time::{SystemTime, UNIX_EPOCH};
+
     use uuid::Uuid;
+    use xmtp::networking::XmtpApiClient;
 
     static ADDRESS: &str = "http://localhost:5556";
 
-    // pub fn test_envelope(topic: String) -> super::Envelope {
-    //     let time_since_epoch = SystemTime::now().duration_since(UNIX_EPOCH).unwrap();
+    fn test_envelope(topic: String) -> super::Envelope {
+        let time_since_epoch = SystemTime::now().duration_since(UNIX_EPOCH).unwrap();
 
-    //     super::Envelope {
-    //         timestamp_ns: time_since_epoch.as_nanos() as u64,
-    //         content_topic: topic,
-    //         message: vec![65],
-    //     }
-    // }
+        super::Envelope {
+            timestamp_ns: time_since_epoch.as_nanos() as u64,
+            content_topic: topic,
+            message: vec![65],
+        }
+    }
 
     // Try a query on a test topic, and make sure we get a response
     #[tokio::test]
@@ -123,13 +120,11 @@ mod tests {
             .await
             .unwrap();
         let topic = Uuid::new_v4();
-        let publish_result = client
+        client
             .api_client
             .publish("".to_string(), vec![test_envelope(topic.to_string())])
             .await
             .unwrap();
-
-        assert_eq!(publish_result, "".to_string());
 
         let result = client
             .api_client
@@ -137,7 +132,7 @@ mod tests {
             .await
             .unwrap();
 
-        let envelopes = result.envelopes();
+        let envelopes = result.envelopes;
         assert_eq!(envelopes.len(), 1);
 
         let first_envelope = envelopes.get(0).unwrap();
@@ -150,7 +145,6 @@ mod tests {
     async fn test_subscribe() {
         let topic = Uuid::new_v4();
         let mut client = super::create_client("0xABCD", ADDRESS, false)
-            .api_client
             .await
             .unwrap();
         let mut sub = client
@@ -159,20 +153,19 @@ mod tests {
             .await
             .unwrap();
         std::thread::sleep(std::time::Duration::from_millis(100));
-        let publish_result = client
+        client
             .api_client
             .publish("".to_string(), vec![test_envelope(topic.to_string())])
             .await
             .unwrap();
-        assert_eq!(publish_result, "".to_string());
         std::thread::sleep(std::time::Duration::from_millis(200));
 
-        let messages = sub.get_messages().unwrap();
+        let messages = sub.get_messages();
         assert_eq!(messages.len(), 1);
-        let messages = sub.get_messages().unwrap();
+        let messages = sub.get_messages();
         assert_eq!(messages.len(), 0);
 
-        sub.close();
-        assert!(sub.get_messages().is_err());
+        sub.close_stream();
+        assert!(sub.is_closed());
     }
 }
