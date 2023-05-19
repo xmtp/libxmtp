@@ -5,10 +5,7 @@ use crate::{
     utils::{build_envelope, build_user_contact_topic},
 };
 use prost::Message;
-use xmtp_proto::xmtp::{
-    message_api::v1::Envelope,
-    v3::message_contents::{VmacAccountLinkedKey, VmacContactBundle, VmacDeviceLinkedKey},
-};
+use xmtp_proto::xmtp::{message_api::v1::Envelope, v3::message_contents::VmacContactBundle};
 
 #[derive(Clone, Copy, Default)]
 pub enum Network {
@@ -26,6 +23,7 @@ where
     pub api_client: A,
     pub network: Network,
     pub persistence: NamespacedPersistence<P>,
+    // TODO: Make account private. Just need to figure out how to access for tests
     pub account: Account,
     // TODO: Replace this with wallet address derived from account
     pub wallet_address: String,
@@ -40,20 +38,32 @@ impl<A: XmtpApiClient, P: Persistence> Client<A, P> {
         self.persistence.read(s)
     }
 
-    pub fn get_contacts_from_network(
+    pub async fn get_contacts(
         &self,
         wallet_address: &str,
-    ) -> Result<Vec<VmacContactBundle, Error>> {
+    ) -> Result<Vec<VmacContactBundle>, String> {
         let topic = build_user_contact_topic(wallet_address.to_string());
-        let envelopes = self.api_client.query(topic, None, None, None)?;
+        let response = self.api_client.query(topic, None, None, None).await?;
 
         let mut contacts = vec![];
-        for envelope in envelopes {
-            let contact_bundle = VmacContactBundle::decode(envelope.message.as_slice())?;
+        for envelope in response.envelopes {
+            // TODO: Wrap the proto in some special struct
+            // TODO: Handle errors better
+            let contact_bundle = VmacContactBundle::decode(envelope.message.as_slice())
+                .map_err(|e| format!("{}", e))?;
             contacts.push(contact_bundle);
         }
 
         Ok(contacts)
+    }
+
+    pub async fn publish_user_contact(&mut self) -> Result<(), String> {
+        let envelope = self.build_contact_envelope()?;
+        self.api_client
+            .publish("".to_string(), vec![envelope])
+            .await?;
+
+        Ok(())
     }
 
     fn build_contact_envelope(&self) -> Result<Envelope, String> {
@@ -68,5 +78,28 @@ impl<A: XmtpApiClient, P: Persistence> Client<A, P> {
         let envelope = build_envelope(build_user_contact_topic(wallet_address), bytes);
 
         Ok(envelope)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::ClientBuilder;
+
+    #[tokio::test]
+    async fn test_publish_user_contact() {
+        let mut client = ClientBuilder::new_test().build().unwrap();
+        client
+            .publish_user_contact()
+            .await
+            .expect("Failed to publish user contact");
+
+        let contacts = client
+            .get_contacts(client.wallet_address.as_str())
+            .await
+            .unwrap();
+
+        assert_eq!(contacts.len(), 1);
+        assert!(contacts[0].prekey.is_some());
+        assert!(contacts[0].identity_key.is_some());
     }
 }
