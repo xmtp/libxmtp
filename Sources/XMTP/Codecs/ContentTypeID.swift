@@ -5,8 +5,6 @@
 //  Created by Pat Nakajima on 11/28/22.
 //
 
-import XMTPProto
-
 public typealias ContentTypeID = Xmtp_MessageContents_ContentTypeId
 
 public extension ContentTypeID {

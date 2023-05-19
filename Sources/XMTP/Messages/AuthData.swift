@@ -6,7 +6,6 @@
 //
 
 import Foundation
-import XMTPProto
 
 typealias AuthData = Xmtp_MessageApi_V1_AuthData
 

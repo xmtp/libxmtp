@@ -36,22 +36,23 @@ class NotificationService: UNNotificationServiceExtension {
 				return
 			}
 
-			let client = try Client.from(bundle: keys)
-			let conversation = conversationContainer.decode(with: client)
+			Task {
+				let client = try await Client.from(bundle: keys)
+				let conversation = conversationContainer.decode(with: client)
 
-			let envelope = XMTP.Envelope.with { envelope in
-				envelope.message = encryptedMessageData
-				envelope.contentTopic = topic
+				let envelope = XMTP.Envelope.with { envelope in
+					envelope.message = encryptedMessageData
+					envelope.contentTopic = topic
+				}
+
+				if let bestAttemptContent = bestAttemptContent {
+					let decodedMessage = try conversation.decode(envelope)
+
+					bestAttemptContent.body = (try? decodedMessage.content()) ?? "no content"
+
+					contentHandler(bestAttemptContent)
+				}
 			}
-
-			if let bestAttemptContent = bestAttemptContent {
-				let decodedMessage = try conversation.decode(envelope)
-
-				bestAttemptContent.body = (try? decodedMessage.content()) ?? "no content"
-
-				contentHandler(bestAttemptContent)
-			}
-
 			// swiftlint:enable no_optional_try
 		} catch {
 			print("Error receiving notification: \(error)")

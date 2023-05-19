@@ -105,7 +105,7 @@ struct ContentView: View {
 		Task {
 			do {
 				let wallet = try PrivateKey.generate()
-				let client = try await Client.create(account: wallet)
+				let client = try await Client.create(account: wallet, options: .init(api: .init(env: .dev, isSecure: true)))
 
 				let keysData = try client.privateKeyBundle.serializedData()
 				Persistence().saveKeys(keysData)

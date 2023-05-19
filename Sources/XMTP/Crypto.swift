@@ -7,7 +7,6 @@
 
 import CryptoKit
 import Foundation
-import XMTPProto
 
 public typealias CipherText = Xmtp_MessageContents_Ciphertext
 
@@ -36,8 +35,14 @@ enum Crypto {
 		}
 
 		var ciphertext = CipherText()
-
-		ciphertext.aes256GcmHkdfSha256.payload = payload.ciphertext + payload.tag
+		// Copy the ciphertext data out, otherwise it's a region sliced from a combined Data (nonce, ciphertext, tag)
+		// with offsets like lowerBound=12, upperBound=224. Without copying, trying to index like payload[0] crashes
+		// up until payload[12]. This is mostly a problem for unit tests where we decrypt what we encrypt in memory, as
+		// serialization/deserialization acts as copying and avoids this issue.
+		var payloadData = Data(payload.ciphertext.subdata(in: 12 ..< payload.ciphertext.count+12))
+		let startTag = 12 + payload.ciphertext.count
+		payloadData.append(payload.tag.subdata(in: startTag ..< startTag + payload.tag.count))
+		ciphertext.aes256GcmHkdfSha256.payload = payloadData
 		ciphertext.aes256GcmHkdfSha256.hkdfSalt = salt
 		ciphertext.aes256GcmHkdfSha256.gcmNonce = nonceData
 
@@ -48,11 +53,11 @@ enum Crypto {
 		let salt = ciphertext.aes256GcmHkdfSha256.hkdfSalt
 		let nonceData = ciphertext.aes256GcmHkdfSha256.gcmNonce
 		let nonce = try AES.GCM.Nonce(data: nonceData)
-		let payload = ciphertext.aes256GcmHkdfSha256.payload.bytes
+		let payload = ciphertext.aes256GcmHkdfSha256.payload
 
-		let ciphertext = payload[0 ..< payload.count - 16]
+		let ciphertextBytes = payload[0 ..< payload.count - 16]
 		let tag = payload[payload.count - 16 ..< payload.count]
-		let box = try AES.GCM.SealedBox(nonce: nonce, ciphertext: ciphertext, tag: tag)
+		let box = try AES.GCM.SealedBox(nonce: nonce, ciphertext: ciphertextBytes, tag: tag)
 
 		let resultKey = HKDF<SHA256>.deriveKey(
 			inputKeyMaterial: SymmetricKey(data: secret),

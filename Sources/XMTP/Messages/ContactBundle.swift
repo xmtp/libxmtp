@@ -5,7 +5,8 @@
 //  Created by Pat Nakajima on 11/23/22.
 //
 
-import XMTPProto
+import web3
+import XMTPRust
 
 typealias ContactBundle = Xmtp_MessageContents_ContactBundle
 typealias ContactBundleV1 = Xmtp_MessageContents_ContactBundleV1
@@ -62,13 +63,13 @@ extension ContactBundle {
 		switch version {
 		case .v1:
 			if let key = try? v1.keyBundle.identityKey.recoverWalletSignerPublicKey() {
-				return KeyUtil.generateAddress(from: key.secp256K1Uncompressed.bytes).toChecksumAddress()
+				return KeyUtilx.generateAddress(from: key.secp256K1Uncompressed.bytes).toChecksumAddress()
 			}
 
 			return nil
 		case .v2:
 			if let key = try? v2.keyBundle.identityKey.recoverWalletSignerPublicKey() {
-				return KeyUtil.generateAddress(from: key.secp256K1Uncompressed.bytes).toChecksumAddress()
+				return KeyUtilx.generateAddress(from: key.secp256K1Uncompressed.bytes).toChecksumAddress()
 			}
 
 			return nil

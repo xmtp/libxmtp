@@ -6,7 +6,7 @@
 //
 
 import Foundation
-import XMTPProto
+
 
 typealias SealedInvitationV1 = Xmtp_MessageContents_SealedInvitationV1
 

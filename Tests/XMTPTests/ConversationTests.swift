@@ -355,8 +355,10 @@ class ConversationTests: XCTestCase {
 		let expectation = expectation(description: "got a message")
 
 		Task(priority: .userInitiated) {
-			for try await _ in conversation.streamMessages() {
-				expectation.fulfill()
+			for try await message in conversation.streamMessages() {
+				if message.body == "hi alice" {
+					expectation.fulfill()
+				}
 			}
 		}
 

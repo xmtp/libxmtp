@@ -14,7 +14,6 @@ class SignatureTests: XCTestCase {
 		let digest = SHA256.hash(data: Data("Hello world".utf8))
 		let signingKey = try PrivateKey.generate()
 		let signature = try await signingKey.sign(Data(digest))
-
 		XCTAssert(try signature.verify(signedBy: signingKey.publicKey, digest: Data("Hello world".utf8)))
 	}
 }

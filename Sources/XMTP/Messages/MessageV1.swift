@@ -6,7 +6,6 @@
 //
 
 import Foundation
-import XMTPProto
 
 typealias MessageV1 = Xmtp_MessageContents_MessageV1
 

@@ -1,3 +1,6 @@
+XMTPiOSExample/Pods/
+XMTPiOSExample/build
+
 .DS_Store
 /.build
 /Packages
@@ -8,5 +11,5 @@ DerivedData/
 .swiftpm/xcode/package.xcworkspace/contents.xcworkspacedata
 .netrc
 
-Package.resolved
 .vscode
+XMTPiOSExample/Pods

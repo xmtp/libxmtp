@@ -6,7 +6,6 @@
 //
 
 import Foundation
-import XMTPProto
 
 public enum ConversationContainer: Codable {
 	case v1(ConversationV1Container), v2(ConversationV2Container)

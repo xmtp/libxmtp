@@ -6,7 +6,6 @@
 //
 
 import Foundation
-import XMTPProto
 
 public let ContentTypeText = ContentTypeID(authorityID: "xmtp.org", typeID: "text", versionMajor: 1, versionMinor: 0)
 

@@ -5,8 +5,6 @@
 //  Created by Pat Nakajima on 11/17/22.
 //
 
-import XMTPProto
-
 typealias EncryptedPrivateKeyBundle = Xmtp_MessageContents_EncryptedPrivateKeyBundle
 
 extension EncryptedPrivateKeyBundle {

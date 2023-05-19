@@ -6,7 +6,6 @@
 //
 
 import Foundation
-import XMTPProto
 
 /// Handles topic generation for conversations.
 public typealias InvitationV1 = Xmtp_MessageContents_InvitationV1

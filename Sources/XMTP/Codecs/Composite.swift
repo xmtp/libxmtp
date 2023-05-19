@@ -5,8 +5,6 @@
 //  Created by Pat Nakajima on 12/22/22.
 //
 
-import XMTPProto
-
 typealias Composite = Xmtp_MessageContents_Composite
 
 let ContentTypeComposite = ContentTypeID(authorityID: "xmtp.org", typeID: "composite", versionMajor: 1, versionMinor: 0)

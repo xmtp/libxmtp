@@ -5,9 +5,9 @@
 //  Created by Pat Nakajima on 11/17/22.
 //
 
-import XMTPProto
 
-enum Topic {
+
+public enum Topic {
 	case userPrivateStoreKeyBundle(String),
 	     contact(String),
 	     userIntro(String),

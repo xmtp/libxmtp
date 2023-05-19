@@ -6,7 +6,6 @@
 //
 
 import Foundation
-import XMTPProto
 
 enum CodecError: String, Error {
 	case invalidContent, codecNotFound

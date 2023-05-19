@@ -6,7 +6,6 @@
 //
 
 import Foundation
-import XMTPProto
 
 public enum ConversationError: Error {
 	case recipientNotOnNetwork, recipientIsSender, v1NotSupported(String)

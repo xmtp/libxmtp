@@ -6,8 +6,7 @@
 //
 
 import Foundation
-import secp256k1
-import XMTPProto
+
 
 public typealias SignedPrivateKey = Xmtp_MessageContents_SignedPrivateKey
 

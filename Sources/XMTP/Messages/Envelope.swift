@@ -6,7 +6,6 @@
 //
 
 import Foundation
-import XMTPProto
 
 public typealias Envelope = Xmtp_MessageApi_V1_Envelope
 

@@ -6,8 +6,7 @@
 //
 
 import Foundation
-import secp256k1
-import XMTPProto
+import XMTPRust
 
 /// Represents a secp256k1 compact recoverable signature.
 public typealias Signature = Xmtp_MessageContents_Signature
@@ -103,19 +102,12 @@ extension Signature {
 	}
 
 	func verify(signedBy: PublicKey, digest: Data) throws -> Bool {
-		let recoverySignature = try secp256k1.Recovery.ECDSASignature(compactRepresentation: ecdsaCompact.bytes, recoveryId: Int32(ecdsaCompact.recovery))
-		let ecdsaSignature = try recoverySignature.normalize
-		let signingKey = try secp256k1.Signing.PublicKey(rawRepresentation: signedBy.secp256K1Uncompressed.bytes, format: .uncompressed)
-
-		return signingKey.ecdsa.isValidSignature(ecdsaSignature, for: digest)
-	}
-
-	func verify(signedBy: PublicKey, digest: any Digest) throws -> Bool {
-		let recoverySignature = try secp256k1.Recovery.ECDSASignature(compactRepresentation: ecdsaCompact.bytes, recoveryId: Int32(ecdsaCompact.recovery))
-		let ecdsaSignature = try recoverySignature.normalize
-		let signingKey = try secp256k1.Signing.PublicKey(rawRepresentation: signedBy.secp256K1Uncompressed.bytes, format: .uncompressed)
-
-		return signingKey.ecdsa.isValidSignature(ecdsaSignature, for: digest)
+		do {
+			let _ = try XMTPRust.verify_k256_sha256(RustVec<UInt8>(signedBy.secp256K1Uncompressed.bytes), RustVec<UInt8>(digest), RustVec<UInt8>(ecdsaCompact.bytes), UInt8(ecdsaCompact.recovery))
+		} catch {
+			return false
+		}
+		return true
 	}
 }
 

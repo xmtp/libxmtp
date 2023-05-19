@@ -6,7 +6,6 @@
 //
 
 import Foundation
-import XMTPProto
 
 typealias MessageHeaderV1 = Xmtp_MessageContents_MessageHeaderV1
 

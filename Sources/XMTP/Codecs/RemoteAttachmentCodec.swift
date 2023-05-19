@@ -8,7 +8,6 @@
 import CryptoKit
 import Foundation
 import web3
-import XMTPProto
 
 public let ContentTypeRemoteAttachment = ContentTypeID(authorityID: "xmtp.org", typeID: "remoteStaticAttachment", versionMajor: 1, versionMinor: 0)
 

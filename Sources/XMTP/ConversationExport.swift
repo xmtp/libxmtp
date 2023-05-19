@@ -5,8 +5,6 @@
 //  Created by Pat Nakajima on 2/1/23.
 //
 
-import XMTPProto
-
 enum ConversationImportError: Error {
 	case invalidData
 }

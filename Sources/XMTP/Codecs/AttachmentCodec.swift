@@ -5,7 +5,6 @@
 //  Created by Pat on 2/14/23.
 //
 import Foundation
-import XMTPProto
 
 public let ContentTypeAttachment = ContentTypeID(authorityID: "xmtp.org", typeID: "attachment", versionMajor: 1, versionMinor: 0)
 

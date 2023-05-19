@@ -6,7 +6,7 @@
 //
 
 import Foundation
-import XMTPProto
+
 
 public typealias PrivateKeyBundle = Xmtp_MessageContents_PrivateKeyBundle
 

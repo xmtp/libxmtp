@@ -5,8 +5,6 @@
 //  Created by Pat Nakajima on 11/27/22.
 //
 
-import XMTPProto
-
 /// Handles encryption/decryption for communicating data in conversations
 public typealias Message = Xmtp_MessageContents_Message
 

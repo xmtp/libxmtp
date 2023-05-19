@@ -7,7 +7,7 @@
 
 import CryptoKit
 import Foundation
-import XMTPProto
+import XMTPRust
 
 typealias MessageV2 = Xmtp_MessageContents_MessageV2
 
@@ -41,10 +41,8 @@ extension MessageV2 {
 			}
 
 			// Verify content signature
-			let digest = SHA256.hash(data: message.headerBytes + signed.payload)
-
 			let key = try PublicKey.with { key in
-				key.secp256K1Uncompressed.bytes = try KeyUtil.recoverPublicKey(message: Data(digest.bytes), signature: signed.signature.rawData)
+				key.secp256K1Uncompressed.bytes = try KeyUtilx.recoverPublicKeySHA256(from: signed.signature.rawData, message: Data(message.headerBytes + signed.payload))
 			}
 
 			if key.walletAddress != (try PublicKey(signed.sender.preKey).walletAddress) {
