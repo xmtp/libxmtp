@@ -48,16 +48,18 @@ impl Default for MockXmtpApiClient {
 impl XmtpApiClient for MockXmtpApiClient {
     async fn publish(
         &mut self,
-        token: String,
+        _token: String,
         envelopes: Vec<Envelope>,
     ) -> Result<PublishResponse, String> {
-        let mut existing: Vec<Envelope> = match self.messages.get(&token) {
-            Some(envelopes) => envelopes.clone(),
-            None => vec![],
-        };
-        existing.append(envelopes.clone().as_mut());
-        self.messages.insert(token, envelopes);
-
+        for envelope in envelopes {
+            let topic = envelope.content_topic.clone();
+            let mut existing: Vec<Envelope> = match self.messages.get(&topic) {
+                Some(existing_envelopes) => existing_envelopes.clone(),
+                None => vec![],
+            };
+            existing.push(envelope);
+            self.messages.insert(topic, existing);
+        }
         Ok(PublishResponse {})
     }
 
