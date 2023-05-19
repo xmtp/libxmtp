@@ -2,6 +2,7 @@ use crate::{
     account::Account,
     networking::XmtpApiClient,
     persistence::{NamespacedPersistence, Persistence},
+    types::Address,
     utils::{build_envelope, build_user_contact_topic},
 };
 use prost::Message;
@@ -25,8 +26,6 @@ where
     pub persistence: NamespacedPersistence<P>,
     // TODO: Make account private. Just need to figure out how to access for tests
     pub account: Account,
-    // TODO: Replace this with wallet address derived from account
-    pub wallet_address: String,
 }
 
 impl<A: XmtpApiClient, P: Persistence> Client<A, P> {
@@ -36,6 +35,10 @@ impl<A: XmtpApiClient, P: Persistence> Client<A, P> {
 
     pub fn read_from_persistence(&self, s: &str) -> Result<Option<Vec<u8>>, P::Error> {
         self.persistence.read(s)
+    }
+
+    pub fn wallet_address(&self) -> Address {
+        self.account.addr()
     }
 
     pub async fn get_contacts(
@@ -73,9 +76,7 @@ impl<A: XmtpApiClient, P: Persistence> Client<A, P> {
             .encode(&mut bytes)
             .map_err(|e| format!("{}", e))?;
 
-        let wallet_address = self.wallet_address.clone();
-
-        let envelope = build_envelope(build_user_contact_topic(wallet_address), bytes);
+        let envelope = build_envelope(build_user_contact_topic(self.wallet_address()), bytes);
 
         Ok(envelope)
     }
@@ -94,7 +95,7 @@ mod tests {
             .expect("Failed to publish user contact");
 
         let contacts = client
-            .get_contacts(client.wallet_address.as_str())
+            .get_contacts(client.wallet_address().as_str())
             .await
             .unwrap();
 

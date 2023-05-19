@@ -151,7 +151,6 @@ where
             network: self.network,
             persistence,
             account,
-            wallet_address: wallet_address.clone(),
         })
     }
 }
