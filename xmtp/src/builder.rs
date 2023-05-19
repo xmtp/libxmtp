@@ -76,14 +76,13 @@ where
 
     // Temp function to generate a full account, using a random local wallet
     fn generate_account() -> Result<Account, AccountError> {
-        let vmac_account = VmacAccount::generate();
         // TODO: Replace with real wallet signature
         let wallet = LocalWallet::new(&mut rng());
         let addr = h160addr_to_string(wallet.address());
 
         let ac = AccountCreator::new(addr);
         let msg = ac.text_to_sign();
-        let hash = hash_message(&msg);
+        let hash = hash_message(msg);
         let sig = wallet
             .sign_hash(hash)
             .expect("Bad Signature with fake wallet");
