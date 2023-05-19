@@ -1,6 +1,7 @@
 use crate::{
     account::{Account, AccountCreator, AccountError, VmacAccount},
     client::{Client, Network},
+    networking::XmtpApiClient,
     persistence::{NamespacedPersistence, Persistence},
 };
 use ethers::signers::{LocalWallet, Signer};
@@ -21,27 +22,36 @@ pub enum ClientBuilderError<PE> {
 }
 
 #[derive(Default)]
-pub struct ClientBuilder<P>
+pub struct ClientBuilder<A, P>
 where
+    A: XmtpApiClient,
     P: Persistence,
 {
+    api_client: Option<A>,
     network: Network,
     persistence: Option<P>,
     wallet_address: Option<String>,
     account: Option<Account>,
 }
 
-impl<P> ClientBuilder<P>
+impl<A, P> ClientBuilder<A, P>
 where
+    A: XmtpApiClient,
     P: Persistence,
 {
     pub fn new() -> Self {
         Self {
+            api_client: None,
             network: Network::Dev,
             persistence: None,
             wallet_address: None,
             account: None,
         }
+    }
+
+    pub fn api_client(mut self, api_client: A) -> Self {
+        self.api_client = Some(api_client);
+        self
     }
 
     pub fn network(mut self, network: Network) -> Self {
@@ -59,8 +69,8 @@ where
         self
     }
 
-    pub fn wallet_address(mut self, wallet_address: String) -> Self {
-        self.wallet_address = Some(wallet_address);
+    pub fn wallet_address(mut self, wallet_address: &str) -> Self {
+        self.wallet_address = Some(wallet_address.to_string());
         self
     }
 
@@ -114,8 +124,13 @@ where
         }
     }
 
-    pub fn build(&mut self) -> Result<Client<P>, ClientBuilderError<P::Error>> {
-        // TODO: Verify wallet address against account association
+    pub fn build(mut self) -> Result<Client<A, P>, ClientBuilderError<P::Error>> {
+        let api_client =
+            self.api_client
+                .take()
+                .ok_or(ClientBuilderError::MissingParameterError {
+                    parameter: "api_client",
+                })?;
         let wallet_address =
             self.wallet_address
                 .as_ref()
@@ -133,6 +148,7 @@ where
         let account = Self::find_or_create_account(&mut persistence)?;
 
         Ok(Client {
+            api_client,
             network: self.network,
             persistence,
             account,
@@ -149,17 +165,18 @@ fn get_account_namespace(wallet_address: &str) -> String {
 mod tests {
 
     use crate::{
-        builder::ClientBuilderError, client::Network,
+        builder::ClientBuilderError, client::Network, networking::MockXmtpApiClient,
         persistence::in_memory_persistence::InMemoryPersistence,
     };
 
     use super::ClientBuilder;
 
-    impl ClientBuilder<InMemoryPersistence> {
+    impl ClientBuilder<MockXmtpApiClient, InMemoryPersistence> {
         pub fn new_test() -> Self {
             Self::new()
+                .api_client(MockXmtpApiClient::new())
                 .persistence(InMemoryPersistence::new())
-                .wallet_address("unknown".to_string())
+                .wallet_address("unknown")
         }
     }
 
@@ -180,14 +197,16 @@ mod tests {
     fn persistence_test() {
         let persistence = InMemoryPersistence::new();
         let client_a = ClientBuilder::new()
+            .api_client(MockXmtpApiClient::new())
             .persistence(persistence)
-            .wallet_address("foo".to_string())
+            .wallet_address("foo")
             .build()
             .unwrap();
 
         let client_b = ClientBuilder::new()
+            .api_client(MockXmtpApiClient::new())
             .persistence(client_a.persistence.persistence)
-            .wallet_address("foo".to_string())
+            .wallet_address("foo")
             .build()
             .unwrap();
 
@@ -200,7 +219,8 @@ mod tests {
 
     #[test]
     fn test_error_result() {
-        let e = ClientBuilder::<InMemoryPersistence>::new()
+        let e = ClientBuilder::<MockXmtpApiClient, InMemoryPersistence>::new()
+            .api_client(MockXmtpApiClient::new())
             .network(Network::Dev)
             .build();
         match e {

@@ -1,15 +1,14 @@
+use crate::{
+    account::Account,
+    networking::XmtpApiClient,
+    persistence::{NamespacedPersistence, Persistence},
+    utils::{build_envelope, build_user_contact_topic},
+};
+use prost::Message;
 use xmtp_proto::xmtp::{
     message_api::v1::Envelope,
     v3::message_contents::{VmacAccountLinkedKey, VmacContactBundle, VmacDeviceLinkedKey},
 };
-
-use crate::{
-    account::Account,
-    persistence::{NamespacedPersistence, Persistence},
-    utils::{build_envelope, build_user_contact_topic},
-};
-
-use prost::Message;
 
 #[derive(Clone, Copy, Default)]
 pub enum Network {
@@ -19,10 +18,12 @@ pub enum Network {
     Prod,
 }
 
-pub struct Client<P>
+pub struct Client<A, P>
 where
+    A: XmtpApiClient,
     P: Persistence,
 {
+    pub api_client: A,
     pub network: Network,
     pub persistence: NamespacedPersistence<P>,
     pub account: Account,
@@ -30,7 +31,7 @@ where
     pub wallet_address: String,
 }
 
-impl<P: Persistence> Client<P> {
+impl<A: XmtpApiClient, P: Persistence> Client<A, P> {
     pub fn write_to_persistence(&mut self, s: &str, b: &[u8]) -> Result<(), P::Error> {
         self.persistence.write(s, b)
     }
@@ -44,7 +45,7 @@ impl<P: Persistence> Client<P> {
         wallet_address: &str,
     ) -> Result<Vec<VmacContactBundle, Error>> {
         let topic = build_user_contact_topic(wallet_address.to_string());
-        let envelopes = self.network.get_messages(topic)?;
+        let envelopes = self.api_client.query(topic, None, None, None)?;
 
         let mut contacts = vec![];
         for envelope in envelopes {

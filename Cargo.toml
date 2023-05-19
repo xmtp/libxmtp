@@ -1,6 +1,7 @@
 [workspace]
 
 members = [
+  "bindings_ffi",
   "xmtp",
   "xmtp_crypto",
   "xmtp_cryptography",
