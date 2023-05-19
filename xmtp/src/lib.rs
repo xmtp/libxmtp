@@ -4,6 +4,7 @@ pub mod builder;
 pub mod client;
 pub mod persistence;
 mod types;
+mod utils;
 pub mod vmac_protos;
 
 pub use builder::ClientBuilder;

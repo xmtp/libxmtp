@@ -1,9 +1,12 @@
 use crate::{
-    account::{Account, VmacAccount},
+    account::{Account, AccountCreator, AccountError, VmacAccount},
     client::{Client, Network},
     persistence::{NamespacedPersistence, Persistence},
 };
+use ethers::signers::{LocalWallet, Signer};
+use ethers_core::utils::hash_message;
 use thiserror::Error;
+use xmtp_cryptography::{signature::h160addr_to_string, utils::rng};
 
 #[derive(Error, Debug)]
 pub enum ClientBuilderError<PE> {
@@ -61,9 +64,27 @@ where
         self
     }
 
+    // Temp function to generate a full account, using a random local wallet
+    fn generate_account() -> Result<Account, AccountError> {
+        let vmac_account = VmacAccount::generate();
+        // TODO: Replace with real wallet signature
+        let wallet = LocalWallet::new(&mut rng());
+        let addr = h160addr_to_string(wallet.address());
+
+        let ac = AccountCreator::new(addr);
+        let msg = ac.text_to_sign();
+        let hash = hash_message(&msg);
+        let sig = wallet
+            .sign_hash(hash)
+            .expect("Bad Signature with fake wallet");
+        let account = ac.finalize(sig.to_vec())?;
+
+        Ok(account)
+    }
+
     fn find_or_create_account(
         persistence: &mut NamespacedPersistence<P>,
-    ) -> Result<VmacAccount, ClientBuilderError<P::Error>> {
+    ) -> Result<Account, ClientBuilderError<P::Error>> {
         let key = "vmac_account";
         let existing = persistence
             .read(key)
@@ -74,12 +95,14 @@ where
                 // Remove expect() afterwards
                 let data_string = std::str::from_utf8(&data)
                     .expect("Data read from persistence is not valid UTF-8");
-                let account: VmacAccount = serde_json::from_str(data_string)
+                let account: Account = serde_json::from_str(data_string)
                     .map_err(|source| ClientBuilderError::SerializationError { source })?;
                 Ok(account)
             }
             None => {
-                let account = VmacAccount::generate();
+                // TODO: Stop using unwrap and convert error to an appropriate type
+                // Will do once we are getting real signatures
+                let account = Self::generate_account().unwrap();
                 // TODO: use proto bytes instead of string here (or use base64 instead of utf8)
                 let data = serde_json::to_string(&account)
                     .map_err(|source| ClientBuilderError::SerializationError { source })?;
@@ -92,6 +115,7 @@ where
     }
 
     pub fn build(&mut self) -> Result<Client<P>, ClientBuilderError<P::Error>> {
+        // TODO: Verify wallet address against account association
         let wallet_address =
             self.wallet_address
                 .as_ref()
@@ -112,6 +136,7 @@ where
             network: self.network,
             persistence,
             account,
+            wallet_address: wallet_address.clone(),
         })
     }
 }
@@ -143,6 +168,7 @@ mod tests {
         let client = ClientBuilder::new_test().build().unwrap();
         assert!(!client
             .account
+            .keys
             .get()
             .identity_keys()
             .curve25519
@@ -167,8 +193,8 @@ mod tests {
 
         // Ensure the persistence was used to store the generated keys
         assert_eq!(
-            client_a.account.get().curve25519_key().to_bytes(),
-            client_b.account.get().curve25519_key().to_bytes()
+            client_a.account.keys.get().curve25519_key().to_bytes(),
+            client_b.account.keys.get().curve25519_key().to_bytes()
         )
     }
 

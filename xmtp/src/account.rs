@@ -1,12 +1,16 @@
 use crate::{
     association::{Association, AssociationError, AssociationText},
     types::Address,
+    vmac_protos::ProtoWrapper,
     Signable,
 };
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 use vodozemac::olm::{Account as OlmAccount, AccountPickle as OlmAccountPickle};
 use xmtp_cryptography::signature::RecoverableSignature;
+use xmtp_proto::xmtp::v3::message_contents::{
+    VmacAccountLinkedKey, VmacContactBundle, VmacDeviceLinkedKey, VmacUnsignedPublicKey,
+};
 
 #[derive(Debug, Error)]
 pub enum AccountError {
@@ -28,7 +32,9 @@ impl VmacAccount {
     }
 
     pub fn generate() -> Self {
-        Self::new(OlmAccount::new())
+        let mut acc = OlmAccount::new();
+        acc.generate_fallback_key();
+        Self::new(acc)
     }
 
     pub fn get(&self) -> &OlmAccount {
@@ -68,8 +74,9 @@ impl<'de> Deserialize<'de> for VmacAccount {
 
 #[derive(Serialize, Deserialize)]
 pub struct Account {
-    keys: VmacAccount,
-    assoc: Association,
+    // TODO: Make these values private again and add getters for relevant fields
+    pub keys: VmacAccount,
+    pub assoc: Association,
 }
 
 impl Account {
@@ -87,6 +94,32 @@ impl Account {
 
     pub fn addr(&self) -> Address {
         self.assoc.address()
+    }
+
+    pub fn proto_contact_bundle(&self) -> VmacContactBundle {
+        let identity_key = self.keys.get().curve25519_key();
+        let fallback_key = self
+            .keys
+            .get()
+            .fallback_key()
+            .values()
+            .next()
+            .unwrap()
+            .to_owned();
+
+        let identity_key_proto: ProtoWrapper<VmacUnsignedPublicKey> = identity_key.into();
+        let fallback_key_proto: ProtoWrapper<VmacUnsignedPublicKey> = fallback_key.into();
+        let identity_key = VmacAccountLinkedKey {
+            key: Some(identity_key_proto.proto),
+        };
+        let fallback_key = VmacDeviceLinkedKey {
+            key: Some(fallback_key_proto.proto),
+        };
+        // TODO: Add associations here
+        VmacContactBundle {
+            identity_key: Some(identity_key),
+            prekey: Some(fallback_key),
+        }
     }
 }
 

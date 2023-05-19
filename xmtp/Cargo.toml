@@ -13,8 +13,9 @@ vodozemac = {git= "https://github.com/xmtp/vodozemac", branch="dev"}
 xmtp_proto = { path = "../xmtp_proto", features = ["xmtp-v3-message_contents"] }
 xmtp_cryptography = { path = "../xmtp_cryptography"}
 hex = "0.4.3"
-
-[dev-dependencies]
 ethers = "2.0.4"
 ethers-core = "2.0.4"
+prost = { version = "0.11", features = ["prost-derive"] }
+
+[dev-dependencies]
 tokio = {version="1.28.1", features=["rt", "macros"]}
