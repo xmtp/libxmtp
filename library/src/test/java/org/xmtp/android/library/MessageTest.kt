@@ -212,7 +212,7 @@ class MessageTest {
         }.build()
         val client = Client().create(account = PrivateKeyBuilder(key))
         val conversations = client.conversations.list()
-        assertEquals(100, conversations.size)
+        assertEquals(201, conversations.size)
     }
 
     @Test

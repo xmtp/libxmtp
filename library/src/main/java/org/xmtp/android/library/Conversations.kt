@@ -213,9 +213,7 @@ data class Conversations(
 
     fun listInvitations(): List<SealedInvitation> {
         val envelopes = runBlocking {
-            client.apiClient.queryTopic(
-                topic = Topic.userInvite(client.address)
-            ).envelopesList
+            client.apiClient.envelopes(Topic.userInvite(client.address).description)
         }
         return envelopes.map { envelope ->
             SealedInvitation.parseFrom(envelope.message)
