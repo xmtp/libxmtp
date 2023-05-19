@@ -7,7 +7,7 @@ use diesel::{prelude::*, Connection};
 use thiserror::Error;
 
 use diesel_migrations::{embed_migrations, EmbeddedMigrations, MigrationHarness};
-pub const MIGRATIONS: EmbeddedMigrations = embed_migrations!("./diesel/migrations/");
+pub const MIGRATIONS: EmbeddedMigrations = embed_migrations!("./migrations/");
 
 #[derive(Debug, Error)]
 pub enum UnencryptedMessageStoreError {

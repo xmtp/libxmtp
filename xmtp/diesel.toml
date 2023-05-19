@@ -5,4 +5,4 @@
 file = "src/storage/unencrypted_store/schema.rs"
 
 [migrations_directory]
-dir = "diesel/migrations"
+dir = "migrations"

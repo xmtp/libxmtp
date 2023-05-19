@@ -5,8 +5,8 @@ edition = "2021"
 
 [[bin]]
 doc = false
-name = "src/bin/update-schema.rs"
-path = "update-schema.rs"
+name = "update-schema"
+path = "src/bin/update-schema.rs"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
