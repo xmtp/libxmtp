@@ -6,7 +6,7 @@ use diesel::prelude::*;
 #[derive(Queryable, Debug)]
 pub struct DecryptedMessage {
     pub id: i32,
-    pub created_at: f32,
+    pub created_at: i64,
     pub convoid: String,
     pub addr_from: String,
     pub content: String,
@@ -15,7 +15,7 @@ pub struct DecryptedMessage {
 #[derive(Insertable)]
 #[diesel(table_name = messages)]
 pub struct NewDecryptedMessage {
-    pub created_at: f32,
+    pub created_at: i64,
     pub convoid: String,
     pub addr_from: String,
     pub content: String,
@@ -31,6 +31,14 @@ impl NewDecryptedMessage {
         }
     }
 }
+impl PartialEq<DecryptedMessage> for NewDecryptedMessage {
+    fn eq(&self, other: &DecryptedMessage) -> bool {
+        self.created_at == other.created_at
+            && self.convoid == other.convoid
+            && self.addr_from == other.addr_from
+            && self.content == other.content
+    }
+}
 
 #[derive(Queryable)]
 pub struct Channel {
@@ -42,10 +50,10 @@ pub struct Channel {
 }
 
 // Diesel + Sqlite is giving trouble when trying to use f64 with REAL type. Downgraded to f32 timestamps
-fn now() -> f32 {
+fn now() -> i64 {
     let start = SystemTime::now();
     start
         .duration_since(UNIX_EPOCH)
         .expect("Time went backwards")
-        .as_secs_f32()
+        .as_nanos() as i64
 }
