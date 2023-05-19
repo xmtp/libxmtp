@@ -2,12 +2,12 @@ use crate::{
     account::{Account, VmacAccount},
     client::{Client, Network},
     persistence::{NamespacedPersistence, Persistence},
-    storage::StoreError,
+    Errorer,
 };
 use thiserror::Error;
 
 #[derive(Error, Debug)]
-pub enum ClientBuilderError<PE> {
+pub enum ClientBuilderError<PE, SE> {
     #[error("Missing parameter: {parameter}")]
     MissingParameterError { parameter: &'static str },
 
@@ -18,14 +18,14 @@ pub enum ClientBuilderError<PE> {
     PersistenceError { source: PE },
 
     #[error("Error Initalizing Store")]
-    StoreInitialization(#[from] StoreError),
+    StoreInitialization(#[from] SE),
 }
 
 #[derive(Default)]
 pub struct ClientBuilder<P, S>
 where
     P: Persistence,
-    S: Default,
+    S: Default + Errorer,
 {
     network: Network,
     persistence: Option<P>,
@@ -37,7 +37,7 @@ where
 impl<P, S> ClientBuilder<P, S>
 where
     P: Persistence,
-    S: Default,
+    S: Default + Errorer,
 {
     pub fn new() -> Self {
         Self {
@@ -76,7 +76,7 @@ where
 
     fn find_or_create_account(
         persistence: &mut NamespacedPersistence<P>,
-    ) -> Result<VmacAccount, ClientBuilderError<P::Error>> {
+    ) -> Result<VmacAccount, ClientBuilderError<P::Error, S::Error>> {
         let key = "vmac_account";
         let existing = persistence
             .read(key)
@@ -104,7 +104,7 @@ where
         }
     }
 
-    pub fn build(mut self) -> Result<Client<P, S>, ClientBuilderError<P::Error>> {
+    pub fn build(mut self) -> Result<Client<P, S>, ClientBuilderError<P::Error, S::Error>> {
         let wallet_address =
             self.wallet_address
                 .as_ref()
@@ -143,7 +143,7 @@ mod tests {
         builder::ClientBuilderError,
         client::Network,
         persistence::in_memory_persistence::InMemoryPersistence,
-        storage::{StorageOption, UnencryptedMessageStore},
+        storage::unencrypted_store::{StorageOption, UnencryptedMessageStore},
     };
 
     use super::ClientBuilder;

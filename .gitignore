@@ -4,6 +4,8 @@ bin/
 pkg/
 wasm-pack.log
 
+!xmtp/src/bin/
+
 # Logs
 logs
 *.log

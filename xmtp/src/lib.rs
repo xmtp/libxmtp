@@ -3,7 +3,7 @@ pub mod association;
 pub mod builder;
 pub mod client;
 pub mod persistence;
-mod storage;
+pub mod storage;
 mod types;
 pub mod vmac_protos;
 
@@ -12,6 +12,10 @@ pub use client::Client;
 
 pub trait Signable {
     fn bytes_to_sign(&self) -> Vec<u8>;
+}
+
+pub trait Errorer {
+    type Error;
 }
 
 pub trait Store<I> {
