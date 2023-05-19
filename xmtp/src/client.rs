@@ -84,6 +84,9 @@ impl<A: XmtpApiClient, P: Persistence> Client<A, P> {
 
 #[cfg(test)]
 mod tests {
+    use xmtp_proto::xmtp::v3::message_contents::vmac_unsigned_public_key::Union::Curve25519;
+    use xmtp_proto::xmtp::v3::message_contents::vmac_unsigned_public_key::VodozemacCurve25519;
+
     use crate::ClientBuilder;
 
     #[tokio::test]
@@ -102,5 +105,29 @@ mod tests {
         assert_eq!(contacts.len(), 1);
         assert!(contacts[0].prekey.is_some());
         assert!(contacts[0].identity_key.is_some());
+
+        let key_bytes = contacts[0]
+            .clone()
+            .identity_key
+            .unwrap()
+            .key
+            .unwrap()
+            .union
+            .unwrap();
+        match key_bytes {
+            Curve25519(VodozemacCurve25519 { bytes }) => {
+                assert_eq!(bytes.len(), 32);
+                assert_eq!(
+                    client
+                        .account
+                        .keys
+                        .get()
+                        .curve25519_key()
+                        .to_bytes()
+                        .to_vec(),
+                    bytes
+                )
+            }
+        }
     }
 }

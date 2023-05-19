@@ -1,5 +1,5 @@
 use crate::{
-    account::{Account, AccountCreator, AccountError, VmacAccount},
+    account::{Account, AccountCreator, AccountError},
     client::{Client, Network},
     networking::XmtpApiClient,
     persistence::{NamespacedPersistence, Persistence},
