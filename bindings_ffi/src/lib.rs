@@ -71,7 +71,7 @@ impl XmtpApiClient for FfiApiClient {
     }
 
     async fn query(
-        &mut self,
+        &self,
         topic: String,
         start_time: Option<u64>,
         end_time: Option<u64>,
