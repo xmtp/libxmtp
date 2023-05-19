@@ -60,7 +60,6 @@ impl XmtpApiClient for MockXmtpApiClient {
             existing.push(envelope);
             self.messages.insert(topic, existing);
         }
-
         Ok(PublishResponse {})
     }
 
