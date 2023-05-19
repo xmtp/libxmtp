@@ -74,9 +74,8 @@ impl<'de> Deserialize<'de> for VmacAccount {
 
 #[derive(Serialize, Deserialize)]
 pub struct Account {
-    // TODO: Make these values private again and add getters for relevant fields
-    pub keys: VmacAccount,
-    pub assoc: Association,
+    pub(crate) keys: VmacAccount,
+    pub(crate) assoc: Association,
 }
 
 impl Account {

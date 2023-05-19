@@ -24,8 +24,7 @@ where
     pub api_client: A,
     pub network: Network,
     pub persistence: NamespacedPersistence<P>,
-    // TODO: Make account private. Just need to figure out how to access for tests
-    pub account: Account,
+    pub(crate) account: Account,
 }
 
 impl<A: XmtpApiClient, P: Persistence> Client<A, P> {
