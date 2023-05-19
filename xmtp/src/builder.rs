@@ -114,6 +114,7 @@ where
         }
     }
 
+    #[allow(clippy::type_complexity)] // TODO: Simplify return types via associated types
     pub fn build(mut self) -> Result<Client<A, P, S>, ClientBuilderError<P::Error, S::Error>> {
         let api_client =
             self.api_client
