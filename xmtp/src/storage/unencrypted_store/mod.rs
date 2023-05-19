@@ -83,13 +83,11 @@ impl Store<UnencryptedMessageStore> for NewDecryptedMessage {
     }
 }
 
-// TODO: Add Filtering to Query
 impl Fetch<DecryptedMessage> for UnencryptedMessageStore {
     type E = UnencryptedMessageStoreError;
     fn fetch(&mut self) -> Result<Vec<DecryptedMessage>, Self::E> {
         use self::schema::messages::dsl::*;
         messages
-            .limit(5)
             .load::<DecryptedMessage>(&mut self.conn)
             .map_err(UnencryptedMessageStoreError::DieselResultError)
     }
@@ -98,12 +96,17 @@ impl Fetch<DecryptedMessage> for UnencryptedMessageStore {
 #[cfg(test)]
 mod tests {
 
-    use crate::{Fetch, Store};
-
     use super::{
         models::{DecryptedMessage, NewDecryptedMessage},
         StorageOption, UnencryptedMessageStore,
     };
+    use crate::{Fetch, Store};
+    use rand::distributions::{Alphanumeric, DistString};
+    use std::{thread::sleep, time::Duration};
+
+    fn rand_string() -> String {
+        Alphanumeric.sample_string(&mut rand::thread_rng(), 16)
+    }
 
     #[test]
     fn store_check() {
@@ -131,10 +134,9 @@ mod tests {
 
     #[test]
     fn store_persistent() {
-        use rand::distributions::{Alphanumeric, DistString};
         use std::fs;
-        let dbname = Alphanumeric.sample_string(&mut rand::thread_rng(), 16);
-        let db_path = format!("{}.db3", dbname);
+
+        let db_path = format!("{}.db3", rand_string());
         {
             let mut store =
                 UnencryptedMessageStore::new(StorageOption::Peristent(db_path.clone())).unwrap();
@@ -150,5 +152,22 @@ mod tests {
         fs::remove_file(db_path).unwrap();
     }
 
-    // TODO: Add Content Tests
+    #[test]
+    fn message_roundtrip() {
+        let mut store = UnencryptedMessageStore::new(StorageOption::Ephemeral).unwrap();
+
+        let msg0 = NewDecryptedMessage::new(rand_string(), rand_string(), rand_string());
+        sleep(Duration::from_millis(10));
+        let msg1 = NewDecryptedMessage::new(rand_string(), rand_string(), rand_string());
+
+        msg0.store(&mut store).unwrap();
+        msg1.store(&mut store).unwrap();
+
+        let msgs = store.fetch().unwrap();
+
+        assert_eq!(2, msgs.len());
+        assert_eq!(msg0, msgs[0]);
+        assert_eq!(msg1, msgs[1]);
+        assert!(msgs[1].created_at > msgs[0].created_at);
+    }
 }

@@ -12,7 +12,7 @@ pub struct DecryptedMessage {
     pub content: String,
 }
 
-#[derive(Insertable)]
+#[derive(Insertable, Clone, PartialEq, Debug)]
 #[diesel(table_name = messages)]
 pub struct NewDecryptedMessage {
     pub created_at: i64,
