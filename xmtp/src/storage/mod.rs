@@ -5,12 +5,8 @@ use crate::{Fetch, Store};
 use diesel::{prelude::*, sql_query, Connection};
 use thiserror::Error;
 
-const DB_PATH: &str = "./xmtp_embedded.db3";
-
 #[derive(Debug, Error)]
 pub enum StoreError {
-    #[error("SqliteError raised")]
-    SqliteError(#[from] rusqlite::Error),
     #[error("Diesel connection error")]
     DieselConnectError(#[from] diesel::ConnectionError),
     #[error("Diesel result error")]
@@ -136,8 +132,10 @@ mod tests {
 
     use super::{
         models::{DecryptedMessage, NewDecryptedMessage},
-        DbInitializer, StorageOption, StoreError, UnencryptedMessageStore, DB_PATH,
+        DbInitializer, StorageOption, StoreError, UnencryptedMessageStore,
     };
+
+    const DB_PATH: &str = "./xmtp_embedded.db3";
 
     #[allow(dead_code)]
     fn task_init_db() {
