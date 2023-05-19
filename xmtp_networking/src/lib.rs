@@ -22,7 +22,7 @@ mod tests {
 
     #[tokio::test]
     async fn grpc_query_test() {
-        let mut client = Client::create("http://localhost:5556".to_string(), false)
+        let client = Client::create("http://localhost:5556".to_string(), false)
             .await
             .unwrap();
 
@@ -36,7 +36,7 @@ mod tests {
 
     #[tokio::test]
     async fn publish_test() {
-        let mut client = Client::create("http://localhost:5556".to_string(), false)
+        let client = Client::create("http://localhost:5556".to_string(), false)
             .await
             .unwrap();
 
@@ -55,7 +55,7 @@ mod tests {
     #[tokio::test]
     async fn subscribe_test() {
         tokio::time::timeout(std::time::Duration::from_secs(5), async move {
-            let mut client = Client::create("http://localhost:5556".to_string(), false)
+            let client = Client::create("http://localhost:5556".to_string(), false)
                 .await
                 .unwrap();
 
@@ -92,7 +92,7 @@ mod tests {
 
     #[tokio::test]
     async fn tls_test() {
-        let mut client = Client::create("https://dev.xmtp.network:5556".to_string(), true)
+        let client = Client::create("https://dev.xmtp.network:5556".to_string(), true)
             .await
             .unwrap();
 

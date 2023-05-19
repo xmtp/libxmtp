@@ -1,6 +1,7 @@
 use crate::{
     account::{Account, VmacAccount},
     client::{Client, Network},
+    networking::XmtpApiClient,
     persistence::{NamespacedPersistence, Persistence},
     Errorer,
 };
@@ -22,11 +23,13 @@ pub enum ClientBuilderError<PE, SE> {
 }
 
 #[derive(Default)]
-pub struct ClientBuilder<P, S>
+pub struct ClientBuilder<A, P, S>
 where
+    A: XmtpApiClient,
     P: Persistence,
     S: Default + Errorer,
 {
+    api_client: Option<A>,
     network: Network,
     persistence: Option<P>,
     wallet_address: Option<String>,
@@ -34,19 +37,26 @@ where
     store: Option<S>,
 }
 
-impl<P, S> ClientBuilder<P, S>
+impl<A, P, S> ClientBuilder<A, P, S>
 where
+    A: XmtpApiClient,
     P: Persistence,
     S: Default + Errorer,
 {
     pub fn new() -> Self {
         Self {
+            api_client: None,
             network: Network::Dev,
             persistence: None,
             wallet_address: None,
             account: None,
             store: None,
         }
+    }
+
+    pub fn api_client(mut self, api_client: A) -> Self {
+        self.api_client = Some(api_client);
+        self
     }
 
     pub fn network(mut self, network: Network) -> Self {
@@ -64,8 +74,8 @@ where
         self
     }
 
-    pub fn wallet_address(mut self, wallet_address: String) -> Self {
-        self.wallet_address = Some(wallet_address);
+    pub fn wallet_address(mut self, wallet_address: &str) -> Self {
+        self.wallet_address = Some(wallet_address.to_string());
         self
     }
 
@@ -104,7 +114,13 @@ where
         }
     }
 
-    pub fn build(mut self) -> Result<Client<P, S>, ClientBuilderError<P::Error, S::Error>> {
+    pub fn build(mut self) -> Result<Client<A, P, S>, ClientBuilderError<P::Error, S::Error>> {
+        let api_client =
+            self.api_client
+                .take()
+                .ok_or(ClientBuilderError::MissingParameterError {
+                    parameter: "api_client",
+                })?;
         let wallet_address =
             self.wallet_address
                 .as_ref()
@@ -124,6 +140,7 @@ where
         let store = self.store.take().unwrap_or_default();
 
         Ok(Client {
+            api_client,
             network: self.network,
             persistence,
             account,
@@ -142,17 +159,19 @@ mod tests {
     use crate::{
         builder::ClientBuilderError,
         client::Network,
+        networking::MockXmtpApiClient,
         persistence::in_memory_persistence::InMemoryPersistence,
         storage::unencrypted_store::{StorageOption, UnencryptedMessageStore},
     };
 
     use super::ClientBuilder;
 
-    impl ClientBuilder<InMemoryPersistence, UnencryptedMessageStore> {
+    impl ClientBuilder<MockXmtpApiClient, InMemoryPersistence, UnencryptedMessageStore> {
         pub fn new_test() -> Self {
             Self::new()
+                .api_client(MockXmtpApiClient::new())
                 .persistence(InMemoryPersistence::new())
-                .wallet_address("unknown".to_string())
+                .wallet_address("unknown")
         }
     }
 
@@ -172,16 +191,18 @@ mod tests {
     fn persistence_test() {
         let persistence = InMemoryPersistence::new();
         let client_a = ClientBuilder::new()
+            .api_client(MockXmtpApiClient::new())
             .persistence(persistence)
             .store(UnencryptedMessageStore::new(StorageOption::Ephemeral).unwrap())
-            .wallet_address("foo".to_string())
+            .wallet_address("foo")
             .build()
             .unwrap();
 
         let client_b = ClientBuilder::new()
+            .api_client(MockXmtpApiClient::new())
             .persistence(client_a.persistence.persistence)
             .store(UnencryptedMessageStore::new(StorageOption::Ephemeral).unwrap())
-            .wallet_address("foo".to_string())
+            .wallet_address("foo")
             .build()
             .unwrap();
 
@@ -194,9 +215,11 @@ mod tests {
 
     #[test]
     fn test_error_result() {
-        let e = ClientBuilder::<InMemoryPersistence, UnencryptedMessageStore>::new()
-            .network(Network::Dev)
-            .build();
+        let e =
+            ClientBuilder::<MockXmtpApiClient, InMemoryPersistence, UnencryptedMessageStore>::new()
+                .api_client(MockXmtpApiClient::new())
+                .network(Network::Dev)
+                .build();
         match e {
             Err(ClientBuilderError::MissingParameterError { parameter: _ }) => {}
             _ => panic!("Should error with MissingParameterError type"),

@@ -342,13 +342,13 @@ mod tests {
             .await
             .unwrap();
         let mut sub = client.subscribe(vec![topic.to_string()]).await.unwrap();
-        std::thread::sleep(std::time::Duration::from_millis(100));
+        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
         let publish_result = client
             .publish("".to_string(), vec![test_envelope(topic.to_string())])
             .await
             .unwrap();
         assert_eq!(publish_result, "".to_string());
-        std::thread::sleep(std::time::Duration::from_millis(200));
+        tokio::time::sleep(std::time::Duration::from_millis(200)).await;
 
         let messages = sub.get_messages().unwrap();
         assert_eq!(messages.len(), 1);

@@ -2,6 +2,7 @@ use thiserror::Error;
 
 use crate::{
     account::VmacAccount,
+    networking::XmtpApiClient,
     persistence::{NamespacedPersistence, Persistence},
 };
 
@@ -19,20 +20,28 @@ pub enum ClientError {
     Unknown,
 }
 
-pub struct Client<P, S>
+pub struct Client<A, P, S>
 where
+    A: XmtpApiClient,
     P: Persistence,
 {
+    pub api_client: A,
     pub network: Network,
     pub persistence: NamespacedPersistence<P>,
     pub account: VmacAccount,
     pub(super) _store: S,
 }
 
-impl<P, S> Client<P, S> where P: Persistence {}
-
-impl<P, S> Client<P, S>
+impl<A, P, S> Client<A, P, S>
 where
+    A: XmtpApiClient,
+    P: Persistence,
+{
+}
+
+impl<A, P, S> Client<A, P, S>
+where
+    A: XmtpApiClient,
     P: Persistence,
 {
     pub fn write_to_persistence(&mut self, s: &str, b: &[u8]) -> Result<(), P::Error> {
