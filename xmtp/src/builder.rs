@@ -101,7 +101,7 @@ where
         }
     }
 
-    pub fn build(&mut self) -> Result<Client<A, P>, ClientBuilderError<P::Error>> {
+    pub fn build(mut self) -> Result<Client<A, P>, ClientBuilderError<P::Error>> {
         let api_client =
             self.api_client
                 .take()

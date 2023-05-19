@@ -166,13 +166,13 @@ mod tests {
             .subscribe(vec![topic.to_string()])
             .await
             .unwrap();
-        std::thread::sleep(std::time::Duration::from_millis(100));
+        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
         client
             .api_client
             .publish("".to_string(), vec![test_envelope(topic.to_string())])
             .await
             .unwrap();
-        std::thread::sleep(std::time::Duration::from_millis(200));
+        tokio::time::sleep(std::time::Duration::from_millis(200)).await;
 
         let messages = sub.get_messages();
         assert_eq!(messages.len(), 1);
