@@ -1,3 +1,16 @@
+//! A durable object store powered by Sqlite and Diesel.
+//!
+//! Provides mechanism to store objects between sessions. The behavor of the store can be tailored by
+//! choosing an appropriate `StoreOption`.
+//!
+//! ## Migrations
+//!
+//! Table definitions are located `<PacakgeRoot>/migrations/`. On intialization the store will see if
+//! there are any outstanding database migrations and perform them as needed. When updating the table
+//! definitions `schema.rs` must also be updated. To generate the correct schemas you can run
+//! `diesel print-schema` or use `cargo run update-schema` which will update the files for you.      
+//!
+
 pub mod models;
 pub mod schema;
 
@@ -33,6 +46,7 @@ impl Default for StorageOption {
 }
 
 #[allow(dead_code)]
+/// Manages a Sqlite db for persisting messages and other objects.
 pub struct UnencryptedMessageStore {
     connect_opt: StorageOption,
     conn: SqliteConnection,
