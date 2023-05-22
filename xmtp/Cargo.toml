@@ -15,8 +15,10 @@ xmtp_networking = { path = "../xmtp_networking" }
 async-trait = "0.1.68"
 xmtp_cryptography = { path = "../xmtp_cryptography"}
 hex = "0.4.3"
+log = "0.4.17"
 
 [dev-dependencies]
+env_logger = "0.10.0"
 ethers = "2.0.4"
 ethers-core = "2.0.4"
 tokio = {version="1.28.1", features=["rt", "macros"]}
