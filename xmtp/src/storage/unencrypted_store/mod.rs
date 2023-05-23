@@ -115,11 +115,18 @@ mod tests {
         StorageOption, UnencryptedMessageStore,
     };
     use crate::{Fetch, Store};
-    use rand::distributions::{Alphanumeric, DistString};
+    use rand::{
+        distributions::{Alphanumeric, DistString},
+        Rng,
+    };
     use std::{thread::sleep, time::Duration};
 
     fn rand_string() -> String {
         Alphanumeric.sample_string(&mut rand::thread_rng(), 16)
+    }
+
+    fn rand_vec() -> Vec<u8> {
+        rand::thread_rng().gen::<[u8; 16]>().to_vec()
     }
 
     #[test]
@@ -170,9 +177,9 @@ mod tests {
     fn message_roundtrip() {
         let mut store = UnencryptedMessageStore::new(StorageOption::Ephemeral).unwrap();
 
-        let msg0 = NewDecryptedMessage::new(rand_string(), rand_string(), rand_string());
+        let msg0 = NewDecryptedMessage::new(rand_string(), rand_string(), rand_vec());
         sleep(Duration::from_millis(10));
-        let msg1 = NewDecryptedMessage::new(rand_string(), rand_string(), rand_string());
+        let msg1 = NewDecryptedMessage::new(rand_string(), rand_string(), rand_vec());
 
         msg0.store(&mut store).unwrap();
         msg1.store(&mut store).unwrap();

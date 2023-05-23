@@ -3,5 +3,5 @@ CREATE TABLE IF NOT EXISTS messages (
     created_at INTEGER NOT NULL,
     convo_id TEXT NOT NULL,
     addr_from TEXT NOT NULL,
-    content TEXT NOT NULL
+    content BLOB NOT NULL
 )

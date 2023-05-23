@@ -6,6 +6,6 @@ diesel::table! {
         created_at -> BigInt,
         convo_id -> Text,
         addr_from -> Text,
-        content -> Text,
+        content -> Binary,
     }
 }

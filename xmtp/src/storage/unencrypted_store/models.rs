@@ -10,7 +10,7 @@ pub struct DecryptedMessage {
     pub created_at: i64,
     pub convo_id: String,
     pub addr_from: String,
-    pub content: String,
+    pub content: Vec<u8>,
 }
 
 /// Placeholder type for messages being inserted into the store. This type is the same as
@@ -22,11 +22,11 @@ pub struct NewDecryptedMessage {
     pub created_at: i64,
     pub convo_id: String,
     pub addr_from: String,
-    pub content: String,
+    pub content: Vec<u8>,
 }
 
 impl NewDecryptedMessage {
-    pub fn new(convo_id: String, addr_from: String, content: String) -> Self {
+    pub fn new(convo_id: String, addr_from: String, content: Vec<u8>) -> Self {
         Self {
             created_at: now(),
             convo_id,
