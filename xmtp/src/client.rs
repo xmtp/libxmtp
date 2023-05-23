@@ -9,7 +9,7 @@ use crate::{
 };
 use prost::Message;
 use xmtp_proto::xmtp::{message_api::v1::Envelope, v3::message_contents::VmacContactBundle};
-
+//TODO: Remove Comment
 #[derive(Clone, Copy, Default)]
 pub enum Network {
     Local(&'static str),

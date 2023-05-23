@@ -4452,7 +4452,7 @@ dependencies = [
  "diesel_migrations",
  "env_logger",
  "ethers",
- "ethers-core",
+ "futures",
  "hex",
  "log",
  "prost",
