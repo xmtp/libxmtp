@@ -162,7 +162,7 @@ mod tests {
         client::Network,
         networking::MockXmtpApiClient,
         persistence::in_memory_persistence::InMemoryPersistence,
-        storage::unencrypted_store::{StorageOption, UnencryptedMessageStore},
+        storage::{StorageOption, UnencryptedMessageStore},
     };
 
     use super::ClientBuilder;

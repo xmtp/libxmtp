@@ -8,7 +8,7 @@ use std::{
     process::Command,
 };
 use toml::Table;
-use xmtp::storage::unencrypted_store::{StorageOption, UnencryptedMessageStore};
+use xmtp::storage::{StorageOption, UnencryptedMessageStore};
 
 const DIESEL_TOML: &str = "./diesel.toml";
 
