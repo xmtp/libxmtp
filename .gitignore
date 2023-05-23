@@ -4,6 +4,8 @@ bin/
 pkg/
 wasm-pack.log
 
+!xmtp/src/bin/
+
 # Logs
 logs
 *.log
@@ -128,3 +130,6 @@ dist
 
 # Generated code
 xmtp_proto/src/gen
+
+# Sqlite Instances
+*.db3

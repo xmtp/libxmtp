@@ -1,3 +1,5 @@
+use thiserror::Error;
+
 use crate::{
     account::VmacAccount,
     networking::XmtpApiClient,
@@ -12,7 +14,13 @@ pub enum Network {
     Prod,
 }
 
-pub struct Client<A, P>
+#[derive(Debug, Error)]
+pub enum ClientError {
+    #[error("unknown client error")]
+    Unknown,
+}
+
+pub struct Client<A, P, S>
 where
     A: XmtpApiClient,
     P: Persistence,
@@ -21,9 +29,21 @@ where
     pub network: Network,
     pub persistence: NamespacedPersistence<P>,
     pub account: VmacAccount,
+    pub(super) _store: S,
 }
 
-impl<A: XmtpApiClient, P: Persistence> Client<A, P> {
+impl<A, P, S> Client<A, P, S>
+where
+    A: XmtpApiClient,
+    P: Persistence,
+{
+}
+
+impl<A, P, S> Client<A, P, S>
+where
+    A: XmtpApiClient,
+    P: Persistence,
+{
     pub fn write_to_persistence(&mut self, s: &str, b: &[u8]) -> Result<(), P::Error> {
         self.persistence.write(s, b)
     }
