@@ -8,6 +8,12 @@ use xmtp_proto::xmtp::message_api::v1::{Envelope, PagingInfo, PublishResponse, Q
 
 pub type FfiXmtpClient = xmtp::Client<FfiApiClient, InMemoryPersistence>;
 
+uniffi::include_scaffolding!("xmtpv3");
+
+fn add(a: u32, b: u32) -> u32 {
+    a + b
+}
+
 #[swift_bridge::bridge]
 mod ffi {
     extern "Rust" {
