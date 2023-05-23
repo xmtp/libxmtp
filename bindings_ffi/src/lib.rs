@@ -1,8 +1,7 @@
 use async_trait::async_trait;
 use xmtp::{
     account::Account, networking::XmtpApiClient,
-    persistence::in_memory_persistence::InMemoryPersistence,
-    storage::unencrypted_store::UnencryptedMessageStore,
+    persistence::in_memory_persistence::InMemoryPersistence, storage::UnencryptedMessageStore,
 };
 use xmtp_networking::grpc_api_helper::{self, Subscription};
 use xmtp_proto::xmtp::message_api::v1::{Envelope, PagingInfo, PublishResponse, QueryResponse};
@@ -31,12 +30,14 @@ async fn create_client(
 ) -> Result<xmtp::Client<FfiApiClient, InMemoryPersistence, UnencryptedMessageStore>, String> {
     let api_client = FfiApiClient::new(host, is_secure).await?;
     let persistence = InMemoryPersistence::new();
+    let store = UnencryptedMessageStore::default();
 
     let xmtp_client = xmtp::ClientBuilder::new()
         .wallet_address(&account.addr())
         .account(account)
         .api_client(api_client)
         .persistence(persistence)
+        .store(store)
         .build()
         .map_err(|e| format!("{:?}", e))?;
 
