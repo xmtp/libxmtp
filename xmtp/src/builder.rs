@@ -143,7 +143,7 @@ where
     }
 
     fn create_new_account(&self) -> Result<Account, AccountError> {
-        let sign = |public_key_bytes: &Vec<u8>| -> Result<Association, AssociationError> {
+        let sign = |public_key_bytes: Vec<u8>| -> Result<Association, AssociationError> {
             let assoc_text = AssociationText::Static {
                 addr: self.wallet_address.clone(),
                 account_public_key: public_key_bytes.clone(),

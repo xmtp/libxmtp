@@ -88,12 +88,12 @@ impl Account {
     }
 
     pub fn generate(
-        sf: impl Fn(&Vec<u8>) -> Result<Association, AssociationError>,
+        sf: impl Fn(Vec<u8>) -> Result<Association, AssociationError>,
     ) -> Result<Self, AccountError> {
         let keys = VmacAccount::generate();
         let bytes = keys.bytes_to_sign();
 
-        let assoc = sf(&bytes)?;
+        let assoc = sf(bytes)?;
         Ok(Self::new(keys, assoc))
     }
 
@@ -181,7 +181,7 @@ mod tests {
     use serde_json::json;
     use xmtp_cryptography::{signature::h160addr_to_string, utils::rng};
 
-    pub fn test_wallet_signer(_: &Vec<u8>) -> Result<Association, AssociationError> {
+    pub fn test_wallet_signer(_: Vec<u8>) -> Result<Association, AssociationError> {
         Association::test()
     }
 
