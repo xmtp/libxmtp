@@ -14,7 +14,7 @@ pub trait XmtpApiClient {
     ) -> Result<PublishResponse, String>;
 
     async fn query(
-        &mut self,
+        &self,
         topic: String,
         start_time: Option<u64>,
         end_time: Option<u64>,
@@ -64,7 +64,7 @@ impl XmtpApiClient for MockXmtpApiClient {
     }
 
     async fn query(
-        &mut self,
+        &self,
         topic: String,
         _start_time: Option<u64>,
         _end_time: Option<u64>,
