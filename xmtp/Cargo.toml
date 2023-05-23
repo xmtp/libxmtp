@@ -3,6 +3,11 @@ name = "xmtp"
 version = "0.1.0"
 edition = "2021"
 
+[[bin]]
+doc = false
+name = "update-schema"
+path = "src/bin/update-schema.rs"
+
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
@@ -15,7 +20,11 @@ xmtp_networking = { path = "../xmtp_networking" }
 async-trait = "0.1.68"
 xmtp_cryptography = { path = "../xmtp_cryptography"}
 hex = "0.4.3"
+diesel = { version = "2.0.4", features = ["sqlite"] }
+diesel_migrations = { version = "2.0.0", features = ["sqlite"] }
 log = "0.4.17"
+rand = "0.8.5"
+toml = "0.7.4"
 
 [dev-dependencies]
 env_logger = "0.10.0"

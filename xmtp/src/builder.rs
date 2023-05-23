@@ -3,11 +3,12 @@ use crate::{
     client::{Client, Network},
     networking::XmtpApiClient,
     persistence::{NamespacedPersistence, Persistence},
+    Errorer,
 };
 use thiserror::Error;
 
 #[derive(Error, Debug)]
-pub enum ClientBuilderError<PE> {
+pub enum ClientBuilderError<PE, SE> {
     #[error("Missing parameter: {parameter}")]
     MissingParameterError { parameter: &'static str },
 
@@ -16,25 +17,31 @@ pub enum ClientBuilderError<PE> {
 
     #[error("Failed to read/write state to persistence: {source}")]
     PersistenceError { source: PE },
+
+    #[error("Error Initalizing Store")]
+    StoreInitialization(#[from] SE),
 }
 
 #[derive(Default)]
-pub struct ClientBuilder<A, P>
+pub struct ClientBuilder<A, P, S>
 where
     A: XmtpApiClient,
     P: Persistence,
+    S: Default + Errorer,
 {
     api_client: Option<A>,
     network: Network,
     persistence: Option<P>,
     wallet_address: Option<String>,
     account: Option<Account>,
+    store: Option<S>,
 }
 
-impl<A, P> ClientBuilder<A, P>
+impl<A, P, S> ClientBuilder<A, P, S>
 where
     A: XmtpApiClient,
     P: Persistence,
+    S: Default + Errorer,
 {
     pub fn new() -> Self {
         Self {
@@ -43,6 +50,7 @@ where
             persistence: None,
             wallet_address: None,
             account: None,
+            store: None,
         }
     }
 
@@ -71,9 +79,14 @@ where
         self
     }
 
+    pub fn store(mut self, store: S) -> Self {
+        self.store = Some(store);
+        self
+    }
+
     fn find_or_create_account(
         persistence: &mut NamespacedPersistence<P>,
-    ) -> Result<VmacAccount, ClientBuilderError<P::Error>> {
+    ) -> Result<VmacAccount, ClientBuilderError<P::Error, S::Error>> {
         let key = "vmac_account";
         let existing = persistence
             .read(key)
@@ -101,7 +114,8 @@ where
         }
     }
 
-    pub fn build(mut self) -> Result<Client<A, P>, ClientBuilderError<P::Error>> {
+    #[allow(clippy::type_complexity)] // TODO: Simplify return types via associated types
+    pub fn build(mut self) -> Result<Client<A, P, S>, ClientBuilderError<P::Error, S::Error>> {
         let api_client =
             self.api_client
                 .take()
@@ -124,11 +138,14 @@ where
             NamespacedPersistence::new(&get_account_namespace(wallet_address), persistence);
         let account = Self::find_or_create_account(&mut persistence)?;
 
+        let store = self.store.take().unwrap_or_default();
+
         Ok(Client {
             api_client,
             network: self.network,
             persistence,
             account,
+            _store: store,
         })
     }
 }
@@ -141,13 +158,16 @@ fn get_account_namespace(wallet_address: &str) -> String {
 mod tests {
 
     use crate::{
-        builder::ClientBuilderError, client::Network, networking::MockXmtpApiClient,
+        builder::ClientBuilderError,
+        client::Network,
+        networking::MockXmtpApiClient,
         persistence::in_memory_persistence::InMemoryPersistence,
+        storage::unencrypted_store::{StorageOption, UnencryptedMessageStore},
     };
 
     use super::ClientBuilder;
 
-    impl ClientBuilder<MockXmtpApiClient, InMemoryPersistence> {
+    impl ClientBuilder<MockXmtpApiClient, InMemoryPersistence, UnencryptedMessageStore> {
         pub fn new_test() -> Self {
             Self::new()
                 .api_client(MockXmtpApiClient::new())
@@ -174,6 +194,7 @@ mod tests {
         let client_a = ClientBuilder::new()
             .api_client(MockXmtpApiClient::new())
             .persistence(persistence)
+            .store(UnencryptedMessageStore::new(StorageOption::Ephemeral).unwrap())
             .wallet_address("foo")
             .build()
             .unwrap();
@@ -181,6 +202,7 @@ mod tests {
         let client_b = ClientBuilder::new()
             .api_client(MockXmtpApiClient::new())
             .persistence(client_a.persistence.persistence)
+            .store(UnencryptedMessageStore::new(StorageOption::Ephemeral).unwrap())
             .wallet_address("foo")
             .build()
             .unwrap();
@@ -194,10 +216,11 @@ mod tests {
 
     #[test]
     fn test_error_result() {
-        let e = ClientBuilder::<MockXmtpApiClient, InMemoryPersistence>::new()
-            .api_client(MockXmtpApiClient::new())
-            .network(Network::Dev)
-            .build();
+        let e =
+            ClientBuilder::<MockXmtpApiClient, InMemoryPersistence, UnencryptedMessageStore>::new()
+                .api_client(MockXmtpApiClient::new())
+                .network(Network::Dev)
+                .build();
         match e {
             Err(ClientBuilderError::MissingParameterError { parameter: _ }) => {}
             _ => panic!("Should error with MissingParameterError type"),

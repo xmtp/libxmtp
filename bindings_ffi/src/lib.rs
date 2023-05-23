@@ -2,11 +2,12 @@ use async_trait::async_trait;
 use xmtp::{
     account::Account, networking::XmtpApiClient,
     persistence::in_memory_persistence::InMemoryPersistence,
+    storage::unencrypted_store::UnencryptedMessageStore,
 };
 use xmtp_networking::grpc_api_helper::{self, Subscription};
 use xmtp_proto::xmtp::message_api::v1::{Envelope, PagingInfo, PublishResponse, QueryResponse};
 
-pub type FfiXmtpClient = xmtp::Client<FfiApiClient, InMemoryPersistence>;
+pub type FfiXmtpClient = xmtp::Client<FfiApiClient, InMemoryPersistence, UnencryptedMessageStore>;
 
 #[swift_bridge::bridge]
 mod ffi {
@@ -27,7 +28,7 @@ async fn create_client(
     host: &str,
     is_secure: bool,
     // TODO proper error handling
-) -> Result<xmtp::Client<FfiApiClient, InMemoryPersistence>, String> {
+) -> Result<xmtp::Client<FfiApiClient, InMemoryPersistence, UnencryptedMessageStore>, String> {
     let api_client = FfiApiClient::new(host, is_secure).await?;
     let persistence = InMemoryPersistence::new();
 
