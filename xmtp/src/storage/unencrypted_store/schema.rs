@@ -4,7 +4,7 @@ diesel::table! {
     messages (id) {
         id -> Integer,
         created_at -> BigInt,
-        convoid -> Text,
+        convo_id -> Text,
         addr_from -> Text,
         content -> Text,
     }

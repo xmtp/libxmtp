@@ -8,7 +8,7 @@ use diesel::prelude::*;
 pub struct DecryptedMessage {
     pub id: i32,
     pub created_at: i64,
-    pub convoid: String,
+    pub convo_id: String,
     pub addr_from: String,
     pub content: String,
 }
@@ -20,7 +20,7 @@ pub struct DecryptedMessage {
 #[diesel(table_name = messages)]
 pub struct NewDecryptedMessage {
     pub created_at: i64,
-    pub convoid: String,
+    pub convo_id: String,
     pub addr_from: String,
     pub content: String,
 }
@@ -29,7 +29,7 @@ impl NewDecryptedMessage {
     pub fn new(convo_id: String, addr_from: String, content: String) -> Self {
         Self {
             created_at: now(),
-            convoid: convo_id,
+            convo_id,
             addr_from,
             content,
         }
@@ -38,7 +38,7 @@ impl NewDecryptedMessage {
 impl PartialEq<DecryptedMessage> for NewDecryptedMessage {
     fn eq(&self, other: &DecryptedMessage) -> bool {
         self.created_at == other.created_at
-            && self.convoid == other.convoid
+            && self.convo_id == other.convo_id
             && self.addr_from == other.addr_from
             && self.content == other.content
     }
