@@ -4,6 +4,7 @@ pub mod builder;
 pub mod client;
 pub mod networking;
 pub mod persistence;
+pub mod storage;
 mod types;
 mod utils;
 pub mod vmac_protos;
@@ -13,6 +14,19 @@ pub use client::Client;
 
 pub trait Signable {
     fn bytes_to_sign(&self) -> Vec<u8>;
+}
+
+pub trait Errorer {
+    type Error;
+}
+
+pub trait Store<I> {
+    fn store(&self, into: &mut I) -> Result<(), String>;
+}
+
+pub trait Fetch<T> {
+    type E;
+    fn fetch(&mut self) -> Result<Vec<T>, Self::E>;
 }
 
 #[cfg(test)]
