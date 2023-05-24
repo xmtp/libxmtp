@@ -6,14 +6,16 @@ use crate::{
 };
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
-use vodozemac::olm::{Account as OlmAccount, AccountPickle as OlmAccountPickle};
-use xmtp_cryptography::signature::RecoverableSignature;
+use vodozemac::olm::{Account as OlmAccount, AccountPickle as OlmAccountPickle, IdentityKeys};
+use xmtp_cryptography::signature::{RecoverableSignature, SignatureError};
 use xmtp_proto::xmtp::v3::message_contents::{
     VmacAccountLinkedKey, VmacContactBundle, VmacDeviceLinkedKey, VmacUnsignedPublicKey,
 };
 
 #[derive(Debug, Error)]
 pub enum AccountError {
+    #[error("generating new account")]
+    BadGeneration(#[from] SignatureError),
     #[error("bad association")]
     BadAssocation(#[from] AssociationError),
     #[error("unknown error")]
@@ -85,10 +87,14 @@ impl Account {
         Self { keys, assoc }
     }
 
-    pub fn generate(sf: impl Fn(Vec<u8>) -> Association + 'static) -> Self {
+    pub fn generate(
+        sf: impl Fn(Vec<u8>) -> Result<Association, AssociationError>,
+    ) -> Result<Self, AccountError> {
         let keys = VmacAccount::generate();
         let bytes = keys.bytes_to_sign();
-        Self::new(keys, sf(bytes))
+
+        let assoc = sf(bytes)?;
+        Ok(Self::new(keys, assoc))
     }
 
     pub fn addr(&self) -> Address {
@@ -119,6 +125,10 @@ impl Account {
             identity_key: Some(identity_key),
             prekey: Some(fallback_key),
         }
+    }
+
+    pub fn get_keys(&self) -> IdentityKeys {
+        self.keys.account.identity_keys()
     }
 }
 
@@ -161,6 +171,8 @@ impl Signable for AccountCreator {
 #[cfg(test)]
 mod tests {
 
+    use crate::association::AssociationError;
+
     use super::{Account, AccountCreator, Association};
     use ethers::core::rand::thread_rng;
     use ethers::signers::{LocalWallet, Signer};
@@ -169,13 +181,13 @@ mod tests {
     use serde_json::json;
     use xmtp_cryptography::{signature::h160addr_to_string, utils::rng};
 
-    pub fn test_wallet_signer(_: Vec<u8>) -> Association {
-        Association::test().expect("Test Association failed to generate")
+    pub fn test_wallet_signer(_: Vec<u8>) -> Result<Association, AssociationError> {
+        Association::test()
     }
 
     #[test]
     fn account_serialize() {
-        let account = Account::generate(test_wallet_signer);
+        let account = Account::generate(test_wallet_signer).unwrap();
         let serialized_account = json!(account).to_string();
         let serialized_account_other = json!(account).to_string();
 

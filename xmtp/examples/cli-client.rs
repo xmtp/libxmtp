@@ -3,13 +3,12 @@ extern crate ethers;
 extern crate log;
 extern crate xmtp;
 
-use ethers::signers::{LocalWallet, Signer};
 use ethers_core::rand;
 use log::{error, info, warn};
 use xmtp::networking::MockXmtpApiClient;
 use xmtp::persistence::in_memory_persistence::InMemoryPersistence;
 use xmtp::storage::{StorageOption, UnencryptedMessageStore};
-use xmtp_cryptography::signature::h160addr_to_string;
+use xmtp_cryptography::utils::LocalWallet;
 
 /// A complete example of a minimal xmtp client which can send and recieve messages.
 /// run this example from the cli:  `RUST_LOG=DEBUG cargo run --example cli-client`
@@ -21,12 +20,11 @@ fn main() {
 
     let wallet = LocalWallet::new(&mut rand::thread_rng());
 
-    let client_result = xmtp::ClientBuilder::new()
+    let client_result = xmtp::ClientBuilder::new(wallet.into())
         .network(xmtp::client::Network::Dev)
         .api_client(MockXmtpApiClient::default())
         .persistence(InMemoryPersistence::default())
         .store(msg_store)
-        .wallet_address(&h160addr_to_string(wallet.address()))
         .build();
 
     let _client = match client_result {

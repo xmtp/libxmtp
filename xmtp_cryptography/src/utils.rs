@@ -1,3 +1,4 @@
+pub use ethers::prelude::LocalWallet;
 use ethers_core::utils::keccak256;
 use k256::ecdsa::VerifyingKey;
 use rand::{CryptoRng, RngCore, SeedableRng};
@@ -16,4 +17,8 @@ pub fn eth_address(pubkey: &VerifyingKey) -> Result<String, String> {
 
     // Return the result as hex string, take the last 20 bytes
     Ok(format!("0x{}", hex::encode(&hash[12..])))
+}
+
+pub fn generate_local_wallet() -> LocalWallet {
+    LocalWallet::new(&mut rng())
 }
