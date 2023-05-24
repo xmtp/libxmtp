@@ -34,6 +34,7 @@ pub enum ClientBuilderError<PE> {
 pub enum AccountStrategy<O: InboxOwner> {
     CreateIfNotFound(O),
     CachedOnly(Address),
+    #[cfg(test)]
     ExternalAccount(Account),
 }
 
@@ -119,8 +120,9 @@ where
     fn get_address(&self) -> Address {
         match &self.account_strategy {
             AccountStrategy::CachedOnly(a) => a.clone(),
-            AccountStrategy::ExternalAccount(e) => e.addr(),
             AccountStrategy::CreateIfNotFound(o) => o.get_address(),
+            #[cfg(test)]
+            AccountStrategy::ExternalAccount(e) => e.addr(),
         }
     }
 
@@ -210,7 +212,7 @@ where
             AccountStrategy::CreateIfNotFound(owner) => {
                 Self::find_or_create_account(&owner, &mut persistence)?
             }
-
+            #[cfg(test)]
             AccountStrategy::ExternalAccount(a) => a,
         };
 
