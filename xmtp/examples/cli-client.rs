@@ -21,7 +21,7 @@ fn main() {
     let wallet = LocalWallet::new(&mut rand::thread_rng());
 
     let client_result = xmtp::ClientBuilder::new(wallet.into())
-        .network(xmtp::client::Network::Dev)
+        .network(xmtp::Network::Dev)
         .api_client(MockXmtpApiClient::default())
         .persistence(InMemoryPersistence::default())
         .store(msg_store)

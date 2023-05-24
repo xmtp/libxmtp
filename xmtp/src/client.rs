@@ -81,14 +81,6 @@ where
         Ok(self)
     }
 
-    pub fn write_to_persistence(&mut self, s: &str, b: &[u8]) -> Result<(), P::Error> {
-        self.persistence.write(s, b)
-    }
-
-    pub fn read_from_persistence(&self, s: &str) -> Result<Option<Vec<u8>>, P::Error> {
-        self.persistence.read(s)
-    }
-
     pub fn wallet_address(&self) -> Address {
         self.account.addr()
     }
@@ -145,6 +137,16 @@ where
 
         Ok(envelope)
     }
+
+    #[warn(dead_code)]
+    fn write_to_persistence(&mut self, s: &str, b: &[u8]) -> Result<(), P::Error> {
+        self.persistence.write(s, b)
+    }
+
+    #[warn(dead_code)]
+    fn read_from_persistence(&self, s: &str) -> Result<Option<Vec<u8>>, P::Error> {
+        self.persistence.read(s)
+    }
 }
 
 #[cfg(test)]
@@ -153,6 +155,12 @@ mod tests {
     use xmtp_proto::xmtp::v3::message_contents::vmac_unsigned_public_key::VodozemacCurve25519;
 
     use crate::ClientBuilder;
+
+    #[tokio::test]
+    async fn registration() {
+        let mut client = ClientBuilder::new_test().build().unwrap();
+        client.init().await.expect("BadReg");
+    }
 
     #[tokio::test]
     async fn test_publish_user_contact() {
@@ -194,5 +202,16 @@ mod tests {
                 )
             }
         }
+    }
+
+    #[test]
+    fn can_pass_persistence_methods() {
+        let mut client = ClientBuilder::new_test().build().unwrap();
+        assert_eq!(client.read_from_persistence("foo").unwrap(), None);
+        client.write_to_persistence("foo", b"bar").unwrap();
+        assert_eq!(
+            client.read_from_persistence("foo").unwrap(),
+            Some(b"bar".to_vec())
+        );
     }
 }
