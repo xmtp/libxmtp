@@ -4,7 +4,7 @@ extern crate log;
 extern crate xmtp;
 
 use ethers_core::rand;
-use log::{error, info, warn};
+use log::{error, info};
 use xmtp::networking::MockXmtpApiClient;
 use xmtp::persistence::in_memory_persistence::InMemoryPersistence;
 use xmtp::storage::{StorageOption, UnencryptedMessageStore};

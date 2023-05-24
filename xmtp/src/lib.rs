@@ -11,7 +11,6 @@ mod utils;
 pub mod vmac_protos;
 
 use association::AssociationText;
-use async_trait::async_trait;
 pub use builder::ClientBuilder;
 pub use client::{Client, Network};
 use xmtp_cryptography::signature::{RecoverableSignature, SignatureError};
@@ -36,12 +35,6 @@ pub trait Fetch<T> {
 pub trait InboxOwner {
     fn get_address(&self) -> String;
     fn sign(&self, text: AssociationText) -> Result<RecoverableSignature, SignatureError>;
-}
-
-#[async_trait]
-pub trait Init<T: Errorer> {
-    type Error;
-    async fn init(self) -> Result<T, T::Error>;
 }
 
 #[cfg(test)]
