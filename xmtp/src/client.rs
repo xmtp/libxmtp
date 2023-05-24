@@ -7,7 +7,7 @@ use crate::{
     types::Address,
     utils::{build_envelope, build_user_contact_topic},
 };
-use prost::Message;
+use prost::{DecodeError, EncodeError, Message};
 use xmtp_proto::xmtp::{message_api::v1::Envelope, v3::message_contents::VmacContactBundle};
 
 #[derive(Clone, Copy, Default)]
@@ -20,6 +20,14 @@ pub enum Network {
 
 #[derive(Debug, Error)]
 pub enum ClientError {
+    #[error("encoding error({s}) -- {e}")]
+    EncodingError { s: &'static str, e: EncodeError },
+    #[error("Decoding error({s}) -- {e}")]
+    DecodingError { s: &'static str, e: DecodeError },
+    #[error("could not publish: {0}")]
+    PublishError(String),
+    #[error("Query failed: {0}")]
+    QueryError(String),
     #[error("unknown client error")]
     Unknown,
 }
@@ -48,6 +56,31 @@ where
     A: XmtpApiClient,
     P: Persistence,
 {
+    pub fn new(
+        api_client: A,
+        network: Network,
+        persistence: NamespacedPersistence<P>,
+        account: Account,
+        store: S,
+    ) -> Self {
+        Self {
+            api_client,
+            network,
+            persistence,
+            account,
+            _store: store,
+        }
+    }
+    pub async fn init(&mut self) -> Result<&Self, ClientError> {
+        // Register Contact Bundles
+        let registered_bundles = self.get_contacts(&self.wallet_address()).await?;
+        if registered_bundles.is_empty() {
+            self.publish_user_contact().await?;
+        }
+
+        Ok(self)
+    }
+
     pub fn write_to_persistence(&mut self, s: &str, b: &[u8]) -> Result<(), P::Error> {
         self.persistence.write(s, b)
     }
@@ -60,40 +93,53 @@ where
         self.account.addr()
     }
 
-    pub async fn get_contacts(
+    async fn get_contacts(
         &self,
         wallet_address: &str,
-    ) -> Result<Vec<VmacContactBundle>, String> {
+    ) -> Result<Vec<VmacContactBundle>, ClientError> {
         let topic = build_user_contact_topic(wallet_address.to_string());
-        let response = self.api_client.query(topic, None, None, None).await?;
+        let response = self
+            .api_client
+            .query(topic, None, None, None)
+            .await
+            .map_err(ClientError::QueryError)?;
 
         let mut contacts = vec![];
         for envelope in response.envelopes {
             // TODO: Wrap the proto in some special struct
             // TODO: Handle errors better
-            let contact_bundle = VmacContactBundle::decode(envelope.message.as_slice())
-                .map_err(|e| format!("{}", e))?;
+            let contact_bundle =
+                VmacContactBundle::decode(envelope.message.as_slice()).map_err(|e| {
+                    ClientError::DecodingError {
+                        s: "FailedToDecodeContact",
+                        e,
+                    }
+                })?;
             contacts.push(contact_bundle);
         }
 
         Ok(contacts)
     }
 
-    pub async fn publish_user_contact(&mut self) -> Result<(), String> {
+    async fn publish_user_contact(&mut self) -> Result<(), ClientError> {
         let envelope = self.build_contact_envelope()?;
         self.api_client
             .publish("".to_string(), vec![envelope])
-            .await?;
+            .await
+            .map_err(ClientError::PublishError)?;
 
         Ok(())
     }
 
-    fn build_contact_envelope(&self) -> Result<Envelope, String> {
+    fn build_contact_envelope(&self) -> Result<Envelope, ClientError> {
         let contact_bundle = self.account.proto_contact_bundle();
         let mut bytes = vec![];
         contact_bundle
             .encode(&mut bytes)
-            .map_err(|e| format!("{}", e))?;
+            .map_err(|e| ClientError::EncodingError {
+                s: "FailedToEncodeContact",
+                e,
+            })?;
 
         let envelope = build_envelope(build_user_contact_topic(self.wallet_address()), bytes);
 
