@@ -61,7 +61,7 @@ mod tests {
             let topic = uuid::Uuid::new_v4();
             let mut stream_handler = client.subscribe(vec![topic.to_string()]).await.unwrap();
 
-            assert!(stream_handler.is_closed());
+            assert!(!stream_handler.is_closed());
             // Skipping the auth token because we have authn disabled on the local
             // xmtp-node-go instance
             client
