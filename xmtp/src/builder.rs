@@ -1,7 +1,7 @@
 use crate::{
     account::{Account, AccountError},
     association::{Association, AssociationError, AssociationText},
-    client::{Client, Network, UninitializedClient},
+    client::{Client, Network},
     networking::XmtpApiClient,
     persistence::{NamespacedPersistence, Persistence},
     types::Address,
@@ -196,7 +196,7 @@ where
 
         Account::generate(sign).map_err(ClientBuilderError::AccountInitialization)
     }
-    pub fn build(mut self) -> Result<UninitializedClient<A, P, S>, ClientBuilderError<P::Error>> {
+    pub fn build(mut self) -> Result<Client<A, P, S>, ClientBuilderError<P::Error>> {
         let api_client = self.api_client.take().unwrap_or_default();
         let wallet_address = self.get_address();
         let persistence = self.persistence.take().unwrap_or_default();
@@ -218,13 +218,13 @@ where
 
         let store = self.store.take().unwrap_or_default();
 
-        Ok(UninitializedClient::new(Client {
+        Ok(Client::new(
             api_client,
-            network: self.network,
+            self.network,
             persistence,
             account,
-            _store: store,
-        }))
+            store,
+        ))
     }
 }
 
@@ -256,13 +256,7 @@ mod tests {
     #[test]
     fn builder_test() {
         let client = ClientBuilder::new_test().build().unwrap();
-        assert!(!client
-            .skip_init()
-            .account
-            .get_keys()
-            .curve25519
-            .to_bytes()
-            .is_empty())
+        assert!(!client.account.get_keys().curve25519.to_bytes().is_empty())
     }
 
     #[test]
@@ -275,15 +269,13 @@ mod tests {
             ClientBuilder::new(wallet.clone().into())
                 .persistence(persistence)
                 .build()
-                .unwrap()
-                .skip_init();
+                .unwrap();
 
         let client_b: Client<MockXmtpApiClient, InMemoryPersistence, UnencryptedMessageStore> =
             ClientBuilder::new(wallet.into())
                 .persistence(client_a.persistence.persistence)
                 .build()
-                .unwrap()
-                .skip_init();
+                .unwrap();
         // Ensure the persistence was used to store the generated keys
         assert_eq!(
             client_a.account.get_keys().curve25519.to_bytes(),

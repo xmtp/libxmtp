@@ -28,7 +28,7 @@ async fn main() {
         .store(msg_store)
         .build();
 
-    let uninit_client = match client_result {
+    let mut client = match client_result {
         Err(e) => {
             error!("ClientBuilder Error: {:?}", e);
             return;
@@ -36,12 +36,9 @@ async fn main() {
         Ok(c) => c,
     };
 
-    let client = match uninit_client.init().await {
-        Err(e) => {
-            error!("Initialization Failed: {}", e.to_string());
-            panic!("Could not init");
-        }
-        Ok(c) => c,
+    if let Err(e) = client.init().await {
+        error!("Initialization Failed: {}", e.to_string());
+        panic!("Could not init");
     };
 
     // Application logic

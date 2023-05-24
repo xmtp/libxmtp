@@ -56,7 +56,7 @@ mod tests {
 
     #[tokio::test]
     async fn can_network() {
-        let mut client = ClientBuilder::new_test().build().unwrap().skip_init();
+        let mut client = ClientBuilder::new_test().build().unwrap();
         let topic = Uuid::new_v4();
 
         client

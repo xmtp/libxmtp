@@ -32,33 +32,6 @@ pub enum ClientError {
     Unknown,
 }
 
-pub struct UninitializedClient<A, P, S>(Client<A, P, S>)
-where
-    A: XmtpApiClient,
-    P: Persistence;
-
-impl<A, P, S> UninitializedClient<A, P, S>
-where
-    A: XmtpApiClient,
-    P: Persistence,
-{
-    pub fn new(client: Client<A, P, S>) -> Self {
-        Self(client)
-    }
-    pub async fn init(mut self) -> Result<Client<A, P, S>, ClientError> {
-        // Register Contact Bundles
-        let registered_bundles = self.0.get_contacts(&self.0.wallet_address()).await?;
-        if registered_bundles.is_empty() {
-            self.0.publish_user_contact().await?;
-        }
-        Ok(self.0)
-    }
-
-    pub fn skip_init(self) -> Client<A, P, S> {
-        self.0
-    }
-}
-
 pub struct Client<A, P, S>
 where
     A: XmtpApiClient,
@@ -69,6 +42,8 @@ where
     pub persistence: NamespacedPersistence<P>,
     pub(crate) account: Account,
     pub(super) _store: S,
+
+    is_initialized: bool,
 }
 
 impl<A, P, S> Client<A, P, S>
@@ -89,11 +64,25 @@ where
             persistence,
             account,
             _store: store,
+            is_initialized: false,
         }
     }
 
     pub fn wallet_address(&self) -> Address {
         self.account.addr()
+    }
+
+    async fn noop(&self) {}
+    pub async fn init(&mut self) -> Result<(), ClientError> {
+        // Register Contact Bundles
+        let registered_bundles = self.noop().await; // Causes #[swift_bridge::bridge] to fail when noop is a member fn
+
+        // if registered_bundles.is_empty() {
+        // self.publish_user_contact().await?;
+        // }
+
+        self.is_initialized = true;
+        Ok(())
     }
 
     async fn get_contacts(
@@ -175,7 +164,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_publish_user_contact() {
-        let mut client = ClientBuilder::new_test().build().unwrap().skip_init();
+        let mut client = ClientBuilder::new_test().build().unwrap();
         client
             .publish_user_contact()
             .await
@@ -217,7 +206,7 @@ mod tests {
 
     #[test]
     fn can_pass_persistence_methods() {
-        let mut client = ClientBuilder::new_test().build().unwrap().skip_init();
+        let mut client = ClientBuilder::new_test().build().unwrap();
         assert_eq!(client.read_from_persistence("foo").unwrap(), None);
         client.write_to_persistence("foo", b"bar").unwrap();
         assert_eq!(
