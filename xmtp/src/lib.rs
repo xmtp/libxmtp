@@ -7,6 +7,7 @@ pub mod networking;
 pub mod persistence;
 pub mod storage;
 mod types;
+mod utils;
 pub mod vmac_protos;
 
 pub use builder::ClientBuilder;
