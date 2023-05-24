@@ -14,6 +14,11 @@
 pub mod models;
 pub mod schema;
 
+use std::{
+    ops::{Deref, DerefMut},
+    sync::Mutex,
+};
+
 use self::{models::*, schema::messages};
 use crate::{Errorer, Fetch, Store};
 use diesel::{prelude::*, Connection};
@@ -30,6 +35,8 @@ pub enum UnencryptedMessageStoreError {
     DieselResultError(#[from] diesel::result::Error),
     #[error("Diesel migration error")]
     DbMigrationError(#[from] Box<dyn std::error::Error + Send + Sync>),
+    #[error("Mutex Poisioned: {0}")]
+    PoisionError(String),
     #[error("unknown storage error")]
     Unknown,
 }
@@ -49,7 +56,7 @@ impl Default for StorageOption {
 /// Manages a Sqlite db for persisting messages and other objects.
 pub struct UnencryptedMessageStore {
     connect_opt: StorageOption,
-    conn: SqliteConnection,
+    conn: Mutex<SqliteConnection>,
 }
 impl Errorer for UnencryptedMessageStore {
     type Error = UnencryptedMessageStoreError;
@@ -73,7 +80,7 @@ impl UnencryptedMessageStore {
             .map_err(UnencryptedMessageStoreError::DieselConnectError)?;
         let mut obj = Self {
             connect_opt: opts,
-            conn,
+            conn: Mutex::new(conn),
         };
 
         obj.init_db()?;
@@ -81,16 +88,20 @@ impl UnencryptedMessageStore {
     }
 
     fn init_db(&mut self) -> Result<(), UnencryptedMessageStoreError> {
-        self.conn.run_pending_migrations(MIGRATIONS)?;
+        self.conn
+            .lock()
+            .map_err(|e| UnencryptedMessageStoreError::PoisionError(e.to_string()))?
+            .run_pending_migrations(MIGRATIONS)?;
         Ok(())
     }
 }
 
 impl Store<UnencryptedMessageStore> for NewDecryptedMessage {
     fn store(&self, into: &mut UnencryptedMessageStore) -> Result<(), String> {
+        let mut conn_guard = into.conn.lock().map_err(|e| e.to_string())?;
         diesel::insert_into(messages::table)
             .values(self)
-            .execute(&mut into.conn)
+            .execute(conn_guard.deref_mut())
             .expect("Error saving new message");
 
         Ok(())
@@ -101,8 +112,13 @@ impl Fetch<DecryptedMessage> for UnencryptedMessageStore {
     type E = UnencryptedMessageStoreError;
     fn fetch(&mut self) -> Result<Vec<DecryptedMessage>, Self::E> {
         use self::schema::messages::dsl::*;
+        let mut conn_guard = self
+            .conn
+            .lock()
+            .map_err(|e| UnencryptedMessageStoreError::PoisionError(e.to_string()))?;
+
         messages
-            .load::<DecryptedMessage>(&mut self.conn)
+            .load::<DecryptedMessage>(conn_guard.deref_mut())
             .map_err(UnencryptedMessageStoreError::DieselResultError)
     }
 }
