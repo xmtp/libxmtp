@@ -75,11 +75,11 @@ where
     async fn noop(&self) {}
     pub async fn init(&mut self) -> Result<(), ClientError> {
         // Register Contact Bundles
-        let registered_bundles = self.noop().await; // Causes #[swift_bridge::bridge] to fail when noop is a member fn
+        let registered_bundles = self.get_contacts(&self.wallet_address()).await?;
 
-        // if registered_bundles.is_empty() {
-        // self.publish_user_contact().await?;
-        // }
+        if registered_bundles.is_empty() {
+            self.publish_user_contact().await?;
+        }
 
         self.is_initialized = true;
         Ok(())
