@@ -12,7 +12,8 @@ use xmtp_cryptography::utils::LocalWallet;
 
 /// A complete example of a minimal xmtp client which can send and recieve messages.
 /// run this example from the cli:  `RUST_LOG=DEBUG cargo run --example cli-client`
-fn main() {
+#[tokio::main]
+async fn main() {
     env_logger::init();
     info!("Starting CLI Client....");
 
@@ -27,14 +28,21 @@ fn main() {
         .store(msg_store)
         .build();
 
-    let _client = match client_result {
+    let uninit_client = match client_result {
         Err(e) => {
             error!("ClientBuilder Error: {:?}", e);
             return;
         }
         Ok(c) => c,
     };
-    warn!("Client Is not properly initialized at this point -- Signed account not present");
+
+    let client = match uninit_client.init().await {
+        Err(e) => {
+            error!("Initialization Failed: {}", e.to_string());
+            panic!("Could not init");
+        }
+        Ok(c) => c,
+    };
 
     // Application logic
     // ...

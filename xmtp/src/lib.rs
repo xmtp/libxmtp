@@ -11,6 +11,7 @@ mod utils;
 pub mod vmac_protos;
 
 use association::AssociationText;
+use async_trait::async_trait;
 pub use builder::ClientBuilder;
 pub use client::{Client, Network};
 use xmtp_cryptography::signature::{RecoverableSignature, SignatureError};
@@ -37,6 +38,12 @@ pub trait InboxOwner {
     fn sign(&self, text: AssociationText) -> Result<RecoverableSignature, SignatureError>;
 }
 
+#[async_trait]
+pub trait Init<T: Errorer> {
+    type Error;
+    async fn init(self) -> Result<T, T::Error>;
+}
+
 #[cfg(test)]
 mod tests {
     use crate::{builder::ClientBuilder, networking::XmtpApiClient};
@@ -56,7 +63,7 @@ mod tests {
 
     #[tokio::test]
     async fn can_network() {
-        let mut client = ClientBuilder::new_test().build().unwrap();
+        let mut client = ClientBuilder::new_test().build().unwrap().skip_init();
         let topic = Uuid::new_v4();
 
         client

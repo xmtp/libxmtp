@@ -36,7 +36,7 @@ async fn create_client(
         .build()
         .map_err(|e| format!("{:?}", e))?;
 
-    Ok(xmtp_client)
+    Ok(xmtp_client.init().await.map_err(|e| e.to_string())?)
 }
 
 pub struct FfiApiClient {

@@ -1,3 +1,4 @@
+use async_trait::async_trait;
 use thiserror::Error;
 
 use crate::{
@@ -32,6 +33,33 @@ pub enum ClientError {
     Unknown,
 }
 
+pub struct UninitializedClient<A, P, S>(Client<A, P, S>)
+where
+    A: XmtpApiClient,
+    P: Persistence;
+
+impl<A, P, S> UninitializedClient<A, P, S>
+where
+    A: XmtpApiClient,
+    P: Persistence,
+{
+    pub fn new(client: Client<A, P, S>) -> Self {
+        Self(client)
+    }
+    pub async fn init(mut self) -> Result<Client<A, P, S>, ClientError> {
+        // Register Contact Bundles
+        let registered_bundles = self.0.get_contacts(&self.0.wallet_address()).await?;
+        if registered_bundles.is_empty() {
+            self.0.publish_user_contact().await?;
+        }
+        Ok(self.0)
+    }
+
+    pub fn skip_init(self) -> Client<A, P, S> {
+        self.0
+    }
+}
+
 pub struct Client<A, P, S>
 where
     A: XmtpApiClient,
@@ -42,13 +70,6 @@ where
     pub persistence: NamespacedPersistence<P>,
     pub(crate) account: Account,
     pub(super) _store: S,
-}
-
-impl<A, P, S> Client<A, P, S>
-where
-    A: XmtpApiClient,
-    P: Persistence,
-{
 }
 
 impl<A, P, S> Client<A, P, S>
@@ -70,15 +91,6 @@ where
             account,
             _store: store,
         }
-    }
-    pub async fn init(&mut self) -> Result<&Self, ClientError> {
-        // Register Contact Bundles
-        let registered_bundles = self.get_contacts(&self.wallet_address()).await?;
-        if registered_bundles.is_empty() {
-            self.publish_user_contact().await?;
-        }
-
-        Ok(self)
     }
 
     pub fn wallet_address(&self) -> Address {
@@ -164,7 +176,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_publish_user_contact() {
-        let mut client = ClientBuilder::new_test().build().unwrap();
+        let mut client = ClientBuilder::new_test().build().unwrap().skip_init();
         client
             .publish_user_contact()
             .await
@@ -206,7 +218,7 @@ mod tests {
 
     #[test]
     fn can_pass_persistence_methods() {
-        let mut client = ClientBuilder::new_test().build().unwrap();
+        let mut client = ClientBuilder::new_test().build().unwrap().skip_init();
         assert_eq!(client.read_from_persistence("foo").unwrap(), None);
         client.write_to_persistence("foo", b"bar").unwrap();
         assert_eq!(
