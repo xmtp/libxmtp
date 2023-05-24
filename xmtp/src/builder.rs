@@ -7,10 +7,7 @@ use crate::{
     types::Address,
     Errorer, InboxOwner,
 };
-use ethers::signers::{LocalWallet, Signer};
-use ethers_core::utils::hash_message;
 use thiserror::Error;
-use xmtp_cryptography::{signature::h160addr_to_string, utils::rng};
 
 #[derive(Error, Debug)]
 pub enum ClientBuilderError<PE> {
@@ -112,28 +109,6 @@ where
     pub fn account(mut self, account: Account) -> Self {
         self.account = Some(account);
         self
-    }
-
-    pub fn wallet_address(mut self, wallet_address: &str) -> Self {
-        self.wallet_address = Some(wallet_address.to_string());
-        self
-    }
-
-    // Temp function to generate a full account, using a random local wallet
-    fn generate_account() -> Result<Account, AccountError> {
-        // TODO: Replace with real wallet signature
-        let wallet = LocalWallet::new(&mut rng());
-        let addr = h160addr_to_string(wallet.address());
-
-        let ac = AccountCreator::new(addr);
-        let msg = ac.text_to_sign();
-        let hash = hash_message(msg);
-        let sig = wallet
-            .sign_hash(hash)
-            .expect("Bad Signature with fake wallet");
-        let account = ac.finalize(sig.to_vec())?;
-
-        Ok(account)
     }
 
     pub fn store(mut self, store: S) -> Self {
