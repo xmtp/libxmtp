@@ -40,7 +40,6 @@ where
     pub persistence: NamespacedPersistence<P>,
     pub(crate) account: Account,
     pub(super) _store: S,
-
     is_initialized: bool,
 }
 
@@ -70,8 +69,6 @@ where
         self.account.addr()
     }
 
-<<<<<<< HEAD
-=======
     pub async fn init(&mut self) -> Result<(), ClientError> {
         let app_contact_bundle = self.account.contact();
         let registered_bundles = self.get_contacts(&self.wallet_address()).await?;
@@ -87,7 +84,6 @@ where
         Ok(())
     }
 
->>>>>>> main
     pub async fn get_contacts(&self, wallet_address: &str) -> Result<Vec<Contact>, ClientError> {
         let topic = build_user_contact_topic(wallet_address.to_string());
         let response = self
@@ -105,11 +101,7 @@ where
         Ok(contacts)
     }
 
-<<<<<<< HEAD
-    pub async fn publish_user_contact(&mut self) -> Result<(), ClientError> {
-=======
     async fn publish_user_contact(&mut self) -> Result<(), ClientError> {
->>>>>>> main
         let envelope = self.build_contact_envelope()?;
         self.api_client
             .publish("".to_string(), vec![envelope])
@@ -142,6 +134,13 @@ where
     }
 }
 
+unsafe impl<A, P, S> Send for Client<A, P, S>
+where
+    A: XmtpApiClient,
+    P: Persistence,
+{
+}
+
 #[cfg(test)]
 mod tests {
     use xmtp_proto::xmtp::v3::message_contents::vmac_unsigned_public_key::Union::Curve25519;
@@ -169,13 +168,10 @@ mod tests {
             .unwrap();
 
         assert_eq!(contacts.len(), 1);
-<<<<<<< HEAD
         assert!(contacts[0].bundle.prekey.is_some());
         assert!(contacts[0].bundle.identity_key.is_some());
-=======
         contacts[0].vmac_identity_key();
         contacts[0].vmac_fallback_key();
->>>>>>> main
 
         let key_bytes = contacts[0]
             .bundle
@@ -202,16 +198,5 @@ mod tests {
                 )
             }
         }
-    }
-
-    #[test]
-    fn can_pass_persistence_methods() {
-        let mut client = ClientBuilder::new_test().build().unwrap();
-        assert_eq!(client.read_from_persistence("foo").unwrap(), None);
-        client.write_to_persistence("foo", b"bar").unwrap();
-        assert_eq!(
-            client.read_from_persistence("foo").unwrap(),
-            Some(b"bar".to_vec())
-        );
     }
 }
