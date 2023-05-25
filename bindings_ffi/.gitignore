@@ -17,3 +17,6 @@ bundle.zip
 
 # Ignore any swift files in include/Generated
 /include/**/*.swift
+
+# Ignore uniffi generated bindings and artifacts
+src/uniffi/
