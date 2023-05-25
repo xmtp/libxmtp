@@ -71,10 +71,13 @@ where
     }
 
     pub async fn init(&mut self) -> Result<(), ClientError> {
-        // Register Contact Bundles
+        let app_contact_bundle = self.account.contact();
         let registered_bundles = self.get_contacts(&self.wallet_address()).await?;
 
-        if registered_bundles.is_empty() {
+        if !registered_bundles
+            .iter()
+            .any(|contact| contact.id() == app_contact_bundle.id())
+        {
             self.publish_user_contact().await?;
         }
 
