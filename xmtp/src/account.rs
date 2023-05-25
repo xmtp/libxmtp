@@ -1,5 +1,6 @@
 use crate::{
     association::{Association, AssociationError, AssociationText},
+    contact::Contact,
     types::Address,
     vmac_protos::ProtoWrapper,
     Signable,
@@ -101,7 +102,7 @@ impl Account {
         self.assoc.address()
     }
 
-    pub fn proto_contact_bundle(&self) -> VmacContactBundle {
+    pub fn contact(&self) -> Contact {
         let identity_key = self.keys.get().curve25519_key();
         let fallback_key = self
             .keys
@@ -121,10 +122,10 @@ impl Account {
             key: Some(fallback_key_proto.proto),
         };
         // TODO: Add associations here
-        VmacContactBundle {
+        Contact::new(VmacContactBundle {
             identity_key: Some(identity_key),
             prekey: Some(fallback_key),
-        }
+        })
     }
 
     pub fn get_keys(&self) -> IdentityKeys {
