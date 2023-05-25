@@ -1,7 +1,7 @@
 pub mod account;
 pub mod association;
 pub mod builder;
-pub mod client;
+mod client;
 pub mod contact;
 pub mod networking;
 pub mod owner;
@@ -13,7 +13,7 @@ pub mod vmac_protos;
 
 use association::AssociationText;
 pub use builder::ClientBuilder;
-pub use client::Client;
+pub use client::{Client, Network};
 use xmtp_cryptography::signature::{RecoverableSignature, SignatureError};
 
 pub trait Signable {
@@ -53,17 +53,6 @@ mod tests {
             content_topic: topic,
             message: vec![65],
         }
-    }
-
-    #[test]
-    fn can_pass_persistence_methods() {
-        let mut client = ClientBuilder::new_test().build().unwrap();
-        assert_eq!(client.read_from_persistence("foo").unwrap(), None);
-        client.write_to_persistence("foo", b"bar").unwrap();
-        assert_eq!(
-            client.read_from_persistence("foo").unwrap(),
-            Some(b"bar".to_vec())
-        );
     }
 
     #[tokio::test]

@@ -31,11 +31,11 @@ async fn create_client(
 ) -> Result<xmtp::Client<FfiApiClient, InMemoryPersistence, UnencryptedMessageStore>, String> {
     let api_client = FfiApiClient::new(host, is_secure).await?;
 
-    let xmtp_client = xmtp::ClientBuilder::new(owner.into())
+    let mut xmtp_client = xmtp::ClientBuilder::new(owner.into())
         .api_client(api_client)
         .build()
         .map_err(|e| format!("{:?}", e))?;
-
+    xmtp_client.init().await.map_err(|e| e.to_string())?;
     Ok(xmtp_client)
 }
 

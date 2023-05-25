@@ -218,13 +218,13 @@ where
 
         let store = self.store.take().unwrap_or_default();
 
-        Ok(Client {
+        Ok(Client::new(
             api_client,
-            network: self.network,
+            self.network,
             persistence,
             account,
-            _store: store,
-        })
+            store,
+        ))
     }
 }
 
