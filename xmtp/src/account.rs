@@ -6,7 +6,6 @@ use crate::{
     vmac_protos::ProtoWrapper,
     Signable,
 };
-use diesel::sql_types::ops::Add;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 use vodozemac::olm::{Account as OlmAccount, AccountPickle as OlmAccountPickle, IdentityKeys};

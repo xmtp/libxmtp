@@ -1,5 +1,4 @@
 use thiserror::Error;
-use vodozemac::olm::SessionConfig;
 
 use crate::{
     account::Account,
@@ -95,13 +94,6 @@ where
 
         for contact in contacts {
             let id = contact.id();
-            let mut session = self.account.create_outbound_session(contact);
-            let invite_message = session.encrypt("invite".as_bytes());
-            let envelope = build_envelope(
-                build_user_invite_topic(id),
-                // TODO: Wrap in XMTP type
-                invite_message.message().to_vec(),
-            );
         }
 
         Ok(())
