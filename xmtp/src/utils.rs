@@ -1,3 +1,4 @@
+use base64::{engine::general_purpose, Engine as _};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use xmtp_proto::xmtp::message_api::v1::Envelope;
@@ -20,4 +21,8 @@ pub fn build_envelope(content_topic: String, message: Vec<u8>) -> Envelope {
         message,
         timestamp_ns: get_current_time_ns(),
     }
+}
+
+pub fn base64_encode(bytes: &[u8]) -> String {
+    general_purpose::STANDARD_NO_PAD.encode(bytes)
 }
