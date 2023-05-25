@@ -4,7 +4,7 @@ extern crate log;
 extern crate xmtp;
 
 use ethers_core::rand;
-use log::{error, info, warn};
+use log::{error, info};
 use xmtp::networking::MockXmtpApiClient;
 use xmtp::persistence::in_memory_persistence::InMemoryPersistence;
 use xmtp::storage::{StorageOption, UnencryptedMessageStore};
@@ -12,7 +12,8 @@ use xmtp_cryptography::utils::LocalWallet;
 
 /// A complete example of a minimal xmtp client which can send and recieve messages.
 /// run this example from the cli:  `RUST_LOG=DEBUG cargo run --example cli-client`
-fn main() {
+#[tokio::main]
+async fn main() {
     env_logger::init();
     info!("Starting CLI Client....");
 
@@ -21,20 +22,24 @@ fn main() {
     let wallet = LocalWallet::new(&mut rand::thread_rng());
 
     let client_result = xmtp::ClientBuilder::new(wallet.into())
-        .network(xmtp::client::Network::Dev)
+        .network(xmtp::Network::Dev)
         .api_client(MockXmtpApiClient::default())
         .persistence(InMemoryPersistence::default())
         .store(msg_store)
         .build();
 
-    let _client = match client_result {
+    let mut client = match client_result {
         Err(e) => {
             error!("ClientBuilder Error: {:?}", e);
             return;
         }
         Ok(c) => c,
     };
-    warn!("Client Is not properly initialized at this point -- Signed account not present");
+
+    if let Err(e) = client.init().await {
+        error!("Initialization Failed: {}", e.to_string());
+        panic!("Could not init");
+    };
 
     // Application logic
     // ...

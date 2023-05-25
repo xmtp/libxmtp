@@ -14,10 +14,7 @@
 pub mod models;
 pub mod schema;
 
-use std::{
-    ops::{Deref, DerefMut},
-    sync::Mutex,
-};
+use std::{ops::DerefMut, sync::Mutex};
 
 use self::{models::*, schema::messages};
 use crate::{Errorer, Fetch, Store};
