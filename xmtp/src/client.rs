@@ -76,8 +76,6 @@ where
 
         let mut contacts = vec![];
         for envelope in response.envelopes {
-            // TODO: Wrap the proto in some special struct
-            // TODO: Handle errors better
             let contact_bundle = Contact::from_bytes(envelope.message)?;
             contacts.push(contact_bundle);
         }
@@ -90,8 +88,7 @@ where
         self.api_client
             .publish("".to_string(), vec![envelope])
             .await
-            // TODO: Replace with correctly mapped error
-            .map_err(|e| ClientError::Unknown)?;
+            .map_err(|e| ClientError::PublishError(format!("Could not publish contact: {}", e)))?;
 
         Ok(())
     }
@@ -135,12 +132,14 @@ mod tests {
 
         let key_bytes = contacts[0]
             .bundle
+            .clone()
             .identity_key
             .unwrap()
             .key
             .unwrap()
             .union
             .unwrap();
+
         match key_bytes {
             Curve25519(VodozemacCurve25519 { bytes }) => {
                 assert_eq!(bytes.len(), 32);
