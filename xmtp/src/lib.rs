@@ -5,6 +5,7 @@ pub mod client;
 mod contact;
 pub mod conversation;
 pub mod networking;
+pub mod owner;
 pub mod persistence;
 pub mod session;
 pub mod storage;
@@ -12,8 +13,10 @@ mod types;
 mod utils;
 pub mod vmac_protos;
 
+use association::AssociationText;
 pub use builder::ClientBuilder;
 pub use client::Client;
+use xmtp_cryptography::signature::{RecoverableSignature, SignatureError};
 
 pub trait Signable {
     fn bytes_to_sign(&self) -> Vec<u8>;
@@ -30,6 +33,11 @@ pub trait Store<I> {
 pub trait Fetch<T> {
     type E;
     fn fetch(&mut self) -> Result<Vec<T>, Self::E>;
+}
+
+pub trait InboxOwner {
+    fn get_address(&self) -> String;
+    fn sign(&self, text: AssociationText) -> Result<RecoverableSignature, SignatureError>;
 }
 
 #[cfg(test)]

@@ -276,7 +276,7 @@ mod tests {
             SignedPrivateKey::ethereum_personal_digest(xmtp_test_message.as_bytes());
         assert_eq!(
             xmtp_test_digest,
-            general_purpose::STANDARD.encode(&derived_digest)
+            general_purpose::STANDARD.encode(derived_digest)
         );
     }
 

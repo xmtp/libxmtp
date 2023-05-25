@@ -18,6 +18,8 @@ pub enum SignatureError {
     },
     #[error("Error creating signature")]
     SigningError(#[from] ecdsa::Error),
+    #[error("Error thrown from thirdParty")]
+    ThirdPartyError(String),
     #[error("unknown data store error")]
     Unknown,
 }
