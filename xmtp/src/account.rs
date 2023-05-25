@@ -8,7 +8,9 @@ use crate::{
 };
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
-use vodozemac::olm::{Account as OlmAccount, AccountPickle as OlmAccountPickle, IdentityKeys};
+use vodozemac::olm::{
+    Account as OlmAccount, AccountPickle as OlmAccountPickle, IdentityKeys, SessionConfig,
+};
 use xmtp_cryptography::signature::{RecoverableSignature, SignatureError};
 use xmtp_proto::xmtp::v3::message_contents::{
     VmacAccountLinkedKey, VmacContactBundle, VmacDeviceLinkedKey, VmacUnsignedPublicKey,
@@ -132,8 +134,8 @@ impl Account {
     pub fn create_outbound_session(&self, contact: Contact) -> Session {
         let vmac_session = self.keys.get().create_outbound_session(
             SessionConfig::version_2(),
-            contact.identity_key(),
-            contact.fallback_key(),
+            contact.vmac_identity_key(),
+            contact.vmac_fallback_key(),
         );
 
         Session::new(vmac_session)
