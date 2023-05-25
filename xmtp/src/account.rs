@@ -1,12 +1,15 @@
 use crate::{
     association::{Association, AssociationError, AssociationText},
+    contact::Contact,
+    session::Session,
     types::Address,
     vmac_protos::ProtoWrapper,
     Signable,
 };
+use diesel::sql_types::ops::Add;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
-use vodozemac::olm::{Account as OlmAccount, AccountPickle as OlmAccountPickle};
+use vodozemac::olm::{Account as OlmAccount, AccountPickle as OlmAccountPickle, SessionConfig};
 use xmtp_cryptography::signature::RecoverableSignature;
 use xmtp_proto::xmtp::v3::message_contents::{
     VmacAccountLinkedKey, VmacContactBundle, VmacDeviceLinkedKey, VmacUnsignedPublicKey,
@@ -119,6 +122,16 @@ impl Account {
             identity_key: Some(identity_key),
             prekey: Some(fallback_key),
         }
+    }
+
+    pub fn create_outbound_session(&self, contact: Contact) -> Session {
+        let vmac_session = self.keys.get().create_outbound_session(
+            SessionConfig::version_2(),
+            contact.identity_key(),
+            contact.fallback_key(),
+        );
+
+        Session::new(vmac_session)
     }
 }
 
