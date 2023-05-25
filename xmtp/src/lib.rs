@@ -2,6 +2,7 @@ pub mod account;
 pub mod association;
 pub mod builder;
 mod client;
+pub mod contact;
 pub mod networking;
 pub mod owner;
 pub mod persistence;
