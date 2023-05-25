@@ -1,15 +1,21 @@
 use crate::{
     association::{Association, AssociationError, AssociationText},
     types::Address,
+    vmac_protos::ProtoWrapper,
     Signable,
 };
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
-use vodozemac::olm::{Account as OlmAccount, AccountPickle as OlmAccountPickle};
-use xmtp_cryptography::signature::RecoverableSignature;
+use vodozemac::olm::{Account as OlmAccount, AccountPickle as OlmAccountPickle, IdentityKeys};
+use xmtp_cryptography::signature::{RecoverableSignature, SignatureError};
+use xmtp_proto::xmtp::v3::message_contents::{
+    VmacAccountLinkedKey, VmacContactBundle, VmacDeviceLinkedKey, VmacUnsignedPublicKey,
+};
 
 #[derive(Debug, Error)]
 pub enum AccountError {
+    #[error("generating new account")]
+    BadGeneration(#[from] SignatureError),
     #[error("bad association")]
     BadAssocation(#[from] AssociationError),
     #[error("unknown error")]
@@ -28,7 +34,9 @@ impl VmacAccount {
     }
 
     pub fn generate() -> Self {
-        Self::new(OlmAccount::new())
+        let mut acc = OlmAccount::new();
+        acc.generate_fallback_key();
+        Self::new(acc)
     }
 
     pub fn get(&self) -> &OlmAccount {
@@ -68,8 +76,8 @@ impl<'de> Deserialize<'de> for VmacAccount {
 
 #[derive(Serialize, Deserialize)]
 pub struct Account {
-    keys: VmacAccount,
-    assoc: Association,
+    pub(crate) keys: VmacAccount,
+    pub(crate) assoc: Association,
 }
 
 impl Account {
@@ -79,14 +87,48 @@ impl Account {
         Self { keys, assoc }
     }
 
-    pub fn generate(sf: impl Fn(Vec<u8>) -> Association + 'static) -> Self {
+    pub fn generate(
+        sf: impl Fn(Vec<u8>) -> Result<Association, AssociationError>,
+    ) -> Result<Self, AccountError> {
         let keys = VmacAccount::generate();
         let bytes = keys.bytes_to_sign();
-        Self::new(keys, sf(bytes))
+
+        let assoc = sf(bytes)?;
+        Ok(Self::new(keys, assoc))
     }
 
     pub fn addr(&self) -> Address {
         self.assoc.address()
+    }
+
+    pub fn proto_contact_bundle(&self) -> VmacContactBundle {
+        let identity_key = self.keys.get().curve25519_key();
+        let fallback_key = self
+            .keys
+            .get()
+            .fallback_key()
+            .values()
+            .next()
+            .unwrap()
+            .to_owned();
+
+        let identity_key_proto: ProtoWrapper<VmacUnsignedPublicKey> = identity_key.into();
+        let fallback_key_proto: ProtoWrapper<VmacUnsignedPublicKey> = fallback_key.into();
+        let identity_key = VmacAccountLinkedKey {
+            key: Some(identity_key_proto.proto),
+        };
+        let fallback_key = VmacDeviceLinkedKey {
+            key: Some(fallback_key_proto.proto),
+        };
+        // TODO: Add associations here
+        VmacContactBundle {
+            identity_key: Some(identity_key),
+            prekey: Some(fallback_key),
+        }
+    }
+
+    pub fn get_keys(&self) -> IdentityKeys {
+        self.keys.account.identity_keys()
     }
 }
 
@@ -129,6 +171,8 @@ impl Signable for AccountCreator {
 #[cfg(test)]
 mod tests {
 
+    use crate::association::AssociationError;
+
     use super::{Account, AccountCreator, Association};
     use ethers::core::rand::thread_rng;
     use ethers::signers::{LocalWallet, Signer};
@@ -137,13 +181,13 @@ mod tests {
     use serde_json::json;
     use xmtp_cryptography::{signature::h160addr_to_string, utils::rng};
 
-    pub fn test_wallet_signer(_: Vec<u8>) -> Association {
-        Association::test().expect("Test Association failed to generate")
+    pub fn test_wallet_signer(_: Vec<u8>) -> Result<Association, AssociationError> {
+        Association::test()
     }
 
     #[test]
     fn account_serialize() {
-        let account = Account::generate(test_wallet_signer);
+        let account = Account::generate(test_wallet_signer).unwrap();
         let serialized_account = json!(account).to_string();
         let serialized_account_other = json!(account).to_string();
 

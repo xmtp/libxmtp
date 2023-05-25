@@ -12,12 +12,11 @@ mod tests {
     pub fn test_envelope(topic: String) -> Envelope {
         let time_since_epoch = SystemTime::now().duration_since(UNIX_EPOCH).unwrap();
 
-        return Envelope {
+        Envelope {
             timestamp_ns: time_since_epoch.as_nanos() as u64,
-            content_topic: topic.to_string(),
+            content_topic: topic,
             message: vec![65],
-            ..Default::default()
-        };
+        }
     }
 
     #[tokio::test]
@@ -62,7 +61,7 @@ mod tests {
             let topic = uuid::Uuid::new_v4();
             let mut stream_handler = client.subscribe(vec![topic.to_string()]).await.unwrap();
 
-            assert_eq!(stream_handler.is_closed(), false);
+            assert!(!stream_handler.is_closed());
             // Skipping the auth token because we have authn disabled on the local
             // xmtp-node-go instance
             client
@@ -80,11 +79,11 @@ mod tests {
 
             // Ensure that the messages array has been cleared
             let second_results = stream_handler.get_messages();
-            assert!(second_results.len() == 0);
+            assert!(second_results.is_empty());
 
             // Ensure the is_closed status is propagated
             stream_handler.close_stream();
-            assert_eq!(stream_handler.is_closed(), true);
+            assert!(stream_handler.is_closed());
         })
         .await
         .expect("Timed out");
