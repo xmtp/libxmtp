@@ -72,7 +72,6 @@ where
         self.account.addr()
     }
 
-    async fn noop(&self) {}
     pub async fn init(&mut self) -> Result<(), ClientError> {
         // Register Contact Bundles
         let registered_bundles = self.get_contacts(&self.wallet_address()).await?;
@@ -138,12 +137,12 @@ where
         Ok(envelope)
     }
 
-    #[warn(dead_code)]
+    #[allow(dead_code)]
     fn write_to_persistence(&mut self, s: &str, b: &[u8]) -> Result<(), P::Error> {
         self.persistence.write(s, b)
     }
 
-    #[warn(dead_code)]
+    #[allow(dead_code)]
     fn read_from_persistence(&self, s: &str) -> Result<Option<Vec<u8>>, P::Error> {
         self.persistence.read(s)
     }
