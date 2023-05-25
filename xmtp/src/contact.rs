@@ -18,10 +18,14 @@ pub enum ContactError {
 }
 
 pub struct Contact {
-    bundle: VmacContactBundle,
+    pub(crate) bundle: VmacContactBundle,
 }
 
 impl Contact {
+    pub fn new(bundle: VmacContactBundle) -> Self {
+        Self { bundle }
+    }
+
     pub fn from_bytes(bytes: Vec<u8>) -> Result<Self, ContactError> {
         let bundle = VmacContactBundle::decode(bytes.as_slice())?;
 
