@@ -3,7 +3,7 @@
 
 @file:Suppress("NAME_SHADOWING")
 
-package uniffi.xmtpv3;
+package uniffi.xmtp_dh;
 
 // Common helper code.
 //
@@ -40,7 +40,7 @@ open class RustBuffer : Structure() {
 
     companion object {
         internal fun alloc(size: Int = 0) = rustCall() { status ->
-            _UniFFILib.INSTANCE.ffi_xmtpv3_cb7e_rustbuffer_alloc(size, status).also {
+            _UniFFILib.INSTANCE.ffi_xmtp_dh_5166_rustbuffer_alloc(size, status).also {
                 if(it.data == null) {
                    throw RuntimeException("RustBuffer.alloc() returned null data pointer (size=${size})")
                }
@@ -48,7 +48,7 @@ open class RustBuffer : Structure() {
         }
 
         internal fun free(buf: RustBuffer.ByValue) = rustCall() { status ->
-            _UniFFILib.INSTANCE.ffi_xmtpv3_cb7e_rustbuffer_free(buf, status)
+            _UniFFILib.INSTANCE.ffi_xmtp_dh_5166_rustbuffer_free(buf, status)
         }
     }
 
@@ -237,7 +237,7 @@ private fun findLibraryName(componentName: String): String {
     if (libOverride != null) {
         return libOverride
     }
-    return "uniffi_xmtpv3"
+    return "uniffi_xmtp_dh"
 }
 
 private inline fun <reified Lib : Library> loadIndirect(
@@ -252,28 +252,28 @@ private inline fun <reified Lib : Library> loadIndirect(
 internal interface _UniFFILib : Library {
     companion object {
         internal val INSTANCE: _UniFFILib by lazy {
-            loadIndirect<_UniFFILib>(componentName = "xmtpv3")
+            loadIndirect<_UniFFILib>(componentName = "xmtp_dh")
             
         }
     }
 
-    fun xmtpv3_cb7e_e2e_selftest(
+    fun xmtp_dh_5166_e2e_selftest(
     _uniffi_out_err: RustCallStatus
     ): RustBuffer.ByValue
 
-    fun ffi_xmtpv3_cb7e_rustbuffer_alloc(`size`: Int,
+    fun ffi_xmtp_dh_5166_rustbuffer_alloc(`size`: Int,
     _uniffi_out_err: RustCallStatus
     ): RustBuffer.ByValue
 
-    fun ffi_xmtpv3_cb7e_rustbuffer_from_bytes(`bytes`: ForeignBytes.ByValue,
+    fun ffi_xmtp_dh_5166_rustbuffer_from_bytes(`bytes`: ForeignBytes.ByValue,
     _uniffi_out_err: RustCallStatus
     ): RustBuffer.ByValue
 
-    fun ffi_xmtpv3_cb7e_rustbuffer_free(`buf`: RustBuffer.ByValue,
+    fun ffi_xmtp_dh_5166_rustbuffer_free(`buf`: RustBuffer.ByValue,
     _uniffi_out_err: RustCallStatus
     ): Unit
 
-    fun ffi_xmtpv3_cb7e_rustbuffer_reserve(`buf`: RustBuffer.ByValue,`additional`: Int,
+    fun ffi_xmtp_dh_5166_rustbuffer_reserve(`buf`: RustBuffer.ByValue,`additional`: Int,
     _uniffi_out_err: RustCallStatus
     ): RustBuffer.ByValue
 
@@ -332,7 +332,7 @@ public object FfiConverterString: FfiConverter<String, RustBuffer.ByValue> {
 fun `e2eSelftest`(): String {
     return FfiConverterString.lift(
     rustCall() { _status ->
-    _UniFFILib.INSTANCE.xmtpv3_cb7e_e2e_selftest( _status)
+    _UniFFILib.INSTANCE.xmtp_dh_5166_e2e_selftest( _status)
 })
 }
 
