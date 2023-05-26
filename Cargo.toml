@@ -1,7 +1,6 @@
 [workspace]
 
 members = [
-  "bindings_ffi",
   "xmtp",
   "xmtp_crypto",
   "xmtp_cryptography",
@@ -12,8 +11,9 @@ members = [
 
 # Exclude since
 # 1) no reason to share profile with other core crates
-# 2) moreover, xmtp_rust_swift needs its own size-optimized profile
+# 2) moreover, bindings_swift needs its own size-optimized profile
 exclude = [
+  "bindings_ffi",
   "bindings_js",
   "bindings_swift",
   "bindings_wasm",

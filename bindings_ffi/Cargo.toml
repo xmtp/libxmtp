@@ -28,10 +28,9 @@ ethers-core = "2.0.4"
 tokio = { version = "1.0", features = ["full"] }
 uuid = { version = "1.3.1", features = ["v4", "fast-rng"] }
 
-[[bin]]
-# This can be whatever name makes sense for your project, but the rest of this tutorial assumes uniffi-bindgen.
-name = "uniffi-bindgen"
-path = "uniffi-bindgen.rs"
+# [[bin]]
+# name = "uniffi-bindgen"
+# path = "uniffi-bindgen.rs"
 
 # NOTE: Thei release profile reduce bundle size from 230M to 41M - may have performance impliciations
 # https://stackoverflow.com/a/54842093
