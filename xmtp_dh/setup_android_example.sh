@@ -2,12 +2,14 @@
 
 set -e
 
-PROJECT_NAME="xmtpv3_example"
+PROJECT_PATH="examples/xmtpv3_example"
 
 # Copy the jniLibs folder to the example project
-cp -r jniLibs ../../examples/$PROJECT_NAME/app/src/main/
+rm -rf $PROJECT_PATH/app/src/main/jniLibs
+cp -r jniLibs $PROJECT_PATH/app/src/main/
 
 # Copy the .kt files to the example project
-cp src/uniffi/xmtpv3/xmtpv3.kt ../../examples/$PROJECT_NAME/app/src/main/java/
+rm -f $PROJECT_PATH/app/src/main/java/xmtp_dh.kt
+cp src/uniffi/xmtp_dh/xmtp_dh.kt $PROJECT_PATH/app/src/main/java/
 
-echo "Now open the example project at ../../examples/$PROJECT_NAME and build in Android Studio"
+echo "Now open the example project at $PROJECT_PATH and build in Android Studio"

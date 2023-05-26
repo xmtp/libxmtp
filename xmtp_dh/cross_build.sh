@@ -11,8 +11,9 @@ cross build --target x86_64-linux-android --target-dir ./target --$PROFILE && \
     cross build --target aarch64-linux-android --target-dir ./target --$PROFILE
 
 # Move everything to jniLibs folder and rename, TODO: should be the same name
-LIBRARY_NAME="libxmtpv3_ffi"
-TARGET_NAME="libuniffi_xmtpv3"
+LIBRARY_NAME="libxmtp_dh"
+TARGET_NAME="libuniffi_xmtp_dh"
+rm -rf jniLibs/
 mkdir -p jniLibs/arm64-v8a/ && \
   cp target/aarch64-linux-android/$PROFILE/$LIBRARY_NAME.so jniLibs/arm64-v8a/$TARGET_NAME.so && \
   mkdir -p jniLibs/armeabi-v7a/ && \

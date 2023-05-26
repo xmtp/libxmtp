@@ -1,6 +1,6 @@
-uniffi_macros::include_scaffolding!("xmtpv3");
+uniffi_macros::include_scaffolding!("xmtp_dh");
 
-pub use xmtpv3;
+pub use xmtp_dh;
 
 pub fn e2e_selftest() -> String {
     // Returns Result<String>

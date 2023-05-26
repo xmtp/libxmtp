@@ -11,6 +11,6 @@ class MainActivity : AppCompatActivity() {
         setContentView(R.layout.activity_main)
 
         val textView: TextView = findViewById<TextView>(selftest_output)
-        textView.text = uniffi.xmtpv3.e2eSelftest()
+        textView.text = uniffi.xmtp_dh.e2eSelftest()
     }
 }

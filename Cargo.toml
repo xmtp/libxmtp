@@ -17,4 +17,5 @@ exclude = [
   "bindings_js",
   "bindings_swift",
   "bindings_wasm",
+  "xmtp_dh",
 ]

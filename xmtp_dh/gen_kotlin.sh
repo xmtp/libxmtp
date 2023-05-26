@@ -1,4 +1,4 @@
 cargo run --features=uniffi/cli \
     --bin uniffi-bindgen \
-    generate src/xmtpv3.udl \
+    generate src/xmtp_dh.udl \
     --language kotlin
