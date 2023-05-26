@@ -1,0 +1,94 @@
+1<?xml version="1.0" encoding="utf-8"?>
+2<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+3    package="com.example.xmtpv3_example"
+4    android:versionCode="1"
+5    android:versionName="1.0" >
+6
+7    <uses-sdk
+8        android:minSdkVersion="21"
+8-->/Users/rich/repos/libxmtp/bindings_ffi/examples/android/xmtpv3_example/app/src/main/AndroidManifest.xml
+9        android:targetSdkVersion="33" />
+9-->/Users/rich/repos/libxmtp/bindings_ffi/examples/android/xmtpv3_example/app/src/main/AndroidManifest.xml
+10
+11    <permission
+11-->[androidx.core:core:1.9.0] /Users/rich/.gradle/caches/transforms-3/6492d4be1dafc14eeb126acfa6937b10/transformed/core-1.9.0/AndroidManifest.xml:22:5-24:47
+12        android:name="com.example.xmtpv3_example.DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION"
+12-->[androidx.core:core:1.9.0] /Users/rich/.gradle/caches/transforms-3/6492d4be1dafc14eeb126acfa6937b10/transformed/core-1.9.0/AndroidManifest.xml:23:9-81
+13        android:protectionLevel="signature" />
+13-->[androidx.core:core:1.9.0] /Users/rich/.gradle/caches/transforms-3/6492d4be1dafc14eeb126acfa6937b10/transformed/core-1.9.0/AndroidManifest.xml:24:9-44
+14
+15    <uses-permission android:name="com.example.xmtpv3_example.DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION" />
+15-->[androidx.core:core:1.9.0] /Users/rich/.gradle/caches/transforms-3/6492d4be1dafc14eeb126acfa6937b10/transformed/core-1.9.0/AndroidManifest.xml:26:5-97
+15-->[androidx.core:core:1.9.0] /Users/rich/.gradle/caches/transforms-3/6492d4be1dafc14eeb126acfa6937b10/transformed/core-1.9.0/AndroidManifest.xml:26:22-94
+16
+17    <application
+17-->/Users/rich/repos/libxmtp/bindings_ffi/examples/android/xmtpv3_example/app/src/main/AndroidManifest.xml:5:5-28:19
+18        android:allowBackup="true"
+18-->/Users/rich/repos/libxmtp/bindings_ffi/examples/android/xmtpv3_example/app/src/main/AndroidManifest.xml:6:9-35
+19        android:appComponentFactory="androidx.core.app.CoreComponentFactory"
+19-->[androidx.core:core:1.9.0] /Users/rich/.gradle/caches/transforms-3/6492d4be1dafc14eeb126acfa6937b10/transformed/core-1.9.0/AndroidManifest.xml:28:18-86
+20        android:dataExtractionRules="@xml/data_extraction_rules"
+20-->/Users/rich/repos/libxmtp/bindings_ffi/examples/android/xmtpv3_example/app/src/main/AndroidManifest.xml:7:9-65
+21        android:debuggable="true"
+22        android:fullBackupContent="@xml/backup_rules"
+22-->/Users/rich/repos/libxmtp/bindings_ffi/examples/android/xmtpv3_example/app/src/main/AndroidManifest.xml:8:9-54
+23        android:icon="@mipmap/ic_launcher"
+23-->/Users/rich/repos/libxmtp/bindings_ffi/examples/android/xmtpv3_example/app/src/main/AndroidManifest.xml:9:9-43
+24        android:label="@string/app_name"
+24-->/Users/rich/repos/libxmtp/bindings_ffi/examples/android/xmtpv3_example/app/src/main/AndroidManifest.xml:10:9-41
+25        android:roundIcon="@mipmap/ic_launcher_round"
+25-->/Users/rich/repos/libxmtp/bindings_ffi/examples/android/xmtpv3_example/app/src/main/AndroidManifest.xml:11:9-54
+26        android:supportsRtl="true"
+26-->/Users/rich/repos/libxmtp/bindings_ffi/examples/android/xmtpv3_example/app/src/main/AndroidManifest.xml:12:9-35
+27        android:testOnly="true"
+28        android:theme="@style/Theme.Xmtpv3_example" >
+28-->/Users/rich/repos/libxmtp/bindings_ffi/examples/android/xmtpv3_example/app/src/main/AndroidManifest.xml:13:9-52
+29        <activity
+29-->/Users/rich/repos/libxmtp/bindings_ffi/examples/android/xmtpv3_example/app/src/main/AndroidManifest.xml:15:9-27:20
+30            android:name="com.example.xmtpv3_example.MainActivity"
+30-->/Users/rich/repos/libxmtp/bindings_ffi/examples/android/xmtpv3_example/app/src/main/AndroidManifest.xml:16:13-41
+31            android:exported="true" >
+31-->/Users/rich/repos/libxmtp/bindings_ffi/examples/android/xmtpv3_example/app/src/main/AndroidManifest.xml:17:13-36
+32            <intent-filter>
+32-->/Users/rich/repos/libxmtp/bindings_ffi/examples/android/xmtpv3_example/app/src/main/AndroidManifest.xml:18:13-22:29
+33                <action android:name="android.intent.action.MAIN" />
+33-->/Users/rich/repos/libxmtp/bindings_ffi/examples/android/xmtpv3_example/app/src/main/AndroidManifest.xml:19:17-69
+33-->/Users/rich/repos/libxmtp/bindings_ffi/examples/android/xmtpv3_example/app/src/main/AndroidManifest.xml:19:25-66
+34
+35                <category android:name="android.intent.category.LAUNCHER" />
+35-->/Users/rich/repos/libxmtp/bindings_ffi/examples/android/xmtpv3_example/app/src/main/AndroidManifest.xml:21:17-77
+35-->/Users/rich/repos/libxmtp/bindings_ffi/examples/android/xmtpv3_example/app/src/main/AndroidManifest.xml:21:27-74
+36            </intent-filter>
+37
+38            <meta-data
+38-->/Users/rich/repos/libxmtp/bindings_ffi/examples/android/xmtpv3_example/app/src/main/AndroidManifest.xml:24:13-26:36
+39                android:name="android.app.lib_name"
+39-->/Users/rich/repos/libxmtp/bindings_ffi/examples/android/xmtpv3_example/app/src/main/AndroidManifest.xml:25:17-52
+40                android:value="" />
+40-->/Users/rich/repos/libxmtp/bindings_ffi/examples/android/xmtpv3_example/app/src/main/AndroidManifest.xml:26:17-33
+41        </activity>
+42
+43        <provider
+43-->[androidx.emoji2:emoji2:1.2.0] /Users/rich/.gradle/caches/transforms-3/2dfa71af9bee3680306de911b0d6d834/transformed/emoji2-1.2.0/AndroidManifest.xml:24:9-32:20
+44            android:name="androidx.startup.InitializationProvider"
+44-->[androidx.emoji2:emoji2:1.2.0] /Users/rich/.gradle/caches/transforms-3/2dfa71af9bee3680306de911b0d6d834/transformed/emoji2-1.2.0/AndroidManifest.xml:25:13-67
+45            android:authorities="com.example.xmtpv3_example.androidx-startup"
+45-->[androidx.emoji2:emoji2:1.2.0] /Users/rich/.gradle/caches/transforms-3/2dfa71af9bee3680306de911b0d6d834/transformed/emoji2-1.2.0/AndroidManifest.xml:26:13-68
+46            android:exported="false" >
+46-->[androidx.emoji2:emoji2:1.2.0] /Users/rich/.gradle/caches/transforms-3/2dfa71af9bee3680306de911b0d6d834/transformed/emoji2-1.2.0/AndroidManifest.xml:27:13-37
+47            <meta-data
+47-->[androidx.emoji2:emoji2:1.2.0] /Users/rich/.gradle/caches/transforms-3/2dfa71af9bee3680306de911b0d6d834/transformed/emoji2-1.2.0/AndroidManifest.xml:29:13-31:52
+48                android:name="androidx.emoji2.text.EmojiCompatInitializer"
+48-->[androidx.emoji2:emoji2:1.2.0] /Users/rich/.gradle/caches/transforms-3/2dfa71af9bee3680306de911b0d6d834/transformed/emoji2-1.2.0/AndroidManifest.xml:30:17-75
+49                android:value="androidx.startup" />
+49-->[androidx.emoji2:emoji2:1.2.0] /Users/rich/.gradle/caches/transforms-3/2dfa71af9bee3680306de911b0d6d834/transformed/emoji2-1.2.0/AndroidManifest.xml:31:17-49
+50            <meta-data
+50-->[androidx.lifecycle:lifecycle-process:2.4.1] /Users/rich/.gradle/caches/transforms-3/bb5b42d5797c4ee7606f08b968644baa/transformed/lifecycle-process-2.4.1/AndroidManifest.xml:31:13-33:52
+51                android:name="androidx.lifecycle.ProcessLifecycleInitializer"
+51-->[androidx.lifecycle:lifecycle-process:2.4.1] /Users/rich/.gradle/caches/transforms-3/bb5b42d5797c4ee7606f08b968644baa/transformed/lifecycle-process-2.4.1/AndroidManifest.xml:32:17-78
+52                android:value="androidx.startup" />
+52-->[androidx.lifecycle:lifecycle-process:2.4.1] /Users/rich/.gradle/caches/transforms-3/bb5b42d5797c4ee7606f08b968644baa/transformed/lifecycle-process-2.4.1/AndroidManifest.xml:33:17-49
+53        </provider>
+54    </application>
+55
+56</manifest>

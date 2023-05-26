@@ -1,0 +1,2 @@
+/Users/rich/repos/libxmtp/bindings_ffi/examples/android/xmtpv3_example/app/src/main/java/com/example/xmtpv3_example/MainActivity.kt
+/Users/rich/repos/libxmtp/bindings_ffi/examples/android/xmtpv3_example/app/src/main/java/xmtpv3.kt

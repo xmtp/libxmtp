@@ -1,0 +1,10 @@
+#Tue May 23 22:36:45 AEST 2023
+base.0=/Users/rich/repos/libxmtp.worktrees/vodozemac_dev/examples/xmtpv3_example/app/build/intermediates/dex/debug/mergeExtDexDebug/classes.dex
+base.1=/Users/rich/repos/libxmtp.worktrees/vodozemac_dev/examples/xmtpv3_example/app/build/intermediates/dex/debug/mergeProjectDexDebug/0/classes.dex
+base.2=/Users/rich/repos/libxmtp.worktrees/vodozemac_dev/examples/xmtpv3_example/app/build/intermediates/dex/debug/mergeProjectDexDebug/5/classes.dex
+path.0=classes.dex
+path.1=0/classes.dex
+path.2=5/classes.dex
+renamed.0=classes.dex
+renamed.1=classes2.dex
+renamed.2=classes3.dex

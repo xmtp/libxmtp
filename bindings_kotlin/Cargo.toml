@@ -1,0 +1,33 @@
+[package]
+authors = ["Michael Xu <michaelx@xmtp.com>"]
+edition = "2021"
+homepage = ""
+repository = ""
+description = "Example uniffi bindings for xmtpv3 crate"
+license = "Apache-2.0"
+name = "xmtpv3-ffi"
+version = "0.1.0"
+rust-version = "1.60"
+
+[profile.release]
+opt-level = 'z'     # Optimize for size
+lto = true          # Enable link-time optimization
+codegen-units = 1   # Reduce number of codegen units to increase optimizations
+panic = 'abort'     # Abort on panic
+strip = true        # Strip symbols from binary*
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+uniffi = { version = "0.23.0" }
+uniffi_macros = "0.23.0"
+xmtpv3 = { path = "../../crates/xmtpv3" }
+
+[build_dependencies]
+uniffi = { version = "0.23.0", features = [ "build" ] }
+
+# = Gen Kotlin - leave commented unless needing to run the ./gen_kotlin.sh script =
+# [[bin]]
+# name = "uniffi-bindgen"
+# path = "uniffi-bindgen.rs"
