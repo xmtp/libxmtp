@@ -1,3 +1,3 @@
-mod unencrypted_store;
+mod encrypted_store;
 
-pub use unencrypted_store::{StorageOption, UnencryptedMessageStore, UnencryptedMessageStoreError};
+pub use encrypted_store::{EncryptedMessageStore, EncryptedMessageStoreError, StorageOption};

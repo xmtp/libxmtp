@@ -240,12 +240,12 @@ mod tests {
 
     use crate::{
         networking::MockXmtpApiClient, persistence::in_memory_persistence::InMemoryPersistence,
-        storage::UnencryptedMessageStore, Client,
+        storage::EncryptedMessageStore, Client,
     };
 
     use super::ClientBuilder;
 
-    impl ClientBuilder<MockXmtpApiClient, InMemoryPersistence, UnencryptedMessageStore, LocalWallet> {
+    impl ClientBuilder<MockXmtpApiClient, InMemoryPersistence, EncryptedMessageStore, LocalWallet> {
         pub fn new_test() -> Self {
             let wallet = generate_local_wallet();
 
@@ -265,13 +265,13 @@ mod tests {
 
         let wallet = generate_local_wallet();
 
-        let client_a: Client<MockXmtpApiClient, InMemoryPersistence, UnencryptedMessageStore> =
+        let client_a: Client<MockXmtpApiClient, InMemoryPersistence, EncryptedMessageStore> =
             ClientBuilder::new(wallet.clone().into())
                 .persistence(persistence)
                 .build()
                 .unwrap();
 
-        let client_b: Client<MockXmtpApiClient, InMemoryPersistence, UnencryptedMessageStore> =
+        let client_b: Client<MockXmtpApiClient, InMemoryPersistence, EncryptedMessageStore> =
             ClientBuilder::new(wallet.into())
                 .persistence(client_a.persistence.persistence)
                 .build()
