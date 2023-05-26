@@ -5,7 +5,7 @@ homepage = ""
 repository = ""
 description = "Example uniffi bindings for xmtpv3 crate"
 license = "Apache-2.0"
-name = "xmtpv3-ffi"
+name = "xmtp_dh"
 version = "0.1.0"
 rust-version = "1.60"
 
@@ -22,7 +22,6 @@ crate-type = ["cdylib"]
 [dependencies]
 uniffi = { version = "0.23.0" }
 uniffi_macros = "0.23.0"
-xmtpv3 = { path = "../../crates/xmtpv3" }
 
 [build_dependencies]
 uniffi = { version = "0.23.0", features = [ "build" ] }
