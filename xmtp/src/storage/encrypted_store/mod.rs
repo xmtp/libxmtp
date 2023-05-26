@@ -14,15 +14,16 @@
 pub mod models;
 pub mod schema;
 
+use rand::RngCore;
 use std::{ops::DerefMut, sync::Mutex};
 
 use self::{models::*, schema::messages};
 use crate::{Errorer, Fetch, Store};
 use diesel::{
-    connection::SimpleConnection, prelude::*, query_builder::QueryBuilder, sql_query,
-    sqlite::SqliteQueryBuilder, Connection,
+    connection::SimpleConnection, prelude::*, query_builder::QueryBuilder, sql_query, Connection,
 };
 use thiserror::Error;
+use xmtp_cryptography::utils as crypto_utils;
 
 use diesel_migrations::{embed_migrations, EmbeddedMigrations, MigrationHarness};
 pub const MIGRATIONS: EmbeddedMigrations = embed_migrations!("./migrations/");
@@ -37,11 +38,15 @@ pub enum EncryptedMessageStoreError {
     DbMigrationError(#[from] Box<dyn std::error::Error + Send + Sync>),
     #[error("could not set encryption key")]
     EncryptionKey,
+    #[error("could not generate encryptionKey")]
+    EncryptionKeyGen,
     #[error("Mutex Poisioned: {0}")]
     PoisionError(String),
     #[error("unknown storage error")]
     Unknown,
 }
+
+pub type EncryptionKey = [u8; 32];
 
 pub enum StorageOption {
     Ephemeral,
@@ -66,13 +71,16 @@ impl Errorer for EncryptedMessageStore {
 
 impl Default for EncryptedMessageStore {
     fn default() -> Self {
-        Self::new(StorageOption::Ephemeral)
+        Self::new(StorageOption::Ephemeral, Self::generate_enc_key())
             .expect("Error Occured: tring to create default Ephemeral store")
     }
 }
 
 impl EncryptedMessageStore {
-    pub fn new(opts: StorageOption) -> Result<Self, EncryptedMessageStoreError> {
+    pub fn new(
+        opts: StorageOption,
+        enc_key: EncryptionKey,
+    ) -> Result<Self, EncryptedMessageStoreError> {
         let db_path = match opts {
             StorageOption::Ephemeral => ":memory:",
             StorageOption::Peristent(ref path) => path,
@@ -82,7 +90,7 @@ impl EncryptedMessageStore {
             .map_err(EncryptedMessageStoreError::DieselConnectError)?;
 
         // Setup SqlCipherKey
-        Self::set_sqlcipher_key(&mut conn, "pla")?;
+        Self::set_sqlcipher_key(&mut conn, &enc_key)?;
 
         let mut obj = Self {
             connect_opt: opts,
@@ -109,13 +117,20 @@ impl EncryptedMessageStore {
 
     fn set_sqlcipher_key(
         conn: &mut SqliteConnection,
-        encryption_key: &str,
+        encryption_key: &[u8; 32],
     ) -> Result<(), EncryptedMessageStoreError> {
         conn.batch_execute(&format!(
             "PRAGMA key = \"x'{}'\";",
             hex::encode(encryption_key)
         ))?;
         Ok(())
+    }
+
+    pub fn generate_enc_key() -> EncryptionKey {
+        // TODO: Handle Key Better/ Zeroize
+        let mut key = [0u8; 32];
+        crypto_utils::rng().fill_bytes(&mut key[..]);
+        key
     }
 }
 
@@ -170,7 +185,11 @@ mod tests {
 
     #[test]
     fn store_check() {
-        let mut store = EncryptedMessageStore::new(StorageOption::Ephemeral).unwrap();
+        let mut store = EncryptedMessageStore::new(
+            StorageOption::Ephemeral,
+            EncryptedMessageStore::generate_enc_key(),
+        )
+        .unwrap();
 
         NewDecryptedMessage::new("Bola".into(), "0x000A".into(), "Hello Bola".into())
             .store(&mut store)
@@ -198,8 +217,11 @@ mod tests {
 
         let db_path = format!("{}.db3", rand_string());
         {
-            let mut store =
-                EncryptedMessageStore::new(StorageOption::Peristent(db_path.clone())).unwrap();
+            let mut store = EncryptedMessageStore::new(
+                StorageOption::Peristent(db_path.clone()),
+                EncryptedMessageStore::generate_enc_key(),
+            )
+            .unwrap();
 
             NewDecryptedMessage::new("Bola".into(), "0x000A".into(), "Hello Bola".into())
                 .store(&mut store)
@@ -214,7 +236,11 @@ mod tests {
 
     #[test]
     fn message_roundtrip() {
-        let mut store = EncryptedMessageStore::new(StorageOption::Ephemeral).unwrap();
+        let mut store = EncryptedMessageStore::new(
+            StorageOption::Ephemeral,
+            EncryptedMessageStore::generate_enc_key(),
+        )
+        .unwrap();
 
         let msg0 = NewDecryptedMessage::new(rand_string(), rand_string(), rand_vec());
         sleep(Duration::from_millis(10));

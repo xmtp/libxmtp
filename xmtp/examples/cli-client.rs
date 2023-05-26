@@ -17,7 +17,7 @@ async fn main() {
     env_logger::init();
     info!("Starting CLI Client....");
 
-    let msg_store = EncryptedMessageStore::new(StorageOption::Ephemeral).unwrap();
+    let msg_store = EncryptedMessageStore::new(StorageOption::Ephemeral, EncryptedMessageStore::generate_enc_key() ).unwrap();
 
     let wallet = LocalWallet::new(&mut rand::thread_rng());
 
