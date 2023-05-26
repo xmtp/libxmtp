@@ -7,7 +7,7 @@ use ethers_core::rand;
 use log::{error, info};
 use xmtp::networking::MockXmtpApiClient;
 use xmtp::persistence::in_memory_persistence::InMemoryPersistence;
-use xmtp::storage::{StorageOption, UnencryptedMessageStore};
+use xmtp::storage::{EncryptedMessageStore, StorageOption};
 use xmtp_cryptography::utils::LocalWallet;
 
 /// A complete example of a minimal xmtp client which can send and recieve messages.
@@ -17,7 +17,7 @@ async fn main() {
     env_logger::init();
     info!("Starting CLI Client....");
 
-    let msg_store = UnencryptedMessageStore::new(StorageOption::Ephemeral).unwrap();
+    let msg_store = EncryptedMessageStore::new(StorageOption::Ephemeral).unwrap();
 
     let wallet = LocalWallet::new(&mut rand::thread_rng());
 
