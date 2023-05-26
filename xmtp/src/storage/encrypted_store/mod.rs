@@ -19,23 +19,21 @@ use std::{ops::DerefMut, sync::Mutex};
 
 use self::{models::*, schema::messages};
 use crate::{Errorer, Fetch, Store};
-use diesel::{
-    connection::SimpleConnection, prelude::*, query_builder::QueryBuilder, sql_query, Connection,
-};
+use diesel::{connection::SimpleConnection, prelude::*, Connection};
 use thiserror::Error;
 use xmtp_cryptography::utils as crypto_utils;
 
 use diesel_migrations::{embed_migrations, EmbeddedMigrations, MigrationHarness};
 pub const MIGRATIONS: EmbeddedMigrations = embed_migrations!("./migrations/");
 
-#[derive(Debug, Error)]
+#[derive(Debug, Error, PartialEq)]
 pub enum EncryptedMessageStoreError {
     #[error("Diesel connection error")]
     DieselConnectError(#[from] diesel::ConnectionError),
     #[error("Diesel result error")]
     DieselResultError(#[from] diesel::result::Error),
-    #[error("Diesel migration error")]
-    DbMigrationError(#[from] Box<dyn std::error::Error + Send + Sync>),
+    #[error("Either incorrect encryptionkey or file is not a db")]
+    DbInitError,
     #[error("could not set encryption key")]
     EncryptionKey,
     #[error("could not generate encryptionKey")]
@@ -92,6 +90,9 @@ impl EncryptedMessageStore {
         // Setup SqlCipherKey
         Self::set_sqlcipher_key(&mut conn, &enc_key)?;
 
+        // TODO: Validate that sqlite is correctly configured. Bad EncKey is not detected until the migrations run which returns an
+        // unhelpful error.
+
         let mut obj = Self {
             connect_opt: opts,
             conn: Mutex::new(conn),
@@ -105,7 +106,8 @@ impl EncryptedMessageStore {
         self.conn
             .lock()
             .map_err(|e| EncryptedMessageStoreError::PoisionError(e.to_string()))?
-            .run_pending_migrations(MIGRATIONS)?;
+            .run_pending_migrations(MIGRATIONS)
+            .map_err(|_| EncryptedMessageStoreError::DbInitError)?;
         Ok(())
     }
 
@@ -166,13 +168,14 @@ mod tests {
 
     use super::{
         models::{DecryptedMessage, NewDecryptedMessage},
-        EncryptedMessageStore, StorageOption,
+        EncryptedMessageStore, EncryptedMessageStoreError, StorageOption,
     };
     use crate::{Fetch, Store};
     use rand::{
         distributions::{Alphanumeric, DistString},
         Rng,
     };
+    use std::fs;
     use std::{thread::sleep, time::Duration};
 
     fn rand_string() -> String {
@@ -213,8 +216,6 @@ mod tests {
 
     #[test]
     fn store_persistent() {
-        use std::fs;
-
         let db_path = format!("{}.db3", rand_string());
         {
             let mut store = EncryptedMessageStore::new(
@@ -255,5 +256,30 @@ mod tests {
         assert_eq!(msg0, msgs[0]);
         assert_eq!(msg1, msgs[1]);
         assert!(msgs[1].created_at > msgs[0].created_at);
+    }
+
+    #[test]
+    fn keymismatch() {
+        let mut enc_key = EncryptedMessageStore::generate_enc_key();
+
+        let db_path = format!("{}.db3", rand_string());
+        {
+            // Setup a persistent store
+            let mut store = EncryptedMessageStore::new(
+                // StorageOption::Ephemeral,
+                StorageOption::Peristent(db_path.clone()),
+                enc_key.clone(),
+            )
+            .unwrap();
+
+            let msg0 = NewDecryptedMessage::new(rand_string(), rand_string(), rand_vec());
+            msg0.store(&mut store).unwrap();
+        } // Drop it
+
+        enc_key[3] = 145; // Alter the enc_key
+        let res = EncryptedMessageStore::new(StorageOption::Peristent(db_path.clone()), enc_key);
+        // Ensure it fails
+        assert_eq!(res.err(), Some(EncryptedMessageStoreError::DbInitError));
+        fs::remove_file(db_path).unwrap();
     }
 }
