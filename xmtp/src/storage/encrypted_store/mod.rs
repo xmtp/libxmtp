@@ -18,20 +18,25 @@ use std::{ops::DerefMut, sync::Mutex};
 
 use self::{models::*, schema::messages};
 use crate::{Errorer, Fetch, Store};
-use diesel::{prelude::*, Connection};
+use diesel::{
+    connection::SimpleConnection, prelude::*, query_builder::QueryBuilder, sql_query,
+    sqlite::SqliteQueryBuilder, Connection,
+};
 use thiserror::Error;
 
 use diesel_migrations::{embed_migrations, EmbeddedMigrations, MigrationHarness};
 pub const MIGRATIONS: EmbeddedMigrations = embed_migrations!("./migrations/");
 
 #[derive(Debug, Error)]
-pub enum UnencryptedMessageStoreError {
+pub enum EncryptedMessageStoreError {
     #[error("Diesel connection error")]
     DieselConnectError(#[from] diesel::ConnectionError),
     #[error("Diesel result error")]
     DieselResultError(#[from] diesel::result::Error),
     #[error("Diesel migration error")]
     DbMigrationError(#[from] Box<dyn std::error::Error + Send + Sync>),
+    #[error("could not set encryption key")]
+    EncryptionKey,
     #[error("Mutex Poisioned: {0}")]
     PoisionError(String),
     #[error("unknown storage error")]
@@ -51,30 +56,34 @@ impl Default for StorageOption {
 
 #[allow(dead_code)]
 /// Manages a Sqlite db for persisting messages and other objects.
-pub struct UnencryptedMessageStore {
+pub struct EncryptedMessageStore {
     connect_opt: StorageOption,
     conn: Mutex<SqliteConnection>,
 }
-impl Errorer for UnencryptedMessageStore {
-    type Error = UnencryptedMessageStoreError;
+impl Errorer for EncryptedMessageStore {
+    type Error = EncryptedMessageStoreError;
 }
 
-impl Default for UnencryptedMessageStore {
+impl Default for EncryptedMessageStore {
     fn default() -> Self {
         Self::new(StorageOption::Ephemeral)
             .expect("Error Occured: tring to create default Ephemeral store")
     }
 }
 
-impl UnencryptedMessageStore {
-    pub fn new(opts: StorageOption) -> Result<Self, UnencryptedMessageStoreError> {
+impl EncryptedMessageStore {
+    pub fn new(opts: StorageOption) -> Result<Self, EncryptedMessageStoreError> {
         let db_path = match opts {
             StorageOption::Ephemeral => ":memory:",
             StorageOption::Peristent(ref path) => path,
         };
 
-        let conn = SqliteConnection::establish(db_path)
-            .map_err(UnencryptedMessageStoreError::DieselConnectError)?;
+        let mut conn = SqliteConnection::establish(db_path)
+            .map_err(EncryptedMessageStoreError::DieselConnectError)?;
+
+        // Setup SqlCipherKey
+        Self::set_sqlcipher_key(&mut conn, "pla")?;
+
         let mut obj = Self {
             connect_opt: opts,
             conn: Mutex::new(conn),
@@ -84,17 +93,34 @@ impl UnencryptedMessageStore {
         Ok(obj)
     }
 
-    fn init_db(&mut self) -> Result<(), UnencryptedMessageStoreError> {
+    fn init_db(&mut self) -> Result<(), EncryptedMessageStoreError> {
         self.conn
             .lock()
-            .map_err(|e| UnencryptedMessageStoreError::PoisionError(e.to_string()))?
+            .map_err(|e| EncryptedMessageStoreError::PoisionError(e.to_string()))?
             .run_pending_migrations(MIGRATIONS)?;
+        Ok(())
+    }
+
+    pub fn create_fake_msg(&mut self, content: &str) {
+        NewDecryptedMessage::new("convo".into(), "addr".into(), content.into())
+            .store(self)
+            .unwrap();
+    }
+
+    fn set_sqlcipher_key(
+        conn: &mut SqliteConnection,
+        encryption_key: &str,
+    ) -> Result<(), EncryptedMessageStoreError> {
+        conn.batch_execute(&format!(
+            "PRAGMA key = \"x'{}'\";",
+            hex::encode(encryption_key)
+        ))?;
         Ok(())
     }
 }
 
-impl Store<UnencryptedMessageStore> for NewDecryptedMessage {
-    fn store(&self, into: &mut UnencryptedMessageStore) -> Result<(), String> {
+impl Store<EncryptedMessageStore> for NewDecryptedMessage {
+    fn store(&self, into: &mut EncryptedMessageStore) -> Result<(), String> {
         let mut conn_guard = into.conn.lock().map_err(|e| e.to_string())?;
         diesel::insert_into(messages::table)
             .values(self)
@@ -105,18 +131,18 @@ impl Store<UnencryptedMessageStore> for NewDecryptedMessage {
     }
 }
 
-impl Fetch<DecryptedMessage> for UnencryptedMessageStore {
-    type E = UnencryptedMessageStoreError;
+impl Fetch<DecryptedMessage> for EncryptedMessageStore {
+    type E = EncryptedMessageStoreError;
     fn fetch(&mut self) -> Result<Vec<DecryptedMessage>, Self::E> {
         use self::schema::messages::dsl::*;
         let mut conn_guard = self
             .conn
             .lock()
-            .map_err(|e| UnencryptedMessageStoreError::PoisionError(e.to_string()))?;
+            .map_err(|e| EncryptedMessageStoreError::PoisionError(e.to_string()))?;
 
         messages
             .load::<DecryptedMessage>(conn_guard.deref_mut())
-            .map_err(UnencryptedMessageStoreError::DieselResultError)
+            .map_err(EncryptedMessageStoreError::DieselResultError)
     }
 }
 
@@ -125,7 +151,7 @@ mod tests {
 
     use super::{
         models::{DecryptedMessage, NewDecryptedMessage},
-        StorageOption, UnencryptedMessageStore,
+        EncryptedMessageStore, StorageOption,
     };
     use crate::{Fetch, Store};
     use rand::{
@@ -144,7 +170,7 @@ mod tests {
 
     #[test]
     fn store_check() {
-        let mut store = UnencryptedMessageStore::new(StorageOption::Ephemeral).unwrap();
+        let mut store = EncryptedMessageStore::new(StorageOption::Ephemeral).unwrap();
 
         NewDecryptedMessage::new("Bola".into(), "0x000A".into(), "Hello Bola".into())
             .store(&mut store)
@@ -173,7 +199,7 @@ mod tests {
         let db_path = format!("{}.db3", rand_string());
         {
             let mut store =
-                UnencryptedMessageStore::new(StorageOption::Peristent(db_path.clone())).unwrap();
+                EncryptedMessageStore::new(StorageOption::Peristent(db_path.clone())).unwrap();
 
             NewDecryptedMessage::new("Bola".into(), "0x000A".into(), "Hello Bola".into())
                 .store(&mut store)
@@ -188,7 +214,7 @@ mod tests {
 
     #[test]
     fn message_roundtrip() {
-        let mut store = UnencryptedMessageStore::new(StorageOption::Ephemeral).unwrap();
+        let mut store = EncryptedMessageStore::new(StorageOption::Ephemeral).unwrap();
 
         let msg0 = NewDecryptedMessage::new(rand_string(), rand_string(), rand_vec());
         sleep(Duration::from_millis(10));
