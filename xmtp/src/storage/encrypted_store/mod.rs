@@ -46,15 +46,11 @@ pub enum EncryptedMessageStoreError {
 
 pub type EncryptionKey = [u8; 32];
 
+#[derive(Default)]
 pub enum StorageOption {
+    #[default]
     Ephemeral,
     Peristent(String),
-}
-
-impl Default for StorageOption {
-    fn default() -> Self {
-        StorageOption::Ephemeral
-    }
 }
 
 #[allow(dead_code)]
