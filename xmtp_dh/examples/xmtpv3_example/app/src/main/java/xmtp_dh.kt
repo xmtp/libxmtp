@@ -40,7 +40,7 @@ open class RustBuffer : Structure() {
 
     companion object {
         internal fun alloc(size: Int = 0) = rustCall() { status ->
-            _UniFFILib.INSTANCE.ffi_xmtp_dh_5166_rustbuffer_alloc(size, status).also {
+            _UniFFILib.INSTANCE.ffi_xmtp_dh_c369_rustbuffer_alloc(size, status).also {
                 if(it.data == null) {
                    throw RuntimeException("RustBuffer.alloc() returned null data pointer (size=${size})")
                }
@@ -48,7 +48,7 @@ open class RustBuffer : Structure() {
         }
 
         internal fun free(buf: RustBuffer.ByValue) = rustCall() { status ->
-            _UniFFILib.INSTANCE.ffi_xmtp_dh_5166_rustbuffer_free(buf, status)
+            _UniFFILib.INSTANCE.ffi_xmtp_dh_c369_rustbuffer_free(buf, status)
         }
     }
 
@@ -257,23 +257,27 @@ internal interface _UniFFILib : Library {
         }
     }
 
-    fun xmtp_dh_5166_e2e_selftest(
+    fun xmtp_dh_c369_e2e_selftest(
     _uniffi_out_err: RustCallStatus
     ): RustBuffer.ByValue
 
-    fun ffi_xmtp_dh_5166_rustbuffer_alloc(`size`: Int,
+    fun xmtp_dh_c369_diffie_hellman_k256(`privateKeyBytes`: RustBuffer.ByValue,`publicKeyBytes`: RustBuffer.ByValue,
     _uniffi_out_err: RustCallStatus
     ): RustBuffer.ByValue
 
-    fun ffi_xmtp_dh_5166_rustbuffer_from_bytes(`bytes`: ForeignBytes.ByValue,
+    fun ffi_xmtp_dh_c369_rustbuffer_alloc(`size`: Int,
     _uniffi_out_err: RustCallStatus
     ): RustBuffer.ByValue
 
-    fun ffi_xmtp_dh_5166_rustbuffer_free(`buf`: RustBuffer.ByValue,
+    fun ffi_xmtp_dh_c369_rustbuffer_from_bytes(`bytes`: ForeignBytes.ByValue,
+    _uniffi_out_err: RustCallStatus
+    ): RustBuffer.ByValue
+
+    fun ffi_xmtp_dh_c369_rustbuffer_free(`buf`: RustBuffer.ByValue,
     _uniffi_out_err: RustCallStatus
     ): Unit
 
-    fun ffi_xmtp_dh_5166_rustbuffer_reserve(`buf`: RustBuffer.ByValue,`additional`: Int,
+    fun ffi_xmtp_dh_c369_rustbuffer_reserve(`buf`: RustBuffer.ByValue,`additional`: Int,
     _uniffi_out_err: RustCallStatus
     ): RustBuffer.ByValue
 
@@ -282,6 +286,26 @@ internal interface _UniFFILib : Library {
 
 // Public interface members begin here.
 
+
+public object FfiConverterUByte: FfiConverter<UByte, Byte> {
+    override fun lift(value: Byte): UByte {
+        return value.toUByte()
+    }
+
+    override fun read(buf: ByteBuffer): UByte {
+        return lift(buf.get())
+    }
+
+    override fun lower(value: UByte): Byte {
+        return value.toByte()
+    }
+
+    override fun allocationSize(value: UByte) = 1
+
+    override fun write(value: UByte, buf: ByteBuffer) {
+        buf.put(value.toByte())
+    }
+}
 
 public object FfiConverterString: FfiConverter<String, RustBuffer.ByValue> {
     // Note: we don't inherit from FfiConverterRustBuffer, because we use a
@@ -329,10 +353,44 @@ public object FfiConverterString: FfiConverter<String, RustBuffer.ByValue> {
     }
 }
 
+
+
+
+public object FfiConverterSequenceUByte: FfiConverterRustBuffer<List<UByte>> {
+    override fun read(buf: ByteBuffer): List<UByte> {
+        val len = buf.getInt()
+        return List<UByte>(len) {
+            FfiConverterUByte.read(buf)
+        }
+    }
+
+    override fun allocationSize(value: List<UByte>): Int {
+        val sizeForLength = 4
+        val sizeForItems = value.map { FfiConverterUByte.allocationSize(it) }.sum()
+        return sizeForLength + sizeForItems
+    }
+
+    override fun write(value: List<UByte>, buf: ByteBuffer) {
+        buf.putInt(value.size)
+        value.forEach {
+            FfiConverterUByte.write(it, buf)
+        }
+    }
+}
+
 fun `e2eSelftest`(): String {
     return FfiConverterString.lift(
     rustCall() { _status ->
-    _UniFFILib.INSTANCE.xmtp_dh_5166_e2e_selftest( _status)
+    _UniFFILib.INSTANCE.xmtp_dh_c369_e2e_selftest( _status)
+})
+}
+
+
+
+fun `diffieHellmanK256`(`privateKeyBytes`: List<UByte>, `publicKeyBytes`: List<UByte>): List<UByte> {
+    return FfiConverterSequenceUByte.lift(
+    rustCall() { _status ->
+    _UniFFILib.INSTANCE.xmtp_dh_c369_diffie_hellman_k256(FfiConverterSequenceUByte.lower(`privateKeyBytes`), FfiConverterSequenceUByte.lower(`publicKeyBytes`), _status)
 })
 }
 
