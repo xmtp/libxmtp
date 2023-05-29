@@ -1,9 +1,8 @@
 [package]
-authors = ["Michael Xu <michaelx@xmtp.com>"]
 edition = "2021"
 homepage = ""
 repository = ""
-description = "Example uniffi bindings for xmtpv3 crate"
+description = "A Uniffi binding for the Rust-based Diffie-Hellman operation for Android"
 license = "Apache-2.0"
 name = "xmtp_dh"
 version = "0.1.0"

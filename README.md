@@ -1,6 +1,5 @@
 # LibXMTP
 
-
 LibXMTP is a shared library encapsulating core functionality of the XMTP messaging protocol such as the cryptography, networking, and language bindings.
 
 [![Test](https://github.com/xmtp/libxmtp/actions/workflows/test.yml/badge.svg)](https://github.com/xmtp/libxmtp/actions/workflows/test.yml)
@@ -21,16 +20,29 @@ dev/up
 ```
 
 Run tests:
+
 ```sh
 dev/test
 ```
 
 ## Structure
 
-Top-level:
+Shared:
 
-- `xmtp` - the pure Rust implementation of XMTP APIs, agnostic to any per-language or per-platform binding
-- `xmtp_keystore` - first crate, implements the Keystore API in Rust
 - `xmtp_proto` - Generated code for handling XMTP protocol buffers
 - `xmtp_networking` - API client for XMTP's GRPC API, using code from `xmtp_proto`
-- `bindings_swift` - Swift bindings
+
+v3:
+
+- `xmtp` - the pure Rust implementation of XMTP APIs, agnostic to any per-language or per-platform binding
+- `xmtp_cryptography` - cryptographic operations for v3
+- `bindings_ffi` - FFI bindings for Android and iOS
+- `bindings_wasm` (unused) - wasm bindings
+- `bindings_js` (unused) - JS bindings
+
+v2:
+
+- `xmtp_crypto` - cryptographic operations for v2
+- `bindings_swift` - Swift bindings for XMTP v2 - exposes networking and cryptographic operations
+- `xmtp_dh` - A Uniffi binding for the Rust-based Diffie-Hellman operation for Android
+- `xmtp_keystore` (unused) - implements the v2 Keystore API in Rust
