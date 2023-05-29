@@ -33,5 +33,5 @@ google-services.json
 *.hprof
 
 # Uniffi generated files - run `setup_android_example.sh` to get these
-**/jniLibs/
-**/xmtp_dh.kt
+jniLibs/
+xmtp_dh.kt

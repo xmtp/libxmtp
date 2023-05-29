@@ -128,7 +128,7 @@ dist
 *.swo
 
 # OS files
-**/.DS_Store
+.DS_Store
 
 # Generated code
 xmtp_proto/src/gen
