@@ -31,6 +31,7 @@ Shared:
 
 - `xmtp_proto` - Generated code for handling XMTP protocol buffers
 - `xmtp_networking` - API client for XMTP's GRPC API, using code from `xmtp_proto`
+- `uniffi_bindgen_generator` - A binary crate used internally for generating [uniffi bindings](https://mozilla.github.io/uniffi-rs/tutorial/foreign_language_bindings.html#multi-crate-workspaces)
 
 v3:
 

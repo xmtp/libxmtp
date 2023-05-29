@@ -2,11 +2,6 @@ uniffi_macros::include_scaffolding!("xmtp_dh");
 
 use xmtp_crypto::k256_helper;
 
-// TODO:
-// Clean up hack with commenting cargo.toml
-// Clean up committed files
-// Update README
-
 // Uniffi requires enum errors that implement std::Error. We implement it
 // manually here rather than pulling in thiserror to save binary size and compilation time.
 #[derive(Debug)]

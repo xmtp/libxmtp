@@ -1,6 +1,6 @@
 # Uniffi-based bindings for Diffie-Hellman operation
 
-This crate provides Uniffi bindings for a rust-based Diffie-Hellman operation to unblock XMTP Android performance issues (https://github.com/xmtp/xmtp-android/pull/75).
+This crate provides Uniffi bindings for a Rust-based Diffie-Hellman operation to unblock XMTP Android performance issues (https://github.com/xmtp/xmtp-android/pull/75).
 
 # Status
 
@@ -22,7 +22,3 @@ The generated bindings (`xmtp_dh.kt`) and the cross-compiled binaries (`jniLibs`
 - Install Docker
 - Install [cross-rs](https://github.com/cross-rs/cross) for zero setup cross-platform builds
 - Run `./cross_build.sh` to cross-compile (this is SLOW)
-
-# Notes
-
-- `gen_kotlin.sh` is needed for generating kotlin source code, right now requires uncommenting "# Gen Kotlin# part of Cargo.toml

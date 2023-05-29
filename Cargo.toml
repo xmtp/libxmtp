@@ -2,6 +2,7 @@
 
 members = [
   "bindings_ffi",
+  "uniffi_bindgen_generator",
   "xmtp",
   "xmtp_crypto",
   "xmtp_cryptography",
@@ -12,7 +13,7 @@ members = [
 
 # Exclude since
 # 1) no reason to share profile with other core crates
-# 2) moreover, xmtp_rust_swift needs its own size-optimized profile
+# 2) moreover, bindings_swift and xmtp_dh need their own size-optimized profile
 exclude = [
   "bindings_js",
   "bindings_swift",
