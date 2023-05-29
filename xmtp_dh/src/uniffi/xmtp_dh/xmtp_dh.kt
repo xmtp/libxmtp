@@ -40,7 +40,7 @@ open class RustBuffer : Structure() {
 
     companion object {
         internal fun alloc(size: Int = 0) = rustCall() { status ->
-            _UniFFILib.INSTANCE.ffi_xmtp_dh_c369_rustbuffer_alloc(size, status).also {
+            _UniFFILib.INSTANCE.ffi_xmtp_dh_ff4a_rustbuffer_alloc(size, status).also {
                 if(it.data == null) {
                    throw RuntimeException("RustBuffer.alloc() returned null data pointer (size=${size})")
                }
@@ -48,7 +48,7 @@ open class RustBuffer : Structure() {
         }
 
         internal fun free(buf: RustBuffer.ByValue) = rustCall() { status ->
-            _UniFFILib.INSTANCE.ffi_xmtp_dh_c369_rustbuffer_free(buf, status)
+            _UniFFILib.INSTANCE.ffi_xmtp_dh_ff4a_rustbuffer_free(buf, status)
         }
     }
 
@@ -257,27 +257,23 @@ internal interface _UniFFILib : Library {
         }
     }
 
-    fun xmtp_dh_c369_e2e_selftest(
+    fun xmtp_dh_ff4a_diffie_hellman_k256(`privateKeyBytes`: RustBuffer.ByValue,`publicKeyBytes`: RustBuffer.ByValue,
     _uniffi_out_err: RustCallStatus
     ): RustBuffer.ByValue
 
-    fun xmtp_dh_c369_diffie_hellman_k256(`privateKeyBytes`: RustBuffer.ByValue,`publicKeyBytes`: RustBuffer.ByValue,
+    fun ffi_xmtp_dh_ff4a_rustbuffer_alloc(`size`: Int,
     _uniffi_out_err: RustCallStatus
     ): RustBuffer.ByValue
 
-    fun ffi_xmtp_dh_c369_rustbuffer_alloc(`size`: Int,
+    fun ffi_xmtp_dh_ff4a_rustbuffer_from_bytes(`bytes`: ForeignBytes.ByValue,
     _uniffi_out_err: RustCallStatus
     ): RustBuffer.ByValue
 
-    fun ffi_xmtp_dh_c369_rustbuffer_from_bytes(`bytes`: ForeignBytes.ByValue,
-    _uniffi_out_err: RustCallStatus
-    ): RustBuffer.ByValue
-
-    fun ffi_xmtp_dh_c369_rustbuffer_free(`buf`: RustBuffer.ByValue,
+    fun ffi_xmtp_dh_ff4a_rustbuffer_free(`buf`: RustBuffer.ByValue,
     _uniffi_out_err: RustCallStatus
     ): Unit
 
-    fun ffi_xmtp_dh_c369_rustbuffer_reserve(`buf`: RustBuffer.ByValue,`additional`: Int,
+    fun ffi_xmtp_dh_ff4a_rustbuffer_reserve(`buf`: RustBuffer.ByValue,`additional`: Int,
     _uniffi_out_err: RustCallStatus
     ): RustBuffer.ByValue
 
@@ -356,6 +352,46 @@ public object FfiConverterString: FfiConverter<String, RustBuffer.ByValue> {
 
 
 
+
+sealed class DiffieHellmanException(message: String): Exception(message) {
+        // Each variant is a nested class
+        // Flat enums carries a string error message, so no special implementation is necessary.
+        class GenericException(message: String) : DiffieHellmanException(message)
+        
+
+    companion object ErrorHandler : CallStatusErrorHandler<DiffieHellmanException> {
+        override fun lift(error_buf: RustBuffer.ByValue): DiffieHellmanException = FfiConverterTypeDiffieHellmanError.lift(error_buf)
+    }
+}
+
+public object FfiConverterTypeDiffieHellmanError : FfiConverterRustBuffer<DiffieHellmanException> {
+    override fun read(buf: ByteBuffer): DiffieHellmanException {
+        
+            return when(buf.getInt()) {
+            1 -> DiffieHellmanException.GenericException(FfiConverterString.read(buf))
+            else -> throw RuntimeException("invalid error enum value, something is very wrong!!")
+        }
+        
+    }
+
+    override fun allocationSize(value: DiffieHellmanException): Int {
+        return 4
+    }
+
+    override fun write(value: DiffieHellmanException, buf: ByteBuffer) {
+        when(value) {
+            is DiffieHellmanException.GenericException -> {
+                buf.putInt(1)
+                Unit
+            }
+        }.let { /* this makes the `when` an expression, which ensures it is exhaustive */ }
+    }
+
+}
+
+
+
+
 public object FfiConverterSequenceUByte: FfiConverterRustBuffer<List<UByte>> {
     override fun read(buf: ByteBuffer): List<UByte> {
         val len = buf.getInt()
@@ -377,20 +413,12 @@ public object FfiConverterSequenceUByte: FfiConverterRustBuffer<List<UByte>> {
         }
     }
 }
-
-fun `e2eSelftest`(): String {
-    return FfiConverterString.lift(
-    rustCall() { _status ->
-    _UniFFILib.INSTANCE.xmtp_dh_c369_e2e_selftest( _status)
-})
-}
-
-
+@Throws(DiffieHellmanException::class)
 
 fun `diffieHellmanK256`(`privateKeyBytes`: List<UByte>, `publicKeyBytes`: List<UByte>): List<UByte> {
     return FfiConverterSequenceUByte.lift(
-    rustCall() { _status ->
-    _UniFFILib.INSTANCE.xmtp_dh_c369_diffie_hellman_k256(FfiConverterSequenceUByte.lower(`privateKeyBytes`), FfiConverterSequenceUByte.lower(`publicKeyBytes`), _status)
+    rustCallWithError(DiffieHellmanException) { _status ->
+    _UniFFILib.INSTANCE.xmtp_dh_ff4a_diffie_hellman_k256(FfiConverterSequenceUByte.lower(`privateKeyBytes`), FfiConverterSequenceUByte.lower(`publicKeyBytes`), _status)
 })
 }
 
