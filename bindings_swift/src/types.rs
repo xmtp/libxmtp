@@ -1,6 +1,7 @@
 use xmtp_proto::xmtp::message_api::v1::{
-    cursor as cursor_proto, Cursor, Envelope as EnvelopeProto, IndexCursor, PagingInfo,
-    QueryResponse as ProtoQueryResponse, SortDirection,
+    cursor as cursor_proto, BatchQueryResponse as ProtoBatchQueryResponse, Cursor,
+    Envelope as EnvelopeProto, IndexCursor, PagingInfo, QueryResponse as ProtoQueryResponse,
+    SortDirection,
 };
 
 impl From<crate::ffi::SortDirection> for SortDirection {
@@ -87,6 +88,7 @@ impl From<EnvelopeProto> for crate::Envelope {
     }
 }
 
+#[derive(Clone)]
 pub struct QueryResponse {
     _envelopes: Vec<crate::Envelope>,
     _paging_info: Option<crate::ffi::PagingInfo>,
@@ -116,6 +118,30 @@ impl From<ProtoQueryResponse> for QueryResponse {
         QueryResponse {
             _envelopes: envelopes,
             _paging_info: paging_info,
+        }
+    }
+}
+
+pub struct BatchQueryResponse {
+    _responses: Vec<crate::QueryResponse>,
+}
+
+impl BatchQueryResponse {
+    pub fn responses(&self) -> Vec<crate::QueryResponse> {
+        self._responses.clone()
+    }
+}
+
+impl From<ProtoBatchQueryResponse> for BatchQueryResponse {
+    fn from(batch_query_response: ProtoBatchQueryResponse) -> Self {
+        let responses = batch_query_response
+            .responses
+            .into_iter()
+            .map(crate::QueryResponse::from)
+            .collect();
+
+        BatchQueryResponse {
+            _responses: responses,
         }
     }
 }

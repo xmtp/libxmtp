@@ -34,6 +34,17 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn grpc_batch_query_test() {
+        let client = Client::create("http://localhost:5556".to_string(), false)
+            .await
+            .unwrap();
+
+        let result = client.batch_query(vec![]).await.unwrap();
+
+        assert_eq!(result.responses.len(), 0);
+    }
+
+    #[tokio::test]
     async fn publish_test() {
         let client = Client::create("http://localhost:5556".to_string(), false)
             .await
