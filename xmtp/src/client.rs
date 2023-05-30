@@ -102,8 +102,6 @@ where
     }
 
     async fn publish_user_contact(&mut self) -> Result<(), ClientError> {
-        println!("Publishing user contact: {}", self.wallet_address());
-
         let envelope = self.build_contact_envelope()?;
         self.api_client
             .publish("".to_string(), vec![envelope])
