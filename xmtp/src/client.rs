@@ -5,9 +5,8 @@ use crate::{
     contact::{Contact, ContactError},
     networking::XmtpApiClient,
     persistence::{NamespacedPersistence, Persistence},
-    storage::UnencryptedMessageStore,
     types::Address,
-    utils::{build_envelope, build_user_contact_topic, build_user_invite_topic},
+    utils::{build_envelope, build_user_contact_topic},
 };
 use xmtp_proto::xmtp::message_api::v1::Envelope;
 
