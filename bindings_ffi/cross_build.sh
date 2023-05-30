@@ -6,10 +6,10 @@ main() {
   # Change to "release" to generate much smaller libraries
   PROFILE="release"
 
-  # cross build --target x86_64-linux-android --target-dir ./target --$PROFILE && \
-  #     cross build --target i686-linux-android --target-dir ./target --$PROFILE && \
-  #     cross build --target armv7-linux-androideabi --target-dir ./target --$PROFILE && \
-  #     cross build --target aarch64-linux-android --target-dir ./target --$PROFILE
+  cross build --target x86_64-linux-android --target-dir ./target --$PROFILE && \
+      cross build --target i686-linux-android --target-dir ./target --$PROFILE && \
+      cross build --target armv7-linux-androideabi --target-dir ./target --$PROFILE && \
+      cross build --target aarch64-linux-android --target-dir ./target --$PROFILE
 
   # Move everything to jniLibs folder and rename, TODO: should be the same name
   LIBRARY_NAME="libbindings_ffi"
@@ -25,4 +25,4 @@ main() {
       cp target/x86_64-linux-android/$PROFILE/$LIBRARY_NAME.so jniLibs/x86_64/$TARGET_NAME.so
 }
 
-time -p main
+time main
