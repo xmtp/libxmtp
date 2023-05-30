@@ -1,0 +1,27 @@
+[package]
+edition = "2021"
+homepage = ""
+repository = ""
+description = "A Uniffi binding for the Rust-based Diffie-Hellman operation for Android"
+license = "Apache-2.0"
+name = "xmtp_dh"
+version = "0.1.0"
+rust-version = "1.60"
+
+[profile.release]
+opt-level = 'z'     # Optimize for size
+lto = true          # Enable link-time optimization
+codegen-units = 1   # Reduce number of codegen units to increase optimizations
+panic = 'abort'     # Abort on panic
+strip = true        # Strip symbols from binary*
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+uniffi = { version = "0.23.0" }
+uniffi_macros = "0.23.0"
+xmtp_crypto = { path = "../xmtp_crypto" }
+
+[build_dependencies]
+uniffi = { version = "0.23.0", features = [ "build" ] }
