@@ -4,7 +4,7 @@ This crate provides Uniffi bindings for a Rust-based Diffie-Hellman operation to
 
 # Status
 
-- Android is tested end-to-end via an example app in `examples/`.
+- Android is tested end-to-end via an example app in `../examples/android`.
 - iOS has not been tested.
 
 # Consuming this crate

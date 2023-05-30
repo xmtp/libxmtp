@@ -32,6 +32,8 @@ google-services.json
 # Android Profiling
 *.hprof
 
-# Uniffi generated files - run `setup_android_example.sh` to get these
+# Files obtained via `setup_android_example.sh` from relevant crates
 jniLibs/
 xmtp_dh.kt
+xmtpv3.kt
+MainActivity.kt
