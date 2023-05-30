@@ -141,6 +141,17 @@ mod tests {
 
     use crate::ClientBuilder;
 
+    #[test]
+    fn can_pass_persistence_methods() {
+        let mut client = ClientBuilder::new_test().build().unwrap();
+        assert_eq!(client.read_from_persistence("foo").unwrap(), None);
+        client.write_to_persistence("foo", b"bar").unwrap();
+        assert_eq!(
+            client.read_from_persistence("foo").unwrap(),
+            Some(b"bar".to_vec())
+        );
+    }
+
     #[tokio::test]
     async fn registration() {
         let mut client = ClientBuilder::new_test().build().unwrap();

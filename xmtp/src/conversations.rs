@@ -35,10 +35,10 @@ where
         wallet_address: String,
     ) -> Result<SecretConversation<A, P, S>, ConversationError> {
         let client = self.client.lock().await;
-        let contacts = client.get_contacts(&wallet_address.as_str()).await?;
+        let contacts = client.get_contacts(wallet_address.as_str()).await?;
         let conversation = SecretConversation::new(self.client.clone(), wallet_address, contacts);
 
-        return Ok(conversation);
+        Ok(conversation)
     }
 }
 

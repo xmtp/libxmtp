@@ -41,6 +41,7 @@ where
     pub fn new(
         client: Arc<Mutex<Client<A, P, S>>>,
         peer_address: Address,
+        // TODO: Add user's own contacts as well
         members: Vec<Contact>,
     ) -> Self {
         Self {
