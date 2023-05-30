@@ -4,6 +4,7 @@ pub mod builder;
 pub mod client;
 pub mod contact;
 pub mod conversation;
+pub mod conversations;
 pub mod networking;
 pub mod owner;
 pub mod persistence;

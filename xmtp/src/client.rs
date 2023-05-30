@@ -5,6 +5,7 @@ use crate::{
     contact::{Contact, ContactError},
     networking::XmtpApiClient,
     persistence::{NamespacedPersistence, Persistence},
+    storage::UnencryptedMessageStore,
     types::Address,
     utils::{build_envelope, build_user_contact_topic, build_user_invite_topic},
 };
@@ -102,6 +103,8 @@ where
     }
 
     async fn publish_user_contact(&mut self) -> Result<(), ClientError> {
+        println!("Publishing user contact: {}", self.wallet_address());
+
         let envelope = self.build_contact_envelope()?;
         self.api_client
             .publish("".to_string(), vec![envelope])
@@ -132,13 +135,6 @@ where
     fn read_from_persistence(&self, s: &str) -> Result<Option<Vec<u8>>, P::Error> {
         self.persistence.read(s)
     }
-}
-
-unsafe impl<A, P, S> Send for Client<A, P, S>
-where
-    A: XmtpApiClient,
-    P: Persistence,
-{
 }
 
 #[cfg(test)]

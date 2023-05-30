@@ -183,7 +183,7 @@ impl Signable for AccountCreator {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
 
     use crate::association::AssociationError;
 

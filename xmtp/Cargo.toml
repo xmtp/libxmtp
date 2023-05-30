@@ -30,6 +30,7 @@ ethers-core = "2.0.4"
 prost = { version = "0.11", features = ["prost-derive"] }
 futures = "0.3.28"
 base64 = "0.21.1"
+tokio = "1.28.1"
 
 [dev-dependencies]
 env_logger = "0.10.0"

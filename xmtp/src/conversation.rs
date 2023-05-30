@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use crate::{
     client::ClientError,
     contact::Contact,
@@ -7,65 +9,70 @@ use crate::{
     utils::{build_envelope, build_user_invite_topic},
     Client,
 };
-use async_trait::async_trait;
+// use async_trait::async_trait;
 use thiserror::Error;
+use tokio::sync::Mutex;
 
 #[derive(Debug, Error)]
 pub enum ConversationError {
+    #[error("client error {0}")]
+    Client(#[from] ClientError),
     #[error("unknown error")]
     Unknown,
 }
 
-#[async_trait]
-pub trait OneToOneConversation<A, P, S>
+// I had to pick a name for this, and it seems like we are hovering around SecretConversation ATM
+// May very well change
+pub struct SecretConversation<A, P, S>
 where
     A: XmtpApiClient,
     P: Persistence,
 {
-    fn peer_address(&self) -> Address;
-    async fn initialize(&self, client: Client<A, P, S>) -> Result<(), ClientError>;
-    // fn send_message(&self, client: &Client<A, P, S>, message: Vec<u8>) -> Result<(), ClientError>;
-}
-
-// I had to pick a name for this, and it seems like we are hovering around SecretConversation ATM
-// May very well change
-pub struct SecretConversation {
     peer_address: Address,
     members: Vec<Contact>,
+    client: Arc<Mutex<Client<A, P, S>>>,
 }
 
-impl SecretConversation {
-    pub fn new(peer_address: Address, members: Vec<Contact>) -> Self {
+impl<A, P, S> SecretConversation<A, P, S>
+where
+    A: XmtpApiClient,
+    P: Persistence,
+{
+    pub fn new(
+        client: Arc<Mutex<Client<A, P, S>>>,
+        peer_address: Address,
+        members: Vec<Contact>,
+    ) -> Self {
         Self {
+            client,
             peer_address,
             members,
         }
     }
-}
 
-#[async_trait]
-impl<'a, A, P, S> OneToOneConversation<A, P, S> for SecretConversation
-where
-    A: XmtpApiClient,
-    P: Persistence,
-{
-    fn peer_address(&self) -> Address {
+    pub fn peer_address(&self) -> Address {
         self.peer_address.clone()
     }
 
-    async fn initialize(&self, client: Client<A, P, S>) -> Result<(), ConversationError> {
-        for contact in self.members {
+    pub async fn initialize(&self) -> Result<(), ConversationError> {
+        let mut client = self.client.lock().await;
+        for contact in self.members.iter() {
             let id = contact.id();
-            let mut session = client.account.create_outbound_session(contact);
+            // TODO: Persist session to database
+            let mut session = client.account.create_outbound_session(contact.clone());
+            // TODO: Replace with proper protobuf invite message
             let invite_message = session.encrypt("invite".as_bytes());
+
             let envelope = build_envelope(
                 build_user_invite_topic(id),
                 // TODO: Wrap in XMTP type
                 invite_message.message().to_vec(),
             );
+
             // TODO: Replace with real token
             client
                 .api_client
+                // TODO: API authentication
                 .publish("".to_string(), vec![envelope])
                 .await
                 .map_err(|_| ConversationError::Unknown)?;
