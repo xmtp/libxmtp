@@ -1,11 +1,14 @@
 pub mod account;
 pub mod association;
 pub mod builder;
-mod client;
+pub mod client;
 pub mod contact;
+pub mod conversation;
+pub mod conversations;
 pub mod networking;
 pub mod owner;
 pub mod persistence;
+pub mod session;
 pub mod storage;
 mod types;
 mod utils;

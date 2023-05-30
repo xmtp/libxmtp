@@ -16,7 +16,7 @@ pub enum ContactError {
     #[error("unknown error")]
     Unknown,
 }
-
+#[derive(Clone)]
 pub struct Contact {
     pub(crate) bundle: VmacContactBundle,
 }
@@ -59,5 +59,21 @@ impl Contact {
         };
 
         proto_key.into()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::account::{tests::test_wallet_signer, Account};
+
+    use super::Contact;
+
+    #[test]
+    fn serialize_round_trip() {
+        let account = Account::generate(test_wallet_signer).unwrap();
+        let contact = account.contact();
+        let contact_bytes = contact.to_bytes().unwrap();
+        let contact2 = Contact::from_bytes(contact_bytes.clone()).unwrap();
+        assert_eq!(contact2.to_bytes().unwrap(), contact_bytes);
     }
 }

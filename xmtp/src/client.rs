@@ -40,7 +40,6 @@ where
     pub persistence: NamespacedPersistence<P>,
     pub(crate) account: Account,
     pub(super) _store: S,
-
     is_initialized: bool,
 }
 
@@ -142,6 +141,17 @@ mod tests {
 
     use crate::ClientBuilder;
 
+    #[test]
+    fn can_pass_persistence_methods() {
+        let mut client = ClientBuilder::new_test().build().unwrap();
+        assert_eq!(client.read_from_persistence("foo").unwrap(), None);
+        client.write_to_persistence("foo", b"bar").unwrap();
+        assert_eq!(
+            client.read_from_persistence("foo").unwrap(),
+            Some(b"bar".to_vec())
+        );
+    }
+
     #[tokio::test]
     async fn registration() {
         let mut client = ClientBuilder::new_test().build().unwrap();
@@ -162,6 +172,8 @@ mod tests {
             .unwrap();
 
         assert_eq!(contacts.len(), 1);
+        assert!(contacts[0].bundle.prekey.is_some());
+        assert!(contacts[0].bundle.identity_key.is_some());
         contacts[0].vmac_identity_key();
         contacts[0].vmac_fallback_key();
 
@@ -190,16 +202,5 @@ mod tests {
                 )
             }
         }
-    }
-
-    #[test]
-    fn can_pass_persistence_methods() {
-        let mut client = ClientBuilder::new_test().build().unwrap();
-        assert_eq!(client.read_from_persistence("foo").unwrap(), None);
-        client.write_to_persistence("foo", b"bar").unwrap();
-        assert_eq!(
-            client.read_from_persistence("foo").unwrap(),
-            Some(b"bar".to_vec())
-        );
     }
 }

@@ -1,13 +1,16 @@
 use crate::{
     association::{Association, AssociationError, AssociationText},
     contact::Contact,
+    session::Session,
     types::Address,
     vmac_protos::ProtoWrapper,
     Signable,
 };
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
-use vodozemac::olm::{Account as OlmAccount, AccountPickle as OlmAccountPickle, IdentityKeys};
+use vodozemac::olm::{
+    Account as OlmAccount, AccountPickle as OlmAccountPickle, IdentityKeys, SessionConfig,
+};
 use xmtp_cryptography::signature::{RecoverableSignature, SignatureError};
 use xmtp_proto::xmtp::v3::message_contents::{
     VmacAccountLinkedKey, VmacContactBundle, VmacDeviceLinkedKey, VmacUnsignedPublicKey,
@@ -128,6 +131,16 @@ impl Account {
         })
     }
 
+    pub fn create_outbound_session(&self, contact: Contact) -> Session {
+        let vmac_session = self.keys.get().create_outbound_session(
+            SessionConfig::version_2(),
+            contact.vmac_identity_key(),
+            contact.vmac_fallback_key(),
+        );
+
+        Session::new(vmac_session)
+    }
+
     pub fn get_keys(&self) -> IdentityKeys {
         self.keys.account.identity_keys()
     }
@@ -170,7 +183,7 @@ impl Signable for AccountCreator {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
 
     use crate::association::AssociationError;
 

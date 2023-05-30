@@ -15,6 +15,10 @@ pub fn build_user_contact_topic(wallet_address: String) -> String {
     format!("/xmtp/1/contact-{}", wallet_address)
 }
 
+pub fn build_user_invite_topic(public_key: String) -> String {
+    format!("xmtp/1/invite-{}", public_key)
+}
+
 pub fn build_envelope(content_topic: String, message: Vec<u8>) -> Envelope {
     Envelope {
         content_topic,
