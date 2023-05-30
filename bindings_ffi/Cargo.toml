@@ -5,20 +5,20 @@ edition = "2021"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
+[lib]
+crate-type = ["cdylib"]
+
 [dependencies]
+async-trait = "0.1.68"
+uniffi = { version = "0.23.0" }
+uniffi_macros = "0.23.0"
 xmtp = { path = "../xmtp" }
 xmtp_cryptography = { path = "../xmtp_cryptography" }
 xmtp_networking = { path = "../xmtp_networking" }
 xmtp_proto = { path = "../xmtp_proto" }
-swift-bridge = {version = "0.1", features = ["async"]}
-async-trait = "0.1.68"
 
-[lib]
-name = "bindings_ffi"
-crate-type = [ "staticlib" ]
-
-[build-dependencies]
-swift-bridge-build = "0.1"
+[build_dependencies]
+uniffi = { version = "0.23.0", features = [ "build" ] }
 
 [dev-dependencies]
 ethers = "2.0.4"
