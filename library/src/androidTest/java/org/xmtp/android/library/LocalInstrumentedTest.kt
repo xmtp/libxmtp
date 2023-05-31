@@ -20,6 +20,7 @@ import org.xmtp.android.library.messages.generate
 import org.xmtp.android.library.messages.secp256K1Uncompressed
 import org.xmtp.android.library.messages.toPublicKeyBundle
 import org.xmtp.android.library.messages.walletAddress
+import org.xmtp.proto.message.api.v1.MessageApiOuterClass.QueryRequest
 import org.xmtp.proto.message.contents.Contact
 import org.xmtp.proto.message.contents.PrivateKeyOuterClass
 import java.util.Date
@@ -220,5 +221,30 @@ class LocalInstrumentedTest {
         val options = ClientOptions(api = ClientOptions.Api(env = XMTPEnvironment.LOCAL, isSecure = true))
         val keys = PrivateKeyBundleV1Builder.buildFromBundle(bytes)
         Client().buildFrom(bundle = keys, options = options)
+    }
+
+    @Test
+    fun testBatchQuery() {
+        val alice = PrivateKeyBuilder()
+        val identity = PrivateKey.newBuilder().build().generate()
+        val authorized = alice.createIdentity(identity)
+        val authToken = authorized.createAuthToken()
+        val api = GRPCApiClient(environment = XMTPEnvironment.LOCAL, secure = false)
+        api.setAuthToken(authToken)
+        val encryptedBundle = authorized.toBundle.encrypted(alice)
+        val envelope = Envelope.newBuilder().also {
+            it.contentTopic = Topic.userPrivateStoreKeyBundle(authorized.address).description
+            it.timestampNs = Date().time * 1_000_000
+            it.message = encryptedBundle.toByteString()
+        }.build()
+        runBlocking {
+            api.publish(envelopes = listOf(envelope))
+        }
+        Thread.sleep(2_000)
+        val request = QueryRequest.newBuilder().addContentTopics(Topic.userPrivateStoreKeyBundle(authorized.address).description).build()
+        val result =
+            runBlocking { api.batchQuery(requests = listOf(request)) }
+
+        assertEquals(result.responsesOrBuilderList.size, 1)
     }
 }

@@ -32,6 +32,8 @@ import org.xmtp.android.library.messages.toPublicKeyBundle
 import org.xmtp.android.library.messages.toV2
 import org.xmtp.android.library.messages.walletAddress
 import org.xmtp.proto.message.api.v1.MessageApiOuterClass
+import org.xmtp.proto.message.api.v1.MessageApiOuterClass.BatchQueryResponse
+import org.xmtp.proto.message.api.v1.MessageApiOuterClass.QueryRequest
 import java.nio.charset.StandardCharsets
 import java.text.SimpleDateFormat
 import java.time.Instant
@@ -238,6 +240,10 @@ class Client() {
 
     suspend fun query(topic: Topic, pagination: Pagination? = null): QueryResponse {
         return apiClient.queryTopic(topic = topic, pagination = pagination)
+    }
+
+    suspend fun batchQuery(requests: List<QueryRequest>): BatchQueryResponse {
+        return apiClient.batchQuery(requests)
     }
 
     suspend fun subscribe(topics: List<String>): Flow<Envelope> {
