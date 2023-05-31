@@ -1,13 +1,16 @@
 package org.xmtp.android.library
 
+import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.google.protobuf.kotlin.toByteStringUtf8
 import org.junit.Assert.assertEquals
 import org.junit.Test
+import org.junit.runner.RunWith
 import org.xmtp.android.library.codecs.Attachment
 import org.xmtp.android.library.codecs.AttachmentCodec
 import org.xmtp.android.library.codecs.ContentTypeAttachment
 import org.xmtp.android.library.messages.walletAddress
 
+@RunWith(AndroidJUnit4::class)
 class AttachmentTest {
     @Test
     fun testCanUseAttachmentCodec() {

@@ -25,7 +25,7 @@ import org.xmtp.proto.message.contents.PrivateKeyOuterClass
 import java.util.Date
 
 @RunWith(AndroidJUnit4::class)
-class InstrumentedTest {
+class LocalInstrumentedTest {
     @Test
     fun testPublishingAndFetchingContactBundlesWithWhileGeneratingKeys() {
         val aliceWallet = PrivateKeyBuilder()

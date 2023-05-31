@@ -1,7 +1,9 @@
 package org.xmtp.android.library
 
+import androidx.test.ext.junit.runners.AndroidJUnit4
 import org.junit.Assert.assertEquals
 import org.junit.Test
+import org.junit.runner.RunWith
 import org.xmtp.android.library.codecs.TextCodec
 import org.xmtp.android.library.messages.EnvelopeBuilder
 import org.xmtp.android.library.messages.InvitationV1
@@ -16,6 +18,7 @@ import org.xmtp.android.library.messages.toPublicKeyBundle
 import org.xmtp.android.library.messages.walletAddress
 import java.util.Date
 
+@RunWith(AndroidJUnit4::class)
 class ConversationsTest {
 
     @Test

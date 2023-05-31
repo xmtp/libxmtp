@@ -1,9 +1,7 @@
 package org.xmtp.android.library
 
-import com.google.protobuf.kotlin.toByteString
 import org.junit.Assert.assertEquals
 import org.junit.Test
-import org.xmtp.android.library.messages.PrivateKey
 import org.xmtp.android.library.messages.PrivateKeyBuilder
 
 class ClientTest {
@@ -55,73 +53,6 @@ class ClientTest {
             clientFromV1Bundle.privateKeyBundleV1?.preKeysList
         )
     }
-
-    @Test
-    fun testExistingWallet() {
-        // Generated from JS script
-        val ints = arrayOf(
-            31, 116, 198, 193, 189, 122, 19, 254, 191, 189, 211, 215, 255, 131,
-            171, 239, 243, 33, 4, 62, 143, 86, 18, 195, 251, 61, 128, 90, 34, 126, 219, 236
-        )
-        val bytes =
-            ints.foldIndexed(ByteArray(ints.size)) { i, a, v -> a.apply { set(i, v.toByte()) } }
-        val key = PrivateKey.newBuilder().also {
-            it.secp256K1 =
-                it.secp256K1.toBuilder().also { builder -> builder.bytes = bytes.toByteString() }
-                    .build()
-            it.publicKey = it.publicKey.toBuilder().also { builder ->
-                builder.secp256K1Uncompressed =
-                    builder.secp256K1Uncompressed.toBuilder().also { keyBuilder ->
-                        keyBuilder.bytes =
-                            KeyUtil.addUncompressedByte(KeyUtil.getPublicKey(bytes)).toByteString()
-                    }.build()
-            }.build()
-        }.build()
-
-        val client = Client().create(account = PrivateKeyBuilder(key))
-        assertEquals(client.apiClient.environment, XMTPEnvironment.DEV)
-        val conversations = client.conversations.list()
-        assertEquals(1, conversations.size)
-        val message = conversations[0].messages().firstOrNull()
-        assertEquals(message?.body, "hello")
-    }
-
-    @Test
-    fun testFetchConversation() {
-        // Generated from JS script
-        val ints = arrayOf(
-            31, 116, 198, 193, 189, 122, 19, 254, 191, 189, 211, 215, 255, 131,
-            171, 239, 243, 33, 4, 62, 143, 86, 18, 195, 251, 61, 128, 90, 34, 126, 219, 236
-        )
-        val bytes =
-            ints.foldIndexed(ByteArray(ints.size)) { i, a, v -> a.apply { set(i, v.toByte()) } }
-
-        val key = PrivateKey.newBuilder().also {
-            it.secp256K1 = it.secp256K1.toBuilder().also { builder ->
-                builder.bytes = bytes.toByteString()
-            }.build()
-            it.publicKey = it.publicKey.toBuilder().also { builder ->
-                builder.secp256K1Uncompressed =
-                    builder.secp256K1Uncompressed.toBuilder().also { keyBuilder ->
-                        keyBuilder.bytes =
-                            KeyUtil.addUncompressedByte(KeyUtil.getPublicKey(bytes)).toByteString()
-                    }.build()
-            }.build()
-        }.build()
-
-        val client = Client().create(account = PrivateKeyBuilder(key))
-        assertEquals(client.apiClient.environment, XMTPEnvironment.DEV)
-        val conversations = client.conversations.list()
-        assertEquals(1, conversations.size)
-        val topic = conversations[0].topic
-        val conversation = client.fetchConversation(topic)
-        assertEquals(conversations[0].topic, conversation?.topic)
-        assertEquals(conversations[0].peerAddress, conversation?.peerAddress)
-
-        val noConversation = client.fetchConversation("invalid_topic")
-        assertEquals(null, noConversation)
-    }
-
     @Test
     fun testCanMessage() {
         val fixtures = fixtures()

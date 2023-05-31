@@ -1,8 +1,10 @@
 package org.xmtp.android.library
 
+import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.google.protobuf.kotlin.toByteStringUtf8
 import org.junit.Assert.assertEquals
 import org.junit.Test
+import org.junit.runner.RunWith
 import org.xmtp.android.library.codecs.CompositeCodec
 import org.xmtp.android.library.codecs.ContentCodec
 import org.xmtp.android.library.codecs.ContentTypeId
@@ -35,7 +37,7 @@ data class NumberCodec(
     override fun decode(content: EncodedContent): Double =
         content.content.toStringUtf8().filter { it.isDigit() || it == '.' }.toDouble()
 }
-
+@RunWith(AndroidJUnit4::class)
 class CodecTest {
 
     @Test

@@ -1,9 +1,6 @@
 package org.xmtp.android.library.messages
 
-import org.bouncycastle.asn1.sec.SECNamedCurves
-import org.bouncycastle.crypto.params.ECDomainParameters
 import org.xmtp.android.library.XMTPException
-import java.math.BigInteger
 
 typealias PrivateKeyBundleV2 = org.xmtp.proto.message.contents.PrivateKeyOuterClass.PrivateKeyBundleV2
 
@@ -43,12 +40,12 @@ fun PrivateKeyBundleV2.sharedSecret(
     return dh1 + dh2 + dh3
 }
 
+@OptIn(ExperimentalUnsignedTypes::class)
 fun PrivateKeyBundleV2.sharedSecret(privateData: ByteArray, publicData: ByteArray): ByteArray {
-    val params = SECNamedCurves.getByName("secp256k1")
-    val curve = ECDomainParameters(params.curve, params.g, params.n, params.h)
-    val pudDestPoint = curve.curve.decodePoint(publicData)
-    val multi = pudDestPoint.multiply(BigInteger(1, privateData))
-    return multi.getEncoded(false)
+    return uniffi.xmtp_dh.diffieHellmanK256(
+        privateData.toUByteArray().toList(),
+        publicData.toUByteArray().toList()
+    ).toUByteArray().toByteArray()
 }
 
 fun PrivateKeyBundleV2.findPreKey(myPreKey: SignedPublicKey): SignedPrivateKey {
