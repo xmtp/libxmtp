@@ -41,6 +41,18 @@ void* __swift_bridge__$Vec_RustSubscription$get_mut(void* vec_ptr, uintptr_t ind
 uintptr_t __swift_bridge__$Vec_RustSubscription$len(void* vec_ptr);
 void* __swift_bridge__$Vec_RustSubscription$as_ptr(void* vec_ptr);
 
+typedef struct QueryRequest QueryRequest;
+void __swift_bridge__$QueryRequest$_free(void* self);
+
+void* __swift_bridge__$Vec_QueryRequest$new(void);
+void __swift_bridge__$Vec_QueryRequest$drop(void* vec_ptr);
+void __swift_bridge__$Vec_QueryRequest$push(void* vec_ptr, void* item_ptr);
+void* __swift_bridge__$Vec_QueryRequest$pop(void* vec_ptr);
+void* __swift_bridge__$Vec_QueryRequest$get(void* vec_ptr, uintptr_t index);
+void* __swift_bridge__$Vec_QueryRequest$get_mut(void* vec_ptr, uintptr_t index);
+uintptr_t __swift_bridge__$Vec_QueryRequest$len(void* vec_ptr);
+void* __swift_bridge__$Vec_QueryRequest$as_ptr(void* vec_ptr);
+
 typedef struct QueryResponse QueryResponse;
 void __swift_bridge__$QueryResponse$_free(void* self);
 
@@ -52,6 +64,18 @@ void* __swift_bridge__$Vec_QueryResponse$get(void* vec_ptr, uintptr_t index);
 void* __swift_bridge__$Vec_QueryResponse$get_mut(void* vec_ptr, uintptr_t index);
 uintptr_t __swift_bridge__$Vec_QueryResponse$len(void* vec_ptr);
 void* __swift_bridge__$Vec_QueryResponse$as_ptr(void* vec_ptr);
+
+typedef struct BatchQueryResponse BatchQueryResponse;
+void __swift_bridge__$BatchQueryResponse$_free(void* self);
+
+void* __swift_bridge__$Vec_BatchQueryResponse$new(void);
+void __swift_bridge__$Vec_BatchQueryResponse$drop(void* vec_ptr);
+void __swift_bridge__$Vec_BatchQueryResponse$push(void* vec_ptr, void* item_ptr);
+void* __swift_bridge__$Vec_BatchQueryResponse$pop(void* vec_ptr);
+void* __swift_bridge__$Vec_BatchQueryResponse$get(void* vec_ptr, uintptr_t index);
+void* __swift_bridge__$Vec_BatchQueryResponse$get_mut(void* vec_ptr, uintptr_t index);
+uintptr_t __swift_bridge__$Vec_BatchQueryResponse$len(void* vec_ptr);
+void* __swift_bridge__$Vec_BatchQueryResponse$as_ptr(void* vec_ptr);
 
 typedef struct RustClient RustClient;
 void __swift_bridge__$RustClient$_free(void* self);
@@ -73,7 +97,9 @@ struct __private__ResultPtrAndPtr __swift_bridge__$RustSubscription$get_messages
 void __swift_bridge__$RustSubscription$close(void* self);
 void* __swift_bridge__$QueryResponse$envelopes(void* self);
 struct __swift_bridge__$Option$PagingInfo __swift_bridge__$QueryResponse$paging_info(void* self);
+void* __swift_bridge__$BatchQueryResponse$responses(void* self);
 void __swift_bridge__$create_client(void* callback_wrapper, void __swift_bridge__$create_client$async(void* callback_wrapper, struct __private__ResultPtrAndPtr ret), void* host, bool is_secure);
+void __swift_bridge__$RustClient$batch_query(void* callback_wrapper, void __swift_bridge__$RustClient$batch_query$async(void* callback_wrapper, struct __private__ResultPtrAndPtr ret), void* self, void* requests);
 void __swift_bridge__$RustClient$query(void* callback_wrapper, void __swift_bridge__$RustClient$query$async(void* callback_wrapper, struct __private__ResultPtrAndPtr ret), void* self, void* topic, struct __private__OptionU64 start_time_ns, struct __private__OptionU64 end_time_ns, struct __swift_bridge__$Option$PagingInfo paging_info);
 void __swift_bridge__$RustClient$publish(void* callback_wrapper, void __swift_bridge__$RustClient$publish$async(void* callback_wrapper, struct __private__ResultPtrAndPtr ret), void* self, void* token, void* envelopes);
 void __swift_bridge__$RustClient$subscribe(void* callback_wrapper, void __swift_bridge__$RustClient$subscribe$async(void* callback_wrapper, struct __private__ResultPtrAndPtr ret), void* self, void* topics);

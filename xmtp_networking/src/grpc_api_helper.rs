@@ -9,8 +9,8 @@ use tokio_rustls::rustls::{ClientConfig, OwnedTrustAnchor, RootCertStore};
 use tonic::Status;
 use tonic::{metadata::MetadataValue, transport::Channel, Request, Streaming};
 use xmtp_proto::xmtp::message_api::v1::{
-    message_api_client::MessageApiClient, Envelope, PagingInfo, PublishRequest, PublishResponse,
-    QueryRequest, QueryResponse, SubscribeRequest,
+    message_api_client::MessageApiClient, BatchQueryRequest, BatchQueryResponse, Envelope,
+    PagingInfo, PublishRequest, PublishResponse, QueryRequest, QueryResponse, SubscribeRequest,
 };
 
 fn tls_config() -> Result<ClientConfig, tonic::Status> {
@@ -168,6 +168,21 @@ impl Client {
             InnerApiClient::Tls(c) => c.clone().query(request).await,
         };
 
+        match res {
+            Ok(response) => Ok(response.into_inner()),
+            Err(e) => Err(e),
+        }
+    }
+
+    pub async fn batch_query(
+        &self,
+        requests: Vec<QueryRequest>,
+    ) -> Result<BatchQueryResponse, tonic::Status> {
+        let request = BatchQueryRequest { requests };
+        let res = match &self.client {
+            InnerApiClient::Plain(c) => c.clone().batch_query(request).await,
+            InnerApiClient::Tls(c) => c.clone().batch_query(request).await,
+        };
         match res {
             Ok(response) => Ok(response.into_inner()),
             Err(e) => Err(e),

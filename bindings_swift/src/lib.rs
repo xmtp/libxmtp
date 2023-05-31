@@ -1,7 +1,8 @@
+use types::BatchQueryResponse;
 use types::QueryResponse;
 use xmtp_crypto::{hashes, k256_helper};
 use xmtp_networking::grpc_api_helper;
-use xmtp_proto::xmtp::message_api::v1::{Envelope as EnvelopeProto, PagingInfo};
+use xmtp_proto::xmtp::message_api::v1::{Envelope as EnvelopeProto, PagingInfo, QueryRequest};
 pub mod types;
 
 #[swift_bridge::bridge]
@@ -43,6 +44,10 @@ mod ffi {
     }
 
     extern "Rust" {
+        type QueryRequest;
+    }
+
+    extern "Rust" {
         type QueryResponse;
 
         fn envelopes(&self) -> Vec<Envelope>;
@@ -51,9 +56,20 @@ mod ffi {
     }
 
     extern "Rust" {
+        type BatchQueryResponse;
+
+        fn responses(&self) -> Vec<QueryResponse>;
+    }
+
+    extern "Rust" {
         type RustClient;
 
         async fn create_client(host: String, is_secure: bool) -> Result<RustClient, String>;
+
+        async fn batch_query(
+            &mut self,
+            requests: Vec<QueryRequest>,
+        ) -> Result<BatchQueryResponse, String>;
 
         async fn query(
             &mut self,
@@ -110,6 +126,19 @@ async fn create_client(host: String, is_secure: bool) -> Result<RustClient, Stri
 }
 
 impl RustClient {
+    async fn batch_query(
+        &mut self,
+        requests: Vec<QueryRequest>,
+    ) -> Result<BatchQueryResponse, String> {
+        let result = self
+            .client
+            .batch_query(requests)
+            .await
+            .map_err(|e| format!("{}", e))?;
+
+        Ok(BatchQueryResponse::from(result))
+    }
+
     async fn query(
         &mut self,
         topic: String,
@@ -305,6 +334,15 @@ mod tests {
             content_topic: topic,
             message: vec![65],
         }
+    }
+
+    #[tokio::test]
+    async fn test_batch_query() {
+        let mut client = super::create_client(ADDRESS.to_string(), false)
+            .await
+            .unwrap();
+        let result = client.batch_query(vec![]).await.unwrap();
+        assert_eq!(result.responses().len(), 0);
     }
 
     // Try a query on a test topic, and make sure we get a response
