@@ -3,7 +3,9 @@ use thiserror::Error;
 
 use vodozemac::Curve25519PublicKey;
 use xmtp_cryptography::hash::keccak256;
-use xmtp_proto::xmtp::v3::message_contents::VmacContactBundle;
+use xmtp_proto::xmtp::v3::message_contents::{
+    installation_contact_bundle::Version as ContactBundleVersionProto, InstallationContactBundle,
+};
 
 use crate::{utils::base64_encode, vmac_protos::ProtoWrapper};
 
@@ -18,16 +20,16 @@ pub enum ContactError {
 }
 #[derive(Clone)]
 pub struct Contact {
-    pub(crate) bundle: VmacContactBundle,
+    pub(crate) bundle: InstallationContactBundle,
 }
 
 impl Contact {
-    pub fn new(bundle: VmacContactBundle) -> Self {
+    pub fn new(bundle: InstallationContactBundle) -> Self {
         Self { bundle }
     }
 
     pub fn from_bytes(bytes: Vec<u8>) -> Result<Self, ContactError> {
-        let bundle = VmacContactBundle::decode(bytes.as_slice())?;
+        let bundle = InstallationContactBundle::decode(bytes.as_slice())?;
 
         Ok(Self { bundle })
     }
@@ -45,17 +47,23 @@ impl Contact {
     }
 
     pub fn vmac_identity_key(&self) -> Curve25519PublicKey {
-        // TODO: Replace unwrap with proper error handling
+        let identity_key = match self.bundle.clone().version.unwrap() {
+            ContactBundleVersionProto::V1(v1) => v1.identity_key.unwrap(),
+        };
+
         let proto_key = ProtoWrapper {
-            proto: self.bundle.clone().identity_key.unwrap(),
+            proto: identity_key,
         };
 
         proto_key.into()
     }
 
     pub fn vmac_fallback_key(&self) -> Curve25519PublicKey {
+        let fallback_key = match self.bundle.clone().version.unwrap() {
+            ContactBundleVersionProto::V1(v1) => v1.fallback_key.unwrap(),
+        };
         let proto_key = ProtoWrapper {
-            proto: self.bundle.clone().prekey.unwrap(),
+            proto: fallback_key,
         };
 
         proto_key.into()
