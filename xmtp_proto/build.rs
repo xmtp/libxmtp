@@ -29,7 +29,7 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     let status = Command::new("buf")
         .arg("generate")
-        .arg("https://github.com/xmtp/proto.git#branch=xmtpv3,subdir=proto")
+        .arg("https://github.com/xmtp/proto.git#branch=xmtpv3,ref=5647bfc6ed447b6ae89e462ebfe5971c2d9aa482,subdir=proto")
         .current_dir(env!("CARGO_MANIFEST_DIR"))
         .status()
         .unwrap();
