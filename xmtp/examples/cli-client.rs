@@ -104,6 +104,14 @@ async fn main() {
     // Application logic
     // ...
 
+    for contact in client.get_contacts(&client.wallet_address()).await.unwrap() {
+        info!(
+            "Installation({:?}) ==> {:?}",
+            client.wallet_address(),
+            contact.vmac_identity_key()
+        )
+    }
+
     info!("Exiting CLI Client....");
 }
 
