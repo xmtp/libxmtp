@@ -20,5 +20,5 @@ The generated bindings (`xmtp_dh.kt`) and the cross-compiled binaries (`jniLibs`
 
 - Run `./gen_kotlin.sh` to re-generate the bindings
 - Install Docker
-- Install [cross-rs](https://github.com/cross-rs/cross) for zero setup cross-platform builds
+- Install Cross for zero setup cross-platform builds: `cargo install cross --git https://github.com/cross-rs/cross`
 - Run `./cross_build.sh` to cross-compile (this is SLOW)
