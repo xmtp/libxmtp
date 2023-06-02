@@ -4,10 +4,12 @@ import android.util.Log
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.runBlocking
+import org.xmtp.android.library.GRPCApiClient.Companion.makeQueryRequest
 import org.xmtp.android.library.messages.Envelope
 import org.xmtp.android.library.messages.EnvelopeBuilder
 import org.xmtp.android.library.messages.InvitationV1
 import org.xmtp.android.library.messages.MessageV1Builder
+import org.xmtp.android.library.messages.Pagination
 import org.xmtp.android.library.messages.SealedInvitation
 import org.xmtp.android.library.messages.SealedInvitationBuilder
 import org.xmtp.android.library.messages.SignedPublicKeyBundle
@@ -218,6 +220,42 @@ data class Conversations(
         return envelopes.map { envelope ->
             SealedInvitation.parseFrom(envelope.message)
         }
+    }
+
+    fun listBatchMessages(
+        topics: List<String>,
+        limit: Int? = null,
+        before: Date? = null,
+        after: Date? = null,
+    ): List<DecodedMessage> {
+        val pagination = Pagination(limit = limit, startTime = before, endTime = after)
+        val requests = topics.map { topic ->
+            makeQueryRequest(topic = topic, pagination = pagination)
+        }
+
+        // The maximum number of requests permitted in a single batch call.
+        val maxQueryRequestsPerBatch = 50
+        val messages: MutableList<DecodedMessage> = mutableListOf()
+        val batches = requests.chunked(maxQueryRequestsPerBatch)
+        for (batch in batches) {
+            runBlocking {
+                messages.addAll(
+                    client.batchQuery(batch).responsesOrBuilderList.flatMap { res ->
+                        res.envelopesList.mapNotNull { envelope ->
+                            val conversation =
+                                conversations.firstOrNull { it.topic == envelope.contentTopic }
+                            if (conversation == null) {
+                                Log.d(TAG, "discarding message, unknown conversation $envelope")
+                                return@mapNotNull null
+                            }
+                            val msg = conversation.decode(envelope)
+                            msg
+                        }
+                    }
+                )
+            }
+        }
+        return messages
     }
 
     fun sendInvitation(

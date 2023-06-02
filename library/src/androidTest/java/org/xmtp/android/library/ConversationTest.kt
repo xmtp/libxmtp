@@ -413,6 +413,24 @@ class ConversationTest {
     }
 
     @Test
+    fun testListBatchMessages() {
+        val bobConversation = bobClient.conversations.newConversation(
+            alice.walletAddress,
+            context = InvitationV1ContextBuilder.buildFromConversation("hi")
+        )
+
+        val aliceConversation = aliceClient.conversations.newConversation(
+            bob.walletAddress,
+            context = InvitationV1ContextBuilder.buildFromConversation("hi")
+        )
+        bobConversation.send(text = "hey alice 1")
+        bobConversation.send(text = "hey alice 2")
+        bobConversation.send(text = "hey alice 3")
+        val messages = aliceClient.conversations.listBatchMessages(listOf(aliceConversation.topic, bobConversation.topic))
+        assertEquals(3, messages.size)
+    }
+
+    @Test
     fun testImportV1ConversationFromJS() {
         val jsExportJSONData =
             (""" { "version": "v1", "peerAddress": "0x5DAc8E2B64b8523C11AF3e5A2E087c2EA9003f14", "createdAt": "2022-09-20T09:32:50.329Z" } """).toByteArray(

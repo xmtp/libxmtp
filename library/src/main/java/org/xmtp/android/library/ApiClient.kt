@@ -37,7 +37,11 @@ interface ApiClient {
     suspend fun subscribe(topics: List<String>): Flow<Envelope>
 }
 
-data class GRPCApiClient(override val environment: XMTPEnvironment, val secure: Boolean = true, val appVersion: String? = null) :
+data class GRPCApiClient(
+    override val environment: XMTPEnvironment,
+    val secure: Boolean = true,
+    val appVersion: String? = null,
+) :
     ApiClient, Closeable {
     companion object {
         val AUTHORIZATION_HEADER_KEY: Metadata.Key<String> =
@@ -48,6 +52,37 @@ data class GRPCApiClient(override val environment: XMTPEnvironment, val secure: 
 
         val APP_VERSION_HEADER_KEY: Metadata.Key<String> =
             Metadata.Key.of("X-App-Version", Metadata.ASCII_STRING_MARSHALLER)
+
+        fun makeQueryRequest(
+            topic: String,
+            pagination: Pagination? = null,
+            cursor: Cursor? = null,
+        ): QueryRequest =
+            QueryRequest.newBuilder()
+                .addContentTopics(topic).also {
+                    if (pagination != null) {
+                        it.pagingInfo = pagination.pagingInfo
+                    }
+                    if (pagination?.startTime != null) {
+                        it.endTimeNs = pagination.startTime.time * 1_000_000
+                        it.pagingInfo = it.pagingInfo.toBuilder().also { info ->
+                            info.direction =
+                                MessageApiOuterClass.SortDirection.SORT_DIRECTION_DESCENDING
+                        }.build()
+                    }
+                    if (pagination?.endTime != null) {
+                        it.startTimeNs = pagination.endTime.time * 1_000_000
+                        it.pagingInfo = it.pagingInfo.toBuilder().also { info ->
+                            info.direction =
+                                MessageApiOuterClass.SortDirection.SORT_DIRECTION_DESCENDING
+                        }.build()
+                    }
+                    if (cursor != null) {
+                        it.pagingInfo = it.pagingInfo.toBuilder().also { info ->
+                            info.cursor = cursor
+                        }.build()
+                    }
+                }.build()
     }
 
     private val channel: ManagedChannel =
@@ -74,32 +109,7 @@ data class GRPCApiClient(override val environment: XMTPEnvironment, val secure: 
         pagination: Pagination?,
         cursor: Cursor?,
     ): QueryResponse {
-        val request = QueryRequest.newBuilder()
-            .addContentTopics(topic).also {
-                if (pagination != null) {
-                    it.pagingInfo = pagination.pagingInfo
-                }
-                if (pagination?.startTime != null) {
-                    it.endTimeNs = pagination.startTime.time * 1_000_000
-                    it.pagingInfo = it.pagingInfo.toBuilder().also { info ->
-                        info.direction =
-                            MessageApiOuterClass.SortDirection.SORT_DIRECTION_DESCENDING
-                    }.build()
-                }
-                if (pagination?.endTime != null) {
-                    it.startTimeNs = pagination.endTime.time * 1_000_000
-                    it.pagingInfo = it.pagingInfo.toBuilder().also { info ->
-                        info.direction =
-                            MessageApiOuterClass.SortDirection.SORT_DIRECTION_DESCENDING
-                    }.build()
-                }
-                if (cursor != null) {
-                    it.pagingInfo = it.pagingInfo.toBuilder().also { info ->
-                        info.cursor = cursor
-                    }.build()
-                }
-            }.build()
-
+        val request = makeQueryRequest(topic, pagination, cursor)
         val headers = Metadata()
 
         authToken?.let { token ->
