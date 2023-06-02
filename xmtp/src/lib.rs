@@ -32,6 +32,13 @@ pub trait Errorer {
 pub trait Store<I> {
     fn store(&self, into: &mut I) -> Result<(), StorageError>;
 }
+
+pub trait KeyStore: Default + Errorer {
+    fn get_account(&mut self) -> Result<Option<Account>, StorageError>;
+
+    fn set_account(&mut self, account: &Account) -> Result<(), StorageError>;
+}
+
 #[derive(Debug, Error)]
 pub enum StorageError {
     #[error("could not Fetch: {0}")]

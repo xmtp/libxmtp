@@ -1,11 +1,13 @@
+use crate::storage::EncryptedMessageStore;
 use crate::{
     account::{Account, AccountError},
     association::{Association, AssociationError, AssociationText},
     client::{Client, Network},
     networking::XmtpApiClient,
     types::Address,
-    Errorer, InboxOwner,
+    Errorer, InboxOwner, KeyStore,
 };
+use crate::{Fetch, StorageError, Store};
 use thiserror::Error;
 
 #[derive(Error, Debug)]
@@ -25,6 +27,9 @@ pub enum ClientBuilderError {
     // StoreInitialization(#[from] SE),
     #[error("Error Initalizing Account")]
     AccountInitialization(#[from] AccountError),
+
+    #[error("Storage Error")]
+    StorageError(#[from] StorageError),
 }
 
 pub enum AccountStrategy<O: InboxOwner> {
@@ -55,7 +60,7 @@ where
 pub struct ClientBuilder<A, S, O>
 where
     A: XmtpApiClient + Default,
-    S: Default + Errorer,
+    S: KeyStore,
     O: InboxOwner,
 {
     api_client: Option<A>,
@@ -68,8 +73,9 @@ where
 impl<A, S, O> ClientBuilder<A, S, O>
 where
     A: XmtpApiClient + Default,
-    S: Default + Errorer,
+    S: KeyStore,
     O: InboxOwner,
+    S: Fetch<Account>,
 {
     const ACCOUNT_KEY: &str = "xmtp_account";
 

@@ -15,10 +15,13 @@ pub mod models;
 pub mod schema;
 
 use rand::RngCore;
+use serde_json::json;
 use std::{ops::DerefMut, sync::Mutex};
 
+use self::schema::accounts;
 use self::{models::*, schema::messages};
-use crate::{Errorer, Fetch, Store};
+use crate::account::Account;
+use crate::{Errorer, Fetch, KeyStore, StorageError, Store};
 use diesel::{connection::SimpleConnection, prelude::*, Connection};
 use thiserror::Error;
 use xmtp_cryptography::utils as crypto_utils;
@@ -143,6 +146,18 @@ impl EncryptedMessageStore {
         let mut key = [0u8; 32];
         crypto_utils::rng().fill_bytes(&mut key[..]);
         key
+    }
+}
+
+impl KeyStore for EncryptedMessageStore {
+    fn get_account(&mut self) -> Result<Option<Account>, StorageError> {
+        let mut account_list: Vec<Account> = self.fetch()?;
+        Ok(account_list.pop())
+    }
+
+    fn set_account(&mut self, account: &Account) -> Result<(), StorageError> {
+        account.store(self)?;
+        Ok(())
     }
 }
 
