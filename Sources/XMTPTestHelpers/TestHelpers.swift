@@ -193,6 +193,19 @@ public class FakeApiClient: ApiClient {
 
 		return PublishResponse()
 	}
+
+    public func batchQuery(request: XMTP.BatchQueryRequest) async throws -> XMTP.BatchQueryResponse {
+        abort() // Not supported on Fake
+    }
+
+    public func query(request: XMTP.QueryRequest) async throws -> XMTP.QueryResponse {
+        abort() // Not supported on Fake
+    }
+
+    public func publish(request: XMTP.PublishRequest) async throws -> XMTP.PublishResponse {
+        abort() // Not supported on Fake
+    }
+
 }
 
 @available(iOS 15, *)

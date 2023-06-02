@@ -7,8 +7,14 @@
 
 import Foundation
 import XMTPRust
+import XMTPRustSwift
 
+typealias PublishRequest = Xmtp_MessageApi_V1_PublishRequest
 typealias PublishResponse = Xmtp_MessageApi_V1_PublishResponse
+typealias BatchQueryRequest = Xmtp_MessageApi_V1_BatchQueryRequest
+typealias BatchQueryResponse = Xmtp_MessageApi_V1_BatchQueryResponse
+typealias Cursor = Xmtp_MessageApi_V1_Cursor
+typealias QueryRequest = Xmtp_MessageApi_V1_QueryRequest
 typealias QueryResponse = Xmtp_MessageApi_V1_QueryResponse
 typealias SubscribeRequest = Xmtp_MessageApi_V1_SubscribeRequest
 
@@ -16,11 +22,34 @@ protocol ApiClient {
 	var environment: XMTPEnvironment { get }
 	init(environment: XMTPEnvironment, secure: Bool, rustClient: XMTPRust.RustClient) throws
 	func setAuthToken(_ token: String)
+    func batchQuery(request: BatchQueryRequest) async throws -> BatchQueryResponse
 	func query(topic: String, pagination: Pagination?, cursor: Xmtp_MessageApi_V1_Cursor?) async throws -> QueryResponse
 	func query(topic: Topic, pagination: Pagination?) async throws -> QueryResponse
+    func query(request: QueryRequest) async throws -> QueryResponse
 	func envelopes(topic: String, pagination: Pagination?) async throws -> [Envelope]
 	func publish(envelopes: [Envelope]) async throws -> PublishResponse
+    func publish(request: PublishRequest) async throws -> PublishResponse
 	func subscribe(topics: [String]) -> AsyncThrowingStream<Envelope, Error>
+}
+
+func makeQueryRequest(topic: String, pagination: Pagination? = nil, cursor: Cursor? = nil) -> QueryRequest {
+    return QueryRequest.with {
+        $0.contentTopics = [topic]
+        if let pagination {
+            $0.pagingInfo = pagination.pagingInfo
+        }
+        if let startAt = pagination?.startTime {
+            $0.endTimeNs = UInt64(startAt.millisecondsSinceEpoch) * 1_000_000
+            $0.pagingInfo.direction = .descending
+        }
+        if let endAt = pagination?.endTime {
+            $0.startTimeNs = UInt64(endAt.millisecondsSinceEpoch) * 1_000_000
+            $0.pagingInfo.direction = .descending
+        }
+        if let cursor {
+            $0.pagingInfo.cursor = cursor
+        }
+    }
 }
 
 class GRPCApiClient: ApiClient {
@@ -48,96 +77,26 @@ class GRPCApiClient: ApiClient {
 	func setAuthToken(_ token: String) {
 		authToken = token
 	}
-	
-	func rustPagingInfoFromRequest(request: Xmtp_MessageApi_V1_QueryRequest) -> XMTPRust.PagingInfo {
-		var rustPaging = XMTPRust.PagingInfo(limit: 0, cursor: nil, direction: XMTPRust.SortDirection.Ascending)
-		rustPaging.limit = request.pagingInfo.limit
-		if request.hasPagingInfo && request.pagingInfo.hasCursor {
-			let cursor = request.pagingInfo.cursor;
-			let digest = RustVec<UInt8>(cursor.index.digest)
-			let senderTimeNs = cursor.index.senderTimeNs
-			rustPaging.cursor = XMTPRust.IndexCursor(digest: digest, sender_time_ns: senderTimeNs)
-		}
 
-		// Set rustPaging.direction based off a switch-case conversion
-		switch request.pagingInfo.direction {
-		case .ascending:
-			rustPaging.direction = XMTPRust.SortDirection.Ascending
-		case .descending:
-			rustPaging.direction = XMTPRust.SortDirection.Descending
-		case .unspecified:
-			rustPaging.direction = XMTPRust.SortDirection.Unspecified
-		case .UNRECOGNIZED(_):
-			rustPaging.direction = XMTPRust.SortDirection.Unspecified
-		}
+    func batchQuery(request: BatchQueryRequest) async throws -> BatchQueryResponse {
+        let req = RustVec<UInt8>(try request.serializedData())
+        let res: RustVec<UInt8> = try await rustClient.batch_query(req)
+        return try BatchQueryResponse(serializedData: Data(res))
+    }
 
-		return rustPaging;
-	}
-	
-	func parseRustPagingInfoFromResponse(response: XMTPRust.QueryResponse) -> PagingInfo {
-		var pagingInfo = PagingInfo()
-		if let rustPaging = response.paging_info() {
-			pagingInfo.limit = rustPaging.limit
-			if let rustCursor = rustPaging.cursor {
-				var cursor = PagingInfoCursor()
-				cursor.index.digest = Data(rustCursor.digest)
-				cursor.index.senderTimeNs = rustCursor.sender_time_ns
-				pagingInfo.cursor = cursor
-			}
-			switch rustPaging.direction {
-			case XMTPRust.SortDirection.Ascending:
-				pagingInfo.direction = .ascending
-			case XMTPRust.SortDirection.Descending:
-				pagingInfo.direction = .descending
-			case XMTPRust.SortDirection.Unspecified:
-				pagingInfo.direction = .unspecified
-			}
-		}
-		return pagingInfo
-	}
+    func query(request: QueryRequest) async throws -> QueryResponse {
+        let req = RustVec<UInt8>(try request.serializedData())
+        let res: RustVec<UInt8> = try await rustClient.query(req)
+        return try QueryResponse(serializedData: Data(res))
+    }
 
-	func query(topic: String, pagination: Pagination? = nil, cursor: Xmtp_MessageApi_V1_Cursor? = nil) async throws -> QueryResponse {
-		var request = Xmtp_MessageApi_V1_QueryRequest()
-		request.contentTopics = [topic]
+    func query(topic: String, pagination: Pagination? = nil, cursor: Cursor? = nil) async throws -> QueryResponse {
+        return try await query(request: makeQueryRequest(topic: topic, pagination: pagination, cursor: cursor))
+    }
 
-		if let pagination {
-			request.pagingInfo = pagination.pagingInfo
-		}
-
-		if let startAt = pagination?.startTime {
-			request.endTimeNs = UInt64(startAt.millisecondsSinceEpoch) * 1_000_000
-			request.pagingInfo.direction = .descending
-		}
-
-		if let endAt = pagination?.endTime {
-			request.startTimeNs = UInt64(endAt.millisecondsSinceEpoch) * 1_000_000
-			request.pagingInfo.direction = .descending
-		}
-
-		if let cursor {
-			request.pagingInfo.cursor = cursor
-		}
-
-		
-		let startTimeParam: UInt64? = pagination == nil ? nil : request.startTimeNs
-		let endTimeParam: UInt64? = pagination == nil ? nil : request.endTimeNs
-		let rustPagingInfo = rustPagingInfoFromRequest(request: request)
-		let response = try await rustClient.query(topic.intoRustString(), startTimeParam, endTimeParam, rustPagingInfo)
-		// response has .envelopes() and .paging_info() but the envelopes need to be mapped into Envelope objects that Swift understands
-		var queryResponse = QueryResponse()
-		// Build the query response from response fields
-		queryResponse.envelopes = response.envelopes().map { rustEnvelope in
-			var envelope = Envelope()
-			envelope.contentTopic = rustEnvelope.get_topic().toString()
-			envelope.timestampNs = rustEnvelope.get_sender_time_ns()
-			envelope.message = Data(rustEnvelope.get_payload())
-			return envelope
-		}
-		if let _ = response.paging_info() {
-			queryResponse.pagingInfo = parseRustPagingInfoFromResponse(response: response)
-		}
-		return queryResponse
-	}
+    func query(topic: Topic, pagination: Pagination? = nil) async throws -> QueryResponse {
+        return try await query(request: makeQueryRequest(topic: topic.description, pagination: pagination))
+    }
 
 	func envelopes(topic: String, pagination: Pagination? = nil) async throws -> [Envelope] {
 		var envelopes: [Envelope] = []
@@ -156,27 +115,19 @@ class GRPCApiClient: ApiClient {
 		return envelopes
 	}
 
-	func query(topic: Topic, pagination: Pagination? = nil) async throws -> Xmtp_MessageApi_V1_QueryResponse {
-		return try await query(topic: topic.description, pagination: pagination)
-	}
-
 	func subscribe(topics: [String]) -> AsyncThrowingStream<Envelope, Error> {
 		return AsyncThrowingStream { continuation in
 			Task {
-				let topicsVec = RustVec<RustString>()
-				for topic in topics {
-					topicsVec.push(value: topic.intoRustString())
-				}
-				let subscription = try await self.rustClient.subscribe(topicsVec)
-				// Run a continuous for loop polling subscription.get_messages() and then waiting for 2 seconds
+                let request = SubscribeRequest.with { $0.contentTopics = topics }
+                let req = RustVec<UInt8>(try request.serializedData())
+                let subscription = try await self.rustClient.subscribe(req)
+				// Run a continuous for loop polling and sleeping for a bit each loop.
 				while true {
-					let rustEnvelopes = try subscription.get_messages()
-					for rustEnvelope in rustEnvelopes {
-						var swiftEnvelope = Envelope()
-						swiftEnvelope.contentTopic = rustEnvelope.get_topic().toString()
-						swiftEnvelope.timestampNs = rustEnvelope.get_sender_time_ns()
-						swiftEnvelope.message = Data(rustEnvelope.get_payload())
-						continuation.yield(swiftEnvelope)
+					let buf = try subscription.get_envelopes_as_query_response()
+                    // Note: it uses QueryResponse as a convenient envelopes wrapper.
+                    let res = try QueryResponse(serializedData: Data(buf))
+                    for envelope in res.envelopes {
+						continuation.yield(envelope)
 					}
 					try await Task.sleep(nanoseconds: 50_000_000) // 50ms
 				}
@@ -184,19 +135,15 @@ class GRPCApiClient: ApiClient {
 		}
 	}
 
+    func publish(request: PublishRequest) async throws -> PublishResponse {
+        let req = RustVec<UInt8>(try request.serializedData())
+        let res: RustVec<UInt8> = try await rustClient.publish(authToken.intoRustString(), req)
+        return try PublishResponse(serializedData: Data(res))
+    }
+
 	@discardableResult func publish(envelopes: [Envelope]) async throws -> PublishResponse {
-		var request = Xmtp_MessageApi_V1_PublishRequest()
-		request.envelopes = envelopes
-
-		let envelopesVec = RustVec<XMTPRust.Envelope>()
-
-		envelopes.forEach { envelope in
-			let rustEnvelope = XMTPRust.create_envelope(envelope.contentTopic.intoRustString(), envelope.timestampNs, RustVec<UInt8>(envelope.message))
-			envelopesVec.push(value: rustEnvelope)
-		}
-		let _ = try await rustClient.publish(authToken.intoRustString(), envelopesVec)
-		// NOTE: PublishResponse proto has no fields
-		let publishResponse = PublishResponse()
-		return publishResponse
+        return try await publish(request: PublishRequest.with {
+            $0.envelopes = envelopes
+        })
 	}
 }

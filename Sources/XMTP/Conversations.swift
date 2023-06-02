@@ -20,6 +20,39 @@ public class Conversations {
 		self.client = client
 	}
 
+    public func listBatchMessages(topics: [String], limit: Int? = nil, before: Date? = nil, after: Date? = nil) async throws -> [DecodedMessage] {
+        let pagination = Pagination(limit: limit, startTime: before, endTime: after)
+        let requests = topics.map { (topic) in
+            makeQueryRequest(topic: topic, pagination: pagination)
+        }
+        /// The maximum number of requests permitted in a single batch call.
+        let maxQueryRequestsPerBatch = 50
+        let batches = requests.chunks(maxQueryRequestsPerBatch)
+            .map { (requests) in BatchQueryRequest.with { $0.requests = requests } }
+        var messages: [DecodedMessage] = []
+        // TODO: consider using a task group here for parallel batch calls
+        for batch in batches {
+            messages += try await client.apiClient.batchQuery(request: batch)
+                .responses.flatMap { (res) in
+                    try res.envelopes.compactMap { (envelope) in
+                        let conversation = conversations
+                            .first(where: { $0.topic == envelope.contentTopic })
+                        if conversation == nil {
+                            print("discarding message, unknown conversation \(envelope)")
+                            return nil
+                        }
+                        let msg = try conversation?.decode(envelope)
+                        if msg == nil {
+                            print("discarding message, unable to decode \(envelope)")
+                            return nil
+                        }
+                        return msg
+                    }
+                }
+        }
+        return messages
+    }
+
 	public func streamAllMessages() async throws -> AsyncThrowingStream<DecodedMessage, Error> {
 		return AsyncThrowingStream { continuation in
 			Task {

@@ -176,8 +176,8 @@
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/xmtp/xmtp-rust-swift",
       "state" : {
-        "revision" : "eccfc16bb8f866857ecbb1604c1dab855b1960f7",
-        "version" : "0.2.2-beta0"
+         "revision" : "41a1161cf06a86bab0aa886e450584a1191429b1",
+         "version" : "0.3.0-beta0"
       }
     }
   ],

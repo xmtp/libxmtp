@@ -132,7 +132,10 @@ public class Client {
 		for envelope in res.envelopes {
 			let encryptedBundle = try EncryptedPrivateKeyBundle(serializedData: envelope.message)
 			let bundle = try await encryptedBundle.decrypted(with: account)
-			return bundle.v1
+            if case .v1 = bundle.version {
+                return bundle.v1
+            }
+            print("discarding unsupported stored key bundle")
 		}
 
 		return nil
@@ -274,6 +277,10 @@ public class Client {
 			pagination: pagination
 		)
 	}
+
+    func batchQuery(request: BatchQueryRequest) async throws -> BatchQueryResponse {
+        return try await apiClient.batchQuery(request: request)
+    }
 
 	@discardableResult func publish(envelopes: [Envelope]) async throws -> PublishResponse {
 		let authorized = AuthorizedIdentity(address: address, authorized: privateKeyBundleV1.identityKey.publicKey, identity: privateKeyBundleV1.identityKey)
