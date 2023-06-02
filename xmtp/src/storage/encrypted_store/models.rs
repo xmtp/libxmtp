@@ -1,6 +1,6 @@
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use super::schema::messages;
+use super::schema::{accounts, messages};
 use diesel::prelude::*;
 
 /// Placeholder type for messages returned from the Store.
@@ -50,4 +50,16 @@ fn now() -> i64 {
         .duration_since(UNIX_EPOCH)
         .expect("Time went backwards")
         .as_nanos() as i64
+}
+
+#[derive(Queryable, Debug)]
+pub struct StoredAccount {
+    pub id: i32,
+    pub serialized_key: String,
+}
+
+#[derive(Insertable, Debug)]
+#[diesel(table_name = accounts)]
+pub struct NewStoredAccount {
+    pub serialized_key: String,
 }

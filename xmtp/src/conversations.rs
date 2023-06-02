@@ -5,35 +5,32 @@ use tokio::sync::Mutex;
 use crate::{
     conversation::{ConversationError, SecretConversation},
     networking::XmtpApiClient,
-    persistence::Persistence,
     Client,
 };
 
-pub struct Conversations<A, P, S>
+pub struct Conversations<A, S>
 where
     A: XmtpApiClient,
-    P: Persistence,
 {
-    client: Arc<Mutex<Client<A, P, S>>>,
+    client: Arc<Mutex<Client<A, S>>>,
 }
 
-impl<A, P, S> Conversations<A, P, S>
+impl<A, S> Conversations<A, S>
 where
     A: XmtpApiClient,
-    P: Persistence,
 {
-    pub fn new(client: Arc<Mutex<Client<A, P, S>>>) -> Self {
+    pub fn new(client: Arc<Mutex<Client<A, S>>>) -> Self {
         Self { client }
     }
 
-    pub fn client(&self) -> Arc<Mutex<Client<A, P, S>>> {
+    pub fn client(&self) -> Arc<Mutex<Client<A, S>>> {
         self.client.clone()
     }
 
     pub async fn new_secret_conversation(
         &self,
         wallet_address: String,
-    ) -> Result<SecretConversation<A, P, S>, ConversationError> {
+    ) -> Result<SecretConversation<A, S>, ConversationError> {
         let client = self.client.lock().await;
         let contacts = client.get_contacts(wallet_address.as_str()).await?;
         let conversation = SecretConversation::new(self.client.clone(), wallet_address, contacts);

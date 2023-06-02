@@ -30,35 +30,25 @@ pub enum ClientError {
     Unknown,
 }
 
-pub struct Client<A, P, S>
+pub struct Client<A, S>
 where
     A: XmtpApiClient,
-    P: Persistence,
 {
     pub api_client: A,
     pub network: Network,
-    pub persistence: NamespacedPersistence<P>,
     pub(crate) account: Account,
     pub(super) _store: S,
     is_initialized: bool,
 }
 
-impl<A, P, S> Client<A, P, S>
+impl<A, S> Client<A, S>
 where
     A: XmtpApiClient,
-    P: Persistence,
 {
-    pub fn new(
-        api_client: A,
-        network: Network,
-        persistence: NamespacedPersistence<P>,
-        account: Account,
-        store: S,
-    ) -> Self {
+    pub fn new(api_client: A, network: Network, account: Account, store: S) -> Self {
         Self {
             api_client,
             network,
-            persistence,
             account,
             _store: store,
             is_initialized: false,
@@ -122,16 +112,6 @@ where
 
         Ok(envelope)
     }
-
-    #[allow(dead_code)]
-    fn write_to_persistence(&mut self, s: &str, b: &[u8]) -> Result<(), P::Error> {
-        self.persistence.write(s, b)
-    }
-
-    #[allow(dead_code)]
-    fn read_from_persistence(&self, s: &str) -> Result<Option<Vec<u8>>, P::Error> {
-        self.persistence.read(s)
-    }
 }
 
 #[cfg(test)]
@@ -141,17 +121,6 @@ mod tests {
     use xmtp_proto::xmtp::v3::message_contents::vmac_unsigned_public_key::VodozemacCurve25519;
 
     use crate::ClientBuilder;
-
-    #[test]
-    fn can_pass_persistence_methods() {
-        let mut client = ClientBuilder::new_test().build().unwrap();
-        assert_eq!(client.read_from_persistence("foo").unwrap(), None);
-        client.write_to_persistence("foo", b"bar").unwrap();
-        assert_eq!(
-            client.read_from_persistence("foo").unwrap(),
-            Some(b"bar".to_vec())
-        );
-    }
 
     #[tokio::test]
     async fn registration() {

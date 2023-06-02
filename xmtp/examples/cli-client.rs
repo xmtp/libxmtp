@@ -84,7 +84,6 @@ async fn main() {
     let client_result = xmtp::ClientBuilder::new(wallet)
         .network(xmtp::Network::Dev)
         .api_client(MockXmtpApiClient::default())
-        .persistence(InMemoryPersistence::default())
         .store(msg_store)
         .build();
 
