@@ -50,7 +50,7 @@ pub type EncryptionKey = [u8; 32];
 pub enum StorageOption {
     #[default]
     Ephemeral,
-    Peristent(String),
+    Persistent(String),
 }
 
 #[allow(dead_code)]
@@ -77,7 +77,7 @@ impl EncryptedMessageStore {
     ) -> Result<Self, EncryptedMessageStoreError> {
         let db_path = match opts {
             StorageOption::Ephemeral => ":memory:",
-            StorageOption::Peristent(ref path) => path,
+            StorageOption::Persistent(ref path) => path,
         };
 
         let mut conn = SqliteConnection::establish(db_path)
@@ -215,7 +215,7 @@ mod tests {
         let db_path = format!("{}.db3", rand_string());
         {
             let mut store = EncryptedMessageStore::new(
-                StorageOption::Peristent(db_path.clone()),
+                StorageOption::Persistent(db_path.clone()),
                 EncryptedMessageStore::generate_enc_key(),
             )
             .unwrap();
@@ -263,7 +263,7 @@ mod tests {
             // Setup a persistent store
             let mut store = EncryptedMessageStore::new(
                 // StorageOption::Ephemeral,
-                StorageOption::Peristent(db_path.clone()),
+                StorageOption::Persistent(db_path.clone()),
                 enc_key.clone(),
             )
             .unwrap();
@@ -273,7 +273,7 @@ mod tests {
         } // Drop it
 
         enc_key[3] = 145; // Alter the enc_key
-        let res = EncryptedMessageStore::new(StorageOption::Peristent(db_path.clone()), enc_key);
+        let res = EncryptedMessageStore::new(StorageOption::Persistent(db_path.clone()), enc_key);
         // Ensure it fails
         assert_eq!(res.err(), Some(EncryptedMessageStoreError::DbInitError));
         fs::remove_file(db_path).unwrap();

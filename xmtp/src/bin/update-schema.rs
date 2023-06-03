@@ -13,7 +13,7 @@ use xmtp::storage::{EncryptedMessageStore, StorageOption};
 const DIESEL_TOML: &str = "./diesel.toml";
 
 /// This binary is used to to generate the schema files from a sqlite database instance
-/// and update the appropriate file. The desitation is read from the `diesel.toml`
+/// and update the appropriate file. The destination is read from the `diesel.toml`
 /// print_schema configuration.
 ///
 /// Since the migrations are embedded it can be difficult to have an instance available
@@ -37,7 +37,7 @@ fn update_schemas_encrypted_message_store() -> Result<(), std::io::Error> {
 
     {
         // Initalize DB to read the latest table definitions
-        let _ = EncryptedMessageStore::new(StorageOption::Peristent(tmp_db.clone()), EncryptedMessageStore::generate_enc_key() ).unwrap();
+        let _ = EncryptedMessageStore::new(StorageOption::Persistent(tmp_db.clone()), EncryptedMessageStore::generate_enc_key() ).unwrap();
     }
 
     let diesel_result = exec_diesel(&tmp_db);
