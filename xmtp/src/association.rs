@@ -43,6 +43,19 @@ impl Association {
         Ok(this)
     }
 
+    pub fn from_proto(
+        account_public_key: &[u8],
+        intended_wallet_address: &str,
+        proto: Eip191Association,
+    ) -> Result<Self, AssociationError> {
+        let text = AssociationText::new_static(
+            intended_wallet_address.to_string(),
+            account_public_key.to_vec(),
+        );
+        let signature = RecoverableSignature::Eip191Signature(proto.signature.unwrap().bytes);
+        Self::new(account_public_key, text, signature)
+    }
+
     fn is_valid(&self, account_public_key: &[u8]) -> Result<(), AssociationError> {
         let assumed_addr = self.text.get_address();
 

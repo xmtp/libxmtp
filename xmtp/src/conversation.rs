@@ -57,6 +57,7 @@ where
 
     pub async fn initialize(&self) -> Result<(), ConversationError> {
         let mut client = self.client.lock().await;
+        
         for contact in self.members.iter() {
             let id = contact.id();
             // TODO: Persist session to database

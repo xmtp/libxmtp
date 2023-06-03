@@ -5,6 +5,7 @@ use crate::{
     contact::{Contact, ContactError},
     networking::XmtpApiClient,
     persistence::{NamespacedPersistence, Persistence},
+    session::Session,
     types::Address,
     utils::{build_envelope, build_user_contact_topic},
 };
@@ -94,11 +95,19 @@ where
 
         let mut contacts = vec![];
         for envelope in response.envelopes {
-            let contact_bundle = Contact::from_bytes(envelope.message)?;
+            let contact_bundle = Contact::from_bytes(envelope.message, wallet_address.to_string())?;
             contacts.push(contact_bundle);
         }
 
         Ok(contacts)
+    }
+
+    pub fn create_outbound_session(&self, contact: Contact) -> Result<Session, ClientError> {
+        let olm_session = self.account.create_outbound_session(contact.clone());
+        let session =
+            Session::from_olm_session(olm_session, contact).map_err(|_| ClientError::Unknown)?;
+
+        Ok(session)
     }
 
     async fn publish_user_contact(&mut self) -> Result<(), ClientError> {

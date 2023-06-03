@@ -1,7 +1,11 @@
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use super::schema::messages;
+use super::{
+    schema::{messages, sessions},
+    EncryptedMessageStore,
+};
 use diesel::prelude::*;
+use std::ops::DerefMut;
 
 /// Placeholder type for messages returned from the Store.
 #[derive(Queryable, Debug)]
@@ -50,4 +54,51 @@ fn now() -> i64 {
         .duration_since(UNIX_EPOCH)
         .expect("Time went backwards")
         .as_nanos() as i64
+}
+
+#[derive(Insertable, Identifiable, Queryable, Clone, PartialEq, Debug)]
+#[diesel(table_name = sessions)]
+#[diesel(primary_key(session_id))]
+pub struct PersistedSession {
+    pub session_id: String,
+    pub created_at: i64,
+    pub peer_address: String,
+    pub peer_installation_id: String,
+    pub vmac_session_data: Vec<u8>,
+}
+
+impl PersistedSession {
+    pub fn new(
+        session_id: String,
+        peer_address: String,
+        peer_installation_id: String,
+        vmac_session_data: Vec<u8>,
+    ) -> Self {
+        Self {
+            session_id,
+            created_at: now(),
+            peer_address,
+            peer_installation_id,
+            vmac_session_data,
+        }
+    }
+
+    pub fn update_session_data(
+        &self,
+        new_session_data: Vec<u8>,
+        into: &mut EncryptedMessageStore,
+    ) -> Result<Self, String> {
+        use self::sessions::dsl::*;
+        let mut conn_guard = into.conn.lock().map_err(|e| e.to_string())?;
+
+        diesel::update(self)
+            .set(vmac_session_data.eq(new_session_data.clone()))
+            .execute(conn_guard.deref_mut())
+            .map_err(|e| e.to_string())?;
+
+        let mut updated = self.clone();
+        updated.vmac_session_data = new_session_data;
+
+        Ok(updated)
+    }
 }

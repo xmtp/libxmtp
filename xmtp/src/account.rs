@@ -9,7 +9,8 @@ use crate::{
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 use vodozemac::olm::{
-    Account as OlmAccount, AccountPickle as OlmAccountPickle, IdentityKeys, SessionConfig,
+    Account as OlmAccount, AccountPickle as OlmAccountPickle, IdentityKeys, Session as OlmSession,
+    SessionConfig,
 };
 use xmtp_cryptography::signature::{RecoverableSignature, SignatureError};
 use xmtp_proto::xmtp::v3::message_contents::{
@@ -128,22 +129,25 @@ impl Account {
             key: Some(fallback_key_proto.proto),
         };
         // TODO: Add associations here
-        Contact::new(InstallationContactBundle {
-            version: Some(Version::V1(VmacInstallationPublicKeyBundleV1 {
-                identity_key: Some(identity_key),
-                fallback_key: Some(fallback_key),
-            })),
-        })
+        Contact::new(
+            InstallationContactBundle {
+                version: Some(Version::V1(VmacInstallationPublicKeyBundleV1 {
+                    identity_key: Some(identity_key),
+                    fallback_key: Some(fallback_key),
+                })),
+            },
+            self.addr(),
+        )
+        // I'm OK with using `unwrap()` here, since we should always have a valid contact for ourselves
+        .unwrap()
     }
 
-    pub fn create_outbound_session(&self, contact: Contact) -> Session {
-        let vmac_session = self.keys.get().create_outbound_session(
+    pub fn create_outbound_session(&self, contact: Contact) -> OlmSession {
+        self.keys.get().create_outbound_session(
             SessionConfig::version_2(),
             contact.vmac_identity_key(),
             contact.vmac_fallback_key(),
-        );
-
-        Session::new(vmac_session)
+        )
     }
 
     pub fn get_keys(&self) -> IdentityKeys {

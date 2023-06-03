@@ -9,3 +9,13 @@ diesel::table! {
         content -> Binary,
     }
 }
+
+diesel::table! {
+    sessions (session_id) {
+        session_id -> Text,
+        created_at -> BigInt,
+        peer_address -> Text,
+        peer_installation_id -> Text,
+        vmac_session_data -> Binary,
+    }
+}

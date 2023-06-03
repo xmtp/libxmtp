@@ -144,6 +144,18 @@ impl Store<EncryptedMessageStore> for NewDecryptedMessage {
     }
 }
 
+impl Store<EncryptedMessageStore> for PersistedSession {
+    fn store(&self, into: &mut EncryptedMessageStore) -> Result<(), String> {
+        let mut conn_guard = into.conn.lock().map_err(|e| e.to_string())?;
+        diesel::insert_into(schema::sessions::table)
+            .values(self)
+            .execute(conn_guard.deref_mut())
+            .expect("Error saving new session");
+
+        Ok(())
+    }
+}
+
 impl Fetch<DecryptedMessage> for EncryptedMessageStore {
     type E = EncryptedMessageStoreError;
     fn fetch(&mut self) -> Result<Vec<DecryptedMessage>, Self::E> {
@@ -159,11 +171,25 @@ impl Fetch<DecryptedMessage> for EncryptedMessageStore {
     }
 }
 
+impl Fetch<PersistedSession> for EncryptedMessageStore {
+    type E = EncryptedMessageStoreError;
+    fn fetch(&mut self) -> Result<Vec<PersistedSession>, Self::E> {
+        use self::schema::sessions::dsl::*;
+        let mut conn_guard = self.conn.lock().map_err(|e| {
+            EncryptedMessageStoreError::PoisionError(format!("Error: {}", e.to_string()))
+        })?;
+
+        sessions
+            .load::<PersistedSession>(conn_guard.deref_mut())
+            .map_err(|e| EncryptedMessageStoreError::DieselResultError(e))
+    }
+}
+
 #[cfg(test)]
 mod tests {
 
     use super::{
-        models::{DecryptedMessage, NewDecryptedMessage},
+        models::{DecryptedMessage, NewDecryptedMessage, PersistedSession},
         EncryptedMessageStore, EncryptedMessageStoreError, StorageOption,
     };
     use crate::{Fetch, Store};
@@ -246,7 +272,7 @@ mod tests {
         msg0.store(&mut store).unwrap();
         msg1.store(&mut store).unwrap();
 
-        let msgs = store.fetch().unwrap();
+        let msgs: Vec<DecryptedMessage> = store.fetch().unwrap();
 
         assert_eq!(2, msgs.len());
         assert_eq!(msg0, msgs[0]);
@@ -277,5 +303,21 @@ mod tests {
         // Ensure it fails
         assert_eq!(res.err(), Some(EncryptedMessageStoreError::DbInitError));
         fs::remove_file(db_path).unwrap();
+    }
+
+    #[test]
+    fn store_session() {
+        let mut store = EncryptedMessageStore::new(
+            StorageOption::Ephemeral,
+            EncryptedMessageStore::generate_enc_key(),
+        )
+        .unwrap();
+        let session =
+            PersistedSession::new(rand_string(), rand_string(), rand_string(), rand_vec());
+
+        session.store(&mut store).unwrap();
+
+        let results: Vec<PersistedSession> = store.fetch().unwrap();
+        assert_eq!(1, results.len());
     }
 }
