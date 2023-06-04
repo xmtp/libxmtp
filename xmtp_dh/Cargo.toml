@@ -16,11 +16,16 @@ panic = 'abort'     # Abort on panic
 strip = true        # Strip symbols from binary*
 
 [lib]
-crate-type = ["cdylib"]
+name = "xmtp_dh"
+crate-type = ["lib", "cdylib"]
+
+[[bin]]
+name = "xmtp-dh-gen"
+path = "src/bin.rs"
 
 [dependencies]
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "time"] }
-uniffi = { git = "https://github.com/mozilla/uniffi-rs", rev = "755049ebaa967fdfbb192d5b9c111353a7fee99f", features = ["tokio"] }
+uniffi = { git = "https://github.com/mozilla/uniffi-rs", rev = "755049ebaa967fdfbb192d5b9c111353a7fee99f", features = ["tokio", "cli"] }
 uniffi_macros = { git = "https://github.com/mozilla/uniffi-rs", rev = "755049ebaa967fdfbb192d5b9c111353a7fee99f" }
 xmtp_crypto = { path = "../xmtp_crypto" }
 
