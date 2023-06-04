@@ -6,7 +6,8 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-uniffi = { version = "0.23.0", features = ["cli"] }
+uniffi = { git = "https://github.com/mozilla/uniffi-rs", rev = "f243005ee79c1f3f39b63ba0d722f011f90fff46", features = ["cli", "tokio"] }
+tokio = { version = "1.24.1", features = ["time"] }
 
 [[bin]]
 # This can be whatever name makes sense for your project, but the rest of this tutorial assumes uniffi-bindgen.

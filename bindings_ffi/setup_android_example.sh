@@ -4,6 +4,7 @@ set -e
 
 APP_PATH="../examples/android/xmtpv3_example"
 PROJECT_NAME="xmtpv3"
+mkdir -p $APP_PATH/app/src/main/java/com/example/xmtpv3_example/
 
 # Copy the jniLibs folder to the example project
 rm -rf $APP_PATH/app/src/main/jniLibs

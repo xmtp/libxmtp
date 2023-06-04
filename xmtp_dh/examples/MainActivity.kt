@@ -10,6 +10,7 @@ class MainActivity : AppCompatActivity() {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
 
+//        uniffi.xmtp_dh.sl
         val privateA = mutableListOf<UByte>(
             107u,  41u, 134u,  89u, 51u, 186u, 228u,  48u,
             87u,  94u,  90u,  47u, 46u,  77u, 210u,  51u,
