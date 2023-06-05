@@ -10,7 +10,7 @@ use xmtp_proto::xmtp::message_api::v1::{
     SubscribeRequest,
 };
 
-pub type FfiXmtpClient = xmtp::Client<FfiApiClient, InMemoryPersistence, EncryptedMessageStore>;
+pub type FfiXmtpClient = xmtp::Client<FfiApiClient, EncryptedMessageStore>;
 
 #[swift_bridge::bridge]
 mod ffi {
@@ -31,7 +31,7 @@ async fn create_client(
     host: &str,
     is_secure: bool,
     // TODO proper error handling
-) -> Result<xmtp::Client<FfiApiClient, InMemoryPersistence, EncryptedMessageStore>, String> {
+) -> Result<xmtp::Client<FfiApiClient, EncryptedMessageStore>, String> {
     let api_client = FfiApiClient::new(host, is_secure).await?;
 
     let mut xmtp_client = xmtp::ClientBuilder::new(owner.into())
