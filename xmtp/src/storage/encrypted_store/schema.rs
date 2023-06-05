@@ -3,6 +3,7 @@
 diesel::table! {
     accounts (id) {
         id -> Integer,
+        created_at -> BigInt,
         serialized_key -> Text,
     }
 }

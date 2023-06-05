@@ -55,11 +55,21 @@ fn now() -> i64 {
 #[derive(Queryable, Debug)]
 pub struct StoredAccount {
     pub id: i32,
+    pub created_at: i64,
     pub serialized_key: String,
 }
 
 #[derive(Insertable, Debug)]
 #[diesel(table_name = accounts)]
 pub struct NewStoredAccount {
+    pub created_at: i64,
     pub serialized_key: String,
+}
+impl NewStoredAccount {
+    pub fn new(key_string: String) -> Self {
+        Self {
+            created_at: now(),
+            serialized_key: key_string,
+        }
+    }
 }

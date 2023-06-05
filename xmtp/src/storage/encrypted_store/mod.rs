@@ -197,9 +197,7 @@ impl Store<EncryptedMessageStore> for Account {
             .lock()
             .map_err(|e| StorageError::Store(e.to_string()))?;
         diesel::insert_into(accounts::table)
-            .values(NewStoredAccount {
-                serialized_key: json!(self).to_string(),
-            })
+            .values(NewStoredAccount::new(json!(self).to_string()))
             .execute(conn_guard.deref_mut())
             .expect("Error saving account");
 
@@ -216,6 +214,7 @@ impl Fetch<Account> for EncryptedMessageStore {
             .map_err(|e| StorageError::Fetch(e.to_string()))?;
 
         let stored_accounts = accounts
+            .order(created_at.asc())
             .load::<StoredAccount>(conn_guard.deref_mut())
             .map_err(|e| StorageError::Store(e.to_string()))?;
 
