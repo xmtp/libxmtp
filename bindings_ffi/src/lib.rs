@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use async_trait::async_trait;
 use xmtp::{
     networking::XmtpApiClient, persistence::in_memory_persistence::InMemoryPersistence,
@@ -43,6 +45,37 @@ async fn create_client(
     xmtp_client.init().await.map_err(|e| e.to_string())?;
     Ok(xmtp_client)
 }
+
+pub struct FfiInterface {
+    client: FfiXmtpClient,
+}
+
+#[uniffi::export]
+impl FfiInterface {
+    #[uniffi::constructor]
+    pub async fn create(
+        owner: LocalWallet,
+        host: &str,
+        is_secure: bool,
+        // TODO proper error handling
+    ) -> Result<Arc<Self>, String> {
+        let api_client = FfiApiClient::new(host, is_secure).await?;
+
+        let mut xmtp_client = xmtp::ClientBuilder::new(owner.into())
+            .api_client(api_client)
+            .build()
+            .map_err(|e| format!("{:?}", e))?;
+        xmtp_client.init().await.map_err(|e| e.to_string())?;
+        Ok(Self {
+            client: xmtp_client,
+        })
+    }
+}
+// pub struct FfiXmtpClient {
+//     client: ,
+// }
+
+// impl
 
 pub struct FfiApiClient {
     client: grpc_api_helper::Client,
@@ -175,4 +208,3 @@ mod tests {
         assert!(sub.is_closed());
     }
 }
-
