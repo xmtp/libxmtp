@@ -107,6 +107,8 @@ where
         let session =
             Session::from_olm_session(olm_session, contact).map_err(|_| ClientError::Unknown)?;
 
+        session.store(self._store)?;
+
         Ok(session)
     }
 

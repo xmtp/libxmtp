@@ -1,6 +1,7 @@
 use crate::{
     contact::Contact,
     storage::{EncryptedMessageStore, PersistedSession},
+    Store,
 };
 use vodozemac::olm::{OlmMessage, Session as OlmSession};
 
@@ -30,9 +31,9 @@ impl Session {
         self.session.session_id()
     }
 
-    // pub fn store(&mut self, into: &mut EncryptedMessageStore) -> Result<(), String> {
-    //     self.persisted.Ok(())
-    // }
+    pub fn store(&mut self, into: &mut EncryptedMessageStore) -> Result<(), String> {
+        self.persisted.store(into)
+    }
 
     // TODO: Replace the OlmMessage with our own message wrapper? Or leave up to the caller?
     pub fn encrypt(&mut self, plaintext: &[u8]) -> OlmMessage {
