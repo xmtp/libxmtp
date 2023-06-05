@@ -21,6 +21,9 @@ pub enum ClientBuilderError {
     #[error("Required account was not found in cache.")]
     RequiredAccountNotFound,
 
+    #[error("Database was configured with a different wallet")]
+    StoredAccountMismatch,
+
     #[error("Associating an address to account failed")]
     AssociationFailed(#[from] AssociationError),
     // #[error("Error Initalizing Store")]
@@ -123,10 +126,15 @@ where
         let account = Self::retrieve_peristed_account(Self::ACCOUNT_KEY, store)?;
 
         match account {
-            Some(a) => Ok(a),
+            Some(a) => {
+                if owner.get_address() == a.addr() {
+                    return Ok(a);
+                }
+                Err(ClientBuilderError::StoredAccountMismatch)
+            }
             None => {
                 let new_account = Self::sign_new_account(owner)?;
-                store.set_account(&new_account);
+                store.set_account(&new_account)?;
                 Ok(new_account)
             }
         }
@@ -185,10 +193,6 @@ where
     }
 }
 
-fn get_account_namespace(wallet_address: &str) -> String {
-    format!("xmtp/account_{}", wallet_address)
-}
-
 #[cfg(test)]
 mod tests {
 
@@ -197,10 +201,9 @@ mod tests {
     use xmtp_cryptography::utils::generate_local_wallet;
 
     use crate::{
-        networking::MockXmtpApiClient,
-        persistence::in_memory_persistence::InMemoryPersistence,
+        networking::{MockXmtpApiClient, XmtpApiClient},
         storage::{EncryptedMessageStore, StorageOption},
-        Client,
+        Client, InboxOwner,
     };
 
     use super::ClientBuilder;
@@ -222,9 +225,9 @@ mod tests {
     #[test]
     fn persistence_test() {
         let tmpdb = TempPath::from_path("./db.db3");
-        let enckey = EncryptedMessageStore::generate_enc_key();
         let wallet = generate_local_wallet();
 
+        // Generate a new Wallet + Store
         let store_a = EncryptedMessageStore::new_unencrypted(StorageOption::Peristent(
             tmpdb.to_str().unwrap().into(),
         ))
@@ -238,6 +241,7 @@ mod tests {
         let keybytes_a = client_a.account.get_keys().curve25519.to_bytes();
         drop(client_a);
 
+        // Reload the existing store and wallet
         let store_b = EncryptedMessageStore::new_unencrypted(StorageOption::Peristent(
             tmpdb.to_str().unwrap().into(),
         ))
@@ -249,9 +253,22 @@ mod tests {
                 .build()
                 .unwrap();
         let keybytes_b = client_b.account.get_keys().curve25519.to_bytes();
+        drop(client_b);
+
+        // Create a new wallet and store
+        let store_c = EncryptedMessageStore::new_unencrypted(StorageOption::Peristent(
+            tmpdb.to_str().unwrap().into(),
+        ))
+        .unwrap();
+
+        ClientBuilder::<MockXmtpApiClient, EncryptedMessageStore, LocalWallet>::new(
+            generate_local_wallet().into(),
+        )
+        .store(store_c)
+        .build()
+        .expect_err("Testing expected mismatch error");
 
         // Ensure the persistence was used to store the generated keys
         assert_eq!(keybytes_a, keybytes_b);
-        tmpdb.keep().unwrap();
     }
 }

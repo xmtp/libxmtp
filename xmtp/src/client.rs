@@ -1,3 +1,6 @@
+use core::fmt;
+use std::fmt::{Display, Formatter};
+
 use thiserror::Error;
 
 use crate::{
@@ -10,7 +13,7 @@ use crate::{
 };
 use xmtp_proto::xmtp::message_api::v1::Envelope;
 
-#[derive(Clone, Copy, Default)]
+#[derive(Clone, Copy, Default, Debug)]
 pub enum Network {
     Local(&'static str),
     #[default]
@@ -39,6 +42,15 @@ where
     pub(crate) account: Account,
     pub(super) _store: S,
     is_initialized: bool,
+}
+
+impl<A, S> core::fmt::Debug for Client<A, S>
+where
+    A: XmtpApiClient,
+{
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        write!(f, "Client({:?})::{}", self.network, self.account.addr())
+    }
 }
 
 impl<A, S> Client<A, S>
