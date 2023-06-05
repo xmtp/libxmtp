@@ -40,7 +40,6 @@ where
     pub persistence: NamespacedPersistence<P>,
     pub(crate) account: Account,
     pub(super) _store: S,
-
     is_initialized: bool,
 }
 
@@ -137,10 +136,22 @@ where
 
 #[cfg(test)]
 mod tests {
+    use xmtp_proto::xmtp::v3::message_contents::installation_contact_bundle::Version;
     use xmtp_proto::xmtp::v3::message_contents::vmac_unsigned_public_key::Union::Curve25519;
     use xmtp_proto::xmtp::v3::message_contents::vmac_unsigned_public_key::VodozemacCurve25519;
 
     use crate::ClientBuilder;
+
+    #[test]
+    fn can_pass_persistence_methods() {
+        let mut client = ClientBuilder::new_test().build().unwrap();
+        assert_eq!(client.read_from_persistence("foo").unwrap(), None);
+        client.write_to_persistence("foo", b"bar").unwrap();
+        assert_eq!(
+            client.read_from_persistence("foo").unwrap(),
+            Some(b"bar".to_vec())
+        );
+    }
 
     #[tokio::test]
     async fn registration() {
@@ -162,11 +173,15 @@ mod tests {
             .unwrap();
 
         assert_eq!(contacts.len(), 1);
+        let installation_bundle = match contacts[0].clone().bundle.version.unwrap() {
+            Version::V1(bundle) => bundle,
+        };
+        assert!(installation_bundle.fallback_key.is_some());
+        assert!(installation_bundle.identity_key.is_some());
         contacts[0].vmac_identity_key();
         contacts[0].vmac_fallback_key();
 
-        let key_bytes = contacts[0]
-            .bundle
+        let key_bytes = installation_bundle
             .clone()
             .identity_key
             .unwrap()
@@ -190,16 +205,5 @@ mod tests {
                 )
             }
         }
-    }
-
-    #[test]
-    fn can_pass_persistence_methods() {
-        let mut client = ClientBuilder::new_test().build().unwrap();
-        assert_eq!(client.read_from_persistence("foo").unwrap(), None);
-        client.write_to_persistence("foo", b"bar").unwrap();
-        assert_eq!(
-            client.read_from_persistence("foo").unwrap(),
-            Some(b"bar".to_vec())
-        );
     }
 }

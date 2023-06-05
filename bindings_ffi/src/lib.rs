@@ -7,7 +7,10 @@ use xmtp::{
 };
 use xmtp_cryptography::utils::LocalWallet;
 use xmtp_networking::grpc_api_helper::{self, Subscription};
-use xmtp_proto::xmtp::message_api::v1::{Envelope, PagingInfo, PublishResponse, QueryResponse};
+use xmtp_proto::xmtp::message_api::v1::{
+    Envelope, PagingInfo, PublishRequest, PublishResponse, QueryRequest, QueryResponse,
+    SubscribeRequest,
+};
 
 pub type FfiXmtpClient = xmtp::Client<FfiApiClient, InMemoryPersistence, EncryptedMessageStore>;
 uniffi::include_scaffolding!("xmtpv3");
@@ -107,7 +110,7 @@ impl XmtpApiClient for FfiApiClient {
         // TODO: use error enums
     ) -> Result<PublishResponse, String> {
         self.client
-            .publish(token, envelopes)
+            .publish(token, PublishRequest { envelopes })
             .await
             .map_err(|e| format!("{}", e))
     }
@@ -121,14 +124,21 @@ impl XmtpApiClient for FfiApiClient {
         // TODO: use error enums
     ) -> Result<QueryResponse, String> {
         self.client
-            .query(topic, start_time, end_time, paging_info)
+            .query(QueryRequest {
+                content_topics: vec![topic],
+                start_time_ns: start_time.unwrap_or(0),
+                end_time_ns: end_time.unwrap_or(0),
+                paging_info,
+            })
             .await
             .map_err(|e| format!("{}", e))
     }
 
     async fn subscribe(&mut self, topics: Vec<String>) -> Result<Subscription, String> {
         self.client
-            .subscribe(topics)
+            .subscribe(SubscribeRequest {
+                content_topics: topics,
+            })
             .await
             .map_err(|e| format!("{}", e))
     }

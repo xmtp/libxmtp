@@ -6,7 +6,9 @@ mod tests {
 
     use super::*;
     use grpc_api_helper::Client;
-    use xmtp_proto::xmtp::message_api::v1::Envelope;
+    use xmtp_proto::xmtp::message_api::v1::{
+        BatchQueryRequest, Envelope, PublishRequest, QueryRequest, SubscribeRequest,
+    };
 
     // Return the json serialization of an Envelope with bytes
     pub fn test_envelope(topic: String) -> Envelope {
@@ -26,11 +28,24 @@ mod tests {
             .unwrap();
 
         let result = client
-            .query("test-query".to_string(), None, None, None)
+            .query(QueryRequest {
+                content_topics: vec!["test-query".to_string()],
+                ..QueryRequest::default()
+            })
             .await
             .unwrap();
 
         assert_eq!(result.envelopes.len(), 0);
+    }
+
+    #[tokio::test]
+    async fn grpc_batch_query_test() {
+        let client = Client::create("http://localhost:5556".to_string(), false)
+            .await
+            .unwrap();
+        let req = BatchQueryRequest { requests: vec![] };
+        let result = client.batch_query(req).await.unwrap();
+        assert_eq!(result.responses.len(), 0);
     }
 
     #[tokio::test]
@@ -42,10 +57,21 @@ mod tests {
         let topic = uuid::Uuid::new_v4();
         let env = test_envelope(topic.to_string());
 
-        let _result = client.publish("".to_string(), vec![env]).await.unwrap();
+        let _result = client
+            .publish(
+                "".to_string(),
+                PublishRequest {
+                    envelopes: vec![env],
+                },
+            )
+            .await
+            .unwrap();
 
         let query_result = client
-            .query(topic.to_string(), None, None, None)
+            .query(QueryRequest {
+                content_topics: vec![topic.to_string()],
+                ..QueryRequest::default()
+            })
             .await
             .unwrap();
         assert_eq!(query_result.envelopes.len(), 1);
@@ -59,13 +85,23 @@ mod tests {
                 .unwrap();
 
             let topic = uuid::Uuid::new_v4();
-            let mut stream_handler = client.subscribe(vec![topic.to_string()]).await.unwrap();
+            let mut stream_handler = client
+                .subscribe(SubscribeRequest {
+                    content_topics: vec![topic.to_string()],
+                })
+                .await
+                .unwrap();
 
             assert!(!stream_handler.is_closed());
             // Skipping the auth token because we have authn disabled on the local
             // xmtp-node-go instance
             client
-                .publish("".to_string(), vec![test_envelope(topic.to_string())])
+                .publish(
+                    "".to_string(),
+                    PublishRequest {
+                        envelopes: vec![test_envelope(topic.to_string())],
+                    },
+                )
                 .await
                 .unwrap();
 
@@ -96,7 +132,10 @@ mod tests {
             .unwrap();
 
         let result = client
-            .query(uuid::Uuid::new_v4().to_string(), None, None, None)
+            .query(QueryRequest {
+                content_topics: vec![uuid::Uuid::new_v4().to_string()],
+                ..QueryRequest::default()
+            })
             .await
             .unwrap();
 

@@ -1,16 +1,21 @@
 use crate::{
     association::{Association, AssociationError, AssociationText},
     contact::Contact,
+    session::Session,
     types::Address,
     vmac_protos::ProtoWrapper,
     Signable,
 };
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
-use vodozemac::olm::{Account as OlmAccount, AccountPickle as OlmAccountPickle, IdentityKeys};
+use vodozemac::olm::{
+    Account as OlmAccount, AccountPickle as OlmAccountPickle, IdentityKeys, SessionConfig,
+};
 use xmtp_cryptography::signature::{RecoverableSignature, SignatureError};
 use xmtp_proto::xmtp::v3::message_contents::{
-    VmacAccountLinkedKey, VmacContactBundle, VmacDeviceLinkedKey, VmacUnsignedPublicKey,
+    installation_contact_bundle::Version, vmac_account_linked_key::Association as AssociationProto,
+    InstallationContactBundle, VmacAccountLinkedKey, VmacInstallationLinkedKey,
+    VmacInstallationPublicKeyBundleV1, VmacUnsignedPublicKey,
 };
 
 #[derive(Debug, Error)]
@@ -117,15 +122,28 @@ impl Account {
         let fallback_key_proto: ProtoWrapper<VmacUnsignedPublicKey> = fallback_key.into();
         let identity_key = VmacAccountLinkedKey {
             key: Some(identity_key_proto.proto),
+            association: Some(AssociationProto::Eip191(self.assoc.clone().into())),
         };
-        let fallback_key = VmacDeviceLinkedKey {
+        let fallback_key = VmacInstallationLinkedKey {
             key: Some(fallback_key_proto.proto),
         };
         // TODO: Add associations here
-        Contact::new(VmacContactBundle {
-            identity_key: Some(identity_key),
-            prekey: Some(fallback_key),
+        Contact::new(InstallationContactBundle {
+            version: Some(Version::V1(VmacInstallationPublicKeyBundleV1 {
+                identity_key: Some(identity_key),
+                fallback_key: Some(fallback_key),
+            })),
         })
+    }
+
+    pub fn create_outbound_session(&self, contact: Contact) -> Session {
+        let vmac_session = self.keys.get().create_outbound_session(
+            SessionConfig::version_2(),
+            contact.vmac_identity_key(),
+            contact.vmac_fallback_key(),
+        );
+
+        Session::new(vmac_session)
     }
 
     pub fn get_keys(&self) -> IdentityKeys {
@@ -170,7 +188,7 @@ impl Signable for AccountCreator {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
 
     use crate::association::AssociationError;
 
