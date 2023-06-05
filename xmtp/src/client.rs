@@ -1,5 +1,5 @@
 use core::fmt;
-use std::fmt::{Display, Formatter};
+use std::fmt::Formatter;
 
 use thiserror::Error;
 
@@ -7,7 +7,6 @@ use crate::{
     account::Account,
     contact::{Contact, ContactError},
     networking::XmtpApiClient,
-    persistence::{NamespacedPersistence, Persistence},
     types::Address,
     utils::{build_envelope, build_user_contact_topic},
 };

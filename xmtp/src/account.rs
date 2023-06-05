@@ -1,5 +1,5 @@
 use crate::{
-    association::{Association, AssociationError, AssociationText},
+    association::{Association, AssociationError},
     contact::Contact,
     session::Session,
     types::Address,
@@ -11,7 +11,7 @@ use thiserror::Error;
 use vodozemac::olm::{
     Account as OlmAccount, AccountPickle as OlmAccountPickle, IdentityKeys, SessionConfig,
 };
-use xmtp_cryptography::signature::{RecoverableSignature, SignatureError};
+use xmtp_cryptography::signature::SignatureError;
 use xmtp_proto::xmtp::v3::message_contents::{
     installation_contact_bundle::Version, vmac_account_linked_key::Association as AssociationProto,
     InstallationContactBundle, VmacAccountLinkedKey, VmacInstallationLinkedKey,
@@ -162,7 +162,6 @@ pub(crate) mod tests {
     use ethers_core::types::{Address as EthAddress, Signature};
     use ethers_core::utils::hex;
     use serde_json::json;
-    use xmtp_cryptography::{signature::h160addr_to_string, utils::rng};
 
     pub fn test_wallet_signer(_: Vec<u8>) -> Result<Association, AssociationError> {
         Association::test()

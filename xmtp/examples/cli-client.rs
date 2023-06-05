@@ -11,7 +11,6 @@ use walletconnect::client::{CallError, ConnectorError, SessionError};
 use walletconnect::{qr, Client as WcClient, Metadata};
 use xmtp::builder::AccountStrategy;
 use xmtp::networking::MockXmtpApiClient;
-use xmtp::persistence::in_memory_persistence::InMemoryPersistence;
 use xmtp::storage::{EncryptedMessageStore, EncryptedMessageStoreError, StorageOption};
 use xmtp::InboxOwner;
 use xmtp_cryptography::signature::{h160addr_to_string, RecoverableSignature, SignatureError};

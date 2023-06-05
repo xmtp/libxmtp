@@ -1,8 +1,5 @@
 use async_trait::async_trait;
-use xmtp::{
-    networking::XmtpApiClient, persistence::in_memory_persistence::InMemoryPersistence,
-    storage::EncryptedMessageStore,
-};
+use xmtp::{networking::XmtpApiClient, storage::EncryptedMessageStore};
 use xmtp_cryptography::utils::LocalWallet;
 use xmtp_networking::grpc_api_helper::{self, Subscription};
 use xmtp_proto::xmtp::message_api::v1::{

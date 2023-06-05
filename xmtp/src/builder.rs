@@ -1,13 +1,12 @@
-use crate::storage::EncryptedMessageStore;
 use crate::{
     account::{Account, AccountError},
     association::{Association, AssociationError, AssociationText},
     client::{Client, Network},
     networking::XmtpApiClient,
     types::Address,
-    Errorer, InboxOwner, KeyStore,
+    InboxOwner, KeyStore,
 };
-use crate::{Fetch, StorageError, Store};
+use crate::{Fetch, StorageError};
 use thiserror::Error;
 
 #[derive(Error, Debug)]
@@ -80,8 +79,6 @@ where
     O: InboxOwner,
     S: Fetch<Account>,
 {
-    const ACCOUNT_KEY: &str = "xmtp_account";
-
     pub fn new(strat: AccountStrategy<O>) -> Self {
         Self {
             api_client: None,
@@ -112,18 +109,9 @@ where
         self
     }
 
-    fn get_address(&self) -> Address {
-        match &self.account_strategy {
-            AccountStrategy::CachedOnly(a) => a.clone(),
-            AccountStrategy::CreateIfNotFound(o) => o.get_address(),
-            #[cfg(test)]
-            AccountStrategy::ExternalAccount(e) => e.addr(),
-        }
-    }
-
     /// Fetch account from peristence or generate and sign a new one
     fn find_or_create_account(owner: &O, store: &mut S) -> Result<Account, ClientBuilderError> {
-        let account = Self::retrieve_peristed_account(Self::ACCOUNT_KEY, store)?;
+        let account = Self::retrieve_peristed_account(store)?;
 
         match account {
             Some(a) => {
@@ -141,22 +129,9 @@ where
     }
 
     /// Fetch Account from persistence
-    fn retrieve_peristed_account(
-        key: &str,
-        store: &mut S,
-    ) -> Result<Option<Account>, ClientBuilderError> {
+    fn retrieve_peristed_account(store: &mut S) -> Result<Option<Account>, ClientBuilderError> {
         let mut accounts = store.fetch()?;
         Ok(accounts.pop())
-    }
-
-    fn load_account(data: &[u8]) -> Result<Account, ClientBuilderError> {
-        // TODO: use proto bytes instead of string here (or use base64 instead of utf8)
-        // Remove expect() afterwards
-        let data_string =
-            std::str::from_utf8(data).expect("Data read from persistence is not valid UTF-8");
-        let account: Account = serde_json::from_str(data_string)
-            .map_err(|source| ClientBuilderError::SerializationError { source })?;
-        Ok(account)
     }
 
     fn sign_new_account(owner: &O) -> Result<Account, ClientBuilderError> {
@@ -179,7 +154,7 @@ where
         // Fetch the Account based upon the account strategy.
         let account = match self.account_strategy {
             AccountStrategy::CachedOnly(_) => {
-                let account = Self::retrieve_peristed_account(Self::ACCOUNT_KEY, &mut store)?;
+                let account = Self::retrieve_peristed_account(&mut store)?;
                 account.ok_or(ClientBuilderError::RequiredAccountNotFound)?
             }
             AccountStrategy::CreateIfNotFound(owner) => {
@@ -201,9 +176,9 @@ mod tests {
     use xmtp_cryptography::utils::generate_local_wallet;
 
     use crate::{
-        networking::{MockXmtpApiClient, XmtpApiClient},
+        networking::MockXmtpApiClient,
         storage::{EncryptedMessageStore, StorageOption},
-        Client, InboxOwner,
+        Client,
     };
 
     use super::ClientBuilder;
