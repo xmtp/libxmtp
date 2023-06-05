@@ -2,15 +2,15 @@ use xmtp_crypto::k256_helper;
 
 // Uniffi requires enum errors that implement std::Error. We implement it
 // manually here rather than pulling in thiserror to save binary size and compilation time.
-#[derive(Debug)]
+#[derive(Debug, uniffi::Error)]
 pub enum DiffieHellmanError {
-    GenericError(String),
+    GenericError { err: String },
 }
 
 impl std::error::Error for DiffieHellmanError {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         match *self {
-            DiffieHellmanError::GenericError(_) => None,
+            DiffieHellmanError::GenericError { .. } => None,
         }
     }
 }
@@ -18,11 +18,12 @@ impl std::error::Error for DiffieHellmanError {
 impl std::fmt::Display for DiffieHellmanError {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         match *self {
-            DiffieHellmanError::GenericError(ref message) => write!(f, "{}", message),
+            DiffieHellmanError::GenericError { ref err } => write!(f, "{}", err),
         }
     }
 }
 
+#[uniffi::export]
 pub fn diffie_hellman_k256(
     private_key_bytes: Vec<u8>,
     public_key_bytes: Vec<u8>,
@@ -31,7 +32,7 @@ pub fn diffie_hellman_k256(
         private_key_bytes.as_slice(),
         public_key_bytes.as_slice(),
     )
-    .map_err(DiffieHellmanError::GenericError)?;
+    .map_err(|message| DiffieHellmanError::GenericError { err: message })?;
     Ok(shared_secret)
 }
 
