@@ -18,12 +18,25 @@ package uniffi.xmtpv3;
 // helpers directly inline like we're doing here.
 
 import com.sun.jna.Library
+import com.sun.jna.IntegerType
 import com.sun.jna.Native
 import com.sun.jna.Pointer
 import com.sun.jna.Structure
-import com.sun.jna.ptr.ByReference
+import com.sun.jna.Callback
+import com.sun.jna.ptr.*
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
+import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicLong
+import kotlin.coroutines.Continuation
+import kotlin.coroutines.resume
+import kotlin.coroutines.resumeWithException
+import kotlin.coroutines.suspendCoroutine
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 
 // This is a helper for safely working with byte buffers returned from the Rust code.
 // A rust-owned buffer is represented by its capacity, its current length, and a
@@ -35,12 +48,12 @@ open class RustBuffer : Structure() {
     @JvmField var len: Int = 0
     @JvmField var data: Pointer? = null
 
-    class ByValue : RustBuffer(), Structure.ByValue
-    class ByReference : RustBuffer(), Structure.ByReference
+    class ByValue: RustBuffer(), Structure.ByValue
+    class ByReference: RustBuffer(), Structure.ByReference
 
     companion object {
         internal fun alloc(size: Int = 0) = rustCall() { status ->
-            _UniFFILib.INSTANCE.ffi_xmtpv3_a654_rustbuffer_alloc(size, status).also {
+            _UniFFILib.INSTANCE.ffi_xmtpv3_rustbuffer_alloc(size, status).also {
                 if(it.data == null) {
                    throw RuntimeException("RustBuffer.alloc() returned null data pointer (size=${size})")
                }
@@ -48,7 +61,7 @@ open class RustBuffer : Structure() {
         }
 
         internal fun free(buf: RustBuffer.ByValue) = rustCall() { status ->
-            _UniFFILib.INSTANCE.ffi_xmtpv3_a654_rustbuffer_free(buf, status)
+            _UniFFILib.INSTANCE.ffi_xmtpv3_rustbuffer_free(buf, status)
         }
     }
 
@@ -75,6 +88,19 @@ class RustBufferByReference : ByReference(16) {
         pointer.setInt(0, value.capacity)
         pointer.setInt(4, value.len)
         pointer.setPointer(8, value.data)
+    }
+
+    /**
+     * Get a `RustBuffer.ByValue` from this reference.
+     */
+    fun getValue(): RustBuffer.ByValue {
+        val pointer = getPointer()
+        val value = RustBuffer.ByValue()
+        value.writeField("capacity", pointer.getInt(0))
+        value.writeField("len", pointer.getInt(4))
+        value.writeField("data", pointer.getPointer(8))
+
+        return value
     }
 }
 
@@ -167,19 +193,21 @@ public interface FfiConverterRustBuffer<KotlinType>: FfiConverter<KotlinType, Ru
 // Error runtime.
 @Structure.FieldOrder("code", "error_buf")
 internal open class RustCallStatus : Structure() {
-    @JvmField var code: Int = 0
+    @JvmField var code: Byte = 0
     @JvmField var error_buf: RustBuffer.ByValue = RustBuffer.ByValue()
 
+    class ByValue: RustCallStatus(), Structure.ByValue
+
     fun isSuccess(): Boolean {
-        return code == 0
+        return code == 0.toByte()
     }
 
     fun isError(): Boolean {
-        return code == 1
+        return code == 1.toByte()
     }
 
     fun isPanic(): Boolean {
-        return code == 2
+        return code == 2.toByte()
     }
 }
 
@@ -198,8 +226,14 @@ interface CallStatusErrorHandler<E> {
 private inline fun <U, E: Exception> rustCallWithError(errorHandler: CallStatusErrorHandler<E>, callback: (RustCallStatus) -> U): U {
     var status = RustCallStatus();
     val return_value = callback(status)
+    checkCallStatus(errorHandler, status)
+    return return_value
+}
+
+// Check RustCallStatus and throw an error if the call wasn't successful
+private fun<E: Exception> checkCallStatus(errorHandler: CallStatusErrorHandler<E>, status: RustCallStatus) {
     if (status.isSuccess()) {
-        return return_value
+        return
     } else if (status.isError()) {
         throw errorHandler.lift(status.error_buf)
     } else if (status.isPanic()) {
@@ -229,6 +263,86 @@ private inline fun <U> rustCall(callback: (RustCallStatus) -> U): U {
     return rustCallWithError(NullCallStatusErrorHandler, callback);
 }
 
+// IntegerType that matches Rust's `usize` / C's `size_t`
+public class USize(value: Long = 0) : IntegerType(Native.SIZE_T_SIZE, value, true) {
+    // This is needed to fill in the gaps of IntegerType's implementation of Number for Kotlin.
+    override fun toByte() = toInt().toByte()
+    override fun toChar() = toInt().toChar()
+    override fun toShort() = toInt().toShort()
+
+    fun writeToBuffer(buf: ByteBuffer) {
+        // Make sure we always write usize integers using native byte-order, since they may be
+        // casted to pointer values
+        buf.order(ByteOrder.nativeOrder())
+        try {
+            when (Native.SIZE_T_SIZE) {
+                4 -> buf.putInt(toInt())
+                8 -> buf.putLong(toLong())
+                else -> throw RuntimeException("Invalid SIZE_T_SIZE: ${Native.SIZE_T_SIZE}")
+            }
+        } finally {
+            buf.order(ByteOrder.BIG_ENDIAN)
+        }
+    }
+
+    companion object {
+        val size: Int
+            get() = Native.SIZE_T_SIZE
+
+        fun readFromBuffer(buf: ByteBuffer) : USize {
+            // Make sure we always read usize integers using native byte-order, since they may be
+            // casted from pointer values
+            buf.order(ByteOrder.nativeOrder())
+            try {
+                return when (Native.SIZE_T_SIZE) {
+                    4 -> USize(buf.getInt().toLong())
+                    8 -> USize(buf.getLong())
+                    else -> throw RuntimeException("Invalid SIZE_T_SIZE: ${Native.SIZE_T_SIZE}")
+                }
+            } finally {
+                buf.order(ByteOrder.BIG_ENDIAN)
+            }
+        }
+    }
+}
+
+
+// Map handles to objects
+//
+// This is used when the Rust code expects an opaque pointer to represent some foreign object.
+// Normally we would pass a pointer to the object, but JNA doesn't support getting a pointer from an
+// object reference , nor does it support leaking a reference to Rust.
+//
+// Instead, this class maps USize values to objects so that we can pass a pointer-sized type to
+// Rust when it needs an opaque pointer.
+//
+// TODO: refactor callbacks to use this class
+internal class UniFfiHandleMap<T: Any> {
+    private val map = ConcurrentHashMap<USize, T>()
+    // Use AtomicInteger for our counter, since we may be on a 32-bit system.  4 billion possible
+    // values seems like enough. If somehow we generate 4 billion handles, then this will wrap
+    // around back to zero and we can assume the first handle generated will have been dropped by
+    // then.
+    private val counter = java.util.concurrent.atomic.AtomicInteger(0)
+
+    val size: Int
+        get() = map.size
+
+    fun insert(obj: T): USize {
+        val handle = USize(counter.getAndAdd(1).toLong())
+        map.put(handle, obj)
+        return handle
+    }
+
+    fun get(handle: USize): T? {
+        return map.get(handle)
+    }
+
+    fun remove(handle: USize) {
+        map.remove(handle)
+    }
+}
+
 // Contains loading, initialization code,
 // and the FFI Function declarations in a com.sun.jna.Library.
 @Synchronized
@@ -253,31 +367,57 @@ internal interface _UniFFILib : Library {
     companion object {
         internal val INSTANCE: _UniFFILib by lazy {
             loadIndirect<_UniFFILib>(componentName = "xmtpv3")
-            
+            .also { lib: _UniFFILib ->
+                uniffiCheckContractApiVersion(lib)
+                uniffiCheckApiChecksums(lib)
+                FfiConverterForeignExecutor.register(lib)
+                }
         }
     }
 
-    fun xmtpv3_a654_add(`a`: Int,`b`: Int,
-    _uniffi_out_err: RustCallStatus
-    ): Int
-
-    fun ffi_xmtpv3_a654_rustbuffer_alloc(`size`: Int,
-    _uniffi_out_err: RustCallStatus
-    ): RustBuffer.ByValue
-
-    fun ffi_xmtpv3_a654_rustbuffer_from_bytes(`bytes`: ForeignBytes.ByValue,
-    _uniffi_out_err: RustCallStatus
-    ): RustBuffer.ByValue
-
-    fun ffi_xmtpv3_a654_rustbuffer_free(`buf`: RustBuffer.ByValue,
-    _uniffi_out_err: RustCallStatus
+    fun uniffi_bindings_ffi_fn_free_ffiinterface(`ptr`: Pointer,_uniffi_out_err: RustCallStatus, 
     ): Unit
-
-    fun ffi_xmtpv3_a654_rustbuffer_reserve(`buf`: RustBuffer.ByValue,`additional`: Int,
-    _uniffi_out_err: RustCallStatus
+    fun uniffi_bindings_ffi_fn_method_ffiinterface_create(`ptr`: Pointer,`host`: RustBuffer.ByValue,`isSecure`: Byte,`uniffiExecutor`: USize,`uniffiCallback`: UniFfiFutureCallbackRustArcPtrFfiInterface,`uniffiCallbackData`: USize,_uniffi_out_err: RustCallStatus, 
+    ): Unit
+    fun uniffi_xmtpv3_fn_func_add(`a`: Int,`b`: Int,_uniffi_out_err: RustCallStatus, 
+    ): Int
+    fun ffi_xmtpv3_rustbuffer_alloc(`size`: Int,_uniffi_out_err: RustCallStatus, 
     ): RustBuffer.ByValue
-
+    fun ffi_xmtpv3_rustbuffer_from_bytes(`bytes`: ForeignBytes.ByValue,_uniffi_out_err: RustCallStatus, 
+    ): RustBuffer.ByValue
+    fun ffi_xmtpv3_rustbuffer_free(`buf`: RustBuffer.ByValue,_uniffi_out_err: RustCallStatus, 
+    ): Unit
+    fun ffi_xmtpv3_rustbuffer_reserve(`buf`: RustBuffer.ByValue,`additional`: Int,_uniffi_out_err: RustCallStatus, 
+    ): RustBuffer.ByValue
+    fun uniffi_xmtpv3_checksum_func_add(
+    ): Short
+    fun uniffi_bindings_ffi_checksum_method_ffiinterface_create(
+    ): Short
+    fun uniffi_foreign_executor_callback_set(`callback`: UniFfiForeignExecutorCallback,
+    ): Unit
+    fun ffi_xmtpv3_uniffi_contract_version(
+    ): Int
     
+}
+
+private fun uniffiCheckContractApiVersion(lib: _UniFFILib) {
+    // Get the bindings contract version from our ComponentInterface
+    val bindings_contract_version = 22
+    // Get the scaffolding contract version by calling the into the dylib
+    val scaffolding_contract_version = lib.ffi_xmtpv3_uniffi_contract_version()
+    if (bindings_contract_version != scaffolding_contract_version) {
+        throw RuntimeException("UniFFI contract version mismatch: try cleaning and rebuilding your project")
+    }
+}
+
+@Suppress("UNUSED_PARAMETER")
+private fun uniffiCheckApiChecksums(lib: _UniFFILib) {
+    if (lib.uniffi_xmtpv3_checksum_func_add() != 25095.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_bindings_ffi_checksum_method_ffiinterface_create() != 58046.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
 }
 
 // Public interface members begin here.
@@ -300,6 +440,26 @@ public object FfiConverterUInt: FfiConverter<UInt, Int> {
 
     override fun write(value: UInt, buf: ByteBuffer) {
         buf.putInt(value.toInt())
+    }
+}
+
+public object FfiConverterBoolean: FfiConverter<Boolean, Byte> {
+    override fun lift(value: Byte): Boolean {
+        return value.toInt() != 0
+    }
+
+    override fun read(buf: ByteBuffer): Boolean {
+        return lift(buf.get())
+    }
+
+    override fun lower(value: Boolean): Byte {
+        return if (value) 1.toByte() else 0.toByte()
+    }
+
+    override fun allocationSize(value: Boolean) = 1
+
+    override fun write(value: Boolean, buf: ByteBuffer) {
+        buf.put(lower(value))
     }
 }
 
@@ -349,13 +509,369 @@ public object FfiConverterString: FfiConverter<String, RustBuffer.ByValue> {
     }
 }
 
-fun `add`(`a`: UInt, `b`: UInt): UInt {
-    return FfiConverterUInt.lift(
-    rustCall() { _status ->
-    _UniFFILib.INSTANCE.xmtpv3_a654_add(FfiConverterUInt.lower(`a`), FfiConverterUInt.lower(`b`), _status)
-})
+
+// Interface implemented by anything that can contain an object reference.
+//
+// Such types expose a `destroy()` method that must be called to cleanly
+// dispose of the contained objects. Failure to call this method may result
+// in memory leaks.
+//
+// The easiest way to ensure this method is called is to use the `.use`
+// helper method to execute a block and destroy the object at the end.
+interface Disposable {
+    fun destroy()
+    companion object {
+        fun destroy(vararg args: Any?) {
+            args.filterIsInstance<Disposable>()
+                .forEach(Disposable::destroy)
+        }
+    }
+}
+
+inline fun <T : Disposable?, R> T.use(block: (T) -> R) =
+    try {
+        block(this)
+    } finally {
+        try {
+            // N.B. our implementation is on the nullable type `Disposable?`.
+            this?.destroy()
+        } catch (e: Throwable) {
+            // swallow
+        }
+    }
+
+// The base class for all UniFFI Object types.
+//
+// This class provides core operations for working with the Rust `Arc<T>` pointer to
+// the live Rust struct on the other side of the FFI.
+//
+// There's some subtlety here, because we have to be careful not to operate on a Rust
+// struct after it has been dropped, and because we must expose a public API for freeing
+// the Kotlin wrapper object in lieu of reliable finalizers. The core requirements are:
+//
+//   * Each `FFIObject` instance holds an opaque pointer to the underlying Rust struct.
+//     Method calls need to read this pointer from the object's state and pass it in to
+//     the Rust FFI.
+//
+//   * When an `FFIObject` is no longer needed, its pointer should be passed to a
+//     special destructor function provided by the Rust FFI, which will drop the
+//     underlying Rust struct.
+//
+//   * Given an `FFIObject` instance, calling code is expected to call the special
+//     `destroy` method in order to free it after use, either by calling it explicitly
+//     or by using a higher-level helper like the `use` method. Failing to do so will
+//     leak the underlying Rust struct.
+//
+//   * We can't assume that calling code will do the right thing, and must be prepared
+//     to handle Kotlin method calls executing concurrently with or even after a call to
+//     `destroy`, and to handle multiple (possibly concurrent!) calls to `destroy`.
+//
+//   * We must never allow Rust code to operate on the underlying Rust struct after
+//     the destructor has been called, and must never call the destructor more than once.
+//     Doing so may trigger memory unsafety.
+//
+// If we try to implement this with mutual exclusion on access to the pointer, there is the
+// possibility of a race between a method call and a concurrent call to `destroy`:
+//
+//    * Thread A starts a method call, reads the value of the pointer, but is interrupted
+//      before it can pass the pointer over the FFI to Rust.
+//    * Thread B calls `destroy` and frees the underlying Rust struct.
+//    * Thread A resumes, passing the already-read pointer value to Rust and triggering
+//      a use-after-free.
+//
+// One possible solution would be to use a `ReadWriteLock`, with each method call taking
+// a read lock (and thus allowed to run concurrently) and the special `destroy` method
+// taking a write lock (and thus blocking on live method calls). However, we aim not to
+// generate methods with any hidden blocking semantics, and a `destroy` method that might
+// block if called incorrectly seems to meet that bar.
+//
+// So, we achieve our goals by giving each `FFIObject` an associated `AtomicLong` counter to track
+// the number of in-flight method calls, and an `AtomicBoolean` flag to indicate whether `destroy`
+// has been called. These are updated according to the following rules:
+//
+//    * The initial value of the counter is 1, indicating a live object with no in-flight calls.
+//      The initial value for the flag is false.
+//
+//    * At the start of each method call, we atomically check the counter.
+//      If it is 0 then the underlying Rust struct has already been destroyed and the call is aborted.
+//      If it is nonzero them we atomically increment it by 1 and proceed with the method call.
+//
+//    * At the end of each method call, we atomically decrement and check the counter.
+//      If it has reached zero then we destroy the underlying Rust struct.
+//
+//    * When `destroy` is called, we atomically flip the flag from false to true.
+//      If the flag was already true we silently fail.
+//      Otherwise we atomically decrement and check the counter.
+//      If it has reached zero then we destroy the underlying Rust struct.
+//
+// Astute readers may observe that this all sounds very similar to the way that Rust's `Arc<T>` works,
+// and indeed it is, with the addition of a flag to guard against multiple calls to `destroy`.
+//
+// The overall effect is that the underlying Rust struct is destroyed only when `destroy` has been
+// called *and* all in-flight method calls have completed, avoiding violating any of the expectations
+// of the underlying Rust code.
+//
+// In the future we may be able to replace some of this with automatic finalization logic, such as using
+// the new "Cleaner" functionaility in Java 9. The above scheme has been designed to work even if `destroy` is
+// invoked by garbage-collection machinery rather than by calling code (which by the way, it's apparently also
+// possible for the JVM to finalize an object while there is an in-flight call to one of its methods [1],
+// so there would still be some complexity here).
+//
+// Sigh...all of this for want of a robust finalization mechanism.
+//
+// [1] https://stackoverflow.com/questions/24376768/can-java-finalize-an-object-when-it-is-still-in-scope/24380219
+//
+abstract class FFIObject(
+    protected val pointer: Pointer
+): Disposable, AutoCloseable {
+
+    private val wasDestroyed = AtomicBoolean(false)
+    private val callCounter = AtomicLong(1)
+
+    open protected fun freeRustArcPtr() {
+        // To be overridden in subclasses.
+    }
+
+    override fun destroy() {
+        // Only allow a single call to this method.
+        // TODO: maybe we should log a warning if called more than once?
+        if (this.wasDestroyed.compareAndSet(false, true)) {
+            // This decrement always matches the initial count of 1 given at creation time.
+            if (this.callCounter.decrementAndGet() == 0L) {
+                this.freeRustArcPtr()
+            }
+        }
+    }
+
+    @Synchronized
+    override fun close() {
+        this.destroy()
+    }
+
+    internal inline fun <R> callWithPointer(block: (ptr: Pointer) -> R): R {
+        // Check and increment the call counter, to keep the object alive.
+        // This needs a compare-and-set retry loop in case of concurrent updates.
+        do {
+            val c = this.callCounter.get()
+            if (c == 0L) {
+                throw IllegalStateException("${this.javaClass.simpleName} object has already been destroyed")
+            }
+            if (c == Long.MAX_VALUE) {
+                throw IllegalStateException("${this.javaClass.simpleName} call counter would overflow")
+            }
+        } while (! this.callCounter.compareAndSet(c, c + 1L))
+        // Now we can safely do the method call without the pointer being freed concurrently.
+        try {
+            return block(this.pointer)
+        } finally {
+            // This decrement always matches the increment we performed above.
+            if (this.callCounter.decrementAndGet() == 0L) {
+                this.freeRustArcPtr()
+            }
+        }
+    }
+}
+
+public interface FfiInterfaceInterface {
+    
+    suspend fun `create`(`host`: String, `isSecure`: Boolean): FfiInterface
+}
+
+class FfiInterface(
+    pointer: Pointer
+) : FFIObject(pointer), FfiInterfaceInterface {
+
+    /**
+     * Disconnect the object from the underlying Rust object.
+     *
+     * It can be called more than once, but once called, interacting with the object
+     * causes an `IllegalStateException`.
+     *
+     * Clients **must** call this method once done with the object, or cause a memory leak.
+     */
+    override protected fun freeRustArcPtr() {
+        rustCall() { status ->
+            _UniFFILib.INSTANCE.uniffi_bindings_ffi_fn_free_ffiinterface(this.pointer, status)
+        }
+    }
+
+    
+    @Suppress("ASSIGNED_BUT_NEVER_ACCESSED_VARIABLE")
+    override suspend fun `create`(`host`: String, `isSecure`: Boolean) : FfiInterface {
+        // Create a new `CoroutineScope` for this operation, suspend the coroutine, and call the
+        // scaffolding function, passing it one of the callback handlers from `AsyncTypes.kt`.
+        //
+        // Make sure to retain a reference to the callback handler to ensure that it's not GCed before
+        // it's invoked
+        var callbackHolder: UniFfiFutureCallbackHandlerTypeFfiInterface? = null
+        return coroutineScope {
+            val scope = this
+            return@coroutineScope suspendCoroutine { continuation ->
+                try {
+                    val callback = UniFfiFutureCallbackHandlerTypeFfiInterface(continuation)
+                    callbackHolder = callback
+                    callWithPointer { thisPtr ->
+                        rustCall { status ->
+                            _UniFFILib.INSTANCE.uniffi_bindings_ffi_fn_method_ffiinterface_create(
+                                thisPtr,
+                                FfiConverterString.lower(`host`),FfiConverterBoolean.lower(`isSecure`),
+                                FfiConverterForeignExecutor.lower(scope),
+                                callback,
+                                USize(0),
+                                status,
+                            )
+                        }
+                    }
+                } catch (e: Exception) {
+                    continuation.resumeWithException(e)
+                }
+            }
+        }
+    }
+    
+
+    
+}
+
+public object FfiConverterTypeFfiInterface: FfiConverter<FfiInterface, Pointer> {
+    override fun lower(value: FfiInterface): Pointer = value.callWithPointer { it }
+
+    override fun lift(value: Pointer): FfiInterface {
+        return FfiInterface(value)
+    }
+
+    override fun read(buf: ByteBuffer): FfiInterface {
+        // The Rust code always writes pointers as 8 bytes, and will
+        // fail to compile if they don't fit.
+        return lift(Pointer(buf.getLong()))
+    }
+
+    override fun allocationSize(value: FfiInterface) = 8
+
+    override fun write(value: FfiInterface, buf: ByteBuffer) {
+        // The Rust code always expects pointers written as 8 bytes,
+        // and will fail to compile if they don't fit.
+        buf.putLong(Pointer.nativeValue(lower(value)))
+    }
 }
 
 
+
+
+
+
+// Callback function to execute a Rust task.  The Kotlin code schedules these in a coroutine then
+// invokes them.
+internal interface UniFfiRustTaskCallback : com.sun.jna.Callback {
+    fun invoke(rustTaskData: Pointer?)
+}
+
+object UniFfiForeignExecutorCallback : com.sun.jna.Callback {
+    internal fun invoke(handle: USize, delayMs: Int, rustTask: UniFfiRustTaskCallback?, rustTaskData: Pointer?) {
+        if (rustTask == null) {
+            FfiConverterForeignExecutor.drop(handle)
+        } else {
+            val coroutineScope = FfiConverterForeignExecutor.lift(handle)
+            coroutineScope.launch {
+                if (delayMs > 0) {
+                    delay(delayMs.toLong())
+                }
+                rustTask.invoke(rustTaskData)
+            }
+        }
+    }
+}
+
+public object FfiConverterForeignExecutor: FfiConverter<CoroutineScope, USize> {
+    internal val handleMap = UniFfiHandleMap<CoroutineScope>()
+
+    internal fun drop(handle: USize) {
+        handleMap.remove(handle)
+    }
+
+    internal fun register(lib: _UniFFILib) {
+        lib.uniffi_foreign_executor_callback_set(UniFfiForeignExecutorCallback)
+    }
+
+    // Number of live handles, exposed so we can test the memory management
+    public fun handleCount() : Int {
+        return handleMap.size
+    }
+
+    override fun allocationSize(value: CoroutineScope) = USize.size
+
+    override fun lift(value: USize): CoroutineScope {
+        return handleMap.get(value) ?: throw RuntimeException("unknown handle in FfiConverterForeignExecutor.lift")
+    }
+
+    override fun read(buf: ByteBuffer): CoroutineScope {
+        return lift(USize.readFromBuffer(buf))
+    }
+
+    override fun lower(value: CoroutineScope): USize {
+        return handleMap.insert(value)
+    }
+
+    override fun write(value: CoroutineScope, buf: ByteBuffer) {
+        lower(value).writeToBuffer(buf)
+    }
+}
+// Async return type handlers
+
+
+
+
+
+
+
+
+
+
+
+// FFI type for callback handlers
+internal interface UniFfiFutureCallbackUInt32 : com.sun.jna.Callback {
+    // Note: callbackData is always 0.  We could pass Rust a pointer/usize to represent the
+    // continuation, but with JNA it's easier to just store it in the callback handler.
+    fun invoke(_callbackData: USize, returnValue: Int, callStatus: RustCallStatus.ByValue);
+}
+internal interface UniFfiFutureCallbackRustArcPtrFfiInterface : com.sun.jna.Callback {
+    // Note: callbackData is always 0.  We could pass Rust a pointer/usize to represent the
+    // continuation, but with JNA it's easier to just store it in the callback handler.
+    fun invoke(_callbackData: USize, returnValue: Pointer, callStatus: RustCallStatus.ByValue);
+}
+
+// Callback handlers for an async call.  These are invoked by Rust when the future is ready.  They
+// lift the return value or error and resume the suspended function.
+
+internal class UniFfiFutureCallbackHandleru32(val continuation: Continuation<UInt>)
+    : UniFfiFutureCallbackUInt32 {
+    override fun invoke(_callbackData: USize, returnValue: Int, callStatus: RustCallStatus.ByValue) {
+        try {
+            checkCallStatus(NullCallStatusErrorHandler, callStatus)
+            continuation.resume(FfiConverterUInt.lift(returnValue))
+        } catch (e: Throwable) {
+            continuation.resumeWithException(e)
+        }
+    }
+}
+
+internal class UniFfiFutureCallbackHandlerTypeFfiInterface(val continuation: Continuation<FfiInterface>)
+    : UniFfiFutureCallbackRustArcPtrFfiInterface {
+    override fun invoke(_callbackData: USize, returnValue: Pointer, callStatus: RustCallStatus.ByValue) {
+        try {
+            checkCallStatus(NullCallStatusErrorHandler, callStatus)
+            continuation.resume(FfiConverterTypeFfiInterface.lift(returnValue))
+        } catch (e: Throwable) {
+            continuation.resumeWithException(e)
+        }
+    }
+}
+
+fun `add`(`a`: UInt, `b`: UInt): UInt {
+    return FfiConverterUInt.lift(
+    rustCall() { _status ->
+    _UniFFILib.INSTANCE.uniffi_xmtpv3_fn_func_add(FfiConverterUInt.lower(`a`),FfiConverterUInt.lower(`b`),_status)
+})
+}
 
 

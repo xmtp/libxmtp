@@ -1,84 +1,64 @@
 use std::sync::Arc;
 
 use async_trait::async_trait;
+use ethers::signers::LocalWallet;
 use xmtp::{
     networking::XmtpApiClient, persistence::in_memory_persistence::InMemoryPersistence,
-    storage::EncryptedMessageStore,
+    storage::EncryptedMessageStore, types::Address,
 };
-use xmtp_cryptography::utils::LocalWallet;
+use xmtp_cryptography::utils::rng;
 use xmtp_networking::grpc_api_helper::{self, Subscription};
 use xmtp_proto::xmtp::message_api::v1::{
     Envelope, PagingInfo, PublishRequest, PublishResponse, QueryRequest, QueryResponse,
     SubscribeRequest,
 };
 
-pub type FfiXmtpClient = xmtp::Client<FfiApiClient, InMemoryPersistence, EncryptedMessageStore>;
+pub type RustXmtpClient = xmtp::Client<FfiApiClient, InMemoryPersistence, EncryptedMessageStore>;
 uniffi::include_scaffolding!("xmtpv3");
 
 fn add(a: u32, b: u32) -> u32 {
     a + b
 }
 
-// #[swift_bridge::bridge]
-// mod ffi {
-//     extern "Rust" {
-//         type LocalWallet;
-//         type FfiXmtpClient;
-//
-//         async fn create_client(
-//             wallet: LocalWallet,
-//             host: &str,
-//             is_secure: bool,
-//         ) -> Result<FfiXmtpClient, String>;
-//     }
+// An implementation of the InboxOwner trait passed to Rust from the native language
+// Must be a Uniffi callback interface (https://mozilla.github.io/uniffi-rs/udl/callback_interfaces.html)
+// #[uniffi::export]
+// pub trait FfiInboxOwner: Send + Sync + core::fmt::Debug {
+//     fn get_address(&self) -> String;
+//     fn sign(&self, text: AssociationText) -> Result<RecoverableSignature, SignatureError>;
 // }
-//
-async fn create_client(
-    owner: LocalWallet,
-    host: &str,
+
+#[uniffi::export]
+pub async fn create_client(
+    // owner: Box<dyn FfiInboxOwner>, // We just need an InboxOwner
+    host: String,
     is_secure: bool,
     // TODO proper error handling
-) -> Result<xmtp::Client<FfiApiClient, InMemoryPersistence, EncryptedMessageStore>, String> {
-    let api_client = FfiApiClient::new(host, is_secure).await?;
+) -> Result<Arc<FfiXmtpClient>, String> {
+    let wallet = LocalWallet::new(&mut rng());
+    let api_client = FfiApiClient::new(&host, is_secure).await?;
 
-    let mut xmtp_client = xmtp::ClientBuilder::new(owner.into())
+    let mut xmtp_client = xmtp::ClientBuilder::new(wallet.into())
         .api_client(api_client)
         .build()
         .map_err(|e| format!("{:?}", e))?;
     xmtp_client.init().await.map_err(|e| e.to_string())?;
-    Ok(xmtp_client)
+    Ok(Arc::new(FfiXmtpClient {
+        inner_client: xmtp_client,
+    }))
 }
 
-pub struct FfiInterface {
-    client: FfiXmtpClient,
+#[derive(uniffi::Object)]
+pub struct FfiXmtpClient {
+    inner_client: RustXmtpClient,
 }
 
 #[uniffi::export]
-impl FfiInterface {
-    #[uniffi::constructor]
-    pub async fn create(
-        owner: LocalWallet,
-        host: &str,
-        is_secure: bool,
-        // TODO proper error handling
-    ) -> Result<Arc<Self>, String> {
-        let api_client = FfiApiClient::new(host, is_secure).await?;
-
-        let mut xmtp_client = xmtp::ClientBuilder::new(owner.into())
-            .api_client(api_client)
-            .build()
-            .map_err(|e| format!("{:?}", e))?;
-        xmtp_client.init().await.map_err(|e| e.to_string())?;
-        Ok(Self {
-            client: xmtp_client,
-        })
+impl FfiXmtpClient {
+    pub fn wallet_address(&self) -> Address {
+        self.inner_client.wallet_address()
     }
 }
-// pub struct FfiXmtpClient {
-//     client: ,
-// }
-
-// impl
 
 pub struct FfiApiClient {
     client: grpc_api_helper::Client,
