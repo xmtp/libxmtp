@@ -13,7 +13,7 @@ jobs:
       matrix:
         target: [
             aarch64-unknown-linux-gnu,
-            x86_64-linux-android,
+            # x86_64-linux-android,
             i686-linux-android,
             armv7-linux-androideabi,
             aarch64-linux-android
