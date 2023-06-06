@@ -20,6 +20,17 @@ fn add(a: u32, b: u32) -> u32 {
     a + b
 }
 
+#[derive(uniffi::Error)]
+pub enum GenericError {
+    Generic { message: String },
+}
+
+impl From<String> for GenericError {
+    fn from(message: String) -> Self {
+        Self::Generic { message }
+    }
+}
+
 // An implementation of the InboxOwner trait passed to Rust from the native language
 // Must be a Uniffi callback interface (https://mozilla.github.io/uniffi-rs/udl/callback_interfaces.html)
 // #[uniffi::export]
@@ -34,7 +45,7 @@ pub async fn create_client(
     host: String,
     is_secure: bool,
     // TODO proper error handling
-) -> Result<Arc<FfiXmtpClient>, String> {
+) -> Result<Arc<FfiXmtpClient>, GenericError> {
     let wallet = LocalWallet::new(&mut rng());
     let api_client = FfiApiClient::new(&host, is_secure).await?;
 

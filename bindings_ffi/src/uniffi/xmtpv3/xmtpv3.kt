@@ -375,12 +375,14 @@ internal interface _UniFFILib : Library {
         }
     }
 
-    fun uniffi_bindings_ffi_fn_free_ffiinterface(`ptr`: Pointer,_uniffi_out_err: RustCallStatus, 
+    fun uniffi_bindings_ffi_fn_free_ffixmtpclient(`ptr`: Pointer,_uniffi_out_err: RustCallStatus, 
     ): Unit
-    fun uniffi_bindings_ffi_fn_method_ffiinterface_create(`ptr`: Pointer,`host`: RustBuffer.ByValue,`isSecure`: Byte,`uniffiExecutor`: USize,`uniffiCallback`: UniFfiFutureCallbackRustArcPtrFfiInterface,`uniffiCallbackData`: USize,_uniffi_out_err: RustCallStatus, 
-    ): Unit
+    fun uniffi_bindings_ffi_fn_method_ffixmtpclient_wallet_address(`ptr`: Pointer,_uniffi_out_err: RustCallStatus, 
+    ): RustBuffer.ByValue
     fun uniffi_xmtpv3_fn_func_add(`a`: Int,`b`: Int,_uniffi_out_err: RustCallStatus, 
     ): Int
+    fun uniffi_bindings_ffi_fn_func_create_client(`host`: RustBuffer.ByValue,`isSecure`: Byte,`uniffiExecutor`: USize,`uniffiCallback`: UniFfiFutureCallbackRustArcPtrFfiXmtpClient,`uniffiCallbackData`: USize,_uniffi_out_err: RustCallStatus, 
+    ): Unit
     fun ffi_xmtpv3_rustbuffer_alloc(`size`: Int,_uniffi_out_err: RustCallStatus, 
     ): RustBuffer.ByValue
     fun ffi_xmtpv3_rustbuffer_from_bytes(`bytes`: ForeignBytes.ByValue,_uniffi_out_err: RustCallStatus, 
@@ -391,7 +393,9 @@ internal interface _UniFFILib : Library {
     ): RustBuffer.ByValue
     fun uniffi_xmtpv3_checksum_func_add(
     ): Short
-    fun uniffi_bindings_ffi_checksum_method_ffiinterface_create(
+    fun uniffi_bindings_ffi_checksum_func_create_client(
+    ): Short
+    fun uniffi_bindings_ffi_checksum_method_ffixmtpclient_wallet_address(
     ): Short
     fun uniffi_foreign_executor_callback_set(`callback`: UniFfiForeignExecutorCallback,
     ): Unit
@@ -415,7 +419,10 @@ private fun uniffiCheckApiChecksums(lib: _UniFFILib) {
     if (lib.uniffi_xmtpv3_checksum_func_add() != 25095.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
-    if (lib.uniffi_bindings_ffi_checksum_method_ffiinterface_create() != 58046.toShort()) {
+    if (lib.uniffi_bindings_ffi_checksum_func_create_client() != 38953.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_bindings_ffi_checksum_method_ffixmtpclient_wallet_address() != 63034.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
 }
@@ -672,14 +679,14 @@ abstract class FFIObject(
     }
 }
 
-public interface FfiInterfaceInterface {
+public interface FfiXmtpClientInterface {
     
-    suspend fun `create`(`host`: String, `isSecure`: Boolean): FfiInterface
+    fun `walletAddress`(): String
 }
 
-class FfiInterface(
+class FfiXmtpClient(
     pointer: Pointer
-) : FFIObject(pointer), FfiInterfaceInterface {
+) : FFIObject(pointer), FfiXmtpClientInterface {
 
     /**
      * Disconnect the object from the underlying Rust object.
@@ -691,64 +698,42 @@ class FfiInterface(
      */
     override protected fun freeRustArcPtr() {
         rustCall() { status ->
-            _UniFFILib.INSTANCE.uniffi_bindings_ffi_fn_free_ffiinterface(this.pointer, status)
+            _UniFFILib.INSTANCE.uniffi_bindings_ffi_fn_free_ffixmtpclient(this.pointer, status)
         }
     }
 
-    
-    @Suppress("ASSIGNED_BUT_NEVER_ACCESSED_VARIABLE")
-    override suspend fun `create`(`host`: String, `isSecure`: Boolean) : FfiInterface {
-        // Create a new `CoroutineScope` for this operation, suspend the coroutine, and call the
-        // scaffolding function, passing it one of the callback handlers from `AsyncTypes.kt`.
-        //
-        // Make sure to retain a reference to the callback handler to ensure that it's not GCed before
-        // it's invoked
-        var callbackHolder: UniFfiFutureCallbackHandlerTypeFfiInterface? = null
-        return coroutineScope {
-            val scope = this
-            return@coroutineScope suspendCoroutine { continuation ->
-                try {
-                    val callback = UniFfiFutureCallbackHandlerTypeFfiInterface(continuation)
-                    callbackHolder = callback
-                    callWithPointer { thisPtr ->
-                        rustCall { status ->
-                            _UniFFILib.INSTANCE.uniffi_bindings_ffi_fn_method_ffiinterface_create(
-                                thisPtr,
-                                FfiConverterString.lower(`host`),FfiConverterBoolean.lower(`isSecure`),
-                                FfiConverterForeignExecutor.lower(scope),
-                                callback,
-                                USize(0),
-                                status,
-                            )
-                        }
-                    }
-                } catch (e: Exception) {
-                    continuation.resumeWithException(e)
-                }
-            }
+    override fun `walletAddress`(): String =
+        callWithPointer {
+    rustCall() { _status ->
+    _UniFFILib.INSTANCE.uniffi_bindings_ffi_fn_method_ffixmtpclient_wallet_address(it,
+        
+        _status)
+}
+        }.let {
+            FfiConverterString.lift(it)
         }
-    }
+    
     
 
     
 }
 
-public object FfiConverterTypeFfiInterface: FfiConverter<FfiInterface, Pointer> {
-    override fun lower(value: FfiInterface): Pointer = value.callWithPointer { it }
+public object FfiConverterTypeFfiXmtpClient: FfiConverter<FfiXmtpClient, Pointer> {
+    override fun lower(value: FfiXmtpClient): Pointer = value.callWithPointer { it }
 
-    override fun lift(value: Pointer): FfiInterface {
-        return FfiInterface(value)
+    override fun lift(value: Pointer): FfiXmtpClient {
+        return FfiXmtpClient(value)
     }
 
-    override fun read(buf: ByteBuffer): FfiInterface {
+    override fun read(buf: ByteBuffer): FfiXmtpClient {
         // The Rust code always writes pointers as 8 bytes, and will
         // fail to compile if they don't fit.
         return lift(Pointer(buf.getLong()))
     }
 
-    override fun allocationSize(value: FfiInterface) = 8
+    override fun allocationSize(value: FfiXmtpClient) = 8
 
-    override fun write(value: FfiInterface, buf: ByteBuffer) {
+    override fun write(value: FfiXmtpClient, buf: ByteBuffer) {
         // The Rust code always expects pointers written as 8 bytes,
         // and will fail to compile if they don't fit.
         buf.putLong(Pointer.nativeValue(lower(value)))
@@ -816,6 +801,62 @@ public object FfiConverterForeignExecutor: FfiConverter<CoroutineScope, USize> {
         lower(value).writeToBuffer(buf)
     }
 }
+
+
+
+
+
+sealed class GenericException: Exception() {
+    // Each variant is a nested class
+    
+    class Generic(
+        val `message`: String
+        ) : GenericException() {
+        override val message
+            get() = "message=${ `message` }"
+    }
+    
+
+    companion object ErrorHandler : CallStatusErrorHandler<GenericException> {
+        override fun lift(error_buf: RustBuffer.ByValue): GenericException = FfiConverterTypeGenericError.lift(error_buf)
+    }
+
+    
+}
+
+public object FfiConverterTypeGenericError : FfiConverterRustBuffer<GenericException> {
+    override fun read(buf: ByteBuffer): GenericException {
+        
+
+        return when(buf.getInt()) {
+            1 -> GenericException.Generic(
+                FfiConverterString.read(buf),
+                )
+            else -> throw RuntimeException("invalid error enum value, something is very wrong!!")
+        }
+    }
+
+    override fun allocationSize(value: GenericException): Int {
+        return when(value) {
+            is GenericException.Generic -> (
+                // Add the size for the Int that specifies the variant plus the size needed for all fields
+                4
+                + FfiConverterString.allocationSize(value.`message`)
+            )
+        }
+    }
+
+    override fun write(value: GenericException, buf: ByteBuffer) {
+        when(value) {
+            is GenericException.Generic -> {
+                buf.putInt(1)
+                FfiConverterString.write(value.`message`, buf)
+                Unit
+            }
+        }.let { /* this makes the `when` an expression, which ensures it is exhaustive */ }
+    }
+
+}
 // Async return type handlers
 
 
@@ -834,10 +875,15 @@ internal interface UniFfiFutureCallbackUInt32 : com.sun.jna.Callback {
     // continuation, but with JNA it's easier to just store it in the callback handler.
     fun invoke(_callbackData: USize, returnValue: Int, callStatus: RustCallStatus.ByValue);
 }
-internal interface UniFfiFutureCallbackRustArcPtrFfiInterface : com.sun.jna.Callback {
+internal interface UniFfiFutureCallbackRustArcPtrFfiXmtpClient : com.sun.jna.Callback {
     // Note: callbackData is always 0.  We could pass Rust a pointer/usize to represent the
     // continuation, but with JNA it's easier to just store it in the callback handler.
     fun invoke(_callbackData: USize, returnValue: Pointer, callStatus: RustCallStatus.ByValue);
+}
+internal interface UniFfiFutureCallbackRustBuffer : com.sun.jna.Callback {
+    // Note: callbackData is always 0.  We could pass Rust a pointer/usize to represent the
+    // continuation, but with JNA it's easier to just store it in the callback handler.
+    fun invoke(_callbackData: USize, returnValue: RustBuffer.ByValue, callStatus: RustCallStatus.ByValue);
 }
 
 // Callback handlers for an async call.  These are invoked by Rust when the future is ready.  They
@@ -855,12 +901,24 @@ internal class UniFfiFutureCallbackHandleru32(val continuation: Continuation<UIn
     }
 }
 
-internal class UniFfiFutureCallbackHandlerTypeFfiInterface(val continuation: Continuation<FfiInterface>)
-    : UniFfiFutureCallbackRustArcPtrFfiInterface {
-    override fun invoke(_callbackData: USize, returnValue: Pointer, callStatus: RustCallStatus.ByValue) {
+internal class UniFfiFutureCallbackHandlerstring(val continuation: Continuation<String>)
+    : UniFfiFutureCallbackRustBuffer {
+    override fun invoke(_callbackData: USize, returnValue: RustBuffer.ByValue, callStatus: RustCallStatus.ByValue) {
         try {
             checkCallStatus(NullCallStatusErrorHandler, callStatus)
-            continuation.resume(FfiConverterTypeFfiInterface.lift(returnValue))
+            continuation.resume(FfiConverterString.lift(returnValue))
+        } catch (e: Throwable) {
+            continuation.resumeWithException(e)
+        }
+    }
+}
+
+internal class UniFfiFutureCallbackHandlerTypeFfiXmtpClient_TypeGenericError(val continuation: Continuation<FfiXmtpClient>)
+    : UniFfiFutureCallbackRustArcPtrFfiXmtpClient {
+    override fun invoke(_callbackData: USize, returnValue: Pointer, callStatus: RustCallStatus.ByValue) {
+        try {
+            checkCallStatus(GenericException, callStatus)
+            continuation.resume(FfiConverterTypeFfiXmtpClient.lift(returnValue))
         } catch (e: Throwable) {
             continuation.resumeWithException(e)
         }
@@ -874,4 +932,35 @@ fun `add`(`a`: UInt, `b`: UInt): UInt {
 })
 }
 
+@Throws(GenericException::class)
+
+@Suppress("ASSIGNED_BUT_NEVER_ACCESSED_VARIABLE")
+suspend fun `createClient`(`host`: String, `isSecure`: Boolean) : FfiXmtpClient {
+    // Create a new `CoroutineScope` for this operation, suspend the coroutine, and call the
+    // scaffolding function, passing it one of the callback handlers from `AsyncTypes.kt`.
+    //
+    // Make sure to retain a reference to the callback handler to ensure that it's not GCed before
+    // it's invoked
+    var callbackHolder: UniFfiFutureCallbackHandlerTypeFfiXmtpClient_TypeGenericError? = null
+    return coroutineScope {
+        val scope = this
+        return@coroutineScope suspendCoroutine { continuation ->
+            try {
+                val callback = UniFfiFutureCallbackHandlerTypeFfiXmtpClient_TypeGenericError(continuation)
+                callbackHolder = callback
+                rustCall { status ->
+                    _UniFFILib.INSTANCE.uniffi_bindings_ffi_fn_func_create_client(
+                        FfiConverterString.lower(`host`),FfiConverterBoolean.lower(`isSecure`),
+                        FfiConverterForeignExecutor.lower(scope),
+                        callback,
+                        USize(0),
+                        status,
+                    )
+                }
+            } catch (e: Exception) {
+                continuation.resumeWithException(e)
+            }
+        }
+    }
+}
 
