@@ -47,7 +47,7 @@ impl Contact {
         // If you try and create with a wallet address that doesn't match the signature, this will fail
         contact.association()?;
 
-        return Ok(contact);
+        Ok(contact)
     }
 
     pub fn from_bytes(bytes: Vec<u8>, wallet_address: String) -> Result<Self, ContactError> {
