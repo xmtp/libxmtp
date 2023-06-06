@@ -33,11 +33,11 @@ pub trait Errorer {
 }
 
 pub trait Store<I> {
-    fn store(&self, into: I) -> Result<(), StorageError>;
+    fn store(&self, into: &I) -> Result<(), StorageError>;
 }
 
 pub trait Fetch<C, T> {
-    fn fetch(conn: C) -> Result<Vec<T>, StorageError>;
+    fn fetch(into: &C) -> Result<Vec<T>, StorageError>;
 }
 
 pub trait InboxOwner {

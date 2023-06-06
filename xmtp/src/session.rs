@@ -42,7 +42,7 @@ impl Session {
         self.session.session_id()
     }
 
-    pub fn store(&self, into: EncryptedMessageStore) -> Result<(), StorageError> {
+    pub fn store(&self, into: &EncryptedMessageStore) -> Result<(), StorageError> {
         self.persisted.store(into)?;
         Ok(())
     }
@@ -60,7 +60,7 @@ impl Session {
     pub fn decrypt(
         &mut self,
         message: OlmMessage,
-        into: EncryptedMessageStore,
+        into: &EncryptedMessageStore,
     ) -> Result<Vec<u8>, SessionError> {
         let res = self.session.decrypt(&message)?;
         self.persisted
@@ -94,7 +94,7 @@ mod tests {
             super::Session::from_olm_session(a_to_b_olm_session, account_b_contact.clone())
                 .unwrap();
 
-        let message_store = &mut EncryptedMessageStore::default();
+        let message_store = &EncryptedMessageStore::default();
         a_to_b_session.store(message_store).unwrap();
 
         let results = PersistedSession::fetch(message_store).unwrap();

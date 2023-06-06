@@ -34,7 +34,7 @@ pub const MIGRATIONS: EmbeddedMigrations = embed_migrations!("./migrations/");
 
 pub type EncryptionKey = [u8; 32];
 
-#[derive(Default)]
+#[derive(Default, Clone, Debug)]
 pub enum StorageOption {
     #[default]
     Ephemeral,
@@ -42,9 +42,10 @@ pub enum StorageOption {
 }
 
 #[allow(dead_code)]
+#[derive(Clone)]
 /// Manages a Sqlite db for persisting messages and other objects.
 pub struct EncryptedMessageStore {
-    // connect_opt: StorageOption,
+    connect_opt: StorageOption,
     pool: Pool<ConnectionManager<SqliteConnection>>,
 }
 
@@ -80,7 +81,7 @@ impl EncryptedMessageStore {
         // unhelpful error.
 
         let mut obj = Self {
-            // connect_opt: opts,
+            connect_opt: opts,
             pool,
         };
 
@@ -96,7 +97,7 @@ impl EncryptedMessageStore {
         Ok(())
     }
 
-    pub fn create_fake_msg(self, content: &str) {
+    pub fn create_fake_msg(&self, content: &str) {
         NewDecryptedMessage::new("convo".into(), "addr".into(), content.into())
             .store(self)
             .unwrap();
@@ -133,7 +134,7 @@ impl EncryptedMessageStore {
 }
 
 impl Store<EncryptedMessageStore> for NewDecryptedMessage {
-    fn store(&self, into: EncryptedMessageStore) -> Result<(), StorageError> {
+    fn store(&self, into: &EncryptedMessageStore) -> Result<(), StorageError> {
         let conn = &mut into.conn()?;
         diesel::insert_into(messages::table)
             .values(self)
@@ -144,7 +145,7 @@ impl Store<EncryptedMessageStore> for NewDecryptedMessage {
 }
 
 impl Store<EncryptedMessageStore> for PersistedSession {
-    fn store(&self, into: EncryptedMessageStore) -> Result<(), StorageError> {
+    fn store(&self, into: &EncryptedMessageStore) -> Result<(), StorageError> {
         let conn = &mut into.conn()?;
         diesel::insert_into(schema::sessions::table)
             .values(self)
@@ -155,7 +156,7 @@ impl Store<EncryptedMessageStore> for PersistedSession {
 }
 
 impl Fetch<EncryptedMessageStore, DecryptedMessage> for DecryptedMessage {
-    fn fetch(into: EncryptedMessageStore) -> Result<Vec<DecryptedMessage>, StorageError> {
+    fn fetch(into: &EncryptedMessageStore) -> Result<Vec<DecryptedMessage>, StorageError> {
         let conn = &mut into.conn()?;
         use self::schema::messages::dsl::*;
 
@@ -166,7 +167,7 @@ impl Fetch<EncryptedMessageStore, DecryptedMessage> for DecryptedMessage {
 }
 
 impl Fetch<EncryptedMessageStore, PersistedSession> for PersistedSession {
-    fn fetch(into: EncryptedMessageStore) -> Result<Vec<PersistedSession>, StorageError> {
+    fn fetch(into: &EncryptedMessageStore) -> Result<Vec<PersistedSession>, StorageError> {
         let conn = &mut into.conn()?;
         use self::schema::sessions::dsl::*;
 
@@ -208,22 +209,22 @@ mod tests {
         .unwrap();
 
         NewDecryptedMessage::new("Bola".into(), "0x000A".into(), "Hello Bola".into())
-            .store(store)
+            .store(&store)
             .unwrap();
 
         NewDecryptedMessage::new("Mark".into(), "0x000A".into(), "Sup Mark".into())
-            .store(store)
+            .store(&store)
             .unwrap();
 
         NewDecryptedMessage::new("Bola".into(), "0x000B".into(), "Hey Amal".into())
-            .store(store)
+            .store(&store)
             .unwrap();
 
         NewDecryptedMessage::new("Bola".into(), "0x000A".into(), "bye".into())
-            .store(store)
+            .store(&store)
             .unwrap();
 
-        let v = DecryptedMessage::fetch(store).unwrap();
+        let v = DecryptedMessage::fetch(&store).unwrap();
         assert_eq!(4, v.len());
     }
 
@@ -238,10 +239,10 @@ mod tests {
             .unwrap();
 
             NewDecryptedMessage::new("Bola".into(), "0x000A".into(), "Hello Bola".into())
-                .store(store)
+                .store(&store)
                 .unwrap();
 
-            let v = DecryptedMessage::fetch(store).unwrap();
+            let v = DecryptedMessage::fetch(&store).unwrap();
             assert_eq!(1, v.len());
         }
 
@@ -260,10 +261,10 @@ mod tests {
         sleep(Duration::from_millis(10));
         let msg1 = NewDecryptedMessage::new(rand_string(), rand_string(), rand_vec());
 
-        msg0.store(store).unwrap();
-        msg1.store(store).unwrap();
+        msg0.store(&store).unwrap();
+        msg1.store(&store).unwrap();
 
-        let msgs = DecryptedMessage::fetch(store).unwrap();
+        let msgs = DecryptedMessage::fetch(&store).unwrap();
 
         assert_eq!(2, msgs.len());
         assert_eq!(msg0, msgs[0]);
@@ -286,7 +287,7 @@ mod tests {
             .unwrap();
 
             let msg0 = NewDecryptedMessage::new(rand_string(), rand_string(), rand_vec());
-            msg0.store(store).unwrap();
+            msg0.store(&store).unwrap();
         } // Drop it
 
         enc_key[3] = 145; // Alter the enc_key
@@ -309,9 +310,9 @@ mod tests {
         let session =
             PersistedSession::new(rand_string(), rand_string(), rand_string(), rand_vec());
 
-        session.store(store).unwrap();
+        session.store(&store).unwrap();
 
-        let results = PersistedSession::fetch(store).unwrap();
+        let results = PersistedSession::fetch(&store).unwrap();
         assert_eq!(1, results.len());
     }
 }

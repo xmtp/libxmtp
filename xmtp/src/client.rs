@@ -126,7 +126,7 @@ where
             Session::from_olm_session(olm_session, contact).map_err(|_| ClientError::Unknown)?;
 
         session
-            .store(self.store())
+            .store(&self.store())
             .map_err(|_| ClientError::Unknown)?;
 
         Ok(session)

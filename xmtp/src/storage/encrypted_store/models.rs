@@ -87,7 +87,7 @@ impl PersistedSession {
     pub fn update_session_data(
         &self,
         new_session_data: Vec<u8>,
-        into: EncryptedMessageStore,
+        into: &EncryptedMessageStore,
     ) -> Result<Self, StorageError> {
         let conn = &mut into.conn()?;
         use self::sessions::dsl::*;
