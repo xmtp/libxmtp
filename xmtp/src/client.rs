@@ -6,8 +6,10 @@ use crate::{
     networking::XmtpApiClient,
     persistence::{NamespacedPersistence, Persistence},
     session::Session,
+    storage::EncryptedMessageStore,
     types::Address,
     utils::{build_envelope, build_user_contact_topic},
+    PooledSqliteConnection,
 };
 use xmtp_proto::xmtp::message_api::v1::Envelope;
 
@@ -17,6 +19,16 @@ pub enum Network {
     #[default]
     Dev,
     Prod,
+}
+
+pub enum StoreProvider {
+    Encrypted(EncryptedMessageStore),
+}
+
+impl Default for StoreProvider {
+    fn default() -> Self {
+        Self::Encrypted(EncryptedMessageStore::default())
+    }
 }
 
 #[derive(Debug, Error)]
@@ -31,7 +43,7 @@ pub enum ClientError {
     Unknown,
 }
 
-pub struct Client<A, P, S>
+pub struct Client<A, P>
 where
     A: XmtpApiClient,
     P: Persistence,
@@ -40,11 +52,11 @@ where
     pub network: Network,
     pub persistence: NamespacedPersistence<P>,
     pub(crate) account: Account,
-    pub(super) _store: S,
+    pub(super) _store: StoreProvider,
     is_initialized: bool,
 }
 
-impl<A, P, S> Client<A, P, S>
+impl<A, P> Client<A, P>
 where
     A: XmtpApiClient,
     P: Persistence,
@@ -54,7 +66,7 @@ where
         network: Network,
         persistence: NamespacedPersistence<P>,
         account: Account,
-        store: S,
+        store: StoreProvider,
     ) -> Self {
         Self {
             api_client,
@@ -102,12 +114,19 @@ where
         Ok(contacts)
     }
 
+    pub fn get_connection(&self) -> PooledSqliteConnection {
+        match &self._store {
+            StoreProvider::Encrypted(store) => store.conn(),
+        }
+    }
+
     pub fn create_outbound_session(&self, contact: Contact) -> Result<Session, ClientError> {
         let olm_session = self.account.create_outbound_session(contact.clone());
-        let session =
+        let mut session =
             Session::from_olm_session(olm_session, contact).map_err(|_| ClientError::Unknown)?;
 
-        session.store(self._store)?;
+        let mut conn = self.get_connection();
+        session.store(&mut conn).map_err(|_| ClientError::Unknown)?;
 
         Ok(session)
     }

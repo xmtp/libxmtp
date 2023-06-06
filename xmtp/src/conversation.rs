@@ -23,23 +23,23 @@ pub enum ConversationError {
 
 // I had to pick a name for this, and it seems like we are hovering around SecretConversation ATM
 // May very well change
-pub struct SecretConversation<A, P, S>
+pub struct SecretConversation<A, P>
 where
     A: XmtpApiClient,
     P: Persistence,
 {
     peer_address: Address,
     members: Vec<Contact>,
-    client: Arc<Mutex<Client<A, P, S>>>,
+    client: Arc<Mutex<Client<A, P>>>,
 }
 
-impl<A, P, S> SecretConversation<A, P, S>
+impl<A, P> SecretConversation<A, P>
 where
     A: XmtpApiClient,
     P: Persistence,
 {
     pub fn new(
-        client: Arc<Mutex<Client<A, P, S>>>,
+        client: Arc<Mutex<Client<A, P>>>,
         peer_address: Address,
         // TODO: Add user's own contacts as well
         members: Vec<Contact>,
@@ -57,7 +57,7 @@ where
 
     pub async fn initialize(&self) -> Result<(), ConversationError> {
         let mut client = self.client.lock().await;
-        
+
         for contact in self.members.iter() {
             let id = contact.id();
             // TODO: Persist session to database

@@ -17,6 +17,10 @@ pub mod vmac_protos;
 use association::AssociationText;
 pub use builder::ClientBuilder;
 pub use client::{Client, Network};
+use diesel::{
+    r2d2::{ConnectionManager, PooledConnection},
+    SqliteConnection,
+};
 use xmtp_cryptography::signature::{RecoverableSignature, SignatureError};
 
 pub trait Signable {
@@ -40,6 +44,8 @@ pub trait InboxOwner {
     fn get_address(&self) -> String;
     fn sign(&self, text: AssociationText) -> Result<RecoverableSignature, SignatureError>;
 }
+
+pub type PooledSqliteConnection = PooledConnection<ConnectionManager<SqliteConnection>>;
 
 #[cfg(test)]
 mod tests {

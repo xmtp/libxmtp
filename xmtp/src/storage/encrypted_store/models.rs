@@ -89,11 +89,11 @@ impl PersistedSession {
         into: &mut EncryptedMessageStore,
     ) -> Result<Self, String> {
         use self::sessions::dsl::*;
-        let mut conn_guard = into.conn.lock().map_err(|e| e.to_string())?;
+        let mut conn_guard = into.conn();
 
         diesel::update(self)
             .set(vmac_session_data.eq(new_session_data.clone()))
-            .execute(conn_guard.deref_mut())
+            .execute(&mut conn_guard)
             .map_err(|e| e.to_string())?;
 
         let mut updated = self.clone();

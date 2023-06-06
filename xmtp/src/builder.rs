@@ -1,9 +1,10 @@
 use crate::{
     account::{Account, AccountError},
     association::{Association, AssociationError, AssociationText},
-    client::{Client, Network},
+    client::{Client, Network, StoreProvider},
     networking::XmtpApiClient,
     persistence::{NamespacedPersistence, Persistence},
+    storage::EncryptedMessageStore,
     types::Address,
     Errorer, InboxOwner,
 };
@@ -56,26 +57,24 @@ where
     }
 }
 
-pub struct ClientBuilder<A, P, S, O>
+pub struct ClientBuilder<A, P, O>
 where
     A: XmtpApiClient + Default,
     P: Persistence + Default,
-    S: Default + Errorer,
     O: InboxOwner,
 {
     api_client: Option<A>,
     network: Network,
     persistence: Option<P>,
     account: Option<Account>,
-    store: Option<S>,
+    store: Option<StoreProvider>,
     account_strategy: AccountStrategy<O>,
 }
 
-impl<A, P, S, O> ClientBuilder<A, P, S, O>
+impl<A, P, O> ClientBuilder<A, P, O>
 where
     A: XmtpApiClient + Default,
     P: Persistence + Default,
-    S: Default + Errorer,
     O: InboxOwner,
 {
     const ACCOUNT_KEY: &str = "xmtp_account";
@@ -112,7 +111,7 @@ where
         self
     }
 
-    pub fn store(mut self, store: S) -> Self {
+    pub fn store(mut self, store: StoreProvider) -> Self {
         self.store = Some(store);
         self
     }
@@ -196,7 +195,7 @@ where
 
         Account::generate(sign).map_err(ClientBuilderError::AccountInitialization)
     }
-    pub fn build(mut self) -> Result<Client<A, P, S>, ClientBuilderError<P::Error>> {
+    pub fn build(mut self) -> Result<Client<A, P>, ClientBuilderError<P::Error>> {
         let api_client = self.api_client.take().unwrap_or_default();
         let wallet_address = self.get_address();
         let persistence = self.persistence.take().unwrap_or_default();
@@ -245,7 +244,7 @@ mod tests {
 
     use super::ClientBuilder;
 
-    impl ClientBuilder<MockXmtpApiClient, InMemoryPersistence, EncryptedMessageStore, LocalWallet> {
+    impl ClientBuilder<MockXmtpApiClient, InMemoryPersistence, LocalWallet> {
         pub fn new_test() -> Self {
             let wallet = generate_local_wallet();
 
@@ -265,13 +264,13 @@ mod tests {
 
         let wallet = generate_local_wallet();
 
-        let client_a: Client<MockXmtpApiClient, InMemoryPersistence, EncryptedMessageStore> =
+        let client_a: Client<MockXmtpApiClient, InMemoryPersistence> =
             ClientBuilder::new(wallet.clone().into())
                 .persistence(persistence)
                 .build()
                 .unwrap();
 
-        let client_b: Client<MockXmtpApiClient, InMemoryPersistence, EncryptedMessageStore> =
+        let client_b: Client<MockXmtpApiClient, InMemoryPersistence> =
             ClientBuilder::new(wallet.into())
                 .persistence(client_a.persistence.persistence)
                 .build()

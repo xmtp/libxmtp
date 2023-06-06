@@ -9,31 +9,31 @@ use crate::{
     Client,
 };
 
-pub struct Conversations<A, P, S>
+pub struct Conversations<A, P>
 where
     A: XmtpApiClient,
     P: Persistence,
 {
-    client: Arc<Mutex<Client<A, P, S>>>,
+    client: Arc<Mutex<Client<A, P>>>,
 }
 
-impl<A, P, S> Conversations<A, P, S>
+impl<A, P> Conversations<A, P>
 where
     A: XmtpApiClient,
     P: Persistence,
 {
-    pub fn new(client: Arc<Mutex<Client<A, P, S>>>) -> Self {
+    pub fn new(client: Arc<Mutex<Client<A, P>>>) -> Self {
         Self { client }
     }
 
-    pub fn client(&self) -> Arc<Mutex<Client<A, P, S>>> {
+    pub fn client(&self) -> Arc<Mutex<Client<A, P>>> {
         self.client.clone()
     }
 
     pub async fn new_secret_conversation(
         &self,
         wallet_address: String,
-    ) -> Result<SecretConversation<A, P, S>, ConversationError> {
+    ) -> Result<SecretConversation<A, P>, ConversationError> {
         let client = self.client.lock().await;
         let contacts = client.get_contacts(wallet_address.as_str()).await?;
         let conversation = SecretConversation::new(self.client.clone(), wallet_address, contacts);

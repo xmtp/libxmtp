@@ -20,7 +20,7 @@ xmtp_networking = { path = "../xmtp_networking" }
 async-trait = "0.1.68"
 xmtp_cryptography = { path = "../xmtp_cryptography"}
 hex = "0.4.3"
-diesel = { version = "2.0.4", features = ["sqlite"] }
+diesel = { version = "2.0.4", features = ["sqlite", "r2d2"] }
 diesel_migrations = { version = "2.0.0", features = ["sqlite"] }
 log = "0.4.17"
 rand = "0.8.5"

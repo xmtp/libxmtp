@@ -1,7 +1,7 @@
 use crate::{
     contact::Contact,
     storage::{EncryptedMessageStore, PersistedSession},
-    Store,
+    PooledSqliteConnection, Store,
 };
 use vodozemac::olm::{OlmMessage, Session as OlmSession};
 
@@ -31,12 +31,39 @@ impl Session {
         self.session.session_id()
     }
 
-    pub fn store(&mut self, into: &mut EncryptedMessageStore) -> Result<(), String> {
+    pub fn store(&self, into: &mut PooledSqliteConnection) -> Result<(), String> {
         self.persisted.store(into)
     }
 
     // TODO: Replace the OlmMessage with our own message wrapper? Or leave up to the caller?
     pub fn encrypt(&mut self, plaintext: &[u8]) -> OlmMessage {
         self.session.encrypt(plaintext)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::{
+        account::{tests::test_wallet_signer, Account},
+        storage::{EncryptedMessageStore, PersistedSession},
+        Fetch,
+    };
+
+    #[test]
+    fn create_session() {
+        let account_a = Account::generate(test_wallet_signer).unwrap();
+        let account_b = Account::generate(test_wallet_signer).unwrap();
+
+        let account_b_contact = account_b.contact();
+        let olm_session = account_a.create_outbound_session(account_b_contact.clone());
+        let session =
+            super::Session::from_olm_session(olm_session, account_b_contact.clone()).unwrap();
+
+        let mut message_store = EncryptedMessageStore::default();
+        let mut conn = message_store.conn();
+        session.store(&mut conn).unwrap();
+
+        let results: Vec<PersistedSession> = message_store.fetch().unwrap();
+        assert_eq!(results.len(), 1);
     }
 }
