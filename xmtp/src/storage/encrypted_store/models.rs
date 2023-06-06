@@ -1,6 +1,6 @@
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use crate::{storage::StorageError, PooledSqliteConnection};
+use crate::{storage::StorageError, Save};
 
 use super::{
     schema::{messages, sessions},
@@ -60,7 +60,7 @@ fn now() -> i64 {
 #[derive(Insertable, Identifiable, Queryable, Clone, PartialEq, Debug)]
 #[diesel(table_name = sessions)]
 #[diesel(primary_key(session_id))]
-pub struct PersistedSession {
+pub struct Session {
     pub session_id: String,
     pub created_at: i64,
     pub peer_address: String,
@@ -68,7 +68,7 @@ pub struct PersistedSession {
     pub vmac_session_data: Vec<u8>,
 }
 
-impl PersistedSession {
+impl Session {
     pub fn new(
         session_id: String,
         peer_address: String,
@@ -83,22 +83,20 @@ impl PersistedSession {
             vmac_session_data,
         }
     }
+}
 
-    pub fn update_session_data(
-        &self,
-        new_session_data: Vec<u8>,
-        into: &EncryptedMessageStore,
-    ) -> Result<Self, StorageError> {
+impl Save<EncryptedMessageStore> for Session {
+    fn save(&self, into: &EncryptedMessageStore) -> Result<(), StorageError> {
         let conn = &mut into.conn()?;
-        use self::sessions::dsl::*;
 
-        diesel::update(self)
-            .set(vmac_session_data.eq(new_session_data.clone()))
+        diesel::update(sessions::table)
+            .set((
+                sessions::vmac_session_data.eq(&self.vmac_session_data),
+                sessions::peer_address.eq(&self.peer_address),
+                sessions::peer_installation_id.eq(&self.peer_installation_id),
+            ))
             .execute(conn)?;
 
-        let mut updated = self.clone();
-        updated.vmac_session_data = new_session_data;
-
-        Ok(updated)
+        Ok(())
     }
 }

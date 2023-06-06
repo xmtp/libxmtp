@@ -5,11 +5,10 @@ use crate::{
     contact::{Contact, ContactError},
     networking::XmtpApiClient,
     persistence::{NamespacedPersistence, Persistence},
-    session::Session,
+    session::SessionManager,
     storage::{EncryptedMessageStore, StorageError},
     types::Address,
     utils::{build_envelope, build_user_contact_topic},
-    PooledSqliteConnection,
 };
 use xmtp_proto::xmtp::message_api::v1::Envelope;
 
@@ -19,16 +18,6 @@ pub enum Network {
     #[default]
     Dev,
     Prod,
-}
-
-pub enum StorageEngine {
-    Encrypted(EncryptedMessageStore),
-}
-
-impl Default for StorageEngine {
-    fn default() -> Self {
-        Self::Encrypted(EncryptedMessageStore::default())
-    }
 }
 
 #[derive(Debug, Error)]
@@ -116,14 +105,14 @@ where
         Ok(contacts)
     }
 
-    pub fn store(self) -> EncryptedMessageStore {
+    fn store(self) -> EncryptedMessageStore {
         return self._store;
     }
 
-    pub fn create_outbound_session(self, contact: Contact) -> Result<Session, ClientError> {
+    pub fn create_outbound_session(self, contact: Contact) -> Result<SessionManager, ClientError> {
         let olm_session = self.account.create_outbound_session(contact.clone());
-        let session =
-            Session::from_olm_session(olm_session, contact).map_err(|_| ClientError::Unknown)?;
+        let session = SessionManager::from_olm_session(olm_session, contact)
+            .map_err(|_| ClientError::Unknown)?;
 
         session
             .store(&self.store())

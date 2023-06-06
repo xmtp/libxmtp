@@ -1,7 +1,7 @@
 use crate::{
     account::{Account, AccountError},
     association::{Association, AssociationError, AssociationText},
-    client::{Client, Network, StorageEngine},
+    client::{Client, Network},
     networking::XmtpApiClient,
     persistence::{NamespacedPersistence, Persistence},
     storage::EncryptedMessageStore,

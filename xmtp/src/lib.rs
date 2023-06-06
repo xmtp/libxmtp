@@ -32,12 +32,16 @@ pub trait Errorer {
     type Error;
 }
 
-pub trait Store<I> {
-    fn store(&self, into: &I) -> Result<(), StorageError>;
+pub trait Store<DB> {
+    fn store(&self, into: &DB) -> Result<(), StorageError>;
 }
 
-pub trait Fetch<C, T> {
-    fn fetch(into: &C) -> Result<Vec<T>, StorageError>;
+pub trait Fetch<T> {
+    fn fetch(&self) -> Result<Vec<T>, StorageError>;
+}
+
+pub trait Save<DB> {
+    fn save(&self, into: &DB) -> Result<(), StorageError>;
 }
 
 pub trait InboxOwner {

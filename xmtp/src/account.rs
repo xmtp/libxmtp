@@ -160,6 +160,7 @@ impl Account {
         contact: Contact,
         pre_key_message: PreKeyMessage,
     ) -> Result<InboundCreationResult, AccountError> {
+        // TODO: Save the account keys to the store
         let keys = self.keys.get_mut();
         let res =
             keys.create_inbound_session(contact.vmac_identity_key(), &pre_key_message.clone())?;
