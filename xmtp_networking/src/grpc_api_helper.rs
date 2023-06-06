@@ -10,7 +10,7 @@ use tonic::Status;
 use tonic::{metadata::MetadataValue, transport::Channel, Request, Streaming};
 use xmtp_proto::xmtp::message_api::v1::{
     message_api_client::MessageApiClient, BatchQueryRequest, BatchQueryResponse, Envelope,
-    PagingInfo, PublishRequest, PublishResponse, QueryRequest, QueryResponse, SubscribeRequest,
+    PublishRequest, PublishResponse, QueryRequest, QueryResponse, SubscribeRequest,
 };
 
 fn tls_config() -> Result<ClientConfig, tonic::Status> {
@@ -103,14 +103,14 @@ impl Client {
     pub async fn publish(
         &self,
         token: String,
-        envelopes: Vec<Envelope>,
+        request: PublishRequest,
     ) -> Result<PublishResponse, tonic::Status> {
         let auth_token_string = format!("Bearer {}", token);
         let token: MetadataValue<_> = auth_token_string
             .parse()
             .map_err(|e| tonic::Status::new(tonic::Code::Internal, format!("{}", e)))?;
 
-        let mut tonic_request = Request::new(PublishRequest { envelopes });
+        let mut tonic_request = Request::new(request);
         tonic_request.metadata_mut().insert("authorization", token);
 
         match &self.client {
@@ -127,10 +127,10 @@ impl Client {
         }
     }
 
-    pub async fn subscribe(&self, topics: Vec<String>) -> Result<Subscription, tonic::Status> {
-        let request = SubscribeRequest {
-            content_topics: topics,
-        };
+    pub async fn subscribe(
+        &self,
+        request: SubscribeRequest,
+    ) -> Result<Subscription, tonic::Status> {
         let stream = match &self.client {
             InnerApiClient::Plain(c) => c
                 .clone()
@@ -149,25 +149,11 @@ impl Client {
         Ok(Subscription::start(stream).await)
     }
 
-    pub async fn query(
-        &self,
-        topic: String,
-        start_time: Option<u64>,
-        end_time: Option<u64>,
-        paging_info: Option<PagingInfo>,
-    ) -> Result<QueryResponse, tonic::Status> {
-        let request = QueryRequest {
-            content_topics: vec![topic],
-            start_time_ns: start_time.unwrap_or(0),
-            end_time_ns: end_time.unwrap_or(0),
-            paging_info,
-        };
-
+    pub async fn query(&self, request: QueryRequest) -> Result<QueryResponse, tonic::Status> {
         let res = match &self.client {
             InnerApiClient::Plain(c) => c.clone().query(request).await,
             InnerApiClient::Tls(c) => c.clone().query(request).await,
         };
-
         match res {
             Ok(response) => Ok(response.into_inner()),
             Err(e) => Err(e),
@@ -176,9 +162,8 @@ impl Client {
 
     pub async fn batch_query(
         &self,
-        requests: Vec<QueryRequest>,
+        request: BatchQueryRequest,
     ) -> Result<BatchQueryResponse, tonic::Status> {
-        let request = BatchQueryRequest { requests };
         let res = match &self.client {
             InnerApiClient::Plain(c) => c.clone().batch_query(request).await,
             InnerApiClient::Tls(c) => c.clone().batch_query(request).await,
