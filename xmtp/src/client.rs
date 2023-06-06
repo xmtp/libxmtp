@@ -105,17 +105,16 @@ where
         Ok(contacts)
     }
 
-    fn store(self) -> EncryptedMessageStore {
-        return self._store;
-    }
-
-    pub fn create_outbound_session(self, contact: Contact) -> Result<SessionManager, ClientError> {
+    pub fn create_outbound_session(
+        &mut self,
+        contact: Contact,
+    ) -> Result<SessionManager, ClientError> {
         let olm_session = self.account.create_outbound_session(contact.clone());
         let session = SessionManager::from_olm_session(olm_session, contact)
             .map_err(|_| ClientError::Unknown)?;
 
         session
-            .store(&self.store())
+            .store(&self._store)
             .map_err(|_| ClientError::Unknown)?;
 
         Ok(session)

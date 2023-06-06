@@ -61,7 +61,7 @@ where
         for contact in self.members.iter() {
             let id = contact.id();
             // TODO: Persist session to database
-            let mut session = client.account.create_outbound_session(contact.clone());
+            let mut session = client.create_outbound_session(contact.clone())?;
             // TODO: Replace with proper protobuf invite message
             let invite_message = session.encrypt("invite".as_bytes());
 
