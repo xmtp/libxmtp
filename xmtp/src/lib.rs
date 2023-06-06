@@ -21,6 +21,7 @@ use diesel::{
     r2d2::{ConnectionManager, PooledConnection},
     SqliteConnection,
 };
+use storage::StorageError;
 use xmtp_cryptography::signature::{RecoverableSignature, SignatureError};
 
 pub trait Signable {
@@ -32,12 +33,11 @@ pub trait Errorer {
 }
 
 pub trait Store<I> {
-    fn store(&self, into: &mut I) -> Result<(), String>;
+    fn store(&self, into: I) -> Result<(), StorageError>;
 }
 
-pub trait Fetch<T> {
-    type E;
-    fn fetch(&mut self) -> Result<Vec<T>, Self::E>;
+pub trait Fetch<C, T> {
+    fn fetch(conn: C) -> Result<Vec<T>, StorageError>;
 }
 
 pub trait InboxOwner {

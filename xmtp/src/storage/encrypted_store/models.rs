@@ -1,8 +1,11 @@
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use crate::PooledSqliteConnection;
+use crate::{storage::StorageError, PooledSqliteConnection};
 
-use super::schema::{messages, sessions};
+use super::{
+    schema::{messages, sessions},
+    EncryptedMessageStore,
+};
 use diesel::prelude::*;
 
 /// Placeholder type for messages returned from the Store.
@@ -84,14 +87,14 @@ impl PersistedSession {
     pub fn update_session_data(
         &self,
         new_session_data: Vec<u8>,
-        conn: &mut PooledSqliteConnection,
-    ) -> Result<Self, String> {
+        into: EncryptedMessageStore,
+    ) -> Result<Self, StorageError> {
+        let conn = &mut into.conn()?;
         use self::sessions::dsl::*;
 
         diesel::update(self)
             .set(vmac_session_data.eq(new_session_data.clone()))
-            .execute(conn)
-            .map_err(|e| e.to_string())?;
+            .execute(conn)?;
 
         let mut updated = self.clone();
         updated.vmac_session_data = new_session_data;

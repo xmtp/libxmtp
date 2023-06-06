@@ -1,9 +1,10 @@
 use crate::{
     account::{Account, AccountError},
     association::{Association, AssociationError, AssociationText},
-    client::{Client, Network, StoreProvider},
+    client::{Client, Network, StorageEngine},
     networking::XmtpApiClient,
     persistence::{NamespacedPersistence, Persistence},
+    storage::EncryptedMessageStore,
     types::Address,
     InboxOwner,
 };
@@ -66,7 +67,7 @@ where
     network: Network,
     persistence: Option<P>,
     account: Option<Account>,
-    store: Option<StoreProvider>,
+    store: Option<EncryptedMessageStore>,
     account_strategy: AccountStrategy<O>,
 }
 
@@ -110,7 +111,7 @@ where
         self
     }
 
-    pub fn store(mut self, store: StoreProvider) -> Self {
+    pub fn store(mut self, store: EncryptedMessageStore) -> Self {
         self.store = Some(store);
         self
     }

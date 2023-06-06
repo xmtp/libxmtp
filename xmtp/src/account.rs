@@ -133,7 +133,7 @@ impl Account {
         let fallback_key = VmacInstallationLinkedKey {
             key: Some(fallback_key_proto.proto),
         };
-        // TODO: Add associations here
+
         Contact::new(
             InstallationContactBundle {
                 version: Some(Version::V1(VmacInstallationPublicKeyBundleV1 {

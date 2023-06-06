@@ -1,6 +1,6 @@
 use crate::{
     contact::Contact,
-    storage::{EncryptedMessageStoreError, PersistedSession},
+    storage::{EncryptedMessageStore, PersistedSession, StorageError},
     PooledSqliteConnection, Store,
 };
 use thiserror::Error;
@@ -8,8 +8,8 @@ use vodozemac::olm::{DecryptionError, OlmMessage, Session as OlmSession};
 
 #[derive(Debug, Error)]
 pub enum SessionError {
-    #[error("store error")]
-    Store(#[from] EncryptedMessageStoreError),
+    #[error("storage error")]
+    Storage(#[from] StorageError),
     #[error("decrypt error")]
     Decrypt(#[from] DecryptionError),
     #[error("unknown error")]
@@ -42,7 +42,7 @@ impl Session {
         self.session.session_id()
     }
 
-    pub fn store(&self, into: &mut PooledSqliteConnection) -> Result<(), String> {
+    pub fn store(&self, into: EncryptedMessageStore) -> Result<(), StorageError> {
         self.persisted.store(into)?;
         Ok(())
     }
@@ -60,7 +60,7 @@ impl Session {
     pub fn decrypt(
         &mut self,
         message: OlmMessage,
-        into: &mut PooledSqliteConnection,
+        into: EncryptedMessageStore,
     ) -> Result<Vec<u8>, SessionError> {
         let res = self.session.decrypt(&message)?;
         self.persisted
@@ -94,11 +94,10 @@ mod tests {
             super::Session::from_olm_session(a_to_b_olm_session, account_b_contact.clone())
                 .unwrap();
 
-        let mut message_store = EncryptedMessageStore::default();
-        let mut conn = message_store.conn();
-        a_to_b_session.store(&mut conn).unwrap();
+        let message_store = &mut EncryptedMessageStore::default();
+        a_to_b_session.store(message_store).unwrap();
 
-        let results: Vec<PersistedSession> = message_store.fetch().unwrap();
+        let results = PersistedSession::fetch(message_store).unwrap();
         assert_eq!(results.len(), 1);
         let initial_session_data = &results.get(0).unwrap().vmac_session_data;
 
@@ -109,10 +108,11 @@ mod tests {
                 .unwrap();
 
             let reply = b_to_a_olm_session.session.encrypt("hello to you");
-            let decrypted_reply = a_to_b_session.decrypt(reply, &mut conn).unwrap();
+            let decrypted_reply = a_to_b_session.decrypt(reply, message_store).unwrap();
             assert_eq!(decrypted_reply, "hello to you".as_bytes());
 
-            let updated_results: Vec<PersistedSession> = message_store.fetch().unwrap();
+            let updated_results: Vec<PersistedSession> =
+                PersistedSession::fetch(message_store).unwrap();
             assert_eq!(updated_results.len(), 1);
             let updated_session_data = &updated_results.get(0).unwrap().vmac_session_data;
 

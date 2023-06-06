@@ -6,7 +6,7 @@ use crate::{
     networking::XmtpApiClient,
     persistence::{NamespacedPersistence, Persistence},
     session::Session,
-    storage::EncryptedMessageStore,
+    storage::{EncryptedMessageStore, StorageError},
     types::Address,
     utils::{build_envelope, build_user_contact_topic},
     PooledSqliteConnection,
@@ -21,11 +21,11 @@ pub enum Network {
     Prod,
 }
 
-pub enum StoreProvider {
+pub enum StorageEngine {
     Encrypted(EncryptedMessageStore),
 }
 
-impl Default for StoreProvider {
+impl Default for StorageEngine {
     fn default() -> Self {
         Self::Encrypted(EncryptedMessageStore::default())
     }
@@ -37,6 +37,8 @@ pub enum ClientError {
     Contact(#[from] ContactError),
     #[error("could not publish: {0}")]
     PublishError(String),
+    #[error("storage error: {0}")]
+    Storage(#[from] StorageError),
     #[error("Query failed: {0}")]
     QueryError(String),
     #[error("unknown client error")]
@@ -52,7 +54,7 @@ where
     pub network: Network,
     pub persistence: NamespacedPersistence<P>,
     pub(crate) account: Account,
-    pub(super) _store: StoreProvider,
+    pub(super) _store: EncryptedMessageStore,
     is_initialized: bool,
 }
 
@@ -66,7 +68,7 @@ where
         network: Network,
         persistence: NamespacedPersistence<P>,
         account: Account,
-        store: StoreProvider,
+        store: EncryptedMessageStore,
     ) -> Self {
         Self {
             api_client,
@@ -114,19 +116,18 @@ where
         Ok(contacts)
     }
 
-    pub fn get_connection(&self) -> PooledSqliteConnection {
-        match &self._store {
-            StoreProvider::Encrypted(store) => store.conn(),
-        }
+    pub fn store(self) -> EncryptedMessageStore {
+        return self._store;
     }
 
-    pub fn create_outbound_session(&self, contact: Contact) -> Result<Session, ClientError> {
+    pub fn create_outbound_session(self, contact: Contact) -> Result<Session, ClientError> {
         let olm_session = self.account.create_outbound_session(contact.clone());
         let session =
             Session::from_olm_session(olm_session, contact).map_err(|_| ClientError::Unknown)?;
 
-        let mut conn = self.get_connection();
-        session.store(&mut conn).map_err(|_| ClientError::Unknown)?;
+        session
+            .store(self.store())
+            .map_err(|_| ClientError::Unknown)?;
 
         Ok(session)
     }
