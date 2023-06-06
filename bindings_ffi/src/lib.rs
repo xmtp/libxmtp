@@ -39,24 +39,28 @@ impl From<String> for GenericError {
 //     fn sign(&self, text: AssociationText) -> Result<RecoverableSignature, SignatureError>;
 // }
 
+// Try running from rust
+// Build with debug symbols
 #[uniffi::export]
 pub async fn create_client(
     // owner: Box<dyn FfiInboxOwner>, // We just need an InboxOwner
     host: String,
     is_secure: bool,
     // TODO proper error handling
-) -> Result<Arc<FfiXmtpClient>, GenericError> {
+) -> Result</*Arc<FfiXmtpClient>*/ (), GenericError> {
     let wallet = LocalWallet::new(&mut rng());
     let api_client = FfiApiClient::new(&host, is_secure).await?;
 
-    let mut xmtp_client = xmtp::ClientBuilder::new(wallet.into())
+    let mut xmtp_client: RustXmtpClient = xmtp::ClientBuilder::new(wallet.into())
         .api_client(api_client)
         .build()
         .map_err(|e| format!("{:?}", e))?;
     xmtp_client.init().await.map_err(|e| e.to_string())?;
-    Ok(Arc::new(FfiXmtpClient {
-        inner_client: xmtp_client,
-    }))
+    Ok(
+        /*Arc::new(FfiXmtpClient {
+            inner_client: xmtp_client,
+        })*/ (),
+    )
 }
 
 #[derive(uniffi::Object)]
