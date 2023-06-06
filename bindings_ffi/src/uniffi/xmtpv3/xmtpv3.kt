@@ -810,10 +810,10 @@ sealed class GenericException: Exception() {
     // Each variant is a nested class
     
     class Generic(
-        val `message`: String
+        val `err`: String
         ) : GenericException() {
         override val message
-            get() = "message=${ `message` }"
+            get() = "err=${ `err` }"
     }
     
 
@@ -841,7 +841,7 @@ public object FfiConverterTypeGenericError : FfiConverterRustBuffer<GenericExcep
             is GenericException.Generic -> (
                 // Add the size for the Int that specifies the variant plus the size needed for all fields
                 4
-                + FfiConverterString.allocationSize(value.`message`)
+                + FfiConverterString.allocationSize(value.`err`)
             )
         }
     }
@@ -850,7 +850,7 @@ public object FfiConverterTypeGenericError : FfiConverterRustBuffer<GenericExcep
         when(value) {
             is GenericException.Generic -> {
                 buf.putInt(1)
-                FfiConverterString.write(value.`message`, buf)
+                FfiConverterString.write(value.`err`, buf)
                 Unit
             }
         }.let { /* this makes the `when` an expression, which ensures it is exhaustive */ }

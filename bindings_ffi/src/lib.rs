@@ -22,12 +22,12 @@ fn add(a: u32, b: u32) -> u32 {
 
 #[derive(uniffi::Error)]
 pub enum GenericError {
-    Generic { message: String },
+    Generic { err: String },
 }
 
 impl From<String> for GenericError {
-    fn from(message: String) -> Self {
-        Self::Generic { message }
+    fn from(err: String) -> Self {
+        Self::Generic { err }
     }
 }
 
