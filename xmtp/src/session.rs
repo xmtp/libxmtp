@@ -12,6 +12,8 @@ pub enum SessionError {
     Storage(#[from] StorageError),
     #[error("decrypt error")]
     Decrypt(#[from] DecryptionError),
+    #[error("serialization error")]
+    Serialization(#[from] serde_json::Error),
     #[error("unknown error")]
     Unknown,
 }
@@ -47,8 +49,8 @@ impl SessionManager {
         Ok(())
     }
 
-    pub fn session_bytes(&self) -> Result<Vec<u8>, String> {
-        let res = serde_json::to_vec(&self.session.pickle()).map_err(|e| e.to_string())?;
+    pub fn session_bytes(&self) -> Result<Vec<u8>, SessionError> {
+        let res = serde_json::to_vec(&self.session.pickle())?;
         Ok(res)
     }
 
@@ -63,6 +65,9 @@ impl SessionManager {
         into: &EncryptedMessageStore,
     ) -> Result<Vec<u8>, SessionError> {
         let res = self.session.decrypt(&message)?;
+        let session_bytes = self.session_bytes()?;
+        // TODO: Stop mutating/storing the persisted session and just build on demand
+        self.persisted.vmac_session_data = session_bytes;
         self.persisted.save(into)?;
 
         Ok(res)
