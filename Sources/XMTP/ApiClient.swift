@@ -70,7 +70,7 @@ class GRPCApiClient: ApiClient {
 		switch env {
 		case XMTPEnvironment.local: return "http://localhost:5556"
 		case XMTPEnvironment.dev: return "https://dev.xmtp.network:5556"
-		case XMTPEnvironment.production: return "https://xmtp.network:5556"
+		case XMTPEnvironment.production: return "https://production.xmtp.network:5556"
 		}
 	}
 
