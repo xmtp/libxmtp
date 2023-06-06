@@ -1,7 +1,6 @@
 use crate::{
     association::{Association, AssociationError, AssociationText},
     contact::Contact,
-    session::Session,
     types::Address,
     vmac_protos::ProtoWrapper,
     Signable,
@@ -9,8 +8,8 @@ use crate::{
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 use vodozemac::olm::{
-    Account as OlmAccount, AccountPickle as OlmAccountPickle, IdentityKeys, Session as OlmSession,
-    SessionConfig,
+    Account as OlmAccount, AccountPickle as OlmAccountPickle, IdentityKeys, InboundCreationResult,
+    PreKeyMessage, Session as OlmSession, SessionConfig, SessionCreationError,
 };
 use xmtp_cryptography::signature::{RecoverableSignature, SignatureError};
 use xmtp_proto::xmtp::v3::message_contents::{
@@ -21,6 +20,8 @@ use xmtp_proto::xmtp::v3::message_contents::{
 
 #[derive(Debug, Error)]
 pub enum AccountError {
+    #[error("session creation")]
+    SessionCreation(#[from] SessionCreationError),
     #[error("generating new account")]
     BadGeneration(#[from] SignatureError),
     #[error("bad association")]
@@ -48,6 +49,10 @@ impl VmacAccount {
 
     pub fn get(&self) -> &OlmAccount {
         &self.account
+    }
+
+    pub fn get_mut(&mut self) -> &mut OlmAccount {
+        &mut self.account
     }
 }
 
@@ -150,6 +155,18 @@ impl Account {
         )
     }
 
+    pub fn create_inbound_session(
+        &mut self,
+        contact: Contact,
+        pre_key_message: PreKeyMessage,
+    ) -> Result<InboundCreationResult, AccountError> {
+        let keys = self.keys.get_mut();
+        let res =
+            keys.create_inbound_session(contact.vmac_identity_key(), &pre_key_message.clone())?;
+
+        Ok(res)
+    }
+
     pub fn get_keys(&self) -> IdentityKeys {
         self.keys.account.identity_keys()
     }
@@ -204,8 +221,8 @@ pub(crate) mod tests {
     use serde_json::json;
     use xmtp_cryptography::{signature::h160addr_to_string, utils::rng};
 
-    pub fn test_wallet_signer(_: Vec<u8>) -> Result<Association, AssociationError> {
-        Association::test()
+    pub fn test_wallet_signer(pub_key: Vec<u8>) -> Result<Association, AssociationError> {
+        Association::test(pub_key)
     }
 
     #[test]

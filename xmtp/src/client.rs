@@ -122,7 +122,7 @@ where
 
     pub fn create_outbound_session(&self, contact: Contact) -> Result<Session, ClientError> {
         let olm_session = self.account.create_outbound_session(contact.clone());
-        let mut session =
+        let session =
             Session::from_olm_session(olm_session, contact).map_err(|_| ClientError::Unknown)?;
 
         let mut conn = self.get_connection();

@@ -1,8 +1,9 @@
 use crate::types::Address;
+use crate::InboxOwner;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
-use xmtp_cryptography::signature::{RecoverableSignature, SignatureError, SigningKey};
-use xmtp_cryptography::utils::{self, eth_address};
+use xmtp_cryptography::signature::{RecoverableSignature, SignatureError};
+use xmtp_cryptography::utils::generate_local_wallet;
 use xmtp_proto::xmtp::v3::message_contents::Eip191Association;
 use xmtp_proto::xmtp::v3::message_contents::RecoverableEcdsaSignature as RecoverableEcdsaSignatureProto;
 
@@ -79,17 +80,15 @@ impl Association {
         self.text.get_address()
     }
 
-    pub fn test() -> Result<Self, AssociationError> {
-        let key = SigningKey::random(&mut utils::rng());
-        let pubkey = key.verifying_key();
-        let addr = eth_address(pubkey).unwrap();
+    pub fn test(pub_key: Vec<u8>) -> Result<Self, AssociationError> {
+        let wallet = generate_local_wallet();
+        let addr = wallet.get_address();
+        let assoc_text = AssociationText::new_static(addr, pub_key);
 
-        let assoc_text =
-            AssociationText::new_static(addr, pubkey.to_encoded_point(false).to_bytes().to_vec());
-        let text = assoc_text.text();
+        let signature = wallet.sign(assoc_text.clone())?;
         Ok(Self {
             text: assoc_text,
-            signature: RecoverableSignature::new_eth_signature(&key, &text)?,
+            signature,
         })
     }
 }

@@ -4,9 +4,8 @@ use crate::{
     client::{Client, Network, StoreProvider},
     networking::XmtpApiClient,
     persistence::{NamespacedPersistence, Persistence},
-    storage::EncryptedMessageStore,
     types::Address,
-    Errorer, InboxOwner,
+    InboxOwner,
 };
 use thiserror::Error;
 
@@ -239,7 +238,7 @@ mod tests {
 
     use crate::{
         networking::MockXmtpApiClient, persistence::in_memory_persistence::InMemoryPersistence,
-        storage::EncryptedMessageStore, Client,
+        Client,
     };
 
     use super::ClientBuilder;

@@ -15,7 +15,6 @@ pub mod models;
 pub mod schema;
 
 use rand::RngCore;
-use std::{ops::DerefMut, sync::Mutex};
 
 use self::{models::*, schema::messages};
 use crate::{Errorer, Fetch, Store};
@@ -111,7 +110,14 @@ impl EncryptedMessageStore {
     }
 
     fn init_db(&mut self) -> Result<(), EncryptedMessageStoreError> {
-        self.conn().run_pending_migrations(MIGRATIONS).unwrap();
+        self.conn()
+            .run_pending_migrations(MIGRATIONS)
+            .map_err(|e| {
+                EncryptedMessageStoreError::DbInitError(format!(
+                    "Error running migrations: {:?}",
+                    e
+                ))
+            })?;
         Ok(())
     }
 
@@ -310,7 +316,10 @@ mod tests {
         enc_key[3] = 145; // Alter the enc_key
         let res = EncryptedMessageStore::new(StorageOption::Peristent(db_path.clone()), enc_key);
         // Ensure it fails
-        // assert_eq!(res.err(), Some(EncryptedMessageStoreError::DbInitError));
+        assert_eq!(
+            res.err(),
+            Some(EncryptedMessageStoreError::DbInitError("foo".to_string()))
+        );
         fs::remove_file(db_path).unwrap();
     }
 
