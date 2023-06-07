@@ -16,7 +16,6 @@ pub mod schema;
 
 use log::warn;
 use rand::RngCore;
-use serde_json::json;
 use std::{ops::DerefMut, sync::Mutex};
 
 use self::schema::accounts;
@@ -339,7 +338,7 @@ mod tests {
             let mut store = EncryptedMessageStore::new(
                 // StorageOption::Ephemeral,
                 StorageOption::Persistent(db_path.clone()),
-                enc_key.clone(),
+                enc_key,
             )
             .unwrap();
 
