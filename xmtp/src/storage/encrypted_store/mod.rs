@@ -21,7 +21,7 @@ use self::{
     models::*,
     schema::{accounts, messages},
 };
-use crate::{account::Account, Errorer, Fetch, KeyStore, Store};
+use crate::{account::Account, Errorer, Fetch, Store};
 use diesel::{
     connection::SimpleConnection,
     prelude::*,
@@ -151,10 +151,8 @@ impl EncryptedMessageStore {
         crypto_utils::rng().fill_bytes(&mut key[..]);
         key
     }
-}
 
-impl KeyStore for EncryptedMessageStore {
-    fn get_account(&mut self) -> Result<Option<Account>, StorageError> {
+    pub fn get_account(&mut self) -> Result<Option<Account>, StorageError> {
         let mut account_list: Vec<Account> = self.fetch()?;
 
         if account_list.len() > 1 {
@@ -167,7 +165,7 @@ impl KeyStore for EncryptedMessageStore {
         Ok(account_list.pop())
     }
 
-    fn set_account(&mut self, account: &Account) -> Result<(), StorageError> {
+    pub fn set_account(&mut self, account: &Account) -> Result<(), StorageError> {
         account.store(self)?;
         Ok(())
     }

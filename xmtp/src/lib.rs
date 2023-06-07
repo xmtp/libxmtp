@@ -18,10 +18,6 @@ use account::Account;
 use association::AssociationText;
 pub use builder::ClientBuilder;
 pub use client::{Client, Network};
-use diesel::{
-    r2d2::{ConnectionManager, PooledConnection},
-    SqliteConnection,
-};
 use storage::StorageError;
 use xmtp_cryptography::signature::{RecoverableSignature, SignatureError};
 
@@ -33,30 +29,25 @@ pub trait Errorer {
     type Error;
 }
 
-pub trait Store<DB> {
-    fn store(&self, into: &DB) -> Result<(), StorageError>;
+// Inserts a model to the underlying data store
+pub trait Store<I> {
+    fn store(&self, into: &I) -> Result<(), StorageError>;
 }
 
+// Fetches all instances of a model from the underlying data store
 pub trait Fetch<T> {
     fn fetch(&self) -> Result<Vec<T>, StorageError>;
 }
 
-pub trait Save<DB> {
-    fn save(&self, into: &DB) -> Result<(), StorageError>;
-}
-
-pub trait KeyStore: Default + Errorer {
-    fn get_account(&mut self) -> Result<Option<Account>, StorageError>;
-
-    fn set_account(&mut self, account: &Account) -> Result<(), StorageError>;
+// Updates an existing instance of the model in the data store
+pub trait Save<I> {
+    fn save(&self, into: &I) -> Result<(), StorageError>;
 }
 
 pub trait InboxOwner {
     fn get_address(&self) -> String;
     fn sign(&self, text: AssociationText) -> Result<RecoverableSignature, SignatureError>;
 }
-
-pub type PooledSqliteConnection = PooledConnection<ConnectionManager<SqliteConnection>>;
 
 #[cfg(test)]
 mod tests {

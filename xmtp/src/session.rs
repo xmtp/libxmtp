@@ -44,11 +44,6 @@ impl SessionManager {
         self.session.session_id()
     }
 
-    pub fn store(&self, into: &EncryptedMessageStore) -> Result<(), StorageError> {
-        self.persisted.store(into)?;
-        Ok(())
-    }
-
     pub fn session_bytes(&self) -> Result<Vec<u8>, SessionError> {
         let res = serde_json::to_vec(&self.session.pickle())?;
         Ok(res)
@@ -74,6 +69,13 @@ impl SessionManager {
     }
 }
 
+impl Store<EncryptedMessageStore> for SessionManager {
+    fn store(&self, into: &EncryptedMessageStore) -> Result<(), StorageError> {
+        self.persisted.store(into)?;
+        Ok(())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use vodozemac::olm::OlmMessage;
@@ -81,7 +83,7 @@ mod tests {
     use crate::{
         account::{tests::test_wallet_signer, Account},
         storage::{EncryptedMessageStore, Session},
-        Fetch,
+        Fetch, Store,
     };
 
     #[test]

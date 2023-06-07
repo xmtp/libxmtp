@@ -5,7 +5,7 @@ use crate::{
     networking::XmtpApiClient,
     storage::EncryptedMessageStore,
     types::Address,
-    InboxOwner, KeyStore,
+    InboxOwner,
 };
 use crate::{Fetch, StorageError};
 use thiserror::Error;

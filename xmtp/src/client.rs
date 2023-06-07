@@ -11,6 +11,7 @@ use crate::{
     storage::{EncryptedMessageStore, StorageError},
     types::Address,
     utils::{build_envelope, build_user_contact_topic},
+    Store,
 };
 use xmtp_proto::xmtp::message_api::v1::Envelope;
 
