@@ -133,8 +133,7 @@ impl Account {
         let fallback_key = VmacInstallationLinkedKey {
             key: Some(fallback_key_proto.proto),
         };
-
-        Contact::new(
+        let contact = Contact::new(
             InstallationContactBundle {
                 version: Some(Version::V1(VmacInstallationPublicKeyBundleV1 {
                     identity_key: Some(identity_key),
@@ -142,9 +141,13 @@ impl Account {
                 })),
             },
             self.addr(),
-        )
-        // I'm OK with using `unwrap()` here, since we should always have a valid contact for ourselves
-        .unwrap()
+        );
+
+        if let Err(e) = contact {
+            panic!("Fatal: Client Owning Account has an invalid contact. Client cannot continue operating: {}", e);
+        } else {
+            contact.unwrap()
+        }
     }
 
     pub fn create_outbound_session(&self, contact: Contact) -> OlmSession {
