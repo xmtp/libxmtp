@@ -1,6 +1,14 @@
 // @generated automatically by Diesel CLI.
 
 diesel::table! {
+    accounts (id) {
+        id -> Integer,
+        created_at -> BigInt,
+        serialized_key -> Binary,
+    }
+}
+
+diesel::table! {
     messages (id) {
         id -> Integer,
         created_at -> BigInt,
@@ -9,3 +17,5 @@ diesel::table! {
         content -> Binary,
     }
 }
+
+diesel::allow_tables_to_appear_in_same_query!(accounts, messages,);

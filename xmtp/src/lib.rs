@@ -14,9 +14,11 @@ mod types;
 mod utils;
 pub mod vmac_protos;
 
+use account::Account;
 use association::AssociationText;
 pub use builder::ClientBuilder;
 pub use client::{Client, Network};
+use thiserror::Error;
 use xmtp_cryptography::signature::{RecoverableSignature, SignatureError};
 
 pub trait Signable {
@@ -28,12 +30,25 @@ pub trait Errorer {
 }
 
 pub trait Store<I> {
-    fn store(&self, into: &mut I) -> Result<(), String>;
+    fn store(&self, into: &mut I) -> Result<(), StorageError>;
+}
+
+pub trait KeyStore: Default + Errorer {
+    fn get_account(&mut self) -> Result<Option<Account>, StorageError>;
+
+    fn set_account(&mut self, account: &Account) -> Result<(), StorageError>;
+}
+
+#[derive(Debug, Error)]
+pub enum StorageError {
+    #[error("could not Fetch: {0}")]
+    Fetch(String),
+    #[error("could not Store: {0}")]
+    Store(String),
 }
 
 pub trait Fetch<T> {
-    type E;
-    fn fetch(&mut self) -> Result<Vec<T>, Self::E>;
+    fn fetch(&mut self) -> Result<Vec<T>, StorageError>;
 }
 
 pub trait InboxOwner {
