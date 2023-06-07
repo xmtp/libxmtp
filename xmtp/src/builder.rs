@@ -5,7 +5,7 @@ use crate::{
     networking::XmtpApiClient,
     storage::EncryptedMessageStore,
     types::Address,
-    InboxOwner,
+    InboxOwner, Store,
 };
 use crate::{Fetch, StorageError};
 use thiserror::Error;
@@ -123,7 +123,7 @@ where
             }
             None => {
                 let new_account = Self::sign_new_account(owner)?;
-                store.set_account(&new_account)?;
+                new_account.store(store)?;
                 Ok(new_account)
             }
         }

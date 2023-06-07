@@ -164,11 +164,6 @@ impl EncryptedMessageStore {
 
         Ok(account_list.pop())
     }
-
-    pub fn set_account(&mut self, account: &Account) -> Result<(), StorageError> {
-        account.store(self)?;
-        Ok(())
-    }
 }
 
 impl Store<EncryptedMessageStore> for NewDecryptedMessage {
