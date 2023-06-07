@@ -41,7 +41,7 @@ impl From<String> for GenericError {
 
 // Try running from rust
 // Build with debug symbols
-#[uniffi::export]
+#[uniffi::export(async_runtime = "tokio")]
 pub async fn create_client(
     // owner: Box<dyn FfiInboxOwner>, // We just need an InboxOwner
     host: String,
