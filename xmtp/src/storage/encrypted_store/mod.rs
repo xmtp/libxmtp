@@ -205,7 +205,7 @@ impl Store<EncryptedMessageStore> for Account {
             .lock()
             .map_err(|e| StorageError::Store(e.to_string()))?;
         diesel::insert_into(accounts::table)
-            .values(NewStoredAccount::new(&self))
+            .values(NewStoredAccount::try_from(self)?)
             .execute(conn_guard.deref_mut())
             .map_err(|e| StorageError::Store(e.to_string()))?;
 
@@ -228,7 +228,7 @@ impl Fetch<Account> for EncryptedMessageStore {
 
         Ok(stored_accounts
             .iter()
-            .map(|f| serde_json::from_str(&f.serialized_key).unwrap())
+            .map(|f| serde_json::from_slice(&f.serialized_key).unwrap())
             .collect())
     }
 }

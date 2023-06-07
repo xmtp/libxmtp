@@ -1,6 +1,6 @@
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use crate::account::Account;
+use crate::{account::Account, StorageError};
 
 use super::schema::{accounts, messages};
 use diesel::prelude::*;
@@ -59,20 +59,26 @@ fn now() -> i64 {
 pub struct StoredAccount {
     pub id: i32,
     pub created_at: i64,
-    pub serialized_key: String,
+    pub serialized_key: Vec<u8>,
 }
 
 #[derive(Insertable, Debug)]
 #[diesel(table_name = accounts)]
 pub struct NewStoredAccount {
     pub created_at: i64,
-    pub serialized_key: String,
+    pub serialized_key: Vec<u8>,
 }
-impl NewStoredAccount {
-    pub fn new(account: &Account) -> Self {
-        Self {
+impl TryFrom<&Account> for NewStoredAccount {
+    type Error = StorageError;
+    fn try_from(account: &Account) -> Result<Self, StorageError> {
+        Ok(Self {
             created_at: now(),
-            serialized_key: json!(account).to_string(),
-        }
+            serialized_key: serde_json::to_vec(account).map_err(|e| {
+                StorageError::Store(format!(
+                    "could not initialize model:NewStoredAccount -- {}",
+                    e.to_string()
+                ))
+            })?,
+        })
     }
 }
