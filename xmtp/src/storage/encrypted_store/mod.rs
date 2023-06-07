@@ -199,7 +199,7 @@ impl Store<EncryptedMessageStore> for Account {
         diesel::insert_into(accounts::table)
             .values(NewStoredAccount::new(json!(self).to_string()))
             .execute(conn_guard.deref_mut())
-            .expect("Error saving account");
+            .map_err(|e| StorageError::Store(e.to_string()))?;
 
         Ok(())
     }
