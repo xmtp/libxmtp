@@ -3,26 +3,26 @@ use crate::{
     association::{Association, AssociationError, AssociationText},
     client::{Client, Network},
     networking::XmtpApiClient,
-    persistence::{NamespacedPersistence, Persistence},
     storage::EncryptedMessageStore,
     types::Address,
-    InboxOwner,
+    InboxOwner, KeyStore,
 };
+use crate::{Fetch, StorageError};
 use thiserror::Error;
 
 #[derive(Error, Debug)]
-pub enum ClientBuilderError<PE> {
+pub enum ClientBuilderError {
     #[error("Missing parameter: {parameter}")]
     MissingParameterError { parameter: &'static str },
 
     #[error("Failed to serialize/deserialize state for persistence: {source}")]
     SerializationError { source: serde_json::Error },
 
-    #[error("Failed to read/write state to persistence: {source}")]
-    PersistenceError { source: PE },
-
     #[error("Required account was not found in cache.")]
     RequiredAccountNotFound,
+
+    #[error("Database was configured with a different wallet")]
+    StoredAccountMismatch,
 
     #[error("Associating an address to account failed")]
     AssociationFailed(#[from] AssociationError),
@@ -30,6 +30,9 @@ pub enum ClientBuilderError<PE> {
     // StoreInitialization(#[from] SE),
     #[error("Error Initalizing Account")]
     AccountInitialization(#[from] AccountError),
+
+    #[error("Storage Error")]
+    StorageError(#[from] StorageError),
 }
 
 pub enum AccountStrategy<O: InboxOwner> {
@@ -57,34 +60,27 @@ where
     }
 }
 
-pub struct ClientBuilder<A, P, O>
+pub struct ClientBuilder<A, O>
 where
     A: XmtpApiClient + Default,
-    P: Persistence + Default,
     O: InboxOwner,
 {
     api_client: Option<A>,
     network: Network,
-    persistence: Option<P>,
     account: Option<Account>,
     store: Option<EncryptedMessageStore>,
     account_strategy: AccountStrategy<O>,
 }
 
-impl<A, P, O> ClientBuilder<A, P, O>
+impl<A, O> ClientBuilder<A, O>
 where
     A: XmtpApiClient + Default,
-    P: Persistence + Default,
     O: InboxOwner,
 {
-    const ACCOUNT_KEY: &str = "xmtp_account";
-
     pub fn new(strat: AccountStrategy<O>) -> Self {
         Self {
             api_client: None,
             network: Network::Dev,
-            persistence: None,
-
             account: None,
             store: None,
             account_strategy: strat,
@@ -101,11 +97,6 @@ where
         self
     }
 
-    pub fn persistence(mut self, persistence: P) -> Self {
-        self.persistence = Some(persistence);
-        self
-    }
-
     pub fn account(mut self, account: Account) -> Self {
         self.account = Some(account);
         self
@@ -116,72 +107,37 @@ where
         self
     }
 
-    fn get_address(&self) -> Address {
-        match &self.account_strategy {
-            AccountStrategy::CachedOnly(a) => a.clone(),
-            AccountStrategy::CreateIfNotFound(o) => o.get_address(),
-            #[cfg(test)]
-            AccountStrategy::ExternalAccount(e) => e.addr(),
-        }
-    }
-
     /// Fetch account from peristence or generate and sign a new one
     fn find_or_create_account(
         owner: &O,
-        persistence: &mut NamespacedPersistence<P>,
-    ) -> Result<Account, ClientBuilderError<P::Error>> {
-        let account = Self::retrieve_peristed_account(Self::ACCOUNT_KEY, persistence)?;
+        store: &mut EncryptedMessageStore,
+    ) -> Result<Account, ClientBuilderError> {
+        let account = Self::retrieve_persisted_account(store)?;
 
         match account {
-            Some(a) => Ok(a),
+            Some(a) => {
+                if owner.get_address() == a.addr() {
+                    return Ok(a);
+                }
+                Err(ClientBuilderError::StoredAccountMismatch)
+            }
             None => {
                 let new_account = Self::sign_new_account(owner)?;
-                Self::persist_account(&new_account, persistence)?;
+                store.set_account(&new_account)?;
                 Ok(new_account)
             }
         }
     }
 
-    /// Save Account to persistence
-    fn persist_account(
-        account: &Account,
-        persistence: &mut NamespacedPersistence<P>,
-    ) -> Result<(), ClientBuilderError<P::Error>> {
-        // TODO: use proto bytes instead of string here (or use base64 instead of utf8)
-        let data = serde_json::to_string(account)
-            .map_err(|source| ClientBuilderError::SerializationError { source })?;
-        persistence
-            .write(Self::ACCOUNT_KEY, data.as_bytes())
-            .map_err(|source| ClientBuilderError::PersistenceError { source })?;
-        Ok(())
-    }
-
     /// Fetch Account from persistence
-    fn retrieve_peristed_account(
-        key: &str,
-        persistence: &mut NamespacedPersistence<P>,
-    ) -> Result<Option<Account>, ClientBuilderError<P::Error>> {
-        let res = persistence
-            .read(key)
-            .map_err(|source| ClientBuilderError::PersistenceError { source })?;
-
-        match res {
-            None => Ok(None),
-            Some(v) => Ok(Some(Self::load_account(&v)?)),
-        }
+    fn retrieve_persisted_account(
+        store: &mut EncryptedMessageStore,
+    ) -> Result<Option<Account>, ClientBuilderError> {
+        let mut accounts = store.fetch()?;
+        Ok(accounts.pop())
     }
 
-    fn load_account(data: &[u8]) -> Result<Account, ClientBuilderError<P::Error>> {
-        // TODO: use proto bytes instead of string here (or use base64 instead of utf8)
-        // Remove expect() afterwards
-        let data_string =
-            std::str::from_utf8(data).expect("Data read from persistence is not valid UTF-8");
-        let account: Account = serde_json::from_str(data_string)
-            .map_err(|source| ClientBuilderError::SerializationError { source })?;
-        Ok(account)
-    }
-
-    fn sign_new_account(owner: &O) -> Result<Account, ClientBuilderError<P::Error>> {
+    fn sign_new_account(owner: &O) -> Result<Account, ClientBuilderError> {
         let sign = |public_key_bytes: Vec<u8>| -> Result<Association, AssociationError> {
             let assoc_text = AssociationText::Static {
                 addr: owner.get_address(),
@@ -195,56 +151,42 @@ where
 
         Account::generate(sign).map_err(ClientBuilderError::AccountInitialization)
     }
-    pub fn build(mut self) -> Result<Client<A, P>, ClientBuilderError<P::Error>> {
+    pub fn build(mut self) -> Result<Client<A>, ClientBuilderError> {
         let api_client = self.api_client.take().unwrap_or_default();
-        let wallet_address = self.get_address();
-        let persistence = self.persistence.take().unwrap_or_default();
-        let mut persistence =
-            NamespacedPersistence::new(&get_account_namespace(&wallet_address), persistence);
-
+        let mut store = self.store.take().unwrap_or_default();
         // Fetch the Account based upon the account strategy.
         let account = match self.account_strategy {
             AccountStrategy::CachedOnly(_) => {
-                let account = Self::retrieve_peristed_account(Self::ACCOUNT_KEY, &mut persistence)?;
+                let account = Self::retrieve_persisted_account(&mut store)?;
                 account.ok_or(ClientBuilderError::RequiredAccountNotFound)?
             }
             AccountStrategy::CreateIfNotFound(owner) => {
-                Self::find_or_create_account(&owner, &mut persistence)?
+                Self::find_or_create_account(&owner, &mut store)?
             }
             #[cfg(test)]
             AccountStrategy::ExternalAccount(a) => a,
         };
 
-        let store = self.store.take().unwrap_or_default();
-
-        Ok(Client::new(
-            api_client,
-            self.network,
-            persistence,
-            account,
-            store,
-        ))
+        Ok(Client::new(api_client, self.network, account, store))
     }
-}
-
-fn get_account_namespace(wallet_address: &str) -> String {
-    format!("xmtp/account_{}", wallet_address)
 }
 
 #[cfg(test)]
 mod tests {
 
     use ethers::signers::LocalWallet;
+    use tempfile::TempPath;
     use xmtp_cryptography::utils::generate_local_wallet;
 
     use crate::{
-        networking::MockXmtpApiClient, persistence::in_memory_persistence::InMemoryPersistence,
+        networking::MockXmtpApiClient,
+        storage::{EncryptedMessageStore, StorageOption},
         Client,
     };
 
     use super::ClientBuilder;
 
-    impl ClientBuilder<MockXmtpApiClient, InMemoryPersistence, LocalWallet> {
+    impl ClientBuilder<MockXmtpApiClient, LocalWallet> {
         pub fn new_test() -> Self {
             let wallet = generate_local_wallet();
 
@@ -260,25 +202,51 @@ mod tests {
 
     #[test]
     fn persistence_test() {
-        let persistence = InMemoryPersistence::new();
-
+        let tmpdb = TempPath::from_path("./db.db3");
         let wallet = generate_local_wallet();
 
-        let client_a: Client<MockXmtpApiClient, InMemoryPersistence> =
-            ClientBuilder::new(wallet.clone().into())
-                .persistence(persistence)
-                .build()
-                .unwrap();
+        // Generate a new Wallet + Store
+        let store_a = EncryptedMessageStore::new_unencrypted(StorageOption::Persistent(
+            tmpdb.to_str().unwrap().into(),
+        ))
+        .unwrap();
 
-        let client_b: Client<MockXmtpApiClient, InMemoryPersistence> =
-            ClientBuilder::new(wallet.into())
-                .persistence(client_a.persistence.persistence)
+        let client_a: Client<MockXmtpApiClient, EncryptedMessageStore> =
+            ClientBuilder::new(wallet.clone().into())
+                .store(store_a)
                 .build()
                 .unwrap();
-        // Ensure the persistence was used to store the generated keys
-        assert_eq!(
-            client_a.account.get_keys().curve25519.to_bytes(),
-            client_b.account.get_keys().curve25519.to_bytes()
+        let keybytes_a = client_a.account.get_keys().curve25519.to_bytes();
+        drop(client_a);
+
+        // Reload the existing store and wallet
+        let store_b = EncryptedMessageStore::new_unencrypted(StorageOption::Persistent(
+            tmpdb.to_str().unwrap().into(),
+        ))
+        .unwrap();
+
+        let client_b: Client<MockXmtpApiClient, EncryptedMessageStore> =
+            ClientBuilder::new(wallet.into())
+                .store(store_b)
+                .build()
+                .unwrap();
+        let keybytes_b = client_b.account.get_keys().curve25519.to_bytes();
+        drop(client_b);
+
+        // Create a new wallet and store
+        let store_c = EncryptedMessageStore::new_unencrypted(StorageOption::Persistent(
+            tmpdb.to_str().unwrap().into(),
+        ))
+        .unwrap();
+
+        ClientBuilder::<MockXmtpApiClient, EncryptedMessageStore, LocalWallet>::new(
+            generate_local_wallet().into(),
         )
+        .store(store_c)
+        .build()
+        .expect_err("Testing expected mismatch error");
+
+        // Ensure the persistence was used to store the generated keys
+        assert_eq!(keybytes_a, keybytes_b);
     }
 }

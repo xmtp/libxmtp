@@ -1,12 +1,14 @@
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use crate::{storage::StorageError, Save};
-
 use super::{
     schema::{messages, sessions},
     EncryptedMessageStore,
 };
+use crate::{account::Account, storage::StorageError, Save};
+
+use super::schema::{accounts, messages};
 use diesel::prelude::*;
+use serde_json::json;
 
 /// Placeholder type for messages returned from the Store.
 #[derive(Queryable, Debug)]
@@ -98,5 +100,32 @@ impl Save<EncryptedMessageStore> for Session {
             .execute(conn)?;
 
         Ok(())
+    }
+}
+#[derive(Queryable, Debug)]
+pub struct StoredAccount {
+    pub id: i32,
+    pub created_at: i64,
+    pub serialized_key: Vec<u8>,
+}
+
+#[derive(Insertable, Debug)]
+#[diesel(table_name = accounts)]
+pub struct NewStoredAccount {
+    pub created_at: i64,
+    pub serialized_key: Vec<u8>,
+}
+impl TryFrom<&Account> for NewStoredAccount {
+    type Error = StorageError;
+    fn try_from(account: &Account) -> Result<Self, StorageError> {
+        Ok(Self {
+            created_at: now(),
+            serialized_key: serde_json::to_vec(account).map_err(|e| {
+                StorageError::Store(format!(
+                    "could not initialize model:NewStoredAccount -- {}",
+                    e.to_string()
+                ))
+            })?,
+        })
     }
 }

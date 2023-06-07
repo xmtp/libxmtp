@@ -1,5 +1,5 @@
 use crate::{
-    association::{Association, AssociationError, AssociationText},
+    association::{Association, AssociationError},
     contact::Contact,
     types::Address,
     vmac_protos::ProtoWrapper,
@@ -11,7 +11,7 @@ use vodozemac::olm::{
     Account as OlmAccount, AccountPickle as OlmAccountPickle, IdentityKeys, InboundCreationResult,
     PreKeyMessage, Session as OlmSession, SessionConfig, SessionCreationError,
 };
-use xmtp_cryptography::signature::{RecoverableSignature, SignatureError};
+use xmtp_cryptography::signature::SignatureError;
 use xmtp_proto::xmtp::v3::message_contents::{
     installation_contact_bundle::Version, vmac_account_linked_key::Association as AssociationProto,
     InstallationContactBundle, VmacAccountLinkedKey, VmacInstallationLinkedKey,
@@ -172,54 +172,17 @@ impl Account {
     }
 }
 
-pub struct AccountCreator {
-    key: VmacAccount,
-    assoc_text: AssociationText,
-}
-
-impl AccountCreator {
-    pub fn new(addr: Address) -> Self {
-        let key = VmacAccount::generate();
-        let key_bytes = key.bytes_to_sign();
-        Self {
-            key,
-            assoc_text: AssociationText::new_static(addr, key_bytes),
-        }
-    }
-
-    pub fn text_to_sign(&self) -> String {
-        self.assoc_text.text()
-    }
-
-    pub fn finalize(self, signature: Vec<u8>) -> Result<Account, AccountError> {
-        let assoc = Association::new(
-            &self.key.bytes_to_sign(),
-            self.assoc_text,
-            RecoverableSignature::Eip191Signature(signature),
-        )
-        .map_err(AccountError::BadAssocation)?;
-        Ok(Account::new(self.key, assoc))
-    }
-}
-
-impl Signable for AccountCreator {
-    fn bytes_to_sign(&self) -> Vec<u8> {
-        self.key.bytes_to_sign()
-    }
-}
-
 #[cfg(test)]
 pub(crate) mod tests {
 
     use crate::association::AssociationError;
 
-    use super::{Account, AccountCreator, Association};
+    use super::{Account, Association};
     use ethers::core::rand::thread_rng;
     use ethers::signers::{LocalWallet, Signer};
     use ethers_core::types::{Address as EthAddress, Signature};
     use ethers_core::utils::hex;
     use serde_json::json;
-    use xmtp_cryptography::{signature::h160addr_to_string, utils::rng};
 
     pub fn test_wallet_signer(pub_key: Vec<u8>) -> Result<Association, AssociationError> {
         Association::test(pub_key)
@@ -235,20 +198,6 @@ pub(crate) mod tests {
 
         let recovered_account: Account = serde_json::from_str(&serialized_account).unwrap();
         assert_eq!(account.addr(), recovered_account.addr());
-    }
-
-    #[tokio::test]
-    async fn account_generate() {
-        let wallet = LocalWallet::new(&mut rng());
-        let addr = h160addr_to_string(wallet.address());
-
-        let ac = AccountCreator::new(addr);
-        let msg = ac.text_to_sign();
-        let sig = wallet
-            .sign_message(msg)
-            .await
-            .expect("Bad Signature in test");
-        assert!(ac.finalize(sig.to_vec()).is_ok());
     }
 
     async fn generate_random_signature(msg: &str) -> (String, Vec<u8>) {

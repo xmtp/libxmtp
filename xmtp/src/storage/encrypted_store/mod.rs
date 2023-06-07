@@ -145,7 +145,8 @@ impl Store<EncryptedMessageStore> for Session {
         let conn = &mut into.conn()?;
         diesel::insert_into(schema::sessions::table)
             .values(self)
-            .execute(conn)?;
+            .execute(conn)
+            .expect?;
 
         Ok(())
     }

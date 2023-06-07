@@ -4,7 +4,6 @@ use crate::{
     client::ClientError,
     contact::Contact,
     networking::XmtpApiClient,
-    persistence::Persistence,
     types::Address,
     utils::{build_envelope, build_user_invite_topic},
     Client,
@@ -23,23 +22,21 @@ pub enum ConversationError {
 
 // I had to pick a name for this, and it seems like we are hovering around SecretConversation ATM
 // May very well change
-pub struct SecretConversation<A, P>
+pub struct SecretConversation<A>
 where
     A: XmtpApiClient,
-    P: Persistence,
 {
     peer_address: Address,
     members: Vec<Contact>,
-    client: Arc<Mutex<Client<A, P>>>,
+    client: Arc<Mutex<Client<A>>>,
 }
 
-impl<A, P> SecretConversation<A, P>
+impl<A> SecretConversation<A>
 where
     A: XmtpApiClient,
-    P: Persistence,
 {
     pub fn new(
-        client: Arc<Mutex<Client<A, P>>>,
+        client: Arc<Mutex<Client<A>>>,
         peer_address: Address,
         // TODO: Add user's own contacts as well
         members: Vec<Contact>,

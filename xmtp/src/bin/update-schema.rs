@@ -37,7 +37,8 @@ fn update_schemas_encrypted_message_store() -> Result<(), std::io::Error> {
 
     {
         // Initalize DB to read the latest table definitions
-        let _ = EncryptedMessageStore::new(StorageOption::Peristent(tmp_db.clone()), EncryptedMessageStore::generate_enc_key() ).unwrap();
+        let _ = EncryptedMessageStore::new_unencrypted(StorageOption::Persistent(tmp_db.clone()))
+            .unwrap();
     }
 
     let diesel_result = exec_diesel(&tmp_db);

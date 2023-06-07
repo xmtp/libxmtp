@@ -14,6 +14,7 @@ mod types;
 mod utils;
 pub mod vmac_protos;
 
+use account::Account;
 use association::AssociationText;
 pub use builder::ClientBuilder;
 pub use client::{Client, Network};
@@ -22,6 +23,7 @@ use diesel::{
     SqliteConnection,
 };
 use storage::StorageError;
+use thiserror::Error;
 use xmtp_cryptography::signature::{RecoverableSignature, SignatureError};
 
 pub trait Signable {
@@ -42,6 +44,12 @@ pub trait Fetch<T> {
 
 pub trait Save<DB> {
     fn save(&self, into: &DB) -> Result<(), StorageError>;
+}
+
+pub trait KeyStore: Default + Errorer {
+    fn get_account(&mut self) -> Result<Option<Account>, StorageError>;
+
+    fn set_account(&mut self, account: &Account) -> Result<(), StorageError>;
 }
 
 pub trait InboxOwner {
