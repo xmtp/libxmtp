@@ -20,7 +20,7 @@ fn add(a: u32, b: u32) -> u32 {
     a + b
 }
 
-#[derive(uniffi::Error)]
+#[derive(uniffi::Error, Debug)]
 pub enum GenericError {
     Generic { err: String },
 }
@@ -41,13 +41,13 @@ impl From<String> for GenericError {
 
 // Try running from rust
 // Build with debug symbols
-#[uniffi::export(async_runtime = "tokio")]
+// #[uniffi::export(async_runtime = "tokio")]
 pub async fn create_client(
     // owner: Box<dyn FfiInboxOwner>, // We just need an InboxOwner
     host: String,
     is_secure: bool,
     // TODO proper error handling
-) -> Result</*Arc<FfiXmtpClient>*/ (), GenericError> {
+) -> Result</*Arc<*/ FfiXmtpClient /*>*/, GenericError> {
     let wallet = LocalWallet::new(&mut rng());
     let api_client = FfiApiClient::new(&host, is_secure).await?;
 
@@ -56,11 +56,9 @@ pub async fn create_client(
         .build()
         .map_err(|e| format!("{:?}", e))?;
     xmtp_client.init().await.map_err(|e| e.to_string())?;
-    Ok(
-        /*Arc::new(FfiXmtpClient {
-            inner_client: xmtp_client,
-        })*/ (),
-    )
+    Ok(/*Arc::new(*/ FfiXmtpClient {
+        inner_client: xmtp_client,
+    } /*)*/)
 }
 
 #[derive(uniffi::Object)]
@@ -163,7 +161,10 @@ mod tests {
     #[tokio::test]
     async fn test_publish_query() {
         let wallet = LocalWallet::new(&mut rng());
-        let mut client = super::create_client(wallet, ADDRESS, false).await.unwrap();
+        let mut client = super::create_client(/*wallet, */ ADDRESS.to_string(), false)
+            .await
+            .unwrap()
+            .inner_client;
         let topic = Uuid::new_v4();
         client
             .api_client
@@ -189,7 +190,10 @@ mod tests {
     #[tokio::test]
     async fn test_subscribe() {
         let wallet = LocalWallet::new(&mut rng());
-        let mut client = super::create_client(wallet, ADDRESS, false).await.unwrap();
+        let mut client = super::create_client(/*wallet,*/ ADDRESS.to_string(), false)
+            .await
+            .unwrap()
+            .inner_client;
         let topic = Uuid::new_v4();
         let mut sub = client
             .api_client

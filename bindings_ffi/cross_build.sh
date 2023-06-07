@@ -4,8 +4,10 @@ main() {
   set -ex
 
   # Change to "release" to generate much smaller libraries
-  PROFILE="dev"
-  BINARY_PROFILE="debug"
+  # PROFILE="dev"
+  # BINARY_PROFILE="debug"
+  PROFILE="release"
+  BINARY_PROFILE="release"
 
   # cross build --target x86_64-linux-android --target-dir ./target --profile $PROFILE && \
   #     cross build --target i686-linux-android --target-dir ./target --profile $PROFILE && \
