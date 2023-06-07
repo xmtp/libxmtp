@@ -22,21 +22,21 @@ pub enum ConversationError {
 
 // I had to pick a name for this, and it seems like we are hovering around SecretConversation ATM
 // May very well change
-pub struct SecretConversation<A, S>
+pub struct SecretConversation<A>
 where
     A: XmtpApiClient,
 {
     peer_address: Address,
     members: Vec<Contact>,
-    client: Arc<Mutex<Client<A, S>>>,
+    client: Arc<Mutex<Client<A>>>,
 }
 
-impl<A, S> SecretConversation<A, S>
+impl<A> SecretConversation<A>
 where
     A: XmtpApiClient,
 {
     pub fn new(
-        client: Arc<Mutex<Client<A, S>>>,
+        client: Arc<Mutex<Client<A>>>,
         peer_address: Address,
         // TODO: Add user's own contacts as well
         members: Vec<Contact>,
@@ -54,10 +54,11 @@ where
 
     pub async fn initialize(&self) -> Result<(), ConversationError> {
         let mut client = self.client.lock().await;
+
         for contact in self.members.iter() {
             let id = contact.id();
             // TODO: Persist session to database
-            let mut session = client.account.create_outbound_session(contact.clone());
+            let mut session = client.create_outbound_session(contact.clone())?;
             // TODO: Replace with proper protobuf invite message
             let invite_message = session.encrypt("invite".as_bytes());
 

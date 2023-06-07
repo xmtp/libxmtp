@@ -18,4 +18,14 @@ diesel::table! {
     }
 }
 
+diesel::table! {
+    sessions (session_id) {
+        session_id -> Text,
+        created_at -> BigInt,
+        peer_address -> Text,
+        peer_installation_id -> Text,
+        vmac_session_data -> Binary,
+    }
+}
+
 diesel::allow_tables_to_appear_in_same_query!(accounts, messages,);

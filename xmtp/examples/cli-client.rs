@@ -11,7 +11,7 @@ use walletconnect::client::{CallError, ConnectorError, SessionError};
 use walletconnect::{qr, Client as WcClient, Metadata};
 use xmtp::builder::AccountStrategy;
 use xmtp::networking::MockXmtpApiClient;
-use xmtp::storage::{EncryptedMessageStore, EncryptedMessageStoreError, StorageOption};
+use xmtp::storage::{EncryptedMessageStore, StorageError, StorageOption};
 use xmtp::InboxOwner;
 use xmtp_cryptography::signature::{h160addr_to_string, RecoverableSignature, SignatureError};
 use xmtp_cryptography::utils::{rng, LocalWallet};
@@ -40,7 +40,7 @@ enum CliError {
     #[error("signature failed to generate")]
     Signature(#[from] SignatureError),
     #[error("stored error occured")]
-    MessageStore(#[from] EncryptedMessageStoreError),
+    MessageStore(#[from] StorageError),
 }
 
 /// This is an abstraction which allows the CLI to choose between different wallet types.

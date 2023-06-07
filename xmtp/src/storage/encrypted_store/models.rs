@@ -1,10 +1,13 @@
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use crate::{account::Account, StorageError};
+use super::{
+    schema::{messages, sessions},
+    EncryptedMessageStore,
+};
+use crate::{account::Account, storage::StorageError, Save};
 
-use super::schema::{accounts, messages};
+use super::schema::accounts;
 use diesel::prelude::*;
-use serde_json::json;
 
 /// Placeholder type for messages returned from the Store.
 #[derive(Queryable, Debug)]
@@ -38,6 +41,7 @@ impl NewDecryptedMessage {
         }
     }
 }
+
 impl PartialEq<DecryptedMessage> for NewDecryptedMessage {
     fn eq(&self, other: &DecryptedMessage) -> bool {
         self.created_at == other.created_at
@@ -53,6 +57,50 @@ fn now() -> i64 {
         .duration_since(UNIX_EPOCH)
         .expect("Time went backwards")
         .as_nanos() as i64
+}
+
+#[derive(Insertable, Identifiable, Queryable, Clone, PartialEq, Debug)]
+#[diesel(table_name = sessions)]
+#[diesel(primary_key(session_id))]
+pub struct Session {
+    pub session_id: String,
+    pub created_at: i64,
+    pub peer_address: String,
+    pub peer_installation_id: String,
+    pub vmac_session_data: Vec<u8>,
+}
+
+impl Session {
+    pub fn new(
+        session_id: String,
+        peer_address: String,
+        peer_installation_id: String,
+        vmac_session_data: Vec<u8>,
+    ) -> Self {
+        Self {
+            session_id,
+            created_at: now(),
+            peer_address,
+            peer_installation_id,
+            vmac_session_data,
+        }
+    }
+}
+
+impl Save<EncryptedMessageStore> for Session {
+    fn save(&self, into: &EncryptedMessageStore) -> Result<(), StorageError> {
+        let conn = &mut into.conn()?;
+
+        diesel::update(sessions::table)
+            .set((
+                sessions::vmac_session_data.eq(&self.vmac_session_data),
+                sessions::peer_address.eq(&self.peer_address),
+                sessions::peer_installation_id.eq(&self.peer_installation_id),
+            ))
+            .execute(conn)?;
+
+        Ok(())
+    }
 }
 
 #[derive(Queryable, Debug)]

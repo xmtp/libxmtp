@@ -18,7 +18,7 @@ use account::Account;
 use association::AssociationText;
 pub use builder::ClientBuilder;
 pub use client::{Client, Network};
-use thiserror::Error;
+use storage::StorageError;
 use xmtp_cryptography::signature::{RecoverableSignature, SignatureError};
 
 pub trait Signable {
@@ -29,26 +29,19 @@ pub trait Errorer {
     type Error;
 }
 
+// Inserts a model to the underlying data store
 pub trait Store<I> {
-    fn store(&self, into: &mut I) -> Result<(), StorageError>;
+    fn store(&self, into: &I) -> Result<(), StorageError>;
 }
 
-pub trait KeyStore: Default + Errorer {
-    fn get_account(&mut self) -> Result<Option<Account>, StorageError>;
-
-    fn set_account(&mut self, account: &Account) -> Result<(), StorageError>;
-}
-
-#[derive(Debug, Error)]
-pub enum StorageError {
-    #[error("could not Fetch: {0}")]
-    Fetch(String),
-    #[error("could not Store: {0}")]
-    Store(String),
-}
-
+// Fetches all instances of a model from the underlying data store
 pub trait Fetch<T> {
-    fn fetch(&mut self) -> Result<Vec<T>, StorageError>;
+    fn fetch(&self) -> Result<Vec<T>, StorageError>;
+}
+
+// Updates an existing instance of the model in the data store
+pub trait Save<I> {
+    fn save(&self, into: &I) -> Result<(), StorageError>;
 }
 
 pub trait InboxOwner {

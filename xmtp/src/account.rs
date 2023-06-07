@@ -1,7 +1,6 @@
 use crate::{
     association::{Association, AssociationError},
     contact::Contact,
-    session::Session,
     types::Address,
     vmac_protos::ProtoWrapper,
     Signable,
@@ -9,7 +8,8 @@ use crate::{
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 use vodozemac::olm::{
-    Account as OlmAccount, AccountPickle as OlmAccountPickle, IdentityKeys, SessionConfig,
+    Account as OlmAccount, AccountPickle as OlmAccountPickle, IdentityKeys, InboundCreationResult,
+    PreKeyMessage, Session as OlmSession, SessionConfig, SessionCreationError,
 };
 use xmtp_cryptography::signature::SignatureError;
 use xmtp_proto::xmtp::v3::message_contents::{
@@ -20,6 +20,8 @@ use xmtp_proto::xmtp::v3::message_contents::{
 
 #[derive(Debug, Error)]
 pub enum AccountError {
+    #[error("session creation")]
+    SessionCreation(#[from] SessionCreationError),
     #[error("generating new account")]
     BadGeneration(#[from] SignatureError),
     #[error("bad association")]
@@ -47,6 +49,10 @@ impl VmacAccount {
 
     pub fn get(&self) -> &OlmAccount {
         &self.account
+    }
+
+    pub fn get_mut(&mut self) -> &mut OlmAccount {
+        &mut self.account
     }
 }
 
@@ -127,23 +133,41 @@ impl Account {
         let fallback_key = VmacInstallationLinkedKey {
             key: Some(fallback_key_proto.proto),
         };
-        // TODO: Add associations here
-        Contact::new(InstallationContactBundle {
-            version: Some(Version::V1(VmacInstallationPublicKeyBundleV1 {
-                identity_key: Some(identity_key),
-                fallback_key: Some(fallback_key),
-            })),
-        })
+        let contact = Contact::new(
+            InstallationContactBundle {
+                version: Some(Version::V1(VmacInstallationPublicKeyBundleV1 {
+                    identity_key: Some(identity_key),
+                    fallback_key: Some(fallback_key),
+                })),
+            },
+            self.addr(),
+        );
+
+        if let Err(e) = contact {
+            panic!("Fatal: Client Owning Account has an invalid contact. Client cannot continue operating: {}", e);
+        } else {
+            contact.unwrap()
+        }
     }
 
-    pub fn create_outbound_session(&self, contact: Contact) -> Session {
-        let vmac_session = self.keys.get().create_outbound_session(
+    pub fn create_outbound_session(&self, contact: Contact) -> OlmSession {
+        self.keys.get().create_outbound_session(
             SessionConfig::version_2(),
             contact.vmac_identity_key(),
             contact.vmac_fallback_key(),
-        );
+        )
+    }
 
-        Session::new(vmac_session)
+    pub fn create_inbound_session(
+        &mut self,
+        contact: Contact,
+        pre_key_message: PreKeyMessage,
+    ) -> Result<InboundCreationResult, AccountError> {
+        // TODO: Save the account keys to the store
+        let keys = self.keys.get_mut();
+        let res = keys.create_inbound_session(contact.vmac_identity_key(), &pre_key_message)?;
+
+        Ok(res)
     }
 
     pub fn get_keys(&self) -> IdentityKeys {
@@ -163,8 +187,8 @@ pub(crate) mod tests {
     use ethers_core::utils::hex;
     use serde_json::json;
 
-    pub fn test_wallet_signer(_: Vec<u8>) -> Result<Association, AssociationError> {
-        Association::test()
+    pub fn test_wallet_signer(pub_key: Vec<u8>) -> Result<Association, AssociationError> {
+        Association::test(pub_key)
     }
 
     #[test]

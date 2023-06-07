@@ -3,8 +3,9 @@ use crate::{
     association::{Association, AssociationError, AssociationText},
     client::{Client, Network},
     networking::XmtpApiClient,
+    storage::EncryptedMessageStore,
     types::Address,
-    InboxOwner, KeyStore,
+    InboxOwner, Store,
 };
 use crate::{Fetch, StorageError};
 use thiserror::Error;
@@ -59,25 +60,22 @@ where
     }
 }
 
-pub struct ClientBuilder<A, S, O>
+pub struct ClientBuilder<A, O>
 where
     A: XmtpApiClient + Default,
-    S: KeyStore,
     O: InboxOwner,
 {
     api_client: Option<A>,
     network: Network,
     account: Option<Account>,
-    store: Option<S>,
+    store: Option<EncryptedMessageStore>,
     account_strategy: AccountStrategy<O>,
 }
 
-impl<A, S, O> ClientBuilder<A, S, O>
+impl<A, O> ClientBuilder<A, O>
 where
     A: XmtpApiClient + Default,
-    S: KeyStore,
     O: InboxOwner,
-    S: Fetch<Account>,
 {
     pub fn new(strat: AccountStrategy<O>) -> Self {
         Self {
@@ -104,13 +102,16 @@ where
         self
     }
 
-    pub fn store(mut self, store: S) -> Self {
+    pub fn store(mut self, store: EncryptedMessageStore) -> Self {
         self.store = Some(store);
         self
     }
 
     /// Fetch account from peristence or generate and sign a new one
-    fn find_or_create_account(owner: &O, store: &mut S) -> Result<Account, ClientBuilderError> {
+    fn find_or_create_account(
+        owner: &O,
+        store: &mut EncryptedMessageStore,
+    ) -> Result<Account, ClientBuilderError> {
         let account = Self::retrieve_persisted_account(store)?;
 
         match account {
@@ -122,14 +123,16 @@ where
             }
             None => {
                 let new_account = Self::sign_new_account(owner)?;
-                store.set_account(&new_account)?;
+                new_account.store(store)?;
                 Ok(new_account)
             }
         }
     }
 
     /// Fetch Account from persistence
-    fn retrieve_persisted_account(store: &mut S) -> Result<Option<Account>, ClientBuilderError> {
+    fn retrieve_persisted_account(
+        store: &mut EncryptedMessageStore,
+    ) -> Result<Option<Account>, ClientBuilderError> {
         let mut accounts = store.fetch()?;
         Ok(accounts.pop())
     }
@@ -148,7 +151,7 @@ where
 
         Account::generate(sign).map_err(ClientBuilderError::AccountInitialization)
     }
-    pub fn build(mut self) -> Result<Client<A, S>, ClientBuilderError> {
+    pub fn build(mut self) -> Result<Client<A>, ClientBuilderError> {
         let api_client = self.api_client.take().unwrap_or_default();
         let mut store = self.store.take().unwrap_or_default();
         // Fetch the Account based upon the account strategy.
@@ -183,7 +186,7 @@ mod tests {
 
     use super::ClientBuilder;
 
-    impl ClientBuilder<MockXmtpApiClient, EncryptedMessageStore, LocalWallet> {
+    impl ClientBuilder<MockXmtpApiClient, LocalWallet> {
         pub fn new_test() -> Self {
             let wallet = generate_local_wallet();
 
@@ -208,11 +211,10 @@ mod tests {
         ))
         .unwrap();
 
-        let client_a: Client<MockXmtpApiClient, EncryptedMessageStore> =
-            ClientBuilder::new(wallet.clone().into())
-                .store(store_a)
-                .build()
-                .unwrap();
+        let client_a: Client<MockXmtpApiClient> = ClientBuilder::new(wallet.clone().into())
+            .store(store_a)
+            .build()
+            .unwrap();
         let keybytes_a = client_a.account.get_keys().curve25519.to_bytes();
         drop(client_a);
 
@@ -222,11 +224,10 @@ mod tests {
         ))
         .unwrap();
 
-        let client_b: Client<MockXmtpApiClient, EncryptedMessageStore> =
-            ClientBuilder::new(wallet.into())
-                .store(store_b)
-                .build()
-                .unwrap();
+        let client_b: Client<MockXmtpApiClient> = ClientBuilder::new(wallet.into())
+            .store(store_b)
+            .build()
+            .unwrap();
         let keybytes_b = client_b.account.get_keys().curve25519.to_bytes();
         drop(client_b);
 
@@ -236,12 +237,10 @@ mod tests {
         ))
         .unwrap();
 
-        ClientBuilder::<MockXmtpApiClient, EncryptedMessageStore, LocalWallet>::new(
-            generate_local_wallet().into(),
-        )
-        .store(store_c)
-        .build()
-        .expect_err("Testing expected mismatch error");
+        ClientBuilder::<MockXmtpApiClient, LocalWallet>::new(generate_local_wallet().into())
+            .store(store_c)
+            .build()
+            .expect_err("Testing expected mismatch error");
 
         // Ensure the persistence was used to store the generated keys
         assert_eq!(keybytes_a, keybytes_b);

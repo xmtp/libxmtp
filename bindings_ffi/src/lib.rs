@@ -1,5 +1,5 @@
 use async_trait::async_trait;
-use xmtp::{networking::XmtpApiClient, storage::EncryptedMessageStore};
+use xmtp::networking::XmtpApiClient;
 use xmtp_cryptography::utils::LocalWallet;
 use xmtp_networking::grpc_api_helper::{self, Subscription};
 use xmtp_proto::xmtp::message_api::v1::{
@@ -7,7 +7,7 @@ use xmtp_proto::xmtp::message_api::v1::{
     SubscribeRequest,
 };
 
-pub type FfiXmtpClient = xmtp::Client<FfiApiClient, EncryptedMessageStore>;
+pub type FfiXmtpClient = xmtp::Client<FfiApiClient>;
 
 #[swift_bridge::bridge]
 mod ffi {
@@ -28,7 +28,7 @@ async fn create_client(
     host: &str,
     is_secure: bool,
     // TODO proper error handling
-) -> Result<xmtp::Client<FfiApiClient, EncryptedMessageStore>, String> {
+) -> Result<xmtp::Client<FfiApiClient>, String> {
     let api_client = FfiApiClient::new(host, is_secure).await?;
 
     let mut xmtp_client = xmtp::ClientBuilder::new(owner.into())

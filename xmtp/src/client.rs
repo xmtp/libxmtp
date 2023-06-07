@@ -7,8 +7,11 @@ use crate::{
     account::Account,
     contact::{Contact, ContactError},
     networking::XmtpApiClient,
+    session::SessionManager,
+    storage::{EncryptedMessageStore, StorageError},
     types::Address,
     utils::{build_envelope, build_user_contact_topic},
+    Store,
 };
 use xmtp_proto::xmtp::message_api::v1::Envelope;
 
@@ -26,24 +29,26 @@ pub enum ClientError {
     Contact(#[from] ContactError),
     #[error("could not publish: {0}")]
     PublishError(String),
+    #[error("storage error: {0}")]
+    Storage(#[from] StorageError),
     #[error("Query failed: {0}")]
     QueryError(String),
     #[error("unknown client error")]
     Unknown,
 }
 
-pub struct Client<A, S>
+pub struct Client<A>
 where
     A: XmtpApiClient,
 {
     pub api_client: A,
     pub network: Network,
     pub(crate) account: Account,
-    pub(super) _store: S,
+    pub(super) _store: EncryptedMessageStore,
     is_initialized: bool,
 }
 
-impl<A, S> core::fmt::Debug for Client<A, S>
+impl<A> core::fmt::Debug for Client<A>
 where
     A: XmtpApiClient,
 {
@@ -52,11 +57,16 @@ where
     }
 }
 
-impl<A, S> Client<A, S>
+impl<A> Client<A>
 where
     A: XmtpApiClient,
 {
-    pub fn new(api_client: A, network: Network, account: Account, store: S) -> Self {
+    pub fn new(
+        api_client: A,
+        network: Network,
+        account: Account,
+        store: EncryptedMessageStore,
+    ) -> Self {
         Self {
             api_client,
             network,
@@ -95,11 +105,26 @@ where
 
         let mut contacts = vec![];
         for envelope in response.envelopes {
-            let contact_bundle = Contact::from_bytes(envelope.message)?;
+            let contact_bundle = Contact::from_bytes(envelope.message, wallet_address.to_string())?;
             contacts.push(contact_bundle);
         }
 
         Ok(contacts)
+    }
+
+    pub fn create_outbound_session(
+        &mut self,
+        contact: Contact,
+    ) -> Result<SessionManager, ClientError> {
+        let olm_session = self.account.create_outbound_session(contact.clone());
+        let session = SessionManager::from_olm_session(olm_session, contact)
+            .map_err(|_| ClientError::Unknown)?;
+
+        session
+            .store(&self._store)
+            .map_err(|_| ClientError::Unknown)?;
+
+        Ok(session)
     }
 
     async fn publish_user_contact(&mut self) -> Result<(), ClientError> {
