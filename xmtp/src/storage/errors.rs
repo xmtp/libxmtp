@@ -10,6 +10,8 @@ pub enum StorageError {
     PoolError(String),
     #[error("Either incorrect encryptionkey or file is not a db {0}")]
     DbInitError(String),
+    #[error("Store Error")]
+    Store(String),
     #[error(transparent)]
     ImplementationError(#[from] anyhow::Error),
     #[error("unknown storage error")]

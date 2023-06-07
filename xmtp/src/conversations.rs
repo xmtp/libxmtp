@@ -15,7 +15,7 @@ where
     client: Arc<Mutex<Client<A>>>,
 }
 
-impl<A, S> Conversations<A, S>
+impl<A> Conversations<A>
 where
     A: XmtpApiClient,
 {

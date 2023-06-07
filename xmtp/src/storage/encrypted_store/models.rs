@@ -6,9 +6,8 @@ use super::{
 };
 use crate::{account::Account, storage::StorageError, Save};
 
-use super::schema::{accounts, messages};
+use super::schema::accounts;
 use diesel::prelude::*;
-use serde_json::json;
 
 /// Placeholder type for messages returned from the Store.
 #[derive(Queryable, Debug)]
@@ -42,6 +41,7 @@ impl NewDecryptedMessage {
         }
     }
 }
+
 impl PartialEq<DecryptedMessage> for NewDecryptedMessage {
     fn eq(&self, other: &DecryptedMessage) -> bool {
         self.created_at == other.created_at
@@ -102,6 +102,7 @@ impl Save<EncryptedMessageStore> for Session {
         Ok(())
     }
 }
+
 #[derive(Queryable, Debug)]
 pub struct StoredAccount {
     pub id: i32,

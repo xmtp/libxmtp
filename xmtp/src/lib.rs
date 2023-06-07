@@ -23,7 +23,6 @@ use diesel::{
     SqliteConnection,
 };
 use storage::StorageError;
-use thiserror::Error;
 use xmtp_cryptography::signature::{RecoverableSignature, SignatureError};
 
 pub trait Signable {

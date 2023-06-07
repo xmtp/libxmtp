@@ -211,11 +211,10 @@ mod tests {
         ))
         .unwrap();
 
-        let client_a: Client<MockXmtpApiClient, EncryptedMessageStore> =
-            ClientBuilder::new(wallet.clone().into())
-                .store(store_a)
-                .build()
-                .unwrap();
+        let client_a: Client<MockXmtpApiClient> = ClientBuilder::new(wallet.clone().into())
+            .store(store_a)
+            .build()
+            .unwrap();
         let keybytes_a = client_a.account.get_keys().curve25519.to_bytes();
         drop(client_a);
 
@@ -225,11 +224,10 @@ mod tests {
         ))
         .unwrap();
 
-        let client_b: Client<MockXmtpApiClient, EncryptedMessageStore> =
-            ClientBuilder::new(wallet.into())
-                .store(store_b)
-                .build()
-                .unwrap();
+        let client_b: Client<MockXmtpApiClient> = ClientBuilder::new(wallet.into())
+            .store(store_b)
+            .build()
+            .unwrap();
         let keybytes_b = client_b.account.get_keys().curve25519.to_bytes();
         drop(client_b);
 
@@ -239,12 +237,10 @@ mod tests {
         ))
         .unwrap();
 
-        ClientBuilder::<MockXmtpApiClient, EncryptedMessageStore, LocalWallet>::new(
-            generate_local_wallet().into(),
-        )
-        .store(store_c)
-        .build()
-        .expect_err("Testing expected mismatch error");
+        ClientBuilder::<MockXmtpApiClient, LocalWallet>::new(generate_local_wallet().into())
+            .store(store_c)
+            .build()
+            .expect_err("Testing expected mismatch error");
 
         // Ensure the persistence was used to store the generated keys
         assert_eq!(keybytes_a, keybytes_b);

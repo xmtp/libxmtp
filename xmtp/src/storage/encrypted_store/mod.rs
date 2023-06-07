@@ -14,10 +14,14 @@
 pub mod models;
 pub mod schema;
 
+use log::warn;
 use rand::RngCore;
 
-use self::{models::*, schema::messages};
-use crate::{Errorer, Fetch, Store};
+use self::{
+    models::*,
+    schema::{accounts, messages},
+};
+use crate::{account::Account, Errorer, Fetch, KeyStore, Store};
 use diesel::{
     connection::SimpleConnection,
     prelude::*,
@@ -37,7 +41,7 @@ pub type EncryptionKey = [u8; 32];
 pub enum StorageOption {
     #[default]
     Ephemeral,
-    Peristent(String),
+    Persistent(String),
 }
 
 #[allow(dead_code)]
@@ -61,15 +65,32 @@ impl Default for EncryptedMessageStore {
 
 impl EncryptedMessageStore {
     pub fn new(opts: StorageOption, enc_key: EncryptionKey) -> Result<Self, StorageError> {
+        Self::new_database(opts, Some(enc_key))
+    }
+
+    pub fn new_unencrypted(opts: StorageOption) -> Result<Self, StorageError> {
+        Self::new_database(opts, None)
+    }
+
+    /// This function is private so that an unencrypted database cannot be created by accident
+    fn new_database(
+        opts: StorageOption,
+        enc_key: Option<EncryptionKey>,
+    ) -> Result<Self, StorageError> {
         let db_path = match opts {
             StorageOption::Ephemeral => ":memory:",
-            StorageOption::Peristent(ref path) => path,
+            StorageOption::Persistent(ref path) => path,
         };
 
         let pool = Pool::builder()
             .max_size(1)
             .build(ConnectionManager::<SqliteConnection>::new(db_path))
             .map_err(|e| StorageError::DbInitError(e.to_string()))?;
+
+        // // Setup SqlCipherKey
+        if let Some(key) = enc_key {
+            Self::set_sqlcipher_key(pool.clone(), &key)?;
+        }
 
         // TODO: Validate that sqlite is correctly configured. Bad EncKey is not detected until the migrations run which returns an
         // unhelpful error.
@@ -79,17 +100,16 @@ impl EncryptedMessageStore {
             pool,
         };
 
-        obj.init_db(enc_key)?;
+        obj.init_db()?;
         Ok(obj)
     }
 
-    fn init_db(&mut self, enc_key: EncryptionKey) -> Result<(), StorageError> {
-        let conn = &mut self.conn().unwrap();
-
-        Self::set_sqlcipher_key(conn, &enc_key)?;
+    fn init_db(&mut self) -> Result<(), StorageError> {
+        let conn = &mut self.conn()?;
 
         conn.run_pending_migrations(MIGRATIONS)
-            .map_err(|e| StorageError::DbInitError(format!("Error running migrations: {:?}", e)))?;
+            .map_err(|e| StorageError::DbInitError(e.to_string()))?;
+
         Ok(())
     }
 
@@ -111,9 +131,13 @@ impl EncryptedMessageStore {
     }
 
     fn set_sqlcipher_key(
-        conn: &mut SqliteConnection,
+        pool: Pool<ConnectionManager<SqliteConnection>>,
         encryption_key: &[u8; 32],
     ) -> Result<(), StorageError> {
+        let conn = &mut pool
+            .get()
+            .map_err(|e| StorageError::PoolError(e.to_string()))?;
+
         conn.batch_execute(&format!(
             "PRAGMA key = \"x'{}'\";",
             hex::encode(encryption_key)
@@ -126,6 +150,26 @@ impl EncryptedMessageStore {
         let mut key = [0u8; 32];
         crypto_utils::rng().fill_bytes(&mut key[..]);
         key
+    }
+}
+
+impl KeyStore for EncryptedMessageStore {
+    fn get_account(&mut self) -> Result<Option<Account>, StorageError> {
+        let mut account_list: Vec<Account> = self.fetch()?;
+
+        if account_list.len() > 1 {
+            warn!(
+                "EncryptedStore expected 1 StoredAccount however found {}. Using the Oldest.",
+                account_list.len()
+            )
+        }
+
+        Ok(account_list.pop())
+    }
+
+    fn set_account(&mut self, account: &Account) -> Result<(), StorageError> {
+        account.store(self)?;
+        Ok(())
     }
 }
 
@@ -145,8 +189,7 @@ impl Store<EncryptedMessageStore> for Session {
         let conn = &mut into.conn()?;
         diesel::insert_into(schema::sessions::table)
             .values(self)
-            .execute(conn)
-            .expect?;
+            .execute(conn)?;
 
         Ok(())
     }
@@ -171,6 +214,36 @@ impl Fetch<Session> for EncryptedMessageStore {
         sessions
             .load::<Session>(conn)
             .map_err(StorageError::DieselResultError)
+    }
+}
+
+impl Store<EncryptedMessageStore> for Account {
+    fn store(&self, into: &EncryptedMessageStore) -> Result<(), StorageError> {
+        let conn = &mut into.conn()?;
+
+        diesel::insert_into(accounts::table)
+            .values(NewStoredAccount::try_from(self)?)
+            .execute(conn)
+            .map_err(|e| StorageError::Store(e.to_string()))?;
+
+        Ok(())
+    }
+}
+
+impl Fetch<Account> for EncryptedMessageStore {
+    fn fetch(&self) -> Result<Vec<Account>, StorageError> {
+        use self::schema::accounts::dsl::*;
+        let conn = &mut self.conn()?;
+
+        let stored_accounts = accounts
+            .order(created_at.desc())
+            .load::<StoredAccount>(conn)
+            .map_err(|e| StorageError::Store(e.to_string()))?;
+
+        Ok(stored_accounts
+            .iter()
+            .map(|f| serde_json::from_slice(&f.serialized_key).unwrap())
+            .collect())
     }
 }
 
@@ -230,7 +303,7 @@ mod tests {
         let db_path = format!("{}.db3", rand_string());
         {
             let store = EncryptedMessageStore::new(
-                StorageOption::Peristent(db_path.clone()),
+                StorageOption::Persistent(db_path.clone()),
                 EncryptedMessageStore::generate_enc_key(),
             )
             .unwrap();
@@ -278,7 +351,7 @@ mod tests {
             // Setup a persistent store
             let store = EncryptedMessageStore::new(
                 // StorageOption::Ephemeral,
-                StorageOption::Peristent(db_path.clone()),
+                StorageOption::Persistent(db_path.clone()),
                 enc_key.clone(),
             )
             .unwrap();
@@ -288,7 +361,7 @@ mod tests {
         } // Drop it
 
         enc_key[3] = 145; // Alter the enc_key
-        let res = EncryptedMessageStore::new(StorageOption::Peristent(db_path.clone()), enc_key);
+        let res = EncryptedMessageStore::new(StorageOption::Persistent(db_path.clone()), enc_key);
         // Ensure it fails
         match res.err() {
             Some(StorageError::DbInitError(_)) => (),
