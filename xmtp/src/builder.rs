@@ -111,7 +111,7 @@ where
 
     /// Fetch account from peristence or generate and sign a new one
     fn find_or_create_account(owner: &O, store: &mut S) -> Result<Account, ClientBuilderError> {
-        let account = Self::retrieve_peristed_account(store)?;
+        let account = Self::retrieve_persisted_account(store)?;
 
         match account {
             Some(a) => {
@@ -129,7 +129,7 @@ where
     }
 
     /// Fetch Account from persistence
-    fn retrieve_peristed_account(store: &mut S) -> Result<Option<Account>, ClientBuilderError> {
+    fn retrieve_persisted_account(store: &mut S) -> Result<Option<Account>, ClientBuilderError> {
         let mut accounts = store.fetch()?;
         Ok(accounts.pop())
     }
@@ -154,7 +154,7 @@ where
         // Fetch the Account based upon the account strategy.
         let account = match self.account_strategy {
             AccountStrategy::CachedOnly(_) => {
-                let account = Self::retrieve_peristed_account(&mut store)?;
+                let account = Self::retrieve_persisted_account(&mut store)?;
                 account.ok_or(ClientBuilderError::RequiredAccountNotFound)?
             }
             AccountStrategy::CreateIfNotFound(owner) => {
@@ -203,7 +203,7 @@ mod tests {
         let wallet = generate_local_wallet();
 
         // Generate a new Wallet + Store
-        let store_a = EncryptedMessageStore::new_unencrypted(StorageOption::Peristent(
+        let store_a = EncryptedMessageStore::new_unencrypted(StorageOption::Persistent(
             tmpdb.to_str().unwrap().into(),
         ))
         .unwrap();
@@ -217,7 +217,7 @@ mod tests {
         drop(client_a);
 
         // Reload the existing store and wallet
-        let store_b = EncryptedMessageStore::new_unencrypted(StorageOption::Peristent(
+        let store_b = EncryptedMessageStore::new_unencrypted(StorageOption::Persistent(
             tmpdb.to_str().unwrap().into(),
         ))
         .unwrap();
@@ -231,7 +231,7 @@ mod tests {
         drop(client_b);
 
         // Create a new wallet and store
-        let store_c = EncryptedMessageStore::new_unencrypted(StorageOption::Peristent(
+        let store_c = EncryptedMessageStore::new_unencrypted(StorageOption::Persistent(
             tmpdb.to_str().unwrap().into(),
         ))
         .unwrap();
