@@ -1,7 +1,10 @@
 use std::time::{SystemTime, UNIX_EPOCH};
 
+use crate::account::Account;
+
 use super::schema::{accounts, messages};
 use diesel::prelude::*;
+use serde_json::json;
 
 /// Placeholder type for messages returned from the Store.
 #[derive(Queryable, Debug)]
@@ -66,10 +69,10 @@ pub struct NewStoredAccount {
     pub serialized_key: String,
 }
 impl NewStoredAccount {
-    pub fn new(key_string: String) -> Self {
+    pub fn new(account: &Account) -> Self {
         Self {
             created_at: now(),
-            serialized_key: key_string,
+            serialized_key: json!(account).to_string(),
         }
     }
 }

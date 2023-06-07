@@ -14,6 +14,7 @@
 pub mod models;
 pub mod schema;
 
+use log::warn;
 use rand::RngCore;
 use serde_json::json;
 use std::{ops::DerefMut, sync::Mutex};
@@ -152,6 +153,14 @@ impl EncryptedMessageStore {
 impl KeyStore for EncryptedMessageStore {
     fn get_account(&mut self) -> Result<Option<Account>, StorageError> {
         let mut account_list: Vec<Account> = self.fetch()?;
+
+        if account_list.len() > 1 {
+            warn!(
+                "EncryptedStore expected 1 StoredAccount however found {}. Using the Oldest.",
+                account_list.len()
+            )
+        }
+
         Ok(account_list.pop())
     }
 
@@ -197,7 +206,7 @@ impl Store<EncryptedMessageStore> for Account {
             .lock()
             .map_err(|e| StorageError::Store(e.to_string()))?;
         diesel::insert_into(accounts::table)
-            .values(NewStoredAccount::new(json!(self).to_string()))
+            .values(NewStoredAccount::new(&self))
             .execute(conn_guard.deref_mut())
             .map_err(|e| StorageError::Store(e.to_string()))?;
 
@@ -214,7 +223,7 @@ impl Fetch<Account> for EncryptedMessageStore {
             .map_err(|e| StorageError::Fetch(e.to_string()))?;
 
         let stored_accounts = accounts
-            .order(created_at.asc())
+            .order(created_at.desc())
             .load::<StoredAccount>(conn_guard.deref_mut())
             .map_err(|e| StorageError::Store(e.to_string()))?;
 
