@@ -140,12 +140,12 @@ class FakeApiClient : ApiClient {
             }.reversed()
         )
 
-        val startAt = pagination?.startTime
+        val startAt = pagination?.before
         if (startAt != null) {
             result = result.filter { it.timestampNs < startAt.time * 1_000_000 }
                 .sortedBy { it.timestampNs }.toMutableList()
         }
-        val endAt = pagination?.endTime
+        val endAt = pagination?.after
         if (endAt != null) {
             result = result.filter { it.timestampNs > endAt.time * 1_000_000 }
                 .sortedBy { it.timestampNs }.toMutableList()

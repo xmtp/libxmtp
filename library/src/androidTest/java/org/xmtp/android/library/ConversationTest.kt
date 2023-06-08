@@ -73,7 +73,7 @@ class ConversationTest {
 
     @Test
     fun testCanInitiateV2Conversation() {
-        val existingConversations = aliceClient.conversations.conversations
+        val existingConversations = aliceClient.conversations.conversationsByTopic
         assert(existingConversations.isEmpty())
         val conversation = bobClient.conversations.newConversation(alice.walletAddress)
         val aliceInviteMessage =
@@ -227,22 +227,22 @@ class ConversationTest {
             )
         val tamperedMessage =
             MessageV2Builder.buildFromCipherText(headerBytes = headerBytes, ciphertext = ciphertext)
-        aliceClient.publish(
-            envelopes = listOf(
-                EnvelopeBuilder.buildFromString(
-                    topic = aliceConversation.topic,
-                    timestamp = Date(),
-                    message = MessageBuilder.buildFromMessageV2(v2 = tamperedMessage).toByteArray()
-                )
+        val tamperedEnvelope =
+            EnvelopeBuilder.buildFromString(
+                topic = aliceConversation.topic,
+                timestamp = Date(),
+                message = MessageBuilder.buildFromMessageV2(v2 = tamperedMessage).toByteArray()
             )
-        )
+        aliceClient.publish(envelopes = listOf(tamperedEnvelope))
         val bobConversation = bobClient.conversations.newConversation(
             aliceWallet.address,
             InvitationV1ContextBuilder.buildFromConversation("hi")
         )
         assertThrows("Invalid signature", XMTPException::class.java) {
-            val messages = bobConversation.messages()
+            bobConversation.decode(tamperedEnvelope)
         }
+        // But it should be properly discarded from the message listing.
+        assertEquals(0, bobConversation.messages().size)
     }
 
     @Test

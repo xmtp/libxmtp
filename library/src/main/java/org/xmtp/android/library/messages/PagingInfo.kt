@@ -11,8 +11,8 @@ typealias PagingInfoSortDirection = SortDirection
 data class Pagination(
     val limit: Int? = null,
     val direction: PagingInfoSortDirection? = null,
-    val startTime: Date? = null,
-    val endTime: Date? = null,
+    val before: Date? = null,
+    val after: Date? = null,
 ) {
     val pagingInfo: PagingInfo
         get() {

@@ -1,7 +1,9 @@
 package org.xmtp.android.library
 
+import android.util.Log
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.flow.mapNotNull
 import kotlinx.coroutines.runBlocking
 import org.web3j.crypto.Hash
 import org.xmtp.android.library.codecs.ContentCodec
@@ -58,7 +60,7 @@ data class ConversationV2(
         before: Date? = null,
         after: Date? = null,
     ): List<DecodedMessage> {
-        val pagination = Pagination(limit = limit, startTime = before, endTime = after)
+        val pagination = Pagination(limit = limit, before = before, after = after)
         val result = runBlocking {
             client.apiClient.query(
                 topic = topic,
@@ -67,14 +69,14 @@ data class ConversationV2(
             )
         }
 
-        return result.envelopesList.flatMap { envelope ->
-            listOf(decodeEnvelope(envelope))
+        return result.envelopesList.mapNotNull { envelope ->
+            decodeEnvelopeOrNull(envelope)
         }
     }
 
     fun streamMessages(): Flow<DecodedMessage> = flow {
-        client.subscribe(listOf(topic)).collect {
-            emit(decodeEnvelope(envelope = it))
+        client.subscribe(listOf(topic)).mapNotNull { decodeEnvelopeOrNull(envelope = it) }.collect {
+            emit(it)
         }
     }
 
@@ -83,6 +85,15 @@ data class ConversationV2(
         val decoded = decode(message.v2)
         decoded.id = generateId(envelope)
         return decoded
+    }
+
+    private fun decodeEnvelopeOrNull(envelope: Envelope): DecodedMessage? {
+        return try {
+            decodeEnvelope(envelope)
+        } catch (e: Exception) {
+            Log.d("CONV_V2", "discarding message that failed to decode", e)
+            null
+        }
     }
 
     fun decode(message: MessageV2): DecodedMessage =

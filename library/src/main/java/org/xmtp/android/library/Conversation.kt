@@ -1,5 +1,6 @@
 package org.xmtp.android.library
 
+import android.util.Log
 import kotlinx.coroutines.flow.Flow
 import org.xmtp.android.library.messages.Envelope
 import java.util.Date
@@ -57,6 +58,15 @@ sealed class Conversation {
         return when (this) {
             is V1 -> conversationV1.decode(envelope)
             is V2 -> conversationV2.decodeEnvelope(envelope)
+        }
+    }
+
+    fun decodeOrNull(envelope: Envelope): DecodedMessage? {
+        return try {
+            decode(envelope)
+        } catch (e: Exception) {
+            Log.d("CONVERSATION", "discarding message that failed to decode", e)
+            null
         }
     }
 

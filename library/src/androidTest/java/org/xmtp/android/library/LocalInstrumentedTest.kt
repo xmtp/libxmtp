@@ -22,6 +22,7 @@ import org.xmtp.android.library.messages.toPublicKeyBundle
 import org.xmtp.android.library.messages.walletAddress
 import org.xmtp.proto.message.api.v1.MessageApiOuterClass.QueryRequest
 import org.xmtp.proto.message.contents.Contact
+import org.xmtp.proto.message.contents.InvitationV1Kt.context
 import org.xmtp.proto.message.contents.PrivateKeyOuterClass
 import java.util.Date
 
@@ -141,6 +142,51 @@ class LocalInstrumentedTest {
     }
 
     @Test
+    fun testListingConversations() {
+        val alice = Client().create(
+            PrivateKeyBuilder(),
+            ClientOptions(api = ClientOptions.Api(env = XMTPEnvironment.LOCAL, isSecure = false))
+        )
+        val bob = Client().create(
+            PrivateKeyBuilder(),
+            ClientOptions(api = ClientOptions.Api(env = XMTPEnvironment.LOCAL, isSecure = false))
+        )
+
+        // First Bob starts a conversation with Alice
+        val c1 = bob.conversations.newConversation(
+            alice.address,
+            context = context {
+                conversationId = "example.com/alice-bob-1"
+                metadata["title"] = "First Chat"
+            }
+        )
+        c1.send("hello Alice!")
+        delayToPropagate()
+
+        // So Alice should see just that one conversation.
+        var aliceConvoList = alice.conversations.list()
+        assertEquals(1, aliceConvoList.size)
+        assertEquals("example.com/alice-bob-1", aliceConvoList[0].conversationId)
+
+        // And later when Bob starts a second conversation with Alice
+        val c2 = bob.conversations.newConversation(
+            alice.address,
+            context = context {
+                conversationId = "example.com/alice-bob-2"
+                metadata["title"] = "Second Chat"
+            }
+        )
+        c2.send("hello again Alice!")
+        delayToPropagate()
+
+        // Then Alice should see both conversations, the newer one first.
+        aliceConvoList = alice.conversations.list()
+        assertEquals(2, aliceConvoList.size)
+        assertEquals("example.com/alice-bob-2", aliceConvoList[0].conversationId)
+        assertEquals("example.com/alice-bob-1", aliceConvoList[1].conversationId)
+    }
+
+    @Test
     fun testCanPaginateV1Messages() {
         val bob = PrivateKeyBuilder()
         val alice = PrivateKeyBuilder()
@@ -246,5 +292,10 @@ class LocalInstrumentedTest {
             runBlocking { api.batchQuery(requests = listOf(request)) }
 
         assertEquals(result.responsesOrBuilderList.size, 1)
+    }
+
+    // A delay to allow messages to propagate before making assertions.
+    private fun delayToPropagate() {
+        Thread.sleep(500)
     }
 }

@@ -1,5 +1,6 @@
 package org.xmtp.android.library
 
+import android.util.Log
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.runBlocking
@@ -41,13 +42,13 @@ data class ConversationV1(
         before: Date? = null,
         after: Date? = null,
     ): List<DecodedMessage> {
-        val pagination = Pagination(limit = limit, startTime = before, endTime = after)
+        val pagination = Pagination(limit = limit, before = before, after = after)
         val result = runBlocking {
             client.apiClient.queryTopic(topic = topic, pagination = pagination)
         }
 
-        return result.envelopesList.flatMap { envelope ->
-            listOf(decode(envelope = envelope))
+        return result.envelopesList.mapNotNull { envelope ->
+            decodeOrNull(envelope = envelope)
         }
     }
 
@@ -65,6 +66,15 @@ data class ConversationV1(
         decoded.id = generateId(envelope)
 
         return decoded
+    }
+
+    private fun decodeOrNull(envelope: Envelope): DecodedMessage? {
+        return try {
+            decode(envelope)
+        } catch (e: Exception) {
+            Log.d("CONV_V1", "discarding message that failed to decode", e)
+            null
+        }
     }
 
     fun send(text: String, options: SendOptions? = null): String {

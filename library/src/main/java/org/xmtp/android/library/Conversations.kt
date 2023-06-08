@@ -31,7 +31,7 @@ import java.util.Date
 
 data class Conversations(
     var client: Client,
-    var conversations: MutableList<Conversation> = mutableListOf(),
+    var conversationsByTopic: MutableMap<String, Conversation> = mutableMapOf(),
 ) {
 
     companion object {
@@ -71,7 +71,9 @@ data class Conversations(
         if (peerAddress.lowercase() == client.address.lowercase()) {
             throw XMTPException("Recipient is sender")
         }
-        val existingConversation = conversations.firstOrNull { it.peerAddress == peerAddress }
+        val existingConversation = conversationsByTopic.values.firstOrNull {
+            it.peerAddress == peerAddress && it.conversationId == context?.conversationId
+        }
         if (existingConversation != null) {
             return existingConversation
         }
@@ -89,7 +91,7 @@ data class Conversations(
                         sentAt = peerSeenAt
                     )
                 )
-                conversations.add(conversation)
+                conversationsByTopic[conversation.topic] = conversation
                 return conversation
             }
         }
@@ -103,7 +105,7 @@ data class Conversations(
                     sentAt = Date()
                 )
             )
-            conversations.add(conversation)
+            conversationsByTopic[conversation.topic] = conversation
             return conversation
         }
         // See if we have a v2 conversation
@@ -123,7 +125,7 @@ data class Conversations(
                         header = sealedInvitation.v1.header
                     )
                 )
-                conversations.add(conversation)
+                conversationsByTopic[conversation.topic] = conversation
                 return conversation
             }
         }
@@ -138,13 +140,15 @@ data class Conversations(
             header = sealedInvitation.v1.header
         )
         val conversation = Conversation.V2(conversationV2)
-        conversations.add(conversation)
+        conversationsByTopic[conversation.topic] = conversation
         return conversation
     }
 
     fun list(): List<Conversation> {
         val newConversations = mutableListOf<Conversation>()
-        val seenPeers = listIntroductionPeers()
+        val mostRecent = conversationsByTopic.values.maxOfOrNull { it.createdAt }
+        val pagination = Pagination(after = mostRecent)
+        val seenPeers = listIntroductionPeers(pagination = pagination)
         for ((peerAddress, sentAt) in seenPeers) {
             newConversations.add(
                 Conversation.V1(
@@ -156,7 +160,7 @@ data class Conversations(
                 )
             )
         }
-        val invitations = listInvitations()
+        val invitations = listInvitations(pagination = pagination)
         for (sealedInvitation in invitations) {
             try {
                 val unsealed = sealedInvitation.v1.getInvitation(viewer = client.keys)
@@ -170,17 +174,19 @@ data class Conversations(
                 Log.d(TAG, e.message.toString())
             }
         }
+        conversationsByTopic += newConversations.filter { it.peerAddress != client.address }
+            .map { Pair(it.topic, it) }
 
-        conversations.clear()
-        conversations.addAll(newConversations.filter { it.peerAddress != client.address })
-        return conversations
+        // TODO(perf): use DB to persist + sort
+        return conversationsByTopic.values.sortedByDescending { it.createdAt }
     }
 
-    private fun listIntroductionPeers(): Map<String, Date> {
+    private fun listIntroductionPeers(pagination: Pagination? = null): Map<String, Date> {
         val envelopes =
             runBlocking {
                 client.apiClient.queryTopic(
-                    topic = Topic.userIntro(client.address)
+                    topic = Topic.userIntro(client.address),
+                    pagination = pagination,
                 ).envelopesList
             }
         val messages = envelopes.mapNotNull { envelope ->
@@ -213,9 +219,9 @@ data class Conversations(
         return seenPeers
     }
 
-    fun listInvitations(): List<SealedInvitation> {
+    private fun listInvitations(pagination: Pagination? = null): List<SealedInvitation> {
         val envelopes = runBlocking {
-            client.apiClient.envelopes(Topic.userInvite(client.address).description)
+            client.apiClient.envelopes(Topic.userInvite(client.address).description, pagination)
         }
         return envelopes.map { envelope ->
             SealedInvitation.parseFrom(envelope.message)
@@ -228,7 +234,7 @@ data class Conversations(
         before: Date? = null,
         after: Date? = null,
     ): List<DecodedMessage> {
-        val pagination = Pagination(limit = limit, startTime = before, endTime = after)
+        val pagination = Pagination(limit = limit, before = before, after = after)
         val requests = topics.map { topic ->
             makeQueryRequest(topic = topic, pagination = pagination)
         }
@@ -242,13 +248,12 @@ data class Conversations(
                 messages.addAll(
                     client.batchQuery(batch).responsesOrBuilderList.flatMap { res ->
                         res.envelopesList.mapNotNull { envelope ->
-                            val conversation =
-                                conversations.firstOrNull { it.topic == envelope.contentTopic }
+                            val conversation = conversationsByTopic[envelope.contentTopic]
                             if (conversation == null) {
                                 Log.d(TAG, "discarding message, unknown conversation $envelope")
                                 return@mapNotNull null
                             }
-                            val msg = conversation.decode(envelope)
+                            val msg = conversation.decodeOrNull(envelope)
                             msg
                         }
                     }
@@ -330,16 +335,19 @@ data class Conversations(
             topics.add(conversation.topic)
         }
         client.subscribe(topics).collect { envelope ->
-            val conversation = conversations.firstOrNull { it.topic == envelope.contentTopic }
+            var conversation = conversationsByTopic[envelope.contentTopic]
+            var decoded: DecodedMessage? = null
             if (conversation != null) {
-                val decoded = conversation.decode(envelope)
-                emit(decoded)
+                decoded = conversation.decodeOrNull(envelope)
             } else if (envelope.contentTopic.startsWith("/xmtp/0/invite-")) {
-                conversations.add(fromInvite(envelope = envelope))
+                conversation = fromInvite(envelope = envelope)
+                conversationsByTopic[conversation.topic] = conversation
             } else if (envelope.contentTopic.startsWith("/xmtp/0/intro-")) {
-                val conversation2 = fromIntro(envelope = envelope)
-                conversations.add(conversation2)
-                val decoded = conversation2.decode(envelope)
+                conversation = fromIntro(envelope = envelope)
+                conversationsByTopic[conversation.topic] = conversation
+                decoded = conversation.decodeOrNull(envelope)
+            }
+            if (decoded != null) {
                 emit(decoded)
             }
         }
