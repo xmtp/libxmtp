@@ -14,6 +14,8 @@ use xmtp_proto::xmtp::message_api::v1::{
     PublishRequest, PublishResponse, QueryRequest, QueryResponse, SubscribeRequest,
 };
 
+// TODO this is a hack due to the fact that xmtp_networking returns strings rather than
+// errors. We should fix this while maintaining API compatibility with existing clients.
 fn stringify_error_chain(error: &(dyn Error + 'static)) -> String {
     let mut result = format!("Error: {}\n", error);
 
