@@ -381,7 +381,7 @@ internal interface _UniFFILib : Library {
     ): RustBuffer.ByValue
     fun uniffi_xmtpv3_fn_func_add(`a`: Int,`b`: Int,_uniffi_out_err: RustCallStatus, 
     ): Int
-    fun uniffi_bindings_ffi_fn_func_create_client(`host`: RustBuffer.ByValue,`isSecure`: Byte,`uniffiExecutor`: USize,`uniffiCallback`: UniFfiFutureCallbackUInt8,`uniffiCallbackData`: USize,_uniffi_out_err: RustCallStatus, 
+    fun uniffi_bindings_ffi_fn_func_create_client(`host`: RustBuffer.ByValue,`isSecure`: Byte,`uniffiExecutor`: USize,`uniffiCallback`: UniFfiFutureCallbackRustArcPtrFfiXmtpClient,`uniffiCallbackData`: USize,_uniffi_out_err: RustCallStatus, 
     ): Unit
     fun ffi_xmtpv3_rustbuffer_alloc(`size`: Int,_uniffi_out_err: RustCallStatus, 
     ): RustBuffer.ByValue
@@ -419,7 +419,7 @@ private fun uniffiCheckApiChecksums(lib: _UniFFILib) {
     if (lib.uniffi_xmtpv3_checksum_func_add() != 25095.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
-    if (lib.uniffi_bindings_ffi_checksum_func_create_client() != 988.toShort()) {
+    if (lib.uniffi_bindings_ffi_checksum_func_create_client() != 38953.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_bindings_ffi_checksum_method_ffixmtpclient_wallet_address() != 63034.toShort()) {
@@ -870,15 +870,15 @@ public object FfiConverterTypeGenericError : FfiConverterRustBuffer<GenericExcep
 
 
 // FFI type for callback handlers
-internal interface UniFfiFutureCallbackUInt8 : com.sun.jna.Callback {
-    // Note: callbackData is always 0.  We could pass Rust a pointer/usize to represent the
-    // continuation, but with JNA it's easier to just store it in the callback handler.
-    fun invoke(_callbackData: USize, returnValue: Byte, callStatus: RustCallStatus.ByValue);
-}
 internal interface UniFfiFutureCallbackUInt32 : com.sun.jna.Callback {
     // Note: callbackData is always 0.  We could pass Rust a pointer/usize to represent the
     // continuation, but with JNA it's easier to just store it in the callback handler.
     fun invoke(_callbackData: USize, returnValue: Int, callStatus: RustCallStatus.ByValue);
+}
+internal interface UniFfiFutureCallbackRustArcPtrFfiXmtpClient : com.sun.jna.Callback {
+    // Note: callbackData is always 0.  We could pass Rust a pointer/usize to represent the
+    // continuation, but with JNA it's easier to just store it in the callback handler.
+    fun invoke(_callbackData: USize, returnValue: Pointer, callStatus: RustCallStatus.ByValue);
 }
 internal interface UniFfiFutureCallbackRustBuffer : com.sun.jna.Callback {
     // Note: callbackData is always 0.  We could pass Rust a pointer/usize to represent the
@@ -888,18 +888,6 @@ internal interface UniFfiFutureCallbackRustBuffer : com.sun.jna.Callback {
 
 // Callback handlers for an async call.  These are invoked by Rust when the future is ready.  They
 // lift the return value or error and resume the suspended function.
-
-internal class UniFfiFutureCallbackHandlerVoid_TypeGenericError(val continuation: Continuation<Unit>)
-    : UniFfiFutureCallbackUInt8 {
-    override fun invoke(_callbackData: USize, returnValue: Byte, callStatus: RustCallStatus.ByValue) {
-        try {
-            checkCallStatus(GenericException, callStatus)
-            continuation.resume(Unit)
-        } catch (e: Throwable) {
-            continuation.resumeWithException(e)
-        }
-    }
-}
 
 internal class UniFfiFutureCallbackHandleru32(val continuation: Continuation<UInt>)
     : UniFfiFutureCallbackUInt32 {
@@ -925,6 +913,18 @@ internal class UniFfiFutureCallbackHandlerstring(val continuation: Continuation<
     }
 }
 
+internal class UniFfiFutureCallbackHandlerTypeFfiXmtpClient_TypeGenericError(val continuation: Continuation<FfiXmtpClient>)
+    : UniFfiFutureCallbackRustArcPtrFfiXmtpClient {
+    override fun invoke(_callbackData: USize, returnValue: Pointer, callStatus: RustCallStatus.ByValue) {
+        try {
+            checkCallStatus(GenericException, callStatus)
+            continuation.resume(FfiConverterTypeFfiXmtpClient.lift(returnValue))
+        } catch (e: Throwable) {
+            continuation.resumeWithException(e)
+        }
+    }
+}
+
 fun `add`(`a`: UInt, `b`: UInt): UInt {
     return FfiConverterUInt.lift(
     rustCall() { _status ->
@@ -935,18 +935,18 @@ fun `add`(`a`: UInt, `b`: UInt): UInt {
 @Throws(GenericException::class)
 
 @Suppress("ASSIGNED_BUT_NEVER_ACCESSED_VARIABLE")
-suspend fun `createClient`(`host`: String, `isSecure`: Boolean) {
+suspend fun `createClient`(`host`: String, `isSecure`: Boolean) : FfiXmtpClient {
     // Create a new `CoroutineScope` for this operation, suspend the coroutine, and call the
     // scaffolding function, passing it one of the callback handlers from `AsyncTypes.kt`.
     //
     // Make sure to retain a reference to the callback handler to ensure that it's not GCed before
     // it's invoked
-    var callbackHolder: UniFfiFutureCallbackHandlerVoid_TypeGenericError? = null
+    var callbackHolder: UniFfiFutureCallbackHandlerTypeFfiXmtpClient_TypeGenericError? = null
     return coroutineScope {
         val scope = this
         return@coroutineScope suspendCoroutine { continuation ->
             try {
-                val callback = UniFfiFutureCallbackHandlerVoid_TypeGenericError(continuation)
+                val callback = UniFfiFutureCallbackHandlerTypeFfiXmtpClient_TypeGenericError(continuation)
                 callbackHolder = callback
                 rustCall { status ->
                     _UniFFILib.INSTANCE.uniffi_bindings_ffi_fn_func_create_client(
