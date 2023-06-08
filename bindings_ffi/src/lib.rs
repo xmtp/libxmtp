@@ -16,10 +16,6 @@ use xmtp_proto::xmtp::message_api::v1::{
 pub type RustXmtpClient = xmtp::Client<FfiApiClient, InMemoryPersistence, EncryptedMessageStore>;
 uniffi::include_scaffolding!("xmtpv3");
 
-fn add(a: u32, b: u32) -> u32 {
-    a + b
-}
-
 #[derive(uniffi::Error, Debug)]
 pub enum GenericError {
     Generic { err: String },
@@ -31,17 +27,9 @@ impl From<String> for GenericError {
     }
 }
 
-// An implementation of the InboxOwner trait passed to Rust from the native language
-// Must be a Uniffi callback interface (https://mozilla.github.io/uniffi-rs/udl/callback_interfaces.html)
-// #[uniffi::export]
-// pub trait FfiInboxOwner: Send + Sync + core::fmt::Debug {
-//     fn get_address(&self) -> String;
-//     fn sign(&self, text: AssociationText) -> Result<RecoverableSignature, SignatureError>;
-// }
-
 #[uniffi::export(async_runtime = "tokio")]
 pub async fn create_client(
-    // owner: Box<dyn FfiInboxOwner>, // We just need an InboxOwner
+    // TODO Plumb InboxOwner down from foreign language
     host: String,
     is_secure: bool,
     // TODO proper error handling

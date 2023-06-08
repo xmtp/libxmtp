@@ -4,7 +4,6 @@ import androidx.appcompat.app.AppCompatActivity
 import android.os.Bundle
 import android.widget.TextView
 import com.example.xmtpv3_example.R.id.selftest_output
-import kotlinx.coroutines.runBlocking
 
 class MainActivity : AppCompatActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -37,10 +36,6 @@ class MainActivity : AppCompatActivity() {
         val actualSecret: List<UByte> = uniffi.xmtp_dh.diffieHellmanK256(privateA, publicB)
 
         val textView: TextView = findViewById<TextView>(selftest_output)
-        textView.text = "Starting tests"
-        runBlocking {
-            uniffi.xmtp_dh.sleep(10000u);
-        }
         if (!expectedSecret.equals(actualSecret)) {
             textView.text = "Test 1 failed, didn't generate correct secret"
         }
