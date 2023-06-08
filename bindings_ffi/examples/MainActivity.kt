@@ -14,7 +14,7 @@ class MainActivity : AppCompatActivity() {
 
             val textView: TextView = findViewById<TextView>(selftest_output)
             try {
-                val client = uniffi.xmtpv3.createClient("http://localhost:5556", false);
+                val client = uniffi.xmtpv3.createClient("http://10.0.2.2:5556", false);
                 textView.text = "Client constructed, wallet address: " // + client.walletAddress();
             } catch (e: Exception) {
                 textView.text = "Failed to construct client: " + e.message;
