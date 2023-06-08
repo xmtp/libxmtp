@@ -1,19 +1,17 @@
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use ethers::signers::LocalWallet;
-use xmtp::{
-    networking::XmtpApiClient, persistence::in_memory_persistence::InMemoryPersistence,
-    storage::EncryptedMessageStore, types::Address,
-};
+use xmtp::networking::XmtpApiClient;
+use xmtp::types::Address;
 use xmtp_cryptography::utils::rng;
+use xmtp_cryptography::utils::LocalWallet;
 use xmtp_networking::grpc_api_helper::{self, Subscription};
 use xmtp_proto::xmtp::message_api::v1::{
     Envelope, PagingInfo, PublishRequest, PublishResponse, QueryRequest, QueryResponse,
     SubscribeRequest,
 };
 
-pub type RustXmtpClient = xmtp::Client<FfiApiClient, InMemoryPersistence, EncryptedMessageStore>;
+pub type RustXmtpClient = xmtp::Client<FfiApiClient>;
 uniffi::include_scaffolding!("xmtpv3");
 
 #[derive(uniffi::Error, Debug)]

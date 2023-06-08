@@ -14,9 +14,11 @@ pub mod types;
 mod utils;
 pub mod vmac_protos;
 
+use account::Account;
 use association::AssociationText;
 pub use builder::ClientBuilder;
 pub use client::{Client, Network};
+use storage::StorageError;
 use xmtp_cryptography::signature::{RecoverableSignature, SignatureError};
 
 pub trait Signable {
@@ -27,13 +29,19 @@ pub trait Errorer {
     type Error;
 }
 
+// Inserts a model to the underlying data store
 pub trait Store<I> {
-    fn store(&self, into: &mut I) -> Result<(), String>;
+    fn store(&self, into: &I) -> Result<(), StorageError>;
 }
 
+// Fetches all instances of a model from the underlying data store
 pub trait Fetch<T> {
-    type E;
-    fn fetch(&mut self) -> Result<Vec<T>, Self::E>;
+    fn fetch(&self) -> Result<Vec<T>, StorageError>;
+}
+
+// Updates an existing instance of the model in the data store
+pub trait Save<I> {
+    fn save(&self, into: &I) -> Result<(), StorageError>;
 }
 
 pub trait InboxOwner {

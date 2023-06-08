@@ -1,16 +1,21 @@
+use core::fmt;
+use std::fmt::Formatter;
+
 use thiserror::Error;
 
 use crate::{
     account::Account,
     contact::{Contact, ContactError},
     networking::XmtpApiClient,
-    persistence::{NamespacedPersistence, Persistence},
+    session::SessionManager,
+    storage::{EncryptedMessageStore, StorageError},
     types::Address,
     utils::{build_envelope, build_user_contact_topic},
+    Store,
 };
 use xmtp_proto::xmtp::message_api::v1::Envelope;
 
-#[derive(Clone, Copy, Default)]
+#[derive(Clone, Copy, Default, Debug)]
 pub enum Network {
     Local(&'static str),
     #[default]
@@ -24,41 +29,47 @@ pub enum ClientError {
     Contact(#[from] ContactError),
     #[error("could not publish: {0}")]
     PublishError(String),
+    #[error("storage error: {0}")]
+    Storage(#[from] StorageError),
     #[error("Query failed: {0}")]
     QueryError(String),
     #[error("unknown client error")]
     Unknown,
 }
 
-pub struct Client<A, P, S>
+pub struct Client<A>
 where
     A: XmtpApiClient,
-    P: Persistence,
 {
     pub api_client: A,
     pub network: Network,
-    pub persistence: NamespacedPersistence<P>,
     pub(crate) account: Account,
-    pub(super) _store: S,
+    pub(super) _store: EncryptedMessageStore,
     is_initialized: bool,
 }
 
-impl<A, P, S> Client<A, P, S>
+impl<A> core::fmt::Debug for Client<A>
 where
     A: XmtpApiClient,
-    P: Persistence,
+{
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        write!(f, "Client({:?})::{}", self.network, self.account.addr())
+    }
+}
+
+impl<A> Client<A>
+where
+    A: XmtpApiClient,
 {
     pub fn new(
         api_client: A,
         network: Network,
-        persistence: NamespacedPersistence<P>,
         account: Account,
-        store: S,
+        store: EncryptedMessageStore,
     ) -> Self {
         Self {
             api_client,
             network,
-            persistence,
             account,
             _store: store,
             is_initialized: false,
@@ -94,11 +105,26 @@ where
 
         let mut contacts = vec![];
         for envelope in response.envelopes {
-            let contact_bundle = Contact::from_bytes(envelope.message)?;
+            let contact_bundle = Contact::from_bytes(envelope.message, wallet_address.to_string())?;
             contacts.push(contact_bundle);
         }
 
         Ok(contacts)
+    }
+
+    pub fn create_outbound_session(
+        &mut self,
+        contact: Contact,
+    ) -> Result<SessionManager, ClientError> {
+        let olm_session = self.account.create_outbound_session(contact.clone());
+        let session = SessionManager::from_olm_session(olm_session, contact)
+            .map_err(|_| ClientError::Unknown)?;
+
+        session
+            .store(&self._store)
+            .map_err(|_| ClientError::Unknown)?;
+
+        Ok(session)
     }
 
     async fn publish_user_contact(&mut self) -> Result<(), ClientError> {
@@ -122,16 +148,6 @@ where
 
         Ok(envelope)
     }
-
-    #[allow(dead_code)]
-    fn write_to_persistence(&mut self, s: &str, b: &[u8]) -> Result<(), P::Error> {
-        self.persistence.write(s, b)
-    }
-
-    #[allow(dead_code)]
-    fn read_from_persistence(&self, s: &str) -> Result<Option<Vec<u8>>, P::Error> {
-        self.persistence.read(s)
-    }
 }
 
 #[cfg(test)]
@@ -141,17 +157,6 @@ mod tests {
     use xmtp_proto::xmtp::v3::message_contents::vmac_unsigned_public_key::VodozemacCurve25519;
 
     use crate::ClientBuilder;
-
-    #[test]
-    fn can_pass_persistence_methods() {
-        let mut client = ClientBuilder::new_test().build().unwrap();
-        assert_eq!(client.read_from_persistence("foo").unwrap(), None);
-        client.write_to_persistence("foo", b"bar").unwrap();
-        assert_eq!(
-            client.read_from_persistence("foo").unwrap(),
-            Some(b"bar".to_vec())
-        );
-    }
 
     #[tokio::test]
     async fn registration() {
