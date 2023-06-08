@@ -1,6 +1,7 @@
 use http_body::combinators::UnsyncBoxBody;
 use hyper::{client::HttpConnector, Uri};
 use hyper_rustls::HttpsConnector;
+use std::error::Error;
 use std::str::FromStr;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
@@ -12,6 +13,18 @@ use xmtp_proto::xmtp::message_api::v1::{
     message_api_client::MessageApiClient, BatchQueryRequest, BatchQueryResponse, Envelope,
     PublishRequest, PublishResponse, QueryRequest, QueryResponse, SubscribeRequest,
 };
+
+fn stringify_error_chain(error: &(dyn Error + 'static)) -> String {
+    let mut result = format!("Error: {}\n", error);
+
+    let mut source = error.source();
+    while let Some(src) = source {
+        result += &format!("Caused by: {}\n", src);
+        source = src.source();
+    }
+
+    result
+}
 
 fn tls_config() -> Result<ClientConfig, tonic::Status> {
     let mut roots = RootCertStore::empty();
@@ -71,14 +84,18 @@ impl Client {
             let connector = get_tls_connector().map_err(|e| {
                 tonic::Status::new(
                     tonic::Code::Internal,
-                    format!("Failed to create TLS connector: {}", e),
+                    format!(
+                        "Failed to create TLS connector: {}",
+                        stringify_error_chain(&e)
+                    ),
                 )
             })?;
 
             let tls_conn = hyper::Client::builder().build(connector);
 
-            let uri = Uri::from_str(&host)
-                .map_err(|e| tonic::Status::new(tonic::Code::Internal, format!("{}", e)))?;
+            let uri = Uri::from_str(&host).map_err(|e| {
+                tonic::Status::new(tonic::Code::Internal, stringify_error_chain(&e))
+            })?;
 
             let tls_client = MessageApiClient::with_origin(tls_conn, uri);
 
@@ -87,10 +104,12 @@ impl Client {
             })
         } else {
             let channel = Channel::from_shared(host)
-                .map_err(|e| tonic::Status::new(tonic::Code::Internal, format!("{}", e)))?
+                .map_err(|e| tonic::Status::new(tonic::Code::Internal, stringify_error_chain(&e)))?
                 .connect()
                 .await
-                .map_err(|e| tonic::Status::new(tonic::Code::Internal, format!("{}", e)))?;
+                .map_err(|e| {
+                    tonic::Status::new(tonic::Code::Internal, stringify_error_chain(&e))
+                })?;
 
             let client = MessageApiClient::new(channel);
 
