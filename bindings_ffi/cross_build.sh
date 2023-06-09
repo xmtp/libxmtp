@@ -3,18 +3,19 @@
 main() {
   set -ex
 
-  # Change to "release" to generate much smaller libraries
+  # Dev+Debug is better for debugging Rust crashes, but generates much larger libraries (100's of MB)
   # PROFILE="dev"
   # BINARY_PROFILE="debug"
   PROFILE="release"
   BINARY_PROFILE="release"
 
+  # Uncomment to build for all targets. aarch64-linux-android is the default target for an emulator on Android Studio on an M1 mac.
   # cross build --target x86_64-linux-android --target-dir ./target --profile $PROFILE && \
   #     cross build --target i686-linux-android --target-dir ./target --profile $PROFILE && \
   #     cross build --target armv7-linux-androideabi --target-dir ./target --profile $PROFILE && \
       cross build --target aarch64-linux-android --target-dir ./target --profile $PROFILE
 
-  # Move everything to jniLibs folder and rename, TODO: should be the same name
+  # Move everything to jniLibs folder and rename
   LIBRARY_NAME="libbindings_ffi"
   TARGET_NAME="libuniffi_xmtpv3"
   rm -rf jniLibs/
