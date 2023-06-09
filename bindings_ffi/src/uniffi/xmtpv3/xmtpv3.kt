@@ -379,8 +379,6 @@ internal interface _UniFFILib : Library {
     ): Unit
     fun uniffi_bindings_ffi_fn_method_ffixmtpclient_wallet_address(`ptr`: Pointer,_uniffi_out_err: RustCallStatus, 
     ): RustBuffer.ByValue
-    fun uniffi_xmtpv3_fn_func_add(`a`: Int,`b`: Int,_uniffi_out_err: RustCallStatus, 
-    ): Int
     fun uniffi_bindings_ffi_fn_func_create_client(`host`: RustBuffer.ByValue,`isSecure`: Byte,`uniffiExecutor`: USize,`uniffiCallback`: UniFfiFutureCallbackRustArcPtrFfiXmtpClient,`uniffiCallbackData`: USize,_uniffi_out_err: RustCallStatus, 
     ): Unit
     fun ffi_xmtpv3_rustbuffer_alloc(`size`: Int,_uniffi_out_err: RustCallStatus, 
@@ -391,8 +389,6 @@ internal interface _UniFFILib : Library {
     ): Unit
     fun ffi_xmtpv3_rustbuffer_reserve(`buf`: RustBuffer.ByValue,`additional`: Int,_uniffi_out_err: RustCallStatus, 
     ): RustBuffer.ByValue
-    fun uniffi_xmtpv3_checksum_func_add(
-    ): Short
     fun uniffi_bindings_ffi_checksum_func_create_client(
     ): Short
     fun uniffi_bindings_ffi_checksum_method_ffixmtpclient_wallet_address(
@@ -416,9 +412,6 @@ private fun uniffiCheckContractApiVersion(lib: _UniFFILib) {
 
 @Suppress("UNUSED_PARAMETER")
 private fun uniffiCheckApiChecksums(lib: _UniFFILib) {
-    if (lib.uniffi_xmtpv3_checksum_func_add() != 25095.toShort()) {
-        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
-    }
     if (lib.uniffi_bindings_ffi_checksum_func_create_client() != 38953.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
@@ -429,26 +422,6 @@ private fun uniffiCheckApiChecksums(lib: _UniFFILib) {
 
 // Public interface members begin here.
 
-
-public object FfiConverterUInt: FfiConverter<UInt, Int> {
-    override fun lift(value: Int): UInt {
-        return value.toUInt()
-    }
-
-    override fun read(buf: ByteBuffer): UInt {
-        return lift(buf.getInt())
-    }
-
-    override fun lower(value: UInt): Int {
-        return value.toInt()
-    }
-
-    override fun allocationSize(value: UInt) = 4
-
-    override fun write(value: UInt, buf: ByteBuffer) {
-        buf.putInt(value.toInt())
-    }
-}
 
 public object FfiConverterBoolean: FfiConverter<Boolean, Byte> {
     override fun lift(value: Byte): Boolean {
@@ -870,11 +843,6 @@ public object FfiConverterTypeGenericError : FfiConverterRustBuffer<GenericExcep
 
 
 // FFI type for callback handlers
-internal interface UniFfiFutureCallbackUInt32 : com.sun.jna.Callback {
-    // Note: callbackData is always 0.  We could pass Rust a pointer/usize to represent the
-    // continuation, but with JNA it's easier to just store it in the callback handler.
-    fun invoke(_callbackData: USize, returnValue: Int, callStatus: RustCallStatus.ByValue);
-}
 internal interface UniFfiFutureCallbackRustArcPtrFfiXmtpClient : com.sun.jna.Callback {
     // Note: callbackData is always 0.  We could pass Rust a pointer/usize to represent the
     // continuation, but with JNA it's easier to just store it in the callback handler.
@@ -888,18 +856,6 @@ internal interface UniFfiFutureCallbackRustBuffer : com.sun.jna.Callback {
 
 // Callback handlers for an async call.  These are invoked by Rust when the future is ready.  They
 // lift the return value or error and resume the suspended function.
-
-internal class UniFfiFutureCallbackHandleru32(val continuation: Continuation<UInt>)
-    : UniFfiFutureCallbackUInt32 {
-    override fun invoke(_callbackData: USize, returnValue: Int, callStatus: RustCallStatus.ByValue) {
-        try {
-            checkCallStatus(NullCallStatusErrorHandler, callStatus)
-            continuation.resume(FfiConverterUInt.lift(returnValue))
-        } catch (e: Throwable) {
-            continuation.resumeWithException(e)
-        }
-    }
-}
 
 internal class UniFfiFutureCallbackHandlerstring(val continuation: Continuation<String>)
     : UniFfiFutureCallbackRustBuffer {
@@ -924,14 +880,6 @@ internal class UniFfiFutureCallbackHandlerTypeFfiXmtpClient_TypeGenericError(val
         }
     }
 }
-
-fun `add`(`a`: UInt, `b`: UInt): UInt {
-    return FfiConverterUInt.lift(
-    rustCall() { _status ->
-    _UniFFILib.INSTANCE.uniffi_xmtpv3_fn_func_add(FfiConverterUInt.lower(`a`),FfiConverterUInt.lower(`b`),_status)
-})
-}
-
 @Throws(GenericException::class)
 
 @Suppress("ASSIGNED_BUT_NEVER_ACCESSED_VARIABLE")

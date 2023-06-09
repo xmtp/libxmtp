@@ -27,14 +27,6 @@ import com.sun.jna.ptr.*
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
 import java.util.concurrent.ConcurrentHashMap
-import kotlin.coroutines.Continuation
-import kotlin.coroutines.resume
-import kotlin.coroutines.resumeWithException
-import kotlin.coroutines.suspendCoroutine
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.coroutineScope
-import kotlinx.coroutines.delay
-import kotlinx.coroutines.launch
 
 // This is a helper for safely working with byte buffers returned from the Rust code.
 // A rust-owned buffer is represented by its capacity, its current length, and a
@@ -368,15 +360,12 @@ internal interface _UniFFILib : Library {
             .also { lib: _UniFFILib ->
                 uniffiCheckContractApiVersion(lib)
                 uniffiCheckApiChecksums(lib)
-                FfiConverterForeignExecutor.register(lib)
                 }
         }
     }
 
     fun uniffi_xmtp_dh_fn_func_diffie_hellman_k256(`privateKeyBytes`: RustBuffer.ByValue,`publicKeyBytes`: RustBuffer.ByValue,_uniffi_out_err: RustCallStatus, 
     ): RustBuffer.ByValue
-    fun uniffi_xmtp_dh_fn_func_sleep(`ms`: Short,`uniffiExecutor`: USize,`uniffiCallback`: UniFfiFutureCallbackInt8,`uniffiCallbackData`: USize,_uniffi_out_err: RustCallStatus, 
-    ): Unit
     fun ffi_xmtp_dh_rustbuffer_alloc(`size`: Int,_uniffi_out_err: RustCallStatus, 
     ): RustBuffer.ByValue
     fun ffi_xmtp_dh_rustbuffer_from_bytes(`bytes`: ForeignBytes.ByValue,_uniffi_out_err: RustCallStatus, 
@@ -387,10 +376,6 @@ internal interface _UniFFILib : Library {
     ): RustBuffer.ByValue
     fun uniffi_xmtp_dh_checksum_func_diffie_hellman_k256(
     ): Short
-    fun uniffi_xmtp_dh_checksum_func_sleep(
-    ): Short
-    fun uniffi_foreign_executor_callback_set(`callback`: UniFfiForeignExecutorCallback,
-    ): Unit
     fun ffi_xmtp_dh_uniffi_contract_version(
     ): Int
     
@@ -408,10 +393,7 @@ private fun uniffiCheckContractApiVersion(lib: _UniFFILib) {
 
 @Suppress("UNUSED_PARAMETER")
 private fun uniffiCheckApiChecksums(lib: _UniFFILib) {
-    if (lib.uniffi_xmtp_dh_checksum_func_diffie_hellman_k256() != 6391.toShort()) {
-        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
-    }
-    if (lib.uniffi_xmtp_dh_checksum_func_sleep() != 12685.toShort()) {
+    if (lib.uniffi_xmtp_dh_checksum_func_diffie_hellman_k256() != 64890.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
 }
@@ -436,46 +418,6 @@ public object FfiConverterUByte: FfiConverter<UByte, Byte> {
 
     override fun write(value: UByte, buf: ByteBuffer) {
         buf.put(value.toByte())
-    }
-}
-
-public object FfiConverterUShort: FfiConverter<UShort, Short> {
-    override fun lift(value: Short): UShort {
-        return value.toUShort()
-    }
-
-    override fun read(buf: ByteBuffer): UShort {
-        return lift(buf.getShort())
-    }
-
-    override fun lower(value: UShort): Short {
-        return value.toShort()
-    }
-
-    override fun allocationSize(value: UShort) = 2
-
-    override fun write(value: UShort, buf: ByteBuffer) {
-        buf.putShort(value.toShort())
-    }
-}
-
-public object FfiConverterBoolean: FfiConverter<Boolean, Byte> {
-    override fun lift(value: Byte): Boolean {
-        return value.toInt() != 0
-    }
-
-    override fun read(buf: ByteBuffer): Boolean {
-        return lift(buf.get())
-    }
-
-    override fun lower(value: Boolean): Byte {
-        return if (value) 1.toByte() else 0.toByte()
-    }
-
-    override fun allocationSize(value: Boolean) = 1
-
-    override fun write(value: Boolean, buf: ByteBuffer) {
-        buf.put(lower(value))
     }
 }
 
@@ -529,113 +471,35 @@ public object FfiConverterString: FfiConverter<String, RustBuffer.ByValue> {
 
 
 
-
-// Callback function to execute a Rust task.  The Kotlin code schedules these in a coroutine then
-// invokes them.
-internal interface UniFfiRustTaskCallback : com.sun.jna.Callback {
-    fun invoke(rustTaskData: Pointer?)
-}
-
-object UniFfiForeignExecutorCallback : com.sun.jna.Callback {
-    internal fun invoke(handle: USize, delayMs: Int, rustTask: UniFfiRustTaskCallback?, rustTaskData: Pointer?) {
-        if (rustTask == null) {
-            FfiConverterForeignExecutor.drop(handle)
-        } else {
-            val coroutineScope = FfiConverterForeignExecutor.lift(handle)
-            coroutineScope.launch {
-                if (delayMs > 0) {
-                    delay(delayMs.toLong())
-                }
-                rustTask.invoke(rustTaskData)
-            }
-        }
-    }
-}
-
-public object FfiConverterForeignExecutor: FfiConverter<CoroutineScope, USize> {
-    internal val handleMap = UniFfiHandleMap<CoroutineScope>()
-
-    internal fun drop(handle: USize) {
-        handleMap.remove(handle)
-    }
-
-    internal fun register(lib: _UniFFILib) {
-        lib.uniffi_foreign_executor_callback_set(UniFfiForeignExecutorCallback)
-    }
-
-    // Number of live handles, exposed so we can test the memory management
-    public fun handleCount() : Int {
-        return handleMap.size
-    }
-
-    override fun allocationSize(value: CoroutineScope) = USize.size
-
-    override fun lift(value: USize): CoroutineScope {
-        return handleMap.get(value) ?: throw RuntimeException("unknown handle in FfiConverterForeignExecutor.lift")
-    }
-
-    override fun read(buf: ByteBuffer): CoroutineScope {
-        return lift(USize.readFromBuffer(buf))
-    }
-
-    override fun lower(value: CoroutineScope): USize {
-        return handleMap.insert(value)
-    }
-
-    override fun write(value: CoroutineScope, buf: ByteBuffer) {
-        lower(value).writeToBuffer(buf)
-    }
-}
-
-
-
-
-
-sealed class DiffieHellmanException: Exception() {
-    // Each variant is a nested class
-    
-    class GenericException(
-        val `messages`: String
-        ) : DiffieHellmanException() {
-        override val message
-            get() = "messages=${ `messages` }"
-    }
-    
+sealed class DiffieHellmanException(message: String): Exception(message) {
+        // Each variant is a nested class
+        // Flat enums carries a string error message, so no special implementation is necessary.
+        class GenericException(message: String) : DiffieHellmanException(message)
+        
 
     companion object ErrorHandler : CallStatusErrorHandler<DiffieHellmanException> {
         override fun lift(error_buf: RustBuffer.ByValue): DiffieHellmanException = FfiConverterTypeDiffieHellmanError.lift(error_buf)
     }
-
-    
 }
 
 public object FfiConverterTypeDiffieHellmanError : FfiConverterRustBuffer<DiffieHellmanException> {
     override fun read(buf: ByteBuffer): DiffieHellmanException {
         
-
-        return when(buf.getInt()) {
-            1 -> DiffieHellmanException.GenericException(
-                FfiConverterString.read(buf),
-                )
+            return when(buf.getInt()) {
+            1 -> DiffieHellmanException.GenericException(FfiConverterString.read(buf))
             else -> throw RuntimeException("invalid error enum value, something is very wrong!!")
         }
+        
     }
 
     override fun allocationSize(value: DiffieHellmanException): Int {
-        return when(value) {
-            is DiffieHellmanException.GenericException -> (
-                // Add the size for the Int that specifies the variant plus the size needed for all fields
-                4
-                + FfiConverterString.allocationSize(value.`messages`)
-            )
-        }
+        return 4
     }
 
     override fun write(value: DiffieHellmanException, buf: ByteBuffer) {
         when(value) {
             is DiffieHellmanException.GenericException -> {
                 buf.putInt(1)
-                FfiConverterString.write(value.`messages`, buf)
                 Unit
             }
         }.let { /* this makes the `when` an expression, which ensures it is exhaustive */ }
@@ -667,56 +531,6 @@ public object FfiConverterSequenceUByte: FfiConverterRustBuffer<List<UByte>> {
         }
     }
 }
-// Async return type handlers
-
-
-
-
-
-
-
-
-
-
-
-// FFI type for callback handlers
-internal interface UniFfiFutureCallbackInt8 : com.sun.jna.Callback {
-    // Note: callbackData is always 0.  We could pass Rust a pointer/usize to represent the
-    // continuation, but with JNA it's easier to just store it in the callback handler.
-    fun invoke(_callbackData: USize, returnValue: Byte, callStatus: RustCallStatus.ByValue);
-}
-internal interface UniFfiFutureCallbackRustBuffer : com.sun.jna.Callback {
-    // Note: callbackData is always 0.  We could pass Rust a pointer/usize to represent the
-    // continuation, but with JNA it's easier to just store it in the callback handler.
-    fun invoke(_callbackData: USize, returnValue: RustBuffer.ByValue, callStatus: RustCallStatus.ByValue);
-}
-
-// Callback handlers for an async call.  These are invoked by Rust when the future is ready.  They
-// lift the return value or error and resume the suspended function.
-
-internal class UniFfiFutureCallbackHandlerbool(val continuation: Continuation<Boolean>)
-    : UniFfiFutureCallbackInt8 {
-    override fun invoke(_callbackData: USize, returnValue: Byte, callStatus: RustCallStatus.ByValue) {
-        try {
-            checkCallStatus(NullCallStatusErrorHandler, callStatus)
-            continuation.resume(FfiConverterBoolean.lift(returnValue))
-        } catch (e: Throwable) {
-            continuation.resumeWithException(e)
-        }
-    }
-}
-
-internal class UniFfiFutureCallbackHandlerSequenceu8_TypeDiffieHellmanError(val continuation: Continuation<List<UByte>>)
-    : UniFfiFutureCallbackRustBuffer {
-    override fun invoke(_callbackData: USize, returnValue: RustBuffer.ByValue, callStatus: RustCallStatus.ByValue) {
-        try {
-            checkCallStatus(DiffieHellmanException, callStatus)
-            continuation.resume(FfiConverterSequenceUByte.lift(returnValue))
-        } catch (e: Throwable) {
-            continuation.resumeWithException(e)
-        }
-    }
-}
 @Throws(DiffieHellmanException::class)
 
 fun `diffieHellmanK256`(`privateKeyBytes`: List<UByte>, `publicKeyBytes`: List<UByte>): List<UByte> {
@@ -726,34 +540,4 @@ fun `diffieHellmanK256`(`privateKeyBytes`: List<UByte>, `publicKeyBytes`: List<U
 })
 }
 
-
-@Suppress("ASSIGNED_BUT_NEVER_ACCESSED_VARIABLE")
-suspend fun `sleep`(`ms`: UShort) : Boolean {
-    // Create a new `CoroutineScope` for this operation, suspend the coroutine, and call the
-    // scaffolding function, passing it one of the callback handlers from `AsyncTypes.kt`.
-    //
-    // Make sure to retain a reference to the callback handler to ensure that it's not GCed before
-    // it's invoked
-    var callbackHolder: UniFfiFutureCallbackHandlerbool? = null
-    return coroutineScope {
-        val scope = this
-        return@coroutineScope suspendCoroutine { continuation ->
-            try {
-                val callback = UniFfiFutureCallbackHandlerbool(continuation)
-                callbackHolder = callback
-                rustCall { status ->
-                    _UniFFILib.INSTANCE.uniffi_xmtp_dh_fn_func_sleep(
-                        FfiConverterUShort.lower(`ms`),
-                        FfiConverterForeignExecutor.lower(scope),
-                        callback,
-                        USize(0),
-                        status,
-                    )
-                }
-            } catch (e: Exception) {
-                continuation.resumeWithException(e)
-            }
-        }
-    }
-}
 

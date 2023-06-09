@@ -1,7 +1,7 @@
 pub mod grpc_api_helper;
 
-pub const LOCALHOST_ADDRESS: &'static str = "http://localhost:5556";
-pub const DEV_ADDRESS: &'static str = "https://dev.xmtp.network:5556";
+pub const LOCALHOST_ADDRESS: &str = "http://localhost:5556";
+pub const DEV_ADDRESS: &str = "https://dev.xmtp.network:5556";
 
 #[cfg(test)]
 mod tests {
