@@ -4,7 +4,7 @@ This crate provides Uniffi bindings for a Rust-based Diffie-Hellman operation to
 
 # Status
 
-- Android is tested end-to-end via an example app in `../examples/android`.
+- Android is tested end-to-end via an example app in `examples/`.
 - iOS has not been tested.
 
 # Consuming this crate
@@ -20,5 +20,5 @@ The generated bindings (`xmtp_dh.kt`) and the cross-compiled binaries (`jniLibs`
 
 - Run `./gen_kotlin.sh` to re-generate the bindings
 - Install Docker
-- Install Cross for zero setup cross-platform builds: `cargo install cross --git https://github.com/cross-rs/cross`
+- Install [cross-rs](https://github.com/cross-rs/cross) for zero setup cross-platform builds
 - Run `./cross_build.sh` to cross-compile (this is SLOW)
