@@ -103,6 +103,9 @@ You can configure the client's network connection and key storage method with th
 | Parameter | Default | Description                                                                                                                                                                                                                                                                           |
 | --------- | ------- |---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
 | env       | `DEV`   | Connect to the specified XMTP network environment. Valid values include `DEV`, `.PRODUCTION`, or `LOCAL`. For important details about working with these environments, see [XMTP `production` and `dev` network environments](#xmtp-production-and-dev-network-environments). |
+| appVersion                | `undefined`                                                                       | Add a client app version identifier that's included with API requests.<br/>For example, you can use the following format: `appVersion: APP_NAME + '/' + APP_VERSION`.<br/>Setting this value provides telemetry that shows which apps are using the XMTP client SDK. This information can help XMTP developers provide app support, especially around communicating important SDK updates, including deprecations and required upgrades. |
+
+**Configure `env`**
 
 ```kotlin
 // Configure the client to use the `production` network
@@ -111,7 +114,7 @@ val client = Client().create(account = account, options = options)
 ```
 
 > **Note**  
-> The `apiUrl`, `keyStoreType`, `codecs`, `maxContentSize`, and `appVersion` parameters from the XMTP client SDK for JavaScript (xmtp-js) are not yet supported.
+> The `apiUrl`, `keyStoreType`, `codecs`, and `maxContentSize` parameters from the XMTP client SDK for JavaScript (xmtp-js) are not yet supported.
 
 ## Handle conversations
 
