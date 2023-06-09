@@ -16,7 +16,7 @@ jobs:
             # x86_64-linux-android,
             i686-linux-android,
             armv7-linux-androideabi,
-            aarch64-linux-android
+            aarch64-linux-android,
           ]
     steps:
       - name: Checkout
@@ -44,10 +44,10 @@ jobs:
       - name: Install rust cross
         run: |
           cargo install cross --git https://github.com/cross-rs/cross
-  
+
       - name: Build target
         uses: actions-rs/cargo@v1
         with:
           use-cross: true
           command: build
-          args: --release --target ${{ matrix.target }}
+          args: --release --target ${{ matrix.target }} --manifest-path bindings_ffi/Cargo.toml --target-dir bindings_ffi/target
