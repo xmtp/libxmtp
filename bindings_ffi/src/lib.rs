@@ -52,3 +52,17 @@ impl FfiXmtpClient {
         self.inner_client.wallet_address()
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::create_client;
+
+    // Try a query on a test topic, and make sure we get a response
+    #[tokio::test]
+    async fn test_client_creation() {
+        let client = create_client(xmtp_networking::LOCALHOST_ADDRESS.to_string(), false)
+            .await
+            .unwrap();
+        assert!(!client.wallet_address().is_empty());
+    }
+}

@@ -79,8 +79,6 @@ mod tests {
 
     use crate::tonic_api_client::TonicApiClient;
 
-    static ADDRESS: &str = "http://localhost:5556";
-
     fn test_envelope(topic: String) -> super::Envelope {
         let time_since_epoch = SystemTime::now().duration_since(UNIX_EPOCH).unwrap();
 
@@ -94,7 +92,9 @@ mod tests {
     // Try a query on a test topic, and make sure we get a response
     #[tokio::test]
     async fn test_publish_query() {
-        let mut client = TonicApiClient::new(ADDRESS, false).await.unwrap();
+        let mut client = TonicApiClient::new(xmtp_networking::LOCALHOST_ADDRESS, false)
+            .await
+            .unwrap();
         let topic = Uuid::new_v4();
         client
             .publish("".to_string(), vec![test_envelope(topic.to_string())])
@@ -117,7 +117,9 @@ mod tests {
 
     #[tokio::test]
     async fn test_subscribe() {
-        let mut client = TonicApiClient::new(ADDRESS, false).await.unwrap();
+        let mut client = TonicApiClient::new(xmtp_networking::LOCALHOST_ADDRESS, false)
+            .await
+            .unwrap();
         let topic = Uuid::new_v4();
         let mut sub = client.subscribe(vec![topic.to_string()]).await.unwrap();
         tokio::time::sleep(std::time::Duration::from_millis(100)).await;

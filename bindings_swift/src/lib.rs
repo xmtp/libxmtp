@@ -200,8 +200,6 @@ mod tests {
         QueryResponse, SubscribeRequest,
     };
 
-    static ADDRESS: &str = "http://localhost:5556";
-
     pub fn test_envelope(topic: String) -> Envelope {
         let time_since_epoch = SystemTime::now().duration_since(UNIX_EPOCH).unwrap();
 
@@ -214,9 +212,10 @@ mod tests {
 
     #[tokio::test]
     async fn test_publish_batch_query() {
-        let mut client = super::create_client(ADDRESS.to_string(), false)
-            .await
-            .unwrap();
+        let mut client =
+            super::create_client(xmtp_networking::LOCALHOST_ADDRESS.to_string(), false)
+                .await
+                .unwrap();
 
         let topic = Uuid::new_v4();
         client
@@ -245,9 +244,10 @@ mod tests {
     // Try a query on a test topic, and make sure we get a response
     #[tokio::test]
     async fn test_publish_query() {
-        let mut client = super::create_client(ADDRESS.to_string(), false)
-            .await
-            .unwrap();
+        let mut client =
+            super::create_client(xmtp_networking::LOCALHOST_ADDRESS.to_string(), false)
+                .await
+                .unwrap();
         let topic = Uuid::new_v4();
         client
             .publish(
@@ -283,9 +283,10 @@ mod tests {
     #[tokio::test]
     async fn test_subscribe() {
         let topic = Uuid::new_v4();
-        let mut client = super::create_client(ADDRESS.to_string(), false)
-            .await
-            .unwrap();
+        let mut client =
+            super::create_client(xmtp_networking::LOCALHOST_ADDRESS.to_string(), false)
+                .await
+                .unwrap();
         let mut sub = client
             .subscribe(
                 SubscribeRequest {

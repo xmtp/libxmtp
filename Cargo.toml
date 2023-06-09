@@ -1,7 +1,6 @@
 [workspace]
 
 members = [
-  "uniffi_bindgen_generator",
   "xmtp",
   "xmtp_crypto",
   "xmtp_cryptography",

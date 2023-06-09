@@ -1,3 +1,22 @@
+# Build process
+
+Build artifacts: .kt file, and cross-compiled binaries. Currently using `cross`, but can be built natively by downloading relevant toolchains.
+
+# Uniffi
+
+# Async and concurrency
+
+Rust allows you to set any async futures executor (scheduler) that you like. Tokio is a multi threaded future executor that we have been using. You need to specify the executor at every entry point (hence why we have #[tokio:test] and #[uniffi::export(async_executor=‘tokio’)]
+
+Async can be multi threaded across foreign language. The foreign language executor (read: scheduler) can be configured to intelligently poll the future running in rust. How it works: https://github.com/mozilla/uniffi-rs/blob/734050dbf1493ca92963f29bd3df49bb92bf7fb2/uniffi_core/src/ffi/rustfuture.rs#L11-L18
+
+Uniffi leans on native Rust to avoid data races.
+
+https://mozilla.github.io/uniffi-rs/udl/interfaces.html
+Objects must be wrapped in Arc<> which is marshaled back and forth between raw pointers. Uniffi/rust handles object destruction but it is possible foreign language has to handle it too
+The foreign language could be multi threaded too.
+Exposed methods must use interior mutability for write operations, and be both send + sync (foreign language might be multi threaded). Use Tokio syncing primitives (which are async) rather than std rust primitives (which are blocking) - as the latter can cause deadlocks: https://rust-lang.github.io/async-book/03_async_await/01_chapter.html#awaiting-on-a-multithreaded-executor
+
 # XMTP Rust Swift
 
 This repo builds a crate for iOS targets and packages it in an XMTPRustSwift.xcframework file.
