@@ -45,4 +45,4 @@ tempfile = "3.5.0"
 
 [dependencies.libsqlite3-sys]
 version = "0.26.0"
-features = ["bundled-sqlcipher"]
+features = ["bundled-sqlcipher-vendored-openssl"]
