@@ -5,6 +5,8 @@ import android.os.Bundle
 import android.widget.TextView
 import com.example.xmtpv3_example.R.id.selftest_output
 
+// An example Android app testing the end-to-end flow through Rust
+// Run setup_android_example.sh to set it up
 class MainActivity : AppCompatActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)

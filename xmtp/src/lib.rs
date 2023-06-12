@@ -10,11 +10,10 @@ pub mod owner;
 pub mod persistence;
 pub mod session;
 pub mod storage;
-mod types;
+pub mod types;
 mod utils;
 pub mod vmac_protos;
 
-use account::Account;
 use association::AssociationText;
 pub use builder::ClientBuilder;
 pub use client::{Client, Network};
