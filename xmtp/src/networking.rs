@@ -7,7 +7,7 @@ use xmtp_proto::xmtp::message_api::v1::{Envelope, PagingInfo, PublishResponse, Q
 #[async_trait]
 pub trait XmtpApiClient {
     async fn publish(
-        &mut self,
+        &self,
         token: String,
         envelopes: Vec<Envelope>,
         // TODO: use error enums
@@ -23,17 +23,17 @@ pub trait XmtpApiClient {
     ) -> Result<QueryResponse, String>;
 
     // TODO: use error enums
-    async fn subscribe(&mut self, topics: Vec<String>) -> Result<Subscription, String>;
+    async fn subscribe(&self, topics: Vec<String>) -> Result<Subscription, String>;
 }
 
 pub struct MockXmtpApiClient {
-    messages: HashMap<String, Vec<Envelope>>,
+    messages: std::sync::Mutex<HashMap<String, Vec<Envelope>>>,
 }
 
 impl MockXmtpApiClient {
     pub fn new() -> Self {
         Self {
-            messages: HashMap::new(),
+            messages: std::sync::Mutex::new(HashMap::new()),
         }
     }
 }
@@ -47,18 +47,19 @@ impl Default for MockXmtpApiClient {
 #[async_trait]
 impl XmtpApiClient for MockXmtpApiClient {
     async fn publish(
-        &mut self,
+        &self,
         _token: String,
         envelopes: Vec<Envelope>,
     ) -> Result<PublishResponse, String> {
+        let mut messages = self.messages.lock().unwrap();
         for envelope in envelopes {
             let topic = envelope.content_topic.clone();
-            let mut existing: Vec<Envelope> = match self.messages.get(&topic) {
+            let mut existing: Vec<Envelope> = match messages.get(&topic) {
                 Some(existing_envelopes) => existing_envelopes.clone(),
                 None => vec![],
             };
             existing.push(envelope);
-            self.messages.insert(topic, existing);
+            messages.insert(topic, existing);
         }
         Ok(PublishResponse {})
     }
@@ -70,7 +71,8 @@ impl XmtpApiClient for MockXmtpApiClient {
         _end_time: Option<u64>,
         _paging_info: Option<PagingInfo>,
     ) -> Result<QueryResponse, String> {
-        let envelopes: Vec<Envelope> = match self.messages.get(&topic) {
+        let messages = self.messages.lock().unwrap();
+        let envelopes: Vec<Envelope> = match messages.get(&topic) {
             Some(envelopes) => envelopes.clone(),
             None => vec![],
         };
@@ -81,7 +83,7 @@ impl XmtpApiClient for MockXmtpApiClient {
         })
     }
 
-    async fn subscribe(&mut self, _topics: Vec<String>) -> Result<Subscription, String> {
+    async fn subscribe(&self, _topics: Vec<String>) -> Result<Subscription, String> {
         Err("Not implemented".to_string())
     }
 }
