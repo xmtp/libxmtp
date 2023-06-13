@@ -2,6 +2,7 @@ mod tonic_api_client;
 
 use std::sync::Arc;
 
+use tokio::sync::Mutex;
 use tonic_api_client::TonicApiClient;
 use xmtp::types::Address;
 use xmtp_cryptography::utils::rng;
@@ -37,19 +38,20 @@ pub async fn create_client(
         .map_err(|e| format!("{:?}", e))?;
     xmtp_client.init().await.map_err(|e| e.to_string())?;
     Ok(Arc::new(FfiXmtpClient {
-        inner_client: xmtp_client,
+        inner_client: Mutex::new(xmtp_client),
     }))
 }
 
 #[derive(uniffi::Object)]
 pub struct FfiXmtpClient {
-    inner_client: RustXmtpClient,
+    inner_client: Mutex<RustXmtpClient>,
 }
 
 #[uniffi::export]
 impl FfiXmtpClient {
-    pub fn wallet_address(&self) -> Address {
-        self.inner_client.wallet_address()
+    pub async fn wallet_address(&self) -> Address {
+        let client = self.inner_client.lock().await;
+        client.wallet_address()
     }
 }
 

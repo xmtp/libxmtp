@@ -377,8 +377,8 @@ internal interface _UniFFILib : Library {
 
     fun uniffi_bindings_ffi_fn_free_ffixmtpclient(`ptr`: Pointer,_uniffi_out_err: RustCallStatus, 
     ): Unit
-    fun uniffi_bindings_ffi_fn_method_ffixmtpclient_wallet_address(`ptr`: Pointer,_uniffi_out_err: RustCallStatus, 
-    ): RustBuffer.ByValue
+    fun uniffi_bindings_ffi_fn_method_ffixmtpclient_wallet_address(`ptr`: Pointer,`uniffiExecutor`: USize,`uniffiCallback`: UniFfiFutureCallbackRustBuffer,`uniffiCallbackData`: USize,_uniffi_out_err: RustCallStatus, 
+    ): Unit
     fun uniffi_bindings_ffi_fn_func_create_client(`host`: RustBuffer.ByValue,`isSecure`: Byte,`uniffiExecutor`: USize,`uniffiCallback`: UniFfiFutureCallbackRustArcPtrFfiXmtpClient,`uniffiCallbackData`: USize,_uniffi_out_err: RustCallStatus, 
     ): Unit
     fun ffi_xmtpv3_rustbuffer_alloc(`size`: Int,_uniffi_out_err: RustCallStatus, 
@@ -415,7 +415,7 @@ private fun uniffiCheckApiChecksums(lib: _UniFFILib) {
     if (lib.uniffi_bindings_ffi_checksum_func_create_client() != 38953.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
-    if (lib.uniffi_bindings_ffi_checksum_method_ffixmtpclient_wallet_address() != 63034.toShort()) {
+    if (lib.uniffi_bindings_ffi_checksum_method_ffixmtpclient_wallet_address() != 30162.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
 }
@@ -654,7 +654,7 @@ abstract class FFIObject(
 
 public interface FfiXmtpClientInterface {
     
-    fun `walletAddress`(): String
+    suspend fun `walletAddress`(): String
 }
 
 class FfiXmtpClient(
@@ -675,17 +675,39 @@ class FfiXmtpClient(
         }
     }
 
-    override fun `walletAddress`(): String =
-        callWithPointer {
-    rustCall() { _status ->
-    _UniFFILib.INSTANCE.uniffi_bindings_ffi_fn_method_ffixmtpclient_wallet_address(it,
-        
-        _status)
-}
-        }.let {
-            FfiConverterString.lift(it)
-        }
     
+    @Suppress("ASSIGNED_BUT_NEVER_ACCESSED_VARIABLE")
+    override suspend fun `walletAddress`() : String {
+        // Create a new `CoroutineScope` for this operation, suspend the coroutine, and call the
+        // scaffolding function, passing it one of the callback handlers from `AsyncTypes.kt`.
+        //
+        // Make sure to retain a reference to the callback handler to ensure that it's not GCed before
+        // it's invoked
+        var callbackHolder: UniFfiFutureCallbackHandlerstring? = null
+        return coroutineScope {
+            val scope = this
+            return@coroutineScope suspendCoroutine { continuation ->
+                try {
+                    val callback = UniFfiFutureCallbackHandlerstring(continuation)
+                    callbackHolder = callback
+                    callWithPointer { thisPtr ->
+                        rustCall { status ->
+                            _UniFFILib.INSTANCE.uniffi_bindings_ffi_fn_method_ffixmtpclient_wallet_address(
+                                thisPtr,
+                                
+                                FfiConverterForeignExecutor.lower(scope),
+                                callback,
+                                USize(0),
+                                status,
+                            )
+                        }
+                    }
+                } catch (e: Exception) {
+                    continuation.resumeWithException(e)
+                }
+            }
+        }
+    }
     
 
     
