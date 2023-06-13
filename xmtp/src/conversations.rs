@@ -1,6 +1,4 @@
-use std::sync::Arc;
-
-use tokio::sync::Mutex;
+use std::sync::Weak;
 
 use crate::{
     conversation::{ConversationError, SecretConversation},
@@ -12,26 +10,22 @@ pub struct Conversations<A>
 where
     A: XmtpApiClient,
 {
-    client: Arc<Mutex<Client<A>>>,
+    client: Weak<Client<A>>,
 }
 
 impl<A> Conversations<A>
 where
     A: XmtpApiClient,
 {
-    pub fn new(client: Arc<Mutex<Client<A>>>) -> Self {
+    pub fn new(client: Weak<Client<A>>) -> Self {
         Self { client }
-    }
-
-    pub fn client(&self) -> Arc<Mutex<Client<A>>> {
-        self.client.clone()
     }
 
     pub async fn new_secret_conversation(
         &self,
         wallet_address: String,
     ) -> Result<SecretConversation<A>, ConversationError> {
-        let client = self.client.lock().await;
+        let client = self.client.upgrade().expect("Client deallocated");
         let contacts = client.get_contacts(wallet_address.as_str()).await?;
         let conversation = SecretConversation::new(self.client.clone(), wallet_address, contacts);
 
@@ -43,7 +37,6 @@ where
 mod tests {
     use crate::{conversations::Conversations, ClientBuilder};
     use std::sync::Arc;
-    use tokio::sync::Mutex;
 
     #[tokio::test]
     async fn create_secret_conversation() {
@@ -52,7 +45,8 @@ mod tests {
         let mut bob_client = ClientBuilder::new_test().build().unwrap();
         bob_client.init().await.unwrap();
 
-        let conversations = Conversations::new(Arc::new(Mutex::new(alice_client)));
+        let strong_alice_client = Arc::new(alice_client);
+        let conversations = Conversations::new(Arc::downgrade(&strong_alice_client));
         let conversation = conversations
             .new_secret_conversation(bob_client.wallet_address().to_string())
             .await

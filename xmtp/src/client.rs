@@ -163,7 +163,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_publish_user_contact() {
-        let mut client = ClientBuilder::new_test().build().unwrap();
+        let client = ClientBuilder::new_test().build().unwrap();
         client
             .publish_user_contact()
             .await

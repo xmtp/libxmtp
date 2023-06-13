@@ -1,4 +1,4 @@
-use std::sync::Arc;
+use std::sync::Weak;
 
 use crate::{
     client::ClientError,
@@ -10,7 +10,6 @@ use crate::{
 };
 // use async_trait::async_trait;
 use thiserror::Error;
-use tokio::sync::Mutex;
 
 #[derive(Debug, Error)]
 pub enum ConversationError {
@@ -28,7 +27,7 @@ where
 {
     peer_address: Address,
     members: Vec<Contact>,
-    client: Arc<Mutex<Client<A>>>,
+    client: Weak<Client<A>>,
 }
 
 impl<A> SecretConversation<A>
@@ -36,7 +35,7 @@ where
     A: XmtpApiClient,
 {
     pub fn new(
-        client: Arc<Mutex<Client<A>>>,
+        client: Weak<Client<A>>,
         peer_address: Address,
         // TODO: Add user's own contacts as well
         members: Vec<Contact>,
@@ -53,7 +52,7 @@ where
     }
 
     pub async fn initialize(&self) -> Result<(), ConversationError> {
-        let client = self.client.lock().await;
+        let client = self.client.upgrade().expect("Client deallocated");
 
         for contact in self.members.iter() {
             let id = contact.id();
