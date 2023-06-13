@@ -1,4 +1,4 @@
-use std::sync::Weak;
+use std::sync::Arc;
 
 use crate::{
     client::ClientError,
@@ -27,7 +27,7 @@ where
 {
     peer_address: Address,
     members: Vec<Contact>,
-    client: Weak<Client<A>>,
+    client: Arc<Client<A>>,
 }
 
 impl<A> SecretConversation<A>
@@ -35,7 +35,7 @@ where
     A: XmtpApiClient,
 {
     pub fn new(
-        client: Weak<Client<A>>,
+        client: Arc<Client<A>>,
         peer_address: Address,
         // TODO: Add user's own contacts as well
         members: Vec<Contact>,
@@ -52,12 +52,10 @@ where
     }
 
     pub async fn initialize(&self) -> Result<(), ConversationError> {
-        let client = self.client.upgrade().expect("Client deallocated");
-
         for contact in self.members.iter() {
             let id = contact.id();
             // TODO: Persist session to database
-            let mut session = client.create_outbound_session(contact.clone())?;
+            let mut session = self.client.create_outbound_session(contact.clone())?;
             // TODO: Replace with proper protobuf invite message
             let invite_message = session.encrypt("invite".as_bytes());
 
@@ -68,7 +66,7 @@ where
             );
 
             // TODO: Replace with real token
-            client
+            self.client
                 .api_client
                 // TODO: API authentication
                 .publish("".to_string(), vec![envelope])

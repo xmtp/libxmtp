@@ -1,4 +1,4 @@
-use std::sync::Weak;
+use std::sync::Arc;
 
 use crate::{
     conversation::{ConversationError, SecretConversation},
@@ -10,14 +10,14 @@ pub struct Conversations<A>
 where
     A: XmtpApiClient,
 {
-    client: Weak<Client<A>>,
+    client: Arc<Client<A>>,
 }
 
 impl<A> Conversations<A>
 where
     A: XmtpApiClient,
 {
-    pub fn new(client: Weak<Client<A>>) -> Self {
+    pub fn new(client: Arc<Client<A>>) -> Self {
         Self { client }
     }
 
@@ -25,8 +25,7 @@ where
         &self,
         wallet_address: String,
     ) -> Result<SecretConversation<A>, ConversationError> {
-        let client = self.client.upgrade().expect("Client deallocated");
-        let contacts = client.get_contacts(wallet_address.as_str()).await?;
+        let contacts = self.client.get_contacts(wallet_address.as_str()).await?;
         let conversation = SecretConversation::new(self.client.clone(), wallet_address, contacts);
 
         Ok(conversation)
@@ -45,8 +44,7 @@ mod tests {
         let mut bob_client = ClientBuilder::new_test().build().unwrap();
         bob_client.init().await.unwrap();
 
-        let strong_alice_client = Arc::new(alice_client);
-        let conversations = Conversations::new(Arc::downgrade(&strong_alice_client));
+        let conversations = Conversations::new(Arc::new(alice_client));
         let conversation = conversations
             .new_secret_conversation(bob_client.wallet_address().to_string())
             .await
