@@ -30,9 +30,10 @@ public struct ConversationV2 {
 	public var context: InvitationV1.Context
 	public var peerAddress: String
 	public var client: Client
+	public var isGroup = false
 	private var header: SealedInvitationHeaderV1
 
-	static func create(client: Client, invitation: InvitationV1, header: SealedInvitationHeaderV1) throws -> ConversationV2 {
+	static func create(client: Client, invitation: InvitationV1, header: SealedInvitationHeaderV1, isGroup: Bool = false) throws -> ConversationV2 {
 		let myKeys = client.keys.getPublicKeyBundle()
 
 		let peer = try myKeys.walletAddress == (try header.sender.walletAddress) ? header.recipient : header.sender
@@ -46,7 +47,8 @@ public struct ConversationV2 {
 			context: invitation.context,
 			peerAddress: peerAddress,
 			client: client,
-			header: header
+			header: header,
+			isGroup: isGroup
 		)
 	}
 
@@ -59,13 +61,14 @@ public struct ConversationV2 {
 		header = SealedInvitationHeaderV1()
 	}
 
-	public init(topic: String, keyMaterial: Data, context: InvitationV1.Context, peerAddress: String, client: Client, header: SealedInvitationHeaderV1) {
+	public init(topic: String, keyMaterial: Data, context: InvitationV1.Context, peerAddress: String, client: Client, header: SealedInvitationHeaderV1, isGroup: Bool = false) {
 		self.topic = topic
 		self.keyMaterial = keyMaterial
 		self.context = context
 		self.peerAddress = peerAddress
 		self.client = client
 		self.header = header
+		self.isGroup = isGroup
 	}
 
 	public var encodedContainer: ConversationV2Container {

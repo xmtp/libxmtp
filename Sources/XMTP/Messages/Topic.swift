@@ -12,6 +12,7 @@ public enum Topic {
 	     contact(String),
 	     userIntro(String),
 	     userInvite(String),
+			 groupInvite(String),
 	     directMessageV1(String, String),
 	     directMessageV2(String)
 
@@ -25,6 +26,8 @@ public enum Topic {
 			return wrap("intro-\(address)")
 		case let .userInvite(address):
 			return wrap("invite-\(address)")
+		case let .groupInvite(address):
+			return wrap("groupInvite-\(address)")
 		case let .directMessageV1(address1, address2):
 			let addresses = [address1, address2].sorted().joined(separator: "-")
 			return wrap("dm-\(addresses)")

@@ -227,15 +227,20 @@ public class Conversations {
 			print("Error loading introduction peers: \(error)")
 		}
 
-		let invitations = try await listInvitations()
-
-		for sealedInvitation in invitations {
+		for sealedInvitation in try await listInvitations() {
 			do {
-				let unsealed = try sealedInvitation.v1.getInvitation(viewer: client.keys)
-				let conversation = try ConversationV2.create(client: client, invitation: unsealed, header: sealedInvitation.v1.header)
-
 				conversations.append(
-					Conversation.v2(conversation)
+					Conversation.v2(try conversation(from: sealedInvitation))
+				)
+			} catch {
+				print("Error loading invitations: \(error)")
+			}
+		}
+
+		for sealedInvitation in try await listGroupInvitations() {
+			do {
+				conversations.append(
+					Conversation.v2(try conversation(from: sealedInvitation, isGroup: true))
 				)
 			} catch {
 				print("Error loading invitations: \(error)")
@@ -245,6 +250,13 @@ public class Conversations {
 		self.conversations = conversations.filter { $0.peerAddress != client.address }
 
 		return self.conversations
+	}
+
+	func conversation(from sealedInvitation: SealedInvitation, isGroup: Bool = false) throws -> ConversationV2 {
+		let unsealed = try sealedInvitation.v1.getInvitation(viewer: client.keys)
+		let conversation = try ConversationV2.create(client: client, invitation: unsealed, header: sealedInvitation.v1.header, isGroup: isGroup)
+
+		return conversation
 	}
 
 	func listIntroductionPeers() async throws -> [String: Date] {
@@ -290,8 +302,25 @@ public class Conversations {
 		return seenPeers
 	}
 
-	func listInvitations() async throws -> [SealedInvitation] {
+	func listGroupInvitations() async throws -> [SealedInvitation] {
+		if !client.isGroupChatEnabled {
+			return []
+		}
+
 		let envelopes = try await client.apiClient.envelopes(
+			topic: Topic.groupInvite(client.address).description,
+			pagination: nil
+		)
+
+		return envelopes.compactMap { envelope in
+			// swiftlint:disable no_optional_try
+			try? SealedInvitation(serializedData: envelope.message)
+			// swiftlint:enable no_optional_try
+		}
+	}
+
+	func listInvitations() async throws -> [SealedInvitation] {
+		var envelopes = try await client.apiClient.envelopes(
 			topic: Topic.userInvite(client.address).description,
 			pagination: nil
 		)

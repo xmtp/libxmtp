@@ -8,7 +8,7 @@
 import Foundation
 
 /// Decrypted messages from a conversation.
-public struct DecodedMessage {
+public struct DecodedMessage: Sendable {
 	public var id: String = ""
 
 	public var encodedContent: EncodedContent
