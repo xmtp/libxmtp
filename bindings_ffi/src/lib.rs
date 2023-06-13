@@ -4,6 +4,7 @@ use std::sync::Arc;
 
 use tokio::sync::Mutex;
 use tonic_api_client::TonicApiClient;
+use xmtp::contact::Contact;
 use xmtp::types::Address;
 use xmtp_cryptography::utils::rng;
 use xmtp_cryptography::utils::LocalWallet;
@@ -47,11 +48,19 @@ pub struct FfiXmtpClient {
     inner_client: Mutex<RustXmtpClient>,
 }
 
-#[uniffi::export]
+#[uniffi::export(async_runtime = "tokio")]
 impl FfiXmtpClient {
     pub async fn wallet_address(&self) -> Address {
         let client = self.inner_client.lock().await;
         client.wallet_address()
+    }
+
+    pub async fn get_contacts(&self, wallet_address: String) -> Result<Vec<Contact>, GenericError> {
+        let client = self.inner_client.lock().await;
+        client
+            .get_contacts(&wallet_address)
+            .await
+            .map_err(|e| e.into())
     }
 }
 
