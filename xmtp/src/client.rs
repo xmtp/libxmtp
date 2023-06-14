@@ -112,6 +112,15 @@ where
         Ok(contacts)
     }
 
+    pub async fn my_other_devices(&self) -> Result<Vec<Contact>, ClientError> {
+        let contacts = self.get_contacts(self.account.addr().as_str()).await?;
+        let my_contact_id = self.account.contact().id();
+        Ok(contacts
+            .into_iter()
+            .filter(|c| c.id() != my_contact_id)
+            .collect())
+    }
+
     pub fn create_outbound_session(
         &mut self,
         contact: Contact,

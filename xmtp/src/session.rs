@@ -30,12 +30,7 @@ impl SessionManager {
 
     pub fn from_olm_session(session: OlmSession, contact: Contact) -> Result<Self, String> {
         let session_bytes = serde_json::to_vec(&session.pickle()).map_err(|e| e.to_string())?;
-        let persisted = Session::new(
-            session.session_id(),
-            contact.wallet_address.clone(),
-            contact.id(),
-            session_bytes,
-        );
+        let persisted = Session::new(session.session_id(), contact.id(), session_bytes);
 
         Ok(Self::new(session, persisted))
     }
