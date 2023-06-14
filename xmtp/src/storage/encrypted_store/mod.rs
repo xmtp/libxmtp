@@ -370,7 +370,7 @@ mod tests {
             EncryptedMessageStore::generate_enc_key(),
         )
         .unwrap();
-        let session = Session::new(rand_string(), rand_string(), rand_string(), rand_vec());
+        let session = Session::new(rand_string(), rand_string(), rand_vec());
 
         session.store(&store).unwrap();
 
