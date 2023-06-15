@@ -69,7 +69,7 @@ impl Invitation {
 
     #[allow(dead_code)]
     pub(super) fn ciphertext(&self) -> Result<Vec<u8>, InvitationError> {
-        let ciphertext = match self.envelope.clone().version {
+        let ciphertext = match &self.envelope.version {
             Some(V1Proto(env)) => env.ciphertext,
             None => return Err(InvitationError::BadData("no version".to_string())),
         };
