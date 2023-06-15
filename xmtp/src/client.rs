@@ -107,7 +107,7 @@ where
         for envelope in response.envelopes {
             let contact_bundle = Contact::from_bytes(envelope.message)?;
             match contact_bundle.association(Some(wallet_address.to_string())) {
-                Ok(association) => {
+                Ok(_) => {
                     contacts.push(contact_bundle);
                 }
                 Err(err) => {
