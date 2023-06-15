@@ -58,7 +58,6 @@ where
 
     pub async fn initialize(&self) -> Result<(), ConversationError> {
         let mut client = self.client.lock().await;
-
         for contact in self.members.iter() {
             let id = contact.id();
             let session = client.create_outbound_session(contact.clone())?;

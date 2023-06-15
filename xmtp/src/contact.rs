@@ -28,7 +28,7 @@ pub enum ContactError {
     #[error("unknown error")]
     Unknown,
 }
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct Contact {
     pub(crate) bundle: InstallationContactBundle,
 }
