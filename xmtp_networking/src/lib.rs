@@ -1,3 +1,4 @@
+pub mod error;
 pub mod grpc_api_helper;
 
 pub const LOCALHOST_ADDRESS: &str = "http://localhost:5556";
