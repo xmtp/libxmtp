@@ -48,18 +48,9 @@ impl Invitation {
     pub fn build(
         inviter: Contact,
         mut session: SessionManager,
-        wallet_address: String,
+        inner_invite_bytes: Vec<u8>,
     ) -> Result<Invitation, InvitationError> {
-        let inner_invite = InvitationV1 {
-            invitee_wallet_address: wallet_address,
-        };
-
-        let invite_bytes: Vec<u8> = ProtoWrapper {
-            proto: inner_invite,
-        }
-        .try_into()?;
-
-        let encrypted = session.encrypt(invite_bytes.as_slice());
+        let encrypted = session.encrypt(inner_invite_bytes.as_slice());
 
         let envelope = InvitationEnvelope {
             version: Some(V1Proto(InvitationEnvelopeV1 {
@@ -69,6 +60,21 @@ impl Invitation {
         };
 
         Self::new(envelope)
+    }
+
+    pub fn build_inner_invite_bytes(
+        invitee_wallet_address: String,
+    ) -> Result<Vec<u8>, InvitationError> {
+        let inner_invite = InvitationV1 {
+            invitee_wallet_address,
+        };
+
+        let invite_bytes: Vec<u8> = ProtoWrapper {
+            proto: inner_invite,
+        }
+        .try_into()?;
+
+        Ok(invite_bytes)
     }
 
     pub fn build_proto(&self) -> InvitationEnvelope {
@@ -163,7 +169,7 @@ mod tests {
         let invitation = Invitation::build(
             client.account.contact(),
             session,
-            other_account.addr().to_string(),
+            Invitation::build_inner_invite_bytes(other_account.addr().to_string()).unwrap(),
         )
         .unwrap();
 
@@ -197,7 +203,7 @@ mod tests {
         let bad_invite = Invitation::build(
             Contact { bundle: bad_bundle },
             session,
-            other_account.addr().to_string(),
+            Invitation::build_inner_invite_bytes(other_account.addr().to_string()).unwrap(),
         );
 
         assert!(bad_invite.is_err());

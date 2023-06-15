@@ -58,11 +58,15 @@ where
 
     pub async fn initialize(&self) -> Result<(), ConversationError> {
         let mut client = self.client.lock().await;
+        let inner_invite_bytes = Invitation::build_inner_invite_bytes(self.peer_address.clone())?;
         for contact in self.members.iter() {
             let id = contact.id();
             let session = client.create_outbound_session(contact.clone())?;
-            let invitation =
-                Invitation::build(client.account.contact(), session, self.peer_address.clone())?;
+            let invitation = Invitation::build(
+                client.account.contact(),
+                session,
+                inner_invite_bytes.clone(),
+            )?;
 
             let envelope = build_envelope(build_user_invite_topic(id), invitation.try_into()?);
 
