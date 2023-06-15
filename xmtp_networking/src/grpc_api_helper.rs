@@ -9,10 +9,7 @@ use tokio_rustls::rustls::{ClientConfig, OwnedTrustAnchor, RootCertStore};
 use tonic::async_trait;
 use tonic::Status;
 use tonic::{metadata::MetadataValue, transport::Channel, Request, Streaming};
-use xmtp::types::networking::Error;
-use xmtp::types::networking::ErrorKind;
-use xmtp::types::networking::Subscription as XmtpSubscription;
-use xmtp::types::networking::XmtpApiClient;
+use xmtp::types::networking::{Error, ErrorKind, XmtpApiClient, XmtpApiSubscription};
 use xmtp_proto::xmtp::message_api::v1::{
     message_api_client::MessageApiClient, BatchQueryRequest, BatchQueryResponse, Envelope,
     PublishRequest, PublishResponse, QueryRequest, QueryResponse, SubscribeRequest,
@@ -107,7 +104,7 @@ impl Default for Client {
 
 #[async_trait]
 impl XmtpApiClient for Client {
-    type XmtpApiSubscription = Subscription;
+    type Subscription = Subscription;
 
     async fn publish(
         &self,
@@ -230,7 +227,7 @@ impl Subscription {
     }
 }
 
-impl XmtpSubscription for Subscription {
+impl XmtpApiSubscription for Subscription {
     fn is_closed(&self) -> bool {
         self.closed.load(Ordering::SeqCst)
     }
