@@ -68,7 +68,7 @@ pub mod networking {
         }
     }
 
-    pub trait Subscription {
+    pub trait XmtpApiSubscription {
         fn is_closed(&self) -> bool;
         fn get_messages(&self) -> Vec<Envelope>;
         fn close_stream(&mut self);
@@ -76,7 +76,7 @@ pub mod networking {
 
     #[async_trait]
     pub trait XmtpApiClient {
-        type XmtpApiSubscription: Subscription;
+        type Subscription: XmtpApiSubscription;
 
         async fn publish(
             &self,
@@ -86,9 +86,6 @@ pub mod networking {
 
         async fn query(&self, request: QueryRequest) -> Result<QueryResponse, Error>;
 
-        async fn subscribe(
-            &self,
-            request: SubscribeRequest,
-        ) -> Result<Self::XmtpApiSubscription, Error>;
+        async fn subscribe(&self, request: SubscribeRequest) -> Result<Self::Subscription, Error>;
     }
 }

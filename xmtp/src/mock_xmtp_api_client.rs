@@ -6,7 +6,7 @@ use crate::types::networking::*;
 
 pub struct MockXmtpApiSubscription {}
 
-impl Subscription for MockXmtpApiSubscription {
+impl XmtpApiSubscription for MockXmtpApiSubscription {
     fn is_closed(&self) -> bool {
         false
     }
@@ -38,7 +38,7 @@ impl Default for MockXmtpApiClient {
 
 #[async_trait]
 impl XmtpApiClient for MockXmtpApiClient {
-    type XmtpApiSubscription = MockXmtpApiSubscription;
+    type Subscription = MockXmtpApiSubscription;
 
     async fn publish(
         &self,
@@ -71,10 +71,7 @@ impl XmtpApiClient for MockXmtpApiClient {
         })
     }
 
-    async fn subscribe(
-        &self,
-        _request: SubscribeRequest,
-    ) -> Result<Self::XmtpApiSubscription, Error> {
+    async fn subscribe(&self, _request: SubscribeRequest) -> Result<Self::Subscription, Error> {
         Err(Error::new(ErrorKind::SubscribeError))
     }
 }
