@@ -1,14 +1,12 @@
-use prost::EncodeError;
-// Generic wrapper for proto classes, so we can implement From trait without violating orphan rules
-use prost::Message;
 use vodozemac::Curve25519PublicKey;
 use xmtp_proto::xmtp::v3::message_contents::vmac_unsigned_public_key::{
     Union, VodozemacCurve25519,
 };
 use xmtp_proto::xmtp::v3::message_contents::{
-    InvitationV1, VmacAccountLinkedKey, VmacInstallationLinkedKey, VmacUnsignedPublicKey,
+    VmacAccountLinkedKey, VmacInstallationLinkedKey, VmacUnsignedPublicKey,
 };
 
+// Generic wrapper for proto classes, so we can implement From trait without violating orphan rules
 pub struct ProtoWrapper<T> {
     pub proto: T,
 }

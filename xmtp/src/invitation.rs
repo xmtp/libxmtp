@@ -67,6 +67,15 @@ impl Invitation {
         Ok(Self { envelope })
     }
 
+    pub(super) fn ciphertext(&self) -> Result<Vec<u8>, InvitationError> {
+        let ciphertext = match self.envelope.clone().version {
+            Some(V1Proto(env)) => env.ciphertext,
+            None => return Err(InvitationError::BadData("no version".to_string())),
+        };
+
+        Ok(ciphertext)
+    }
+
     fn inviter(&self) -> Result<Contact, InvitationError> {
         let env = match self.envelope.clone().version {
             Some(V1Proto(env)) => Contact::new(env.inviter.unwrap())?,
@@ -119,17 +128,25 @@ impl TryFrom<ProtoWrapper<InvitationV1>> for Vec<u8> {
 
 #[cfg(test)]
 mod tests {
+    use xmtp_proto::xmtp::v3::message_contents::VmacInstallationPublicKeyBundleV1;
+    use xmtp_proto::xmtp::v3::message_contents::{
+        installation_contact_bundle::Version as ContactBundleVersionProto,
+        InstallationContactBundle,
+    };
+
     use crate::account::{tests::test_wallet_signer, Account};
-    use crate::client::ClientError;
+    use crate::contact::Contact;
     use crate::ClientBuilder;
 
     use super::Invitation;
 
     #[test]
-    fn serialize_round_trip() -> Result<(), ClientError> {
+    fn serialize_round_trip() {
         let mut client = ClientBuilder::new_test().build().unwrap();
         let other_account = Account::generate(test_wallet_signer).unwrap();
-        let session = client.create_outbound_session(other_account.contact())?;
+        let session = client
+            .create_outbound_session(other_account.contact())
+            .unwrap();
 
         let invitation = Invitation::build(
             client.account.contact(),
@@ -151,6 +168,38 @@ mod tests {
             invitation.inviter().unwrap().id()
         );
 
-        Ok(())
+        assert_eq!(
+            invitation.ciphertext().unwrap(),
+            invitation2.ciphertext().unwrap()
+        );
+    }
+
+    #[test]
+    fn fail_on_contact_mismatch() {
+        let mut client = ClientBuilder::new_test().build().unwrap();
+        let other_account = Account::generate(test_wallet_signer).unwrap();
+        let session = client
+            .create_outbound_session(other_account.contact())
+            .unwrap();
+
+        let bad_bundle = InstallationContactBundle {
+            version: Some(ContactBundleVersionProto::V1(
+                VmacInstallationPublicKeyBundleV1 {
+                    identity_key: None,
+                    fallback_key: None,
+                },
+            )),
+        };
+
+        let bad_invite = Invitation::build(
+            Contact { bundle: bad_bundle },
+            session,
+            other_account.addr().to_string(),
+        )
+        .unwrap();
+
+        let invitation_result = Invitation::new(bad_invite.envelope);
+
+        assert!(invitation_result.is_err());
     }
 }
