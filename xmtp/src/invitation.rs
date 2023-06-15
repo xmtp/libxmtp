@@ -176,7 +176,7 @@ mod tests {
     }
 
     #[test]
-    fn fail_on_contact_mismatch() {
+    fn fail_on_malformed_contact() {
         let mut client = ClientBuilder::new_test().build().unwrap();
         let other_account = Account::generate(test_wallet_signer).unwrap();
         let session = client
