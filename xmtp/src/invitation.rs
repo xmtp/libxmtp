@@ -117,7 +117,7 @@ impl TryFrom<Invitation> for Vec<u8> {
 }
 
 impl TryFrom<ProtoWrapper<InvitationV1>> for Vec<u8> {
-    type Error = EncodeError;
+    type Error = InvitationError;
 
     fn try_from(invitation: ProtoWrapper<InvitationV1>) -> Result<Self, Self::Error> {
         let mut buf = Vec::new();
@@ -176,7 +176,7 @@ mod tests {
     }
 
     #[test]
-    fn fail_on_malformed_contact() {
+    fn fail_on_contact_mismatch() {
         let mut client = ClientBuilder::new_test().build().unwrap();
         let other_account = Account::generate(test_wallet_signer).unwrap();
         let session = client
