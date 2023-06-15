@@ -69,7 +69,6 @@ impl Client {
 
             let tls_conn = hyper::Client::builder().build(connector);
 
-            // Invalid URI error
             let uri =
                 Uri::from_str(&host).map_err(|e| Error::new(ErrorKind::SetupError).with(e))?;
 
@@ -79,7 +78,6 @@ impl Client {
                 client: InnerApiClient::Tls(tls_client),
             })
         } else {
-            // Connection error
             let channel = Channel::from_shared(host)
                 .map_err(|e| Error::new(ErrorKind::SetupError).with(e))?
                 .connect()
