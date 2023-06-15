@@ -34,18 +34,21 @@ pub struct Contact {
 }
 
 impl Contact {
-    pub fn new(bundle: InstallationContactBundle) -> Result<Self, ContactError> {
+    pub fn new(
+        bundle: InstallationContactBundle,
+        expected_wallet_address: Option<String>,
+    ) -> Result<Self, ContactError> {
         let contact = Self { bundle };
         // .association() will return an error if it fails to validate
         // If you try and create with a wallet address that doesn't match the signature, this will fail
-        contact.association()?;
+        contact.association(expected_wallet_address)?;
 
         Ok(contact)
     }
 
     pub fn from_bytes(bytes: Vec<u8>) -> Result<Self, ContactError> {
         let bundle = InstallationContactBundle::decode(bytes.as_slice())?;
-        let contact = Self::new(bundle)?;
+        let contact = Self::new(bundle, None)?;
 
         Ok(contact)
     }
@@ -67,7 +70,10 @@ impl Contact {
         }
     }
 
-    pub fn association(&self) -> Result<Association, ContactError> {
+    pub fn association(
+        &self,
+        expected_wallet_address: Option<String>,
+    ) -> Result<Association, ContactError> {
         let ik = self.identity_key()?;
         let key_bytes = match ik.key {
             Some(key) => match key.union {
@@ -82,7 +88,11 @@ impl Contact {
         };
 
         // This will validate that the signature matches the wallet address
-        let association = Association::from_proto(key_bytes.as_slice(), proto_association)?;
+        let association = Association::from_proto(
+            key_bytes.as_slice(),
+            proto_association,
+            expected_wallet_address,
+        )?;
 
         Ok(association)
     }
@@ -135,7 +145,7 @@ mod tests {
     fn get_association() {
         let account = Account::generate(test_wallet_signer).unwrap();
         let contact = account.contact();
-        let association = contact.association().unwrap();
+        let association = contact.association(None).unwrap();
 
         assert_eq!(association.address(), account.addr());
     }

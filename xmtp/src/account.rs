@@ -133,12 +133,15 @@ impl Account {
         let fallback_key = VmacInstallationLinkedKey {
             key: Some(fallback_key_proto.proto),
         };
-        let contact = Contact::new(InstallationContactBundle {
-            version: Some(Version::V1(VmacInstallationPublicKeyBundleV1 {
-                identity_key: Some(identity_key),
-                fallback_key: Some(fallback_key),
-            })),
-        });
+        let contact = Contact::new(
+            InstallationContactBundle {
+                version: Some(Version::V1(VmacInstallationPublicKeyBundleV1 {
+                    identity_key: Some(identity_key),
+                    fallback_key: Some(fallback_key),
+                })),
+            },
+            None,
+        );
 
         if let Err(e) = contact {
             panic!("Fatal: Client Owning Account has an invalid contact. Client cannot continue operating: {}", e);

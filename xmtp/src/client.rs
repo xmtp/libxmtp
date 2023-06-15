@@ -106,17 +106,9 @@ where
         let mut contacts = vec![];
         for envelope in response.envelopes {
             let contact_bundle = Contact::from_bytes(envelope.message)?;
-            match contact_bundle.association() {
+            match contact_bundle.association(Some(wallet_address.to_string())) {
                 Ok(association) => {
-                    if association.address() == wallet_address {
-                        contacts.push(contact_bundle);
-                    } else {
-                        println!(
-                            "mismatched address on contact bundle. Found {:?}, expected {:?}",
-                            association.address(),
-                            wallet_address
-                        );
-                    }
+                    contacts.push(contact_bundle);
                 }
                 Err(err) => {
                     println!("bad association on contact bundle: {:?}", err);
