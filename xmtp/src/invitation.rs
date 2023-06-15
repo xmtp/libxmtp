@@ -78,7 +78,7 @@ impl Invitation {
     }
 
     fn inviter(&self) -> Result<Contact, InvitationError> {
-        let env = match self.envelope.clone().version {
+        let env = match &self.envelope.version {
             Some(V1Proto(env)) => Contact::new(env.inviter.unwrap())?,
             None => return Err(InvitationError::BadData("no version".to_string())),
         };
