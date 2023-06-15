@@ -1,7 +1,8 @@
 use crate::{
     client::ClientError,
     contact::Contact,
-    networking::XmtpApiClient,
+    types::networking::PublishRequest,
+    types::networking::XmtpApiClient,
     types::Address,
     utils::{build_envelope, build_user_invite_topic},
     Client,
@@ -67,7 +68,12 @@ where
             self.client
                 .api_client
                 // TODO: API authentication
-                .publish("".to_string(), vec![envelope])
+                .publish(
+                    "".to_string(),
+                    PublishRequest {
+                        envelopes: vec![envelope],
+                    },
+                )
                 .await
                 .map_err(|_| ConversationError::Unknown)?;
         }

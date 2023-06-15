@@ -1,29 +1,21 @@
 use std::collections::HashMap;
 
 use async_trait::async_trait;
-use xmtp_networking::grpc_api_helper::Subscription;
-use xmtp_proto::xmtp::message_api::v1::{Envelope, PagingInfo, PublishResponse, QueryResponse};
 
-#[async_trait]
-pub trait XmtpApiClient {
-    async fn publish(
-        &self,
-        token: String,
-        envelopes: Vec<Envelope>,
-        // TODO: use error enums
-    ) -> Result<PublishResponse, String>;
+use crate::types::networking::*;
 
-    async fn query(
-        &self,
-        topic: String,
-        start_time: Option<u64>,
-        end_time: Option<u64>,
-        paging_info: Option<PagingInfo>,
-        // TODO: use error enums
-    ) -> Result<QueryResponse, String>;
+pub struct MockXmtpApiSubscription {}
 
-    // TODO: use error enums
-    async fn subscribe(&self, topics: Vec<String>) -> Result<Subscription, String>;
+impl Subscription for MockXmtpApiSubscription {
+    fn is_closed(&self) -> bool {
+        false
+    }
+
+    fn get_messages(&self) -> Vec<Envelope> {
+        vec![]
+    }
+
+    fn close_stream(&mut self) {}
 }
 
 pub struct MockXmtpApiClient {
@@ -46,13 +38,15 @@ impl Default for MockXmtpApiClient {
 
 #[async_trait]
 impl XmtpApiClient for MockXmtpApiClient {
+    type XmtpApiSubscription = MockXmtpApiSubscription;
+
     async fn publish(
         &self,
         _token: String,
-        envelopes: Vec<Envelope>,
-    ) -> Result<PublishResponse, String> {
+        request: PublishRequest,
+    ) -> Result<PublishResponse, Error> {
         let mut messages = self.messages.lock().unwrap();
-        for envelope in envelopes {
+        for envelope in request.envelopes {
             let topic = envelope.content_topic.clone();
             let mut existing: Vec<Envelope> = match messages.get(&topic) {
                 Some(existing_envelopes) => existing_envelopes.clone(),
@@ -64,15 +58,9 @@ impl XmtpApiClient for MockXmtpApiClient {
         Ok(PublishResponse {})
     }
 
-    async fn query(
-        &self,
-        topic: String,
-        _start_time: Option<u64>,
-        _end_time: Option<u64>,
-        _paging_info: Option<PagingInfo>,
-    ) -> Result<QueryResponse, String> {
+    async fn query(&self, request: QueryRequest) -> Result<QueryResponse, Error> {
         let messages = self.messages.lock().unwrap();
-        let envelopes: Vec<Envelope> = match messages.get(&topic) {
+        let envelopes: Vec<Envelope> = match messages.get(&request.content_topics[0]) {
             Some(envelopes) => envelopes.clone(),
             None => vec![],
         };
@@ -83,7 +71,10 @@ impl XmtpApiClient for MockXmtpApiClient {
         })
     }
 
-    async fn subscribe(&self, _topics: Vec<String>) -> Result<Subscription, String> {
-        Err("Not implemented".to_string())
+    async fn subscribe(
+        &self,
+        _request: SubscribeRequest,
+    ) -> Result<Self::XmtpApiSubscription, Error> {
+        Err(Error::new(ErrorKind::SubscribeError))
     }
 }

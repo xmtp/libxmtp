@@ -1,4 +1,3 @@
-pub mod error;
 pub mod grpc_api_helper;
 
 pub const LOCALHOST_ADDRESS: &str = "http://localhost:5556";
@@ -10,6 +9,7 @@ mod tests {
 
     use super::*;
     use grpc_api_helper::Client;
+    use xmtp::types::networking::XmtpApiClient;
     use xmtp_proto::xmtp::message_api::v1::{
         BatchQueryRequest, Envelope, PublishRequest, QueryRequest, SubscribeRequest,
     };

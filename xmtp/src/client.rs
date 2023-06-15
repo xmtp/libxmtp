@@ -6,9 +6,9 @@ use thiserror::Error;
 use crate::{
     account::Account,
     contact::{Contact, ContactError},
-    networking::XmtpApiClient,
     session::SessionManager,
     storage::{EncryptedMessageStore, StorageError},
+    types::networking::{PublishRequest, QueryRequest, XmtpApiClient},
     types::Address,
     utils::{build_envelope, build_user_contact_topic},
     Store,
@@ -99,7 +99,12 @@ where
         let topic = build_user_contact_topic(wallet_address.to_string());
         let response = self
             .api_client
-            .query(topic, None, None, None)
+            .query(QueryRequest {
+                content_topics: vec![topic],
+                start_time_ns: 0,
+                end_time_ns: 0,
+                paging_info: None,
+            })
             .await
             .map_err(|e| ClientError::QueryError(format!("Could not query for contacts: {}", e)))?;
 
@@ -127,7 +132,12 @@ where
     async fn publish_user_contact(&self) -> Result<(), ClientError> {
         let envelope = self.build_contact_envelope()?;
         self.api_client
-            .publish("".to_string(), vec![envelope])
+            .publish(
+                "".to_string(),
+                PublishRequest {
+                    envelopes: vec![envelope],
+                },
+            )
             .await
             .map_err(|e| ClientError::PublishError(format!("Could not publish contact: {}", e)))?;
 
