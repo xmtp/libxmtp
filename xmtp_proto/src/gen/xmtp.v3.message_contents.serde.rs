@@ -86,6 +86,9 @@ impl serde::Serialize for Eip191Association {
         if self.signature.is_some() {
             len += 1;
         }
+        if !self.wallet_address.is_empty() {
+            len += 1;
+        }
         let mut struct_ser = serializer.serialize_struct("xmtp.v3.message_contents.Eip191Association", len)?;
         if self.association_text_version != 0 {
             let v = AssociationTextVersion::from_i32(self.association_text_version)
@@ -94,6 +97,9 @@ impl serde::Serialize for Eip191Association {
         }
         if let Some(v) = self.signature.as_ref() {
             struct_ser.serialize_field("signature", v)?;
+        }
+        if !self.wallet_address.is_empty() {
+            struct_ser.serialize_field("walletAddress", &self.wallet_address)?;
         }
         struct_ser.end()
     }
@@ -108,12 +114,15 @@ impl<'de> serde::Deserialize<'de> for Eip191Association {
             "association_text_version",
             "associationTextVersion",
             "signature",
+            "wallet_address",
+            "walletAddress",
         ];
 
         #[allow(clippy::enum_variant_names)]
         enum GeneratedField {
             AssociationTextVersion,
             Signature,
+            WalletAddress,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
             fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
@@ -137,6 +146,7 @@ impl<'de> serde::Deserialize<'de> for Eip191Association {
                         match value {
                             "associationTextVersion" | "association_text_version" => Ok(GeneratedField::AssociationTextVersion),
                             "signature" => Ok(GeneratedField::Signature),
+                            "walletAddress" | "wallet_address" => Ok(GeneratedField::WalletAddress),
                             _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
                         }
                     }
@@ -158,6 +168,7 @@ impl<'de> serde::Deserialize<'de> for Eip191Association {
             {
                 let mut association_text_version__ = None;
                 let mut signature__ = None;
+                let mut wallet_address__ = None;
                 while let Some(k) = map.next_key()? {
                     match k {
                         GeneratedField::AssociationTextVersion => {
@@ -172,11 +183,18 @@ impl<'de> serde::Deserialize<'de> for Eip191Association {
                             }
                             signature__ = map.next_value()?;
                         }
+                        GeneratedField::WalletAddress => {
+                            if wallet_address__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("walletAddress"));
+                            }
+                            wallet_address__ = Some(map.next_value()?);
+                        }
                     }
                 }
                 Ok(Eip191Association {
                     association_text_version: association_text_version__.unwrap_or_default(),
                     signature: signature__,
+                    wallet_address: wallet_address__.unwrap_or_default(),
                 })
             }
         }

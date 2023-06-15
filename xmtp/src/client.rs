@@ -105,7 +105,7 @@ where
 
         let mut contacts = vec![];
         for envelope in response.envelopes {
-            let contact_bundle = Contact::from_bytes(envelope.message, wallet_address.to_string())?;
+            let contact_bundle = Contact::from_bytes(envelope.message)?;
             contacts.push(contact_bundle);
         }
 
@@ -129,9 +129,7 @@ where
         let session = SessionManager::from_olm_session(olm_session, contact)
             .map_err(|_| ClientError::Unknown)?;
 
-        session
-            .store(&self._store)
-            .map_err(|_| ClientError::Unknown)?;
+        session.store(&self._store)?;
 
         Ok(session)
     }

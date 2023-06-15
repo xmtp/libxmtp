@@ -31,18 +31,11 @@ pub enum ContactError {
 #[derive(Clone)]
 pub struct Contact {
     pub(crate) bundle: InstallationContactBundle,
-    pub wallet_address: String,
 }
 
 impl Contact {
-    pub fn new(
-        bundle: InstallationContactBundle,
-        wallet_address: String,
-    ) -> Result<Self, ContactError> {
-        let contact = Self {
-            bundle,
-            wallet_address,
-        };
+    pub fn new(bundle: InstallationContactBundle) -> Result<Self, ContactError> {
+        let contact = Self { bundle };
         // .association() will return an error if it fails to validate
         // If you try and create with a wallet address that doesn't match the signature, this will fail
         contact.association()?;
@@ -50,9 +43,9 @@ impl Contact {
         Ok(contact)
     }
 
-    pub fn from_bytes(bytes: Vec<u8>, wallet_address: String) -> Result<Self, ContactError> {
+    pub fn from_bytes(bytes: Vec<u8>) -> Result<Self, ContactError> {
         let bundle = InstallationContactBundle::decode(bytes.as_slice())?;
-        let contact = Self::new(bundle, wallet_address)?;
+        let contact = Self::new(bundle)?;
 
         Ok(contact)
     }
@@ -89,11 +82,7 @@ impl Contact {
         };
 
         // This will validate that the signature matches the wallet address
-        let association = Association::from_proto(
-            key_bytes.as_slice(),
-            self.wallet_address.as_str(),
-            proto_association,
-        )?;
+        let association = Association::from_proto(key_bytes.as_slice(), proto_association)?;
 
         Ok(association)
     }
@@ -137,9 +126,8 @@ mod tests {
     fn serialize_round_trip() {
         let account = Account::generate(test_wallet_signer).unwrap();
         let contact = account.contact();
-        let wallet_address = contact.wallet_address.clone();
         let contact_bytes = contact.to_bytes().unwrap();
-        let contact2 = Contact::from_bytes(contact_bytes.clone(), wallet_address).unwrap();
+        let contact2 = Contact::from_bytes(contact_bytes.clone()).unwrap();
         assert_eq!(contact2.to_bytes().unwrap(), contact_bytes);
     }
 

@@ -3,11 +3,13 @@ use std::sync::Arc;
 use crate::{
     client::ClientError,
     contact::Contact,
+    invitation::{Invitation, InvitationError},
     networking::XmtpApiClient,
     types::Address,
     utils::{build_envelope, build_user_invite_topic},
     Client,
 };
+
 // use async_trait::async_trait;
 use thiserror::Error;
 use tokio::sync::Mutex;
@@ -16,6 +18,8 @@ use tokio::sync::Mutex;
 pub enum ConversationError {
     #[error("client error {0}")]
     Client(#[from] ClientError),
+    #[error("invitation error {0}")]
+    Invitation(#[from] InvitationError),
     #[error("unknown error")]
     Unknown,
 }
@@ -58,14 +62,15 @@ where
         for contact in self.members.iter() {
             let id = contact.id();
             // TODO: Persist session to database
-            let mut session = client.create_outbound_session(contact.clone())?;
+            let session = client.create_outbound_session(contact.clone())?;
             // TODO: Replace with proper protobuf invite message
-            let invite_message = session.encrypt("invite".as_bytes());
+            let invitation =
+                Invitation::build(client.account.contact(), session, self.peer_address.clone())?;
 
             let envelope = build_envelope(
                 build_user_invite_topic(id),
                 // TODO: Wrap in XMTP type
-                invite_message.message().to_vec(),
+                invitation.try_into()?,
             );
 
             // TODO: Replace with real token

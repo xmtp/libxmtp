@@ -46,11 +46,10 @@ impl Association {
 
     pub fn from_proto(
         account_public_key: &[u8],
-        intended_wallet_address: &str,
         proto: Eip191Association,
     ) -> Result<Self, AssociationError> {
         let text = AssociationText::new_static(
-            intended_wallet_address.to_string(),
+            proto.wallet_address.to_string(),
             account_public_key.to_vec(),
         );
         let signature = RecoverableSignature::Eip191Signature(proto.signature.unwrap().bytes);
@@ -96,6 +95,7 @@ impl Association {
 impl From<Association> for Eip191Association {
     fn from(assoc: Association) -> Self {
         Self {
+            wallet_address: assoc.address(),
             // Hardcoded version for now
             association_text_version: 1,
             signature: Some(RecoverableEcdsaSignatureProto {
