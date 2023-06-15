@@ -33,7 +33,6 @@ where
 #[cfg(test)]
 mod tests {
     use crate::{conversations::Conversations, ClientBuilder};
-    use std::sync::Arc;
 
     #[tokio::test]
     async fn create_secret_conversation() {
