@@ -187,14 +187,16 @@ class FakeApiClient : ApiClient {
     }
 }
 
-data class Fixtures(val aliceAccount: PrivateKeyBuilder, val bobAccount: PrivateKeyBuilder) {
+data class Fixtures(val aliceAccount: PrivateKeyBuilder, val bobAccount: PrivateKeyBuilder, val steveAccount: PrivateKeyBuilder) {
     var fakeApiClient: FakeApiClient = FakeApiClient()
     var alice: PrivateKey = aliceAccount.getPrivateKey()
     var aliceClient: Client = Client().create(account = aliceAccount, apiClient = fakeApiClient)
     var bob: PrivateKey = bobAccount.getPrivateKey()
     var bobClient: Client = Client().create(account = bobAccount, apiClient = fakeApiClient)
+    var steve: PrivateKey = steveAccount.getPrivateKey()
+    var steveClient: Client = Client().create(account = steveAccount, apiClient = fakeApiClient)
 
-    constructor() : this(aliceAccount = PrivateKeyBuilder(), bobAccount = PrivateKeyBuilder())
+    constructor() : this(aliceAccount = PrivateKeyBuilder(), bobAccount = PrivateKeyBuilder(), steveAccount = PrivateKeyBuilder())
 
     fun publishLegacyContact(client: Client) {
         val contactBundle = ContactBundle.newBuilder().also { builder ->

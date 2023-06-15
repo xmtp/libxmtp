@@ -14,6 +14,14 @@ sealed class Conversation {
         V2
     }
 
+    val isGroup: Boolean
+        get() {
+            return when (this) {
+                is V1 -> false
+                is V2 -> conversationV2.isGroup
+            }
+        }
+
     val version: Version
         get() {
             return when (this) {
@@ -75,6 +83,7 @@ sealed class Conversation {
             is V1 -> {
                 conversationV1.prepareMessage(content = content, options = options)
             }
+
             is V2 -> {
                 conversationV2.prepareMessage(content = content, options = options)
             }
@@ -114,6 +123,7 @@ sealed class Conversation {
                 before = before,
                 after = after
             )
+
             is V2 ->
                 conversationV2.messages(
                     limit = limit,
