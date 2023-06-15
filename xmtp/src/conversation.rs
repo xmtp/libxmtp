@@ -1,5 +1,3 @@
-use std::sync::Arc;
-
 use crate::{
     client::ClientError,
     contact::Contact,
@@ -21,21 +19,21 @@ pub enum ConversationError {
 
 // I had to pick a name for this, and it seems like we are hovering around SecretConversation ATM
 // May very well change
-pub struct SecretConversation<A>
+pub struct SecretConversation<'c, A>
 where
     A: XmtpApiClient,
 {
     peer_address: Address,
     members: Vec<Contact>,
-    client: Arc<Client<A>>,
+    client: &'c Client<A>,
 }
 
-impl<A> SecretConversation<A>
+impl<'c, A> SecretConversation<'c, A>
 where
     A: XmtpApiClient,
 {
     pub fn new(
-        client: Arc<Client<A>>,
+        client: &'c Client<A>,
         peer_address: Address,
         // TODO: Add user's own contacts as well
         members: Vec<Contact>,
