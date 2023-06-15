@@ -1,15 +1,18 @@
-use crate::error::Error;
-use crate::error::Kind as ErrorKind;
 use http_body::combinators::UnsyncBoxBody;
 use hyper::{client::HttpConnector, Uri};
 use hyper_rustls::HttpsConnector;
 use std::str::FromStr;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex}; // TODO switch to async mutexes
 use tokio::sync::oneshot;
 use tokio_rustls::rustls::{ClientConfig, OwnedTrustAnchor, RootCertStore};
+use tonic::async_trait;
 use tonic::Status;
 use tonic::{metadata::MetadataValue, transport::Channel, Request, Streaming};
+use xmtp::types::networking::Error;
+use xmtp::types::networking::ErrorKind;
+use xmtp::types::networking::Subscription as XmtpSubscription;
+use xmtp::types::networking::XmtpApiClient;
 use xmtp_proto::xmtp::message_api::v1::{
     message_api_client::MessageApiClient, BatchQueryRequest, BatchQueryResponse, Envelope,
     PublishRequest, PublishResponse, QueryRequest, QueryResponse, SubscribeRequest,
@@ -71,7 +74,7 @@ impl Client {
 
             // Invalid URI error
             let uri =
-                Uri::from_str(&host).map_err(|e| Error::new(ErrorKind::InvalidUri).with(e))?;
+                Uri::from_str(&host).map_err(|e| Error::new(ErrorKind::SetupError).with(e))?;
 
             let tls_client = MessageApiClient::with_origin(tls_conn, uri);
 
@@ -81,10 +84,10 @@ impl Client {
         } else {
             // Connection error
             let channel = Channel::from_shared(host)
-                .map_err(|e| Error::new(ErrorKind::Transport).with(e))?
+                .map_err(|e| Error::new(ErrorKind::SetupError).with(e))?
                 .connect()
                 .await
-                .map_err(|e| Error::new(ErrorKind::Transport).with(e))?;
+                .map_err(|e| Error::new(ErrorKind::SetupError).with(e))?;
 
             let client = MessageApiClient::new(channel);
 
@@ -93,8 +96,20 @@ impl Client {
             })
         }
     }
+}
 
-    pub async fn publish(
+impl Default for Client {
+    fn default() -> Self {
+        //TODO: Remove once Default constraint lifted from clientBuilder
+        unimplemented!()
+    }
+}
+
+#[async_trait]
+impl XmtpApiClient for Client {
+    type XmtpApiSubscription = Subscription;
+
+    async fn publish(
         &self,
         token: String,
         request: PublishRequest,
@@ -102,7 +117,7 @@ impl Client {
         let auth_token_string = format!("Bearer {}", token);
         let token: MetadataValue<_> = auth_token_string
             .parse()
-            .map_err(|e| Error::new(ErrorKind::Transport).with(e))?;
+            .map_err(|e| Error::new(ErrorKind::PublishError).with(e))?;
 
         let mut tonic_request = Request::new(request);
         tonic_request.metadata_mut().insert("authorization", token);
@@ -113,46 +128,48 @@ impl Client {
                 .publish(tonic_request)
                 .await
                 .map(|r| r.into_inner())
-                .map_err(|e| Error::new(ErrorKind::Transport).with(e)),
+                .map_err(|e| Error::new(ErrorKind::PublishError).with(e)),
             InnerApiClient::Tls(c) => c
                 .clone()
                 .publish(tonic_request)
                 .await
                 .map(|r| r.into_inner())
-                .map_err(|e| Error::new(ErrorKind::Transport).with(e)),
+                .map_err(|e| Error::new(ErrorKind::PublishError).with(e)),
         }
     }
 
-    pub async fn subscribe(&self, request: SubscribeRequest) -> Result<Subscription, Error> {
+    async fn subscribe(&self, request: SubscribeRequest) -> Result<Subscription, Error> {
         let stream = match &self.client {
             InnerApiClient::Plain(c) => c
                 .clone()
                 .subscribe(request)
                 .await
-                .map_err(|e| Error::new(ErrorKind::Transport).with(e))?
+                .map_err(|e| Error::new(ErrorKind::SubscribeError).with(e))?
                 .into_inner(),
             InnerApiClient::Tls(c) => c
                 .clone()
                 .subscribe(request)
                 .await
-                .map_err(|e| Error::new(ErrorKind::Transport).with(e))?
+                .map_err(|e| Error::new(ErrorKind::SubscribeError).with(e))?
                 .into_inner(),
         };
 
         Ok(Subscription::start(stream).await)
     }
 
-    pub async fn query(&self, request: QueryRequest) -> Result<QueryResponse, Error> {
+    async fn query(&self, request: QueryRequest) -> Result<QueryResponse, Error> {
         let res = match &self.client {
             InnerApiClient::Plain(c) => c.clone().query(request).await,
             InnerApiClient::Tls(c) => c.clone().query(request).await,
         };
         match res {
             Ok(response) => Ok(response.into_inner()),
-            Err(e) => Err(Error::new(ErrorKind::Transport).with(e)),
+            Err(e) => Err(Error::new(ErrorKind::QueryError).with(e)),
         }
     }
+}
 
+impl Client {
     pub async fn batch_query(
         &self,
         request: BatchQueryRequest,
@@ -163,7 +180,7 @@ impl Client {
         };
         match res {
             Ok(response) => Ok(response.into_inner()),
-            Err(e) => Err(Error::new(ErrorKind::Transport).with(e)),
+            Err(e) => Err(Error::new(ErrorKind::QueryError).with(e)),
         }
     }
 }
@@ -211,18 +228,20 @@ impl Subscription {
             close_sender: Some(close_sender),
         }
     }
+}
 
-    pub fn is_closed(&self) -> bool {
+impl XmtpSubscription for Subscription {
+    fn is_closed(&self) -> bool {
         self.closed.load(Ordering::SeqCst)
     }
 
-    pub fn get_messages(&self) -> Vec<Envelope> {
+    fn get_messages(&self) -> Vec<Envelope> {
         let mut pending = self.pending.lock().unwrap();
         let items = pending.drain(..).collect::<Vec<Envelope>>();
         items
     }
 
-    pub fn close_stream(&mut self) {
+    fn close_stream(&mut self) {
         // Set this value here, even if it will be eventually set again when the loop exits
         // This makes the `closed` status immediately correct
         self.closed.store(true, Ordering::SeqCst);
