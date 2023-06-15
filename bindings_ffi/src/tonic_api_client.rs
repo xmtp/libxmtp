@@ -30,7 +30,7 @@ impl TonicApiClient {
 #[async_trait]
 impl XmtpApiClient for TonicApiClient {
     async fn publish(
-        &mut self,
+        &self,
         token: String,
         envelopes: Vec<Envelope>,
         // TODO: use error enums
@@ -60,7 +60,7 @@ impl XmtpApiClient for TonicApiClient {
             .map_err(|e| format!("{}", e))
     }
 
-    async fn subscribe(&mut self, topics: Vec<String>) -> Result<Subscription, String> {
+    async fn subscribe(&self, topics: Vec<String>) -> Result<Subscription, String> {
         self.client
             .subscribe(SubscribeRequest {
                 content_topics: topics,
@@ -92,7 +92,7 @@ mod tests {
     // Try a query on a test topic, and make sure we get a response
     #[tokio::test]
     async fn test_publish_query() {
-        let mut client = TonicApiClient::new(xmtp_networking::LOCALHOST_ADDRESS, false)
+        let client = TonicApiClient::new(xmtp_networking::LOCALHOST_ADDRESS, false)
             .await
             .unwrap();
         let topic = Uuid::new_v4();
@@ -117,7 +117,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_subscribe() {
-        let mut client = TonicApiClient::new(xmtp_networking::LOCALHOST_ADDRESS, false)
+        let client = TonicApiClient::new(xmtp_networking::LOCALHOST_ADDRESS, false)
             .await
             .unwrap();
         let topic = Uuid::new_v4();

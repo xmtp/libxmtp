@@ -128,10 +128,7 @@ where
             .collect())
     }
 
-    pub fn create_outbound_session(
-        &mut self,
-        contact: Contact,
-    ) -> Result<SessionManager, ClientError> {
+    pub fn create_outbound_session(&self, contact: Contact) -> Result<SessionManager, ClientError> {
         let olm_session = self.account.create_outbound_session(contact.clone());
         let session = SessionManager::from_olm_session(olm_session, contact)
             .map_err(|_| ClientError::Unknown)?;
@@ -141,7 +138,7 @@ where
         Ok(session)
     }
 
-    async fn publish_user_contact(&mut self) -> Result<(), ClientError> {
+    async fn publish_user_contact(&self) -> Result<(), ClientError> {
         let envelope = self.build_contact_envelope()?;
         self.api_client
             .publish("".to_string(), vec![envelope])
@@ -180,7 +177,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_publish_user_contact() {
-        let mut client = ClientBuilder::new_test().build().unwrap();
+        let client = ClientBuilder::new_test().build().unwrap();
         client
             .publish_user_contact()
             .await
