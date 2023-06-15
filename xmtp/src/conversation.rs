@@ -61,17 +61,11 @@ where
 
         for contact in self.members.iter() {
             let id = contact.id();
-            // TODO: Persist session to database
             let session = client.create_outbound_session(contact.clone())?;
-            // TODO: Replace with proper protobuf invite message
             let invitation =
                 Invitation::build(client.account.contact(), session, self.peer_address.clone())?;
 
-            let envelope = build_envelope(
-                build_user_invite_topic(id),
-                // TODO: Wrap in XMTP type
-                invitation.try_into()?,
-            );
+            let envelope = build_envelope(build_user_invite_topic(id), invitation.try_into()?);
 
             // TODO: Replace with real token
             client
