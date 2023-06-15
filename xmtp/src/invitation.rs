@@ -67,6 +67,7 @@ impl Invitation {
         Ok(Self { envelope })
     }
 
+    #[allow(dead_code)]
     pub(super) fn ciphertext(&self) -> Result<Vec<u8>, InvitationError> {
         let ciphertext = match self.envelope.clone().version {
             Some(V1Proto(env)) => env.ciphertext,
