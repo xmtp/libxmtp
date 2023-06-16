@@ -121,10 +121,10 @@ where
 
     pub async fn my_other_devices(&self) -> Result<Vec<Contact>, ClientError> {
         let contacts = self.get_contacts(self.account.addr().as_str()).await?;
-        let my_contact_id = self.account.contact().id();
+        let my_contact_id = self.account.contact().installation_id();
         Ok(contacts
             .into_iter()
-            .filter(|c| c.id() != my_contact_id)
+            .filter(|c| c.installation_id() != my_contact_id)
             .collect())
     }
 

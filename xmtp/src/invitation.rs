@@ -173,12 +173,18 @@ mod tests {
         )
         .unwrap();
 
-        assert_eq!(invitation.inviter.id(), client.account.contact().id());
+        assert_eq!(
+            invitation.inviter.installation_id(),
+            client.account.contact().installation_id()
+        );
 
         let bytes: Vec<u8> = invitation.clone().try_into().unwrap();
         let invitation2: Invitation = bytes.try_into().unwrap();
 
-        assert_eq!(invitation2.inviter.id(), invitation.inviter.id());
+        assert_eq!(
+            invitation2.inviter.installation_id(),
+            invitation.inviter.installation_id()
+        );
 
         assert_eq!(invitation.ciphertext, invitation2.ciphertext);
     }
