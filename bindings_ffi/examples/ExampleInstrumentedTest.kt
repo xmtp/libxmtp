@@ -28,7 +28,7 @@ class ExampleInstrumentedTest {
         runBlocking {
             var didThrow = false;
             try {
-                val client = uniffi.xmtpv3.createClient("http://localhost:5556", false);
+                val client = uniffi.xmtpv3.createClient("http://incorrect:5556", false);
             } catch (e: Exception) {
                 didThrow = true;
             }
