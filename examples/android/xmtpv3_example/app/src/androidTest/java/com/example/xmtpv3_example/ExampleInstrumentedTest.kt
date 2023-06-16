@@ -1,7 +1,7 @@
 package com.example.xmtpv3_example
 
-import androidx.test.platform.app.InstrumentationRegistry
 import androidx.test.ext.junit.runners.AndroidJUnit4
+import kotlinx.coroutines.runBlocking
 
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -16,9 +16,23 @@ import org.junit.Assert.*
 @RunWith(AndroidJUnit4::class)
 class ExampleInstrumentedTest {
     @Test
-    fun useAppContext() {
-        // Context of the app under test.
-        val appContext = InstrumentationRegistry.getInstrumentation().targetContext
-        assertEquals("com.example.xmtpv3_example", appContext.packageName)
+    fun testHappyPath() {
+        runBlocking {
+            val client = uniffi.xmtpv3.createClient("http://10.0.2.2:5556", false);
+            assertNotNull("Should be able to construct client", client.walletAddress())
+        }
+    }
+
+    @Test
+    fun testErrorThrows() {
+        runBlocking {
+            var didThrow = false;
+            try {
+                val client = uniffi.xmtpv3.createClient("http://localhost:5556", false);
+            } catch (e: Exception) {
+                didThrow = true;
+            }
+            assertEquals("Should throw exception", true, didThrow)
+        }
     }
 }
