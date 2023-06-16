@@ -56,7 +56,7 @@ where
         let mut client = self.client.lock().await;
 
         for contact in self.members.iter() {
-            let id = contact.id();
+            let id = contact.installation_id();
             // TODO: Persist session to database
             let mut session = client.create_outbound_session(contact.clone())?;
             // TODO: Replace with proper protobuf invite message

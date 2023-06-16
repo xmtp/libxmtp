@@ -33,7 +33,7 @@ impl SessionManager {
         let persisted = Session::new(
             session.session_id(),
             contact.wallet_address.clone(),
-            contact.id(),
+            contact.installation_id(),
             session_bytes,
         );
 

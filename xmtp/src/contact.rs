@@ -99,7 +99,7 @@ impl Contact {
     }
 
     // The id of a contact is the base64 encoding of the keccak256 hash of the identity key
-    pub fn id(&self) -> String {
+    pub fn installation_id(&self) -> String {
         base64_encode(keccak256(self.vmac_identity_key().to_string().as_str()).as_slice())
     }
 
