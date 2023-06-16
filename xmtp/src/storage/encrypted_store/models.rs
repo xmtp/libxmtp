@@ -124,7 +124,7 @@ impl TryFrom<&Account> for NewStoredAccount {
             serialized_key: serde_json::to_vec(account).map_err(|e| {
                 StorageError::Store(format!(
                     "could not initialize model:NewStoredAccount -- {}",
-                    e.to_string()
+                    e
                 ))
             })?,
         })
