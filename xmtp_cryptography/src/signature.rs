@@ -75,7 +75,7 @@ impl RecoverableSignature {
 impl From<RecoverableSignature> for Vec<u8> {
     fn from(value: RecoverableSignature) -> Self {
         match value {
-            RecoverableSignature::Eip191Signature(bytes) => bytes.clone(),
+            RecoverableSignature::Eip191Signature(bytes) => bytes,
         }
     }
 }
