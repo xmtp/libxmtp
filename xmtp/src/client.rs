@@ -86,7 +86,7 @@ where
 
         if !registered_bundles
             .iter()
-            .any(|contact| contact.id() == app_contact_bundle.id())
+            .any(|contact| contact.installation_id() == app_contact_bundle.installation_id())
         {
             self.publish_user_contact().await?;
         }

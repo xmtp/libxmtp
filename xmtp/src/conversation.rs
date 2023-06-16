@@ -51,7 +51,7 @@ where
 
     pub async fn initialize(&self) -> Result<(), ConversationError> {
         for contact in self.members.iter() {
-            let id = contact.id();
+            let id = contact.installation_id();
             // TODO: Persist session to database
             let mut session = self.client.create_outbound_session(contact.clone())?;
             // TODO: Replace with proper protobuf invite message
