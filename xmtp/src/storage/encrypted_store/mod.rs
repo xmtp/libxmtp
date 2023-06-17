@@ -177,7 +177,7 @@ impl Store<EncryptedMessageStore> for NewDecryptedMessage {
     }
 }
 
-impl Store<EncryptedMessageStore> for Session {
+impl Store<EncryptedMessageStore> for StoredSession {
     fn store(&self, into: &EncryptedMessageStore) -> Result<(), StorageError> {
         let conn = &mut into.conn()?;
         diesel::insert_into(schema::sessions::table)
@@ -199,13 +199,13 @@ impl Fetch<DecryptedMessage> for EncryptedMessageStore {
     }
 }
 
-impl Fetch<Session> for EncryptedMessageStore {
-    fn fetch(&self) -> Result<Vec<Session>, StorageError> {
+impl Fetch<StoredSession> for EncryptedMessageStore {
+    fn fetch(&self) -> Result<Vec<StoredSession>, StorageError> {
         let conn = &mut self.conn()?;
         use self::schema::sessions::dsl::*;
 
         sessions
-            .load::<Session>(conn)
+            .load::<StoredSession>(conn)
             .map_err(StorageError::DieselResultError)
     }
 }
@@ -244,7 +244,7 @@ impl Fetch<Account> for EncryptedMessageStore {
 mod tests {
 
     use super::{
-        models::{DecryptedMessage, NewDecryptedMessage, Session},
+        models::{DecryptedMessage, NewDecryptedMessage, StoredSession},
         EncryptedMessageStore, StorageError, StorageOption,
     };
     use crate::{Fetch, Store};
@@ -370,11 +370,11 @@ mod tests {
             EncryptedMessageStore::generate_enc_key(),
         )
         .unwrap();
-        let session = Session::new(rand_string(), rand_string(), rand_vec());
+        let session = StoredSession::new(rand_string(), rand_string(), rand_string(), rand_vec());
 
         session.store(&store).unwrap();
 
-        let results: Vec<Session> = store.fetch().unwrap();
+        let results: Vec<StoredSession> = store.fetch().unwrap();
         assert_eq!(1, results.len());
     }
 }

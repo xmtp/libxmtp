@@ -1,6 +1,6 @@
 use crate::{
     contact::Contact,
-    storage::{EncryptedMessageStore, Session, StorageError},
+    storage::{EncryptedMessageStore, StorageError, StoredSession},
     Save, Store,
 };
 use thiserror::Error;
@@ -20,17 +20,17 @@ pub enum SessionError {
 
 pub struct SessionManager {
     session: OlmSession,
-    persisted: Session,
+    persisted: StoredSession,
 }
 
 impl SessionManager {
-    pub fn new(session: OlmSession, persisted: Session) -> Self {
+    pub fn new(session: OlmSession, persisted: StoredSession) -> Self {
         Self { session, persisted }
     }
 
     pub fn from_olm_session(session: OlmSession, contact: Contact) -> Result<Self, String> {
         let session_bytes = serde_json::to_vec(&session.pickle()).map_err(|e| e.to_string())?;
-        let persisted = Session::new(
+        let persisted = StoredSession::new(
             session.session_id(),
             contact.installation_id(),
             session_bytes,
@@ -81,7 +81,7 @@ mod tests {
 
     use crate::{
         account::{tests::test_wallet_signer, Account},
-        storage::{EncryptedMessageStore, Session},
+        storage::{EncryptedMessageStore, StoredSession},
         Fetch, Store,
     };
 
@@ -101,7 +101,7 @@ mod tests {
         let message_store = &EncryptedMessageStore::default();
         a_to_b_session.store(message_store).unwrap();
 
-        let results: Vec<Session> = message_store.fetch().unwrap();
+        let results: Vec<StoredSession> = message_store.fetch().unwrap();
         assert_eq!(results.len(), 1);
         let initial_session_data = &results.get(0).unwrap().vmac_session_data;
 
@@ -115,7 +115,7 @@ mod tests {
             let decrypted_reply = a_to_b_session.decrypt(reply, message_store).unwrap();
             assert_eq!(decrypted_reply, "hello to you".as_bytes());
 
-            let updated_results: Vec<Session> = message_store.fetch().unwrap();
+            let updated_results: Vec<StoredSession> = message_store.fetch().unwrap();
             assert_eq!(updated_results.len(), 1);
             let updated_session_data = &updated_results.get(0).unwrap().vmac_session_data;
 
