@@ -119,6 +119,14 @@ where
         Ok(contacts)
     }
 
+    pub fn get_session(&self, contact: &Contact) -> Result<SessionManager, ClientError> {
+        let existing_session = self._store.get_session(&contact.installation_id())?;
+        match existing_session {
+            Some(i) => Ok(SessionManager::try_from(&i)?),
+            None => self.create_outbound_session(contact),
+        }
+    }
+
     pub async fn my_other_devices(&self) -> Result<Vec<Contact>, ClientError> {
         let contacts = self.get_contacts(self.account.addr().as_str()).await?;
         let my_contact_id = self.account.contact().installation_id();

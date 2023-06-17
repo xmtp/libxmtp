@@ -155,14 +155,26 @@ impl EncryptedMessageStore {
     pub fn get_account(&mut self) -> Result<Option<Account>, StorageError> {
         let mut account_list: Vec<Account> = self.fetch()?;
 
-        if account_list.len() > 1 {
-            warn!(
-                "EncryptedStore expected 1 StoredAccount however found {}. Using the Oldest.",
-                account_list.len()
-            )
-        }
+        warn_length(&account_list, "StoredAccount", 1);
 
         Ok(account_list.pop())
+    }
+
+    pub fn get_session(
+        &self,
+        installation_id: &str,
+    ) -> Result<Option<StoredSession>, StorageError> {
+        let conn = &mut self.conn()?;
+        use self::schema::sessions::dsl::*;
+
+        let mut session_list = sessions
+            .filter(peer_installation_id.eq(installation_id))
+            .order(created_at.desc())
+            .load::<StoredSession>(conn)
+            .map_err(|_| StorageError::Unknown)?;
+
+        warn_length(&session_list, "StoredSession", 1);
+        Ok(session_list.pop())
     }
 }
 
@@ -237,6 +249,17 @@ impl Fetch<Account> for EncryptedMessageStore {
             .iter()
             .map(|f| serde_json::from_slice(&f.serialized_key).unwrap())
             .collect())
+    }
+}
+
+fn warn_length<T>(list: &Vec<T>, str_id: &str, max_length: usize) {
+    if list.len() > max_length {
+        warn!(
+            "EncryptedStore expected at most {} {} however found {}. Using the Oldest.",
+            max_length,
+            str_id,
+            list.len()
+        )
     }
 }
 

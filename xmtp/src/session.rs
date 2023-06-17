@@ -1,6 +1,7 @@
 use crate::{
     contact::Contact,
     storage::{EncryptedMessageStore, StorageError, StoredSession},
+    types::Address,
     Save, Store,
 };
 use thiserror::Error;
@@ -19,24 +20,26 @@ pub enum SessionError {
 }
 
 pub struct SessionManager {
+    peer_address: Address,
+    peer_installation_id: String,
     session: OlmSession,
-    persisted: StoredSession,
 }
 
 impl SessionManager {
-    pub fn new(session: OlmSession, persisted: StoredSession) -> Self {
-        Self { session, persisted }
+    pub fn new(session: OlmSession, peer_address: Address, peer_installation_id: String) -> Self {
+        Self {
+            session,
+            peer_address,
+            peer_installation_id,
+        }
     }
 
     pub fn from_olm_session(session: OlmSession, contact: &Contact) -> Result<Self, String> {
-        let session_bytes = serde_json::to_vec(&session.pickle()).map_err(|e| e.to_string())?;
-        let persisted = StoredSession::new(
-            session.session_id(),
+        Ok(Self::new(
+            session,
+            contact.wallet_address.clone(),
             contact.installation_id(),
-            session_bytes,
-        );
-
-        Ok(Self::new(session, persisted))
+        ))
     }
 
     pub fn id(&self) -> String {
@@ -59,10 +62,8 @@ impl SessionManager {
         into: &EncryptedMessageStore,
     ) -> Result<Vec<u8>, SessionError> {
         let res = self.session.decrypt(&message)?;
-        let session_bytes = self.session_bytes()?;
         // TODO: Stop mutating/storing the persisted session and just build on demand
-        self.persisted.vmac_session_data = session_bytes;
-        self.persisted.save(into)?;
+        self.save(into)?;
 
         Ok(res)
     }
@@ -70,8 +71,42 @@ impl SessionManager {
 
 impl Store<EncryptedMessageStore> for SessionManager {
     fn store(&self, into: &EncryptedMessageStore) -> Result<(), StorageError> {
-        self.persisted.store(into)?;
-        Ok(())
+        StoredSession::try_from(self)?.store(into)
+    }
+}
+
+impl Save<EncryptedMessageStore> for SessionManager {
+    fn save(&self, into: &EncryptedMessageStore) -> Result<(), StorageError> {
+        StoredSession::try_from(self)?.save(into)
+    }
+}
+
+impl TryFrom<&StoredSession> for SessionManager {
+    type Error = StorageError;
+    fn try_from(value: &StoredSession) -> Result<Self, StorageError> {
+        let pickle = serde_json::from_slice(&value.vmac_session_data)
+            .map_err(|_| StorageError::SerializationError)?;
+
+        Ok(Self::new(
+            OlmSession::from_pickle(pickle),
+            value.peer_address.clone(),
+            value.peer_installation_id.clone(),
+        ))
+    }
+}
+
+impl TryFrom<&SessionManager> for StoredSession {
+    type Error = StorageError;
+
+    fn try_from(value: &SessionManager) -> Result<Self, Self::Error> {
+        Ok(StoredSession::new(
+            value.session.session_id(),
+            value.peer_installation_id.clone(),
+            // TODO: Better error handling approach. StoreError and SessionError end up being dependent on eachother
+            value
+                .session_bytes()
+                .map_err(|_| StorageError::SerializationError)?,
+        ))
     }
 }
 
