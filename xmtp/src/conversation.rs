@@ -57,8 +57,9 @@ where
         let inner_invite_bytes = Invitation::build_inner_invite_bytes(self.peer_address.clone())?;
         for contact in self.members.iter() {
             let id = contact.installation_id();
-            // TODO: Find existing session if it exists in the database
-            let session = self.client.create_outbound_session(contact.clone())?;
+
+            // TODO: Persist session to database
+            let session = self.client.create_outbound_session(contact)?;
             let invitation =
                 Invitation::build(self.client.account.contact(), session, &inner_invite_bytes)?;
 

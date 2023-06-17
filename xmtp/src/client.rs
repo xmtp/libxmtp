@@ -128,8 +128,11 @@ where
             .collect())
     }
 
-    pub fn create_outbound_session(&self, contact: Contact) -> Result<SessionManager, ClientError> {
-        let olm_session = self.account.create_outbound_session(contact.clone());
+    pub fn create_outbound_session(
+        &self,
+        contact: &Contact,
+    ) -> Result<SessionManager, ClientError> {
+        let olm_session = self.account.create_outbound_session(contact);
         let session = SessionManager::from_olm_session(olm_session, contact)
             .map_err(|_| ClientError::Unknown)?;
 

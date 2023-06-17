@@ -28,7 +28,7 @@ impl SessionManager {
         Self { session, persisted }
     }
 
-    pub fn from_olm_session(session: OlmSession, contact: Contact) -> Result<Self, String> {
+    pub fn from_olm_session(session: OlmSession, contact: &Contact) -> Result<Self, String> {
         let session_bytes = serde_json::to_vec(&session.pickle()).map_err(|e| e.to_string())?;
         let persisted = StoredSession::new(
             session.session_id(),
@@ -93,9 +93,9 @@ mod tests {
         let account_a_contact = account_a.contact();
         let account_b_contact = account_b.contact();
 
-        let a_to_b_olm_session = account_a.create_outbound_session(account_b_contact.clone());
+        let a_to_b_olm_session = account_a.create_outbound_session(&account_b_contact);
         let mut a_to_b_session =
-            super::SessionManager::from_olm_session(a_to_b_olm_session, account_b_contact.clone())
+            super::SessionManager::from_olm_session(a_to_b_olm_session, &account_b_contact)
                 .unwrap();
 
         let message_store = &EncryptedMessageStore::default();
@@ -108,7 +108,7 @@ mod tests {
         let msg = a_to_b_session.encrypt("hello".as_bytes());
         if let OlmMessage::PreKey(m) = msg.clone() {
             let mut b_to_a_olm_session = account_b
-                .create_inbound_session(account_a_contact.clone(), m)
+                .create_inbound_session(&account_a_contact, m)
                 .unwrap();
 
             let reply = b_to_a_olm_session.session.encrypt("hello to you");

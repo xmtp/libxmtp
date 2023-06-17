@@ -150,7 +150,7 @@ impl Account {
         }
     }
 
-    pub fn create_outbound_session(&self, contact: Contact) -> OlmSession {
+    pub fn create_outbound_session(&self, contact: &Contact) -> OlmSession {
         self.keys.get().create_outbound_session(
             SessionConfig::version_2(),
             contact.vmac_identity_key(),
@@ -160,7 +160,7 @@ impl Account {
 
     pub fn create_inbound_session(
         &mut self,
-        contact: Contact,
+        contact: &Contact,
         pre_key_message: PreKeyMessage,
     ) -> Result<InboundCreationResult, AccountError> {
         // TODO: Save the account keys to the store
