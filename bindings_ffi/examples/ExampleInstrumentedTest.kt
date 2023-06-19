@@ -18,7 +18,7 @@ class ExampleInstrumentedTest {
     @Test
     fun testHappyPath() {
         runBlocking {
-            val client = uniffi.xmtpv3.createClient("http://10.0.2.2:5556", false);
+            val client = uniffi.xmtpv3.createClient(EMULATOR_LOCALHOST_ADDRESS, false);
             assertNotNull("Should be able to construct client", client.walletAddress())
         }
     }
