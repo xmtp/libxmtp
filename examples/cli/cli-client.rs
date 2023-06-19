@@ -1,7 +1,3 @@
-extern crate ethers;
-extern crate log;
-extern crate xmtp;
-
 use clap::{arg, Parser};
 use ethers_core::types::H160;
 use log::{error, info};
