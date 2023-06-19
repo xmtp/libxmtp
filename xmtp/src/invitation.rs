@@ -97,7 +97,7 @@ impl Invitation {
 
     fn inviter(envelope: InvitationEnvelope) -> Result<Contact, InvitationError> {
         let env = match envelope.version {
-            Some(V1Proto(env)) => Contact::new(env.inviter.unwrap(), None)?,
+            Some(V1Proto(env)) => Contact::from_unknown_wallet(env.inviter.unwrap())?,
             None => return Err(InvitationError::BadData("no version".to_string())),
         };
 
@@ -160,7 +160,7 @@ mod tests {
 
     #[test]
     fn serialize_round_trip() {
-        let mut client = ClientBuilder::new_test().build().unwrap();
+        let client = ClientBuilder::new_test().build().unwrap();
         let other_account = Account::generate(test_wallet_signer).unwrap();
         let session = client
             .create_outbound_session(other_account.contact())
@@ -207,7 +207,10 @@ mod tests {
         };
 
         let bad_invite = Invitation::build(
-            Contact { bundle: bad_bundle },
+            Contact {
+                bundle: bad_bundle,
+                wallet_address: "".to_string(),
+            },
             session,
             Invitation::build_inner_invite_bytes(other_account.addr().to_string()).unwrap(),
         );

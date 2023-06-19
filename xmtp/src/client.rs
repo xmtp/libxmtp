@@ -105,13 +105,13 @@ where
 
         let mut contacts = vec![];
         for envelope in response.envelopes {
-            let contact_bundle = Contact::from_bytes(envelope.message)?;
-            match contact_bundle.association(Some(wallet_address.to_string())) {
-                Ok(_) => {
-                    contacts.push(contact_bundle);
+            let contact_bundle = Contact::from_bytes(envelope.message, wallet_address.to_string());
+            match contact_bundle {
+                Ok(bundle) => {
+                    contacts.push(bundle);
                 }
                 Err(err) => {
-                    println!("bad association on contact bundle: {:?}", err);
+                    println!("bad contact bundle: {:?}", err);
                 }
             }
         }
@@ -150,11 +150,10 @@ where
 
     fn build_contact_envelope(&self) -> Result<Envelope, ClientError> {
         let contact = self.account.contact();
-        let contact_bytes = contact.to_bytes()?;
 
         let envelope = build_envelope(
             build_user_contact_topic(self.wallet_address()),
-            contact_bytes,
+            contact.try_into()?,
         );
 
         Ok(envelope)

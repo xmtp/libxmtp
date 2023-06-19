@@ -140,7 +140,7 @@ impl Account {
                     fallback_key: Some(fallback_key),
                 })),
             },
-            None,
+            self.assoc.address(),
         );
 
         if let Err(e) = contact {
