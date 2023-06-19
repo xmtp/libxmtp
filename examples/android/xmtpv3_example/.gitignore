@@ -37,3 +37,4 @@ jniLibs/
 xmtp_dh.kt
 xmtpv3.kt
 MainActivity.kt
+ExampleInstrumentedTest.kt
