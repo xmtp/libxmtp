@@ -105,11 +105,27 @@ where
 
         let mut contacts = vec![];
         for envelope in response.envelopes {
-            let contact_bundle = Contact::from_bytes(envelope.message, wallet_address.to_string())?;
-            contacts.push(contact_bundle);
+            let contact_bundle = Contact::from_bytes(envelope.message, wallet_address.to_string());
+            match contact_bundle {
+                Ok(bundle) => {
+                    contacts.push(bundle);
+                }
+                Err(err) => {
+                    println!("bad contact bundle: {:?}", err);
+                }
+            }
         }
 
         Ok(contacts)
+    }
+
+    pub async fn my_other_devices(&self) -> Result<Vec<Contact>, ClientError> {
+        let contacts = self.get_contacts(self.account.addr().as_str()).await?;
+        let my_contact_id = self.account.contact().installation_id();
+        Ok(contacts
+            .into_iter()
+            .filter(|c| c.installation_id() != my_contact_id)
+            .collect())
     }
 
     pub fn create_outbound_session(&self, contact: Contact) -> Result<SessionManager, ClientError> {
@@ -117,9 +133,7 @@ where
         let session = SessionManager::from_olm_session(olm_session, contact)
             .map_err(|_| ClientError::Unknown)?;
 
-        session
-            .store(&self._store)
-            .map_err(|_| ClientError::Unknown)?;
+        session.store(&self._store)?;
 
         Ok(session)
     }
@@ -136,11 +150,10 @@ where
 
     fn build_contact_envelope(&self) -> Result<Envelope, ClientError> {
         let contact = self.account.contact();
-        let contact_bytes = contact.to_bytes()?;
 
         let envelope = build_envelope(
             build_user_contact_topic(self.wallet_address()),
-            contact_bytes,
+            contact.try_into()?,
         );
 
         Ok(envelope)
