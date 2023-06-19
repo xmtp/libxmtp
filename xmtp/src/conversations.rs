@@ -1,6 +1,10 @@
+use vodozemac::olm::OlmMessage;
+
 use crate::{
     conversation::{ConversationError, SecretConversation},
+    invitation::{Invitation, InvitationError},
     networking::XmtpApiClient,
+    utils::build_user_invite_topic,
     Client,
 };
 
@@ -27,6 +31,33 @@ where
         let conversation = SecretConversation::new(self.client, wallet_address, contacts);
 
         Ok(conversation)
+    }
+
+    pub async fn list(&self) -> Result<Vec<SecretConversation<A>>, ConversationError> {
+        let my_contact = self.client.account.contact();
+        // TODO: Paginate results to allow for > 100 invites
+        let response = self
+            .client
+            .api_client
+            .query(
+                build_user_invite_topic(my_contact.installation_id()),
+                None,
+                None,
+                None,
+            )
+            .await
+            .map_err(|_| ConversationError::Unknown)?;
+
+        let conversations: Vec<SecretConversation<A>> = vec![];
+
+        for envelope in response.envelopes {
+            let invite: Invitation = envelope.message.try_into()?;
+            let message: OlmMessage = serde_json::from_slice(&invite.ciphertext.as_slice())
+                .map_err(|e| InvitationError::Unknown)?;
+            // TODO: Fill me in
+        }
+
+        Ok(vec![])
     }
 }
 

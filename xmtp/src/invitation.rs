@@ -29,8 +29,8 @@ pub enum InvitationError {
 
 #[derive(Clone, Debug)]
 pub struct Invitation {
-    inviter: Contact,
-    ciphertext: Vec<u8>,
+    pub(crate) inviter: Contact,
+    pub(crate) ciphertext: Vec<u8>,
 }
 
 impl Invitation {
@@ -50,12 +50,12 @@ impl Invitation {
         mut session: SessionManager,
         inner_invite_bytes: &Vec<u8>,
     ) -> Result<Invitation, InvitationError> {
-        let encrypted = session.encrypt(inner_invite_bytes.as_slice());
-
+        let olm_message = session.encrypt(inner_invite_bytes.as_slice());
+        let encrypted = serde_json::to_vec(&olm_message).unwrap();
         let envelope = InvitationEnvelope {
             version: Some(V1Proto(InvitationEnvelopeV1 {
                 inviter: Some(inviter.bundle),
-                ciphertext: encrypted.message().to_vec(),
+                ciphertext: encrypted,
             })),
         };
 
