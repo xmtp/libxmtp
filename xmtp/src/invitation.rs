@@ -48,7 +48,7 @@ impl Invitation {
     pub fn build(
         inviter: Contact,
         mut session: SessionManager,
-        inner_invite_bytes: Vec<u8>,
+        inner_invite_bytes: &Vec<u8>,
     ) -> Result<Invitation, InvitationError> {
         let encrypted = session.encrypt(inner_invite_bytes.as_slice());
 
@@ -169,7 +169,7 @@ mod tests {
         let invitation = Invitation::build(
             client.account.contact(),
             session,
-            Invitation::build_inner_invite_bytes(other_account.addr().to_string()).unwrap(),
+            &Invitation::build_inner_invite_bytes(other_account.addr().to_string()).unwrap(),
         )
         .unwrap();
 
@@ -212,7 +212,7 @@ mod tests {
                 wallet_address: "".to_string(),
             },
             session,
-            Invitation::build_inner_invite_bytes(other_account.addr().to_string()).unwrap(),
+            &Invitation::build_inner_invite_bytes(other_account.addr().to_string()).unwrap(),
         );
 
         assert!(bad_invite.is_err());

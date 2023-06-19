@@ -59,11 +59,8 @@ where
             let id = contact.installation_id();
             // TODO: Find existing session if it exists in the database
             let session = self.client.create_outbound_session(contact.clone())?;
-            let invitation = Invitation::build(
-                self.client.account.contact(),
-                session,
-                inner_invite_bytes.clone(),
-            )?;
+            let invitation =
+                Invitation::build(self.client.account.contact(), session, &inner_invite_bytes)?;
 
             let envelope = build_envelope(build_user_invite_topic(id), invitation.try_into()?);
 
