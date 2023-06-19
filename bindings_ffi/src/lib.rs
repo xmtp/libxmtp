@@ -1,9 +1,6 @@
-mod tonic_api_client;
-
 use std::sync::Arc;
-
-use tonic_api_client::TonicApiClient;
 use xmtp::types::Address;
+use xmtp_components::TonicApiClient;
 use xmtp_cryptography::utils::rng;
 use xmtp_cryptography::utils::LocalWallet;
 
