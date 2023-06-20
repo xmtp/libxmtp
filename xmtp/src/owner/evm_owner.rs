@@ -1,4 +1,4 @@
-use crate::{association::AssociationText, InboxOwner};
+use crate::InboxOwner;
 
 pub use ethers::signers::{LocalWallet, Signer};
 use futures::executor;

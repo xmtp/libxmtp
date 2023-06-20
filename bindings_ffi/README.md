@@ -27,7 +27,7 @@ The generated bindings (`xmtp_dh.kt`) and the cross-compiled binaries (`jniLibs`
 
 # Uniffi
 
-We are using Uniffi with the latest procedural macros syntax where possible, which also gives us async support. It is important to learn the syntax: https://mozilla.github.io/uniffi-rs/proc_macro/index.html
+We are using Uniffi with the latest procedural macros syntax where possible, which also gives us async support. It is important to learn the syntax: https://github.com/mozilla/uniffi-rs/blob/main/docs/manual/src/proc_macro/index.md.
 
 For the most part, any mistakes in the Uniffi interface will manifest as a compile error when running `./gen_kotlin.sh`. Some details are described below so that they are easier to understand.
 
@@ -37,6 +37,6 @@ Any objects crossing the Uniffi interface boundary must be wrapped in `Arc<>`, s
 
 ## Async and concurrency
 
-We use Tokio as our multi-threaded [async runtime](https://rust-lang.github.io/async-book/08_ecosystem/00_chapter.html). Uniffi can use this runtime on async methods and objects using the annotation `#[uniffi::export(async_runtime = ‘tokio’)]`. Uniffi plumbs up an executor (scheduler) in the foreign language to the Tokio runtime in Rust. More details [here](https://github.com/mozilla/uniffi-rs/blob/734050dbf1493ca92963f29bd3df49bb92bf7fb2/uniffi_core/src/ffi/rustfuture.rs#L11-L18).
+We use Tokio as our [async runtime](https://rust-lang.github.io/async-book/08_ecosystem/00_chapter.html). Uniffi can use this runtime on async methods and objects using the annotation `#[uniffi::export(async_runtime = ‘tokio’)]`. Uniffi plumbs up an executor (scheduler) in the foreign language to the Tokio runtime in Rust. More details [here](https://github.com/mozilla/uniffi-rs/blob/734050dbf1493ca92963f29bd3df49bb92bf7fb2/uniffi_core/src/ffi/rustfuture.rs#L11-L18).
 
-Because the foreign language may be multi-threaded, any objects passed to the foreign language must be `Send` and `Sync`, and [no references to `&mut self` are permitted](https://mozilla.github.io/uniffi-rs/udl/interfaces.html#concurrent-access). TODO: interior mutability pattern we should use, sync vs async mutex/rwlock
+Because the foreign language may be multi-threaded, any objects passed to the foreign language must be `Send` and `Sync`, and [no references to `&mut self` are permitted](https://mozilla.github.io/uniffi-rs/udl/interfaces.html#concurrent-access). For now, use the mutability pattern described in https://github.com/xmtp/libxmtp/pull/138.
