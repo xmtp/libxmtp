@@ -2,7 +2,6 @@
 
 members = [
   "xmtp",
-  "xmtp_components",
   "xmtp_crypto",
   "xmtp_cryptography",
   "xmtp_keystore",
