@@ -41,4 +41,4 @@ jobs:
         uses: actions-rs/cargo@v1
         with:
           command: test
-          args: --manifest-path bindings_ffi/Cargo.toml -- --skip test_generated_bindings
+          args: --manifest-path bindings_ffi/Cargo.toml -- --skip kts

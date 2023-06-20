@@ -29,12 +29,13 @@ The generated bindings (`xmtp_dh.kt`) and the cross-compiled binaries (`jniLibs`
 
 Ensure a local API host is running - run `dev/up` from the repo root.
 
-Run `cargo test -- --skip test_generated_bindings` to run unit tests. To run integration tests:
+You'll need to do the following one-time setup to run Kotlin tests:
 
 - Run `brew install kotlin` to get `kotlinc`
 - Install the JRE from `www.java.com`
 - Run `make install-jar` and add both jars to your CLASSPATH environment variable, for example add `export CLASSPATH=$HOME/jna/jna.jar:$HOME/jna/kotlinx-coroutines-core-jvm.jar` to your `.zshrc`
-- Run `cargo test -- kts` to test Kotlin, or just `cargo test` for the full suite of tests
+
+If you want to skip the setup, you can also run `cargo test -- --skip kts` to only run Rust unit tests. We are currently skipping this in CI.
 
 # Uniffi
 
