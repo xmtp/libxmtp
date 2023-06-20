@@ -12,6 +12,7 @@ crate-type = ["cdylib"]
 uniffi = { git = "https://github.com/mozilla/uniffi-rs", rev = "73caaf7c78c89866603bd7c4fca2bf783698bf71", features = ["tokio", "cli"] }
 uniffi_macros = { git = "https://github.com/mozilla/uniffi-rs", rev = "73caaf7c78c89866603bd7c4fca2bf783698bf71" }
 xmtp = { path = "../xmtp" }
+xmtp_cryptography = { path = "../xmtp_cryptography" }
 xmtp_networking = { path = "../xmtp_networking" }
 
 [build_dependencies]
@@ -25,7 +26,6 @@ path = "src/bin.rs"
 ethers = "2.0.4"
 ethers-core = "2.0.4"
 tokio = { version = "1.0", features = ["full"] }
-xmtp_cryptography = { path = "../xmtp_cryptography" }
 
 # NOTE: Thei release profile reduce bundle size from 230M to 41M - may have performance impliciations
 # https://stackoverflow.com/a/54842093
