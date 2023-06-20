@@ -20,26 +20,20 @@ pub enum SessionError {
 }
 
 pub struct SessionManager {
-    peer_address: Address,
     peer_installation_id: String,
     session: OlmSession,
 }
 
 impl SessionManager {
-    pub fn new(session: OlmSession, peer_address: Address, peer_installation_id: String) -> Self {
+    pub fn new(session: OlmSession, peer_installation_id: String) -> Self {
         Self {
             session,
-            peer_address,
             peer_installation_id,
         }
     }
 
     pub fn from_olm_session(session: OlmSession, contact: &Contact) -> Result<Self, String> {
-        Ok(Self::new(
-            session,
-            contact.wallet_address.clone(),
-            contact.installation_id(),
-        ))
+        Ok(Self::new(session, contact.installation_id()))
     }
 
     pub fn id(&self) -> String {
@@ -89,7 +83,6 @@ impl TryFrom<&StoredSession> for SessionManager {
 
         Ok(Self::new(
             OlmSession::from_pickle(pickle),
-            value.peer_address.clone(),
             value.peer_installation_id.clone(),
         ))
     }
