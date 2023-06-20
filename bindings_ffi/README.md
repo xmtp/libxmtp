@@ -25,6 +25,17 @@ The generated bindings (`xmtp_dh.kt`) and the cross-compiled binaries (`jniLibs`
 
 `Cross` allows us to run cross-platform builds without needing to download all of the relevant toolchains and should work regardless of your host OS. It is possible that the build time can be improved by building natively without Cross.
 
+# Running tests
+
+Ensure a local API host is running - run `dev/up` from the repo root.
+
+Run `cargo test -- --skip test_generated_bindings` to run unit tests. To run integration tests:
+
+- Run `brew install kotlin` to get `kotlinc`
+- Install the JRE from `www.java.com`
+- Run `make install-jar` and add both jars to your CLASSPATH environment variable, for example add `export CLASSPATH=$HOME/jna/jna.jar:$HOME/jna/kotlinx-coroutines-core-jvm.jar` to your `.zshrc`
+- Run `cargo test -- kts` to test Kotlin, or just `cargo test` for the full suite of tests
+
 # Uniffi
 
 We are using Uniffi with the latest procedural macros syntax where possible, which also gives us async support. It is important to learn the syntax: https://mozilla.github.io/uniffi-rs/proc_macro/index.html
