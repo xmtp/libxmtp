@@ -1,8 +1,9 @@
-use vodozemac::olm::OlmMessage;
+use prost::Message;
+use xmtp_proto::xmtp::v3::message_contents::InvitationV1;
 
 use crate::{
     conversation::{ConversationError, SecretConversation},
-    invitation::{Invitation, InvitationError},
+    invitation::Invitation,
     networking::XmtpApiClient,
     utils::build_user_invite_topic,
     Client,
@@ -33,7 +34,7 @@ where
         Ok(conversation)
     }
 
-    pub async fn list(&self) -> Result<Vec<SecretConversation<A>>, ConversationError> {
+    pub async fn load(&self) -> Result<Vec<SecretConversation<A>>, ConversationError> {
         let my_contact = self.client.account.contact();
         // TODO: Paginate results to allow for > 100 invites
         let response = self
@@ -48,12 +49,37 @@ where
             .await
             .map_err(|_| ConversationError::Unknown)?;
 
-        let conversations: Vec<SecretConversation<A>> = vec![];
+        let mut conversations: Vec<SecretConversation<A>> = vec![];
 
         for envelope in response.envelopes {
             let invite: Invitation = envelope.message.try_into()?;
-            let message: OlmMessage = serde_json::from_slice(&invite.ciphertext.as_slice())
-                .map_err(|e| InvitationError::Unknown)?;
+            let (session, plaintext) = self
+                .client
+                .create_inbound_session(invite.inviter.clone(), invite.ciphertext)?;
+            let inner_invite = InvitationV1::decode(plaintext.as_slice())
+                .map_err(|e| ConversationError::Unknown)?;
+
+            if invite.inviter == my_contact {
+                // TODO: Load all installations from peer
+                let conversation = SecretConversation::new(
+                    self.client,
+                    inner_invite.invitee_wallet_address,
+                    vec![invite.inviter],
+                );
+                conversations.push(conversation);
+            } else {
+                if inner_invite.invitee_wallet_address.clone() != my_contact.wallet_address {
+                    println!("invitee_wallet_address does not match");
+                    continue;
+                }
+                let conversation = SecretConversation::new(
+                    self.client,
+                    invite.inviter.clone().wallet_address,
+                    vec![invite.inviter],
+                );
+                conversations.push(conversation);
+            }
+
             // TODO: Fill me in
         }
 
