@@ -1,8 +1,6 @@
-use std::collections::HashMap;
-
-use async_trait::async_trait;
-
 use crate::types::networking::*;
+use async_trait::async_trait;
+use std::collections::HashMap;
 
 pub struct MockXmtpApiSubscription {}
 
