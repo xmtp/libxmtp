@@ -35,7 +35,7 @@ You'll need to do the following one-time setup to run Kotlin tests:
 - Install the JRE from `www.java.com`
 - Run `make install-jar` and add both jars to your CLASSPATH environment variable, for example add `export CLASSPATH=$HOME/jna/jna.jar:$HOME/jna/kotlinx-coroutines-core-jvm.jar` to your `.zshrc`
 
-If you want to skip the setup, you can also run `cargo test -- --skip kts` to only run Rust unit tests. We are currently skipping this in CI.
+If you want to skip the setup, you can also run `cargo test -- --skip kts` to only run Rust unit tests. CI will run all tests regardless.
 
 # Uniffi
 
