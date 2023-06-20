@@ -83,7 +83,7 @@ impl Association {
         let addr = wallet.get_address();
         let assoc_text = AssociationText::new_static(addr, pub_key);
 
-        let signature = wallet.sign(assoc_text.clone())?;
+        let signature = wallet.sign(&assoc_text.text())?;
         Ok(Self {
             text: assoc_text,
             signature,

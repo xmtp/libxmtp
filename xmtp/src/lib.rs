@@ -5,8 +5,8 @@ pub mod client;
 pub mod contact;
 pub mod conversation;
 pub mod conversations;
-pub mod mock_xmtp_api_client;
 pub mod invitation;
+pub mod mock_xmtp_api_client;
 pub mod owner;
 pub mod persistence;
 pub mod session;
@@ -16,7 +16,6 @@ pub mod types;
 mod utils;
 pub mod vmac_protos;
 
-use association::AssociationText;
 pub use builder::ClientBuilder;
 pub use client::{Client, Network};
 use storage::StorageError;
@@ -47,7 +46,7 @@ pub trait Save<I> {
 
 pub trait InboxOwner {
     fn get_address(&self) -> String;
-    fn sign(&self, text: AssociationText) -> Result<RecoverableSignature, SignatureError>;
+    fn sign(&self, text: &str) -> Result<RecoverableSignature, SignatureError>;
 }
 
 #[cfg(test)]

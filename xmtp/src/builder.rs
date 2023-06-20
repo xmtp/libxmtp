@@ -144,7 +144,7 @@ where
                 account_public_key: public_key_bytes.clone(),
             };
 
-            let signature = owner.sign(assoc_text.clone())?;
+            let signature = owner.sign(&assoc_text.text())?;
 
             Association::new(public_key_bytes.as_slice(), assoc_text, signature)
         };
