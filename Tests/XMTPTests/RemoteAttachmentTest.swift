@@ -20,6 +20,7 @@ struct TestFetcher: RemoteContentFetcher {
 	}
 }
 
+@available(macOS 13.0, *)
 @available(iOS 16, *)
 class RemoteAttachmentTests: XCTestCase {
 	var iconData: Data!

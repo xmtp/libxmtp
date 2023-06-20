@@ -10,6 +10,7 @@ import Foundation
 import XCTest
 @testable import XMTP
 import XMTPRust
+import XMTPTestHelpers
 
 @available(iOS 15, *)
 class PaginationTests: XCTestCase {
@@ -20,7 +21,7 @@ class PaginationTests: XCTestCase {
 	}
 
 	func testLongConvo() async throws {
-		throw XCTSkip("integration only (requires local node)")
+		try TestConfig.skipIfNotRunningLocalNodeTests()
 
 		let alice = try PrivateKey.generate()
 		let bob = try PrivateKey.generate()
@@ -70,13 +71,13 @@ class PaginationTests: XCTestCase {
 		XCTAssertEqual("hey alice 50", messages4[0].body)
 		XCTAssertEqual("hey alice 1", messages4[49].body)
 	}
-	
+
 	func testCanStreamConversationsV2() async throws {
-		throw XCTSkip("integration only (requires local node)")
+	    try TestConfig.skipIfNotRunningLocalNodeTests()
 
 		let alice = try PrivateKey.generate()
 		let bob = try PrivateKey.generate()
-		
+
 		// Need to upload Alice's contact bundle
 		let _ = try await newClientHelper(account: alice)
 		let bobClient = try await newClientHelper(account: bob)

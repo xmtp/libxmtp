@@ -51,6 +51,7 @@ class CodecTests: XCTestCase {
 	}
 
 	func testFallsBackToFallbackContentWhenCannotDecode() async throws {
+	    Client.register(codec: NumberCodec())
 		let fixtures = await fixtures()
 
 		let aliceClient = fixtures.aliceClient!

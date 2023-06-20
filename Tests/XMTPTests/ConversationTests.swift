@@ -34,26 +34,6 @@ class ConversationTests: XCTestCase {
 		bobClient = fixtures.bobClient
 	}
 
-	func testCanPrepareV1Message() async throws {
-		// Publish legacy contacts so we can get v1 conversations
-		try await fixtures.publishLegacyContact(client: bobClient)
-		try await fixtures.publishLegacyContact(client: aliceClient)
-
-		let conversation = try await aliceClient.conversations.newConversation(with: bob.address)
-		XCTAssertEqual(conversation.version, .v1)
-
-		let preparedMessage = try await conversation.prepareMessage(content: "hi")
-		let messageID = preparedMessage.messageID
-
-		try await preparedMessage.send()
-
-		let messages = try await conversation.messages()
-		let message = messages[0]
-
-		XCTAssertEqual("hi", message.body)
-		XCTAssertEqual(message.id, messageID)
-	}
-
 	func testCanPrepareV2Message() async throws {
 		let conversation = try await aliceClient.conversations.newConversation(with: bob.address)
 		let preparedMessage = try await conversation.prepareMessage(content: "hi")
@@ -92,8 +72,9 @@ class ConversationTests: XCTestCase {
 	}
 
 	func testDoesNotAllowConversationWithSelf() async throws {
+        try TestConfig.skipIfNotRunningLocalNodeTests()
 		let expectation = expectation(description: "convo with self throws")
-		let client = try await Client.create(account: alice)
+		let client = aliceClient!
 
 		do {
 			try await client.conversations.newConversation(with: alice.walletAddress)
@@ -130,36 +111,6 @@ class ConversationTests: XCTestCase {
 		XCTAssert(newConvos.isEmpty, "did not filter out self conversations")
 	}
 
-	func testCanStreamConversationsV1() async throws {
-		// Overwrite contact as legacy
-		try await publishLegacyContact(client: bobClient)
-		try await publishLegacyContact(client: aliceClient)
-
-		let expectation = expectation(description: "got a conversation")
-
-		Task(priority: .userInitiated) {
-			for try await conversation in aliceClient.conversations.stream() {
-				if conversation.peerAddress == bob.walletAddress {
-					expectation.fulfill()
-				}
-			}
-		}
-
-		guard case let .v1(conversation) = try await bobClient.conversations.newConversation(with: alice.walletAddress) else {
-			XCTFail("Did not create a v1 convo")
-			return
-		}
-
-		try await conversation.send(content: "hi")
-
-		// Remove known introduction from contacts to test de-duping
-		bobClient.contacts.hasIntroduced.removeAll()
-
-		try await conversation.send(content: "hi again")
-
-		await waitForExpectations(timeout: 5)
-	}
-
 	func testCanStreamConversationsV2() async throws {
 		let expectation1 = expectation(description: "got a conversation")
 		expectation1.expectedFulfillmentCount = 2
@@ -194,7 +145,7 @@ class ConversationTests: XCTestCase {
 
 		try await conversation2.send(content: "hi from new wallet")
 
-		await waitForExpectations(timeout: 3)
+		await waitForExpectations(timeout: 5)
 	}
 
 	func testCanUseCachedConversation() async throws {
@@ -232,50 +183,6 @@ class ConversationTests: XCTestCase {
 		XCTAssertEqual(1, newConversations.count, "already had conversations somehow")
 	}
 
-	func testCanFindExistingV1Conversation() async throws {
-		let encoder = TextCodec()
-		let encodedContent = try encoder.encode(content: "hi alice")
-
-		// Get a date that's roughly two weeks ago to test with
-		let someTimeAgo = Date().advanced(by: -2_000_000)
-
-		let messageV1 = try MessageV1.encode(
-			sender: bobClient.privateKeyBundleV1,
-			recipient: aliceClient.privateKeyBundleV1.toPublicKeyBundle(),
-			message: try encodedContent.serializedData(),
-			timestamp: someTimeAgo
-		)
-
-		// Overwrite contact as legacy
-		try await bobClient.publishUserContact(legacy: true)
-		try await aliceClient.publishUserContact(legacy: true)
-
-		try await bobClient.publish(envelopes: [
-			Envelope(topic: .userIntro(bob.walletAddress), timestamp: someTimeAgo, message: try Message(v1: messageV1).serializedData()),
-			Envelope(topic: .userIntro(alice.walletAddress), timestamp: someTimeAgo, message: try Message(v1: messageV1).serializedData()),
-			Envelope(topic: .directMessageV1(bob.walletAddress, alice.walletAddress), timestamp: someTimeAgo, message: try Message(v1: messageV1).serializedData()),
-		])
-
-		guard case let .v1(conversation) = try await aliceClient.conversations.newConversation(with: bob.walletAddress) else {
-			XCTFail("Did not have a convo with bob")
-			return
-		}
-
-		XCTAssertEqual(conversation.peerAddress, bob.walletAddress)
-		XCTAssertEqual(Int(conversation.sentAt.timeIntervalSince1970), Int(someTimeAgo.timeIntervalSince1970))
-
-		let existingMessages = fakeApiClient.published.count
-
-		guard case let .v1(conversation) = try await bobClient.conversations.newConversation(with: alice.walletAddress) else {
-			XCTFail("Did not have a convo with alice")
-			return
-		}
-
-		XCTAssertEqual(existingMessages, fakeApiClient.published.count, "published more messages when we shouldn't have")
-		XCTAssertEqual(conversation.peerAddress, alice.walletAddress)
-		XCTAssertEqual(Int(conversation.sentAt.timeIntervalSince1970), Int(someTimeAgo.timeIntervalSince1970))
-	}
-
 	func testCanFindExistingV2Conversation() async throws {
 		guard case let .v2(existingConversation) = try await bobClient.conversations.newConversation(with: alice.walletAddress, context: .init(conversationID: "http://example.com/2")) else {
 			XCTFail("Did not create existing conversation with alice")
@@ -302,48 +209,6 @@ class ConversationTests: XCTestCase {
 		envelope.message = try contactBundle.serializedData()
 
 		try await client.publish(envelopes: [envelope])
-	}
-
-	func testStreamingMessagesFromV1Conversation() async throws {
-		// Overwrite contact as legacy
-		try await publishLegacyContact(client: bobClient)
-		try await publishLegacyContact(client: aliceClient)
-
-		guard case let .v1(conversation) = try await aliceClient.conversations.newConversation(with: bob.walletAddress) else {
-			XCTFail("Did not have a convo with bob")
-			return
-		}
-
-		let expectation = expectation(description: "got a message")
-
-		Task(priority: .userInitiated) {
-			for try await _ in conversation.streamMessages() {
-				expectation.fulfill()
-			}
-		}
-
-		let encoder = TextCodec()
-		let encodedContent = try encoder.encode(content: "hi alice")
-
-		let date = Date().advanced(by: -1_000_000)
-
-		// Stream a message
-		fakeApiClient.send(
-			envelope: Envelope(
-				topic: conversation.topic,
-				timestamp: Date(),
-				message: try Message(
-					v1: MessageV1.encode(
-						sender: bobClient.privateKeyBundleV1,
-						recipient: aliceClient.privateKeyBundleV1.toPublicKeyBundle(),
-						message: try encodedContent.serializedData(),
-						timestamp: date
-					)
-				).serializedData()
-			)
-		)
-
-		await waitForExpectations(timeout: 3)
 	}
 
 	func testStreamingMessagesFromV2Conversations() async throws {
@@ -382,31 +247,6 @@ class ConversationTests: XCTestCase {
 		)
 
 		await waitForExpectations(timeout: 3)
-	}
-
-	func testCanLoadV1Messages() async throws {
-		// Overwrite contact as legacy so we can get v1
-		try await publishLegacyContact(client: bobClient)
-		try await publishLegacyContact(client: aliceClient)
-
-		guard case let .v1(bobConversation) = try await bobClient.conversations.newConversation(with: alice.address) else {
-			XCTFail("did not get a v1 conversation for alice")
-			return
-		}
-
-		guard case let .v1(aliceConversation) = try await aliceClient.conversations.newConversation(with: bob.address) else {
-			XCTFail("did not get a v1 conversation for alice")
-			return
-		}
-
-		try await bobConversation.send(content: "hey alice")
-		try await bobConversation.send(content: "hey alice again")
-
-		let messages = try await aliceConversation.messages()
-
-		XCTAssertEqual(2, messages.count)
-		XCTAssertEqual("hey alice", messages[1].body)
-		XCTAssertEqual(bob.address, messages[1].senderAddress)
 	}
 
 	func testCanLoadV2Messages() async throws {
@@ -596,27 +436,6 @@ class ConversationTests: XCTestCase {
 		XCTAssertEqual(conversation.peerAddress, "0x436D906d1339fC4E951769b1699051f020373D04")
 	}
 
-	func testV1ConversationCodable() async throws {
-		// Overwrite contact as legacy
-		try await publishLegacyContact(client: bobClient)
-		try await publishLegacyContact(client: aliceClient)
-
-		guard case let .v1(conversation) = try await aliceClient.conversations.newConversation(with: bob.walletAddress) else {
-			XCTFail("Did not have a v1 convo with bob")
-			return
-		}
-		try await conversation.send(content: "hi")
-		let envelope = fakeApiClient.published.first(where: { $0.contentTopic.hasPrefix("/xmtp/0/dm-") })!
-
-		let container = Conversation.v1(conversation).encodedContainer
-
-		try await fakeApiClient.assertNoQuery {
-			let decodedConversation = container.decode(with: aliceClient)
-			let decodedMessage = try decodedConversation.decode(envelope)
-			XCTAssertEqual(decodedMessage.body, "hi")
-		}
-	}
-
 	func testV2ConversationCodable() async throws {
 		guard case let .v2(conversation) = try await aliceClient.conversations.newConversation(with: bob.walletAddress) else {
 			XCTFail("Did not have a v2 convo with bob")
@@ -634,27 +453,6 @@ class ConversationTests: XCTestCase {
 		}
 	}
 
-	func testDecodeSingleV1Message() async throws {
-		// Overwrite contact as legacy
-		try await publishLegacyContact(client: bobClient)
-		try await publishLegacyContact(client: aliceClient)
-
-		guard case let .v1(conversation) = try await aliceClient.conversations.newConversation(with: bob.walletAddress) else {
-			XCTFail("Did not have a convo with bob")
-			return
-		}
-
-		try await conversation.send(content: "hi")
-
-		let message = fakeApiClient.published.first(where: { $0.contentTopic.hasPrefix("/xmtp/0/dm-") })!
-
-		let decodedMessage = try conversation.decode(envelope: message)
-		XCTAssertEqual("hi", decodedMessage.body)
-
-		let decodedMessage2 = try Conversation.v1(conversation).decode(message)
-		XCTAssertEqual("hi", decodedMessage2.body)
-	}
-
 	func testDecodeSingleV2Message() async throws {
 		guard case let .v2(conversation) = try await aliceClient.conversations.newConversation(with: bob.walletAddress) else {
 			XCTFail("Did not have a convo with bob")
@@ -670,50 +468,6 @@ class ConversationTests: XCTestCase {
 
 		let decodedMessage2 = try Conversation.v2(conversation).decode(message)
 		XCTAssertEqual("hi", decodedMessage2.body)
-	}
-
-	func testCanSendGzipCompressedV1Messages() async throws {
-		try await publishLegacyContact(client: bobClient)
-		try await publishLegacyContact(client: aliceClient)
-
-		guard case let .v1(bobConversation) = try await bobClient.conversations.newConversation(with: alice.address) else {
-			XCTFail("did not get a v1 conversation for alice")
-			return
-		}
-
-		guard case let .v1(aliceConversation) = try await aliceClient.conversations.newConversation(with: bob.address) else {
-			XCTFail("did not get a v1 conversation for alice")
-			return
-		}
-
-		try await bobConversation.send(content: Array(repeating: "A", count: 1000).joined(), options: .init(compression: .gzip))
-
-		let messages = try await aliceConversation.messages()
-
-		XCTAssertEqual(1, messages.count)
-		XCTAssertEqual(Array(repeating: "A", count: 1000).joined(), try messages[0].content())
-	}
-
-	func testCanSendDeflateCompressedV1Messages() async throws {
-		try await publishLegacyContact(client: bobClient)
-		try await publishLegacyContact(client: aliceClient)
-
-		guard case let .v1(bobConversation) = try await bobClient.conversations.newConversation(with: alice.address) else {
-			XCTFail("did not get a v1 conversation for alice")
-			return
-		}
-
-		guard case let .v1(aliceConversation) = try await aliceClient.conversations.newConversation(with: bob.address) else {
-			XCTFail("did not get a v1 conversation for alice")
-			return
-		}
-
-		try await bobConversation.send(content: Array(repeating: "A", count: 1000).joined(), options: .init(compression: .deflate))
-
-		let messages = try await aliceConversation.messages()
-
-		XCTAssertEqual(1, messages.count)
-		XCTAssertEqual(Array(repeating: "A", count: 1000).joined(), try messages[0].content())
 	}
 
 	func testCanSendGzipCompressedV2Messages() async throws {

@@ -11,6 +11,35 @@ import XCTest
 @testable import XMTP
 import XMTPRust
 
+public struct TestConfig {
+    static let TEST_SERVER_ENABLED = _env("TEST_SERVER_ENABLED") == "true"
+    // TODO: change Client constructor to accept these explicitly (so we can config CI):
+    // static let TEST_SERVER_HOST = _env("TEST_SERVER_HOST") ?? "127.0.0.1"
+    // static let TEST_SERVER_PORT = Int(_env("TEST_SERVER_PORT")) ?? 5556
+    // static let TEST_SERVER_IS_SECURE = _env("TEST_SERVER_IS_SECURE") == "true"
+
+    static private func _env(_ key: String) -> String? {
+        ProcessInfo.processInfo.environment[key]
+    }
+
+    static public func skipIfNotRunningLocalNodeTests() throws {
+        try XCTSkipIf(!TEST_SERVER_ENABLED, "requires local node")
+    }
+
+    static public func skip(because: String) throws {
+        try XCTSkipIf(true, because)
+    }
+}
+
+// Helper for tests gathering transcripts in a background task.
+public actor TestTranscript {
+    public var messages: [String] = []
+    public init() {}
+    public func add(_ message: String) {
+        messages.append(message)
+    }
+}
+
 public struct FakeWallet: SigningKey {
 	public static func generate() throws -> FakeWallet {
 		let key = try PrivateKey.generate()
@@ -101,13 +130,7 @@ public class FakeApiClient: ApiClient {
 	}
 
 	public func findPublishedEnvelope(_ topic: String) -> XMTP.Envelope? {
-		for envelope in published.reversed() {
-			if envelope.contentTopic == topic.description {
-				return envelope
-			}
-		}
-
-		return nil
+		return published.reversed().first { $0.contentTopic == topic.description }
 	}
 
 	// MARK: ApiClient conformance
@@ -144,16 +167,14 @@ public class FakeApiClient: ApiClient {
 
 		result.append(contentsOf: published.filter { $0.contentTopic == topic }.reversed())
 
-		if let startAt = pagination?.startTime {
+		if let startAt = pagination?.after {
 			result = result
-				.filter { $0.timestampNs < UInt64(startAt.millisecondsSinceEpoch * 1_000_000) }
-				.sorted(by: { $0.timestampNs > $1.timestampNs })
+				.filter { $0.timestampNs > UInt64(startAt.millisecondsSinceEpoch * 1_000_000) }
 		}
 
-		if let endAt = pagination?.endTime {
+		if let endAt = pagination?.before {
 			result = result
-				.filter { $0.timestampNs > UInt64(endAt.millisecondsSinceEpoch * 1_000_000) }
-				.sorted(by: { $0.timestampNs < $1.timestampNs })
+				.filter { $0.timestampNs < UInt64(endAt.millisecondsSinceEpoch * 1_000_000) }
 		}
 
 		if let limit = pagination?.limit {
@@ -246,6 +267,7 @@ public extension XCTestCase {
 	func fixtures() async -> Fixtures {
 		// swiftlint:disable force_try
 		return try! await Fixtures()
+		// swiftlint:enable force_try
 	}
 }
 #endif

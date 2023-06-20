@@ -9,6 +9,10 @@ import Foundation
 import web3
 import XMTPRust
 
+public enum ClientError: Error {
+    case creationError(String)
+}
+
 /// Specify configuration options for creating a ``Client``.
 public struct ClientOptions {
 	// Specify network options
@@ -74,15 +78,17 @@ public class Client {
 	/// Creates a client.
 	public static func create(account: SigningKey, options: ClientOptions? = nil) async throws -> Client {
 		let options = options ?? ClientOptions()
-
+        do {
 		let client = try await XMTPRust.create_client(GRPCApiClient.envToUrl(env: options.api.env), options.api.env != .local)
 		let apiClient = try GRPCApiClient(
 			environment: options.api.env,
 			secure: options.api.isSecure,
 			rustClient: client
 		)
-
 		return try await create(account: account, apiClient: apiClient)
+        } catch let error as RustString {
+            throw ClientError.creationError(error.toString())
+        }
 	}
 
 	static func create(account: SigningKey, apiClient: ApiClient) async throws -> Client {

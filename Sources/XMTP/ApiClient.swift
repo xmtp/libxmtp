@@ -18,6 +18,13 @@ typealias QueryRequest = Xmtp_MessageApi_V1_QueryRequest
 typealias QueryResponse = Xmtp_MessageApi_V1_QueryResponse
 typealias SubscribeRequest = Xmtp_MessageApi_V1_SubscribeRequest
 
+public enum ApiClientError: Error {
+    case batchQueryError(String)
+    case queryError(String)
+    case publishError(String)
+    case subscribeError(String)
+}
+
 protocol ApiClient {
 	var environment: XMTPEnvironment { get }
 	init(environment: XMTPEnvironment, secure: Bool, rustClient: XMTPRust.RustClient) throws
@@ -38,12 +45,12 @@ func makeQueryRequest(topic: String, pagination: Pagination? = nil, cursor: Curs
         if let pagination {
             $0.pagingInfo = pagination.pagingInfo
         }
-        if let startAt = pagination?.startTime {
-            $0.endTimeNs = UInt64(startAt.millisecondsSinceEpoch) * 1_000_000
+        if let endAt = pagination?.before {
+            $0.endTimeNs = UInt64(endAt.millisecondsSinceEpoch) * 1_000_000
             $0.pagingInfo.direction = .descending
         }
-        if let endAt = pagination?.endTime {
-            $0.startTimeNs = UInt64(endAt.millisecondsSinceEpoch) * 1_000_000
+        if let startAt = pagination?.after {
+            $0.startTimeNs = UInt64(startAt.millisecondsSinceEpoch) * 1_000_000
             $0.pagingInfo.direction = .descending
         }
         if let cursor {
@@ -79,15 +86,23 @@ class GRPCApiClient: ApiClient {
 	}
 
     func batchQuery(request: BatchQueryRequest) async throws -> BatchQueryResponse {
-        let req = RustVec<UInt8>(try request.serializedData())
-        let res: RustVec<UInt8> = try await rustClient.batch_query(req)
-        return try BatchQueryResponse(serializedData: Data(res))
+        do {
+            let req = RustVec<UInt8>(try request.serializedData())
+            let res: RustVec<UInt8> = try await rustClient.batch_query(req)
+            return try BatchQueryResponse(serializedData: Data(res))
+        } catch let error as RustString {
+            throw ApiClientError.batchQueryError(error.toString())
+        }
     }
 
     func query(request: QueryRequest) async throws -> QueryResponse {
-        let req = RustVec<UInt8>(try request.serializedData())
-        let res: RustVec<UInt8> = try await rustClient.query(req)
-        return try QueryResponse(serializedData: Data(res))
+        do {
+            let req = RustVec<UInt8>(try request.serializedData())
+            let res: RustVec<UInt8> = try await rustClient.query(req)
+            return try QueryResponse(serializedData: Data(res))
+        } catch let error as RustString {
+            throw ApiClientError.queryError(error.toString())
+        }
     }
 
     func query(topic: String, pagination: Pagination? = nil, cursor: Cursor? = nil) async throws -> QueryResponse {
@@ -120,25 +135,33 @@ class GRPCApiClient: ApiClient {
 			Task {
                 let request = SubscribeRequest.with { $0.contentTopics = topics }
                 let req = RustVec<UInt8>(try request.serializedData())
-                let subscription = try await self.rustClient.subscribe(req)
-				// Run a continuous for loop polling and sleeping for a bit each loop.
-				while true {
-					let buf = try subscription.get_envelopes_as_query_response()
-                    // Note: it uses QueryResponse as a convenient envelopes wrapper.
-                    let res = try QueryResponse(serializedData: Data(buf))
-                    for envelope in res.envelopes {
-						continuation.yield(envelope)
-					}
-					try await Task.sleep(nanoseconds: 50_000_000) // 50ms
-				}
+                do {
+                    let subscription = try await self.rustClient.subscribe(req)
+                    // Run a continuous for loop polling and sleeping for a bit each loop.
+                    while true {
+                        let buf = try subscription.get_envelopes_as_query_response()
+                        // Note: it uses QueryResponse as a convenient envelopes wrapper.
+                        let res = try QueryResponse(serializedData: Data(buf))
+                        for envelope in res.envelopes {
+                            continuation.yield(envelope)
+                        }
+                        try await Task.sleep(nanoseconds: 50_000_000) // 50ms
+                    }
+                } catch let error as RustString {
+                    throw ApiClientError.subscribeError(error.toString())
+                }
 			}
 		}
 	}
 
     func publish(request: PublishRequest) async throws -> PublishResponse {
-        let req = RustVec<UInt8>(try request.serializedData())
-        let res: RustVec<UInt8> = try await rustClient.publish(authToken.intoRustString(), req)
-        return try PublishResponse(serializedData: Data(res))
+        do {
+            let req = RustVec<UInt8>(try request.serializedData())
+            let res: RustVec<UInt8> = try await rustClient.publish(authToken.intoRustString(), req)
+            return try PublishResponse(serializedData: Data(res))
+        } catch let error as RustString {
+            throw ApiClientError.publishError(error.toString())
+        }
     }
 
 	@discardableResult func publish(envelopes: [Envelope]) async throws -> PublishResponse {
