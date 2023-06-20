@@ -19,7 +19,7 @@ serde = "1.0.160"
 serde_json = "1.0.96"
 thiserror = "1.0.40"
 vodozemac = {git= "https://github.com/xmtp/vodozemac", branch="dev"}
-xmtp_proto = { path = "../xmtp_proto", features = ["xmtp-v3-message_contents"] }
+xmtp_proto = { path = "../xmtp_proto", features = ["proto_full", "grpc"] }
 async-trait = "0.1.68"
 xmtp_cryptography = { path = "../xmtp_cryptography"}
 hex = "0.4.3"
