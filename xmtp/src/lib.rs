@@ -5,6 +5,7 @@ pub mod client;
 pub mod contact;
 pub mod conversation;
 pub mod conversations;
+pub mod invitation;
 pub mod networking;
 pub mod owner;
 pub mod persistence;
@@ -67,7 +68,7 @@ mod tests {
 
     #[tokio::test]
     async fn can_network() {
-        let mut client = ClientBuilder::new_test().build().unwrap();
+        let client = ClientBuilder::new_test().build().unwrap();
         let topic = Uuid::new_v4();
 
         client

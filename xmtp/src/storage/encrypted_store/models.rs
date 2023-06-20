@@ -65,7 +65,6 @@ fn now() -> i64 {
 pub struct Session {
     pub session_id: String,
     pub created_at: i64,
-    pub peer_address: String,
     pub peer_installation_id: String,
     pub vmac_session_data: Vec<u8>,
 }
@@ -73,14 +72,12 @@ pub struct Session {
 impl Session {
     pub fn new(
         session_id: String,
-        peer_address: String,
         peer_installation_id: String,
         vmac_session_data: Vec<u8>,
     ) -> Self {
         Self {
             session_id,
             created_at: now(),
-            peer_address,
             peer_installation_id,
             vmac_session_data,
         }
@@ -94,7 +91,6 @@ impl Save<EncryptedMessageStore> for Session {
         diesel::update(sessions::table)
             .set((
                 sessions::vmac_session_data.eq(&self.vmac_session_data),
-                sessions::peer_address.eq(&self.peer_address),
                 sessions::peer_installation_id.eq(&self.peer_installation_id),
             ))
             .execute(conn)?;
@@ -124,7 +120,7 @@ impl TryFrom<&Account> for NewStoredAccount {
             serialized_key: serde_json::to_vec(account).map_err(|e| {
                 StorageError::Store(format!(
                     "could not initialize model:NewStoredAccount -- {}",
-                    e.to_string()
+                    e
                 ))
             })?,
         })

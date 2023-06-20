@@ -14,8 +14,10 @@ cp -r jniLibs $APP_PATH/app/src/main/
 rm -f $APP_PATH/app/src/main/java/$PROJECT_NAME.kt
 cp src/uniffi/$PROJECT_NAME/$PROJECT_NAME.kt $APP_PATH/app/src/main/java/
 
-# Copy MainActivity.kt to the example project (comment this out if copying to a different app)
+# Copy MainActivity.kt and ExampleInstrumentedTest.kt to the example project (comment this out if copying to a different app)
 rm -f $APP_PATH/app/src/main/java/com/example/xmtpv3_example/MainActivity.kt
 ln examples/MainActivity.kt $APP_PATH/app/src/main/java/com/example/xmtpv3_example/MainActivity.kt
+rm -f $APP_PATH/app/src/androidTest/java/com/example/xmtpv3_example/ExampleInstrumentedTest.kt
+ln examples/ExampleInstrumentedTest.kt $APP_PATH/app/src/androidTest/java/com/example/xmtpv3_example/ExampleInstrumentedTest.kt
 
 echo "Now open the example project at $APP_PATH and build in Android Studio"

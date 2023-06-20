@@ -86,7 +86,7 @@ where
 
         if !registered_bundles
             .iter()
-            .any(|contact| contact.id() == app_contact_bundle.id())
+            .any(|contact| contact.installation_id() == app_contact_bundle.installation_id())
         {
             self.publish_user_contact().await?;
         }
@@ -105,29 +105,40 @@ where
 
         let mut contacts = vec![];
         for envelope in response.envelopes {
-            let contact_bundle = Contact::from_bytes(envelope.message, wallet_address.to_string())?;
-            contacts.push(contact_bundle);
+            let contact_bundle = Contact::from_bytes(envelope.message, wallet_address.to_string());
+            match contact_bundle {
+                Ok(bundle) => {
+                    contacts.push(bundle);
+                }
+                Err(err) => {
+                    println!("bad contact bundle: {:?}", err);
+                }
+            }
         }
 
         Ok(contacts)
     }
 
-    pub fn create_outbound_session(
-        &mut self,
-        contact: Contact,
-    ) -> Result<SessionManager, ClientError> {
+    pub async fn my_other_devices(&self) -> Result<Vec<Contact>, ClientError> {
+        let contacts = self.get_contacts(self.account.addr().as_str()).await?;
+        let my_contact_id = self.account.contact().installation_id();
+        Ok(contacts
+            .into_iter()
+            .filter(|c| c.installation_id() != my_contact_id)
+            .collect())
+    }
+
+    pub fn create_outbound_session(&self, contact: Contact) -> Result<SessionManager, ClientError> {
         let olm_session = self.account.create_outbound_session(contact.clone());
         let session = SessionManager::from_olm_session(olm_session, contact)
             .map_err(|_| ClientError::Unknown)?;
 
-        session
-            .store(&self._store)
-            .map_err(|_| ClientError::Unknown)?;
+        session.store(&self._store)?;
 
         Ok(session)
     }
 
-    async fn publish_user_contact(&mut self) -> Result<(), ClientError> {
+    async fn publish_user_contact(&self) -> Result<(), ClientError> {
         let envelope = self.build_contact_envelope()?;
         self.api_client
             .publish("".to_string(), vec![envelope])
@@ -139,11 +150,10 @@ where
 
     fn build_contact_envelope(&self) -> Result<Envelope, ClientError> {
         let contact = self.account.contact();
-        let contact_bytes = contact.to_bytes()?;
 
         let envelope = build_envelope(
             build_user_contact_topic(self.wallet_address()),
-            contact_bytes,
+            contact.try_into()?,
         );
 
         Ok(envelope)
@@ -166,7 +176,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_publish_user_contact() {
-        let mut client = ClientBuilder::new_test().build().unwrap();
+        let client = ClientBuilder::new_test().build().unwrap();
         client
             .publish_user_contact()
             .await

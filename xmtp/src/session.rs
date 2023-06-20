@@ -32,8 +32,7 @@ impl SessionManager {
         let session_bytes = serde_json::to_vec(&session.pickle()).map_err(|e| e.to_string())?;
         let persisted = Session::new(
             session.session_id(),
-            contact.wallet_address.clone(),
-            contact.id(),
+            contact.installation_id(),
             session_bytes,
         );
 
