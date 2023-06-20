@@ -1,6 +1,7 @@
 [workspace]
 
 members = [
+  "examples/cli",
   "xmtp",
   "xmtp_components",
   "xmtp_crypto",

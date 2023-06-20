@@ -1,0 +1,25 @@
+[package]
+name = "xli"
+version = "0.1.0"
+edition = "2021"
+default-run = "cli-client"
+
+[[bin]]
+name = "cli-client"
+path = "cli-client.rs"
+
+[dependencies]
+clap = {version = "4.3.0", features=["derive"]}
+ethers = "2.0.4"
+ethers-core = "2.0.4"
+env_logger = "0.10.0"
+futures = "0.3.28"
+log = "0.4.17"
+thiserror = "1.0.40"
+tokio = "1.28.1"
+url = "2.3.1"
+walletconnect = {git="https://github.com/nlordell/walletconnect-rs.git", features=["qr", "transport"]}
+xmtp = { path = "../../xmtp" }
+xmtp_cryptography = { path = "../../xmtp_cryptography"}
+
+
