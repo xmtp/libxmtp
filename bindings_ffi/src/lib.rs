@@ -1,7 +1,6 @@
 use std::error::Error;
-use std::sync::Arc;
-
 use xmtp::types::Address;
+use xmtp_components::TonicApiClient;
 use xmtp_cryptography::utils::rng;
 use xmtp_cryptography::utils::LocalWallet;
 use xmtp_networking::grpc_api_helper::Client as TonicApiClient;

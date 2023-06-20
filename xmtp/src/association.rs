@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 use thiserror::Error;
 use xmtp_cryptography::signature::{RecoverableSignature, SignatureError};
 use xmtp_cryptography::utils::generate_local_wallet;
-use xmtp_proto::xmtp::v3::message_contents::Eip191Association;
+use xmtp_proto::xmtp::v3::message_contents::Eip191Association as Eip191AssociationProto;
 use xmtp_proto::xmtp::v3::message_contents::RecoverableEcdsaSignature as RecoverableEcdsaSignatureProto;
 
 #[derive(Debug, Error)]
@@ -44,15 +44,13 @@ impl Association {
         Ok(this)
     }
 
-    pub fn from_proto(
+    pub fn from_proto_with_expected_address(
         account_public_key: &[u8],
-        intended_wallet_address: &str,
-        proto: Eip191Association,
+        proto: Eip191AssociationProto,
+        expected_wallet_address: String,
     ) -> Result<Self, AssociationError> {
-        let text = AssociationText::new_static(
-            intended_wallet_address.to_string(),
-            account_public_key.to_vec(),
-        );
+        let text =
+            AssociationText::new_static(expected_wallet_address, account_public_key.to_vec());
         let signature = RecoverableSignature::Eip191Signature(proto.signature.unwrap().bytes);
         Self::new(account_public_key, text, signature)
     }
@@ -93,9 +91,10 @@ impl Association {
     }
 }
 
-impl From<Association> for Eip191Association {
+impl From<Association> for Eip191AssociationProto {
     fn from(assoc: Association) -> Self {
         Self {
+            wallet_address: assoc.address(),
             // Hardcoded version for now
             association_text_version: 1,
             signature: Some(RecoverableEcdsaSignatureProto {
@@ -159,7 +158,7 @@ fn gen_static_text_v1(addr: &str, key_bytes: &[u8]) -> String {
 pub mod tests {
     use ethers::signers::{LocalWallet, Signer};
     use xmtp_cryptography::{signature::h160addr_to_string, utils::rng};
-    use xmtp_proto::xmtp::v3::message_contents::Eip191Association;
+    use xmtp_proto::xmtp::v3::message_contents::Eip191Association as Eip191AssociationProto;
 
     use super::{Association, AssociationText};
 
@@ -215,7 +214,7 @@ pub mod tests {
         let sig = wallet.sign_message(text.text()).await.expect("BadSign");
 
         let assoc = Association::new(&key_bytes, text.clone(), sig.into()).unwrap();
-        let proto_signature: Eip191Association = assoc.into();
+        let proto_signature: Eip191AssociationProto = assoc.into();
 
         assert_eq!(proto_signature.association_text_version, 1);
         assert_eq!(proto_signature.signature.unwrap().bytes, sig.to_vec());
