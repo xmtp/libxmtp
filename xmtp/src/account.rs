@@ -192,7 +192,6 @@ pub(crate) mod tests {
     use ethers_core::types::{Address as EthAddress, Signature};
     use ethers_core::utils::hex;
     use serde_json::json;
-    use vodozemac::olm::OlmMessage;
 
     pub fn test_wallet_signer(pub_key: Vec<u8>) -> Result<Association, AssociationError> {
         Association::test(pub_key)

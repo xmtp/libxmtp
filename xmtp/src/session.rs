@@ -88,7 +88,7 @@ mod tests {
     #[test]
     fn round_trip_session() {
         let account_a = Account::generate(test_wallet_signer).unwrap();
-        let mut account_b = Account::generate(test_wallet_signer).unwrap();
+        let account_b = Account::generate(test_wallet_signer).unwrap();
 
         let account_a_contact = account_a.contact();
         let account_b_contact = account_b.contact();

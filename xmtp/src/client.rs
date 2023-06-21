@@ -151,7 +151,7 @@ where
         message: Vec<u8>,
     ) -> Result<(SessionManager, Vec<u8>), ClientError> {
         let olm_message: OlmMessage =
-            serde_json::from_slice(&message.as_slice()).map_err(|e| ClientError::Unknown)?;
+            serde_json::from_slice(&message.as_slice()).map_err(|_| ClientError::Unknown)?;
         let msg = match olm_message {
             OlmMessage::PreKey(msg) => msg,
             _ => return Err(ClientError::Unknown),
