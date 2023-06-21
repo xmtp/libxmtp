@@ -11,11 +11,11 @@ pub mod owner;
 pub mod persistence;
 pub mod session;
 pub mod storage;
+#[cfg(feature = "types")]
 pub mod types;
 mod utils;
 pub mod vmac_protos;
 
-use association::AssociationText;
 pub use builder::ClientBuilder;
 pub use client::{Client, Network};
 use storage::StorageError;
@@ -46,7 +46,7 @@ pub trait Save<I> {
 
 pub trait InboxOwner {
     fn get_address(&self) -> String;
-    fn sign(&self, text: AssociationText) -> Result<RecoverableSignature, SignatureError>;
+    fn sign(&self, text: &str) -> Result<RecoverableSignature, SignatureError>;
 }
 
 #[cfg(test)]

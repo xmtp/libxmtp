@@ -53,10 +53,7 @@ impl InboxOwner for Wallet {
         }
     }
 
-    fn sign(
-        &self,
-        text: xmtp::association::AssociationText,
-    ) -> Result<RecoverableSignature, SignatureError> {
+    fn sign(&self, text: &str) -> Result<RecoverableSignature, SignatureError> {
         match self {
             Wallet::WalletConnectWallet(w) => w.sign(text),
             Wallet::LocalWallet(w) => w.sign(text),
@@ -168,15 +165,13 @@ impl InboxOwner for WalletConnectWallet {
 
     fn sign(
         &self,
-        text: xmtp::association::AssociationText,
+        text: &str,
     ) -> Result<
         xmtp_cryptography::signature::RecoverableSignature,
         xmtp_cryptography::signature::SignatureError,
     > {
-        let sig = futures::executor::block_on(async {
-            self.client.personal_sign(&[text.text().as_str()]).await
-        })
-        .map_err(|e| SignatureError::ThirdPartyError(e.to_string()))?;
+        let sig = futures::executor::block_on(async { self.client.personal_sign(&[text]).await })
+            .map_err(|e| SignatureError::ThirdPartyError(e.to_string()))?;
 
         Ok(RecoverableSignature::Eip191Signature(sig.to_vec()))
     }
