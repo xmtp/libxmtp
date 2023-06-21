@@ -9,6 +9,8 @@ mod tests {
 
     use super::*;
     use grpc_api_helper::Client;
+    use xmtp::types::networking::XmtpApiClient;
+    use xmtp::types::networking::XmtpApiSubscription;
     use xmtp_proto::xmtp::message_api::v1::{
         BatchQueryRequest, Envelope, PublishRequest, QueryRequest, SubscribeRequest,
     };

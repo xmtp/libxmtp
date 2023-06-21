@@ -1,7 +1,3 @@
-extern crate ethers;
-extern crate log;
-extern crate xmtp;
-
 use clap::{arg, Parser};
 use ethers_core::types::H160;
 use log::{error, info};
@@ -10,7 +6,7 @@ use url::ParseError;
 use walletconnect::client::{CallError, ConnectorError, SessionError};
 use walletconnect::{qr, Client as WcClient, Metadata};
 use xmtp::builder::AccountStrategy;
-use xmtp::networking::MockXmtpApiClient;
+use xmtp::mock_xmtp_api_client::MockXmtpApiClient;
 use xmtp::storage::{EncryptedMessageStore, StorageError, StorageOption};
 use xmtp::InboxOwner;
 use xmtp_cryptography::signature::{h160addr_to_string, RecoverableSignature, SignatureError};
@@ -57,10 +53,7 @@ impl InboxOwner for Wallet {
         }
     }
 
-    fn sign(
-        &self,
-        text: xmtp::association::AssociationText,
-    ) -> Result<RecoverableSignature, SignatureError> {
+    fn sign(&self, text: &str) -> Result<RecoverableSignature, SignatureError> {
         match self {
             Wallet::WalletConnectWallet(w) => w.sign(text),
             Wallet::LocalWallet(w) => w.sign(text),
@@ -172,15 +165,13 @@ impl InboxOwner for WalletConnectWallet {
 
     fn sign(
         &self,
-        text: xmtp::association::AssociationText,
+        text: &str,
     ) -> Result<
         xmtp_cryptography::signature::RecoverableSignature,
         xmtp_cryptography::signature::SignatureError,
     > {
-        let sig = futures::executor::block_on(async {
-            self.client.personal_sign(&[text.text().as_str()]).await
-        })
-        .map_err(|e| SignatureError::ThirdPartyError(e.to_string()))?;
+        let sig = futures::executor::block_on(async { self.client.personal_sign(&[text]).await })
+            .map_err(|e| SignatureError::ThirdPartyError(e.to_string()))?;
 
         Ok(RecoverableSignature::Eip191Signature(sig.to_vec()))
     }

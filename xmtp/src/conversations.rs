@@ -5,6 +5,7 @@ use crate::{
     conversation::{ConversationError, SecretConversation},
     invitation::Invitation,
     networking::XmtpApiClient,
+    types::networking::XmtpApiClient,
     utils::build_user_invite_topic,
     Client,
 };

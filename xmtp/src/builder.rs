@@ -2,8 +2,8 @@ use crate::{
     account::{Account, AccountError},
     association::{Association, AssociationError, AssociationText},
     client::{Client, Network},
-    networking::XmtpApiClient,
     storage::EncryptedMessageStore,
+    types::networking::XmtpApiClient,
     types::Address,
     InboxOwner, Store,
 };
@@ -144,7 +144,7 @@ where
                 account_public_key: public_key_bytes.clone(),
             };
 
-            let signature = owner.sign(assoc_text.clone())?;
+            let signature = owner.sign(&assoc_text.text())?;
 
             Association::new(public_key_bytes.as_slice(), assoc_text, signature)
         };
@@ -179,7 +179,7 @@ mod tests {
     use xmtp_cryptography::utils::generate_local_wallet;
 
     use crate::{
-        networking::MockXmtpApiClient,
+        mock_xmtp_api_client::MockXmtpApiClient,
         storage::{EncryptedMessageStore, StorageOption},
         Client,
     };
