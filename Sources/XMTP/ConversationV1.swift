@@ -38,27 +38,9 @@ public struct ConversationV1 {
 		Topic.directMessageV1(client.address, peerAddress)
 	}
 
-	func prepareMessage<T>(content: T, options: SendOptions?) async throws -> PreparedMessage {
+	func prepareMessage(encodedContent: EncodedContent) async throws -> PreparedMessage {
 		guard let contact = try await client.contacts.find(peerAddress) else {
 			throw ContactBundleError.notFound
-		}
-
-		let codec = Client.codecRegistry.find(for: options?.contentType)
-
-		func encode<Codec: ContentCodec>(codec: Codec, content: Any) throws -> EncodedContent {
-			if let content = content as? Codec.T {
-				return try codec.encode(content: content)
-			} else {
-				throw CodecError.invalidContent
-			}
-		}
-
-		let content = content as T
-		var encoded = try encode(codec: codec, content: content)
-		encoded.fallback = options?.contentFallback ?? ""
-
-		if let compression = options?.compression {
-			encoded = try encoded.compress(compression)
 		}
 
 		let recipient = try contact.toPublicKeyBundle()
@@ -72,7 +54,7 @@ public struct ConversationV1 {
 		let message = try MessageV1.encode(
 			sender: client.privateKeyBundleV1,
 			recipient: recipient,
-			message: try encoded.serializedData(),
+			message: try encodedContent.serializedData(),
 			timestamp: date
 		)
 
@@ -106,12 +88,40 @@ public struct ConversationV1 {
 		}
 	}
 
+	func prepareMessage<T>(content: T, options: SendOptions?) async throws -> PreparedMessage {
+		let codec = Client.codecRegistry.find(for: options?.contentType)
+
+		func encode<Codec: ContentCodec>(codec: Codec, content: Any) throws -> EncodedContent {
+			if let content = content as? Codec.T {
+				return try codec.encode(content: content)
+			} else {
+				throw CodecError.invalidContent
+			}
+		}
+
+		let content = content as T
+		var encoded = try encode(codec: codec, content: content)
+		encoded.fallback = options?.contentFallback ?? ""
+
+		if let compression = options?.compression {
+			encoded = try encoded.compress(compression)
+		}
+
+		return try await prepareMessage(encodedContent: encoded)
+	}
+
 	@discardableResult func send(content: String, options: SendOptions? = nil) async throws -> String {
 		return try await send(content: content, options: options, sentAt: nil)
 	}
 
 	@discardableResult internal func send(content: String, options: SendOptions? = nil, sentAt _: Date? = nil) async throws -> String {
 		let preparedMessage = try await prepareMessage(content: content, options: options)
+		try await preparedMessage.send()
+		return preparedMessage.messageID
+	}
+
+	@discardableResult func send(encodedContent: EncodedContent) async throws -> String {
+		let preparedMessage = try await prepareMessage(encodedContent: encodedContent)
 		try await preparedMessage.send()
 		return preparedMessage.messageID
 	}

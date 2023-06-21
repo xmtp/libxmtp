@@ -123,6 +123,15 @@ public enum Conversation: Sendable {
 		}
 	}
 
+	@discardableResult public func send(encodedContent: EncodedContent) async throws -> String {
+		switch self {
+		case let .v1(conversationV1):
+			return try await conversationV1.send(encodedContent: encodedContent)
+		case let .v2(conversationV2):
+			return try await conversationV2.send(encodedContent: encodedContent)
+		}
+	}
+
 	/// Send a message to the conversation
 	public func send(text: String, options: SendOptions? = nil) async throws -> String {
 		switch self {

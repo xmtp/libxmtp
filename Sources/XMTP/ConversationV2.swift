@@ -75,6 +75,20 @@ public struct ConversationV2 {
 		ConversationV2Container(topic: topic, keyMaterial: keyMaterial, conversationID: context.conversationID, metadata: context.metadata, peerAddress: peerAddress, header: header)
 	}
 
+	func prepareMessage(encodedContent: EncodedContent) async throws -> PreparedMessage {
+		let message = try await MessageV2.encode(
+			client: client,
+			content: encodedContent,
+			topic: topic,
+			keyMaterial: keyMaterial
+		)
+
+		let envelope = Envelope(topic: topic, timestamp: Date(), message: try Message(v2: message).serializedData())
+		return PreparedMessage(messageEnvelope: envelope, conversation: .v2(self)) {
+			try await client.publish(envelopes: [envelope])
+		}
+	}
+
 	func prepareMessage<T>(content: T, options: SendOptions?) async throws -> PreparedMessage {
 		let codec = Client.codecRegistry.find(for: options?.contentType)
 
@@ -93,17 +107,7 @@ public struct ConversationV2 {
 			encoded = try encoded.compress(compression)
 		}
 
-		let message = try await MessageV2.encode(
-			client: client,
-			content: encoded,
-			topic: topic,
-			keyMaterial: keyMaterial
-		)
-
-		let envelope = Envelope(topic: topic, timestamp: Date(), message: try Message(v2: message).serializedData())
-		return PreparedMessage(messageEnvelope: envelope, conversation: .v2(self)) {
-			try await client.publish(envelopes: [envelope])
-		}
+		return try await prepareMessage(encodedContent: encoded)
 	}
 
 	func messages(limit: Int? = nil, before: Date? = nil, after: Date? = nil) async throws -> [DecodedMessage] {
@@ -158,6 +162,12 @@ public struct ConversationV2 {
 
 	@discardableResult func send(content: String, options: SendOptions? = nil, sentAt _: Date) async throws -> String {
 		let preparedMessage = try await prepareMessage(content: content, options: options)
+		try await preparedMessage.send()
+		return preparedMessage.messageID
+	}
+
+	@discardableResult func send(encodedContent: EncodedContent) async throws -> String {
+		let preparedMessage = try await prepareMessage(encodedContent: encodedContent)
 		try await preparedMessage.send()
 		return preparedMessage.messageID
 	}
