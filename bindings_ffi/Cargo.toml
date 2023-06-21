@@ -6,7 +6,7 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [lib]
-crate-type = ["cdylib"]
+crate-type = ["lib", "cdylib"]
 
 [dependencies]
 uniffi = { git = "https://github.com/mozilla/uniffi-rs", rev = "755049ebaa967fdfbb192d5b9c111353a7fee99f", features = ["tokio", "cli"] }
@@ -28,6 +28,7 @@ path = "src/bin.rs"
 ethers = "2.0.4"
 ethers-core = "2.0.4"
 tokio = { version = "1.0", features = ["full"] }
+uniffi = { git = "https://github.com/mozilla/uniffi-rs", rev = "755049ebaa967fdfbb192d5b9c111353a7fee99f", features = ["bindgen-tests"] }
 
 # NOTE: Thei release profile reduce bundle size from 230M to 41M - may have performance impliciations
 # https://stackoverflow.com/a/54842093
