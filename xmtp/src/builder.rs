@@ -2,8 +2,8 @@ use crate::{
     account::{Account, AccountError},
     association::{Association, AssociationError, AssociationText},
     client::{Client, Network},
-    networking::XmtpApiClient,
     storage::EncryptedMessageStore,
+    types::networking::XmtpApiClient,
     types::Address,
     InboxOwner, Store,
 };
@@ -179,7 +179,7 @@ mod tests {
     use xmtp_cryptography::utils::generate_local_wallet;
 
     use crate::{
-        networking::MockXmtpApiClient,
+        mock_xmtp_api_client::MockXmtpApiClient,
         storage::{EncryptedMessageStore, StorageOption},
         Client,
     };

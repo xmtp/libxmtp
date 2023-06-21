@@ -6,7 +6,7 @@ pub mod contact;
 pub mod conversation;
 pub mod conversations;
 pub mod invitation;
-pub mod networking;
+pub mod mock_xmtp_api_client;
 pub mod owner;
 pub mod persistence;
 pub mod session;
@@ -51,7 +51,10 @@ pub trait InboxOwner {
 
 #[cfg(test)]
 mod tests {
-    use crate::{builder::ClientBuilder, networking::XmtpApiClient};
+    use crate::{
+        builder::ClientBuilder,
+        types::networking::{PublishRequest, QueryRequest, XmtpApiClient},
+    };
     use std::time::{SystemTime, UNIX_EPOCH};
     use uuid::Uuid;
     use xmtp_proto::xmtp::message_api::v1::Envelope;
@@ -73,13 +76,23 @@ mod tests {
 
         client
             .api_client
-            .publish("".to_string(), vec![gen_test_envelope(topic.to_string())])
+            .publish(
+                "".to_string(),
+                PublishRequest {
+                    envelopes: vec![gen_test_envelope(topic.to_string())],
+                },
+            )
             .await
             .unwrap();
 
         let result = client
             .api_client
-            .query(topic.to_string(), None, None, None)
+            .query(QueryRequest {
+                content_topics: vec![topic.to_string()],
+                start_time_ns: 0,
+                end_time_ns: 0,
+                paging_info: None,
+            })
             .await
             .unwrap();
 

@@ -6,7 +6,7 @@ use url::ParseError;
 use walletconnect::client::{CallError, ConnectorError, SessionError};
 use walletconnect::{qr, Client as WcClient, Metadata};
 use xmtp::builder::AccountStrategy;
-use xmtp::networking::MockXmtpApiClient;
+use xmtp::mock_xmtp_api_client::MockXmtpApiClient;
 use xmtp::storage::{EncryptedMessageStore, StorageError, StorageOption};
 use xmtp::InboxOwner;
 use xmtp_cryptography::signature::{h160addr_to_string, RecoverableSignature, SignatureError};
