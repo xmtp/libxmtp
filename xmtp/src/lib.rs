@@ -5,13 +5,12 @@ pub mod client;
 pub mod contact;
 pub mod conversation;
 pub mod conversations;
-pub mod mock_xmtp_api_client;
 pub mod invitation;
+pub mod mock_xmtp_api_client;
 pub mod owner;
 pub mod persistence;
 pub mod session;
 pub mod storage;
-#[cfg(feature = "types")]
 pub mod types;
 mod utils;
 pub mod vmac_protos;

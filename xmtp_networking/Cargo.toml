@@ -7,7 +7,7 @@ edition = "2021"
 
 [dependencies]
 tonic = "^0.9"
-xmtp = { path = "../xmtp", features = ["types"] }
+xmtp = { path = "../xmtp" }
 xmtp_proto = { path = "../xmtp_proto", features = ["proto_full", "grpc"] }
 prost = { version  = "^0.11", features = ["prost-derive"] }
 tokio = { version = "1.24", features = ["macros", "rt-multi-thread", "time"] }
