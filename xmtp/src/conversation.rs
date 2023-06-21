@@ -2,7 +2,6 @@ use crate::{
     client::ClientError,
     contact::Contact,
     invitation::{Invitation, InvitationError},
-    networking::XmtpApiClient,
     types::networking::PublishRequest,
     types::networking::XmtpApiClient,
     types::Address,

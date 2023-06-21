@@ -1,10 +1,9 @@
 use prost::Message;
-use xmtp_proto::xmtp::v3::message_contents::InvitationV1;
+use xmtp_proto::xmtp::{message_api::v1::QueryRequest, v3::message_contents::InvitationV1};
 
 use crate::{
     conversation::{ConversationError, SecretConversation},
     invitation::Invitation,
-    networking::XmtpApiClient,
     types::networking::XmtpApiClient,
     utils::build_user_invite_topic,
     Client,
@@ -41,12 +40,12 @@ where
         let response = self
             .client
             .api_client
-            .query(
-                build_user_invite_topic(my_contact.installation_id()),
-                None,
-                None,
-                None,
-            )
+            .query(QueryRequest {
+                content_topics: vec![build_user_invite_topic(my_contact.installation_id())],
+                start_time_ns: 0,
+                end_time_ns: 0,
+                paging_info: None,
+            })
             .await
             .map_err(|_| ConversationError::Unknown)?;
 
@@ -91,7 +90,9 @@ where
 
 #[cfg(test)]
 mod tests {
-    use crate::{conversations::Conversations, networking::MockXmtpApiClient, ClientBuilder};
+    use crate::{
+        conversations::Conversations, mock_xmtp_api_client::MockXmtpApiClient, ClientBuilder,
+    };
 
     #[tokio::test]
     async fn create_secret_conversation() {
