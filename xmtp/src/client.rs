@@ -142,8 +142,9 @@ where
     pub fn create_inbound_session(
         &self,
         contact: Contact,
+        // Message MUST be a pre-key message
         message: Vec<u8>,
-    ) -> Result<SessionManager, ClientError> {
+    ) -> Result<(SessionManager, Vec<u8>), ClientError> {
         let olm_message: OlmMessage =
             serde_json::from_slice(&message.as_slice()).map_err(|e| ClientError::Unknown)?;
         let msg = match olm_message {
@@ -161,7 +162,7 @@ where
 
         session.store(&self._store)?;
 
-        Ok(session)
+        Ok((session, create_result.plaintext))
     }
 
     async fn publish_user_contact(&self) -> Result<(), ClientError> {
@@ -237,7 +238,8 @@ mod tests {
                 assert_eq!(
                     client
                         .account
-                        .keys
+                        .olm_account()
+                        .unwrap()
                         .get()
                         .curve25519_key()
                         .to_bytes()

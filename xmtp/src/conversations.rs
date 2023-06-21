@@ -53,11 +53,12 @@ where
 
         for envelope in response.envelopes {
             let invite: Invitation = envelope.message.try_into()?;
-            let (session, plaintext) = self
+            let (_, plaintext) = self
                 .client
                 .create_inbound_session(invite.inviter.clone(), invite.ciphertext)?;
+
             let inner_invite = InvitationV1::decode(plaintext.as_slice())
-                .map_err(|e| ConversationError::Unknown)?;
+                .map_err(|_| ConversationError::Unknown)?;
 
             if invite.inviter == my_contact {
                 // TODO: Load all installations from peer
@@ -83,13 +84,13 @@ where
             // TODO: Fill me in
         }
 
-        Ok(vec![])
+        Ok(conversations)
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use crate::{conversations::Conversations, ClientBuilder};
+    use crate::{conversations::Conversations, networking::MockXmtpApiClient, ClientBuilder};
 
     #[tokio::test]
     async fn create_secret_conversation() {
@@ -106,5 +107,26 @@ mod tests {
 
         assert_eq!(conversation.peer_address(), bob_client.wallet_address());
         conversation.initialize().await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn load_conversations() {
+        let api_client = MockXmtpApiClient::new();
+        let alice_client = ClientBuilder::new_test()
+            .api_client(api_client)
+            .build()
+            .unwrap();
+        let bob_client = ClientBuilder::new_test().build().unwrap();
+        let alice_conversations = Conversations::new(&alice_client);
+        let bob_conversations = Conversations::new(&bob_client);
+
+        let alice_convo = alice_conversations
+            .new_secret_conversation(bob_client.wallet_address().to_string())
+            .await
+            .unwrap();
+        alice_convo.initialize().await.unwrap();
+
+        let bob_convo_list = bob_conversations.load().await.unwrap();
+        assert_eq!(bob_convo_list.len(), 1);
     }
 }

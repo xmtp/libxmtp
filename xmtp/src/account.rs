@@ -1,3 +1,5 @@
+use std::sync::{Arc, Mutex, MutexGuard};
+
 use crate::{
     association::{Association, AssociationError},
     contact::Contact,
@@ -26,6 +28,8 @@ pub enum AccountError {
     BadGeneration(#[from] SignatureError),
     #[error("bad association")]
     BadAssocation(#[from] AssociationError),
+    #[error("mutex poisoned error")]
+    MutexPoisoned,
     #[error("unknown error")]
     Unknown,
 }
@@ -88,7 +92,7 @@ impl<'de> Deserialize<'de> for VmacAccount {
 
 #[derive(Serialize, Deserialize)]
 pub struct Account {
-    pub(crate) keys: VmacAccount,
+    pub(crate) keys: Arc<Mutex<VmacAccount>>,
     pub(crate) assoc: Association,
 }
 
@@ -96,7 +100,10 @@ impl Account {
     pub fn new(keys: VmacAccount, assoc: Association) -> Self {
         // TODO: Validate Association on initialization
 
-        Self { keys, assoc }
+        Self {
+            keys: Arc::new(Mutex::new(keys)),
+            assoc,
+        }
     }
 
     pub fn generate(
@@ -104,7 +111,6 @@ impl Account {
     ) -> Result<Self, AccountError> {
         let keys = VmacAccount::generate();
         let bytes = keys.bytes_to_sign();
-
         let assoc = sf(bytes)?;
         Ok(Self::new(keys, assoc))
     }
@@ -113,16 +119,19 @@ impl Account {
         self.assoc.address()
     }
 
+    pub fn olm_account(&self) -> Result<MutexGuard<'_, VmacAccount>, AccountError> {
+        self.keys.lock().map_err(|_| AccountError::MutexPoisoned)
+    }
+
+    pub fn identity_keys(&self) -> IdentityKeys {
+        self.olm_account().unwrap().get().identity_keys()
+    }
+
     pub fn contact(&self) -> Contact {
-        let identity_key = self.keys.get().curve25519_key();
-        let fallback_key = self
-            .keys
-            .get()
-            .fallback_key()
-            .values()
-            .next()
-            .unwrap()
-            .to_owned();
+        let olm_account = self.olm_account().unwrap();
+        let keys = olm_account.get();
+        let identity_key = keys.curve25519_key();
+        let fallback_key = keys.fallback_key().values().next().unwrap().to_owned();
 
         let identity_key_proto: ProtoWrapper<VmacUnsignedPublicKey> = identity_key.into();
         let fallback_key_proto: ProtoWrapper<VmacUnsignedPublicKey> = fallback_key.into();
@@ -151,7 +160,7 @@ impl Account {
     }
 
     pub fn create_outbound_session(&self, contact: Contact) -> OlmSession {
-        self.keys.get().create_outbound_session(
+        self.olm_account().unwrap().get().create_outbound_session(
             SessionConfig::version_2(),
             contact.vmac_identity_key(),
             contact.vmac_fallback_key(),
@@ -159,19 +168,16 @@ impl Account {
     }
 
     pub fn create_inbound_session(
-        &mut self,
+        &self,
         contact: Contact,
         pre_key_message: PreKeyMessage,
     ) -> Result<InboundCreationResult, AccountError> {
         // TODO: Save the account keys to the store
-        let keys = self.keys.get();
+        let mut olm_account = self.olm_account().unwrap();
+        let keys = olm_account.get_mut();
         let res = keys.create_inbound_session(contact.vmac_identity_key(), &pre_key_message)?;
 
         Ok(res)
-    }
-
-    pub fn get_keys(&self) -> IdentityKeys {
-        self.keys.account.identity_keys()
     }
 }
 
@@ -186,6 +192,7 @@ pub(crate) mod tests {
     use ethers_core::types::{Address as EthAddress, Signature};
     use ethers_core::utils::hex;
     use serde_json::json;
+    use vodozemac::olm::OlmMessage;
 
     pub fn test_wallet_signer(pub_key: Vec<u8>) -> Result<Association, AssociationError> {
         Association::test(pub_key)
