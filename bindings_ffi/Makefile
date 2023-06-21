@@ -5,6 +5,10 @@ ARCHS_MAC = x86_64-apple-darwin aarch64-apple-darwin
 # ARCHS_MACCATALYST = x86_64-apple-ios-macabi aarch64-apple-ios-macabi
 LIB=libxmtp_rust_swift.a
 
+install-jar:
+	curl https://repo1.maven.org/maven2/net/java/dev/jna/jna/5.8.0/jna-5.8.0.jar -o jna.jar
+	curl https://repo1.maven.org/maven2/org/jetbrains/kotlinx/kotlinx-coroutines-core-jvm/1.6.4/kotlinx-coroutines-core-jvm-1.6.4.jar -o kotlinx-coroutines-core-jvm.jar
+
 download-toolchains:
 	rustup target add $(ARCHS_IOS)
 	rustup target add $(ARCHS_MAC)
