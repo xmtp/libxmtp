@@ -5725,16 +5725,32 @@ dependencies = [
 ]
 
 [[package]]
+name = "xli"
+version = "0.1.0"
+dependencies = [
+ "clap",
+ "env_logger",
+ "ethers",
+ "ethers-core 2.0.4",
+ "futures",
+ "log",
+ "thiserror",
+ "tokio",
+ "url",
+ "walletconnect",
+ "xmtp",
+ "xmtp_cryptography",
+]
+
+[[package]]
 name = "xmtp"
 version = "0.1.0"
 dependencies = [
  "anyhow",
  "async-trait",
  "base64 0.21.1",
- "clap",
  "diesel",
  "diesel_migrations",
- "env_logger",
  "ethers",
  "ethers-core 2.0.4",
  "futures",
@@ -5742,7 +5758,6 @@ dependencies = [
  "libsqlite3-sys",
  "log",
  "prost",
- "qrcode",
  "rand 0.8.5",
  "serde",
  "serde_json",
@@ -5750,10 +5765,8 @@ dependencies = [
  "thiserror",
  "tokio",
  "toml 0.7.4",
- "url",
  "uuid 1.3.3",
  "vodozemac",
- "walletconnect",
  "xmtp_cryptography",
  "xmtp_proto",
 ]
