@@ -151,7 +151,7 @@ where
         message: Vec<u8>,
     ) -> Result<(SessionManager, Vec<u8>), ClientError> {
         let olm_message: OlmMessage =
-            serde_json::from_slice(&message.as_slice()).map_err(|_| ClientError::Unknown)?;
+            serde_json::from_slice(message.as_slice()).map_err(|_| ClientError::Unknown)?;
         let msg = match olm_message {
             OlmMessage::PreKey(msg) => msg,
             _ => return Err(ClientError::Unknown),
@@ -160,7 +160,7 @@ where
         let create_result = self
             .account
             .create_inbound_session(contact.clone(), msg)
-            .map_err(|e| ClientError::Unknown)?;
+            .map_err(|_| ClientError::Unknown)?;
 
         let session = SessionManager::from_olm_session(create_result.session, contact)
             .map_err(|_| ClientError::Unknown)?;

@@ -36,7 +36,7 @@ pub struct Invitation {
 impl Invitation {
     pub fn new(envelope: InvitationEnvelope) -> Result<Self, InvitationError> {
         let inviter = Self::inviter(envelope.clone())?;
-        let ciphertext = Self::ciphertext(envelope.clone())?;
+        let ciphertext = Self::ciphertext(envelope)?;
         let val = Self {
             inviter,
             ciphertext,
