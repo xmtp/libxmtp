@@ -29,6 +29,8 @@ import java.nio.ByteOrder
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicLong
+import java.util.concurrent.locks.ReentrantLock
+import kotlin.concurrent.withLock
 import kotlin.coroutines.Continuation
 import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
@@ -371,6 +373,7 @@ internal interface _UniFFILib : Library {
                 uniffiCheckContractApiVersion(lib)
                 uniffiCheckApiChecksums(lib)
                 FfiConverterForeignExecutor.register(lib)
+                FfiConverterTypeFfiInboxOwner.register(lib)
                 }
         }
     }
@@ -379,7 +382,9 @@ internal interface _UniFFILib : Library {
     ): Unit
     fun uniffi_bindings_ffi_fn_method_ffixmtpclient_wallet_address(`ptr`: Pointer,_uniffi_out_err: RustCallStatus, 
     ): RustBuffer.ByValue
-    fun uniffi_bindings_ffi_fn_func_create_client(`host`: RustBuffer.ByValue,`isSecure`: Byte,`uniffiExecutor`: USize,`uniffiCallback`: UniFfiFutureCallbackRustArcPtrFfiXmtpClient,`uniffiCallbackData`: USize,_uniffi_out_err: RustCallStatus, 
+    fun uniffi_xmtpv3_fn_init_callback_ffiinboxowner(`callbackStub`: ForeignCallback,_uniffi_out_err: RustCallStatus, 
+    ): Unit
+    fun uniffi_bindings_ffi_fn_func_create_client(`ffiInboxOwner`: Long,`host`: RustBuffer.ByValue,`isSecure`: Byte,`uniffiExecutor`: USize,`uniffiCallback`: UniFfiFutureCallbackPointer,`uniffiCallbackData`: USize,_uniffi_out_err: RustCallStatus, 
     ): Unit
     fun ffi_xmtpv3_rustbuffer_alloc(`size`: Int,_uniffi_out_err: RustCallStatus, 
     ): RustBuffer.ByValue
@@ -392,6 +397,10 @@ internal interface _UniFFILib : Library {
     fun uniffi_bindings_ffi_checksum_func_create_client(
     ): Short
     fun uniffi_bindings_ffi_checksum_method_ffixmtpclient_wallet_address(
+    ): Short
+    fun uniffi_bindings_ffi_checksum_method_ffiinboxowner_get_address(
+    ): Short
+    fun uniffi_bindings_ffi_checksum_method_ffiinboxowner_sign(
     ): Short
     fun uniffi_foreign_executor_callback_set(`callback`: UniFfiForeignExecutorCallback,
     ): Unit
@@ -412,10 +421,16 @@ private fun uniffiCheckContractApiVersion(lib: _UniFFILib) {
 
 @Suppress("UNUSED_PARAMETER")
 private fun uniffiCheckApiChecksums(lib: _UniFFILib) {
-    if (lib.uniffi_bindings_ffi_checksum_func_create_client() != 38953.toShort()) {
+    if (lib.uniffi_bindings_ffi_checksum_func_create_client() != 34151.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
-    if (lib.uniffi_bindings_ffi_checksum_method_ffixmtpclient_wallet_address() != 63034.toShort()) {
+    if (lib.uniffi_bindings_ffi_checksum_method_ffixmtpclient_wallet_address() != 34877.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_bindings_ffi_checksum_method_ffiinboxowner_get_address() != 58052.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_bindings_ffi_checksum_method_ffiinboxowner_sign() != 59295.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
 }
@@ -779,6 +794,57 @@ public object FfiConverterForeignExecutor: FfiConverter<CoroutineScope, USize> {
 
 
 
+sealed class FlatException: Exception() {
+    // Each variant is a nested class
+    
+    class Exception(
+        ) : FlatException() {
+        override val message
+            get() = ""
+    }
+    
+
+    companion object ErrorHandler : CallStatusErrorHandler<FlatException> {
+        override fun lift(error_buf: RustBuffer.ByValue): FlatException = FfiConverterTypeFlatError.lift(error_buf)
+    }
+
+    
+}
+
+public object FfiConverterTypeFlatError : FfiConverterRustBuffer<FlatException> {
+    override fun read(buf: ByteBuffer): FlatException {
+        
+
+        return when(buf.getInt()) {
+            1 -> FlatException.Exception()
+            else -> throw RuntimeException("invalid error enum value, something is very wrong!!")
+        }
+    }
+
+    override fun allocationSize(value: FlatException): Int {
+        return when(value) {
+            is FlatException.Exception -> (
+                // Add the size for the Int that specifies the variant plus the size needed for all fields
+                4
+            )
+        }
+    }
+
+    override fun write(value: FlatException, buf: ByteBuffer) {
+        when(value) {
+            is FlatException.Exception -> {
+                buf.putInt(1)
+                Unit
+            }
+        }.let { /* this makes the `when` an expression, which ensures it is exhaustive */ }
+    }
+
+}
+
+
+
+
+
 sealed class GenericException: Exception() {
     // Each variant is a nested class
     
@@ -830,6 +896,206 @@ public object FfiConverterTypeGenericError : FfiConverterRustBuffer<GenericExcep
     }
 
 }
+
+
+
+
+internal typealias Handle = Long
+internal class ConcurrentHandleMap<T>(
+    private val leftMap: MutableMap<Handle, T> = mutableMapOf(),
+    private val rightMap: MutableMap<T, Handle> = mutableMapOf()
+) {
+    private val lock = java.util.concurrent.locks.ReentrantLock()
+    private val currentHandle = AtomicLong(0L)
+    private val stride = 1L
+
+    fun insert(obj: T): Handle =
+        lock.withLock {
+            rightMap[obj] ?:
+                currentHandle.getAndAdd(stride)
+                    .also { handle ->
+                        leftMap[handle] = obj
+                        rightMap[obj] = handle
+                    }
+            }
+
+    fun get(handle: Handle) = lock.withLock {
+        leftMap[handle]
+    }
+
+    fun delete(handle: Handle) {
+        this.remove(handle)
+    }
+
+    fun remove(handle: Handle): T? =
+        lock.withLock {
+            leftMap.remove(handle)?.let { obj ->
+                rightMap.remove(obj)
+                obj
+            }
+        }
+}
+
+interface ForeignCallback : com.sun.jna.Callback {
+    public fun invoke(handle: Handle, method: Int, argsData: Pointer, argsLen: Int, outBuf: RustBufferByReference): Int
+}
+
+// Magic number for the Rust proxy to call using the same mechanism as every other method,
+// to free the callback once it's dropped by Rust.
+internal const val IDX_CALLBACK_FREE = 0
+// Callback return codes
+internal const val UNIFFI_CALLBACK_SUCCESS = 0
+internal const val UNIFFI_CALLBACK_ERROR = 1
+internal const val UNIFFI_CALLBACK_UNEXPECTED_ERROR = 2
+
+public abstract class FfiConverterCallbackInterface<CallbackInterface>(
+    protected val foreignCallback: ForeignCallback
+): FfiConverter<CallbackInterface, Handle> {
+    private val handleMap = ConcurrentHandleMap<CallbackInterface>()
+
+    // Registers the foreign callback with the Rust side.
+    // This method is generated for each callback interface.
+    internal abstract fun register(lib: _UniFFILib)
+
+    fun drop(handle: Handle): RustBuffer.ByValue {
+        return handleMap.remove(handle).let { RustBuffer.ByValue() }
+    }
+
+    override fun lift(value: Handle): CallbackInterface {
+        return handleMap.get(value) ?: throw InternalException("No callback in handlemap; this is a Uniffi bug")
+    }
+
+    override fun read(buf: ByteBuffer) = lift(buf.getLong())
+
+    override fun lower(value: CallbackInterface) =
+        handleMap.insert(value).also {
+            assert(handleMap.get(it) === value) { "Handle map is not returning the object we just placed there. This is a bug in the HandleMap." }
+        }
+
+    override fun allocationSize(value: CallbackInterface) = 8
+
+    override fun write(value: CallbackInterface, buf: ByteBuffer) {
+        buf.putLong(lower(value))
+    }
+}
+
+// Declaration and FfiConverters for FfiInboxOwner Callback Interface
+
+public interface FfiInboxOwner {
+    fun `getAddress`(): String
+    fun `sign`(`text`: String): List<UByte>
+    
+}
+
+// The ForeignCallback that is passed to Rust.
+internal class ForeignCallbackTypeFfiInboxOwner : ForeignCallback {
+    @Suppress("TooGenericExceptionCaught")
+    override fun invoke(handle: Handle, method: Int, argsData: Pointer, argsLen: Int, outBuf: RustBufferByReference): Int {
+        val cb = FfiConverterTypeFfiInboxOwner.lift(handle)
+        return when (method) {
+            IDX_CALLBACK_FREE -> {
+                FfiConverterTypeFfiInboxOwner.drop(handle)
+                // Successful return
+                // See docs of ForeignCallback in `uniffi_core/src/ffi/foreigncallbacks.rs`
+                UNIFFI_CALLBACK_SUCCESS
+            }
+            1 -> {
+                // Call the method, write to outBuf and return a status code
+                // See docs of ForeignCallback in `uniffi_core/src/ffi/foreigncallbacks.rs` for info
+                try {
+                    this.`invokeGetAddress`(cb, argsData, argsLen, outBuf)
+                } catch (e: Throwable) {
+                    // Unexpected error
+                    try {
+                        // Try to serialize the error into a string
+                        outBuf.setValue(FfiConverterString.lower(e.toString()))
+                    } catch (e: Throwable) {
+                        // If that fails, then it's time to give up and just return
+                    }
+                    UNIFFI_CALLBACK_UNEXPECTED_ERROR
+                }
+            }
+            2 -> {
+                // Call the method, write to outBuf and return a status code
+                // See docs of ForeignCallback in `uniffi_core/src/ffi/foreigncallbacks.rs` for info
+                try {
+                    this.`invokeSign`(cb, argsData, argsLen, outBuf)
+                } catch (e: Throwable) {
+                    // Unexpected error
+                    try {
+                        // Try to serialize the error into a string
+                        outBuf.setValue(FfiConverterString.lower(e.toString()))
+                    } catch (e: Throwable) {
+                        // If that fails, then it's time to give up and just return
+                    }
+                    UNIFFI_CALLBACK_UNEXPECTED_ERROR
+                }
+            }
+            
+            else -> {
+                // An unexpected error happened.
+                // See docs of ForeignCallback in `uniffi_core/src/ffi/foreigncallbacks.rs`
+                try {
+                    // Try to serialize the error into a string
+                    outBuf.setValue(FfiConverterString.lower("Invalid Callback index"))
+                } catch (e: Throwable) {
+                    // If that fails, then it's time to give up and just return
+                }
+                UNIFFI_CALLBACK_UNEXPECTED_ERROR
+            }
+        }
+    }
+
+    
+    @Suppress("UNUSED_PARAMETER")
+    private fun `invokeGetAddress`(kotlinCallbackInterface: FfiInboxOwner, argsData: Pointer, argsLen: Int, outBuf: RustBufferByReference): Int {
+        fun makeCall() : Int {
+            val returnValue = kotlinCallbackInterface.`getAddress`(
+            )
+            outBuf.setValue(FfiConverterString.lowerIntoRustBuffer(returnValue))
+            return UNIFFI_CALLBACK_SUCCESS
+        }
+        fun makeCallAndHandleError() : Int = makeCall()
+
+        return makeCallAndHandleError()
+    }
+    
+    @Suppress("UNUSED_PARAMETER")
+    private fun `invokeSign`(kotlinCallbackInterface: FfiInboxOwner, argsData: Pointer, argsLen: Int, outBuf: RustBufferByReference): Int {
+        val argsBuf = argsData.getByteBuffer(0, argsLen.toLong()).also {
+            it.order(ByteOrder.BIG_ENDIAN)
+        }
+        fun makeCall() : Int {
+            val returnValue = kotlinCallbackInterface.`sign`(
+                FfiConverterString.read(argsBuf)
+                
+            )
+            outBuf.setValue(FfiConverterSequenceUByte.lowerIntoRustBuffer(returnValue))
+            return UNIFFI_CALLBACK_SUCCESS
+        }
+        fun makeCallAndHandleError()  : Int = try {
+            makeCall()
+        } catch (e: FlatException) {
+            // Expected error, serialize it into outBuf
+            outBuf.setValue(FfiConverterTypeFlatError.lowerIntoRustBuffer(e))
+            UNIFFI_CALLBACK_ERROR
+        }
+
+        return makeCallAndHandleError()
+    }
+    
+}
+
+// The ffiConverter which transforms the Callbacks in to Handles to pass to Rust.
+public object FfiConverterTypeFfiInboxOwner: FfiConverterCallbackInterface<FfiInboxOwner>(
+    foreignCallback = ForeignCallbackTypeFfiInboxOwner()
+) {
+    override fun register(lib: _UniFFILib) {
+        rustCall() { status ->
+            lib.uniffi_xmtpv3_fn_init_callback_ffiinboxowner(this.foreignCallback, status)
+        }
+    }
+}
 // Async return type handlers
 
 
@@ -843,7 +1109,7 @@ public object FfiConverterTypeGenericError : FfiConverterRustBuffer<GenericExcep
 
 
 // FFI type for callback handlers
-internal interface UniFfiFutureCallbackRustArcPtrFfiXmtpClient : com.sun.jna.Callback {
+internal interface UniFfiFutureCallbackPointer : com.sun.jna.Callback {
     // Note: callbackData is always 0.  We could pass Rust a pointer/usize to represent the
     // continuation, but with JNA it's easier to just store it in the callback handler.
     fun invoke(_callbackData: USize, returnValue: Pointer, callStatus: RustCallStatus.ByValue);
@@ -857,7 +1123,7 @@ internal interface UniFfiFutureCallbackRustBuffer : com.sun.jna.Callback {
 // Callback handlers for an async call.  These are invoked by Rust when the future is ready.  They
 // lift the return value or error and resume the suspended function.
 
-internal class UniFfiFutureCallbackHandlerstring(val continuation: Continuation<String>)
+internal class UniFfiFutureCallbackHandlerString(val continuation: Continuation<String>)
     : UniFfiFutureCallbackRustBuffer {
     override fun invoke(_callbackData: USize, returnValue: RustBuffer.ByValue, callStatus: RustCallStatus.ByValue) {
         try {
@@ -870,7 +1136,7 @@ internal class UniFfiFutureCallbackHandlerstring(val continuation: Continuation<
 }
 
 internal class UniFfiFutureCallbackHandlerTypeFfiXmtpClient_TypeGenericError(val continuation: Continuation<FfiXmtpClient>)
-    : UniFfiFutureCallbackRustArcPtrFfiXmtpClient {
+    : UniFfiFutureCallbackPointer {
     override fun invoke(_callbackData: USize, returnValue: Pointer, callStatus: RustCallStatus.ByValue) {
         try {
             checkCallStatus(GenericException, callStatus)
@@ -883,7 +1149,7 @@ internal class UniFfiFutureCallbackHandlerTypeFfiXmtpClient_TypeGenericError(val
 @Throws(GenericException::class)
 
 @Suppress("ASSIGNED_BUT_NEVER_ACCESSED_VARIABLE")
-suspend fun `createClient`(`host`: String, `isSecure`: Boolean) : FfiXmtpClient {
+suspend fun `createClient`(`ffiInboxOwner`: FfiInboxOwner, `host`: String, `isSecure`: Boolean) : FfiXmtpClient {
     // Create a new `CoroutineScope` for this operation, suspend the coroutine, and call the
     // scaffolding function, passing it one of the callback handlers from `AsyncTypes.kt`.
     //
@@ -898,7 +1164,7 @@ suspend fun `createClient`(`host`: String, `isSecure`: Boolean) : FfiXmtpClient 
                 callbackHolder = callback
                 rustCall { status ->
                     _UniFFILib.INSTANCE.uniffi_bindings_ffi_fn_func_create_client(
-                        FfiConverterString.lower(`host`),FfiConverterBoolean.lower(`isSecure`),
+                        FfiConverterTypeFfiInboxOwner.lower(`ffiInboxOwner`),FfiConverterString.lower(`host`),FfiConverterBoolean.lower(`isSecure`),
                         FfiConverterForeignExecutor.lower(scope),
                         callback,
                         USize(0),

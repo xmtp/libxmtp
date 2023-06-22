@@ -1,6 +1,6 @@
 use crate::{
     conversation::{ConversationError, SecretConversation},
-    networking::XmtpApiClient,
+    types::networking::XmtpApiClient,
     Client,
 };
 
