@@ -37,7 +37,7 @@ data class ConversationV2(
             client: Client,
             invitation: Invitation.InvitationV1,
             header: SealedInvitationHeaderV1,
-            isGroup: Boolean = false
+            isGroup: Boolean = false,
         ): ConversationV2 {
             val myKeys = client.keys.getPublicKeyBundle()
             val peer =
@@ -114,6 +114,12 @@ data class ConversationV2(
         return preparedMessage.messageId
     }
 
+    fun send(encodedContent: EncodedContent): String {
+        val preparedMessage = prepareMessage(encodedContent = encodedContent)
+        preparedMessage.send()
+        return preparedMessage.messageId
+    }
+
     fun <Codec : ContentCodec<T>, T> encode(codec: Codec, content: T): ByteArray {
         val encodedContent = codec.encode(content = content)
         val message = MessageV2Builder.buildEncode(
@@ -150,9 +156,13 @@ data class ConversationV2(
         if (compression != null) {
             encoded = encoded.compress(compression)
         }
+        return prepareMessage(encoded)
+    }
+
+    fun prepareMessage(encodedContent: EncodedContent): PreparedMessage {
         val message = MessageV2Builder.buildEncode(
             client = client,
-            encodedContent = encoded,
+            encodedContent = encodedContent,
             topic = topic,
             keyMaterial = keyMaterial
         )

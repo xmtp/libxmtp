@@ -97,8 +97,13 @@ data class ConversationV1(
         return preparedMessage.messageId
     }
 
+    fun send(encodedContent: EncodedContent): String {
+        val preparedMessage = prepareMessage(encodedContent = encodedContent)
+        preparedMessage.send()
+        return preparedMessage.messageId
+    }
+
     fun <T> prepareMessage(content: T, options: SendOptions?): PreparedMessage {
-        val contact = client.contacts.find(peerAddress) ?: throw XMTPException("address not found")
         val codec = Client.codecRegistry.find(options?.contentType)
 
         fun <Codec : ContentCodec<T>> encode(codec: Codec, content: Any?): EncodedContent {
@@ -118,6 +123,11 @@ data class ConversationV1(
         if (compression != null) {
             encoded = encoded.compress(compression)
         }
+        return prepareMessage(encodedContent = encoded)
+    }
+
+    fun prepareMessage(encodedContent: EncodedContent): PreparedMessage {
+        val contact = client.contacts.find(peerAddress) ?: throw XMTPException("address not found")
         val recipient = contact.toPublicKeyBundle()
         if (!recipient.identityKey.hasSignature()) {
             throw Exception("no signature for id key")
@@ -126,7 +136,7 @@ data class ConversationV1(
         val message = MessageV1Builder.buildEncode(
             sender = client.privateKeyBundleV1,
             recipient = recipient,
-            message = encoded.toByteArray(),
+            message = encodedContent.toByteArray(),
             timestamp = date
         )
         val messageEnvelope =

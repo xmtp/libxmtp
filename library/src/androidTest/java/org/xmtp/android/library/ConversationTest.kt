@@ -628,4 +628,27 @@ class ConversationTest {
         val noConversation = client.fetchConversation("invalid_topic")
         Assert.assertEquals(null, noConversation)
     }
+
+    @Test
+    fun testCanSendEncodedContentV1Message() {
+        fixtures.publishLegacyContact(client = bobClient)
+        fixtures.publishLegacyContact(client = aliceClient)
+        val bobConversation = bobClient.conversations.newConversation(aliceWallet.address)
+        val aliceConversation = aliceClient.conversations.newConversation(bobWallet.address)
+        val encodedContent = TextCodec().encode(content = "hi")
+        bobConversation.send(encodedContent = encodedContent)
+        val messages = aliceConversation.messages()
+        assertEquals(1, messages.size)
+        assertEquals("hi", messages[0].content())
+    }
+
+    @Test
+    fun testCanSendEncodedContentV2Message() {
+        val bobConversation = bobClient.conversations.newConversation(aliceWallet.address)
+        val encodedContent = TextCodec().encode(content = "hi")
+        bobConversation.send(encodedContent = encodedContent)
+        val messages = bobConversation.messages()
+        assertEquals(1, messages.size)
+        assertEquals("hi", messages[0].content())
+    }
 }

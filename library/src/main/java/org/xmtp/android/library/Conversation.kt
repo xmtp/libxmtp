@@ -2,6 +2,7 @@ package org.xmtp.android.library
 
 import android.util.Log
 import kotlinx.coroutines.flow.Flow
+import org.xmtp.android.library.codecs.EncodedContent
 import org.xmtp.android.library.messages.Envelope
 import java.util.Date
 
@@ -104,6 +105,12 @@ sealed class Conversation {
         }
     }
 
+    fun send(encodedContent: EncodedContent): String {
+        return when (this) {
+            is V1 -> conversationV1.send(encodedContent = encodedContent)
+            is V2 -> conversationV2.send(encodedContent = encodedContent)
+        }
+    }
     val topic: String
         get() {
             return when (this) {
