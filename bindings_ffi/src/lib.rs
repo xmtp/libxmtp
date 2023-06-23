@@ -125,7 +125,7 @@ impl FfiXmtpClient {
 
 #[cfg(test)]
 mod tests {
-    use crate::{create_client, FfiInboxOwner, GenericError};
+    use crate::{create_client, FfiInboxOwner, SigningError};
     use xmtp::InboxOwner;
     use xmtp_cryptography::{signature::RecoverableSignature, utils::rng};
 
@@ -146,8 +146,9 @@ mod tests {
             self.wallet.get_address()
         }
 
-        fn sign(&self, text: String) -> Result<Vec<u8>, GenericError> {
-            let recoverable_signature = self.wallet.sign(&text).map_err(|err| err.to_string())?;
+        fn sign(&self, text: String) -> Result<Vec<u8>, SigningError> {
+            let recoverable_signature =
+                self.wallet.sign(&text).map_err(|_| SigningError::Generic)?;
             match recoverable_signature {
                 RecoverableSignature::Eip191Signature(signature_bytes) => Ok(signature_bytes),
             }
