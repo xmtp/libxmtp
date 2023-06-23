@@ -20,10 +20,12 @@ import org.xmtp.android.library.messages.generate
 import org.xmtp.android.library.messages.secp256K1Uncompressed
 import org.xmtp.android.library.messages.toPublicKeyBundle
 import org.xmtp.android.library.messages.walletAddress
+import org.xmtp.proto.keystore.api.v1.Keystore
 import org.xmtp.proto.message.api.v1.MessageApiOuterClass.QueryRequest
 import org.xmtp.proto.message.contents.Contact
 import org.xmtp.proto.message.contents.InvitationV1Kt.context
 import org.xmtp.proto.message.contents.PrivateKeyOuterClass
+import org.xmtp.proto.message.contents.PrivateKeyOuterClass.PrivateKeyBundle
 import java.util.Date
 
 @RunWith(AndroidJUnit4::class)
@@ -184,6 +186,50 @@ class LocalInstrumentedTest {
         assertEquals(2, aliceConvoList.size)
         assertEquals("example.com/alice-bob-2", aliceConvoList[0].conversationId)
         assertEquals("example.com/alice-bob-1", aliceConvoList[1].conversationId)
+    }
+
+    @Test
+    fun testUsingSavedCredentialsAndKeyMaterial() {
+        val options = ClientOptions(ClientOptions.Api(XMTPEnvironment.LOCAL, isSecure = false))
+        val alice = Client().create(PrivateKeyBuilder(), options)
+        val bob = Client().create(PrivateKeyBuilder(), options)
+
+        // Alice starts a conversation with Bob
+        val aliceConvo = alice.conversations.newConversation(
+            bob.address,
+            context = context {
+                conversationId = "example.com/alice-bob-1"
+                metadata["title"] = "Chatting Using Saved Credentials"
+            }
+        )
+        aliceConvo.send("Hello Bob")
+        delayToPropagate()
+
+        // Alice stores her credentials and conversations to her device
+        val keyBundle = alice.privateKeyBundle.toByteArray()
+        val topicData = aliceConvo.toTopicData().toByteArray()
+
+        // Meanwhile, Bob sends a reply.
+        val bobConvos = bob.conversations.list()
+        val bobConvo = bobConvos[0]
+        bobConvo.send("Oh, hello Alice")
+        delayToPropagate()
+
+        // When Alice's device wakes up, it uses her saved credentials
+        val alice2 = Client().buildFromBundle(
+            PrivateKeyBundle.parseFrom(keyBundle),
+            options
+        )
+        // And it uses the saved topic data for the conversation
+        val aliceConvo2 = alice2.conversations.importTopicData(
+            Keystore.TopicMap.TopicData.parseFrom(topicData)
+        )
+        assertEquals("example.com/alice-bob-1", aliceConvo2.conversationId)
+
+        // Now Alice should be able to load message using her saved key material.
+        val messages = aliceConvo2.messages()
+        assertEquals("Hello Bob", messages[1].body)
+        assertEquals("Oh, hello Alice", messages[0].body)
     }
 
     @Test

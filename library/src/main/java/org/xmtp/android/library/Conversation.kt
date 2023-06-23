@@ -1,9 +1,13 @@
 package org.xmtp.android.library
 
 import android.util.Log
+import com.google.protobuf.kotlin.toByteString
 import kotlinx.coroutines.flow.Flow
 import org.xmtp.android.library.codecs.EncodedContent
 import org.xmtp.android.library.messages.Envelope
+import org.xmtp.proto.keystore.api.v1.Keystore.TopicMap.TopicData
+import org.xmtp.proto.message.contents.Invitation
+import org.xmtp.proto.message.contents.Invitation.InvitationV1.Aes256gcmHkdfsha256
 import java.util.Date
 
 sealed class Conversation {
@@ -62,6 +66,24 @@ sealed class Conversation {
                 is V2 -> conversationV2.keyMaterial
             }
         }
+
+    fun toTopicData(): TopicData {
+        val data = TopicData.newBuilder()
+            .setCreatedNs(createdAt.time * 1_000_000)
+            .setPeerAddress(peerAddress)
+        return when (this) {
+            is V1 -> data.build()
+            is V2 -> data.setInvitation(
+                Invitation.InvitationV1.newBuilder()
+                    .setTopic(topic)
+                    .setContext(conversationV2.context)
+                    .setAes256GcmHkdfSha256(
+                        Aes256gcmHkdfsha256.newBuilder()
+                            .setKeyMaterial(conversationV2.keyMaterial.toByteString())
+                    )
+            ).build()
+        }
+    }
 
     fun decode(envelope: Envelope): DecodedMessage {
         return when (this) {

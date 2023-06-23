@@ -24,6 +24,7 @@ import org.xmtp.android.library.messages.senderAddress
 import org.xmtp.android.library.messages.sentAt
 import org.xmtp.android.library.messages.toSignedPublicKeyBundle
 import org.xmtp.android.library.messages.walletAddress
+import org.xmtp.proto.keystore.api.v1.Keystore.TopicMap.TopicData
 import org.xmtp.proto.message.contents.Contact
 import org.xmtp.proto.message.contents.Invitation
 import java.lang.Exception
@@ -181,6 +182,34 @@ data class Conversations(
 
         // TODO(perf): use DB to persist + sort
         return conversationsByTopic.values.sortedByDescending { it.createdAt }
+    }
+
+    fun importTopicData(data: TopicData): Conversation {
+        val conversation: Conversation
+        if (!data.hasInvitation()) {
+            val sentAt = Date(data.createdNs / 1_000_000)
+            conversation = Conversation.V1(
+                ConversationV1(
+                    client,
+                    data.peerAddress,
+                    sentAt
+                )
+            )
+        } else {
+            conversation = Conversation.V2(
+                ConversationV2(
+                    topic = data.invitation.topic,
+                    keyMaterial = data.invitation.aes256GcmHkdfSha256.keyMaterial.toByteArray(),
+                    context = data.invitation.context,
+                    peerAddress = data.peerAddress,
+                    client = client,
+                    isGroup = false,
+                    header = Invitation.SealedInvitationHeaderV1.getDefaultInstance()
+                )
+            )
+        }
+        conversationsByTopic[conversation.topic] = conversation
+        return conversation
     }
 
     private fun listIntroductionPeers(pagination: Pagination? = null): Map<String, Date> {
