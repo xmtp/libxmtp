@@ -398,10 +398,6 @@ internal interface _UniFFILib : Library {
     ): Short
     fun uniffi_bindings_ffi_checksum_method_ffixmtpclient_wallet_address(
     ): Short
-    fun uniffi_bindings_ffi_checksum_method_ffiinboxowner_get_address(
-    ): Short
-    fun uniffi_bindings_ffi_checksum_method_ffiinboxowner_sign(
-    ): Short
     fun uniffi_foreign_executor_callback_set(`callback`: UniFfiForeignExecutorCallback,
     ): Unit
     fun ffi_xmtpv3_uniffi_contract_version(
@@ -425,12 +421,6 @@ private fun uniffiCheckApiChecksums(lib: _UniFFILib) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_bindings_ffi_checksum_method_ffixmtpclient_wallet_address() != 34877.toShort()) {
-        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
-    }
-    if (lib.uniffi_bindings_ffi_checksum_method_ffiinboxowner_get_address() != 58052.toShort()) {
-        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
-    }
-    if (lib.uniffi_bindings_ffi_checksum_method_ffiinboxowner_sign() != 59295.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
 }
@@ -501,6 +491,22 @@ public object FfiConverterString: FfiConverter<String, RustBuffer.ByValue> {
         val byteArr = value.toByteArray(Charsets.UTF_8)
         buf.putInt(byteArr.size)
         buf.put(byteArr)
+    }
+}
+
+public object FfiConverterByteArray: FfiConverterRustBuffer<ByteArray> {
+    override fun read(buf: ByteBuffer): ByteArray {
+        val len = buf.getInt()
+        val byteArr = ByteArray(len)
+        buf.get(byteArr)
+        return byteArr
+    }
+    override fun allocationSize(value: ByteArray): Int {
+        return 4 + value.size
+    }
+    override fun write(value: ByteArray, buf: ByteBuffer) {
+        buf.putInt(value.size)
+        buf.put(value)
     }
 }
 
@@ -794,57 +800,6 @@ public object FfiConverterForeignExecutor: FfiConverter<CoroutineScope, USize> {
 
 
 
-sealed class FlatException: Exception() {
-    // Each variant is a nested class
-    
-    class Exception(
-        ) : FlatException() {
-        override val message
-            get() = ""
-    }
-    
-
-    companion object ErrorHandler : CallStatusErrorHandler<FlatException> {
-        override fun lift(error_buf: RustBuffer.ByValue): FlatException = FfiConverterTypeFlatError.lift(error_buf)
-    }
-
-    
-}
-
-public object FfiConverterTypeFlatError : FfiConverterRustBuffer<FlatException> {
-    override fun read(buf: ByteBuffer): FlatException {
-        
-
-        return when(buf.getInt()) {
-            1 -> FlatException.Exception()
-            else -> throw RuntimeException("invalid error enum value, something is very wrong!!")
-        }
-    }
-
-    override fun allocationSize(value: FlatException): Int {
-        return when(value) {
-            is FlatException.Exception -> (
-                // Add the size for the Int that specifies the variant plus the size needed for all fields
-                4
-            )
-        }
-    }
-
-    override fun write(value: FlatException, buf: ByteBuffer) {
-        when(value) {
-            is FlatException.Exception -> {
-                buf.putInt(1)
-                Unit
-            }
-        }.let { /* this makes the `when` an expression, which ensures it is exhaustive */ }
-    }
-
-}
-
-
-
-
-
 sealed class GenericException: Exception() {
     // Each variant is a nested class
     
@@ -890,6 +845,46 @@ public object FfiConverterTypeGenericError : FfiConverterRustBuffer<GenericExcep
             is GenericException.Generic -> {
                 buf.putInt(1)
                 FfiConverterString.write(value.`err`, buf)
+                Unit
+            }
+        }.let { /* this makes the `when` an expression, which ensures it is exhaustive */ }
+    }
+
+}
+
+
+
+
+
+sealed class SigningException(message: String): Exception(message) {
+        // Each variant is a nested class
+        // Flat enums carries a string error message, so no special implementation is necessary.
+        class Generic(message: String) : SigningException(message)
+        
+
+    companion object ErrorHandler : CallStatusErrorHandler<SigningException> {
+        override fun lift(error_buf: RustBuffer.ByValue): SigningException = FfiConverterTypeSigningError.lift(error_buf)
+    }
+}
+
+public object FfiConverterTypeSigningError : FfiConverterRustBuffer<SigningException> {
+    override fun read(buf: ByteBuffer): SigningException {
+        
+            return when(buf.getInt()) {
+            1 -> SigningException.Generic(FfiConverterString.read(buf))
+            else -> throw RuntimeException("invalid error enum value, something is very wrong!!")
+        }
+        
+    }
+
+    override fun allocationSize(value: SigningException): Int {
+        return 4
+    }
+
+    override fun write(value: SigningException, buf: ByteBuffer) {
+        when(value) {
+            is SigningException.Generic -> {
+                buf.putInt(1)
                 Unit
             }
         }.let { /* this makes the `when` an expression, which ensures it is exhaustive */ }
@@ -983,7 +978,7 @@ public abstract class FfiConverterCallbackInterface<CallbackInterface>(
 
 public interface FfiInboxOwner {
     fun `getAddress`(): String
-    fun `sign`(`text`: String): List<UByte>
+    fun `sign`(`text`: String): ByteArray
     
 }
 
@@ -1070,14 +1065,14 @@ internal class ForeignCallbackTypeFfiInboxOwner : ForeignCallback {
                 FfiConverterString.read(argsBuf)
                 
             )
-            outBuf.setValue(FfiConverterSequenceUByte.lowerIntoRustBuffer(returnValue))
+            outBuf.setValue(FfiConverterByteArray.lowerIntoRustBuffer(returnValue))
             return UNIFFI_CALLBACK_SUCCESS
         }
         fun makeCallAndHandleError()  : Int = try {
             makeCall()
-        } catch (e: FlatException) {
+        } catch (e: SigningException) {
             // Expected error, serialize it into outBuf
-            outBuf.setValue(FfiConverterTypeFlatError.lowerIntoRustBuffer(e))
+            outBuf.setValue(FfiConverterTypeSigningError.lowerIntoRustBuffer(e))
             UNIFFI_CALLBACK_ERROR
         }
 

@@ -9,6 +9,7 @@ edition = "2021"
 crate-type = ["lib", "cdylib"]
 
 [dependencies]
+thiserror = "1.0.40"
 uniffi = { git = "https://github.com/mozilla/uniffi-rs", rev = "73caaf7c78c89866603bd7c4fca2bf783698bf71", features = ["tokio", "cli"] }
 uniffi_macros = { git = "https://github.com/mozilla/uniffi-rs", rev = "73caaf7c78c89866603bd7c4fca2bf783698bf71" }
 xmtp = { path = "../xmtp" }

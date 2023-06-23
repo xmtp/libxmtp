@@ -22,10 +22,10 @@ class Web3jInboxOwner(val credentials: Credentials) : FfiInboxOwner {
         return credentials.address
     }
 
-    override fun sign(text: String): List<UByte> {
+    override fun sign(text: String): ByteArray {
         val messageBytes: ByteArray = text.toByteArray(StandardCharsets.UTF_8)
         val signature = Sign.signPrefixedMessage(messageBytes, credentials.ecKeyPair)
-        return (signature.r + signature.s + signature.v).toUByteArray().asList()
+        return signature.r + signature.s + signature.v
     }
 }
 
