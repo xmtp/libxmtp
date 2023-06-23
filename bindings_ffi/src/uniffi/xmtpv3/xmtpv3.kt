@@ -1107,12 +1107,12 @@ public object FfiConverterTypeFfiInboxOwner: FfiConverterCallbackInterface<FfiIn
 internal interface UniFfiFutureCallbackPointer : com.sun.jna.Callback {
     // Note: callbackData is always 0.  We could pass Rust a pointer/usize to represent the
     // continuation, but with JNA it's easier to just store it in the callback handler.
-    fun invoke(_callbackData: USize, returnValue: Pointer, callStatus: RustCallStatus.ByValue);
+    fun invoke(_callbackData: USize, returnValue: Pointer?, callStatus: RustCallStatus.ByValue);
 }
 internal interface UniFfiFutureCallbackRustBuffer : com.sun.jna.Callback {
     // Note: callbackData is always 0.  We could pass Rust a pointer/usize to represent the
     // continuation, but with JNA it's easier to just store it in the callback handler.
-    fun invoke(_callbackData: USize, returnValue: RustBuffer.ByValue, callStatus: RustCallStatus.ByValue);
+    fun invoke(_callbackData: USize, returnValue: RustBuffer.ByValue?, callStatus: RustCallStatus.ByValue);
 }
 
 // Callback handlers for an async call.  These are invoked by Rust when the future is ready.  They
@@ -1120,10 +1120,10 @@ internal interface UniFfiFutureCallbackRustBuffer : com.sun.jna.Callback {
 
 internal class UniFfiFutureCallbackHandlerString(val continuation: Continuation<String>)
     : UniFfiFutureCallbackRustBuffer {
-    override fun invoke(_callbackData: USize, returnValue: RustBuffer.ByValue, callStatus: RustCallStatus.ByValue) {
+    override fun invoke(_callbackData: USize, returnValue: RustBuffer.ByValue?, callStatus: RustCallStatus.ByValue) {
         try {
             checkCallStatus(NullCallStatusErrorHandler, callStatus)
-            continuation.resume(FfiConverterString.lift(returnValue))
+            continuation.resume(FfiConverterString.lift(returnValue!!))
         } catch (e: Throwable) {
             continuation.resumeWithException(e)
         }
@@ -1132,10 +1132,10 @@ internal class UniFfiFutureCallbackHandlerString(val continuation: Continuation<
 
 internal class UniFfiFutureCallbackHandlerTypeFfiXmtpClient_TypeGenericError(val continuation: Continuation<FfiXmtpClient>)
     : UniFfiFutureCallbackPointer {
-    override fun invoke(_callbackData: USize, returnValue: Pointer, callStatus: RustCallStatus.ByValue) {
+    override fun invoke(_callbackData: USize, returnValue: Pointer?, callStatus: RustCallStatus.ByValue) {
         try {
             checkCallStatus(GenericException, callStatus)
-            continuation.resume(FfiConverterTypeFfiXmtpClient.lift(returnValue))
+            continuation.resume(FfiConverterTypeFfiXmtpClient.lift(returnValue!!))
         } catch (e: Throwable) {
             continuation.resumeWithException(e)
         }
