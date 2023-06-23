@@ -87,6 +87,24 @@ public enum Conversation: Sendable {
 		}
 	}
 
+	/// Exports the serializable topic data required for later import.
+	/// See Conversations.importTopicData()
+	public func toTopicData() -> Xmtp_KeystoreApi_V1_TopicMap.TopicData {
+		Xmtp_KeystoreApi_V1_TopicMap.TopicData.with {
+			$0.createdNs = UInt64(createdAt.timeIntervalSince1970 * 1_000) * 1_000_000
+			$0.peerAddress = peerAddress
+			if case let .v2(cv2) = self {
+				$0.invitation = Xmtp_MessageContents_InvitationV1.with {
+					$0.topic = cv2.topic
+					$0.context = cv2.context
+					$0.aes256GcmHkdfSha256 = Xmtp_MessageContents_InvitationV1.Aes256gcmHkdfsha256.with {
+						$0.keyMaterial = cv2.keyMaterial
+					}
+				}
+			}
+		}
+	}
+
 	public func decode(_ envelope: Envelope) throws -> DecodedMessage {
 		switch self {
 		case let .v1(conversationV1):

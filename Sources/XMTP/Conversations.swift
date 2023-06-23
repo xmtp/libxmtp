@@ -13,6 +13,26 @@ public class Conversations {
         self.client = client
     }
 
+    /// Import a previously seen conversation.
+    /// See Conversation.toTopicData()
+    public func importTopicData(data: Xmtp_KeystoreApi_V1_TopicMap.TopicData) -> Conversation {
+        let conversation: Conversation;
+        if (!data.hasInvitation) {
+            let sentAt = Date(timeIntervalSince1970: TimeInterval(data.createdNs / 1_000_000_000))
+            conversation = .v1(ConversationV1(client: client, peerAddress: data.peerAddress, sentAt: sentAt))
+        } else {
+            conversation = .v2(ConversationV2(
+                    topic: data.invitation.topic,
+                    keyMaterial: data.invitation.aes256GcmHkdfSha256.keyMaterial,
+                    context: data.invitation.context,
+                    peerAddress: data.peerAddress,
+                    client: client
+            ))
+        }
+        conversationsByTopic[conversation.topic] = conversation
+        return conversation
+    }
+
     public func listBatchMessages(topics: [String], limit: Int? = nil, before: Date? = nil, after: Date? = nil) async throws -> [DecodedMessage] {
         let pagination = Pagination(limit: limit, before: before, after: after)
         let requests = topics.map { (topic) in

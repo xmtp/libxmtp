@@ -129,6 +129,49 @@ final class IntegrationTests: XCTestCase {
         XCTAssertEqual("Oh, hello Alice", aliceSees[0].body)
 	}
 
+	func testUsingSavedCredentialsAndKeyMaterial() async throws {
+		try TestConfig.skipIfNotRunningLocalNodeTests()
+
+		let opt = ClientOptions(api: .init(env: .local, isSecure: false))
+		let alice = try await Client.create(account: try PrivateKey.generate(), options: opt)
+		let bob = try await Client.create(account: try PrivateKey.generate(), options: opt)
+
+		// Alice starts a conversation with Bob
+		let aliceConvo = try await alice.conversations.newConversation(
+				with: bob.address,
+				context: InvitationV1.Context.with {
+					$0.conversationID = "example.com/alice-bob-1"
+					$0.metadata["title"] = "Chatting Using Saved Credentials"
+				})
+		_ = try await aliceConvo.send(text: "Hello Bob")
+		try await delayToPropagate()
+
+		// Alice stores her credentials and conversations to her device
+		let keyBundle = try alice.privateKeyBundle.serializedData();
+		let topicData = try aliceConvo.toTopicData().serializedData();
+
+		// Meanwhile, Bob sends a reply.
+		let bobConvos = try await bob.conversations.list()
+		let bobConvo = bobConvos[0]
+		try await bobConvo.send(text: "Oh, hello Alice")
+		try await delayToPropagate()
+
+		// When Alice's device wakes up, it uses her saved credentials
+		let alice2 = try await Client.from(
+			bundle: PrivateKeyBundle(serializedData: keyBundle),
+			options: opt
+		)
+		// And it uses the saved topic data for the conversation
+		let aliceConvo2 = alice2.conversations.importTopicData(
+				data: try Xmtp_KeystoreApi_V1_TopicMap.TopicData(serializedData: topicData))
+		XCTAssertEqual("example.com/alice-bob-1", aliceConvo2.conversationID)
+
+		// Now Alice should be able to load message using her saved key material.
+		let messages = try await aliceConvo2.messages()
+		XCTAssertEqual("Hello Bob", messages[1].body)
+		XCTAssertEqual("Oh, hello Alice", messages[0].body)
+	}
+
 	func testStreamMessagesInV1Conversation() async throws {
 	    try TestConfig.skipIfNotRunningLocalNodeTests()
 		let opt = ClientOptions(api: .init(env: .local, isSecure: false))
