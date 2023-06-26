@@ -6,6 +6,7 @@ use xmtp_networking::grpc_api_helper::Client as TonicApiClient;
 pub type RustXmtpClient = xmtp::Client<TonicApiClient>;
 uniffi::include_scaffolding!("xmtpv3");
 
+// TODO proper error handling
 #[derive(Debug, thiserror::Error)]
 pub enum SigningError {
     #[error("This is a generic error")]
@@ -50,7 +51,6 @@ fn stringify_error_chain(error: &(dyn Error + 'static)) -> String {
 }
 
 // A simplified InboxOwner passed to Rust across the FFI boundary
-// #[uniffi::export(callback_interface)]
 pub trait FfiInboxOwner: Send + Sync {
     fn get_address(&self) -> String;
     fn sign(&self, text: String) -> Result<Vec<u8>, SigningError>;
