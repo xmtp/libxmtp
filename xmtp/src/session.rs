@@ -1,6 +1,7 @@
 use crate::{
     contact::Contact,
-    storage::{EncryptedMessageStore, Session, StorageError},
+    storage::{EncryptedMessageStore, StorageError, StoredSession},
+    types::Address,
     Save, Store,
 };
 use thiserror::Error;
@@ -19,24 +20,20 @@ pub enum SessionError {
 }
 
 pub struct SessionManager {
+    peer_installation_id: String,
     session: OlmSession,
-    persisted: Session,
 }
 
 impl SessionManager {
-    pub fn new(session: OlmSession, persisted: Session) -> Self {
-        Self { session, persisted }
+    pub fn new(session: OlmSession, peer_installation_id: String) -> Self {
+        Self {
+            session,
+            peer_installation_id,
+        }
     }
 
-    pub fn from_olm_session(session: OlmSession, contact: Contact) -> Result<Self, String> {
-        let session_bytes = serde_json::to_vec(&session.pickle()).map_err(|e| e.to_string())?;
-        let persisted = Session::new(
-            session.session_id(),
-            contact.installation_id(),
-            session_bytes,
-        );
-
-        Ok(Self::new(session, persisted))
+    pub fn from_olm_session(session: OlmSession, contact: &Contact) -> Result<Self, String> {
+        Ok(Self::new(session, contact.installation_id()))
     }
 
     pub fn id(&self) -> String {
@@ -59,10 +56,8 @@ impl SessionManager {
         into: &EncryptedMessageStore,
     ) -> Result<Vec<u8>, SessionError> {
         let res = self.session.decrypt(&message)?;
-        let session_bytes = self.session_bytes()?;
         // TODO: Stop mutating/storing the persisted session and just build on demand
-        self.persisted.vmac_session_data = session_bytes;
-        self.persisted.save(into)?;
+        self.save(into)?;
 
         Ok(res)
     }
@@ -70,8 +65,41 @@ impl SessionManager {
 
 impl Store<EncryptedMessageStore> for SessionManager {
     fn store(&self, into: &EncryptedMessageStore) -> Result<(), StorageError> {
-        self.persisted.store(into)?;
-        Ok(())
+        StoredSession::try_from(self)?.store(into)
+    }
+}
+
+impl Save<EncryptedMessageStore> for SessionManager {
+    fn save(&self, into: &EncryptedMessageStore) -> Result<(), StorageError> {
+        StoredSession::try_from(self)?.save(into)
+    }
+}
+
+impl TryFrom<&StoredSession> for SessionManager {
+    type Error = StorageError;
+    fn try_from(value: &StoredSession) -> Result<Self, StorageError> {
+        let pickle = serde_json::from_slice(&value.vmac_session_data)
+            .map_err(|_| StorageError::SerializationError)?;
+
+        Ok(Self::new(
+            OlmSession::from_pickle(pickle),
+            value.peer_installation_id.clone(),
+        ))
+    }
+}
+
+impl TryFrom<&SessionManager> for StoredSession {
+    type Error = StorageError;
+
+    fn try_from(value: &SessionManager) -> Result<Self, Self::Error> {
+        Ok(StoredSession::new(
+            value.session.session_id(),
+            value.peer_installation_id.clone(),
+            // TODO: Better error handling approach. StoreError and SessionError end up being dependent on eachother
+            value
+                .session_bytes()
+                .map_err(|_| StorageError::SerializationError)?,
+        ))
     }
 }
 
@@ -81,7 +109,7 @@ mod tests {
 
     use crate::{
         account::{tests::test_wallet_signer, Account},
-        storage::{EncryptedMessageStore, Session},
+        storage::{EncryptedMessageStore, StoredSession},
         Fetch, Store,
     };
 
@@ -93,29 +121,29 @@ mod tests {
         let account_a_contact = account_a.contact();
         let account_b_contact = account_b.contact();
 
-        let a_to_b_olm_session = account_a.create_outbound_session(account_b_contact.clone());
+        let a_to_b_olm_session = account_a.create_outbound_session(&account_b_contact);
         let mut a_to_b_session =
-            super::SessionManager::from_olm_session(a_to_b_olm_session, account_b_contact.clone())
+            super::SessionManager::from_olm_session(a_to_b_olm_session, &account_b_contact)
                 .unwrap();
 
         let message_store = &EncryptedMessageStore::default();
         a_to_b_session.store(message_store).unwrap();
 
-        let results: Vec<Session> = message_store.fetch().unwrap();
+        let results: Vec<StoredSession> = message_store.fetch().unwrap();
         assert_eq!(results.len(), 1);
         let initial_session_data = &results.get(0).unwrap().vmac_session_data;
 
         let msg = a_to_b_session.encrypt("hello".as_bytes());
         if let OlmMessage::PreKey(m) = msg.clone() {
             let mut b_to_a_olm_session = account_b
-                .create_inbound_session(account_a_contact.clone(), m)
+                .create_inbound_session(&account_a_contact, m)
                 .unwrap();
 
             let reply = b_to_a_olm_session.session.encrypt("hello to you");
             let decrypted_reply = a_to_b_session.decrypt(reply, message_store).unwrap();
             assert_eq!(decrypted_reply, "hello to you".as_bytes());
 
-            let updated_results: Vec<Session> = message_store.fetch().unwrap();
+            let updated_results: Vec<StoredSession> = message_store.fetch().unwrap();
             assert_eq!(updated_results.len(), 1);
             let updated_session_data = &updated_results.get(0).unwrap().vmac_session_data;
 

@@ -62,14 +62,14 @@ fn now() -> i64 {
 #[derive(Insertable, Identifiable, Queryable, Clone, PartialEq, Debug)]
 #[diesel(table_name = sessions)]
 #[diesel(primary_key(session_id))]
-pub struct Session {
+pub struct StoredSession {
     pub session_id: String,
     pub created_at: i64,
     pub peer_installation_id: String,
     pub vmac_session_data: Vec<u8>,
 }
 
-impl Session {
+impl StoredSession {
     pub fn new(
         session_id: String,
         peer_installation_id: String,
@@ -84,7 +84,7 @@ impl Session {
     }
 }
 
-impl Save<EncryptedMessageStore> for Session {
+impl Save<EncryptedMessageStore> for StoredSession {
     fn save(&self, into: &EncryptedMessageStore) -> Result<(), StorageError> {
         let conn = &mut into.conn()?;
 

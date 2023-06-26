@@ -125,6 +125,14 @@ where
         Ok(contacts)
     }
 
+    pub fn get_session(&self, contact: &Contact) -> Result<SessionManager, ClientError> {
+        let existing_session = self._store.get_session(&contact.installation_id())?;
+        match existing_session {
+            Some(i) => Ok(SessionManager::try_from(&i)?),
+            None => self.create_outbound_session(contact),
+        }
+    }
+
     pub async fn my_other_devices(&self) -> Result<Vec<Contact>, ClientError> {
         let contacts = self.get_contacts(self.account.addr().as_str()).await?;
         let my_contact_id = self.account.contact().installation_id();
@@ -134,8 +142,11 @@ where
             .collect())
     }
 
-    pub fn create_outbound_session(&self, contact: Contact) -> Result<SessionManager, ClientError> {
-        let olm_session = self.account.create_outbound_session(contact.clone());
+    pub fn create_outbound_session(
+        &self,
+        contact: &Contact,
+    ) -> Result<SessionManager, ClientError> {
+        let olm_session = self.account.create_outbound_session(contact);
         let session = SessionManager::from_olm_session(olm_session, contact)
             .map_err(|_| ClientError::Unknown)?;
 
@@ -159,10 +170,10 @@ where
 
         let create_result = self
             .account
-            .create_inbound_session(contact.clone(), msg)
+            .create_inbound_session(&contact, msg)
             .map_err(|_| ClientError::Unknown)?;
 
-        let session = SessionManager::from_olm_session(create_result.session, contact)
+        let session = SessionManager::from_olm_session(create_result.session, &contact)
             .map_err(|_| ClientError::Unknown)?;
 
         session.store(&self._store)?;

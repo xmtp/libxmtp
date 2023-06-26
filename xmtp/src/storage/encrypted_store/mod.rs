@@ -155,14 +155,26 @@ impl EncryptedMessageStore {
     pub fn get_account(&mut self) -> Result<Option<Account>, StorageError> {
         let mut account_list: Vec<Account> = self.fetch()?;
 
-        if account_list.len() > 1 {
-            warn!(
-                "EncryptedStore expected 1 StoredAccount however found {}. Using the Oldest.",
-                account_list.len()
-            )
-        }
+        warn_length(&account_list, "StoredAccount", 1);
 
         Ok(account_list.pop())
+    }
+
+    pub fn get_session(
+        &self,
+        installation_id: &str,
+    ) -> Result<Option<StoredSession>, StorageError> {
+        let conn = &mut self.conn()?;
+        use self::schema::sessions::dsl::*;
+
+        let mut session_list = sessions
+            .filter(peer_installation_id.eq(installation_id))
+            .order(created_at.desc())
+            .load::<StoredSession>(conn)
+            .map_err(|_| StorageError::Unknown)?;
+
+        warn_length(&session_list, "StoredSession", 1);
+        Ok(session_list.pop())
     }
 }
 
@@ -177,7 +189,7 @@ impl Store<EncryptedMessageStore> for NewDecryptedMessage {
     }
 }
 
-impl Store<EncryptedMessageStore> for Session {
+impl Store<EncryptedMessageStore> for StoredSession {
     fn store(&self, into: &EncryptedMessageStore) -> Result<(), StorageError> {
         let conn = &mut into.conn()?;
         diesel::insert_into(schema::sessions::table)
@@ -199,13 +211,13 @@ impl Fetch<DecryptedMessage> for EncryptedMessageStore {
     }
 }
 
-impl Fetch<Session> for EncryptedMessageStore {
-    fn fetch(&self) -> Result<Vec<Session>, StorageError> {
+impl Fetch<StoredSession> for EncryptedMessageStore {
+    fn fetch(&self) -> Result<Vec<StoredSession>, StorageError> {
         let conn = &mut self.conn()?;
         use self::schema::sessions::dsl::*;
 
         sessions
-            .load::<Session>(conn)
+            .load::<StoredSession>(conn)
             .map_err(StorageError::DieselResultError)
     }
 }
@@ -240,11 +252,22 @@ impl Fetch<Account> for EncryptedMessageStore {
     }
 }
 
+fn warn_length<T>(list: &Vec<T>, str_id: &str, max_length: usize) {
+    if list.len() > max_length {
+        warn!(
+            "EncryptedStore expected at most {} {} however found {}. Using the Oldest.",
+            max_length,
+            str_id,
+            list.len()
+        )
+    }
+}
+
 #[cfg(test)]
 mod tests {
 
     use super::{
-        models::{DecryptedMessage, NewDecryptedMessage, Session},
+        models::{DecryptedMessage, NewDecryptedMessage, StoredSession},
         EncryptedMessageStore, StorageError, StorageOption,
     };
     use crate::{Fetch, Store};
@@ -370,11 +393,11 @@ mod tests {
             EncryptedMessageStore::generate_enc_key(),
         )
         .unwrap();
-        let session = Session::new(rand_string(), rand_string(), rand_vec());
+        let session = StoredSession::new(rand_string(), rand_string(), rand_vec());
 
         session.store(&store).unwrap();
 
-        let results: Vec<Session> = store.fetch().unwrap();
+        let results: Vec<StoredSession> = store.fetch().unwrap();
         assert_eq!(1, results.len());
     }
 }
