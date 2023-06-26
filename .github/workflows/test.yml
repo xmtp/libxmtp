@@ -13,9 +13,8 @@ jobs:
         uses: actions/checkout@v2
 
       - name: Start Docker containers
-        run: |
-          dev/up
-      
+        run: dev/up
+
       - name: Setup Kotlin
         run: |
           sudo apt update -q
@@ -23,9 +22,7 @@ jobs:
           sudo snap install --classic kotlin
           cd bindings_ffi
           make install-jar
-          mkdir -p /opt/jna
-          mv {jna,kotlinx-coroutines-core-jvm}.jar /opt/jna/
-          echo "CLASSPATH=/opt/jna/jna.jar:/opt/jna/kotlinx-coroutines-core-jvm.jar" >> "$GITHUB_ENV"
+          echo "$(make echo-jar | tail -n 1 | sed -e 's/\.*export //')" >> "$GITHUB_ENV"
 
       - uses: bufbuild/buf-setup-action@v1.17.0
         with:
@@ -37,7 +34,7 @@ jobs:
           profile: minimal
           toolchain: stable
           override: true
-      
+
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: |
