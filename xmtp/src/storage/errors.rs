@@ -14,6 +14,8 @@ pub enum StorageError {
     Store(String),
     #[error(transparent)]
     ImplementationError(#[from] anyhow::Error),
+    #[error("serialization error")]
+    SerializationError,
     #[error("unknown storage error")]
     Unknown,
 }
