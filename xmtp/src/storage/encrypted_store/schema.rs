@@ -37,6 +37,18 @@ For messages in UNINITIALIZED state:
                 installation.state must be PREKEY_MESSAGE_SENT:
                     Send message as ratchet message
         Set message.state = SENT
+
+Receiving an invite:
+...
+
+Receiving a pre-key message:
+...
+
+Receiving a ratchet message:
+...
+
+Receiving a decryption failure message:
+...
 */
 
 enum ConversationState {
