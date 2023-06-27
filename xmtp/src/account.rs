@@ -92,7 +92,7 @@ impl<'de> Deserialize<'de> for VmacAccount {
 
 #[derive(Serialize, Deserialize)]
 pub struct Account {
-    pub(crate) keys: Arc<Mutex<VmacAccount>>,
+    pub(crate) keys: Mutex<VmacAccount>,
     pub(crate) assoc: Association,
 }
 
@@ -101,7 +101,7 @@ impl Account {
         // TODO: Validate Association on initialization
 
         Self {
-            keys: Arc::new(Mutex::new(keys)),
+            keys: Mutex::new(keys),
             assoc,
         }
     }
