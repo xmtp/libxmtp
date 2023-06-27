@@ -135,3 +135,6 @@ dist
 
 # JAR files
 *.jar
+
+# Generated Uniffi definitions
+xmtpv3.kt
