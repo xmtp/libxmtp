@@ -35,7 +35,6 @@ runBlocking {
      }
 }
 
-// This test does not pass yet - pending https://github.com/mozilla/uniffi-rs/issues/1611
 runBlocking {
     try {
         val client = uniffi.xmtpv3.createClient(inboxOwner, "http://malformed:5556", false);
