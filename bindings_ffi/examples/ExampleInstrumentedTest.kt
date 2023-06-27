@@ -24,8 +24,9 @@ class ExampleInstrumentedTest {
         val credentials: Credentials = Credentials.create(ECKeyPair.create(privateKey))
         val inboxOwner = Web3jInboxOwner(credentials)
         runBlocking {
-            val client = uniffi.xmtpv3.createClient(inboxOwner, EMULATOR_LOCALHOST_ADDRESS, false);
+            val client = uniffi.xmtpv3.createClient(AndroidFfiLogger(), inboxOwner, EMULATOR_LOCALHOST_ADDRESS, false)
             assertNotNull("Should be able to construct client", client.walletAddress())
+            client.close()
         }
     }
 
@@ -37,9 +38,9 @@ class ExampleInstrumentedTest {
         runBlocking {
             var didThrow = false;
             try {
-                val client = uniffi.xmtpv3.createClient(inboxOwner, "http://incorrect:5556", false);
+                val client = uniffi.xmtpv3.createClient(AndroidFfiLogger(), inboxOwner, "http://incorrect:5556", false)
             } catch (e: Exception) {
-                didThrow = true;
+                didThrow = true
             }
             assertEquals("Should throw exception", true, didThrow)
         }

@@ -12,3 +12,7 @@ callback interface FfiInboxOwner {
     [Throws=SigningError]
     bytes sign(string text);
 };
+
+callback interface FfiLogger {
+    void log(u32 level, string level_label, string message);
+};
