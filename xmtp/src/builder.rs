@@ -8,6 +8,7 @@ use crate::{
     InboxOwner, Store,
 };
 use crate::{Fetch, StorageError};
+use log::info;
 use thiserror::Error;
 
 #[derive(Error, Debug)]
@@ -117,11 +118,13 @@ where
         match account {
             Some(a) => {
                 if owner.get_address() == a.addr() {
+                    info!("Using existing XMTP identity");
                     return Ok(a);
                 }
                 Err(ClientBuilderError::StoredAccountMismatch)
             }
             None => {
+                info!("Creating new XMTP identity");
                 let new_account = Self::sign_new_account(owner)?;
                 new_account.store(store)?;
                 Ok(new_account)
