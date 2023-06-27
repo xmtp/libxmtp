@@ -51,9 +51,11 @@ Receiving a decryption failure message:
 ...
 */
 
+use diesel::sql_types::Date;
+
 enum ConversationState {
-    UNINITIALIZED = 0,
-    INVITES_SENT = 10,
+    Uninitialized = 0,
+    InvitesSent = 10,
 }
 
 struct UserState {
@@ -61,13 +63,13 @@ struct UserState {
 }
 
 enum InstallationState {
-    UNINITIALIZED = 0,
-    PREKEY_MESSAGE_SENT = 10,
+    Uninitialized = 0,
+    PrekeyMessageSent = 10,
 }
 
 enum MessageState {
-    UNINITIALIZED = 0,
-    SENT = 10,
+    Uninitialized = 0,
+    Sent = 10,
 }
 
 diesel::table! {
@@ -84,7 +86,7 @@ diesel::table! {
         convo_id -> Text,
         peer_address -> Text, // links to users table
         created_at -> BigInt,
-        state -> ConversationState,
+        state -> Integer, // ConversationState
     }
 }
 
@@ -95,7 +97,7 @@ diesel::table! {
         convo_id -> Text,   // links to conversations table
         addr_from -> Text,
         content -> Binary,
-        state -> MessageState,
+        state -> Integer, // MessageState
     }
 }
 
@@ -116,7 +118,7 @@ diesel::table! {
         contact_bundle -> Binary,
         user_address -> Text,   // links to users table
         vmac_session_data -> Binary, // nullable - is null when installation.state is UNINITIALIZED
-        state -> SessionState,
+        state -> Integer, // InstallationState
     }
 }
 
