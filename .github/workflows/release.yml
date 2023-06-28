@@ -11,10 +11,14 @@ jobs:
     runs-on: ubuntu-latest
     steps:
     - uses: actions/checkout@v3
-    - run: |
+    - uses: maxim-lobanov/setup-xcode@v1
+      with:
+        xcode-version: latest-stable
+    - name: build package
+      working-directory: bindings_swift
+      run: |
         make download-toolchains
         make swift
-      working-directory: bindings_swift
     - uses: actions/upload-artifact@v3
       with:
         name: xmtp-rust-swift
