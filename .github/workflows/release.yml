@@ -32,7 +32,7 @@ jobs:
       working-directory: xmtp-rust-swift
       run: |
         unzip -o ../bindings_swift/xmtp-rust-swift.zip
-        sed -i "/s.version/s/= '.*'/= '$GITHUB_REF'" XMTPRust.podspec
+        sed -i "/s.version/s/= '.*'$/= '$GITHUB_REF'/" XMTPRust.podspec
         git config user.name libxmtp
         git config user.email libxmtp@xmtp.com
         git add .
