@@ -1,4 +1,4 @@
-name: Make release
+name: Release
 
 on: 
   push:
@@ -9,6 +9,8 @@ jobs:
 
   swift:
     runs-on: macos-12
+    env:
+      RELEASE_BRANCH: test-auto-release # do we want to push to main directly?
     steps:
     - uses: actions/checkout@v3
     - uses: maxim-lobanov/setup-xcode@v1
@@ -18,21 +20,19 @@ jobs:
       working-directory: bindings_swift
       run: |
         make download-toolchains
-        make swift
-    - uses: actions/upload-artifact@v3
+        make -j 3 swift
+    - uses: actions/checkout@v3
       with:
-        name: xmtp-rust-swift
-        path: bindings_swift/xmtp-rust-swift.zip
-
-  release:
-    runs-on: ubuntu-latest
-    needs: swift
-    permissions:
-      contents: write
-    steps:
-      - uses: actions/download-artifact@v3
-        with:
-          name: xmtp-rust-swift  
-      - uses: ncipollo/release-action@v1
-        with:
-          artifacts: "*.zip"
+        repository: xmtp/xmtp-rust-swift
+        path: xmtp-rust-swift
+        ref: ${{ env.RELEASE_BRANCH }} 
+    - name: push to xmtp-rust-swift
+      working-directory: xmtp-rust-swift
+      run: |
+        unzip -o ../bindings_swift/xmtp-rust-swift.zip
+        git config user.name libxmtp
+        git config user.email libxmtp@xmtp.com
+        git add .
+        git commit -m "libxmtp release $GITHUB_REF"
+        git tag $GITHUB_REF
+        git push --tags origin $RELEASE_BRANCH
