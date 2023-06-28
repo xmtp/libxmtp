@@ -51,7 +51,7 @@ framework: move_gen $(LIB)
 		-headers ./include/ \
 		-output XMTPRustSwift.xcframework
 
-swift:
+swift: framework
 	./make_xmtp_rust_swift_sources.sh
 	rm -f xmtp-rust-swift.zip
 	zip -r xmtp-rust-swift.zip XMTPRustSwift.xcframework Sources
