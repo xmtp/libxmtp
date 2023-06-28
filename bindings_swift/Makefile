@@ -50,11 +50,11 @@ framework: move_gen $(LIB)
 		-library ./target/aarch64-apple-ios/release/libxmtp_rust_swift.a \
 		-headers ./include/ \
 		-output XMTPRustSwift.xcframework
-	rm -f bundle.zip
-	zip -r bundle.zip XMTPRustSwift.xcframework
-	openssl dgst -sha256 bundle.zip
 
-swift: framework
-	./copy_xcframework_to_swift.sh
+swift:
+	./make_xmtp_rust_swift_sources.sh
+	rm -f xmtp-rust-swift.zip
+	zip -r xmtp-rust-swift.zip XMTPRustSwift.xcframework Sources
+	openssl dgst -sha256 xmtp-rust-swift.zip
 
 .PHONY: $(ARCHS_IOS) $(ARCHS_MAC) framework all aarch64-apple-ios download-toolchains swift

@@ -1,0 +1,20 @@
+name: Make release
+
+on: 
+  push:
+    tags:
+    - '*'
+
+jobs:
+
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+    - uses: actions/checkout@v3
+    - run: make swift
+      working-directory: ./bingings_swift
+    - uses: ncipollo/release-action@v1
+      with:
+        artifacts: "bindings_swift/xmtp_rust_swift.zip"

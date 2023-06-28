@@ -2,18 +2,10 @@
 
 set -ex
 
-# This script copies the built XCFramework to a the xmtp_rust_swift repo, which is a Swift package
-# that encapsulates all of the good stuff here.
+# This script creates a zip file of the built XCFramework and Source files, which can be unzipped over
+# xmpt-rust-swift repo, which is a Swift package that encapsulates all of the good stuff here.
 
-# Look for an xmtp_rust_swift repo at the sibling layer of the top level of this repo so ../../
-
-REPONAME="xmtp-rust-swift"
-REPOPATH="../../$REPONAME"
-# Now move the XMTPRustSwift.xcframework to the Swift package
-rm -rf "$REPOPATH/XMTPRustSwift.xcframework"
-cp -R "XMTPRustSwift.xcframework" "$REPOPATH"
-
-# Need to copy any Swift file in ./include/Generated to $REPOPATH/Sources/XMTPRust/*
+# Need to copy any Swift file in ./include/Generated to ./Sources/XMTPRust/*
 FILES=$(find ./Generated -name "*.swift")
 
 # HACK HACK HACK
@@ -42,8 +34,14 @@ add_foundation_import() {
 add_nserror_helpers() {
     sed -i '' '1s/^/extension RustString: @unchecked Sendable {}\nextension RustString: LocalizedError {\n    public var errorDescription: String? {\n        return NSLocalizedString("XMTP Rust Error: \\(self.as_str().toString())", comment: self.as_str().toString())\n    }\n}\n\n/' "$1"
 }
+
+rm -rf ./Sources
+mkdir -p ./Sources/XMTPRust
 for f in $FILES
 do
+    echo "Copying $f"
+    cp "$f" "./Sources/XMTPRust/"
+    f="./Sources/XMTPRust/$(basename $f)"
     # If it's a xmtp_rust_swift.swift file, then do the injection
     if [[ $f == *"xmtp_rust_swift.swift" ]]; then
       add_nserror_helpers "$f"
@@ -52,7 +50,5 @@ do
     fi
     # All files need "import XMTPRustSwift"
     add_xmtprustswift_import "$f"
-    echo "Copying $f"
-    mv "$f" "$REPOPATH/Sources/XMTPRust/"
 done
 
