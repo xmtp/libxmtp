@@ -9,6 +9,8 @@ jobs:
 
   swift:
     runs-on: macos-12
+    permissions:
+      contents: write
     env:
       RELEASE_BRANCH: test-auto-release # do we want to push to main directly?
     steps:
@@ -20,7 +22,7 @@ jobs:
       working-directory: bindings_swift
       run: |
         make download-toolchains
-        make -j 3 swift
+        make swift
     - uses: actions/checkout@v3
       with:
         repository: xmtp/xmtp-rust-swift
@@ -30,6 +32,7 @@ jobs:
       working-directory: xmtp-rust-swift
       run: |
         unzip -o ../bindings_swift/xmtp-rust-swift.zip
+        sed -i "/s.version/s/= '.*'/= '$GITHUB_REF'" XMTPRust.podspec
         git config user.name libxmtp
         git config user.email libxmtp@xmtp.com
         git add .
