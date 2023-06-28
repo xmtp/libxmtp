@@ -11,7 +11,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
     - uses: actions/checkout@v3
-    - run: make swift
+    - run: |
+        make download-toolchains
+        make swift
       working-directory: bindings_swift
     - uses: actions/upload-artifact@v3
       with:
