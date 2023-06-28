@@ -22,7 +22,7 @@ jobs:
     - uses: actions/upload-artifact@v3
       with:
         name: xmtp-rust-swift
-        path: bindings_swift/xmpt-rust-swift.zip
+        path: bindings_swift/xmtp-rust-swift.zip
 
   release:
     runs-on: ubuntu-latest
