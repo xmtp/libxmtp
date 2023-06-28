@@ -1,0 +1,61 @@
+name: Release
+
+on: 
+  push:
+    tags:
+    - '*'
+
+jobs:
+
+  swift:
+    runs-on: macos-12
+    permissions:
+      contents: write
+    env:
+      RELEASE_BRANCH: test-auto-release # do we want to push to main directly?
+    steps:
+    - uses: actions/checkout@v3
+    - uses: maxim-lobanov/setup-xcode@v1
+      with:
+        xcode-version: latest-stable
+    - name: build package
+      working-directory: bindings_swift
+      run: |
+        make download-toolchains
+        make swift
+    - name: generate access token
+      id: generate_token
+      uses: tibdex/github-app-token@v1.8.0
+      with:
+        app_id: ${{ secrets.GH_APP_ID }}
+        private_key: ${{ secrets.GH_APP_PK }}
+        installation_id: ${{ secrets.GH_INSTALLATION_ID }}
+    - name: check out xmtp-rust-swift
+      uses: actions/checkout@v3
+      with:
+        repository: xmtp/xmtp-rust-swift
+        path: xmtp-rust-swift
+        ref: ${{ env.RELEASE_BRANCH }}
+        token: ${{ steps.generate_token.outputs.token }}
+    - name: update xmtp-rust-swift
+      working-directory: xmtp-rust-swift
+      run: |
+        # set -x
+        # extract the tag fro GITHUB_REF which has the form refs/tags/...
+        RELEASE=$(basename $GITHUB_REF)
+        # Update the version field in the podspec.
+        # This could be single inlined sed expression in theory,
+        # but the quoting issues were a pain to debug,
+        # so instead the sed rule is in a file
+        # and we need to inject the RELEASE tag into it.
+        sed -i '' -e "s/VERSION/$RELEASE/" ../bindings_swift/update_spec_version.sed
+        sed -i '' -f ../bindings_swift/update_spec_version.sed XMTPRust.podspec
+        # unzip the new framework version over the repo
+        unzip -o ../bindings_swift/xmtp-rust-swift.zip
+        # commit, tag and push
+        git config user.name libxmtp
+        git config user.email libxmtp@xmtp.com
+        git add .
+        git commit -m "libxmtp release $RELEASE"
+        git tag $RELEASE
+        git push --tags origin $RELEASE_BRANCH

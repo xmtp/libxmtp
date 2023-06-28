@@ -1,0 +1,1 @@
+/^ *s.version *=/s/= *'.*'/= 'VERSION'/
