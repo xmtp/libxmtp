@@ -7,14 +7,25 @@ on:
 
 jobs:
 
-  build:
+  swift:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v3
+    - run: make swift
+      working-directory: bindings_swift
+    - uses: actions/upload-artifact@v3
+      with:
+        name: xmtp-rust-swift
+        path: bindings_swift/xmpt-rust-swift.zip
+
+  release:
     runs-on: ubuntu-latest
     permissions:
       contents: write
     steps:
-    - uses: actions/checkout@v3
-    - run: make swift
-      working-directory: bingings_swift
-    - uses: ncipollo/release-action@v1
-      with:
-        artifacts: "bindings_swift/xmtp_rust_swift.zip"
+      - uses: actions/download-artifact@v3
+        with:
+          name: xmtp-rust-swift  
+      - uses: ncipollo/release-action@v1
+        with:
+          artifacts: "*.zip"
