@@ -1,7 +1,7 @@
 // @generated automatically by Diesel CLI.
 
 // This is a generated file - changes here are made for illustrative purposes.
-// Once we agree on what the changeset should be, I'll update the PR with the
+// Once we agree on what the changeset should be, I'll put up separate PR's with the
 // actual code changes required to generate these changes.
 use diesel::sql_types::Date;
 
