@@ -10,8 +10,7 @@
 - We do not include message data on invites. Ideally we start including messages directly on invites later.
 - Every state update is a DB write. This allows us to resume on cold start.
 - On cold start, we can scan the DB for UNINITIALIZED messages and resume sending them.
-- Every message and invite has a randomly generated id. This is used to deduplicate on the receiving side. If a message is received with an id that already exists in the DB, it is ignored (after advancing the ratchet state).
-- We set state enum values as 0, 10, 20 etc. to allow for future additions to the enum without breaking the schema.
+- Repeated sends of the same payload should be idempotent. When receiving a message or invite, the receiving side will store the hash of the encrypted payload alongside the decrypted result. If a message is received with an id that already exists in the DB, it is ignored.
 
 ### Creating a conversation
 
@@ -26,6 +25,8 @@ If conversation with convo_id doesn't already exist in DB, insert it with conver
 Insert message into DB with message.state = UNINITIALIZED and message.convo_id set
 
 For messages in UNINITIALIZED state:
+
+    // Send out invites first if the conversation is uninitialized
     If conversation.state == UNINITIALIZED:
          For each user in the conversation (including self):
              If user.last_refreshed is uninitialized or more than THRESHOLD ago:
@@ -35,16 +36,17 @@ For messages in UNINITIALIZED state:
                  Set user.last_refreshed to NOW
              For each installation of the user:
                  If installation.state == UNINITIALIZED:
-                     Send invite as prekey message
-                     Set installation state to PREKEY_MESSAGE_SENT
-                 Else if installation.state == PREKEY_MESSAGE_SENT
-                     Send invite as ratchet message
+                     Create an outbound session
+                     Set installation state to SESSION_CREATED
+                 Send the invite on the existing session
          Set conversation.state = INVITES_SENT
+
+    // Send out the message once the conversation is initialized
     If conversation.state == INVITES_SENT:
         For each user in the conversation (including self):
             For each installation of the user:
-                installation.state must be PREKEY_MESSAGE_SENT:
-                    Send message as ratchet message
+                installation.state must be SESSION_CREATED:
+                    Send the message on the existing session
         Set message.state = SENT
 ```
 

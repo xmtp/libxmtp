@@ -5,6 +5,7 @@
 // actual code changes required to generate these changes.
 use diesel::sql_types::Date;
 
+// We set state enum values as 0, 10, 20 etc. to allow for future additions to the enum without breaking the schema.
 enum ConversationState {
     Uninitialized = 0,
     InvitesSent = 10,
@@ -16,7 +17,7 @@ struct UserState {
 
 enum InstallationState {
     Uninitialized = 0,
-    PrekeyMessageSent = 10,
+    SessionCreated = 10,
 }
 
 enum MessageState {
