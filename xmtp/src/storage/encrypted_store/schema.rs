@@ -22,7 +22,7 @@ enum InstallationState {
 
 enum MessageState {
     Uninitialized = 0,
-    Committed = 10,
+    LocallyCommitted = 10,
 }
 
 enum OutboundPayloadState {
