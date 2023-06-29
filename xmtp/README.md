@@ -11,6 +11,9 @@
 - Every state update is a DB write. This allows us to resume on cold start.
 - On cold start, we can scan the DB for UNINITIALIZED messages and payloads and resume sending them.
 - Repeated sends of the same payload should be idempotent. When receiving a message or invite, the receiving side will store the hash of the encrypted payload alongside the decrypted result. If a message is received with an id that already exists in the DB, it is ignored.
+- We have ignored race conditions for now (as network requests may take different amounts of time).
+  - It may make sense to later add multi-producer, single-consumer queues for (processMessages + refreshUserInstallations) and (processPayloads).
+  - Even simpler, we could have singleton threads for processMessages() and processPayloads() that simply run on an interval.
 
 ### Creating a conversation
 
@@ -56,7 +59,7 @@ processMessages():
     processPayloads()   // Could be kicked off asynchronously or synchronously
     return
 
-refreshUserInstallations():
+refreshUserInstallations(user):
     Fetch installations/contact bundles for the user from the network
     Fetch installations/contact bundles for the user from the DB
     In a single transaction:
