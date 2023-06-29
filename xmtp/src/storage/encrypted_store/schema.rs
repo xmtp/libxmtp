@@ -8,7 +8,7 @@ use diesel::sql_types::Date;
 // We set state enum values as 0, 10, 20 etc. to allow for future additions to the enum without breaking the schema.
 enum ConversationState {
     Uninitialized = 0,
-    InvitesSent = 10,
+    Invited = 10,
 }
 
 struct UserState {
@@ -21,6 +21,11 @@ enum InstallationState {
 }
 
 enum MessageState {
+    Uninitialized = 0,
+    Committed = 10,
+}
+
+enum OutboundPayloadState {
     Uninitialized = 0,
     Sent = 10,
 }
@@ -45,7 +50,7 @@ diesel::table! {
 
 diesel::table! {
     messages (id) {
-        id -> Integer,
+        id -> Text,
         created_at -> BigInt,
         convo_id -> Text,   // links to conversations table
         addr_from -> Text,
@@ -63,15 +68,23 @@ diesel::table! {
 }
 
 // Invariant: only one session per peer installation
-// Hence session id is not needed
 diesel::table! {
-    installations (installation_id) {
-        installation_id -> Text,
+    installations (installation_address) {
+        installation_address -> Text,
         created_at -> BigInt,
         contact_bundle -> Binary,
         user_address -> Text,   // links to users table
+        session_id -> Text, // nullable - is null when installation.state is UNINITIALIZED
         vmac_session_data -> Binary, // nullable - is null when installation.state is UNINITIALIZED
         state -> Integer, // InstallationState
+    }
+}
+
+diesel::table! {
+    outbound_payloads (sequential_id) {
+        sequential_id -> Integer,
+        payload -> Binary,
+        state -> Integer, // OutboundPayloadState
     }
 }
 
