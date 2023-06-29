@@ -132,3 +132,9 @@ dist
 
 # Sqlite Instances
 *.db3
+
+# JAR files
+*.jar
+
+# Generated Uniffi definitions
+xmtpv3.kt

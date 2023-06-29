@@ -1,2 +1,14 @@
 namespace xmtpv3 {
 };
+
+[Error]
+enum SigningError {
+  "Generic",
+};
+
+callback interface FfiInboxOwner {
+    string get_address();
+
+    [Throws=SigningError]
+    bytes sign(string text);
+};

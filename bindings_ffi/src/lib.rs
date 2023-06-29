@@ -6,6 +6,19 @@ use xmtp_networking::grpc_api_helper::Client as TonicApiClient;
 pub type RustXmtpClient = xmtp::Client<TonicApiClient>;
 uniffi::include_scaffolding!("xmtpv3");
 
+// TODO proper error handling
+#[derive(Debug, thiserror::Error)]
+pub enum SigningError {
+    #[error("This is a generic error")]
+    Generic,
+}
+
+impl From<uniffi::UnexpectedUniFFICallbackError> for SigningError {
+    fn from(_: uniffi::UnexpectedUniFFICallbackError) -> Self {
+        Self::Generic
+    }
+}
+
 #[derive(uniffi::Error, Debug)]
 #[uniffi(handle_unknown_callback_error)]
 pub enum GenericError {
@@ -38,10 +51,9 @@ fn stringify_error_chain(error: &(dyn Error + 'static)) -> String {
 }
 
 // A simplified InboxOwner passed to Rust across the FFI boundary
-#[uniffi::export(callback_interface)]
 pub trait FfiInboxOwner: Send + Sync {
     fn get_address(&self) -> String;
-    fn sign(&self, text: String) -> Result<Vec<u8>, GenericError>;
+    fn sign(&self, text: String) -> Result<Vec<u8>, SigningError>;
 }
 
 pub struct RustInboxOwner {
@@ -113,7 +125,7 @@ impl FfiXmtpClient {
 
 #[cfg(test)]
 mod tests {
-    use crate::{create_client, FfiInboxOwner, GenericError};
+    use crate::{create_client, FfiInboxOwner, SigningError};
     use xmtp::InboxOwner;
     use xmtp_cryptography::{signature::RecoverableSignature, utils::rng};
 
@@ -134,8 +146,9 @@ mod tests {
             self.wallet.get_address()
         }
 
-        fn sign(&self, text: String) -> Result<Vec<u8>, GenericError> {
-            let recoverable_signature = self.wallet.sign(&text).map_err(|err| err.to_string())?;
+        fn sign(&self, text: String) -> Result<Vec<u8>, SigningError> {
+            let recoverable_signature =
+                self.wallet.sign(&text).map_err(|_| SigningError::Generic)?;
             match recoverable_signature {
                 RecoverableSignature::Eip191Signature(signature_bytes) => Ok(signature_bytes),
             }
