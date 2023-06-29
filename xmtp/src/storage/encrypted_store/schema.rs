@@ -1,8 +1,8 @@
 // @generated automatically by Diesel CLI.
 
 // This is a generated file - changes here are made for illustrative purposes.
-// Once we agree on what the changeset should be, I'll put up separate PR's with the
-// actual code changes required to generate these changes.
+// We can put up separate PR's with the actual code changes required to generate these changes.
+// This file will not be landed as part of this PR.
 use diesel::sql_types::Date;
 
 // We set state enum values as 0, 10, 20 etc. to allow for future additions to the enum without breaking the schema.
