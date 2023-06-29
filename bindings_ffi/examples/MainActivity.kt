@@ -1,6 +1,7 @@
 package com.example.xmtpv3_example
 
 import android.os.Bundle
+import android.util.Log
 import android.widget.TextView
 import androidx.appcompat.app.AppCompatActivity
 import com.example.xmtpv3_example.R.id.selftest_output
@@ -9,6 +10,7 @@ import org.web3j.crypto.Credentials
 import org.web3j.crypto.ECKeyPair
 import org.web3j.crypto.Sign
 import uniffi.xmtpv3.FfiInboxOwner
+import uniffi.xmtpv3.FfiLogger
 import java.nio.charset.StandardCharsets
 import java.security.SecureRandom
 
@@ -26,6 +28,12 @@ class Web3jInboxOwner(private val credentials: Credentials) : FfiInboxOwner {
     }
 }
 
+class AndroidFfiLogger : FfiLogger {
+    override fun log(level: UInt, levelLabel: String, message: String) {
+        Log.i("Rust", levelLabel + " - " + message)
+    }
+}
+
 // An example Android app testing the end-to-end flow through Rust
 // Run setup_android_example.sh to set it up
 class MainActivity : AppCompatActivity() {
@@ -40,7 +48,7 @@ class MainActivity : AppCompatActivity() {
 
         runBlocking {
             try {
-                val client = uniffi.xmtpv3.createClient(inboxOwner, EMULATOR_LOCALHOST_ADDRESS, false);
+                val client = uniffi.xmtpv3.createClient(AndroidFfiLogger(), inboxOwner, EMULATOR_LOCALHOST_ADDRESS, false);
                 textView.text = "Client constructed, wallet address: " + client.walletAddress();
             } catch (e: Exception) {
                 textView.text = "Failed to construct client: " + e.message;

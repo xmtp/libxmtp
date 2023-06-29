@@ -1,23 +1,20 @@
+pub mod inbox_owner;
+pub mod logger;
+
+use inbox_owner::FfiInboxOwner;
+use log::info;
+use logger::FfiLogger;
 use std::error::Error;
 use std::sync::Arc;
 use xmtp::types::Address;
 use xmtp_networking::grpc_api_helper::Client as TonicApiClient;
 
+use crate::inbox_owner::RustInboxOwner;
+pub use crate::inbox_owner::SigningError;
+use crate::logger::init_logger;
+
 pub type RustXmtpClient = xmtp::Client<TonicApiClient>;
 uniffi::include_scaffolding!("xmtpv3");
-
-// TODO proper error handling
-#[derive(Debug, thiserror::Error)]
-pub enum SigningError {
-    #[error("This is a generic error")]
-    Generic,
-}
-
-impl From<uniffi::UnexpectedUniFFICallbackError> for SigningError {
-    fn from(_: uniffi::UnexpectedUniFFICallbackError) -> Self {
-        Self::Generic
-    }
-}
 
 #[derive(uniffi::Error, Debug)]
 #[uniffi(handle_unknown_callback_error)]
@@ -50,51 +47,18 @@ fn stringify_error_chain(error: &(dyn Error + 'static)) -> String {
     result
 }
 
-// A simplified InboxOwner passed to Rust across the FFI boundary
-pub trait FfiInboxOwner: Send + Sync {
-    fn get_address(&self) -> String;
-    fn sign(&self, text: String) -> Result<Vec<u8>, SigningError>;
-}
-
-pub struct RustInboxOwner {
-    ffi_inbox_owner: Box<dyn FfiInboxOwner>,
-}
-
-impl RustInboxOwner {
-    pub fn new(ffi_inbox_owner: Box<dyn FfiInboxOwner>) -> Self {
-        Self { ffi_inbox_owner }
-    }
-}
-
-impl xmtp::InboxOwner for RustInboxOwner {
-    fn get_address(&self) -> String {
-        self.ffi_inbox_owner.get_address()
-    }
-
-    fn sign(
-        &self,
-        text: &str,
-    ) -> Result<
-        xmtp_cryptography::signature::RecoverableSignature,
-        xmtp_cryptography::signature::SignatureError,
-    > {
-        let bytes = self
-            .ffi_inbox_owner
-            .sign(text.to_string())
-            .map_err(|_flat_err| xmtp_cryptography::signature::SignatureError::Unknown)?;
-        Ok(xmtp_cryptography::signature::RecoverableSignature::Eip191Signature(bytes))
-    }
-}
-
 #[uniffi::export(async_runtime = "tokio")]
 pub async fn create_client(
+    logger: Box<dyn FfiLogger>,
     ffi_inbox_owner: Box<dyn FfiInboxOwner>,
     host: String,
     is_secure: bool,
     // TODO proper error handling
 ) -> Result<Arc<FfiXmtpClient>, GenericError> {
+    init_logger(logger);
+
     let inbox_owner = RustInboxOwner::new(ffi_inbox_owner);
-    let api_client = TonicApiClient::create(host, is_secure)
+    let api_client = TonicApiClient::create(host.clone(), is_secure)
         .await
         .map_err(|e| stringify_error_chain(&e))?;
 
@@ -106,6 +70,11 @@ pub async fn create_client(
         .init()
         .await
         .map_err(|e| stringify_error_chain(&e))?;
+
+    info!(
+        "Created XMTP client for address: {}",
+        xmtp_client.wallet_address()
+    );
     Ok(Arc::new(FfiXmtpClient {
         inner_client: xmtp_client,
     }))
@@ -125,7 +94,7 @@ impl FfiXmtpClient {
 
 #[cfg(test)]
 mod tests {
-    use crate::{create_client, FfiInboxOwner, SigningError};
+    use crate::{create_client, inbox_owner::SigningError, logger::FfiLogger, FfiInboxOwner};
     use xmtp::InboxOwner;
     use xmtp_cryptography::{signature::RecoverableSignature, utils::rng};
 
@@ -155,11 +124,18 @@ mod tests {
         }
     }
 
+    pub struct MockLogger {}
+
+    impl FfiLogger for MockLogger {
+        fn log(&self, _level: u32, _level_label: String, _message: String) {}
+    }
+
     // Try a query on a test topic, and make sure we get a response
     #[tokio::test]
     async fn test_client_creation() {
         let ffi_inbox_owner = LocalWalletInboxOwner::new();
         let client = create_client(
+            Box::new(MockLogger {}),
             Box::new(ffi_inbox_owner),
             xmtp_networking::LOCALHOST_ADDRESS.to_string(),
             false,

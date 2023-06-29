@@ -9,6 +9,7 @@ edition = "2021"
 crate-type = ["lib", "cdylib"]
 
 [dependencies]
+log = { version = "0.4", features = ["std"] }
 thiserror = "1.0.40"
 uniffi = { git = "https://github.com/mozilla/uniffi-rs", rev = "6938c262293802f00a373f0d1aa16a2079071b24", features = ["tokio", "cli"] }
 uniffi_macros = { git = "https://github.com/mozilla/uniffi-rs", rev = "6938c262293802f00a373f0d1aa16a2079071b24" }
