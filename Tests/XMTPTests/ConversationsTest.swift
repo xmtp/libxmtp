@@ -36,13 +36,15 @@ class ConversationsTests: XCTestCase {
 
 	func testCanGetConversationFromInviteEnvelope() async throws {
 		let fixtures = await fixtures()
-		let client = fixtures.aliceClient!
+		let client: Client = fixtures.aliceClient!
 
 		let created = Date()
 		let newWallet = try PrivateKey.generate()
 		let newClient = try await Client.create(account: newWallet, apiClient: fixtures.fakeApiClient)
 
-		let invitation = try InvitationV1.createRandom(context: nil)
+		let invitation = try InvitationV1.createDeterministic(
+				sender: newClient.keys,
+				recipient: client.keys.getPublicKeyBundle())
 		let sealed = try SealedInvitation.createV1(
 			sender: newClient.keys,
 			recipient: client.keys.getPublicKeyBundle(),

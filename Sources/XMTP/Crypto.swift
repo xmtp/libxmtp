@@ -1,9 +1,6 @@
 //
 //  Crypto.swift
 //
-//
-//  Created by Pat Nakajima on 11/17/22.
-//
 
 import CryptoKit
 import Foundation
@@ -70,6 +67,21 @@ enum Crypto {
 		} else {
 			return try AES.GCM.open(box, using: resultKey)
 		}
+	}
+
+	static func calculateMac(_ message: Data, _ secret: Data) throws -> Data {
+		let mac = HMAC<SHA256>.authenticationCode(for: message, using: SymmetricKey(data: secret))
+		return Data(mac)
+	}
+
+	static func deriveKey(secret: Data, nonce: Data, info: Data) throws -> Data {
+		let key = HKDF<SHA256>.deriveKey(
+				inputKeyMaterial: SymmetricKey(data: secret),
+				salt: nonce,
+				info: info,
+				outputByteCount: 32
+		)
+		return Data(key.bytes)
 	}
 
 	static func secureRandomBytes(count: Int) throws -> Data {

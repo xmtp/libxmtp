@@ -12,6 +12,35 @@ import XMTPTestHelpers
 
 @available(iOS 16.0, *)
 class InvitationTests: XCTestCase {
+
+	func testDeterministicInvite() async throws {
+		let aliceWallet = try FakeWallet.generate()
+		let bobWallet = try FakeWallet.generate()
+
+		let alice = try await PrivateKeyBundleV1.generate(wallet: aliceWallet)
+		let bob = try await PrivateKeyBundleV1.generate(wallet: bobWallet)
+
+		let makeInvite = { (conversationID: String) in
+			try InvitationV1.createDeterministic(
+					sender: alice.toV2(),
+					recipient: bob.toV2().getPublicKeyBundle(),
+					context: InvitationV1.Context.with {
+						$0.conversationID = conversationID
+					})
+		}
+
+		// Repeatedly making the same invite should use the same topic/keys
+		let original = try makeInvite("example.com/conversation-foo");
+		for i in 1...10 {
+			let invite = try makeInvite("example.com/conversation-foo");
+			XCTAssertEqual(original.topic, invite.topic);
+		}
+
+		// But when the conversationId changes then it use a new topic/keys
+		let invite = try makeInvite("example.com/conversation-bar");
+		XCTAssertNotEqual(original.topic, invite.topic);
+	}
+
 	func testGenerateSealedInvitation() async throws {
 		let aliceWallet = try FakeWallet.generate()
 		let bobWallet = try FakeWallet.generate()
@@ -19,7 +48,10 @@ class InvitationTests: XCTestCase {
 		let alice = try await PrivateKeyBundleV1.generate(wallet: aliceWallet)
 		let bob = try await PrivateKeyBundleV1.generate(wallet: bobWallet)
 
-		let invitation = try InvitationV1.createRandom()
+		let invitation = try InvitationV1.createDeterministic(
+			sender: alice.toV2(),
+			recipient: bob.toV2().getPublicKeyBundle()
+		)
 
 		let newInvitation = try SealedInvitation.createV1(
 			sender: try alice.toV2(),

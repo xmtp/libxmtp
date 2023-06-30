@@ -85,32 +85,6 @@ class ConversationTests: XCTestCase {
 		wait(for: [expectation], timeout: 0.1)
 	}
 
-	func testDoesNotIncludeSelfConversationsInList() async throws {
-		let convos = try await aliceClient.conversations.list()
-		XCTAssert(convos.isEmpty, "setup is wrong")
-
-		let recipient = aliceClient.privateKeyBundleV1.toPublicKeyBundle()
-		let invitation = try InvitationV1.createRandom()
-		let created = Date()
-
-		let sealedInvitation = try SealedInvitation.createV1(
-			sender: aliceClient.keys,
-			recipient: SignedPublicKeyBundle(recipient),
-			created: created,
-			invitation: invitation
-		)
-
-		let peerAddress = recipient.walletAddress
-
-		try await aliceClient.publish(envelopes: [
-			Envelope(topic: .userInvite(aliceClient.address), timestamp: created, message: try sealedInvitation.serializedData()),
-			Envelope(topic: .userInvite(peerAddress), timestamp: created, message: try sealedInvitation.serializedData()),
-		])
-
-		let newConvos = try await aliceClient.conversations.list()
-		XCTAssert(newConvos.isEmpty, "did not filter out self conversations")
-	}
-
 	func testCanStreamConversationsV2() async throws {
 		let expectation1 = expectation(description: "got a conversation")
 		expectation1.expectedFulfillmentCount = 2

@@ -149,8 +149,10 @@ public class Conversations {
 
         // We don't have an existing conversation, make a v2 one
         let recipient = try contact.toSignedPublicKeyBundle()
-        let invitation = try InvitationV1.createRandom(context: context)
-
+        let invitation = try InvitationV1.createDeterministic(
+                sender: client.keys,
+                recipient: recipient,
+                context: context)
         let sealedInvitation = try await sendInvitation(recipient: recipient, invitation: invitation, created: Date())
         let conversationV2 = try ConversationV2.create(client: client, invitation: invitation, header: sealedInvitation.v1.header)
 

@@ -55,7 +55,11 @@ class MessageTests: XCTestCase {
 		var invitationContext = InvitationV1.Context()
 		invitationContext.conversationID = "https://example.com/1"
 
-		let invitationv1 = try InvitationV1.createRandom(context: invitationContext)
+		let invitationv1 = try InvitationV1.createDeterministic(
+				sender: alice.toV2(),
+				recipient: bob.toV2().getPublicKeyBundle(),
+				context: invitationContext
+		)
 		let sealedInvitation = try SealedInvitation.createV1(sender: alice.toV2(), recipient: bob.toV2().getPublicKeyBundle(), created: Date(), invitation: invitationv1)
 		let encoder = TextCodec()
 		let encodedContent = try encoder.encode(content: "Yo!")

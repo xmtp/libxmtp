@@ -172,6 +172,44 @@ final class IntegrationTests: XCTestCase {
 		XCTAssertEqual("Oh, hello Alice", messages[0].body)
 	}
 
+	func testDeterministicConversationCreation() async throws {
+		try TestConfig.skipIfNotRunningLocalNodeTests()
+
+		let opt = ClientOptions(api: .init(env: .local, isSecure: false))
+		let alice = try await Client.create(account: try PrivateKey.generate(), options: opt)
+		let bob = try await Client.create(account: try PrivateKey.generate(), options: opt)
+
+		// First Alice starts a conversation with Bob
+		let context = InvitationV1.Context.with {
+			$0.conversationID = "example.com/alice-bob-foo"
+		}
+		let c1 = try await alice.conversations.newConversation(with: bob.address, context: context)
+		_ = try await c1.send(text: "Hello Bob")
+		try await delayToPropagate()
+
+		// Then Alice starts the same conversation (with Bob, same conversation ID)
+		let c2 = try await alice.conversations.newConversation(with: bob.address, context: context)
+		_ = try await c2.send(text: "And another one")
+		try await delayToPropagate()
+
+		// Alice should see the same topic and keyMaterial for both conversations.
+		XCTAssertEqual(c1.topic, c2.topic)
+		XCTAssertEqual(
+				c1.toTopicData().invitation.aes256GcmHkdfSha256.keyMaterial,
+				c2.toTopicData().invitation.aes256GcmHkdfSha256.keyMaterial)
+
+		// And Bob should only see the one conversation.
+		let bobConvos = try await bob.conversations.list()
+		XCTAssertEqual(1, bobConvos.count)
+		XCTAssertEqual(c1.topic, bobConvos[0].topic)
+		XCTAssertEqual("example.com/alice-bob-foo", bobConvos[0].conversationID)
+
+		let bobMessages = try await bobConvos[0].messages()
+		XCTAssertEqual(2, bobMessages.count)
+		XCTAssertEqual("Hello Bob", bobMessages[1].body)
+		XCTAssertEqual("And another one", bobMessages[0].body)
+	}
+
 	func testStreamMessagesInV1Conversation() async throws {
 	    try TestConfig.skipIfNotRunningLocalNodeTests()
 		let opt = ClientOptions(api: .init(env: .local, isSecure: false))
