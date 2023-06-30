@@ -1,13 +1,32 @@
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use super::{
-    schema::{messages, sessions},
-    EncryptedMessageStore,
-};
+use super::{schema::*, EncryptedMessageStore};
 use crate::{account::Account, storage::StorageError, Save};
-
-use super::schema::accounts;
 use diesel::prelude::*;
+
+#[derive(Insertable, Identifiable, Queryable, PartialEq, Debug)]
+#[diesel(table_name = users)]
+#[diesel(primary_key(user_address))]
+pub struct StoredUser {
+    pub user_address: String,
+    pub created_at: i64,
+    pub last_refreshed: i64,
+}
+
+pub enum ConversationState {
+    Uninitialized = 0,
+    Invited = 10,
+}
+
+#[derive(Insertable, Identifiable, Queryable, PartialEq, Debug)]
+#[diesel(table_name = conversations)]
+#[diesel(primary_key(convo_id))]
+pub struct StoredConversation {
+    pub convo_id: String,
+    pub peer_address: String, // links to users table
+    pub created_at: i64,
+    pub convo_state: i32, // ConversationState
+}
 
 /// Placeholder type for messages returned from the Store.
 #[derive(Queryable, Debug)]
