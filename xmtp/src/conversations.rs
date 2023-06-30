@@ -32,9 +32,7 @@ where
 
 #[cfg(test)]
 mod tests {
-    use crate::{
-        conversations::Conversations, mock_xmtp_api_client::MockXmtpApiClient, ClientBuilder,
-    };
+    use crate::{conversations::Conversations, ClientBuilder};
 
     #[tokio::test]
     async fn create_secret_conversation() {
