@@ -200,7 +200,15 @@ mod tests {
     #[test]
     fn builder_test() {
         let client = ClientBuilder::new_test().build().unwrap();
-        assert!(!client.account.get_keys().curve25519.to_bytes().is_empty())
+        assert!(!client
+            .account
+            .olm_account()
+            .unwrap()
+            .get()
+            .identity_keys()
+            .curve25519
+            .to_bytes()
+            .is_empty())
     }
 
     #[test]
@@ -218,7 +226,14 @@ mod tests {
             .store(store_a)
             .build()
             .unwrap();
-        let keybytes_a = client_a.account.get_keys().curve25519.to_bytes();
+        let keybytes_a = client_a
+            .account
+            .olm_account()
+            .unwrap()
+            .get()
+            .identity_keys()
+            .curve25519
+            .to_bytes();
         drop(client_a);
 
         // Reload the existing store and wallet
@@ -231,7 +246,14 @@ mod tests {
             .store(store_b)
             .build()
             .unwrap();
-        let keybytes_b = client_b.account.get_keys().curve25519.to_bytes();
+        let keybytes_b = client_b
+            .account
+            .olm_account()
+            .unwrap()
+            .get()
+            .identity_keys()
+            .curve25519
+            .to_bytes();
         drop(client_b);
 
         // Create a new wallet and store

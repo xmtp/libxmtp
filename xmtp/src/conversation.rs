@@ -9,6 +9,7 @@ use crate::{
     Client,
 };
 
+use prost::DecodeError;
 // use async_trait::async_trait;
 use thiserror::Error;
 
@@ -18,6 +19,8 @@ pub enum ConversationError {
     Client(#[from] ClientError),
     #[error("invitation error {0}")]
     Invitation(#[from] InvitationError),
+    #[error("decode error {0}")]
+    Decode(DecodeError),
     #[error("unknown error")]
     Unknown,
 }

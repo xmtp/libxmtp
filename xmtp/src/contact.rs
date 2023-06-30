@@ -120,6 +120,14 @@ impl Contact {
     }
 }
 
+impl PartialEq for Contact {
+    fn eq(&self, other: &Self) -> bool {
+        self.installation_id() == other.installation_id()
+    }
+}
+
+impl Eq for Contact {}
+
 impl TryFrom<Contact> for Vec<u8> {
     type Error = ContactError;
 

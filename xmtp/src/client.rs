@@ -2,6 +2,7 @@ use core::fmt;
 use std::fmt::Formatter;
 
 use thiserror::Error;
+use vodozemac::olm::OlmMessage;
 
 use crate::{
     account::Account,
@@ -154,6 +155,32 @@ where
         Ok(session)
     }
 
+    pub fn create_inbound_session(
+        &self,
+        contact: Contact,
+        // Message MUST be a pre-key message
+        message: Vec<u8>,
+    ) -> Result<(SessionManager, Vec<u8>), ClientError> {
+        let olm_message: OlmMessage =
+            serde_json::from_slice(message.as_slice()).map_err(|_| ClientError::Unknown)?;
+        let msg = match olm_message {
+            OlmMessage::PreKey(msg) => msg,
+            _ => return Err(ClientError::Unknown),
+        };
+
+        let create_result = self
+            .account
+            .create_inbound_session(&contact, msg)
+            .map_err(|_| ClientError::Unknown)?;
+
+        let session = SessionManager::from_olm_session(create_result.session, &contact)
+            .map_err(|_| ClientError::Unknown)?;
+
+        session.store(&self._store)?;
+
+        Ok((session, create_result.plaintext))
+    }
+
     async fn publish_user_contact(&self) -> Result<(), ClientError> {
         let envelope = self.build_contact_envelope()?;
         self.api_client
@@ -232,7 +259,8 @@ mod tests {
                 assert_eq!(
                     client
                         .account
-                        .keys
+                        .olm_account()
+                        .unwrap()
                         .get()
                         .curve25519_key()
                         .to_bytes()
