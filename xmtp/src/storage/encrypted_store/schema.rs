@@ -9,6 +9,15 @@ diesel::table! {
 }
 
 diesel::table! {
+    conversations (convo_id) {
+        convo_id -> Text,
+        peer_address -> Text,
+        created_at -> BigInt,
+        convo_state -> Integer,
+    }
+}
+
+diesel::table! {
     messages (id) {
         id -> Integer,
         created_at -> BigInt,
@@ -27,4 +36,20 @@ diesel::table! {
     }
 }
 
-diesel::allow_tables_to_appear_in_same_query!(accounts, messages,);
+diesel::table! {
+    users (user_address) {
+        user_address -> Text,
+        created_at -> BigInt,
+        last_refreshed -> BigInt,
+    }
+}
+
+diesel::joinable!(conversations -> users (peer_address));
+
+diesel::allow_tables_to_appear_in_same_query!(
+    accounts,
+    conversations,
+    messages,
+    sessions,
+    users,
+);
