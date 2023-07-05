@@ -21,5 +21,6 @@ url = "2.3.1"
 walletconnect = {git="https://github.com/nlordell/walletconnect-rs.git", features=["qr", "transport"]}
 xmtp = { path = "../../xmtp" }
 xmtp_cryptography = { path = "../../xmtp_cryptography"}
+xmtp_networking = {path = "../../xmtp_networking"}
 
 
