@@ -44,10 +44,10 @@ data class ConversationV1(
     ): List<DecodedMessage> {
         val pagination = Pagination(limit = limit, before = before, after = after)
         val result = runBlocking {
-            client.apiClient.queryTopic(topic = topic, pagination = pagination)
+            client.apiClient.envelopes(topic = topic.description, pagination = pagination)
         }
 
-        return result.envelopesList.mapNotNull { envelope ->
+        return result.mapNotNull { envelope ->
             decodeOrNull(envelope = envelope)
         }
     }
