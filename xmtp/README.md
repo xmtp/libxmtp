@@ -51,7 +51,7 @@ processMessages():
                 Create an outbound session (hold it in memory)
             Use the existing session to encrypt a payload containing an invite with the message attached (hold it in memory)
         In a single transaction:
-            Push all encrypted payloads to outbound_payloads table with outbound_payload.state = UNINITIALIZED
+            Push all encrypted payloads to outbound_payloads table with outbound_payload.state = PENDING
             Commit all updated session states to the DB with installation.state = SESSION_CREATED
             Set message.state = LOCALLY_COMMITTED
             Set conversation.state = INVITED
