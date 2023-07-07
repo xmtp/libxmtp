@@ -26,7 +26,7 @@ import org.xmtp.android.library.messages.SealedInvitationBuilder
 import org.xmtp.android.library.messages.SealedInvitationHeaderV1
 import org.xmtp.android.library.messages.SignedContentBuilder
 import org.xmtp.android.library.messages.Topic
-import org.xmtp.android.library.messages.createRandom
+import org.xmtp.android.library.messages.createDeterministic
 import org.xmtp.android.library.messages.getPublicKeyBundle
 import org.xmtp.android.library.messages.header
 import org.xmtp.android.library.messages.recoverWalletSignerPublicKey
@@ -330,7 +330,10 @@ class ConversationTest {
             it.conversationId = "https://example.com/1"
         }.build()
         val invitationv1 =
-            InvitationV1.newBuilder().build().createRandom(context = invitationContext)
+            InvitationV1.newBuilder().build().createDeterministic(
+                sender = client.keys,
+                recipient = fakeContactClient.keys.getPublicKeyBundle(), context = invitationContext
+            )
         val senderBundle = client.privateKeyBundleV1?.toV2()
         assertEquals(
             senderBundle?.identityKey?.publicKey?.recoverWalletSignerPublicKey()?.walletAddress,
@@ -428,7 +431,12 @@ class ConversationTest {
         bobConversation.send(text = "hey alice 1")
         bobConversation.send(text = "hey alice 2")
         bobConversation.send(text = "hey alice 3")
-        val messages = aliceClient.conversations.listBatchMessages(listOf(aliceConversation.topic, bobConversation.topic))
+        val messages = aliceClient.conversations.listBatchMessages(
+            listOf(
+                aliceConversation.topic,
+                bobConversation.topic
+            )
+        )
         assertEquals(3, messages.size)
     }
 

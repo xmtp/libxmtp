@@ -14,7 +14,7 @@ import org.xmtp.android.library.messages.SealedInvitation
 import org.xmtp.android.library.messages.SealedInvitationBuilder
 import org.xmtp.android.library.messages.SignedPublicKeyBundle
 import org.xmtp.android.library.messages.Topic
-import org.xmtp.android.library.messages.createRandom
+import org.xmtp.android.library.messages.createDeterministic
 import org.xmtp.android.library.messages.decrypt
 import org.xmtp.android.library.messages.getInvitation
 import org.xmtp.android.library.messages.header
@@ -27,7 +27,6 @@ import org.xmtp.android.library.messages.walletAddress
 import org.xmtp.proto.keystore.api.v1.Keystore.TopicMap.TopicData
 import org.xmtp.proto.message.contents.Contact
 import org.xmtp.proto.message.contents.Invitation
-import java.lang.Exception
 import java.util.Date
 
 data class Conversations(
@@ -132,7 +131,8 @@ data class Conversations(
         }
         // We don't have an existing conversation, make a v2 one
         val recipient = contact.toSignedPublicKeyBundle()
-        val invitation = Invitation.InvitationV1.newBuilder().build().createRandom(context)
+        val invitation = Invitation.InvitationV1.newBuilder().build()
+            .createDeterministic(client.keys, recipient, context)
         val sealedInvitation =
             sendInvitation(recipient = recipient, invitation = invitation, created = Date())
         val conversationV2 = ConversationV2.create(

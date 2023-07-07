@@ -4,15 +4,17 @@ import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.google.protobuf.kotlin.toByteString
 import org.junit.Assert
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNotEquals
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.xmtp.android.library.messages.InvitationV1
+import org.xmtp.android.library.messages.InvitationV1ContextBuilder
 import org.xmtp.android.library.messages.PrivateKey
 import org.xmtp.android.library.messages.PrivateKeyBuilder
 import org.xmtp.android.library.messages.PrivateKeyBundleV1
 import org.xmtp.android.library.messages.SealedInvitation
 import org.xmtp.android.library.messages.SealedInvitationBuilder
-import org.xmtp.android.library.messages.createRandom
+import org.xmtp.android.library.messages.createDeterministic
 import org.xmtp.android.library.messages.generate
 import org.xmtp.android.library.messages.getInvitation
 import org.xmtp.android.library.messages.getPublicKeyBundle
@@ -51,13 +53,17 @@ class InvitationTest {
         val message = conversations[0].messages().firstOrNull()
         Assert.assertEquals(message?.body, "hello")
     }
+
     @Test
     fun testGenerateSealedInvitation() {
         val aliceWallet = FakeWallet.generate()
         val bobWallet = FakeWallet.generate()
         val alice = PrivateKeyBundleV1.newBuilder().build().generate(wallet = aliceWallet)
         val bob = PrivateKeyBundleV1.newBuilder().build().generate(wallet = bobWallet)
-        val invitation = InvitationV1.newBuilder().build().createRandom()
+        val invitation = InvitationV1.newBuilder().build().createDeterministic(
+            sender = alice.toV2(),
+            recipient = bob.toV2().getPublicKeyBundle()
+        )
         val newInvitation = SealedInvitationBuilder.buildFromV1(
             sender = alice.toV2(),
             recipient = bob.toV2().getPublicKeyBundle(),
@@ -85,5 +91,29 @@ class InvitationTest {
             bobInvite.aes256GcmHkdfSha256.keyMaterial,
             invitation.aes256GcmHkdfSha256.keyMaterial
         )
+    }
+
+    @Test
+    fun testDeterministicInvite() {
+        val aliceWallet = FakeWallet.generate()
+        val bobWallet = FakeWallet.generate()
+        val alice = PrivateKeyBundleV1.newBuilder().build().generate(wallet = aliceWallet)
+        val bob = PrivateKeyBundleV1.newBuilder().build().generate(wallet = bobWallet)
+        val makeInvite = { conversationId: String ->
+            InvitationV1.newBuilder().build().createDeterministic(
+                sender = alice.toV2(),
+                recipient = bob.toV2().getPublicKeyBundle(),
+                context = InvitationV1ContextBuilder.buildFromConversation(conversationId)
+            )
+        }
+        // Repeatedly making the same invite should use the same topic/keys
+        val original = makeInvite("example.com/conversation-foo")
+        for (i in 1..10) {
+            val invite = makeInvite("example.com/conversation-foo")
+            assertEquals(original.topic, invite.topic)
+        }
+        // But when the conversationId changes then it use a new topic/keys
+        val invite = makeInvite("example.com/conversation-bar")
+        assertNotEquals(original.topic, invite.topic)
     }
 }

@@ -21,7 +21,7 @@ import org.xmtp.android.library.messages.PrivateKeyBundleV1
 import org.xmtp.android.library.messages.PublicKeyBundle
 import org.xmtp.android.library.messages.SealedInvitationBuilder
 import org.xmtp.android.library.messages.SignedPublicKeyBundleBuilder
-import org.xmtp.android.library.messages.createRandom
+import org.xmtp.android.library.messages.createDeterministic
 import org.xmtp.android.library.messages.decrypt
 import org.xmtp.android.library.messages.generate
 import org.xmtp.android.library.messages.getPublicKeyBundle
@@ -74,7 +74,11 @@ class MessageTest {
             conversationId = "https://example.com/1"
         }.build()
         val invitationv1 =
-            InvitationV1.newBuilder().build().createRandom(context = invitationContext)
+            InvitationV1.newBuilder().build().createDeterministic(
+                sender = alice.toV2(),
+                recipient = bob.toV2().getPublicKeyBundle(),
+                context = invitationContext
+            )
         val sealedInvitation = SealedInvitationBuilder.buildFromV1(
             sender = alice.toV2(),
             recipient = bob.toV2().getPublicKeyBundle(),

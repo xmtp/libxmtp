@@ -2,6 +2,8 @@ package org.xmtp.android.library.messages
 
 import com.google.crypto.tink.subtle.Base64.encodeToString
 import com.google.protobuf.kotlin.toByteString
+import org.xmtp.android.library.Crypto
+import org.xmtp.android.library.toHex
 import org.xmtp.proto.message.contents.Invitation
 import org.xmtp.proto.message.contents.Invitation.InvitationV1.Context
 import java.security.SecureRandom
@@ -12,8 +14,8 @@ class InvitationV1Builder {
     companion object {
         fun buildFromTopic(
             topic: Topic,
-            context: Invitation.InvitationV1.Context? = null,
-            aes256GcmHkdfSha256: Invitation.InvitationV1.Aes256gcmHkdfsha256
+            context: Context? = null,
+            aes256GcmHkdfSha256: Invitation.InvitationV1.Aes256gcmHkdfsha256,
         ): InvitationV1 {
             return InvitationV1.newBuilder().apply {
                 this.topic = topic.description
@@ -26,9 +28,9 @@ class InvitationV1Builder {
 
         fun buildContextFromId(
             conversationId: String = "",
-            metadata: Map<String, String> = mapOf()
-        ): Invitation.InvitationV1.Context {
-            return Invitation.InvitationV1.Context.newBuilder().apply {
+            metadata: Map<String, String> = mapOf(),
+        ): Context {
+            return Context.newBuilder().apply {
                 this.conversationId = conversationId
                 this.putAllMetadata(metadata)
             }.build()
@@ -36,8 +38,8 @@ class InvitationV1Builder {
     }
 }
 
-fun InvitationV1.createRandom(context: Invitation.InvitationV1.Context? = null): InvitationV1 {
-    val inviteContext = context ?: Invitation.InvitationV1.Context.newBuilder().build()
+fun InvitationV1.createRandom(context: Context? = null): InvitationV1 {
+    val inviteContext = context ?: Context.newBuilder().build()
     val randomBytes = SecureRandom().generateSeed(32)
     val randomString = encodeToString(randomBytes, 0).replace(Regex("=*$"), "")
         .replace(Regex("[^A-Za-z0-9]"), "")
@@ -54,11 +56,50 @@ fun InvitationV1.createRandom(context: Invitation.InvitationV1.Context? = null):
     )
 }
 
+fun InvitationV1.createDeterministic(
+    sender: PrivateKeyBundleV2,
+    recipient: SignedPublicKeyBundle,
+    context: Context? = null,
+): InvitationV1 {
+    val inviteContext = context ?: Context.newBuilder().build()
+    val secret = sender.sharedSecret(
+        peer = recipient,
+        myPreKey = sender.preKeysList[0].publicKey,
+        isRecipient = false
+    )
+
+    val addresses = arrayOf(sender.toV1().walletAddress, recipient.walletAddress)
+    addresses.sort()
+
+    val msg = if (context != null && !context.conversationId.isNullOrBlank()) {
+        context.conversationId + addresses.joinToString(separator = ",")
+    } else {
+        addresses.joinToString(separator = ",")
+    }
+
+    val topicId = Crypto().calculateMac(secret = secret, message = msg.toByteArray()).toHex()
+    val topic = Topic.directMessageV2(topicId)
+    val keyMaterial = Crypto().deriveKey(
+        secret = secret,
+        salt = "__XMTP__INVITATION__SALT__XMTP__".toByteArray(),
+        info = listOf("0").plus(addresses).joinToString(separator = "|").toByteArray()
+    )
+    val aes256GcmHkdfSha256 = Invitation.InvitationV1.Aes256gcmHkdfsha256.newBuilder().apply {
+        this.keyMaterial = keyMaterial.toByteString()
+    }.build()
+
+    return InvitationV1Builder.buildFromTopic(
+        topic = topic,
+        context = inviteContext,
+        aes256GcmHkdfSha256 = aes256GcmHkdfSha256
+    )
+}
+
 class InvitationV1ContextBuilder {
     companion object {
         fun buildFromConversation(
             conversationId: String = "",
-            metadata: Map<String, String> = mapOf()
+            metadata: Map<String, String> = mapOf(),
         ): Context {
             return Context.newBuilder().also {
                 it.conversationId = conversationId
