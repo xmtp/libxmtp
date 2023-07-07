@@ -15,29 +15,26 @@
 
 ### States
 
+```
 Conversation:
-
-- UNINITIALIZED: No invites have been sent
-- INVITED: Invites have been sent
+    - UNINITIALIZED: No invites have been sent
+    - INVITED: Invites have been sent
 
 User:
-
-- LAST_REFRESHED: The local timestamp at which an updated list of installations and pre-keys was requested for that user (and successfully received)
+    - LAST_REFRESHED: The local timestamp at which an updated list of installations and pre-keys was requested for that user (and successfully received)
 
 Installation:
-
-- UNINITIALIZED: There is no session state with that installation (no prekey messages were sent yet)
-- SESSION_CREATED: There is existing session state with that installation
+    - UNINITIALIZED: There is no session state with that installation (no prekey messages were sent yet)
+    - SESSION_CREATED: There is existing session state with that installation
 
 Message:
-
-- UNINITIALIZED: The message has not been encrypted yet
-- LOCALLY_COMMITTED: The outbound payloads have been constructed
+    - UNINITIALIZED: The message has not been encrypted yet
+    - LOCALLY_COMMITTED: The outbound payloads have been constructed
 
 Outbound Payload:
-
-- PENDING: The payload has not been confirmed as sent yet
-- SERVER_ACKNOWLEDGED: The payload has been acknowledged by the server
+    - PENDING: The payload has not been confirmed as sent yet
+    - SERVER_ACKNOWLEDGED: The payload has been acknowledged by the server
+```
 
 ### Creating a conversation
 
