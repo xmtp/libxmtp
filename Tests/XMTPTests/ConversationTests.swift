@@ -374,6 +374,38 @@ class ConversationTests: XCTestCase {
 		XCTAssertEqual("hey alice 2", messages2[0].body)
 	}
 
+	func testCanRetrieveAllMessages() async throws {
+
+		guard case let .v2(bobConversation) = try await bobClient.conversations.newConversation(with: alice.address, context: InvitationV1.Context(conversationID: "hi")) else {
+			XCTFail("did not get a v2 conversation for bob")
+			return
+		}
+
+		guard case let .v2(aliceConversation) = try await aliceClient.conversations.newConversation(with: bob.address, context: InvitationV1.Context(conversationID: "hi")) else {
+			XCTFail("did not get a v2 conversation for alice")
+			return
+		}
+
+		for i in 0..<110 {
+			do {
+				let content = "hey alice \(i)"
+				let sentAt = Date().addingTimeInterval(-1000)
+				try await bobConversation.send(content: content, sentAt: sentAt)
+			} catch {
+				print("Error sending message:", error)
+			}
+		}
+
+		if let lastEnvelopeIndex = fakeApiClient.published.firstIndex(where: { $0.contentTopic == bobConversation.topic.description }) {
+			var lastEnvelope = fakeApiClient.published[lastEnvelopeIndex]
+			lastEnvelope.timestampNs = UInt64(Date().addingTimeInterval(-1000).millisecondsSinceEpoch)
+			fakeApiClient.published[lastEnvelopeIndex] = lastEnvelope
+		}
+
+		let messages = try await aliceConversation.messages()
+		XCTAssertEqual(100, messages.count)
+	}
+
 	func testImportV1ConversationFromJS() async throws {
 		let jsExportJSONData = Data("""
 		{

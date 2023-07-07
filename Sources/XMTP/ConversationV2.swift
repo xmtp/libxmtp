@@ -112,12 +112,11 @@ public struct ConversationV2 {
 
 	func messages(limit: Int? = nil, before: Date? = nil, after: Date? = nil) async throws -> [DecodedMessage] {
 		let pagination = Pagination(limit: limit, before: before, after: after)
-
-		let envelopes = try await client.apiClient.query(topic: topic, pagination: pagination, cursor: nil).envelopes
+		let envelopes = try await client.apiClient.envelopes(topic: topic.description, pagination: pagination)
 
 		return envelopes.compactMap { envelope in
 			do {
-				return try decode(envelope: envelope)
+            return try decode(envelope: envelope)
 			} catch {
 				print("Error decoding envelope \(error)")
 				return nil
