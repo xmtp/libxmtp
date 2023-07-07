@@ -13,6 +13,32 @@
 - Repeated sends of the same payload should be idempotent. When receiving a message or invite, the receiving side will store the hash of the encrypted payload alongside the decrypted result. If a message is received with an id that already exists in the DB, it is ignored.
 - We have ignored race conditions for now (as network requests may take different amounts of time). The receiver side should be tolerant of out-of-order payloads. If ordering is a must, it is possible to use multi-producer, single-consumer queues, or singleton threads for processMessages() and processPayloads() that run on an interval.
 
+### States
+
+Conversation:
+
+- UNINITIALIZED: No invites have been sent
+- INVITED: Invites have been sent
+
+User:
+
+- LAST_REFRESHED: The local timestamp at which an updated list of installations and pre-keys was requested for that user (and successfully received)
+
+Installation:
+
+- UNINITIALIZED: There is no session state with that installation (no prekey messages were sent yet)
+- SESSION_CREATED: There is existing session state with that installation
+
+Message:
+
+- UNINITIALIZED: The message has not been encrypted yet
+- LOCALLY_COMMITTED: The outbound payloads have been constructed
+
+Outbound Payload:
+
+- PENDING: The payload has not been confirmed as sent yet
+- SERVER_ACKNOWLEDGED: The payload has been acknowledged by the server
+
 ### Creating a conversation
 
 ```
@@ -72,7 +98,7 @@ refreshUserInstallations(user):
 processPayloads():
     For each outbound payload in in UNINITIALIZED state, processing in order of sequential ID (possibly batched):
         Send the payload(s) to the server
-        Once acknowledgement is received, set the payload to SENT state and optionally delete. (We can turn off deletion for debugging purposes if needed)
+        Once acknowledgement is received, set the payload to SERVER_ACKNOWLEDGED state and optionally delete. (We can turn off deletion for debugging purposes if needed)
 ```
 
 ### On cold start
