@@ -23,7 +23,7 @@ extension InvitationV1 {
 			try sender.toV1().walletAddress,
 			try recipient.walletAddress,
 		].sorted()
-		let msg = "\(context.conversationID)\(addresses.joined())"
+		let msg = "\(context.conversationID)\(addresses.joined(separator: ","))"
 		let topicId = try Crypto.calculateMac(Data(msg.utf8), secret).toHex
 		let topic = Topic.directMessageV2(topicId)
 
