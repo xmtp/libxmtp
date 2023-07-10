@@ -1,0 +1,19 @@
+name: Publish Docs
+on:
+  push:
+    branches:
+      - main
+permissions:
+  contents: write
+jobs:
+  publish-docs:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v3
+      - name: Build documentation
+        run: ./gradlew dokkaHtml
+      - name: Publish documentation
+        uses: JamesIves/github-pages-deploy-action@v4
+        with:
+          folder: library/build/dokka/html
