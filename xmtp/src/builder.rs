@@ -2,7 +2,7 @@ use crate::{
     account::{Account, AccountError},
     association::{Association, AssociationError, AssociationText},
     client::{Client, Network},
-    storage::EncryptedMessageStore,
+    storage::{now, EncryptedMessageStore, StoredUser},
     types::networking::XmtpApiClient,
     types::Address,
     InboxOwner, Store,
@@ -169,6 +169,11 @@ where
             #[cfg(test)]
             AccountStrategy::ExternalAccount(a) => a,
         };
+        store.insert_or_ignore_user(StoredUser {
+            user_address: account.addr(),
+            created_at: now(),
+            last_refreshed: 0,
+        })?;
 
         Ok(Client::new(api_client, self.network, account, store))
     }

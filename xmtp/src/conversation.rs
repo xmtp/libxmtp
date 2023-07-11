@@ -2,7 +2,7 @@ use crate::{
     client::ClientError,
     contact::Contact,
     invitation::{Invitation, InvitationError},
-    storage::{now, ConversationState, StorageError, StoredConversation},
+    storage::{now, ConversationState, StorageError, StoredConversation, StoredUser},
     types::networking::PublishRequest,
     types::networking::XmtpApiClient,
     types::Address,
@@ -54,15 +54,19 @@ where
             peer_address: peer_address.clone(),
             members,
         };
-        let stored_conversation = StoredConversation {
-            peer_address: obj.peer_address(),
-            convo_id: obj.convo_id(),
+        obj.client.store.insert_or_ignore_user(StoredUser {
+            user_address: obj.peer_address(),
             created_at: now(),
-            convo_state: ConversationState::Uninitialized as i32,
-        };
+            last_refreshed: 0,
+        })?;
         obj.client
             .store
-            .insert_or_ignore_conversation(stored_conversation)?;
+            .insert_or_ignore_conversation(StoredConversation {
+                peer_address: obj.peer_address(),
+                convo_id: obj.convo_id(),
+                created_at: now(),
+                convo_state: ConversationState::Uninitialized as i32,
+            })?;
         Ok(obj)
     }
 

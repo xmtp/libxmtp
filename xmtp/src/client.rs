@@ -223,6 +223,7 @@ mod tests {
         client.init().await.expect("BadReg");
     }
 
+    #[tokio::test]
     async fn test_local_conversation_creation() {
         let mut client = ClientBuilder::new_test().build().unwrap();
         client.init().await.expect("BadReg");
