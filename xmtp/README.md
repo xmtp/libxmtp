@@ -132,11 +132,11 @@ init():
 ```plaintext
 downloadInvites():
     Get the `refresh_jobs` record with an id of `invites`, and obtain a lock on the row:
-        Store `now()` in memory to mark the job execution time
+        Store `now()` in memory to mark the job execution start
         Fetch all messages from invite topic with timestamp > refresh_job.last_run - PADDING_TIME # PADDING TIME accounts for eventual consistency of network. Maybe 30s.
         For each message in topic:
             Save (or ignore if already exists) raw message to inbound_invite table with status of PENDING
-        Update `refresh_jobs` record `last_run = current_timestamp`
+        Update `refresh_jobs` record last_run = current_timestamp
 
 processInvites():
     For each inbound_invite in PENDING state:
