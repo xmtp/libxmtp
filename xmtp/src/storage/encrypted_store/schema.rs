@@ -18,6 +18,16 @@ diesel::table! {
 }
 
 diesel::table! {
+    installations (installation_id) {
+        installation_id -> Text,
+        user_address -> Text,
+        first_seen -> BigInt,
+        contact -> Binary,
+        expires_at -> Nullable<BigInt>,
+    }
+}
+
+diesel::table! {
     messages (id) {
         id -> Integer,
         created_at -> BigInt,
@@ -45,10 +55,12 @@ diesel::table! {
 }
 
 diesel::joinable!(conversations -> users (peer_address));
+diesel::joinable!(installations -> users (user_address));
 
 diesel::allow_tables_to_appear_in_same_query!(
     accounts,
     conversations,
+    installations,
     messages,
     sessions,
     users,
