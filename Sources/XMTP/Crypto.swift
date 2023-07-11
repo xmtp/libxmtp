@@ -81,7 +81,9 @@ enum Crypto {
 				info: info,
 				outputByteCount: 32
 		)
-		return Data(key.bytes)
+        return key.withUnsafeBytes { body in
+            Data(body)
+        }
 	}
 
 	static func secureRandomBytes(count: Int) throws -> Data {
