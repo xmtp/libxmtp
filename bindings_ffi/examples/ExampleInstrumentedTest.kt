@@ -7,6 +7,8 @@ import org.junit.Test
 import org.junit.runner.RunWith
 
 import org.junit.Assert.*
+import org.junit.FixMethodOrder
+import org.junit.runners.MethodSorters
 import org.web3j.crypto.Credentials
 import org.web3j.crypto.ECKeyPair
 import java.security.SecureRandom
@@ -17,14 +19,28 @@ import java.security.SecureRandom
  * See [testing documentation](http://d.android.com/tools/testing).
  */
 @RunWith(AndroidJUnit4::class)
+@FixMethodOrder(MethodSorters.NAME_ASCENDING)
 class ExampleInstrumentedTest {
-    @Test
-    fun testHappyPath() {
+    companion object {
         val privateKey: ByteArray = SecureRandom().generateSeed(32)
         val credentials: Credentials = Credentials.create(ECKeyPair.create(privateKey))
         val inboxOwner = Web3jInboxOwner(credentials)
+        val logger = AndroidFfiLogger()
+    }
+
+    @Test
+    fun testAHappyPath() {
         runBlocking {
-            val client = uniffi.xmtpv3.createClient(AndroidFfiLogger(), inboxOwner, EMULATOR_LOCALHOST_ADDRESS, false)
+            val client = uniffi.xmtpv3.createClient(logger, inboxOwner, EMULATOR_LOCALHOST_ADDRESS, false)
+            assertNotNull("Should be able to construct client", client.walletAddress())
+            client.close()
+        }
+    }
+
+    @Test
+    fun testBHappyPath() {
+        runBlocking {
+            val client = uniffi.xmtpv3.createClient(logger, inboxOwner, EMULATOR_LOCALHOST_ADDRESS, false)
             assertNotNull("Should be able to construct client", client.walletAddress())
             client.close()
         }
@@ -32,17 +48,23 @@ class ExampleInstrumentedTest {
 
     @Test
     fun testErrorThrows() {
-        val privateKey: ByteArray = SecureRandom().generateSeed(32)
-        val credentials: Credentials = Credentials.create(ECKeyPair.create(privateKey))
-        val inboxOwner = Web3jInboxOwner(credentials)
         runBlocking {
             var didThrow = false;
             try {
-                val client = uniffi.xmtpv3.createClient(AndroidFfiLogger(), inboxOwner, "http://incorrect:5556", false)
+                val client = uniffi.xmtpv3.createClient(logger, inboxOwner, "http://incorrect:5556", false)
             } catch (e: Exception) {
                 didThrow = true
             }
             assertEquals("Should throw exception", true, didThrow)
+        }
+    }
+
+    @Test
+    fun testFHappyPath() {
+        runBlocking {
+            val client = uniffi.xmtpv3.createClient(logger, inboxOwner, EMULATOR_LOCALHOST_ADDRESS, false)
+            assertNotNull("Should be able to construct client", client.walletAddress())
+            client.close()
         }
     }
 }
