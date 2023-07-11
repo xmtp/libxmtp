@@ -45,7 +45,7 @@ where
     pub api_client: A,
     pub network: Network,
     pub(crate) account: Account,
-    pub(super) _store: EncryptedMessageStore,
+    pub _store: EncryptedMessageStore,
     is_initialized: bool,
 }
 
