@@ -129,45 +129,49 @@ init():
 
 ### Receiving invites
 
+```plaintext
 downloadInvites():
-    get the `refresh_jobs` record with an id of `invites`, and obtain a lock on the row:
-        store `now()` in memory to mark the job execution time
-        fetch all messages from invite topic with timestamp > refresh_job.last_run - PADDING_TIME # PADDING TIME accounts for eventual consistency of network. Maybe 30s.
-        for each message in topic:
-            save (or ignore if already exists) raw message to inbound_invite table with status of PENDING
-            update `refresh_jobs` record last_run = current_timestamp
+    Get the `refresh_jobs` record with an id of `invites`, and obtain a lock on the row:
+        Store `now()` in memory to mark the job execution time
+        Fetch all messages from invite topic with timestamp > refresh_job.last_run - PADDING_TIME # PADDING TIME accounts for eventual consistency of network. Maybe 30s.
+        For each message in topic:
+            Save (or ignore if already exists) raw message to inbound_invite table with status of PENDING
+        Update `refresh_jobs` record `last_run = current_timestamp`
 
 processInvites():
-    for each inbound_invite in PENDING state:
-        if an existing session exists with the `inviter.installation_id`:
-            decrypt the inner invite using the existing session
-            if decryption fails:
-                set inbound_invite state to DECRYPTION_FAILURE
+    For each inbound_invite in PENDING state:
+        If an existing session exists with the `inviter.installation_id`:
+            Decrypt the inner invite using the existing session
+            If decryption fails:
+                Set inbound_invite state to DECRYPTION_FAILURE
                 continue
+            Update session in the database
         else:
-            create a new inbound session with the inviter
-            decrypt the inner invite using the new session
-            if decryption fails:
-                set inbound_invite state to DECRYPTION_FAILURE
+            Create a new inbound session with the inviter
+            Decrypt the inner invite using the new session
+            If decryption fails:
+                Set inbound_invite state to DECRYPTION_FAILURE
                 continue
-            persist the session to the database
-        
-        if invite validation fails:
-            set inbound_invite state to INVALID
+            Persist the session to the database
+
+        If invite validation fails:
+            Set inbound_invite state to INVALID
             continue
-        
-        fetch the existing conversation with convo_id derived from inner invite
-        if conversation with convo_id doesn't already exist in DB:
-            insert conversation with state = INVITE_RECEIVED
-        
-        if invite has message attached:
-            insert message with state = RECEIVED and convo_id matching the record stored DB
-        
-        set inbound_invite state to PROCESSED
+
+        Fetch the existing conversation with convo_id derived from inner invite
+        If conversation with convo_id doesn't already exist in DB:
+            Insert conversation with state = INVITE_RECEIVED
+
+        If invite has message attached:
+            Insert message with state = RECEIVED and convo_id matching the record stored DB
+
+        Set inbound_invite state to PROCESSED
 
 updateConversations():
     downloadInvites()
     processInvites()
+```
+
 ...
 
 ### Receiving a pre-key message
