@@ -2,6 +2,7 @@ use crate::{
     client::ClientError,
     contact::Contact,
     invitation::{Invitation, InvitationError},
+    storage::{now, ConversationState, StorageError, StoredConversation},
     types::networking::PublishRequest,
     types::networking::XmtpApiClient,
     types::Address,
@@ -21,6 +22,8 @@ pub enum ConversationError {
     Invitation(#[from] InvitationError),
     #[error("decode error {0}")]
     Decode(DecodeError),
+    #[error("storage error: {0}")]
+    Storage(#[from] StorageError),
     #[error("unknown error")]
     Unknown,
 }
@@ -40,17 +43,33 @@ impl<'c, A> SecretConversation<'c, A>
 where
     A: XmtpApiClient,
 {
-    pub fn new(
+    pub(crate) fn new(
         client: &'c Client<A>,
         peer_address: Address,
         // TODO: Add user's own contacts as well
         members: Vec<Contact>,
-    ) -> Self {
-        Self {
+    ) -> Result<Self, ConversationError> {
+        let obj = SecretConversation {
             client,
-            peer_address,
+            peer_address: peer_address.clone(),
             members,
-        }
+        };
+        let stored_conversation = StoredConversation {
+            peer_address: obj.peer_address(),
+            convo_id: obj.convo_id(),
+            created_at: now(),
+            convo_state: ConversationState::Uninitialized as i32,
+        };
+        obj.client
+            .store
+            .insert_or_ignore_conversation(stored_conversation)?;
+        Ok(obj)
+    }
+
+    pub fn convo_id(&self) -> String {
+        let mut members = [self.client.account.addr(), self.peer_address()];
+        members.sort();
+        format!(":{}:{}", members[0], members[1])
     }
 
     pub fn peer_address(&self) -> Address {
