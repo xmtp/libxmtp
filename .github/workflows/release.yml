@@ -12,7 +12,7 @@ jobs:
     permissions:
       contents: write
     env:
-      RELEASE_BRANCH: test-auto-release # do we want to push to main directly?
+      RELEASE_BRANCH: main
     steps:
     - uses: actions/checkout@v3
     - uses: maxim-lobanov/setup-xcode@v1

@@ -33,6 +33,7 @@ The Release github workflow will do the following:
 - check out `xmtp-rust-repo` and update it with the contents of the zip file
 - push new commit to the `xmtp-rust-swift` repo and tag it with the same tag
 
+NOTES: To allow the workflow to push to another repo the setup follows [this guide](https://docs.github.com/en/apps/creating-github-apps/authenticating-with-a-github-app/making-authenticated-api-requests-with-a-github-app-in-a-github-actions-workflow#authenticating-with-a-github-app). It uses [this app installed on the org](https://github.com/organizations/xmtp/settings/apps/libxmtp-release). The relevant secrets are stored only [in this repo](https://github.com/xmtp/libxmtp/settings/secrets/actions). If additional repos are added to this workflow they MUST be added to [this installation](https://github.com/organizations/xmtp/settings/installations/39118494) of the app.
 
 ### Steps for xmtp-ios SDK integration
 
