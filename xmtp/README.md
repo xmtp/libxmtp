@@ -140,6 +140,9 @@ downloadInvites():
 
 processInvites():
     For each inbound_invite in PENDING state:
+        If the payload is malformed and the proto cannot be decoded:
+            Set inbound_invite state to INVALID
+            continue
         If an existing session exists with the `inviter.installation_id`:
             Decrypt the inner invite using the existing session
             If decryption fails:
