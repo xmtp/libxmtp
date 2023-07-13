@@ -45,7 +45,7 @@ where
     pub api_client: A,
     pub(crate) network: Network,
     pub(crate) account: Account,
-    pub(crate) store: EncryptedMessageStore,
+    pub store: EncryptedMessageStore, // Temporarily exposed outside crate for CLI client
     is_initialized: bool,
 }
 

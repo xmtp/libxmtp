@@ -1,3 +1,4 @@
+use std::fmt;
 use std::sync::{Mutex, MutexGuard};
 
 use crate::{
@@ -94,6 +95,18 @@ impl<'de> Deserialize<'de> for VmacAccount {
 pub struct Account {
     pub(crate) keys: Mutex<VmacAccount>,
     pub(crate) assoc: Association,
+}
+
+impl fmt::Debug for Account {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let keys = self.olm_account().map_err(|_| fmt::Error)?;
+        let key_str = keys.get().curve25519_key().to_string();
+
+        f.debug_struct("Point")
+            .field("addr", &self.assoc.address())
+            .field("key", &key_str)
+            .finish()
+    }
 }
 
 impl Account {

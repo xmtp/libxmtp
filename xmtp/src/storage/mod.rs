@@ -5,6 +5,6 @@ pub use encrypted_store::{
     models::{
         now, ConversationState, NewDecryptedMessage, StoredConversation, StoredSession, StoredUser,
     },
-    EncryptedMessageStore, StorageOption,
+    EncryptedMessageStore, EncryptionKey, StorageOption,
 };
 pub use errors::StorageError;

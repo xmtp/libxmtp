@@ -5740,6 +5740,7 @@ dependencies = [
  "walletconnect",
  "xmtp",
  "xmtp_cryptography",
+ "xmtp_networking",
 ]
 
 [[package]]
