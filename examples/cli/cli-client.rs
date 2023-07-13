@@ -175,7 +175,7 @@ async fn send(client: Client, addr: &String, msg: &String) -> Result<(), CliErro
 
         let om = session.encrypt(msg.as_bytes());
         info!("{:?} ", om);
-        session.save(&client._store).unwrap();
+        session.save(&client.store).unwrap();
     }
 
     Ok(())
