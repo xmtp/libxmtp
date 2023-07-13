@@ -28,6 +28,12 @@ pub enum ConversationError {
     Unknown,
 }
 
+pub fn convo_id(self_addr: String, peer_addr: String) -> String {
+    let mut members = [self_addr, peer_addr];
+    members.sort();
+    format!(":{}:{}", members[0], members[1])
+}
+
 // I had to pick a name for this, and it seems like we are hovering around SecretConversation ATM
 // May very well change
 pub struct SecretConversation<'c, A>
@@ -71,9 +77,7 @@ where
     }
 
     pub fn convo_id(&self) -> String {
-        let mut members = [self.client.account.addr(), self.peer_address()];
-        members.sort();
-        format!(":{}:{}", members[0], members[1])
+        convo_id(self.client.account.addr(), self.peer_address())
     }
 
     pub fn peer_address(&self) -> Address {
