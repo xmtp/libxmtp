@@ -70,7 +70,7 @@ impl PartialEq<DecryptedMessage> for NewDecryptedMessage {
     }
 }
 
-fn now() -> i64 {
+pub fn now() -> i64 {
     let start = SystemTime::now();
     start
         .duration_since(UNIX_EPOCH)

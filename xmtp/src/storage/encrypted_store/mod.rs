@@ -19,7 +19,7 @@ use rand::RngCore;
 
 use self::{
     models::*,
-    schema::{accounts, messages},
+    schema::{accounts, conversations, messages, users},
 };
 use crate::{account::Account, Errorer, Fetch, Store};
 use diesel::{
@@ -175,6 +175,50 @@ impl EncryptedMessageStore {
 
         warn_length(&session_list, "StoredSession", 1);
         Ok(session_list.pop())
+    }
+
+    pub fn get_user(&self, address: &str) -> Result<Option<StoredUser>, StorageError> {
+        let conn = &mut self.conn()?;
+
+        let mut user_list = users::table
+            .filter(users::user_address.eq(address))
+            .load::<StoredUser>(conn)?;
+
+        warn_length(&user_list, "StoredUser", 1);
+        Ok(user_list.pop())
+    }
+
+    pub fn insert_or_ignore_user(&self, user: StoredUser) -> Result<(), StorageError> {
+        let conn = &mut self.conn()?;
+        diesel::insert_or_ignore_into(users::table)
+            .values(user)
+            .execute(conn)?;
+        Ok(())
+    }
+
+    pub fn get_conversation(
+        &self,
+        convo_id: &str,
+    ) -> Result<Option<StoredConversation>, StorageError> {
+        let conn = &mut self.conn()?;
+
+        let mut convo_list = conversations::table
+            .find(convo_id)
+            .load::<StoredConversation>(conn)?;
+
+        warn_length(&convo_list, "StoredConversation", 1);
+        Ok(convo_list.pop())
+    }
+
+    pub fn insert_or_ignore_conversation(
+        &self,
+        conversation: StoredConversation,
+    ) -> Result<(), StorageError> {
+        let conn = &mut self.conn()?;
+        diesel::insert_or_ignore_into(schema::conversations::table)
+            .values(conversation)
+            .execute(conn)?;
+        Ok(())
     }
 }
 

@@ -24,9 +24,7 @@ where
         wallet_address: String,
     ) -> Result<SecretConversation<A>, ConversationError> {
         let contacts = self.client.get_contacts(wallet_address.as_str()).await?;
-        let conversation = SecretConversation::new(self.client, wallet_address, contacts);
-
-        Ok(conversation)
+        SecretConversation::new(self.client, wallet_address, contacts)
     }
 }
 
