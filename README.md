@@ -1,32 +1,31 @@
 # xmtp-android
 
-![Test](https://github.com/xmtp/xmtp-android/actions/workflows/test.yml/badge.svg) ![Lint](https://github.com/xmtp/xmtp-android/actions/workflows/lint.yml/badge.svg) ![Status](https://img.shields.io/badge/Project_Status-Developer_Preview-yellow)
+![Test](https://github.com/xmtp/xmtp-android/actions/workflows/test.yml/badge.svg) ![Lint](https://github.com/xmtp/xmtp-android/actions/workflows/lint.yml/badge.svg) ![Status](https://img.shields.io/badge/Project_Status-Production-31CA54)
 
 `xmtp-android` provides a Kotlin implementation of an XMTP message API client for use with Android apps.
 
 Use `xmtp-android` to build with XMTP to send messages between blockchain accounts, including DMs, notifications, announcements, and more.
 
-This SDK is in **Developer Preview** status and ready for you to start building with.
+To keep up with the latest SDK developments, see the [Issues tab](https://github.com/xmtp/xmtp-android/issues) in this repo.
 
-However, we do **not** recommend using Developer Preview software in production apps. Software in this status may change based on feedback.
-
-Specifically, while push notifications should work with the current SDK, we are working on providing push notifications in the example app. We are also working on providing performance optimizations in the example app. These updates to the example app may inform changes to the SDK.
-
-Follow along in the [tracking issue](https://github.com/xmtp/xmtp-android/issues/1) for updates.
-
-To learn more about XMTP and get answers to frequently asked questions, see [FAQ about XMTP](https://xmtp.org/docs/dev-concepts/faq).
+To learn more about XMTP and get answers to frequently asked questions, see the [XMTP documentation](https://xmtp.org/docs).
 
 ![x-red-sm](https://user-images.githubusercontent.com/510695/163488403-1fb37e86-c673-4b48-954e-8460ae4d4b05.png)
 
-## Example app
+## Example app built with `xmtp-android`
 
-For a basic demonstration of the core concepts and capabilities of the `xmtp-android` client SDK, see the [Example app project](https://github.com/xmtp/xmtp-android/tree/main/example). This is currently a work in progress.
+Use the [XMTP Android quickstart app](https://github.com/xmtp/xmtp-android/tree/main/example) as a tool to start building an app with XMTP. This basic messaging app has an intentionally unopinionated UI to help make it easier for you to build with.
 
-To learn about example app push notifications, see [Enable the example app to send push notifications](library/src/main/java/org/xmtp/android/library/push/README.md).
+To learn about example app push notifications, see [Enable the quickstart app to send push notifications](library/src/main/java/org/xmtp/android/library/push/README.md).
+
+## Reference docs
+
+> **View the reference**  
+> Access the [Kotin client SDK reference documentation](https://xmtp.github.io/xmtp-android/).
 
 ## Install from Maven Central
 
-You can find the latest package version on [Maven Central](https://central.sonatype.com/artifact/org.xmtp/android/0.0.5/versions)
+You can find the latest package version on [Maven Central](https://central.sonatype.com/artifact/org.xmtp/android/0.0.5/versions).
 
 ```gradle
     implementation 'org.xmtp:android:X.X.X'
@@ -57,15 +56,22 @@ conversation.streamMessages().collect {
 }
 ```
 
+## Use local storage
+
+> **Important**  
+> If you are building a production-grade app, be sure to use an architecture that includes a local cache backed by an XMTP SDK.  
+
+To learn more, see [Use a local cache](https://xmtp.org/docs/tutorials/performance#use-a-local-cache).
+
 ## Create a client
 
 A client is created with `Client().create(account: SigningKey): Client` that requires passing in an object capable of creating signatures on your behalf. The client will request a signature in two cases:
 
 1. To sign the newly generated key bundle. This happens only the very first time when a key bundle is not found in storage.
-2. To sign a random salt used to encrypt the key bundle in storage. This happens every time the client is started, including the very first time).
+2. To sign a random salt used to encrypt the key bundle in storage. This happens every time the client is started, including the very first time.
 
 > **Note**  
-> The client connects to the XMTP `dev` environment by default. [Use `ClientOptions`](#configuring-the-client) to change this and other parameters of the network connection.
+> The client connects to the XMTP `dev` environment by default. [Use `ClientOptions`](#configure-the-client) to change this and other parameters of the network connection.
 
 ```kotlin
 // Create the client with a `SigningKey` from your app
@@ -98,7 +104,7 @@ val client = Client().buildFrom(bundle = keys, options = options)
 
 ### Configure the client
 
-You can configure the client's network connection and key storage method with these optional parameters of `Client.create`:
+You can configure the client with these parameters of `Client.create`:
 
 | Parameter | Default | Description                                                                                                                                                                                                                                                                           |
 | --------- | ------- |---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
@@ -139,9 +145,7 @@ for (conversation in allConversations) {
 }
 ```
 
-These conversations include all conversations for a user **regardless of which app created the conversation.** This functionality provides the concept of an [interoperable inbox](https://xmtp.org/docs/dev-concepts/interoperable-inbox), which enables a user to access all of their conversations in any app built with XMTP.
-
-You might choose to provide an additional filtered view of conversations. To learn more, see [Handle multiple conversations with the same blockchain address](#handle-multiple-conversations-with-the-same-blockchain-address) and [Filter conversations using conversation IDs and metadata](https://xmtp.org/docs/client-sdk/javascript/tutorials/filter-conversations).
+These conversations include all conversations for a user **regardless of which app created the conversation.** This functionality provides the concept of an [interoperable inbox](https://xmtp.org/docs/concepts/interoperable-inbox), which enables a user to access all of their conversations in any app built with XMTP.
 
 ### Listen for new conversations
 
@@ -165,15 +169,14 @@ val newConversation = client.conversations.newConversation("0x3F11b27F323b62B159
 
 ### Send messages
 
-To be able to send a message, the recipient must have already created a client at least once and consequently advertised their key bundle on the network. Messages are addressed using account addresses. The message payload must be a plain string.
-
-> **Note**  
-> Other types of content are currently not supported.
+To be able to send a message, the recipient must have already created a client at least once and consequently advertised their key bundle on the network. Messages are addressed using account addresses. In this example, the message payload is a plain text string.
 
 ```kotlin
 val conversation = client.conversations.newConversation("0x3F11b27F323b62B159D2642964fa27C46C841897")
 conversation.send(text = "Hello world")
 ```
+
+To learn how to send other types of content, see [Handle different content types](#handle-different-types-of-content).
 
 ### List messages in a conversation
 
@@ -216,35 +219,6 @@ conversation.streamMessages().collect {
 }
 ```
 
-### Handle multiple conversations with the same blockchain address
-
-With XMTP, you can have multiple ongoing conversations with the same blockchain address. For example, you might want to have a conversation scoped to your particular app, or even a conversation scoped to a particular item in your app.
-
-To accomplish this, you can pass a context with a `conversationId` when you are creating a conversation. We recommend conversation IDs start with a domain, to help avoid unwanted collisions between your app and other apps on the XMTP network.
-
-```kotlin
-// Start a scoped conversation with ID mydomain.xyz/foo
-val conversation1 = client.conversations.newConversation(
-    "0x3F11b27F323b62B159D2642964fa27C46C841897",
-  context = InvitationV1ContextBuilder.buildFromConversation("mydomain.xyz/foo")
-)
-
-// Start a scoped conversation with ID mydomain.xyz/bar. And add some metadata
-val conversation2 = client.conversations.newConversation(
-  "0x3F11b27F323b62B159D2642964fa27C46C841897",
-  context = InvitationV1ContextBuilder.buildFromConversation("mydomain.xyz/bar", metadata = mapOf("title", "Bar conversation"))
-)
-
-// Get all the conversations
-val conversations = client.conversations.list()
-
-// Filter for the ones from your app
-val myAppConversations = conversations.filter {
-    val conversationId = it.context?.conversationId ?: return@filter false
-    conversationId.startsWith("mydomain.xyz/")
-}
-```
-
 ### Decode a single message
 
 You can decode a single `Envelope` from XMTP using the `decode` method:
@@ -280,9 +254,11 @@ decodedConversation.send(text = "hi")
 
 ### Handle different types of content
 
-All the send functions support SendOptions as an optional parameter. The contentType option allows specifying different types of content than the default simple string, which is identified with content type identifier ContentTypeText. Support for other types of content can be added by registering additional ContentCodecs with the Client. Every codec is associated with a content type identifier, ContentTypeId, which is used to signal to the Client which codec should be used to process the content that is being sent or received. See XIP-5 for more details on codecs and content types.
+All the send functions support `SendOptions` as an optional parameter. The `contentType` option allows specifying different types of content than the default simple string, which is identified with content type identifier `ContentTypeText`. 
 
-Codecs and content types may be proposed as interoperable standards through XRCs. If there is a concern that the recipient may not be able to handle a non-standard content type, the sender can use the contentFallback option to provide a string that describes the content being sent. If the recipient fails to decode the original content, the fallback will replace it and can be used to inform the recipient what the original content was.
+To learn more about content types, see [Content types with XMTP](https://xmtp.org/docs/concepts/content-types).
+
+Support for other types of content can be added by registering additional `ContentCodec`s with the Client. Every codec is associated with a content type identifier, `ContentTypeId`, which is used to signal to the Client which codec should be used to process the content that is being sent or received. 
 
 ```kotlin
 // Assuming we've loaded a fictional NumberCodec that can be used to encode numbers,
@@ -293,9 +269,16 @@ val options = ClientOptions(api = ClientOptions.Api(contentType = ContentTypeNum
 aliceConversation.send(content = 3.14, options = options)
 ```
 
-### Compression
+As shown in the example above, you must provide a `contentFallback` value. Use it to provide an alt text-like description of the original content. Providing a `contentFallback` value enables clients that don't support the content type to still display something meaningful.
 
-<!--provide kotlin details and code sample. showing swift for context of the kind of info you might want to provide. =)-->
+> **Caution**  
+> If you don't provide a `contentFallback` value, clients that don't support the content type will display an empty message. This results in a poor user experience and breaks interoperability.
+
+#### Handle custom content types
+
+Beyond this, custom codecs and content types may be proposed as interoperable standards through XRCs. To learn more about the custom content type proposal process, see [XIP-5](https://github.com/xmtp/XIPs/blob/main/XIPs/xip-5-message-content-types.md).
+
+### Compression
 
 Message content can be optionally compressed using the compression option. The value of the option is the name of the compression algorithm to use. Currently supported are gzip and deflate. Compression is applied to the bytes produced by the content codec.
 
@@ -309,7 +292,7 @@ conversation.send(text = '#'.repeat(1000), options = ClientOptions.Api(compressi
 
 As a performance optimization, you may want to persist the list of conversations in your application outside of the SDK to speed up the first call to `client.conversations.list()`.
 
-The exported conversation list contains encryption keys for any V2 conversations included in the list. As such, you should treat it with the same care that you treat [private keys](#manually-handle-private-key-storage).
+The exported conversation list contains encryption keys for any V2 conversations included in the list. As such, you should treat it with the same care that you treat private keys.
 
 You can get a JSON serializable list of conversations by calling:
 
