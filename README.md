@@ -21,7 +21,7 @@ To learn about example app push notifications, see [Enable the quickstart app to
 ## Reference docs
 
 > **View the reference**  
-> Access the [Kotin client SDK reference documentation](https://xmtp.github.io/xmtp-android/).
+> Access the [Kotlin client SDK reference documentation](https://xmtp.github.io/xmtp-android/).
 
 ## Install from Maven Central
 
