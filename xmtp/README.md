@@ -13,12 +13,24 @@
 - Repeated sends of the same payload should be idempotent. When receiving a message or invite, the receiving side will store the hash of the encrypted payload alongside the decrypted result. If a message is received with an id that already exists in the DB, it is ignored.
 - We have ignored race conditions for now (as network requests may take different amounts of time). The receiver side should be tolerant of out-of-order payloads. If ordering is a must, it is possible to use multi-producer, single-consumer queues, or singleton threads for processMessages() and processPayloads() that run on an interval.
 
+### Helper database models
+
+`refresh_jobs`:
+
+```sql
+CREATE TABLE IF NOT EXISTS refresh_jobs (
+    id TEXT PRIMARY KEY NOT NULL, # would be either `invite` or `messages`
+    last_run BIGINT NOT NULL,
+)
+```
+
 ### States
 
 ```
 Conversation:
     - UNINITIALIZED: No invites have been sent
     - INVITED: Invites have been sent
+    - INVITE_RECEIVED: You have been invited to this conversation by another installation
 
 User:
     - LAST_REFRESHED: The local timestamp at which an updated list of installations and pre-keys was requested for that user (and successfully received)
@@ -30,10 +42,17 @@ Installation:
 Message:
     - UNINITIALIZED: The message has not been encrypted yet
     - LOCALLY_COMMITTED: The outbound payloads have been constructed
+    - RECEIVED: The message is inbound and was retrieved from the network
 
 Outbound Payload:
     - PENDING: The payload has not been confirmed as sent yet
     - SERVER_ACKNOWLEDGED: The payload has been acknowledged by the server
+
+Inbound invite:
+    - PENDING: The payload has been downloaded from the network but has not been processed yet
+    - PROCESSED: The invite has been successfully processed and the conversation has been created
+    - DECRYPTION_FAILURE: The inner invite failed to decrypt
+    - INVALID: The invite failed validation
 ```
 
 ### Creating a conversation
@@ -108,7 +127,53 @@ init():
     return
 ```
 
-### Receiving an invite
+### Receiving invites
+
+```plaintext
+downloadInvites():
+    Get the `refresh_jobs` record with an id of `invites`, and obtain a lock on the row:
+        Store `now()` in memory to mark the job execution start
+        Fetch all messages from invite topic with timestamp > refresh_job.last_run - PADDING_TIME # PADDING TIME accounts for eventual consistency of network. Maybe 30s.
+        For each message in topic:
+            Save (or ignore if already exists) raw message to inbound_invite table with status of PENDING
+        Update `refresh_jobs` record last_run = current_timestamp
+
+processInvites():
+    For each inbound_invite in PENDING state:
+        If the payload is malformed and the proto cannot be decoded:
+            Set inbound_invite state to INVALID
+            continue
+        If an existing session exists with the `inviter.installation_id`:
+            Decrypt the inner invite using the existing session
+            If decryption fails:
+                Set inbound_invite state to DECRYPTION_FAILURE
+                continue
+            Update session in the database
+        else:
+            Create a new inbound session with the inviter
+            Decrypt the inner invite using the new session
+            If decryption fails:
+                Set inbound_invite state to DECRYPTION_FAILURE
+                continue
+            Persist the session to the database
+
+        If invite validation fails:
+            Set inbound_invite state to INVALID
+            continue
+
+        Fetch the existing conversation with convo_id derived from inner invite
+        If conversation with convo_id doesn't already exist in DB:
+            Insert conversation with state = INVITE_RECEIVED
+
+        If invite has message attached:
+            Insert message with state = RECEIVED and convo_id matching the record stored DB
+
+        Set inbound_invite state to PROCESSED
+
+updateConversations():
+    downloadInvites()
+    processInvites()
+```
 
 ...
 

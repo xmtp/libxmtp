@@ -1,26 +1,59 @@
-use clap::{arg, Parser};
+extern crate ethers;
+extern crate log;
+extern crate xmtp;
+
+use clap::{Parser, Subcommand};
 use ethers_core::types::H160;
 use log::{error, info};
+use std::path::PathBuf;
 use thiserror::Error;
 use url::ParseError;
+use xmtp::Save;
 use walletconnect::client::{CallError, ConnectorError, SessionError};
 use walletconnect::{qr, Client as WcClient, Metadata};
-use xmtp::builder::AccountStrategy;
-use xmtp::mock_xmtp_api_client::MockXmtpApiClient;
-use xmtp::storage::{EncryptedMessageStore, StorageError, StorageOption};
+use xmtp::builder::{AccountStrategy, ClientBuilderError};
+use xmtp::client::ClientError;
+use xmtp::storage::{EncryptedMessageStore, EncryptionKey, StorageError, StorageOption};
+use xmtp::types::Address;
 use xmtp::InboxOwner;
+use xmtp_networking::grpc_api_helper::Client as ApiClient;
 use xmtp_cryptography::signature::{h160addr_to_string, RecoverableSignature, SignatureError};
 use xmtp_cryptography::utils::{rng, LocalWallet};
 
-/// These are the command line arguments
-#[derive(Parser)]
-struct Args {
-    /// Register using WalletConnect
-    #[arg(short, long)]
-    walletconnect: bool,
-    /// Register using an Ethers LocalWallet
-    #[arg(short, long)]
-    localwallet: bool,
+type Client = xmtp::client::Client<ApiClient>;
+type ClientBuilder = xmtp::builder::ClientBuilder<ApiClient, Wallet>;
+
+/// A fictional versioning CLI
+#[derive(Debug, Parser)] // requires `derive` feature
+#[command(name = "xli")]
+#[command(about = "A lightweight XMTP console client", long_about = None)]
+struct Cli {
+    #[command(subcommand)]
+    command: Commands,
+    /// Sets a custom config file
+    #[arg(long, value_name = "FILE", global = true)]
+    db: Option<PathBuf>,
+}
+
+#[derive(Debug, Subcommand)]
+enum Commands {
+    /// Register Account on XMTP Network
+    #[command(arg_required_else_help = true)]
+    Reg {
+        /// use wallect connect to associate an EOA
+        #[clap(short = 'W', long = "use_wc", conflicts_with = "use_local")]
+        use_wc: bool,
+        /// Produce a report of selected PO
+        #[clap(short = 'L', long, conflicts_with = "use_wc")]
+        use_local: bool,
+    },
+    /// Send Message
+    Send {
+        #[arg(value_name = "ADDR")]
+        addr: String,
+        #[arg(value_name = "Message")]
+        msg: String,
+    },
 }
 
 #[derive(Debug, Error)]
@@ -37,6 +70,12 @@ enum CliError {
     Signature(#[from] SignatureError),
     #[error("stored error occured")]
     MessageStore(#[from] StorageError),
+    #[error("client error")]
+    ClientError(#[from] ClientError),
+    #[error("clientbuilder error")]
+    ClientBuilder(#[from] ClientBuilderError),
+    #[error("no recipient {0} found")]
+    NoRecipient(Address),
 }
 
 /// This is an abstraction which allows the CLI to choose between different wallet types.
@@ -68,60 +107,99 @@ async fn main() {
     env_logger::init();
     info!("Starting CLI Client....");
 
-    let args = Args::parse();
+    let cli = Cli::parse();
 
-    let msg_store = get_encrypted_store().unwrap();
-    let wallet = AccountStrategy::CreateIfNotFound(get_wallet(&args).await.unwrap());
+    match &cli.command {
+        Commands::Reg { use_wc, use_local } => {
+            info!("'REG: {use_wc:?} {use_local:?} {:?}", cli.db);
+            if let Err(e) = register(cli.db, *use_local).await {
+                error!("reg failed: {:?}", e)
+            }
+        }
+        Commands::Send { addr, msg } => {
+            info!("Send");
+            let client = create_client(cli.db, AccountStrategy::CachedOnly("nil".into())).await.unwrap();
+            send(client, addr, msg).await.unwrap();
+        }
+    }
+}
 
-    let client_result = xmtp::ClientBuilder::new(wallet)
+async fn create_client (db: Option<PathBuf>, account: AccountStrategy<Wallet>) -> Result<Client, CliError> {
+    let msg_store = get_encrypted_store(db).unwrap();
+
+    let client_result = ClientBuilder::new(account)
         .network(xmtp::Network::Dev)
-        .api_client(MockXmtpApiClient::default())
+        .api_client(ApiClient::create("http://localhost:5556".into(), false).await.unwrap())
         .store(msg_store)
         .build();
 
-    let mut client = match client_result {
-        Err(e) => {
-            error!("ClientBuilder Error: {:?}", e);
-            return;
-        }
-        Ok(c) => c,
+    client_result.map_err(CliError::ClientBuilder)
+}
+
+async fn register(db: Option<PathBuf>, use_local: bool) -> Result<(), CliError> {
+    let w = if use_local {
+        info!("Fallback to LocalWallet");
+        Wallet::LocalWallet(LocalWallet::new(&mut rng()))
+    } else {
+        Wallet::WalletConnectWallet(WalletConnectWallet::create().await?)
     };
+
+    let mut client = create_client(db, AccountStrategy::CreateIfNotFound(w)).await?;
 
     if let Err(e) = client.init().await {
         error!("Initialization Failed: {}", e.to_string());
         panic!("Could not init");
     };
 
-    // Application logic
-    // ...
+    info!(" Closing XLI");
 
-    for contact in client.get_contacts(&client.wallet_address()).await.unwrap() {
-        info!(
-            "Installation({:?}) ==> {:?}",
-            client.wallet_address(),
-            contact.vmac_identity_key()
-        )
-    }
-
-    info!("Exiting CLI Client....");
+    Ok(())
 }
 
-async fn get_wallet(args: &Args) -> Result<Wallet, CliError> {
-    if args.walletconnect {
-        return Ok(Wallet::WalletConnectWallet(
-            WalletConnectWallet::create().await?,
-        ));
+async fn send(client: Client, addr: &String, msg: &String) -> Result<(), CliError> {
+    let contacts = client
+        .get_contacts(addr)
+        .await
+        .map_err(CliError::ClientError)?;
+
+    if contacts.is_empty() {
+        error!("Recipient({}) is not registered", addr);
+        return Err(CliError::NoRecipient(addr.clone()));
     }
-    info!("Fallback to LocalWallet");
-    Ok(Wallet::LocalWallet(LocalWallet::new(&mut rng())))
+
+    for contact in contacts {
+        let mut session = client
+            .get_session(&contact)
+            .map_err(CliError::ClientError)?;
+        info!("Session: {}", session.id());
+
+        let om = session.encrypt(msg.as_bytes());
+        info!("{:?} ", om);
+        session.save(&client.store).unwrap();
+    }
+
+    Ok(())
 }
 
-fn get_encrypted_store() -> Result<EncryptedMessageStore, CliError> {
-    EncryptedMessageStore::new(
-        StorageOption::Ephemeral,
-        EncryptedMessageStore::generate_enc_key(),
-    )
-    .map_err(|e| e.into())
+fn static_enc_key() -> EncryptionKey {
+    [2u8; 32]
+}
+
+fn get_encrypted_store(db: Option<PathBuf>) -> Result<EncryptedMessageStore, CliError> {
+    let store = match db {
+        Some(path) => {
+            let s = path.as_path().to_string_lossy().to_string();
+            info!("Using persistent Storage:{} ", s);
+            EncryptedMessageStore::new_unencrypted(StorageOption::Persistent(s))
+        }
+
+        None => {
+            info!("USing ephemeral Store");
+            EncryptedMessageStore::new(StorageOption::Ephemeral, static_enc_key())
+        }
+    };
+
+    store.map_err(|e| e.into())
 }
 
 /// This wraps a Walletconnect::client into a struct which could be used in the xmtp::client.

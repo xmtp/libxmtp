@@ -2,6 +2,7 @@ use crate::{
     client::ClientError,
     contact::Contact,
     invitation::{Invitation, InvitationError},
+    storage::{now, ConversationState, StorageError, StoredConversation, StoredUser},
     types::networking::PublishRequest,
     types::networking::XmtpApiClient,
     types::Address,
@@ -21,8 +22,16 @@ pub enum ConversationError {
     Invitation(#[from] InvitationError),
     #[error("decode error {0}")]
     Decode(DecodeError),
+    #[error("storage error: {0}")]
+    Storage(#[from] StorageError),
     #[error("unknown error")]
     Unknown,
+}
+
+pub fn convo_id(self_addr: String, peer_addr: String) -> String {
+    let mut members = [self_addr, peer_addr];
+    members.sort();
+    format!(":{}:{}", members[0], members[1])
 }
 
 // I had to pick a name for this, and it seems like we are hovering around SecretConversation ATM
@@ -40,17 +49,35 @@ impl<'c, A> SecretConversation<'c, A>
 where
     A: XmtpApiClient,
 {
-    pub fn new(
+    pub(crate) fn new(
         client: &'c Client<A>,
         peer_address: Address,
         // TODO: Add user's own contacts as well
         members: Vec<Contact>,
-    ) -> Self {
-        Self {
+    ) -> Result<Self, ConversationError> {
+        let obj = SecretConversation {
             client,
-            peer_address,
+            peer_address: peer_address.clone(),
             members,
-        }
+        };
+        obj.client.store.insert_or_ignore_user(StoredUser {
+            user_address: obj.peer_address(),
+            created_at: now(),
+            last_refreshed: 0,
+        })?;
+        obj.client
+            .store
+            .insert_or_ignore_conversation(StoredConversation {
+                peer_address: obj.peer_address(),
+                convo_id: obj.convo_id(),
+                created_at: now(),
+                convo_state: ConversationState::Uninitialized as i32,
+            })?;
+        Ok(obj)
+    }
+
+    pub fn convo_id(&self) -> String {
+        convo_id(self.client.account.addr(), self.peer_address())
     }
 
     pub fn peer_address(&self) -> Address {

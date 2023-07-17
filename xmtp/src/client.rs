@@ -43,9 +43,9 @@ where
     A: XmtpApiClient,
 {
     pub api_client: A,
-    pub network: Network,
+    pub(crate) network: Network,
     pub(crate) account: Account,
-    pub(super) _store: EncryptedMessageStore,
+    pub store: EncryptedMessageStore, // Temporarily exposed outside crate for CLI client
     is_initialized: bool,
 }
 
@@ -72,7 +72,7 @@ where
             api_client,
             network,
             account,
-            _store: store,
+            store,
             is_initialized: false,
         }
     }
@@ -126,7 +126,7 @@ where
     }
 
     pub fn get_session(&self, contact: &Contact) -> Result<SessionManager, ClientError> {
-        let existing_session = self._store.get_session(&contact.installation_id())?;
+        let existing_session = self.store.get_session(&contact.installation_id())?;
         match existing_session {
             Some(i) => Ok(SessionManager::try_from(&i)?),
             None => self.create_outbound_session(contact),
@@ -150,7 +150,7 @@ where
         let session = SessionManager::from_olm_session(olm_session, contact)
             .map_err(|_| ClientError::Unknown)?;
 
-        session.store(&self._store)?;
+        session.store(&self.store)?;
 
         Ok(session)
     }
@@ -176,7 +176,7 @@ where
         let session = SessionManager::from_olm_session(create_result.session, &contact)
             .map_err(|_| ClientError::Unknown)?;
 
-        session.store(&self._store)?;
+        session.store(&self.store)?;
 
         Ok((session, create_result.plaintext))
     }
@@ -214,12 +214,29 @@ mod tests {
     use xmtp_proto::xmtp::v3::message_contents::vmac_unsigned_public_key::Union::Curve25519;
     use xmtp_proto::xmtp::v3::message_contents::vmac_unsigned_public_key::VodozemacCurve25519;
 
+    use crate::conversations::Conversations;
     use crate::ClientBuilder;
 
     #[tokio::test]
     async fn registration() {
         let mut client = ClientBuilder::new_test().build().unwrap();
         client.init().await.expect("BadReg");
+    }
+
+    #[tokio::test]
+    async fn test_local_conversation_creation() {
+        let mut client = ClientBuilder::new_test().build().unwrap();
+        client.init().await.expect("BadReg");
+        let peer_address = "0x000";
+        let convo_id = format!(":{}:{}", peer_address, client.wallet_address());
+        assert!(client.store.get_conversation(&convo_id).unwrap().is_none());
+        let conversations = Conversations::new(&client);
+        let conversation = conversations
+            .new_secret_conversation(peer_address.to_string())
+            .await
+            .unwrap();
+        assert!(conversation.peer_address() == peer_address);
+        assert!(client.store.get_conversation(&convo_id).unwrap().is_some());
     }
 
     #[tokio::test]
