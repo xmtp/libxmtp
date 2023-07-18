@@ -59,3 +59,17 @@ jobs:
         git commit -m "libxmtp release $RELEASE"
         git tag $RELEASE
         git push --tags origin $RELEASE_BRANCH
+
+  ffi:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write # for the release action
+    steps:
+      - uses: actions/checkout@v3
+      - name: build package
+        working-directory: bindings_ffi
+        run: make android
+      - name: create release
+        uses: ncipollo/release-action@v1
+        with:
+          artifacts: "bindings_ffi/libxmtp-android.zip"
