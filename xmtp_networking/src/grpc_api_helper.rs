@@ -104,6 +104,7 @@ impl Client {
         &self,
         token: String,
         envelopes: Vec<Envelope>,
+        app_version: String,
     ) -> Result<PublishResponse, tonic::Status> {
         let auth_token_string = format!("Bearer {}", token);
         let token: MetadataValue<_> = auth_token_string
@@ -112,6 +113,7 @@ impl Client {
 
         let mut tonic_request = Request::new(PublishRequest { envelopes });
         tonic_request.metadata_mut().insert("authorization", token);
+        tonic_request.metadata_mut().insert("X-App-Version", app_version);
 
         match &self.client {
             InnerApiClient::Plain(c) => c
@@ -127,10 +129,12 @@ impl Client {
         }
     }
 
-    pub async fn subscribe(&self, topics: Vec<String>) -> Result<Subscription, tonic::Status> {
-        let request = SubscribeRequest {
+    pub async fn subscribe(&self, topics: Vec<String>, app_version: String) -> Result<Subscription, tonic::Status> {
+        let mut request = SubscribeRequest {
             content_topics: topics,
         };
+        request.metadata_mut().insert("X-App-Version", app_version);
+        
         let stream = match &self.client {
             InnerApiClient::Plain(c) => c
                 .clone()
@@ -155,13 +159,16 @@ impl Client {
         start_time: Option<u64>,
         end_time: Option<u64>,
         paging_info: Option<PagingInfo>,
+        app_version: String,
     ) -> Result<QueryResponse, tonic::Status> {
-        let request = QueryRequest {
+        let mut request = QueryRequest {
             content_topics: vec![topic],
             start_time_ns: start_time.unwrap_or(0),
             end_time_ns: end_time.unwrap_or(0),
             paging_info,
         };
+
+        request.metadata_mut().insert("X-App-Version", app_version);
 
         let res = match &self.client {
             InnerApiClient::Plain(c) => c.clone().query(request).await,
