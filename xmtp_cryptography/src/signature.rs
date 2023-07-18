@@ -24,7 +24,7 @@ pub enum SignatureError {
     Unknown,
 }
 
-#[derive(Debug, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Serialize, Deserialize, PartialEq, Clone)]
 pub enum RecoverableSignature {
     // This Signature is primary used by EVM compatible accounts. It assumes that the recoveryid is included in the signature and
     // that all messages passed in have not been prefixed with '\0x19Ethereum....'
@@ -68,6 +68,14 @@ impl RecoverableSignature {
                 let addr = h160addr_to_string(signature.recover(predigest_message)?);
                 Ok(addr)
             }
+        }
+    }
+}
+
+impl From<RecoverableSignature> for Vec<u8> {
+    fn from(value: RecoverableSignature) -> Self {
+        match value {
+            RecoverableSignature::Eip191Signature(bytes) => bytes,
         }
     }
 }

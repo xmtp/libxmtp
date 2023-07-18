@@ -1,5 +1,8 @@
+use std::fmt;
+use std::sync::{Mutex, MutexGuard};
+
 use crate::{
-    association::{Association, AssociationError, AssociationText},
+    association::{Association, AssociationError},
     contact::Contact,
     types::Address,
     vmac_protos::ProtoWrapper,
@@ -7,18 +10,27 @@ use crate::{
 };
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
-use vodozemac::olm::{Account as OlmAccount, AccountPickle as OlmAccountPickle, IdentityKeys};
-use xmtp_cryptography::signature::{RecoverableSignature, SignatureError};
+use vodozemac::olm::{
+    Account as OlmAccount, AccountPickle as OlmAccountPickle, IdentityKeys, InboundCreationResult,
+    PreKeyMessage, Session as OlmSession, SessionConfig, SessionCreationError,
+};
+use xmtp_cryptography::signature::SignatureError;
 use xmtp_proto::xmtp::v3::message_contents::{
-    VmacAccountLinkedKey, VmacContactBundle, VmacDeviceLinkedKey, VmacUnsignedPublicKey,
+    installation_contact_bundle::Version, vmac_account_linked_key::Association as AssociationProto,
+    InstallationContactBundle, VmacAccountLinkedKey, VmacInstallationLinkedKey,
+    VmacInstallationPublicKeyBundleV1, VmacUnsignedPublicKey,
 };
 
 #[derive(Debug, Error)]
 pub enum AccountError {
+    #[error("session creation")]
+    SessionCreation(#[from] SessionCreationError),
     #[error("generating new account")]
     BadGeneration(#[from] SignatureError),
     #[error("bad association")]
     BadAssocation(#[from] AssociationError),
+    #[error("mutex poisoned error")]
+    MutexPoisoned,
     #[error("unknown error")]
     Unknown,
 }
@@ -42,6 +54,10 @@ impl VmacAccount {
 
     pub fn get(&self) -> &OlmAccount {
         &self.account
+    }
+
+    pub fn get_mut(&mut self) -> &mut OlmAccount {
+        &mut self.account
     }
 }
 
@@ -77,15 +93,30 @@ impl<'de> Deserialize<'de> for VmacAccount {
 
 #[derive(Serialize, Deserialize)]
 pub struct Account {
-    pub(crate) keys: VmacAccount,
+    pub(crate) keys: Mutex<VmacAccount>,
     pub(crate) assoc: Association,
+}
+
+impl fmt::Debug for Account {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let keys = self.olm_account().map_err(|_| fmt::Error)?;
+        let key_str = keys.get().curve25519_key().to_string();
+
+        f.debug_struct("Point")
+            .field("addr", &self.assoc.address())
+            .field("key", &key_str)
+            .finish()
+    }
 }
 
 impl Account {
     pub fn new(keys: VmacAccount, assoc: Association) -> Self {
         // TODO: Validate Association on initialization
 
-        Self { keys, assoc }
+        Self {
+            keys: Mutex::new(keys),
+            assoc,
+        }
     }
 
     pub fn generate(
@@ -93,7 +124,6 @@ impl Account {
     ) -> Result<Self, AccountError> {
         let keys = VmacAccount::generate();
         let bytes = keys.bytes_to_sign();
-
         let assoc = sf(bytes)?;
         Ok(Self::new(keys, assoc))
     }
@@ -102,88 +132,82 @@ impl Account {
         self.assoc.address()
     }
 
+    pub fn olm_account(&self) -> Result<MutexGuard<'_, VmacAccount>, AccountError> {
+        self.keys.lock().map_err(|_| AccountError::MutexPoisoned)
+    }
+
+    pub fn identity_keys(&self) -> IdentityKeys {
+        self.olm_account().unwrap().get().identity_keys()
+    }
+
     pub fn contact(&self) -> Contact {
-        let identity_key = self.keys.get().curve25519_key();
-        let fallback_key = self
-            .keys
-            .get()
-            .fallback_key()
-            .values()
-            .next()
-            .unwrap()
-            .to_owned();
+        let olm_account = self.olm_account().unwrap();
+        let keys = olm_account.get();
+        let identity_key = keys.curve25519_key();
+        let fallback_key = keys.fallback_key().values().next().unwrap().to_owned();
 
         let identity_key_proto: ProtoWrapper<VmacUnsignedPublicKey> = identity_key.into();
         let fallback_key_proto: ProtoWrapper<VmacUnsignedPublicKey> = fallback_key.into();
         let identity_key = VmacAccountLinkedKey {
             key: Some(identity_key_proto.proto),
+            association: Some(AssociationProto::Eip191(self.assoc.clone().into())),
         };
-        let fallback_key = VmacDeviceLinkedKey {
+        let fallback_key = VmacInstallationLinkedKey {
             key: Some(fallback_key_proto.proto),
         };
-        // TODO: Add associations here
-        Contact::new(VmacContactBundle {
-            identity_key: Some(identity_key),
-            prekey: Some(fallback_key),
-        })
-    }
+        let contact = Contact::new(
+            InstallationContactBundle {
+                version: Some(Version::V1(VmacInstallationPublicKeyBundleV1 {
+                    identity_key: Some(identity_key),
+                    fallback_key: Some(fallback_key),
+                })),
+            },
+            self.assoc.address(),
+        );
 
-    pub fn get_keys(&self) -> IdentityKeys {
-        self.keys.account.identity_keys()
-    }
-}
-
-pub struct AccountCreator {
-    key: VmacAccount,
-    assoc_text: AssociationText,
-}
-
-impl AccountCreator {
-    pub fn new(addr: Address) -> Self {
-        let key = VmacAccount::generate();
-        let key_bytes = key.bytes_to_sign();
-        Self {
-            key,
-            assoc_text: AssociationText::new_static(addr, key_bytes),
+        if let Err(e) = contact {
+            panic!("Fatal: Client Owning Account has an invalid contact. Client cannot continue operating: {}", e);
+        } else {
+            contact.unwrap()
         }
     }
 
-    pub fn text_to_sign(&self) -> String {
-        self.assoc_text.text()
-    }
-
-    pub fn finalize(self, signature: Vec<u8>) -> Result<Account, AccountError> {
-        let assoc = Association::new(
-            &self.key.bytes_to_sign(),
-            self.assoc_text,
-            RecoverableSignature::Eip191Signature(signature),
+    pub fn create_outbound_session(&self, contact: &Contact) -> OlmSession {
+        self.olm_account().unwrap().get().create_outbound_session(
+            SessionConfig::version_2(),
+            contact.vmac_identity_key(),
+            contact.vmac_fallback_key(),
         )
-        .map_err(AccountError::BadAssocation)?;
-        Ok(Account::new(self.key, assoc))
     }
-}
 
-impl Signable for AccountCreator {
-    fn bytes_to_sign(&self) -> Vec<u8> {
-        self.key.bytes_to_sign()
+    pub fn create_inbound_session(
+        &self,
+        contact: &Contact,
+        pre_key_message: PreKeyMessage,
+    ) -> Result<InboundCreationResult, AccountError> {
+        // TODO: Save the account keys to the store
+        let mut olm_account = self.olm_account().unwrap();
+        let keys = olm_account.get_mut();
+        let res = keys.create_inbound_session(contact.vmac_identity_key(), &pre_key_message)?;
+
+        Ok(res)
     }
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
 
     use crate::association::AssociationError;
 
-    use super::{Account, AccountCreator, Association};
+    use super::{Account, Association};
     use ethers::core::rand::thread_rng;
     use ethers::signers::{LocalWallet, Signer};
     use ethers_core::types::{Address as EthAddress, Signature};
     use ethers_core::utils::hex;
     use serde_json::json;
-    use xmtp_cryptography::{signature::h160addr_to_string, utils::rng};
 
-    pub fn test_wallet_signer(_: Vec<u8>) -> Result<Association, AssociationError> {
-        Association::test()
+    pub fn test_wallet_signer(pub_key: Vec<u8>) -> Result<Association, AssociationError> {
+        Association::test(pub_key)
     }
 
     #[test]
@@ -196,20 +220,6 @@ mod tests {
 
         let recovered_account: Account = serde_json::from_str(&serialized_account).unwrap();
         assert_eq!(account.addr(), recovered_account.addr());
-    }
-
-    #[tokio::test]
-    async fn account_generate() {
-        let wallet = LocalWallet::new(&mut rng());
-        let addr = h160addr_to_string(wallet.address());
-
-        let ac = AccountCreator::new(addr);
-        let msg = ac.text_to_sign();
-        let sig = wallet
-            .sign_message(msg)
-            .await
-            .expect("Bad Signature in test");
-        assert!(ac.finalize(sig.to_vec()).is_ok());
     }
 
     async fn generate_random_signature(msg: &str) -> (String, Vec<u8>) {

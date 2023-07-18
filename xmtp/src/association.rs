@@ -1,8 +1,11 @@
 use crate::types::Address;
+use crate::InboxOwner;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
-use xmtp_cryptography::signature::{RecoverableSignature, SignatureError, SigningKey};
-use xmtp_cryptography::utils::{self, eth_address};
+use xmtp_cryptography::signature::{RecoverableSignature, SignatureError};
+use xmtp_cryptography::utils::generate_local_wallet;
+use xmtp_proto::xmtp::v3::message_contents::Eip191Association as Eip191AssociationProto;
+use xmtp_proto::xmtp::v3::message_contents::RecoverableEcdsaSignature as RecoverableEcdsaSignatureProto;
 
 #[derive(Debug, Error)]
 pub enum AssociationError {
@@ -24,7 +27,7 @@ pub enum AssociationError {
 /// An Association is link between a blockchain account and an xmtp account for the purposes of
 /// authentication. This certifies the user address (0xadd12e555c541A063cDbBD3Feb3C006d6f996745)
 ///  is associated to the XMTP Account.
-#[derive(Serialize, Deserialize, PartialEq, Debug)]
+#[derive(Serialize, Deserialize, PartialEq, Debug, Clone)]
 pub struct Association {
     text: AssociationText,
     signature: RecoverableSignature,
@@ -39,6 +42,17 @@ impl Association {
         let this = Self { text, signature };
         this.is_valid(account_public_key)?;
         Ok(this)
+    }
+
+    pub fn from_proto_with_expected_address(
+        account_public_key: &[u8],
+        proto: Eip191AssociationProto,
+        expected_wallet_address: String,
+    ) -> Result<Self, AssociationError> {
+        let text =
+            AssociationText::new_static(expected_wallet_address, account_public_key.to_vec());
+        let signature = RecoverableSignature::Eip191Signature(proto.signature.unwrap().bytes);
+        Self::new(account_public_key, text, signature)
     }
 
     fn is_valid(&self, account_public_key: &[u8]) -> Result<(), AssociationError> {
@@ -64,18 +78,29 @@ impl Association {
         self.text.get_address()
     }
 
-    pub fn test() -> Result<Self, AssociationError> {
-        let key = SigningKey::random(&mut utils::rng());
-        let pubkey = key.verifying_key();
-        let addr = eth_address(pubkey).unwrap();
+    pub fn test(pub_key: Vec<u8>) -> Result<Self, AssociationError> {
+        let wallet = generate_local_wallet();
+        let addr = wallet.get_address();
+        let assoc_text = AssociationText::new_static(addr, pub_key);
 
-        let assoc_text =
-            AssociationText::new_static(addr, pubkey.to_encoded_point(false).to_bytes().to_vec());
-        let text = assoc_text.text();
+        let signature = wallet.sign(&assoc_text.text())?;
         Ok(Self {
             text: assoc_text,
-            signature: RecoverableSignature::new_eth_signature(&key, &text)?,
+            signature,
         })
+    }
+}
+
+impl From<Association> for Eip191AssociationProto {
+    fn from(assoc: Association) -> Self {
+        Self {
+            wallet_address: assoc.address(),
+            // Hardcoded version for now
+            association_text_version: 1,
+            signature: Some(RecoverableEcdsaSignatureProto {
+                bytes: assoc.signature.into(),
+            }),
+        }
     }
 }
 
@@ -133,6 +158,7 @@ fn gen_static_text_v1(addr: &str, key_bytes: &[u8]) -> String {
 pub mod tests {
     use ethers::signers::{LocalWallet, Signer};
     use xmtp_cryptography::{signature::h160addr_to_string, utils::rng};
+    use xmtp_proto::xmtp::v3::message_contents::Eip191Association as Eip191AssociationProto;
 
     use super::{Association, AssociationText};
 
@@ -174,5 +200,23 @@ pub mod tests {
         assert!(Association::new(&key_bytes, bad_text1.clone(), sig.into()).is_err());
         assert!(Association::new(&key_bytes, bad_text2.clone(), sig.into()).is_err());
         assert!(Association::new(&key_bytes, text.clone(), other_sig.into()).is_err());
+    }
+
+    #[tokio::test]
+    async fn to_proto() {
+        let key_bytes = vec![22, 33, 44, 55];
+        let wallet = LocalWallet::new(&mut rng());
+        let addr = h160addr_to_string(wallet.address());
+        let text = AssociationText::Static {
+            addr: addr.clone(),
+            account_public_key: key_bytes.clone(),
+        };
+        let sig = wallet.sign_message(text.text()).await.expect("BadSign");
+
+        let assoc = Association::new(&key_bytes, text.clone(), sig.into()).unwrap();
+        let proto_signature: Eip191AssociationProto = assoc.into();
+
+        assert_eq!(proto_signature.association_text_version, 1);
+        assert_eq!(proto_signature.signature.unwrap().bytes, sig.to_vec());
     }
 }

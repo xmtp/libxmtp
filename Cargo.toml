@@ -1,8 +1,7 @@
 [workspace]
 
 members = [
-  "bindings_ffi",
-  "uniffi_bindgen_generator",
+  "examples/cli",
   "xmtp",
   "xmtp_crypto",
   "xmtp_cryptography",
@@ -15,6 +14,7 @@ members = [
 # 1) no reason to share profile with other core crates
 # 2) moreover, bindings_swift and xmtp_dh need their own size-optimized profile
 exclude = [
+  "bindings_ffi",
   "bindings_js",
   "bindings_swift",
   "bindings_wasm",

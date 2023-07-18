@@ -1,15 +1,12 @@
-// Generic wrapper for proto classes, so we can implement From trait without violating orphan rules
+use vodozemac::Curve25519PublicKey;
 use xmtp_proto::xmtp::v3::message_contents::vmac_unsigned_public_key::{
     Union, VodozemacCurve25519,
 };
 use xmtp_proto::xmtp::v3::message_contents::{
-    VmacAccountLinkedKey, VmacDeviceLinkedKey, VmacUnsignedPublicKey,
+    VmacAccountLinkedKey, VmacInstallationLinkedKey, VmacUnsignedPublicKey,
 };
 
-use vodozemac::{
-    Curve25519PublicKey,
-};
-
+// Generic wrapper for proto classes, so we can implement From trait without violating orphan rules
 pub struct ProtoWrapper<T> {
     pub proto: T,
 }
@@ -48,8 +45,8 @@ impl From<ProtoWrapper<VmacAccountLinkedKey>> for Curve25519PublicKey {
     }
 }
 
-impl From<ProtoWrapper<VmacDeviceLinkedKey>> for Curve25519PublicKey {
-    fn from(key: ProtoWrapper<VmacDeviceLinkedKey>) -> Self {
+impl From<ProtoWrapper<VmacInstallationLinkedKey>> for Curve25519PublicKey {
+    fn from(key: ProtoWrapper<VmacInstallationLinkedKey>) -> Self {
         match key.proto.key.unwrap().union.unwrap() {
             Union::Curve25519(curve25519) => {
                 Curve25519PublicKey::from_bytes(curve25519.bytes.as_slice().try_into().unwrap())
@@ -61,13 +58,14 @@ impl From<ProtoWrapper<VmacDeviceLinkedKey>> for Curve25519PublicKey {
 #[cfg(test)]
 mod test {
     use super::*;
-    use xmtp_proto::xmtp::v3::message_contents::{
-        VmacAccountLinkedKey, VmacContactBundle, VmacDeviceLinkedKey, VmacUnsignedPublicKey,
-    };
     use vodozemac::olm::{Account, SessionConfig};
+    use xmtp_proto::xmtp::v3::message_contents::{
+        VmacAccountLinkedKey, VmacInstallationLinkedKey, VmacInstallationPublicKeyBundleV1,
+        VmacUnsignedPublicKey,
+    };
 
     // Generate a VmacContactBundle
-    fn generate_test_contact_bundle() -> VmacContactBundle {
+    fn generate_test_contact_bundle() -> VmacInstallationPublicKeyBundleV1 {
         let mut account = Account::new();
         // Get account identity key
         let identity_key = account.curve25519_key();
@@ -78,13 +76,14 @@ mod test {
         let fallback_key_proto: ProtoWrapper<VmacUnsignedPublicKey> = fallback_key.into();
         let identity_key = VmacAccountLinkedKey {
             key: Some(identity_key_proto.proto),
+            association: None,
         };
-        let fallback_key = VmacDeviceLinkedKey {
+        let fallback_key = VmacInstallationLinkedKey {
             key: Some(fallback_key_proto.proto),
         };
-        VmacContactBundle {
+        VmacInstallationPublicKeyBundleV1 {
             identity_key: Some(identity_key),
-            prekey: Some(fallback_key),
+            fallback_key: Some(fallback_key),
         }
     }
 
@@ -92,12 +91,12 @@ mod test {
     fn test_can_generate_test_contact_bundle_and_session() {
         let bundle = generate_test_contact_bundle();
         assert!(bundle.identity_key.is_some());
-        assert!(bundle.prekey.is_some());
+        assert!(bundle.fallback_key.is_some());
 
         let account = Account::new();
 
         let identity_key = bundle.identity_key.unwrap();
-        let fallback_key = bundle.prekey.unwrap().key.unwrap();
+        let fallback_key = bundle.fallback_key.unwrap().key.unwrap();
 
         let identity_key = ProtoWrapper {
             proto: identity_key,

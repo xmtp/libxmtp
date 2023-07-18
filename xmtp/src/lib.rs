@@ -1,19 +1,24 @@
 pub mod account;
 pub mod association;
 pub mod builder;
-mod client;
+pub mod client;
 pub mod contact;
-pub mod networking;
+pub mod conversation;
+pub mod conversations;
+pub mod invitation;
+pub mod mock_xmtp_api_client;
 pub mod owner;
 pub mod persistence;
+pub mod session;
 pub mod storage;
-mod types;
+#[cfg(feature = "types")]
+pub mod types;
 mod utils;
 pub mod vmac_protos;
 
-use association::AssociationText;
 pub use builder::ClientBuilder;
 pub use client::{Client, Network};
+use storage::StorageError;
 use xmtp_cryptography::signature::{RecoverableSignature, SignatureError};
 
 pub trait Signable {
@@ -24,23 +29,32 @@ pub trait Errorer {
     type Error;
 }
 
+// Inserts a model to the underlying data store
 pub trait Store<I> {
-    fn store(&self, into: &mut I) -> Result<(), String>;
+    fn store(&self, into: &I) -> Result<(), StorageError>;
 }
 
+// Fetches all instances of a model from the underlying data store
 pub trait Fetch<T> {
-    type E;
-    fn fetch(&mut self) -> Result<Vec<T>, Self::E>;
+    fn fetch(&self) -> Result<Vec<T>, StorageError>;
+}
+
+// Updates an existing instance of the model in the data store
+pub trait Save<I> {
+    fn save(&self, into: &I) -> Result<(), StorageError>;
 }
 
 pub trait InboxOwner {
     fn get_address(&self) -> String;
-    fn sign(&self, text: AssociationText) -> Result<RecoverableSignature, SignatureError>;
+    fn sign(&self, text: &str) -> Result<RecoverableSignature, SignatureError>;
 }
 
 #[cfg(test)]
 mod tests {
-    use crate::{builder::ClientBuilder, networking::XmtpApiClient};
+    use crate::{
+        builder::ClientBuilder,
+        types::networking::{PublishRequest, QueryRequest, XmtpApiClient},
+    };
     use std::time::{SystemTime, UNIX_EPOCH};
     use uuid::Uuid;
     use xmtp_proto::xmtp::message_api::v1::Envelope;
@@ -57,18 +71,28 @@ mod tests {
 
     #[tokio::test]
     async fn can_network() {
-        let mut client = ClientBuilder::new_test().build().unwrap();
+        let client = ClientBuilder::new_test().build().unwrap();
         let topic = Uuid::new_v4();
 
         client
             .api_client
-            .publish("".to_string(), vec![gen_test_envelope(topic.to_string())])
+            .publish(
+                "".to_string(),
+                PublishRequest {
+                    envelopes: vec![gen_test_envelope(topic.to_string())],
+                },
+            )
             .await
             .unwrap();
 
         let result = client
             .api_client
-            .query(topic.to_string(), None, None, None)
+            .query(QueryRequest {
+                content_topics: vec![topic.to_string()],
+                start_time_ns: 0,
+                end_time_ns: 0,
+                paging_info: None,
+            })
             .await
             .unwrap();
 

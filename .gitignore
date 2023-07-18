@@ -6,6 +6,10 @@ wasm-pack.log
 
 !xmtp/src/bin/
 
+# generated
+bindings_swift/Sources
+bindings_swift/xmtp-rust-swift.zip
+
 # Logs
 logs
 *.log
@@ -130,8 +134,11 @@ dist
 # OS files
 .DS_Store
 
-# Generated code
-xmtp_proto/src/gen
-
 # Sqlite Instances
 *.db3
+
+# JAR files
+*.jar
+
+# Generated Uniffi definitions
+xmtpv3.kt

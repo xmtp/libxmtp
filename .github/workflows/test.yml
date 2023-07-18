@@ -15,6 +15,15 @@ jobs:
       - name: Start Docker containers
         run: dev/up
 
+      - name: Setup Kotlin
+        run: |
+          sudo apt update -q
+          sudo apt install -y openjdk-11-jdk
+          sudo snap install --classic kotlin
+          cd bindings_ffi
+          make install-jar
+          echo "$(make echo-jar | tail -n 1 | sed -e 's/\.*export //')" >> "$GITHUB_ENV"
+
       - uses: bufbuild/buf-setup-action@v1.17.0
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
@@ -25,6 +34,13 @@ jobs:
           profile: minimal
           toolchain: stable
           override: true
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            .
+            bindings_swift
+            bindings_ffi
 
       - name: Run cargo test on main workspace
         uses: actions-rs/cargo@v1
@@ -38,7 +54,6 @@ jobs:
           args: --manifest-path bindings_swift/Cargo.toml
 
       - name: Run cargo test on FFI bindings
-        uses: actions-rs/cargo@v1
-        with:
-          command: test
-          args: --manifest-path bindings_ffi/Cargo.toml
+        run: |
+          export CLASSPATH="${{ env.CLASSPATH }}"
+          cargo test --manifest-path bindings_ffi/Cargo.toml

@@ -5,26 +5,30 @@ edition = "2021"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
+[lib]
+crate-type = ["lib", "cdylib"]
+
 [dependencies]
+log = { version = "0.4", features = ["std"] }
+thiserror = "1.0.40"
+uniffi = { git = "https://github.com/mozilla/uniffi-rs", rev = "6938c262293802f00a373f0d1aa16a2079071b24", features = ["tokio", "cli"] }
+uniffi_macros = { git = "https://github.com/mozilla/uniffi-rs", rev = "6938c262293802f00a373f0d1aa16a2079071b24" }
 xmtp = { path = "../xmtp" }
 xmtp_cryptography = { path = "../xmtp_cryptography" }
 xmtp_networking = { path = "../xmtp_networking" }
-xmtp_proto = { path = "../xmtp_proto" }
-swift-bridge = {version = "0.1", features = ["async"]}
-async-trait = "0.1.68"
 
-[lib]
-name = "bindings_ffi"
-crate-type = [ "staticlib" ]
+[build_dependencies]
+uniffi = { git = "https://github.com/mozilla/uniffi-rs", rev = "6938c262293802f00a373f0d1aa16a2079071b24", features = ["build"] }
 
-[build-dependencies]
-swift-bridge-build = "0.1"
+[[bin]]
+name = "ffi-uniffi-bindgen"
+path = "src/bin.rs"
 
 [dev-dependencies]
 ethers = "2.0.4"
 ethers-core = "2.0.4"
 tokio = { version = "1.0", features = ["full"] }
-uuid = { version = "1.3.1", features = ["v4", "fast-rng"] }
+uniffi = { git = "https://github.com/mozilla/uniffi-rs", rev = "6938c262293802f00a373f0d1aa16a2079071b24", features = ["bindgen-tests"] }
 
 # NOTE: Thei release profile reduce bundle size from 230M to 41M - may have performance impliciations
 # https://stackoverflow.com/a/54842093

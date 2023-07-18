@@ -3,17 +3,19 @@ use hyper::{client::HttpConnector, Uri};
 use hyper_rustls::HttpsConnector;
 use std::str::FromStr;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex}; // TODO switch to async mutexes
 use tokio::sync::oneshot;
 use tokio_rustls::rustls::{ClientConfig, OwnedTrustAnchor, RootCertStore};
+use tonic::async_trait;
 use tonic::Status;
 use tonic::{metadata::MetadataValue, transport::Channel, Request, Streaming};
+use xmtp::types::networking::{Error, ErrorKind, XmtpApiClient, XmtpApiSubscription};
 use xmtp_proto::xmtp::message_api::v1::{
-    message_api_client::MessageApiClient, Envelope, PagingInfo, PublishRequest, PublishResponse,
-    QueryRequest, QueryResponse, SubscribeRequest,
+    message_api_client::MessageApiClient, BatchQueryRequest, BatchQueryResponse, Envelope,
+    PublishRequest, PublishResponse, QueryRequest, QueryResponse, SubscribeRequest,
 };
 
-fn tls_config() -> Result<ClientConfig, tonic::Status> {
+fn tls_config() -> ClientConfig {
     let mut roots = RootCertStore::empty();
     // Need to convert into OwnedTrustAnchor
     roots.add_server_trust_anchors(webpki_roots::TLS_SERVER_ROOTS.0.iter().map(|ta| {
@@ -23,21 +25,18 @@ fn tls_config() -> Result<ClientConfig, tonic::Status> {
             ta.name_constraints,
         )
     }));
-    let tls = ClientConfig::builder()
+    ClientConfig::builder()
         .with_safe_defaults()
         .with_root_certificates(roots)
-        .with_no_client_auth();
-
-    Ok(tls)
+        .with_no_client_auth()
 }
 
-fn get_tls_connector() -> Result<HttpsConnector<HttpConnector>, tonic::Status> {
-    let tls =
-        tls_config().map_err(|e| tonic::Status::new(tonic::Code::Internal, format!("{}", e)))?;
+fn get_tls_connector() -> HttpsConnector<HttpConnector> {
+    let tls = tls_config();
 
     let mut http = HttpConnector::new();
     http.enforce_http(false);
-    let connector = tower::ServiceBuilder::new()
+    tower::ServiceBuilder::new()
         .layer_fn(move |s| {
             let tls = tls.clone();
             hyper_rustls::HttpsConnectorBuilder::new()
@@ -46,9 +45,7 @@ fn get_tls_connector() -> Result<HttpsConnector<HttpConnector>, tonic::Status> {
                 .enable_http2()
                 .wrap_connector(s)
         })
-        .service(http);
-
-    Ok(connector)
+        .service(http)
 }
 
 pub enum InnerApiClient {
@@ -65,20 +62,15 @@ pub struct Client {
 }
 
 impl Client {
-    pub async fn create(host: String, is_secure: bool) -> Result<Self, tonic::Status> {
+    pub async fn create(host: String, is_secure: bool) -> Result<Self, Error> {
         let host = host.to_string();
         if is_secure {
-            let connector = get_tls_connector().map_err(|e| {
-                tonic::Status::new(
-                    tonic::Code::Internal,
-                    format!("Failed to create TLS connector: {}", e),
-                )
-            })?;
+            let connector = get_tls_connector();
 
             let tls_conn = hyper::Client::builder().build(connector);
 
-            let uri = Uri::from_str(&host)
-                .map_err(|e| tonic::Status::new(tonic::Code::Internal, format!("{}", e)))?;
+            let uri =
+                Uri::from_str(&host).map_err(|e| Error::new(ErrorKind::SetupError).with(e))?;
 
             let tls_client = MessageApiClient::with_origin(tls_conn, uri);
 
@@ -87,10 +79,10 @@ impl Client {
             })
         } else {
             let channel = Channel::from_shared(host)
-                .map_err(|e| tonic::Status::new(tonic::Code::Internal, format!("{}", e)))?
+                .map_err(|e| Error::new(ErrorKind::SetupError).with(e))?
                 .connect()
                 .await
-                .map_err(|e| tonic::Status::new(tonic::Code::Internal, format!("{}", e)))?;
+                .map_err(|e| Error::new(ErrorKind::SetupError).with(e))?;
 
             let client = MessageApiClient::new(channel);
 
@@ -99,19 +91,30 @@ impl Client {
             })
         }
     }
+}
 
-    pub async fn publish(
+impl Default for Client {
+    fn default() -> Self {
+        //TODO: Remove once Default constraint lifted from clientBuilder
+        unimplemented!()
+    }
+}
+
+#[async_trait]
+impl XmtpApiClient for Client {
+    type Subscription = Subscription;
+
+    async fn publish(
         &self,
         token: String,
-        envelopes: Vec<Envelope>,
-        app_version: String,
-    ) -> Result<PublishResponse, tonic::Status> {
+        request: PublishRequest,
+    ) -> Result<PublishResponse, Error> {
         let auth_token_string = format!("Bearer {}", token);
         let token: MetadataValue<_> = auth_token_string
             .parse()
-            .map_err(|e| tonic::Status::new(tonic::Code::Internal, format!("{}", e)))?;
+            .map_err(|e| Error::new(ErrorKind::PublishError).with(e))?;
 
-        let mut tonic_request = Request::new(PublishRequest { envelopes });
+        let mut tonic_request = Request::new(request);
         tonic_request.metadata_mut().insert("authorization", token);
         tonic_request.metadata_mut().insert("X-App-Version", app_version);
 
@@ -120,64 +123,60 @@ impl Client {
                 .clone()
                 .publish(tonic_request)
                 .await
-                .map(|r| r.into_inner()),
+                .map(|r| r.into_inner())
+                .map_err(|e| Error::new(ErrorKind::PublishError).with(e)),
             InnerApiClient::Tls(c) => c
                 .clone()
                 .publish(tonic_request)
                 .await
-                .map(|r| r.into_inner()),
+                .map(|r| r.into_inner())
+                .map_err(|e| Error::new(ErrorKind::PublishError).with(e)),
         }
     }
 
-    pub async fn subscribe(&self, topics: Vec<String>, app_version: String) -> Result<Subscription, tonic::Status> {
-        let mut request = SubscribeRequest {
-            content_topics: topics,
-        };
-        request.metadata_mut().insert("X-App-Version", app_version);
-        
+    async fn subscribe(&self, request: SubscribeRequest) -> Result<Subscription, Error> {
         let stream = match &self.client {
             InnerApiClient::Plain(c) => c
                 .clone()
                 .subscribe(request)
                 .await
-                .map_err(|e| tonic::Status::new(tonic::Code::Internal, format!("{}", e)))?
+                .map_err(|e| Error::new(ErrorKind::SubscribeError).with(e))?
                 .into_inner(),
             InnerApiClient::Tls(c) => c
                 .clone()
                 .subscribe(request)
                 .await
-                .map_err(|e| tonic::Status::new(tonic::Code::Internal, format!("{}", e)))?
+                .map_err(|e| Error::new(ErrorKind::SubscribeError).with(e))?
                 .into_inner(),
         };
 
         Ok(Subscription::start(stream).await)
     }
 
-    pub async fn query(
-        &self,
-        topic: String,
-        start_time: Option<u64>,
-        end_time: Option<u64>,
-        paging_info: Option<PagingInfo>,
-        app_version: String,
-    ) -> Result<QueryResponse, tonic::Status> {
-        let mut request = QueryRequest {
-            content_topics: vec![topic],
-            start_time_ns: start_time.unwrap_or(0),
-            end_time_ns: end_time.unwrap_or(0),
-            paging_info,
-        };
-
-        request.metadata_mut().insert("X-App-Version", app_version);
-
+    async fn query(&self, request: QueryRequest) -> Result<QueryResponse, Error> {
         let res = match &self.client {
             InnerApiClient::Plain(c) => c.clone().query(request).await,
             InnerApiClient::Tls(c) => c.clone().query(request).await,
         };
-
         match res {
             Ok(response) => Ok(response.into_inner()),
-            Err(e) => Err(e),
+            Err(e) => Err(Error::new(ErrorKind::QueryError).with(e)),
+        }
+    }
+}
+
+impl Client {
+    pub async fn batch_query(
+        &self,
+        request: BatchQueryRequest,
+    ) -> Result<BatchQueryResponse, Error> {
+        let res = match &self.client {
+            InnerApiClient::Plain(c) => c.clone().batch_query(request).await,
+            InnerApiClient::Tls(c) => c.clone().batch_query(request).await,
+        };
+        match res {
+            Ok(response) => Ok(response.into_inner()),
+            Err(e) => Err(Error::new(ErrorKind::QueryError).with(e)),
         }
     }
 }
@@ -225,18 +224,20 @@ impl Subscription {
             close_sender: Some(close_sender),
         }
     }
+}
 
-    pub fn is_closed(&self) -> bool {
+impl XmtpApiSubscription for Subscription {
+    fn is_closed(&self) -> bool {
         self.closed.load(Ordering::SeqCst)
     }
 
-    pub fn get_messages(&self) -> Vec<Envelope> {
+    fn get_messages(&self) -> Vec<Envelope> {
         let mut pending = self.pending.lock().unwrap();
         let items = pending.drain(..).collect::<Vec<Envelope>>();
         items
     }
 
-    pub fn close_stream(&mut self) {
+    fn close_stream(&mut self) {
         // Set this value here, even if it will be eventually set again when the loop exits
         // This makes the `closed` status immediately correct
         self.closed.store(true, Ordering::SeqCst);

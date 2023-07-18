@@ -1,172 +1,147 @@
-use async_trait::async_trait;
-use xmtp::{
-    networking::XmtpApiClient, persistence::in_memory_persistence::InMemoryPersistence,
-    storage::EncryptedMessageStore,
-};
-use xmtp_cryptography::utils::LocalWallet;
-use xmtp_networking::grpc_api_helper::{self, Subscription};
-use xmtp_proto::xmtp::message_api::v1::{Envelope, PagingInfo, PublishResponse, QueryResponse};
+pub mod inbox_owner;
+pub mod logger;
 
-pub type FfiXmtpClient = xmtp::Client<FfiApiClient, InMemoryPersistence, EncryptedMessageStore>;
+use inbox_owner::FfiInboxOwner;
+use log::info;
+use logger::FfiLogger;
+use std::error::Error;
+use std::sync::Arc;
+use xmtp::types::Address;
+use xmtp_networking::grpc_api_helper::Client as TonicApiClient;
 
-#[swift_bridge::bridge]
-mod ffi {
-    extern "Rust" {
-        type LocalWallet;
-        type FfiXmtpClient;
+use crate::inbox_owner::RustInboxOwner;
+pub use crate::inbox_owner::SigningError;
+use crate::logger::init_logger;
 
-        async fn create_client(
-            wallet: LocalWallet,
-            host: &str,
-            is_secure: bool,
-        ) -> Result<FfiXmtpClient, String>;
+pub type RustXmtpClient = xmtp::Client<TonicApiClient>;
+uniffi::include_scaffolding!("xmtpv3");
+
+#[derive(uniffi::Error, Debug)]
+#[uniffi(handle_unknown_callback_error)]
+pub enum GenericError {
+    Generic { err: String },
+}
+
+impl From<String> for GenericError {
+    fn from(err: String) -> Self {
+        Self::Generic { err }
     }
 }
 
-async fn create_client(
-    owner: LocalWallet,
-    host: &str,
+impl From<uniffi::UnexpectedUniFFICallbackError> for GenericError {
+    fn from(e: uniffi::UnexpectedUniFFICallbackError) -> Self {
+        Self::Generic { err: e.reason }
+    }
+}
+
+// TODO Use non-string errors across Uniffi interface
+fn stringify_error_chain(error: &(dyn Error + 'static)) -> String {
+    let mut result = format!("Error: {}\n", error);
+
+    let mut source = error.source();
+    while let Some(src) = source {
+        result += &format!("Caused by: {}\n", src);
+        source = src.source();
+    }
+
+    result
+}
+
+#[uniffi::export(async_runtime = "tokio")]
+pub async fn create_client(
+    logger: Box<dyn FfiLogger>,
+    ffi_inbox_owner: Box<dyn FfiInboxOwner>,
+    host: String,
     is_secure: bool,
     // TODO proper error handling
-) -> Result<xmtp::Client<FfiApiClient, InMemoryPersistence, EncryptedMessageStore>, String> {
-    let api_client = FfiApiClient::new(host, is_secure).await?;
+) -> Result<Arc<FfiXmtpClient>, GenericError> {
+    init_logger(logger);
 
-    let mut xmtp_client = xmtp::ClientBuilder::new(owner.into())
+    let inbox_owner = RustInboxOwner::new(ffi_inbox_owner);
+    let api_client = TonicApiClient::create(host.clone(), is_secure)
+        .await
+        .map_err(|e| stringify_error_chain(&e))?;
+
+    let mut xmtp_client: RustXmtpClient = xmtp::ClientBuilder::new(inbox_owner.into())
         .api_client(api_client)
         .build()
-        .map_err(|e| format!("{:?}", e))?;
-    xmtp_client.init().await.map_err(|e| e.to_string())?;
-    Ok(xmtp_client)
+        .map_err(|e| stringify_error_chain(&e))?;
+    xmtp_client
+        .init()
+        .await
+        .map_err(|e| stringify_error_chain(&e))?;
+
+    info!(
+        "Created XMTP client for address: {}",
+        xmtp_client.wallet_address()
+    );
+    Ok(Arc::new(FfiXmtpClient {
+        inner_client: xmtp_client,
+    }))
 }
 
-pub struct FfiApiClient {
-    client: grpc_api_helper::Client,
+#[derive(uniffi::Object)]
+pub struct FfiXmtpClient {
+    inner_client: RustXmtpClient,
 }
 
-impl Default for FfiApiClient {
-    fn default() -> Self {
-        //TODO: Remove once Default constraint lifted from clientBuilder
-        unimplemented!()
-    }
-}
-
-impl FfiApiClient {
-    async fn new(host: &str, is_secure: bool) -> Result<Self, String> {
-        let client = grpc_api_helper::Client::create(host.to_string(), is_secure)
-            .await
-            .map_err(|e| format!("{}", e))?;
-
-        Ok(Self { client })
-    }
-}
-
-#[async_trait]
-impl XmtpApiClient for FfiApiClient {
-    async fn publish(
-        &mut self,
-        token: String,
-        envelopes: Vec<Envelope>,
-        // TODO: use error enums
-    ) -> Result<PublishResponse, String> {
-        self.client
-            .publish(token, envelopes)
-            .await
-            .map_err(|e| format!("{}", e))
-    }
-
-    async fn query(
-        &self,
-        topic: String,
-        start_time: Option<u64>,
-        end_time: Option<u64>,
-        paging_info: Option<PagingInfo>,
-        // TODO: use error enums
-    ) -> Result<QueryResponse, String> {
-        self.client
-            .query(topic, start_time, end_time, paging_info)
-            .await
-            .map_err(|e| format!("{}", e))
-    }
-
-    async fn subscribe(&mut self, topics: Vec<String>) -> Result<Subscription, String> {
-        self.client
-            .subscribe(topics)
-            .await
-            .map_err(|e| format!("{}", e))
+#[uniffi::export]
+impl FfiXmtpClient {
+    pub fn wallet_address(&self) -> Address {
+        self.inner_client.wallet_address()
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use std::time::{SystemTime, UNIX_EPOCH};
+    use crate::{create_client, inbox_owner::SigningError, logger::FfiLogger, FfiInboxOwner};
+    use xmtp::InboxOwner;
+    use xmtp_cryptography::{signature::RecoverableSignature, utils::rng};
 
-    use uuid::Uuid;
-    use xmtp::networking::XmtpApiClient;
-    use xmtp_cryptography::{utils::rng, utils::LocalWallet};
+    pub struct LocalWalletInboxOwner {
+        wallet: xmtp_cryptography::utils::LocalWallet,
+    }
 
-    static ADDRESS: &str = "http://localhost:5556";
-
-    fn test_envelope(topic: String) -> super::Envelope {
-        let time_since_epoch = SystemTime::now().duration_since(UNIX_EPOCH).unwrap();
-
-        super::Envelope {
-            timestamp_ns: time_since_epoch.as_nanos() as u64,
-            content_topic: topic,
-            message: vec![65],
+    impl LocalWalletInboxOwner {
+        pub fn new() -> Self {
+            Self {
+                wallet: xmtp_cryptography::utils::LocalWallet::new(&mut rng()),
+            }
         }
+    }
+
+    impl FfiInboxOwner for LocalWalletInboxOwner {
+        fn get_address(&self) -> String {
+            self.wallet.get_address()
+        }
+
+        fn sign(&self, text: String) -> Result<Vec<u8>, SigningError> {
+            let recoverable_signature =
+                self.wallet.sign(&text).map_err(|_| SigningError::Generic)?;
+            match recoverable_signature {
+                RecoverableSignature::Eip191Signature(signature_bytes) => Ok(signature_bytes),
+            }
+        }
+    }
+
+    pub struct MockLogger {}
+
+    impl FfiLogger for MockLogger {
+        fn log(&self, _level: u32, _level_label: String, _message: String) {}
     }
 
     // Try a query on a test topic, and make sure we get a response
     #[tokio::test]
-    async fn test_publish_query() {
-        let wallet = LocalWallet::new(&mut rng());
-        let mut client = super::create_client(wallet, ADDRESS, false).await.unwrap();
-        let topic = Uuid::new_v4();
-        client
-            .api_client
-            .publish("".to_string(), vec![test_envelope(topic.to_string())])
-            .await
-            .unwrap();
-
-        let result = client
-            .api_client
-            .query(topic.to_string(), None, None, None)
-            .await
-            .unwrap();
-
-        let envelopes = result.envelopes;
-        assert_eq!(envelopes.len(), 1);
-
-        let first_envelope = envelopes.get(0).unwrap();
-        assert_eq!(first_envelope.content_topic, topic.to_string());
-        assert!(first_envelope.timestamp_ns > 0);
-        assert!(!first_envelope.message.is_empty());
-    }
-
-    #[tokio::test]
-    async fn test_subscribe() {
-        let wallet = LocalWallet::new(&mut rng());
-        let mut client = super::create_client(wallet, ADDRESS, false).await.unwrap();
-        let topic = Uuid::new_v4();
-        let mut sub = client
-            .api_client
-            .subscribe(vec![topic.to_string()])
-            .await
-            .unwrap();
-        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
-        client
-            .api_client
-            .publish("".to_string(), vec![test_envelope(topic.to_string())])
-            .await
-            .unwrap();
-        tokio::time::sleep(std::time::Duration::from_millis(200)).await;
-
-        let messages = sub.get_messages();
-        assert_eq!(messages.len(), 1);
-        let messages = sub.get_messages();
-        assert_eq!(messages.len(), 0);
-
-        sub.close_stream();
-        assert!(sub.is_closed());
+    async fn test_client_creation() {
+        let ffi_inbox_owner = LocalWalletInboxOwner::new();
+        let client = create_client(
+            Box::new(MockLogger {}),
+            Box::new(ffi_inbox_owner),
+            xmtp_networking::LOCALHOST_ADDRESS.to_string(),
+            false,
+        )
+        .await
+        .unwrap();
+        assert!(!client.wallet_address().is_empty());
     }
 }

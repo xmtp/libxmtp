@@ -13,19 +13,29 @@ It pairs with [xmtp-rust-swift](https://github.com/xmtp/xmtp-rust-swift) which i
 
 - Rust
 - Run `make download-toolchains` to get all the iOS and MacOS toolchains
-- Clone `xmtp-rust-swift` from above and put it at the same directory level as this repository (so `../xmtp-rust-swift`)
 
 ## Workflow
 
 - Write code in `./src` to expose functionality to Swift
 - Run `cargo test` to make sure your code works
-- Run `make swift` to build local crate, generate Swift bindings, package the xcframework, and push all files to `../xmtp-rust-swift`
 
-### Just xcframework
+### Building xcframework
 
 - Run `make framework`
 
-## Optional Steps for xmtp-ios integration
+### Releasing new version
+
+Tag the commit you want to release with the appropriate version (e.g. 0.3.0-beta0).
+The Release github workflow will do the following:
+
+- run `make swift` to build local crate, generate Swift bindings, package the xcframework,
+  and put all relevant bits into `./xmtp-rust-swift.zip`
+- check out `xmtp-rust-repo` and update it with the contents of the zip file
+- push new commit to the `xmtp-rust-swift` repo and tag it with the same tag
+
+NOTES: To allow the workflow to push to another repo the setup follows [this guide](https://docs.github.com/en/apps/creating-github-apps/authenticating-with-a-github-app/making-authenticated-api-requests-with-a-github-app-in-a-github-actions-workflow#authenticating-with-a-github-app). It uses [this app installed on the org](https://github.com/organizations/xmtp/settings/apps/libxmtp-release). The relevant secrets are stored only [in this repo](https://github.com/xmtp/libxmtp/settings/secrets/actions). If additional repos are added to this workflow they MUST be added to [this installation](https://github.com/organizations/xmtp/settings/installations/39118494) of the app.
+
+### Steps for xmtp-ios SDK integration
 
 - Get set up with Xcode
 - Clone [xmtp-ios](https://github.com/xmtp/xmtp-ios)

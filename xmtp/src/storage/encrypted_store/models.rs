@@ -1,7 +1,32 @@
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use super::schema::messages;
+use super::{schema::*, EncryptedMessageStore};
+use crate::{account::Account, storage::StorageError, Save};
 use diesel::prelude::*;
+
+#[derive(Insertable, Identifiable, Queryable, PartialEq, Debug)]
+#[diesel(table_name = users)]
+#[diesel(primary_key(user_address))]
+pub struct StoredUser {
+    pub user_address: String,
+    pub created_at: i64,
+    pub last_refreshed: i64,
+}
+
+pub enum ConversationState {
+    Uninitialized = 0,
+    Invited = 10,
+}
+
+#[derive(Insertable, Identifiable, Queryable, PartialEq, Debug)]
+#[diesel(table_name = conversations)]
+#[diesel(primary_key(convo_id))]
+pub struct StoredConversation {
+    pub convo_id: String,
+    pub peer_address: String, // links to users table
+    pub created_at: i64,
+    pub convo_state: i32, // ConversationState
+}
 
 /// Placeholder type for messages returned from the Store.
 #[derive(Queryable, Debug)]
@@ -35,6 +60,7 @@ impl NewDecryptedMessage {
         }
     }
 }
+
 impl PartialEq<DecryptedMessage> for NewDecryptedMessage {
     fn eq(&self, other: &DecryptedMessage) -> bool {
         self.created_at == other.created_at
@@ -44,10 +70,78 @@ impl PartialEq<DecryptedMessage> for NewDecryptedMessage {
     }
 }
 
-fn now() -> i64 {
+pub fn now() -> i64 {
     let start = SystemTime::now();
     start
         .duration_since(UNIX_EPOCH)
         .expect("Time went backwards")
         .as_nanos() as i64
+}
+
+#[derive(Insertable, Identifiable, Queryable, Clone, PartialEq, Debug)]
+#[diesel(table_name = sessions)]
+#[diesel(primary_key(session_id))]
+pub struct StoredSession {
+    pub session_id: String,
+    pub created_at: i64,
+    pub peer_installation_id: String,
+    pub vmac_session_data: Vec<u8>,
+}
+
+impl StoredSession {
+    pub fn new(
+        session_id: String,
+        peer_installation_id: String,
+        vmac_session_data: Vec<u8>,
+    ) -> Self {
+        Self {
+            session_id,
+            created_at: now(),
+            peer_installation_id,
+            vmac_session_data,
+        }
+    }
+}
+
+impl Save<EncryptedMessageStore> for StoredSession {
+    fn save(&self, into: &EncryptedMessageStore) -> Result<(), StorageError> {
+        let conn = &mut into.conn()?;
+
+        diesel::update(sessions::table)
+            .set((
+                sessions::vmac_session_data.eq(&self.vmac_session_data),
+                sessions::peer_installation_id.eq(&self.peer_installation_id),
+            ))
+            .execute(conn)?;
+
+        Ok(())
+    }
+}
+
+#[derive(Queryable, Debug)]
+pub struct StoredAccount {
+    pub id: i32,
+    pub created_at: i64,
+    pub serialized_key: Vec<u8>,
+}
+
+#[derive(Insertable, Debug)]
+#[diesel(table_name = accounts)]
+pub struct NewStoredAccount {
+    pub created_at: i64,
+    pub serialized_key: Vec<u8>,
+}
+impl TryFrom<&Account> for NewStoredAccount {
+    type Error = StorageError;
+    fn try_from(account: &Account) -> Result<Self, StorageError> {
+        Ok(Self {
+            created_at: now(),
+            serialized_key: serde_json::to_vec(account).map_err(|e| {
+                StorageError::Store(format!(
+                    "could not initialize model:NewStoredAccount -- {}",
+                    e
+                ))
+            })?,
+        })
+    }
 }
