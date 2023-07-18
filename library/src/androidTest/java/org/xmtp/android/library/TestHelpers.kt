@@ -117,10 +117,12 @@ class FakeApiClient : ApiClient {
     }
 
     override suspend fun batchQuery(requests: List<MessageApiOuterClass.QueryRequest>): MessageApiOuterClass.BatchQueryResponse {
-        val response = query(requests.first().getContentTopics(0))
+        val responses = requests.map {
+            query(it.getContentTopics(0), Pagination(after = Date(it.startTimeNs)))
+        }
 
         return MessageApiOuterClass.BatchQueryResponse.newBuilder().also {
-            it.addResponses(response)
+            it.addAllResponses(responses)
         }.build()
     }
 
@@ -142,12 +144,14 @@ class FakeApiClient : ApiClient {
 
         val startAt = pagination?.before
         if (startAt != null) {
-            result = result.filter { it.timestampNs < startAt.time * 1_000_000 }
+            result = result.filter { it.timestampNs < startAt.time }
                 .sortedBy { it.timestampNs }.toMutableList()
         }
         val endAt = pagination?.after
         if (endAt != null) {
-            result = result.filter { it.timestampNs > endAt.time * 1_000_000 }
+            result = result.filter {
+                it.timestampNs > endAt.time
+            }
                 .sortedBy { it.timestampNs }.toMutableList()
         }
         val limit = pagination?.limit
@@ -187,7 +191,11 @@ class FakeApiClient : ApiClient {
     }
 }
 
-data class Fixtures(val aliceAccount: PrivateKeyBuilder, val bobAccount: PrivateKeyBuilder, val steveAccount: PrivateKeyBuilder) {
+data class Fixtures(
+    val aliceAccount: PrivateKeyBuilder,
+    val bobAccount: PrivateKeyBuilder,
+    val steveAccount: PrivateKeyBuilder,
+) {
     var fakeApiClient: FakeApiClient = FakeApiClient()
     var alice: PrivateKey = aliceAccount.getPrivateKey()
     var aliceClient: Client = Client().create(account = aliceAccount, apiClient = fakeApiClient)
@@ -196,7 +204,11 @@ data class Fixtures(val aliceAccount: PrivateKeyBuilder, val bobAccount: Private
     var steve: PrivateKey = steveAccount.getPrivateKey()
     var steveClient: Client = Client().create(account = steveAccount, apiClient = fakeApiClient)
 
-    constructor() : this(aliceAccount = PrivateKeyBuilder(), bobAccount = PrivateKeyBuilder(), steveAccount = PrivateKeyBuilder())
+    constructor() : this(
+        aliceAccount = PrivateKeyBuilder(),
+        bobAccount = PrivateKeyBuilder(),
+        steveAccount = PrivateKeyBuilder()
+    )
 
     fun publishLegacyContact(client: Client) {
         val contactBundle = ContactBundle.newBuilder().also { builder ->

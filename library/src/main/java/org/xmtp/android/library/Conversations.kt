@@ -285,14 +285,10 @@ data class Conversations(
     }
 
     fun listBatchMessages(
-        topics: List<String>,
-        limit: Int? = null,
-        before: Date? = null,
-        after: Date? = null,
+        topics: List<Pair<String, Pagination?>>,
     ): List<DecodedMessage> {
-        val pagination = Pagination(limit = limit, before = before, after = after)
-        val requests = topics.map { topic ->
-            makeQueryRequest(topic = topic, pagination = pagination)
+        val requests = topics.map { (topic, page) ->
+            makeQueryRequest(topic = topic, pagination = page)
         }
 
         // The maximum number of requests permitted in a single batch call.

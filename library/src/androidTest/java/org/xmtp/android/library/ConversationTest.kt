@@ -20,6 +20,7 @@ import org.xmtp.android.library.messages.MessageBuilder
 import org.xmtp.android.library.messages.MessageHeaderV2Builder
 import org.xmtp.android.library.messages.MessageV1Builder
 import org.xmtp.android.library.messages.MessageV2Builder
+import org.xmtp.android.library.messages.Pagination
 import org.xmtp.android.library.messages.PrivateKey
 import org.xmtp.android.library.messages.PrivateKeyBuilder
 import org.xmtp.android.library.messages.SealedInvitationBuilder
@@ -419,25 +420,46 @@ class ConversationTest {
 
     @Test
     fun testListBatchMessages() {
-        val bobConversation = bobClient.conversations.newConversation(
-            alice.walletAddress,
-            context = InvitationV1ContextBuilder.buildFromConversation("hi")
-        )
+        val bobConversation = aliceClient.conversations.newConversation(bob.walletAddress)
+        val steveConversation = aliceClient.conversations.newConversation(fixtures.steve.walletAddress)
 
-        val aliceConversation = aliceClient.conversations.newConversation(
-            bob.walletAddress,
-            context = InvitationV1ContextBuilder.buildFromConversation("hi")
-        )
         bobConversation.send(text = "hey alice 1")
         bobConversation.send(text = "hey alice 2")
-        bobConversation.send(text = "hey alice 3")
+        steveConversation.send(text = "hey alice 3")
         val messages = aliceClient.conversations.listBatchMessages(
             listOf(
-                aliceConversation.topic,
-                bobConversation.topic
+                Pair(steveConversation.topic, null),
+                Pair(bobConversation.topic, null)
             )
         )
         assertEquals(3, messages.size)
+    }
+
+    @Test
+    fun testListBatchMessagesWithPagination() {
+        val bobConversation = aliceClient.conversations.newConversation(bob.walletAddress)
+        val steveConversation =
+            aliceClient.conversations.newConversation(fixtures.steve.walletAddress)
+
+        bobConversation.send(text = "hey alice 1 bob")
+        steveConversation.send(text = "hey alice 1 steve")
+
+        Thread.sleep(100)
+        val date = Date()
+
+        bobConversation.send(text = "hey alice 2 bob")
+        bobConversation.send(text = "hey alice 3 bob")
+        steveConversation.send(text = "hey alice 2 steve")
+        steveConversation.send(text = "hey alice 3 steve")
+
+        val messages = aliceClient.conversations.listBatchMessages(
+            listOf(
+                Pair(steveConversation.topic, Pagination(after = date)),
+                Pair(bobConversation.topic, Pagination(after = date))
+            )
+        )
+
+        assertEquals(4, messages.size)
     }
 
     @Test
