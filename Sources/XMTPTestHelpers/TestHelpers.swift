@@ -216,7 +216,25 @@ public class FakeApiClient: ApiClient {
 	}
 
     public func batchQuery(request: XMTP.BatchQueryRequest) async throws -> XMTP.BatchQueryResponse {
-        abort() // Not supported on Fake
+        let responses = try await withThrowingTaskGroup(of: QueryResponse.self) { group in
+            for r in request.requests {
+                group.addTask {
+                    try await self.query(topic: r.contentTopics[0], pagination: Pagination(after: Date(timeIntervalSince1970: Double(r.startTimeNs / 1_000_000) / 1000)))
+                }
+            }
+
+          var results: [QueryResponse] = []
+          for try await response in group {
+            results.append(response)
+          }
+
+          return results
+        }
+
+        var queryResponse = XMTP.BatchQueryResponse()
+        queryResponse.responses = responses
+        return queryResponse
+     
     }
 
     public func query(request: XMTP.QueryRequest) async throws -> XMTP.QueryResponse {

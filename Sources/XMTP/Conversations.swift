@@ -33,10 +33,9 @@ public class Conversations {
         return conversation
     }
 
-    public func listBatchMessages(topics: [String], limit: Int? = nil, before: Date? = nil, after: Date? = nil) async throws -> [DecodedMessage] {
-        let pagination = Pagination(limit: limit, before: before, after: after)
-        let requests = topics.map { (topic) in
-            makeQueryRequest(topic: topic, pagination: pagination)
+    public func listBatchMessages(topics: [String: Pagination?]) async throws -> [DecodedMessage] {
+        let requests = topics.map { (topic, page) in
+            makeQueryRequest(topic: topic, pagination: page)
         }
         /// The maximum number of requests permitted in a single batch call.
         let maxQueryRequestsPerBatch = 50

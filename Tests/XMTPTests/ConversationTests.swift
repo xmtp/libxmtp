@@ -403,8 +403,31 @@ class ConversationTests: XCTestCase {
 		}
 
 		let messages = try await aliceConversation.messages()
-		XCTAssertEqual(100, messages.count)
+		XCTAssertEqual(110, messages.count)
 	}
+    
+    func testCanRetrieveBatchMessages() async throws {
+
+        guard case let .v2(bobConversation) = try await aliceClient.conversations.newConversation(with: bob.address, context: InvitationV1.Context(conversationID: "hi")) else {
+            XCTFail("did not get a v2 conversation for bob")
+            return
+        }
+
+        for i in 0..<3 {
+            do {
+                let content = "hey alice \(i)"
+                let sentAt = Date().addingTimeInterval(-1000)
+                try await bobConversation.send(content: content, sentAt: sentAt)
+            } catch {
+                print("Error sending message:", error)
+            }
+        }
+
+        let messages = try await aliceClient.conversations.listBatchMessages(
+            topics: [bobConversation.topic : Pagination(limit:3)]
+        )
+        XCTAssertEqual(3, messages.count)
+    }
 
 	func testImportV1ConversationFromJS() async throws {
 		let jsExportJSONData = Data("""
