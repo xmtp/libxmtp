@@ -24,6 +24,7 @@ diesel::table! {
         convo_id -> Text,
         addr_from -> Text,
         content -> Binary,
+        state -> Integer,
     }
 }
 

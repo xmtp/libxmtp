@@ -28,6 +28,12 @@ pub struct StoredConversation {
     pub convo_state: i32, // ConversationState
 }
 
+pub enum MessageState {
+    Uninitialized = 0,
+    LocallyCommitted = 10,
+    Received = 20,
+}
+
 /// Placeholder type for messages returned from the Store.
 #[derive(Queryable, Debug)]
 pub struct DecryptedMessage {
@@ -36,6 +42,7 @@ pub struct DecryptedMessage {
     pub convo_id: String,
     pub addr_from: String,
     pub content: Vec<u8>,
+    pub state: i32,
 }
 
 /// Placeholder type for messages being inserted into the store. This type is the same as
@@ -48,15 +55,17 @@ pub struct NewDecryptedMessage {
     pub convo_id: String,
     pub addr_from: String,
     pub content: Vec<u8>,
+    pub state: i32,
 }
 
 impl NewDecryptedMessage {
-    pub fn new(convo_id: String, addr_from: String, content: Vec<u8>) -> Self {
+    pub fn new(convo_id: String, addr_from: String, content: Vec<u8>, state: i32) -> Self {
         Self {
             created_at: now(),
             convo_id,
             addr_from,
             content,
+            state,
         }
     }
 }
