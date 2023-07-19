@@ -12,10 +12,10 @@ typealias PagingInfoCursor = Xmtp_MessageApi_V1_Cursor
 typealias PagingInfoSortDirection = Xmtp_MessageApi_V1_SortDirection
 
 public struct Pagination {
-	var limit: Int?
+	public var limit: Int?
 	var direction: PagingInfoSortDirection?
-    var before: Date?
-    var after: Date?
+    public var before: Date?
+    public var after: Date?
 
 	var pagingInfo: PagingInfo {
 		var info = PagingInfo()
