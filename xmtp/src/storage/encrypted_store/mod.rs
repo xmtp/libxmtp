@@ -27,7 +27,6 @@ use diesel::{
     prelude::*,
     r2d2::{ConnectionManager, Pool, PooledConnection},
 };
-// use crate::storage::StoredInstallation;
 
 use xmtp_cryptography::utils as crypto_utils;
 

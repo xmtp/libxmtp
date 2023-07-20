@@ -125,8 +125,6 @@ where
         Ok(contacts)
     }
 
-    // async fn update_installations()
-
     pub fn get_session(&self, contact: &Contact) -> Result<SessionManager, ClientError> {
         let existing_session = self.store.get_session(&contact.installation_id())?;
         match existing_session {
@@ -256,10 +254,11 @@ mod tests {
 
     #[tokio::test]
     async fn refresh() {
-        let mut client = ClientBuilder::new_test().build().unwrap();
+        let client = ClientBuilder::new_test().build().unwrap();
         client
             .refresh_user_installations(&client.wallet_address())
-            .await;
+            .await
+            .unwrap();
     }
 
     #[tokio::test]
