@@ -25,6 +25,7 @@ mod ffi {
         async fn query(&mut self, req: Vec<u8>) -> Result<Vec<u8>, String>;
         async fn publish(&mut self, token: String, req: Vec<u8>) -> Result<Vec<u8>, String>;
         async fn subscribe(&mut self, req: Vec<u8>) -> Result<RustSubscription, String>;
+        fn set_app_version(&mut self, version: String);
     }
 
     extern "Rust" {
@@ -65,6 +66,10 @@ async fn create_client(host: String, is_secure: bool) -> Result<RustClient, Stri
 }
 
 impl RustClient {
+    fn set_app_version(&mut self, version: String) {
+        self.client.set_app_version(version);
+    }
+
     async fn batch_query(&mut self, req: Vec<u8>) -> Result<Vec<u8>, String> {
         let request: BatchQueryRequest = Message::decode(&req[..]).map_err(|e| format!("{}", e))?;
         let result: BatchQueryResponse = self
@@ -249,6 +254,8 @@ mod tests {
             super::create_client(xmtp_networking::LOCALHOST_ADDRESS.to_string(), false)
                 .await
                 .unwrap();
+        client.set_app_version("0.0.2".to_string());
+        
         let topic = Uuid::new_v4();
         client
             .publish(
