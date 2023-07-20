@@ -24,7 +24,7 @@ extension PrivateKey: SigningKey {
 
 	func matches(_ publicKey: PublicKey) -> Bool {
 		do {
-			return try self.publicKey.recoverKeySignedPublicKey() == (try publicKey.recoverKeySignedPublicKey())
+			return try self.publicKey.recoverKeySignedPublicKey() == (publicKey.recoverKeySignedPublicKey())
 		} catch {
 			return false
 		}
@@ -67,7 +67,7 @@ public extension PrivateKey {
 	}
 
 	static func generate() throws -> PrivateKey {
-		let data = Data(try Crypto.secureRandomBytes(count: 32))
+		let data = try Data(Crypto.secureRandomBytes(count: 32))
 		return try PrivateKey(data)
 	}
 

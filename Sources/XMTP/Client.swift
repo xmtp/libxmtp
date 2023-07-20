@@ -124,7 +124,7 @@ public class Client {
 			let apiClient = apiClient
 			apiClient.setAuthToken(authToken)
 			_ = try await apiClient.publish(envelopes: [
-				Envelope(topic: .userPrivateStoreKeyBundle(account.address), timestamp: Date(), message: try encryptedKeys.serializedData()),
+				Envelope(topic: .userPrivateStoreKeyBundle(account.address), timestamp: Date(), message: encryptedKeys.serializedData()),
 			])
 
 			return keys

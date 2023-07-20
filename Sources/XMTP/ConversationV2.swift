@@ -36,7 +36,7 @@ public struct ConversationV2 {
 	static func create(client: Client, invitation: InvitationV1, header: SealedInvitationHeaderV1, isGroup: Bool = false) throws -> ConversationV2 {
 		let myKeys = client.keys.getPublicKeyBundle()
 
-		let peer = try myKeys.walletAddress == (try header.sender.walletAddress) ? header.recipient : header.sender
+		let peer = try myKeys.walletAddress == (header.sender.walletAddress) ? header.recipient : header.sender
 		let peerAddress = try peer.walletAddress
 
 		let keyMaterial = Data(invitation.aes256GcmHkdfSha256.keyMaterial)
@@ -83,7 +83,7 @@ public struct ConversationV2 {
 			keyMaterial: keyMaterial
 		)
 
-		let envelope = Envelope(topic: topic, timestamp: Date(), message: try Message(v2: message).serializedData())
+		let envelope = try Envelope(topic: topic, timestamp: Date(), message: Message(v2: message).serializedData())
 		return PreparedMessage(messageEnvelope: envelope, conversation: .v2(self)) {
 			try await client.publish(envelopes: [envelope])
 		}
@@ -181,10 +181,10 @@ public struct ConversationV2 {
 			keyMaterial: keyMaterial
 		)
 
-		let envelope = Envelope(
+		let envelope = try Envelope(
 			topic: topic,
 			timestamp: Date(),
-			message: try Message(v2: message).serializedData()
+			message: Message(v2: message).serializedData()
 		)
 
 		return try envelope.serializedData()

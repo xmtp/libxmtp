@@ -54,13 +54,13 @@ class InvitationTests: XCTestCase {
 		)
 
 		let newInvitation = try SealedInvitation.createV1(
-			sender: try alice.toV2(),
-			recipient: try bob.toV2().getPublicKeyBundle(),
+			sender: alice.toV2(),
+			recipient: bob.toV2().getPublicKeyBundle(),
 			created: Date(),
 			invitation: invitation
 		)
 
-		let deserialized = try SealedInvitation(serializedData: try newInvitation.serializedData())
+		let deserialized = try SealedInvitation(serializedData: newInvitation.serializedData())
 
 		XCTAssert(!deserialized.v1.headerBytes.isEmpty, "header bytes empty")
 		XCTAssertEqual(newInvitation, deserialized)
@@ -72,12 +72,12 @@ class InvitationTests: XCTestCase {
 		XCTAssertEqual(header.recipient, try bob.toV2().getPublicKeyBundle())
 
 		// Ensure alice can decrypt the invitation
-		let aliceInvite = try newInvitation.v1.getInvitation(viewer: try alice.toV2())
+		let aliceInvite = try newInvitation.v1.getInvitation(viewer: alice.toV2())
 		XCTAssertEqual(aliceInvite.topic, invitation.topic)
 		XCTAssertEqual(aliceInvite.aes256GcmHkdfSha256.keyMaterial, invitation.aes256GcmHkdfSha256.keyMaterial)
 
 		// Ensure bob can decrypt the invitation
-		let bobInvite = try newInvitation.v1.getInvitation(viewer: try bob.toV2())
+		let bobInvite = try newInvitation.v1.getInvitation(viewer: bob.toV2())
 		XCTAssertEqual(bobInvite.topic, invitation.topic)
 		XCTAssertEqual(bobInvite.aes256GcmHkdfSha256.keyMaterial, invitation.aes256GcmHkdfSha256.keyMaterial)
 	}

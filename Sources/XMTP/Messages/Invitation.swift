@@ -20,9 +20,9 @@ extension InvitationV1 {
 			myPreKey: sender.preKeys[0].publicKey,
 			isRecipient: false
 		)
-		let addresses = [
-			try sender.toV1().walletAddress,
-			try recipient.walletAddress,
+		let addresses = try [
+			sender.toV1().walletAddress,
+			recipient.walletAddress,
 		].sorted()
 		let msg = "\(context.conversationID)\(addresses.joined(separator: ","))"
 		let topicId = try Crypto.calculateMac(Data(msg.utf8), secret).toHex

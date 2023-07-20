@@ -23,11 +23,11 @@ class ConversationsTests: XCTestCase {
 		let message = try MessageV1.encode(
 			sender: newClient.privateKeyBundleV1,
 			recipient: fixtures.aliceClient.v1keys.toPublicKeyBundle(),
-			message: try TextCodec().encode(content: "hello").serializedData(),
+			message: TextCodec().encode(content: "hello").serializedData(),
 			timestamp: created
 		)
 
-		let envelope = Envelope(topic: .userIntro(client.address), timestamp: created, message: try Message(v1: message).serializedData())
+		let envelope = try Envelope(topic: .userIntro(client.address), timestamp: created, message: Message(v1: message).serializedData())
 
 		let conversation = try client.conversations.fromIntro(envelope: envelope)
 		XCTAssertEqual(conversation.peerAddress, newWallet.address)
@@ -54,7 +54,7 @@ class ConversationsTests: XCTestCase {
 		)
 
 		let peerAddress = fixtures.alice.walletAddress
-		let envelope = Envelope(topic: .userInvite(peerAddress), timestamp: created, message: try sealed.serializedData())
+		let envelope = try Envelope(topic: .userInvite(peerAddress), timestamp: created, message: sealed.serializedData())
 
 		let conversation = try client.conversations.fromInvite(envelope: envelope)
 		XCTAssertEqual(conversation.peerAddress, newWallet.address)

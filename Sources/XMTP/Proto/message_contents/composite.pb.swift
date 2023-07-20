@@ -17,185 +17,185 @@ import SwiftProtobuf
 // incompatible with the version of SwiftProtobuf to which you are linking.
 // Please ensure that you are building against the same version of the API
 // that was used to generate this file.
-fileprivate struct _GeneratedWithProtocGenSwiftVersion: SwiftProtobuf.ProtobufAPIVersionCheck {
-  struct _2: SwiftProtobuf.ProtobufAPIVersion_2 {}
-  typealias Version = _2
+private struct _GeneratedWithProtocGenSwiftVersion: SwiftProtobuf.ProtobufAPIVersionCheck {
+	struct _2: SwiftProtobuf.ProtobufAPIVersion_2 {}
+	typealias Version = _2
 }
 
 /// Composite is used to implement xmtp.org/composite content type
 public struct Xmtp_MessageContents_Composite {
-  // SwiftProtobuf.Message conformance is added in an extension below. See the
-  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
-  // methods supported on all messages.
+	// SwiftProtobuf.Message conformance is added in an extension below. See the
+	// `Message` and `Message+*Additions` files in the SwiftProtobuf library for
+	// methods supported on all messages.
 
-  public var parts: [Xmtp_MessageContents_Composite.Part] = []
+	public var parts: [Xmtp_MessageContents_Composite.Part] = []
 
-  public var unknownFields = SwiftProtobuf.UnknownStorage()
+	public var unknownFields = SwiftProtobuf.UnknownStorage()
 
-  /// Part represents one section of a composite message
-  public struct Part {
-    // SwiftProtobuf.Message conformance is added in an extension below. See the
-    // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
-    // methods supported on all messages.
+	/// Part represents one section of a composite message
+	public struct Part {
+		// SwiftProtobuf.Message conformance is added in an extension below. See the
+		// `Message` and `Message+*Additions` files in the SwiftProtobuf library for
+		// methods supported on all messages.
 
-    public var element: Xmtp_MessageContents_Composite.Part.OneOf_Element? = nil
+		public var element: Xmtp_MessageContents_Composite.Part.OneOf_Element?
 
-    public var part: Xmtp_MessageContents_EncodedContent {
-      get {
-        if case .part(let v)? = element {return v}
-        return Xmtp_MessageContents_EncodedContent()
-      }
-      set {element = .part(newValue)}
-    }
+		public var part: Xmtp_MessageContents_EncodedContent {
+			get {
+				if case let .part(v)? = element { return v }
+				return Xmtp_MessageContents_EncodedContent()
+			}
+			set { element = .part(newValue) }
+		}
 
-    public var composite: Xmtp_MessageContents_Composite {
-      get {
-        if case .composite(let v)? = element {return v}
-        return Xmtp_MessageContents_Composite()
-      }
-      set {element = .composite(newValue)}
-    }
+		public var composite: Xmtp_MessageContents_Composite {
+			get {
+				if case let .composite(v)? = element { return v }
+				return Xmtp_MessageContents_Composite()
+			}
+			set { element = .composite(newValue) }
+		}
 
-    public var unknownFields = SwiftProtobuf.UnknownStorage()
+		public var unknownFields = SwiftProtobuf.UnknownStorage()
 
-    public enum OneOf_Element: Equatable {
-      case part(Xmtp_MessageContents_EncodedContent)
-      case composite(Xmtp_MessageContents_Composite)
+		public enum OneOf_Element: Equatable {
+			case part(Xmtp_MessageContents_EncodedContent)
+			case composite(Xmtp_MessageContents_Composite)
 
-    #if !swift(>=4.1)
-      public static func ==(lhs: Xmtp_MessageContents_Composite.Part.OneOf_Element, rhs: Xmtp_MessageContents_Composite.Part.OneOf_Element) -> Bool {
-        // The use of inline closures is to circumvent an issue where the compiler
-        // allocates stack space for every case branch when no optimizations are
-        // enabled. https://github.com/apple/swift-protobuf/issues/1034
-        switch (lhs, rhs) {
-        case (.part, .part): return {
-          guard case .part(let l) = lhs, case .part(let r) = rhs else { preconditionFailure() }
-          return l == r
-        }()
-        case (.composite, .composite): return {
-          guard case .composite(let l) = lhs, case .composite(let r) = rhs else { preconditionFailure() }
-          return l == r
-        }()
-        default: return false
-        }
-      }
-    #endif
-    }
+			#if !swift(>=4.1)
+				public static func == (lhs: Xmtp_MessageContents_Composite.Part.OneOf_Element, rhs: Xmtp_MessageContents_Composite.Part.OneOf_Element) -> Bool {
+					// The use of inline closures is to circumvent an issue where the compiler
+					// allocates stack space for every case branch when no optimizations are
+					// enabled. https://github.com/apple/swift-protobuf/issues/1034
+					switch (lhs, rhs) {
+					case (.part, .part): return {
+							guard case let .part(l) = lhs, case let .part(r) = rhs else { preconditionFailure() }
+							return l == r
+						}()
+					case (.composite, .composite): return {
+							guard case let .composite(l) = lhs, case let .composite(r) = rhs else { preconditionFailure() }
+							return l == r
+						}()
+					default: return false
+					}
+				}
+			#endif
+		}
 
-    public init() {}
-  }
+		public init() {}
+	}
 
-  public init() {}
+	public init() {}
 }
 
 #if swift(>=5.5) && canImport(_Concurrency)
-extension Xmtp_MessageContents_Composite: @unchecked Sendable {}
-extension Xmtp_MessageContents_Composite.Part: @unchecked Sendable {}
-extension Xmtp_MessageContents_Composite.Part.OneOf_Element: @unchecked Sendable {}
-#endif  // swift(>=5.5) && canImport(_Concurrency)
+	extension Xmtp_MessageContents_Composite: @unchecked Sendable {}
+	extension Xmtp_MessageContents_Composite.Part: @unchecked Sendable {}
+	extension Xmtp_MessageContents_Composite.Part.OneOf_Element: @unchecked Sendable {}
+#endif // swift(>=5.5) && canImport(_Concurrency)
 
 // MARK: - Code below here is support for the SwiftProtobuf runtime.
 
-fileprivate let _protobuf_package = "xmtp.message_contents"
+private let _protobuf_package = "xmtp.message_contents"
 
 extension Xmtp_MessageContents_Composite: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
-  public static let protoMessageName: String = _protobuf_package + ".Composite"
-  public static let _protobuf_nameMap: SwiftProtobuf._NameMap = [
-    1: .same(proto: "parts"),
-  ]
+	public static let protoMessageName: String = _protobuf_package + ".Composite"
+	public static let _protobuf_nameMap: SwiftProtobuf._NameMap = [
+		1: .same(proto: "parts"),
+	]
 
-  public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
-    while let fieldNumber = try decoder.nextFieldNumber() {
-      // The use of inline closures is to circumvent an issue where the compiler
-      // allocates stack space for every case branch when no optimizations are
-      // enabled. https://github.com/apple/swift-protobuf/issues/1034
-      switch fieldNumber {
-      case 1: try { try decoder.decodeRepeatedMessageField(value: &self.parts) }()
-      default: break
-      }
-    }
-  }
+	public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
+		while let fieldNumber = try decoder.nextFieldNumber() {
+			// The use of inline closures is to circumvent an issue where the compiler
+			// allocates stack space for every case branch when no optimizations are
+			// enabled. https://github.com/apple/swift-protobuf/issues/1034
+			switch fieldNumber {
+			case 1: try try decoder.decodeRepeatedMessageField(value: &parts)
+			default: break
+			}
+		}
+	}
 
-  public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
-    if !self.parts.isEmpty {
-      try visitor.visitRepeatedMessageField(value: self.parts, fieldNumber: 1)
-    }
-    try unknownFields.traverse(visitor: &visitor)
-  }
+	public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+		if !parts.isEmpty {
+			try visitor.visitRepeatedMessageField(value: parts, fieldNumber: 1)
+		}
+		try unknownFields.traverse(visitor: &visitor)
+	}
 
-  public static func ==(lhs: Xmtp_MessageContents_Composite, rhs: Xmtp_MessageContents_Composite) -> Bool {
-    if lhs.parts != rhs.parts {return false}
-    if lhs.unknownFields != rhs.unknownFields {return false}
-    return true
-  }
+	public static func == (lhs: Xmtp_MessageContents_Composite, rhs: Xmtp_MessageContents_Composite) -> Bool {
+		if lhs.parts != rhs.parts { return false }
+		if lhs.unknownFields != rhs.unknownFields { return false }
+		return true
+	}
 }
 
 extension Xmtp_MessageContents_Composite.Part: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
-  public static let protoMessageName: String = Xmtp_MessageContents_Composite.protoMessageName + ".Part"
-  public static let _protobuf_nameMap: SwiftProtobuf._NameMap = [
-    1: .same(proto: "part"),
-    2: .same(proto: "composite"),
-  ]
+	public static let protoMessageName: String = Xmtp_MessageContents_Composite.protoMessageName + ".Part"
+	public static let _protobuf_nameMap: SwiftProtobuf._NameMap = [
+		1: .same(proto: "part"),
+		2: .same(proto: "composite"),
+	]
 
-  public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
-    while let fieldNumber = try decoder.nextFieldNumber() {
-      // The use of inline closures is to circumvent an issue where the compiler
-      // allocates stack space for every case branch when no optimizations are
-      // enabled. https://github.com/apple/swift-protobuf/issues/1034
-      switch fieldNumber {
-      case 1: try {
-        var v: Xmtp_MessageContents_EncodedContent?
-        var hadOneofValue = false
-        if let current = self.element {
-          hadOneofValue = true
-          if case .part(let m) = current {v = m}
-        }
-        try decoder.decodeSingularMessageField(value: &v)
-        if let v = v {
-          if hadOneofValue {try decoder.handleConflictingOneOf()}
-          self.element = .part(v)
-        }
-      }()
-      case 2: try {
-        var v: Xmtp_MessageContents_Composite?
-        var hadOneofValue = false
-        if let current = self.element {
-          hadOneofValue = true
-          if case .composite(let m) = current {v = m}
-        }
-        try decoder.decodeSingularMessageField(value: &v)
-        if let v = v {
-          if hadOneofValue {try decoder.handleConflictingOneOf()}
-          self.element = .composite(v)
-        }
-      }()
-      default: break
-      }
-    }
-  }
+	public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
+		while let fieldNumber = try decoder.nextFieldNumber() {
+			// The use of inline closures is to circumvent an issue where the compiler
+			// allocates stack space for every case branch when no optimizations are
+			// enabled. https://github.com/apple/swift-protobuf/issues/1034
+			switch fieldNumber {
+			case 1: try {
+					var v: Xmtp_MessageContents_EncodedContent?
+					var hadOneofValue = false
+					if let current = self.element {
+						hadOneofValue = true
+						if case let .part(m) = current { v = m }
+					}
+					try decoder.decodeSingularMessageField(value: &v)
+					if let v = v {
+						if hadOneofValue { try decoder.handleConflictingOneOf() }
+						self.element = .part(v)
+					}
+				}()
+			case 2: try {
+					var v: Xmtp_MessageContents_Composite?
+					var hadOneofValue = false
+					if let current = self.element {
+						hadOneofValue = true
+						if case let .composite(m) = current { v = m }
+					}
+					try decoder.decodeSingularMessageField(value: &v)
+					if let v = v {
+						if hadOneofValue { try decoder.handleConflictingOneOf() }
+						self.element = .composite(v)
+					}
+				}()
+			default: break
+			}
+		}
+	}
 
-  public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
-    // The use of inline closures is to circumvent an issue where the compiler
-    // allocates stack space for every if/case branch local when no optimizations
-    // are enabled. https://github.com/apple/swift-protobuf/issues/1034 and
-    // https://github.com/apple/swift-protobuf/issues/1182
-    switch self.element {
-    case .part?: try {
-      guard case .part(let v)? = self.element else { preconditionFailure() }
-      try visitor.visitSingularMessageField(value: v, fieldNumber: 1)
-    }()
-    case .composite?: try {
-      guard case .composite(let v)? = self.element else { preconditionFailure() }
-      try visitor.visitSingularMessageField(value: v, fieldNumber: 2)
-    }()
-    case nil: break
-    }
-    try unknownFields.traverse(visitor: &visitor)
-  }
+	public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+		// The use of inline closures is to circumvent an issue where the compiler
+		// allocates stack space for every if/case branch local when no optimizations
+		// are enabled. https://github.com/apple/swift-protobuf/issues/1034 and
+		// https://github.com/apple/swift-protobuf/issues/1182
+		switch element {
+		case .part?: try {
+				guard case let .part(v)? = self.element else { preconditionFailure() }
+				try visitor.visitSingularMessageField(value: v, fieldNumber: 1)
+			}()
+		case .composite?: try {
+				guard case let .composite(v)? = self.element else { preconditionFailure() }
+				try visitor.visitSingularMessageField(value: v, fieldNumber: 2)
+			}()
+		case nil: break
+		}
+		try unknownFields.traverse(visitor: &visitor)
+	}
 
-  public static func ==(lhs: Xmtp_MessageContents_Composite.Part, rhs: Xmtp_MessageContents_Composite.Part) -> Bool {
-    if lhs.element != rhs.element {return false}
-    if lhs.unknownFields != rhs.unknownFields {return false}
-    return true
-  }
+	public static func == (lhs: Xmtp_MessageContents_Composite.Part, rhs: Xmtp_MessageContents_Composite.Part) -> Bool {
+		if lhs.element != rhs.element { return false }
+		if lhs.unknownFields != rhs.unknownFields { return false }
+		return true
+	}
 }

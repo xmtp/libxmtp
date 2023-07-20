@@ -54,30 +54,30 @@ public struct ConversationV1 {
 		let message = try MessageV1.encode(
 			sender: client.privateKeyBundleV1,
 			recipient: recipient,
-			message: try encodedContent.serializedData(),
+			message: encodedContent.serializedData(),
 			timestamp: date
 		)
 
-		let messageEnvelope = Envelope(
+		let messageEnvelope = try Envelope(
 			topic: .directMessageV1(client.address, peerAddress),
 			timestamp: date,
-			message: try Message(v1: message).serializedData()
+			message: Message(v1: message).serializedData()
 		)
 
 		return PreparedMessage(messageEnvelope: messageEnvelope, conversation: .v1(self)) {
 			var envelopes = [messageEnvelope]
 
 			if client.contacts.needsIntroduction(peerAddress) {
-				envelopes.append(contentsOf: [
+				try envelopes.append(contentsOf: [
 					Envelope(
 						topic: .userIntro(peerAddress),
 						timestamp: date,
-						message: try Message(v1: message).serializedData()
+						message: Message(v1: message).serializedData()
 					),
 					Envelope(
 						topic: .userIntro(client.address),
 						timestamp: date,
-						message: try Message(v1: message).serializedData()
+						message: Message(v1: message).serializedData()
 					),
 				])
 

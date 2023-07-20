@@ -60,7 +60,7 @@ class PrivateKeyBundleTests: XCTestCase {
 		let secretData = Data("049f4cd17426f9dfac528f400db858a9cbc87488879d6df5bea3595beaeb37415f1b24227e571dd4969406f366841e682795f284b54952a22b2dcff87971580fa604c0a97d550ce3ce5dac2e5469a2e3ece7232d80247a789044ebef0478c6911d63400a13090de6e8aeb4a1bcb878ca73b1d7eb13ab3012e564cfef74a8182467cc047d999bb077e5b223509fab7a08642c29359b8c3144ffa30002e45f09e4a515927f682eb71b68bd52f498d5d464c6bb14d3c07aefc86a1ab8e2528a21ffd41912".web3.bytesFromHex!)
 
 		let meBundle = try PrivateKeyBundle(serializedData: meBundleData).v1.toV2()
-		let youBundlePublic = try SignedPublicKeyBundle(try PublicKeyBundle(serializedData: youBundleData))
+		let youBundlePublic = try SignedPublicKeyBundle(PublicKeyBundle(serializedData: youBundleData))
 
 		let secret = try meBundle.sharedSecret(peer: youBundlePublic, myPreKey: meBundle.preKeys[0].publicKey, isRecipient: true)
 

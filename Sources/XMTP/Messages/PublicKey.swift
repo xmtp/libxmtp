@@ -67,7 +67,7 @@ extension PublicKey {
 		slimKey.timestamp = timestamp
 		slimKey.secp256K1Uncompressed.bytes = secp256K1Uncompressed.bytes
 
-		let sigText = Signature.createIdentityText(key: try slimKey.serializedData())
+		let sigText = try Signature.createIdentityText(key: slimKey.serializedData())
 		let message = try Signature.ethPersonalMessage(sigText)
 
 		let pubKeyData = try KeyUtilx.recoverPublicKeyKeccak256(from: signature.rawData, message: message)

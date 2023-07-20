@@ -52,7 +52,7 @@ extension SignedPublicKey {
 			return false
 		}
 
-		return try signature.verify(signedBy: try PublicKey(key), digest: key.keyBytes)
+		return try signature.verify(signedBy: PublicKey(key), digest: key.keyBytes)
 	}
 
 	func recoverKeySignedPublicKey() throws -> PublicKey {

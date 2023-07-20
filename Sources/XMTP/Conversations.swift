@@ -108,7 +108,7 @@ public class Conversations {
 		let sealedInvitation = try SealedInvitation(serializedData: envelope.message)
 		let unsealed = try sealedInvitation.v1.getInvitation(viewer: client.keys)
 
-		return .v2(try ConversationV2.create(client: client, invitation: unsealed, header: sealedInvitation.v1.header))
+		return try .v2(ConversationV2.create(client: client, invitation: unsealed, header: sealedInvitation.v1.header))
 	}
 
 	public func fromIntro(envelope: Envelope) throws -> Conversation {
@@ -225,8 +225,8 @@ public class Conversations {
 
 		for sealedInvitation in try await listInvitations(pagination: pagination) {
 			do {
-				newConversations.append(
-					Conversation.v2(try makeConversation(from: sealedInvitation))
+				try newConversations.append(
+					Conversation.v2(makeConversation(from: sealedInvitation))
 				)
 			} catch {
 				print("Error loading invitations: \(error)")
@@ -235,8 +235,8 @@ public class Conversations {
 
 		for sealedInvitation in try await listGroupInvitations(pagination: pagination) {
 			do {
-				newConversations.append(
-					Conversation.v2(try makeConversation(from: sealedInvitation, isGroup: true))
+				try newConversations.append(
+					Conversation.v2(makeConversation(from: sealedInvitation, isGroup: true))
 				)
 			} catch {
 				print("Error loading invitations: \(error)")
@@ -336,8 +336,8 @@ public class Conversations {
 		let peerAddress = try recipient.walletAddress
 
 		try await client.publish(envelopes: [
-			Envelope(topic: .userInvite(client.address), timestamp: created, message: try sealed.serializedData()),
-			Envelope(topic: .userInvite(peerAddress), timestamp: created, message: try sealed.serializedData()),
+			Envelope(topic: .userInvite(client.address), timestamp: created, message: sealed.serializedData()),
+			Envelope(topic: .userInvite(peerAddress), timestamp: created, message: sealed.serializedData()),
 		])
 
 		return sealed

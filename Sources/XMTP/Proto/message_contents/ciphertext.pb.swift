@@ -17,9 +17,9 @@ import SwiftProtobuf
 // incompatible with the version of SwiftProtobuf to which you are linking.
 // Please ensure that you are building against the same version of the API
 // that was used to generate this file.
-fileprivate struct _GeneratedWithProtocGenSwiftVersion: SwiftProtobuf.ProtobufAPIVersionCheck {
-  struct _2: SwiftProtobuf.ProtobufAPIVersion_2 {}
-  typealias Version = _2
+private struct _GeneratedWithProtocGenSwiftVersion: SwiftProtobuf.ProtobufAPIVersionCheck {
+	struct _2: SwiftProtobuf.ProtobufAPIVersion_2 {}
+	typealias Version = _2
 }
 
 /// Ciphertext represents encrypted payload.
@@ -27,305 +27,306 @@ fileprivate struct _GeneratedWithProtocGenSwiftVersion: SwiftProtobuf.ProtobufAP
 /// The payload is accompanied by the cryptographic parameters
 /// required by the chosen encryption scheme.
 public struct Xmtp_MessageContents_Ciphertext {
-  // SwiftProtobuf.Message conformance is added in an extension below. See the
-  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
-  // methods supported on all messages.
+	// SwiftProtobuf.Message conformance is added in an extension below. See the
+	// `Message` and `Message+*Additions` files in the SwiftProtobuf library for
+	// methods supported on all messages.
 
-  public var union: Xmtp_MessageContents_Ciphertext.OneOf_Union? = nil
+	public var union: Xmtp_MessageContents_Ciphertext.OneOf_Union?
 
-  public var aes256GcmHkdfSha256: Xmtp_MessageContents_Ciphertext.Aes256gcmHkdfsha256 {
-    get {
-      if case .aes256GcmHkdfSha256(let v)? = union {return v}
-      return Xmtp_MessageContents_Ciphertext.Aes256gcmHkdfsha256()
-    }
-    set {union = .aes256GcmHkdfSha256(newValue)}
-  }
+	public var aes256GcmHkdfSha256: Xmtp_MessageContents_Ciphertext.Aes256gcmHkdfsha256 {
+		get {
+			if case let .aes256GcmHkdfSha256(v)? = union { return v }
+			return Xmtp_MessageContents_Ciphertext.Aes256gcmHkdfsha256()
+		}
+		set { union = .aes256GcmHkdfSha256(newValue) }
+	}
 
-  public var unknownFields = SwiftProtobuf.UnknownStorage()
+	public var unknownFields = SwiftProtobuf.UnknownStorage()
 
-  public enum OneOf_Union: Equatable {
-    case aes256GcmHkdfSha256(Xmtp_MessageContents_Ciphertext.Aes256gcmHkdfsha256)
+	public enum OneOf_Union: Equatable {
+		case aes256GcmHkdfSha256(Xmtp_MessageContents_Ciphertext.Aes256gcmHkdfsha256)
 
-  #if !swift(>=4.1)
-    public static func ==(lhs: Xmtp_MessageContents_Ciphertext.OneOf_Union, rhs: Xmtp_MessageContents_Ciphertext.OneOf_Union) -> Bool {
-      // The use of inline closures is to circumvent an issue where the compiler
-      // allocates stack space for every case branch when no optimizations are
-      // enabled. https://github.com/apple/swift-protobuf/issues/1034
-      switch (lhs, rhs) {
-      case (.aes256GcmHkdfSha256, .aes256GcmHkdfSha256): return {
-        guard case .aes256GcmHkdfSha256(let l) = lhs, case .aes256GcmHkdfSha256(let r) = rhs else { preconditionFailure() }
-        return l == r
-      }()
-      }
-    }
-  #endif
-  }
+		#if !swift(>=4.1)
+			public static func == (lhs: Xmtp_MessageContents_Ciphertext.OneOf_Union, rhs: Xmtp_MessageContents_Ciphertext.OneOf_Union) -> Bool {
+				// The use of inline closures is to circumvent an issue where the compiler
+				// allocates stack space for every case branch when no optimizations are
+				// enabled. https://github.com/apple/swift-protobuf/issues/1034
+				switch (lhs, rhs) {
+				case (.aes256GcmHkdfSha256, .aes256GcmHkdfSha256): return {
+						guard case let .aes256GcmHkdfSha256(l) = lhs, case let .aes256GcmHkdfSha256(r) = rhs else { preconditionFailure() }
+						return l == r
+					}()
+				}
+			}
+		#endif
+	}
 
-  /// Encryption: AES256-GCM
-  /// Key derivation function: HKDF-SHA256
-  public struct Aes256gcmHkdfsha256 {
-    // SwiftProtobuf.Message conformance is added in an extension below. See the
-    // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
-    // methods supported on all messages.
+	/// Encryption: AES256-GCM
+	/// Key derivation function: HKDF-SHA256
+	public struct Aes256gcmHkdfsha256 {
+		// SwiftProtobuf.Message conformance is added in an extension below. See the
+		// `Message` and `Message+*Additions` files in the SwiftProtobuf library for
+		// methods supported on all messages.
 
-    /// 32 bytes
-    public var hkdfSalt: Data = Data()
+		/// 32 bytes
+		public var hkdfSalt: Data = .init()
 
-    /// 12 bytes
-    public var gcmNonce: Data = Data()
+		/// 12 bytes
+		public var gcmNonce: Data = .init()
 
-    /// encrypted payload
-    public var payload: Data = Data()
+		/// encrypted payload
+		public var payload: Data = .init()
 
-    public var unknownFields = SwiftProtobuf.UnknownStorage()
+		public var unknownFields = SwiftProtobuf.UnknownStorage()
 
-    public init() {}
-  }
+		public init() {}
+	}
 
-  public init() {}
+	public init() {}
 }
 
 /// SignedEciesCiphertext represents an ECIES encrypted payload and a signature
 public struct Xmtp_MessageContents_SignedEciesCiphertext {
-  // SwiftProtobuf.Message conformance is added in an extension below. See the
-  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
-  // methods supported on all messages.
+	// SwiftProtobuf.Message conformance is added in an extension below. See the
+	// `Message` and `Message+*Additions` files in the SwiftProtobuf library for
+	// methods supported on all messages.
 
-  /// serialized Ecies message
-  public var eciesBytes: Data = Data()
+	/// serialized Ecies message
+	public var eciesBytes: Data = .init()
 
-  /// signature of sha256(ecies_bytes) signed with the IdentityKey
-  public var signature: Xmtp_MessageContents_Signature {
-    get {return _signature ?? Xmtp_MessageContents_Signature()}
-    set {_signature = newValue}
-  }
-  /// Returns true if `signature` has been explicitly set.
-  public var hasSignature: Bool {return self._signature != nil}
-  /// Clears the value of `signature`. Subsequent reads from it will return its default value.
-  public mutating func clearSignature() {self._signature = nil}
+	/// signature of sha256(ecies_bytes) signed with the IdentityKey
+	public var signature: Xmtp_MessageContents_Signature {
+		get { return _signature ?? Xmtp_MessageContents_Signature() }
+		set { _signature = newValue }
+	}
 
-  public var unknownFields = SwiftProtobuf.UnknownStorage()
+	/// Returns true if `signature` has been explicitly set.
+	public var hasSignature: Bool { return _signature != nil }
+	/// Clears the value of `signature`. Subsequent reads from it will return its default value.
+	public mutating func clearSignature() { _signature = nil }
 
-  /// Ecies is ciphertext encrypted using ECIES with a MAC
-  public struct Ecies {
-    // SwiftProtobuf.Message conformance is added in an extension below. See the
-    // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
-    // methods supported on all messages.
+	public var unknownFields = SwiftProtobuf.UnknownStorage()
 
-    /// 65 bytes
-    public var ephemeralPublicKey: Data = Data()
+	/// Ecies is ciphertext encrypted using ECIES with a MAC
+	public struct Ecies {
+		// SwiftProtobuf.Message conformance is added in an extension below. See the
+		// `Message` and `Message+*Additions` files in the SwiftProtobuf library for
+		// methods supported on all messages.
 
-    /// 16 bytes
-    public var iv: Data = Data()
+		/// 65 bytes
+		public var ephemeralPublicKey: Data = .init()
 
-    /// 32 bytes
-    public var mac: Data = Data()
+		/// 16 bytes
+		public var iv: Data = .init()
 
-    /// encrypted payload with block size of 16
-    public var ciphertext: Data = Data()
+		/// 32 bytes
+		public var mac: Data = .init()
 
-    public var unknownFields = SwiftProtobuf.UnknownStorage()
+		/// encrypted payload with block size of 16
+		public var ciphertext: Data = .init()
 
-    public init() {}
-  }
+		public var unknownFields = SwiftProtobuf.UnknownStorage()
 
-  public init() {}
+		public init() {}
+	}
 
-  fileprivate var _signature: Xmtp_MessageContents_Signature? = nil
+	public init() {}
+
+	fileprivate var _signature: Xmtp_MessageContents_Signature?
 }
 
 #if swift(>=5.5) && canImport(_Concurrency)
-extension Xmtp_MessageContents_Ciphertext: @unchecked Sendable {}
-extension Xmtp_MessageContents_Ciphertext.OneOf_Union: @unchecked Sendable {}
-extension Xmtp_MessageContents_Ciphertext.Aes256gcmHkdfsha256: @unchecked Sendable {}
-extension Xmtp_MessageContents_SignedEciesCiphertext: @unchecked Sendable {}
-extension Xmtp_MessageContents_SignedEciesCiphertext.Ecies: @unchecked Sendable {}
-#endif  // swift(>=5.5) && canImport(_Concurrency)
+	extension Xmtp_MessageContents_Ciphertext: @unchecked Sendable {}
+	extension Xmtp_MessageContents_Ciphertext.OneOf_Union: @unchecked Sendable {}
+	extension Xmtp_MessageContents_Ciphertext.Aes256gcmHkdfsha256: @unchecked Sendable {}
+	extension Xmtp_MessageContents_SignedEciesCiphertext: @unchecked Sendable {}
+	extension Xmtp_MessageContents_SignedEciesCiphertext.Ecies: @unchecked Sendable {}
+#endif // swift(>=5.5) && canImport(_Concurrency)
 
 // MARK: - Code below here is support for the SwiftProtobuf runtime.
 
-fileprivate let _protobuf_package = "xmtp.message_contents"
+private let _protobuf_package = "xmtp.message_contents"
 
 extension Xmtp_MessageContents_Ciphertext: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
-  public static let protoMessageName: String = _protobuf_package + ".Ciphertext"
-  public static let _protobuf_nameMap: SwiftProtobuf._NameMap = [
-    1: .standard(proto: "aes256_gcm_hkdf_sha256"),
-  ]
+	public static let protoMessageName: String = _protobuf_package + ".Ciphertext"
+	public static let _protobuf_nameMap: SwiftProtobuf._NameMap = [
+		1: .standard(proto: "aes256_gcm_hkdf_sha256"),
+	]
 
-  public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
-    while let fieldNumber = try decoder.nextFieldNumber() {
-      // The use of inline closures is to circumvent an issue where the compiler
-      // allocates stack space for every case branch when no optimizations are
-      // enabled. https://github.com/apple/swift-protobuf/issues/1034
-      switch fieldNumber {
-      case 1: try {
-        var v: Xmtp_MessageContents_Ciphertext.Aes256gcmHkdfsha256?
-        var hadOneofValue = false
-        if let current = self.union {
-          hadOneofValue = true
-          if case .aes256GcmHkdfSha256(let m) = current {v = m}
-        }
-        try decoder.decodeSingularMessageField(value: &v)
-        if let v = v {
-          if hadOneofValue {try decoder.handleConflictingOneOf()}
-          self.union = .aes256GcmHkdfSha256(v)
-        }
-      }()
-      default: break
-      }
-    }
-  }
+	public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
+		while let fieldNumber = try decoder.nextFieldNumber() {
+			// The use of inline closures is to circumvent an issue where the compiler
+			// allocates stack space for every case branch when no optimizations are
+			// enabled. https://github.com/apple/swift-protobuf/issues/1034
+			switch fieldNumber {
+			case 1: try {
+					var v: Xmtp_MessageContents_Ciphertext.Aes256gcmHkdfsha256?
+					var hadOneofValue = false
+					if let current = self.union {
+						hadOneofValue = true
+						if case let .aes256GcmHkdfSha256(m) = current { v = m }
+					}
+					try decoder.decodeSingularMessageField(value: &v)
+					if let v = v {
+						if hadOneofValue { try decoder.handleConflictingOneOf() }
+						self.union = .aes256GcmHkdfSha256(v)
+					}
+				}()
+			default: break
+			}
+		}
+	}
 
-  public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
-    // The use of inline closures is to circumvent an issue where the compiler
-    // allocates stack space for every if/case branch local when no optimizations
-    // are enabled. https://github.com/apple/swift-protobuf/issues/1034 and
-    // https://github.com/apple/swift-protobuf/issues/1182
-    try { if case .aes256GcmHkdfSha256(let v)? = self.union {
-      try visitor.visitSingularMessageField(value: v, fieldNumber: 1)
-    } }()
-    try unknownFields.traverse(visitor: &visitor)
-  }
+	public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+		// The use of inline closures is to circumvent an issue where the compiler
+		// allocates stack space for every if/case branch local when no optimizations
+		// are enabled. https://github.com/apple/swift-protobuf/issues/1034 and
+		// https://github.com/apple/swift-protobuf/issues/1182
+		try { if case let .aes256GcmHkdfSha256(v)? = self.union {
+			try visitor.visitSingularMessageField(value: v, fieldNumber: 1)
+		} }()
+		try unknownFields.traverse(visitor: &visitor)
+	}
 
-  public static func ==(lhs: Xmtp_MessageContents_Ciphertext, rhs: Xmtp_MessageContents_Ciphertext) -> Bool {
-    if lhs.union != rhs.union {return false}
-    if lhs.unknownFields != rhs.unknownFields {return false}
-    return true
-  }
+	public static func == (lhs: Xmtp_MessageContents_Ciphertext, rhs: Xmtp_MessageContents_Ciphertext) -> Bool {
+		if lhs.union != rhs.union { return false }
+		if lhs.unknownFields != rhs.unknownFields { return false }
+		return true
+	}
 }
 
 extension Xmtp_MessageContents_Ciphertext.Aes256gcmHkdfsha256: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
-  public static let protoMessageName: String = Xmtp_MessageContents_Ciphertext.protoMessageName + ".Aes256gcmHkdfsha256"
-  public static let _protobuf_nameMap: SwiftProtobuf._NameMap = [
-    1: .standard(proto: "hkdf_salt"),
-    2: .standard(proto: "gcm_nonce"),
-    3: .same(proto: "payload"),
-  ]
+	public static let protoMessageName: String = Xmtp_MessageContents_Ciphertext.protoMessageName + ".Aes256gcmHkdfsha256"
+	public static let _protobuf_nameMap: SwiftProtobuf._NameMap = [
+		1: .standard(proto: "hkdf_salt"),
+		2: .standard(proto: "gcm_nonce"),
+		3: .same(proto: "payload"),
+	]
 
-  public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
-    while let fieldNumber = try decoder.nextFieldNumber() {
-      // The use of inline closures is to circumvent an issue where the compiler
-      // allocates stack space for every case branch when no optimizations are
-      // enabled. https://github.com/apple/swift-protobuf/issues/1034
-      switch fieldNumber {
-      case 1: try { try decoder.decodeSingularBytesField(value: &self.hkdfSalt) }()
-      case 2: try { try decoder.decodeSingularBytesField(value: &self.gcmNonce) }()
-      case 3: try { try decoder.decodeSingularBytesField(value: &self.payload) }()
-      default: break
-      }
-    }
-  }
+	public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
+		while let fieldNumber = try decoder.nextFieldNumber() {
+			// The use of inline closures is to circumvent an issue where the compiler
+			// allocates stack space for every case branch when no optimizations are
+			// enabled. https://github.com/apple/swift-protobuf/issues/1034
+			switch fieldNumber {
+			case 1: try try decoder.decodeSingularBytesField(value: &hkdfSalt)
+			case 2: try try decoder.decodeSingularBytesField(value: &gcmNonce)
+			case 3: try try decoder.decodeSingularBytesField(value: &payload)
+			default: break
+			}
+		}
+	}
 
-  public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
-    if !self.hkdfSalt.isEmpty {
-      try visitor.visitSingularBytesField(value: self.hkdfSalt, fieldNumber: 1)
-    }
-    if !self.gcmNonce.isEmpty {
-      try visitor.visitSingularBytesField(value: self.gcmNonce, fieldNumber: 2)
-    }
-    if !self.payload.isEmpty {
-      try visitor.visitSingularBytesField(value: self.payload, fieldNumber: 3)
-    }
-    try unknownFields.traverse(visitor: &visitor)
-  }
+	public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+		if !hkdfSalt.isEmpty {
+			try visitor.visitSingularBytesField(value: hkdfSalt, fieldNumber: 1)
+		}
+		if !gcmNonce.isEmpty {
+			try visitor.visitSingularBytesField(value: gcmNonce, fieldNumber: 2)
+		}
+		if !payload.isEmpty {
+			try visitor.visitSingularBytesField(value: payload, fieldNumber: 3)
+		}
+		try unknownFields.traverse(visitor: &visitor)
+	}
 
-  public static func ==(lhs: Xmtp_MessageContents_Ciphertext.Aes256gcmHkdfsha256, rhs: Xmtp_MessageContents_Ciphertext.Aes256gcmHkdfsha256) -> Bool {
-    if lhs.hkdfSalt != rhs.hkdfSalt {return false}
-    if lhs.gcmNonce != rhs.gcmNonce {return false}
-    if lhs.payload != rhs.payload {return false}
-    if lhs.unknownFields != rhs.unknownFields {return false}
-    return true
-  }
+	public static func == (lhs: Xmtp_MessageContents_Ciphertext.Aes256gcmHkdfsha256, rhs: Xmtp_MessageContents_Ciphertext.Aes256gcmHkdfsha256) -> Bool {
+		if lhs.hkdfSalt != rhs.hkdfSalt { return false }
+		if lhs.gcmNonce != rhs.gcmNonce { return false }
+		if lhs.payload != rhs.payload { return false }
+		if lhs.unknownFields != rhs.unknownFields { return false }
+		return true
+	}
 }
 
 extension Xmtp_MessageContents_SignedEciesCiphertext: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
-  public static let protoMessageName: String = _protobuf_package + ".SignedEciesCiphertext"
-  public static let _protobuf_nameMap: SwiftProtobuf._NameMap = [
-    1: .standard(proto: "ecies_bytes"),
-    2: .same(proto: "signature"),
-  ]
+	public static let protoMessageName: String = _protobuf_package + ".SignedEciesCiphertext"
+	public static let _protobuf_nameMap: SwiftProtobuf._NameMap = [
+		1: .standard(proto: "ecies_bytes"),
+		2: .same(proto: "signature"),
+	]
 
-  public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
-    while let fieldNumber = try decoder.nextFieldNumber() {
-      // The use of inline closures is to circumvent an issue where the compiler
-      // allocates stack space for every case branch when no optimizations are
-      // enabled. https://github.com/apple/swift-protobuf/issues/1034
-      switch fieldNumber {
-      case 1: try { try decoder.decodeSingularBytesField(value: &self.eciesBytes) }()
-      case 2: try { try decoder.decodeSingularMessageField(value: &self._signature) }()
-      default: break
-      }
-    }
-  }
+	public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
+		while let fieldNumber = try decoder.nextFieldNumber() {
+			// The use of inline closures is to circumvent an issue where the compiler
+			// allocates stack space for every case branch when no optimizations are
+			// enabled. https://github.com/apple/swift-protobuf/issues/1034
+			switch fieldNumber {
+			case 1: try try decoder.decodeSingularBytesField(value: &eciesBytes)
+			case 2: try try decoder.decodeSingularMessageField(value: &_signature)
+			default: break
+			}
+		}
+	}
 
-  public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
-    // The use of inline closures is to circumvent an issue where the compiler
-    // allocates stack space for every if/case branch local when no optimizations
-    // are enabled. https://github.com/apple/swift-protobuf/issues/1034 and
-    // https://github.com/apple/swift-protobuf/issues/1182
-    if !self.eciesBytes.isEmpty {
-      try visitor.visitSingularBytesField(value: self.eciesBytes, fieldNumber: 1)
-    }
-    try { if let v = self._signature {
-      try visitor.visitSingularMessageField(value: v, fieldNumber: 2)
-    } }()
-    try unknownFields.traverse(visitor: &visitor)
-  }
+	public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+		// The use of inline closures is to circumvent an issue where the compiler
+		// allocates stack space for every if/case branch local when no optimizations
+		// are enabled. https://github.com/apple/swift-protobuf/issues/1034 and
+		// https://github.com/apple/swift-protobuf/issues/1182
+		if !eciesBytes.isEmpty {
+			try visitor.visitSingularBytesField(value: eciesBytes, fieldNumber: 1)
+		}
+		try { if let v = self._signature {
+			try visitor.visitSingularMessageField(value: v, fieldNumber: 2)
+		} }()
+		try unknownFields.traverse(visitor: &visitor)
+	}
 
-  public static func ==(lhs: Xmtp_MessageContents_SignedEciesCiphertext, rhs: Xmtp_MessageContents_SignedEciesCiphertext) -> Bool {
-    if lhs.eciesBytes != rhs.eciesBytes {return false}
-    if lhs._signature != rhs._signature {return false}
-    if lhs.unknownFields != rhs.unknownFields {return false}
-    return true
-  }
+	public static func == (lhs: Xmtp_MessageContents_SignedEciesCiphertext, rhs: Xmtp_MessageContents_SignedEciesCiphertext) -> Bool {
+		if lhs.eciesBytes != rhs.eciesBytes { return false }
+		if lhs._signature != rhs._signature { return false }
+		if lhs.unknownFields != rhs.unknownFields { return false }
+		return true
+	}
 }
 
 extension Xmtp_MessageContents_SignedEciesCiphertext.Ecies: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
-  public static let protoMessageName: String = Xmtp_MessageContents_SignedEciesCiphertext.protoMessageName + ".Ecies"
-  public static let _protobuf_nameMap: SwiftProtobuf._NameMap = [
-    1: .standard(proto: "ephemeral_public_key"),
-    2: .same(proto: "iv"),
-    3: .same(proto: "mac"),
-    4: .same(proto: "ciphertext"),
-  ]
+	public static let protoMessageName: String = Xmtp_MessageContents_SignedEciesCiphertext.protoMessageName + ".Ecies"
+	public static let _protobuf_nameMap: SwiftProtobuf._NameMap = [
+		1: .standard(proto: "ephemeral_public_key"),
+		2: .same(proto: "iv"),
+		3: .same(proto: "mac"),
+		4: .same(proto: "ciphertext"),
+	]
 
-  public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
-    while let fieldNumber = try decoder.nextFieldNumber() {
-      // The use of inline closures is to circumvent an issue where the compiler
-      // allocates stack space for every case branch when no optimizations are
-      // enabled. https://github.com/apple/swift-protobuf/issues/1034
-      switch fieldNumber {
-      case 1: try { try decoder.decodeSingularBytesField(value: &self.ephemeralPublicKey) }()
-      case 2: try { try decoder.decodeSingularBytesField(value: &self.iv) }()
-      case 3: try { try decoder.decodeSingularBytesField(value: &self.mac) }()
-      case 4: try { try decoder.decodeSingularBytesField(value: &self.ciphertext) }()
-      default: break
-      }
-    }
-  }
+	public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
+		while let fieldNumber = try decoder.nextFieldNumber() {
+			// The use of inline closures is to circumvent an issue where the compiler
+			// allocates stack space for every case branch when no optimizations are
+			// enabled. https://github.com/apple/swift-protobuf/issues/1034
+			switch fieldNumber {
+			case 1: try try decoder.decodeSingularBytesField(value: &ephemeralPublicKey)
+			case 2: try try decoder.decodeSingularBytesField(value: &iv)
+			case 3: try try decoder.decodeSingularBytesField(value: &mac)
+			case 4: try try decoder.decodeSingularBytesField(value: &ciphertext)
+			default: break
+			}
+		}
+	}
 
-  public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
-    if !self.ephemeralPublicKey.isEmpty {
-      try visitor.visitSingularBytesField(value: self.ephemeralPublicKey, fieldNumber: 1)
-    }
-    if !self.iv.isEmpty {
-      try visitor.visitSingularBytesField(value: self.iv, fieldNumber: 2)
-    }
-    if !self.mac.isEmpty {
-      try visitor.visitSingularBytesField(value: self.mac, fieldNumber: 3)
-    }
-    if !self.ciphertext.isEmpty {
-      try visitor.visitSingularBytesField(value: self.ciphertext, fieldNumber: 4)
-    }
-    try unknownFields.traverse(visitor: &visitor)
-  }
+	public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+		if !ephemeralPublicKey.isEmpty {
+			try visitor.visitSingularBytesField(value: ephemeralPublicKey, fieldNumber: 1)
+		}
+		if !iv.isEmpty {
+			try visitor.visitSingularBytesField(value: iv, fieldNumber: 2)
+		}
+		if !mac.isEmpty {
+			try visitor.visitSingularBytesField(value: mac, fieldNumber: 3)
+		}
+		if !ciphertext.isEmpty {
+			try visitor.visitSingularBytesField(value: ciphertext, fieldNumber: 4)
+		}
+		try unknownFields.traverse(visitor: &visitor)
+	}
 
-  public static func ==(lhs: Xmtp_MessageContents_SignedEciesCiphertext.Ecies, rhs: Xmtp_MessageContents_SignedEciesCiphertext.Ecies) -> Bool {
-    if lhs.ephemeralPublicKey != rhs.ephemeralPublicKey {return false}
-    if lhs.iv != rhs.iv {return false}
-    if lhs.mac != rhs.mac {return false}
-    if lhs.ciphertext != rhs.ciphertext {return false}
-    if lhs.unknownFields != rhs.unknownFields {return false}
-    return true
-  }
+	public static func == (lhs: Xmtp_MessageContents_SignedEciesCiphertext.Ecies, rhs: Xmtp_MessageContents_SignedEciesCiphertext.Ecies) -> Bool {
+		if lhs.ephemeralPublicKey != rhs.ephemeralPublicKey { return false }
+		if lhs.iv != rhs.iv { return false }
+		if lhs.mac != rhs.mac { return false }
+		if lhs.ciphertext != rhs.ciphertext { return false }
+		if lhs.unknownFields != rhs.unknownFields { return false }
+		return true
+	}
 }

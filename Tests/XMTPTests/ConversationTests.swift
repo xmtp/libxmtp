@@ -205,12 +205,12 @@ class ConversationTests: XCTestCase {
 		let encodedContent = try encoder.encode(content: "hi alice")
 
 		// Stream a message
-		fakeApiClient.send(
+		try fakeApiClient.send(
 			envelope: Envelope(
 				topic: conversation.topic,
 				timestamp: Date(),
-				message: try Message(
-					v2: try await MessageV2.encode(
+				message: Message(
+					v2: await MessageV2.encode(
 						client: bobClient,
 						content: encodedContent,
 						topic: conversation.topic,
@@ -276,7 +276,7 @@ class ConversationTests: XCTestCase {
 		)
 
 		try await aliceClient.publish(envelopes: [
-			Envelope(topic: aliceConversation.topic, timestamp: Date(), message: try Message(v2: tamperedMessage).serializedData()),
+			Envelope(topic: aliceConversation.topic, timestamp: Date(), message: Message(v2: tamperedMessage).serializedData()),
 		])
 
 		guard case let .v2(bobConversation) = try await bobClient.conversations.newConversation(with: alice.address, context: InvitationV1.Context(conversationID: "hi")) else {

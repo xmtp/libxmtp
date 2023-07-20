@@ -108,8 +108,8 @@ final class IntegrationTests: XCTestCase {
 		try TestConfig.skipIfNotRunningLocalNodeTests()
 
 		let opt = ClientOptions(api: .init(env: .local, isSecure: false))
-		let alice = try await Client.create(account: try PrivateKey.generate(), options: opt)
-		let bob = try await Client.create(account: try PrivateKey.generate(), options: opt)
+		let alice = try await Client.create(account: PrivateKey.generate(), options: opt)
+		let bob = try await Client.create(account: PrivateKey.generate(), options: opt)
 
 		let aliceConvo = try await alice.conversations.newConversation(with: bob.address)
 		_ = try await aliceConvo.send(text: "Hello Bob")
@@ -132,8 +132,8 @@ final class IntegrationTests: XCTestCase {
 		try TestConfig.skipIfNotRunningLocalNodeTests()
 
 		let opt = ClientOptions(api: .init(env: .local, isSecure: false))
-		let alice = try await Client.create(account: try PrivateKey.generate(), options: opt)
-		let bob = try await Client.create(account: try PrivateKey.generate(), options: opt)
+		let alice = try await Client.create(account: PrivateKey.generate(), options: opt)
+		let bob = try await Client.create(account: PrivateKey.generate(), options: opt)
 
 		// Alice starts a conversation with Bob
 		let aliceConvo = try await alice.conversations.newConversation(
@@ -162,8 +162,8 @@ final class IntegrationTests: XCTestCase {
 			options: opt
 		)
 		// And it uses the saved topic data for the conversation
-		let aliceConvo2 = alice2.conversations.importTopicData(
-			data: try Xmtp_KeystoreApi_V1_TopicMap.TopicData(serializedData: topicData))
+		let aliceConvo2 = try alice2.conversations.importTopicData(
+			data: Xmtp_KeystoreApi_V1_TopicMap.TopicData(serializedData: topicData))
 		XCTAssertEqual("example.com/alice-bob-1", aliceConvo2.conversationID)
 
 		// Now Alice should be able to load message using her saved key material.
@@ -176,8 +176,8 @@ final class IntegrationTests: XCTestCase {
 		try TestConfig.skipIfNotRunningLocalNodeTests()
 
 		let opt = ClientOptions(api: .init(env: .local, isSecure: false))
-		let alice = try await Client.create(account: try PrivateKey.generate(), options: opt)
-		let bob = try await Client.create(account: try PrivateKey.generate(), options: opt)
+		let alice = try await Client.create(account: PrivateKey.generate(), options: opt)
+		let bob = try await Client.create(account: PrivateKey.generate(), options: opt)
 
 		// First Alice starts a conversation with Bob
 		let context = InvitationV1.Context.with {
@@ -214,8 +214,8 @@ final class IntegrationTests: XCTestCase {
 	func testStreamMessagesInV1Conversation() async throws {
 		try TestConfig.skipIfNotRunningLocalNodeTests()
 		let opt = ClientOptions(api: .init(env: .local, isSecure: false))
-		let alice = try await Client.create(account: try PrivateKey.generate(), options: opt)
-		let bob = try await Client.create(account: try PrivateKey.generate(), options: opt)
+		let alice = try await Client.create(account: PrivateKey.generate(), options: opt)
+		let bob = try await Client.create(account: PrivateKey.generate(), options: opt)
 		try await alice.publishUserContact(legacy: true)
 		try await bob.publishUserContact(legacy: true)
 		try await delayToPropagate()
@@ -353,9 +353,9 @@ final class IntegrationTests: XCTestCase {
 	func testStreamingMessagesShouldBeReceived() async throws {
 		try TestConfig.skipIfNotRunningLocalNodeTests()
 
-		let alice = try await Client.create(account: try FakeWallet.generate(),
+		let alice = try await Client.create(account: FakeWallet.generate(),
 		                                    options: ClientOptions(api: ClientOptions.Api(env: .local, isSecure: false)))
-		let bob = try await Client.create(account: try FakeWallet.generate(),
+		let bob = try await Client.create(account: FakeWallet.generate(),
 		                                  options: ClientOptions(api: ClientOptions.Api(env: .local, isSecure: false)))
 		let transcript = TestTranscript()
 		Task(priority: .userInitiated) {
@@ -375,9 +375,9 @@ final class IntegrationTests: XCTestCase {
 	func testListingConversations() async throws {
 		try TestConfig.skipIfNotRunningLocalNodeTests()
 
-		let alice = try await Client.create(account: try FakeWallet.generate(),
+		let alice = try await Client.create(account: FakeWallet.generate(),
 		                                    options: ClientOptions(api: ClientOptions.Api(env: .local, isSecure: false)))
-		let bob = try await Client.create(account: try FakeWallet.generate(),
+		let bob = try await Client.create(account: FakeWallet.generate(),
 		                                  options: ClientOptions(api: ClientOptions.Api(env: .local, isSecure: false)))
 
 		let c1 = try await bob.conversations.newConversation(
@@ -424,7 +424,7 @@ final class IntegrationTests: XCTestCase {
 
 		var key = PrivateKey()
 		key.secp256K1.bytes = Data(keyBytes)
-		key.publicKey.secp256K1Uncompressed.bytes = Data(try XMTPRust.public_key_from_private_key_k256(RustVec(keyBytes)))
+		key.publicKey.secp256K1Uncompressed.bytes = try Data(XMTPRust.public_key_from_private_key_k256(RustVec(keyBytes)))
 
 		let client = try await XMTP.Client.create(account: key)
 		XCTAssertEqual(client.apiClient.environment, .dev)
@@ -494,7 +494,7 @@ final class IntegrationTests: XCTestCase {
 
 		var key = PrivateKey()
 		key.secp256K1.bytes = Data(keyBytes)
-		key.publicKey.secp256K1Uncompressed.bytes = Data(try XMTPRust.public_key_from_private_key_k256(RustVec<UInt8>(keyBytes)))
+		key.publicKey.secp256K1Uncompressed.bytes = try Data(XMTPRust.public_key_from_private_key_k256(RustVec<UInt8>(keyBytes)))
 
 		let client = try await XMTP.Client.create(account: key)
 		XCTAssertEqual(client.apiClient.environment, .dev)
@@ -517,7 +517,7 @@ final class IntegrationTests: XCTestCase {
 
 		var key = PrivateKey()
 		key.secp256K1.bytes = Data(keyBytes)
-		key.publicKey.secp256K1Uncompressed.bytes = Data(try XMTPRust.public_key_from_private_key_k256(RustVec<UInt8>(keyBytes)))
+		key.publicKey.secp256K1Uncompressed.bytes = try Data(XMTPRust.public_key_from_private_key_k256(RustVec<UInt8>(keyBytes)))
 
 		let client = try await XMTP.Client.create(account: key)
 		XCTAssertEqual(client.apiClient.environment, .dev)
@@ -526,7 +526,7 @@ final class IntegrationTests: XCTestCase {
 		let message = try await convo.messages().last!
 
 		let swiftdata = Data("hello deflate".utf8) as NSData
-		print("swift version: \((try swiftdata.compressed(using: .zlib) as Data).bytes)")
+		try print("swift version: \((swiftdata.compressed(using: .zlib) as Data).bytes)")
 
 		XCTAssertEqual("hello deflate", try message.content())
 
@@ -546,7 +546,7 @@ final class IntegrationTests: XCTestCase {
 
 		var key = PrivateKey()
 		key.secp256K1.bytes = Data(keyBytes)
-		key.publicKey.secp256K1Uncompressed.bytes = Data(try XMTPRust.public_key_from_private_key_k256(RustVec<UInt8>(keyBytes)))
+		key.publicKey.secp256K1Uncompressed.bytes = try Data(XMTPRust.public_key_from_private_key_k256(RustVec<UInt8>(keyBytes)))
 
 		let client = try await XMTP.Client.create(account: key)
 

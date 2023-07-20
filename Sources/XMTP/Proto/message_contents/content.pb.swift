@@ -17,341 +17,345 @@ import SwiftProtobuf
 // incompatible with the version of SwiftProtobuf to which you are linking.
 // Please ensure that you are building against the same version of the API
 // that was used to generate this file.
-fileprivate struct _GeneratedWithProtocGenSwiftVersion: SwiftProtobuf.ProtobufAPIVersionCheck {
-  struct _2: SwiftProtobuf.ProtobufAPIVersion_2 {}
-  typealias Version = _2
+private struct _GeneratedWithProtocGenSwiftVersion: SwiftProtobuf.ProtobufAPIVersionCheck {
+	struct _2: SwiftProtobuf.ProtobufAPIVersion_2 {}
+	typealias Version = _2
 }
 
 /// Recognized compression algorithms
 /// protolint:disable ENUM_FIELD_NAMES_ZERO_VALUE_END_WITH
 public enum Xmtp_MessageContents_Compression: SwiftProtobuf.Enum {
-  public typealias RawValue = Int
-  case deflate // = 0
-  case gzip // = 1
-  case UNRECOGNIZED(Int)
+	public typealias RawValue = Int
+	case deflate // = 0
+	case gzip // = 1
+	case UNRECOGNIZED(Int)
 
-  public init() {
-    self = .deflate
-  }
+	public init() {
+		self = .deflate
+	}
 
-  public init?(rawValue: Int) {
-    switch rawValue {
-    case 0: self = .deflate
-    case 1: self = .gzip
-    default: self = .UNRECOGNIZED(rawValue)
-    }
-  }
+	public init?(rawValue: Int) {
+		switch rawValue {
+		case 0: self = .deflate
+		case 1: self = .gzip
+		default: self = .UNRECOGNIZED(rawValue)
+		}
+	}
 
-  public var rawValue: Int {
-    switch self {
-    case .deflate: return 0
-    case .gzip: return 1
-    case .UNRECOGNIZED(let i): return i
-    }
-  }
-
+	public var rawValue: Int {
+		switch self {
+		case .deflate: return 0
+		case .gzip: return 1
+		case let .UNRECOGNIZED(i): return i
+		}
+	}
 }
 
 #if swift(>=4.2)
 
-extension Xmtp_MessageContents_Compression: CaseIterable {
-  // The compiler won't synthesize support with the UNRECOGNIZED case.
-  public static var allCases: [Xmtp_MessageContents_Compression] = [
-    .deflate,
-    .gzip,
-  ]
-}
+	extension Xmtp_MessageContents_Compression: CaseIterable {
+		// The compiler won't synthesize support with the UNRECOGNIZED case.
+		public static var allCases: [Xmtp_MessageContents_Compression] = [
+			.deflate,
+			.gzip,
+		]
+	}
 
-#endif  // swift(>=4.2)
+#endif // swift(>=4.2)
 
 /// ContentTypeId is used to identify the type of content stored in a Message.
 public struct Xmtp_MessageContents_ContentTypeId {
-  // SwiftProtobuf.Message conformance is added in an extension below. See the
-  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
-  // methods supported on all messages.
+	// SwiftProtobuf.Message conformance is added in an extension below. See the
+	// `Message` and `Message+*Additions` files in the SwiftProtobuf library for
+	// methods supported on all messages.
 
-  /// authority governing this content type
-  public var authorityID: String = String()
+	/// authority governing this content type
+	public var authorityID: String = .init()
 
-  /// type identifier
-  public var typeID: String = String()
+	/// type identifier
+	public var typeID: String = .init()
 
-  /// major version of the type
-  public var versionMajor: UInt32 = 0
+	/// major version of the type
+	public var versionMajor: UInt32 = 0
 
-  /// minor version of the type
-  public var versionMinor: UInt32 = 0
+	/// minor version of the type
+	public var versionMinor: UInt32 = 0
 
-  public var unknownFields = SwiftProtobuf.UnknownStorage()
+	public var unknownFields = SwiftProtobuf.UnknownStorage()
 
-  public init() {}
+	public init() {}
 }
 
 /// EncodedContent bundles the content with metadata identifying its type
 /// and parameters required for correct decoding and presentation of the content.
 public struct Xmtp_MessageContents_EncodedContent {
-  // SwiftProtobuf.Message conformance is added in an extension below. See the
-  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
-  // methods supported on all messages.
+	// SwiftProtobuf.Message conformance is added in an extension below. See the
+	// `Message` and `Message+*Additions` files in the SwiftProtobuf library for
+	// methods supported on all messages.
 
-  /// content type identifier used to match the payload with
-  /// the correct decoding machinery
-  public var type: Xmtp_MessageContents_ContentTypeId {
-    get {return _type ?? Xmtp_MessageContents_ContentTypeId()}
-    set {_type = newValue}
-  }
-  /// Returns true if `type` has been explicitly set.
-  public var hasType: Bool {return self._type != nil}
-  /// Clears the value of `type`. Subsequent reads from it will return its default value.
-  public mutating func clearType() {self._type = nil}
+	/// content type identifier used to match the payload with
+	/// the correct decoding machinery
+	public var type: Xmtp_MessageContents_ContentTypeId {
+		get { return _type ?? Xmtp_MessageContents_ContentTypeId() }
+		set { _type = newValue }
+	}
 
-  /// optional encoding parameters required to correctly decode the content
-  public var parameters: Dictionary<String,String> = [:]
+	/// Returns true if `type` has been explicitly set.
+	public var hasType: Bool { return _type != nil }
+	/// Clears the value of `type`. Subsequent reads from it will return its default value.
+	public mutating func clearType() { _type = nil }
 
-  /// optional fallback description of the content that can be used in case
-  /// the client cannot decode or render the content
-  public var fallback: String {
-    get {return _fallback ?? String()}
-    set {_fallback = newValue}
-  }
-  /// Returns true if `fallback` has been explicitly set.
-  public var hasFallback: Bool {return self._fallback != nil}
-  /// Clears the value of `fallback`. Subsequent reads from it will return its default value.
-  public mutating func clearFallback() {self._fallback = nil}
+	/// optional encoding parameters required to correctly decode the content
+	public var parameters: [String: String] = [:]
 
-  /// optional compression; the value indicates algorithm used to
-  /// compress the encoded content bytes
-  public var compression: Xmtp_MessageContents_Compression {
-    get {return _compression ?? .deflate}
-    set {_compression = newValue}
-  }
-  /// Returns true if `compression` has been explicitly set.
-  public var hasCompression: Bool {return self._compression != nil}
-  /// Clears the value of `compression`. Subsequent reads from it will return its default value.
-  public mutating func clearCompression() {self._compression = nil}
+	/// optional fallback description of the content that can be used in case
+	/// the client cannot decode or render the content
+	public var fallback: String {
+		get { return _fallback ?? String() }
+		set { _fallback = newValue }
+	}
 
-  /// encoded content itself
-  public var content: Data = Data()
+	/// Returns true if `fallback` has been explicitly set.
+	public var hasFallback: Bool { return _fallback != nil }
+	/// Clears the value of `fallback`. Subsequent reads from it will return its default value.
+	public mutating func clearFallback() { _fallback = nil }
 
-  public var unknownFields = SwiftProtobuf.UnknownStorage()
+	/// optional compression; the value indicates algorithm used to
+	/// compress the encoded content bytes
+	public var compression: Xmtp_MessageContents_Compression {
+		get { return _compression ?? .deflate }
+		set { _compression = newValue }
+	}
 
-  public init() {}
+	/// Returns true if `compression` has been explicitly set.
+	public var hasCompression: Bool { return _compression != nil }
+	/// Clears the value of `compression`. Subsequent reads from it will return its default value.
+	public mutating func clearCompression() { _compression = nil }
 
-  fileprivate var _type: Xmtp_MessageContents_ContentTypeId? = nil
-  fileprivate var _fallback: String? = nil
-  fileprivate var _compression: Xmtp_MessageContents_Compression? = nil
+	/// encoded content itself
+	public var content: Data = .init()
+
+	public var unknownFields = SwiftProtobuf.UnknownStorage()
+
+	public init() {}
+
+	fileprivate var _type: Xmtp_MessageContents_ContentTypeId?
+	fileprivate var _fallback: String?
+	fileprivate var _compression: Xmtp_MessageContents_Compression?
 }
 
 /// SignedContent attaches a signature to EncodedContent.
 public struct Xmtp_MessageContents_SignedContent {
-  // SwiftProtobuf.Message conformance is added in an extension below. See the
-  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
-  // methods supported on all messages.
+	// SwiftProtobuf.Message conformance is added in an extension below. See the
+	// `Message` and `Message+*Additions` files in the SwiftProtobuf library for
+	// methods supported on all messages.
 
-  /// MUST contain EncodedContent
-  public var payload: Data = Data()
+	/// MUST contain EncodedContent
+	public var payload: Data = .init()
 
-  public var sender: Xmtp_MessageContents_SignedPublicKeyBundle {
-    get {return _sender ?? Xmtp_MessageContents_SignedPublicKeyBundle()}
-    set {_sender = newValue}
-  }
-  /// Returns true if `sender` has been explicitly set.
-  public var hasSender: Bool {return self._sender != nil}
-  /// Clears the value of `sender`. Subsequent reads from it will return its default value.
-  public mutating func clearSender() {self._sender = nil}
+	public var sender: Xmtp_MessageContents_SignedPublicKeyBundle {
+		get { return _sender ?? Xmtp_MessageContents_SignedPublicKeyBundle() }
+		set { _sender = newValue }
+	}
 
-  /// MUST be a signature of a concatenation of
-  /// the message header bytes and the payload bytes,
-  /// signed by the sender's pre-key.
-  public var signature: Xmtp_MessageContents_Signature {
-    get {return _signature ?? Xmtp_MessageContents_Signature()}
-    set {_signature = newValue}
-  }
-  /// Returns true if `signature` has been explicitly set.
-  public var hasSignature: Bool {return self._signature != nil}
-  /// Clears the value of `signature`. Subsequent reads from it will return its default value.
-  public mutating func clearSignature() {self._signature = nil}
+	/// Returns true if `sender` has been explicitly set.
+	public var hasSender: Bool { return _sender != nil }
+	/// Clears the value of `sender`. Subsequent reads from it will return its default value.
+	public mutating func clearSender() { _sender = nil }
 
-  public var unknownFields = SwiftProtobuf.UnknownStorage()
+	/// MUST be a signature of a concatenation of
+	/// the message header bytes and the payload bytes,
+	/// signed by the sender's pre-key.
+	public var signature: Xmtp_MessageContents_Signature {
+		get { return _signature ?? Xmtp_MessageContents_Signature() }
+		set { _signature = newValue }
+	}
 
-  public init() {}
+	/// Returns true if `signature` has been explicitly set.
+	public var hasSignature: Bool { return _signature != nil }
+	/// Clears the value of `signature`. Subsequent reads from it will return its default value.
+	public mutating func clearSignature() { _signature = nil }
 
-  fileprivate var _sender: Xmtp_MessageContents_SignedPublicKeyBundle? = nil
-  fileprivate var _signature: Xmtp_MessageContents_Signature? = nil
+	public var unknownFields = SwiftProtobuf.UnknownStorage()
+
+	public init() {}
+
+	fileprivate var _sender: Xmtp_MessageContents_SignedPublicKeyBundle?
+	fileprivate var _signature: Xmtp_MessageContents_Signature?
 }
 
 #if swift(>=5.5) && canImport(_Concurrency)
-extension Xmtp_MessageContents_Compression: @unchecked Sendable {}
-extension Xmtp_MessageContents_ContentTypeId: @unchecked Sendable {}
-extension Xmtp_MessageContents_EncodedContent: @unchecked Sendable {}
-extension Xmtp_MessageContents_SignedContent: @unchecked Sendable {}
-#endif  // swift(>=5.5) && canImport(_Concurrency)
+	extension Xmtp_MessageContents_Compression: @unchecked Sendable {}
+	extension Xmtp_MessageContents_ContentTypeId: @unchecked Sendable {}
+	extension Xmtp_MessageContents_EncodedContent: @unchecked Sendable {}
+	extension Xmtp_MessageContents_SignedContent: @unchecked Sendable {}
+#endif // swift(>=5.5) && canImport(_Concurrency)
 
 // MARK: - Code below here is support for the SwiftProtobuf runtime.
 
-fileprivate let _protobuf_package = "xmtp.message_contents"
+private let _protobuf_package = "xmtp.message_contents"
 
 extension Xmtp_MessageContents_Compression: SwiftProtobuf._ProtoNameProviding {
-  public static let _protobuf_nameMap: SwiftProtobuf._NameMap = [
-    0: .same(proto: "COMPRESSION_DEFLATE"),
-    1: .same(proto: "COMPRESSION_GZIP"),
-  ]
+	public static let _protobuf_nameMap: SwiftProtobuf._NameMap = [
+		0: .same(proto: "COMPRESSION_DEFLATE"),
+		1: .same(proto: "COMPRESSION_GZIP"),
+	]
 }
 
 extension Xmtp_MessageContents_ContentTypeId: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
-  public static let protoMessageName: String = _protobuf_package + ".ContentTypeId"
-  public static let _protobuf_nameMap: SwiftProtobuf._NameMap = [
-    1: .standard(proto: "authority_id"),
-    2: .standard(proto: "type_id"),
-    3: .standard(proto: "version_major"),
-    4: .standard(proto: "version_minor"),
-  ]
+	public static let protoMessageName: String = _protobuf_package + ".ContentTypeId"
+	public static let _protobuf_nameMap: SwiftProtobuf._NameMap = [
+		1: .standard(proto: "authority_id"),
+		2: .standard(proto: "type_id"),
+		3: .standard(proto: "version_major"),
+		4: .standard(proto: "version_minor"),
+	]
 
-  public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
-    while let fieldNumber = try decoder.nextFieldNumber() {
-      // The use of inline closures is to circumvent an issue where the compiler
-      // allocates stack space for every case branch when no optimizations are
-      // enabled. https://github.com/apple/swift-protobuf/issues/1034
-      switch fieldNumber {
-      case 1: try { try decoder.decodeSingularStringField(value: &self.authorityID) }()
-      case 2: try { try decoder.decodeSingularStringField(value: &self.typeID) }()
-      case 3: try { try decoder.decodeSingularUInt32Field(value: &self.versionMajor) }()
-      case 4: try { try decoder.decodeSingularUInt32Field(value: &self.versionMinor) }()
-      default: break
-      }
-    }
-  }
+	public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
+		while let fieldNumber = try decoder.nextFieldNumber() {
+			// The use of inline closures is to circumvent an issue where the compiler
+			// allocates stack space for every case branch when no optimizations are
+			// enabled. https://github.com/apple/swift-protobuf/issues/1034
+			switch fieldNumber {
+			case 1: try try decoder.decodeSingularStringField(value: &authorityID)
+			case 2: try try decoder.decodeSingularStringField(value: &typeID)
+			case 3: try try decoder.decodeSingularUInt32Field(value: &versionMajor)
+			case 4: try try decoder.decodeSingularUInt32Field(value: &versionMinor)
+			default: break
+			}
+		}
+	}
 
-  public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
-    if !self.authorityID.isEmpty {
-      try visitor.visitSingularStringField(value: self.authorityID, fieldNumber: 1)
-    }
-    if !self.typeID.isEmpty {
-      try visitor.visitSingularStringField(value: self.typeID, fieldNumber: 2)
-    }
-    if self.versionMajor != 0 {
-      try visitor.visitSingularUInt32Field(value: self.versionMajor, fieldNumber: 3)
-    }
-    if self.versionMinor != 0 {
-      try visitor.visitSingularUInt32Field(value: self.versionMinor, fieldNumber: 4)
-    }
-    try unknownFields.traverse(visitor: &visitor)
-  }
+	public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+		if !authorityID.isEmpty {
+			try visitor.visitSingularStringField(value: authorityID, fieldNumber: 1)
+		}
+		if !typeID.isEmpty {
+			try visitor.visitSingularStringField(value: typeID, fieldNumber: 2)
+		}
+		if versionMajor != 0 {
+			try visitor.visitSingularUInt32Field(value: versionMajor, fieldNumber: 3)
+		}
+		if versionMinor != 0 {
+			try visitor.visitSingularUInt32Field(value: versionMinor, fieldNumber: 4)
+		}
+		try unknownFields.traverse(visitor: &visitor)
+	}
 
-  public static func ==(lhs: Xmtp_MessageContents_ContentTypeId, rhs: Xmtp_MessageContents_ContentTypeId) -> Bool {
-    if lhs.authorityID != rhs.authorityID {return false}
-    if lhs.typeID != rhs.typeID {return false}
-    if lhs.versionMajor != rhs.versionMajor {return false}
-    if lhs.versionMinor != rhs.versionMinor {return false}
-    if lhs.unknownFields != rhs.unknownFields {return false}
-    return true
-  }
+	public static func == (lhs: Xmtp_MessageContents_ContentTypeId, rhs: Xmtp_MessageContents_ContentTypeId) -> Bool {
+		if lhs.authorityID != rhs.authorityID { return false }
+		if lhs.typeID != rhs.typeID { return false }
+		if lhs.versionMajor != rhs.versionMajor { return false }
+		if lhs.versionMinor != rhs.versionMinor { return false }
+		if lhs.unknownFields != rhs.unknownFields { return false }
+		return true
+	}
 }
 
 extension Xmtp_MessageContents_EncodedContent: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
-  public static let protoMessageName: String = _protobuf_package + ".EncodedContent"
-  public static let _protobuf_nameMap: SwiftProtobuf._NameMap = [
-    1: .same(proto: "type"),
-    2: .same(proto: "parameters"),
-    3: .same(proto: "fallback"),
-    5: .same(proto: "compression"),
-    4: .same(proto: "content"),
-  ]
+	public static let protoMessageName: String = _protobuf_package + ".EncodedContent"
+	public static let _protobuf_nameMap: SwiftProtobuf._NameMap = [
+		1: .same(proto: "type"),
+		2: .same(proto: "parameters"),
+		3: .same(proto: "fallback"),
+		5: .same(proto: "compression"),
+		4: .same(proto: "content"),
+	]
 
-  public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
-    while let fieldNumber = try decoder.nextFieldNumber() {
-      // The use of inline closures is to circumvent an issue where the compiler
-      // allocates stack space for every case branch when no optimizations are
-      // enabled. https://github.com/apple/swift-protobuf/issues/1034
-      switch fieldNumber {
-      case 1: try { try decoder.decodeSingularMessageField(value: &self._type) }()
-      case 2: try { try decoder.decodeMapField(fieldType: SwiftProtobuf._ProtobufMap<SwiftProtobuf.ProtobufString,SwiftProtobuf.ProtobufString>.self, value: &self.parameters) }()
-      case 3: try { try decoder.decodeSingularStringField(value: &self._fallback) }()
-      case 4: try { try decoder.decodeSingularBytesField(value: &self.content) }()
-      case 5: try { try decoder.decodeSingularEnumField(value: &self._compression) }()
-      default: break
-      }
-    }
-  }
+	public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
+		while let fieldNumber = try decoder.nextFieldNumber() {
+			// The use of inline closures is to circumvent an issue where the compiler
+			// allocates stack space for every case branch when no optimizations are
+			// enabled. https://github.com/apple/swift-protobuf/issues/1034
+			switch fieldNumber {
+			case 1: try try decoder.decodeSingularMessageField(value: &_type)
+			case 2: try { try decoder.decodeMapField(fieldType: SwiftProtobuf._ProtobufMap<SwiftProtobuf.ProtobufString, SwiftProtobuf.ProtobufString>.self, value: &self.parameters) }()
+			case 3: try try decoder.decodeSingularStringField(value: &_fallback)
+			case 4: try try decoder.decodeSingularBytesField(value: &content)
+			case 5: try try decoder.decodeSingularEnumField(value: &_compression)
+			default: break
+			}
+		}
+	}
 
-  public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
-    // The use of inline closures is to circumvent an issue where the compiler
-    // allocates stack space for every if/case branch local when no optimizations
-    // are enabled. https://github.com/apple/swift-protobuf/issues/1034 and
-    // https://github.com/apple/swift-protobuf/issues/1182
-    try { if let v = self._type {
-      try visitor.visitSingularMessageField(value: v, fieldNumber: 1)
-    } }()
-    if !self.parameters.isEmpty {
-      try visitor.visitMapField(fieldType: SwiftProtobuf._ProtobufMap<SwiftProtobuf.ProtobufString,SwiftProtobuf.ProtobufString>.self, value: self.parameters, fieldNumber: 2)
-    }
-    try { if let v = self._fallback {
-      try visitor.visitSingularStringField(value: v, fieldNumber: 3)
-    } }()
-    if !self.content.isEmpty {
-      try visitor.visitSingularBytesField(value: self.content, fieldNumber: 4)
-    }
-    try { if let v = self._compression {
-      try visitor.visitSingularEnumField(value: v, fieldNumber: 5)
-    } }()
-    try unknownFields.traverse(visitor: &visitor)
-  }
+	public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+		// The use of inline closures is to circumvent an issue where the compiler
+		// allocates stack space for every if/case branch local when no optimizations
+		// are enabled. https://github.com/apple/swift-protobuf/issues/1034 and
+		// https://github.com/apple/swift-protobuf/issues/1182
+		try { if let v = self._type {
+			try visitor.visitSingularMessageField(value: v, fieldNumber: 1)
+		} }()
+		if !parameters.isEmpty {
+			try visitor.visitMapField(fieldType: SwiftProtobuf._ProtobufMap<SwiftProtobuf.ProtobufString, SwiftProtobuf.ProtobufString>.self, value: parameters, fieldNumber: 2)
+		}
+		try { if let v = self._fallback {
+			try visitor.visitSingularStringField(value: v, fieldNumber: 3)
+		} }()
+		if !content.isEmpty {
+			try visitor.visitSingularBytesField(value: content, fieldNumber: 4)
+		}
+		try { if let v = self._compression {
+			try visitor.visitSingularEnumField(value: v, fieldNumber: 5)
+		} }()
+		try unknownFields.traverse(visitor: &visitor)
+	}
 
-  public static func ==(lhs: Xmtp_MessageContents_EncodedContent, rhs: Xmtp_MessageContents_EncodedContent) -> Bool {
-    if lhs._type != rhs._type {return false}
-    if lhs.parameters != rhs.parameters {return false}
-    if lhs._fallback != rhs._fallback {return false}
-    if lhs._compression != rhs._compression {return false}
-    if lhs.content != rhs.content {return false}
-    if lhs.unknownFields != rhs.unknownFields {return false}
-    return true
-  }
+	public static func == (lhs: Xmtp_MessageContents_EncodedContent, rhs: Xmtp_MessageContents_EncodedContent) -> Bool {
+		if lhs._type != rhs._type { return false }
+		if lhs.parameters != rhs.parameters { return false }
+		if lhs._fallback != rhs._fallback { return false }
+		if lhs._compression != rhs._compression { return false }
+		if lhs.content != rhs.content { return false }
+		if lhs.unknownFields != rhs.unknownFields { return false }
+		return true
+	}
 }
 
 extension Xmtp_MessageContents_SignedContent: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
-  public static let protoMessageName: String = _protobuf_package + ".SignedContent"
-  public static let _protobuf_nameMap: SwiftProtobuf._NameMap = [
-    1: .same(proto: "payload"),
-    2: .same(proto: "sender"),
-    3: .same(proto: "signature"),
-  ]
+	public static let protoMessageName: String = _protobuf_package + ".SignedContent"
+	public static let _protobuf_nameMap: SwiftProtobuf._NameMap = [
+		1: .same(proto: "payload"),
+		2: .same(proto: "sender"),
+		3: .same(proto: "signature"),
+	]
 
-  public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
-    while let fieldNumber = try decoder.nextFieldNumber() {
-      // The use of inline closures is to circumvent an issue where the compiler
-      // allocates stack space for every case branch when no optimizations are
-      // enabled. https://github.com/apple/swift-protobuf/issues/1034
-      switch fieldNumber {
-      case 1: try { try decoder.decodeSingularBytesField(value: &self.payload) }()
-      case 2: try { try decoder.decodeSingularMessageField(value: &self._sender) }()
-      case 3: try { try decoder.decodeSingularMessageField(value: &self._signature) }()
-      default: break
-      }
-    }
-  }
+	public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
+		while let fieldNumber = try decoder.nextFieldNumber() {
+			// The use of inline closures is to circumvent an issue where the compiler
+			// allocates stack space for every case branch when no optimizations are
+			// enabled. https://github.com/apple/swift-protobuf/issues/1034
+			switch fieldNumber {
+			case 1: try try decoder.decodeSingularBytesField(value: &payload)
+			case 2: try try decoder.decodeSingularMessageField(value: &_sender)
+			case 3: try try decoder.decodeSingularMessageField(value: &_signature)
+			default: break
+			}
+		}
+	}
 
-  public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
-    // The use of inline closures is to circumvent an issue where the compiler
-    // allocates stack space for every if/case branch local when no optimizations
-    // are enabled. https://github.com/apple/swift-protobuf/issues/1034 and
-    // https://github.com/apple/swift-protobuf/issues/1182
-    if !self.payload.isEmpty {
-      try visitor.visitSingularBytesField(value: self.payload, fieldNumber: 1)
-    }
-    try { if let v = self._sender {
-      try visitor.visitSingularMessageField(value: v, fieldNumber: 2)
-    } }()
-    try { if let v = self._signature {
-      try visitor.visitSingularMessageField(value: v, fieldNumber: 3)
-    } }()
-    try unknownFields.traverse(visitor: &visitor)
-  }
+	public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+		// The use of inline closures is to circumvent an issue where the compiler
+		// allocates stack space for every if/case branch local when no optimizations
+		// are enabled. https://github.com/apple/swift-protobuf/issues/1034 and
+		// https://github.com/apple/swift-protobuf/issues/1182
+		if !payload.isEmpty {
+			try visitor.visitSingularBytesField(value: payload, fieldNumber: 1)
+		}
+		try { if let v = self._sender {
+			try visitor.visitSingularMessageField(value: v, fieldNumber: 2)
+		} }()
+		try { if let v = self._signature {
+			try visitor.visitSingularMessageField(value: v, fieldNumber: 3)
+		} }()
+		try unknownFields.traverse(visitor: &visitor)
+	}
 
-  public static func ==(lhs: Xmtp_MessageContents_SignedContent, rhs: Xmtp_MessageContents_SignedContent) -> Bool {
-    if lhs.payload != rhs.payload {return false}
-    if lhs._sender != rhs._sender {return false}
-    if lhs._signature != rhs._signature {return false}
-    if lhs.unknownFields != rhs.unknownFields {return false}
-    return true
-  }
+	public static func == (lhs: Xmtp_MessageContents_SignedContent, rhs: Xmtp_MessageContents_SignedContent) -> Bool {
+		if lhs.payload != rhs.payload { return false }
+		if lhs._sender != rhs._sender { return false }
+		if lhs._signature != rhs._signature { return false }
+		if lhs.unknownFields != rhs.unknownFields { return false }
+		return true
+	}
 }

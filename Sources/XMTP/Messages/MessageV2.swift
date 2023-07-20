@@ -36,7 +36,7 @@ extension MessageV2 {
 
 			// This is a bit confusing since we're passing keyBytes as the digest instead of a SHA256 hash.
 			// That's because our underlying crypto library always SHA256's whatever data is sent to it for this.
-			if !(try senderPreKey.signature.verify(signedBy: senderIdentityKey, digest: signed.sender.preKey.keyBytes)) {
+			if try !(senderPreKey.signature.verify(signedBy: senderIdentityKey, digest: signed.sender.preKey.keyBytes)) {
 				throw MessageV2Error.decodeError("pre-key not signed by identity key")
 			}
 
@@ -45,16 +45,16 @@ extension MessageV2 {
 				key.secp256K1Uncompressed.bytes = try KeyUtilx.recoverPublicKeySHA256(from: signed.signature.rawData, message: Data(message.headerBytes + signed.payload))
 			}
 
-			if key.walletAddress != (try PublicKey(signed.sender.preKey).walletAddress) {
+			if try key.walletAddress != (PublicKey(signed.sender.preKey).walletAddress) {
 				throw MessageV2Error.invalidSignature
 			}
 
 			let encodedMessage = try EncodedContent(serializedData: signed.payload)
 			let header = try MessageHeaderV2(serializedData: message.headerBytes)
 
-			return DecodedMessage(
+			return try DecodedMessage(
 				encodedContent: encodedMessage,
-				senderAddress: try signed.sender.walletAddress,
+				senderAddress: signed.sender.walletAddress,
 				sent: Date(timeIntervalSince1970: Double(header.createdNs / 1_000_000) / 1000)
 			)
 		} catch {

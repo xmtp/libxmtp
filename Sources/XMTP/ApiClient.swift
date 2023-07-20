@@ -87,7 +87,7 @@ class GRPCApiClient: ApiClient {
 
 	func batchQuery(request: BatchQueryRequest) async throws -> BatchQueryResponse {
 		do {
-			let req = RustVec<UInt8>(try request.serializedData())
+			let req = RustVec<UInt8>try (request.serializedData())
 			let res: RustVec<UInt8> = try await rustClient.batch_query(req)
 			return try BatchQueryResponse(serializedData: Data(res))
 		} catch let error as RustString {
@@ -97,7 +97,7 @@ class GRPCApiClient: ApiClient {
 
 	func query(request: QueryRequest) async throws -> QueryResponse {
 		do {
-			let req = RustVec<UInt8>(try request.serializedData())
+			let req = RustVec<UInt8>try (request.serializedData())
 			let res: RustVec<UInt8> = try await rustClient.query(req)
 			return try QueryResponse(serializedData: Data(res))
 		} catch let error as RustString {
@@ -134,7 +134,7 @@ class GRPCApiClient: ApiClient {
 		return AsyncThrowingStream { continuation in
 			Task {
 				let request = SubscribeRequest.with { $0.contentTopics = topics }
-				let req = RustVec<UInt8>(try request.serializedData())
+				let req = RustVec<UInt8>try (request.serializedData())
 				do {
 					let subscription = try await self.rustClient.subscribe(req)
 					// Run a continuous for loop polling and sleeping for a bit each loop.
@@ -156,7 +156,7 @@ class GRPCApiClient: ApiClient {
 
 	func publish(request: PublishRequest) async throws -> PublishResponse {
 		do {
-			let req = RustVec<UInt8>(try request.serializedData())
+			let req = RustVec<UInt8>try (request.serializedData())
 			let res: RustVec<UInt8> = try await rustClient.publish(authToken.intoRustString(), req)
 			return try PublishResponse(serializedData: Data(res))
 		} catch let error as RustString {
