@@ -7,7 +7,6 @@
 
 import Foundation
 
-
 typealias SealedInvitation = Xmtp_MessageContents_SealedInvitation
 
 enum SealedInvitationError: Error {
@@ -41,8 +40,8 @@ extension SealedInvitation {
 	func involves(_ contact: ContactBundle) -> Bool {
 		do {
 			let contactSignedPublicKeyBundle = try contact.toSignedPublicKeyBundle()
-            let walletAddress = try contactSignedPublicKeyBundle.walletAddress
-            return try v1.header.recipient.walletAddress == walletAddress || v1.header.sender.walletAddress == walletAddress
+			let walletAddress = try contactSignedPublicKeyBundle.walletAddress
+			return try v1.header.recipient.walletAddress == walletAddress || v1.header.sender.walletAddress == walletAddress
 		} catch {
 			return false
 		}

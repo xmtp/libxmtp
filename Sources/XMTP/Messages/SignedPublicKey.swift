@@ -8,8 +8,8 @@
 import CryptoKit
 import Foundation
 
-import XMTPRust
 import web3
+import XMTPRust
 
 typealias SignedPublicKey = Xmtp_MessageContents_SignedPublicKey
 

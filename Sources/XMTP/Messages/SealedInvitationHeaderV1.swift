@@ -7,7 +7,6 @@
 
 import Foundation
 
-
 public typealias SealedInvitationHeaderV1 = Xmtp_MessageContents_SealedInvitationHeaderV1
 
 extension SealedInvitationHeaderV1 {

@@ -9,7 +9,6 @@ import Foundation
 import secp256k1
 import web3
 import XCTest
-import XMTPRust
 @testable import XMTP
 import XMTPRust
 import XMTPTestHelpers
@@ -18,7 +17,7 @@ import XMTPTestHelpers
 @available(iOS 16, *)
 final class IntegrationTests: XCTestCase {
 	func testSaveKey() async throws {
-	    try TestConfig.skipIfNotRunningLocalNodeTests()
+		try TestConfig.skipIfNotRunningLocalNodeTests()
 
 		let alice = try PrivateKey.generate()
 		let identity = try PrivateKey.generate()
@@ -47,7 +46,7 @@ final class IntegrationTests: XCTestCase {
 	}
 
 	func testPublishingAndFetchingContactBundles() async throws {
-        try TestConfig.skipIfNotRunningLocalNodeTests()
+		try TestConfig.skipIfNotRunningLocalNodeTests()
 
 		let opts = ClientOptions(api: ClientOptions.Api(env: .local, isSecure: false))
 
@@ -67,7 +66,7 @@ final class IntegrationTests: XCTestCase {
 	}
 
 	func testCanReceiveV1MessagesFromJS() async throws {
-        try TestConfig.skip(because: "run with locally orchestrated network")
+		try TestConfig.skip(because: "run with locally orchestrated network")
 
 		let wallet = try FakeWallet.generate()
 		let options = ClientOptions(api: ClientOptions.Api(env: .local, isSecure: false))
@@ -84,7 +83,7 @@ final class IntegrationTests: XCTestCase {
 	}
 
 	func testCanReceiveV2MessagesFromJS() async throws {
-        try TestConfig.skip(because: "run with locally orchestrated network")
+		try TestConfig.skip(because: "run with locally orchestrated network")
 
 		let wallet = try PrivateKey.generate()
 		let options = ClientOptions(api: ClientOptions.Api(env: .local, isSecure: false))
@@ -106,27 +105,27 @@ final class IntegrationTests: XCTestCase {
 	}
 
 	func testEndToEndConversation() async throws {
-        try TestConfig.skipIfNotRunningLocalNodeTests()
+		try TestConfig.skipIfNotRunningLocalNodeTests()
 
 		let opt = ClientOptions(api: .init(env: .local, isSecure: false))
-        let alice = try await Client.create(account: try PrivateKey.generate(), options: opt)
-        let bob = try await Client.create(account: try PrivateKey.generate(), options: opt)
+		let alice = try await Client.create(account: try PrivateKey.generate(), options: opt)
+		let bob = try await Client.create(account: try PrivateKey.generate(), options: opt)
 
-        let aliceConvo = try await alice.conversations.newConversation(with: bob.address)
-        _ = try await aliceConvo.send(text: "Hello Bob")
-        try await delayToPropagate()
+		let aliceConvo = try await alice.conversations.newConversation(with: bob.address)
+		_ = try await aliceConvo.send(text: "Hello Bob")
+		try await delayToPropagate()
 
-        let bobConvos = try await bob.conversations.list()
-        let bobConvo = bobConvos[0]
-        let bobSees = try await bobConvo.messages()
-        XCTAssertEqual("Hello Bob", bobSees[0].body)
+		let bobConvos = try await bob.conversations.list()
+		let bobConvo = bobConvos[0]
+		let bobSees = try await bobConvo.messages()
+		XCTAssertEqual("Hello Bob", bobSees[0].body)
 
-        try await bobConvo.send(text: "Oh, hello Alice")
-        try await delayToPropagate()
+		try await bobConvo.send(text: "Oh, hello Alice")
+		try await delayToPropagate()
 
-        let aliceSees = try await aliceConvo.messages()
-        XCTAssertEqual("Hello Bob", aliceSees[1].body)
-        XCTAssertEqual("Oh, hello Alice", aliceSees[0].body)
+		let aliceSees = try await aliceConvo.messages()
+		XCTAssertEqual("Hello Bob", aliceSees[1].body)
+		XCTAssertEqual("Oh, hello Alice", aliceSees[0].body)
 	}
 
 	func testUsingSavedCredentialsAndKeyMaterial() async throws {
@@ -138,17 +137,18 @@ final class IntegrationTests: XCTestCase {
 
 		// Alice starts a conversation with Bob
 		let aliceConvo = try await alice.conversations.newConversation(
-				with: bob.address,
-				context: InvitationV1.Context.with {
-					$0.conversationID = "example.com/alice-bob-1"
-					$0.metadata["title"] = "Chatting Using Saved Credentials"
-				})
+			with: bob.address,
+			context: InvitationV1.Context.with {
+				$0.conversationID = "example.com/alice-bob-1"
+				$0.metadata["title"] = "Chatting Using Saved Credentials"
+			}
+		)
 		_ = try await aliceConvo.send(text: "Hello Bob")
 		try await delayToPropagate()
 
 		// Alice stores her credentials and conversations to her device
-		let keyBundle = try alice.privateKeyBundle.serializedData();
-		let topicData = try aliceConvo.toTopicData().serializedData();
+		let keyBundle = try alice.privateKeyBundle.serializedData()
+		let topicData = try aliceConvo.toTopicData().serializedData()
 
 		// Meanwhile, Bob sends a reply.
 		let bobConvos = try await bob.conversations.list()
@@ -163,7 +163,7 @@ final class IntegrationTests: XCTestCase {
 		)
 		// And it uses the saved topic data for the conversation
 		let aliceConvo2 = alice2.conversations.importTopicData(
-				data: try Xmtp_KeystoreApi_V1_TopicMap.TopicData(serializedData: topicData))
+			data: try Xmtp_KeystoreApi_V1_TopicMap.TopicData(serializedData: topicData))
 		XCTAssertEqual("example.com/alice-bob-1", aliceConvo2.conversationID)
 
 		// Now Alice should be able to load message using her saved key material.
@@ -195,8 +195,9 @@ final class IntegrationTests: XCTestCase {
 		// Alice should see the same topic and keyMaterial for both conversations.
 		XCTAssertEqual(c1.topic, c2.topic)
 		XCTAssertEqual(
-				c1.toTopicData().invitation.aes256GcmHkdfSha256.keyMaterial,
-				c2.toTopicData().invitation.aes256GcmHkdfSha256.keyMaterial)
+			c1.toTopicData().invitation.aes256GcmHkdfSha256.keyMaterial,
+			c2.toTopicData().invitation.aes256GcmHkdfSha256.keyMaterial
+		)
 
 		// And Bob should only see the one conversation.
 		let bobConvos = try await bob.conversations.list()
@@ -211,17 +212,17 @@ final class IntegrationTests: XCTestCase {
 	}
 
 	func testStreamMessagesInV1Conversation() async throws {
-	    try TestConfig.skipIfNotRunningLocalNodeTests()
+		try TestConfig.skipIfNotRunningLocalNodeTests()
 		let opt = ClientOptions(api: .init(env: .local, isSecure: false))
 		let alice = try await Client.create(account: try PrivateKey.generate(), options: opt)
 		let bob = try await Client.create(account: try PrivateKey.generate(), options: opt)
-        try await alice.publishUserContact(legacy: true)
+		try await alice.publishUserContact(legacy: true)
 		try await bob.publishUserContact(legacy: true)
-        try await delayToPropagate()
+		try await delayToPropagate()
 
 		let aliceConversation = try await alice.conversations.newConversation(with: bob.address)
 		try await aliceConversation.send(content: "greetings")
-        try await delayToPropagate()
+		try await delayToPropagate()
 
 		let transcript = TestTranscript()
 
@@ -238,15 +239,15 @@ final class IntegrationTests: XCTestCase {
 		try await aliceConversation.send(content: "hi bob")
 		try await delayToPropagate()
 		try await bobConversation.send(content: "hi alice")
-        try await delayToPropagate()
+		try await delayToPropagate()
 
-        let messages = await transcript.messages
+		let messages = await transcript.messages
 		XCTAssertEqual("hi bob", messages[0])
 		XCTAssertEqual("hi alice", messages[1])
 	}
 
 	func testStreamMessagesInV2Conversation() async throws {
-        try TestConfig.skipIfNotRunningLocalNodeTests()
+		try TestConfig.skipIfNotRunningLocalNodeTests()
 
 		let alice = try PrivateKey.generate()
 		let bob = try PrivateKey.generate()
@@ -264,20 +265,20 @@ final class IntegrationTests: XCTestCase {
 		XCTAssertEqual(bobConversation.topic, aliceConversation.topic)
 
 		Task(priority: .userInitiated) {
-            for try await message in bobConversation.streamMessages() {
-                await transcript.add(message.body)
-            }
+			for try await message in bobConversation.streamMessages() {
+				await transcript.add(message.body)
+			}
 		}
 		try await aliceConversation.send(text: "hi bob")
 		try await delayToPropagate()
 
-        let messages = await transcript.messages
+		let messages = await transcript.messages
 		XCTAssertEqual(1, messages.count)
 		XCTAssertEqual("hi bob", messages[0])
 	}
 
 	func testCanPaginateV1Messages() async throws {
-        try TestConfig.skipIfNotRunningLocalNodeTests()
+		try TestConfig.skipIfNotRunningLocalNodeTests()
 
 		let bob = try FakeWallet.generate()
 		let alice = try FakeWallet.generate()
@@ -292,19 +293,19 @@ final class IntegrationTests: XCTestCase {
 
 		// Say this message is sent in the past
 		try await convo.send(content: "first")
-        try await delayToPropagate()
+		try await delayToPropagate()
 		try await convo.send(content: "second")
-        try await delayToPropagate()
+		try await delayToPropagate()
 
 		var messages = try await convo.messages(limit: 1)
 		XCTAssertEqual(1, messages.count)
 		XCTAssertEqual("second", messages[0].body) // most-recent first
-        let secondMessageSent = messages[0].sent
+		let secondMessageSent = messages[0].sent
 //
-//        messages = try await convo.messages(limit: 1, before: secondMessageSent)
+		//        messages = try await convo.messages(limit: 1, before: secondMessageSent)
 //		XCTAssertEqual(1, messages.count)
-//        XCTAssertEqual("first", messages[0].body)
-//        let firstMessageSent = messages[0].sent
+		//        XCTAssertEqual("first", messages[0].body)
+		//        let firstMessageSent = messages[0].sent
 //
 //		messages = try await convo.messages(limit: 1, after: firstMessageSent)
 //		XCTAssertEqual(1, messages.count)
@@ -312,7 +313,7 @@ final class IntegrationTests: XCTestCase {
 	}
 
 	func testCanPaginateV2Messages() async throws {
-        try TestConfig.skipIfNotRunningLocalNodeTests()
+		try TestConfig.skipIfNotRunningLocalNodeTests()
 
 		let bob = try FakeWallet.generate()
 		let alice = try FakeWallet.generate()
@@ -349,63 +350,65 @@ final class IntegrationTests: XCTestCase {
 		XCTAssertEqual("now", nowMessage2.body)
 	}
 
-    func testStreamingMessagesShouldBeReceived() async throws {
-        try TestConfig.skipIfNotRunningLocalNodeTests()
+	func testStreamingMessagesShouldBeReceived() async throws {
+		try TestConfig.skipIfNotRunningLocalNodeTests()
 
-        let alice = try await Client.create(account: try FakeWallet.generate(),
-                                                options: ClientOptions(api: ClientOptions.Api(env: .local, isSecure: false)))
-        let bob = try await Client.create(account: try FakeWallet.generate(),
-                                          options: ClientOptions(api: ClientOptions.Api(env: .local, isSecure: false)))
-        let transcript = TestTranscript()
-        Task(priority: .userInitiated) {
-            for try await message in try await alice.conversations.streamAllMessages() {
-                await transcript.add(message.body)
-            }
-        }
-        let c1 = try await bob.conversations.newConversation(with: alice.address)
-        try await delayToPropagate()
-        _ = try await c1.send(text: "hello Alice")
-        try await delayToPropagate()
-        let messages = await transcript.messages
-        XCTAssertEqual(1, messages.count)
-        XCTAssertEqual("hello Alice", messages[0])
-    }
+		let alice = try await Client.create(account: try FakeWallet.generate(),
+		                                    options: ClientOptions(api: ClientOptions.Api(env: .local, isSecure: false)))
+		let bob = try await Client.create(account: try FakeWallet.generate(),
+		                                  options: ClientOptions(api: ClientOptions.Api(env: .local, isSecure: false)))
+		let transcript = TestTranscript()
+		Task(priority: .userInitiated) {
+			for try await message in try await alice.conversations.streamAllMessages() {
+				await transcript.add(message.body)
+			}
+		}
+		let c1 = try await bob.conversations.newConversation(with: alice.address)
+		try await delayToPropagate()
+		_ = try await c1.send(text: "hello Alice")
+		try await delayToPropagate()
+		let messages = await transcript.messages
+		XCTAssertEqual(1, messages.count)
+		XCTAssertEqual("hello Alice", messages[0])
+	}
 
-    func testListingConversations() async throws {
-        try TestConfig.skipIfNotRunningLocalNodeTests()
+	func testListingConversations() async throws {
+		try TestConfig.skipIfNotRunningLocalNodeTests()
 
-        let alice = try await Client.create(account: try FakeWallet.generate(),
-                                                options: ClientOptions(api: ClientOptions.Api(env: .local, isSecure: false)))
-        let bob = try await Client.create(account: try FakeWallet.generate(),
-                                          options: ClientOptions(api: ClientOptions.Api(env: .local, isSecure: false)))
+		let alice = try await Client.create(account: try FakeWallet.generate(),
+		                                    options: ClientOptions(api: ClientOptions.Api(env: .local, isSecure: false)))
+		let bob = try await Client.create(account: try FakeWallet.generate(),
+		                                  options: ClientOptions(api: ClientOptions.Api(env: .local, isSecure: false)))
 
-        let c1 = try await bob.conversations.newConversation(
-            with: alice.address,
-            context: InvitationV1.Context.with {
-                $0.conversationID = "example.com/alice-bob-1"
-                $0.metadata["title"] = "First Chat"
-        })
-        try await c1.send(text: "hello Alice!")
-        try await delayToPropagate()
+		let c1 = try await bob.conversations.newConversation(
+			with: alice.address,
+			context: InvitationV1.Context.with {
+				$0.conversationID = "example.com/alice-bob-1"
+				$0.metadata["title"] = "First Chat"
+			}
+		)
+		try await c1.send(text: "hello Alice!")
+		try await delayToPropagate()
 
-        var aliceConvoList = try await alice.conversations.list()
-        XCTAssertEqual(1, aliceConvoList.count)
-        XCTAssertEqual("example.com/alice-bob-1", aliceConvoList[0].conversationID)
+		var aliceConvoList = try await alice.conversations.list()
+		XCTAssertEqual(1, aliceConvoList.count)
+		XCTAssertEqual("example.com/alice-bob-1", aliceConvoList[0].conversationID)
 
-        let c2 = try await bob.conversations.newConversation(
-            with: alice.address,
-            context: InvitationV1.Context.with {
-                $0.conversationID = "example.com/alice-bob-2"
-                $0.metadata["title"] = "Second Chat"
-            })
-        try await c2.send(text: "hello again Alice!")
-        try await delayToPropagate()
+		let c2 = try await bob.conversations.newConversation(
+			with: alice.address,
+			context: InvitationV1.Context.with {
+				$0.conversationID = "example.com/alice-bob-2"
+				$0.metadata["title"] = "Second Chat"
+			}
+		)
+		try await c2.send(text: "hello again Alice!")
+		try await delayToPropagate()
 
-        aliceConvoList = try await alice.conversations.list()
-        XCTAssertEqual(2, aliceConvoList.count)
-//        XCTAssertEqual("example.com/alice-bob-2", aliceConvoList[0].conversationID)
-//        XCTAssertEqual("example.com/alice-bob-1", aliceConvoList[1].conversationID)
-    }
+		aliceConvoList = try await alice.conversations.list()
+		XCTAssertEqual(2, aliceConvoList.count)
+		//        XCTAssertEqual("example.com/alice-bob-2", aliceConvoList[0].conversationID)
+		//        XCTAssertEqual("example.com/alice-bob-1", aliceConvoList[1].conversationID)
+	}
 
 	// Test used to verify https://github.com/xmtp/xmtp-ios/issues/39 fix.
 	func testExistingWallet() async throws {
@@ -434,7 +437,7 @@ final class IntegrationTests: XCTestCase {
 	}
 
 	func testCanStreamV2Conversations() async throws {
-        try TestConfig.skipIfNotRunningLocalNodeTests()
+		try TestConfig.skipIfNotRunningLocalNodeTests()
 
 		let alice = try PrivateKey.generate()
 		let bob = try PrivateKey.generate()
@@ -545,7 +548,6 @@ final class IntegrationTests: XCTestCase {
 		key.secp256K1.bytes = Data(keyBytes)
 		key.publicKey.secp256K1Uncompressed.bytes = Data(try XMTPRust.public_key_from_private_key_k256(RustVec<UInt8>(keyBytes)))
 
-
 		let client = try await XMTP.Client.create(account: key)
 
 		let conversations = try await client.conversations.list()
@@ -553,9 +555,9 @@ final class IntegrationTests: XCTestCase {
 		XCTAssertEqual(200, conversations.count)
 	}
 
-    // Helpers
+	// Helpers
 
-    func delayToPropagate() async throws {
-        try await Task.sleep(for: .milliseconds(500))
-    }
+	func delayToPropagate() async throws {
+		try await Task.sleep(for: .milliseconds(500))
+	}
 }

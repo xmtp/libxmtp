@@ -116,7 +116,7 @@ public struct ConversationV2 {
 
 		return envelopes.compactMap { envelope in
 			do {
-            return try decode(envelope: envelope)
+				return try decode(envelope: envelope)
 			} catch {
 				print("Error decoding envelope \(error)")
 				return nil

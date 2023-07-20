@@ -43,8 +43,9 @@ class ConversationsTests: XCTestCase {
 		let newClient = try await Client.create(account: newWallet, apiClient: fixtures.fakeApiClient)
 
 		let invitation = try InvitationV1.createDeterministic(
-				sender: newClient.keys,
-				recipient: client.keys.getPublicKeyBundle())
+			sender: newClient.keys,
+			recipient: client.keys.getPublicKeyBundle()
+		)
 		let sealed = try SealedInvitation.createV1(
 			sender: newClient.keys,
 			recipient: client.keys.getPublicKeyBundle(),

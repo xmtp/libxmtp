@@ -7,8 +7,8 @@
 
 import CryptoKit
 import XCTest
-import XMTPRust
 @testable import XMTP
+import XMTPRust
 import XMTPTestHelpers
 
 @available(iOS 16.0, *)
@@ -44,7 +44,7 @@ class MessageTests: XCTestCase {
 	}
 
 	func testFullyEncodesDecodesMessagesV2() async throws {
-	    try TestConfig.skipIfNotRunningLocalNodeTests()
+		try TestConfig.skipIfNotRunningLocalNodeTests()
 		let aliceWallet = try PrivateKey.generate()
 		let bobWallet = try PrivateKey.generate()
 
@@ -56,9 +56,9 @@ class MessageTests: XCTestCase {
 		invitationContext.conversationID = "https://example.com/1"
 
 		let invitationv1 = try InvitationV1.createDeterministic(
-				sender: alice.toV2(),
-				recipient: bob.toV2().getPublicKeyBundle(),
-				context: invitationContext
+			sender: alice.toV2(),
+			recipient: bob.toV2().getPublicKeyBundle(),
+			context: invitationContext
 		)
 		let sealedInvitation = try SealedInvitation.createV1(sender: alice.toV2(), recipient: bob.toV2().getPublicKeyBundle(), created: Date(), invitation: invitationv1)
 		let encoder = TextCodec()
@@ -102,7 +102,7 @@ class MessageTests: XCTestCase {
 	}
 
 	func testGetsV2ID() async throws {
-        try TestConfig.skip(because: "run manually against dev")
+		try TestConfig.skip(because: "run manually against dev")
 		let envelopeMessageData = Data(
 			"12bf040a470880dedf9dafc0ff9e17123b2f786d74702f302f6d2d32536b644e355161305a6d694649357433524662667749532d4f4c76356a7573716e6465656e544c764e672f70726f746f12f3030af0030a20439174a205643a50af33c7670341338526dbb9c1cf0560687ff8a742e957282d120c090ba2b385b40639867493ce1abd037648c947f72e5c62e8691d7748e78f9a346ff401c97a628ebecf627d722829ff9cfb7d7c3e0b9e26b5801f2b5a39fd58757cc5771427bfefad6243f52cfc84b384fa042873ebeb90948aa80ca34f26ff883d64720c9228ed6bcd1a5c46953a12ae8732fd70260651455674e2e2c23bc8d64ed35562fef4cdfc55d38e72ad9cf2d597e68f48b6909967b0f5d0b4f33c0af3efce55c739fbc93888d20b833df15811823970a356b26622936564d830434d3ecde9a013f7433142e366f1df5589131e440251be54d5d6deef9aaaa9facac26eb54fb7b74eb48c5a2a9a2e2956633b123cc5b91dec03e4dba30683be03bd7510f16103d3f81712dccf2be003f2f77f9e1f162bc47f6c1c38a1068abd3403952bef31d75e8024e7a62d9a8cbd48f1872a0156abb559d01de689b4370a28454658957061c46f47fc5594808d15753876d4b5408b3a3410d0555c016e427dfceae9c05a4a21fd7ce4cfbb11b2a696170443cf310e0083b0a48e357fc2f00c688c0b56821c8a14c2bb44ddfa31d680dfc85efe4811e86c6aa3adfc373ad5731ddab83960774d98d60075b8fd70228da5d748bfb7a5334bd07e1cc4a9fbf3d5de50860d0684bb27786b5b4e00d415".web3.bytesFromHex!
 		)

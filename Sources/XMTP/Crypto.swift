@@ -36,7 +36,7 @@ enum Crypto {
 		// with offsets like lowerBound=12, upperBound=224. Without copying, trying to index like payload[0] crashes
 		// up until payload[12]. This is mostly a problem for unit tests where we decrypt what we encrypt in memory, as
 		// serialization/deserialization acts as copying and avoids this issue.
-		var payloadData = Data(payload.ciphertext.subdata(in: 12 ..< payload.ciphertext.count+12))
+		var payloadData = Data(payload.ciphertext.subdata(in: 12 ..< payload.ciphertext.count + 12))
 		let startTag = 12 + payload.ciphertext.count
 		payloadData.append(payload.tag.subdata(in: startTag ..< startTag + payload.tag.count))
 		ciphertext.aes256GcmHkdfSha256.payload = payloadData
@@ -76,14 +76,14 @@ enum Crypto {
 
 	static func deriveKey(secret: Data, nonce: Data, info: Data) throws -> Data {
 		let key = HKDF<SHA256>.deriveKey(
-				inputKeyMaterial: SymmetricKey(data: secret),
-				salt: nonce,
-				info: info,
-				outputByteCount: 32
+			inputKeyMaterial: SymmetricKey(data: secret),
+			salt: nonce,
+			info: info,
+			outputByteCount: 32
 		)
-        return key.withUnsafeBytes { body in
-            Data(body)
-        }
+		return key.withUnsafeBytes { body in
+			Data(body)
+		}
 	}
 
 	static func secureRandomBytes(count: Int) throws -> Data {

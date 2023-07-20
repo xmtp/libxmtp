@@ -5,9 +5,9 @@
 //  Created by Pat Nakajima on 11/17/22.
 //
 
+import CryptoKit
 import Foundation
 import XMTPRust
-import CryptoKit
 
 /// Represents a secp256k1 private key.  ``PrivateKey`` conforms to ``SigningKey`` so you can use it
 /// to create a ``Client``.

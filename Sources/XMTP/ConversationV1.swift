@@ -147,7 +147,7 @@ public struct ConversationV1 {
 		let pagination = Pagination(limit: limit, before: before, after: after)
 
 		let envelopes = try await client.apiClient.envelopes(
-            topic: Topic.directMessageV1(client.address, peerAddress).description,
+			topic: Topic.directMessageV1(client.address, peerAddress).description,
 			pagination: pagination
 		)
 

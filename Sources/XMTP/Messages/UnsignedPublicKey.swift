@@ -7,7 +7,6 @@
 
 import Foundation
 
-
 typealias UnsignedPublicKey = Xmtp_MessageContents_UnsignedPublicKey
 
 extension UnsignedPublicKey {

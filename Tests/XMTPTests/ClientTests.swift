@@ -15,7 +15,7 @@ import XMTPTestHelpers
 @available(iOS 15, *)
 class ClientTests: XCTestCase {
 	func testTakesAWallet() async throws {
-	    try TestConfig.skip(because: "run manually against dev")
+		try TestConfig.skip(because: "run manually against dev")
 		let fakeWallet = try PrivateKey.generate()
 		_ = try await Client.create(account: fakeWallet)
 	}
@@ -42,7 +42,7 @@ class ClientTests: XCTestCase {
 	}
 
 	func testCanBeCreatedWithBundle() async throws {
-        try TestConfig.skip(because: "run manually against dev")
+		try TestConfig.skip(because: "run manually against dev")
 		let fakeWallet = try PrivateKey.generate()
 		let client = try await Client.create(account: fakeWallet)
 
@@ -55,7 +55,7 @@ class ClientTests: XCTestCase {
 	}
 
 	func testCanBeCreatedWithV1Bundle() async throws {
-        try TestConfig.skip(because: "run manually against dev")
+		try TestConfig.skip(because: "run manually against dev")
 		let fakeWallet = try PrivateKey.generate()
 		let client = try await Client.create(account: fakeWallet)
 

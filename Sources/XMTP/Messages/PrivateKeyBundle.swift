@@ -7,7 +7,6 @@
 
 import Foundation
 
-
 public typealias PrivateKeyBundle = Xmtp_MessageContents_PrivateKeyBundle
 
 enum PrivateKeyBundleError: Error {

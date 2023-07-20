@@ -14,7 +14,6 @@ import XMTPTestHelpers
 
 @available(iOS 15, *)
 class PaginationTests: XCTestCase {
-
 	func newClientHelper(account: PrivateKey) async throws -> Client {
 		let client = try await Client.create(account: account, options: ClientOptions(api: .init(env: .local, isSecure: false)))
 		return client
@@ -57,7 +56,7 @@ class PaginationTests: XCTestCase {
 		XCTAssertEqual("hey alice 2", messages2[0].body)
 
 		// Send many many more messages, such that it forces cursor saving and pagination
-		for i in 4..<101 {
+		for i in 4 ..< 101 {
 			try await bobConversation.send(content: "hey alice \(i)", sentAt: Date())
 		}
 		// Grab the messages 50 at a time
@@ -73,7 +72,7 @@ class PaginationTests: XCTestCase {
 	}
 
 	func testCanStreamConversationsV2() async throws {
-	    try TestConfig.skipIfNotRunningLocalNodeTests()
+		try TestConfig.skipIfNotRunningLocalNodeTests()
 
 		let alice = try PrivateKey.generate()
 		let bob = try PrivateKey.generate()

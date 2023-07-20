@@ -7,7 +7,7 @@
 
 import Foundation
 
-public struct GroupChat {
+public enum GroupChat {
 	public static func registerCodecs() {
 		Client.register(codec: GroupChatMemberAddedCodec())
 		Client.register(codec: GroupChatTitleChangedCodec())

@@ -7,9 +7,9 @@
 
 import Foundation
 
-import XMTPRust
-import web3
 import CryptoKit
+import web3
+import XMTPRust
 
 typealias PublicKey = Xmtp_MessageContents_PublicKey
 

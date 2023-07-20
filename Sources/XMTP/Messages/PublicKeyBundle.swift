@@ -5,8 +5,6 @@
 //  Created by Pat Nakajima on 11/23/22.
 //
 
-
-
 typealias PublicKeyBundle = Xmtp_MessageContents_PublicKeyBundle
 
 extension PublicKeyBundle {
