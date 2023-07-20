@@ -1,0 +1,2 @@
+-- Columns cannot be dropped in sqlite without dropping the whole table first
+-- Instead of removing the column, simply do nothing and ignore the column in code
