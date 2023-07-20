@@ -27,6 +27,7 @@ use diesel::{
     prelude::*,
     r2d2::{ConnectionManager, Pool, PooledConnection},
 };
+// use crate::storage::StoredInstallation;
 
 use xmtp_cryptography::utils as crypto_utils;
 
@@ -220,6 +221,22 @@ impl EncryptedMessageStore {
             .execute(conn)?;
         Ok(())
     }
+
+    pub fn get_contacts(
+        &self,
+        user_address: &str,
+    ) -> Result<Vec<StoredInstallation>, StorageError> {
+        let conn = &mut self.conn()?;
+        use self::schema::installations::dsl;
+
+        let mut install_list = dsl::installations
+            .filter(dsl::user_address.eq(user_address))
+            .order(dsl::first_seen.desc())
+            .load::<StoredInstallation>(conn)
+            .map_err(|_| StorageError::Unknown)?;
+
+        Ok(install_list)
+    }
 }
 
 impl Store<EncryptedMessageStore> for NewDecryptedMessage {
@@ -293,6 +310,17 @@ impl Fetch<Account> for EncryptedMessageStore {
             .iter()
             .map(|f| serde_json::from_slice(&f.serialized_key).unwrap())
             .collect())
+    }
+}
+
+impl Store<EncryptedMessageStore> for StoredInstallation {
+    fn store(&self, into: &EncryptedMessageStore) -> Result<(), StorageError> {
+        let conn = &mut into.conn()?;
+        diesel::insert_into(schema::installations::table)
+            .values(self)
+            .execute(conn)?;
+
+        Ok(())
     }
 }
 
@@ -437,7 +465,12 @@ mod tests {
             EncryptedMessageStore::generate_enc_key(),
         )
         .unwrap();
-        let session = StoredSession::new(rand_string(), rand_string(), rand_vec());
+        let session = StoredSession::new(
+            rand_string(),
+            rand_string(),
+            rand_vec(),
+            rand_string(), // user_address: rand_string(),
+        );
 
         session.store(&store).unwrap();
 

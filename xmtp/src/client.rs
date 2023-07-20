@@ -8,7 +8,7 @@ use crate::{
     account::Account,
     contact::{Contact, ContactError},
     session::SessionManager,
-    storage::{EncryptedMessageStore, StorageError},
+    storage::{EncryptedMessageStore, StorageError, StoredInstallation},
     types::networking::{PublishRequest, QueryRequest, XmtpApiClient},
     types::Address,
     utils::{build_envelope, build_user_contact_topic},
@@ -125,6 +125,8 @@ where
         Ok(contacts)
     }
 
+    // async fn update_installations()
+
     pub fn get_session(&self, contact: &Contact) -> Result<SessionManager, ClientError> {
         let existing_session = self.store.get_session(&contact.installation_id())?;
         match existing_session {
@@ -140,6 +142,19 @@ where
             .into_iter()
             .filter(|c| c.installation_id() != my_contact_id)
             .collect())
+    }
+
+    pub async fn refresh_user_installations(&self, user_address: &str) -> Result<(), ClientError> {
+        let contacts = self.get_contacts(user_address).await?;
+
+        let stored_contacts: Vec<StoredInstallation> =
+            self.store.get_contacts(user_address)?.into();
+        println!("{:?}", contacts);
+        for contact in contacts {
+            println!(" {:?} ", contact)
+        }
+
+        Ok(())
     }
 
     pub fn create_outbound_session(
@@ -237,6 +252,14 @@ mod tests {
             .unwrap();
         assert!(conversation.peer_address() == peer_address);
         assert!(client.store.get_conversation(&convo_id).unwrap().is_some());
+    }
+
+    #[tokio::test]
+    async fn refresh() {
+        let mut client = ClientBuilder::new_test().build().unwrap();
+        client
+            .refresh_user_installations(&client.wallet_address())
+            .await;
     }
 
     #[tokio::test]

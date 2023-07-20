@@ -23,6 +23,7 @@ diesel::table! {
         user_address -> Text,
         first_seen -> BigInt,
         contact -> Binary,
+        contact_hash -> Text,
         expires_at -> Nullable<BigInt>,
     }
 }
@@ -43,6 +44,7 @@ diesel::table! {
         created_at -> BigInt,
         peer_installation_id -> Text,
         vmac_session_data -> Binary,
+        user_address -> Text,
     }
 }
 
