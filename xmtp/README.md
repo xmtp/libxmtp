@@ -82,7 +82,7 @@ processMessages():
         Fetch the installations and sessions of all users from the DB
         For each installation:
             If installation.state == UNINITIALIZED:
-                Create an outbound session (hold it in memory)
+                Create an outbound session
         For each session:
             // Build the plaintext payload
             If conversation.state == UNINITIALIZED:
