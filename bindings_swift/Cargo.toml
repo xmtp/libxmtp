@@ -6,6 +6,7 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
+xmtp = { path = "../xmtp" }
 xmtp_crypto = { path = "../xmtp_crypto" }
 xmtp_networking = { path = "../xmtp_networking" }
 xmtp_proto = { git = "https://github.com/xmtp/libxmtp", rev = "0ee34007e10add84152a1af411648699f06f64fa" }

@@ -77,7 +77,7 @@ pub mod networking {
     #[async_trait]
     pub trait XmtpApiClient {
         type Subscription: XmtpApiSubscription;
-        
+
         fn set_app_version(&mut self, version: String);
 
         async fn publish(

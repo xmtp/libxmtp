@@ -59,7 +59,7 @@ pub enum InnerApiClient {
 
 pub struct Client {
     client: InnerApiClient,
-    app_version: MetadataValue<tonic::metadata::Ascii>,   
+    app_version: MetadataValue<tonic::metadata::Ascii>,
 }
 
 impl Client {
@@ -108,7 +108,7 @@ impl XmtpApiClient for Client {
     type Subscription = Subscription;
 
     fn set_app_version(&mut self, version: String) {
-        self.app_version = MetadataValue::try_from(&version.to_string()).unwrap();
+        self.app_version = MetadataValue::try_from(&version).unwrap();
     }
 
     async fn publish(
@@ -123,7 +123,9 @@ impl XmtpApiClient for Client {
 
         let mut tonic_request = Request::new(request);
         tonic_request.metadata_mut().insert("authorization", token);
-        tonic_request.metadata_mut().insert("X-App-Version", self.app_version.clone());
+        tonic_request
+            .metadata_mut()
+            .insert("x-app-version", self.app_version.clone());
 
         match &self.client {
             InnerApiClient::Plain(c) => c
@@ -143,7 +145,9 @@ impl XmtpApiClient for Client {
 
     async fn subscribe(&self, request: SubscribeRequest) -> Result<Subscription, Error> {
         let mut tonic_request = Request::new(request);
-        tonic_request.metadata_mut().insert("X-App-Version", self.app_version.clone());
+        tonic_request
+            .metadata_mut()
+            .insert("x-app-version", self.app_version.clone());
 
         let stream = match &self.client {
             InnerApiClient::Plain(c) => c
@@ -165,7 +169,9 @@ impl XmtpApiClient for Client {
 
     async fn query(&self, request: QueryRequest) -> Result<QueryResponse, Error> {
         let mut tonic_request = Request::new(request);
-        tonic_request.metadata_mut().insert("X-App-Version", self.app_version.clone());
+        tonic_request
+            .metadata_mut()
+            .insert("x-app-version", self.app_version.clone());
 
         let res = match &self.client {
             InnerApiClient::Plain(c) => c.clone().query(tonic_request).await,
@@ -184,7 +190,9 @@ impl Client {
         request: BatchQueryRequest,
     ) -> Result<BatchQueryResponse, Error> {
         let mut tonic_request = Request::new(request);
-        tonic_request.metadata_mut().insert("X-App-Version", self.app_version.clone());
+        tonic_request
+            .metadata_mut()
+            .insert("x-app-version", self.app_version.clone());
 
         let res = match &self.client {
             InnerApiClient::Plain(c) => c.clone().batch_query(tonic_request).await,
