@@ -21,10 +21,10 @@ diesel::table! {
     installations (installation_id) {
         installation_id -> Text,
         user_address -> Text,
-        first_seen -> BigInt,
+        first_seen_ns -> BigInt,
         contact -> Binary,
         contact_hash -> Text,
-        expires_at -> Nullable<BigInt>,
+        expires_at_ns -> Nullable<BigInt>,
     }
 }
 

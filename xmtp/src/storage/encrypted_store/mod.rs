@@ -228,9 +228,9 @@ impl EncryptedMessageStore {
         let conn = &mut self.conn()?;
         use self::schema::installations::dsl;
 
-        let mut install_list = dsl::installations
+        let install_list = dsl::installations
             .filter(dsl::user_address.eq(user_address))
-            .order(dsl::first_seen.desc())
+            .order(dsl::first_seen_ns.desc())
             .load::<StoredInstallation>(conn)
             .map_err(|_| StorageError::Unknown)?;
 

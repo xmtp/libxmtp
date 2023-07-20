@@ -159,10 +159,10 @@ impl TryFrom<&Account> for NewStoredAccount {
 pub struct StoredInstallation {
     pub installation_id: String,
     pub user_address: String,
-    pub first_seen: i64,
+    pub first_seen_ns: i64,
     pub contact: Vec<u8>,
     pub contact_hash: String,
-    pub expires_at: Option<i64>,
+    pub expires_at_ns: Option<i64>,
 }
 
 impl StoredInstallation {
@@ -173,10 +173,10 @@ impl StoredInstallation {
         Ok(Self {
             installation_id: contact.installation_id(),
             user_address: contact.wallet_address.clone(),
-            first_seen: now(),
+            first_seen_ns: now(),
             contact: contact_bytes,
             contact_hash: contact_hash,
-            expires_at: None,
+            expires_at_ns: None,
         })
     }
 }
