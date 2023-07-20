@@ -7,7 +7,7 @@ edition = "2021"
 
 [dependencies]
 xmtp_crypto = { path = "../xmtp_crypto" }
-xmtp_networking = { git = "https://github.com/xmtp/libxmtp", rev = "0ee34007e10add84152a1af411648699f06f64fa" }
+xmtp_networking = { path = "../xmtp_networking" }
 xmtp_proto = { git = "https://github.com/xmtp/libxmtp", rev = "0ee34007e10add84152a1af411648699f06f64fa" }
 prost = { version = "0.11", features = ["prost-derive"] }
 swift-bridge = {version = "0.1", features = ["async"]}
