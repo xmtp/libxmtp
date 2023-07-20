@@ -79,17 +79,17 @@ processMessages():
             If user.last_refreshed is uninitialized or more than THRESHOLD ago:
                 refreshUserInstallations()    // Could be kicked off asynchronously or synchronously
                 return  // refreshUserInstallations() will call back into processMessages() when ready
-        Fetch the installations of all users from the DB
+        Fetch the installations and sessions of all users from the DB
         For each installation:
+            If installation.state == UNINITIALIZED:
+                Create an outbound session (hold it in memory)
+        For each session:
             // Build the plaintext payload
             If conversation.state == UNINITIALIZED:
                 Construct the payload as an invite with the message attached
             Else if conversation.state == INVITED:
                 Construct the payload as a message
-            // Encrypt the payload
-            If installation.state == UNINITIALIZED:
-                Create an outbound session (hold it in memory)
-            Use the existing session to encrypt a payload containing an invite with the message attached (hold it in memory)
+            Use the existing session to encrypt the payload (hold it in memory)
         In a single transaction:
             Push all encrypted payloads to outbound_payloads table with outbound_payload.state = PENDING
             Commit all updated session states to the DB with installation.state = SESSION_CREATED
