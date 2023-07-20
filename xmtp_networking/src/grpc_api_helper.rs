@@ -77,7 +77,7 @@ impl Client {
 
             Ok(Self {
                 client: InnerApiClient::Tls(tls_client),
-                app_version: MetadataValue::from_str(&String::from("0.0.0")).unwrap(),
+                app_version: MetadataValue::try_from(&String::from("0.0.0")).unwrap(),
             })
         } else {
             let channel = Channel::from_shared(host)
@@ -90,7 +90,7 @@ impl Client {
 
             Ok(Self {
                 client: InnerApiClient::Plain(client),
-                app_version: MetadataValue::from_str(&String::from("0.0.0")).unwrap(),
+                app_version: MetadataValue::try_from(&String::from("0.0.0")).unwrap(),
             })
         }
     }
@@ -108,7 +108,7 @@ impl XmtpApiClient for Client {
     type Subscription = Subscription;
 
     fn set_app_version(&mut self, version: String) {
-        self.app_version = MetadataValue::from_str(&version.to_string()).unwrap();
+        self.app_version = MetadataValue::try_from(&version.to_string()).unwrap();
     }
 
     async fn publish(
