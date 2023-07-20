@@ -59,6 +59,7 @@ pub enum InnerApiClient {
 
 pub struct Client {
     client: InnerApiClient,
+    app_version: String,   
 }
 
 impl Client {
@@ -103,10 +104,9 @@ impl Default for Client {
 #[async_trait]
 impl XmtpApiClient for Client {
     type Subscription = Subscription;
-    pub app_version: String
 
     pub fn set_app_version(&mut self, version: String) {
-        self.app_version = version
+        self.app_version = version;
     }
 
     async fn publish(
