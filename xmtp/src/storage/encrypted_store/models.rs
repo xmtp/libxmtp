@@ -79,6 +79,21 @@ impl PartialEq<DecryptedMessage> for NewDecryptedMessage {
     }
 }
 
+pub enum OutboundPayloadState {
+    Pending = 0,
+    ServerAcknowledged = 10,
+}
+
+#[derive(Insertable, Identifiable, Queryable, PartialEq, Debug)]
+#[diesel(table_name = outbound_payloads)]
+#[diesel(primary_key(created_at_ns))]
+pub struct StoredOutboundPayload {
+    pub created_at_ns: i64,
+    pub content_topic: String,
+    pub payload: Vec<u8>,
+    pub outbound_payload_state: i32,
+}
+
 pub fn now() -> i64 {
     let start = SystemTime::now();
     start
