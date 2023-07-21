@@ -8,8 +8,8 @@
 import CryptoKit
 import Foundation
 
-import web3
 import XMTPRust
+import web3
 
 typealias SignedPublicKey = Xmtp_MessageContents_SignedPublicKey
 
@@ -52,7 +52,7 @@ extension SignedPublicKey {
 			return false
 		}
 
-		return try signature.verify(signedBy: PublicKey(key), digest: key.keyBytes)
+		return try signature.verify(signedBy: try PublicKey(key), digest: key.keyBytes)
 	}
 
 	func recoverKeySignedPublicKey() throws -> PublicKey {

@@ -5,9 +5,9 @@
 //  Created by Pat Nakajima on 11/17/22.
 //
 
-import CryptoKit
 import Foundation
 import XMTPRust
+import CryptoKit
 
 /// Represents a secp256k1 private key.  ``PrivateKey`` conforms to ``SigningKey`` so you can use it
 /// to create a ``Client``.
@@ -24,7 +24,7 @@ extension PrivateKey: SigningKey {
 
 	func matches(_ publicKey: PublicKey) -> Bool {
 		do {
-			return try self.publicKey.recoverKeySignedPublicKey() == (publicKey.recoverKeySignedPublicKey())
+			return try self.publicKey.recoverKeySignedPublicKey() == (try publicKey.recoverKeySignedPublicKey())
 		} catch {
 			return false
 		}
@@ -67,7 +67,7 @@ public extension PrivateKey {
 	}
 
 	static func generate() throws -> PrivateKey {
-		let data = try Data(Crypto.secureRandomBytes(count: 32))
+		let data = Data(try Crypto.secureRandomBytes(count: 32))
 		return try PrivateKey(data)
 	}
 

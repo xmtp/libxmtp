@@ -17,1858 +17,1848 @@ import SwiftProtobuf
 // incompatible with the version of SwiftProtobuf to which you are linking.
 // Please ensure that you are building against the same version of the API
 // that was used to generate this file.
-private struct _GeneratedWithProtocGenSwiftVersion: SwiftProtobuf.ProtobufAPIVersionCheck {
-	struct _2: SwiftProtobuf.ProtobufAPIVersion_2 {}
-	typealias Version = _2
+fileprivate struct _GeneratedWithProtocGenSwiftVersion: SwiftProtobuf.ProtobufAPIVersionCheck {
+  struct _2: SwiftProtobuf.ProtobufAPIVersion_2 {}
+  typealias Version = _2
 }
 
 /// Application-specific error codes for the Keystore API.
 public enum Xmtp_KeystoreApi_V1_ErrorCode: SwiftProtobuf.Enum {
-	public typealias RawValue = Int
-	case unspecified // = 0
-	case invalidInput // = 1
-	case noMatchingPrekey // = 2
-	case UNRECOGNIZED(Int)
+  public typealias RawValue = Int
+  case unspecified // = 0
+  case invalidInput // = 1
+  case noMatchingPrekey // = 2
+  case UNRECOGNIZED(Int)
 
-	public init() {
-		self = .unspecified
-	}
+  public init() {
+    self = .unspecified
+  }
 
-	public init?(rawValue: Int) {
-		switch rawValue {
-		case 0: self = .unspecified
-		case 1: self = .invalidInput
-		case 2: self = .noMatchingPrekey
-		default: self = .UNRECOGNIZED(rawValue)
-		}
-	}
+  public init?(rawValue: Int) {
+    switch rawValue {
+    case 0: self = .unspecified
+    case 1: self = .invalidInput
+    case 2: self = .noMatchingPrekey
+    default: self = .UNRECOGNIZED(rawValue)
+    }
+  }
 
-	public var rawValue: Int {
-		switch self {
-		case .unspecified: return 0
-		case .invalidInput: return 1
-		case .noMatchingPrekey: return 2
-		case let .UNRECOGNIZED(i): return i
-		}
-	}
+  public var rawValue: Int {
+    switch self {
+    case .unspecified: return 0
+    case .invalidInput: return 1
+    case .noMatchingPrekey: return 2
+    case .UNRECOGNIZED(let i): return i
+    }
+  }
+
 }
 
 #if swift(>=4.2)
 
-	extension Xmtp_KeystoreApi_V1_ErrorCode: CaseIterable {
-		// The compiler won't synthesize support with the UNRECOGNIZED case.
-		public static var allCases: [Xmtp_KeystoreApi_V1_ErrorCode] = [
-			.unspecified,
-			.invalidInput,
-			.noMatchingPrekey,
-		]
-	}
+extension Xmtp_KeystoreApi_V1_ErrorCode: CaseIterable {
+  // The compiler won't synthesize support with the UNRECOGNIZED case.
+  public static var allCases: [Xmtp_KeystoreApi_V1_ErrorCode] = [
+    .unspecified,
+    .invalidInput,
+    .noMatchingPrekey,
+  ]
+}
 
-#endif // swift(>=4.2)
+#endif  // swift(>=4.2)
 
 /// Wrapper class for errors from the Keystore API
 public struct Xmtp_KeystoreApi_V1_KeystoreError {
-	// SwiftProtobuf.Message conformance is added in an extension below. See the
-	// `Message` and `Message+*Additions` files in the SwiftProtobuf library for
-	// methods supported on all messages.
+  // SwiftProtobuf.Message conformance is added in an extension below. See the
+  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
+  // methods supported on all messages.
 
-	public var message: String = .init()
+  public var message: String = String()
 
-	public var code: Xmtp_KeystoreApi_V1_ErrorCode = .unspecified
+  public var code: Xmtp_KeystoreApi_V1_ErrorCode = .unspecified
 
-	public var unknownFields = SwiftProtobuf.UnknownStorage()
+  public var unknownFields = SwiftProtobuf.UnknownStorage()
 
-	public init() {}
+  public init() {}
 }
 
 /// Decrypt a batch of messages using X3DH key agreement
 public struct Xmtp_KeystoreApi_V1_DecryptV1Request {
-	// SwiftProtobuf.Message conformance is added in an extension below. See the
-	// `Message` and `Message+*Additions` files in the SwiftProtobuf library for
-	// methods supported on all messages.
+  // SwiftProtobuf.Message conformance is added in an extension below. See the
+  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
+  // methods supported on all messages.
 
-	public var requests: [Xmtp_KeystoreApi_V1_DecryptV1Request.Request] = []
+  public var requests: [Xmtp_KeystoreApi_V1_DecryptV1Request.Request] = []
 
-	public var unknownFields = SwiftProtobuf.UnknownStorage()
+  public var unknownFields = SwiftProtobuf.UnknownStorage()
 
-	/// A single decryption request
-	public struct Request {
-		// SwiftProtobuf.Message conformance is added in an extension below. See the
-		// `Message` and `Message+*Additions` files in the SwiftProtobuf library for
-		// methods supported on all messages.
+  /// A single decryption request
+  public struct Request {
+    // SwiftProtobuf.Message conformance is added in an extension below. See the
+    // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
+    // methods supported on all messages.
 
-		public var payload: Xmtp_MessageContents_Ciphertext {
-			get { return _payload ?? Xmtp_MessageContents_Ciphertext() }
-			set { _payload = newValue }
-		}
+    public var payload: Xmtp_MessageContents_Ciphertext {
+      get {return _payload ?? Xmtp_MessageContents_Ciphertext()}
+      set {_payload = newValue}
+    }
+    /// Returns true if `payload` has been explicitly set.
+    public var hasPayload: Bool {return self._payload != nil}
+    /// Clears the value of `payload`. Subsequent reads from it will return its default value.
+    public mutating func clearPayload() {self._payload = nil}
 
-		/// Returns true if `payload` has been explicitly set.
-		public var hasPayload: Bool { return _payload != nil }
-		/// Clears the value of `payload`. Subsequent reads from it will return its default value.
-		public mutating func clearPayload() { _payload = nil }
+    public var peerKeys: Xmtp_MessageContents_PublicKeyBundle {
+      get {return _peerKeys ?? Xmtp_MessageContents_PublicKeyBundle()}
+      set {_peerKeys = newValue}
+    }
+    /// Returns true if `peerKeys` has been explicitly set.
+    public var hasPeerKeys: Bool {return self._peerKeys != nil}
+    /// Clears the value of `peerKeys`. Subsequent reads from it will return its default value.
+    public mutating func clearPeerKeys() {self._peerKeys = nil}
 
-		public var peerKeys: Xmtp_MessageContents_PublicKeyBundle {
-			get { return _peerKeys ?? Xmtp_MessageContents_PublicKeyBundle() }
-			set { _peerKeys = newValue }
-		}
+    public var headerBytes: Data = Data()
 
-		/// Returns true if `peerKeys` has been explicitly set.
-		public var hasPeerKeys: Bool { return _peerKeys != nil }
-		/// Clears the value of `peerKeys`. Subsequent reads from it will return its default value.
-		public mutating func clearPeerKeys() { _peerKeys = nil }
+    public var isSender: Bool = false
 
-		public var headerBytes: Data = .init()
+    public var unknownFields = SwiftProtobuf.UnknownStorage()
 
-		public var isSender: Bool = false
+    public init() {}
 
-		public var unknownFields = SwiftProtobuf.UnknownStorage()
+    fileprivate var _payload: Xmtp_MessageContents_Ciphertext? = nil
+    fileprivate var _peerKeys: Xmtp_MessageContents_PublicKeyBundle? = nil
+  }
 
-		public init() {}
-
-		fileprivate var _payload: Xmtp_MessageContents_Ciphertext?
-		fileprivate var _peerKeys: Xmtp_MessageContents_PublicKeyBundle?
-	}
-
-	public init() {}
+  public init() {}
 }
 
 /// Response type for both V1 and V2 decryption requests
 public struct Xmtp_KeystoreApi_V1_DecryptResponse {
-	// SwiftProtobuf.Message conformance is added in an extension below. See the
-	// `Message` and `Message+*Additions` files in the SwiftProtobuf library for
-	// methods supported on all messages.
+  // SwiftProtobuf.Message conformance is added in an extension below. See the
+  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
+  // methods supported on all messages.
 
-	public var responses: [Xmtp_KeystoreApi_V1_DecryptResponse.Response] = []
+  public var responses: [Xmtp_KeystoreApi_V1_DecryptResponse.Response] = []
 
-	public var unknownFields = SwiftProtobuf.UnknownStorage()
+  public var unknownFields = SwiftProtobuf.UnknownStorage()
 
-	/// A single decryption response
-	public struct Response {
-		// SwiftProtobuf.Message conformance is added in an extension below. See the
-		// `Message` and `Message+*Additions` files in the SwiftProtobuf library for
-		// methods supported on all messages.
+  /// A single decryption response
+  public struct Response {
+    // SwiftProtobuf.Message conformance is added in an extension below. See the
+    // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
+    // methods supported on all messages.
 
-		public var response: Xmtp_KeystoreApi_V1_DecryptResponse.Response.OneOf_Response?
+    public var response: Xmtp_KeystoreApi_V1_DecryptResponse.Response.OneOf_Response? = nil
 
-		public var result: Xmtp_KeystoreApi_V1_DecryptResponse.Response.Success {
-			get {
-				if case let .result(v)? = response { return v }
-				return Xmtp_KeystoreApi_V1_DecryptResponse.Response.Success()
-			}
-			set { response = .result(newValue) }
-		}
+    public var result: Xmtp_KeystoreApi_V1_DecryptResponse.Response.Success {
+      get {
+        if case .result(let v)? = response {return v}
+        return Xmtp_KeystoreApi_V1_DecryptResponse.Response.Success()
+      }
+      set {response = .result(newValue)}
+    }
 
-		public var error: Xmtp_KeystoreApi_V1_KeystoreError {
-			get {
-				if case let .error(v)? = response { return v }
-				return Xmtp_KeystoreApi_V1_KeystoreError()
-			}
-			set { response = .error(newValue) }
-		}
+    public var error: Xmtp_KeystoreApi_V1_KeystoreError {
+      get {
+        if case .error(let v)? = response {return v}
+        return Xmtp_KeystoreApi_V1_KeystoreError()
+      }
+      set {response = .error(newValue)}
+    }
 
-		public var unknownFields = SwiftProtobuf.UnknownStorage()
+    public var unknownFields = SwiftProtobuf.UnknownStorage()
 
-		public enum OneOf_Response: Equatable {
-			case result(Xmtp_KeystoreApi_V1_DecryptResponse.Response.Success)
-			case error(Xmtp_KeystoreApi_V1_KeystoreError)
+    public enum OneOf_Response: Equatable {
+      case result(Xmtp_KeystoreApi_V1_DecryptResponse.Response.Success)
+      case error(Xmtp_KeystoreApi_V1_KeystoreError)
 
-			#if !swift(>=4.1)
-				public static func == (lhs: Xmtp_KeystoreApi_V1_DecryptResponse.Response.OneOf_Response, rhs: Xmtp_KeystoreApi_V1_DecryptResponse.Response.OneOf_Response) -> Bool {
-					// The use of inline closures is to circumvent an issue where the compiler
-					// allocates stack space for every case branch when no optimizations are
-					// enabled. https://github.com/apple/swift-protobuf/issues/1034
-					switch (lhs, rhs) {
-					case (.result, .result): return {
-							guard case let .result(l) = lhs, case let .result(r) = rhs else { preconditionFailure() }
-							return l == r
-						}()
-					case (.error, .error): return {
-							guard case let .error(l) = lhs, case let .error(r) = rhs else { preconditionFailure() }
-							return l == r
-						}()
-					default: return false
-					}
-				}
-			#endif
-		}
+    #if !swift(>=4.1)
+      public static func ==(lhs: Xmtp_KeystoreApi_V1_DecryptResponse.Response.OneOf_Response, rhs: Xmtp_KeystoreApi_V1_DecryptResponse.Response.OneOf_Response) -> Bool {
+        // The use of inline closures is to circumvent an issue where the compiler
+        // allocates stack space for every case branch when no optimizations are
+        // enabled. https://github.com/apple/swift-protobuf/issues/1034
+        switch (lhs, rhs) {
+        case (.result, .result): return {
+          guard case .result(let l) = lhs, case .result(let r) = rhs else { preconditionFailure() }
+          return l == r
+        }()
+        case (.error, .error): return {
+          guard case .error(let l) = lhs, case .error(let r) = rhs else { preconditionFailure() }
+          return l == r
+        }()
+        default: return false
+        }
+      }
+    #endif
+    }
 
-		/// Wrapper object for success response
-		public struct Success {
-			// SwiftProtobuf.Message conformance is added in an extension below. See the
-			// `Message` and `Message+*Additions` files in the SwiftProtobuf library for
-			// methods supported on all messages.
+    /// Wrapper object for success response
+    public struct Success {
+      // SwiftProtobuf.Message conformance is added in an extension below. See the
+      // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
+      // methods supported on all messages.
 
-			public var decrypted: Data = .init()
+      public var decrypted: Data = Data()
 
-			public var unknownFields = SwiftProtobuf.UnknownStorage()
+      public var unknownFields = SwiftProtobuf.UnknownStorage()
 
-			public init() {}
-		}
+      public init() {}
+    }
 
-		public init() {}
-	}
+    public init() {}
+  }
 
-	public init() {}
+  public init() {}
 }
 
 /// Decrypt a batch of messages using the appropriate topic keys
 public struct Xmtp_KeystoreApi_V1_DecryptV2Request {
-	// SwiftProtobuf.Message conformance is added in an extension below. See the
-	// `Message` and `Message+*Additions` files in the SwiftProtobuf library for
-	// methods supported on all messages.
+  // SwiftProtobuf.Message conformance is added in an extension below. See the
+  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
+  // methods supported on all messages.
 
-	public var requests: [Xmtp_KeystoreApi_V1_DecryptV2Request.Request] = []
+  public var requests: [Xmtp_KeystoreApi_V1_DecryptV2Request.Request] = []
 
-	public var unknownFields = SwiftProtobuf.UnknownStorage()
+  public var unknownFields = SwiftProtobuf.UnknownStorage()
 
-	/// A single decryption request
-	public struct Request {
-		// SwiftProtobuf.Message conformance is added in an extension below. See the
-		// `Message` and `Message+*Additions` files in the SwiftProtobuf library for
-		// methods supported on all messages.
+  /// A single decryption request
+  public struct Request {
+    // SwiftProtobuf.Message conformance is added in an extension below. See the
+    // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
+    // methods supported on all messages.
 
-		public var payload: Xmtp_MessageContents_Ciphertext {
-			get { return _payload ?? Xmtp_MessageContents_Ciphertext() }
-			set { _payload = newValue }
-		}
+    public var payload: Xmtp_MessageContents_Ciphertext {
+      get {return _payload ?? Xmtp_MessageContents_Ciphertext()}
+      set {_payload = newValue}
+    }
+    /// Returns true if `payload` has been explicitly set.
+    public var hasPayload: Bool {return self._payload != nil}
+    /// Clears the value of `payload`. Subsequent reads from it will return its default value.
+    public mutating func clearPayload() {self._payload = nil}
 
-		/// Returns true if `payload` has been explicitly set.
-		public var hasPayload: Bool { return _payload != nil }
-		/// Clears the value of `payload`. Subsequent reads from it will return its default value.
-		public mutating func clearPayload() { _payload = nil }
+    public var headerBytes: Data = Data()
 
-		public var headerBytes: Data = .init()
+    public var contentTopic: String = String()
 
-		public var contentTopic: String = .init()
+    public var unknownFields = SwiftProtobuf.UnknownStorage()
 
-		public var unknownFields = SwiftProtobuf.UnknownStorage()
+    public init() {}
 
-		public init() {}
+    fileprivate var _payload: Xmtp_MessageContents_Ciphertext? = nil
+  }
 
-		fileprivate var _payload: Xmtp_MessageContents_Ciphertext?
-	}
-
-	public init() {}
+  public init() {}
 }
 
 /// Encrypt a batch of messages using X3DH key agreement
 public struct Xmtp_KeystoreApi_V1_EncryptV1Request {
-	// SwiftProtobuf.Message conformance is added in an extension below. See the
-	// `Message` and `Message+*Additions` files in the SwiftProtobuf library for
-	// methods supported on all messages.
+  // SwiftProtobuf.Message conformance is added in an extension below. See the
+  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
+  // methods supported on all messages.
 
-	public var requests: [Xmtp_KeystoreApi_V1_EncryptV1Request.Request] = []
+  public var requests: [Xmtp_KeystoreApi_V1_EncryptV1Request.Request] = []
 
-	public var unknownFields = SwiftProtobuf.UnknownStorage()
+  public var unknownFields = SwiftProtobuf.UnknownStorage()
 
-	/// A single encryption request
-	public struct Request {
-		// SwiftProtobuf.Message conformance is added in an extension below. See the
-		// `Message` and `Message+*Additions` files in the SwiftProtobuf library for
-		// methods supported on all messages.
+  /// A single encryption request
+  public struct Request {
+    // SwiftProtobuf.Message conformance is added in an extension below. See the
+    // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
+    // methods supported on all messages.
 
-		public var recipient: Xmtp_MessageContents_PublicKeyBundle {
-			get { return _recipient ?? Xmtp_MessageContents_PublicKeyBundle() }
-			set { _recipient = newValue }
-		}
+    public var recipient: Xmtp_MessageContents_PublicKeyBundle {
+      get {return _recipient ?? Xmtp_MessageContents_PublicKeyBundle()}
+      set {_recipient = newValue}
+    }
+    /// Returns true if `recipient` has been explicitly set.
+    public var hasRecipient: Bool {return self._recipient != nil}
+    /// Clears the value of `recipient`. Subsequent reads from it will return its default value.
+    public mutating func clearRecipient() {self._recipient = nil}
 
-		/// Returns true if `recipient` has been explicitly set.
-		public var hasRecipient: Bool { return _recipient != nil }
-		/// Clears the value of `recipient`. Subsequent reads from it will return its default value.
-		public mutating func clearRecipient() { _recipient = nil }
+    public var payload: Data = Data()
 
-		public var payload: Data = .init()
+    public var headerBytes: Data = Data()
 
-		public var headerBytes: Data = .init()
+    public var unknownFields = SwiftProtobuf.UnknownStorage()
 
-		public var unknownFields = SwiftProtobuf.UnknownStorage()
+    public init() {}
 
-		public init() {}
+    fileprivate var _recipient: Xmtp_MessageContents_PublicKeyBundle? = nil
+  }
 
-		fileprivate var _recipient: Xmtp_MessageContents_PublicKeyBundle?
-	}
-
-	public init() {}
+  public init() {}
 }
 
 /// Response type for both V1 and V2 encryption requests
 public struct Xmtp_KeystoreApi_V1_EncryptResponse {
-	// SwiftProtobuf.Message conformance is added in an extension below. See the
-	// `Message` and `Message+*Additions` files in the SwiftProtobuf library for
-	// methods supported on all messages.
+  // SwiftProtobuf.Message conformance is added in an extension below. See the
+  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
+  // methods supported on all messages.
 
-	public var responses: [Xmtp_KeystoreApi_V1_EncryptResponse.Response] = []
+  public var responses: [Xmtp_KeystoreApi_V1_EncryptResponse.Response] = []
 
-	public var unknownFields = SwiftProtobuf.UnknownStorage()
+  public var unknownFields = SwiftProtobuf.UnknownStorage()
 
-	/// A single encryption response
-	public struct Response {
-		// SwiftProtobuf.Message conformance is added in an extension below. See the
-		// `Message` and `Message+*Additions` files in the SwiftProtobuf library for
-		// methods supported on all messages.
+  /// A single encryption response
+  public struct Response {
+    // SwiftProtobuf.Message conformance is added in an extension below. See the
+    // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
+    // methods supported on all messages.
 
-		public var response: Xmtp_KeystoreApi_V1_EncryptResponse.Response.OneOf_Response?
+    public var response: Xmtp_KeystoreApi_V1_EncryptResponse.Response.OneOf_Response? = nil
 
-		public var result: Xmtp_KeystoreApi_V1_EncryptResponse.Response.Success {
-			get {
-				if case let .result(v)? = response { return v }
-				return Xmtp_KeystoreApi_V1_EncryptResponse.Response.Success()
-			}
-			set { response = .result(newValue) }
-		}
+    public var result: Xmtp_KeystoreApi_V1_EncryptResponse.Response.Success {
+      get {
+        if case .result(let v)? = response {return v}
+        return Xmtp_KeystoreApi_V1_EncryptResponse.Response.Success()
+      }
+      set {response = .result(newValue)}
+    }
 
-		public var error: Xmtp_KeystoreApi_V1_KeystoreError {
-			get {
-				if case let .error(v)? = response { return v }
-				return Xmtp_KeystoreApi_V1_KeystoreError()
-			}
-			set { response = .error(newValue) }
-		}
+    public var error: Xmtp_KeystoreApi_V1_KeystoreError {
+      get {
+        if case .error(let v)? = response {return v}
+        return Xmtp_KeystoreApi_V1_KeystoreError()
+      }
+      set {response = .error(newValue)}
+    }
 
-		public var unknownFields = SwiftProtobuf.UnknownStorage()
+    public var unknownFields = SwiftProtobuf.UnknownStorage()
 
-		public enum OneOf_Response: Equatable {
-			case result(Xmtp_KeystoreApi_V1_EncryptResponse.Response.Success)
-			case error(Xmtp_KeystoreApi_V1_KeystoreError)
+    public enum OneOf_Response: Equatable {
+      case result(Xmtp_KeystoreApi_V1_EncryptResponse.Response.Success)
+      case error(Xmtp_KeystoreApi_V1_KeystoreError)
 
-			#if !swift(>=4.1)
-				public static func == (lhs: Xmtp_KeystoreApi_V1_EncryptResponse.Response.OneOf_Response, rhs: Xmtp_KeystoreApi_V1_EncryptResponse.Response.OneOf_Response) -> Bool {
-					// The use of inline closures is to circumvent an issue where the compiler
-					// allocates stack space for every case branch when no optimizations are
-					// enabled. https://github.com/apple/swift-protobuf/issues/1034
-					switch (lhs, rhs) {
-					case (.result, .result): return {
-							guard case let .result(l) = lhs, case let .result(r) = rhs else { preconditionFailure() }
-							return l == r
-						}()
-					case (.error, .error): return {
-							guard case let .error(l) = lhs, case let .error(r) = rhs else { preconditionFailure() }
-							return l == r
-						}()
-					default: return false
-					}
-				}
-			#endif
-		}
+    #if !swift(>=4.1)
+      public static func ==(lhs: Xmtp_KeystoreApi_V1_EncryptResponse.Response.OneOf_Response, rhs: Xmtp_KeystoreApi_V1_EncryptResponse.Response.OneOf_Response) -> Bool {
+        // The use of inline closures is to circumvent an issue where the compiler
+        // allocates stack space for every case branch when no optimizations are
+        // enabled. https://github.com/apple/swift-protobuf/issues/1034
+        switch (lhs, rhs) {
+        case (.result, .result): return {
+          guard case .result(let l) = lhs, case .result(let r) = rhs else { preconditionFailure() }
+          return l == r
+        }()
+        case (.error, .error): return {
+          guard case .error(let l) = lhs, case .error(let r) = rhs else { preconditionFailure() }
+          return l == r
+        }()
+        default: return false
+        }
+      }
+    #endif
+    }
 
-		/// Wrapper object for success response
-		public struct Success {
-			// SwiftProtobuf.Message conformance is added in an extension below. See the
-			// `Message` and `Message+*Additions` files in the SwiftProtobuf library for
-			// methods supported on all messages.
+    /// Wrapper object for success response
+    public struct Success {
+      // SwiftProtobuf.Message conformance is added in an extension below. See the
+      // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
+      // methods supported on all messages.
 
-			public var encrypted: Xmtp_MessageContents_Ciphertext {
-				get { return _encrypted ?? Xmtp_MessageContents_Ciphertext() }
-				set { _encrypted = newValue }
-			}
+      public var encrypted: Xmtp_MessageContents_Ciphertext {
+        get {return _encrypted ?? Xmtp_MessageContents_Ciphertext()}
+        set {_encrypted = newValue}
+      }
+      /// Returns true if `encrypted` has been explicitly set.
+      public var hasEncrypted: Bool {return self._encrypted != nil}
+      /// Clears the value of `encrypted`. Subsequent reads from it will return its default value.
+      public mutating func clearEncrypted() {self._encrypted = nil}
 
-			/// Returns true if `encrypted` has been explicitly set.
-			public var hasEncrypted: Bool { return _encrypted != nil }
-			/// Clears the value of `encrypted`. Subsequent reads from it will return its default value.
-			public mutating func clearEncrypted() { _encrypted = nil }
+      public var unknownFields = SwiftProtobuf.UnknownStorage()
 
-			public var unknownFields = SwiftProtobuf.UnknownStorage()
+      public init() {}
 
-			public init() {}
+      fileprivate var _encrypted: Xmtp_MessageContents_Ciphertext? = nil
+    }
 
-			fileprivate var _encrypted: Xmtp_MessageContents_Ciphertext?
-		}
+    public init() {}
+  }
 
-		public init() {}
-	}
-
-	public init() {}
+  public init() {}
 }
 
 /// Encrypt a batch of messages using the appropriate topic keys
 public struct Xmtp_KeystoreApi_V1_EncryptV2Request {
-	// SwiftProtobuf.Message conformance is added in an extension below. See the
-	// `Message` and `Message+*Additions` files in the SwiftProtobuf library for
-	// methods supported on all messages.
+  // SwiftProtobuf.Message conformance is added in an extension below. See the
+  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
+  // methods supported on all messages.
 
-	public var requests: [Xmtp_KeystoreApi_V1_EncryptV2Request.Request] = []
+  public var requests: [Xmtp_KeystoreApi_V1_EncryptV2Request.Request] = []
 
-	public var unknownFields = SwiftProtobuf.UnknownStorage()
+  public var unknownFields = SwiftProtobuf.UnknownStorage()
 
-	/// A single encryption request
-	public struct Request {
-		// SwiftProtobuf.Message conformance is added in an extension below. See the
-		// `Message` and `Message+*Additions` files in the SwiftProtobuf library for
-		// methods supported on all messages.
+  /// A single encryption request
+  public struct Request {
+    // SwiftProtobuf.Message conformance is added in an extension below. See the
+    // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
+    // methods supported on all messages.
 
-		public var payload: Data = .init()
+    public var payload: Data = Data()
 
-		public var headerBytes: Data = .init()
+    public var headerBytes: Data = Data()
 
-		public var contentTopic: String = .init()
+    public var contentTopic: String = String()
 
-		public var unknownFields = SwiftProtobuf.UnknownStorage()
+    public var unknownFields = SwiftProtobuf.UnknownStorage()
 
-		public init() {}
-	}
+    public init() {}
+  }
 
-	public init() {}
+  public init() {}
 }
 
 /// Request to create an invite payload, and store the topic keys in the Keystore
 public struct Xmtp_KeystoreApi_V1_CreateInviteRequest {
-	// SwiftProtobuf.Message conformance is added in an extension below. See the
-	// `Message` and `Message+*Additions` files in the SwiftProtobuf library for
-	// methods supported on all messages.
+  // SwiftProtobuf.Message conformance is added in an extension below. See the
+  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
+  // methods supported on all messages.
 
-	public var context: Xmtp_MessageContents_InvitationV1.Context {
-		get { return _context ?? Xmtp_MessageContents_InvitationV1.Context() }
-		set { _context = newValue }
-	}
+  public var context: Xmtp_MessageContents_InvitationV1.Context {
+    get {return _context ?? Xmtp_MessageContents_InvitationV1.Context()}
+    set {_context = newValue}
+  }
+  /// Returns true if `context` has been explicitly set.
+  public var hasContext: Bool {return self._context != nil}
+  /// Clears the value of `context`. Subsequent reads from it will return its default value.
+  public mutating func clearContext() {self._context = nil}
 
-	/// Returns true if `context` has been explicitly set.
-	public var hasContext: Bool { return _context != nil }
-	/// Clears the value of `context`. Subsequent reads from it will return its default value.
-	public mutating func clearContext() { _context = nil }
+  public var recipient: Xmtp_MessageContents_SignedPublicKeyBundle {
+    get {return _recipient ?? Xmtp_MessageContents_SignedPublicKeyBundle()}
+    set {_recipient = newValue}
+  }
+  /// Returns true if `recipient` has been explicitly set.
+  public var hasRecipient: Bool {return self._recipient != nil}
+  /// Clears the value of `recipient`. Subsequent reads from it will return its default value.
+  public mutating func clearRecipient() {self._recipient = nil}
 
-	public var recipient: Xmtp_MessageContents_SignedPublicKeyBundle {
-		get { return _recipient ?? Xmtp_MessageContents_SignedPublicKeyBundle() }
-		set { _recipient = newValue }
-	}
+  public var createdNs: UInt64 = 0
 
-	/// Returns true if `recipient` has been explicitly set.
-	public var hasRecipient: Bool { return _recipient != nil }
-	/// Clears the value of `recipient`. Subsequent reads from it will return its default value.
-	public mutating func clearRecipient() { _recipient = nil }
+  public var unknownFields = SwiftProtobuf.UnknownStorage()
 
-	public var createdNs: UInt64 = 0
+  public init() {}
 
-	public var unknownFields = SwiftProtobuf.UnknownStorage()
-
-	public init() {}
-
-	fileprivate var _context: Xmtp_MessageContents_InvitationV1.Context?
-	fileprivate var _recipient: Xmtp_MessageContents_SignedPublicKeyBundle?
+  fileprivate var _context: Xmtp_MessageContents_InvitationV1.Context? = nil
+  fileprivate var _recipient: Xmtp_MessageContents_SignedPublicKeyBundle? = nil
 }
 
 /// Response to a CreateInviteRequest
 public struct Xmtp_KeystoreApi_V1_CreateInviteResponse {
-	// SwiftProtobuf.Message conformance is added in an extension below. See the
-	// `Message` and `Message+*Additions` files in the SwiftProtobuf library for
-	// methods supported on all messages.
+  // SwiftProtobuf.Message conformance is added in an extension below. See the
+  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
+  // methods supported on all messages.
 
-	public var conversation: Xmtp_MessageContents_ConversationReference {
-		get { return _conversation ?? Xmtp_MessageContents_ConversationReference() }
-		set { _conversation = newValue }
-	}
+  public var conversation: Xmtp_MessageContents_ConversationReference {
+    get {return _conversation ?? Xmtp_MessageContents_ConversationReference()}
+    set {_conversation = newValue}
+  }
+  /// Returns true if `conversation` has been explicitly set.
+  public var hasConversation: Bool {return self._conversation != nil}
+  /// Clears the value of `conversation`. Subsequent reads from it will return its default value.
+  public mutating func clearConversation() {self._conversation = nil}
 
-	/// Returns true if `conversation` has been explicitly set.
-	public var hasConversation: Bool { return _conversation != nil }
-	/// Clears the value of `conversation`. Subsequent reads from it will return its default value.
-	public mutating func clearConversation() { _conversation = nil }
+  public var payload: Data = Data()
 
-	public var payload: Data = .init()
+  public var unknownFields = SwiftProtobuf.UnknownStorage()
 
-	public var unknownFields = SwiftProtobuf.UnknownStorage()
+  public init() {}
 
-	public init() {}
-
-	fileprivate var _conversation: Xmtp_MessageContents_ConversationReference?
+  fileprivate var _conversation: Xmtp_MessageContents_ConversationReference? = nil
 }
 
 /// Request to save a batch of invite messages to the Keystore
 public struct Xmtp_KeystoreApi_V1_SaveInvitesRequest {
-	// SwiftProtobuf.Message conformance is added in an extension below. See the
-	// `Message` and `Message+*Additions` files in the SwiftProtobuf library for
-	// methods supported on all messages.
+  // SwiftProtobuf.Message conformance is added in an extension below. See the
+  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
+  // methods supported on all messages.
 
-	public var requests: [Xmtp_KeystoreApi_V1_SaveInvitesRequest.Request] = []
+  public var requests: [Xmtp_KeystoreApi_V1_SaveInvitesRequest.Request] = []
 
-	public var unknownFields = SwiftProtobuf.UnknownStorage()
+  public var unknownFields = SwiftProtobuf.UnknownStorage()
 
-	/// Mirrors xmtp.envelope schema
-	public struct Request {
-		// SwiftProtobuf.Message conformance is added in an extension below. See the
-		// `Message` and `Message+*Additions` files in the SwiftProtobuf library for
-		// methods supported on all messages.
+  /// Mirrors xmtp.envelope schema
+  public struct Request {
+    // SwiftProtobuf.Message conformance is added in an extension below. See the
+    // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
+    // methods supported on all messages.
 
-		public var contentTopic: String = .init()
+    public var contentTopic: String = String()
 
-		public var timestampNs: UInt64 = 0
+    public var timestampNs: UInt64 = 0
 
-		public var payload: Data = .init()
+    public var payload: Data = Data()
 
-		public var unknownFields = SwiftProtobuf.UnknownStorage()
+    public var unknownFields = SwiftProtobuf.UnknownStorage()
 
-		public init() {}
-	}
+    public init() {}
+  }
 
-	public init() {}
+  public init() {}
 }
 
 /// Response to a SaveInvitesRequest
 public struct Xmtp_KeystoreApi_V1_SaveInvitesResponse {
-	// SwiftProtobuf.Message conformance is added in an extension below. See the
-	// `Message` and `Message+*Additions` files in the SwiftProtobuf library for
-	// methods supported on all messages.
+  // SwiftProtobuf.Message conformance is added in an extension below. See the
+  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
+  // methods supported on all messages.
 
-	public var responses: [Xmtp_KeystoreApi_V1_SaveInvitesResponse.Response] = []
+  public var responses: [Xmtp_KeystoreApi_V1_SaveInvitesResponse.Response] = []
 
-	public var unknownFields = SwiftProtobuf.UnknownStorage()
+  public var unknownFields = SwiftProtobuf.UnknownStorage()
 
-	/// A single response
-	public struct Response {
-		// SwiftProtobuf.Message conformance is added in an extension below. See the
-		// `Message` and `Message+*Additions` files in the SwiftProtobuf library for
-		// methods supported on all messages.
+  /// A single response
+  public struct Response {
+    // SwiftProtobuf.Message conformance is added in an extension below. See the
+    // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
+    // methods supported on all messages.
 
-		public var response: Xmtp_KeystoreApi_V1_SaveInvitesResponse.Response.OneOf_Response?
+    public var response: Xmtp_KeystoreApi_V1_SaveInvitesResponse.Response.OneOf_Response? = nil
 
-		public var result: Xmtp_KeystoreApi_V1_SaveInvitesResponse.Response.Success {
-			get {
-				if case let .result(v)? = response { return v }
-				return Xmtp_KeystoreApi_V1_SaveInvitesResponse.Response.Success()
-			}
-			set { response = .result(newValue) }
-		}
+    public var result: Xmtp_KeystoreApi_V1_SaveInvitesResponse.Response.Success {
+      get {
+        if case .result(let v)? = response {return v}
+        return Xmtp_KeystoreApi_V1_SaveInvitesResponse.Response.Success()
+      }
+      set {response = .result(newValue)}
+    }
 
-		public var error: Xmtp_KeystoreApi_V1_KeystoreError {
-			get {
-				if case let .error(v)? = response { return v }
-				return Xmtp_KeystoreApi_V1_KeystoreError()
-			}
-			set { response = .error(newValue) }
-		}
+    public var error: Xmtp_KeystoreApi_V1_KeystoreError {
+      get {
+        if case .error(let v)? = response {return v}
+        return Xmtp_KeystoreApi_V1_KeystoreError()
+      }
+      set {response = .error(newValue)}
+    }
 
-		public var unknownFields = SwiftProtobuf.UnknownStorage()
+    public var unknownFields = SwiftProtobuf.UnknownStorage()
 
-		public enum OneOf_Response: Equatable {
-			case result(Xmtp_KeystoreApi_V1_SaveInvitesResponse.Response.Success)
-			case error(Xmtp_KeystoreApi_V1_KeystoreError)
+    public enum OneOf_Response: Equatable {
+      case result(Xmtp_KeystoreApi_V1_SaveInvitesResponse.Response.Success)
+      case error(Xmtp_KeystoreApi_V1_KeystoreError)
 
-			#if !swift(>=4.1)
-				public static func == (lhs: Xmtp_KeystoreApi_V1_SaveInvitesResponse.Response.OneOf_Response, rhs: Xmtp_KeystoreApi_V1_SaveInvitesResponse.Response.OneOf_Response) -> Bool {
-					// The use of inline closures is to circumvent an issue where the compiler
-					// allocates stack space for every case branch when no optimizations are
-					// enabled. https://github.com/apple/swift-protobuf/issues/1034
-					switch (lhs, rhs) {
-					case (.result, .result): return {
-							guard case let .result(l) = lhs, case let .result(r) = rhs else { preconditionFailure() }
-							return l == r
-						}()
-					case (.error, .error): return {
-							guard case let .error(l) = lhs, case let .error(r) = rhs else { preconditionFailure() }
-							return l == r
-						}()
-					default: return false
-					}
-				}
-			#endif
-		}
+    #if !swift(>=4.1)
+      public static func ==(lhs: Xmtp_KeystoreApi_V1_SaveInvitesResponse.Response.OneOf_Response, rhs: Xmtp_KeystoreApi_V1_SaveInvitesResponse.Response.OneOf_Response) -> Bool {
+        // The use of inline closures is to circumvent an issue where the compiler
+        // allocates stack space for every case branch when no optimizations are
+        // enabled. https://github.com/apple/swift-protobuf/issues/1034
+        switch (lhs, rhs) {
+        case (.result, .result): return {
+          guard case .result(let l) = lhs, case .result(let r) = rhs else { preconditionFailure() }
+          return l == r
+        }()
+        case (.error, .error): return {
+          guard case .error(let l) = lhs, case .error(let r) = rhs else { preconditionFailure() }
+          return l == r
+        }()
+        default: return false
+        }
+      }
+    #endif
+    }
 
-		/// Wrapper object for success response
-		public struct Success {
-			// SwiftProtobuf.Message conformance is added in an extension below. See the
-			// `Message` and `Message+*Additions` files in the SwiftProtobuf library for
-			// methods supported on all messages.
+    /// Wrapper object for success response
+    public struct Success {
+      // SwiftProtobuf.Message conformance is added in an extension below. See the
+      // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
+      // methods supported on all messages.
 
-			public var conversation: Xmtp_MessageContents_ConversationReference {
-				get { return _conversation ?? Xmtp_MessageContents_ConversationReference() }
-				set { _conversation = newValue }
-			}
+      public var conversation: Xmtp_MessageContents_ConversationReference {
+        get {return _conversation ?? Xmtp_MessageContents_ConversationReference()}
+        set {_conversation = newValue}
+      }
+      /// Returns true if `conversation` has been explicitly set.
+      public var hasConversation: Bool {return self._conversation != nil}
+      /// Clears the value of `conversation`. Subsequent reads from it will return its default value.
+      public mutating func clearConversation() {self._conversation = nil}
 
-			/// Returns true if `conversation` has been explicitly set.
-			public var hasConversation: Bool { return _conversation != nil }
-			/// Clears the value of `conversation`. Subsequent reads from it will return its default value.
-			public mutating func clearConversation() { _conversation = nil }
+      public var unknownFields = SwiftProtobuf.UnknownStorage()
 
-			public var unknownFields = SwiftProtobuf.UnknownStorage()
+      public init() {}
 
-			public init() {}
+      fileprivate var _conversation: Xmtp_MessageContents_ConversationReference? = nil
+    }
 
-			fileprivate var _conversation: Xmtp_MessageContents_ConversationReference?
-		}
+    public init() {}
+  }
 
-		public init() {}
-	}
-
-	public init() {}
+  public init() {}
 }
 
 /// CreateAuthTokenRequest is used to create an auth token for the XMTP API
 public struct Xmtp_KeystoreApi_V1_CreateAuthTokenRequest {
-	// SwiftProtobuf.Message conformance is added in an extension below. See the
-	// `Message` and `Message+*Additions` files in the SwiftProtobuf library for
-	// methods supported on all messages.
+  // SwiftProtobuf.Message conformance is added in an extension below. See the
+  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
+  // methods supported on all messages.
 
-	public var timestampNs: UInt64 {
-		get { return _timestampNs ?? 0 }
-		set { _timestampNs = newValue }
-	}
+  public var timestampNs: UInt64 {
+    get {return _timestampNs ?? 0}
+    set {_timestampNs = newValue}
+  }
+  /// Returns true if `timestampNs` has been explicitly set.
+  public var hasTimestampNs: Bool {return self._timestampNs != nil}
+  /// Clears the value of `timestampNs`. Subsequent reads from it will return its default value.
+  public mutating func clearTimestampNs() {self._timestampNs = nil}
 
-	/// Returns true if `timestampNs` has been explicitly set.
-	public var hasTimestampNs: Bool { return _timestampNs != nil }
-	/// Clears the value of `timestampNs`. Subsequent reads from it will return its default value.
-	public mutating func clearTimestampNs() { _timestampNs = nil }
+  public var unknownFields = SwiftProtobuf.UnknownStorage()
 
-	public var unknownFields = SwiftProtobuf.UnknownStorage()
+  public init() {}
 
-	public init() {}
-
-	fileprivate var _timestampNs: UInt64?
+  fileprivate var _timestampNs: UInt64? = nil
 }
 
 /// SignDigestRequest is used to sign a digest with either the identity key
 /// or a prekey
 public struct Xmtp_KeystoreApi_V1_SignDigestRequest {
-	// SwiftProtobuf.Message conformance is added in an extension below. See the
-	// `Message` and `Message+*Additions` files in the SwiftProtobuf library for
-	// methods supported on all messages.
+  // SwiftProtobuf.Message conformance is added in an extension below. See the
+  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
+  // methods supported on all messages.
 
-	public var digest: Data = .init()
+  public var digest: Data = Data()
 
-	public var signer: Xmtp_KeystoreApi_V1_SignDigestRequest.OneOf_Signer?
+  public var signer: Xmtp_KeystoreApi_V1_SignDigestRequest.OneOf_Signer? = nil
 
-	public var identityKey: Bool {
-		get {
-			if case let .identityKey(v)? = signer { return v }
-			return false
-		}
-		set { signer = .identityKey(newValue) }
-	}
+  public var identityKey: Bool {
+    get {
+      if case .identityKey(let v)? = signer {return v}
+      return false
+    }
+    set {signer = .identityKey(newValue)}
+  }
 
-	public var prekeyIndex: UInt32 {
-		get {
-			if case let .prekeyIndex(v)? = signer { return v }
-			return 0
-		}
-		set { signer = .prekeyIndex(newValue) }
-	}
+  public var prekeyIndex: UInt32 {
+    get {
+      if case .prekeyIndex(let v)? = signer {return v}
+      return 0
+    }
+    set {signer = .prekeyIndex(newValue)}
+  }
 
-	public var unknownFields = SwiftProtobuf.UnknownStorage()
+  public var unknownFields = SwiftProtobuf.UnknownStorage()
 
-	public enum OneOf_Signer: Equatable {
-		case identityKey(Bool)
-		case prekeyIndex(UInt32)
+  public enum OneOf_Signer: Equatable {
+    case identityKey(Bool)
+    case prekeyIndex(UInt32)
 
-		#if !swift(>=4.1)
-			public static func == (lhs: Xmtp_KeystoreApi_V1_SignDigestRequest.OneOf_Signer, rhs: Xmtp_KeystoreApi_V1_SignDigestRequest.OneOf_Signer) -> Bool {
-				// The use of inline closures is to circumvent an issue where the compiler
-				// allocates stack space for every case branch when no optimizations are
-				// enabled. https://github.com/apple/swift-protobuf/issues/1034
-				switch (lhs, rhs) {
-				case (.identityKey, .identityKey): return {
-						guard case let .identityKey(l) = lhs, case let .identityKey(r) = rhs else { preconditionFailure() }
-						return l == r
-					}()
-				case (.prekeyIndex, .prekeyIndex): return {
-						guard case let .prekeyIndex(l) = lhs, case let .prekeyIndex(r) = rhs else { preconditionFailure() }
-						return l == r
-					}()
-				default: return false
-				}
-			}
-		#endif
-	}
+  #if !swift(>=4.1)
+    public static func ==(lhs: Xmtp_KeystoreApi_V1_SignDigestRequest.OneOf_Signer, rhs: Xmtp_KeystoreApi_V1_SignDigestRequest.OneOf_Signer) -> Bool {
+      // The use of inline closures is to circumvent an issue where the compiler
+      // allocates stack space for every case branch when no optimizations are
+      // enabled. https://github.com/apple/swift-protobuf/issues/1034
+      switch (lhs, rhs) {
+      case (.identityKey, .identityKey): return {
+        guard case .identityKey(let l) = lhs, case .identityKey(let r) = rhs else { preconditionFailure() }
+        return l == r
+      }()
+      case (.prekeyIndex, .prekeyIndex): return {
+        guard case .prekeyIndex(let l) = lhs, case .prekeyIndex(let r) = rhs else { preconditionFailure() }
+        return l == r
+      }()
+      default: return false
+      }
+    }
+  #endif
+  }
 
-	public init() {}
+  public init() {}
 }
 
 /// A mapping of topics to their decrypted invitations
 public struct Xmtp_KeystoreApi_V1_TopicMap {
-	// SwiftProtobuf.Message conformance is added in an extension below. See the
-	// `Message` and `Message+*Additions` files in the SwiftProtobuf library for
-	// methods supported on all messages.
+  // SwiftProtobuf.Message conformance is added in an extension below. See the
+  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
+  // methods supported on all messages.
 
-	public var topics: [String: Xmtp_KeystoreApi_V1_TopicMap.TopicData] = [:]
+  public var topics: Dictionary<String,Xmtp_KeystoreApi_V1_TopicMap.TopicData> = [:]
 
-	public var unknownFields = SwiftProtobuf.UnknownStorage()
+  public var unknownFields = SwiftProtobuf.UnknownStorage()
 
-	/// TopicData wraps the invitation and the timestamp it was created
-	public struct TopicData {
-		// SwiftProtobuf.Message conformance is added in an extension below. See the
-		// `Message` and `Message+*Additions` files in the SwiftProtobuf library for
-		// methods supported on all messages.
+  /// TopicData wraps the invitation and the timestamp it was created
+  public struct TopicData {
+    // SwiftProtobuf.Message conformance is added in an extension below. See the
+    // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
+    // methods supported on all messages.
 
-		public var createdNs: UInt64 = 0
+    public var createdNs: UInt64 = 0
 
-		public var peerAddress: String = .init()
+    public var peerAddress: String = String()
 
-		public var invitation: Xmtp_MessageContents_InvitationV1 {
-			get { return _invitation ?? Xmtp_MessageContents_InvitationV1() }
-			set { _invitation = newValue }
-		}
+    public var invitation: Xmtp_MessageContents_InvitationV1 {
+      get {return _invitation ?? Xmtp_MessageContents_InvitationV1()}
+      set {_invitation = newValue}
+    }
+    /// Returns true if `invitation` has been explicitly set.
+    public var hasInvitation: Bool {return self._invitation != nil}
+    /// Clears the value of `invitation`. Subsequent reads from it will return its default value.
+    public mutating func clearInvitation() {self._invitation = nil}
 
-		/// Returns true if `invitation` has been explicitly set.
-		public var hasInvitation: Bool { return _invitation != nil }
-		/// Clears the value of `invitation`. Subsequent reads from it will return its default value.
-		public mutating func clearInvitation() { _invitation = nil }
+    public var unknownFields = SwiftProtobuf.UnknownStorage()
 
-		public var unknownFields = SwiftProtobuf.UnknownStorage()
+    public init() {}
 
-		public init() {}
+    fileprivate var _invitation: Xmtp_MessageContents_InvitationV1? = nil
+  }
 
-		fileprivate var _invitation: Xmtp_MessageContents_InvitationV1?
-	}
-
-	public init() {}
+  public init() {}
 }
 
 #if swift(>=5.5) && canImport(_Concurrency)
-	extension Xmtp_KeystoreApi_V1_ErrorCode: @unchecked Sendable {}
-	extension Xmtp_KeystoreApi_V1_KeystoreError: @unchecked Sendable {}
-	extension Xmtp_KeystoreApi_V1_DecryptV1Request: @unchecked Sendable {}
-	extension Xmtp_KeystoreApi_V1_DecryptV1Request.Request: @unchecked Sendable {}
-	extension Xmtp_KeystoreApi_V1_DecryptResponse: @unchecked Sendable {}
-	extension Xmtp_KeystoreApi_V1_DecryptResponse.Response: @unchecked Sendable {}
-	extension Xmtp_KeystoreApi_V1_DecryptResponse.Response.OneOf_Response: @unchecked Sendable {}
-	extension Xmtp_KeystoreApi_V1_DecryptResponse.Response.Success: @unchecked Sendable {}
-	extension Xmtp_KeystoreApi_V1_DecryptV2Request: @unchecked Sendable {}
-	extension Xmtp_KeystoreApi_V1_DecryptV2Request.Request: @unchecked Sendable {}
-	extension Xmtp_KeystoreApi_V1_EncryptV1Request: @unchecked Sendable {}
-	extension Xmtp_KeystoreApi_V1_EncryptV1Request.Request: @unchecked Sendable {}
-	extension Xmtp_KeystoreApi_V1_EncryptResponse: @unchecked Sendable {}
-	extension Xmtp_KeystoreApi_V1_EncryptResponse.Response: @unchecked Sendable {}
-	extension Xmtp_KeystoreApi_V1_EncryptResponse.Response.OneOf_Response: @unchecked Sendable {}
-	extension Xmtp_KeystoreApi_V1_EncryptResponse.Response.Success: @unchecked Sendable {}
-	extension Xmtp_KeystoreApi_V1_EncryptV2Request: @unchecked Sendable {}
-	extension Xmtp_KeystoreApi_V1_EncryptV2Request.Request: @unchecked Sendable {}
-	extension Xmtp_KeystoreApi_V1_CreateInviteRequest: @unchecked Sendable {}
-	extension Xmtp_KeystoreApi_V1_CreateInviteResponse: @unchecked Sendable {}
-	extension Xmtp_KeystoreApi_V1_SaveInvitesRequest: @unchecked Sendable {}
-	extension Xmtp_KeystoreApi_V1_SaveInvitesRequest.Request: @unchecked Sendable {}
-	extension Xmtp_KeystoreApi_V1_SaveInvitesResponse: @unchecked Sendable {}
-	extension Xmtp_KeystoreApi_V1_SaveInvitesResponse.Response: @unchecked Sendable {}
-	extension Xmtp_KeystoreApi_V1_SaveInvitesResponse.Response.OneOf_Response: @unchecked Sendable {}
-	extension Xmtp_KeystoreApi_V1_SaveInvitesResponse.Response.Success: @unchecked Sendable {}
-	extension Xmtp_KeystoreApi_V1_CreateAuthTokenRequest: @unchecked Sendable {}
-	extension Xmtp_KeystoreApi_V1_SignDigestRequest: @unchecked Sendable {}
-	extension Xmtp_KeystoreApi_V1_SignDigestRequest.OneOf_Signer: @unchecked Sendable {}
-	extension Xmtp_KeystoreApi_V1_TopicMap: @unchecked Sendable {}
-	extension Xmtp_KeystoreApi_V1_TopicMap.TopicData: @unchecked Sendable {}
-#endif // swift(>=5.5) && canImport(_Concurrency)
+extension Xmtp_KeystoreApi_V1_ErrorCode: @unchecked Sendable {}
+extension Xmtp_KeystoreApi_V1_KeystoreError: @unchecked Sendable {}
+extension Xmtp_KeystoreApi_V1_DecryptV1Request: @unchecked Sendable {}
+extension Xmtp_KeystoreApi_V1_DecryptV1Request.Request: @unchecked Sendable {}
+extension Xmtp_KeystoreApi_V1_DecryptResponse: @unchecked Sendable {}
+extension Xmtp_KeystoreApi_V1_DecryptResponse.Response: @unchecked Sendable {}
+extension Xmtp_KeystoreApi_V1_DecryptResponse.Response.OneOf_Response: @unchecked Sendable {}
+extension Xmtp_KeystoreApi_V1_DecryptResponse.Response.Success: @unchecked Sendable {}
+extension Xmtp_KeystoreApi_V1_DecryptV2Request: @unchecked Sendable {}
+extension Xmtp_KeystoreApi_V1_DecryptV2Request.Request: @unchecked Sendable {}
+extension Xmtp_KeystoreApi_V1_EncryptV1Request: @unchecked Sendable {}
+extension Xmtp_KeystoreApi_V1_EncryptV1Request.Request: @unchecked Sendable {}
+extension Xmtp_KeystoreApi_V1_EncryptResponse: @unchecked Sendable {}
+extension Xmtp_KeystoreApi_V1_EncryptResponse.Response: @unchecked Sendable {}
+extension Xmtp_KeystoreApi_V1_EncryptResponse.Response.OneOf_Response: @unchecked Sendable {}
+extension Xmtp_KeystoreApi_V1_EncryptResponse.Response.Success: @unchecked Sendable {}
+extension Xmtp_KeystoreApi_V1_EncryptV2Request: @unchecked Sendable {}
+extension Xmtp_KeystoreApi_V1_EncryptV2Request.Request: @unchecked Sendable {}
+extension Xmtp_KeystoreApi_V1_CreateInviteRequest: @unchecked Sendable {}
+extension Xmtp_KeystoreApi_V1_CreateInviteResponse: @unchecked Sendable {}
+extension Xmtp_KeystoreApi_V1_SaveInvitesRequest: @unchecked Sendable {}
+extension Xmtp_KeystoreApi_V1_SaveInvitesRequest.Request: @unchecked Sendable {}
+extension Xmtp_KeystoreApi_V1_SaveInvitesResponse: @unchecked Sendable {}
+extension Xmtp_KeystoreApi_V1_SaveInvitesResponse.Response: @unchecked Sendable {}
+extension Xmtp_KeystoreApi_V1_SaveInvitesResponse.Response.OneOf_Response: @unchecked Sendable {}
+extension Xmtp_KeystoreApi_V1_SaveInvitesResponse.Response.Success: @unchecked Sendable {}
+extension Xmtp_KeystoreApi_V1_CreateAuthTokenRequest: @unchecked Sendable {}
+extension Xmtp_KeystoreApi_V1_SignDigestRequest: @unchecked Sendable {}
+extension Xmtp_KeystoreApi_V1_SignDigestRequest.OneOf_Signer: @unchecked Sendable {}
+extension Xmtp_KeystoreApi_V1_TopicMap: @unchecked Sendable {}
+extension Xmtp_KeystoreApi_V1_TopicMap.TopicData: @unchecked Sendable {}
+#endif  // swift(>=5.5) && canImport(_Concurrency)
 
 // MARK: - Code below here is support for the SwiftProtobuf runtime.
 
-private let _protobuf_package = "xmtp.keystore_api.v1"
+fileprivate let _protobuf_package = "xmtp.keystore_api.v1"
 
 extension Xmtp_KeystoreApi_V1_ErrorCode: SwiftProtobuf._ProtoNameProviding {
-	public static let _protobuf_nameMap: SwiftProtobuf._NameMap = [
-		0: .same(proto: "ERROR_CODE_UNSPECIFIED"),
-		1: .same(proto: "ERROR_CODE_INVALID_INPUT"),
-		2: .same(proto: "ERROR_CODE_NO_MATCHING_PREKEY"),
-	]
+  public static let _protobuf_nameMap: SwiftProtobuf._NameMap = [
+    0: .same(proto: "ERROR_CODE_UNSPECIFIED"),
+    1: .same(proto: "ERROR_CODE_INVALID_INPUT"),
+    2: .same(proto: "ERROR_CODE_NO_MATCHING_PREKEY"),
+  ]
 }
 
 extension Xmtp_KeystoreApi_V1_KeystoreError: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
-	public static let protoMessageName: String = _protobuf_package + ".KeystoreError"
-	public static let _protobuf_nameMap: SwiftProtobuf._NameMap = [
-		1: .same(proto: "message"),
-		2: .same(proto: "code"),
-	]
+  public static let protoMessageName: String = _protobuf_package + ".KeystoreError"
+  public static let _protobuf_nameMap: SwiftProtobuf._NameMap = [
+    1: .same(proto: "message"),
+    2: .same(proto: "code"),
+  ]
 
-	public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
-		while let fieldNumber = try decoder.nextFieldNumber() {
-			// The use of inline closures is to circumvent an issue where the compiler
-			// allocates stack space for every case branch when no optimizations are
-			// enabled. https://github.com/apple/swift-protobuf/issues/1034
-			switch fieldNumber {
-			case 1: try try decoder.decodeSingularStringField(value: &message)
-			case 2: try try decoder.decodeSingularEnumField(value: &code)
-			default: break
-			}
-		}
-	}
+  public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
+    while let fieldNumber = try decoder.nextFieldNumber() {
+      // The use of inline closures is to circumvent an issue where the compiler
+      // allocates stack space for every case branch when no optimizations are
+      // enabled. https://github.com/apple/swift-protobuf/issues/1034
+      switch fieldNumber {
+      case 1: try { try decoder.decodeSingularStringField(value: &self.message) }()
+      case 2: try { try decoder.decodeSingularEnumField(value: &self.code) }()
+      default: break
+      }
+    }
+  }
 
-	public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
-		if !message.isEmpty {
-			try visitor.visitSingularStringField(value: message, fieldNumber: 1)
-		}
-		if code != .unspecified {
-			try visitor.visitSingularEnumField(value: code, fieldNumber: 2)
-		}
-		try unknownFields.traverse(visitor: &visitor)
-	}
+  public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    if !self.message.isEmpty {
+      try visitor.visitSingularStringField(value: self.message, fieldNumber: 1)
+    }
+    if self.code != .unspecified {
+      try visitor.visitSingularEnumField(value: self.code, fieldNumber: 2)
+    }
+    try unknownFields.traverse(visitor: &visitor)
+  }
 
-	public static func == (lhs: Xmtp_KeystoreApi_V1_KeystoreError, rhs: Xmtp_KeystoreApi_V1_KeystoreError) -> Bool {
-		if lhs.message != rhs.message { return false }
-		if lhs.code != rhs.code { return false }
-		if lhs.unknownFields != rhs.unknownFields { return false }
-		return true
-	}
+  public static func ==(lhs: Xmtp_KeystoreApi_V1_KeystoreError, rhs: Xmtp_KeystoreApi_V1_KeystoreError) -> Bool {
+    if lhs.message != rhs.message {return false}
+    if lhs.code != rhs.code {return false}
+    if lhs.unknownFields != rhs.unknownFields {return false}
+    return true
+  }
 }
 
 extension Xmtp_KeystoreApi_V1_DecryptV1Request: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
-	public static let protoMessageName: String = _protobuf_package + ".DecryptV1Request"
-	public static let _protobuf_nameMap: SwiftProtobuf._NameMap = [
-		1: .same(proto: "requests"),
-	]
+  public static let protoMessageName: String = _protobuf_package + ".DecryptV1Request"
+  public static let _protobuf_nameMap: SwiftProtobuf._NameMap = [
+    1: .same(proto: "requests"),
+  ]
 
-	public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
-		while let fieldNumber = try decoder.nextFieldNumber() {
-			// The use of inline closures is to circumvent an issue where the compiler
-			// allocates stack space for every case branch when no optimizations are
-			// enabled. https://github.com/apple/swift-protobuf/issues/1034
-			switch fieldNumber {
-			case 1: try try decoder.decodeRepeatedMessageField(value: &requests)
-			default: break
-			}
-		}
-	}
+  public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
+    while let fieldNumber = try decoder.nextFieldNumber() {
+      // The use of inline closures is to circumvent an issue where the compiler
+      // allocates stack space for every case branch when no optimizations are
+      // enabled. https://github.com/apple/swift-protobuf/issues/1034
+      switch fieldNumber {
+      case 1: try { try decoder.decodeRepeatedMessageField(value: &self.requests) }()
+      default: break
+      }
+    }
+  }
 
-	public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
-		if !requests.isEmpty {
-			try visitor.visitRepeatedMessageField(value: requests, fieldNumber: 1)
-		}
-		try unknownFields.traverse(visitor: &visitor)
-	}
+  public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    if !self.requests.isEmpty {
+      try visitor.visitRepeatedMessageField(value: self.requests, fieldNumber: 1)
+    }
+    try unknownFields.traverse(visitor: &visitor)
+  }
 
-	public static func == (lhs: Xmtp_KeystoreApi_V1_DecryptV1Request, rhs: Xmtp_KeystoreApi_V1_DecryptV1Request) -> Bool {
-		if lhs.requests != rhs.requests { return false }
-		if lhs.unknownFields != rhs.unknownFields { return false }
-		return true
-	}
+  public static func ==(lhs: Xmtp_KeystoreApi_V1_DecryptV1Request, rhs: Xmtp_KeystoreApi_V1_DecryptV1Request) -> Bool {
+    if lhs.requests != rhs.requests {return false}
+    if lhs.unknownFields != rhs.unknownFields {return false}
+    return true
+  }
 }
 
 extension Xmtp_KeystoreApi_V1_DecryptV1Request.Request: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
-	public static let protoMessageName: String = Xmtp_KeystoreApi_V1_DecryptV1Request.protoMessageName + ".Request"
-	public static let _protobuf_nameMap: SwiftProtobuf._NameMap = [
-		1: .same(proto: "payload"),
-		2: .standard(proto: "peer_keys"),
-		3: .standard(proto: "header_bytes"),
-		4: .standard(proto: "is_sender"),
-	]
+  public static let protoMessageName: String = Xmtp_KeystoreApi_V1_DecryptV1Request.protoMessageName + ".Request"
+  public static let _protobuf_nameMap: SwiftProtobuf._NameMap = [
+    1: .same(proto: "payload"),
+    2: .standard(proto: "peer_keys"),
+    3: .standard(proto: "header_bytes"),
+    4: .standard(proto: "is_sender"),
+  ]
 
-	public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
-		while let fieldNumber = try decoder.nextFieldNumber() {
-			// The use of inline closures is to circumvent an issue where the compiler
-			// allocates stack space for every case branch when no optimizations are
-			// enabled. https://github.com/apple/swift-protobuf/issues/1034
-			switch fieldNumber {
-			case 1: try try decoder.decodeSingularMessageField(value: &_payload)
-			case 2: try try decoder.decodeSingularMessageField(value: &_peerKeys)
-			case 3: try try decoder.decodeSingularBytesField(value: &headerBytes)
-			case 4: try try decoder.decodeSingularBoolField(value: &isSender)
-			default: break
-			}
-		}
-	}
+  public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
+    while let fieldNumber = try decoder.nextFieldNumber() {
+      // The use of inline closures is to circumvent an issue where the compiler
+      // allocates stack space for every case branch when no optimizations are
+      // enabled. https://github.com/apple/swift-protobuf/issues/1034
+      switch fieldNumber {
+      case 1: try { try decoder.decodeSingularMessageField(value: &self._payload) }()
+      case 2: try { try decoder.decodeSingularMessageField(value: &self._peerKeys) }()
+      case 3: try { try decoder.decodeSingularBytesField(value: &self.headerBytes) }()
+      case 4: try { try decoder.decodeSingularBoolField(value: &self.isSender) }()
+      default: break
+      }
+    }
+  }
 
-	public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
-		// The use of inline closures is to circumvent an issue where the compiler
-		// allocates stack space for every if/case branch local when no optimizations
-		// are enabled. https://github.com/apple/swift-protobuf/issues/1034 and
-		// https://github.com/apple/swift-protobuf/issues/1182
-		try { if let v = self._payload {
-			try visitor.visitSingularMessageField(value: v, fieldNumber: 1)
-		} }()
-		try { if let v = self._peerKeys {
-			try visitor.visitSingularMessageField(value: v, fieldNumber: 2)
-		} }()
-		if !headerBytes.isEmpty {
-			try visitor.visitSingularBytesField(value: headerBytes, fieldNumber: 3)
-		}
-		if isSender != false {
-			try visitor.visitSingularBoolField(value: isSender, fieldNumber: 4)
-		}
-		try unknownFields.traverse(visitor: &visitor)
-	}
+  public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    // The use of inline closures is to circumvent an issue where the compiler
+    // allocates stack space for every if/case branch local when no optimizations
+    // are enabled. https://github.com/apple/swift-protobuf/issues/1034 and
+    // https://github.com/apple/swift-protobuf/issues/1182
+    try { if let v = self._payload {
+      try visitor.visitSingularMessageField(value: v, fieldNumber: 1)
+    } }()
+    try { if let v = self._peerKeys {
+      try visitor.visitSingularMessageField(value: v, fieldNumber: 2)
+    } }()
+    if !self.headerBytes.isEmpty {
+      try visitor.visitSingularBytesField(value: self.headerBytes, fieldNumber: 3)
+    }
+    if self.isSender != false {
+      try visitor.visitSingularBoolField(value: self.isSender, fieldNumber: 4)
+    }
+    try unknownFields.traverse(visitor: &visitor)
+  }
 
-	public static func == (lhs: Xmtp_KeystoreApi_V1_DecryptV1Request.Request, rhs: Xmtp_KeystoreApi_V1_DecryptV1Request.Request) -> Bool {
-		if lhs._payload != rhs._payload { return false }
-		if lhs._peerKeys != rhs._peerKeys { return false }
-		if lhs.headerBytes != rhs.headerBytes { return false }
-		if lhs.isSender != rhs.isSender { return false }
-		if lhs.unknownFields != rhs.unknownFields { return false }
-		return true
-	}
+  public static func ==(lhs: Xmtp_KeystoreApi_V1_DecryptV1Request.Request, rhs: Xmtp_KeystoreApi_V1_DecryptV1Request.Request) -> Bool {
+    if lhs._payload != rhs._payload {return false}
+    if lhs._peerKeys != rhs._peerKeys {return false}
+    if lhs.headerBytes != rhs.headerBytes {return false}
+    if lhs.isSender != rhs.isSender {return false}
+    if lhs.unknownFields != rhs.unknownFields {return false}
+    return true
+  }
 }
 
 extension Xmtp_KeystoreApi_V1_DecryptResponse: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
-	public static let protoMessageName: String = _protobuf_package + ".DecryptResponse"
-	public static let _protobuf_nameMap: SwiftProtobuf._NameMap = [
-		1: .same(proto: "responses"),
-	]
+  public static let protoMessageName: String = _protobuf_package + ".DecryptResponse"
+  public static let _protobuf_nameMap: SwiftProtobuf._NameMap = [
+    1: .same(proto: "responses"),
+  ]
 
-	public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
-		while let fieldNumber = try decoder.nextFieldNumber() {
-			// The use of inline closures is to circumvent an issue where the compiler
-			// allocates stack space for every case branch when no optimizations are
-			// enabled. https://github.com/apple/swift-protobuf/issues/1034
-			switch fieldNumber {
-			case 1: try try decoder.decodeRepeatedMessageField(value: &responses)
-			default: break
-			}
-		}
-	}
+  public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
+    while let fieldNumber = try decoder.nextFieldNumber() {
+      // The use of inline closures is to circumvent an issue where the compiler
+      // allocates stack space for every case branch when no optimizations are
+      // enabled. https://github.com/apple/swift-protobuf/issues/1034
+      switch fieldNumber {
+      case 1: try { try decoder.decodeRepeatedMessageField(value: &self.responses) }()
+      default: break
+      }
+    }
+  }
 
-	public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
-		if !responses.isEmpty {
-			try visitor.visitRepeatedMessageField(value: responses, fieldNumber: 1)
-		}
-		try unknownFields.traverse(visitor: &visitor)
-	}
+  public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    if !self.responses.isEmpty {
+      try visitor.visitRepeatedMessageField(value: self.responses, fieldNumber: 1)
+    }
+    try unknownFields.traverse(visitor: &visitor)
+  }
 
-	public static func == (lhs: Xmtp_KeystoreApi_V1_DecryptResponse, rhs: Xmtp_KeystoreApi_V1_DecryptResponse) -> Bool {
-		if lhs.responses != rhs.responses { return false }
-		if lhs.unknownFields != rhs.unknownFields { return false }
-		return true
-	}
+  public static func ==(lhs: Xmtp_KeystoreApi_V1_DecryptResponse, rhs: Xmtp_KeystoreApi_V1_DecryptResponse) -> Bool {
+    if lhs.responses != rhs.responses {return false}
+    if lhs.unknownFields != rhs.unknownFields {return false}
+    return true
+  }
 }
 
 extension Xmtp_KeystoreApi_V1_DecryptResponse.Response: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
-	public static let protoMessageName: String = Xmtp_KeystoreApi_V1_DecryptResponse.protoMessageName + ".Response"
-	public static let _protobuf_nameMap: SwiftProtobuf._NameMap = [
-		1: .same(proto: "result"),
-		2: .same(proto: "error"),
-	]
+  public static let protoMessageName: String = Xmtp_KeystoreApi_V1_DecryptResponse.protoMessageName + ".Response"
+  public static let _protobuf_nameMap: SwiftProtobuf._NameMap = [
+    1: .same(proto: "result"),
+    2: .same(proto: "error"),
+  ]
 
-	public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
-		while let fieldNumber = try decoder.nextFieldNumber() {
-			// The use of inline closures is to circumvent an issue where the compiler
-			// allocates stack space for every case branch when no optimizations are
-			// enabled. https://github.com/apple/swift-protobuf/issues/1034
-			switch fieldNumber {
-			case 1: try {
-					var v: Xmtp_KeystoreApi_V1_DecryptResponse.Response.Success?
-					var hadOneofValue = false
-					if let current = self.response {
-						hadOneofValue = true
-						if case let .result(m) = current { v = m }
-					}
-					try decoder.decodeSingularMessageField(value: &v)
-					if let v = v {
-						if hadOneofValue { try decoder.handleConflictingOneOf() }
-						self.response = .result(v)
-					}
-				}()
-			case 2: try {
-					var v: Xmtp_KeystoreApi_V1_KeystoreError?
-					var hadOneofValue = false
-					if let current = self.response {
-						hadOneofValue = true
-						if case let .error(m) = current { v = m }
-					}
-					try decoder.decodeSingularMessageField(value: &v)
-					if let v = v {
-						if hadOneofValue { try decoder.handleConflictingOneOf() }
-						self.response = .error(v)
-					}
-				}()
-			default: break
-			}
-		}
-	}
+  public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
+    while let fieldNumber = try decoder.nextFieldNumber() {
+      // The use of inline closures is to circumvent an issue where the compiler
+      // allocates stack space for every case branch when no optimizations are
+      // enabled. https://github.com/apple/swift-protobuf/issues/1034
+      switch fieldNumber {
+      case 1: try {
+        var v: Xmtp_KeystoreApi_V1_DecryptResponse.Response.Success?
+        var hadOneofValue = false
+        if let current = self.response {
+          hadOneofValue = true
+          if case .result(let m) = current {v = m}
+        }
+        try decoder.decodeSingularMessageField(value: &v)
+        if let v = v {
+          if hadOneofValue {try decoder.handleConflictingOneOf()}
+          self.response = .result(v)
+        }
+      }()
+      case 2: try {
+        var v: Xmtp_KeystoreApi_V1_KeystoreError?
+        var hadOneofValue = false
+        if let current = self.response {
+          hadOneofValue = true
+          if case .error(let m) = current {v = m}
+        }
+        try decoder.decodeSingularMessageField(value: &v)
+        if let v = v {
+          if hadOneofValue {try decoder.handleConflictingOneOf()}
+          self.response = .error(v)
+        }
+      }()
+      default: break
+      }
+    }
+  }
 
-	public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
-		// The use of inline closures is to circumvent an issue where the compiler
-		// allocates stack space for every if/case branch local when no optimizations
-		// are enabled. https://github.com/apple/swift-protobuf/issues/1034 and
-		// https://github.com/apple/swift-protobuf/issues/1182
-		switch response {
-		case .result?: try {
-				guard case let .result(v)? = self.response else { preconditionFailure() }
-				try visitor.visitSingularMessageField(value: v, fieldNumber: 1)
-			}()
-		case .error?: try {
-				guard case let .error(v)? = self.response else { preconditionFailure() }
-				try visitor.visitSingularMessageField(value: v, fieldNumber: 2)
-			}()
-		case nil: break
-		}
-		try unknownFields.traverse(visitor: &visitor)
-	}
+  public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    // The use of inline closures is to circumvent an issue where the compiler
+    // allocates stack space for every if/case branch local when no optimizations
+    // are enabled. https://github.com/apple/swift-protobuf/issues/1034 and
+    // https://github.com/apple/swift-protobuf/issues/1182
+    switch self.response {
+    case .result?: try {
+      guard case .result(let v)? = self.response else { preconditionFailure() }
+      try visitor.visitSingularMessageField(value: v, fieldNumber: 1)
+    }()
+    case .error?: try {
+      guard case .error(let v)? = self.response else { preconditionFailure() }
+      try visitor.visitSingularMessageField(value: v, fieldNumber: 2)
+    }()
+    case nil: break
+    }
+    try unknownFields.traverse(visitor: &visitor)
+  }
 
-	public static func == (lhs: Xmtp_KeystoreApi_V1_DecryptResponse.Response, rhs: Xmtp_KeystoreApi_V1_DecryptResponse.Response) -> Bool {
-		if lhs.response != rhs.response { return false }
-		if lhs.unknownFields != rhs.unknownFields { return false }
-		return true
-	}
+  public static func ==(lhs: Xmtp_KeystoreApi_V1_DecryptResponse.Response, rhs: Xmtp_KeystoreApi_V1_DecryptResponse.Response) -> Bool {
+    if lhs.response != rhs.response {return false}
+    if lhs.unknownFields != rhs.unknownFields {return false}
+    return true
+  }
 }
 
 extension Xmtp_KeystoreApi_V1_DecryptResponse.Response.Success: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
-	public static let protoMessageName: String = Xmtp_KeystoreApi_V1_DecryptResponse.Response.protoMessageName + ".Success"
-	public static let _protobuf_nameMap: SwiftProtobuf._NameMap = [
-		1: .same(proto: "decrypted"),
-	]
+  public static let protoMessageName: String = Xmtp_KeystoreApi_V1_DecryptResponse.Response.protoMessageName + ".Success"
+  public static let _protobuf_nameMap: SwiftProtobuf._NameMap = [
+    1: .same(proto: "decrypted"),
+  ]
 
-	public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
-		while let fieldNumber = try decoder.nextFieldNumber() {
-			// The use of inline closures is to circumvent an issue where the compiler
-			// allocates stack space for every case branch when no optimizations are
-			// enabled. https://github.com/apple/swift-protobuf/issues/1034
-			switch fieldNumber {
-			case 1: try try decoder.decodeSingularBytesField(value: &decrypted)
-			default: break
-			}
-		}
-	}
+  public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
+    while let fieldNumber = try decoder.nextFieldNumber() {
+      // The use of inline closures is to circumvent an issue where the compiler
+      // allocates stack space for every case branch when no optimizations are
+      // enabled. https://github.com/apple/swift-protobuf/issues/1034
+      switch fieldNumber {
+      case 1: try { try decoder.decodeSingularBytesField(value: &self.decrypted) }()
+      default: break
+      }
+    }
+  }
 
-	public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
-		if !decrypted.isEmpty {
-			try visitor.visitSingularBytesField(value: decrypted, fieldNumber: 1)
-		}
-		try unknownFields.traverse(visitor: &visitor)
-	}
+  public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    if !self.decrypted.isEmpty {
+      try visitor.visitSingularBytesField(value: self.decrypted, fieldNumber: 1)
+    }
+    try unknownFields.traverse(visitor: &visitor)
+  }
 
-	public static func == (lhs: Xmtp_KeystoreApi_V1_DecryptResponse.Response.Success, rhs: Xmtp_KeystoreApi_V1_DecryptResponse.Response.Success) -> Bool {
-		if lhs.decrypted != rhs.decrypted { return false }
-		if lhs.unknownFields != rhs.unknownFields { return false }
-		return true
-	}
+  public static func ==(lhs: Xmtp_KeystoreApi_V1_DecryptResponse.Response.Success, rhs: Xmtp_KeystoreApi_V1_DecryptResponse.Response.Success) -> Bool {
+    if lhs.decrypted != rhs.decrypted {return false}
+    if lhs.unknownFields != rhs.unknownFields {return false}
+    return true
+  }
 }
 
 extension Xmtp_KeystoreApi_V1_DecryptV2Request: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
-	public static let protoMessageName: String = _protobuf_package + ".DecryptV2Request"
-	public static let _protobuf_nameMap: SwiftProtobuf._NameMap = [
-		1: .same(proto: "requests"),
-	]
+  public static let protoMessageName: String = _protobuf_package + ".DecryptV2Request"
+  public static let _protobuf_nameMap: SwiftProtobuf._NameMap = [
+    1: .same(proto: "requests"),
+  ]
 
-	public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
-		while let fieldNumber = try decoder.nextFieldNumber() {
-			// The use of inline closures is to circumvent an issue where the compiler
-			// allocates stack space for every case branch when no optimizations are
-			// enabled. https://github.com/apple/swift-protobuf/issues/1034
-			switch fieldNumber {
-			case 1: try try decoder.decodeRepeatedMessageField(value: &requests)
-			default: break
-			}
-		}
-	}
+  public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
+    while let fieldNumber = try decoder.nextFieldNumber() {
+      // The use of inline closures is to circumvent an issue where the compiler
+      // allocates stack space for every case branch when no optimizations are
+      // enabled. https://github.com/apple/swift-protobuf/issues/1034
+      switch fieldNumber {
+      case 1: try { try decoder.decodeRepeatedMessageField(value: &self.requests) }()
+      default: break
+      }
+    }
+  }
 
-	public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
-		if !requests.isEmpty {
-			try visitor.visitRepeatedMessageField(value: requests, fieldNumber: 1)
-		}
-		try unknownFields.traverse(visitor: &visitor)
-	}
+  public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    if !self.requests.isEmpty {
+      try visitor.visitRepeatedMessageField(value: self.requests, fieldNumber: 1)
+    }
+    try unknownFields.traverse(visitor: &visitor)
+  }
 
-	public static func == (lhs: Xmtp_KeystoreApi_V1_DecryptV2Request, rhs: Xmtp_KeystoreApi_V1_DecryptV2Request) -> Bool {
-		if lhs.requests != rhs.requests { return false }
-		if lhs.unknownFields != rhs.unknownFields { return false }
-		return true
-	}
+  public static func ==(lhs: Xmtp_KeystoreApi_V1_DecryptV2Request, rhs: Xmtp_KeystoreApi_V1_DecryptV2Request) -> Bool {
+    if lhs.requests != rhs.requests {return false}
+    if lhs.unknownFields != rhs.unknownFields {return false}
+    return true
+  }
 }
 
 extension Xmtp_KeystoreApi_V1_DecryptV2Request.Request: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
-	public static let protoMessageName: String = Xmtp_KeystoreApi_V1_DecryptV2Request.protoMessageName + ".Request"
-	public static let _protobuf_nameMap: SwiftProtobuf._NameMap = [
-		1: .same(proto: "payload"),
-		2: .standard(proto: "header_bytes"),
-		3: .standard(proto: "content_topic"),
-	]
+  public static let protoMessageName: String = Xmtp_KeystoreApi_V1_DecryptV2Request.protoMessageName + ".Request"
+  public static let _protobuf_nameMap: SwiftProtobuf._NameMap = [
+    1: .same(proto: "payload"),
+    2: .standard(proto: "header_bytes"),
+    3: .standard(proto: "content_topic"),
+  ]
 
-	public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
-		while let fieldNumber = try decoder.nextFieldNumber() {
-			// The use of inline closures is to circumvent an issue where the compiler
-			// allocates stack space for every case branch when no optimizations are
-			// enabled. https://github.com/apple/swift-protobuf/issues/1034
-			switch fieldNumber {
-			case 1: try try decoder.decodeSingularMessageField(value: &_payload)
-			case 2: try try decoder.decodeSingularBytesField(value: &headerBytes)
-			case 3: try try decoder.decodeSingularStringField(value: &contentTopic)
-			default: break
-			}
-		}
-	}
+  public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
+    while let fieldNumber = try decoder.nextFieldNumber() {
+      // The use of inline closures is to circumvent an issue where the compiler
+      // allocates stack space for every case branch when no optimizations are
+      // enabled. https://github.com/apple/swift-protobuf/issues/1034
+      switch fieldNumber {
+      case 1: try { try decoder.decodeSingularMessageField(value: &self._payload) }()
+      case 2: try { try decoder.decodeSingularBytesField(value: &self.headerBytes) }()
+      case 3: try { try decoder.decodeSingularStringField(value: &self.contentTopic) }()
+      default: break
+      }
+    }
+  }
 
-	public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
-		// The use of inline closures is to circumvent an issue where the compiler
-		// allocates stack space for every if/case branch local when no optimizations
-		// are enabled. https://github.com/apple/swift-protobuf/issues/1034 and
-		// https://github.com/apple/swift-protobuf/issues/1182
-		try { if let v = self._payload {
-			try visitor.visitSingularMessageField(value: v, fieldNumber: 1)
-		} }()
-		if !headerBytes.isEmpty {
-			try visitor.visitSingularBytesField(value: headerBytes, fieldNumber: 2)
-		}
-		if !contentTopic.isEmpty {
-			try visitor.visitSingularStringField(value: contentTopic, fieldNumber: 3)
-		}
-		try unknownFields.traverse(visitor: &visitor)
-	}
+  public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    // The use of inline closures is to circumvent an issue where the compiler
+    // allocates stack space for every if/case branch local when no optimizations
+    // are enabled. https://github.com/apple/swift-protobuf/issues/1034 and
+    // https://github.com/apple/swift-protobuf/issues/1182
+    try { if let v = self._payload {
+      try visitor.visitSingularMessageField(value: v, fieldNumber: 1)
+    } }()
+    if !self.headerBytes.isEmpty {
+      try visitor.visitSingularBytesField(value: self.headerBytes, fieldNumber: 2)
+    }
+    if !self.contentTopic.isEmpty {
+      try visitor.visitSingularStringField(value: self.contentTopic, fieldNumber: 3)
+    }
+    try unknownFields.traverse(visitor: &visitor)
+  }
 
-	public static func == (lhs: Xmtp_KeystoreApi_V1_DecryptV2Request.Request, rhs: Xmtp_KeystoreApi_V1_DecryptV2Request.Request) -> Bool {
-		if lhs._payload != rhs._payload { return false }
-		if lhs.headerBytes != rhs.headerBytes { return false }
-		if lhs.contentTopic != rhs.contentTopic { return false }
-		if lhs.unknownFields != rhs.unknownFields { return false }
-		return true
-	}
+  public static func ==(lhs: Xmtp_KeystoreApi_V1_DecryptV2Request.Request, rhs: Xmtp_KeystoreApi_V1_DecryptV2Request.Request) -> Bool {
+    if lhs._payload != rhs._payload {return false}
+    if lhs.headerBytes != rhs.headerBytes {return false}
+    if lhs.contentTopic != rhs.contentTopic {return false}
+    if lhs.unknownFields != rhs.unknownFields {return false}
+    return true
+  }
 }
 
 extension Xmtp_KeystoreApi_V1_EncryptV1Request: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
-	public static let protoMessageName: String = _protobuf_package + ".EncryptV1Request"
-	public static let _protobuf_nameMap: SwiftProtobuf._NameMap = [
-		1: .same(proto: "requests"),
-	]
+  public static let protoMessageName: String = _protobuf_package + ".EncryptV1Request"
+  public static let _protobuf_nameMap: SwiftProtobuf._NameMap = [
+    1: .same(proto: "requests"),
+  ]
 
-	public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
-		while let fieldNumber = try decoder.nextFieldNumber() {
-			// The use of inline closures is to circumvent an issue where the compiler
-			// allocates stack space for every case branch when no optimizations are
-			// enabled. https://github.com/apple/swift-protobuf/issues/1034
-			switch fieldNumber {
-			case 1: try try decoder.decodeRepeatedMessageField(value: &requests)
-			default: break
-			}
-		}
-	}
+  public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
+    while let fieldNumber = try decoder.nextFieldNumber() {
+      // The use of inline closures is to circumvent an issue where the compiler
+      // allocates stack space for every case branch when no optimizations are
+      // enabled. https://github.com/apple/swift-protobuf/issues/1034
+      switch fieldNumber {
+      case 1: try { try decoder.decodeRepeatedMessageField(value: &self.requests) }()
+      default: break
+      }
+    }
+  }
 
-	public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
-		if !requests.isEmpty {
-			try visitor.visitRepeatedMessageField(value: requests, fieldNumber: 1)
-		}
-		try unknownFields.traverse(visitor: &visitor)
-	}
+  public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    if !self.requests.isEmpty {
+      try visitor.visitRepeatedMessageField(value: self.requests, fieldNumber: 1)
+    }
+    try unknownFields.traverse(visitor: &visitor)
+  }
 
-	public static func == (lhs: Xmtp_KeystoreApi_V1_EncryptV1Request, rhs: Xmtp_KeystoreApi_V1_EncryptV1Request) -> Bool {
-		if lhs.requests != rhs.requests { return false }
-		if lhs.unknownFields != rhs.unknownFields { return false }
-		return true
-	}
+  public static func ==(lhs: Xmtp_KeystoreApi_V1_EncryptV1Request, rhs: Xmtp_KeystoreApi_V1_EncryptV1Request) -> Bool {
+    if lhs.requests != rhs.requests {return false}
+    if lhs.unknownFields != rhs.unknownFields {return false}
+    return true
+  }
 }
 
 extension Xmtp_KeystoreApi_V1_EncryptV1Request.Request: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
-	public static let protoMessageName: String = Xmtp_KeystoreApi_V1_EncryptV1Request.protoMessageName + ".Request"
-	public static let _protobuf_nameMap: SwiftProtobuf._NameMap = [
-		1: .same(proto: "recipient"),
-		2: .same(proto: "payload"),
-		3: .standard(proto: "header_bytes"),
-	]
+  public static let protoMessageName: String = Xmtp_KeystoreApi_V1_EncryptV1Request.protoMessageName + ".Request"
+  public static let _protobuf_nameMap: SwiftProtobuf._NameMap = [
+    1: .same(proto: "recipient"),
+    2: .same(proto: "payload"),
+    3: .standard(proto: "header_bytes"),
+  ]
 
-	public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
-		while let fieldNumber = try decoder.nextFieldNumber() {
-			// The use of inline closures is to circumvent an issue where the compiler
-			// allocates stack space for every case branch when no optimizations are
-			// enabled. https://github.com/apple/swift-protobuf/issues/1034
-			switch fieldNumber {
-			case 1: try try decoder.decodeSingularMessageField(value: &_recipient)
-			case 2: try try decoder.decodeSingularBytesField(value: &payload)
-			case 3: try try decoder.decodeSingularBytesField(value: &headerBytes)
-			default: break
-			}
-		}
-	}
+  public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
+    while let fieldNumber = try decoder.nextFieldNumber() {
+      // The use of inline closures is to circumvent an issue where the compiler
+      // allocates stack space for every case branch when no optimizations are
+      // enabled. https://github.com/apple/swift-protobuf/issues/1034
+      switch fieldNumber {
+      case 1: try { try decoder.decodeSingularMessageField(value: &self._recipient) }()
+      case 2: try { try decoder.decodeSingularBytesField(value: &self.payload) }()
+      case 3: try { try decoder.decodeSingularBytesField(value: &self.headerBytes) }()
+      default: break
+      }
+    }
+  }
 
-	public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
-		// The use of inline closures is to circumvent an issue where the compiler
-		// allocates stack space for every if/case branch local when no optimizations
-		// are enabled. https://github.com/apple/swift-protobuf/issues/1034 and
-		// https://github.com/apple/swift-protobuf/issues/1182
-		try { if let v = self._recipient {
-			try visitor.visitSingularMessageField(value: v, fieldNumber: 1)
-		} }()
-		if !payload.isEmpty {
-			try visitor.visitSingularBytesField(value: payload, fieldNumber: 2)
-		}
-		if !headerBytes.isEmpty {
-			try visitor.visitSingularBytesField(value: headerBytes, fieldNumber: 3)
-		}
-		try unknownFields.traverse(visitor: &visitor)
-	}
+  public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    // The use of inline closures is to circumvent an issue where the compiler
+    // allocates stack space for every if/case branch local when no optimizations
+    // are enabled. https://github.com/apple/swift-protobuf/issues/1034 and
+    // https://github.com/apple/swift-protobuf/issues/1182
+    try { if let v = self._recipient {
+      try visitor.visitSingularMessageField(value: v, fieldNumber: 1)
+    } }()
+    if !self.payload.isEmpty {
+      try visitor.visitSingularBytesField(value: self.payload, fieldNumber: 2)
+    }
+    if !self.headerBytes.isEmpty {
+      try visitor.visitSingularBytesField(value: self.headerBytes, fieldNumber: 3)
+    }
+    try unknownFields.traverse(visitor: &visitor)
+  }
 
-	public static func == (lhs: Xmtp_KeystoreApi_V1_EncryptV1Request.Request, rhs: Xmtp_KeystoreApi_V1_EncryptV1Request.Request) -> Bool {
-		if lhs._recipient != rhs._recipient { return false }
-		if lhs.payload != rhs.payload { return false }
-		if lhs.headerBytes != rhs.headerBytes { return false }
-		if lhs.unknownFields != rhs.unknownFields { return false }
-		return true
-	}
+  public static func ==(lhs: Xmtp_KeystoreApi_V1_EncryptV1Request.Request, rhs: Xmtp_KeystoreApi_V1_EncryptV1Request.Request) -> Bool {
+    if lhs._recipient != rhs._recipient {return false}
+    if lhs.payload != rhs.payload {return false}
+    if lhs.headerBytes != rhs.headerBytes {return false}
+    if lhs.unknownFields != rhs.unknownFields {return false}
+    return true
+  }
 }
 
 extension Xmtp_KeystoreApi_V1_EncryptResponse: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
-	public static let protoMessageName: String = _protobuf_package + ".EncryptResponse"
-	public static let _protobuf_nameMap: SwiftProtobuf._NameMap = [
-		1: .same(proto: "responses"),
-	]
+  public static let protoMessageName: String = _protobuf_package + ".EncryptResponse"
+  public static let _protobuf_nameMap: SwiftProtobuf._NameMap = [
+    1: .same(proto: "responses"),
+  ]
 
-	public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
-		while let fieldNumber = try decoder.nextFieldNumber() {
-			// The use of inline closures is to circumvent an issue where the compiler
-			// allocates stack space for every case branch when no optimizations are
-			// enabled. https://github.com/apple/swift-protobuf/issues/1034
-			switch fieldNumber {
-			case 1: try try decoder.decodeRepeatedMessageField(value: &responses)
-			default: break
-			}
-		}
-	}
+  public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
+    while let fieldNumber = try decoder.nextFieldNumber() {
+      // The use of inline closures is to circumvent an issue where the compiler
+      // allocates stack space for every case branch when no optimizations are
+      // enabled. https://github.com/apple/swift-protobuf/issues/1034
+      switch fieldNumber {
+      case 1: try { try decoder.decodeRepeatedMessageField(value: &self.responses) }()
+      default: break
+      }
+    }
+  }
 
-	public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
-		if !responses.isEmpty {
-			try visitor.visitRepeatedMessageField(value: responses, fieldNumber: 1)
-		}
-		try unknownFields.traverse(visitor: &visitor)
-	}
+  public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    if !self.responses.isEmpty {
+      try visitor.visitRepeatedMessageField(value: self.responses, fieldNumber: 1)
+    }
+    try unknownFields.traverse(visitor: &visitor)
+  }
 
-	public static func == (lhs: Xmtp_KeystoreApi_V1_EncryptResponse, rhs: Xmtp_KeystoreApi_V1_EncryptResponse) -> Bool {
-		if lhs.responses != rhs.responses { return false }
-		if lhs.unknownFields != rhs.unknownFields { return false }
-		return true
-	}
+  public static func ==(lhs: Xmtp_KeystoreApi_V1_EncryptResponse, rhs: Xmtp_KeystoreApi_V1_EncryptResponse) -> Bool {
+    if lhs.responses != rhs.responses {return false}
+    if lhs.unknownFields != rhs.unknownFields {return false}
+    return true
+  }
 }
 
 extension Xmtp_KeystoreApi_V1_EncryptResponse.Response: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
-	public static let protoMessageName: String = Xmtp_KeystoreApi_V1_EncryptResponse.protoMessageName + ".Response"
-	public static let _protobuf_nameMap: SwiftProtobuf._NameMap = [
-		1: .same(proto: "result"),
-		2: .same(proto: "error"),
-	]
+  public static let protoMessageName: String = Xmtp_KeystoreApi_V1_EncryptResponse.protoMessageName + ".Response"
+  public static let _protobuf_nameMap: SwiftProtobuf._NameMap = [
+    1: .same(proto: "result"),
+    2: .same(proto: "error"),
+  ]
 
-	public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
-		while let fieldNumber = try decoder.nextFieldNumber() {
-			// The use of inline closures is to circumvent an issue where the compiler
-			// allocates stack space for every case branch when no optimizations are
-			// enabled. https://github.com/apple/swift-protobuf/issues/1034
-			switch fieldNumber {
-			case 1: try {
-					var v: Xmtp_KeystoreApi_V1_EncryptResponse.Response.Success?
-					var hadOneofValue = false
-					if let current = self.response {
-						hadOneofValue = true
-						if case let .result(m) = current { v = m }
-					}
-					try decoder.decodeSingularMessageField(value: &v)
-					if let v = v {
-						if hadOneofValue { try decoder.handleConflictingOneOf() }
-						self.response = .result(v)
-					}
-				}()
-			case 2: try {
-					var v: Xmtp_KeystoreApi_V1_KeystoreError?
-					var hadOneofValue = false
-					if let current = self.response {
-						hadOneofValue = true
-						if case let .error(m) = current { v = m }
-					}
-					try decoder.decodeSingularMessageField(value: &v)
-					if let v = v {
-						if hadOneofValue { try decoder.handleConflictingOneOf() }
-						self.response = .error(v)
-					}
-				}()
-			default: break
-			}
-		}
-	}
+  public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
+    while let fieldNumber = try decoder.nextFieldNumber() {
+      // The use of inline closures is to circumvent an issue where the compiler
+      // allocates stack space for every case branch when no optimizations are
+      // enabled. https://github.com/apple/swift-protobuf/issues/1034
+      switch fieldNumber {
+      case 1: try {
+        var v: Xmtp_KeystoreApi_V1_EncryptResponse.Response.Success?
+        var hadOneofValue = false
+        if let current = self.response {
+          hadOneofValue = true
+          if case .result(let m) = current {v = m}
+        }
+        try decoder.decodeSingularMessageField(value: &v)
+        if let v = v {
+          if hadOneofValue {try decoder.handleConflictingOneOf()}
+          self.response = .result(v)
+        }
+      }()
+      case 2: try {
+        var v: Xmtp_KeystoreApi_V1_KeystoreError?
+        var hadOneofValue = false
+        if let current = self.response {
+          hadOneofValue = true
+          if case .error(let m) = current {v = m}
+        }
+        try decoder.decodeSingularMessageField(value: &v)
+        if let v = v {
+          if hadOneofValue {try decoder.handleConflictingOneOf()}
+          self.response = .error(v)
+        }
+      }()
+      default: break
+      }
+    }
+  }
 
-	public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
-		// The use of inline closures is to circumvent an issue where the compiler
-		// allocates stack space for every if/case branch local when no optimizations
-		// are enabled. https://github.com/apple/swift-protobuf/issues/1034 and
-		// https://github.com/apple/swift-protobuf/issues/1182
-		switch response {
-		case .result?: try {
-				guard case let .result(v)? = self.response else { preconditionFailure() }
-				try visitor.visitSingularMessageField(value: v, fieldNumber: 1)
-			}()
-		case .error?: try {
-				guard case let .error(v)? = self.response else { preconditionFailure() }
-				try visitor.visitSingularMessageField(value: v, fieldNumber: 2)
-			}()
-		case nil: break
-		}
-		try unknownFields.traverse(visitor: &visitor)
-	}
+  public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    // The use of inline closures is to circumvent an issue where the compiler
+    // allocates stack space for every if/case branch local when no optimizations
+    // are enabled. https://github.com/apple/swift-protobuf/issues/1034 and
+    // https://github.com/apple/swift-protobuf/issues/1182
+    switch self.response {
+    case .result?: try {
+      guard case .result(let v)? = self.response else { preconditionFailure() }
+      try visitor.visitSingularMessageField(value: v, fieldNumber: 1)
+    }()
+    case .error?: try {
+      guard case .error(let v)? = self.response else { preconditionFailure() }
+      try visitor.visitSingularMessageField(value: v, fieldNumber: 2)
+    }()
+    case nil: break
+    }
+    try unknownFields.traverse(visitor: &visitor)
+  }
 
-	public static func == (lhs: Xmtp_KeystoreApi_V1_EncryptResponse.Response, rhs: Xmtp_KeystoreApi_V1_EncryptResponse.Response) -> Bool {
-		if lhs.response != rhs.response { return false }
-		if lhs.unknownFields != rhs.unknownFields { return false }
-		return true
-	}
+  public static func ==(lhs: Xmtp_KeystoreApi_V1_EncryptResponse.Response, rhs: Xmtp_KeystoreApi_V1_EncryptResponse.Response) -> Bool {
+    if lhs.response != rhs.response {return false}
+    if lhs.unknownFields != rhs.unknownFields {return false}
+    return true
+  }
 }
 
 extension Xmtp_KeystoreApi_V1_EncryptResponse.Response.Success: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
-	public static let protoMessageName: String = Xmtp_KeystoreApi_V1_EncryptResponse.Response.protoMessageName + ".Success"
-	public static let _protobuf_nameMap: SwiftProtobuf._NameMap = [
-		1: .same(proto: "encrypted"),
-	]
+  public static let protoMessageName: String = Xmtp_KeystoreApi_V1_EncryptResponse.Response.protoMessageName + ".Success"
+  public static let _protobuf_nameMap: SwiftProtobuf._NameMap = [
+    1: .same(proto: "encrypted"),
+  ]
 
-	public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
-		while let fieldNumber = try decoder.nextFieldNumber() {
-			// The use of inline closures is to circumvent an issue where the compiler
-			// allocates stack space for every case branch when no optimizations are
-			// enabled. https://github.com/apple/swift-protobuf/issues/1034
-			switch fieldNumber {
-			case 1: try try decoder.decodeSingularMessageField(value: &_encrypted)
-			default: break
-			}
-		}
-	}
+  public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
+    while let fieldNumber = try decoder.nextFieldNumber() {
+      // The use of inline closures is to circumvent an issue where the compiler
+      // allocates stack space for every case branch when no optimizations are
+      // enabled. https://github.com/apple/swift-protobuf/issues/1034
+      switch fieldNumber {
+      case 1: try { try decoder.decodeSingularMessageField(value: &self._encrypted) }()
+      default: break
+      }
+    }
+  }
 
-	public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
-		// The use of inline closures is to circumvent an issue where the compiler
-		// allocates stack space for every if/case branch local when no optimizations
-		// are enabled. https://github.com/apple/swift-protobuf/issues/1034 and
-		// https://github.com/apple/swift-protobuf/issues/1182
-		try { if let v = self._encrypted {
-			try visitor.visitSingularMessageField(value: v, fieldNumber: 1)
-		} }()
-		try unknownFields.traverse(visitor: &visitor)
-	}
+  public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    // The use of inline closures is to circumvent an issue where the compiler
+    // allocates stack space for every if/case branch local when no optimizations
+    // are enabled. https://github.com/apple/swift-protobuf/issues/1034 and
+    // https://github.com/apple/swift-protobuf/issues/1182
+    try { if let v = self._encrypted {
+      try visitor.visitSingularMessageField(value: v, fieldNumber: 1)
+    } }()
+    try unknownFields.traverse(visitor: &visitor)
+  }
 
-	public static func == (lhs: Xmtp_KeystoreApi_V1_EncryptResponse.Response.Success, rhs: Xmtp_KeystoreApi_V1_EncryptResponse.Response.Success) -> Bool {
-		if lhs._encrypted != rhs._encrypted { return false }
-		if lhs.unknownFields != rhs.unknownFields { return false }
-		return true
-	}
+  public static func ==(lhs: Xmtp_KeystoreApi_V1_EncryptResponse.Response.Success, rhs: Xmtp_KeystoreApi_V1_EncryptResponse.Response.Success) -> Bool {
+    if lhs._encrypted != rhs._encrypted {return false}
+    if lhs.unknownFields != rhs.unknownFields {return false}
+    return true
+  }
 }
 
 extension Xmtp_KeystoreApi_V1_EncryptV2Request: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
-	public static let protoMessageName: String = _protobuf_package + ".EncryptV2Request"
-	public static let _protobuf_nameMap: SwiftProtobuf._NameMap = [
-		1: .same(proto: "requests"),
-	]
+  public static let protoMessageName: String = _protobuf_package + ".EncryptV2Request"
+  public static let _protobuf_nameMap: SwiftProtobuf._NameMap = [
+    1: .same(proto: "requests"),
+  ]
 
-	public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
-		while let fieldNumber = try decoder.nextFieldNumber() {
-			// The use of inline closures is to circumvent an issue where the compiler
-			// allocates stack space for every case branch when no optimizations are
-			// enabled. https://github.com/apple/swift-protobuf/issues/1034
-			switch fieldNumber {
-			case 1: try try decoder.decodeRepeatedMessageField(value: &requests)
-			default: break
-			}
-		}
-	}
+  public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
+    while let fieldNumber = try decoder.nextFieldNumber() {
+      // The use of inline closures is to circumvent an issue where the compiler
+      // allocates stack space for every case branch when no optimizations are
+      // enabled. https://github.com/apple/swift-protobuf/issues/1034
+      switch fieldNumber {
+      case 1: try { try decoder.decodeRepeatedMessageField(value: &self.requests) }()
+      default: break
+      }
+    }
+  }
 
-	public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
-		if !requests.isEmpty {
-			try visitor.visitRepeatedMessageField(value: requests, fieldNumber: 1)
-		}
-		try unknownFields.traverse(visitor: &visitor)
-	}
+  public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    if !self.requests.isEmpty {
+      try visitor.visitRepeatedMessageField(value: self.requests, fieldNumber: 1)
+    }
+    try unknownFields.traverse(visitor: &visitor)
+  }
 
-	public static func == (lhs: Xmtp_KeystoreApi_V1_EncryptV2Request, rhs: Xmtp_KeystoreApi_V1_EncryptV2Request) -> Bool {
-		if lhs.requests != rhs.requests { return false }
-		if lhs.unknownFields != rhs.unknownFields { return false }
-		return true
-	}
+  public static func ==(lhs: Xmtp_KeystoreApi_V1_EncryptV2Request, rhs: Xmtp_KeystoreApi_V1_EncryptV2Request) -> Bool {
+    if lhs.requests != rhs.requests {return false}
+    if lhs.unknownFields != rhs.unknownFields {return false}
+    return true
+  }
 }
 
 extension Xmtp_KeystoreApi_V1_EncryptV2Request.Request: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
-	public static let protoMessageName: String = Xmtp_KeystoreApi_V1_EncryptV2Request.protoMessageName + ".Request"
-	public static let _protobuf_nameMap: SwiftProtobuf._NameMap = [
-		1: .same(proto: "payload"),
-		2: .standard(proto: "header_bytes"),
-		3: .standard(proto: "content_topic"),
-	]
+  public static let protoMessageName: String = Xmtp_KeystoreApi_V1_EncryptV2Request.protoMessageName + ".Request"
+  public static let _protobuf_nameMap: SwiftProtobuf._NameMap = [
+    1: .same(proto: "payload"),
+    2: .standard(proto: "header_bytes"),
+    3: .standard(proto: "content_topic"),
+  ]
 
-	public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
-		while let fieldNumber = try decoder.nextFieldNumber() {
-			// The use of inline closures is to circumvent an issue where the compiler
-			// allocates stack space for every case branch when no optimizations are
-			// enabled. https://github.com/apple/swift-protobuf/issues/1034
-			switch fieldNumber {
-			case 1: try try decoder.decodeSingularBytesField(value: &payload)
-			case 2: try try decoder.decodeSingularBytesField(value: &headerBytes)
-			case 3: try try decoder.decodeSingularStringField(value: &contentTopic)
-			default: break
-			}
-		}
-	}
+  public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
+    while let fieldNumber = try decoder.nextFieldNumber() {
+      // The use of inline closures is to circumvent an issue where the compiler
+      // allocates stack space for every case branch when no optimizations are
+      // enabled. https://github.com/apple/swift-protobuf/issues/1034
+      switch fieldNumber {
+      case 1: try { try decoder.decodeSingularBytesField(value: &self.payload) }()
+      case 2: try { try decoder.decodeSingularBytesField(value: &self.headerBytes) }()
+      case 3: try { try decoder.decodeSingularStringField(value: &self.contentTopic) }()
+      default: break
+      }
+    }
+  }
 
-	public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
-		if !payload.isEmpty {
-			try visitor.visitSingularBytesField(value: payload, fieldNumber: 1)
-		}
-		if !headerBytes.isEmpty {
-			try visitor.visitSingularBytesField(value: headerBytes, fieldNumber: 2)
-		}
-		if !contentTopic.isEmpty {
-			try visitor.visitSingularStringField(value: contentTopic, fieldNumber: 3)
-		}
-		try unknownFields.traverse(visitor: &visitor)
-	}
+  public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    if !self.payload.isEmpty {
+      try visitor.visitSingularBytesField(value: self.payload, fieldNumber: 1)
+    }
+    if !self.headerBytes.isEmpty {
+      try visitor.visitSingularBytesField(value: self.headerBytes, fieldNumber: 2)
+    }
+    if !self.contentTopic.isEmpty {
+      try visitor.visitSingularStringField(value: self.contentTopic, fieldNumber: 3)
+    }
+    try unknownFields.traverse(visitor: &visitor)
+  }
 
-	public static func == (lhs: Xmtp_KeystoreApi_V1_EncryptV2Request.Request, rhs: Xmtp_KeystoreApi_V1_EncryptV2Request.Request) -> Bool {
-		if lhs.payload != rhs.payload { return false }
-		if lhs.headerBytes != rhs.headerBytes { return false }
-		if lhs.contentTopic != rhs.contentTopic { return false }
-		if lhs.unknownFields != rhs.unknownFields { return false }
-		return true
-	}
+  public static func ==(lhs: Xmtp_KeystoreApi_V1_EncryptV2Request.Request, rhs: Xmtp_KeystoreApi_V1_EncryptV2Request.Request) -> Bool {
+    if lhs.payload != rhs.payload {return false}
+    if lhs.headerBytes != rhs.headerBytes {return false}
+    if lhs.contentTopic != rhs.contentTopic {return false}
+    if lhs.unknownFields != rhs.unknownFields {return false}
+    return true
+  }
 }
 
 extension Xmtp_KeystoreApi_V1_CreateInviteRequest: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
-	public static let protoMessageName: String = _protobuf_package + ".CreateInviteRequest"
-	public static let _protobuf_nameMap: SwiftProtobuf._NameMap = [
-		1: .same(proto: "context"),
-		2: .same(proto: "recipient"),
-		3: .standard(proto: "created_ns"),
-	]
+  public static let protoMessageName: String = _protobuf_package + ".CreateInviteRequest"
+  public static let _protobuf_nameMap: SwiftProtobuf._NameMap = [
+    1: .same(proto: "context"),
+    2: .same(proto: "recipient"),
+    3: .standard(proto: "created_ns"),
+  ]
 
-	public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
-		while let fieldNumber = try decoder.nextFieldNumber() {
-			// The use of inline closures is to circumvent an issue where the compiler
-			// allocates stack space for every case branch when no optimizations are
-			// enabled. https://github.com/apple/swift-protobuf/issues/1034
-			switch fieldNumber {
-			case 1: try try decoder.decodeSingularMessageField(value: &_context)
-			case 2: try try decoder.decodeSingularMessageField(value: &_recipient)
-			case 3: try try decoder.decodeSingularUInt64Field(value: &createdNs)
-			default: break
-			}
-		}
-	}
+  public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
+    while let fieldNumber = try decoder.nextFieldNumber() {
+      // The use of inline closures is to circumvent an issue where the compiler
+      // allocates stack space for every case branch when no optimizations are
+      // enabled. https://github.com/apple/swift-protobuf/issues/1034
+      switch fieldNumber {
+      case 1: try { try decoder.decodeSingularMessageField(value: &self._context) }()
+      case 2: try { try decoder.decodeSingularMessageField(value: &self._recipient) }()
+      case 3: try { try decoder.decodeSingularUInt64Field(value: &self.createdNs) }()
+      default: break
+      }
+    }
+  }
 
-	public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
-		// The use of inline closures is to circumvent an issue where the compiler
-		// allocates stack space for every if/case branch local when no optimizations
-		// are enabled. https://github.com/apple/swift-protobuf/issues/1034 and
-		// https://github.com/apple/swift-protobuf/issues/1182
-		try { if let v = self._context {
-			try visitor.visitSingularMessageField(value: v, fieldNumber: 1)
-		} }()
-		try { if let v = self._recipient {
-			try visitor.visitSingularMessageField(value: v, fieldNumber: 2)
-		} }()
-		if createdNs != 0 {
-			try visitor.visitSingularUInt64Field(value: createdNs, fieldNumber: 3)
-		}
-		try unknownFields.traverse(visitor: &visitor)
-	}
+  public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    // The use of inline closures is to circumvent an issue where the compiler
+    // allocates stack space for every if/case branch local when no optimizations
+    // are enabled. https://github.com/apple/swift-protobuf/issues/1034 and
+    // https://github.com/apple/swift-protobuf/issues/1182
+    try { if let v = self._context {
+      try visitor.visitSingularMessageField(value: v, fieldNumber: 1)
+    } }()
+    try { if let v = self._recipient {
+      try visitor.visitSingularMessageField(value: v, fieldNumber: 2)
+    } }()
+    if self.createdNs != 0 {
+      try visitor.visitSingularUInt64Field(value: self.createdNs, fieldNumber: 3)
+    }
+    try unknownFields.traverse(visitor: &visitor)
+  }
 
-	public static func == (lhs: Xmtp_KeystoreApi_V1_CreateInviteRequest, rhs: Xmtp_KeystoreApi_V1_CreateInviteRequest) -> Bool {
-		if lhs._context != rhs._context { return false }
-		if lhs._recipient != rhs._recipient { return false }
-		if lhs.createdNs != rhs.createdNs { return false }
-		if lhs.unknownFields != rhs.unknownFields { return false }
-		return true
-	}
+  public static func ==(lhs: Xmtp_KeystoreApi_V1_CreateInviteRequest, rhs: Xmtp_KeystoreApi_V1_CreateInviteRequest) -> Bool {
+    if lhs._context != rhs._context {return false}
+    if lhs._recipient != rhs._recipient {return false}
+    if lhs.createdNs != rhs.createdNs {return false}
+    if lhs.unknownFields != rhs.unknownFields {return false}
+    return true
+  }
 }
 
 extension Xmtp_KeystoreApi_V1_CreateInviteResponse: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
-	public static let protoMessageName: String = _protobuf_package + ".CreateInviteResponse"
-	public static let _protobuf_nameMap: SwiftProtobuf._NameMap = [
-		1: .same(proto: "conversation"),
-		2: .same(proto: "payload"),
-	]
+  public static let protoMessageName: String = _protobuf_package + ".CreateInviteResponse"
+  public static let _protobuf_nameMap: SwiftProtobuf._NameMap = [
+    1: .same(proto: "conversation"),
+    2: .same(proto: "payload"),
+  ]
 
-	public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
-		while let fieldNumber = try decoder.nextFieldNumber() {
-			// The use of inline closures is to circumvent an issue where the compiler
-			// allocates stack space for every case branch when no optimizations are
-			// enabled. https://github.com/apple/swift-protobuf/issues/1034
-			switch fieldNumber {
-			case 1: try try decoder.decodeSingularMessageField(value: &_conversation)
-			case 2: try try decoder.decodeSingularBytesField(value: &payload)
-			default: break
-			}
-		}
-	}
+  public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
+    while let fieldNumber = try decoder.nextFieldNumber() {
+      // The use of inline closures is to circumvent an issue where the compiler
+      // allocates stack space for every case branch when no optimizations are
+      // enabled. https://github.com/apple/swift-protobuf/issues/1034
+      switch fieldNumber {
+      case 1: try { try decoder.decodeSingularMessageField(value: &self._conversation) }()
+      case 2: try { try decoder.decodeSingularBytesField(value: &self.payload) }()
+      default: break
+      }
+    }
+  }
 
-	public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
-		// The use of inline closures is to circumvent an issue where the compiler
-		// allocates stack space for every if/case branch local when no optimizations
-		// are enabled. https://github.com/apple/swift-protobuf/issues/1034 and
-		// https://github.com/apple/swift-protobuf/issues/1182
-		try { if let v = self._conversation {
-			try visitor.visitSingularMessageField(value: v, fieldNumber: 1)
-		} }()
-		if !payload.isEmpty {
-			try visitor.visitSingularBytesField(value: payload, fieldNumber: 2)
-		}
-		try unknownFields.traverse(visitor: &visitor)
-	}
+  public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    // The use of inline closures is to circumvent an issue where the compiler
+    // allocates stack space for every if/case branch local when no optimizations
+    // are enabled. https://github.com/apple/swift-protobuf/issues/1034 and
+    // https://github.com/apple/swift-protobuf/issues/1182
+    try { if let v = self._conversation {
+      try visitor.visitSingularMessageField(value: v, fieldNumber: 1)
+    } }()
+    if !self.payload.isEmpty {
+      try visitor.visitSingularBytesField(value: self.payload, fieldNumber: 2)
+    }
+    try unknownFields.traverse(visitor: &visitor)
+  }
 
-	public static func == (lhs: Xmtp_KeystoreApi_V1_CreateInviteResponse, rhs: Xmtp_KeystoreApi_V1_CreateInviteResponse) -> Bool {
-		if lhs._conversation != rhs._conversation { return false }
-		if lhs.payload != rhs.payload { return false }
-		if lhs.unknownFields != rhs.unknownFields { return false }
-		return true
-	}
+  public static func ==(lhs: Xmtp_KeystoreApi_V1_CreateInviteResponse, rhs: Xmtp_KeystoreApi_V1_CreateInviteResponse) -> Bool {
+    if lhs._conversation != rhs._conversation {return false}
+    if lhs.payload != rhs.payload {return false}
+    if lhs.unknownFields != rhs.unknownFields {return false}
+    return true
+  }
 }
 
 extension Xmtp_KeystoreApi_V1_SaveInvitesRequest: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
-	public static let protoMessageName: String = _protobuf_package + ".SaveInvitesRequest"
-	public static let _protobuf_nameMap: SwiftProtobuf._NameMap = [
-		1: .same(proto: "requests"),
-	]
+  public static let protoMessageName: String = _protobuf_package + ".SaveInvitesRequest"
+  public static let _protobuf_nameMap: SwiftProtobuf._NameMap = [
+    1: .same(proto: "requests"),
+  ]
 
-	public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
-		while let fieldNumber = try decoder.nextFieldNumber() {
-			// The use of inline closures is to circumvent an issue where the compiler
-			// allocates stack space for every case branch when no optimizations are
-			// enabled. https://github.com/apple/swift-protobuf/issues/1034
-			switch fieldNumber {
-			case 1: try try decoder.decodeRepeatedMessageField(value: &requests)
-			default: break
-			}
-		}
-	}
+  public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
+    while let fieldNumber = try decoder.nextFieldNumber() {
+      // The use of inline closures is to circumvent an issue where the compiler
+      // allocates stack space for every case branch when no optimizations are
+      // enabled. https://github.com/apple/swift-protobuf/issues/1034
+      switch fieldNumber {
+      case 1: try { try decoder.decodeRepeatedMessageField(value: &self.requests) }()
+      default: break
+      }
+    }
+  }
 
-	public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
-		if !requests.isEmpty {
-			try visitor.visitRepeatedMessageField(value: requests, fieldNumber: 1)
-		}
-		try unknownFields.traverse(visitor: &visitor)
-	}
+  public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    if !self.requests.isEmpty {
+      try visitor.visitRepeatedMessageField(value: self.requests, fieldNumber: 1)
+    }
+    try unknownFields.traverse(visitor: &visitor)
+  }
 
-	public static func == (lhs: Xmtp_KeystoreApi_V1_SaveInvitesRequest, rhs: Xmtp_KeystoreApi_V1_SaveInvitesRequest) -> Bool {
-		if lhs.requests != rhs.requests { return false }
-		if lhs.unknownFields != rhs.unknownFields { return false }
-		return true
-	}
+  public static func ==(lhs: Xmtp_KeystoreApi_V1_SaveInvitesRequest, rhs: Xmtp_KeystoreApi_V1_SaveInvitesRequest) -> Bool {
+    if lhs.requests != rhs.requests {return false}
+    if lhs.unknownFields != rhs.unknownFields {return false}
+    return true
+  }
 }
 
 extension Xmtp_KeystoreApi_V1_SaveInvitesRequest.Request: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
-	public static let protoMessageName: String = Xmtp_KeystoreApi_V1_SaveInvitesRequest.protoMessageName + ".Request"
-	public static let _protobuf_nameMap: SwiftProtobuf._NameMap = [
-		1: .standard(proto: "content_topic"),
-		2: .standard(proto: "timestamp_ns"),
-		3: .same(proto: "payload"),
-	]
+  public static let protoMessageName: String = Xmtp_KeystoreApi_V1_SaveInvitesRequest.protoMessageName + ".Request"
+  public static let _protobuf_nameMap: SwiftProtobuf._NameMap = [
+    1: .standard(proto: "content_topic"),
+    2: .standard(proto: "timestamp_ns"),
+    3: .same(proto: "payload"),
+  ]
 
-	public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
-		while let fieldNumber = try decoder.nextFieldNumber() {
-			// The use of inline closures is to circumvent an issue where the compiler
-			// allocates stack space for every case branch when no optimizations are
-			// enabled. https://github.com/apple/swift-protobuf/issues/1034
-			switch fieldNumber {
-			case 1: try try decoder.decodeSingularStringField(value: &contentTopic)
-			case 2: try try decoder.decodeSingularUInt64Field(value: &timestampNs)
-			case 3: try try decoder.decodeSingularBytesField(value: &payload)
-			default: break
-			}
-		}
-	}
+  public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
+    while let fieldNumber = try decoder.nextFieldNumber() {
+      // The use of inline closures is to circumvent an issue where the compiler
+      // allocates stack space for every case branch when no optimizations are
+      // enabled. https://github.com/apple/swift-protobuf/issues/1034
+      switch fieldNumber {
+      case 1: try { try decoder.decodeSingularStringField(value: &self.contentTopic) }()
+      case 2: try { try decoder.decodeSingularUInt64Field(value: &self.timestampNs) }()
+      case 3: try { try decoder.decodeSingularBytesField(value: &self.payload) }()
+      default: break
+      }
+    }
+  }
 
-	public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
-		if !contentTopic.isEmpty {
-			try visitor.visitSingularStringField(value: contentTopic, fieldNumber: 1)
-		}
-		if timestampNs != 0 {
-			try visitor.visitSingularUInt64Field(value: timestampNs, fieldNumber: 2)
-		}
-		if !payload.isEmpty {
-			try visitor.visitSingularBytesField(value: payload, fieldNumber: 3)
-		}
-		try unknownFields.traverse(visitor: &visitor)
-	}
+  public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    if !self.contentTopic.isEmpty {
+      try visitor.visitSingularStringField(value: self.contentTopic, fieldNumber: 1)
+    }
+    if self.timestampNs != 0 {
+      try visitor.visitSingularUInt64Field(value: self.timestampNs, fieldNumber: 2)
+    }
+    if !self.payload.isEmpty {
+      try visitor.visitSingularBytesField(value: self.payload, fieldNumber: 3)
+    }
+    try unknownFields.traverse(visitor: &visitor)
+  }
 
-	public static func == (lhs: Xmtp_KeystoreApi_V1_SaveInvitesRequest.Request, rhs: Xmtp_KeystoreApi_V1_SaveInvitesRequest.Request) -> Bool {
-		if lhs.contentTopic != rhs.contentTopic { return false }
-		if lhs.timestampNs != rhs.timestampNs { return false }
-		if lhs.payload != rhs.payload { return false }
-		if lhs.unknownFields != rhs.unknownFields { return false }
-		return true
-	}
+  public static func ==(lhs: Xmtp_KeystoreApi_V1_SaveInvitesRequest.Request, rhs: Xmtp_KeystoreApi_V1_SaveInvitesRequest.Request) -> Bool {
+    if lhs.contentTopic != rhs.contentTopic {return false}
+    if lhs.timestampNs != rhs.timestampNs {return false}
+    if lhs.payload != rhs.payload {return false}
+    if lhs.unknownFields != rhs.unknownFields {return false}
+    return true
+  }
 }
 
 extension Xmtp_KeystoreApi_V1_SaveInvitesResponse: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
-	public static let protoMessageName: String = _protobuf_package + ".SaveInvitesResponse"
-	public static let _protobuf_nameMap: SwiftProtobuf._NameMap = [
-		1: .same(proto: "responses"),
-	]
+  public static let protoMessageName: String = _protobuf_package + ".SaveInvitesResponse"
+  public static let _protobuf_nameMap: SwiftProtobuf._NameMap = [
+    1: .same(proto: "responses"),
+  ]
 
-	public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
-		while let fieldNumber = try decoder.nextFieldNumber() {
-			// The use of inline closures is to circumvent an issue where the compiler
-			// allocates stack space for every case branch when no optimizations are
-			// enabled. https://github.com/apple/swift-protobuf/issues/1034
-			switch fieldNumber {
-			case 1: try try decoder.decodeRepeatedMessageField(value: &responses)
-			default: break
-			}
-		}
-	}
+  public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
+    while let fieldNumber = try decoder.nextFieldNumber() {
+      // The use of inline closures is to circumvent an issue where the compiler
+      // allocates stack space for every case branch when no optimizations are
+      // enabled. https://github.com/apple/swift-protobuf/issues/1034
+      switch fieldNumber {
+      case 1: try { try decoder.decodeRepeatedMessageField(value: &self.responses) }()
+      default: break
+      }
+    }
+  }
 
-	public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
-		if !responses.isEmpty {
-			try visitor.visitRepeatedMessageField(value: responses, fieldNumber: 1)
-		}
-		try unknownFields.traverse(visitor: &visitor)
-	}
+  public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    if !self.responses.isEmpty {
+      try visitor.visitRepeatedMessageField(value: self.responses, fieldNumber: 1)
+    }
+    try unknownFields.traverse(visitor: &visitor)
+  }
 
-	public static func == (lhs: Xmtp_KeystoreApi_V1_SaveInvitesResponse, rhs: Xmtp_KeystoreApi_V1_SaveInvitesResponse) -> Bool {
-		if lhs.responses != rhs.responses { return false }
-		if lhs.unknownFields != rhs.unknownFields { return false }
-		return true
-	}
+  public static func ==(lhs: Xmtp_KeystoreApi_V1_SaveInvitesResponse, rhs: Xmtp_KeystoreApi_V1_SaveInvitesResponse) -> Bool {
+    if lhs.responses != rhs.responses {return false}
+    if lhs.unknownFields != rhs.unknownFields {return false}
+    return true
+  }
 }
 
 extension Xmtp_KeystoreApi_V1_SaveInvitesResponse.Response: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
-	public static let protoMessageName: String = Xmtp_KeystoreApi_V1_SaveInvitesResponse.protoMessageName + ".Response"
-	public static let _protobuf_nameMap: SwiftProtobuf._NameMap = [
-		1: .same(proto: "result"),
-		2: .same(proto: "error"),
-	]
+  public static let protoMessageName: String = Xmtp_KeystoreApi_V1_SaveInvitesResponse.protoMessageName + ".Response"
+  public static let _protobuf_nameMap: SwiftProtobuf._NameMap = [
+    1: .same(proto: "result"),
+    2: .same(proto: "error"),
+  ]
 
-	public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
-		while let fieldNumber = try decoder.nextFieldNumber() {
-			// The use of inline closures is to circumvent an issue where the compiler
-			// allocates stack space for every case branch when no optimizations are
-			// enabled. https://github.com/apple/swift-protobuf/issues/1034
-			switch fieldNumber {
-			case 1: try {
-					var v: Xmtp_KeystoreApi_V1_SaveInvitesResponse.Response.Success?
-					var hadOneofValue = false
-					if let current = self.response {
-						hadOneofValue = true
-						if case let .result(m) = current { v = m }
-					}
-					try decoder.decodeSingularMessageField(value: &v)
-					if let v = v {
-						if hadOneofValue { try decoder.handleConflictingOneOf() }
-						self.response = .result(v)
-					}
-				}()
-			case 2: try {
-					var v: Xmtp_KeystoreApi_V1_KeystoreError?
-					var hadOneofValue = false
-					if let current = self.response {
-						hadOneofValue = true
-						if case let .error(m) = current { v = m }
-					}
-					try decoder.decodeSingularMessageField(value: &v)
-					if let v = v {
-						if hadOneofValue { try decoder.handleConflictingOneOf() }
-						self.response = .error(v)
-					}
-				}()
-			default: break
-			}
-		}
-	}
+  public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
+    while let fieldNumber = try decoder.nextFieldNumber() {
+      // The use of inline closures is to circumvent an issue where the compiler
+      // allocates stack space for every case branch when no optimizations are
+      // enabled. https://github.com/apple/swift-protobuf/issues/1034
+      switch fieldNumber {
+      case 1: try {
+        var v: Xmtp_KeystoreApi_V1_SaveInvitesResponse.Response.Success?
+        var hadOneofValue = false
+        if let current = self.response {
+          hadOneofValue = true
+          if case .result(let m) = current {v = m}
+        }
+        try decoder.decodeSingularMessageField(value: &v)
+        if let v = v {
+          if hadOneofValue {try decoder.handleConflictingOneOf()}
+          self.response = .result(v)
+        }
+      }()
+      case 2: try {
+        var v: Xmtp_KeystoreApi_V1_KeystoreError?
+        var hadOneofValue = false
+        if let current = self.response {
+          hadOneofValue = true
+          if case .error(let m) = current {v = m}
+        }
+        try decoder.decodeSingularMessageField(value: &v)
+        if let v = v {
+          if hadOneofValue {try decoder.handleConflictingOneOf()}
+          self.response = .error(v)
+        }
+      }()
+      default: break
+      }
+    }
+  }
 
-	public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
-		// The use of inline closures is to circumvent an issue where the compiler
-		// allocates stack space for every if/case branch local when no optimizations
-		// are enabled. https://github.com/apple/swift-protobuf/issues/1034 and
-		// https://github.com/apple/swift-protobuf/issues/1182
-		switch response {
-		case .result?: try {
-				guard case let .result(v)? = self.response else { preconditionFailure() }
-				try visitor.visitSingularMessageField(value: v, fieldNumber: 1)
-			}()
-		case .error?: try {
-				guard case let .error(v)? = self.response else { preconditionFailure() }
-				try visitor.visitSingularMessageField(value: v, fieldNumber: 2)
-			}()
-		case nil: break
-		}
-		try unknownFields.traverse(visitor: &visitor)
-	}
+  public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    // The use of inline closures is to circumvent an issue where the compiler
+    // allocates stack space for every if/case branch local when no optimizations
+    // are enabled. https://github.com/apple/swift-protobuf/issues/1034 and
+    // https://github.com/apple/swift-protobuf/issues/1182
+    switch self.response {
+    case .result?: try {
+      guard case .result(let v)? = self.response else { preconditionFailure() }
+      try visitor.visitSingularMessageField(value: v, fieldNumber: 1)
+    }()
+    case .error?: try {
+      guard case .error(let v)? = self.response else { preconditionFailure() }
+      try visitor.visitSingularMessageField(value: v, fieldNumber: 2)
+    }()
+    case nil: break
+    }
+    try unknownFields.traverse(visitor: &visitor)
+  }
 
-	public static func == (lhs: Xmtp_KeystoreApi_V1_SaveInvitesResponse.Response, rhs: Xmtp_KeystoreApi_V1_SaveInvitesResponse.Response) -> Bool {
-		if lhs.response != rhs.response { return false }
-		if lhs.unknownFields != rhs.unknownFields { return false }
-		return true
-	}
+  public static func ==(lhs: Xmtp_KeystoreApi_V1_SaveInvitesResponse.Response, rhs: Xmtp_KeystoreApi_V1_SaveInvitesResponse.Response) -> Bool {
+    if lhs.response != rhs.response {return false}
+    if lhs.unknownFields != rhs.unknownFields {return false}
+    return true
+  }
 }
 
 extension Xmtp_KeystoreApi_V1_SaveInvitesResponse.Response.Success: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
-	public static let protoMessageName: String = Xmtp_KeystoreApi_V1_SaveInvitesResponse.Response.protoMessageName + ".Success"
-	public static let _protobuf_nameMap: SwiftProtobuf._NameMap = [
-		1: .same(proto: "conversation"),
-	]
+  public static let protoMessageName: String = Xmtp_KeystoreApi_V1_SaveInvitesResponse.Response.protoMessageName + ".Success"
+  public static let _protobuf_nameMap: SwiftProtobuf._NameMap = [
+    1: .same(proto: "conversation"),
+  ]
 
-	public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
-		while let fieldNumber = try decoder.nextFieldNumber() {
-			// The use of inline closures is to circumvent an issue where the compiler
-			// allocates stack space for every case branch when no optimizations are
-			// enabled. https://github.com/apple/swift-protobuf/issues/1034
-			switch fieldNumber {
-			case 1: try try decoder.decodeSingularMessageField(value: &_conversation)
-			default: break
-			}
-		}
-	}
+  public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
+    while let fieldNumber = try decoder.nextFieldNumber() {
+      // The use of inline closures is to circumvent an issue where the compiler
+      // allocates stack space for every case branch when no optimizations are
+      // enabled. https://github.com/apple/swift-protobuf/issues/1034
+      switch fieldNumber {
+      case 1: try { try decoder.decodeSingularMessageField(value: &self._conversation) }()
+      default: break
+      }
+    }
+  }
 
-	public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
-		// The use of inline closures is to circumvent an issue where the compiler
-		// allocates stack space for every if/case branch local when no optimizations
-		// are enabled. https://github.com/apple/swift-protobuf/issues/1034 and
-		// https://github.com/apple/swift-protobuf/issues/1182
-		try { if let v = self._conversation {
-			try visitor.visitSingularMessageField(value: v, fieldNumber: 1)
-		} }()
-		try unknownFields.traverse(visitor: &visitor)
-	}
+  public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    // The use of inline closures is to circumvent an issue where the compiler
+    // allocates stack space for every if/case branch local when no optimizations
+    // are enabled. https://github.com/apple/swift-protobuf/issues/1034 and
+    // https://github.com/apple/swift-protobuf/issues/1182
+    try { if let v = self._conversation {
+      try visitor.visitSingularMessageField(value: v, fieldNumber: 1)
+    } }()
+    try unknownFields.traverse(visitor: &visitor)
+  }
 
-	public static func == (lhs: Xmtp_KeystoreApi_V1_SaveInvitesResponse.Response.Success, rhs: Xmtp_KeystoreApi_V1_SaveInvitesResponse.Response.Success) -> Bool {
-		if lhs._conversation != rhs._conversation { return false }
-		if lhs.unknownFields != rhs.unknownFields { return false }
-		return true
-	}
+  public static func ==(lhs: Xmtp_KeystoreApi_V1_SaveInvitesResponse.Response.Success, rhs: Xmtp_KeystoreApi_V1_SaveInvitesResponse.Response.Success) -> Bool {
+    if lhs._conversation != rhs._conversation {return false}
+    if lhs.unknownFields != rhs.unknownFields {return false}
+    return true
+  }
 }
 
 extension Xmtp_KeystoreApi_V1_CreateAuthTokenRequest: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
-	public static let protoMessageName: String = _protobuf_package + ".CreateAuthTokenRequest"
-	public static let _protobuf_nameMap: SwiftProtobuf._NameMap = [
-		1: .standard(proto: "timestamp_ns"),
-	]
+  public static let protoMessageName: String = _protobuf_package + ".CreateAuthTokenRequest"
+  public static let _protobuf_nameMap: SwiftProtobuf._NameMap = [
+    1: .standard(proto: "timestamp_ns"),
+  ]
 
-	public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
-		while let fieldNumber = try decoder.nextFieldNumber() {
-			// The use of inline closures is to circumvent an issue where the compiler
-			// allocates stack space for every case branch when no optimizations are
-			// enabled. https://github.com/apple/swift-protobuf/issues/1034
-			switch fieldNumber {
-			case 1: try try decoder.decodeSingularUInt64Field(value: &_timestampNs)
-			default: break
-			}
-		}
-	}
+  public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
+    while let fieldNumber = try decoder.nextFieldNumber() {
+      // The use of inline closures is to circumvent an issue where the compiler
+      // allocates stack space for every case branch when no optimizations are
+      // enabled. https://github.com/apple/swift-protobuf/issues/1034
+      switch fieldNumber {
+      case 1: try { try decoder.decodeSingularUInt64Field(value: &self._timestampNs) }()
+      default: break
+      }
+    }
+  }
 
-	public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
-		// The use of inline closures is to circumvent an issue where the compiler
-		// allocates stack space for every if/case branch local when no optimizations
-		// are enabled. https://github.com/apple/swift-protobuf/issues/1034 and
-		// https://github.com/apple/swift-protobuf/issues/1182
-		try { if let v = self._timestampNs {
-			try visitor.visitSingularUInt64Field(value: v, fieldNumber: 1)
-		} }()
-		try unknownFields.traverse(visitor: &visitor)
-	}
+  public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    // The use of inline closures is to circumvent an issue where the compiler
+    // allocates stack space for every if/case branch local when no optimizations
+    // are enabled. https://github.com/apple/swift-protobuf/issues/1034 and
+    // https://github.com/apple/swift-protobuf/issues/1182
+    try { if let v = self._timestampNs {
+      try visitor.visitSingularUInt64Field(value: v, fieldNumber: 1)
+    } }()
+    try unknownFields.traverse(visitor: &visitor)
+  }
 
-	public static func == (lhs: Xmtp_KeystoreApi_V1_CreateAuthTokenRequest, rhs: Xmtp_KeystoreApi_V1_CreateAuthTokenRequest) -> Bool {
-		if lhs._timestampNs != rhs._timestampNs { return false }
-		if lhs.unknownFields != rhs.unknownFields { return false }
-		return true
-	}
+  public static func ==(lhs: Xmtp_KeystoreApi_V1_CreateAuthTokenRequest, rhs: Xmtp_KeystoreApi_V1_CreateAuthTokenRequest) -> Bool {
+    if lhs._timestampNs != rhs._timestampNs {return false}
+    if lhs.unknownFields != rhs.unknownFields {return false}
+    return true
+  }
 }
 
 extension Xmtp_KeystoreApi_V1_SignDigestRequest: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
-	public static let protoMessageName: String = _protobuf_package + ".SignDigestRequest"
-	public static let _protobuf_nameMap: SwiftProtobuf._NameMap = [
-		1: .same(proto: "digest"),
-		2: .standard(proto: "identity_key"),
-		3: .standard(proto: "prekey_index"),
-	]
+  public static let protoMessageName: String = _protobuf_package + ".SignDigestRequest"
+  public static let _protobuf_nameMap: SwiftProtobuf._NameMap = [
+    1: .same(proto: "digest"),
+    2: .standard(proto: "identity_key"),
+    3: .standard(proto: "prekey_index"),
+  ]
 
-	public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
-		while let fieldNumber = try decoder.nextFieldNumber() {
-			// The use of inline closures is to circumvent an issue where the compiler
-			// allocates stack space for every case branch when no optimizations are
-			// enabled. https://github.com/apple/swift-protobuf/issues/1034
-			switch fieldNumber {
-			case 1: try try decoder.decodeSingularBytesField(value: &digest)
-			case 2: try {
-					var v: Bool?
-					try decoder.decodeSingularBoolField(value: &v)
-					if let v = v {
-						if self.signer != nil { try decoder.handleConflictingOneOf() }
-						self.signer = .identityKey(v)
-					}
-				}()
-			case 3: try {
-					var v: UInt32?
-					try decoder.decodeSingularUInt32Field(value: &v)
-					if let v = v {
-						if self.signer != nil { try decoder.handleConflictingOneOf() }
-						self.signer = .prekeyIndex(v)
-					}
-				}()
-			default: break
-			}
-		}
-	}
+  public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
+    while let fieldNumber = try decoder.nextFieldNumber() {
+      // The use of inline closures is to circumvent an issue where the compiler
+      // allocates stack space for every case branch when no optimizations are
+      // enabled. https://github.com/apple/swift-protobuf/issues/1034
+      switch fieldNumber {
+      case 1: try { try decoder.decodeSingularBytesField(value: &self.digest) }()
+      case 2: try {
+        var v: Bool?
+        try decoder.decodeSingularBoolField(value: &v)
+        if let v = v {
+          if self.signer != nil {try decoder.handleConflictingOneOf()}
+          self.signer = .identityKey(v)
+        }
+      }()
+      case 3: try {
+        var v: UInt32?
+        try decoder.decodeSingularUInt32Field(value: &v)
+        if let v = v {
+          if self.signer != nil {try decoder.handleConflictingOneOf()}
+          self.signer = .prekeyIndex(v)
+        }
+      }()
+      default: break
+      }
+    }
+  }
 
-	public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
-		// The use of inline closures is to circumvent an issue where the compiler
-		// allocates stack space for every if/case branch local when no optimizations
-		// are enabled. https://github.com/apple/swift-protobuf/issues/1034 and
-		// https://github.com/apple/swift-protobuf/issues/1182
-		if !digest.isEmpty {
-			try visitor.visitSingularBytesField(value: digest, fieldNumber: 1)
-		}
-		switch signer {
-		case .identityKey?: try {
-				guard case let .identityKey(v)? = self.signer else { preconditionFailure() }
-				try visitor.visitSingularBoolField(value: v, fieldNumber: 2)
-			}()
-		case .prekeyIndex?: try {
-				guard case let .prekeyIndex(v)? = self.signer else { preconditionFailure() }
-				try visitor.visitSingularUInt32Field(value: v, fieldNumber: 3)
-			}()
-		case nil: break
-		}
-		try unknownFields.traverse(visitor: &visitor)
-	}
+  public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    // The use of inline closures is to circumvent an issue where the compiler
+    // allocates stack space for every if/case branch local when no optimizations
+    // are enabled. https://github.com/apple/swift-protobuf/issues/1034 and
+    // https://github.com/apple/swift-protobuf/issues/1182
+    if !self.digest.isEmpty {
+      try visitor.visitSingularBytesField(value: self.digest, fieldNumber: 1)
+    }
+    switch self.signer {
+    case .identityKey?: try {
+      guard case .identityKey(let v)? = self.signer else { preconditionFailure() }
+      try visitor.visitSingularBoolField(value: v, fieldNumber: 2)
+    }()
+    case .prekeyIndex?: try {
+      guard case .prekeyIndex(let v)? = self.signer else { preconditionFailure() }
+      try visitor.visitSingularUInt32Field(value: v, fieldNumber: 3)
+    }()
+    case nil: break
+    }
+    try unknownFields.traverse(visitor: &visitor)
+  }
 
-	public static func == (lhs: Xmtp_KeystoreApi_V1_SignDigestRequest, rhs: Xmtp_KeystoreApi_V1_SignDigestRequest) -> Bool {
-		if lhs.digest != rhs.digest { return false }
-		if lhs.signer != rhs.signer { return false }
-		if lhs.unknownFields != rhs.unknownFields { return false }
-		return true
-	}
+  public static func ==(lhs: Xmtp_KeystoreApi_V1_SignDigestRequest, rhs: Xmtp_KeystoreApi_V1_SignDigestRequest) -> Bool {
+    if lhs.digest != rhs.digest {return false}
+    if lhs.signer != rhs.signer {return false}
+    if lhs.unknownFields != rhs.unknownFields {return false}
+    return true
+  }
 }
 
 extension Xmtp_KeystoreApi_V1_TopicMap: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
-	public static let protoMessageName: String = _protobuf_package + ".TopicMap"
-	public static let _protobuf_nameMap: SwiftProtobuf._NameMap = [
-		1: .same(proto: "topics"),
-	]
+  public static let protoMessageName: String = _protobuf_package + ".TopicMap"
+  public static let _protobuf_nameMap: SwiftProtobuf._NameMap = [
+    1: .same(proto: "topics"),
+  ]
 
-	public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
-		while let fieldNumber = try decoder.nextFieldNumber() {
-			// The use of inline closures is to circumvent an issue where the compiler
-			// allocates stack space for every case branch when no optimizations are
-			// enabled. https://github.com/apple/swift-protobuf/issues/1034
-			switch fieldNumber {
-			case 1: try { try decoder.decodeMapField(fieldType: SwiftProtobuf._ProtobufMessageMap<SwiftProtobuf.ProtobufString, Xmtp_KeystoreApi_V1_TopicMap.TopicData>.self, value: &self.topics) }()
-			default: break
-			}
-		}
-	}
+  public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
+    while let fieldNumber = try decoder.nextFieldNumber() {
+      // The use of inline closures is to circumvent an issue where the compiler
+      // allocates stack space for every case branch when no optimizations are
+      // enabled. https://github.com/apple/swift-protobuf/issues/1034
+      switch fieldNumber {
+      case 1: try { try decoder.decodeMapField(fieldType: SwiftProtobuf._ProtobufMessageMap<SwiftProtobuf.ProtobufString,Xmtp_KeystoreApi_V1_TopicMap.TopicData>.self, value: &self.topics) }()
+      default: break
+      }
+    }
+  }
 
-	public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
-		if !topics.isEmpty {
-			try visitor.visitMapField(fieldType: SwiftProtobuf._ProtobufMessageMap<SwiftProtobuf.ProtobufString, Xmtp_KeystoreApi_V1_TopicMap.TopicData>.self, value: topics, fieldNumber: 1)
-		}
-		try unknownFields.traverse(visitor: &visitor)
-	}
+  public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    if !self.topics.isEmpty {
+      try visitor.visitMapField(fieldType: SwiftProtobuf._ProtobufMessageMap<SwiftProtobuf.ProtobufString,Xmtp_KeystoreApi_V1_TopicMap.TopicData>.self, value: self.topics, fieldNumber: 1)
+    }
+    try unknownFields.traverse(visitor: &visitor)
+  }
 
-	public static func == (lhs: Xmtp_KeystoreApi_V1_TopicMap, rhs: Xmtp_KeystoreApi_V1_TopicMap) -> Bool {
-		if lhs.topics != rhs.topics { return false }
-		if lhs.unknownFields != rhs.unknownFields { return false }
-		return true
-	}
+  public static func ==(lhs: Xmtp_KeystoreApi_V1_TopicMap, rhs: Xmtp_KeystoreApi_V1_TopicMap) -> Bool {
+    if lhs.topics != rhs.topics {return false}
+    if lhs.unknownFields != rhs.unknownFields {return false}
+    return true
+  }
 }
 
 extension Xmtp_KeystoreApi_V1_TopicMap.TopicData: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
-	public static let protoMessageName: String = Xmtp_KeystoreApi_V1_TopicMap.protoMessageName + ".TopicData"
-	public static let _protobuf_nameMap: SwiftProtobuf._NameMap = [
-		1: .standard(proto: "created_ns"),
-		2: .standard(proto: "peer_address"),
-		3: .same(proto: "invitation"),
-	]
+  public static let protoMessageName: String = Xmtp_KeystoreApi_V1_TopicMap.protoMessageName + ".TopicData"
+  public static let _protobuf_nameMap: SwiftProtobuf._NameMap = [
+    1: .standard(proto: "created_ns"),
+    2: .standard(proto: "peer_address"),
+    3: .same(proto: "invitation"),
+  ]
 
-	public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
-		while let fieldNumber = try decoder.nextFieldNumber() {
-			// The use of inline closures is to circumvent an issue where the compiler
-			// allocates stack space for every case branch when no optimizations are
-			// enabled. https://github.com/apple/swift-protobuf/issues/1034
-			switch fieldNumber {
-			case 1: try try decoder.decodeSingularUInt64Field(value: &createdNs)
-			case 2: try try decoder.decodeSingularStringField(value: &peerAddress)
-			case 3: try try decoder.decodeSingularMessageField(value: &_invitation)
-			default: break
-			}
-		}
-	}
+  public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
+    while let fieldNumber = try decoder.nextFieldNumber() {
+      // The use of inline closures is to circumvent an issue where the compiler
+      // allocates stack space for every case branch when no optimizations are
+      // enabled. https://github.com/apple/swift-protobuf/issues/1034
+      switch fieldNumber {
+      case 1: try { try decoder.decodeSingularUInt64Field(value: &self.createdNs) }()
+      case 2: try { try decoder.decodeSingularStringField(value: &self.peerAddress) }()
+      case 3: try { try decoder.decodeSingularMessageField(value: &self._invitation) }()
+      default: break
+      }
+    }
+  }
 
-	public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
-		// The use of inline closures is to circumvent an issue where the compiler
-		// allocates stack space for every if/case branch local when no optimizations
-		// are enabled. https://github.com/apple/swift-protobuf/issues/1034 and
-		// https://github.com/apple/swift-protobuf/issues/1182
-		if createdNs != 0 {
-			try visitor.visitSingularUInt64Field(value: createdNs, fieldNumber: 1)
-		}
-		if !peerAddress.isEmpty {
-			try visitor.visitSingularStringField(value: peerAddress, fieldNumber: 2)
-		}
-		try { if let v = self._invitation {
-			try visitor.visitSingularMessageField(value: v, fieldNumber: 3)
-		} }()
-		try unknownFields.traverse(visitor: &visitor)
-	}
+  public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    // The use of inline closures is to circumvent an issue where the compiler
+    // allocates stack space for every if/case branch local when no optimizations
+    // are enabled. https://github.com/apple/swift-protobuf/issues/1034 and
+    // https://github.com/apple/swift-protobuf/issues/1182
+    if self.createdNs != 0 {
+      try visitor.visitSingularUInt64Field(value: self.createdNs, fieldNumber: 1)
+    }
+    if !self.peerAddress.isEmpty {
+      try visitor.visitSingularStringField(value: self.peerAddress, fieldNumber: 2)
+    }
+    try { if let v = self._invitation {
+      try visitor.visitSingularMessageField(value: v, fieldNumber: 3)
+    } }()
+    try unknownFields.traverse(visitor: &visitor)
+  }
 
-	public static func == (lhs: Xmtp_KeystoreApi_V1_TopicMap.TopicData, rhs: Xmtp_KeystoreApi_V1_TopicMap.TopicData) -> Bool {
-		if lhs.createdNs != rhs.createdNs { return false }
-		if lhs.peerAddress != rhs.peerAddress { return false }
-		if lhs._invitation != rhs._invitation { return false }
-		if lhs.unknownFields != rhs.unknownFields { return false }
-		return true
-	}
+  public static func ==(lhs: Xmtp_KeystoreApi_V1_TopicMap.TopicData, rhs: Xmtp_KeystoreApi_V1_TopicMap.TopicData) -> Bool {
+    if lhs.createdNs != rhs.createdNs {return false}
+    if lhs.peerAddress != rhs.peerAddress {return false}
+    if lhs._invitation != rhs._invitation {return false}
+    if lhs.unknownFields != rhs.unknownFields {return false}
+    return true
+  }
 }

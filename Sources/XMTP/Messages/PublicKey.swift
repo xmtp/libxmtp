@@ -7,9 +7,9 @@
 
 import Foundation
 
-import CryptoKit
-import web3
 import XMTPRust
+import web3
+import CryptoKit
 
 typealias PublicKey = Xmtp_MessageContents_PublicKey
 
@@ -67,7 +67,7 @@ extension PublicKey {
 		slimKey.timestamp = timestamp
 		slimKey.secp256K1Uncompressed.bytes = secp256K1Uncompressed.bytes
 
-		let sigText = try Signature.createIdentityText(key: slimKey.serializedData())
+		let sigText = Signature.createIdentityText(key: try slimKey.serializedData())
 		let message = try Signature.ethPersonalMessage(sigText)
 
 		let pubKeyData = try KeyUtilx.recoverPublicKeyKeccak256(from: signature.rawData, message: message)

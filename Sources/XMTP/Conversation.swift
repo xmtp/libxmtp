@@ -91,7 +91,7 @@ public enum Conversation: Sendable {
 	/// See Conversations.importTopicData()
 	public func toTopicData() -> Xmtp_KeystoreApi_V1_TopicMap.TopicData {
 		Xmtp_KeystoreApi_V1_TopicMap.TopicData.with {
-			$0.createdNs = UInt64(createdAt.timeIntervalSince1970 * 1000) * 1_000_000
+			$0.createdNs = UInt64(createdAt.timeIntervalSince1970 * 1_000) * 1_000_000
 			$0.peerAddress = peerAddress
 			if case let .v2(cv2) = self {
 				$0.invitation = Xmtp_MessageContents_InvitationV1.with {

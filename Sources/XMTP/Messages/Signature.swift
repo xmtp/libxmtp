@@ -42,19 +42,21 @@ extension Signature {
 	}
 
 	static func createIdentityText(key: Data) -> String {
-		return
+		return (
 			"XMTP : Create Identity\n" +
-			"\(key.toHex)\n" +
-			"\n" +
-			"For more info: https://xmtp.org/signatures/"
+				"\(key.toHex)\n" +
+				"\n" +
+				"For more info: https://xmtp.org/signatures/"
+		)
 	}
 
 	static func enableIdentityText(key: Data) -> String {
-		return
+		return (
 			"XMTP : Enable Identity\n" +
-			"\(key.toHex)\n" +
-			"\n" +
-			"For more info: https://xmtp.org/signatures/"
+				"\(key.toHex)\n" +
+				"\n" +
+				"For more info: https://xmtp.org/signatures/"
+		)
 	}
 
 	public init(bytes: Data, recovery: Int) {

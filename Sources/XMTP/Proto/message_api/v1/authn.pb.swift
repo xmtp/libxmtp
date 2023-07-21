@@ -17,49 +17,47 @@ import SwiftProtobuf
 // incompatible with the version of SwiftProtobuf to which you are linking.
 // Please ensure that you are building against the same version of the API
 // that was used to generate this file.
-private struct _GeneratedWithProtocGenSwiftVersion: SwiftProtobuf.ProtobufAPIVersionCheck {
-	struct _2: SwiftProtobuf.ProtobufAPIVersion_2 {}
-	typealias Version = _2
+fileprivate struct _GeneratedWithProtocGenSwiftVersion: SwiftProtobuf.ProtobufAPIVersionCheck {
+  struct _2: SwiftProtobuf.ProtobufAPIVersion_2 {}
+  typealias Version = _2
 }
 
 /// Token is used by clients to prove to the nodes
 /// that they are serving a specific wallet.
 public struct Xmtp_MessageApi_V1_Token {
-	// SwiftProtobuf.Message conformance is added in an extension below. See the
-	// `Message` and `Message+*Additions` files in the SwiftProtobuf library for
-	// methods supported on all messages.
+  // SwiftProtobuf.Message conformance is added in an extension below. See the
+  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
+  // methods supported on all messages.
 
-	/// identity key signed by a wallet
-	public var identityKey: Xmtp_MessageContents_PublicKey {
-		get { return _identityKey ?? Xmtp_MessageContents_PublicKey() }
-		set { _identityKey = newValue }
-	}
+  /// identity key signed by a wallet
+  public var identityKey: Xmtp_MessageContents_PublicKey {
+    get {return _identityKey ?? Xmtp_MessageContents_PublicKey()}
+    set {_identityKey = newValue}
+  }
+  /// Returns true if `identityKey` has been explicitly set.
+  public var hasIdentityKey: Bool {return self._identityKey != nil}
+  /// Clears the value of `identityKey`. Subsequent reads from it will return its default value.
+  public mutating func clearIdentityKey() {self._identityKey = nil}
 
-	/// Returns true if `identityKey` has been explicitly set.
-	public var hasIdentityKey: Bool { return _identityKey != nil }
-	/// Clears the value of `identityKey`. Subsequent reads from it will return its default value.
-	public mutating func clearIdentityKey() { _identityKey = nil }
+  /// encoded bytes of AuthData
+  public var authDataBytes: Data = Data()
 
-	/// encoded bytes of AuthData
-	public var authDataBytes: Data = .init()
+  /// identity key signature of AuthData bytes
+  public var authDataSignature: Xmtp_MessageContents_Signature {
+    get {return _authDataSignature ?? Xmtp_MessageContents_Signature()}
+    set {_authDataSignature = newValue}
+  }
+  /// Returns true if `authDataSignature` has been explicitly set.
+  public var hasAuthDataSignature: Bool {return self._authDataSignature != nil}
+  /// Clears the value of `authDataSignature`. Subsequent reads from it will return its default value.
+  public mutating func clearAuthDataSignature() {self._authDataSignature = nil}
 
-	/// identity key signature of AuthData bytes
-	public var authDataSignature: Xmtp_MessageContents_Signature {
-		get { return _authDataSignature ?? Xmtp_MessageContents_Signature() }
-		set { _authDataSignature = newValue }
-	}
+  public var unknownFields = SwiftProtobuf.UnknownStorage()
 
-	/// Returns true if `authDataSignature` has been explicitly set.
-	public var hasAuthDataSignature: Bool { return _authDataSignature != nil }
-	/// Clears the value of `authDataSignature`. Subsequent reads from it will return its default value.
-	public mutating func clearAuthDataSignature() { _authDataSignature = nil }
+  public init() {}
 
-	public var unknownFields = SwiftProtobuf.UnknownStorage()
-
-	public init() {}
-
-	fileprivate var _identityKey: Xmtp_MessageContents_PublicKey?
-	fileprivate var _authDataSignature: Xmtp_MessageContents_Signature?
+  fileprivate var _identityKey: Xmtp_MessageContents_PublicKey? = nil
+  fileprivate var _authDataSignature: Xmtp_MessageContents_Signature? = nil
 }
 
 /// AuthData carries token parameters that are authenticated
@@ -68,112 +66,112 @@ public struct Xmtp_MessageApi_V1_Token {
 /// so that the bytes don't need to be reconstructed
 /// to verify the token signature.
 public struct Xmtp_MessageApi_V1_AuthData {
-	// SwiftProtobuf.Message conformance is added in an extension below. See the
-	// `Message` and `Message+*Additions` files in the SwiftProtobuf library for
-	// methods supported on all messages.
+  // SwiftProtobuf.Message conformance is added in an extension below. See the
+  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
+  // methods supported on all messages.
 
-	/// address of the wallet
-	public var walletAddr: String = .init()
+  /// address of the wallet
+  public var walletAddr: String = String()
 
-	/// time when the token was generated/signed
-	public var createdNs: UInt64 = 0
+  /// time when the token was generated/signed 
+  public var createdNs: UInt64 = 0
 
-	public var unknownFields = SwiftProtobuf.UnknownStorage()
+  public var unknownFields = SwiftProtobuf.UnknownStorage()
 
-	public init() {}
+  public init() {}
 }
 
 #if swift(>=5.5) && canImport(_Concurrency)
-	extension Xmtp_MessageApi_V1_Token: @unchecked Sendable {}
-	extension Xmtp_MessageApi_V1_AuthData: @unchecked Sendable {}
-#endif // swift(>=5.5) && canImport(_Concurrency)
+extension Xmtp_MessageApi_V1_Token: @unchecked Sendable {}
+extension Xmtp_MessageApi_V1_AuthData: @unchecked Sendable {}
+#endif  // swift(>=5.5) && canImport(_Concurrency)
 
 // MARK: - Code below here is support for the SwiftProtobuf runtime.
 
-private let _protobuf_package = "xmtp.message_api.v1"
+fileprivate let _protobuf_package = "xmtp.message_api.v1"
 
 extension Xmtp_MessageApi_V1_Token: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
-	public static let protoMessageName: String = _protobuf_package + ".Token"
-	public static let _protobuf_nameMap: SwiftProtobuf._NameMap = [
-		1: .standard(proto: "identity_key"),
-		2: .standard(proto: "auth_data_bytes"),
-		3: .standard(proto: "auth_data_signature"),
-	]
+  public static let protoMessageName: String = _protobuf_package + ".Token"
+  public static let _protobuf_nameMap: SwiftProtobuf._NameMap = [
+    1: .standard(proto: "identity_key"),
+    2: .standard(proto: "auth_data_bytes"),
+    3: .standard(proto: "auth_data_signature"),
+  ]
 
-	public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
-		while let fieldNumber = try decoder.nextFieldNumber() {
-			// The use of inline closures is to circumvent an issue where the compiler
-			// allocates stack space for every case branch when no optimizations are
-			// enabled. https://github.com/apple/swift-protobuf/issues/1034
-			switch fieldNumber {
-			case 1: try try decoder.decodeSingularMessageField(value: &_identityKey)
-			case 2: try try decoder.decodeSingularBytesField(value: &authDataBytes)
-			case 3: try try decoder.decodeSingularMessageField(value: &_authDataSignature)
-			default: break
-			}
-		}
-	}
+  public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
+    while let fieldNumber = try decoder.nextFieldNumber() {
+      // The use of inline closures is to circumvent an issue where the compiler
+      // allocates stack space for every case branch when no optimizations are
+      // enabled. https://github.com/apple/swift-protobuf/issues/1034
+      switch fieldNumber {
+      case 1: try { try decoder.decodeSingularMessageField(value: &self._identityKey) }()
+      case 2: try { try decoder.decodeSingularBytesField(value: &self.authDataBytes) }()
+      case 3: try { try decoder.decodeSingularMessageField(value: &self._authDataSignature) }()
+      default: break
+      }
+    }
+  }
 
-	public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
-		// The use of inline closures is to circumvent an issue where the compiler
-		// allocates stack space for every if/case branch local when no optimizations
-		// are enabled. https://github.com/apple/swift-protobuf/issues/1034 and
-		// https://github.com/apple/swift-protobuf/issues/1182
-		try { if let v = self._identityKey {
-			try visitor.visitSingularMessageField(value: v, fieldNumber: 1)
-		} }()
-		if !authDataBytes.isEmpty {
-			try visitor.visitSingularBytesField(value: authDataBytes, fieldNumber: 2)
-		}
-		try { if let v = self._authDataSignature {
-			try visitor.visitSingularMessageField(value: v, fieldNumber: 3)
-		} }()
-		try unknownFields.traverse(visitor: &visitor)
-	}
+  public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    // The use of inline closures is to circumvent an issue where the compiler
+    // allocates stack space for every if/case branch local when no optimizations
+    // are enabled. https://github.com/apple/swift-protobuf/issues/1034 and
+    // https://github.com/apple/swift-protobuf/issues/1182
+    try { if let v = self._identityKey {
+      try visitor.visitSingularMessageField(value: v, fieldNumber: 1)
+    } }()
+    if !self.authDataBytes.isEmpty {
+      try visitor.visitSingularBytesField(value: self.authDataBytes, fieldNumber: 2)
+    }
+    try { if let v = self._authDataSignature {
+      try visitor.visitSingularMessageField(value: v, fieldNumber: 3)
+    } }()
+    try unknownFields.traverse(visitor: &visitor)
+  }
 
-	public static func == (lhs: Xmtp_MessageApi_V1_Token, rhs: Xmtp_MessageApi_V1_Token) -> Bool {
-		if lhs._identityKey != rhs._identityKey { return false }
-		if lhs.authDataBytes != rhs.authDataBytes { return false }
-		if lhs._authDataSignature != rhs._authDataSignature { return false }
-		if lhs.unknownFields != rhs.unknownFields { return false }
-		return true
-	}
+  public static func ==(lhs: Xmtp_MessageApi_V1_Token, rhs: Xmtp_MessageApi_V1_Token) -> Bool {
+    if lhs._identityKey != rhs._identityKey {return false}
+    if lhs.authDataBytes != rhs.authDataBytes {return false}
+    if lhs._authDataSignature != rhs._authDataSignature {return false}
+    if lhs.unknownFields != rhs.unknownFields {return false}
+    return true
+  }
 }
 
 extension Xmtp_MessageApi_V1_AuthData: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
-	public static let protoMessageName: String = _protobuf_package + ".AuthData"
-	public static let _protobuf_nameMap: SwiftProtobuf._NameMap = [
-		1: .standard(proto: "wallet_addr"),
-		2: .standard(proto: "created_ns"),
-	]
+  public static let protoMessageName: String = _protobuf_package + ".AuthData"
+  public static let _protobuf_nameMap: SwiftProtobuf._NameMap = [
+    1: .standard(proto: "wallet_addr"),
+    2: .standard(proto: "created_ns"),
+  ]
 
-	public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
-		while let fieldNumber = try decoder.nextFieldNumber() {
-			// The use of inline closures is to circumvent an issue where the compiler
-			// allocates stack space for every case branch when no optimizations are
-			// enabled. https://github.com/apple/swift-protobuf/issues/1034
-			switch fieldNumber {
-			case 1: try try decoder.decodeSingularStringField(value: &walletAddr)
-			case 2: try try decoder.decodeSingularUInt64Field(value: &createdNs)
-			default: break
-			}
-		}
-	}
+  public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
+    while let fieldNumber = try decoder.nextFieldNumber() {
+      // The use of inline closures is to circumvent an issue where the compiler
+      // allocates stack space for every case branch when no optimizations are
+      // enabled. https://github.com/apple/swift-protobuf/issues/1034
+      switch fieldNumber {
+      case 1: try { try decoder.decodeSingularStringField(value: &self.walletAddr) }()
+      case 2: try { try decoder.decodeSingularUInt64Field(value: &self.createdNs) }()
+      default: break
+      }
+    }
+  }
 
-	public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
-		if !walletAddr.isEmpty {
-			try visitor.visitSingularStringField(value: walletAddr, fieldNumber: 1)
-		}
-		if createdNs != 0 {
-			try visitor.visitSingularUInt64Field(value: createdNs, fieldNumber: 2)
-		}
-		try unknownFields.traverse(visitor: &visitor)
-	}
+  public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    if !self.walletAddr.isEmpty {
+      try visitor.visitSingularStringField(value: self.walletAddr, fieldNumber: 1)
+    }
+    if self.createdNs != 0 {
+      try visitor.visitSingularUInt64Field(value: self.createdNs, fieldNumber: 2)
+    }
+    try unknownFields.traverse(visitor: &visitor)
+  }
 
-	public static func == (lhs: Xmtp_MessageApi_V1_AuthData, rhs: Xmtp_MessageApi_V1_AuthData) -> Bool {
-		if lhs.walletAddr != rhs.walletAddr { return false }
-		if lhs.createdNs != rhs.createdNs { return false }
-		if lhs.unknownFields != rhs.unknownFields { return false }
-		return true
-	}
+  public static func ==(lhs: Xmtp_MessageApi_V1_AuthData, rhs: Xmtp_MessageApi_V1_AuthData) -> Bool {
+    if lhs.walletAddr != rhs.walletAddr {return false}
+    if lhs.createdNs != rhs.createdNs {return false}
+    if lhs.unknownFields != rhs.unknownFields {return false}
+    return true
+  }
 }

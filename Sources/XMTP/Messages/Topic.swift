@@ -5,12 +5,14 @@
 //  Created by Pat Nakajima on 11/17/22.
 //
 
+
+
 public enum Topic {
 	case userPrivateStoreKeyBundle(String),
 	     contact(String),
 	     userIntro(String),
 	     userInvite(String),
-	     groupInvite(String),
+			 groupInvite(String),
 	     directMessageV1(String, String),
 	     directMessageV2(String)
 

@@ -54,30 +54,30 @@ public struct ConversationV1 {
 		let message = try MessageV1.encode(
 			sender: client.privateKeyBundleV1,
 			recipient: recipient,
-			message: encodedContent.serializedData(),
+			message: try encodedContent.serializedData(),
 			timestamp: date
 		)
 
-		let messageEnvelope = try Envelope(
+		let messageEnvelope = Envelope(
 			topic: .directMessageV1(client.address, peerAddress),
 			timestamp: date,
-			message: Message(v1: message).serializedData()
+			message: try Message(v1: message).serializedData()
 		)
 
 		return PreparedMessage(messageEnvelope: messageEnvelope, conversation: .v1(self)) {
 			var envelopes = [messageEnvelope]
 
 			if client.contacts.needsIntroduction(peerAddress) {
-				try envelopes.append(contentsOf: [
+				envelopes.append(contentsOf: [
 					Envelope(
 						topic: .userIntro(peerAddress),
 						timestamp: date,
-						message: Message(v1: message).serializedData()
+						message: try Message(v1: message).serializedData()
 					),
 					Envelope(
 						topic: .userIntro(client.address),
 						timestamp: date,
-						message: Message(v1: message).serializedData()
+						message: try Message(v1: message).serializedData()
 					),
 				])
 
@@ -147,7 +147,7 @@ public struct ConversationV1 {
 		let pagination = Pagination(limit: limit, before: before, after: after)
 
 		let envelopes = try await client.apiClient.envelopes(
-			topic: Topic.directMessageV1(client.address, peerAddress).description,
+            topic: Topic.directMessageV1(client.address, peerAddress).description,
 			pagination: pagination
 		)
 

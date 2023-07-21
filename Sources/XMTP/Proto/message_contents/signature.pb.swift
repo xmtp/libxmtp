@@ -17,255 +17,255 @@ import SwiftProtobuf
 // incompatible with the version of SwiftProtobuf to which you are linking.
 // Please ensure that you are building against the same version of the API
 // that was used to generate this file.
-private struct _GeneratedWithProtocGenSwiftVersion: SwiftProtobuf.ProtobufAPIVersionCheck {
-	struct _2: SwiftProtobuf.ProtobufAPIVersion_2 {}
-	typealias Version = _2
+fileprivate struct _GeneratedWithProtocGenSwiftVersion: SwiftProtobuf.ProtobufAPIVersionCheck {
+  struct _2: SwiftProtobuf.ProtobufAPIVersion_2 {}
+  typealias Version = _2
 }
 
 /// Signature represents a generalized public key signature,
 /// defined as a union to support cryptographic algorithm agility.
 public struct Xmtp_MessageContents_Signature {
-	// SwiftProtobuf.Message conformance is added in an extension below. See the
-	// `Message` and `Message+*Additions` files in the SwiftProtobuf library for
-	// methods supported on all messages.
+  // SwiftProtobuf.Message conformance is added in an extension below. See the
+  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
+  // methods supported on all messages.
 
-	public var union: Xmtp_MessageContents_Signature.OneOf_Union?
+  public var union: Xmtp_MessageContents_Signature.OneOf_Union? = nil
 
-	public var ecdsaCompact: Xmtp_MessageContents_Signature.ECDSACompact {
-		get {
-			if case let .ecdsaCompact(v)? = union { return v }
-			return Xmtp_MessageContents_Signature.ECDSACompact()
-		}
-		set { union = .ecdsaCompact(newValue) }
-	}
+  public var ecdsaCompact: Xmtp_MessageContents_Signature.ECDSACompact {
+    get {
+      if case .ecdsaCompact(let v)? = union {return v}
+      return Xmtp_MessageContents_Signature.ECDSACompact()
+    }
+    set {union = .ecdsaCompact(newValue)}
+  }
 
-	public var walletEcdsaCompact: Xmtp_MessageContents_Signature.WalletECDSACompact {
-		get {
-			if case let .walletEcdsaCompact(v)? = union { return v }
-			return Xmtp_MessageContents_Signature.WalletECDSACompact()
-		}
-		set { union = .walletEcdsaCompact(newValue) }
-	}
+  public var walletEcdsaCompact: Xmtp_MessageContents_Signature.WalletECDSACompact {
+    get {
+      if case .walletEcdsaCompact(let v)? = union {return v}
+      return Xmtp_MessageContents_Signature.WalletECDSACompact()
+    }
+    set {union = .walletEcdsaCompact(newValue)}
+  }
 
-	public var unknownFields = SwiftProtobuf.UnknownStorage()
+  public var unknownFields = SwiftProtobuf.UnknownStorage()
 
-	public enum OneOf_Union: Equatable {
-		case ecdsaCompact(Xmtp_MessageContents_Signature.ECDSACompact)
-		case walletEcdsaCompact(Xmtp_MessageContents_Signature.WalletECDSACompact)
+  public enum OneOf_Union: Equatable {
+    case ecdsaCompact(Xmtp_MessageContents_Signature.ECDSACompact)
+    case walletEcdsaCompact(Xmtp_MessageContents_Signature.WalletECDSACompact)
 
-		#if !swift(>=4.1)
-			public static func == (lhs: Xmtp_MessageContents_Signature.OneOf_Union, rhs: Xmtp_MessageContents_Signature.OneOf_Union) -> Bool {
-				// The use of inline closures is to circumvent an issue where the compiler
-				// allocates stack space for every case branch when no optimizations are
-				// enabled. https://github.com/apple/swift-protobuf/issues/1034
-				switch (lhs, rhs) {
-				case (.ecdsaCompact, .ecdsaCompact): return {
-						guard case let .ecdsaCompact(l) = lhs, case let .ecdsaCompact(r) = rhs else { preconditionFailure() }
-						return l == r
-					}()
-				case (.walletEcdsaCompact, .walletEcdsaCompact): return {
-						guard case let .walletEcdsaCompact(l) = lhs, case let .walletEcdsaCompact(r) = rhs else { preconditionFailure() }
-						return l == r
-					}()
-				default: return false
-				}
-			}
-		#endif
-	}
+  #if !swift(>=4.1)
+    public static func ==(lhs: Xmtp_MessageContents_Signature.OneOf_Union, rhs: Xmtp_MessageContents_Signature.OneOf_Union) -> Bool {
+      // The use of inline closures is to circumvent an issue where the compiler
+      // allocates stack space for every case branch when no optimizations are
+      // enabled. https://github.com/apple/swift-protobuf/issues/1034
+      switch (lhs, rhs) {
+      case (.ecdsaCompact, .ecdsaCompact): return {
+        guard case .ecdsaCompact(let l) = lhs, case .ecdsaCompact(let r) = rhs else { preconditionFailure() }
+        return l == r
+      }()
+      case (.walletEcdsaCompact, .walletEcdsaCompact): return {
+        guard case .walletEcdsaCompact(let l) = lhs, case .walletEcdsaCompact(let r) = rhs else { preconditionFailure() }
+        return l == r
+      }()
+      default: return false
+      }
+    }
+  #endif
+  }
 
-	/// ECDSA signature bytes and the recovery bit
-	public struct ECDSACompact {
-		// SwiftProtobuf.Message conformance is added in an extension below. See the
-		// `Message` and `Message+*Additions` files in the SwiftProtobuf library for
-		// methods supported on all messages.
+  /// ECDSA signature bytes and the recovery bit
+  public struct ECDSACompact {
+    // SwiftProtobuf.Message conformance is added in an extension below. See the
+    // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
+    // methods supported on all messages.
 
-		/// compact representation [ R || S ], 64 bytes
-		public var bytes: Data = .init()
+    /// compact representation [ R || S ], 64 bytes
+    public var bytes: Data = Data()
 
-		/// recovery bit
-		public var recovery: UInt32 = 0
+    /// recovery bit
+    public var recovery: UInt32 = 0
 
-		public var unknownFields = SwiftProtobuf.UnknownStorage()
+    public var unknownFields = SwiftProtobuf.UnknownStorage()
 
-		public init() {}
-	}
+    public init() {}
+  }
 
-	/// ECDSA signature bytes and the recovery bit
-	/// produced by xmtp-js::PublicKey.signWithWallet function, i.e.
-	/// EIP-191 signature of a "Create Identity" message with the key embedded.
-	/// Used to sign identity keys.
-	public struct WalletECDSACompact {
-		// SwiftProtobuf.Message conformance is added in an extension below. See the
-		// `Message` and `Message+*Additions` files in the SwiftProtobuf library for
-		// methods supported on all messages.
+  /// ECDSA signature bytes and the recovery bit
+  /// produced by xmtp-js::PublicKey.signWithWallet function, i.e.
+  /// EIP-191 signature of a "Create Identity" message with the key embedded.
+  /// Used to sign identity keys.
+  public struct WalletECDSACompact {
+    // SwiftProtobuf.Message conformance is added in an extension below. See the
+    // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
+    // methods supported on all messages.
 
-		/// compact representation [ R || S ], 64 bytes
-		public var bytes: Data = .init()
+    /// compact representation [ R || S ], 64 bytes
+    public var bytes: Data = Data()
 
-		/// recovery bit
-		public var recovery: UInt32 = 0
+    /// recovery bit
+    public var recovery: UInt32 = 0
 
-		public var unknownFields = SwiftProtobuf.UnknownStorage()
+    public var unknownFields = SwiftProtobuf.UnknownStorage()
 
-		public init() {}
-	}
+    public init() {}
+  }
 
-	public init() {}
+  public init() {}
 }
 
 #if swift(>=5.5) && canImport(_Concurrency)
-	extension Xmtp_MessageContents_Signature: @unchecked Sendable {}
-	extension Xmtp_MessageContents_Signature.OneOf_Union: @unchecked Sendable {}
-	extension Xmtp_MessageContents_Signature.ECDSACompact: @unchecked Sendable {}
-	extension Xmtp_MessageContents_Signature.WalletECDSACompact: @unchecked Sendable {}
-#endif // swift(>=5.5) && canImport(_Concurrency)
+extension Xmtp_MessageContents_Signature: @unchecked Sendable {}
+extension Xmtp_MessageContents_Signature.OneOf_Union: @unchecked Sendable {}
+extension Xmtp_MessageContents_Signature.ECDSACompact: @unchecked Sendable {}
+extension Xmtp_MessageContents_Signature.WalletECDSACompact: @unchecked Sendable {}
+#endif  // swift(>=5.5) && canImport(_Concurrency)
 
 // MARK: - Code below here is support for the SwiftProtobuf runtime.
 
-private let _protobuf_package = "xmtp.message_contents"
+fileprivate let _protobuf_package = "xmtp.message_contents"
 
 extension Xmtp_MessageContents_Signature: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
-	public static let protoMessageName: String = _protobuf_package + ".Signature"
-	public static let _protobuf_nameMap: SwiftProtobuf._NameMap = [
-		1: .standard(proto: "ecdsa_compact"),
-		2: .standard(proto: "wallet_ecdsa_compact"),
-	]
+  public static let protoMessageName: String = _protobuf_package + ".Signature"
+  public static let _protobuf_nameMap: SwiftProtobuf._NameMap = [
+    1: .standard(proto: "ecdsa_compact"),
+    2: .standard(proto: "wallet_ecdsa_compact"),
+  ]
 
-	public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
-		while let fieldNumber = try decoder.nextFieldNumber() {
-			// The use of inline closures is to circumvent an issue where the compiler
-			// allocates stack space for every case branch when no optimizations are
-			// enabled. https://github.com/apple/swift-protobuf/issues/1034
-			switch fieldNumber {
-			case 1: try {
-					var v: Xmtp_MessageContents_Signature.ECDSACompact?
-					var hadOneofValue = false
-					if let current = self.union {
-						hadOneofValue = true
-						if case let .ecdsaCompact(m) = current { v = m }
-					}
-					try decoder.decodeSingularMessageField(value: &v)
-					if let v = v {
-						if hadOneofValue { try decoder.handleConflictingOneOf() }
-						self.union = .ecdsaCompact(v)
-					}
-				}()
-			case 2: try {
-					var v: Xmtp_MessageContents_Signature.WalletECDSACompact?
-					var hadOneofValue = false
-					if let current = self.union {
-						hadOneofValue = true
-						if case let .walletEcdsaCompact(m) = current { v = m }
-					}
-					try decoder.decodeSingularMessageField(value: &v)
-					if let v = v {
-						if hadOneofValue { try decoder.handleConflictingOneOf() }
-						self.union = .walletEcdsaCompact(v)
-					}
-				}()
-			default: break
-			}
-		}
-	}
+  public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
+    while let fieldNumber = try decoder.nextFieldNumber() {
+      // The use of inline closures is to circumvent an issue where the compiler
+      // allocates stack space for every case branch when no optimizations are
+      // enabled. https://github.com/apple/swift-protobuf/issues/1034
+      switch fieldNumber {
+      case 1: try {
+        var v: Xmtp_MessageContents_Signature.ECDSACompact?
+        var hadOneofValue = false
+        if let current = self.union {
+          hadOneofValue = true
+          if case .ecdsaCompact(let m) = current {v = m}
+        }
+        try decoder.decodeSingularMessageField(value: &v)
+        if let v = v {
+          if hadOneofValue {try decoder.handleConflictingOneOf()}
+          self.union = .ecdsaCompact(v)
+        }
+      }()
+      case 2: try {
+        var v: Xmtp_MessageContents_Signature.WalletECDSACompact?
+        var hadOneofValue = false
+        if let current = self.union {
+          hadOneofValue = true
+          if case .walletEcdsaCompact(let m) = current {v = m}
+        }
+        try decoder.decodeSingularMessageField(value: &v)
+        if let v = v {
+          if hadOneofValue {try decoder.handleConflictingOneOf()}
+          self.union = .walletEcdsaCompact(v)
+        }
+      }()
+      default: break
+      }
+    }
+  }
 
-	public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
-		// The use of inline closures is to circumvent an issue where the compiler
-		// allocates stack space for every if/case branch local when no optimizations
-		// are enabled. https://github.com/apple/swift-protobuf/issues/1034 and
-		// https://github.com/apple/swift-protobuf/issues/1182
-		switch union {
-		case .ecdsaCompact?: try {
-				guard case let .ecdsaCompact(v)? = self.union else { preconditionFailure() }
-				try visitor.visitSingularMessageField(value: v, fieldNumber: 1)
-			}()
-		case .walletEcdsaCompact?: try {
-				guard case let .walletEcdsaCompact(v)? = self.union else { preconditionFailure() }
-				try visitor.visitSingularMessageField(value: v, fieldNumber: 2)
-			}()
-		case nil: break
-		}
-		try unknownFields.traverse(visitor: &visitor)
-	}
+  public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    // The use of inline closures is to circumvent an issue where the compiler
+    // allocates stack space for every if/case branch local when no optimizations
+    // are enabled. https://github.com/apple/swift-protobuf/issues/1034 and
+    // https://github.com/apple/swift-protobuf/issues/1182
+    switch self.union {
+    case .ecdsaCompact?: try {
+      guard case .ecdsaCompact(let v)? = self.union else { preconditionFailure() }
+      try visitor.visitSingularMessageField(value: v, fieldNumber: 1)
+    }()
+    case .walletEcdsaCompact?: try {
+      guard case .walletEcdsaCompact(let v)? = self.union else { preconditionFailure() }
+      try visitor.visitSingularMessageField(value: v, fieldNumber: 2)
+    }()
+    case nil: break
+    }
+    try unknownFields.traverse(visitor: &visitor)
+  }
 
-	public static func == (lhs: Xmtp_MessageContents_Signature, rhs: Xmtp_MessageContents_Signature) -> Bool {
-		if lhs.union != rhs.union { return false }
-		if lhs.unknownFields != rhs.unknownFields { return false }
-		return true
-	}
+  public static func ==(lhs: Xmtp_MessageContents_Signature, rhs: Xmtp_MessageContents_Signature) -> Bool {
+    if lhs.union != rhs.union {return false}
+    if lhs.unknownFields != rhs.unknownFields {return false}
+    return true
+  }
 }
 
 extension Xmtp_MessageContents_Signature.ECDSACompact: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
-	public static let protoMessageName: String = Xmtp_MessageContents_Signature.protoMessageName + ".ECDSACompact"
-	public static let _protobuf_nameMap: SwiftProtobuf._NameMap = [
-		1: .same(proto: "bytes"),
-		2: .same(proto: "recovery"),
-	]
+  public static let protoMessageName: String = Xmtp_MessageContents_Signature.protoMessageName + ".ECDSACompact"
+  public static let _protobuf_nameMap: SwiftProtobuf._NameMap = [
+    1: .same(proto: "bytes"),
+    2: .same(proto: "recovery"),
+  ]
 
-	public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
-		while let fieldNumber = try decoder.nextFieldNumber() {
-			// The use of inline closures is to circumvent an issue where the compiler
-			// allocates stack space for every case branch when no optimizations are
-			// enabled. https://github.com/apple/swift-protobuf/issues/1034
-			switch fieldNumber {
-			case 1: try try decoder.decodeSingularBytesField(value: &bytes)
-			case 2: try try decoder.decodeSingularUInt32Field(value: &recovery)
-			default: break
-			}
-		}
-	}
+  public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
+    while let fieldNumber = try decoder.nextFieldNumber() {
+      // The use of inline closures is to circumvent an issue where the compiler
+      // allocates stack space for every case branch when no optimizations are
+      // enabled. https://github.com/apple/swift-protobuf/issues/1034
+      switch fieldNumber {
+      case 1: try { try decoder.decodeSingularBytesField(value: &self.bytes) }()
+      case 2: try { try decoder.decodeSingularUInt32Field(value: &self.recovery) }()
+      default: break
+      }
+    }
+  }
 
-	public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
-		if !bytes.isEmpty {
-			try visitor.visitSingularBytesField(value: bytes, fieldNumber: 1)
-		}
-		if recovery != 0 {
-			try visitor.visitSingularUInt32Field(value: recovery, fieldNumber: 2)
-		}
-		try unknownFields.traverse(visitor: &visitor)
-	}
+  public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    if !self.bytes.isEmpty {
+      try visitor.visitSingularBytesField(value: self.bytes, fieldNumber: 1)
+    }
+    if self.recovery != 0 {
+      try visitor.visitSingularUInt32Field(value: self.recovery, fieldNumber: 2)
+    }
+    try unknownFields.traverse(visitor: &visitor)
+  }
 
-	public static func == (lhs: Xmtp_MessageContents_Signature.ECDSACompact, rhs: Xmtp_MessageContents_Signature.ECDSACompact) -> Bool {
-		if lhs.bytes != rhs.bytes { return false }
-		if lhs.recovery != rhs.recovery { return false }
-		if lhs.unknownFields != rhs.unknownFields { return false }
-		return true
-	}
+  public static func ==(lhs: Xmtp_MessageContents_Signature.ECDSACompact, rhs: Xmtp_MessageContents_Signature.ECDSACompact) -> Bool {
+    if lhs.bytes != rhs.bytes {return false}
+    if lhs.recovery != rhs.recovery {return false}
+    if lhs.unknownFields != rhs.unknownFields {return false}
+    return true
+  }
 }
 
 extension Xmtp_MessageContents_Signature.WalletECDSACompact: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
-	public static let protoMessageName: String = Xmtp_MessageContents_Signature.protoMessageName + ".WalletECDSACompact"
-	public static let _protobuf_nameMap: SwiftProtobuf._NameMap = [
-		1: .same(proto: "bytes"),
-		2: .same(proto: "recovery"),
-	]
+  public static let protoMessageName: String = Xmtp_MessageContents_Signature.protoMessageName + ".WalletECDSACompact"
+  public static let _protobuf_nameMap: SwiftProtobuf._NameMap = [
+    1: .same(proto: "bytes"),
+    2: .same(proto: "recovery"),
+  ]
 
-	public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
-		while let fieldNumber = try decoder.nextFieldNumber() {
-			// The use of inline closures is to circumvent an issue where the compiler
-			// allocates stack space for every case branch when no optimizations are
-			// enabled. https://github.com/apple/swift-protobuf/issues/1034
-			switch fieldNumber {
-			case 1: try try decoder.decodeSingularBytesField(value: &bytes)
-			case 2: try try decoder.decodeSingularUInt32Field(value: &recovery)
-			default: break
-			}
-		}
-	}
+  public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
+    while let fieldNumber = try decoder.nextFieldNumber() {
+      // The use of inline closures is to circumvent an issue where the compiler
+      // allocates stack space for every case branch when no optimizations are
+      // enabled. https://github.com/apple/swift-protobuf/issues/1034
+      switch fieldNumber {
+      case 1: try { try decoder.decodeSingularBytesField(value: &self.bytes) }()
+      case 2: try { try decoder.decodeSingularUInt32Field(value: &self.recovery) }()
+      default: break
+      }
+    }
+  }
 
-	public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
-		if !bytes.isEmpty {
-			try visitor.visitSingularBytesField(value: bytes, fieldNumber: 1)
-		}
-		if recovery != 0 {
-			try visitor.visitSingularUInt32Field(value: recovery, fieldNumber: 2)
-		}
-		try unknownFields.traverse(visitor: &visitor)
-	}
+  public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    if !self.bytes.isEmpty {
+      try visitor.visitSingularBytesField(value: self.bytes, fieldNumber: 1)
+    }
+    if self.recovery != 0 {
+      try visitor.visitSingularUInt32Field(value: self.recovery, fieldNumber: 2)
+    }
+    try unknownFields.traverse(visitor: &visitor)
+  }
 
-	public static func == (lhs: Xmtp_MessageContents_Signature.WalletECDSACompact, rhs: Xmtp_MessageContents_Signature.WalletECDSACompact) -> Bool {
-		if lhs.bytes != rhs.bytes { return false }
-		if lhs.recovery != rhs.recovery { return false }
-		if lhs.unknownFields != rhs.unknownFields { return false }
-		return true
-	}
+  public static func ==(lhs: Xmtp_MessageContents_Signature.WalletECDSACompact, rhs: Xmtp_MessageContents_Signature.WalletECDSACompact) -> Bool {
+    if lhs.bytes != rhs.bytes {return false}
+    if lhs.recovery != rhs.recovery {return false}
+    if lhs.unknownFields != rhs.unknownFields {return false}
+    return true
+  }
 }

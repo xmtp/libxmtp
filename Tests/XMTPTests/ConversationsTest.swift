@@ -23,11 +23,11 @@ class ConversationsTests: XCTestCase {
 		let message = try MessageV1.encode(
 			sender: newClient.privateKeyBundleV1,
 			recipient: fixtures.aliceClient.v1keys.toPublicKeyBundle(),
-			message: TextCodec().encode(content: "hello").serializedData(),
+			message: try TextCodec().encode(content: "hello").serializedData(),
 			timestamp: created
 		)
 
-		let envelope = try Envelope(topic: .userIntro(client.address), timestamp: created, message: Message(v1: message).serializedData())
+		let envelope = Envelope(topic: .userIntro(client.address), timestamp: created, message: try Message(v1: message).serializedData())
 
 		let conversation = try client.conversations.fromIntro(envelope: envelope)
 		XCTAssertEqual(conversation.peerAddress, newWallet.address)
@@ -43,9 +43,8 @@ class ConversationsTests: XCTestCase {
 		let newClient = try await Client.create(account: newWallet, apiClient: fixtures.fakeApiClient)
 
 		let invitation = try InvitationV1.createDeterministic(
-			sender: newClient.keys,
-			recipient: client.keys.getPublicKeyBundle()
-		)
+				sender: newClient.keys,
+				recipient: client.keys.getPublicKeyBundle())
 		let sealed = try SealedInvitation.createV1(
 			sender: newClient.keys,
 			recipient: client.keys.getPublicKeyBundle(),
@@ -54,7 +53,7 @@ class ConversationsTests: XCTestCase {
 		)
 
 		let peerAddress = fixtures.alice.walletAddress
-		let envelope = try Envelope(topic: .userInvite(peerAddress), timestamp: created, message: sealed.serializedData())
+		let envelope = Envelope(topic: .userInvite(peerAddress), timestamp: created, message: try sealed.serializedData())
 
 		let conversation = try client.conversations.fromInvite(envelope: envelope)
 		XCTAssertEqual(conversation.peerAddress, newWallet.address)

@@ -7,6 +7,7 @@
 
 import Foundation
 
+
 public typealias SignedPrivateKey = Xmtp_MessageContents_SignedPrivateKey
 
 extension SignedPrivateKey {
@@ -29,7 +30,7 @@ extension SignedPrivateKey {
 	func matches(_ signedPublicKey: SignedPublicKey) -> Bool {
 		do {
 			return try publicKey.recoverKeySignedPublicKey().walletAddress ==
-				(signedPublicKey.recoverKeySignedPublicKey().walletAddress)
+				(try signedPublicKey.recoverKeySignedPublicKey().walletAddress)
 		} catch {
 			return false
 		}

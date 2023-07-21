@@ -7,4 +7,5 @@
 
 import Foundation
 
+
 typealias Token = Xmtp_MessageApi_V1_Token

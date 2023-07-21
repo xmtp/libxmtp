@@ -13,15 +13,15 @@ typealias PagingInfoSortDirection = Xmtp_MessageApi_V1_SortDirection
 
 public struct Pagination {
 	public var limit: Int?
-	public var before: Date?
-	public var after: Date?
-	var direction: PagingInfoSortDirection?
-
-	public init(limit: Int?, before: Date?, after: Date?) {
-		self.limit = limit
-		self.before = before
-		self.after = after
-	}
+    public var before: Date?
+    public var after: Date?
+    var direction: PagingInfoSortDirection?
+        
+    public init(limit: Int? = nil, before: Date? = nil, after: Date? = nil) {
+        self.limit = limit
+        self.before = before
+        self.after = after
+    }
 
 	var pagingInfo: PagingInfo {
 		var info = PagingInfo()
@@ -29,7 +29,7 @@ public struct Pagination {
 		if let limit {
 			info.limit = UInt32(limit)
 		}
-		info.direction = direction ?? Xmtp_MessageApi_V1_SortDirection.descending
+        info.direction = direction ?? Xmtp_MessageApi_V1_SortDirection.descending
 		return info
 	}
 }

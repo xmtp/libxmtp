@@ -34,7 +34,7 @@ extension SigningKey {
 		slimKey.timestamp = UInt64(Date().millisecondsSinceEpoch)
 		slimKey.secp256K1Uncompressed = identity.publicKey.secp256K1Uncompressed
 
-		let signatureText = try Signature.createIdentityText(key: slimKey.serializedData())
+		let signatureText = Signature.createIdentityText(key: try slimKey.serializedData())
 		let signature = try await sign(message: signatureText)
 
 		let message = try Signature.ethPersonalMessage(signatureText)

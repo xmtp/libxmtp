@@ -10,7 +10,7 @@ import web3
 import XMTPRust
 
 public enum ClientError: Error {
-	case creationError(String)
+    case creationError(String)
 }
 
 /// Specify configuration options for creating a ``Client``.
@@ -78,17 +78,17 @@ public class Client {
 	/// Creates a client.
 	public static func create(account: SigningKey, options: ClientOptions? = nil) async throws -> Client {
 		let options = options ?? ClientOptions()
-		do {
-			let client = try await XMTPRust.create_client(GRPCApiClient.envToUrl(env: options.api.env), options.api.env != .local)
-			let apiClient = try GRPCApiClient(
-				environment: options.api.env,
-				secure: options.api.isSecure,
-				rustClient: client
-			)
-			return try await create(account: account, apiClient: apiClient)
-		} catch let error as RustString {
-			throw ClientError.creationError(error.toString())
-		}
+        do {
+		let client = try await XMTPRust.create_client(GRPCApiClient.envToUrl(env: options.api.env), options.api.env != .local)
+		let apiClient = try GRPCApiClient(
+			environment: options.api.env,
+			secure: options.api.isSecure,
+			rustClient: client
+		)
+		return try await create(account: account, apiClient: apiClient)
+        } catch let error as RustString {
+            throw ClientError.creationError(error.toString())
+        }
 	}
 
 	static func create(account: SigningKey, apiClient: ApiClient) async throws -> Client {
@@ -104,7 +104,7 @@ public class Client {
 		// swiftlint:disable no_optional_try
 		if let keys = try await loadPrivateKeys(for: account, apiClient: apiClient) {
 			// swiftlint:enable no_optional_try
-			print("loading existing private keys.")
+            print("loading existing private keys.")
 			#if DEBUG
 				print("Loaded existing private keys.")
 			#endif
@@ -124,7 +124,7 @@ public class Client {
 			let apiClient = apiClient
 			apiClient.setAuthToken(authToken)
 			_ = try await apiClient.publish(envelopes: [
-				Envelope(topic: .userPrivateStoreKeyBundle(account.address), timestamp: Date(), message: encryptedKeys.serializedData()),
+				Envelope(topic: .userPrivateStoreKeyBundle(account.address), timestamp: Date(), message: try encryptedKeys.serializedData()),
 			])
 
 			return keys
@@ -140,10 +140,10 @@ public class Client {
 		for envelope in res.envelopes {
 			let encryptedBundle = try EncryptedPrivateKeyBundle(serializedData: envelope.message)
 			let bundle = try await encryptedBundle.decrypted(with: account)
-			if case .v1 = bundle.version {
-				return bundle.v1
-			}
-			print("discarding unsupported stored key bundle")
+            if case .v1 = bundle.version {
+                return bundle.v1
+            }
+            print("discarding unsupported stored key bundle")
 		}
 
 		return nil
@@ -176,7 +176,7 @@ public class Client {
 	}
 
 	public func enableGroupChat() {
-		isGroupChatEnabled = true
+		self.isGroupChatEnabled = true
 		GroupChat.registerCodecs()
 	}
 
@@ -291,9 +291,9 @@ public class Client {
 		)
 	}
 
-	func batchQuery(request: BatchQueryRequest) async throws -> BatchQueryResponse {
-		return try await apiClient.batchQuery(request: request)
-	}
+    func batchQuery(request: BatchQueryRequest) async throws -> BatchQueryResponse {
+        return try await apiClient.batchQuery(request: request)
+    }
 
 	@discardableResult func publish(envelopes: [Envelope]) async throws -> PublishResponse {
 		let authorized = AuthorizedIdentity(address: address, authorized: privateKeyBundleV1.identityKey.publicKey, identity: privateKeyBundleV1.identityKey)

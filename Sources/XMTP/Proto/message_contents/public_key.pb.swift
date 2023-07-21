@@ -18,551 +18,545 @@ import SwiftProtobuf
 // incompatible with the version of SwiftProtobuf to which you are linking.
 // Please ensure that you are building against the same version of the API
 // that was used to generate this file.
-private struct _GeneratedWithProtocGenSwiftVersion: SwiftProtobuf.ProtobufAPIVersionCheck {
-	struct _2: SwiftProtobuf.ProtobufAPIVersion_2 {}
-	typealias Version = _2
+fileprivate struct _GeneratedWithProtocGenSwiftVersion: SwiftProtobuf.ProtobufAPIVersionCheck {
+  struct _2: SwiftProtobuf.ProtobufAPIVersion_2 {}
+  typealias Version = _2
 }
 
 /// UnsignedPublicKey represents a generalized public key,
 /// defined as a union to support cryptographic algorithm agility.
 public struct Xmtp_MessageContents_UnsignedPublicKey {
-	// SwiftProtobuf.Message conformance is added in an extension below. See the
-	// `Message` and `Message+*Additions` files in the SwiftProtobuf library for
-	// methods supported on all messages.
+  // SwiftProtobuf.Message conformance is added in an extension below. See the
+  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
+  // methods supported on all messages.
 
-	public var createdNs: UInt64 = 0
+  public var createdNs: UInt64 = 0
 
-	public var union: Xmtp_MessageContents_UnsignedPublicKey.OneOf_Union?
+  public var union: Xmtp_MessageContents_UnsignedPublicKey.OneOf_Union? = nil
 
-	public var secp256K1Uncompressed: Xmtp_MessageContents_UnsignedPublicKey.Secp256k1Uncompressed {
-		get {
-			if case let .secp256K1Uncompressed(v)? = union { return v }
-			return Xmtp_MessageContents_UnsignedPublicKey.Secp256k1Uncompressed()
-		}
-		set { union = .secp256K1Uncompressed(newValue) }
-	}
+  public var secp256K1Uncompressed: Xmtp_MessageContents_UnsignedPublicKey.Secp256k1Uncompressed {
+    get {
+      if case .secp256K1Uncompressed(let v)? = union {return v}
+      return Xmtp_MessageContents_UnsignedPublicKey.Secp256k1Uncompressed()
+    }
+    set {union = .secp256K1Uncompressed(newValue)}
+  }
 
-	public var unknownFields = SwiftProtobuf.UnknownStorage()
+  public var unknownFields = SwiftProtobuf.UnknownStorage()
 
-	public enum OneOf_Union: Equatable {
-		case secp256K1Uncompressed(Xmtp_MessageContents_UnsignedPublicKey.Secp256k1Uncompressed)
+  public enum OneOf_Union: Equatable {
+    case secp256K1Uncompressed(Xmtp_MessageContents_UnsignedPublicKey.Secp256k1Uncompressed)
 
-		#if !swift(>=4.1)
-			public static func == (lhs: Xmtp_MessageContents_UnsignedPublicKey.OneOf_Union, rhs: Xmtp_MessageContents_UnsignedPublicKey.OneOf_Union) -> Bool {
-				// The use of inline closures is to circumvent an issue where the compiler
-				// allocates stack space for every case branch when no optimizations are
-				// enabled. https://github.com/apple/swift-protobuf/issues/1034
-				switch (lhs, rhs) {
-				case (.secp256K1Uncompressed, .secp256K1Uncompressed): return {
-						guard case let .secp256K1Uncompressed(l) = lhs, case let .secp256K1Uncompressed(r) = rhs else { preconditionFailure() }
-						return l == r
-					}()
-				}
-			}
-		#endif
-	}
+  #if !swift(>=4.1)
+    public static func ==(lhs: Xmtp_MessageContents_UnsignedPublicKey.OneOf_Union, rhs: Xmtp_MessageContents_UnsignedPublicKey.OneOf_Union) -> Bool {
+      // The use of inline closures is to circumvent an issue where the compiler
+      // allocates stack space for every case branch when no optimizations are
+      // enabled. https://github.com/apple/swift-protobuf/issues/1034
+      switch (lhs, rhs) {
+      case (.secp256K1Uncompressed, .secp256K1Uncompressed): return {
+        guard case .secp256K1Uncompressed(let l) = lhs, case .secp256K1Uncompressed(let r) = rhs else { preconditionFailure() }
+        return l == r
+      }()
+      }
+    }
+  #endif
+  }
 
-	/// EC: SECP256k1
-	public struct Secp256k1Uncompressed {
-		// SwiftProtobuf.Message conformance is added in an extension below. See the
-		// `Message` and `Message+*Additions` files in the SwiftProtobuf library for
-		// methods supported on all messages.
+  /// EC: SECP256k1
+  public struct Secp256k1Uncompressed {
+    // SwiftProtobuf.Message conformance is added in an extension below. See the
+    // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
+    // methods supported on all messages.
 
-		/// uncompressed point with prefix (0x04) [ P || X || Y ], 65 bytes
-		public var bytes: Data = .init()
+    /// uncompressed point with prefix (0x04) [ P || X || Y ], 65 bytes
+    public var bytes: Data = Data()
 
-		public var unknownFields = SwiftProtobuf.UnknownStorage()
+    public var unknownFields = SwiftProtobuf.UnknownStorage()
 
-		public init() {}
-	}
+    public init() {}
+  }
 
-	public init() {}
+  public init() {}
 }
 
-/// SignedPublicKey
+/// SignedPublicKey 
 public struct Xmtp_MessageContents_SignedPublicKey {
-	// SwiftProtobuf.Message conformance is added in an extension below. See the
-	// `Message` and `Message+*Additions` files in the SwiftProtobuf library for
-	// methods supported on all messages.
+  // SwiftProtobuf.Message conformance is added in an extension below. See the
+  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
+  // methods supported on all messages.
 
-	/// embeds an UnsignedPublicKey
-	public var keyBytes: Data = .init()
+  /// embeds an UnsignedPublicKey
+  public var keyBytes: Data = Data()
 
-	/// signs key_bytes
-	public var signature: Xmtp_MessageContents_Signature {
-		get { return _signature ?? Xmtp_MessageContents_Signature() }
-		set { _signature = newValue }
-	}
+  /// signs key_bytes
+  public var signature: Xmtp_MessageContents_Signature {
+    get {return _signature ?? Xmtp_MessageContents_Signature()}
+    set {_signature = newValue}
+  }
+  /// Returns true if `signature` has been explicitly set.
+  public var hasSignature: Bool {return self._signature != nil}
+  /// Clears the value of `signature`. Subsequent reads from it will return its default value.
+  public mutating func clearSignature() {self._signature = nil}
 
-	/// Returns true if `signature` has been explicitly set.
-	public var hasSignature: Bool { return _signature != nil }
-	/// Clears the value of `signature`. Subsequent reads from it will return its default value.
-	public mutating func clearSignature() { _signature = nil }
+  public var unknownFields = SwiftProtobuf.UnknownStorage()
 
-	public var unknownFields = SwiftProtobuf.UnknownStorage()
+  public init() {}
 
-	public init() {}
-
-	fileprivate var _signature: Xmtp_MessageContents_Signature?
+  fileprivate var _signature: Xmtp_MessageContents_Signature? = nil
 }
 
 /// PublicKeyBundle packages the cryptographic keys associated with a wallet.
 public struct Xmtp_MessageContents_SignedPublicKeyBundle {
-	// SwiftProtobuf.Message conformance is added in an extension below. See the
-	// `Message` and `Message+*Additions` files in the SwiftProtobuf library for
-	// methods supported on all messages.
+  // SwiftProtobuf.Message conformance is added in an extension below. See the
+  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
+  // methods supported on all messages.
 
-	/// Identity key MUST be signed by the wallet.
-	public var identityKey: Xmtp_MessageContents_SignedPublicKey {
-		get { return _identityKey ?? Xmtp_MessageContents_SignedPublicKey() }
-		set { _identityKey = newValue }
-	}
+  /// Identity key MUST be signed by the wallet.
+  public var identityKey: Xmtp_MessageContents_SignedPublicKey {
+    get {return _identityKey ?? Xmtp_MessageContents_SignedPublicKey()}
+    set {_identityKey = newValue}
+  }
+  /// Returns true if `identityKey` has been explicitly set.
+  public var hasIdentityKey: Bool {return self._identityKey != nil}
+  /// Clears the value of `identityKey`. Subsequent reads from it will return its default value.
+  public mutating func clearIdentityKey() {self._identityKey = nil}
 
-	/// Returns true if `identityKey` has been explicitly set.
-	public var hasIdentityKey: Bool { return _identityKey != nil }
-	/// Clears the value of `identityKey`. Subsequent reads from it will return its default value.
-	public mutating func clearIdentityKey() { _identityKey = nil }
+  /// Pre-key MUST be signed by the identity key.
+  public var preKey: Xmtp_MessageContents_SignedPublicKey {
+    get {return _preKey ?? Xmtp_MessageContents_SignedPublicKey()}
+    set {_preKey = newValue}
+  }
+  /// Returns true if `preKey` has been explicitly set.
+  public var hasPreKey: Bool {return self._preKey != nil}
+  /// Clears the value of `preKey`. Subsequent reads from it will return its default value.
+  public mutating func clearPreKey() {self._preKey = nil}
 
-	/// Pre-key MUST be signed by the identity key.
-	public var preKey: Xmtp_MessageContents_SignedPublicKey {
-		get { return _preKey ?? Xmtp_MessageContents_SignedPublicKey() }
-		set { _preKey = newValue }
-	}
+  public var unknownFields = SwiftProtobuf.UnknownStorage()
 
-	/// Returns true if `preKey` has been explicitly set.
-	public var hasPreKey: Bool { return _preKey != nil }
-	/// Clears the value of `preKey`. Subsequent reads from it will return its default value.
-	public mutating func clearPreKey() { _preKey = nil }
+  public init() {}
 
-	public var unknownFields = SwiftProtobuf.UnknownStorage()
-
-	public init() {}
-
-	fileprivate var _identityKey: Xmtp_MessageContents_SignedPublicKey?
-	fileprivate var _preKey: Xmtp_MessageContents_SignedPublicKey?
+  fileprivate var _identityKey: Xmtp_MessageContents_SignedPublicKey? = nil
+  fileprivate var _preKey: Xmtp_MessageContents_SignedPublicKey? = nil
 }
 
 /// PublicKey represents a generalized public key,
 /// defined as a union to support cryptographic algorithm agility.
 public struct Xmtp_MessageContents_PublicKey {
-	// SwiftProtobuf.Message conformance is added in an extension below. See the
-	// `Message` and `Message+*Additions` files in the SwiftProtobuf library for
-	// methods supported on all messages.
+  // SwiftProtobuf.Message conformance is added in an extension below. See the
+  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
+  // methods supported on all messages.
 
-	public var timestamp: UInt64 = 0
+  public var timestamp: UInt64 = 0
 
-	public var signature: Xmtp_MessageContents_Signature {
-		get { return _signature ?? Xmtp_MessageContents_Signature() }
-		set { _signature = newValue }
-	}
+  public var signature: Xmtp_MessageContents_Signature {
+    get {return _signature ?? Xmtp_MessageContents_Signature()}
+    set {_signature = newValue}
+  }
+  /// Returns true if `signature` has been explicitly set.
+  public var hasSignature: Bool {return self._signature != nil}
+  /// Clears the value of `signature`. Subsequent reads from it will return its default value.
+  public mutating func clearSignature() {self._signature = nil}
 
-	/// Returns true if `signature` has been explicitly set.
-	public var hasSignature: Bool { return _signature != nil }
-	/// Clears the value of `signature`. Subsequent reads from it will return its default value.
-	public mutating func clearSignature() { _signature = nil }
+  public var union: Xmtp_MessageContents_PublicKey.OneOf_Union? = nil
 
-	public var union: Xmtp_MessageContents_PublicKey.OneOf_Union?
+  public var secp256K1Uncompressed: Xmtp_MessageContents_PublicKey.Secp256k1Uncompressed {
+    get {
+      if case .secp256K1Uncompressed(let v)? = union {return v}
+      return Xmtp_MessageContents_PublicKey.Secp256k1Uncompressed()
+    }
+    set {union = .secp256K1Uncompressed(newValue)}
+  }
 
-	public var secp256K1Uncompressed: Xmtp_MessageContents_PublicKey.Secp256k1Uncompressed {
-		get {
-			if case let .secp256K1Uncompressed(v)? = union { return v }
-			return Xmtp_MessageContents_PublicKey.Secp256k1Uncompressed()
-		}
-		set { union = .secp256K1Uncompressed(newValue) }
-	}
+  public var unknownFields = SwiftProtobuf.UnknownStorage()
 
-	public var unknownFields = SwiftProtobuf.UnknownStorage()
+  public enum OneOf_Union: Equatable {
+    case secp256K1Uncompressed(Xmtp_MessageContents_PublicKey.Secp256k1Uncompressed)
 
-	public enum OneOf_Union: Equatable {
-		case secp256K1Uncompressed(Xmtp_MessageContents_PublicKey.Secp256k1Uncompressed)
+  #if !swift(>=4.1)
+    public static func ==(lhs: Xmtp_MessageContents_PublicKey.OneOf_Union, rhs: Xmtp_MessageContents_PublicKey.OneOf_Union) -> Bool {
+      // The use of inline closures is to circumvent an issue where the compiler
+      // allocates stack space for every case branch when no optimizations are
+      // enabled. https://github.com/apple/swift-protobuf/issues/1034
+      switch (lhs, rhs) {
+      case (.secp256K1Uncompressed, .secp256K1Uncompressed): return {
+        guard case .secp256K1Uncompressed(let l) = lhs, case .secp256K1Uncompressed(let r) = rhs else { preconditionFailure() }
+        return l == r
+      }()
+      }
+    }
+  #endif
+  }
 
-		#if !swift(>=4.1)
-			public static func == (lhs: Xmtp_MessageContents_PublicKey.OneOf_Union, rhs: Xmtp_MessageContents_PublicKey.OneOf_Union) -> Bool {
-				// The use of inline closures is to circumvent an issue where the compiler
-				// allocates stack space for every case branch when no optimizations are
-				// enabled. https://github.com/apple/swift-protobuf/issues/1034
-				switch (lhs, rhs) {
-				case (.secp256K1Uncompressed, .secp256K1Uncompressed): return {
-						guard case let .secp256K1Uncompressed(l) = lhs, case let .secp256K1Uncompressed(r) = rhs else { preconditionFailure() }
-						return l == r
-					}()
-				}
-			}
-		#endif
-	}
+  /// The key bytes
+  public struct Secp256k1Uncompressed {
+    // SwiftProtobuf.Message conformance is added in an extension below. See the
+    // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
+    // methods supported on all messages.
 
-	/// The key bytes
-	public struct Secp256k1Uncompressed {
-		// SwiftProtobuf.Message conformance is added in an extension below. See the
-		// `Message` and `Message+*Additions` files in the SwiftProtobuf library for
-		// methods supported on all messages.
+    /// uncompressed point with prefix (0x04) [ P || X || Y ], 65 bytes
+    public var bytes: Data = Data()
 
-		/// uncompressed point with prefix (0x04) [ P || X || Y ], 65 bytes
-		public var bytes: Data = .init()
+    public var unknownFields = SwiftProtobuf.UnknownStorage()
 
-		public var unknownFields = SwiftProtobuf.UnknownStorage()
+    public init() {}
+  }
 
-		public init() {}
-	}
+  public init() {}
 
-	public init() {}
-
-	fileprivate var _signature: Xmtp_MessageContents_Signature?
+  fileprivate var _signature: Xmtp_MessageContents_Signature? = nil
 }
 
 /// PublicKeyBundle packages the cryptographic keys associated with a wallet,
 /// both senders and recipients are identified by their key bundles.
 public struct Xmtp_MessageContents_PublicKeyBundle {
-	// SwiftProtobuf.Message conformance is added in an extension below. See the
-	// `Message` and `Message+*Additions` files in the SwiftProtobuf library for
-	// methods supported on all messages.
+  // SwiftProtobuf.Message conformance is added in an extension below. See the
+  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
+  // methods supported on all messages.
 
-	/// Identity key MUST be signed by the wallet.
-	public var identityKey: Xmtp_MessageContents_PublicKey {
-		get { return _identityKey ?? Xmtp_MessageContents_PublicKey() }
-		set { _identityKey = newValue }
-	}
+  /// Identity key MUST be signed by the wallet.
+  public var identityKey: Xmtp_MessageContents_PublicKey {
+    get {return _identityKey ?? Xmtp_MessageContents_PublicKey()}
+    set {_identityKey = newValue}
+  }
+  /// Returns true if `identityKey` has been explicitly set.
+  public var hasIdentityKey: Bool {return self._identityKey != nil}
+  /// Clears the value of `identityKey`. Subsequent reads from it will return its default value.
+  public mutating func clearIdentityKey() {self._identityKey = nil}
 
-	/// Returns true if `identityKey` has been explicitly set.
-	public var hasIdentityKey: Bool { return _identityKey != nil }
-	/// Clears the value of `identityKey`. Subsequent reads from it will return its default value.
-	public mutating func clearIdentityKey() { _identityKey = nil }
+  /// Pre-key MUST be signed by the identity key.
+  public var preKey: Xmtp_MessageContents_PublicKey {
+    get {return _preKey ?? Xmtp_MessageContents_PublicKey()}
+    set {_preKey = newValue}
+  }
+  /// Returns true if `preKey` has been explicitly set.
+  public var hasPreKey: Bool {return self._preKey != nil}
+  /// Clears the value of `preKey`. Subsequent reads from it will return its default value.
+  public mutating func clearPreKey() {self._preKey = nil}
 
-	/// Pre-key MUST be signed by the identity key.
-	public var preKey: Xmtp_MessageContents_PublicKey {
-		get { return _preKey ?? Xmtp_MessageContents_PublicKey() }
-		set { _preKey = newValue }
-	}
+  public var unknownFields = SwiftProtobuf.UnknownStorage()
 
-	/// Returns true if `preKey` has been explicitly set.
-	public var hasPreKey: Bool { return _preKey != nil }
-	/// Clears the value of `preKey`. Subsequent reads from it will return its default value.
-	public mutating func clearPreKey() { _preKey = nil }
+  public init() {}
 
-	public var unknownFields = SwiftProtobuf.UnknownStorage()
-
-	public init() {}
-
-	fileprivate var _identityKey: Xmtp_MessageContents_PublicKey?
-	fileprivate var _preKey: Xmtp_MessageContents_PublicKey?
+  fileprivate var _identityKey: Xmtp_MessageContents_PublicKey? = nil
+  fileprivate var _preKey: Xmtp_MessageContents_PublicKey? = nil
 }
 
 #if swift(>=5.5) && canImport(_Concurrency)
-	extension Xmtp_MessageContents_UnsignedPublicKey: @unchecked Sendable {}
-	extension Xmtp_MessageContents_UnsignedPublicKey.OneOf_Union: @unchecked Sendable {}
-	extension Xmtp_MessageContents_UnsignedPublicKey.Secp256k1Uncompressed: @unchecked Sendable {}
-	extension Xmtp_MessageContents_SignedPublicKey: @unchecked Sendable {}
-	extension Xmtp_MessageContents_SignedPublicKeyBundle: @unchecked Sendable {}
-	extension Xmtp_MessageContents_PublicKey: @unchecked Sendable {}
-	extension Xmtp_MessageContents_PublicKey.OneOf_Union: @unchecked Sendable {}
-	extension Xmtp_MessageContents_PublicKey.Secp256k1Uncompressed: @unchecked Sendable {}
-	extension Xmtp_MessageContents_PublicKeyBundle: @unchecked Sendable {}
-#endif // swift(>=5.5) && canImport(_Concurrency)
+extension Xmtp_MessageContents_UnsignedPublicKey: @unchecked Sendable {}
+extension Xmtp_MessageContents_UnsignedPublicKey.OneOf_Union: @unchecked Sendable {}
+extension Xmtp_MessageContents_UnsignedPublicKey.Secp256k1Uncompressed: @unchecked Sendable {}
+extension Xmtp_MessageContents_SignedPublicKey: @unchecked Sendable {}
+extension Xmtp_MessageContents_SignedPublicKeyBundle: @unchecked Sendable {}
+extension Xmtp_MessageContents_PublicKey: @unchecked Sendable {}
+extension Xmtp_MessageContents_PublicKey.OneOf_Union: @unchecked Sendable {}
+extension Xmtp_MessageContents_PublicKey.Secp256k1Uncompressed: @unchecked Sendable {}
+extension Xmtp_MessageContents_PublicKeyBundle: @unchecked Sendable {}
+#endif  // swift(>=5.5) && canImport(_Concurrency)
 
 // MARK: - Code below here is support for the SwiftProtobuf runtime.
 
-private let _protobuf_package = "xmtp.message_contents"
+fileprivate let _protobuf_package = "xmtp.message_contents"
 
 extension Xmtp_MessageContents_UnsignedPublicKey: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
-	public static let protoMessageName: String = _protobuf_package + ".UnsignedPublicKey"
-	public static let _protobuf_nameMap: SwiftProtobuf._NameMap = [
-		1: .standard(proto: "created_ns"),
-		3: .standard(proto: "secp256k1_uncompressed"),
-	]
+  public static let protoMessageName: String = _protobuf_package + ".UnsignedPublicKey"
+  public static let _protobuf_nameMap: SwiftProtobuf._NameMap = [
+    1: .standard(proto: "created_ns"),
+    3: .standard(proto: "secp256k1_uncompressed"),
+  ]
 
-	public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
-		while let fieldNumber = try decoder.nextFieldNumber() {
-			// The use of inline closures is to circumvent an issue where the compiler
-			// allocates stack space for every case branch when no optimizations are
-			// enabled. https://github.com/apple/swift-protobuf/issues/1034
-			switch fieldNumber {
-			case 1: try try decoder.decodeSingularUInt64Field(value: &createdNs)
-			case 3: try {
-					var v: Xmtp_MessageContents_UnsignedPublicKey.Secp256k1Uncompressed?
-					var hadOneofValue = false
-					if let current = self.union {
-						hadOneofValue = true
-						if case let .secp256K1Uncompressed(m) = current { v = m }
-					}
-					try decoder.decodeSingularMessageField(value: &v)
-					if let v = v {
-						if hadOneofValue { try decoder.handleConflictingOneOf() }
-						self.union = .secp256K1Uncompressed(v)
-					}
-				}()
-			default: break
-			}
-		}
-	}
+  public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
+    while let fieldNumber = try decoder.nextFieldNumber() {
+      // The use of inline closures is to circumvent an issue where the compiler
+      // allocates stack space for every case branch when no optimizations are
+      // enabled. https://github.com/apple/swift-protobuf/issues/1034
+      switch fieldNumber {
+      case 1: try { try decoder.decodeSingularUInt64Field(value: &self.createdNs) }()
+      case 3: try {
+        var v: Xmtp_MessageContents_UnsignedPublicKey.Secp256k1Uncompressed?
+        var hadOneofValue = false
+        if let current = self.union {
+          hadOneofValue = true
+          if case .secp256K1Uncompressed(let m) = current {v = m}
+        }
+        try decoder.decodeSingularMessageField(value: &v)
+        if let v = v {
+          if hadOneofValue {try decoder.handleConflictingOneOf()}
+          self.union = .secp256K1Uncompressed(v)
+        }
+      }()
+      default: break
+      }
+    }
+  }
 
-	public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
-		// The use of inline closures is to circumvent an issue where the compiler
-		// allocates stack space for every if/case branch local when no optimizations
-		// are enabled. https://github.com/apple/swift-protobuf/issues/1034 and
-		// https://github.com/apple/swift-protobuf/issues/1182
-		if createdNs != 0 {
-			try visitor.visitSingularUInt64Field(value: createdNs, fieldNumber: 1)
-		}
-		try { if case let .secp256K1Uncompressed(v)? = self.union {
-			try visitor.visitSingularMessageField(value: v, fieldNumber: 3)
-		} }()
-		try unknownFields.traverse(visitor: &visitor)
-	}
+  public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    // The use of inline closures is to circumvent an issue where the compiler
+    // allocates stack space for every if/case branch local when no optimizations
+    // are enabled. https://github.com/apple/swift-protobuf/issues/1034 and
+    // https://github.com/apple/swift-protobuf/issues/1182
+    if self.createdNs != 0 {
+      try visitor.visitSingularUInt64Field(value: self.createdNs, fieldNumber: 1)
+    }
+    try { if case .secp256K1Uncompressed(let v)? = self.union {
+      try visitor.visitSingularMessageField(value: v, fieldNumber: 3)
+    } }()
+    try unknownFields.traverse(visitor: &visitor)
+  }
 
-	public static func == (lhs: Xmtp_MessageContents_UnsignedPublicKey, rhs: Xmtp_MessageContents_UnsignedPublicKey) -> Bool {
-		if lhs.createdNs != rhs.createdNs { return false }
-		if lhs.union != rhs.union { return false }
-		if lhs.unknownFields != rhs.unknownFields { return false }
-		return true
-	}
+  public static func ==(lhs: Xmtp_MessageContents_UnsignedPublicKey, rhs: Xmtp_MessageContents_UnsignedPublicKey) -> Bool {
+    if lhs.createdNs != rhs.createdNs {return false}
+    if lhs.union != rhs.union {return false}
+    if lhs.unknownFields != rhs.unknownFields {return false}
+    return true
+  }
 }
 
 extension Xmtp_MessageContents_UnsignedPublicKey.Secp256k1Uncompressed: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
-	public static let protoMessageName: String = Xmtp_MessageContents_UnsignedPublicKey.protoMessageName + ".Secp256k1Uncompressed"
-	public static let _protobuf_nameMap: SwiftProtobuf._NameMap = [
-		1: .same(proto: "bytes"),
-	]
+  public static let protoMessageName: String = Xmtp_MessageContents_UnsignedPublicKey.protoMessageName + ".Secp256k1Uncompressed"
+  public static let _protobuf_nameMap: SwiftProtobuf._NameMap = [
+    1: .same(proto: "bytes"),
+  ]
 
-	public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
-		while let fieldNumber = try decoder.nextFieldNumber() {
-			// The use of inline closures is to circumvent an issue where the compiler
-			// allocates stack space for every case branch when no optimizations are
-			// enabled. https://github.com/apple/swift-protobuf/issues/1034
-			switch fieldNumber {
-			case 1: try try decoder.decodeSingularBytesField(value: &bytes)
-			default: break
-			}
-		}
-	}
+  public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
+    while let fieldNumber = try decoder.nextFieldNumber() {
+      // The use of inline closures is to circumvent an issue where the compiler
+      // allocates stack space for every case branch when no optimizations are
+      // enabled. https://github.com/apple/swift-protobuf/issues/1034
+      switch fieldNumber {
+      case 1: try { try decoder.decodeSingularBytesField(value: &self.bytes) }()
+      default: break
+      }
+    }
+  }
 
-	public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
-		if !bytes.isEmpty {
-			try visitor.visitSingularBytesField(value: bytes, fieldNumber: 1)
-		}
-		try unknownFields.traverse(visitor: &visitor)
-	}
+  public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    if !self.bytes.isEmpty {
+      try visitor.visitSingularBytesField(value: self.bytes, fieldNumber: 1)
+    }
+    try unknownFields.traverse(visitor: &visitor)
+  }
 
-	public static func == (lhs: Xmtp_MessageContents_UnsignedPublicKey.Secp256k1Uncompressed, rhs: Xmtp_MessageContents_UnsignedPublicKey.Secp256k1Uncompressed) -> Bool {
-		if lhs.bytes != rhs.bytes { return false }
-		if lhs.unknownFields != rhs.unknownFields { return false }
-		return true
-	}
+  public static func ==(lhs: Xmtp_MessageContents_UnsignedPublicKey.Secp256k1Uncompressed, rhs: Xmtp_MessageContents_UnsignedPublicKey.Secp256k1Uncompressed) -> Bool {
+    if lhs.bytes != rhs.bytes {return false}
+    if lhs.unknownFields != rhs.unknownFields {return false}
+    return true
+  }
 }
 
 extension Xmtp_MessageContents_SignedPublicKey: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
-	public static let protoMessageName: String = _protobuf_package + ".SignedPublicKey"
-	public static let _protobuf_nameMap: SwiftProtobuf._NameMap = [
-		1: .standard(proto: "key_bytes"),
-		2: .same(proto: "signature"),
-	]
+  public static let protoMessageName: String = _protobuf_package + ".SignedPublicKey"
+  public static let _protobuf_nameMap: SwiftProtobuf._NameMap = [
+    1: .standard(proto: "key_bytes"),
+    2: .same(proto: "signature"),
+  ]
 
-	public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
-		while let fieldNumber = try decoder.nextFieldNumber() {
-			// The use of inline closures is to circumvent an issue where the compiler
-			// allocates stack space for every case branch when no optimizations are
-			// enabled. https://github.com/apple/swift-protobuf/issues/1034
-			switch fieldNumber {
-			case 1: try try decoder.decodeSingularBytesField(value: &keyBytes)
-			case 2: try try decoder.decodeSingularMessageField(value: &_signature)
-			default: break
-			}
-		}
-	}
+  public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
+    while let fieldNumber = try decoder.nextFieldNumber() {
+      // The use of inline closures is to circumvent an issue where the compiler
+      // allocates stack space for every case branch when no optimizations are
+      // enabled. https://github.com/apple/swift-protobuf/issues/1034
+      switch fieldNumber {
+      case 1: try { try decoder.decodeSingularBytesField(value: &self.keyBytes) }()
+      case 2: try { try decoder.decodeSingularMessageField(value: &self._signature) }()
+      default: break
+      }
+    }
+  }
 
-	public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
-		// The use of inline closures is to circumvent an issue where the compiler
-		// allocates stack space for every if/case branch local when no optimizations
-		// are enabled. https://github.com/apple/swift-protobuf/issues/1034 and
-		// https://github.com/apple/swift-protobuf/issues/1182
-		if !keyBytes.isEmpty {
-			try visitor.visitSingularBytesField(value: keyBytes, fieldNumber: 1)
-		}
-		try { if let v = self._signature {
-			try visitor.visitSingularMessageField(value: v, fieldNumber: 2)
-		} }()
-		try unknownFields.traverse(visitor: &visitor)
-	}
+  public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    // The use of inline closures is to circumvent an issue where the compiler
+    // allocates stack space for every if/case branch local when no optimizations
+    // are enabled. https://github.com/apple/swift-protobuf/issues/1034 and
+    // https://github.com/apple/swift-protobuf/issues/1182
+    if !self.keyBytes.isEmpty {
+      try visitor.visitSingularBytesField(value: self.keyBytes, fieldNumber: 1)
+    }
+    try { if let v = self._signature {
+      try visitor.visitSingularMessageField(value: v, fieldNumber: 2)
+    } }()
+    try unknownFields.traverse(visitor: &visitor)
+  }
 
-	public static func == (lhs: Xmtp_MessageContents_SignedPublicKey, rhs: Xmtp_MessageContents_SignedPublicKey) -> Bool {
-		if lhs.keyBytes != rhs.keyBytes { return false }
-		if lhs._signature != rhs._signature { return false }
-		if lhs.unknownFields != rhs.unknownFields { return false }
-		return true
-	}
+  public static func ==(lhs: Xmtp_MessageContents_SignedPublicKey, rhs: Xmtp_MessageContents_SignedPublicKey) -> Bool {
+    if lhs.keyBytes != rhs.keyBytes {return false}
+    if lhs._signature != rhs._signature {return false}
+    if lhs.unknownFields != rhs.unknownFields {return false}
+    return true
+  }
 }
 
 extension Xmtp_MessageContents_SignedPublicKeyBundle: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
-	public static let protoMessageName: String = _protobuf_package + ".SignedPublicKeyBundle"
-	public static let _protobuf_nameMap: SwiftProtobuf._NameMap = [
-		1: .standard(proto: "identity_key"),
-		2: .standard(proto: "pre_key"),
-	]
+  public static let protoMessageName: String = _protobuf_package + ".SignedPublicKeyBundle"
+  public static let _protobuf_nameMap: SwiftProtobuf._NameMap = [
+    1: .standard(proto: "identity_key"),
+    2: .standard(proto: "pre_key"),
+  ]
 
-	public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
-		while let fieldNumber = try decoder.nextFieldNumber() {
-			// The use of inline closures is to circumvent an issue where the compiler
-			// allocates stack space for every case branch when no optimizations are
-			// enabled. https://github.com/apple/swift-protobuf/issues/1034
-			switch fieldNumber {
-			case 1: try try decoder.decodeSingularMessageField(value: &_identityKey)
-			case 2: try try decoder.decodeSingularMessageField(value: &_preKey)
-			default: break
-			}
-		}
-	}
+  public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
+    while let fieldNumber = try decoder.nextFieldNumber() {
+      // The use of inline closures is to circumvent an issue where the compiler
+      // allocates stack space for every case branch when no optimizations are
+      // enabled. https://github.com/apple/swift-protobuf/issues/1034
+      switch fieldNumber {
+      case 1: try { try decoder.decodeSingularMessageField(value: &self._identityKey) }()
+      case 2: try { try decoder.decodeSingularMessageField(value: &self._preKey) }()
+      default: break
+      }
+    }
+  }
 
-	public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
-		// The use of inline closures is to circumvent an issue where the compiler
-		// allocates stack space for every if/case branch local when no optimizations
-		// are enabled. https://github.com/apple/swift-protobuf/issues/1034 and
-		// https://github.com/apple/swift-protobuf/issues/1182
-		try { if let v = self._identityKey {
-			try visitor.visitSingularMessageField(value: v, fieldNumber: 1)
-		} }()
-		try { if let v = self._preKey {
-			try visitor.visitSingularMessageField(value: v, fieldNumber: 2)
-		} }()
-		try unknownFields.traverse(visitor: &visitor)
-	}
+  public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    // The use of inline closures is to circumvent an issue where the compiler
+    // allocates stack space for every if/case branch local when no optimizations
+    // are enabled. https://github.com/apple/swift-protobuf/issues/1034 and
+    // https://github.com/apple/swift-protobuf/issues/1182
+    try { if let v = self._identityKey {
+      try visitor.visitSingularMessageField(value: v, fieldNumber: 1)
+    } }()
+    try { if let v = self._preKey {
+      try visitor.visitSingularMessageField(value: v, fieldNumber: 2)
+    } }()
+    try unknownFields.traverse(visitor: &visitor)
+  }
 
-	public static func == (lhs: Xmtp_MessageContents_SignedPublicKeyBundle, rhs: Xmtp_MessageContents_SignedPublicKeyBundle) -> Bool {
-		if lhs._identityKey != rhs._identityKey { return false }
-		if lhs._preKey != rhs._preKey { return false }
-		if lhs.unknownFields != rhs.unknownFields { return false }
-		return true
-	}
+  public static func ==(lhs: Xmtp_MessageContents_SignedPublicKeyBundle, rhs: Xmtp_MessageContents_SignedPublicKeyBundle) -> Bool {
+    if lhs._identityKey != rhs._identityKey {return false}
+    if lhs._preKey != rhs._preKey {return false}
+    if lhs.unknownFields != rhs.unknownFields {return false}
+    return true
+  }
 }
 
 extension Xmtp_MessageContents_PublicKey: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
-	public static let protoMessageName: String = _protobuf_package + ".PublicKey"
-	public static let _protobuf_nameMap: SwiftProtobuf._NameMap = [
-		1: .same(proto: "timestamp"),
-		2: .same(proto: "signature"),
-		3: .standard(proto: "secp256k1_uncompressed"),
-	]
+  public static let protoMessageName: String = _protobuf_package + ".PublicKey"
+  public static let _protobuf_nameMap: SwiftProtobuf._NameMap = [
+    1: .same(proto: "timestamp"),
+    2: .same(proto: "signature"),
+    3: .standard(proto: "secp256k1_uncompressed"),
+  ]
 
-	public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
-		while let fieldNumber = try decoder.nextFieldNumber() {
-			// The use of inline closures is to circumvent an issue where the compiler
-			// allocates stack space for every case branch when no optimizations are
-			// enabled. https://github.com/apple/swift-protobuf/issues/1034
-			switch fieldNumber {
-			case 1: try try decoder.decodeSingularUInt64Field(value: &timestamp)
-			case 2: try try decoder.decodeSingularMessageField(value: &_signature)
-			case 3: try {
-					var v: Xmtp_MessageContents_PublicKey.Secp256k1Uncompressed?
-					var hadOneofValue = false
-					if let current = self.union {
-						hadOneofValue = true
-						if case let .secp256K1Uncompressed(m) = current { v = m }
-					}
-					try decoder.decodeSingularMessageField(value: &v)
-					if let v = v {
-						if hadOneofValue { try decoder.handleConflictingOneOf() }
-						self.union = .secp256K1Uncompressed(v)
-					}
-				}()
-			default: break
-			}
-		}
-	}
+  public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
+    while let fieldNumber = try decoder.nextFieldNumber() {
+      // The use of inline closures is to circumvent an issue where the compiler
+      // allocates stack space for every case branch when no optimizations are
+      // enabled. https://github.com/apple/swift-protobuf/issues/1034
+      switch fieldNumber {
+      case 1: try { try decoder.decodeSingularUInt64Field(value: &self.timestamp) }()
+      case 2: try { try decoder.decodeSingularMessageField(value: &self._signature) }()
+      case 3: try {
+        var v: Xmtp_MessageContents_PublicKey.Secp256k1Uncompressed?
+        var hadOneofValue = false
+        if let current = self.union {
+          hadOneofValue = true
+          if case .secp256K1Uncompressed(let m) = current {v = m}
+        }
+        try decoder.decodeSingularMessageField(value: &v)
+        if let v = v {
+          if hadOneofValue {try decoder.handleConflictingOneOf()}
+          self.union = .secp256K1Uncompressed(v)
+        }
+      }()
+      default: break
+      }
+    }
+  }
 
-	public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
-		// The use of inline closures is to circumvent an issue where the compiler
-		// allocates stack space for every if/case branch local when no optimizations
-		// are enabled. https://github.com/apple/swift-protobuf/issues/1034 and
-		// https://github.com/apple/swift-protobuf/issues/1182
-		if timestamp != 0 {
-			try visitor.visitSingularUInt64Field(value: timestamp, fieldNumber: 1)
-		}
-		try { if let v = self._signature {
-			try visitor.visitSingularMessageField(value: v, fieldNumber: 2)
-		} }()
-		try { if case let .secp256K1Uncompressed(v)? = self.union {
-			try visitor.visitSingularMessageField(value: v, fieldNumber: 3)
-		} }()
-		try unknownFields.traverse(visitor: &visitor)
-	}
+  public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    // The use of inline closures is to circumvent an issue where the compiler
+    // allocates stack space for every if/case branch local when no optimizations
+    // are enabled. https://github.com/apple/swift-protobuf/issues/1034 and
+    // https://github.com/apple/swift-protobuf/issues/1182
+    if self.timestamp != 0 {
+      try visitor.visitSingularUInt64Field(value: self.timestamp, fieldNumber: 1)
+    }
+    try { if let v = self._signature {
+      try visitor.visitSingularMessageField(value: v, fieldNumber: 2)
+    } }()
+    try { if case .secp256K1Uncompressed(let v)? = self.union {
+      try visitor.visitSingularMessageField(value: v, fieldNumber: 3)
+    } }()
+    try unknownFields.traverse(visitor: &visitor)
+  }
 
-	public static func == (lhs: Xmtp_MessageContents_PublicKey, rhs: Xmtp_MessageContents_PublicKey) -> Bool {
-		if lhs.timestamp != rhs.timestamp { return false }
-		if lhs._signature != rhs._signature { return false }
-		if lhs.union != rhs.union { return false }
-		if lhs.unknownFields != rhs.unknownFields { return false }
-		return true
-	}
+  public static func ==(lhs: Xmtp_MessageContents_PublicKey, rhs: Xmtp_MessageContents_PublicKey) -> Bool {
+    if lhs.timestamp != rhs.timestamp {return false}
+    if lhs._signature != rhs._signature {return false}
+    if lhs.union != rhs.union {return false}
+    if lhs.unknownFields != rhs.unknownFields {return false}
+    return true
+  }
 }
 
 extension Xmtp_MessageContents_PublicKey.Secp256k1Uncompressed: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
-	public static let protoMessageName: String = Xmtp_MessageContents_PublicKey.protoMessageName + ".Secp256k1Uncompressed"
-	public static let _protobuf_nameMap: SwiftProtobuf._NameMap = [
-		1: .same(proto: "bytes"),
-	]
+  public static let protoMessageName: String = Xmtp_MessageContents_PublicKey.protoMessageName + ".Secp256k1Uncompressed"
+  public static let _protobuf_nameMap: SwiftProtobuf._NameMap = [
+    1: .same(proto: "bytes"),
+  ]
 
-	public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
-		while let fieldNumber = try decoder.nextFieldNumber() {
-			// The use of inline closures is to circumvent an issue where the compiler
-			// allocates stack space for every case branch when no optimizations are
-			// enabled. https://github.com/apple/swift-protobuf/issues/1034
-			switch fieldNumber {
-			case 1: try try decoder.decodeSingularBytesField(value: &bytes)
-			default: break
-			}
-		}
-	}
+  public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
+    while let fieldNumber = try decoder.nextFieldNumber() {
+      // The use of inline closures is to circumvent an issue where the compiler
+      // allocates stack space for every case branch when no optimizations are
+      // enabled. https://github.com/apple/swift-protobuf/issues/1034
+      switch fieldNumber {
+      case 1: try { try decoder.decodeSingularBytesField(value: &self.bytes) }()
+      default: break
+      }
+    }
+  }
 
-	public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
-		if !bytes.isEmpty {
-			try visitor.visitSingularBytesField(value: bytes, fieldNumber: 1)
-		}
-		try unknownFields.traverse(visitor: &visitor)
-	}
+  public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    if !self.bytes.isEmpty {
+      try visitor.visitSingularBytesField(value: self.bytes, fieldNumber: 1)
+    }
+    try unknownFields.traverse(visitor: &visitor)
+  }
 
-	public static func == (lhs: Xmtp_MessageContents_PublicKey.Secp256k1Uncompressed, rhs: Xmtp_MessageContents_PublicKey.Secp256k1Uncompressed) -> Bool {
-		if lhs.bytes != rhs.bytes { return false }
-		if lhs.unknownFields != rhs.unknownFields { return false }
-		return true
-	}
+  public static func ==(lhs: Xmtp_MessageContents_PublicKey.Secp256k1Uncompressed, rhs: Xmtp_MessageContents_PublicKey.Secp256k1Uncompressed) -> Bool {
+    if lhs.bytes != rhs.bytes {return false}
+    if lhs.unknownFields != rhs.unknownFields {return false}
+    return true
+  }
 }
 
 extension Xmtp_MessageContents_PublicKeyBundle: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
-	public static let protoMessageName: String = _protobuf_package + ".PublicKeyBundle"
-	public static let _protobuf_nameMap: SwiftProtobuf._NameMap = [
-		1: .standard(proto: "identity_key"),
-		2: .standard(proto: "pre_key"),
-	]
+  public static let protoMessageName: String = _protobuf_package + ".PublicKeyBundle"
+  public static let _protobuf_nameMap: SwiftProtobuf._NameMap = [
+    1: .standard(proto: "identity_key"),
+    2: .standard(proto: "pre_key"),
+  ]
 
-	public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
-		while let fieldNumber = try decoder.nextFieldNumber() {
-			// The use of inline closures is to circumvent an issue where the compiler
-			// allocates stack space for every case branch when no optimizations are
-			// enabled. https://github.com/apple/swift-protobuf/issues/1034
-			switch fieldNumber {
-			case 1: try try decoder.decodeSingularMessageField(value: &_identityKey)
-			case 2: try try decoder.decodeSingularMessageField(value: &_preKey)
-			default: break
-			}
-		}
-	}
+  public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
+    while let fieldNumber = try decoder.nextFieldNumber() {
+      // The use of inline closures is to circumvent an issue where the compiler
+      // allocates stack space for every case branch when no optimizations are
+      // enabled. https://github.com/apple/swift-protobuf/issues/1034
+      switch fieldNumber {
+      case 1: try { try decoder.decodeSingularMessageField(value: &self._identityKey) }()
+      case 2: try { try decoder.decodeSingularMessageField(value: &self._preKey) }()
+      default: break
+      }
+    }
+  }
 
-	public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
-		// The use of inline closures is to circumvent an issue where the compiler
-		// allocates stack space for every if/case branch local when no optimizations
-		// are enabled. https://github.com/apple/swift-protobuf/issues/1034 and
-		// https://github.com/apple/swift-protobuf/issues/1182
-		try { if let v = self._identityKey {
-			try visitor.visitSingularMessageField(value: v, fieldNumber: 1)
-		} }()
-		try { if let v = self._preKey {
-			try visitor.visitSingularMessageField(value: v, fieldNumber: 2)
-		} }()
-		try unknownFields.traverse(visitor: &visitor)
-	}
+  public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    // The use of inline closures is to circumvent an issue where the compiler
+    // allocates stack space for every if/case branch local when no optimizations
+    // are enabled. https://github.com/apple/swift-protobuf/issues/1034 and
+    // https://github.com/apple/swift-protobuf/issues/1182
+    try { if let v = self._identityKey {
+      try visitor.visitSingularMessageField(value: v, fieldNumber: 1)
+    } }()
+    try { if let v = self._preKey {
+      try visitor.visitSingularMessageField(value: v, fieldNumber: 2)
+    } }()
+    try unknownFields.traverse(visitor: &visitor)
+  }
 
-	public static func == (lhs: Xmtp_MessageContents_PublicKeyBundle, rhs: Xmtp_MessageContents_PublicKeyBundle) -> Bool {
-		if lhs._identityKey != rhs._identityKey { return false }
-		if lhs._preKey != rhs._preKey { return false }
-		if lhs.unknownFields != rhs.unknownFields { return false }
-		return true
-	}
+  public static func ==(lhs: Xmtp_MessageContents_PublicKeyBundle, rhs: Xmtp_MessageContents_PublicKeyBundle) -> Bool {
+    if lhs._identityKey != rhs._identityKey {return false}
+    if lhs._preKey != rhs._preKey {return false}
+    if lhs.unknownFields != rhs.unknownFields {return false}
+    return true
+  }
 }
