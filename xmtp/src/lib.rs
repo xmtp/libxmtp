@@ -76,6 +76,7 @@ mod tests {
         let topic = Uuid::new_v4();
 
         client
+            .app_context
             .api_client
             .publish(
                 "".to_string(),
@@ -87,6 +88,7 @@ mod tests {
             .unwrap();
 
         let result = client
+            .app_context
             .api_client
             .query(QueryRequest {
                 content_topics: vec![topic.to_string()],

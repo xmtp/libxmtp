@@ -1,7 +1,7 @@
 use crate::{
     account::{Account, AccountError},
     association::{Association, AssociationError, AssociationText},
-    client::{Client, Network},
+    client::{AppContext, Client, Network},
     storage::{now, EncryptedMessageStore, StoredUser},
     types::networking::XmtpApiClient,
     types::Address,
@@ -175,7 +175,14 @@ where
             last_refreshed: 0,
         })?;
 
-        Ok(Client::new(api_client, self.network, account, store))
+        let app_context = AppContext {
+            api_client,
+            network: self.network,
+            account,
+            store,
+        };
+
+        Ok(Client::new(app_context))
     }
 }
 
@@ -206,6 +213,7 @@ mod tests {
     fn builder_test() {
         let client = ClientBuilder::new_test().build().unwrap();
         assert!(!client
+            .app_context
             .account
             .olm_account()
             .unwrap()
@@ -232,6 +240,7 @@ mod tests {
             .build()
             .unwrap();
         let keybytes_a = client_a
+            .app_context
             .account
             .olm_account()
             .unwrap()
@@ -252,6 +261,7 @@ mod tests {
             .build()
             .unwrap();
         let keybytes_b = client_b
+            .app_context
             .account
             .olm_account()
             .unwrap()

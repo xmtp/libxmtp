@@ -63,12 +63,16 @@ where
             peer_address: peer_address.clone(),
             members,
         };
-        obj.client.store.insert_or_ignore_user(StoredUser {
-            user_address: obj.peer_address(),
-            created_at: now(),
-            last_refreshed: 0,
-        })?;
         obj.client
+            .app_context
+            .store
+            .insert_or_ignore_user(StoredUser {
+                user_address: obj.peer_address(),
+                created_at: now(),
+                last_refreshed: 0,
+            })?;
+        obj.client
+            .app_context
             .store
             .insert_or_ignore_conversation(StoredConversation {
                 peer_address: obj.peer_address(),
@@ -80,7 +84,7 @@ where
     }
 
     pub fn convo_id(&self) -> String {
-        convo_id(self.client.account.addr(), self.peer_address())
+        convo_id(self.client.app_context.account.addr(), self.peer_address())
     }
 
     pub fn peer_address(&self) -> Address {
@@ -90,11 +94,11 @@ where
     pub fn send_message(&self, text: &str) -> Result<(), ConversationError> {
         NewStoredMessage::new(
             self.convo_id(),
-            self.client.account.addr(),
+            self.client.app_context.account.addr(),
             text.as_bytes().to_vec(),
             MessageState::Unprocessed as i32,
         )
-        .store(&self.client.store)?;
+        .store(&self.client.app_context.store)?;
         Ok(())
     }
 
@@ -105,13 +109,17 @@ where
 
             // TODO: Persist session to database
             let session = self.client.create_outbound_session(contact)?;
-            let invitation =
-                Invitation::build(self.client.account.contact(), session, &inner_invite_bytes)?;
+            let invitation = Invitation::build(
+                self.client.app_context.account.contact(),
+                session,
+                &inner_invite_bytes,
+            )?;
 
             let envelope = build_envelope(build_user_invite_topic(id), invitation.try_into()?);
 
             // TODO: Replace with real token
             self.client
+                .app_context
                 .api_client
                 // TODO: API authentication
                 .publish(
@@ -140,12 +148,22 @@ mod tests {
         let client = gen_test_client().await;
         let peer_address = "0x000";
         let convo_id = format!(":{}:{}", peer_address, client.wallet_address());
-        assert!(client.store.get_conversation(&convo_id).unwrap().is_none());
+        assert!(client
+            .app_context
+            .store
+            .get_conversation(&convo_id)
+            .unwrap()
+            .is_none());
 
         let conversations = Conversations::new(&client);
         let conversation = gen_test_conversation(&conversations, peer_address).await;
         assert!(conversation.peer_address() == peer_address);
-        assert!(client.store.get_conversation(&convo_id).unwrap().is_some());
+        assert!(client
+            .app_context
+            .store
+            .get_conversation(&convo_id)
+            .unwrap()
+            .is_some());
     }
 
     #[tokio::test]
@@ -155,7 +173,7 @@ mod tests {
         let conversation = gen_test_conversation(&conversations, "0x000").await;
         conversation.send_message("Hello, world!").unwrap();
 
-        let message = &client.store.get_unprocessed_messages().unwrap()[0];
+        let message = &client.app_context.store.get_unprocessed_messages().unwrap()[0];
         assert!(message.content == "Hello, world!".as_bytes().to_vec());
     }
 }

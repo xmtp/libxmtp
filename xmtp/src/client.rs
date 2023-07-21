@@ -38,14 +38,18 @@ pub enum ClientError {
     Unknown,
 }
 
+pub struct AppContext<A> {
+    pub(crate) api_client: A,
+    pub(crate) network: Network,
+    pub(crate) account: Account,
+    pub store: EncryptedMessageStore, // Temporarily exposed outside crate for CLI client
+}
+
 pub struct Client<A>
 where
     A: XmtpApiClient,
 {
-    pub api_client: A,
-    pub(crate) network: Network,
-    pub(crate) account: Account,
-    pub store: EncryptedMessageStore, // Temporarily exposed outside crate for CLI client
+    pub app_context: AppContext<A>, // Temporarily exposed outside crate for CLI client
     is_initialized: bool,
 }
 
@@ -54,7 +58,12 @@ where
     A: XmtpApiClient,
 {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        write!(f, "Client({:?})::{}", self.network, self.account.addr())
+        write!(
+            f,
+            "Client({:?})::{}",
+            self.app_context.network,
+            self.app_context.account.addr()
+        )
     }
 }
 
@@ -62,27 +71,19 @@ impl<A> Client<A>
 where
     A: XmtpApiClient,
 {
-    pub fn new(
-        api_client: A,
-        network: Network,
-        account: Account,
-        store: EncryptedMessageStore,
-    ) -> Self {
+    pub fn new(app_context: AppContext<A>) -> Self {
         Self {
-            api_client,
-            network,
-            account,
-            store,
+            app_context,
             is_initialized: false,
         }
     }
 
     pub fn wallet_address(&self) -> Address {
-        self.account.addr()
+        self.app_context.account.addr()
     }
 
     pub async fn init(&mut self) -> Result<(), ClientError> {
-        let app_contact_bundle = self.account.contact();
+        let app_contact_bundle = self.app_context.account.contact();
         let registered_bundles = self.get_contacts(&self.wallet_address()).await?;
 
         if !registered_bundles
@@ -99,6 +100,7 @@ where
     pub async fn get_contacts(&self, wallet_address: &str) -> Result<Vec<Contact>, ClientError> {
         let topic = build_user_contact_topic(wallet_address.to_string());
         let response = self
+            .app_context
             .api_client
             .query(QueryRequest {
                 content_topics: vec![topic],
@@ -126,7 +128,10 @@ where
     }
 
     pub fn get_session(&self, contact: &Contact) -> Result<SessionManager, ClientError> {
-        let existing_session = self.store.get_session(&contact.installation_id())?;
+        let existing_session = self
+            .app_context
+            .store
+            .get_session(&contact.installation_id())?;
         match existing_session {
             Some(i) => Ok(SessionManager::try_from(&i)?),
             None => self.create_outbound_session(contact),
@@ -134,8 +139,10 @@ where
     }
 
     pub async fn my_other_devices(&self) -> Result<Vec<Contact>, ClientError> {
-        let contacts = self.get_contacts(self.account.addr().as_str()).await?;
-        let my_contact_id = self.account.contact().installation_id();
+        let contacts = self
+            .get_contacts(self.app_context.account.addr().as_str())
+            .await?;
+        let my_contact_id = self.app_context.account.contact().installation_id();
         Ok(contacts
             .into_iter()
             .filter(|c| c.installation_id() != my_contact_id)
@@ -146,7 +153,7 @@ where
         let contacts = self.get_contacts(user_address).await?;
 
         let stored_contacts: Vec<StoredInstallation> =
-            self.store.get_contacts(user_address)?.into();
+            self.app_context.store.get_contacts(user_address)?.into();
         println!("{:?}", contacts);
         for contact in contacts {
             println!(" {:?} ", contact)
@@ -159,11 +166,11 @@ where
         &self,
         contact: &Contact,
     ) -> Result<SessionManager, ClientError> {
-        let olm_session = self.account.create_outbound_session(contact);
+        let olm_session = self.app_context.account.create_outbound_session(contact);
         let session = SessionManager::from_olm_session(olm_session, contact)
             .map_err(|_| ClientError::Unknown)?;
 
-        session.store(&self.store)?;
+        session.store(&self.app_context.store)?;
 
         Ok(session)
     }
@@ -182,6 +189,7 @@ where
         };
 
         let create_result = self
+            .app_context
             .account
             .create_inbound_session(&contact, msg)
             .map_err(|_| ClientError::Unknown)?;
@@ -189,14 +197,15 @@ where
         let session = SessionManager::from_olm_session(create_result.session, &contact)
             .map_err(|_| ClientError::Unknown)?;
 
-        session.store(&self.store)?;
+        session.store(&self.app_context.store)?;
 
         Ok((session, create_result.plaintext))
     }
 
     async fn publish_user_contact(&self) -> Result<(), ClientError> {
         let envelope = self.build_contact_envelope()?;
-        self.api_client
+        self.app_context
+            .api_client
             .publish(
                 "".to_string(),
                 PublishRequest {
@@ -210,7 +219,7 @@ where
     }
 
     fn build_contact_envelope(&self) -> Result<Envelope, ClientError> {
-        let contact = self.account.contact();
+        let contact = self.app_context.account.contact();
 
         let envelope = build_envelope(
             build_user_contact_topic(self.wallet_address()),
@@ -280,6 +289,7 @@ mod tests {
                 assert_eq!(bytes.len(), 32);
                 assert_eq!(
                     client
+                        .app_context
                         .account
                         .olm_account()
                         .unwrap()

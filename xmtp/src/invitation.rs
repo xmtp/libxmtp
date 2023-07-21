@@ -167,7 +167,7 @@ mod tests {
             .unwrap();
 
         let invitation = Invitation::build(
-            client.account.contact(),
+            client.app_context.account.contact(),
             session,
             &Invitation::build_inner_invite_bytes(other_account.addr().to_string()).unwrap(),
         )
@@ -175,7 +175,7 @@ mod tests {
 
         assert_eq!(
             invitation.inviter.installation_id(),
-            client.account.contact().installation_id()
+            client.app_context.account.contact().installation_id()
         );
 
         let bytes: Vec<u8> = invitation.clone().try_into().unwrap();
