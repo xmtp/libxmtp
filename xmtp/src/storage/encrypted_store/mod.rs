@@ -171,7 +171,7 @@ impl EncryptedMessageStore {
             .filter(peer_installation_id.eq(installation_id))
             .order(created_at.desc())
             .load::<StoredSession>(conn)
-            .map_err(|_| StorageError::Unknown)?;
+            .map_err(|e| StorageError::Unknown(e.to_string()))?;
 
         warn_length(&session_list, "StoredSession", 1);
         Ok(session_list.pop())
@@ -232,7 +232,7 @@ impl EncryptedMessageStore {
             .filter(dsl::user_address.eq(user_address))
             .order(dsl::first_seen_ns.desc())
             .load::<StoredInstallation>(conn)
-            .map_err(|_| StorageError::Unknown)?;
+            .map_err(|e| StorageError::Unknown(e.to_string()))?;
 
         Ok(install_list)
     }
