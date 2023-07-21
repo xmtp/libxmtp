@@ -113,8 +113,8 @@ impl EncryptedMessageStore {
         Ok(())
     }
 
-    pub fn create_fake_msg(&self, content: &str) {
-        NewDecryptedMessage::new("convo".into(), "addr".into(), content.into())
+    pub fn create_fake_msg(&self, content: &str, state: i32) {
+        NewDecryptedMessage::new("convo".into(), "addr".into(), content.into(), state)
             .store(self)
             .unwrap();
     }
@@ -337,10 +337,7 @@ fn warn_length<T>(list: &Vec<T>, str_id: &str, max_length: usize) {
 #[cfg(test)]
 mod tests {
 
-    use super::{
-        models::{DecryptedMessage, NewDecryptedMessage, StoredSession},
-        EncryptedMessageStore, StorageError, StorageOption,
-    };
+    use super::{models::*, EncryptedMessageStore, StorageError, StorageOption};
     use crate::{Fetch, Store};
     use rand::{
         distributions::{Alphanumeric, DistString},
@@ -365,21 +362,41 @@ mod tests {
         )
         .unwrap();
 
-        NewDecryptedMessage::new("Bola".into(), "0x000A".into(), "Hello Bola".into())
-            .store(&store)
-            .unwrap();
+        NewDecryptedMessage::new(
+            "Bola".into(),
+            "0x000A".into(),
+            "Hello Bola".into(),
+            MessageState::Uninitialized as i32,
+        )
+        .store(&store)
+        .unwrap();
 
-        NewDecryptedMessage::new("Mark".into(), "0x000A".into(), "Sup Mark".into())
-            .store(&store)
-            .unwrap();
+        NewDecryptedMessage::new(
+            "Mark".into(),
+            "0x000A".into(),
+            "Sup Mark".into(),
+            MessageState::Uninitialized as i32,
+        )
+        .store(&store)
+        .unwrap();
 
-        NewDecryptedMessage::new("Bola".into(), "0x000B".into(), "Hey Amal".into())
-            .store(&store)
-            .unwrap();
+        NewDecryptedMessage::new(
+            "Bola".into(),
+            "0x000B".into(),
+            "Hey Amal".into(),
+            MessageState::Uninitialized as i32,
+        )
+        .store(&store)
+        .unwrap();
 
-        NewDecryptedMessage::new("Bola".into(), "0x000A".into(), "bye".into())
-            .store(&store)
-            .unwrap();
+        NewDecryptedMessage::new(
+            "Bola".into(),
+            "0x000A".into(),
+            "bye".into(),
+            MessageState::Uninitialized as i32,
+        )
+        .store(&store)
+        .unwrap();
 
         let v: Vec<DecryptedMessage> = store.fetch().unwrap();
         assert_eq!(4, v.len());
@@ -395,9 +412,14 @@ mod tests {
             )
             .unwrap();
 
-            NewDecryptedMessage::new("Bola".into(), "0x000A".into(), "Hello Bola".into())
-                .store(&store)
-                .unwrap();
+            NewDecryptedMessage::new(
+                "Bola".into(),
+                "0x000A".into(),
+                "Hello Bola".into(),
+                MessageState::Uninitialized as i32,
+            )
+            .store(&store)
+            .unwrap();
 
             let v: Vec<DecryptedMessage> = store.fetch().unwrap();
             assert_eq!(1, v.len());
@@ -414,9 +436,19 @@ mod tests {
         )
         .unwrap();
 
-        let msg0 = NewDecryptedMessage::new(rand_string(), rand_string(), rand_vec());
+        let msg0 = NewDecryptedMessage::new(
+            rand_string(),
+            rand_string(),
+            rand_vec(),
+            MessageState::Uninitialized as i32,
+        );
         sleep(Duration::from_millis(10));
-        let msg1 = NewDecryptedMessage::new(rand_string(), rand_string(), rand_vec());
+        let msg1 = NewDecryptedMessage::new(
+            rand_string(),
+            rand_string(),
+            rand_vec(),
+            MessageState::Uninitialized as i32,
+        );
 
         msg0.store(&store).unwrap();
         msg1.store(&store).unwrap();
@@ -443,7 +475,12 @@ mod tests {
             )
             .unwrap();
 
-            let msg0 = NewDecryptedMessage::new(rand_string(), rand_string(), rand_vec());
+            let msg0 = NewDecryptedMessage::new(
+                rand_string(),
+                rand_string(),
+                rand_vec(),
+                MessageState::Uninitialized as i32,
+            );
             msg0.store(&store).unwrap();
         } // Drop it
 

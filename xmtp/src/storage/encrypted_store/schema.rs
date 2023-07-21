@@ -35,6 +35,16 @@ diesel::table! {
         convo_id -> Text,
         addr_from -> Text,
         content -> Binary,
+        state -> Integer,
+    }
+}
+
+diesel::table! {
+    outbound_payloads (created_at_ns) {
+        created_at_ns -> BigInt,
+        content_topic -> Text,
+        payload -> Binary,
+        outbound_payload_state -> Integer,
     }
 }
 
@@ -64,6 +74,7 @@ diesel::allow_tables_to_appear_in_same_query!(
     conversations,
     installations,
     messages,
+    outbound_payloads,
     sessions,
     users,
 );
