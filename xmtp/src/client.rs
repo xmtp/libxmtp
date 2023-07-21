@@ -8,7 +8,7 @@ use crate::{
     account::Account,
     contact::{Contact, ContactError},
     session::SessionManager,
-    storage::{EncryptedMessageStore, StorageError},
+    storage::{EncryptedMessageStore, StorageError, StoredInstallation},
     types::networking::{PublishRequest, QueryRequest, XmtpApiClient},
     types::Address,
     utils::{build_envelope, build_user_contact_topic},
@@ -142,6 +142,19 @@ where
             .collect())
     }
 
+    pub async fn refresh_user_installations(&self, user_address: &str) -> Result<(), ClientError> {
+        let contacts = self.get_contacts(user_address).await?;
+
+        let stored_contacts: Vec<StoredInstallation> =
+            self.store.get_contacts(user_address)?.into();
+        println!("{:?}", contacts);
+        for contact in contacts {
+            println!(" {:?} ", contact)
+        }
+
+        Ok(())
+    }
+
     pub fn create_outbound_session(
         &self,
         contact: &Contact,
@@ -237,6 +250,15 @@ mod tests {
             .unwrap();
         assert!(conversation.peer_address() == peer_address);
         assert!(client.store.get_conversation(&convo_id).unwrap().is_some());
+    }
+
+    #[tokio::test]
+    async fn refresh() {
+        let client = ClientBuilder::new_test().build().unwrap();
+        client
+            .refresh_user_installations(&client.wallet_address())
+            .await
+            .unwrap();
     }
 
     #[tokio::test]

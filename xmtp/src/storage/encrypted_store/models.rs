@@ -1,8 +1,13 @@
-use std::time::{SystemTime, UNIX_EPOCH};
-
 use super::{schema::*, EncryptedMessageStore};
-use crate::{account::Account, storage::StorageError, Save};
+use crate::{
+    account::Account,
+    contact::{Contact, ContactError},
+    storage::StorageError,
+    Save,
+};
 use diesel::prelude::*;
+use std::time::{SystemTime, UNIX_EPOCH};
+use xmtp_cryptography::hash::sha256_bytes;
 
 #[derive(Insertable, Identifiable, Queryable, PartialEq, Debug)]
 #[diesel(table_name = users)]
@@ -110,6 +115,7 @@ pub struct StoredSession {
     pub created_at: i64,
     pub peer_installation_id: String,
     pub vmac_session_data: Vec<u8>,
+    pub user_address: String,
 }
 
 impl StoredSession {
@@ -117,12 +123,14 @@ impl StoredSession {
         session_id: String,
         peer_installation_id: String,
         vmac_session_data: Vec<u8>,
+        user_address: String,
     ) -> Self {
         Self {
             session_id,
             created_at: now(),
             peer_installation_id,
             vmac_session_data,
+            user_address,
         }
     }
 }
@@ -166,6 +174,33 @@ impl TryFrom<&Account> for NewStoredAccount {
                     e
                 ))
             })?,
+        })
+    }
+}
+
+#[derive(Queryable, Insertable, Debug)]
+#[diesel(table_name = installations)]
+pub struct StoredInstallation {
+    pub installation_id: String,
+    pub user_address: String,
+    pub first_seen_ns: i64,
+    pub contact: Vec<u8>,
+    pub contact_hash: String,
+    pub expires_at_ns: Option<i64>,
+}
+
+impl StoredInstallation {
+    pub fn new(contact: &Contact) -> Result<Self, ContactError> {
+        let contact_bytes: Vec<u8> = contact.try_into()?;
+        let contact_hash = hex::encode(sha256_bytes(&contact_bytes).as_slice());
+
+        Ok(Self {
+            installation_id: contact.installation_id(),
+            user_address: contact.wallet_address.clone(),
+            first_seen_ns: now(),
+            contact: contact_bytes,
+            contact_hash: contact_hash,
+            expires_at_ns: None,
         })
     }
 }

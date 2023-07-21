@@ -132,6 +132,14 @@ impl TryFrom<Contact> for Vec<u8> {
     type Error = ContactError;
 
     fn try_from(contact: Contact) -> Result<Self, Self::Error> {
+        (&contact).try_into()
+    }
+}
+
+impl TryFrom<&Contact> for Vec<u8> {
+    type Error = ContactError;
+
+    fn try_from(contact: &Contact) -> Result<Self, Self::Error> {
         let mut buf = Vec::new();
         contact.bundle.encode(&mut buf)?;
 
