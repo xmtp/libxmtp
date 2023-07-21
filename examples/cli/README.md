@@ -4,4 +4,6 @@ XLI is an demo XMTPv3 console client, which allows developers to send and receiv
 
 ## Running
 
-`RUST_LOG=info cargo run -- --db ~/xmtp_store.db3 reg -L`
+`RUST_LOG=info cargo run -- --db ~/user1.db3 reg -L`
+`RUST_LOG=info cargo run -- --db ~/user2.db3 reg -L`
+`RUST_LOG=info cargo run -- --db ~/user1.db3 send <user2_address> "hello"`

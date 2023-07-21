@@ -40,7 +40,7 @@ Installation:
     - SESSION_CREATED: There is existing session state with that installation
 
 Message:
-    - UNINITIALIZED: The message has not been encrypted yet
+    - UNPROCESSED: The message has not been encrypted yet
     - LOCALLY_COMMITTED: The outbound payloads have been constructed
     - RECEIVED: The message is inbound and was retrieved from the network
 
@@ -67,17 +67,17 @@ createConversation():
 ### Sending a message in a conversation
 
 ```
-sendMessage():
-    Insert message into DB with message.state = UNINITIALIZED and message.convo_id set
-    processMessages() // Could be kicked off asynchronously or synchronously
+send_message():
+    Insert message into DB with message.state = UNPROCESSED and message.convo_id set
+    process_messages() // Could be kicked off asynchronously or synchronously
     return success
 
-processMessages():
-    For each message in UNINITIALIZED state, processing in order of timestamp:
+process_messages():
+    For each message in UNPROCESSED state, processing in order of timestamp:
         Fetch the conversation's users from the DB (including self)
         For each user:
             If user.last_refreshed is uninitialized or more than THRESHOLD ago:
-                refreshUserInstallations()    // Could be kicked off asynchronously or synchronously
+                refresh_user_installations()    // Could be kicked off asynchronously or synchronously
                 return  // refreshUserInstallations() will call back into processMessages() when ready
         Fetch the installations and sessions of all users from the DB
         For each installation:
@@ -96,10 +96,10 @@ processMessages():
             Set message.state = LOCALLY_COMMITTED
             Set conversation.state = INVITED
             Delete all data from memory
-    processPayloads()   // Could be kicked off asynchronously or synchronously
+    process_payloads()   // Could be kicked off asynchronously or synchronously
     return
 
-refreshUserInstallations(user):
+refresh_user_installations(user):
     Fetch installations/contact bundles for the user from the network
     Fetch installations/contact bundles for the user from the DB
     In a single transaction:
@@ -108,10 +108,10 @@ refreshUserInstallations(user):
         For each installation from the network:
             If it doesn't exist in the DB, insert it with installation.state = UNINITIALIZED
         Set user.last_refreshed to NOW
-    processMessages();  // Could be kicked off asynchronously or synchronously
+    process_messages();  // Could be kicked off asynchronously or synchronously
     return
 
-processPayloads():
+process_payloads():
     For each outbound payload in in UNINITIALIZED state, processing in order of sequential ID (possibly batched):
         Send the payload(s) to the server
         Once acknowledgement is received, set the payload to SERVER_ACKNOWLEDGED state and optionally delete. (We can turn off deletion for debugging purposes if needed)
@@ -122,15 +122,15 @@ processPayloads():
 ```
 init():
     // Could be kicked off asynchronously or synchronously
-    processMessages()
-    processPayloads()
+    process_messages()
+    process_payloads()
     return
 ```
 
 ### Receiving invites
 
 ```plaintext
-downloadInvites():
+download_invites():
     Get the `refresh_jobs` record with an id of `invites`, and obtain a lock on the row:
         Store `now()` in memory to mark the job execution start
         Fetch all messages from invite topic with timestamp > refresh_job.last_run - PADDING_TIME # PADDING TIME accounts for eventual consistency of network. Maybe 30s.
@@ -138,7 +138,7 @@ downloadInvites():
             Save (or ignore if already exists) raw message to inbound_invite table with status of PENDING
         Update `refresh_jobs` record last_run = current_timestamp
 
-processInvites():
+process_nvites():
     For each inbound_invite in PENDING state:
         If the payload is malformed and the proto cannot be decoded:
             Set inbound_invite state to INVALID
@@ -170,9 +170,9 @@ processInvites():
 
         Set inbound_invite state to PROCESSED
 
-updateConversations():
-    downloadInvites()
-    processInvites()
+update_conversations():
+    download_invites()
+    process_invites()
 ```
 
 ...
