@@ -16,21 +16,22 @@ extern crate xmtp;
 
 use clap::{Parser, Subcommand};
 use ethers_core::types::H160;
-use log::{error, info};
+use log::{debug, error, info};
 use std::path::PathBuf;
 use thiserror::Error;
 use url::ParseError;
-use xmtp::Save;
 use walletconnect::client::{CallError, ConnectorError, SessionError};
 use walletconnect::{qr, Client as WcClient, Metadata};
 use xmtp::builder::{AccountStrategy, ClientBuilderError};
 use xmtp::client::ClientError;
+use xmtp::conversations::Conversations;
 use xmtp::storage::{EncryptedMessageStore, EncryptionKey, StorageError, StorageOption};
 use xmtp::types::Address;
 use xmtp::InboxOwner;
-use xmtp_networking::grpc_api_helper::Client as ApiClient;
+use xmtp::Save;
 use xmtp_cryptography::signature::{h160addr_to_string, RecoverableSignature, SignatureError};
 use xmtp_cryptography::utils::{rng, LocalWallet};
+use xmtp_networking::grpc_api_helper::Client as ApiClient;
 
 // use xmtp_networking::Client as ApiClient;
 // use xmtp_cryptography::signature::{h160addr_to_string, RecoverableSignature, SignatureError};
@@ -141,7 +142,10 @@ async fn main() {
         }
         Commands::Send { addr, msg } => {
             info!("Send");
-            let client = create_client(cli.db, AccountStrategy::CachedOnly("nil".into())).await.unwrap();
+            let client = create_client(cli.db, AccountStrategy::CachedOnly("nil".into()))
+                .await
+                .unwrap();
+            info!("Address is: {}", client.wallet_address());
             send(client, addr, msg).await.unwrap();
         }
         Commands::Test {var }=> {
@@ -152,12 +156,19 @@ async fn main() {
     }
 }
 
-async fn create_client (db: Option<PathBuf>, account: AccountStrategy<Wallet>) -> Result<Client, CliError> {
+async fn create_client(
+    db: Option<PathBuf>,
+    account: AccountStrategy<Wallet>,
+) -> Result<Client, CliError> {
     let msg_store = get_encrypted_store(db).unwrap();
 
     let client_result = ClientBuilder::new(account)
         .network(xmtp::Network::Dev)
-        .api_client(ApiClient::create("http://localhost:5556".into(), false).await.unwrap())
+        .api_client(
+            ApiClient::create("http://localhost:5556".into(), false)
+                .await
+                .unwrap(),
+        )
         .store(msg_store)
         .build();
 
@@ -173,6 +184,7 @@ async fn register(db: Option<PathBuf>, use_local: bool) -> Result<(), CliError> 
     };
 
     let mut client = create_client(db, AccountStrategy::CreateIfNotFound(w)).await?;
+    info!("Address is: {}", client.wallet_address());
 
     if let Err(e) = client.init().await {
         error!("Initialization Failed: {}", e.to_string());
@@ -199,12 +211,21 @@ async fn send(client: Client, addr: &String, msg: &String) -> Result<(), CliErro
         let mut session = client
             .get_session(&contact)
             .map_err(CliError::ClientError)?;
-        info!("Session: {}", session.id());
+        debug!("Session: {}", session.id());
 
         let om = session.encrypt(msg.as_bytes());
-        info!("{:?} ", om);
+        debug!("{:?} ", om);
         session.save(&client.store).unwrap();
+        info!("Encryption successful")
     }
+
+    let conversations = Conversations::new(&client);
+    let conversation = conversations
+        .new_secret_conversation(addr.to_string())
+        .await
+        .unwrap();
+    conversation.send_message(msg).unwrap();
+    info!("Message locally committed");
 
     Ok(())
 }
@@ -217,7 +238,7 @@ fn get_encrypted_store(db: Option<PathBuf>) -> Result<EncryptedMessageStore, Cli
     let store = match db {
         Some(path) => {
             let s = path.as_path().to_string_lossy().to_string();
-            info!("Using persistent Storage:{} ", s);
+            info!("Using persistent storage:{} ", s);
             EncryptedMessageStore::new_unencrypted(StorageOption::Persistent(s))
         }
 

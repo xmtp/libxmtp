@@ -34,14 +34,14 @@ pub struct StoredConversation {
 }
 
 pub enum MessageState {
-    Uninitialized = 0,
+    Unprocessed = 0,
     LocallyCommitted = 10,
     Received = 20,
 }
 
 /// Placeholder type for messages returned from the Store.
 #[derive(Queryable, Debug)]
-pub struct DecryptedMessage {
+pub struct StoredMessage {
     pub id: i32,
     pub created_at: i64,
     pub convo_id: String,
@@ -55,7 +55,7 @@ pub struct DecryptedMessage {
 /// store when it is inserted.
 #[derive(Insertable, Clone, PartialEq, Debug)]
 #[diesel(table_name = messages)]
-pub struct NewDecryptedMessage {
+pub struct NewStoredMessage {
     pub created_at: i64,
     pub convo_id: String,
     pub addr_from: String,
@@ -63,7 +63,7 @@ pub struct NewDecryptedMessage {
     pub state: i32,
 }
 
-impl NewDecryptedMessage {
+impl NewStoredMessage {
     pub fn new(convo_id: String, addr_from: String, content: Vec<u8>, state: i32) -> Self {
         Self {
             created_at: now(),
@@ -75,8 +75,8 @@ impl NewDecryptedMessage {
     }
 }
 
-impl PartialEq<DecryptedMessage> for NewDecryptedMessage {
-    fn eq(&self, other: &DecryptedMessage) -> bool {
+impl PartialEq<StoredMessage> for NewStoredMessage {
+    fn eq(&self, other: &StoredMessage) -> bool {
         self.created_at == other.created_at
             && self.convo_id == other.convo_id
             && self.addr_from == other.addr_from

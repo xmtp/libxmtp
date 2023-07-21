@@ -114,7 +114,7 @@ impl EncryptedMessageStore {
     }
 
     pub fn create_fake_msg(&self, content: &str, state: i32) {
-        NewDecryptedMessage::new("convo".into(), "addr".into(), content.into(), state)
+        NewStoredMessage::new("convo".into(), "addr".into(), content.into(), state)
             .store(self)
             .unwrap();
     }
@@ -236,9 +236,19 @@ impl EncryptedMessageStore {
 
         Ok(install_list)
     }
+
+    pub fn get_unprocessed_messages(&self) -> Result<Vec<StoredMessage>, StorageError> {
+        let conn = &mut self.conn()?;
+
+        let msg_list = messages::table
+            .filter(messages::state.eq(MessageState::Unprocessed as i32))
+            .load::<StoredMessage>(conn)?;
+
+        Ok(msg_list)
+    }
 }
 
-impl Store<EncryptedMessageStore> for NewDecryptedMessage {
+impl Store<EncryptedMessageStore> for NewStoredMessage {
     fn store(&self, into: &EncryptedMessageStore) -> Result<(), StorageError> {
         let conn = &mut into.conn()?;
         diesel::insert_into(messages::table)
@@ -260,13 +270,13 @@ impl Store<EncryptedMessageStore> for StoredSession {
     }
 }
 
-impl Fetch<DecryptedMessage> for EncryptedMessageStore {
-    fn fetch(&self) -> Result<Vec<DecryptedMessage>, StorageError> {
+impl Fetch<StoredMessage> for EncryptedMessageStore {
+    fn fetch(&self) -> Result<Vec<StoredMessage>, StorageError> {
         let conn = &mut self.conn()?;
         use self::schema::messages::dsl::*;
 
         messages
-            .load::<DecryptedMessage>(conn)
+            .load::<StoredMessage>(conn)
             .map_err(StorageError::DieselResultError)
     }
 }
@@ -362,43 +372,43 @@ mod tests {
         )
         .unwrap();
 
-        NewDecryptedMessage::new(
+        NewStoredMessage::new(
             "Bola".into(),
             "0x000A".into(),
             "Hello Bola".into(),
-            MessageState::Uninitialized as i32,
+            MessageState::Unprocessed as i32,
         )
         .store(&store)
         .unwrap();
 
-        NewDecryptedMessage::new(
+        NewStoredMessage::new(
             "Mark".into(),
             "0x000A".into(),
             "Sup Mark".into(),
-            MessageState::Uninitialized as i32,
+            MessageState::Unprocessed as i32,
         )
         .store(&store)
         .unwrap();
 
-        NewDecryptedMessage::new(
+        NewStoredMessage::new(
             "Bola".into(),
             "0x000B".into(),
             "Hey Amal".into(),
-            MessageState::Uninitialized as i32,
+            MessageState::Unprocessed as i32,
         )
         .store(&store)
         .unwrap();
 
-        NewDecryptedMessage::new(
+        NewStoredMessage::new(
             "Bola".into(),
             "0x000A".into(),
             "bye".into(),
-            MessageState::Uninitialized as i32,
+            MessageState::Unprocessed as i32,
         )
         .store(&store)
         .unwrap();
 
-        let v: Vec<DecryptedMessage> = store.fetch().unwrap();
+        let v: Vec<StoredMessage> = store.fetch().unwrap();
         assert_eq!(4, v.len());
     }
 
@@ -412,16 +422,16 @@ mod tests {
             )
             .unwrap();
 
-            NewDecryptedMessage::new(
+            NewStoredMessage::new(
                 "Bola".into(),
                 "0x000A".into(),
                 "Hello Bola".into(),
-                MessageState::Uninitialized as i32,
+                MessageState::Unprocessed as i32,
             )
             .store(&store)
             .unwrap();
 
-            let v: Vec<DecryptedMessage> = store.fetch().unwrap();
+            let v: Vec<StoredMessage> = store.fetch().unwrap();
             assert_eq!(1, v.len());
         }
 
@@ -436,24 +446,24 @@ mod tests {
         )
         .unwrap();
 
-        let msg0 = NewDecryptedMessage::new(
+        let msg0 = NewStoredMessage::new(
             rand_string(),
             rand_string(),
             rand_vec(),
-            MessageState::Uninitialized as i32,
+            MessageState::Unprocessed as i32,
         );
         sleep(Duration::from_millis(10));
-        let msg1 = NewDecryptedMessage::new(
+        let msg1 = NewStoredMessage::new(
             rand_string(),
             rand_string(),
             rand_vec(),
-            MessageState::Uninitialized as i32,
+            MessageState::Unprocessed as i32,
         );
 
         msg0.store(&store).unwrap();
         msg1.store(&store).unwrap();
 
-        let msgs: Vec<DecryptedMessage> = store.fetch().unwrap();
+        let msgs: Vec<StoredMessage> = store.fetch().unwrap();
 
         assert_eq!(2, msgs.len());
         assert_eq!(msg0, msgs[0]);
@@ -475,11 +485,11 @@ mod tests {
             )
             .unwrap();
 
-            let msg0 = NewDecryptedMessage::new(
+            let msg0 = NewStoredMessage::new(
                 rand_string(),
                 rand_string(),
                 rand_vec(),
-                MessageState::Uninitialized as i32,
+                MessageState::Unprocessed as i32,
             );
             msg0.store(&store).unwrap();
         } // Drop it
