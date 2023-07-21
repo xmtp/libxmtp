@@ -28,9 +28,11 @@ mod tests {
 
     #[tokio::test]
     async fn grpc_query_test() {
-        let client = Client::create(LOCALHOST_ADDRESS.to_string(), false)
+        let mut client = Client::create(LOCALHOST_ADDRESS.to_string(), false)
             .await
             .unwrap();
+
+        client.set_app_version("test/0.1.0".to_string());
 
         let result = client
             .query(QueryRequest {

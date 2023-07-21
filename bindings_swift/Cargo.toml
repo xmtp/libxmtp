@@ -6,9 +6,10 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
+xmtp = { path = "../xmtp" }
 xmtp_crypto = { path = "../xmtp_crypto" }
-xmtp_networking = { git = "https://github.com/xmtp/libxmtp", rev = "0ee34007e10add84152a1af411648699f06f64fa" }
-xmtp_proto = { git = "https://github.com/xmtp/libxmtp", rev = "0ee34007e10add84152a1af411648699f06f64fa" }
+xmtp_networking = { path = "../xmtp_networking" }
+xmtp_proto = { path = "../xmtp_proto"  }
 prost = { version = "0.11", features = ["prost-derive"] }
 swift-bridge = {version = "0.1", features = ["async"]}
 uuid = { version = "1.3.1", features = ["v4", "fast-rng"] }

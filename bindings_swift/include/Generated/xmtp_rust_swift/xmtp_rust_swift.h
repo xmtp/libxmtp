@@ -32,6 +32,7 @@ void __swift_bridge__$RustClient$batch_query(void* callback_wrapper, void __swif
 void __swift_bridge__$RustClient$query(void* callback_wrapper, void __swift_bridge__$RustClient$query$async(void* callback_wrapper, struct __private__ResultPtrAndPtr ret), void* self, void* req);
 void __swift_bridge__$RustClient$publish(void* callback_wrapper, void __swift_bridge__$RustClient$publish$async(void* callback_wrapper, struct __private__ResultPtrAndPtr ret), void* self, void* token, void* req);
 void __swift_bridge__$RustClient$subscribe(void* callback_wrapper, void __swift_bridge__$RustClient$subscribe$async(void* callback_wrapper, struct __private__ResultPtrAndPtr ret), void* self, void* req);
+void __swift_bridge__$RustClient$set_app_version(void* self, void* version);
 void* __swift_bridge__$sha256(void* data);
 void* __swift_bridge__$keccak256(void* data);
 struct __private__ResultPtrAndPtr __swift_bridge__$verify_k256_sha256(void* public_key_bytes, void* message, void* signature, uint8_t recovery_id);
