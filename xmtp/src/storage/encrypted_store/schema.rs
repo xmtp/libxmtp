@@ -18,12 +18,33 @@ diesel::table! {
 }
 
 diesel::table! {
+    installations (installation_id) {
+        installation_id -> Text,
+        user_address -> Text,
+        first_seen_ns -> BigInt,
+        contact -> Binary,
+        contact_hash -> Text,
+        expires_at_ns -> Nullable<BigInt>,
+    }
+}
+
+diesel::table! {
     messages (id) {
         id -> Integer,
         created_at -> BigInt,
         convo_id -> Text,
         addr_from -> Text,
         content -> Binary,
+        state -> Integer,
+    }
+}
+
+diesel::table! {
+    outbound_payloads (created_at_ns) {
+        created_at_ns -> BigInt,
+        content_topic -> Text,
+        payload -> Binary,
+        outbound_payload_state -> Integer,
     }
 }
 
@@ -33,6 +54,7 @@ diesel::table! {
         created_at -> BigInt,
         peer_installation_id -> Text,
         vmac_session_data -> Binary,
+        user_address -> Text,
     }
 }
 
@@ -45,11 +67,14 @@ diesel::table! {
 }
 
 diesel::joinable!(conversations -> users (peer_address));
+diesel::joinable!(installations -> users (user_address));
 
 diesel::allow_tables_to_appear_in_same_query!(
     accounts,
     conversations,
+    installations,
     messages,
+    outbound_payloads,
     sessions,
     users,
 );

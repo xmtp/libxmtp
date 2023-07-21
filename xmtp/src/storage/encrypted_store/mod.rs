@@ -113,8 +113,8 @@ impl EncryptedMessageStore {
         Ok(())
     }
 
-    pub fn create_fake_msg(&self, content: &str) {
-        NewDecryptedMessage::new("convo".into(), "addr".into(), content.into())
+    pub fn create_fake_msg(&self, content: &str, state: i32) {
+        NewDecryptedMessage::new("convo".into(), "addr".into(), content.into(), state)
             .store(self)
             .unwrap();
     }
@@ -220,6 +220,22 @@ impl EncryptedMessageStore {
             .execute(conn)?;
         Ok(())
     }
+
+    pub fn get_contacts(
+        &self,
+        user_address: &str,
+    ) -> Result<Vec<StoredInstallation>, StorageError> {
+        let conn = &mut self.conn()?;
+        use self::schema::installations::dsl;
+
+        let install_list = dsl::installations
+            .filter(dsl::user_address.eq(user_address))
+            .order(dsl::first_seen_ns.desc())
+            .load::<StoredInstallation>(conn)
+            .map_err(|_| StorageError::Unknown)?;
+
+        Ok(install_list)
+    }
 }
 
 impl Store<EncryptedMessageStore> for NewDecryptedMessage {
@@ -296,6 +312,17 @@ impl Fetch<Account> for EncryptedMessageStore {
     }
 }
 
+impl Store<EncryptedMessageStore> for StoredInstallation {
+    fn store(&self, into: &EncryptedMessageStore) -> Result<(), StorageError> {
+        let conn = &mut into.conn()?;
+        diesel::insert_into(schema::installations::table)
+            .values(self)
+            .execute(conn)?;
+
+        Ok(())
+    }
+}
+
 fn warn_length<T>(list: &Vec<T>, str_id: &str, max_length: usize) {
     if list.len() > max_length {
         warn!(
@@ -310,10 +337,7 @@ fn warn_length<T>(list: &Vec<T>, str_id: &str, max_length: usize) {
 #[cfg(test)]
 mod tests {
 
-    use super::{
-        models::{DecryptedMessage, NewDecryptedMessage, StoredSession},
-        EncryptedMessageStore, StorageError, StorageOption,
-    };
+    use super::{models::*, EncryptedMessageStore, StorageError, StorageOption};
     use crate::{Fetch, Store};
     use rand::{
         distributions::{Alphanumeric, DistString},
@@ -338,21 +362,41 @@ mod tests {
         )
         .unwrap();
 
-        NewDecryptedMessage::new("Bola".into(), "0x000A".into(), "Hello Bola".into())
-            .store(&store)
-            .unwrap();
+        NewDecryptedMessage::new(
+            "Bola".into(),
+            "0x000A".into(),
+            "Hello Bola".into(),
+            MessageState::Uninitialized as i32,
+        )
+        .store(&store)
+        .unwrap();
 
-        NewDecryptedMessage::new("Mark".into(), "0x000A".into(), "Sup Mark".into())
-            .store(&store)
-            .unwrap();
+        NewDecryptedMessage::new(
+            "Mark".into(),
+            "0x000A".into(),
+            "Sup Mark".into(),
+            MessageState::Uninitialized as i32,
+        )
+        .store(&store)
+        .unwrap();
 
-        NewDecryptedMessage::new("Bola".into(), "0x000B".into(), "Hey Amal".into())
-            .store(&store)
-            .unwrap();
+        NewDecryptedMessage::new(
+            "Bola".into(),
+            "0x000B".into(),
+            "Hey Amal".into(),
+            MessageState::Uninitialized as i32,
+        )
+        .store(&store)
+        .unwrap();
 
-        NewDecryptedMessage::new("Bola".into(), "0x000A".into(), "bye".into())
-            .store(&store)
-            .unwrap();
+        NewDecryptedMessage::new(
+            "Bola".into(),
+            "0x000A".into(),
+            "bye".into(),
+            MessageState::Uninitialized as i32,
+        )
+        .store(&store)
+        .unwrap();
 
         let v: Vec<DecryptedMessage> = store.fetch().unwrap();
         assert_eq!(4, v.len());
@@ -368,9 +412,14 @@ mod tests {
             )
             .unwrap();
 
-            NewDecryptedMessage::new("Bola".into(), "0x000A".into(), "Hello Bola".into())
-                .store(&store)
-                .unwrap();
+            NewDecryptedMessage::new(
+                "Bola".into(),
+                "0x000A".into(),
+                "Hello Bola".into(),
+                MessageState::Uninitialized as i32,
+            )
+            .store(&store)
+            .unwrap();
 
             let v: Vec<DecryptedMessage> = store.fetch().unwrap();
             assert_eq!(1, v.len());
@@ -387,9 +436,19 @@ mod tests {
         )
         .unwrap();
 
-        let msg0 = NewDecryptedMessage::new(rand_string(), rand_string(), rand_vec());
+        let msg0 = NewDecryptedMessage::new(
+            rand_string(),
+            rand_string(),
+            rand_vec(),
+            MessageState::Uninitialized as i32,
+        );
         sleep(Duration::from_millis(10));
-        let msg1 = NewDecryptedMessage::new(rand_string(), rand_string(), rand_vec());
+        let msg1 = NewDecryptedMessage::new(
+            rand_string(),
+            rand_string(),
+            rand_vec(),
+            MessageState::Uninitialized as i32,
+        );
 
         msg0.store(&store).unwrap();
         msg1.store(&store).unwrap();
@@ -416,7 +475,12 @@ mod tests {
             )
             .unwrap();
 
-            let msg0 = NewDecryptedMessage::new(rand_string(), rand_string(), rand_vec());
+            let msg0 = NewDecryptedMessage::new(
+                rand_string(),
+                rand_string(),
+                rand_vec(),
+                MessageState::Uninitialized as i32,
+            );
             msg0.store(&store).unwrap();
         } // Drop it
 
@@ -437,7 +501,12 @@ mod tests {
             EncryptedMessageStore::generate_enc_key(),
         )
         .unwrap();
-        let session = StoredSession::new(rand_string(), rand_string(), rand_vec());
+        let session = StoredSession::new(
+            rand_string(),
+            rand_string(),
+            rand_vec(),
+            rand_string(), // user_address: rand_string(),
+        );
 
         session.store(&store).unwrap();
 

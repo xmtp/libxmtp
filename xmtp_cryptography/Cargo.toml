@@ -13,6 +13,7 @@ k256 = {version = "0.12.0", features = ["ecdh"]}
 rand = "0.8.4"
 rand_chacha = "0.3.1"
 serde = "1.0.163"
+sha2 = "0.10.7"
 sha3 = "0.10.6"
 thiserror = "1.0.40"
 

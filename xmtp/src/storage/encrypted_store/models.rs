@@ -1,8 +1,13 @@
-use std::time::{SystemTime, UNIX_EPOCH};
-
 use super::{schema::*, EncryptedMessageStore};
-use crate::{account::Account, storage::StorageError, Save};
+use crate::{
+    account::Account,
+    contact::{Contact, ContactError},
+    storage::StorageError,
+    Save,
+};
 use diesel::prelude::*;
+use std::time::{SystemTime, UNIX_EPOCH};
+use xmtp_cryptography::hash::sha256_bytes;
 
 #[derive(Insertable, Identifiable, Queryable, PartialEq, Debug)]
 #[diesel(table_name = users)]
@@ -28,6 +33,12 @@ pub struct StoredConversation {
     pub convo_state: i32, // ConversationState
 }
 
+pub enum MessageState {
+    Uninitialized = 0,
+    LocallyCommitted = 10,
+    Received = 20,
+}
+
 /// Placeholder type for messages returned from the Store.
 #[derive(Queryable, Debug)]
 pub struct DecryptedMessage {
@@ -36,6 +47,7 @@ pub struct DecryptedMessage {
     pub convo_id: String,
     pub addr_from: String,
     pub content: Vec<u8>,
+    pub state: i32,
 }
 
 /// Placeholder type for messages being inserted into the store. This type is the same as
@@ -48,15 +60,17 @@ pub struct NewDecryptedMessage {
     pub convo_id: String,
     pub addr_from: String,
     pub content: Vec<u8>,
+    pub state: i32,
 }
 
 impl NewDecryptedMessage {
-    pub fn new(convo_id: String, addr_from: String, content: Vec<u8>) -> Self {
+    pub fn new(convo_id: String, addr_from: String, content: Vec<u8>, state: i32) -> Self {
         Self {
             created_at: now(),
             convo_id,
             addr_from,
             content,
+            state,
         }
     }
 }
@@ -68,6 +82,21 @@ impl PartialEq<DecryptedMessage> for NewDecryptedMessage {
             && self.addr_from == other.addr_from
             && self.content == other.content
     }
+}
+
+pub enum OutboundPayloadState {
+    Pending = 0,
+    ServerAcknowledged = 10,
+}
+
+#[derive(Insertable, Identifiable, Queryable, PartialEq, Debug)]
+#[diesel(table_name = outbound_payloads)]
+#[diesel(primary_key(created_at_ns))]
+pub struct StoredOutboundPayload {
+    pub created_at_ns: i64,
+    pub content_topic: String,
+    pub payload: Vec<u8>,
+    pub outbound_payload_state: i32,
 }
 
 pub fn now() -> i64 {
@@ -86,6 +115,7 @@ pub struct StoredSession {
     pub created_at: i64,
     pub peer_installation_id: String,
     pub vmac_session_data: Vec<u8>,
+    pub user_address: String,
 }
 
 impl StoredSession {
@@ -93,12 +123,14 @@ impl StoredSession {
         session_id: String,
         peer_installation_id: String,
         vmac_session_data: Vec<u8>,
+        user_address: String,
     ) -> Self {
         Self {
             session_id,
             created_at: now(),
             peer_installation_id,
             vmac_session_data,
+            user_address,
         }
     }
 }
@@ -142,6 +174,33 @@ impl TryFrom<&Account> for NewStoredAccount {
                     e
                 ))
             })?,
+        })
+    }
+}
+
+#[derive(Queryable, Insertable, Debug)]
+#[diesel(table_name = installations)]
+pub struct StoredInstallation {
+    pub installation_id: String,
+    pub user_address: String,
+    pub first_seen_ns: i64,
+    pub contact: Vec<u8>,
+    pub contact_hash: String,
+    pub expires_at_ns: Option<i64>,
+}
+
+impl StoredInstallation {
+    pub fn new(contact: &Contact) -> Result<Self, ContactError> {
+        let contact_bytes: Vec<u8> = contact.try_into()?;
+        let contact_hash = hex::encode(sha256_bytes(&contact_bytes).as_slice());
+
+        Ok(Self {
+            installation_id: contact.installation_id(),
+            user_address: contact.wallet_address.clone(),
+            first_seen_ns: now(),
+            contact: contact_bytes,
+            contact_hash: contact_hash,
+            expires_at_ns: None,
         })
     }
 }

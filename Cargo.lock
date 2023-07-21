@@ -702,7 +702,7 @@ dependencies = [
  "k256 0.13.1",
  "lazy_static",
  "serde",
- "sha2 0.10.6",
+ "sha2 0.10.7",
  "thiserror",
 ]
 
@@ -719,7 +719,7 @@ dependencies = [
  "once_cell",
  "pbkdf2 0.12.1",
  "rand 0.8.5",
- "sha2 0.10.6",
+ "sha2 0.10.7",
  "thiserror",
 ]
 
@@ -738,7 +738,7 @@ dependencies = [
  "ripemd",
  "serde",
  "serde_derive",
- "sha2 0.10.6",
+ "sha2 0.10.7",
  "sha3 0.10.8",
  "thiserror",
 ]
@@ -1146,7 +1146,7 @@ dependencies = [
  "ed25519",
  "rand_core 0.6.4",
  "serde",
- "sha2 0.10.6",
+ "sha2 0.10.7",
  "zeroize",
 ]
 
@@ -1282,7 +1282,7 @@ dependencies = [
  "scrypt",
  "serde",
  "serde_json",
- "sha2 0.10.6",
+ "sha2 0.10.7",
  "sha3 0.10.8",
  "thiserror",
  "uuid 0.8.2",
@@ -1665,7 +1665,7 @@ dependencies = [
  "ethers-core 2.0.4",
  "hex",
  "rand 0.8.5",
- "sha2 0.10.6",
+ "sha2 0.10.7",
  "thiserror",
  "tracing",
 ]
@@ -2571,7 +2571,7 @@ dependencies = [
  "cfg-if 1.0.0",
  "ecdsa 0.14.8",
  "elliptic-curve 0.12.3",
- "sha2 0.10.6",
+ "sha2 0.10.7",
  "sha3 0.10.8",
 ]
 
@@ -2585,7 +2585,7 @@ dependencies = [
  "ecdsa 0.15.1",
  "elliptic-curve 0.12.3",
  "once_cell",
- "sha2 0.10.6",
+ "sha2 0.10.7",
  "signature 2.0.0",
 ]
 
@@ -2599,7 +2599,7 @@ dependencies = [
  "ecdsa 0.16.7",
  "elliptic-curve 0.13.5",
  "once_cell",
- "sha2 0.10.6",
+ "sha2 0.10.7",
  "signature 2.0.0",
 ]
 
@@ -3251,7 +3251,7 @@ dependencies = [
  "digest 0.10.7",
  "hmac",
  "password-hash",
- "sha2 0.10.6",
+ "sha2 0.10.7",
 ]
 
 [[package]]
@@ -4183,7 +4183,7 @@ dependencies = [
  "hmac",
  "pbkdf2 0.11.0",
  "salsa20",
- "sha2 0.10.6",
+ "sha2 0.10.7",
 ]
 
 [[package]]
@@ -4395,9 +4395,9 @@ dependencies = [
 
 [[package]]
 name = "sha2"
-version = "0.10.6"
+version = "0.10.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "82e6b795fe2e3b1e845bafcb27aa35405c4d47cdfc92af5fc8d3002f76cebdc0"
+checksum = "479fb9d862239e610720565ca91403019f2f00410f1864c5aa7479b950a76ed8"
 dependencies = [
  "cfg-if 1.0.0",
  "cpufeatures",
@@ -4623,7 +4623,7 @@ dependencies = [
  "semver",
  "serde",
  "serde_json",
- "sha2 0.10.6",
+ "sha2 0.10.7",
  "thiserror",
  "url",
  "zip",
@@ -5215,7 +5215,7 @@ dependencies = [
  "rand 0.8.5",
  "serde",
  "serde_json",
- "sha2 0.10.6",
+ "sha2 0.10.7",
  "subtle",
  "thiserror",
  "x25519-dalek",
@@ -5790,7 +5790,7 @@ dependencies = [
  "rand_chacha 0.3.1",
  "rlp",
  "serde",
- "sha2 0.10.6",
+ "sha2 0.10.7",
  "sha3 0.10.8",
  "thiserror",
  "tokio",
@@ -5808,6 +5808,7 @@ dependencies = [
  "rand 0.8.5",
  "rand_chacha 0.3.1",
  "serde",
+ "sha2 0.10.7",
  "sha3 0.10.8",
  "thiserror",
  "tokio",
