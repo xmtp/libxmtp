@@ -564,7 +564,7 @@ mod tests {
         .unwrap();
 
         store
-            .lock_refresh_job(RefreshJobKind::Invite, |conn, job| {
+            .lock_refresh_job(RefreshJobKind::Invite, |_, job| {
                 assert_eq!(job.id, RefreshJobKind::Invite.to_string());
                 assert_eq!(job.last_run, 0);
 
@@ -573,14 +573,14 @@ mod tests {
             .unwrap();
 
         store
-            .lock_refresh_job(RefreshJobKind::Invite, |conn, job| {
+            .lock_refresh_job(RefreshJobKind::Invite, |_, job| {
                 assert!(job.last_run > 0);
 
                 Ok(())
             })
             .unwrap();
 
-        let res_expected_err = store.lock_refresh_job(RefreshJobKind::Message, |conn, job| {
+        let res_expected_err = store.lock_refresh_job(RefreshJobKind::Message, |_, job| {
             assert_eq!(job.id, RefreshJobKind::Message.to_string());
 
             Err(StorageError::Unknown)
@@ -588,7 +588,7 @@ mod tests {
         assert!(res_expected_err.is_err());
 
         store
-            .lock_refresh_job(RefreshJobKind::Message, |conn, job| {
+            .lock_refresh_job(RefreshJobKind::Message, |_, job| {
                 // Ensure that last run time does not change if the job fails
                 assert_eq!(job.last_run, 0);
 
