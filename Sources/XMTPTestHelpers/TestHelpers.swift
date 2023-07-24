@@ -87,6 +87,7 @@ public class FakeApiClient: ApiClient {
 
 	public var environment: XMTPEnvironment
 	public var authToken: String = ""
+    public var appVersion: String
 	private var responses: [String: [XMTP.Envelope]] = [:]
 	private var stream = FakeStreamHolder()
 	public var published: [XMTP.Envelope] = []
@@ -119,6 +120,7 @@ public class FakeApiClient: ApiClient {
 
 	public init() {
 		environment = .local
+        appVersion = "test/0.0.0"
 	}
 
 	public func send(envelope: XMTP.Envelope) {
@@ -135,8 +137,9 @@ public class FakeApiClient: ApiClient {
 
 	// MARK: ApiClient conformance
 
-	public required init(environment: XMTP.XMTPEnvironment, secure _: Bool, rustClient _: XMTPRust.RustClient) throws {
+	public required init(environment: XMTP.XMTPEnvironment, secure _: Bool, rustClient _: XMTPRust.RustClient, appVersion: String?) throws {
 		self.environment = environment
+        self.appVersion = appVersion ?? "0.0.0"
 	}
 
 	public func subscribe(topics: [String]) -> AsyncThrowingStream<XMTP.Envelope, Error> {

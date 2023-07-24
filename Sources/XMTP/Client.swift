@@ -20,12 +20,16 @@ public struct ClientOptions {
 		/// Specify which XMTP network to connect to. Defaults to ``.dev``
 		public var env: XMTPEnvironment = .dev
 
-		/// Specify whether the API client should use TLS security. In general this should only be false when using the `.local` environment.
+		/// Optional: Specify self-reported version e.g. XMTPInbox/v1.0.0.
 		public var isSecure: Bool = true
+        
+        /// Specify whether the API client should use TLS security. In general this should only be false when using the `.local` environment.
+        public var appVersion: String? = nil
 
-		public init(env: XMTPEnvironment = .dev, isSecure: Bool = true) {
+        public init(env: XMTPEnvironment = .dev, isSecure: Bool = true, appVersion: String? = nil) {
 			self.env = env
 			self.isSecure = isSecure
+            self.appVersion = appVersion
 		}
 	}
 
