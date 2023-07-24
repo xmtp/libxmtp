@@ -232,7 +232,7 @@ impl Save<EncryptedMessageStore> for RefreshJob {
         let conn = &mut into.conn()?;
 
         diesel::update(refresh_jobs::table)
-            .set((refresh_jobs::last_run.eq(&self.last_run)))
+            .set(refresh_jobs::last_run.eq(&self.last_run))
             .execute(conn)?;
 
         Ok(())

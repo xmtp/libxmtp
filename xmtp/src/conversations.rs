@@ -1,9 +1,12 @@
-use diesel::Connection;
+use futures::TryFutureExt;
+use xmtp_proto::xmtp::message_api::v1::QueryRequest;
 
 use crate::{
     conversation::{ConversationError, SecretConversation},
-    storage::{RefreshJob, RefreshJobKind},
+    invitation::Invitation,
+    storage::{RefreshJob, RefreshJobKind, StorageError},
     types::networking::XmtpApiClient,
+    utils::build_user_invite_topic,
     Client,
 };
 
@@ -32,28 +35,52 @@ where
         SecretConversation::new(self.client, wallet_address, contacts)
     }
 
-    /**
-    *  Get the `refresh_jobs` record with an id of `invites`, and obtain a lock on the row:
-       Store `now()` in memory to mark the job execution start
-       Fetch all messages from invite topic with timestamp > refresh_job.last_run - PADDING_TIME # PADDING TIME accounts for eventual consistency of network. Maybe 30s.
-       For each message in topic:
-           Save (or ignore if already exists) raw message to inbound_invite table with status of PENDING
-       Update `refresh_jobs` record last_run = current_timestamp
-    */
-    pub fn download_invites(&self) -> Result<(), ConversationError> {
+    pub fn download_invites(&self) -> Result<Vec<Invitation>, ConversationError> {
+        let mut invites = Vec::new();
+
         self.client
             .store
-            .lock_refresh_job(RefreshJobKind::Invite, |conn, job| {
-                let res = futures::executor::block_on(async {
-                    println!("Hello world");
-                    return "foo";
-                });
-                println!("res: {:?}", res);
+            .lock_refresh_job(RefreshJobKind::Invite, |_, job| {
+                let downloaded = futures::executor::block_on(
+                    self.do_download(self.get_start_time(job).unsigned_abs()),
+                )
+                .map_err(|_| StorageError::Unknown)?;
+                for invite in downloaded {
+                    invites.push(invite)
+                }
+
                 Ok(())
             })
             .unwrap();
 
-        Ok(())
+        Ok(invites)
+    }
+
+    async fn do_download(&self, start_time: u64) -> Result<Vec<Invitation>, ConversationError> {
+        let my_contact = self.client.account.contact();
+        let response = self
+            .client
+            .api_client
+            .query(QueryRequest {
+                content_topics: vec![build_user_invite_topic(my_contact.installation_id())],
+                start_time_ns: start_time,
+                end_time_ns: 0,
+                // TODO: Pagination
+                paging_info: None,
+            })
+            .map_err(|_| ConversationError::Unknown)
+            .await?;
+
+        let mut invites = vec![];
+        for envelope in response.envelopes {
+            let invite = envelope.message.try_into();
+            match invite {
+                Ok(invite) => invites.push(invite),
+                _ => continue,
+            }
+        }
+
+        Ok(invites)
     }
 
     fn get_start_time(&self, job: RefreshJob) -> i64 {

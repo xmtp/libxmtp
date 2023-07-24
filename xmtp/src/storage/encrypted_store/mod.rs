@@ -26,7 +26,6 @@ use diesel::{
     connection::SimpleConnection,
     prelude::*,
     r2d2::{ConnectionManager, Pool, PooledConnection},
-    result::Error,
 };
 
 use xmtp_cryptography::utils as crypto_utils;
