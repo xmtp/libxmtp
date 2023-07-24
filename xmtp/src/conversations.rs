@@ -31,7 +31,7 @@ where
         SecretConversation::new(self.client, wallet_address, contacts)
     }
 
-    pub fn download_invites(&self) -> Result<Vec<Invitation>, ConversationError> {
+    pub fn save_invites(&self) -> Result<Vec<Invitation>, ConversationError> {
         let mut invites = Vec::new();
 
         self.client
@@ -81,11 +81,11 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn download_invites() {
+    async fn save_invites() {
         let mut alice_client = ClientBuilder::new_test().build().unwrap();
         alice_client.init().await.unwrap();
 
-        let invites = Conversations::new(&alice_client).download_invites();
+        let invites = Conversations::new(&alice_client).save_invites();
         assert!(invites.is_ok());
     }
 }
