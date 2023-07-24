@@ -49,6 +49,13 @@ diesel::table! {
 }
 
 diesel::table! {
+    refresh_jobs (id) {
+        id -> Text,
+        last_run -> BigInt,
+    }
+}
+
+diesel::table! {
     sessions (session_id) {
         session_id -> Text,
         created_at -> BigInt,
@@ -75,6 +82,7 @@ diesel::allow_tables_to_appear_in_same_query!(
     installations,
     messages,
     outbound_payloads,
+    refresh_jobs,
     sessions,
     users,
 );

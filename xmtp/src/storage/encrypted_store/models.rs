@@ -6,6 +6,7 @@ use crate::{
     Save,
 };
 use diesel::prelude::*;
+use std::fmt;
 use std::time::{SystemTime, UNIX_EPOCH};
 use xmtp_cryptography::hash::sha256_bytes;
 
@@ -202,5 +203,38 @@ impl StoredInstallation {
             contact_hash: contact_hash,
             expires_at_ns: None,
         })
+    }
+}
+
+pub enum RefreshJobKind {
+    Invite,
+    Message,
+}
+
+impl fmt::Display for RefreshJobKind {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            RefreshJobKind::Invite => write!(f, "invite"),
+            RefreshJobKind::Message => write!(f, "message"),
+        }
+    }
+}
+
+#[derive(Insertable, Identifiable, Queryable, Clone, PartialEq, Debug)]
+#[diesel(table_name = refresh_jobs)]
+pub struct RefreshJob {
+    pub id: String,
+    pub last_run: i64,
+}
+
+impl Save<EncryptedMessageStore> for RefreshJob {
+    fn save(&self, into: &EncryptedMessageStore) -> Result<(), StorageError> {
+        let conn = &mut into.conn()?;
+
+        diesel::update(refresh_jobs::table)
+            .set((refresh_jobs::last_run.eq(&self.last_run)))
+            .execute(conn)?;
+
+        Ok(())
     }
 }
