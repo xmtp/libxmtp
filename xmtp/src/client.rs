@@ -7,6 +7,7 @@ use vodozemac::olm::OlmMessage;
 use crate::{
     account::Account,
     contact::{Contact, ContactError},
+    invitation::Invitation,
     session::SessionManager,
     storage::{EncryptedMessageStore, StorageError, StoredInstallation},
     types::networking::{PublishRequest, QueryRequest, XmtpApiClient},
@@ -218,6 +219,34 @@ where
         );
 
         Ok(envelope)
+    }
+
+    pub async fn download_invites(&self, start_time: u64) -> Result<Vec<Invitation>, ClientError> {
+        let my_contact = self.account.contact();
+        let response = self
+            .api_client
+            .query(QueryRequest {
+                content_topics: vec![crate::utils::build_user_invite_topic(
+                    my_contact.installation_id(),
+                )],
+                start_time_ns: start_time,
+                end_time_ns: 0,
+                // TODO: Pagination
+                paging_info: None,
+            })
+            .await
+            .map_err(|e| ClientError::QueryError(format!("Could not query for invites: {}", e)))?;
+
+        let mut invites = vec![];
+        for envelope in response.envelopes {
+            let invite = envelope.message.try_into();
+            match invite {
+                Ok(invite) => invites.push(invite),
+                _ => continue,
+            }
+        }
+
+        Ok(invites)
     }
 }
 

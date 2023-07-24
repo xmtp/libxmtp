@@ -1,12 +1,8 @@
-use futures::TryFutureExt;
-use xmtp_proto::xmtp::message_api::v1::QueryRequest;
-
 use crate::{
     conversation::{ConversationError, SecretConversation},
     invitation::Invitation,
     storage::{RefreshJob, RefreshJobKind, StorageError},
     types::networking::XmtpApiClient,
-    utils::build_user_invite_topic,
     Client,
 };
 
@@ -42,7 +38,8 @@ where
             .store
             .lock_refresh_job(RefreshJobKind::Invite, |_, job| {
                 let downloaded = futures::executor::block_on(
-                    self.do_download(self.get_start_time(job).unsigned_abs()),
+                    self.client
+                        .download_invites(self.get_start_time(job).unsigned_abs()),
                 )
                 .map_err(|_| StorageError::Unknown)?;
                 for invite in downloaded {
@@ -52,33 +49,6 @@ where
                 Ok(())
             })
             .unwrap();
-
-        Ok(invites)
-    }
-
-    async fn do_download(&self, start_time: u64) -> Result<Vec<Invitation>, ConversationError> {
-        let my_contact = self.client.account.contact();
-        let response = self
-            .client
-            .api_client
-            .query(QueryRequest {
-                content_topics: vec![build_user_invite_topic(my_contact.installation_id())],
-                start_time_ns: start_time,
-                end_time_ns: 0,
-                // TODO: Pagination
-                paging_info: None,
-            })
-            .map_err(|_| ConversationError::Unknown)
-            .await?;
-
-        let mut invites = vec![];
-        for envelope in response.envelopes {
-            let invite = envelope.message.try_into();
-            match invite {
-                Ok(invite) => invites.push(invite),
-                _ => continue,
-            }
-        }
 
         Ok(invites)
     }
