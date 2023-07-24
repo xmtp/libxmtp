@@ -1,4 +1,5 @@
 use crate::{
+    app_context::AppContext,
     conversation::{ConversationError, SecretConversation},
     types::networking::XmtpApiClient,
     Client,
@@ -8,23 +9,22 @@ pub struct Conversations<'c, A>
 where
     A: XmtpApiClient,
 {
-    client: &'c Client<A>,
+    app_context: &'c AppContext<A>,
 }
 
 impl<'c, A> Conversations<'c, A>
 where
     A: XmtpApiClient,
 {
-    pub fn new(client: &'c Client<A>) -> Self {
-        Self { client }
+    pub fn new(app_context: &'c AppContext<A>) -> Self {
+        Self { app_context }
     }
 
     pub async fn new_secret_conversation(
         &self,
         wallet_address: String,
     ) -> Result<SecretConversation<A>, ConversationError> {
-        let contacts = self.client.get_contacts(wallet_address.as_str()).await?;
-        SecretConversation::new(self.client, wallet_address, contacts)
+        SecretConversation::new(self.app_context, wallet_address).await
     }
 }
 
@@ -39,7 +39,7 @@ mod tests {
         let mut bob_client = ClientBuilder::new_test().build().unwrap();
         bob_client.init().await.unwrap();
 
-        let conversations = Conversations::new(&alice_client);
+        let conversations = Conversations::new(&alice_client.app_context);
         let conversation = conversations
             .new_secret_conversation(bob_client.wallet_address().to_string())
             .await

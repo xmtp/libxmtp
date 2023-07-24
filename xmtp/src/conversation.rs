@@ -1,7 +1,10 @@
 use crate::{
+    api_utils::get_contacts,
+    app_context::AppContext,
     client::ClientError,
     contact::Contact,
     invitation::{Invitation, InvitationError},
+    session::SessionManager,
     storage::{
         now, ConversationState, MessageState, NewStoredMessage, StorageError, StoredConversation,
         StoredUser,
@@ -9,13 +12,14 @@ use crate::{
     types::networking::PublishRequest,
     types::networking::XmtpApiClient,
     types::Address,
-    utils::{build_envelope, build_user_invite_topic},
-    Client, Store,
+    utils::{build_envelope, build_user_contact_topic, build_user_invite_topic},
+    Store,
 };
 
 use prost::DecodeError;
 // use async_trait::async_trait;
 use thiserror::Error;
+use xmtp_proto::xmtp::message_api::v1::QueryRequest;
 
 #[derive(Debug, Error)]
 pub enum ConversationError {
@@ -45,34 +49,30 @@ where
 {
     peer_address: Address,
     members: Vec<Contact>,
-    client: &'c Client<A>,
+    app_context: &'c AppContext<A>,
 }
 
 impl<'c, A> SecretConversation<'c, A>
 where
     A: XmtpApiClient,
 {
-    pub(crate) fn new(
-        client: &'c Client<A>,
+    pub(crate) async fn new(
+        app_context: &'c AppContext<A>,
         peer_address: Address,
+    ) -> Result<SecretConversation<'c, A>, ConversationError> {
         // TODO: Add user's own contacts as well
-        members: Vec<Contact>,
-    ) -> Result<Self, ConversationError> {
+        let members = get_contacts(app_context, peer_address.as_str()).await?;
         let obj = SecretConversation {
-            client,
+            app_context,
             peer_address: peer_address.clone(),
             members,
         };
-        obj.client
-            .app_context
-            .store
-            .insert_or_ignore_user(StoredUser {
-                user_address: obj.peer_address(),
-                created_at: now(),
-                last_refreshed: 0,
-            })?;
-        obj.client
-            .app_context
+        obj.app_context.store.insert_or_ignore_user(StoredUser {
+            user_address: obj.peer_address(),
+            created_at: now(),
+            last_refreshed: 0,
+        })?;
+        obj.app_context
             .store
             .insert_or_ignore_conversation(StoredConversation {
                 peer_address: obj.peer_address(),
@@ -84,7 +84,7 @@ where
     }
 
     pub fn convo_id(&self) -> String {
-        convo_id(self.client.app_context.account.addr(), self.peer_address())
+        convo_id(self.app_context.account.addr(), self.peer_address())
     }
 
     pub fn peer_address(&self) -> Address {
@@ -94,11 +94,11 @@ where
     pub fn send_message(&self, text: &str) -> Result<(), ConversationError> {
         NewStoredMessage::new(
             self.convo_id(),
-            self.client.app_context.account.addr(),
+            self.app_context.account.addr(),
             text.as_bytes().to_vec(),
             MessageState::Unprocessed as i32,
         )
-        .store(&self.client.app_context.store)?;
+        .store(&self.app_context.store)?;
         Ok(())
     }
 
@@ -108,9 +108,9 @@ where
             let id = contact.installation_id();
 
             // TODO: Persist session to database
-            let session = self.client.create_outbound_session(contact)?;
+            let session = self.create_outbound_session(contact)?;
             let invitation = Invitation::build(
-                self.client.app_context.account.contact(),
+                self.app_context.account.contact(),
                 session,
                 &inner_invite_bytes,
             )?;
@@ -118,8 +118,7 @@ where
             let envelope = build_envelope(build_user_invite_topic(id), invitation.try_into()?);
 
             // TODO: Replace with real token
-            self.client
-                .app_context
+            self.app_context
                 .api_client
                 // TODO: API authentication
                 .publish(
@@ -134,14 +133,35 @@ where
 
         Ok(())
     }
+
+    pub fn get_session(&self, contact: &Contact) -> Result<SessionManager, ClientError> {
+        let existing_session = self
+            .app_context
+            .store
+            .get_session(&contact.installation_id())?;
+        match existing_session {
+            Some(i) => Ok(SessionManager::try_from(&i)?),
+            None => self.create_outbound_session(contact),
+        }
+    }
+
+    pub fn create_outbound_session(
+        &self,
+        contact: &Contact,
+    ) -> Result<SessionManager, ClientError> {
+        let olm_session = self.app_context.account.create_outbound_session(contact);
+        let session = SessionManager::from_olm_session(olm_session, contact)
+            .map_err(|_| ClientError::Unknown)?;
+
+        session.store(&self.app_context.store)?;
+
+        Ok(session)
+    }
 }
 
 #[cfg(test)]
 mod tests {
-    use crate::{
-        conversations::Conversations,
-        test_utils::test_utils::{gen_test_client, gen_test_conversation},
-    };
+    use crate::test_utils::test_utils::{gen_test_client, gen_test_conversation};
 
     #[tokio::test]
     async fn test_local_conversation_creation() {
@@ -155,8 +175,7 @@ mod tests {
             .unwrap()
             .is_none());
 
-        let conversations = Conversations::new(&client);
-        let conversation = gen_test_conversation(&conversations, peer_address).await;
+        let conversation = gen_test_conversation(&client, peer_address).await;
         assert!(conversation.peer_address() == peer_address);
         assert!(client
             .app_context
@@ -169,8 +188,7 @@ mod tests {
     #[tokio::test]
     async fn test_send_message() {
         let client = gen_test_client().await;
-        let conversations = Conversations::new(&client);
-        let conversation = gen_test_conversation(&conversations, "0x000").await;
+        let conversation = gen_test_conversation(&client, "0x000").await;
         conversation.send_message("Hello, world!").unwrap();
 
         let message = &client.app_context.store.get_unprocessed_messages().unwrap()[0];

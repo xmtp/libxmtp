@@ -5,11 +5,13 @@ use thiserror::Error;
 use vodozemac::olm::OlmMessage;
 
 use crate::{
-    account::Account,
+    api_utils::get_contacts,
+    app_context::AppContext,
     contact::{Contact, ContactError},
+    conversations::Conversations,
     session::SessionManager,
-    storage::{EncryptedMessageStore, StorageError, StoredInstallation},
-    types::networking::{PublishRequest, QueryRequest, XmtpApiClient},
+    storage::{StorageError, StoredInstallation},
+    types::networking::{PublishRequest, XmtpApiClient},
     types::Address,
     utils::{build_envelope, build_user_contact_topic},
     Store,
@@ -38,22 +40,17 @@ pub enum ClientError {
     Unknown,
 }
 
-pub struct AppContext<A> {
-    pub(crate) api_client: A,
-    pub(crate) network: Network,
-    pub(crate) account: Account,
-    pub store: EncryptedMessageStore, // Temporarily exposed outside crate for CLI client
-}
-
-pub struct Client<A>
+pub struct Client<'c, A>
 where
     A: XmtpApiClient,
 {
     pub app_context: AppContext<A>, // Temporarily exposed outside crate for CLI client
+    conversations: Option<Conversations<'c, A>>,
+    // conversations: Conversations<'c, A>,
     is_initialized: bool,
 }
 
-impl<A> core::fmt::Debug for Client<A>
+impl<'c, A> core::fmt::Debug for Client<'c, A>
 where
     A: XmtpApiClient,
 {
@@ -67,24 +64,52 @@ where
     }
 }
 
-impl<A> Client<A>
+impl<'c, A> Client<'c, A>
 where
     A: XmtpApiClient,
 {
     pub fn new(app_context: AppContext<A>) -> Self {
-        Self {
+        // let conversations = Conversations::new(&app_context);
+
+        // Self {
+        //     app_context,
+        //     conversations,
+        //     is_initialized: false,
+        // }
+        let mut client = Self {
             app_context,
+            conversations: None,
             is_initialized: false,
-        }
+        };
+        client
+    }
+
+    pub(crate) fn init_conversations(&mut self) {
+        self.conversations = Some(Conversations::new(&self.app_context));
     }
 
     pub fn wallet_address(&self) -> Address {
         self.app_context.account.addr()
     }
 
+    pub fn conversations(&self) -> &Conversations<A> {
+        self.conversations.as_ref().unwrap()
+        // &self.conversations
+        // if self.conversations.is_none() {
+        //     self.conversations = Some(Conversations::new(&self.app_context));
+        // }
+        // match &self.conversations {
+        //     Some(conversations) => &self.conversations.as_ref().unwrap(),
+        //     None => {
+        //         self.conversations = Some(Conversations::new(&self.app_context));
+        //         &self.conversations.unwrap()
+        //     }
+        // }
+    }
+
     pub async fn init(&mut self) -> Result<(), ClientError> {
         let app_contact_bundle = self.app_context.account.contact();
-        let registered_bundles = self.get_contacts(&self.wallet_address()).await?;
+        let registered_bundles = get_contacts(&self.app_context, &self.wallet_address()).await?;
 
         if !registered_bundles
             .iter()
@@ -97,51 +122,9 @@ where
         Ok(())
     }
 
-    pub async fn get_contacts(&self, wallet_address: &str) -> Result<Vec<Contact>, ClientError> {
-        let topic = build_user_contact_topic(wallet_address.to_string());
-        let response = self
-            .app_context
-            .api_client
-            .query(QueryRequest {
-                content_topics: vec![topic],
-                start_time_ns: 0,
-                end_time_ns: 0,
-                paging_info: None,
-            })
-            .await
-            .map_err(|e| ClientError::QueryError(format!("Could not query for contacts: {}", e)))?;
-
-        let mut contacts = vec![];
-        for envelope in response.envelopes {
-            let contact_bundle = Contact::from_bytes(envelope.message, wallet_address.to_string());
-            match contact_bundle {
-                Ok(bundle) => {
-                    contacts.push(bundle);
-                }
-                Err(err) => {
-                    println!("bad contact bundle: {:?}", err);
-                }
-            }
-        }
-
-        Ok(contacts)
-    }
-
-    pub fn get_session(&self, contact: &Contact) -> Result<SessionManager, ClientError> {
-        let existing_session = self
-            .app_context
-            .store
-            .get_session(&contact.installation_id())?;
-        match existing_session {
-            Some(i) => Ok(SessionManager::try_from(&i)?),
-            None => self.create_outbound_session(contact),
-        }
-    }
-
     pub async fn my_other_devices(&self) -> Result<Vec<Contact>, ClientError> {
-        let contacts = self
-            .get_contacts(self.app_context.account.addr().as_str())
-            .await?;
+        let contacts =
+            get_contacts(&self.app_context, self.app_context.account.addr().as_str()).await?;
         let my_contact_id = self.app_context.account.contact().installation_id();
         Ok(contacts
             .into_iter()
@@ -150,7 +133,7 @@ where
     }
 
     pub async fn refresh_user_installations(&self, user_address: &str) -> Result<(), ClientError> {
-        let contacts = self.get_contacts(user_address).await?;
+        let contacts = get_contacts(&self.app_context, user_address).await?;
 
         let stored_contacts: Vec<StoredInstallation> =
             self.app_context.store.get_contacts(user_address)?.into();
@@ -160,19 +143,6 @@ where
         }
 
         Ok(())
-    }
-
-    pub fn create_outbound_session(
-        &self,
-        contact: &Contact,
-    ) -> Result<SessionManager, ClientError> {
-        let olm_session = self.app_context.account.create_outbound_session(contact);
-        let session = SessionManager::from_olm_session(olm_session, contact)
-            .map_err(|_| ClientError::Unknown)?;
-
-        session.store(&self.app_context.store)?;
-
-        Ok(session)
     }
 
     pub fn create_inbound_session(
@@ -236,6 +206,7 @@ mod tests {
     use xmtp_proto::xmtp::v3::message_contents::vmac_unsigned_public_key::Union::Curve25519;
     use xmtp_proto::xmtp::v3::message_contents::vmac_unsigned_public_key::VodozemacCurve25519;
 
+    use crate::api_utils::get_contacts;
     use crate::test_utils::test_utils::gen_test_client;
     use crate::ClientBuilder;
 
@@ -261,8 +232,7 @@ mod tests {
             .await
             .expect("Failed to publish user contact");
 
-        let contacts = client
-            .get_contacts(client.wallet_address().as_str())
+        let contacts = get_contacts(&client.app_context, client.wallet_address().as_str())
             .await
             .unwrap();
 

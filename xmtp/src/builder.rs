@@ -1,7 +1,9 @@
 use crate::{
     account::{Account, AccountError},
+    app_context::AppContext,
     association::{Association, AssociationError, AssociationText},
-    client::{AppContext, Client, Network},
+    client::{Client, Network},
+    conversations::Conversations,
     storage::{now, EncryptedMessageStore, StoredUser},
     types::networking::XmtpApiClient,
     types::Address,
@@ -154,7 +156,7 @@ where
 
         Account::generate(sign).map_err(ClientBuilderError::AccountInitialization)
     }
-    pub fn build(mut self) -> Result<Client<A>, ClientBuilderError> {
+    pub fn build<'c>(mut self) -> Result<Client<'c, A>, ClientBuilderError> {
         let api_client = self.api_client.take().unwrap_or_default();
         let mut store = self.store.take().unwrap_or_default();
         // Fetch the Account based upon the account strategy.
