@@ -47,8 +47,7 @@ where
                 }
 
                 Ok(())
-            })
-            .unwrap();
+            })?;
 
         Ok(invites)
     }
