@@ -15,7 +15,7 @@ extern crate xmtp;
 
 use clap::{Parser, Subcommand};
 use ethers_core::types::H160;
-use log::{error, info};
+use log::{debug, error, info};
 use std::fs;
 use std::path::PathBuf;
 use thiserror::Error;

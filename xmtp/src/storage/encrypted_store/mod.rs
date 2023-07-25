@@ -653,7 +653,7 @@ mod tests {
         let res_expected_err = store.lock_refresh_job(RefreshJobKind::Message, |_, job| {
             assert_eq!(job.id, RefreshJobKind::Message.to_string());
 
-            Err(StorageError::Unknown)
+            Err(StorageError::Unknown(String::from("RefreshJob failed")))
         });
         assert!(res_expected_err.is_err());
 
