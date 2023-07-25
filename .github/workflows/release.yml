@@ -69,7 +69,6 @@ jobs:
       - name: download package
         env:
           HEAD_SHA: ${{ github.sha }}
-          GITHUB_OWNER: ${{ github.repository_owner }}
           GITHUB_REPO: ${{ github.repository }}
           GH_TOKEN: ${{ github.token }}
         working-directory: bindings_ffi
