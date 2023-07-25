@@ -19,7 +19,7 @@ use rand::RngCore;
 
 use self::{
     models::*,
-    schema::{accounts, conversations, messages, refresh_jobs, users},
+    schema::{accounts, conversations, inbound_invites, messages, refresh_jobs, users},
 };
 use crate::{account::Account, Errorer, Fetch, Store};
 use diesel::{
@@ -276,6 +276,18 @@ impl EncryptedMessageStore {
 
         Ok(())
     }
+
+    pub fn save_inbound_invite(
+        &self,
+        conn: &mut PooledConnection<ConnectionManager<SqliteConnection>>,
+        invite: InboundInvite,
+    ) -> Result<(), StorageError> {
+        diesel::insert_into(inbound_invites::table)
+            .values(invite)
+            .execute(conn)?;
+
+        Ok(())
+    }
 }
 
 impl Store<EncryptedMessageStore> for NewStoredMessage {
@@ -318,6 +330,17 @@ impl Fetch<StoredSession> for EncryptedMessageStore {
 
         sessions
             .load::<StoredSession>(conn)
+            .map_err(StorageError::DieselResultError)
+    }
+}
+
+impl Fetch<InboundInvite> for EncryptedMessageStore {
+    fn fetch(&self) -> Result<Vec<InboundInvite>, StorageError> {
+        let conn = &mut self.conn()?;
+        use self::schema::inbound_invites::dsl::*;
+
+        inbound_invites
+            .load::<InboundInvite>(conn)
             .map_err(StorageError::DieselResultError)
     }
 }
@@ -379,6 +402,7 @@ mod tests {
 
     use super::{models::*, EncryptedMessageStore, StorageError, StorageOption};
     use crate::{Fetch, Store};
+    use diesel::Connection;
     use rand::{
         distributions::{Alphanumeric, DistString},
         Rng,
@@ -594,5 +618,43 @@ mod tests {
                 Ok(())
             })
             .unwrap();
+    }
+
+    #[test]
+    fn save_inbound_invite() {
+        let store = EncryptedMessageStore::new(
+            StorageOption::Ephemeral,
+            EncryptedMessageStore::generate_enc_key(),
+        )
+        .unwrap();
+
+        let inbound_invite = InboundInvite {
+            sent_at_ns: 20,
+            id: "id".into(),
+            payload: vec![1, 2, 3],
+            topic: "topic".into(),
+            status: InboundInviteStatus::Pending as i16,
+        };
+
+        let result =
+            store
+                .conn()
+                .unwrap()
+                .transaction(|transaction_manager| -> Result<(), StorageError> {
+                    return store.save_inbound_invite(transaction_manager, inbound_invite.clone());
+                });
+
+        assert!(result.is_ok());
+        let db_results: Vec<InboundInvite> = store.fetch().unwrap();
+        assert_eq!(1, db_results.len());
+
+        let inbound_invite_ptr = &inbound_invite;
+
+        let first_result = db_results.first().unwrap();
+        assert_eq!(first_result.sent_at_ns, inbound_invite_ptr.sent_at_ns);
+        assert_eq!(first_result.id, inbound_invite_ptr.id);
+        assert_eq!(first_result.payload, inbound_invite_ptr.payload);
+        assert_eq!(first_result.topic, inbound_invite_ptr.topic);
+        assert_eq!(first_result.status, inbound_invite_ptr.status);
     }
 }
