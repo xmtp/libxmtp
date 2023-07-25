@@ -18,12 +18,14 @@ impl XmtpApiSubscription for MockXmtpApiSubscription {
 
 pub struct MockXmtpApiClient {
     messages: std::sync::Mutex<HashMap<String, Vec<Envelope>>>,
+    app_version: String,   
 }
 
 impl MockXmtpApiClient {
     pub fn new() -> Self {
         Self {
             messages: std::sync::Mutex::new(HashMap::new()),
+            app_version: String::from("0.0.0"),
         }
     }
 }
@@ -37,6 +39,10 @@ impl Default for MockXmtpApiClient {
 #[async_trait]
 impl XmtpApiClient for MockXmtpApiClient {
     type Subscription = MockXmtpApiSubscription;
+
+    fn set_app_version(&mut self, version: String) {
+        self.app_version = version;
+    }
 
     async fn publish(
         &self,

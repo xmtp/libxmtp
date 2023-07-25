@@ -6,8 +6,10 @@ use crate::{
     Save,
 };
 use diesel::prelude::*;
+use std::fmt;
 use std::time::{SystemTime, UNIX_EPOCH};
 use xmtp_cryptography::hash::sha256_bytes;
+use xmtp_proto::xmtp::message_api::v1::Envelope;
 
 #[derive(Insertable, Identifiable, Queryable, PartialEq, Debug)]
 #[diesel(table_name = users)]
@@ -34,14 +36,14 @@ pub struct StoredConversation {
 }
 
 pub enum MessageState {
-    Uninitialized = 0,
+    Unprocessed = 0,
     LocallyCommitted = 10,
     Received = 20,
 }
 
 /// Placeholder type for messages returned from the Store.
 #[derive(Queryable, Debug)]
-pub struct DecryptedMessage {
+pub struct StoredMessage {
     pub id: i32,
     pub created_at: i64,
     pub convo_id: String,
@@ -55,7 +57,7 @@ pub struct DecryptedMessage {
 /// store when it is inserted.
 #[derive(Insertable, Clone, PartialEq, Debug)]
 #[diesel(table_name = messages)]
-pub struct NewDecryptedMessage {
+pub struct NewStoredMessage {
     pub created_at: i64,
     pub convo_id: String,
     pub addr_from: String,
@@ -63,7 +65,7 @@ pub struct NewDecryptedMessage {
     pub state: i32,
 }
 
-impl NewDecryptedMessage {
+impl NewStoredMessage {
     pub fn new(convo_id: String, addr_from: String, content: Vec<u8>, state: i32) -> Self {
         Self {
             created_at: now(),
@@ -75,8 +77,8 @@ impl NewDecryptedMessage {
     }
 }
 
-impl PartialEq<DecryptedMessage> for NewDecryptedMessage {
-    fn eq(&self, other: &DecryptedMessage) -> bool {
+impl PartialEq<StoredMessage> for NewStoredMessage {
+    fn eq(&self, other: &StoredMessage) -> bool {
         self.created_at == other.created_at
             && self.convo_id == other.convo_id
             && self.addr_from == other.addr_from
@@ -206,5 +208,73 @@ impl StoredInstallation {
 
     pub fn get_contact(&self) -> Result<Contact, ContactError> {
         Contact::from_bytes(self.contact.clone(), self.user_address.clone())
+    }
+}
+
+pub enum RefreshJobKind {
+    Invite,
+    Message,
+}
+
+impl fmt::Display for RefreshJobKind {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            RefreshJobKind::Invite => write!(f, "invite"),
+            RefreshJobKind::Message => write!(f, "message"),
+        }
+    }
+}
+
+#[derive(Insertable, Identifiable, Queryable, Clone, PartialEq, Debug)]
+#[diesel(table_name = refresh_jobs)]
+pub struct RefreshJob {
+    pub id: String,
+    pub last_run: i64,
+}
+
+impl Save<EncryptedMessageStore> for RefreshJob {
+    fn save(&self, into: &EncryptedMessageStore) -> Result<(), StorageError> {
+        let conn = &mut into.conn()?;
+
+        diesel::update(refresh_jobs::table)
+            .set(refresh_jobs::last_run.eq(&self.last_run))
+            .execute(conn)?;
+
+        Ok(())
+    }
+}
+
+pub enum InboundInviteStatus {
+    Pending = 0,
+    Processed = 1,
+    DecryptionFailure = 2,
+    Invalid = 3,
+}
+
+#[derive(Insertable, Identifiable, Queryable, Clone, PartialEq, Debug)]
+#[diesel(table_name = inbound_invites)]
+pub struct InboundInvite {
+    pub id: String,
+    pub sent_at_ns: i64,
+    pub payload: Vec<u8>,
+    pub topic: String,
+    pub status: i16,
+}
+
+impl From<Envelope> for InboundInvite {
+    fn from(envelope: Envelope) -> Self {
+        let payload = envelope.message;
+        let topic = envelope.content_topic;
+        let sent_at_ns: i64 = envelope.timestamp_ns.try_into().unwrap();
+        let id =
+            hex::encode(sha256_bytes(&[payload.as_slice(), topic.as_bytes()].concat()).as_slice());
+
+        Self {
+            id,
+            sent_at_ns,
+            payload,
+            topic,
+            status: InboundInviteStatus::Pending as i16,
+        }
     }
 }

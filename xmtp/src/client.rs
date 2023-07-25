@@ -269,6 +269,26 @@ where
 
         Ok(envelope)
     }
+
+    pub async fn download_latest_from_topic(
+        &self,
+        start_time: u64,
+        topic: String,
+    ) -> Result<Vec<Envelope>, ClientError> {
+        let response = self
+            .api_client
+            .query(QueryRequest {
+                content_topics: vec![topic],
+                start_time_ns: start_time,
+                end_time_ns: 0,
+                // TODO: Pagination
+                paging_info: None,
+            })
+            .await
+            .map_err(|e| ClientError::QueryError(format!("Could not query topic: {}", e)))?;
+
+        Ok(response.envelopes)
+    }
 }
 
 #[cfg(test)]
@@ -277,29 +297,12 @@ mod tests {
     use xmtp_proto::xmtp::v3::message_contents::vmac_unsigned_public_key::Union::Curve25519;
     use xmtp_proto::xmtp::v3::message_contents::vmac_unsigned_public_key::VodozemacCurve25519;
 
-    use crate::conversations::Conversations;
+    use crate::test_utils::test_utils::gen_test_client;
     use crate::ClientBuilder;
 
     #[tokio::test]
     async fn registration() {
-        let mut client = ClientBuilder::new_test().build().unwrap();
-        client.init().await.expect("BadReg");
-    }
-
-    #[tokio::test]
-    async fn test_local_conversation_creation() {
-        let mut client = ClientBuilder::new_test().build().unwrap();
-        client.init().await.expect("BadReg");
-        let peer_address = "0x000";
-        let convo_id = format!(":{}:{}", peer_address, client.wallet_address());
-        assert!(client.store.get_conversation(&convo_id).unwrap().is_none());
-        let conversations = Conversations::new(&client);
-        let conversation = conversations
-            .new_secret_conversation(peer_address.to_string())
-            .await
-            .unwrap();
-        assert!(conversation.peer_address() == peer_address);
-        assert!(client.store.get_conversation(&convo_id).unwrap().is_some());
+        gen_test_client().await;
     }
 
     #[tokio::test]

@@ -16,7 +16,9 @@ pub mod schema;
 
 use self::{
     models::*,
-    schema::{accounts, conversations, installations, messages, users},
+    schema::{
+        accounts, conversations, inbound_invites, installations, messages, refresh_jobs, users,
+    },
 };
 use super::StorageError;
 use crate::{account::Account, Errorer, Fetch, Store};
@@ -110,7 +112,7 @@ impl EncryptedMessageStore {
     }
 
     pub fn create_fake_msg(&self, content: &str, state: i32) {
-        NewDecryptedMessage::new("convo".into(), "addr".into(), content.into(), state)
+        NewStoredMessage::new("convo".into(), "addr".into(), content.into(), state)
             .store(self)
             .unwrap();
     }
@@ -260,6 +262,58 @@ impl EncryptedMessageStore {
         Ok(install_list)
     }
 
+    pub fn get_unprocessed_messages(&self) -> Result<Vec<StoredMessage>, StorageError> {
+        let conn = &mut self.conn()?;
+
+        let msg_list = messages::table
+            .filter(messages::state.eq(MessageState::Unprocessed as i32))
+            .load::<StoredMessage>(conn)?;
+
+        Ok(msg_list)
+    }
+
+    pub fn lock_refresh_job<F>(&self, kind: RefreshJobKind, cb: F) -> Result<(), StorageError>
+    where
+        F: FnOnce(
+            &mut PooledConnection<ConnectionManager<SqliteConnection>>,
+            RefreshJob,
+        ) -> Result<(), StorageError>,
+    {
+        let conn = &mut self.conn()?;
+        conn.transaction::<(), StorageError, _>(|connection| {
+            let start_time = now();
+            let job: RefreshJob = refresh_jobs::table
+                .find::<String>(kind.to_string())
+                .first::<RefreshJob>(connection)?;
+
+            let result = cb(connection, job);
+
+            if result.is_ok() {
+                diesel::update(refresh_jobs::table.find(kind.to_string()))
+                    .set(refresh_jobs::last_run.eq(start_time))
+                    .execute(connection)?;
+            } else {
+                return result;
+            }
+
+            Ok(())
+        })?;
+
+        Ok(())
+    }
+
+    pub fn save_inbound_invite(
+        &self,
+        conn: &mut PooledConnection<ConnectionManager<SqliteConnection>>,
+        invite: InboundInvite,
+    ) -> Result<(), StorageError> {
+        diesel::insert_into(inbound_invites::table)
+            .values(invite)
+            .execute(conn)?;
+
+        Ok(())
+    }
+
     pub fn insert_or_ignore_install(
         &self,
         install: StoredInstallation,
@@ -283,7 +337,7 @@ impl EncryptedMessageStore {
     }
 }
 
-impl Store<EncryptedMessageStore> for NewDecryptedMessage {
+impl Store<EncryptedMessageStore> for NewStoredMessage {
     fn store(&self, into: &EncryptedMessageStore) -> Result<(), StorageError> {
         let conn = &mut into.conn()?;
         diesel::insert_into(messages::table)
@@ -305,13 +359,13 @@ impl Store<EncryptedMessageStore> for StoredSession {
     }
 }
 
-impl Fetch<DecryptedMessage> for EncryptedMessageStore {
-    fn fetch(&self) -> Result<Vec<DecryptedMessage>, StorageError> {
+impl Fetch<StoredMessage> for EncryptedMessageStore {
+    fn fetch(&self) -> Result<Vec<StoredMessage>, StorageError> {
         let conn = &mut self.conn()?;
         use self::schema::messages::dsl::*;
 
         messages
-            .load::<DecryptedMessage>(conn)
+            .load::<StoredMessage>(conn)
             .map_err(StorageError::DieselResultError)
     }
 }
@@ -323,6 +377,17 @@ impl Fetch<StoredSession> for EncryptedMessageStore {
 
         sessions
             .load::<StoredSession>(conn)
+            .map_err(StorageError::DieselResultError)
+    }
+}
+
+impl Fetch<InboundInvite> for EncryptedMessageStore {
+    fn fetch(&self) -> Result<Vec<InboundInvite>, StorageError> {
+        let conn = &mut self.conn()?;
+        use self::schema::inbound_invites::dsl::*;
+
+        inbound_invites
+            .load::<InboundInvite>(conn)
             .map_err(StorageError::DieselResultError)
     }
 }
@@ -384,6 +449,7 @@ mod tests {
 
     use super::{models::*, EncryptedMessageStore, StorageError, StorageOption};
     use crate::{Fetch, Store};
+    use diesel::Connection;
     use rand::{
         distributions::{Alphanumeric, DistString},
         Rng,
@@ -407,43 +473,43 @@ mod tests {
         )
         .unwrap();
 
-        NewDecryptedMessage::new(
+        NewStoredMessage::new(
             "Bola".into(),
             "0x000A".into(),
             "Hello Bola".into(),
-            MessageState::Uninitialized as i32,
+            MessageState::Unprocessed as i32,
         )
         .store(&store)
         .unwrap();
 
-        NewDecryptedMessage::new(
+        NewStoredMessage::new(
             "Mark".into(),
             "0x000A".into(),
             "Sup Mark".into(),
-            MessageState::Uninitialized as i32,
+            MessageState::Unprocessed as i32,
         )
         .store(&store)
         .unwrap();
 
-        NewDecryptedMessage::new(
+        NewStoredMessage::new(
             "Bola".into(),
             "0x000B".into(),
             "Hey Amal".into(),
-            MessageState::Uninitialized as i32,
+            MessageState::Unprocessed as i32,
         )
         .store(&store)
         .unwrap();
 
-        NewDecryptedMessage::new(
+        NewStoredMessage::new(
             "Bola".into(),
             "0x000A".into(),
             "bye".into(),
-            MessageState::Uninitialized as i32,
+            MessageState::Unprocessed as i32,
         )
         .store(&store)
         .unwrap();
 
-        let v: Vec<DecryptedMessage> = store.fetch().unwrap();
+        let v: Vec<StoredMessage> = store.fetch().unwrap();
         assert_eq!(4, v.len());
     }
 
@@ -457,16 +523,16 @@ mod tests {
             )
             .unwrap();
 
-            NewDecryptedMessage::new(
+            NewStoredMessage::new(
                 "Bola".into(),
                 "0x000A".into(),
                 "Hello Bola".into(),
-                MessageState::Uninitialized as i32,
+                MessageState::Unprocessed as i32,
             )
             .store(&store)
             .unwrap();
 
-            let v: Vec<DecryptedMessage> = store.fetch().unwrap();
+            let v: Vec<StoredMessage> = store.fetch().unwrap();
             assert_eq!(1, v.len());
         }
 
@@ -481,24 +547,24 @@ mod tests {
         )
         .unwrap();
 
-        let msg0 = NewDecryptedMessage::new(
+        let msg0 = NewStoredMessage::new(
             rand_string(),
             rand_string(),
             rand_vec(),
-            MessageState::Uninitialized as i32,
+            MessageState::Unprocessed as i32,
         );
         sleep(Duration::from_millis(10));
-        let msg1 = NewDecryptedMessage::new(
+        let msg1 = NewStoredMessage::new(
             rand_string(),
             rand_string(),
             rand_vec(),
-            MessageState::Uninitialized as i32,
+            MessageState::Unprocessed as i32,
         );
 
         msg0.store(&store).unwrap();
         msg1.store(&store).unwrap();
 
-        let msgs: Vec<DecryptedMessage> = store.fetch().unwrap();
+        let msgs: Vec<StoredMessage> = store.fetch().unwrap();
 
         assert_eq!(2, msgs.len());
         assert_eq!(msg0, msgs[0]);
@@ -520,11 +586,11 @@ mod tests {
             )
             .unwrap();
 
-            let msg0 = NewDecryptedMessage::new(
+            let msg0 = NewStoredMessage::new(
                 rand_string(),
                 rand_string(),
                 rand_vec(),
-                MessageState::Uninitialized as i32,
+                MessageState::Unprocessed as i32,
             );
             msg0.store(&store).unwrap();
         } // Drop it
@@ -557,5 +623,85 @@ mod tests {
 
         let results: Vec<StoredSession> = store.fetch().unwrap();
         assert_eq!(1, results.len());
+    }
+
+    #[test]
+    fn lock_refresh_job() {
+        let store = EncryptedMessageStore::new(
+            StorageOption::Ephemeral,
+            EncryptedMessageStore::generate_enc_key(),
+        )
+        .unwrap();
+
+        store
+            .lock_refresh_job(RefreshJobKind::Invite, |_, job| {
+                assert_eq!(job.id, RefreshJobKind::Invite.to_string());
+                assert_eq!(job.last_run, 0);
+
+                Ok(())
+            })
+            .unwrap();
+
+        store
+            .lock_refresh_job(RefreshJobKind::Invite, |_, job| {
+                assert!(job.last_run > 0);
+
+                Ok(())
+            })
+            .unwrap();
+
+        let res_expected_err = store.lock_refresh_job(RefreshJobKind::Message, |_, job| {
+            assert_eq!(job.id, RefreshJobKind::Message.to_string());
+
+            Err(StorageError::Unknown)
+        });
+        assert!(res_expected_err.is_err());
+
+        store
+            .lock_refresh_job(RefreshJobKind::Message, |_, job| {
+                // Ensure that last run time does not change if the job fails
+                assert_eq!(job.last_run, 0);
+
+                Ok(())
+            })
+            .unwrap();
+    }
+
+    #[test]
+    fn save_inbound_invite() {
+        let store = EncryptedMessageStore::new(
+            StorageOption::Ephemeral,
+            EncryptedMessageStore::generate_enc_key(),
+        )
+        .unwrap();
+
+        let inbound_invite = InboundInvite {
+            sent_at_ns: 20,
+            id: "id".into(),
+            payload: vec![1, 2, 3],
+            topic: "topic".into(),
+            status: InboundInviteStatus::Pending as i16,
+        };
+
+        let result =
+            store
+                .conn()
+                .unwrap()
+                .transaction(|transaction_manager| -> Result<(), StorageError> {
+                    return store.save_inbound_invite(transaction_manager, inbound_invite.clone());
+                });
+
+        assert!(result.is_ok());
+        let db_results: Vec<InboundInvite> = store.fetch().unwrap();
+        assert_eq!(1, db_results.len());
+
+        let inbound_invite_ptr = &inbound_invite;
+
+        let first_result = db_results.first().unwrap();
+        assert_eq!(first_result.sent_at_ns, inbound_invite_ptr.sent_at_ns);
+        assert_eq!(first_result.id, inbound_invite_ptr.id);
+        assert_eq!(first_result.payload, inbound_invite_ptr.payload);
+        assert_eq!(first_result.topic, inbound_invite_ptr.topic);
+        assert_eq!(first_result.status, inbound_invite_ptr.status);
     }
 }

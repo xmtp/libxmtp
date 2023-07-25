@@ -2,12 +2,15 @@ use crate::{
     client::ClientError,
     contact::Contact,
     invitation::{Invitation, InvitationError},
-    storage::{now, ConversationState, StorageError, StoredConversation, StoredUser},
+    storage::{
+        now, ConversationState, MessageState, NewStoredMessage, StorageError, StoredConversation,
+        StoredUser,
+    },
     types::networking::PublishRequest,
     types::networking::XmtpApiClient,
     types::Address,
     utils::{build_envelope, build_user_invite_topic},
-    Client,
+    Client, Store,
 };
 
 use prost::DecodeError;
@@ -84,6 +87,17 @@ where
         self.peer_address.clone()
     }
 
+    pub fn send_message(&self, text: &str) -> Result<(), ConversationError> {
+        NewStoredMessage::new(
+            self.convo_id(),
+            self.client.account.addr(),
+            text.as_bytes().to_vec(),
+            MessageState::Unprocessed as i32,
+        )
+        .store(&self.client.store)?;
+        Ok(())
+    }
+
     pub async fn initialize(&self) -> Result<(), ConversationError> {
         let inner_invite_bytes = Invitation::build_inner_invite_bytes(self.peer_address.clone())?;
         for contact in self.members.iter() {
@@ -111,5 +125,37 @@ where
         }
 
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::{
+        conversations::Conversations,
+        test_utils::test_utils::{gen_test_client, gen_test_conversation},
+    };
+
+    #[tokio::test]
+    async fn test_local_conversation_creation() {
+        let client = gen_test_client().await;
+        let peer_address = "0x000";
+        let convo_id = format!(":{}:{}", peer_address, client.wallet_address());
+        assert!(client.store.get_conversation(&convo_id).unwrap().is_none());
+
+        let conversations = Conversations::new(&client);
+        let conversation = gen_test_conversation(&conversations, peer_address).await;
+        assert!(conversation.peer_address() == peer_address);
+        assert!(client.store.get_conversation(&convo_id).unwrap().is_some());
+    }
+
+    #[tokio::test]
+    async fn test_send_message() {
+        let client = gen_test_client().await;
+        let conversations = Conversations::new(&client);
+        let conversation = gen_test_conversation(&conversations, "0x000").await;
+        conversation.send_message("Hello, world!").unwrap();
+
+        let message = &client.store.get_unprocessed_messages().unwrap()[0];
+        assert!(message.content == "Hello, world!".as_bytes().to_vec());
     }
 }
