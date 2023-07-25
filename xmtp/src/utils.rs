@@ -21,6 +21,10 @@ pub fn build_user_invite_topic(public_key: String) -> String {
     format!("xmtp/1/invite-{}", public_key)
 }
 
+pub fn build_installation_message_topic(installation_id: &str) -> String {
+    format!("xmtp/1/message-{}", installation_id)
+}
+
 pub fn build_envelope(content_topic: String, message: Vec<u8>) -> Envelope {
     Envelope {
         content_topic,

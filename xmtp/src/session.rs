@@ -70,6 +70,10 @@ impl SessionManager {
 
         Ok(res)
     }
+
+    pub fn has_received_message(&self) -> bool {
+        self.session.has_received_message()
+    }
 }
 
 impl Store<EncryptedMessageStore> for SessionManager {

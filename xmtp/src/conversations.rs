@@ -1,7 +1,18 @@
+use prost::Message;
+use vodozemac::olm::OlmMessage;
+use xmtp_proto::xmtp::v3::message_contents::{
+    PadlockMessageEnvelope, PadlockMessageHeader, PadlockMessagePayload,
+    PadlockMessagePayloadVersion, PadlockMessageSealedMetadata,
+};
+
 use crate::{
-    conversation::{ConversationError, SecretConversation},
-    storage::{RefreshJob, RefreshJobKind, StorageError},
+    conversation::{peer_addr_from_convo_id, ConversationError, SecretConversation},
+    session::SessionManager,
+    storage::{
+        OutboundPayloadState, RefreshJob, RefreshJobKind, StorageError, StoredOutboundPayload,
+    },
     types::networking::XmtpApiClient,
+    utils::build_installation_message_topic,
     Client,
 };
 
@@ -59,6 +70,84 @@ where
         // Adjust for padding and ensure start_time > 0
         std::cmp::max(job.last_run - PADDING_TIME_NS, 0)
     }
+
+    pub(crate) async fn process_outbound_messages(&self) -> Result<(), ConversationError> {
+        let my_user_addr = self.client.wallet_address();
+        let my_installation_id = self.client.account.contact().installation_id();
+        let my_sessions = self.client.store.get_sessions(&my_user_addr)?;
+        if my_sessions.is_empty() {
+            return Err(ConversationError::NoSessionsError(my_user_addr));
+        }
+
+        let mut messages = self.client.store.get_unprocessed_messages()?;
+        messages.sort_by(|a, b| a.created_at.cmp(&b.created_at));
+        for message in messages {
+            let their_user_addr =
+                peer_addr_from_convo_id(&self.client.wallet_address(), &message.convo_id)?;
+            let their_sessions = self.client.store.get_sessions(&their_user_addr)?;
+            if their_sessions.is_empty() {
+                log::error!(
+                    "{}",
+                    ConversationError::NoSessionsError(their_user_addr).to_string()
+                );
+                // TODO update message status to failed so that we don't retry it
+                continue;
+            }
+
+            for stored_session in my_sessions.iter().chain(&their_sessions) {
+                if stored_session.peer_installation_id == my_installation_id {
+                    continue;
+                }
+                let mut session = SessionManager::try_from(stored_session)?;
+                let is_prekey_message = !session.has_received_message();
+
+                let metadata = PadlockMessageSealedMetadata {
+                    sender_user_address: my_user_addr.clone(),
+                    sender_installation_id: my_installation_id.clone(),
+                    recipient_user_address: their_user_addr.clone(),
+                    recipient_installation_id: stored_session.peer_installation_id.clone(),
+                    is_prekey_message,
+                };
+                // TODO encrypted sealed metadata using sealed sender
+                let sealed_metadata = metadata.encode_to_vec();
+                let message_header = PadlockMessageHeader {
+                    sent_ns: message.created_at as u64,
+                    sealed_metadata,
+                };
+
+                let payload = PadlockMessagePayload {
+                    message_version: PadlockMessagePayloadVersion::One as i32,
+                    header_signature: None, // TODO sign header
+                    convo_id: message.convo_id.clone(),
+                    content_bytes: message.content.clone(),
+                };
+                let olm_message = session.encrypt(&payload.encode_to_vec());
+                let ciphertext = match olm_message {
+                    OlmMessage::Normal(message) => message.to_bytes(),
+                    OlmMessage::PreKey(prekey_message) => prekey_message.to_bytes(),
+                };
+
+                let envelope = PadlockMessageEnvelope {
+                    header_bytes: message_header.encode_to_vec(),
+                    ciphertext,
+                };
+                let outbound_payload = StoredOutboundPayload {
+                    created_at_ns: message.created_at,
+                    content_topic: build_installation_message_topic(
+                        &stored_session.peer_installation_id,
+                    ),
+                    payload: envelope.encode_to_vec(),
+                    outbound_payload_state: OutboundPayloadState::Pending as i32,
+                };
+
+                // session.save(&client.store).unwrap();
+            }
+        }
+
+        Ok(())
+    }
+
+    pub(crate) fn process_outbound_payloads(&self) -> () {}
 }
 
 #[cfg(test)]
