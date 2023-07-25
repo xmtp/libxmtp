@@ -19,7 +19,7 @@ use rand::RngCore;
 
 use self::{
     models::*,
-    schema::{accounts, conversations, messages, users},
+    schema::{accounts, conversations, messages, refresh_jobs, users},
 };
 use crate::{account::Account, Errorer, Fetch, Store};
 use diesel::{
@@ -245,6 +245,36 @@ impl EncryptedMessageStore {
             .load::<StoredMessage>(conn)?;
 
         Ok(msg_list)
+    }
+
+    pub fn lock_refresh_job<F>(&self, kind: RefreshJobKind, cb: F) -> Result<(), StorageError>
+    where
+        F: FnOnce(
+            &mut PooledConnection<ConnectionManager<SqliteConnection>>,
+            RefreshJob,
+        ) -> Result<(), StorageError>,
+    {
+        let conn = &mut self.conn()?;
+        conn.transaction::<(), StorageError, _>(|connection| {
+            let start_time = now();
+            let job: RefreshJob = refresh_jobs::table
+                .find::<String>(kind.to_string())
+                .first::<RefreshJob>(connection)?;
+
+            let result = cb(connection, job);
+
+            if result.is_ok() {
+                diesel::update(refresh_jobs::table.find(kind.to_string()))
+                    .set(refresh_jobs::last_run.eq(start_time))
+                    .execute(connection)?;
+            } else {
+                return result;
+            }
+
+            Ok(())
+        })?;
+
+        Ok(())
     }
 }
 
@@ -522,5 +552,47 @@ mod tests {
 
         let results: Vec<StoredSession> = store.fetch().unwrap();
         assert_eq!(1, results.len());
+    }
+
+    #[test]
+    fn lock_refresh_job() {
+        let store = EncryptedMessageStore::new(
+            StorageOption::Ephemeral,
+            EncryptedMessageStore::generate_enc_key(),
+        )
+        .unwrap();
+
+        store
+            .lock_refresh_job(RefreshJobKind::Invite, |_, job| {
+                assert_eq!(job.id, RefreshJobKind::Invite.to_string());
+                assert_eq!(job.last_run, 0);
+
+                Ok(())
+            })
+            .unwrap();
+
+        store
+            .lock_refresh_job(RefreshJobKind::Invite, |_, job| {
+                assert!(job.last_run > 0);
+
+                Ok(())
+            })
+            .unwrap();
+
+        let res_expected_err = store.lock_refresh_job(RefreshJobKind::Message, |_, job| {
+            assert_eq!(job.id, RefreshJobKind::Message.to_string());
+
+            Err(StorageError::Unknown)
+        });
+        assert!(res_expected_err.is_err());
+
+        store
+            .lock_refresh_job(RefreshJobKind::Message, |_, job| {
+                // Ensure that last run time does not change if the job fails
+                assert_eq!(job.last_run, 0);
+
+                Ok(())
+            })
+            .unwrap();
     }
 }

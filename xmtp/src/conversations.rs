@@ -1,8 +1,12 @@
 use crate::{
     conversation::{ConversationError, SecretConversation},
+    invitation::Invitation,
+    storage::{RefreshJob, RefreshJobKind, StorageError},
     types::networking::XmtpApiClient,
     Client,
 };
+
+const PADDING_TIME_NS: i64 = 30 * 1000 * 1000 * 1000;
 
 pub struct Conversations<'c, A>
 where
@@ -26,6 +30,32 @@ where
         let contacts = self.client.get_contacts(wallet_address.as_str()).await?;
         SecretConversation::new(self.client, wallet_address, contacts)
     }
+
+    pub fn save_invites(&self) -> Result<Vec<Invitation>, ConversationError> {
+        let mut invites = Vec::new();
+
+        self.client
+            .store
+            .lock_refresh_job(RefreshJobKind::Invite, |_, job| {
+                let downloaded = futures::executor::block_on(
+                    self.client
+                        .download_invites(self.get_start_time(job).unsigned_abs()),
+                )
+                .map_err(|_| StorageError::Unknown)?;
+                for invite in downloaded {
+                    invites.push(invite)
+                }
+
+                Ok(())
+            })?;
+
+        Ok(invites)
+    }
+
+    fn get_start_time(&self, job: RefreshJob) -> i64 {
+        // Adjust for padding and ensure start_time > 0
+        std::cmp::max(job.last_run - PADDING_TIME_NS, 0)
+    }
 }
 
 #[cfg(test)]
@@ -47,5 +77,14 @@ mod tests {
 
         assert_eq!(conversation.peer_address(), bob_client.wallet_address());
         conversation.initialize().await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn save_invites() {
+        let mut alice_client = ClientBuilder::new_test().build().unwrap();
+        alice_client.init().await.unwrap();
+
+        let invites = Conversations::new(&alice_client).save_invites();
+        assert!(invites.is_ok());
     }
 }
