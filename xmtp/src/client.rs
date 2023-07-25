@@ -186,14 +186,6 @@ where
         Ok(())
     }
 
-    pub async fn bootstrap_sessions(&self, user_address: &str) -> Result<(), ClientError> {
-        for x in self.store.get_sessions(user_address)? {
-            info!("{:?}", x)
-        }
-
-        Ok(())
-    }
-
     pub fn create_uninitialized_session(
         &self,
         contact: &Contact,
