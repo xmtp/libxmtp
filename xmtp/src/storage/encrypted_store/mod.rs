@@ -636,12 +636,15 @@ mod tests {
             status: InboundInviteStatus::Pending as i16,
         };
 
-        let mut conn = store.conn().unwrap();
-        let result = conn.transaction(|transaction_manager| -> Result<(), StorageError> {
-            return store.save_inbound_invite(transaction_manager, inbound_invite.clone());
-        });
-        assert!(result.is_ok());
+        let result =
+            store
+                .conn()
+                .unwrap()
+                .transaction(|transaction_manager| -> Result<(), StorageError> {
+                    return store.save_inbound_invite(transaction_manager, inbound_invite.clone());
+                });
 
+        assert!(result.is_ok());
         let db_results: Vec<InboundInvite> = store.fetch().unwrap();
         assert_eq!(1, db_results.len());
 
