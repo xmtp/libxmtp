@@ -17,7 +17,3 @@ bundle.zip
 
 # Ignore any swift files in include/Generated
 /include/**/*.swift
-
-# Ignore generated files for android
-java/
-libxmtp-android.zip

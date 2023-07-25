@@ -9,6 +9,3 @@ bindings_ffi/target/release/ffi-uniffi-bindgen generate \
     $CRATE_NAME/src/$PROJECT_NAME.udl \
     --language kotlin
 popd > /dev/null
-
-mkdir -p java
-cp src/uniffi/$PROJECT_NAME/$PROJECT_NAME.kt java/

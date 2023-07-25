@@ -70,8 +70,4 @@ framework: move_gen $(LIB)
 swift: framework
 	./copy_xcframework_to_swift.sh
 
-android:
-	./gen_kotlin.sh
-	zip -r libxmtp-android.zip jniLibs java
-
 .PHONY: $(ARCHS_IOS) $(ARCHS_MAC) framework all aarch64-apple-ios download-toolchains swift
