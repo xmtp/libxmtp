@@ -3,9 +3,9 @@ mod errors;
 
 pub use encrypted_store::{
     models::{
-        now, ConversationState, MessageState, NewStoredMessage, OutboundPayloadState, RefreshJob,
-        RefreshJobKind, StoredConversation, StoredInstallation, StoredMessage,
-        StoredOutboundPayload, StoredSession, StoredUser,
+        now, ConversationState, InboundInvite, InboundInviteStatus, MessageState, NewStoredMessage,
+        OutboundPayloadState, RefreshJob, RefreshJobKind, StoredConversation, StoredInstallation,
+        StoredMessage, StoredOutboundPayload, StoredSession, StoredUser,
     },
     EncryptedMessageStore, EncryptionKey, StorageOption,
 };

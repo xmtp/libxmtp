@@ -19,7 +19,7 @@ use rand::RngCore;
 
 use self::{
     models::*,
-    schema::{accounts, conversations, messages, refresh_jobs, users},
+    schema::{accounts, conversations, inbound_invites, messages, refresh_jobs, users},
 };
 use crate::{account::Account, Errorer, Fetch, Store};
 use diesel::{
@@ -273,6 +273,18 @@ impl EncryptedMessageStore {
 
             Ok(())
         })?;
+
+        Ok(())
+    }
+
+    pub fn save_inbound_invite(
+        &self,
+        conn: &mut PooledConnection<ConnectionManager<SqliteConnection>>,
+        invite: InboundInvite,
+    ) -> Result<(), StorageError> {
+        diesel::insert_into(inbound_invites::table)
+            .values(invite)
+            .execute(conn)?;
 
         Ok(())
     }

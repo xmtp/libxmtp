@@ -9,6 +9,7 @@ use diesel::prelude::*;
 use std::fmt;
 use std::time::{SystemTime, UNIX_EPOCH};
 use xmtp_cryptography::hash::sha256_bytes;
+use xmtp_proto::xmtp::message_api::v1::Envelope;
 
 #[derive(Insertable, Identifiable, Queryable, PartialEq, Debug)]
 #[diesel(table_name = users)]
@@ -236,5 +237,40 @@ impl Save<EncryptedMessageStore> for RefreshJob {
             .execute(conn)?;
 
         Ok(())
+    }
+}
+
+pub enum InboundInviteStatus {
+    Pending = 0,
+    Processed = 1,
+    DecryptionFailure = 2,
+    Invalid = 3,
+}
+
+#[derive(Insertable, Identifiable, Queryable, Clone, PartialEq, Debug)]
+#[diesel(table_name = inbound_invites)]
+pub struct InboundInvite {
+    pub id: String,
+    pub sent_at_ns: i64,
+    pub payload: Vec<u8>,
+    pub topic: String,
+    pub status: i16,
+}
+
+impl From<Envelope> for InboundInvite {
+    fn from(envelope: Envelope) -> Self {
+        let payload = envelope.message;
+        let topic = envelope.content_topic;
+        let sent_at_ns: i64 = envelope.timestamp_ns.try_into().unwrap();
+        let id =
+            hex::encode(sha256_bytes(&[payload.as_slice(), topic.as_bytes()].concat()).as_slice());
+
+        Self {
+            id,
+            sent_at_ns,
+            payload,
+            topic,
+            status: InboundInviteStatus::Pending as i16,
+        }
     }
 }

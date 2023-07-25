@@ -221,32 +221,24 @@ where
         Ok(envelope)
     }
 
-    pub async fn download_invites(&self, start_time: u64) -> Result<Vec<Invitation>, ClientError> {
-        let my_contact = self.account.contact();
+    pub async fn download_latest_from_topic(
+        &self,
+        start_time: u64,
+        topic: String,
+    ) -> Result<Vec<Envelope>, ClientError> {
         let response = self
             .api_client
             .query(QueryRequest {
-                content_topics: vec![crate::utils::build_user_invite_topic(
-                    my_contact.installation_id(),
-                )],
+                content_topics: vec![topic],
                 start_time_ns: start_time,
                 end_time_ns: 0,
                 // TODO: Pagination
                 paging_info: None,
             })
             .await
-            .map_err(|e| ClientError::QueryError(format!("Could not query for invites: {}", e)))?;
+            .map_err(|e| ClientError::QueryError(format!("Could not query topic: {}", e)))?;
 
-        let mut invites = vec![];
-        for envelope in response.envelopes {
-            let invite = envelope.message.try_into();
-            match invite {
-                Ok(invite) => invites.push(invite),
-                _ => continue,
-            }
-        }
-
-        Ok(invites)
+        Ok(response.envelopes)
     }
 }
 
