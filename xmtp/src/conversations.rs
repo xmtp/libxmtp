@@ -6,7 +6,7 @@ use crate::{
     Client,
 };
 
-const PADDING_TIME: i64 = 30 * 1000 * 1000;
+const PADDING_TIME_NS: i64 = 30 * 1000 * 1000 * 1000;
 
 pub struct Conversations<'c, A>
 where
@@ -55,7 +55,7 @@ where
 
     fn get_start_time(&self, job: RefreshJob) -> i64 {
         // Adjust for padding and ensure start_time > 0
-        std::cmp::max(job.last_run - PADDING_TIME, 0)
+        std::cmp::max(job.last_run - PADDING_TIME_NS, 0)
     }
 }
 
