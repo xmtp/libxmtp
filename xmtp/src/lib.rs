@@ -18,6 +18,10 @@ pub mod vmac_protos;
 
 pub use builder::ClientBuilder;
 pub use client::{Client, Network};
+use diesel::{
+    r2d2::{ConnectionManager, PooledConnection},
+    SqliteConnection,
+};
 use storage::StorageError;
 use xmtp_cryptography::signature::{RecoverableSignature, SignatureError};
 

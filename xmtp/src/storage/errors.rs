@@ -1,3 +1,4 @@
+use crate::contact::ContactError;
 use thiserror::Error;
 
 #[derive(Debug, Error)]
@@ -14,8 +15,10 @@ pub enum StorageError {
     Store(String),
     #[error(transparent)]
     ImplementationError(#[from] anyhow::Error),
+    #[error("ContactError")]
+    ContactError(#[from] ContactError),
     #[error("serialization error")]
     SerializationError,
-    #[error("unknown storage error")]
-    Unknown,
+    #[error("unknown storage error: {0}")]
+    Unknown(String),
 }

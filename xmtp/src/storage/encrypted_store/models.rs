@@ -199,8 +199,12 @@ impl StoredInstallation {
             user_address: contact.wallet_address.clone(),
             first_seen_ns: now(),
             contact: contact_bytes,
-            contact_hash: contact_hash,
+            contact_hash,
             expires_at_ns: None,
         })
+    }
+
+    pub fn get_contact(&self) -> Result<Contact, ContactError> {
+        Contact::from_bytes(self.contact.clone(), self.user_address.clone())
     }
 }

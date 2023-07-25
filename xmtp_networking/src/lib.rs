@@ -3,12 +3,13 @@ pub mod grpc_api_helper;
 pub const LOCALHOST_ADDRESS: &str = "http://localhost:5556";
 pub const DEV_ADDRESS: &str = "https://dev.xmtp.network:5556";
 
+pub use grpc_api_helper::Client;
+
 #[cfg(test)]
 mod tests {
     use std::time::{SystemTime, UNIX_EPOCH};
 
     use super::*;
-    use grpc_api_helper::Client;
     use xmtp::types::networking::XmtpApiClient;
     use xmtp::types::networking::XmtpApiSubscription;
     use xmtp_proto::xmtp::message_api::v1::{
