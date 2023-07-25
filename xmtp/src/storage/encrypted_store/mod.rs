@@ -401,7 +401,7 @@ fn warn_length<T>(list: &Vec<T>, str_id: &str, max_length: usize) {
 mod tests {
 
     use super::{models::*, EncryptedMessageStore, StorageError, StorageOption};
-    use crate::{storage::encrypted_store::schema::inbound_invites, Fetch, Store};
+    use crate::{Fetch, Store};
     use diesel::Connection;
     use rand::{
         distributions::{Alphanumeric, DistString},
@@ -627,6 +627,7 @@ mod tests {
             EncryptedMessageStore::generate_enc_key(),
         )
         .unwrap();
+
         let inbound_invite = InboundInvite {
             sent_at_ns: 20,
             id: "id".into(),

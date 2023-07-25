@@ -1,8 +1,5 @@
-use ethers_core::k256::elliptic_curve::PrimeField;
-
 use crate::{
     conversation::{ConversationError, SecretConversation},
-    invitation::Invitation,
     storage::{RefreshJob, RefreshJobKind, StorageError},
     types::networking::XmtpApiClient,
     Client,

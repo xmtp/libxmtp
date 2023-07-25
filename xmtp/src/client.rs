@@ -7,7 +7,6 @@ use vodozemac::olm::OlmMessage;
 use crate::{
     account::Account,
     contact::{Contact, ContactError},
-    invitation::Invitation,
     session::SessionManager,
     storage::{EncryptedMessageStore, StorageError, StoredInstallation},
     types::networking::{PublishRequest, QueryRequest, XmtpApiClient},
