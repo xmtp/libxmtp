@@ -4,11 +4,11 @@ import androidx.test.ext.junit.runners.AndroidJUnit4
 import org.junit.Assert.assertEquals
 import org.junit.Test
 import org.junit.runner.RunWith
+import org.xmtp.android.library.codecs.ContentTypeGroupChatMemberAdded
+import org.xmtp.android.library.codecs.ContentTypeGroupTitleChangedAdded
+import org.xmtp.android.library.codecs.GroupChatMemberAdded
+import org.xmtp.android.library.codecs.GroupChatTitleChanged
 import org.xmtp.android.library.messages.walletAddress
-import uniffi.xmtp_dh.org.xmtp.android.library.codecs.ContentTypeGroupChatMemberAdded
-import uniffi.xmtp_dh.org.xmtp.android.library.codecs.ContentTypeGroupTitleChangedAdded
-import uniffi.xmtp_dh.org.xmtp.android.library.codecs.GroupChatMemberAdded
-import uniffi.xmtp_dh.org.xmtp.android.library.codecs.GroupChatTitleChanged
 
 @RunWith(AndroidJUnit4::class)
 class GroupChatTest {

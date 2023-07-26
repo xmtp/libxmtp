@@ -1,0 +1,51 @@
+package org.xmtp.android.library
+
+import androidx.test.ext.junit.runners.AndroidJUnit4
+import org.junit.Assert.assertEquals
+import org.junit.Test
+import org.junit.runner.RunWith
+import org.xmtp.android.library.codecs.ContentTypeReaction
+import org.xmtp.android.library.codecs.Reaction
+import org.xmtp.android.library.codecs.ReactionAction
+import org.xmtp.android.library.codecs.ReactionCodec
+import org.xmtp.android.library.codecs.ReactionSchema
+import org.xmtp.android.library.messages.walletAddress
+
+@RunWith(AndroidJUnit4::class)
+class ReactionTest {
+
+    @Test
+    fun testCanUseReactionCodec() {
+        Client.register(codec = ReactionCodec())
+
+        val fixtures = fixtures()
+        val aliceClient = fixtures.aliceClient
+        val aliceConversation =
+            aliceClient.conversations.newConversation(fixtures.bob.walletAddress)
+
+        aliceConversation.send(text = "hey alice 2 bob")
+
+        val messageToReact = aliceConversation.messages()[0]
+
+        val attachment = Reaction(
+            reference = messageToReact.id,
+            action = ReactionAction.added,
+            content = "U+1F603",
+            schema = ReactionSchema.unicode
+        )
+
+        aliceConversation.send(
+            content = attachment,
+            options = SendOptions(contentType = ContentTypeReaction),
+        )
+        val messages = aliceConversation.messages()
+        assertEquals(messages.size, 2)
+        if (messages.size == 2) {
+            val content: Reaction? = messages.first().content()
+            assertEquals("U+1F603", content?.content)
+            assertEquals(messageToReact.id, content?.reference)
+            assertEquals(ReactionAction.added, content?.action)
+            assertEquals(ReactionSchema.unicode, content?.schema)
+        }
+    }
+}

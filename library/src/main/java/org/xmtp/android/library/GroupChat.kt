@@ -1,8 +1,8 @@
 package uniffi.xmtp_dh.org.xmtp.android.library
 
 import org.xmtp.android.library.Client
-import uniffi.xmtp_dh.org.xmtp.android.library.codecs.GroupChatMemberAddedCodec
-import uniffi.xmtp_dh.org.xmtp.android.library.codecs.GroupChatTitleChangedCodec
+import org.xmtp.android.library.codecs.GroupChatMemberAddedCodec
+import org.xmtp.android.library.codecs.GroupChatTitleChangedCodec
 
 class GroupChat {
     companion object {

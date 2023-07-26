@@ -1,11 +1,7 @@
-package uniffi.xmtp_dh.org.xmtp.android.library.codecs
+package org.xmtp.android.library.codecs
 
 import com.google.gson.GsonBuilder
 import com.google.protobuf.kotlin.toByteStringUtf8
-import org.xmtp.android.library.codecs.ContentCodec
-import org.xmtp.android.library.codecs.ContentTypeId
-import org.xmtp.android.library.codecs.ContentTypeIdBuilder
-import org.xmtp.android.library.codecs.EncodedContent
 
 val ContentTypeGroupTitleChangedAdded = ContentTypeIdBuilder.builderFromAuthorityId(
     "xmtp.org",
