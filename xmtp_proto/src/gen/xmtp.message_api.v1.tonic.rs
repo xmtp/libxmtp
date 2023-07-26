@@ -12,7 +12,7 @@ pub mod message_api_client {
         /// Attempt to create a new client by connecting to a given endpoint.
         pub async fn connect<D>(dst: D) -> Result<Self, tonic::transport::Error>
         where
-            D: std::convert::TryInto<tonic::transport::Endpoint>,
+            D: TryInto<tonic::transport::Endpoint>,
             D::Error: Into<StdError>,
         {
             let conn = tonic::transport::Endpoint::new(dst)?.connect().await?;
@@ -68,10 +68,29 @@ pub mod message_api_client {
             self.inner = self.inner.accept_compressed(encoding);
             self
         }
+        /// Limits the maximum size of a decoded message.
+        ///
+        /// Default: `4MB`
+        #[must_use]
+        pub fn max_decoding_message_size(mut self, limit: usize) -> Self {
+            self.inner = self.inner.max_decoding_message_size(limit);
+            self
+        }
+        /// Limits the maximum size of an encoded message.
+        ///
+        /// Default: `usize::MAX`
+        #[must_use]
+        pub fn max_encoding_message_size(mut self, limit: usize) -> Self {
+            self.inner = self.inner.max_encoding_message_size(limit);
+            self
+        }
         pub async fn publish(
             &mut self,
             request: impl tonic::IntoRequest<super::PublishRequest>,
-        ) -> Result<tonic::Response<super::PublishResponse>, tonic::Status> {
+        ) -> std::result::Result<
+            tonic::Response<super::PublishResponse>,
+            tonic::Status,
+        > {
             self.inner
                 .ready()
                 .await
@@ -85,12 +104,15 @@ pub mod message_api_client {
             let path = http::uri::PathAndQuery::from_static(
                 "/xmtp.message_api.v1.MessageApi/Publish",
             );
-            self.inner.unary(request.into_request(), path, codec).await
+            let mut req = request.into_request();
+            req.extensions_mut()
+                .insert(GrpcMethod::new("xmtp.message_api.v1.MessageApi", "Publish"));
+            self.inner.unary(req, path, codec).await
         }
         pub async fn subscribe(
             &mut self,
             request: impl tonic::IntoRequest<super::SubscribeRequest>,
-        ) -> Result<
+        ) -> std::result::Result<
             tonic::Response<tonic::codec::Streaming<super::Envelope>>,
             tonic::Status,
         > {
@@ -107,12 +129,15 @@ pub mod message_api_client {
             let path = http::uri::PathAndQuery::from_static(
                 "/xmtp.message_api.v1.MessageApi/Subscribe",
             );
-            self.inner.server_streaming(request.into_request(), path, codec).await
+            let mut req = request.into_request();
+            req.extensions_mut()
+                .insert(GrpcMethod::new("xmtp.message_api.v1.MessageApi", "Subscribe"));
+            self.inner.server_streaming(req, path, codec).await
         }
         pub async fn subscribe_all(
             &mut self,
             request: impl tonic::IntoRequest<super::SubscribeAllRequest>,
-        ) -> Result<
+        ) -> std::result::Result<
             tonic::Response<tonic::codec::Streaming<super::Envelope>>,
             tonic::Status,
         > {
@@ -129,12 +154,17 @@ pub mod message_api_client {
             let path = http::uri::PathAndQuery::from_static(
                 "/xmtp.message_api.v1.MessageApi/SubscribeAll",
             );
-            self.inner.server_streaming(request.into_request(), path, codec).await
+            let mut req = request.into_request();
+            req.extensions_mut()
+                .insert(
+                    GrpcMethod::new("xmtp.message_api.v1.MessageApi", "SubscribeAll"),
+                );
+            self.inner.server_streaming(req, path, codec).await
         }
         pub async fn query(
             &mut self,
             request: impl tonic::IntoRequest<super::QueryRequest>,
-        ) -> Result<tonic::Response<super::QueryResponse>, tonic::Status> {
+        ) -> std::result::Result<tonic::Response<super::QueryResponse>, tonic::Status> {
             self.inner
                 .ready()
                 .await
@@ -148,12 +178,18 @@ pub mod message_api_client {
             let path = http::uri::PathAndQuery::from_static(
                 "/xmtp.message_api.v1.MessageApi/Query",
             );
-            self.inner.unary(request.into_request(), path, codec).await
+            let mut req = request.into_request();
+            req.extensions_mut()
+                .insert(GrpcMethod::new("xmtp.message_api.v1.MessageApi", "Query"));
+            self.inner.unary(req, path, codec).await
         }
         pub async fn batch_query(
             &mut self,
             request: impl tonic::IntoRequest<super::BatchQueryRequest>,
-        ) -> Result<tonic::Response<super::BatchQueryResponse>, tonic::Status> {
+        ) -> std::result::Result<
+            tonic::Response<super::BatchQueryResponse>,
+            tonic::Status,
+        > {
             self.inner
                 .ready()
                 .await
@@ -167,7 +203,10 @@ pub mod message_api_client {
             let path = http::uri::PathAndQuery::from_static(
                 "/xmtp.message_api.v1.MessageApi/BatchQuery",
             );
-            self.inner.unary(request.into_request(), path, codec).await
+            let mut req = request.into_request();
+            req.extensions_mut()
+                .insert(GrpcMethod::new("xmtp.message_api.v1.MessageApi", "BatchQuery"));
+            self.inner.unary(req, path, codec).await
         }
     }
 }

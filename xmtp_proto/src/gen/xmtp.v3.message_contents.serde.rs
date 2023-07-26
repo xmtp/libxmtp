@@ -72,6 +72,99 @@ impl<'de> serde::Deserialize<'de> for AssociationTextVersion {
         deserializer.deserialize_any(GeneratedVisitor)
     }
 }
+impl serde::Serialize for EdDsaSignature {
+    #[allow(deprecated)]
+    fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        use serde::ser::SerializeStruct;
+        let mut len = 0;
+        if !self.bytes.is_empty() {
+            len += 1;
+        }
+        let mut struct_ser = serializer.serialize_struct("xmtp.v3.message_contents.EdDsaSignature", len)?;
+        if !self.bytes.is_empty() {
+            struct_ser.serialize_field("bytes", pbjson::private::base64::encode(&self.bytes).as_str())?;
+        }
+        struct_ser.end()
+    }
+}
+impl<'de> serde::Deserialize<'de> for EdDsaSignature {
+    #[allow(deprecated)]
+    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        const FIELDS: &[&str] = &[
+            "bytes",
+        ];
+
+        #[allow(clippy::enum_variant_names)]
+        enum GeneratedField {
+            Bytes,
+        }
+        impl<'de> serde::Deserialize<'de> for GeneratedField {
+            fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
+            where
+                D: serde::Deserializer<'de>,
+            {
+                struct GeneratedVisitor;
+
+                impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+                    type Value = GeneratedField;
+
+                    fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                        write!(formatter, "expected one of: {:?}", &FIELDS)
+                    }
+
+                    #[allow(unused_variables)]
+                    fn visit_str<E>(self, value: &str) -> std::result::Result<GeneratedField, E>
+                    where
+                        E: serde::de::Error,
+                    {
+                        match value {
+                            "bytes" => Ok(GeneratedField::Bytes),
+                            _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
+                        }
+                    }
+                }
+                deserializer.deserialize_identifier(GeneratedVisitor)
+            }
+        }
+        struct GeneratedVisitor;
+        impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+            type Value = EdDsaSignature;
+
+            fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                formatter.write_str("struct xmtp.v3.message_contents.EdDsaSignature")
+            }
+
+            fn visit_map<V>(self, mut map: V) -> std::result::Result<EdDsaSignature, V::Error>
+                where
+                    V: serde::de::MapAccess<'de>,
+            {
+                let mut bytes__ = None;
+                while let Some(k) = map.next_key()? {
+                    match k {
+                        GeneratedField::Bytes => {
+                            if bytes__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("bytes"));
+                            }
+                            bytes__ = 
+                                Some(map.next_value::<::pbjson::private::BytesDeserialize<_>>()?.0)
+                            ;
+                        }
+                    }
+                }
+                Ok(EdDsaSignature {
+                    bytes: bytes__.unwrap_or_default(),
+                })
+            }
+        }
+        deserializer.deserialize_struct("xmtp.v3.message_contents.EdDsaSignature", FIELDS, GeneratedVisitor)
+    }
+}
 impl serde::Serialize for Eip191Association {
     #[allow(deprecated)]
     fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
@@ -593,6 +686,620 @@ impl<'de> serde::Deserialize<'de> for InvitationV1 {
             }
         }
         deserializer.deserialize_struct("xmtp.v3.message_contents.InvitationV1", FIELDS, GeneratedVisitor)
+    }
+}
+impl serde::Serialize for PadlockMessageEnvelope {
+    #[allow(deprecated)]
+    fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        use serde::ser::SerializeStruct;
+        let mut len = 0;
+        if !self.header_bytes.is_empty() {
+            len += 1;
+        }
+        if !self.ciphertext.is_empty() {
+            len += 1;
+        }
+        let mut struct_ser = serializer.serialize_struct("xmtp.v3.message_contents.PadlockMessageEnvelope", len)?;
+        if !self.header_bytes.is_empty() {
+            struct_ser.serialize_field("headerBytes", pbjson::private::base64::encode(&self.header_bytes).as_str())?;
+        }
+        if !self.ciphertext.is_empty() {
+            struct_ser.serialize_field("ciphertext", pbjson::private::base64::encode(&self.ciphertext).as_str())?;
+        }
+        struct_ser.end()
+    }
+}
+impl<'de> serde::Deserialize<'de> for PadlockMessageEnvelope {
+    #[allow(deprecated)]
+    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        const FIELDS: &[&str] = &[
+            "header_bytes",
+            "headerBytes",
+            "ciphertext",
+        ];
+
+        #[allow(clippy::enum_variant_names)]
+        enum GeneratedField {
+            HeaderBytes,
+            Ciphertext,
+        }
+        impl<'de> serde::Deserialize<'de> for GeneratedField {
+            fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
+            where
+                D: serde::Deserializer<'de>,
+            {
+                struct GeneratedVisitor;
+
+                impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+                    type Value = GeneratedField;
+
+                    fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                        write!(formatter, "expected one of: {:?}", &FIELDS)
+                    }
+
+                    #[allow(unused_variables)]
+                    fn visit_str<E>(self, value: &str) -> std::result::Result<GeneratedField, E>
+                    where
+                        E: serde::de::Error,
+                    {
+                        match value {
+                            "headerBytes" | "header_bytes" => Ok(GeneratedField::HeaderBytes),
+                            "ciphertext" => Ok(GeneratedField::Ciphertext),
+                            _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
+                        }
+                    }
+                }
+                deserializer.deserialize_identifier(GeneratedVisitor)
+            }
+        }
+        struct GeneratedVisitor;
+        impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+            type Value = PadlockMessageEnvelope;
+
+            fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                formatter.write_str("struct xmtp.v3.message_contents.PadlockMessageEnvelope")
+            }
+
+            fn visit_map<V>(self, mut map: V) -> std::result::Result<PadlockMessageEnvelope, V::Error>
+                where
+                    V: serde::de::MapAccess<'de>,
+            {
+                let mut header_bytes__ = None;
+                let mut ciphertext__ = None;
+                while let Some(k) = map.next_key()? {
+                    match k {
+                        GeneratedField::HeaderBytes => {
+                            if header_bytes__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("headerBytes"));
+                            }
+                            header_bytes__ = 
+                                Some(map.next_value::<::pbjson::private::BytesDeserialize<_>>()?.0)
+                            ;
+                        }
+                        GeneratedField::Ciphertext => {
+                            if ciphertext__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("ciphertext"));
+                            }
+                            ciphertext__ = 
+                                Some(map.next_value::<::pbjson::private::BytesDeserialize<_>>()?.0)
+                            ;
+                        }
+                    }
+                }
+                Ok(PadlockMessageEnvelope {
+                    header_bytes: header_bytes__.unwrap_or_default(),
+                    ciphertext: ciphertext__.unwrap_or_default(),
+                })
+            }
+        }
+        deserializer.deserialize_struct("xmtp.v3.message_contents.PadlockMessageEnvelope", FIELDS, GeneratedVisitor)
+    }
+}
+impl serde::Serialize for PadlockMessageHeader {
+    #[allow(deprecated)]
+    fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        use serde::ser::SerializeStruct;
+        let mut len = 0;
+        if self.sent_ns != 0 {
+            len += 1;
+        }
+        if !self.sealed_metadata.is_empty() {
+            len += 1;
+        }
+        let mut struct_ser = serializer.serialize_struct("xmtp.v3.message_contents.PadlockMessageHeader", len)?;
+        if self.sent_ns != 0 {
+            struct_ser.serialize_field("sentNs", ToString::to_string(&self.sent_ns).as_str())?;
+        }
+        if !self.sealed_metadata.is_empty() {
+            struct_ser.serialize_field("sealedMetadata", pbjson::private::base64::encode(&self.sealed_metadata).as_str())?;
+        }
+        struct_ser.end()
+    }
+}
+impl<'de> serde::Deserialize<'de> for PadlockMessageHeader {
+    #[allow(deprecated)]
+    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        const FIELDS: &[&str] = &[
+            "sent_ns",
+            "sentNs",
+            "sealed_metadata",
+            "sealedMetadata",
+        ];
+
+        #[allow(clippy::enum_variant_names)]
+        enum GeneratedField {
+            SentNs,
+            SealedMetadata,
+        }
+        impl<'de> serde::Deserialize<'de> for GeneratedField {
+            fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
+            where
+                D: serde::Deserializer<'de>,
+            {
+                struct GeneratedVisitor;
+
+                impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+                    type Value = GeneratedField;
+
+                    fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                        write!(formatter, "expected one of: {:?}", &FIELDS)
+                    }
+
+                    #[allow(unused_variables)]
+                    fn visit_str<E>(self, value: &str) -> std::result::Result<GeneratedField, E>
+                    where
+                        E: serde::de::Error,
+                    {
+                        match value {
+                            "sentNs" | "sent_ns" => Ok(GeneratedField::SentNs),
+                            "sealedMetadata" | "sealed_metadata" => Ok(GeneratedField::SealedMetadata),
+                            _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
+                        }
+                    }
+                }
+                deserializer.deserialize_identifier(GeneratedVisitor)
+            }
+        }
+        struct GeneratedVisitor;
+        impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+            type Value = PadlockMessageHeader;
+
+            fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                formatter.write_str("struct xmtp.v3.message_contents.PadlockMessageHeader")
+            }
+
+            fn visit_map<V>(self, mut map: V) -> std::result::Result<PadlockMessageHeader, V::Error>
+                where
+                    V: serde::de::MapAccess<'de>,
+            {
+                let mut sent_ns__ = None;
+                let mut sealed_metadata__ = None;
+                while let Some(k) = map.next_key()? {
+                    match k {
+                        GeneratedField::SentNs => {
+                            if sent_ns__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("sentNs"));
+                            }
+                            sent_ns__ = 
+                                Some(map.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
+                            ;
+                        }
+                        GeneratedField::SealedMetadata => {
+                            if sealed_metadata__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("sealedMetadata"));
+                            }
+                            sealed_metadata__ = 
+                                Some(map.next_value::<::pbjson::private::BytesDeserialize<_>>()?.0)
+                            ;
+                        }
+                    }
+                }
+                Ok(PadlockMessageHeader {
+                    sent_ns: sent_ns__.unwrap_or_default(),
+                    sealed_metadata: sealed_metadata__.unwrap_or_default(),
+                })
+            }
+        }
+        deserializer.deserialize_struct("xmtp.v3.message_contents.PadlockMessageHeader", FIELDS, GeneratedVisitor)
+    }
+}
+impl serde::Serialize for PadlockMessagePayload {
+    #[allow(deprecated)]
+    fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        use serde::ser::SerializeStruct;
+        let mut len = 0;
+        if self.message_version != 0 {
+            len += 1;
+        }
+        if self.header_signature.is_some() {
+            len += 1;
+        }
+        if !self.convo_id.is_empty() {
+            len += 1;
+        }
+        if !self.content_bytes.is_empty() {
+            len += 1;
+        }
+        let mut struct_ser = serializer.serialize_struct("xmtp.v3.message_contents.PadlockMessagePayload", len)?;
+        if self.message_version != 0 {
+            let v = PadlockMessagePayloadVersion::from_i32(self.message_version)
+                .ok_or_else(|| serde::ser::Error::custom(format!("Invalid variant {}", self.message_version)))?;
+            struct_ser.serialize_field("messageVersion", &v)?;
+        }
+        if let Some(v) = self.header_signature.as_ref() {
+            struct_ser.serialize_field("headerSignature", v)?;
+        }
+        if !self.convo_id.is_empty() {
+            struct_ser.serialize_field("convoId", &self.convo_id)?;
+        }
+        if !self.content_bytes.is_empty() {
+            struct_ser.serialize_field("contentBytes", pbjson::private::base64::encode(&self.content_bytes).as_str())?;
+        }
+        struct_ser.end()
+    }
+}
+impl<'de> serde::Deserialize<'de> for PadlockMessagePayload {
+    #[allow(deprecated)]
+    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        const FIELDS: &[&str] = &[
+            "message_version",
+            "messageVersion",
+            "header_signature",
+            "headerSignature",
+            "convo_id",
+            "convoId",
+            "content_bytes",
+            "contentBytes",
+        ];
+
+        #[allow(clippy::enum_variant_names)]
+        enum GeneratedField {
+            MessageVersion,
+            HeaderSignature,
+            ConvoId,
+            ContentBytes,
+        }
+        impl<'de> serde::Deserialize<'de> for GeneratedField {
+            fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
+            where
+                D: serde::Deserializer<'de>,
+            {
+                struct GeneratedVisitor;
+
+                impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+                    type Value = GeneratedField;
+
+                    fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                        write!(formatter, "expected one of: {:?}", &FIELDS)
+                    }
+
+                    #[allow(unused_variables)]
+                    fn visit_str<E>(self, value: &str) -> std::result::Result<GeneratedField, E>
+                    where
+                        E: serde::de::Error,
+                    {
+                        match value {
+                            "messageVersion" | "message_version" => Ok(GeneratedField::MessageVersion),
+                            "headerSignature" | "header_signature" => Ok(GeneratedField::HeaderSignature),
+                            "convoId" | "convo_id" => Ok(GeneratedField::ConvoId),
+                            "contentBytes" | "content_bytes" => Ok(GeneratedField::ContentBytes),
+                            _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
+                        }
+                    }
+                }
+                deserializer.deserialize_identifier(GeneratedVisitor)
+            }
+        }
+        struct GeneratedVisitor;
+        impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+            type Value = PadlockMessagePayload;
+
+            fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                formatter.write_str("struct xmtp.v3.message_contents.PadlockMessagePayload")
+            }
+
+            fn visit_map<V>(self, mut map: V) -> std::result::Result<PadlockMessagePayload, V::Error>
+                where
+                    V: serde::de::MapAccess<'de>,
+            {
+                let mut message_version__ = None;
+                let mut header_signature__ = None;
+                let mut convo_id__ = None;
+                let mut content_bytes__ = None;
+                while let Some(k) = map.next_key()? {
+                    match k {
+                        GeneratedField::MessageVersion => {
+                            if message_version__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("messageVersion"));
+                            }
+                            message_version__ = Some(map.next_value::<PadlockMessagePayloadVersion>()? as i32);
+                        }
+                        GeneratedField::HeaderSignature => {
+                            if header_signature__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("headerSignature"));
+                            }
+                            header_signature__ = map.next_value()?;
+                        }
+                        GeneratedField::ConvoId => {
+                            if convo_id__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("convoId"));
+                            }
+                            convo_id__ = Some(map.next_value()?);
+                        }
+                        GeneratedField::ContentBytes => {
+                            if content_bytes__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("contentBytes"));
+                            }
+                            content_bytes__ = 
+                                Some(map.next_value::<::pbjson::private::BytesDeserialize<_>>()?.0)
+                            ;
+                        }
+                    }
+                }
+                Ok(PadlockMessagePayload {
+                    message_version: message_version__.unwrap_or_default(),
+                    header_signature: header_signature__,
+                    convo_id: convo_id__.unwrap_or_default(),
+                    content_bytes: content_bytes__.unwrap_or_default(),
+                })
+            }
+        }
+        deserializer.deserialize_struct("xmtp.v3.message_contents.PadlockMessagePayload", FIELDS, GeneratedVisitor)
+    }
+}
+impl serde::Serialize for PadlockMessagePayloadVersion {
+    #[allow(deprecated)]
+    fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        let variant = match self {
+            Self::Unspecified => "PADLOCK_MESSAGE_PAYLOAD_VERSION_UNSPECIFIED",
+            Self::One => "PADLOCK_MESSAGE_PAYLOAD_VERSION_ONE",
+        };
+        serializer.serialize_str(variant)
+    }
+}
+impl<'de> serde::Deserialize<'de> for PadlockMessagePayloadVersion {
+    #[allow(deprecated)]
+    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        const FIELDS: &[&str] = &[
+            "PADLOCK_MESSAGE_PAYLOAD_VERSION_UNSPECIFIED",
+            "PADLOCK_MESSAGE_PAYLOAD_VERSION_ONE",
+        ];
+
+        struct GeneratedVisitor;
+
+        impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+            type Value = PadlockMessagePayloadVersion;
+
+            fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                write!(formatter, "expected one of: {:?}", &FIELDS)
+            }
+
+            fn visit_i64<E>(self, v: i64) -> std::result::Result<Self::Value, E>
+            where
+                E: serde::de::Error,
+            {
+                use std::convert::TryFrom;
+                i32::try_from(v)
+                    .ok()
+                    .and_then(PadlockMessagePayloadVersion::from_i32)
+                    .ok_or_else(|| {
+                        serde::de::Error::invalid_value(serde::de::Unexpected::Signed(v), &self)
+                    })
+            }
+
+            fn visit_u64<E>(self, v: u64) -> std::result::Result<Self::Value, E>
+            where
+                E: serde::de::Error,
+            {
+                use std::convert::TryFrom;
+                i32::try_from(v)
+                    .ok()
+                    .and_then(PadlockMessagePayloadVersion::from_i32)
+                    .ok_or_else(|| {
+                        serde::de::Error::invalid_value(serde::de::Unexpected::Unsigned(v), &self)
+                    })
+            }
+
+            fn visit_str<E>(self, value: &str) -> std::result::Result<Self::Value, E>
+            where
+                E: serde::de::Error,
+            {
+                match value {
+                    "PADLOCK_MESSAGE_PAYLOAD_VERSION_UNSPECIFIED" => Ok(PadlockMessagePayloadVersion::Unspecified),
+                    "PADLOCK_MESSAGE_PAYLOAD_VERSION_ONE" => Ok(PadlockMessagePayloadVersion::One),
+                    _ => Err(serde::de::Error::unknown_variant(value, FIELDS)),
+                }
+            }
+        }
+        deserializer.deserialize_any(GeneratedVisitor)
+    }
+}
+impl serde::Serialize for PadlockMessageSealedMetadata {
+    #[allow(deprecated)]
+    fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        use serde::ser::SerializeStruct;
+        let mut len = 0;
+        if !self.sender_user_address.is_empty() {
+            len += 1;
+        }
+        if !self.sender_installation_id.is_empty() {
+            len += 1;
+        }
+        if !self.recipient_user_address.is_empty() {
+            len += 1;
+        }
+        if !self.recipient_installation_id.is_empty() {
+            len += 1;
+        }
+        if self.is_prekey_message {
+            len += 1;
+        }
+        let mut struct_ser = serializer.serialize_struct("xmtp.v3.message_contents.PadlockMessageSealedMetadata", len)?;
+        if !self.sender_user_address.is_empty() {
+            struct_ser.serialize_field("senderUserAddress", &self.sender_user_address)?;
+        }
+        if !self.sender_installation_id.is_empty() {
+            struct_ser.serialize_field("senderInstallationId", &self.sender_installation_id)?;
+        }
+        if !self.recipient_user_address.is_empty() {
+            struct_ser.serialize_field("recipientUserAddress", &self.recipient_user_address)?;
+        }
+        if !self.recipient_installation_id.is_empty() {
+            struct_ser.serialize_field("recipientInstallationId", &self.recipient_installation_id)?;
+        }
+        if self.is_prekey_message {
+            struct_ser.serialize_field("isPrekeyMessage", &self.is_prekey_message)?;
+        }
+        struct_ser.end()
+    }
+}
+impl<'de> serde::Deserialize<'de> for PadlockMessageSealedMetadata {
+    #[allow(deprecated)]
+    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        const FIELDS: &[&str] = &[
+            "sender_user_address",
+            "senderUserAddress",
+            "sender_installation_id",
+            "senderInstallationId",
+            "recipient_user_address",
+            "recipientUserAddress",
+            "recipient_installation_id",
+            "recipientInstallationId",
+            "is_prekey_message",
+            "isPrekeyMessage",
+        ];
+
+        #[allow(clippy::enum_variant_names)]
+        enum GeneratedField {
+            SenderUserAddress,
+            SenderInstallationId,
+            RecipientUserAddress,
+            RecipientInstallationId,
+            IsPrekeyMessage,
+        }
+        impl<'de> serde::Deserialize<'de> for GeneratedField {
+            fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
+            where
+                D: serde::Deserializer<'de>,
+            {
+                struct GeneratedVisitor;
+
+                impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+                    type Value = GeneratedField;
+
+                    fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                        write!(formatter, "expected one of: {:?}", &FIELDS)
+                    }
+
+                    #[allow(unused_variables)]
+                    fn visit_str<E>(self, value: &str) -> std::result::Result<GeneratedField, E>
+                    where
+                        E: serde::de::Error,
+                    {
+                        match value {
+                            "senderUserAddress" | "sender_user_address" => Ok(GeneratedField::SenderUserAddress),
+                            "senderInstallationId" | "sender_installation_id" => Ok(GeneratedField::SenderInstallationId),
+                            "recipientUserAddress" | "recipient_user_address" => Ok(GeneratedField::RecipientUserAddress),
+                            "recipientInstallationId" | "recipient_installation_id" => Ok(GeneratedField::RecipientInstallationId),
+                            "isPrekeyMessage" | "is_prekey_message" => Ok(GeneratedField::IsPrekeyMessage),
+                            _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
+                        }
+                    }
+                }
+                deserializer.deserialize_identifier(GeneratedVisitor)
+            }
+        }
+        struct GeneratedVisitor;
+        impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+            type Value = PadlockMessageSealedMetadata;
+
+            fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                formatter.write_str("struct xmtp.v3.message_contents.PadlockMessageSealedMetadata")
+            }
+
+            fn visit_map<V>(self, mut map: V) -> std::result::Result<PadlockMessageSealedMetadata, V::Error>
+                where
+                    V: serde::de::MapAccess<'de>,
+            {
+                let mut sender_user_address__ = None;
+                let mut sender_installation_id__ = None;
+                let mut recipient_user_address__ = None;
+                let mut recipient_installation_id__ = None;
+                let mut is_prekey_message__ = None;
+                while let Some(k) = map.next_key()? {
+                    match k {
+                        GeneratedField::SenderUserAddress => {
+                            if sender_user_address__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("senderUserAddress"));
+                            }
+                            sender_user_address__ = Some(map.next_value()?);
+                        }
+                        GeneratedField::SenderInstallationId => {
+                            if sender_installation_id__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("senderInstallationId"));
+                            }
+                            sender_installation_id__ = Some(map.next_value()?);
+                        }
+                        GeneratedField::RecipientUserAddress => {
+                            if recipient_user_address__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("recipientUserAddress"));
+                            }
+                            recipient_user_address__ = Some(map.next_value()?);
+                        }
+                        GeneratedField::RecipientInstallationId => {
+                            if recipient_installation_id__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("recipientInstallationId"));
+                            }
+                            recipient_installation_id__ = Some(map.next_value()?);
+                        }
+                        GeneratedField::IsPrekeyMessage => {
+                            if is_prekey_message__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("isPrekeyMessage"));
+                            }
+                            is_prekey_message__ = Some(map.next_value()?);
+                        }
+                    }
+                }
+                Ok(PadlockMessageSealedMetadata {
+                    sender_user_address: sender_user_address__.unwrap_or_default(),
+                    sender_installation_id: sender_installation_id__.unwrap_or_default(),
+                    recipient_user_address: recipient_user_address__.unwrap_or_default(),
+                    recipient_installation_id: recipient_installation_id__.unwrap_or_default(),
+                    is_prekey_message: is_prekey_message__.unwrap_or_default(),
+                })
+            }
+        }
+        deserializer.deserialize_struct("xmtp.v3.message_contents.PadlockMessageSealedMetadata", FIELDS, GeneratedVisitor)
     }
 }
 impl serde::Serialize for RecoverableEcdsaSignature {
