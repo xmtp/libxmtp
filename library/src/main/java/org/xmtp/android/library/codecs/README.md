@@ -8,6 +8,8 @@ When you build an app with XMTP, all messages are encoded with a [content type](
 - `AttachmentCodec`: Enables sending attachments.
 - `RemoteAttachmentCodec`: Enables sending remote attachments.
 - `ReactionCodec`: Enables sending of reactions.
+- `ReplyCodec`: Enables sending of replies.
+
 
 ## Support remote media attachments
 
