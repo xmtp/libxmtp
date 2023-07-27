@@ -60,7 +60,7 @@ where
     ) -> Result<Self, ConversationError> {
         let obj = SecretConversation {
             client,
-            peer_address: peer_address.clone(),
+            peer_address,
             members,
         };
         obj.client.store.insert_or_ignore_user(StoredUser {
