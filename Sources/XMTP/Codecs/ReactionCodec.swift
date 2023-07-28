@@ -26,7 +26,10 @@ public enum ReactionSchema: String, Codable {
 }
 
 public struct ReactionCodec: ContentCodec {
+    public typealias T = Reaction
     public var contentType = ContentTypeReaction
+
+    public init() {}
 
     public func encode(content: Reaction) throws -> EncodedContent {
         var encodedContent = EncodedContent()
