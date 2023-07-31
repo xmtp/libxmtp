@@ -7,13 +7,10 @@ tags
 
 # Ignore intermediate build files
 *.a
-XMTPRustSwift.xcframework
-bundle.zip
-
+LibXMTPRust.xcframework
 /target
 /Cargo.lock
-.build
-/Generated
+/build
 
 # Ignore any swift files in include/Generated
 /include/**/*.swift
