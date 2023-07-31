@@ -14,27 +14,25 @@
 pub mod models;
 pub mod schema;
 
-use log::warn;
-use rand::RngCore;
-
 use self::{
     models::*,
-    schema::{accounts, conversations, inbound_invites, messages, refresh_jobs, users},
+    schema::{
+        accounts, conversations, inbound_invites, installations, messages, refresh_jobs, users,
+    },
 };
+use super::StorageError;
 use crate::{account::Account, Errorer, Fetch, Store};
 use diesel::{
     connection::SimpleConnection,
     prelude::*,
     r2d2::{ConnectionManager, Pool, PooledConnection},
 };
-
+use diesel_migrations::{embed_migrations, EmbeddedMigrations, MigrationHarness};
+use log::warn;
+use rand::RngCore;
 use xmtp_cryptography::utils as crypto_utils;
 
-use diesel_migrations::{embed_migrations, EmbeddedMigrations, MigrationHarness};
-
-use super::StorageError;
 pub const MIGRATIONS: EmbeddedMigrations = embed_migrations!("./migrations/");
-
 pub type EncryptionKey = [u8; 32];
 
 #[derive(Default, Clone, Debug)]
@@ -171,10 +169,37 @@ impl EncryptedMessageStore {
             .filter(peer_installation_id.eq(installation_id))
             .order(created_at.desc())
             .load::<StoredSession>(conn)
-            .map_err(|_| StorageError::Unknown)?;
+            .map_err(|e| StorageError::Unknown(e.to_string()))?;
 
         warn_length(&session_list, "StoredSession", 1);
         Ok(session_list.pop())
+    }
+
+    pub fn get_sessions(&self, user_address: &str) -> Result<Vec<StoredSession>, StorageError> {
+        let conn = &mut self.conn()?;
+        use self::schema::sessions::dsl as schema;
+
+        let session_list = schema::sessions
+            .filter(schema::user_address.eq(user_address))
+            .order(schema::created_at.desc())
+            .load::<StoredSession>(conn)
+            .map_err(|e| StorageError::Unknown(e.to_string()))?;
+        Ok(session_list)
+    }
+
+    pub fn get_installations(
+        &self,
+        user_address_str: &str,
+    ) -> Result<Vec<StoredInstallation>, StorageError> {
+        use self::schema::installations::dsl as schema;
+        let conn = &mut self.conn()?;
+
+        let installation_list = schema::installations
+            .filter(schema::user_address.eq(user_address_str))
+            .load::<StoredInstallation>(conn)
+            .map_err(|e| StorageError::Unknown(e.to_string()))?;
+
+        Ok(installation_list)
     }
 
     pub fn get_user(&self, address: &str) -> Result<Option<StoredUser>, StorageError> {
@@ -232,7 +257,7 @@ impl EncryptedMessageStore {
             .filter(dsl::user_address.eq(user_address))
             .order(dsl::first_seen_ns.desc())
             .load::<StoredInstallation>(conn)
-            .map_err(|_| StorageError::Unknown)?;
+            .map_err(|e| StorageError::Unknown(e.to_string()))?;
 
         Ok(install_list)
     }
@@ -286,6 +311,28 @@ impl EncryptedMessageStore {
             .values(invite)
             .execute(conn)?;
 
+        Ok(())
+    }
+
+    pub fn insert_or_ignore_install(
+        &self,
+        install: StoredInstallation,
+        conn: &mut PooledConnection<ConnectionManager<SqliteConnection>>,
+    ) -> Result<(), StorageError> {
+        diesel::insert_or_ignore_into(installations::table)
+            .values(install)
+            .execute(conn)?;
+        Ok(())
+    }
+
+    pub fn insert_or_ignore_session(
+        &self,
+        session: StoredSession,
+        conn: &mut PooledConnection<ConnectionManager<SqliteConnection>>,
+    ) -> Result<(), StorageError> {
+        diesel::insert_or_ignore_into(schema::sessions::table)
+            .values(session)
+            .execute(conn)?;
         Ok(())
     }
 }
@@ -606,7 +653,7 @@ mod tests {
         let res_expected_err = store.lock_refresh_job(RefreshJobKind::Message, |_, job| {
             assert_eq!(job.id, RefreshJobKind::Message.to_string());
 
-            Err(StorageError::Unknown)
+            Err(StorageError::Unknown(String::from("RefreshJob failed")))
         });
         assert!(res_expected_err.is_err());
 

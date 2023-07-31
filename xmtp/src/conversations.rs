@@ -41,7 +41,7 @@ where
                         self.get_start_time(job).unsigned_abs(),
                         crate::utils::build_user_invite_topic(my_contact.installation_id()),
                     ))
-                    .map_err(|_| StorageError::Unknown)?;
+                    .map_err(|e| StorageError::Unknown(e.to_string()))?;
                 // Save all invites
                 for envelope in downloaded {
                     self.client

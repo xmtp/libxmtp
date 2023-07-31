@@ -1,5 +1,7 @@
 use base64::{engine::general_purpose, Engine as _};
 use std::time::{SystemTime, UNIX_EPOCH};
+use vodozemac::Curve25519PublicKey;
+use xmtp_cryptography::hash::keccak256;
 
 use xmtp_proto::xmtp::message_api::v1::Envelope;
 
@@ -29,4 +31,8 @@ pub fn build_envelope(content_topic: String, message: Vec<u8>) -> Envelope {
 
 pub fn base64_encode(bytes: &[u8]) -> String {
     general_purpose::STANDARD_NO_PAD.encode(bytes)
+}
+
+pub fn key_fingerprint(key: &Curve25519PublicKey) -> String {
+    base64_encode(keccak256(key.to_string().as_str()).as_slice())
 }

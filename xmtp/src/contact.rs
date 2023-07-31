@@ -2,7 +2,6 @@ use prost::{DecodeError, EncodeError, Message};
 use thiserror::Error;
 
 use vodozemac::Curve25519PublicKey;
-use xmtp_cryptography::hash::keccak256;
 use xmtp_proto::xmtp::v3::message_contents::{
     installation_contact_bundle::Version as ContactBundleVersionProto,
     vmac_account_linked_key::Association as AssociationProto, vmac_unsigned_public_key,
@@ -11,7 +10,7 @@ use xmtp_proto::xmtp::v3::message_contents::{
 
 use crate::{
     association::{Association, AssociationError},
-    utils::base64_encode,
+    utils::key_fingerprint,
     vmac_protos::ProtoWrapper,
 };
 
@@ -93,7 +92,7 @@ impl Contact {
 
     // The id of a contact is the base64 encoding of the keccak256 hash of the identity key
     pub fn installation_id(&self) -> String {
-        base64_encode(keccak256(self.vmac_identity_key().to_string().as_str()).as_slice())
+        key_fingerprint(&self.vmac_identity_key())
     }
 
     pub fn vmac_identity_key(&self) -> Curve25519PublicKey {

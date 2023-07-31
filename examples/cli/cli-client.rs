@@ -9,7 +9,6 @@ $ RUST_LOG=info cargo run -- --db ~/hello2.db3 send 0x5c1c5699cc216366723fd172e9
 ```
 */
 
-
 extern crate ethers;
 extern crate log;
 extern crate xmtp;
@@ -17,6 +16,7 @@ extern crate xmtp;
 use clap::{Parser, Subcommand};
 use ethers_core::types::H160;
 use log::{debug, error, info};
+use std::fs;
 use std::path::PathBuf;
 use thiserror::Error;
 use url::ParseError;
@@ -30,15 +30,8 @@ use xmtp::types::Address;
 use xmtp::InboxOwner;
 use xmtp::Save;
 use xmtp_cryptography::signature::{h160addr_to_string, RecoverableSignature, SignatureError};
-use xmtp_cryptography::utils::{rng, LocalWallet};
+use xmtp_cryptography::utils::{rng, seeded_rng, LocalWallet};
 use xmtp_networking::grpc_api_helper::Client as ApiClient;
-
-// use xmtp_networking::Client as ApiClient;
-// use xmtp_cryptography::signature::{h160addr_to_string, RecoverableSignature, SignatureError};
-// use xmtp_cryptography::utils::{rng, LocalWallet};
-
-
-// type ApiClient = xmtp_networking::Client;
 type Client = xmtp::client::Client<ApiClient>;
 type ClientBuilder = xmtp::builder::ClientBuilder<ApiClient, Wallet>;
 
@@ -74,10 +67,13 @@ enum Commands {
         msg: String,
     },
 
-    Test {
-        #[arg(value_name = "FOO")]
-        var: String,
+    TestReg {
+        #[arg(value_name = "seed")]
+        wallet_seed: u64,
     },
+
+    Refresh {},
+    Clear {},
 }
 
 #[derive(Debug, Error)]
@@ -148,10 +144,26 @@ async fn main() {
             info!("Address is: {}", client.wallet_address());
             send(client, addr, msg).await.unwrap();
         }
-        Commands::Test {var }=> {
-            info!("TEst");
-            let client = create_client(cli.db, AccountStrategy::CachedOnly("nil".into())).await.unwrap();
-            client.refresh_user_installations(&client.wallet_address()).await;
+        Commands::TestReg { wallet_seed } => {
+            info!("TestReg");
+            let w = Wallet::LocalWallet(LocalWallet::new(&mut seeded_rng(*wallet_seed)));
+            let mut client = create_client(cli.db, AccountStrategy::CreateIfNotFound(w))
+                .await
+                .unwrap();
+            client.init().await.unwrap();
+        }
+        Commands::Refresh {} => {
+            info!("Refresh");
+            let client = create_client(cli.db, AccountStrategy::CachedOnly("nil".into()))
+                .await
+                .unwrap();
+            client
+                .refresh_user_installations(&client.wallet_address())
+                .await
+                .unwrap();
+        }
+        Commands::Clear {} => {
+            fs::remove_file(cli.db.unwrap()).unwrap();
         }
     }
 }
@@ -163,7 +175,7 @@ async fn create_client(
     let msg_store = get_encrypted_store(db).unwrap();
 
     let client_result = ClientBuilder::new(account)
-        .network(xmtp::Network::Dev)
+        .network(xmtp::Network::Local("http://localhost:5556"))
         .api_client(
             ApiClient::create("http://localhost:5556".into(), false)
                 .await

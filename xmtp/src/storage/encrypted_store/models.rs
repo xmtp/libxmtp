@@ -187,23 +187,24 @@ pub struct StoredInstallation {
     pub user_address: String,
     pub first_seen_ns: i64,
     pub contact: Vec<u8>,
-    pub contact_hash: String,
     pub expires_at_ns: Option<i64>,
 }
 
 impl StoredInstallation {
     pub fn new(contact: &Contact) -> Result<Self, ContactError> {
         let contact_bytes: Vec<u8> = contact.try_into()?;
-        let contact_hash = hex::encode(sha256_bytes(&contact_bytes).as_slice());
 
         Ok(Self {
             installation_id: contact.installation_id(),
             user_address: contact.wallet_address.clone(),
             first_seen_ns: now(),
             contact: contact_bytes,
-            contact_hash: contact_hash,
             expires_at_ns: None,
         })
+    }
+
+    pub fn get_contact(&self) -> Result<Contact, ContactError> {
+        Contact::from_bytes(self.contact.clone(), self.user_address.clone())
     }
 }
 

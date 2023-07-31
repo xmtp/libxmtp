@@ -45,6 +45,10 @@ impl SessionManager {
         self.session.session_id()
     }
 
+    pub fn installation_id(&self) -> String {
+        self.peer_installation_id.clone()
+    }
+
     pub fn session_bytes(&self) -> Result<Vec<u8>, SessionError> {
         let res = serde_json::to_vec(&self.session.pickle())?;
         Ok(res)

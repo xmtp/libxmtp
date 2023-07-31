@@ -5,6 +5,12 @@ if [[ "${OSTYPE}" == "darwin"* ]]; then
     if ! which buf &>/dev/null; then brew install buf; fi
     if ! which shellcheck &>/dev/null; then brew install shellcheck; fi
     if ! which markdownlint &>/dev/null; then brew install markdownlint-cli; fi
+    if ! java -version &>/dev/null; then
+        brew install java
+        sudo ln -sfn /opt/homebrew/opt/openjdk/libexec/openjdk.jdk \
+            /Library/Java/JavaVirtualMachines/
+    fi
+    if ! kotlinc -version &>/dev/null; then brew install kotlin; fi
 fi
 
 dev/docker/up
