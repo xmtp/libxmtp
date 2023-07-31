@@ -9,7 +9,8 @@ use crate::{
     conversation::{peer_addr_from_convo_id, ConversationError, SecretConversation},
     session::SessionManager,
     storage::{
-        OutboundPayloadState, RefreshJob, RefreshJobKind, StorageError, StoredOutboundPayload,
+        MessageState, OutboundPayloadState, RefreshJob, RefreshJobKind, StorageError,
+        StoredOutboundPayload, StoredSession,
     },
     types::networking::XmtpApiClient,
     utils::build_installation_message_topic,
@@ -74,14 +75,15 @@ where
     pub(crate) async fn process_outbound_messages(&self) -> Result<(), ConversationError> {
         let my_user_addr = self.client.wallet_address();
         let my_installation_id = self.client.account.contact().installation_id();
-        let my_sessions = self.client.store.get_sessions(&my_user_addr)?;
-        if my_sessions.is_empty() {
-            return Err(ConversationError::NoSessionsError(my_user_addr));
-        }
 
         let mut messages = self.client.store.get_unprocessed_messages()?;
         messages.sort_by(|a, b| a.created_at.cmp(&b.created_at));
+
         for message in messages {
+            let my_sessions = self.client.store.get_sessions(&my_user_addr)?;
+            if my_sessions.is_empty() {
+                return Err(ConversationError::NoSessionsError(my_user_addr));
+            }
             let their_user_addr =
                 peer_addr_from_convo_id(&self.client.wallet_address(), &message.convo_id)?;
             let their_sessions = self.client.store.get_sessions(&their_user_addr)?;
@@ -117,7 +119,9 @@ where
 
                 let payload = PadlockMessagePayload {
                     message_version: PadlockMessagePayloadVersion::One as i32,
-                    header_signature: None, // TODO sign header
+                    // TODO sign header - requires exposing a vmac method to sign bytes
+                    // rather than string: https://matrix-org.github.io/vodozemac/vodozemac/olm/struct.Account.html#method.sign
+                    header_signature: None,
                     convo_id: message.convo_id.clone(),
                     content_bytes: message.content.clone(),
                 };
@@ -140,7 +144,14 @@ where
                     outbound_payload_state: OutboundPayloadState::Pending as i32,
                 };
 
-                // session.save(&client.store).unwrap();
+                let updated_session = StoredSession::try_from(&session)?;
+                self.client.store.commit_outbound_payload(
+                    outbound_payload,
+                    updated_session.session_id,
+                    updated_session.vmac_session_data,
+                    message.id,
+                    MessageState::LocallyCommitted,
+                )?;
             }
         }
 

@@ -335,6 +335,31 @@ impl EncryptedMessageStore {
             .execute(conn)?;
         Ok(())
     }
+
+    pub fn commit_outbound_payload(
+        &self,
+        new_outbound_payload: StoredOutboundPayload,
+        session_id: String,
+        updated_session_data: Vec<u8>,
+        message_id: i32,
+        updated_message_state: MessageState,
+    ) -> Result<(), StorageError> {
+        let conn = &mut self.conn()?;
+        conn.transaction::<(), StorageError, _>(|connection| {
+            diesel::insert_into(schema::outbound_payloads::table)
+                .values(new_outbound_payload)
+                .execute(connection)?;
+            diesel::update(schema::sessions::table.find(session_id))
+                .set(schema::sessions::vmac_session_data.eq(updated_session_data))
+                .execute(connection)?;
+            diesel::update(messages::table.find(message_id))
+                .set(messages::state.eq(updated_message_state as i32))
+                .execute(connection)?;
+            Ok(())
+        })?;
+
+        Ok(())
+    }
 }
 
 impl Store<EncryptedMessageStore> for NewStoredMessage {
