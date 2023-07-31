@@ -2,6 +2,7 @@ pub mod account;
 pub mod association;
 pub mod builder;
 pub mod client;
+mod codecs;
 pub mod contact;
 pub mod conversation;
 pub mod conversations;
