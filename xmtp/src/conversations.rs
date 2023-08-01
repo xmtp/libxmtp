@@ -10,7 +10,7 @@ use crate::{
     session::SessionManager,
     storage::{
         MessageState, OutboundPayloadState, RefreshJob, RefreshJobKind, StorageError,
-        StoredOutboundPayload, StoredSession,
+        StoredMessage, StoredOutboundPayload, StoredSession,
     },
     types::networking::XmtpApiClient,
     utils::build_installation_message_topic,
@@ -72,20 +72,63 @@ where
         std::cmp::max(job.last_run - PADDING_TIME_NS, 0)
     }
 
-    pub(crate) async fn process_outbound_messages(&self) -> Result<(), ConversationError> {
+    fn create_outbound_payload(
+        &self,
+        session: &mut SessionManager,
+        message: &StoredMessage,
+    ) -> Result<StoredOutboundPayload, ConversationError> {
+        let is_prekey_message = !session.has_received_message();
+
+        let metadata = PadlockMessageSealedMetadata {
+            sender_user_address: self.client.wallet_address(),
+            sender_installation_id: self.client.account.contact().installation_id(),
+            recipient_user_address: session.user_address(),
+            recipient_installation_id: session.installation_id(),
+            is_prekey_message,
+        };
+        // TODO encrypted sealed metadata using sealed sender
+        let sealed_metadata = metadata.encode_to_vec();
+        let message_header = PadlockMessageHeader {
+            sent_ns: message.created_at as u64,
+            sealed_metadata,
+        };
+
+        let payload = PadlockMessagePayload {
+            message_version: PadlockMessagePayloadVersion::One as i32,
+            // TODO sign header - requires exposing a vmac method to sign bytes
+            // rather than string: https://matrix-org.github.io/vodozemac/vodozemac/olm/struct.Account.html#method.sign
+            header_signature: None,
+            convo_id: message.convo_id.clone(),
+            content_bytes: message.content.clone(),
+        };
+        let olm_message = session.encrypt(&payload.encode_to_vec());
+        let ciphertext = match olm_message {
+            OlmMessage::Normal(message) => message.to_bytes(),
+            OlmMessage::PreKey(prekey_message) => prekey_message.to_bytes(),
+        };
+
+        let envelope = PadlockMessageEnvelope {
+            header_bytes: message_header.encode_to_vec(),
+            ciphertext,
+        };
+        Ok(StoredOutboundPayload {
+            created_at_ns: message.created_at,
+            content_topic: build_installation_message_topic(&session.installation_id()),
+            payload: envelope.encode_to_vec(),
+            outbound_payload_state: OutboundPayloadState::Pending as i32,
+        })
+    }
+
+    pub async fn process_outbound_messages(&self) -> Result<(), ConversationError> {
         let my_user_addr = self.client.wallet_address();
         let my_installation_id = self.client.account.contact().installation_id();
-
         let mut messages = self.client.store.get_unprocessed_messages()?;
         messages.sort_by(|a, b| a.created_at.cmp(&b.created_at));
 
         for message in messages {
             let my_sessions = self.client.store.get_sessions(&my_user_addr)?;
-            if my_sessions.is_empty() {
-                return Err(ConversationError::NoSessionsError(my_user_addr));
-            }
             let their_user_addr =
-                peer_addr_from_convo_id(&self.client.wallet_address(), &message.convo_id)?;
+                peer_addr_from_convo_id(&message.convo_id, &self.client.wallet_address())?;
             let their_sessions = self.client.store.get_sessions(&their_user_addr)?;
             if their_sessions.is_empty() {
                 log::error!(
@@ -96,81 +139,46 @@ where
                 continue;
             }
 
+            let mut outbound_payloads = Vec::new();
+            let mut updated_sessions = Vec::new();
             for stored_session in my_sessions.iter().chain(&their_sessions) {
                 if stored_session.peer_installation_id == my_installation_id {
                     continue;
                 }
                 let mut session = SessionManager::try_from(stored_session)?;
-                let is_prekey_message = !session.has_received_message();
-
-                let metadata = PadlockMessageSealedMetadata {
-                    sender_user_address: my_user_addr.clone(),
-                    sender_installation_id: my_installation_id.clone(),
-                    recipient_user_address: their_user_addr.clone(),
-                    recipient_installation_id: stored_session.peer_installation_id.clone(),
-                    is_prekey_message,
-                };
-                // TODO encrypted sealed metadata using sealed sender
-                let sealed_metadata = metadata.encode_to_vec();
-                let message_header = PadlockMessageHeader {
-                    sent_ns: message.created_at as u64,
-                    sealed_metadata,
-                };
-
-                let payload = PadlockMessagePayload {
-                    message_version: PadlockMessagePayloadVersion::One as i32,
-                    // TODO sign header - requires exposing a vmac method to sign bytes
-                    // rather than string: https://matrix-org.github.io/vodozemac/vodozemac/olm/struct.Account.html#method.sign
-                    header_signature: None,
-                    convo_id: message.convo_id.clone(),
-                    content_bytes: message.content.clone(),
-                };
-                let olm_message = session.encrypt(&payload.encode_to_vec());
-                let ciphertext = match olm_message {
-                    OlmMessage::Normal(message) => message.to_bytes(),
-                    OlmMessage::PreKey(prekey_message) => prekey_message.to_bytes(),
-                };
-
-                let envelope = PadlockMessageEnvelope {
-                    header_bytes: message_header.encode_to_vec(),
-                    ciphertext,
-                };
-                let outbound_payload = StoredOutboundPayload {
-                    created_at_ns: message.created_at,
-                    content_topic: build_installation_message_topic(
-                        &stored_session.peer_installation_id,
-                    ),
-                    payload: envelope.encode_to_vec(),
-                    outbound_payload_state: OutboundPayloadState::Pending as i32,
-                };
-
+                let outbound_payload = self.create_outbound_payload(&mut session, &message)?;
                 let updated_session = StoredSession::try_from(&session)?;
-                self.client.store.commit_outbound_payload(
-                    outbound_payload,
-                    updated_session.session_id,
-                    updated_session.vmac_session_data,
-                    message.id,
-                    MessageState::LocallyCommitted,
-                )?;
+                outbound_payloads.push(outbound_payload);
+                updated_sessions.push(updated_session);
             }
+
+            self.client.store.commit_outbound_payloads_for_message(
+                message.id,
+                MessageState::LocallyCommitted,
+                outbound_payloads,
+                updated_sessions,
+            )?;
         }
 
+        self.process_outbound_payloads().await;
         Ok(())
     }
 
-    pub(crate) fn process_outbound_payloads(&self) -> () {}
+    pub(crate) async fn process_outbound_payloads(&self) -> () {}
 }
 
 #[cfg(test)]
 mod tests {
-    use crate::{conversations::Conversations, ClientBuilder};
+    use crate::{
+        conversations::Conversations,
+        test_utils::test_utils::{gen_test_client, gen_test_conversation},
+        ClientBuilder,
+    };
 
     #[tokio::test]
     async fn create_secret_conversation() {
-        let mut alice_client = ClientBuilder::new_test().build().unwrap();
-        alice_client.init().await.unwrap();
-        let mut bob_client = ClientBuilder::new_test().build().unwrap();
-        bob_client.init().await.unwrap();
+        let alice_client = gen_test_client().await;
+        let bob_client = gen_test_client().await;
 
         let conversations = Conversations::new(&alice_client);
         let conversation = conversations
@@ -189,5 +197,28 @@ mod tests {
 
         let invites = Conversations::new(&alice_client).save_invites();
         assert!(invites.is_ok());
+    }
+
+    #[tokio::test]
+    async fn create_outbound_payload() {}
+
+    #[tokio::test]
+    async fn process_outbound_messages() {
+        let alice_client = gen_test_client().await;
+        let bob_client = gen_test_client().await;
+
+        let conversations = Conversations::new(&alice_client);
+        let conversation =
+            gen_test_conversation(&conversations, &bob_client.wallet_address()).await;
+
+        conversation.send_message("Hello world").unwrap();
+        let unprocessed_messages = alice_client.store.get_unprocessed_messages().unwrap();
+        assert_eq!(unprocessed_messages.len(), 1);
+
+        conversations.process_outbound_messages().await.unwrap();
+        let unprocessed_messages = alice_client.store.get_unprocessed_messages().unwrap();
+        assert_eq!(unprocessed_messages.len(), 0);
+
+        // TODO fetch outbound payloads from DB and validate when implementing process_payloads
     }
 }

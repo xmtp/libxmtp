@@ -48,9 +48,10 @@ pub fn peer_addr_from_convo_id(
 ) -> Result<String, ConversationError> {
     let segments = convo_id.split(':').collect::<Vec<&str>>();
     if segments.len() != 3 {
-        return Err(ConversationError::Decode(DecodeError::new(
-            "Invalid convo ID",
-        )));
+        return Err(ConversationError::Decode(DecodeError::new(format!(
+            "Invalid convo ID {}",
+            convo_id
+        ))));
     }
     if segments[1] == self_addr {
         return Ok(segments[2].to_string());

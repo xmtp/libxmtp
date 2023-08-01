@@ -45,6 +45,10 @@ impl SessionManager {
         self.session.session_id()
     }
 
+    pub fn user_address(&self) -> String {
+        self.user_address.clone()
+    }
+
     pub fn installation_id(&self) -> String {
         self.peer_installation_id.clone()
     }

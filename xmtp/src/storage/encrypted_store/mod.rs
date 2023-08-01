@@ -29,6 +29,7 @@ use diesel::{
 };
 use diesel_migrations::{embed_migrations, EmbeddedMigrations, MigrationHarness};
 use log::warn;
+use prost::Message;
 use rand::RngCore;
 use xmtp_cryptography::utils as crypto_utils;
 
@@ -336,21 +337,22 @@ impl EncryptedMessageStore {
         Ok(())
     }
 
-    pub fn commit_outbound_payload(
+    pub fn commit_outbound_payloads_for_message(
         &self,
-        new_outbound_payload: StoredOutboundPayload,
-        session_id: String,
-        updated_session_data: Vec<u8>,
         message_id: i32,
         updated_message_state: MessageState,
+        new_outbound_payloads: Vec<StoredOutboundPayload>,
+        updated_sessions: Vec<StoredSession>,
     ) -> Result<(), StorageError> {
         let conn = &mut self.conn()?;
         conn.transaction::<(), StorageError, _>(|connection| {
+            for session in updated_sessions {
+                diesel::update(schema::sessions::table.find(session.session_id))
+                    .set(schema::sessions::vmac_session_data.eq(session.vmac_session_data))
+                    .execute(connection)?;
+            }
             diesel::insert_into(schema::outbound_payloads::table)
-                .values(new_outbound_payload)
-                .execute(connection)?;
-            diesel::update(schema::sessions::table.find(session_id))
-                .set(schema::sessions::vmac_session_data.eq(updated_session_data))
+                .values(new_outbound_payloads)
                 .execute(connection)?;
             diesel::update(messages::table.find(message_id))
                 .set(messages::state.eq(updated_message_state as i32))
