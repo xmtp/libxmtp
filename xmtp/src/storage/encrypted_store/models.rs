@@ -142,6 +142,7 @@ impl Save<EncryptedMessageStore> for StoredSession {
         let conn = &mut into.conn()?;
 
         diesel::update(sessions::table)
+            .filter(sessions::session_id.eq(self.session_id.clone()))
             .set((
                 sessions::vmac_session_data.eq(&self.vmac_session_data),
                 sessions::peer_installation_id.eq(&self.peer_installation_id),

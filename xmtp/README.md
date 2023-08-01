@@ -38,7 +38,7 @@ User:
 Installation:
     - UNINITIALIZED: There is no session state with that installation (no prekey messages were sent yet)
     - SESSION_CREATED: There is existing session state with that installation
-
+g
 Message:
     - UNPROCESSED: The message has not been encrypted yet
     - LOCALLY_COMMITTED: The outbound payloads have been constructed

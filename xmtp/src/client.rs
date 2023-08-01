@@ -8,7 +8,7 @@ use crate::{
     account::Account,
     contact::{Contact, ContactError},
     session::SessionManager,
-    storage::{EncryptedMessageStore, StorageError, StoredInstallation},
+    storage::{DbConnection, EncryptedMessageStore, StorageError, StoredInstallation},
     types::networking::{PublishRequest, QueryRequest, XmtpApiClient},
     types::Address,
     utils::{build_envelope, build_user_contact_topic},

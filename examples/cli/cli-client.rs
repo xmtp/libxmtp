@@ -9,7 +9,6 @@ $ RUST_LOG=info cargo run -- --db ~/hello2.db3 send 0x5c1c5699cc216366723fd172e9
 ```
 */
 
-
 extern crate ethers;
 extern crate log;
 extern crate xmtp;
@@ -36,7 +35,6 @@ use xmtp_networking::grpc_api_helper::Client as ApiClient;
 // use xmtp_networking::Client as ApiClient;
 // use xmtp_cryptography::signature::{h160addr_to_string, RecoverableSignature, SignatureError};
 // use xmtp_cryptography::utils::{rng, LocalWallet};
-
 
 // type ApiClient = xmtp_networking::Client;
 type Client = xmtp::client::Client<ApiClient>;
@@ -148,10 +146,14 @@ async fn main() {
             info!("Address is: {}", client.wallet_address());
             send(client, addr, msg).await.unwrap();
         }
-        Commands::Test {var }=> {
+        Commands::Test { var } => {
             info!("TEst");
-            let client = create_client(cli.db, AccountStrategy::CachedOnly("nil".into())).await.unwrap();
-            client.refresh_user_installations(&client.wallet_address()).await;
+            let client = create_client(cli.db, AccountStrategy::CachedOnly("nil".into()))
+                .await
+                .unwrap();
+            client
+                .refresh_user_installations(&client.wallet_address())
+                .await;
         }
     }
 }

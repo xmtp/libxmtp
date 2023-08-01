@@ -35,6 +35,8 @@ use diesel_migrations::{embed_migrations, EmbeddedMigrations, MigrationHarness};
 use super::StorageError;
 pub const MIGRATIONS: EmbeddedMigrations = embed_migrations!("./migrations/");
 
+pub type DbConnection = PooledConnection<ConnectionManager<SqliteConnection>>;
+
 pub type EncryptionKey = [u8; 32];
 
 #[derive(Default, Clone, Debug)]
@@ -160,11 +162,11 @@ impl EncryptedMessageStore {
         Ok(account_list.pop())
     }
 
-    pub fn get_session(
+    pub fn get_session_with_conn(
         &self,
         installation_id: &str,
+        conn: &mut DbConnection,
     ) -> Result<Option<StoredSession>, StorageError> {
-        let conn = &mut self.conn()?;
         use self::schema::sessions::dsl::*;
 
         let mut session_list = sessions
@@ -175,6 +177,15 @@ impl EncryptedMessageStore {
 
         warn_length(&session_list, "StoredSession", 1);
         Ok(session_list.pop())
+    }
+
+    pub fn get_session(
+        &self,
+        installation_id: &str,
+    ) -> Result<Option<StoredSession>, StorageError> {
+        let conn = &mut self.conn()?;
+
+        self.get_session_with_conn(installation_id, conn)
     }
 
     pub fn get_user(&self, address: &str) -> Result<Option<StoredUser>, StorageError> {
@@ -277,6 +288,21 @@ impl EncryptedMessageStore {
         Ok(())
     }
 
+    pub fn get_inbound_invites(
+        &self,
+        conn: &mut PooledConnection<ConnectionManager<SqliteConnection>>,
+        status: InboundInviteStatus,
+    ) -> Result<Vec<InboundInvite>, StorageError> {
+        use self::schema::inbound_invites::dsl;
+
+        let invites = dsl::inbound_invites
+            .filter(dsl::status.eq(status as i16))
+            .order(dsl::sent_at_ns.asc())
+            .load::<InboundInvite>(conn)?;
+
+        Ok(invites)
+    }
+
     pub fn save_inbound_invite(
         &self,
         conn: &mut PooledConnection<ConnectionManager<SqliteConnection>>,
@@ -284,6 +310,22 @@ impl EncryptedMessageStore {
     ) -> Result<(), StorageError> {
         diesel::insert_into(inbound_invites::table)
             .values(invite)
+            .execute(conn)?;
+
+        Ok(())
+    }
+
+    pub fn set_invite_status(
+        &self,
+        conn: &mut DbConnection,
+        id: String,
+        status: InboundInviteStatus,
+    ) -> Result<(), StorageError> {
+        use self::schema::inbound_invites::dsl;
+
+        diesel::update(dsl::inbound_invites)
+            .filter(dsl::id.eq(id))
+            .set((dsl::status.eq(status as i16)))
             .execute(conn)?;
 
         Ok(())
@@ -618,6 +660,47 @@ mod tests {
                 Ok(())
             })
             .unwrap();
+    }
+
+    #[test]
+    fn get_inbound_invites() {
+        let store = EncryptedMessageStore::new(
+            StorageOption::Ephemeral,
+            EncryptedMessageStore::generate_enc_key(),
+        )
+        .unwrap();
+
+        let invite_1 = InboundInvite {
+            sent_at_ns: 20,
+            id: "id_1".into(),
+            payload: vec![1, 2, 3],
+            topic: "topic".into(),
+            status: InboundInviteStatus::Pending as i16,
+        };
+        let invite_2 = InboundInvite {
+            sent_at_ns: 30,
+            id: "id_2".into(),
+            payload: vec![1, 2, 3, 4],
+            topic: "topic".into(),
+            status: InboundInviteStatus::Pending as i16,
+        };
+        store
+            .save_inbound_invite(&mut store.conn().unwrap(), invite_1.clone())
+            .unwrap();
+        store
+            .save_inbound_invite(&mut store.conn().unwrap(), invite_2.clone())
+            .unwrap();
+
+        let pending_results = store
+            .get_inbound_invites(&mut store.conn().unwrap(), InboundInviteStatus::Pending)
+            .unwrap();
+        assert_eq!(2, pending_results.len());
+        assert_eq!(pending_results[0].id, invite_1.id);
+
+        let processed_results = store
+            .get_inbound_invites(&mut store.conn().unwrap(), InboundInviteStatus::Processed)
+            .unwrap();
+        assert_eq!(0, processed_results.len());
     }
 
     #[test]
