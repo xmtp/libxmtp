@@ -1,5 +1,6 @@
 use crate::{
     client::ClientError,
+    codecs::{text::TextCodec, CodecError, ContentCodec},
     contact::Contact,
     invitation::{Invitation, InvitationError},
     storage::{
@@ -13,7 +14,7 @@ use crate::{
     Client, Store,
 };
 
-use prost::DecodeError;
+use prost::{DecodeError, Message};
 // use async_trait::async_trait;
 use thiserror::Error;
 
@@ -23,6 +24,8 @@ pub enum ConversationError {
     Client(#[from] ClientError),
     #[error("invitation error {0}")]
     Invitation(#[from] InvitationError),
+    #[error("codec error {0}")]
+    Codec(#[from] CodecError),
     #[error("decode error {0}")]
     Decode(DecodeError),
     #[error("storage error: {0}")]
@@ -88,10 +91,13 @@ where
     }
 
     pub fn send_message(&self, text: &str) -> Result<(), ConversationError> {
+        // TODO support other codecs
+        let encoded_content = TextCodec::encode(text.to_string())?;
+        let content_bytes = encoded_content.encode_to_vec();
         NewStoredMessage::new(
             self.convo_id(),
             self.client.account.addr(),
-            text.as_bytes().to_vec(),
+            content_bytes,
             MessageState::Unprocessed as i32,
         )
         .store(&self.client.store)?;
@@ -130,7 +136,11 @@ where
 
 #[cfg(test)]
 mod tests {
+    use prost::Message;
+    use xmtp_proto::xmtp::message_contents::EncodedContent;
+
     use crate::{
+        codecs::{text::TextCodec, ContentCodec},
         conversations::Conversations,
         test_utils::test_utils::{gen_test_client, gen_test_conversation},
     };
@@ -156,6 +166,7 @@ mod tests {
         conversation.send_message("Hello, world!").unwrap();
 
         let message = &client.store.get_unprocessed_messages().unwrap()[0];
-        assert!(message.content == "Hello, world!".as_bytes().to_vec());
+        let content = EncodedContent::decode(&message.content[..]).unwrap();
+        assert!(TextCodec::decode(content).unwrap() == "Hello, world!");
     }
 }
