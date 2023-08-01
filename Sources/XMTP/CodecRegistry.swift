@@ -25,4 +25,14 @@ struct CodecRegistry {
 
 		return TextCodec()
 	}
+
+	func find(for contentTypeString: String) -> any ContentCodec {
+		for (_, codec) in codecs {
+			if codec.description == contentTypeString {
+				return codec
+			}
+		}
+
+		return TextCodec()
+	}
 }

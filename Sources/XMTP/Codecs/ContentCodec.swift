@@ -85,4 +85,8 @@ public extension ContentCodec {
 	func hash(into hasher: inout Hasher) {
 		hasher.combine(id)
 	}
+
+	var description: String {
+		contentType.description
+	}
 }
