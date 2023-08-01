@@ -5,7 +5,7 @@ if ! cargo install --list | grep "protoc-gen-prost-crate" > /dev/null; then
         exit 1
     fi
 fi
-if ! buf generate https://github.com/xmtp/proto.git#branch=rich/is_prekey_message,subdir=proto; then
+if ! buf generate https://github.com/xmtp/proto.git#branch=xmtpv3,subdir=proto; then
     echo "Failed to generate protobuf definitions"
     exit 1
 fi
