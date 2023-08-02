@@ -175,8 +175,11 @@ impl EncryptedMessageStore {
         Ok(session_list.pop())
     }
 
-    pub fn get_sessions(&self, user_address: &str) -> Result<Vec<StoredSession>, StorageError> {
-        let conn = &mut self.conn()?;
+    pub fn get_sessions(
+        &self,
+        user_address: &str,
+        conn: &mut PooledConnection<ConnectionManager<SqliteConnection>>,
+    ) -> Result<Vec<StoredSession>, StorageError> {
         use self::schema::sessions::dsl as schema;
 
         let session_list = schema::sessions
@@ -342,23 +345,19 @@ impl EncryptedMessageStore {
         updated_message_state: MessageState,
         new_outbound_payloads: Vec<StoredOutboundPayload>,
         updated_sessions: Vec<StoredSession>,
+        conn: &mut PooledConnection<ConnectionManager<SqliteConnection>>,
     ) -> Result<(), StorageError> {
-        let conn = &mut self.conn()?;
-        conn.transaction::<(), StorageError, _>(|connection| {
-            for session in updated_sessions {
-                diesel::update(schema::sessions::table.find(session.session_id))
-                    .set(schema::sessions::vmac_session_data.eq(session.vmac_session_data))
-                    .execute(connection)?;
-            }
-            diesel::insert_into(schema::outbound_payloads::table)
-                .values(new_outbound_payloads)
-                .execute(connection)?;
-            diesel::update(messages::table.find(message_id))
-                .set(messages::state.eq(updated_message_state as i32))
-                .execute(connection)?;
-            Ok(())
-        })?;
-
+        for session in updated_sessions {
+            diesel::update(schema::sessions::table.find(session.session_id))
+                .set(schema::sessions::vmac_session_data.eq(session.vmac_session_data))
+                .execute(conn)?;
+        }
+        diesel::insert_into(schema::outbound_payloads::table)
+            .values(new_outbound_payloads)
+            .execute(conn)?;
+        diesel::update(messages::table.find(message_id))
+            .set(messages::state.eq(updated_message_state as i32))
+            .execute(conn)?;
         Ok(())
     }
 }

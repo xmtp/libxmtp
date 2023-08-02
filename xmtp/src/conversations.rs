@@ -1,3 +1,4 @@
+use diesel::Connection;
 use prost::Message;
 use vodozemac::olm::OlmMessage;
 use xmtp_proto::xmtp::v3::message_contents::{
@@ -128,37 +129,46 @@ where
         &self,
         message: &StoredMessage,
     ) -> Result<(), ConversationError> {
-        let my_sessions = self
-            .client
-            .store
-            .get_sessions(&self.client.wallet_address())?;
-        let their_user_addr =
-            peer_addr_from_convo_id(&message.convo_id, &self.client.wallet_address())?;
-        let their_sessions = self.client.store.get_sessions(&their_user_addr)?;
-        if their_sessions.is_empty() {
-            return Err(ConversationError::NoSessionsError(their_user_addr));
-        }
+        self.client.store.conn().unwrap().transaction(
+            |transaction| -> Result<(), ConversationError> {
+                let my_sessions = self
+                    .client
+                    .store
+                    .get_sessions(&self.client.wallet_address(), transaction)?;
+                let their_user_addr =
+                    peer_addr_from_convo_id(&message.convo_id, &self.client.wallet_address())?;
+                let their_sessions = self
+                    .client
+                    .store
+                    .get_sessions(&their_user_addr, transaction)?;
+                if their_sessions.is_empty() {
+                    return Err(ConversationError::NoSessionsError(their_user_addr));
+                }
 
-        let mut outbound_payloads = Vec::new();
-        let mut updated_sessions = Vec::new();
-        for stored_session in my_sessions.iter().chain(&their_sessions) {
-            if stored_session.peer_installation_id
-                == self.client.account.contact().installation_id()
-            {
-                continue;
-            }
-            let mut session = SessionManager::try_from(stored_session)?;
-            let outbound_payload = self.create_outbound_payload(&mut session, &message)?;
-            let updated_session = StoredSession::try_from(&session)?;
-            outbound_payloads.push(outbound_payload);
-            updated_sessions.push(updated_session);
-        }
+                let mut outbound_payloads = Vec::new();
+                let mut updated_sessions = Vec::new();
+                for stored_session in my_sessions.iter().chain(&their_sessions) {
+                    if stored_session.peer_installation_id
+                        == self.client.account.contact().installation_id()
+                    {
+                        continue;
+                    }
+                    let mut session = SessionManager::try_from(stored_session)?;
+                    let outbound_payload = self.create_outbound_payload(&mut session, &message)?;
+                    let updated_session = StoredSession::try_from(&session)?;
+                    outbound_payloads.push(outbound_payload);
+                    updated_sessions.push(updated_session);
+                }
 
-        self.client.store.commit_outbound_payloads_for_message(
-            message.id,
-            MessageState::LocallyCommitted,
-            outbound_payloads,
-            updated_sessions,
+                self.client.store.commit_outbound_payloads_for_message(
+                    message.id,
+                    MessageState::LocallyCommitted,
+                    outbound_payloads,
+                    updated_sessions,
+                    transaction,
+                )?;
+                Ok(())
+            },
         )?;
 
         Ok(())

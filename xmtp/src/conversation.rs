@@ -30,6 +30,8 @@ pub enum ConversationError {
     Decode(DecodeError),
     #[error("storage error: {0}")]
     Storage(#[from] StorageError),
+    #[error("diesel error: {0}")]
+    Diesel(#[from] diesel::result::Error),
     #[error("No sessions for user: {0}")]
     NoSessionsError(String),
     #[error("unknown error")]
