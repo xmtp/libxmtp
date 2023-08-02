@@ -2,7 +2,7 @@ use core::fmt;
 use std::fmt::Formatter;
 
 use diesel::Connection;
-use log::info;
+use log::{debug, info};
 use thiserror::Error;
 use vodozemac::olm::OlmMessage;
 
@@ -152,6 +152,10 @@ where
     pub async fn refresh_user_installations(&self, user_address: &str) -> Result<(), ClientError> {
         let self_install_id = key_fingerprint(&self.account.identity_keys().curve25519);
         let contacts = self.get_contacts(user_address).await?;
+        debug!(
+            "Fetched contacts for address {}: {:?}",
+            user_address, contacts
+        );
 
         let installation_map = self
             .store
@@ -160,11 +164,16 @@ where
             .map(|v| (v.installation_id.clone(), v))
             .collect::<HashMap<_, _>>();
 
-        let new_installs = contacts
+        let new_installs: Vec<StoredInstallation> = contacts
             .iter()
-            .filter(|contact| self_install_id == contact.installation_id())
+            .filter(|contact| self_install_id != contact.installation_id())
             .filter(|contact| !installation_map.contains_key(&contact.installation_id()))
-            .filter_map(|contact| StoredInstallation::new(contact).ok());
+            .filter_map(|contact| StoredInstallation::new(contact).ok())
+            .collect();
+        debug!(
+            "New installs for address {}: {:?}",
+            user_address, new_installs
+        );
 
         self.store.conn().unwrap().transaction(
             |transaction_manager| -> Result<(), ClientError> {
