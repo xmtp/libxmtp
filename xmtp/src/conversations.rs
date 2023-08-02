@@ -119,53 +119,67 @@ where
         })
     }
 
+    pub fn process_outbound_message(
+        &self,
+        message: &StoredMessage,
+    ) -> Result<(), ConversationError> {
+        let my_sessions = self
+            .client
+            .store
+            .get_sessions(&self.client.wallet_address())?;
+        let their_user_addr =
+            peer_addr_from_convo_id(&message.convo_id, &self.client.wallet_address())?;
+        let their_sessions = self.client.store.get_sessions(&their_user_addr)?;
+        if their_sessions.is_empty() {
+            return Err(ConversationError::NoSessionsError(their_user_addr));
+        }
+
+        let mut outbound_payloads = Vec::new();
+        let mut updated_sessions = Vec::new();
+        for stored_session in my_sessions.iter().chain(&their_sessions) {
+            if stored_session.peer_installation_id
+                == self.client.account.contact().installation_id()
+            {
+                continue;
+            }
+            let mut session = SessionManager::try_from(stored_session)?;
+            let outbound_payload = self.create_outbound_payload(&mut session, &message)?;
+            let updated_session = StoredSession::try_from(&session)?;
+            outbound_payloads.push(outbound_payload);
+            updated_sessions.push(updated_session);
+        }
+
+        self.client.store.commit_outbound_payloads_for_message(
+            message.id,
+            MessageState::LocallyCommitted,
+            outbound_payloads,
+            updated_sessions,
+        )?;
+
+        Ok(())
+    }
+
     pub async fn process_outbound_messages(&self) -> Result<(), ConversationError> {
-        let my_user_addr = self.client.wallet_address();
-        let my_installation_id = self.client.account.contact().installation_id();
         let mut messages = self.client.store.get_unprocessed_messages()?;
         messages.sort_by(|a, b| a.created_at.cmp(&b.created_at));
 
         for message in messages {
-            let my_sessions = self.client.store.get_sessions(&my_user_addr)?;
-            let their_user_addr =
-                peer_addr_from_convo_id(&message.convo_id, &self.client.wallet_address())?;
-            let their_sessions = self.client.store.get_sessions(&their_user_addr)?;
-            if their_sessions.is_empty() {
+            if let Err(e) = self.process_outbound_message(&message) {
                 log::error!(
-                    "{}",
-                    ConversationError::NoSessionsError(their_user_addr).to_string()
+                    "Couldn't process message with ID {} because of error: {}",
+                    message.id,
+                    e.to_string()
                 );
-                // TODO update message status to failed so that we don't retry it
-                continue;
+                // TODO update message status to failed on non-retryable errors so that we don't retry it next time
             }
-
-            let mut outbound_payloads = Vec::new();
-            let mut updated_sessions = Vec::new();
-            for stored_session in my_sessions.iter().chain(&their_sessions) {
-                if stored_session.peer_installation_id == my_installation_id {
-                    continue;
-                }
-                let mut session = SessionManager::try_from(stored_session)?;
-                let outbound_payload = self.create_outbound_payload(&mut session, &message)?;
-                let updated_session = StoredSession::try_from(&session)?;
-                outbound_payloads.push(outbound_payload);
-                updated_sessions.push(updated_session);
-            }
-
-            self.client.store.commit_outbound_payloads_for_message(
-                message.id,
-                MessageState::LocallyCommitted,
-                outbound_payloads,
-                updated_sessions,
-            )?;
         }
 
-        self.process_outbound_payloads().await;
+        self.send_outbound_payloads().await;
         Ok(())
     }
 
     // TODO push payloads onto the network
-    pub(crate) async fn process_outbound_payloads(&self) {}
+    pub(crate) async fn send_outbound_payloads(&self) {}
 }
 
 #[cfg(test)]
