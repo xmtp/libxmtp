@@ -1,7 +1,7 @@
 use prost::Message;
 use vodozemac::olm::OlmMessage;
 use xmtp_proto::xmtp::v3::message_contents::{
-    PadlockMessageEnvelope, PadlockMessageHeader, PadlockMessagePayload,
+    EdDsaSignature, PadlockMessageEnvelope, PadlockMessageHeader, PadlockMessagePayload,
     PadlockMessagePayloadVersion, PadlockMessageSealedMetadata,
 };
 
@@ -13,7 +13,7 @@ use crate::{
         StoredMessage, StoredOutboundPayload, StoredSession,
     },
     types::networking::XmtpApiClient,
-    utils::build_installation_message_topic,
+    utils::{base64_encode, build_installation_message_topic},
     Client,
 };
 
@@ -92,12 +92,17 @@ where
             sent_ns: message.created_at as u64,
             sealed_metadata,
         };
+        let header_bytes = message_header.encode_to_vec();
+        // TODO expose a vmac method to sign bytes rather than string
+        // https://matrix-org.github.io/vodozemac/vodozemac/olm/struct.Account.html#method.sign
+        let header_signature = self.client.account.sign(&base64_encode(&header_bytes));
+        let header_signature = EdDsaSignature {
+            bytes: header_signature.to_bytes().to_vec(),
+        };
 
         let payload = PadlockMessagePayload {
             message_version: PadlockMessagePayloadVersion::One as i32,
-            // TODO sign header - requires exposing a vmac method to sign bytes
-            // rather than string: https://matrix-org.github.io/vodozemac/vodozemac/olm/struct.Account.html#method.sign
-            header_signature: None,
+            header_signature: Some(header_signature),
             convo_id: message.convo_id.clone(),
             content_bytes: message.content.clone(),
         };
@@ -108,7 +113,7 @@ where
         };
 
         let envelope = PadlockMessageEnvelope {
-            header_bytes: message_header.encode_to_vec(),
+            header_bytes,
             ciphertext,
         };
         Ok(StoredOutboundPayload {

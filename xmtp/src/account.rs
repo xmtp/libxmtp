@@ -14,6 +14,7 @@ use vodozemac::olm::{
     Account as OlmAccount, AccountPickle as OlmAccountPickle, IdentityKeys, InboundCreationResult,
     PreKeyMessage, Session as OlmSession, SessionConfig, SessionCreationError,
 };
+use vodozemac::Ed25519Signature;
 use xmtp_cryptography::signature::SignatureError;
 use xmtp_proto::xmtp::v3::message_contents::{
     installation_contact_bundle::Version, vmac_account_linked_key::Association as AssociationProto,
@@ -170,6 +171,10 @@ impl Account {
         } else {
             contact.unwrap()
         }
+    }
+
+    pub(crate) fn sign(&self, message: &str) -> Ed25519Signature {
+        self.olm_account().unwrap().get().sign(message)
     }
 
     pub fn create_outbound_session(&self, contact: &Contact) -> OlmSession {
