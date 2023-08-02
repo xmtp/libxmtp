@@ -154,7 +154,7 @@ where
                         continue;
                     }
                     let mut session = SessionManager::try_from(stored_session)?;
-                    let outbound_payload = self.create_outbound_payload(&mut session, &message)?;
+                    let outbound_payload = self.create_outbound_payload(&mut session, message)?;
                     let updated_session = StoredSession::try_from(&session)?;
                     outbound_payloads.push(outbound_payload);
                     updated_sessions.push(updated_session);

@@ -213,7 +213,7 @@ async fn register(db: Option<PathBuf>, use_local: bool) -> Result<(), CliError> 
     Ok(())
 }
 
-async fn send(client: Client, addr: &String, msg: &String) -> Result<(), CliError> {
+async fn send(client: Client, addr: &str, msg: &String) -> Result<(), CliError> {
     let conversations = Conversations::new(&client);
     let conversation = conversations
         .new_secret_conversation(addr.to_string())
