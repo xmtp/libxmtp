@@ -29,7 +29,6 @@ use diesel::{
 };
 use diesel_migrations::{embed_migrations, EmbeddedMigrations, MigrationHarness};
 use log::warn;
-use prost::Message;
 use rand::RngCore;
 use xmtp_cryptography::utils as crypto_utils;
 

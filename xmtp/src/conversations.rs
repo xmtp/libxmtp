@@ -169,8 +169,13 @@ where
 
 #[cfg(test)]
 mod tests {
+    use prost::Message;
+
     use crate::{
+        codecs::{text::TextCodec, ContentCodec},
+        conversation::convo_id,
         conversations::Conversations,
+        storage::{MessageState, StoredMessage},
         test_utils::test_utils::{gen_test_client, gen_test_conversation},
         ClientBuilder,
     };
@@ -200,7 +205,33 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn create_outbound_payload() {}
+    async fn create_outbound_payload() {
+        let alice_client = gen_test_client().await;
+        let bob_client = gen_test_client().await;
+
+        let conversations = Conversations::new(&alice_client);
+        let mut session = alice_client
+            .create_outbound_session(&bob_client.account.contact())
+            .unwrap();
+
+        let _payload = conversations
+            .create_outbound_payload(
+                &mut session,
+                &StoredMessage {
+                    id: 0,
+                    created_at: 0,
+                    convo_id: convo_id(alice_client.wallet_address(), bob_client.wallet_address()),
+                    addr_from: alice_client.wallet_address(),
+                    content: TextCodec::encode("Hello world".to_string())
+                        .unwrap()
+                        .encode_to_vec(),
+                    state: MessageState::Unprocessed as i32,
+                },
+            )
+            .unwrap();
+
+        // TODO validate the payload when implementing the receiver side
+    }
 
     #[tokio::test]
     async fn process_outbound_messages() {
@@ -215,10 +246,16 @@ mod tests {
         let unprocessed_messages = alice_client.store.get_unprocessed_messages().unwrap();
         assert_eq!(unprocessed_messages.len(), 1);
 
+        // TODO replace with Client.refresh_user_installations. Requires us to refactor the SDK so that
+        // two XMTP clients can share the same API client
+        alice_client
+            .create_outbound_session(&bob_client.account.contact())
+            .unwrap();
+
         conversations.process_outbound_messages().await.unwrap();
         let unprocessed_messages = alice_client.store.get_unprocessed_messages().unwrap();
         assert_eq!(unprocessed_messages.len(), 0);
 
-        // TODO fetch outbound payloads from DB and validate when implementing process_payloads
+        // TODO validate outbound payloads are written to DB (can be done while implementing process_payloads)
     }
 }
