@@ -54,9 +54,9 @@ pub fn peer_addr_from_convo_id(
         ))));
     }
     if segments[1] == self_addr {
-        return Ok(segments[2].to_string());
+        Ok(segments[2].to_string())
     } else {
-        return Ok(segments[1].to_string());
+        Ok(segments[1].to_string())
     }
 }
 

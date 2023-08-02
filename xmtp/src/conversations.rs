@@ -164,7 +164,8 @@ where
         Ok(())
     }
 
-    pub(crate) async fn process_outbound_payloads(&self) -> () {}
+    // TODO push payloads onto the network
+    pub(crate) async fn process_outbound_payloads(&self) {}
 }
 
 #[cfg(test)]
