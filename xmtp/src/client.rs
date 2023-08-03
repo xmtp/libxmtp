@@ -2,7 +2,7 @@ use core::fmt;
 use std::fmt::Formatter;
 
 use diesel::Connection;
-use log::{debug, info};
+use log::info;
 use thiserror::Error;
 use vodozemac::olm::OlmMessage;
 
@@ -96,6 +96,9 @@ where
         {
             self.publish_user_contact().await?;
         }
+
+        self.refresh_user_installations(&app_contact_bundle.wallet_address)
+            .await?;
 
         self.is_initialized = true;
         Ok(())
