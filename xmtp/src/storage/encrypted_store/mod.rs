@@ -217,9 +217,10 @@ impl EncryptedMessageStore {
         &self,
         conn: &mut PooledConnection<ConnectionManager<SqliteConnection>>,
         user_address: &str,
+        timestamp: i64,
     ) -> Result<usize, StorageError> {
         diesel::update(users::table.filter(users::user_address.eq(user_address)))
-            .set(users::last_refreshed.eq(now()))
+            .set(users::last_refreshed.eq(timestamp))
             .execute(conn)
             .map_err(|e| e.into())
     }
