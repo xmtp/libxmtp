@@ -141,12 +141,12 @@ public enum Conversation: Sendable {
 		}
 	}
 
-	@discardableResult public func send(encodedContent: EncodedContent) async throws -> String {
+	@discardableResult public func send(encodedContent: EncodedContent, options: SendOptions? = nil) async throws -> String {
 		switch self {
 		case let .v1(conversationV1):
-			return try await conversationV1.send(encodedContent: encodedContent)
+			return try await conversationV1.send(encodedContent: encodedContent, options: options)
 		case let .v2(conversationV2):
-			return try await conversationV2.send(encodedContent: encodedContent)
+			return try await conversationV2.send(encodedContent: encodedContent, options: options)
 		}
 	}
 
@@ -160,6 +160,10 @@ public enum Conversation: Sendable {
 		}
 	}
 
+	public var clientAddress: String {
+		return client.address
+	}
+
 	/// The topic identifier for this conversation
 	public var topic: String {
 		switch self {
@@ -167,6 +171,15 @@ public enum Conversation: Sendable {
 			return conversation.topic.description
 		case let .v2(conversation):
 			return conversation.topic
+		}
+	}
+
+	public func streamEphemeral() -> AsyncThrowingStream<Envelope, Error>? {
+		switch self {
+		case let .v1(conversation):
+			return conversation.streamEphemeral()
+		case let .v2(conversation):
+			return conversation.streamEphemeral()
 		}
 	}
 

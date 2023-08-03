@@ -30,9 +30,3 @@ services:
     image: postgres:13
     environment:
       POSTGRES_PASSWORD: xmtp
-  js:
-    restart: always
-    depends_on:
-      wakunode:
-        condition: service_healthy
-    build: ./dev/test

@@ -38,7 +38,7 @@ public struct ConversationV1 {
 		Topic.directMessageV1(client.address, peerAddress)
 	}
 
-	func prepareMessage(encodedContent: EncodedContent) async throws -> PreparedMessage {
+	func prepareMessage(encodedContent: EncodedContent, options: SendOptions?) async throws -> PreparedMessage {
 		guard let contact = try await client.contacts.find(peerAddress) else {
 			throw ContactBundleError.notFound
 		}
@@ -58,8 +58,15 @@ public struct ConversationV1 {
 			timestamp: date
 		)
 
+		let isEphemeral: Bool
+		if let options, options.ephemeral {
+			isEphemeral = true
+		} else {
+			isEphemeral = false
+		}
+
 		let messageEnvelope = Envelope(
-			topic: .directMessageV1(client.address, peerAddress),
+			topic: isEphemeral ? ephemeralTopic : topic.description,
 			timestamp: date,
 			message: try Message(v1: message).serializedData()
 		)
@@ -67,7 +74,7 @@ public struct ConversationV1 {
 		return PreparedMessage(messageEnvelope: messageEnvelope, conversation: .v1(self)) {
 			var envelopes = [messageEnvelope]
 
-			if client.contacts.needsIntroduction(peerAddress) {
+			if client.contacts.needsIntroduction(peerAddress) && !isEphemeral {
 				envelopes.append(contentsOf: [
 					Envelope(
 						topic: .userIntro(peerAddress),
@@ -107,7 +114,7 @@ public struct ConversationV1 {
 			encoded = try encoded.compress(compression)
 		}
 
-		return try await prepareMessage(encodedContent: encoded)
+		return try await prepareMessage(encodedContent: encoded, options: options)
 	}
 
 	@discardableResult func send(content: String, options: SendOptions? = nil) async throws -> String {
@@ -120,8 +127,8 @@ public struct ConversationV1 {
 		return preparedMessage.messageID
 	}
 
-	@discardableResult func send(encodedContent: EncodedContent) async throws -> String {
-		let preparedMessage = try await prepareMessage(encodedContent: encodedContent)
+	@discardableResult func send(encodedContent: EncodedContent, options: SendOptions?) async throws -> String {
+		let preparedMessage = try await prepareMessage(encodedContent: encodedContent, options: options)
 		try await preparedMessage.send()
 		return preparedMessage.messageID
 	}
@@ -138,6 +145,24 @@ public struct ConversationV1 {
 				for try await envelope in client.subscribe(topics: [topic.description]) {
 					let decoded = try decode(envelope: envelope)
 					continuation.yield(decoded)
+				}
+			}
+		}
+	}
+
+	var ephemeralTopic: String {
+		topic.description.replacingOccurrences(of: "/xmtp/0/dm-", with: "/xmtp/0/dmE-")
+	}
+
+	public func streamEphemeral() -> AsyncThrowingStream<Envelope, Error> {
+		AsyncThrowingStream { continuation in
+			Task {
+				do {
+					for try await envelope in client.subscribe(topics: [ephemeralTopic]) {
+						continuation.yield(envelope)
+					}
+				} catch {
+					continuation.finish(throwing: error)
 				}
 			}
 		}

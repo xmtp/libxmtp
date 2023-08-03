@@ -515,7 +515,7 @@ class ConversationTests: XCTestCase {
 
 		let encodedContent = try TextCodec().encode(content: "hi")
 
-		try await bobConversation.send(encodedContent: encodedContent)
+		try await bobConversation.send(encodedContent: encodedContent, options: nil)
 
 		let messages = try await aliceConversation.messages()
 

@@ -75,13 +75,15 @@ public struct ConversationV2 {
 		ConversationV2Container(topic: topic, keyMaterial: keyMaterial, conversationID: context.conversationID, metadata: context.metadata, peerAddress: peerAddress, header: header)
 	}
 
-	func prepareMessage(encodedContent: EncodedContent) async throws -> PreparedMessage {
+	func prepareMessage(encodedContent: EncodedContent, options: SendOptions?) async throws -> PreparedMessage {
 		let message = try await MessageV2.encode(
 			client: client,
 			content: encodedContent,
 			topic: topic,
 			keyMaterial: keyMaterial
 		)
+
+		let topic = options?.ephemeral == true ? ephemeralTopic : topic
 
 		let envelope = Envelope(topic: topic, timestamp: Date(), message: try Message(v2: message).serializedData())
 		return PreparedMessage(messageEnvelope: envelope, conversation: .v2(self)) {
@@ -107,7 +109,7 @@ public struct ConversationV2 {
 			encoded = try encoded.compress(compression)
 		}
 
-		return try await prepareMessage(encodedContent: encoded)
+		return try await prepareMessage(encodedContent: encoded, options: options)
 	}
 
 	func messages(limit: Int? = nil, before: Date? = nil, after: Date? = nil) async throws -> [DecodedMessage] {
@@ -120,6 +122,24 @@ public struct ConversationV2 {
 			} catch {
 				print("Error decoding envelope \(error)")
 				return nil
+			}
+		}
+	}
+
+	var ephemeralTopic: String {
+		topic.replacingOccurrences(of: "/xmtp/0/m", with: "/xmtp/0/mE")
+	}
+
+	public func streamEphemeral() -> AsyncThrowingStream<Envelope, Error> {
+		AsyncThrowingStream { continuation in
+			Task {
+				do {
+					for try await envelope in client.subscribe(topics: [ephemeralTopic]) {
+						continuation.yield(envelope)
+					}
+				} catch {
+					continuation.finish(throwing: error)
+				}
 			}
 		}
 	}
@@ -165,8 +185,8 @@ public struct ConversationV2 {
 		return preparedMessage.messageID
 	}
 
-	@discardableResult func send(encodedContent: EncodedContent) async throws -> String {
-		let preparedMessage = try await prepareMessage(encodedContent: encodedContent)
+	@discardableResult func send(encodedContent: EncodedContent, options: SendOptions? = nil) async throws -> String {
+		let preparedMessage = try await prepareMessage(encodedContent: encodedContent, options: options)
 		try await preparedMessage.send()
 		return preparedMessage.messageID
 	}
