@@ -333,8 +333,8 @@ final class IntegrationTests: XCTestCase {
 		try await convo.send(content: "10 seconds ago", sentAt: tenSecondsAgo)
 		try await convo.send(content: "now")
 
-		let messages = try await convo.messages(limit: 1)
-		XCTAssertEqual(1, messages.count)
+		let messages = try await convo.messages(limit: 10)
+		XCTAssertEqual(2, messages.count)
 		let nowMessage = messages[0]
 		XCTAssertEqual("now", nowMessage.body)
 

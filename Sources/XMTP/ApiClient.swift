@@ -129,6 +129,11 @@ class GRPCApiClient: ApiClient {
 
 			cursor = response.pagingInfo.cursor
 			hasNextPage = !response.envelopes.isEmpty && response.pagingInfo.hasCursor
+            
+            if let limit = pagination?.limit, envelopes.count >= limit {
+                envelopes = Array(envelopes.prefix(limit))
+                break
+            }
 		}
 
 		return envelopes
