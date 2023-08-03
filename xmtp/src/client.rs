@@ -2,7 +2,7 @@ use core::fmt;
 use std::fmt::Formatter;
 
 use diesel::Connection;
-use log::info;
+use log::{debug, info};
 use thiserror::Error;
 use vodozemac::olm::OlmMessage;
 
@@ -162,7 +162,7 @@ where
 
         let new_installs = contacts
             .iter()
-            .filter(|contact| self_install_id == contact.installation_id())
+            .filter(|contact| self_install_id != contact.installation_id())
             .filter(|contact| !installation_map.contains_key(&contact.installation_id()))
             .filter_map(|contact| StoredInstallation::new(contact).ok());
 
@@ -178,6 +178,9 @@ where
                         transaction_manager,
                     )?;
                 }
+
+                self.store
+                    .update_user_refresh_timestamp(transaction_manager, user_address)?;
 
                 Ok(())
             },
