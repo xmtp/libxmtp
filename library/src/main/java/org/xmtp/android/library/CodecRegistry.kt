@@ -20,4 +20,13 @@ data class CodecRegistry(val codecs: MutableMap<String, ContentCodec<*>> = mutab
         }
         return TextCodec()
     }
+
+    fun findFromId(contentTypeString: String): ContentCodec<*> {
+        for ((_, codec) in codecs) {
+            if (codec.contentType.id == contentTypeString) {
+                return codec
+            }
+        }
+        return TextCodec()
+    }
 }
