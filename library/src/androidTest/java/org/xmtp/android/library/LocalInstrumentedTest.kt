@@ -128,14 +128,17 @@ class LocalInstrumentedTest {
         date.time = date.time - 5000
         convo.send(text = "10 seconds ago", sentAt = date)
         Thread.sleep(5000)
+        convo.send(text = "now first")
         convo.send(text = "now")
         val messages = convo.messages()
-        assertEquals(2, messages.size)
+        assertEquals(3, messages.size)
+        val messagesLimit = convo.messages(limit = 2)
+        assertEquals(2, messagesLimit.size)
         val nowMessage = messages[0]
         assertEquals("now", nowMessage.body)
-        val messages2 = convo.messages(before = nowMessage.sent)
+        val messages2 = convo.messages(limit = 1, before = nowMessage.sent)
         val tenSecondsAgoMessage = messages2[0]
-        assertEquals("10 seconds ago", tenSecondsAgoMessage.body)
+        assertEquals("now first", tenSecondsAgoMessage.body)
         val messages3 = convo.messages(after = tenSecondsAgoMessage.sent)
         val nowMessage2 = messages3[0]
         assertEquals("now", nowMessage2.body)
