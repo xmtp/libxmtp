@@ -13,6 +13,12 @@ public struct Reply {
 	public var reference: String
 	public var content: Any
 	public var contentType: ContentTypeID
+    
+    public init(reference: String, content: Any, contentType: ContentTypeID) {
+        self.reference = reference
+        self.content = content
+        self.contentType = contentType
+    }
 }
 
 public struct ReplyCodec: ContentCodec {

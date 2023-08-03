@@ -15,6 +15,13 @@ public struct Reaction: Codable {
     public var action: ReactionAction
     public var content: String
     public var schema: ReactionSchema
+    
+    public init(reference: String, action: ReactionAction, content: String, schema: ReactionSchema) {
+        self.reference = reference
+        self.action = action
+        self.content = content
+        self.schema = schema
+    }
 }
 
 public enum ReactionAction: String, Codable {

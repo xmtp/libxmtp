@@ -17,7 +17,7 @@ public extension ContentTypeID {
 	}
 }
 
-extension ContentTypeID {
+public extension ContentTypeID {
 	var id: String {
 		"\(authorityID):\(typeID)"
 	}
