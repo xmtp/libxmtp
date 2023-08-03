@@ -73,6 +73,7 @@ enum Commands {
     },
 
     Refresh {},
+    ListContacts {},
     Clear {},
 }
 
@@ -166,6 +167,16 @@ async fn main() {
                 .refresh_user_installations(&client.wallet_address())
                 .await
                 .unwrap();
+        }
+        Commands::ListContacts {} => {
+            let client = create_client(cli.db, AccountStrategy::CachedOnly("nil".into()))
+                .await
+                .unwrap();
+
+            let contacts = client.get_contacts(&client.wallet_address()).await.unwrap();
+            for (index, contact) in contacts.iter().enumerate() {
+                info!(" [{}]  Contact: {:?}", index, contact.installation_id());
+            }
         }
         Commands::Clear {} => {
             fs::remove_file(cli.db.unwrap()).unwrap();

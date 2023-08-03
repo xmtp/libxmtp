@@ -10,7 +10,7 @@ use crate::{
     account::Account,
     contact::{Contact, ContactError},
     session::SessionManager,
-    storage::{EncryptedMessageStore, StorageError, StoredInstallation, StoredSession},
+    storage::{now, EncryptedMessageStore, StorageError, StoredInstallation, StoredSession},
     types::networking::{PublishRequest, QueryRequest, XmtpApiClient},
     types::Address,
     utils::{build_envelope, build_user_contact_topic, key_fingerprint},
@@ -97,6 +97,9 @@ where
             self.publish_user_contact().await?;
         }
 
+        self.refresh_user_installations(&app_contact_bundle.wallet_address)
+            .await?;
+
         self.is_initialized = true;
         Ok(())
     }
@@ -150,6 +153,9 @@ where
     /// Fetch Installations from the Network and create unintialized sessions for newly discovered contacts
     // TODO: Reduce Visibility
     pub async fn refresh_user_installations(&self, user_address: &str) -> Result<(), ClientError> {
+        // Store the timestamp of when the refresh process begins
+        let refresh_timestmap = now();
+
         let self_install_id = key_fingerprint(&self.account.identity_keys().curve25519);
         let contacts = self.get_contacts(user_address).await?;
         debug!(
@@ -187,6 +193,12 @@ where
                         transaction_manager,
                     )?;
                 }
+
+                self.store.update_user_refresh_timestamp(
+                    transaction_manager,
+                    user_address,
+                    refresh_timestmap,
+                )?;
 
                 Ok(())
             },

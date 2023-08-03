@@ -20,7 +20,7 @@ use self::{
         accounts, conversations, inbound_invites, installations, messages, refresh_jobs, users,
     },
 };
-use super::StorageError;
+use super::{now, StorageError};
 use crate::{account::Account, Errorer, Fetch, Store};
 use diesel::{
     connection::SimpleConnection,
@@ -214,6 +214,18 @@ impl EncryptedMessageStore {
 
         warn_length(&user_list, "StoredUser", 1);
         Ok(user_list.pop())
+    }
+
+    pub fn update_user_refresh_timestamp(
+        &self,
+        conn: &mut PooledConnection<ConnectionManager<SqliteConnection>>,
+        user_address: &str,
+        timestamp: i64,
+    ) -> Result<usize, StorageError> {
+        diesel::update(users::table.filter(users::user_address.eq(user_address)))
+            .set(users::last_refreshed.eq(timestamp))
+            .execute(conn)
+            .map_err(|e| e.into())
     }
 
     pub fn insert_or_ignore_user(&self, user: StoredUser) -> Result<(), StorageError> {
