@@ -1,9 +1,14 @@
+use std::time::Duration;
+
 use diesel::Connection;
 use prost::Message;
 use vodozemac::olm::OlmMessage;
-use xmtp_proto::xmtp::v3::message_contents::{
-    EdDsaSignature, PadlockMessageEnvelope, PadlockMessageHeader, PadlockMessagePayload,
-    PadlockMessagePayloadVersion, PadlockMessageSealedMetadata,
+use xmtp_proto::xmtp::{
+    message_api::v1::{Envelope, PublishRequest},
+    v3::message_contents::{
+        EdDsaSignature, PadlockMessageEnvelope, PadlockMessageHeader, PadlockMessagePayload,
+        PadlockMessagePayloadVersion, PadlockMessageSealedMetadata,
+    },
 };
 
 use crate::{
@@ -122,6 +127,7 @@ where
             content_topic: build_installation_message_topic(&session.installation_id()),
             payload: envelope.encode_to_vec(),
             outbound_payload_state: OutboundPayloadState::Pending as i32,
+            locked_until_ns: 0,
         })
     }
 
@@ -142,7 +148,7 @@ where
                     .store
                     .get_sessions(&their_user_addr, transaction)?;
                 if their_sessions.is_empty() {
-                    return Err(ConversationError::NoSessionsError(their_user_addr));
+                    return Err(ConversationError::NoSessions(their_user_addr));
                 }
 
                 let mut outbound_payloads = Vec::new();
@@ -189,12 +195,45 @@ where
             }
         }
 
-        self.send_outbound_payloads().await;
+        self.send_outbound_payloads().await?;
         Ok(())
     }
 
-    // TODO push payloads onto the network
-    pub(crate) async fn send_outbound_payloads(&self) {}
+    async fn send_outbound_payloads(&self) -> Result<(), ConversationError> {
+        let unsent_payloads = self.client.store.fetch_and_lock_outbound_payloads(
+            OutboundPayloadState::Pending,
+            Duration::from_secs(60).as_nanos() as i64,
+        )?;
+
+        if unsent_payloads.is_empty() {
+            return Ok(());
+        }
+
+        let payload_ids = unsent_payloads
+            .iter()
+            .map(|payload| payload.created_at_ns)
+            .collect();
+        let envelopes = unsent_payloads
+            .into_iter()
+            .map(|payload| Envelope {
+                content_topic: payload.content_topic,
+                timestamp_ns: payload.created_at_ns as u64,
+                message: payload.payload,
+            })
+            .collect();
+
+        // TODO: API tokens
+        self.client
+            .api_client
+            .publish("".to_string(), PublishRequest { envelopes })
+            .await?;
+
+        self.client.store.update_and_unlock_outbound_payloads(
+            payload_ids,
+            OutboundPayloadState::ServerAcknowledged,
+        )?;
+        Ok(())
+    }
 }
 
 #[cfg(test)]

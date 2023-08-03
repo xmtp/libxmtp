@@ -99,6 +99,7 @@ pub struct StoredOutboundPayload {
     pub content_topic: String,
     pub payload: Vec<u8>,
     pub outbound_payload_state: i32,
+    pub locked_until_ns: i64,
 }
 
 pub fn now() -> i64 {
