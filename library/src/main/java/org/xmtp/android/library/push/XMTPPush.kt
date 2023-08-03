@@ -51,6 +51,17 @@ class XMTPPush() {
         client.subscribe(request)
     }
 
+    fun unsubscribe(topics: List<String>) {
+        if (pushServer == "") {
+            throw XMTPException("No push server")
+        }
+        val request = Service.UnsubscribeRequest.newBuilder().also { request ->
+            request.installationId = installationId
+            request.addAllTopics(topics)
+        }.build()
+        client.unsubscribe(request)
+    }
+
     val client: NotificationsGrpc.NotificationsFutureStub
         get() {
             val protocolClient: ManagedChannel =

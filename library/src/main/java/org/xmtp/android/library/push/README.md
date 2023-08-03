@@ -79,3 +79,7 @@ This example branch can serve as the basis for what you might want to provide fo
     ```kotlin
     XMTPPush(context, "10.0.2.2:8080").subscribe(conversations.map { it.topic })
     ```
+
+    ```kotlin
+    XMTPPush(context, "10.0.2.2:8080").unsubscribe(conversations.map { it.topic })
+    ```
