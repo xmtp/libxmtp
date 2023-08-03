@@ -226,6 +226,7 @@ async fn send(client: Client, addr: &str, msg: &String) -> Result<(), CliError> 
         .unwrap();
     client.refresh_user_installations(addr).await.unwrap();
     conversations.process_outbound_messages().await.unwrap();
+    conversations.publish_outbound_payloads().await.unwrap();
     info!("Message locally committed");
 
     Ok(())

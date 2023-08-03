@@ -195,11 +195,10 @@ where
             }
         }
 
-        self.send_outbound_payloads().await?;
         Ok(())
     }
 
-    async fn send_outbound_payloads(&self) -> Result<(), ConversationError> {
+    pub async fn publish_outbound_payloads(&self) -> Result<(), ConversationError> {
         let unsent_payloads = self.client.store.fetch_and_lock_outbound_payloads(
             OutboundPayloadState::Pending,
             Duration::from_secs(60).as_nanos() as i64,
@@ -244,7 +243,7 @@ mod tests {
         codecs::{text::TextCodec, ContentCodec},
         conversation::convo_id,
         conversations::Conversations,
-        storage::{MessageState, StoredMessage},
+        storage::{MessageState, OutboundPayloadState, StoredMessage},
         test_utils::test_utils::{gen_test_client, gen_test_conversation},
         ClientBuilder,
     };
@@ -324,7 +323,17 @@ mod tests {
         conversations.process_outbound_messages().await.unwrap();
         let unprocessed_messages = alice_client.store.get_unprocessed_messages().unwrap();
         assert_eq!(unprocessed_messages.len(), 0);
+        let unsent_payloads = alice_client
+            .store
+            .fetch_and_lock_outbound_payloads(OutboundPayloadState::Pending, 0)
+            .unwrap();
+        assert_eq!(unsent_payloads.len(), 1);
 
-        // TODO validate outbound payloads are written to DB (can be done while implementing process_payloads)
+        conversations.publish_outbound_payloads().await.unwrap();
+        let unsent_payloads = alice_client
+            .store
+            .fetch_and_lock_outbound_payloads(OutboundPayloadState::Pending, 0)
+            .unwrap();
+        assert_eq!(unsent_payloads.len(), 0);
     }
 }
