@@ -170,9 +170,9 @@ where
 
     pub fn create_inbound_session(
         &self,
-        contact: Contact,
+        contact: &Contact,
         // Message MUST be a pre-key message
-        message: Vec<u8>,
+        message: &Vec<u8>,
     ) -> Result<(SessionManager, Vec<u8>), ClientError> {
         let olm_message: OlmMessage =
             serde_json::from_slice(message.as_slice()).map_err(|_| ClientError::Unknown)?;

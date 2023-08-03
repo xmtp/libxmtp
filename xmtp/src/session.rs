@@ -1,6 +1,6 @@
 use crate::{
     contact::Contact,
-    storage::{EncryptedMessageStore, StorageError, StoredSession},
+    storage::{DbConnection, EncryptedMessageStore, StorageError, StoredSession},
     Save, Store,
 };
 use thiserror::Error;
@@ -58,7 +58,7 @@ impl SessionManager {
     pub fn decrypt(
         &mut self,
         message: OlmMessage,
-        into: &EncryptedMessageStore,
+        into: &mut DbConnection,
     ) -> Result<Vec<u8>, SessionError> {
         let res = self.session.decrypt(&message)?;
         // TODO: Stop mutating/storing the persisted session and just build on demand

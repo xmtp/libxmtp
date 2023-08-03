@@ -65,7 +65,7 @@ where
         Ok(())
     }
 
-    fn process_invites(&self) -> Result<(), ConversationError> {
+    pub fn process_invites(&self) -> Result<(), ConversationError> {
         let conn = &mut self.client.store.conn()?;
         conn.transaction::<_, StorageError, _>(|transaction_manager| {
             let invites = self
@@ -73,8 +73,20 @@ where
                 .store
                 .get_inbound_invites(transaction_manager, InboundInviteStatus::Pending)?;
             for invite in invites {
-                self.process_inbound_invite(transaction_manager, invite)
-                    .map_err(|_| StorageError::Unknown)?;
+                let invite_id = invite.id.clone();
+                match self.process_inbound_invite(transaction_manager, invite) {
+                    Ok(status) => {
+                        self.client.store.set_invite_status(
+                            transaction_manager,
+                            invite_id,
+                            status,
+                        )?;
+                    }
+                    Err(err) => {
+                        log::error!("Error processing invite: {:?}", err);
+                        return Err(StorageError::Unknown);
+                    }
+                }
             }
 
             Ok(())
@@ -87,53 +99,56 @@ where
         &self,
         conn: &mut DbConnection,
         invite: InboundInvite,
-    ) -> Result<(), ConversationError> {
+    ) -> Result<InboundInviteStatus, ConversationError> {
         let invitation: Invitation = match invite.payload.try_into() {
             Ok(invitation) => invitation,
             Err(_) => {
-                self.client.store.set_invite_status(
-                    conn,
-                    invite.id,
-                    InboundInviteStatus::Invalid,
-                )?;
-                return Ok(());
+                return Ok(InboundInviteStatus::Invalid);
             }
         };
 
         let existing_session = self.find_existing_session_with_conn(&invitation.inviter, conn)?;
-        let mut plaintext: Vec<u8>;
-        let mut session: SessionManager;
-        // TODO: Handle errors in this section and update the DB
-        match existing_session {
-            Some(session_manager) => {
-                let olm_message: OlmMessage =
-                    serde_json::from_slice(invitation.ciphertext.as_slice())
-                        .map_err(|_| ConversationError::Unknown)?;
+        let plaintext: Vec<u8>;
 
-                plaintext = session_manager.decrypt(olm_message, &self.client.store)?;
-                session = session_manager;
+        match existing_session {
+            Some(mut session_manager) => {
+                let olm_message: OlmMessage =
+                    match serde_json::from_slice(&invitation.ciphertext.as_slice()) {
+                        Ok(olm_message) => olm_message,
+                        Err(_) => {
+                            return Ok(InboundInviteStatus::DecryptionFailure);
+                        }
+                    };
+
+                plaintext = match session_manager.decrypt(olm_message, conn) {
+                    Ok(plaintext) => plaintext,
+                    Err(_) => {
+                        return Ok(InboundInviteStatus::DecryptionFailure);
+                    }
+                };
             }
             None => {
-                (session, plaintext) = self
+                (_, plaintext) = match self
                     .client
-                    .create_inbound_session(invitation.inviter, invitation.ciphertext)?;
+                    .create_inbound_session(&invitation.inviter, &invitation.ciphertext)
+                {
+                    Ok((session, plaintext)) => (session, plaintext),
+                    Err(_) => {
+                        return Ok(InboundInviteStatus::DecryptionFailure);
+                    }
+                };
             }
         };
 
         let inner_invite: ProtoWrapper<InvitationV1> = plaintext.try_into()?;
         if !self.validate_invite(&invitation, &inner_invite.proto) {
-            self.client
-                .store
-                .set_invite_status(conn, invite.id, InboundInviteStatus::Invalid)?;
-
-            return Ok(());
+            return Ok(InboundInviteStatus::Invalid);
         }
 
-        Ok(())
+        Ok(InboundInviteStatus::Processed)
     }
 
     fn validate_invite(&self, invitation: &Invitation, inner_invite: &InvitationV1) -> bool {
-        let my_installation_id = self.client.account.contact().installation_id();
         let my_wallet_address = self.client.account.contact().wallet_address;
         let inviter_is_my_other_device = my_wallet_address == invitation.inviter.wallet_address;
 
