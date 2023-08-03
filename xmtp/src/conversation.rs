@@ -30,6 +30,10 @@ pub enum ConversationError {
     Decode(DecodeError),
     #[error("storage error: {0}")]
     Storage(#[from] StorageError),
+    #[error("diesel error: {0}")]
+    Diesel(#[from] diesel::result::Error),
+    #[error("No sessions for user: {0}")]
+    NoSessionsError(String),
     #[error("unknown error")]
     Unknown,
 }
@@ -38,6 +42,24 @@ pub fn convo_id(self_addr: String, peer_addr: String) -> String {
     let mut members = [self_addr, peer_addr];
     members.sort();
     format!(":{}:{}", members[0], members[1])
+}
+
+pub fn peer_addr_from_convo_id(
+    convo_id: &str,
+    self_addr: &str,
+) -> Result<String, ConversationError> {
+    let segments = convo_id.split(':').collect::<Vec<&str>>();
+    if segments.len() != 3 {
+        return Err(ConversationError::Decode(DecodeError::new(format!(
+            "Invalid convo ID {}",
+            convo_id
+        ))));
+    }
+    if segments[1] == self_addr {
+        Ok(segments[2].to_string())
+    } else {
+        Ok(segments[1].to_string())
+    }
 }
 
 // I had to pick a name for this, and it seems like we are hovering around SecretConversation ATM

@@ -15,7 +15,7 @@ extern crate xmtp;
 
 use clap::{Parser, Subcommand};
 use ethers_core::types::H160;
-use log::{debug, error, info};
+use log::{error, info};
 use std::fs;
 use std::path::PathBuf;
 use thiserror::Error;
@@ -26,9 +26,7 @@ use xmtp::builder::{AccountStrategy, ClientBuilderError};
 use xmtp::client::ClientError;
 use xmtp::conversations::Conversations;
 use xmtp::storage::{EncryptedMessageStore, EncryptionKey, StorageError, StorageOption};
-use xmtp::types::Address;
 use xmtp::InboxOwner;
-use xmtp::Save;
 use xmtp_cryptography::signature::{h160addr_to_string, RecoverableSignature, SignatureError};
 use xmtp_cryptography::utils::{rng, seeded_rng, LocalWallet};
 use xmtp_networking::grpc_api_helper::Client as ApiClient;
@@ -59,6 +57,8 @@ enum Commands {
         #[clap(short = 'L', long, conflicts_with = "use_wc")]
         use_local: bool,
     },
+    /// Information about the account that owns the DB
+    Info {},
     /// Send Message
     Send {
         #[arg(value_name = "ADDR")]
@@ -94,8 +94,6 @@ enum CliError {
     ClientError(#[from] ClientError),
     #[error("clientbuilder error")]
     ClientBuilder(#[from] ClientBuilderError),
-    #[error("no recipient {0} found")]
-    NoRecipient(Address),
 }
 
 /// This is an abstraction which allows the CLI to choose between different wallet types.
@@ -135,6 +133,13 @@ async fn main() {
             if let Err(e) = register(cli.db, *use_local).await {
                 error!("reg failed: {:?}", e)
             }
+        }
+        Commands::Info {} => {
+            info!("Info");
+            let client = create_client(cli.db, AccountStrategy::CachedOnly("nil".into()))
+                .await
+                .unwrap();
+            info!("Address is: {}", client.wallet_address());
         }
         Commands::Send { addr, msg } => {
             info!("Send");
@@ -208,35 +213,19 @@ async fn register(db: Option<PathBuf>, use_local: bool) -> Result<(), CliError> 
     Ok(())
 }
 
-async fn send(client: Client, addr: &String, msg: &String) -> Result<(), CliError> {
-    let contacts = client
-        .get_contacts(addr)
-        .await
-        .map_err(CliError::ClientError)?;
-
-    if contacts.is_empty() {
-        error!("Recipient({}) is not registered", addr);
-        return Err(CliError::NoRecipient(addr.clone()));
-    }
-
-    for contact in contacts {
-        let mut session = client
-            .get_session(&contact)
-            .map_err(CliError::ClientError)?;
-        debug!("Session: {}", session.id());
-
-        let om = session.encrypt(msg.as_bytes());
-        debug!("{:?} ", om);
-        session.save(&client.store).unwrap();
-        info!("Encryption successful")
-    }
-
+async fn send(client: Client, addr: &str, msg: &String) -> Result<(), CliError> {
     let conversations = Conversations::new(&client);
     let conversation = conversations
         .new_secret_conversation(addr.to_string())
         .await
         .unwrap();
     conversation.send_message(msg).unwrap();
+    client
+        .refresh_user_installations(&client.wallet_address())
+        .await
+        .unwrap();
+    client.refresh_user_installations(addr).await.unwrap();
+    conversations.process_outbound_messages().await.unwrap();
     info!("Message locally committed");
 
     Ok(())

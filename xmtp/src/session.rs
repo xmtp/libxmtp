@@ -45,6 +45,10 @@ impl SessionManager {
         self.session.session_id()
     }
 
+    pub fn user_address(&self) -> String {
+        self.user_address.clone()
+    }
+
     pub fn installation_id(&self) -> String {
         self.peer_installation_id.clone()
     }
@@ -69,6 +73,10 @@ impl SessionManager {
         self.save(into)?;
 
         Ok(res)
+    }
+
+    pub fn has_received_message(&self) -> bool {
+        self.session.has_received_message()
     }
 }
 
