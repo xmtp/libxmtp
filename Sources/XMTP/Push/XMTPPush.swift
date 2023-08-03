@@ -76,6 +76,19 @@
 
 			_ = await client.subscribe(request: request)
 		}
+        
+        public func unsubscribe(topics: [String]) async throws {
+            if pushServer == "" {
+                throw XMTPPushError.noPushServer
+            }
+
+            let request = Notifications_V1_UnsubscribeRequest.with { request in
+                request.installationID = installationID
+                request.topics = topics
+            }
+
+            _ = await client.unsubscribe(request: request)
+        }
 
 		var client: Notifications_V1_NotificationsClient {
 			let protocolClient = ProtocolClient(
@@ -112,6 +125,10 @@
 		public func subscribe(topics _: [String]) async throws {
 			fatalError("XMTPPush not available")
 		}
+        
+        public func unsubscribe(topics _: [String]) async throws {
+            fatalError("XMTPPush not available")
+        }
 
 		var client: Notifications_V1_NotificationsClient {
 			fatalError("XMTPPush not available")
