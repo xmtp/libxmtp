@@ -367,13 +367,13 @@ impl EncryptedMessageStore {
         lock_duration_ns: i64,
     ) -> Result<Vec<StoredOutboundPayload>, StorageError> {
         let conn = &mut self.conn()?;
-        use self::schema::outbound_payloads::dsl::*;
+        use self::schema::outbound_payloads::dsl as schema;
         let now = now();
         // Must happen atomically
-        let payloads = diesel::update(outbound_payloads)
-            .filter(outbound_payload_state.eq(payload_state as i32))
-            .filter(locked_until_ns.lt(now))
-            .set(locked_until_ns.eq(now + lock_duration_ns))
+        let payloads = diesel::update(schema::outbound_payloads)
+            .filter(schema::outbound_payload_state.eq(payload_state as i32))
+            .filter(schema::locked_until_ns.lt(now))
+            .set(schema::locked_until_ns.eq(now + lock_duration_ns))
             .get_results::<StoredOutboundPayload>(conn)?;
         Ok(payloads)
     }
