@@ -208,16 +208,12 @@ where
             return Ok(());
         }
 
-        let payload_ids = unsent_payloads
-            .iter()
-            .map(|payload| payload.created_at_ns)
-            .collect();
         let envelopes = unsent_payloads
-            .into_iter()
+            .iter()
             .map(|payload| Envelope {
-                content_topic: payload.content_topic,
+                content_topic: payload.content_topic.clone(),
                 timestamp_ns: payload.created_at_ns as u64,
-                message: payload.payload,
+                message: payload.payload.clone(),
             })
             .collect();
 
@@ -227,6 +223,10 @@ where
             .publish("".to_string(), PublishRequest { envelopes })
             .await?;
 
+        let payload_ids = unsent_payloads
+            .iter()
+            .map(|payload| payload.created_at_ns)
+            .collect();
         self.client.store.update_and_unlock_outbound_payloads(
             payload_ids,
             OutboundPayloadState::ServerAcknowledged,
