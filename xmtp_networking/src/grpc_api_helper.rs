@@ -108,7 +108,9 @@ impl XmtpApiClient for Client {
     type Subscription = Subscription;
 
     fn set_app_version(&mut self, version: String) {
-        self.app_version = MetadataValue::try_from(&version).unwrap();
+        let cloned_version = version.clone();
+
+        self.app_version = MetadataValue::try_from(&cloned_version).unwrap();
     }
 
     async fn publish(
