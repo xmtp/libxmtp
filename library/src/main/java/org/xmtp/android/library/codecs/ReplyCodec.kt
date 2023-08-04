@@ -24,19 +24,18 @@ data class ReplyCodec(override var contentType: ContentTypeId = ContentTypeReply
 
         return EncodedContent.newBuilder().also {
             it.type = ContentTypeReply
-            it.putParameters("contentType", reply.contentType.id)
+            // TODO: cut when we're certain no one is looking for "contentType" here.
+            it.putParameters("contentType", reply.contentType.description)
             it.putParameters("reference", reply.reference)
             it.content = encodeReply(replyCodec, reply.content).toByteString()
         }.build()
     }
 
     override fun decode(content: EncodedContent): Reply {
-        val contentTypeIdString =
-            content.getParametersOrThrow("contentType") ?: throw XMTPException("Codec Not Found")
         val reference =
             content.getParametersOrThrow("reference") ?: throw XMTPException("Invalid Content")
         val replyEncodedContent = EncodedContent.parseFrom(content.content)
-        val replyCodec = Client.codecRegistry.findFromId(contentTypeIdString)
+        val replyCodec = Client.codecRegistry.find(replyEncodedContent.type)
         val replyContent = replyCodec.decode(content = replyEncodedContent)
             ?: throw XMTPException("Invalid Content")
         return Reply(
