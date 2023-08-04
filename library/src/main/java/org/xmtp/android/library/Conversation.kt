@@ -127,12 +127,18 @@ sealed class Conversation {
         }
     }
 
-    fun send(encodedContent: EncodedContent): String {
+    fun send(encodedContent: EncodedContent, options: SendOptions? = null): String {
         return when (this) {
-            is V1 -> conversationV1.send(encodedContent = encodedContent)
-            is V2 -> conversationV2.send(encodedContent = encodedContent)
+            is V1 -> conversationV1.send(encodedContent = encodedContent, options = options)
+            is V2 -> conversationV2.send(encodedContent = encodedContent, options = options)
         }
     }
+
+    val clientAddress: String
+        get() {
+            return client.address
+        }
+
     val topic: String
         get() {
             return when (this) {
@@ -174,6 +180,13 @@ sealed class Conversation {
         return when (this) {
             is V1 -> conversationV1.streamMessages()
             is V2 -> conversationV2.streamMessages()
+        }
+    }
+
+    fun streamEphemeral(): Flow<Envelope> {
+        return when (this) {
+            is V1 -> return conversationV1.streamEphemeral()
+            is V2 -> return conversationV2.streamEphemeral()
         }
     }
 }

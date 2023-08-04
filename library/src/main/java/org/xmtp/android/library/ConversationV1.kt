@@ -2,6 +2,7 @@ package org.xmtp.android.library
 
 import android.util.Log
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.runBlocking
 import org.web3j.crypto.Hash
@@ -97,8 +98,8 @@ data class ConversationV1(
         return preparedMessage.messageId
     }
 
-    fun send(encodedContent: EncodedContent): String {
-        val preparedMessage = prepareMessage(encodedContent = encodedContent)
+    fun send(encodedContent: EncodedContent, options: SendOptions? = null): String {
+        val preparedMessage = prepareMessage(encodedContent = encodedContent, options = options)
         preparedMessage.send()
         return preparedMessage.messageId
     }
@@ -123,10 +124,13 @@ data class ConversationV1(
         if (compression != null) {
             encoded = encoded.compress(compression)
         }
-        return prepareMessage(encodedContent = encoded)
+        return prepareMessage(encodedContent = encoded, options = options)
     }
 
-    fun prepareMessage(encodedContent: EncodedContent): PreparedMessage {
+    fun prepareMessage(
+        encodedContent: EncodedContent,
+        options: SendOptions? = null,
+    ): PreparedMessage {
         val contact = client.contacts.find(peerAddress) ?: throw XMTPException("address not found")
         val recipient = contact.toPublicKeyBundle()
         if (!recipient.identityKey.hasSignature()) {
@@ -139,9 +143,12 @@ data class ConversationV1(
             message = encodedContent.toByteArray(),
             timestamp = date
         )
+
+        val isEphemeral: Boolean = options != null && options.ephemeral
+
         val messageEnvelope =
-            EnvelopeBuilder.buildFromTopic(
-                topic = Topic.directMessageV1(client.address, peerAddress),
+            EnvelopeBuilder.buildFromString(
+                topic = if (isEphemeral) ephemeralTopic else topic.description,
                 timestamp = date,
                 message = MessageBuilder.buildFromMessageV1(v1 = message).toByteArray()
             )
@@ -150,7 +157,7 @@ data class ConversationV1(
             conversation = Conversation.V1(this)
         ) {
             val envelopes = mutableListOf(messageEnvelope)
-            if (client.contacts.needsIntroduction(peerAddress)) {
+            if (client.contacts.needsIntroduction(peerAddress) && !isEphemeral) {
                 envelopes.addAll(
                     listOf(
                         EnvelopeBuilder.buildFromTopic(
@@ -173,4 +180,13 @@ data class ConversationV1(
 
     private fun generateId(envelope: Envelope): String =
         Hash.sha256(envelope.message.toByteArray()).toHex()
+
+    val ephemeralTopic: String
+        get() = topic.description.replace("/xmtp/0/dm-", "/xmtp/0/dmE-")
+
+    fun streamEphemeral(): Flow<Envelope> = flow {
+        client.subscribe(topics = listOf(ephemeralTopic)).collect {
+            emit(it)
+        }
+    }
 }

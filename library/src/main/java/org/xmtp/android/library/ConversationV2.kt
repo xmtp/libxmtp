@@ -113,8 +113,8 @@ data class ConversationV2(
         return preparedMessage.messageId
     }
 
-    fun send(encodedContent: EncodedContent): String {
-        val preparedMessage = prepareMessage(encodedContent = encodedContent)
+    fun send(encodedContent: EncodedContent, options: SendOptions?): String {
+        val preparedMessage = prepareMessage(encodedContent = encodedContent, options = options)
         preparedMessage.send()
         return preparedMessage.messageId
     }
@@ -155,18 +155,21 @@ data class ConversationV2(
         if (compression != null) {
             encoded = encoded.compress(compression)
         }
-        return prepareMessage(encoded)
+        return prepareMessage(encoded, options = options)
     }
 
-    fun prepareMessage(encodedContent: EncodedContent): PreparedMessage {
+    fun prepareMessage(encodedContent: EncodedContent, options: SendOptions?): PreparedMessage {
         val message = MessageV2Builder.buildEncode(
             client = client,
             encodedContent = encodedContent,
             topic = topic,
             keyMaterial = keyMaterial
         )
+
+        val newTopic = if (options?.ephemeral == true) ephemeralTopic else topic
+
         val envelope = EnvelopeBuilder.buildFromString(
-            topic = topic,
+            topic = newTopic,
             timestamp = Date(),
             message = MessageBuilder.buildFromMessageV2(v2 = message).toByteArray()
         )
@@ -177,4 +180,13 @@ data class ConversationV2(
 
     private fun generateId(envelope: Envelope): String =
         Hash.sha256(envelope.message.toByteArray()).toHex()
+
+    val ephemeralTopic: String
+        get() = topic.replace("/xmtp/0/m", "/xmtp/0/mE")
+
+    fun streamEphemeral(): Flow<Envelope> = flow {
+        client.subscribe(topics = listOf(ephemeralTopic)).collect {
+            emit(it)
+        }
+    }
 }

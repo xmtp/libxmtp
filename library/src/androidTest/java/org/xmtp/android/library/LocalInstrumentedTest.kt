@@ -345,4 +345,48 @@ class LocalInstrumentedTest {
     private fun delayToPropagate() {
         Thread.sleep(500)
     }
+
+    @Test
+    fun testStreamEphemeralInV1Conversation() {
+        val bob = PrivateKeyBuilder()
+        val alice = PrivateKeyBuilder()
+        val clientOptions =
+            ClientOptions(api = ClientOptions.Api(env = XMTPEnvironment.LOCAL, isSecure = false))
+        val bobClient = Client().create(bob, clientOptions)
+        val aliceClient = Client().create(account = alice, options = clientOptions)
+        aliceClient.publishUserContact(legacy = true)
+        bobClient.publishUserContact(legacy = true)
+        val convo = ConversationV1(client = bobClient, peerAddress = alice.address, sentAt = Date())
+        convo.streamEphemeral().mapLatest {
+            assertEquals("hi", it.message.toStringUtf8())
+        }
+        convo.send(content = "hi", options = SendOptions(ephemeral = true))
+        val messages = convo.messages()
+        assertEquals(0, messages.size)
+    }
+
+    @Test
+    fun testStreamEphemeralInV2Conversation() {
+        val bob = PrivateKeyBuilder()
+        val alice = PrivateKeyBuilder()
+        val clientOptions =
+            ClientOptions(api = ClientOptions.Api(env = XMTPEnvironment.LOCAL, isSecure = false))
+        val bobClient = Client().create(bob, clientOptions)
+        val aliceClient = Client().create(account = alice, options = clientOptions)
+        val aliceConversation = aliceClient.conversations.newConversation(
+            bob.address,
+            context = InvitationV1ContextBuilder.buildFromConversation("https://example.com/3")
+        )
+        val bobConversation = bobClient.conversations.newConversation(
+            alice.address,
+            context = InvitationV1ContextBuilder.buildFromConversation("https://example.com/3")
+        )
+
+        bobConversation.streamEphemeral().mapLatest {
+            assertEquals("hi", it.message.toStringUtf8())
+        }
+        aliceConversation.send(content = "hi", options = SendOptions(ephemeral = true))
+        val messages = aliceConversation.messages()
+        assertEquals(0, messages.size)
+    }
 }
