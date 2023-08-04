@@ -13,7 +13,7 @@ public struct Reply {
 	public var reference: String
 	public var content: Any
 	public var contentType: ContentTypeID
-    
+
     public init(reference: String, content: Any, contentType: ContentTypeID) {
         self.reference = reference
         self.content = content
@@ -31,6 +31,7 @@ public struct ReplyCodec: ContentCodec {
 		let replyCodec = Client.codecRegistry.find(for: reply.contentType)
 
 		encodedContent.type = contentType
+		// TODO: cut when we're certain no one is looking for "contentType" here.
 		encodedContent.parameters["contentType"] = reply.contentType.description
 		encodedContent.parameters["reference"] = reply.reference
 		encodedContent.content = try encodeReply(codec: replyCodec, content: reply.content).serializedData()
@@ -39,16 +40,12 @@ public struct ReplyCodec: ContentCodec {
 	}
 
 	public func decode(content: EncodedContent) throws -> Reply {
-		guard let contentTypeString = content.parameters["contentType"] else {
-			throw CodecError.codecNotFound
-		}
-
 		guard let reference = content.parameters["reference"] else {
 			throw CodecError.invalidContent
 		}
 
 		let replyEncodedContent = try EncodedContent(serializedData: content.content)
-		let replyCodec = Client.codecRegistry.find(for: contentTypeString)
+		let replyCodec = Client.codecRegistry.find(for: replyEncodedContent.type)
 		let replyContent = try replyCodec.decode(content: replyEncodedContent)
 
 		return Reply(
