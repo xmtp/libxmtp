@@ -372,6 +372,40 @@ impl EncryptedMessageStore {
             .execute(conn)?;
         Ok(())
     }
+
+    pub fn fetch_and_lock_outbound_payloads(
+        &self,
+        payload_state: OutboundPayloadState,
+        lock_duration_ns: i64,
+    ) -> Result<Vec<StoredOutboundPayload>, StorageError> {
+        let conn = &mut self.conn()?;
+        use self::schema::outbound_payloads::dsl as schema;
+        let now = now();
+        // Must happen atomically
+        let payloads = diesel::update(schema::outbound_payloads)
+            .filter(schema::outbound_payload_state.eq(payload_state as i32))
+            .filter(schema::locked_until_ns.lt(now))
+            .set(schema::locked_until_ns.eq(now + lock_duration_ns))
+            .get_results::<StoredOutboundPayload>(conn)?;
+        Ok(payloads)
+    }
+
+    pub fn update_and_unlock_outbound_payloads(
+        &self,
+        payload_ids: Vec<i64>,
+        new_payload_state: OutboundPayloadState,
+    ) -> Result<(), StorageError> {
+        let conn = &mut self.conn()?;
+        use self::schema::outbound_payloads::dsl::*;
+        diesel::update(outbound_payloads)
+            .filter(created_at_ns.eq_any(payload_ids))
+            .set((
+                outbound_payload_state.eq(new_payload_state as i32),
+                locked_until_ns.eq(0),
+            ))
+            .execute(conn)?;
+        Ok(())
+    }
 }
 
 impl Store<EncryptedMessageStore> for NewStoredMessage {

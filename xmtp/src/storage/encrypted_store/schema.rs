@@ -54,6 +54,7 @@ diesel::table! {
         content_topic -> Text,
         payload -> Binary,
         outbound_payload_state -> Integer,
+        locked_until_ns -> BigInt,
     }
 }
 

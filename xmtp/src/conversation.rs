@@ -33,7 +33,9 @@ pub enum ConversationError {
     #[error("diesel error: {0}")]
     Diesel(#[from] diesel::result::Error),
     #[error("No sessions for user: {0}")]
-    NoSessionsError(String),
+    NoSessions(String),
+    #[error("Network error: {0}")]
+    Networking(#[from] crate::types::networking::Error),
     #[error("unknown error")]
     Unknown,
 }
