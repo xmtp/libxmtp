@@ -126,7 +126,7 @@ where
             None => {
                 info!("Creating new XMTP identity");
                 let new_account = Self::sign_new_account(owner)?;
-                new_account.store(store)?;
+                new_account.store(&mut store.conn().unwrap())?;
                 Ok(new_account)
             }
         }
@@ -136,7 +136,8 @@ where
     fn retrieve_persisted_account(
         store: &mut EncryptedMessageStore,
     ) -> Result<Option<Account>, ClientBuilderError> {
-        let mut accounts = store.fetch()?;
+        let conn = &mut store.conn()?;
+        let mut accounts = conn.fetch()?;
         Ok(accounts.pop())
     }
 

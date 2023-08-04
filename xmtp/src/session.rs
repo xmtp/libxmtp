@@ -1,6 +1,6 @@
 use crate::{
     contact::Contact,
-    storage::{EncryptedMessageStore, StorageError, StoredSession},
+    storage::{DbConnection, EncryptedMessageStore, StorageError, StoredSession},
     Save, Store,
 };
 use thiserror::Error;
@@ -66,7 +66,7 @@ impl SessionManager {
     pub fn decrypt(
         &mut self,
         message: OlmMessage,
-        into: &EncryptedMessageStore,
+        into: &mut DbConnection,
     ) -> Result<Vec<u8>, SessionError> {
         let res = self.session.decrypt(&message)?;
         // TODO: Stop mutating/storing the persisted session and just build on demand
@@ -80,14 +80,14 @@ impl SessionManager {
     }
 }
 
-impl Store<EncryptedMessageStore> for SessionManager {
-    fn store(&self, into: &EncryptedMessageStore) -> Result<(), StorageError> {
+impl Store<DbConnection> for SessionManager {
+    fn store(&self, into: &mut DbConnection) -> Result<(), StorageError> {
         StoredSession::try_from(self)?.store(into)
     }
 }
 
-impl Save<EncryptedMessageStore> for SessionManager {
-    fn save(&self, into: &EncryptedMessageStore) -> Result<(), StorageError> {
+impl Save<DbConnection> for SessionManager {
+    fn save(&self, into: &mut DbConnection) -> Result<(), StorageError> {
         StoredSession::try_from(self)?.save(into)
     }
 }
@@ -146,9 +146,11 @@ mod tests {
                 .unwrap();
 
         let message_store = &EncryptedMessageStore::default();
-        a_to_b_session.store(message_store).unwrap();
+        let conn = &mut message_store.conn().unwrap();
 
-        let results: Vec<StoredSession> = message_store.fetch().unwrap();
+        a_to_b_session.store(conn).unwrap();
+
+        let results: Vec<StoredSession> = conn.fetch().unwrap();
         assert_eq!(results.len(), 1);
         let initial_session_data = &results.get(0).unwrap().vmac_session_data;
 
@@ -159,10 +161,10 @@ mod tests {
                 .unwrap();
 
             let reply = b_to_a_olm_session.session.encrypt("hello to you");
-            let decrypted_reply = a_to_b_session.decrypt(reply, message_store).unwrap();
+            let decrypted_reply = a_to_b_session.decrypt(reply, conn).unwrap();
             assert_eq!(decrypted_reply, "hello to you".as_bytes());
 
-            let updated_results: Vec<StoredSession> = message_store.fetch().unwrap();
+            let updated_results: Vec<StoredSession> = conn.fetch().unwrap();
             assert_eq!(updated_results.len(), 1);
             let updated_session_data = &updated_results.get(0).unwrap().vmac_session_data;
 

@@ -122,7 +122,7 @@ where
             content_bytes,
             MessageState::Unprocessed as i32,
         )
-        .store(&self.client.store)?;
+        .store(&mut self.client.store.conn().unwrap())?;
         Ok(())
     }
 

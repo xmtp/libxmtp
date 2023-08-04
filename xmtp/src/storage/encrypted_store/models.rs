@@ -1,4 +1,4 @@
-use super::{schema::*, EncryptedMessageStore};
+use super::{schema::*, DbConnection, EncryptedMessageStore};
 use crate::{
     account::Account,
     contact::{Contact, ContactError},
@@ -137,16 +137,14 @@ impl StoredSession {
     }
 }
 
-impl Save<EncryptedMessageStore> for StoredSession {
-    fn save(&self, into: &EncryptedMessageStore) -> Result<(), StorageError> {
-        let conn = &mut into.conn()?;
-
+impl Save<DbConnection> for StoredSession {
+    fn save(&self, into: &mut DbConnection) -> Result<(), StorageError> {
         diesel::update(sessions::table)
             .set((
                 sessions::vmac_session_data.eq(&self.vmac_session_data),
                 sessions::peer_installation_id.eq(&self.peer_installation_id),
             ))
-            .execute(conn)?;
+            .execute(into)?;
 
         Ok(())
     }
@@ -229,13 +227,11 @@ pub struct RefreshJob {
     pub last_run: i64,
 }
 
-impl Save<EncryptedMessageStore> for RefreshJob {
-    fn save(&self, into: &EncryptedMessageStore) -> Result<(), StorageError> {
-        let conn = &mut into.conn()?;
-
+impl Save<DbConnection> for RefreshJob {
+    fn save(&self, into: &mut DbConnection) -> Result<(), StorageError> {
         diesel::update(refresh_jobs::table)
             .set(refresh_jobs::last_run.eq(&self.last_run))
-            .execute(conn)?;
+            .execute(into)?;
 
         Ok(())
     }
