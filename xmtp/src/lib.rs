@@ -33,17 +33,17 @@ pub trait Errorer {
 
 // Inserts a model to the underlying data store
 pub trait Store<I> {
-    fn store(&self, into: &I) -> Result<(), StorageError>;
+    fn store(&self, into: &mut I) -> Result<(), StorageError>;
 }
 
 // Fetches all instances of a model from the underlying data store
 pub trait Fetch<T> {
-    fn fetch(&self) -> Result<Vec<T>, StorageError>;
+    fn fetch(&mut self) -> Result<Vec<T>, StorageError>;
 }
 
 // Updates an existing instance of the model in the data store
 pub trait Save<I> {
-    fn save(&self, into: &I) -> Result<(), StorageError>;
+    fn save(&self, into: &mut I) -> Result<(), StorageError>;
 }
 
 pub trait InboxOwner {

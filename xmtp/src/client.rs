@@ -226,7 +226,7 @@ where
         let session = SessionManager::from_olm_session(olm_session, contact)
             .map_err(|_| ClientError::Unknown)?;
 
-        session.store(&self.store)?;
+        session.store(&mut self.store.conn().unwrap())?;
 
         Ok(session)
     }
@@ -252,7 +252,7 @@ where
         let session = SessionManager::from_olm_session(create_result.session, &contact)
             .map_err(|_| ClientError::Unknown)?;
 
-        session.store(&self.store)?;
+        session.store(&mut self.store.conn().unwrap())?;
 
         Ok((session, create_result.plaintext))
     }

@@ -7,6 +7,6 @@ pub use encrypted_store::{
         OutboundPayloadState, RefreshJob, RefreshJobKind, StoredConversation, StoredInstallation,
         StoredMessage, StoredOutboundPayload, StoredSession, StoredUser,
     },
-    EncryptedMessageStore, EncryptionKey, StorageOption,
+    DbConnection, EncryptedMessageStore, EncryptionKey, StorageOption,
 };
 pub use errors::StorageError;
