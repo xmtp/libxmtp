@@ -1,4 +1,4 @@
-use super::{schema::*, EncryptedMessageStore};
+use super::{schema::*, DbConnection, EncryptedMessageStore};
 use crate::{
     account::Account,
     contact::{Contact, ContactError},
@@ -99,6 +99,7 @@ pub struct StoredOutboundPayload {
     pub content_topic: String,
     pub payload: Vec<u8>,
     pub outbound_payload_state: i32,
+    pub locked_until_ns: i64,
 }
 
 pub fn now() -> i64 {
@@ -137,17 +138,15 @@ impl StoredSession {
     }
 }
 
-impl Save<EncryptedMessageStore> for StoredSession {
-    fn save(&self, into: &EncryptedMessageStore) -> Result<(), StorageError> {
-        let conn = &mut into.conn()?;
-
+impl Save<DbConnection> for StoredSession {
+    fn save(&self, into: &mut DbConnection) -> Result<(), StorageError> {
         diesel::update(sessions::table)
             .filter(sessions::session_id.eq(self.session_id.clone()))
             .set((
                 sessions::vmac_session_data.eq(&self.vmac_session_data),
                 sessions::peer_installation_id.eq(&self.peer_installation_id),
             ))
-            .execute(conn)?;
+            .execute(into)?;
 
         Ok(())
     }
@@ -188,23 +187,24 @@ pub struct StoredInstallation {
     pub user_address: String,
     pub first_seen_ns: i64,
     pub contact: Vec<u8>,
-    pub contact_hash: String,
     pub expires_at_ns: Option<i64>,
 }
 
 impl StoredInstallation {
     pub fn new(contact: &Contact) -> Result<Self, ContactError> {
         let contact_bytes: Vec<u8> = contact.try_into()?;
-        let contact_hash = hex::encode(sha256_bytes(&contact_bytes).as_slice());
 
         Ok(Self {
             installation_id: contact.installation_id(),
             user_address: contact.wallet_address.clone(),
             first_seen_ns: now(),
             contact: contact_bytes,
-            contact_hash: contact_hash,
             expires_at_ns: None,
         })
+    }
+
+    pub fn get_contact(&self) -> Result<Contact, ContactError> {
+        Contact::from_bytes(self.contact.clone(), self.user_address.clone())
     }
 }
 
@@ -229,13 +229,11 @@ pub struct RefreshJob {
     pub last_run: i64,
 }
 
-impl Save<EncryptedMessageStore> for RefreshJob {
-    fn save(&self, into: &EncryptedMessageStore) -> Result<(), StorageError> {
-        let conn = &mut into.conn()?;
-
+impl Save<DbConnection> for RefreshJob {
+    fn save(&self, into: &mut DbConnection) -> Result<(), StorageError> {
         diesel::update(refresh_jobs::table)
             .set(refresh_jobs::last_run.eq(&self.last_run))
-            .execute(conn)?;
+            .execute(into)?;
 
         Ok(())
     }

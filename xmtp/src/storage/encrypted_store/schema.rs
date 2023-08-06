@@ -33,7 +33,6 @@ diesel::table! {
         user_address -> Text,
         first_seen_ns -> BigInt,
         contact -> Binary,
-        contact_hash -> Text,
         expires_at_ns -> Nullable<BigInt>,
     }
 }
@@ -55,6 +54,7 @@ diesel::table! {
         content_topic -> Text,
         payload -> Binary,
         outbound_payload_state -> Integer,
+        locked_until_ns -> BigInt,
     }
 }
 

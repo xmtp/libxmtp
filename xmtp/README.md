@@ -79,10 +79,7 @@ process_messages():
             If user.last_refreshed is uninitialized or more than THRESHOLD ago:
                 refresh_user_installations()    // Could be kicked off asynchronously or synchronously
                 return  // refreshUserInstallations() will call back into processMessages() when ready
-        Fetch the installations and sessions of all users from the DB
-        For each installation:
-            If installation.state == UNINITIALIZED:
-                Create an outbound session
+        Fetch the sessions of all users from the DB
         For each session:
             // Build the plaintext payload
             If conversation.state == UNINITIALIZED:
@@ -102,11 +99,13 @@ process_messages():
 refresh_user_installations(user):
     Fetch installations/contact bundles for the user from the network
     Fetch installations/contact bundles for the user from the DB
+    
+    For each installation from the DB:
+            if is expired or revoked, delete it from the DB
     In a single transaction:
-        For each installation from the DB:
-            If it doesn't exist in the network contact bundles or is expired or revoked, delete it from the DB
-        For each installation from the network:
-            If it doesn't exist in the DB, insert it with installation.state = UNINITIALIZED
+        For each new installation from the network:
+            save installation to local cache
+            create new session for new installation
         Set user.last_refreshed to NOW
     process_messages();  // Could be kicked off asynchronously or synchronously
     return

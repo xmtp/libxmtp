@@ -14,25 +14,24 @@
 pub mod models;
 pub mod schema;
 
-use log::warn;
-use rand::RngCore;
-
 use self::{
     models::*,
-    schema::{accounts, conversations, inbound_invites, messages, refresh_jobs, users},
+    schema::{
+        accounts, conversations, inbound_invites, installations, messages, refresh_jobs, users,
+    },
 };
+use super::{now, StorageError};
 use crate::{account::Account, Errorer, Fetch, Store};
 use diesel::{
     connection::SimpleConnection,
     prelude::*,
     r2d2::{ConnectionManager, Pool, PooledConnection},
 };
-
+use diesel_migrations::{embed_migrations, EmbeddedMigrations, MigrationHarness};
+use log::warn;
+use rand::RngCore;
 use xmtp_cryptography::utils as crypto_utils;
 
-use diesel_migrations::{embed_migrations, EmbeddedMigrations, MigrationHarness};
-
-use super::StorageError;
 pub const MIGRATIONS: EmbeddedMigrations = embed_migrations!("./migrations/");
 
 pub type DbConnection = PooledConnection<ConnectionManager<SqliteConnection>>;
@@ -117,7 +116,7 @@ impl EncryptedMessageStore {
 
     pub fn create_fake_msg(&self, content: &str, state: i32) {
         NewStoredMessage::new("convo".into(), "addr".into(), content.into(), state)
-            .store(self)
+            .store(&mut self.conn().unwrap())
             .unwrap();
     }
 
@@ -155,7 +154,7 @@ impl EncryptedMessageStore {
     }
 
     pub fn get_account(&mut self) -> Result<Option<Account>, StorageError> {
-        let mut account_list: Vec<Account> = self.fetch()?;
+        let mut account_list: Vec<Account> = self.conn().unwrap().fetch()?;
 
         warn_length(&account_list, "StoredAccount", 1);
 
@@ -173,19 +172,40 @@ impl EncryptedMessageStore {
             .filter(peer_installation_id.eq(installation_id))
             .order(created_at.desc())
             .load::<StoredSession>(conn)
-            .map_err(|_| StorageError::Unknown)?;
+            .map_err(|e| StorageError::Unknown(e.to_string()))?;
 
         warn_length(&session_list, "StoredSession", 1);
         Ok(session_list.pop())
     }
 
-    pub fn get_session(
+    pub fn get_sessions(
         &self,
-        installation_id: &str,
-    ) -> Result<Option<StoredSession>, StorageError> {
+        user_address: &str,
+        conn: &mut PooledConnection<ConnectionManager<SqliteConnection>>,
+    ) -> Result<Vec<StoredSession>, StorageError> {
+        use self::schema::sessions::dsl as schema;
+
+        let session_list = schema::sessions
+            .filter(schema::user_address.eq(user_address))
+            .order(schema::created_at.desc())
+            .load::<StoredSession>(conn)
+            .map_err(|e| StorageError::Unknown(e.to_string()))?;
+        Ok(session_list)
+    }
+
+    pub fn get_installations(
+        &self,
+        user_address_str: &str,
+    ) -> Result<Vec<StoredInstallation>, StorageError> {
+        use self::schema::installations::dsl as schema;
         let conn = &mut self.conn()?;
 
-        self.get_session_with_conn(installation_id, conn)
+        let installation_list = schema::installations
+            .filter(schema::user_address.eq(user_address_str))
+            .load::<StoredInstallation>(conn)
+            .map_err(|e| StorageError::Unknown(e.to_string()))?;
+
+        Ok(installation_list)
     }
 
     pub fn get_user(&self, address: &str) -> Result<Option<StoredUser>, StorageError> {
@@ -197,6 +217,18 @@ impl EncryptedMessageStore {
 
         warn_length(&user_list, "StoredUser", 1);
         Ok(user_list.pop())
+    }
+
+    pub fn update_user_refresh_timestamp(
+        &self,
+        conn: &mut PooledConnection<ConnectionManager<SqliteConnection>>,
+        user_address: &str,
+        timestamp: i64,
+    ) -> Result<usize, StorageError> {
+        diesel::update(users::table.filter(users::user_address.eq(user_address)))
+            .set(users::last_refreshed.eq(timestamp))
+            .execute(conn)
+            .map_err(|e| e.into())
     }
 
     pub fn insert_or_ignore_user(&self, user: StoredUser) -> Result<(), StorageError> {
@@ -243,7 +275,7 @@ impl EncryptedMessageStore {
             .filter(dsl::user_address.eq(user_address))
             .order(dsl::first_seen_ns.desc())
             .load::<StoredInstallation>(conn)
-            .map_err(|_| StorageError::Unknown)?;
+            .map_err(|e| StorageError::Unknown(e.to_string()))?;
 
         Ok(install_list)
     }
@@ -327,87 +359,155 @@ impl EncryptedMessageStore {
             .filter(dsl::id.eq(id))
             .set((dsl::status.eq(status as i16)))
             .execute(conn)?;
+    }
 
+    pub fn insert_or_ignore_install(
+        &self,
+        install: StoredInstallation,
+        conn: &mut PooledConnection<ConnectionManager<SqliteConnection>>,
+    ) -> Result<(), StorageError> {
+        diesel::insert_or_ignore_into(installations::table)
+            .values(install)
+            .execute(conn)?;
+        Ok(())
+    }
+
+    pub fn insert_or_ignore_session(
+        &self,
+        session: StoredSession,
+        conn: &mut PooledConnection<ConnectionManager<SqliteConnection>>,
+    ) -> Result<(), StorageError> {
+        diesel::insert_or_ignore_into(schema::sessions::table)
+            .values(session)
+            .execute(conn)?;
+        Ok(())
+    }
+
+    pub fn commit_outbound_payloads_for_message(
+        &self,
+        message_id: i32,
+        updated_message_state: MessageState,
+        new_outbound_payloads: Vec<StoredOutboundPayload>,
+        updated_sessions: Vec<StoredSession>,
+        conn: &mut PooledConnection<ConnectionManager<SqliteConnection>>,
+    ) -> Result<(), StorageError> {
+        for session in updated_sessions {
+            diesel::update(schema::sessions::table.find(session.session_id))
+                .set(schema::sessions::vmac_session_data.eq(session.vmac_session_data))
+                .execute(conn)?;
+        }
+        diesel::insert_into(schema::outbound_payloads::table)
+            .values(new_outbound_payloads)
+            .execute(conn)?;
+        diesel::update(messages::table.find(message_id))
+            .set(messages::state.eq(updated_message_state as i32))
+            .execute(conn)?;
+        Ok(())
+    }
+
+    pub fn fetch_and_lock_outbound_payloads(
+        &self,
+        payload_state: OutboundPayloadState,
+        lock_duration_ns: i64,
+    ) -> Result<Vec<StoredOutboundPayload>, StorageError> {
+        let conn = &mut self.conn()?;
+        use self::schema::outbound_payloads::dsl as schema;
+        let now = now();
+        // Must happen atomically
+        let payloads = diesel::update(schema::outbound_payloads)
+            .filter(schema::outbound_payload_state.eq(payload_state as i32))
+            .filter(schema::locked_until_ns.lt(now))
+            .set(schema::locked_until_ns.eq(now + lock_duration_ns))
+            .get_results::<StoredOutboundPayload>(conn)?;
+        Ok(payloads)
+    }
+
+    pub fn update_and_unlock_outbound_payloads(
+        &self,
+        payload_ids: Vec<i64>,
+        new_payload_state: OutboundPayloadState,
+    ) -> Result<(), StorageError> {
+        let conn = &mut self.conn()?;
+        use self::schema::outbound_payloads::dsl::*;
+        diesel::update(outbound_payloads)
+            .filter(created_at_ns.eq_any(payload_ids))
+            .set((
+                outbound_payload_state.eq(new_payload_state as i32),
+                locked_until_ns.eq(0),
+            ))
+            .execute(conn)?;
         Ok(())
     }
 }
 
-impl Store<EncryptedMessageStore> for NewStoredMessage {
-    fn store(&self, into: &EncryptedMessageStore) -> Result<(), StorageError> {
-        let conn = &mut into.conn()?;
+impl Store<DbConnection> for NewStoredMessage {
+    fn store(&self, into: &mut DbConnection) -> Result<(), StorageError> {
         diesel::insert_into(messages::table)
             .values(self)
-            .execute(conn)?;
+            .execute(into)?;
 
         Ok(())
     }
 }
 
-impl Store<EncryptedMessageStore> for StoredSession {
-    fn store(&self, into: &EncryptedMessageStore) -> Result<(), StorageError> {
-        let conn = &mut into.conn()?;
+impl Store<DbConnection> for StoredSession {
+    fn store(&self, into: &mut DbConnection) -> Result<(), StorageError> {
         diesel::insert_into(schema::sessions::table)
             .values(self)
-            .execute(conn)?;
+            .execute(into)?;
 
         Ok(())
     }
 }
 
-impl Fetch<StoredMessage> for EncryptedMessageStore {
-    fn fetch(&self) -> Result<Vec<StoredMessage>, StorageError> {
-        let conn = &mut self.conn()?;
+impl Fetch<StoredMessage> for DbConnection {
+    fn fetch(&mut self) -> Result<Vec<StoredMessage>, StorageError> {
         use self::schema::messages::dsl::*;
 
         messages
-            .load::<StoredMessage>(conn)
+            .load::<StoredMessage>(self)
             .map_err(StorageError::DieselResultError)
     }
 }
 
-impl Fetch<StoredSession> for EncryptedMessageStore {
-    fn fetch(&self) -> Result<Vec<StoredSession>, StorageError> {
-        let conn = &mut self.conn()?;
+impl Fetch<StoredSession> for DbConnection {
+    fn fetch(&mut self) -> Result<Vec<StoredSession>, StorageError> {
         use self::schema::sessions::dsl::*;
 
         sessions
-            .load::<StoredSession>(conn)
+            .load::<StoredSession>(self)
             .map_err(StorageError::DieselResultError)
     }
 }
 
-impl Fetch<InboundInvite> for EncryptedMessageStore {
-    fn fetch(&self) -> Result<Vec<InboundInvite>, StorageError> {
-        let conn = &mut self.conn()?;
+impl Fetch<InboundInvite> for DbConnection {
+    fn fetch(&mut self) -> Result<Vec<InboundInvite>, StorageError> {
         use self::schema::inbound_invites::dsl::*;
 
         inbound_invites
-            .load::<InboundInvite>(conn)
+            .load::<InboundInvite>(self)
             .map_err(StorageError::DieselResultError)
     }
 }
 
-impl Store<EncryptedMessageStore> for Account {
-    fn store(&self, into: &EncryptedMessageStore) -> Result<(), StorageError> {
-        let conn = &mut into.conn()?;
-
+impl Store<DbConnection> for Account {
+    fn store(&self, into: &mut DbConnection) -> Result<(), StorageError> {
         diesel::insert_into(accounts::table)
             .values(NewStoredAccount::try_from(self)?)
-            .execute(conn)
+            .execute(into)
             .map_err(|e| StorageError::Store(e.to_string()))?;
 
         Ok(())
     }
 }
 
-impl Fetch<Account> for EncryptedMessageStore {
-    fn fetch(&self) -> Result<Vec<Account>, StorageError> {
+impl Fetch<Account> for DbConnection {
+    fn fetch(&mut self) -> Result<Vec<Account>, StorageError> {
         use self::schema::accounts::dsl::*;
-        let conn = &mut self.conn()?;
 
         let stored_accounts = accounts
             .order(created_at.desc())
-            .load::<StoredAccount>(conn)
+            .load::<StoredAccount>(self)
             .map_err(|e| StorageError::Store(e.to_string()))?;
 
         Ok(stored_accounts
@@ -417,12 +517,11 @@ impl Fetch<Account> for EncryptedMessageStore {
     }
 }
 
-impl Store<EncryptedMessageStore> for StoredInstallation {
-    fn store(&self, into: &EncryptedMessageStore) -> Result<(), StorageError> {
-        let conn = &mut into.conn()?;
+impl Store<DbConnection> for StoredInstallation {
+    fn store(&self, into: &mut DbConnection) -> Result<(), StorageError> {
         diesel::insert_into(schema::installations::table)
             .values(self)
-            .execute(conn)?;
+            .execute(into)?;
 
         Ok(())
     }
@@ -467,14 +566,14 @@ mod tests {
             EncryptedMessageStore::generate_enc_key(),
         )
         .unwrap();
-
+        let conn = &mut store.conn().unwrap();
         NewStoredMessage::new(
             "Bola".into(),
             "0x000A".into(),
             "Hello Bola".into(),
             MessageState::Unprocessed as i32,
         )
-        .store(&store)
+        .store(conn)
         .unwrap();
 
         NewStoredMessage::new(
@@ -483,7 +582,7 @@ mod tests {
             "Sup Mark".into(),
             MessageState::Unprocessed as i32,
         )
-        .store(&store)
+        .store(conn)
         .unwrap();
 
         NewStoredMessage::new(
@@ -492,7 +591,7 @@ mod tests {
             "Hey Amal".into(),
             MessageState::Unprocessed as i32,
         )
-        .store(&store)
+        .store(conn)
         .unwrap();
 
         NewStoredMessage::new(
@@ -501,10 +600,10 @@ mod tests {
             "bye".into(),
             MessageState::Unprocessed as i32,
         )
-        .store(&store)
+        .store(conn)
         .unwrap();
 
-        let v: Vec<StoredMessage> = store.fetch().unwrap();
+        let v: Vec<StoredMessage> = conn.fetch().unwrap();
         assert_eq!(4, v.len());
     }
 
@@ -517,6 +616,7 @@ mod tests {
                 EncryptedMessageStore::generate_enc_key(),
             )
             .unwrap();
+            let conn = &mut store.conn().unwrap();
 
             NewStoredMessage::new(
                 "Bola".into(),
@@ -524,10 +624,10 @@ mod tests {
                 "Hello Bola".into(),
                 MessageState::Unprocessed as i32,
             )
-            .store(&store)
+            .store(conn)
             .unwrap();
 
-            let v: Vec<StoredMessage> = store.fetch().unwrap();
+            let v: Vec<StoredMessage> = conn.fetch().unwrap();
             assert_eq!(1, v.len());
         }
 
@@ -556,10 +656,12 @@ mod tests {
             MessageState::Unprocessed as i32,
         );
 
-        msg0.store(&store).unwrap();
-        msg1.store(&store).unwrap();
+        let conn = &mut store.conn().unwrap();
 
-        let msgs: Vec<StoredMessage> = store.fetch().unwrap();
+        msg0.store(conn).unwrap();
+        msg1.store(conn).unwrap();
+
+        let msgs: Vec<StoredMessage> = conn.fetch().unwrap();
 
         assert_eq!(2, msgs.len());
         assert_eq!(msg0, msgs[0]);
@@ -587,7 +689,7 @@ mod tests {
                 rand_vec(),
                 MessageState::Unprocessed as i32,
             );
-            msg0.store(&store).unwrap();
+            msg0.store(&mut store.conn().unwrap()).unwrap();
         } // Drop it
 
         enc_key[3] = 145; // Alter the enc_key
@@ -613,10 +715,10 @@ mod tests {
             rand_vec(),
             rand_string(), // user_address: rand_string(),
         );
+        let conn = &mut store.conn().unwrap();
+        session.store(conn).unwrap();
 
-        session.store(&store).unwrap();
-
-        let results: Vec<StoredSession> = store.fetch().unwrap();
+        let results: Vec<StoredSession> = conn.fetch().unwrap();
         assert_eq!(1, results.len());
     }
 
@@ -648,7 +750,7 @@ mod tests {
         let res_expected_err = store.lock_refresh_job(RefreshJobKind::Message, |_, job| {
             assert_eq!(job.id, RefreshJobKind::Message.to_string());
 
-            Err(StorageError::Unknown)
+            Err(StorageError::Unknown(String::from("RefreshJob failed")))
         });
         assert!(res_expected_err.is_err());
 
@@ -719,16 +821,14 @@ mod tests {
             status: InboundInviteStatus::Pending as i16,
         };
 
-        let result =
-            store
-                .conn()
-                .unwrap()
-                .transaction(|transaction_manager| -> Result<(), StorageError> {
-                    return store.save_inbound_invite(transaction_manager, inbound_invite.clone());
-                });
+        let conn = &mut store.conn().unwrap();
+
+        let result = conn.transaction(|transaction_manager| -> Result<(), StorageError> {
+            return store.save_inbound_invite(transaction_manager, inbound_invite.clone());
+        });
 
         assert!(result.is_ok());
-        let db_results: Vec<InboundInvite> = store.fetch().unwrap();
+        let db_results: Vec<InboundInvite> = conn.fetch().unwrap();
         assert_eq!(1, db_results.len());
 
         let inbound_invite_ptr = &inbound_invite;

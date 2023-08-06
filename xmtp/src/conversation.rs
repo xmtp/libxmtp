@@ -1,5 +1,6 @@
 use crate::{
     client::ClientError,
+    codecs::{text::TextCodec, CodecError, ContentCodec},
     contact::Contact,
     invitation::{Invitation, InvitationError},
     storage::{
@@ -13,7 +14,7 @@ use crate::{
     Client, Store,
 };
 
-use prost::DecodeError;
+use prost::{DecodeError, Message};
 // use async_trait::async_trait;
 use thiserror::Error;
 
@@ -23,10 +24,18 @@ pub enum ConversationError {
     Client(#[from] ClientError),
     #[error("invitation error {0}")]
     Invitation(#[from] InvitationError),
+    #[error("codec error {0}")]
+    Codec(#[from] CodecError),
     #[error("decode error {0}")]
     Decode(DecodeError),
     #[error("storage error: {0}")]
     Storage(#[from] StorageError),
+    #[error("diesel error: {0}")]
+    Diesel(#[from] diesel::result::Error),
+    #[error("No sessions for user: {0}")]
+    NoSessions(String),
+    #[error("Network error: {0}")]
+    Networking(#[from] crate::types::networking::Error),
     #[error("unknown error")]
     Unknown,
 }
@@ -35,6 +44,24 @@ pub fn convo_id(self_addr: String, peer_addr: String) -> String {
     let mut members = [self_addr, peer_addr];
     members.sort();
     format!(":{}:{}", members[0], members[1])
+}
+
+pub fn peer_addr_from_convo_id(
+    convo_id: &str,
+    self_addr: &str,
+) -> Result<String, ConversationError> {
+    let segments = convo_id.split(':').collect::<Vec<&str>>();
+    if segments.len() != 3 {
+        return Err(ConversationError::Decode(DecodeError::new(format!(
+            "Invalid convo ID {}",
+            convo_id
+        ))));
+    }
+    if segments[1] == self_addr {
+        Ok(segments[2].to_string())
+    } else {
+        Ok(segments[1].to_string())
+    }
 }
 
 // I had to pick a name for this, and it seems like we are hovering around SecretConversation ATM
@@ -60,7 +87,7 @@ where
     ) -> Result<Self, ConversationError> {
         let obj = SecretConversation {
             client,
-            peer_address: peer_address.clone(),
+            peer_address,
             members,
         };
         obj.client.store.insert_or_ignore_user(StoredUser {
@@ -88,13 +115,16 @@ where
     }
 
     pub fn send_message(&self, text: &str) -> Result<(), ConversationError> {
+        // TODO support other codecs
+        let encoded_content = TextCodec::encode(text.to_string())?;
+        let content_bytes = encoded_content.encode_to_vec();
         NewStoredMessage::new(
             self.convo_id(),
             self.client.account.addr(),
-            text.as_bytes().to_vec(),
+            content_bytes,
             MessageState::Unprocessed as i32,
         )
-        .store(&self.client.store)?;
+        .store(&mut self.client.store.conn().unwrap())?;
         Ok(())
     }
 
@@ -130,7 +160,11 @@ where
 
 #[cfg(test)]
 mod tests {
+    use prost::Message;
+    use xmtp_proto::xmtp::message_contents::EncodedContent;
+
     use crate::{
+        codecs::{text::TextCodec, ContentCodec},
         conversations::Conversations,
         test_utils::test_utils::{gen_test_client, gen_test_conversation},
     };
@@ -156,6 +190,7 @@ mod tests {
         conversation.send_message("Hello, world!").unwrap();
 
         let message = &client.store.get_unprocessed_messages().unwrap()[0];
-        assert!(message.content == "Hello, world!".as_bytes().to_vec());
+        let content = EncodedContent::decode(&message.content[..]).unwrap();
+        assert!(TextCodec::decode(content).unwrap() == "Hello, world!");
     }
 }

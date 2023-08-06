@@ -8,6 +8,10 @@ pub fn rng() -> impl CryptoRng + RngCore {
     ChaCha20Rng::from_entropy()
 }
 
+pub fn seeded_rng(seed: u64) -> impl CryptoRng + RngCore {
+    ChaCha20Rng::seed_from_u64(seed)
+}
+
 pub fn eth_address(pubkey: &VerifyingKey) -> Result<String, String> {
     // Get the public key bytes
     let binding = pubkey.to_encoded_point(false);
