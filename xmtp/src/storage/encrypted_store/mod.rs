@@ -85,7 +85,7 @@ impl EncryptedMessageStore {
         };
 
         let pool = Pool::builder()
-            .max_size(1)
+            .max_size(10)
             .build(ConnectionManager::<SqliteConnection>::new(db_path))
             .map_err(|e| StorageError::DbInitError(e.to_string()))?;
 
