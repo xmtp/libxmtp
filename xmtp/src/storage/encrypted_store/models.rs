@@ -1,4 +1,4 @@
-use super::{schema::*, DbConnection, EncryptedMessageStore};
+use super::{schema::*, DbConnection};
 use crate::{
     account::Account,
     contact::{Contact, ContactError},
