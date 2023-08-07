@@ -99,7 +99,7 @@ process_messages():
 refresh_user_installations(user):
     Fetch installations/contact bundles for the user from the network
     Fetch installations/contact bundles for the user from the DB
-    
+
     For each installation from the DB:
             if is expired or revoked, delete it from the DB
     In a single transaction:

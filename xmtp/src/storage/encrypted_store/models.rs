@@ -1,4 +1,4 @@
-use super::{schema::*, DbConnection, EncryptedMessageStore};
+use super::{schema::*, DbConnection};
 use crate::{
     account::Account,
     contact::{Contact, ContactError},
@@ -23,6 +23,7 @@ pub struct StoredUser {
 pub enum ConversationState {
     Uninitialized = 0,
     Invited = 10,
+    InviteReceived = 20,
 }
 
 #[derive(Insertable, Identifiable, Queryable, PartialEq, Debug)]
@@ -141,6 +142,7 @@ impl StoredSession {
 impl Save<DbConnection> for StoredSession {
     fn save(&self, into: &mut DbConnection) -> Result<(), StorageError> {
         diesel::update(sessions::table)
+            .filter(sessions::session_id.eq(self.session_id.clone()))
             .set((
                 sessions::vmac_session_data.eq(&self.vmac_session_data),
                 sessions::peer_installation_id.eq(&self.peer_installation_id),
@@ -238,6 +240,7 @@ impl Save<DbConnection> for RefreshJob {
     }
 }
 
+#[derive(Clone, Debug)]
 pub enum InboundInviteStatus {
     Pending = 0,
     Processed = 1,

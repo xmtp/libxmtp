@@ -144,6 +144,16 @@ impl TryFrom<ProtoWrapper<InvitationV1>> for Vec<u8> {
     }
 }
 
+impl TryFrom<Vec<u8>> for ProtoWrapper<InvitationV1> {
+    type Error = InvitationError;
+
+    fn try_from(value: Vec<u8>) -> Result<Self, Self::Error> {
+        let val = InvitationV1::decode(value.as_slice())?;
+
+        Ok(ProtoWrapper { proto: val })
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use xmtp_proto::xmtp::v3::message_contents::VmacInstallationPublicKeyBundleV1;

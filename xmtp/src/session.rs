@@ -1,6 +1,6 @@
 use crate::{
     contact::Contact,
-    storage::{DbConnection, EncryptedMessageStore, StorageError, StoredSession},
+    storage::{DbConnection, StorageError, StoredSession},
     Save, Store,
 };
 use thiserror::Error;
@@ -69,7 +69,7 @@ impl SessionManager {
         into: &mut DbConnection,
     ) -> Result<Vec<u8>, SessionError> {
         let res = self.session.decrypt(&message)?;
-        // TODO: Stop mutating/storing the persisted session and just build on demand
+
         self.save(into)?;
 
         Ok(res)

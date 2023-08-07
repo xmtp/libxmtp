@@ -10,7 +10,9 @@ use crate::{
     account::Account,
     contact::{Contact, ContactError},
     session::SessionManager,
-    storage::{now, EncryptedMessageStore, StorageError, StoredInstallation, StoredSession},
+    storage::{
+        now, DbConnection, EncryptedMessageStore, StorageError, StoredInstallation, StoredSession,
+    },
     types::networking::{PublishRequest, QueryRequest, XmtpApiClient},
     types::Address,
     utils::{build_envelope, build_user_contact_topic, key_fingerprint},
@@ -133,8 +135,14 @@ where
         Ok(contacts)
     }
 
-    pub fn get_session(&self, contact: &Contact) -> Result<SessionManager, ClientError> {
-        let existing_session = self.store.get_session(&contact.installation_id())?;
+    pub fn get_session(
+        &self,
+        contact: &Contact,
+        conn: &mut DbConnection,
+    ) -> Result<SessionManager, ClientError> {
+        let existing_session = self
+            .store
+            .get_session_with_conn(&contact.installation_id(), conn)?;
         match existing_session {
             Some(i) => Ok(SessionManager::try_from(&i)?),
             None => self.create_outbound_session(contact),
@@ -233,9 +241,10 @@ where
 
     pub fn create_inbound_session(
         &self,
-        contact: Contact,
+        conn: &mut DbConnection,
+        contact: &Contact,
         // Message MUST be a pre-key message
-        message: Vec<u8>,
+        message: &Vec<u8>,
     ) -> Result<(SessionManager, Vec<u8>), ClientError> {
         let olm_message: OlmMessage =
             serde_json::from_slice(message.as_slice()).map_err(|_| ClientError::Unknown)?;
@@ -246,13 +255,13 @@ where
 
         let create_result = self
             .account
-            .create_inbound_session(&contact, msg)
+            .create_inbound_session(contact, msg)
             .map_err(|_| ClientError::Unknown)?;
 
-        let session = SessionManager::from_olm_session(create_result.session, &contact)
+        let session = SessionManager::from_olm_session(create_result.session, contact)
             .map_err(|_| ClientError::Unknown)?;
 
-        session.store(&mut self.store.conn().unwrap())?;
+        session.store(conn)?;
 
         Ok((session, create_result.plaintext))
     }

@@ -84,7 +84,7 @@ impl EncryptedMessageStore {
         };
 
         let pool = Pool::builder()
-            .max_size(1)
+            .max_size(10)
             .build(ConnectionManager::<SqliteConnection>::new(db_path))
             .map_err(|e| StorageError::DbInitError(e.to_string()))?;
 
@@ -161,11 +161,11 @@ impl EncryptedMessageStore {
         Ok(account_list.pop())
     }
 
-    pub fn get_session(
+    pub fn get_session_with_conn(
         &self,
         installation_id: &str,
+        conn: &mut DbConnection,
     ) -> Result<Option<StoredSession>, StorageError> {
-        let conn = &mut self.conn()?;
         use self::schema::sessions::dsl::*;
 
         let mut session_list = sessions
@@ -233,6 +233,14 @@ impl EncryptedMessageStore {
 
     pub fn insert_or_ignore_user(&self, user: StoredUser) -> Result<(), StorageError> {
         let conn = &mut self.conn()?;
+        self.insert_or_ignore_user_with_conn(conn, user)
+    }
+
+    pub fn insert_or_ignore_user_with_conn(
+        &self,
+        conn: &mut DbConnection,
+        user: StoredUser,
+    ) -> Result<(), StorageError> {
         diesel::insert_or_ignore_into(users::table)
             .values(user)
             .execute(conn)?;
@@ -258,6 +266,14 @@ impl EncryptedMessageStore {
         conversation: StoredConversation,
     ) -> Result<(), StorageError> {
         let conn = &mut self.conn()?;
+        self.insert_or_ignore_conversation_with_conn(conn, conversation)
+    }
+
+    pub fn insert_or_ignore_conversation_with_conn(
+        &self,
+        conn: &mut DbConnection,
+        conversation: StoredConversation,
+    ) -> Result<(), StorageError> {
         diesel::insert_or_ignore_into(schema::conversations::table)
             .values(conversation)
             .execute(conn)?;
@@ -320,6 +336,21 @@ impl EncryptedMessageStore {
         Ok(())
     }
 
+    pub fn get_inbound_invites(
+        &self,
+        conn: &mut PooledConnection<ConnectionManager<SqliteConnection>>,
+        status: InboundInviteStatus,
+    ) -> Result<Vec<InboundInvite>, StorageError> {
+        use self::schema::inbound_invites::dsl;
+
+        let invites = dsl::inbound_invites
+            .filter(dsl::status.eq(status as i16))
+            .order(dsl::sent_at_ns.asc())
+            .load::<InboundInvite>(conn)?;
+
+        Ok(invites)
+    }
+
     pub fn save_inbound_invite(
         &self,
         conn: &mut PooledConnection<ConnectionManager<SqliteConnection>>,
@@ -327,6 +358,22 @@ impl EncryptedMessageStore {
     ) -> Result<(), StorageError> {
         diesel::insert_into(inbound_invites::table)
             .values(invite)
+            .execute(conn)?;
+
+        Ok(())
+    }
+
+    pub fn set_invite_status(
+        &self,
+        conn: &mut DbConnection,
+        id: String,
+        status: InboundInviteStatus,
+    ) -> Result<(), StorageError> {
+        use self::schema::inbound_invites::dsl;
+
+        diesel::update(dsl::inbound_invites)
+            .filter(dsl::id.eq(id))
+            .set(dsl::status.eq(status as i16))
             .execute(conn)?;
 
         Ok(())
@@ -457,6 +504,26 @@ impl Fetch<InboundInvite> for DbConnection {
 
         inbound_invites
             .load::<InboundInvite>(self)
+            .map_err(StorageError::DieselResultError)
+    }
+}
+
+impl Fetch<StoredUser> for DbConnection {
+    fn fetch(&mut self) -> Result<Vec<StoredUser>, StorageError> {
+        use self::schema::users::dsl;
+
+        dsl::users
+            .load::<StoredUser>(self)
+            .map_err(StorageError::DieselResultError)
+    }
+}
+
+impl Fetch<StoredConversation> for DbConnection {
+    fn fetch(&mut self) -> Result<Vec<StoredConversation>, StorageError> {
+        use self::schema::conversations::dsl;
+
+        dsl::conversations
+            .load::<StoredConversation>(self)
             .map_err(StorageError::DieselResultError)
     }
 }
@@ -733,6 +800,47 @@ mod tests {
                 Ok(())
             })
             .unwrap();
+    }
+
+    #[test]
+    fn get_inbound_invites() {
+        let store = EncryptedMessageStore::new(
+            StorageOption::Ephemeral,
+            EncryptedMessageStore::generate_enc_key(),
+        )
+        .unwrap();
+
+        let invite_1 = InboundInvite {
+            sent_at_ns: 20,
+            id: "id_1".into(),
+            payload: vec![1, 2, 3],
+            topic: "topic".into(),
+            status: InboundInviteStatus::Pending as i16,
+        };
+        let invite_2 = InboundInvite {
+            sent_at_ns: 30,
+            id: "id_2".into(),
+            payload: vec![1, 2, 3, 4],
+            topic: "topic".into(),
+            status: InboundInviteStatus::Pending as i16,
+        };
+        store
+            .save_inbound_invite(&mut store.conn().unwrap(), invite_1.clone())
+            .unwrap();
+        store
+            .save_inbound_invite(&mut store.conn().unwrap(), invite_2.clone())
+            .unwrap();
+
+        let pending_results = store
+            .get_inbound_invites(&mut store.conn().unwrap(), InboundInviteStatus::Pending)
+            .unwrap();
+        assert_eq!(2, pending_results.len());
+        assert_eq!(pending_results[0].id, invite_1.id);
+
+        let processed_results = store
+            .get_inbound_invites(&mut store.conn().unwrap(), InboundInviteStatus::Processed)
+            .unwrap();
+        assert_eq!(0, processed_results.len());
     }
 
     #[test]
