@@ -7,7 +7,7 @@
 
 
 
-typealias SignedPublicKeyBundle = Xmtp_MessageContents_SignedPublicKeyBundle
+public typealias SignedPublicKeyBundle = Xmtp_MessageContents_SignedPublicKeyBundle
 
 extension SignedPublicKeyBundle {
 	init(_ publicKeyBundle: PublicKeyBundle) throws {

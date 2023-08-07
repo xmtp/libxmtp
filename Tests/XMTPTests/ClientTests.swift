@@ -66,4 +66,24 @@ class ClientTests: XCTestCase {
 		XCTAssertEqual(client.privateKeyBundleV1.identityKey, clientFromV1Bundle.privateKeyBundleV1.identityKey)
 		XCTAssertEqual(client.privateKeyBundleV1.preKeys, clientFromV1Bundle.privateKeyBundleV1.preKeys)
 	}
+
+	func testCanAccessPublicKeyBundle() async throws {
+		let fakeWallet = try PrivateKey.generate()
+		let client = try await Client.create(account: fakeWallet)
+
+		let publicKeyBundle = client.keys.getPublicKeyBundle()
+		XCTAssertEqual(publicKeyBundle, client.publicKeyBundle)
+	}
+
+	func testCanSignWithPrivateIdentityKey() async throws {
+		let fakeWallet = try PrivateKey.generate()
+		let client = try await Client.create(account: fakeWallet)
+
+		let digest = Util.keccak256(Data("hello world".utf8))
+		let signature = try await client.keys.identityKey.sign(digest)
+
+		let recovered = try KeyUtilx.recoverPublicKeyKeccak256(from: signature.rawData, message: Data("hello world".utf8))
+
+		XCTAssertEqual(recovered, client.keys.identityKey.publicKey.secp256K1Uncompressed.bytes)
+	}
 }

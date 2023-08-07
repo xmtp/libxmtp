@@ -22,7 +22,7 @@ extension SignedPrivateKey {
 		return signedPrivateKey
 	}
 
-	func sign(_ data: Data) async throws -> Signature {
+	public func sign(_ data: Data) async throws -> Signature {
 		let key = try PrivateKey(secp256K1.bytes)
 		return try await key.sign(data)
 	}

@@ -188,6 +188,10 @@ public class Client {
 		PrivateKeyBundle(v1: privateKeyBundleV1)
 	}
 
+	public var publicKeyBundle: SignedPublicKeyBundle {
+		privateKeyBundleV1.toV2().getPublicKeyBundle()
+	}
+
 	public var v1keys: PrivateKeyBundleV1 {
 		privateKeyBundleV1
 	}
