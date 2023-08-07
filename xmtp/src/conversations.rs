@@ -129,14 +129,13 @@ where
 
         match existing_session {
             Some(mut session_manager) => {
-                let olm_message: OlmMessage =
-                    match serde_json::from_slice(&invitation.ciphertext.as_slice()) {
-                        Ok(olm_message) => olm_message,
-                        Err(err) => {
-                            log::error!("Error deserializing olm message: {:?}", err);
-                            return Ok(InboundInviteStatus::DecryptionFailure);
-                        }
-                    };
+                let olm_message: OlmMessage = match serde_json::from_slice(&invitation.ciphertext) {
+                    Ok(olm_message) => olm_message,
+                    Err(err) => {
+                        log::error!("Error deserializing olm message: {:?}", err);
+                        return Ok(InboundInviteStatus::DecryptionFailure);
+                    }
+                };
 
                 plaintext = match session_manager.decrypt(olm_message, conn) {
                     Ok(plaintext) => plaintext,
@@ -198,9 +197,9 @@ where
         let inviter_is_my_other_device = my_wallet_address == invitation.inviter.wallet_address;
 
         if inviter_is_my_other_device {
-            return true;
+            true
         } else {
-            return inner_invite.invitee_wallet_address == my_wallet_address;
+            inner_invite.invitee_wallet_address == my_wallet_address
         }
     }
 
@@ -213,9 +212,9 @@ where
         let inviter_is_my_other_device = my_wallet_address == invitation.inviter.wallet_address;
 
         if inviter_is_my_other_device {
-            return inner_invite.invitee_wallet_address.clone();
+            inner_invite.invitee_wallet_address.clone()
         } else {
-            return invitation.inviter.wallet_address.clone();
+            invitation.inviter.wallet_address.clone()
         }
     }
 

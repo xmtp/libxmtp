@@ -255,10 +255,10 @@ where
 
         let create_result = self
             .account
-            .create_inbound_session(&contact, msg)
+            .create_inbound_session(contact, msg)
             .map_err(|_| ClientError::Unknown)?;
 
-        let session = SessionManager::from_olm_session(create_result.session, &contact)
+        let session = SessionManager::from_olm_session(create_result.session, contact)
             .map_err(|_| ClientError::Unknown)?;
 
         session.store(conn)?;
