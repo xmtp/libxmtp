@@ -135,8 +135,14 @@ where
         Ok(contacts)
     }
 
-    pub fn get_session(&self, contact: &Contact) -> Result<SessionManager, ClientError> {
-        let existing_session = self.store.get_session(&contact.installation_id())?;
+    pub fn get_session(
+        &self,
+        contact: &Contact,
+        conn: &mut DbConnection,
+    ) -> Result<SessionManager, ClientError> {
+        let existing_session = self
+            .store
+            .get_session_with_conn(&contact.installation_id(), conn)?;
         match existing_session {
             Some(i) => Ok(SessionManager::try_from(&i)?),
             None => self.create_outbound_session(contact),
@@ -235,6 +241,7 @@ where
 
     pub fn create_inbound_session(
         &self,
+        conn: &mut DbConnection,
         contact: &Contact,
         // Message MUST be a pre-key message
         message: &Vec<u8>,
@@ -254,7 +261,7 @@ where
         let session = SessionManager::from_olm_session(create_result.session, &contact)
             .map_err(|_| ClientError::Unknown)?;
 
-        session.store(&mut self.store.conn().unwrap())?;
+        session.store(conn)?;
 
         Ok((session, create_result.plaintext))
     }

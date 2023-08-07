@@ -23,6 +23,7 @@ pub struct StoredUser {
 pub enum ConversationState {
     Uninitialized = 0,
     Invited = 10,
+    InviteReceived = 20,
 }
 
 #[derive(Insertable, Identifiable, Queryable, PartialEq, Debug)]
@@ -239,6 +240,7 @@ impl Save<DbConnection> for RefreshJob {
     }
 }
 
+#[derive(Clone, Debug)]
 pub enum InboundInviteStatus {
     Pending = 0,
     Processed = 1,

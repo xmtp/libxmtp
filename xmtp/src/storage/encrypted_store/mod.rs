@@ -233,6 +233,14 @@ impl EncryptedMessageStore {
 
     pub fn insert_or_ignore_user(&self, user: StoredUser) -> Result<(), StorageError> {
         let conn = &mut self.conn()?;
+        self.insert_or_ignore_user_with_conn(conn, user)
+    }
+
+    pub fn insert_or_ignore_user_with_conn(
+        &self,
+        conn: &mut DbConnection,
+        user: StoredUser,
+    ) -> Result<(), StorageError> {
         diesel::insert_or_ignore_into(users::table)
             .values(user)
             .execute(conn)?;
@@ -258,6 +266,14 @@ impl EncryptedMessageStore {
         conversation: StoredConversation,
     ) -> Result<(), StorageError> {
         let conn = &mut self.conn()?;
+        self.insert_or_ignore_conversation_with_conn(conn, conversation)
+    }
+
+    pub fn insert_or_ignore_conversation_with_conn(
+        &self,
+        conn: &mut DbConnection,
+        conversation: StoredConversation,
+    ) -> Result<(), StorageError> {
         diesel::insert_or_ignore_into(schema::conversations::table)
             .values(conversation)
             .execute(conn)?;
@@ -357,8 +373,10 @@ impl EncryptedMessageStore {
 
         diesel::update(dsl::inbound_invites)
             .filter(dsl::id.eq(id))
-            .set((dsl::status.eq(status as i16)))
+            .set(dsl::status.eq(status as i16))
             .execute(conn)?;
+
+        Ok(())
     }
 
     pub fn insert_or_ignore_install(
@@ -486,6 +504,26 @@ impl Fetch<InboundInvite> for DbConnection {
 
         inbound_invites
             .load::<InboundInvite>(self)
+            .map_err(StorageError::DieselResultError)
+    }
+}
+
+impl Fetch<StoredUser> for DbConnection {
+    fn fetch(&mut self) -> Result<Vec<StoredUser>, StorageError> {
+        use self::schema::users::dsl;
+
+        dsl::users
+            .load::<StoredUser>(self)
+            .map_err(StorageError::DieselResultError)
+    }
+}
+
+impl Fetch<StoredConversation> for DbConnection {
+    fn fetch(&mut self) -> Result<Vec<StoredConversation>, StorageError> {
+        use self::schema::conversations::dsl;
+
+        dsl::conversations
+            .load::<StoredConversation>(self)
             .map_err(StorageError::DieselResultError)
     }
 }
