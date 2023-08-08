@@ -47,16 +47,18 @@ fn stringify_error_chain(error: &(dyn Error + 'static)) -> String {
     result
 }
 
+#[uniffi::export]
+pub fn enable_logging(logger: Box<dyn FfiLogger>) {
+    init_logger(logger)
+}
+
 #[uniffi::export(async_runtime = "tokio")]
 pub async fn create_client(
-    logger: Box<dyn FfiLogger>,
     ffi_inbox_owner: Box<dyn FfiInboxOwner>,
     host: String,
     is_secure: bool,
     // TODO proper error handling
 ) -> Result<Arc<FfiXmtpClient>, GenericError> {
-    init_logger(logger);
-
     let inbox_owner = RustInboxOwner::new(ffi_inbox_owner);
     let api_client = TonicApiClient::create(host.clone(), is_secure)
         .await
@@ -135,7 +137,6 @@ mod tests {
     async fn test_client_creation() {
         let ffi_inbox_owner = LocalWalletInboxOwner::new();
         let client = create_client(
-            Box::new(MockLogger {}),
             Box::new(ffi_inbox_owner),
             xmtp_networking::LOCALHOST_ADDRESS.to_string(),
             false,

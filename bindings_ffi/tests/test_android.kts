@@ -24,19 +24,20 @@ class MockLogger : FfiLogger {
 val privateKey: ByteArray = SecureRandom().generateSeed(32)
 val credentials: Credentials = Credentials.create(ECKeyPair.create(privateKey))
 val inboxOwner = Web3jInboxOwner(credentials)
-var logger = MockLogger()
+// var logger = MockLogger()
+
+uniffi.xmtpv3.enableLogging(MockLogger());
 
 runBlocking {
     println("Running first test")
     val apiUrl: String = System.getenv("XMTP_API_URL") ?: "http://localhost:5556"
     try {
         println("Creating client")
-        val client = uniffi.xmtpv3.createClient(logger, inboxOwner, apiUrl, false)
-        println("Calling walletAddress()")
+        val client = uniffi.xmtpv3.createClient(inboxOwner, apiUrl, false)
+        println("Returned")
         assert(client.walletAddress() != null) {
             "Should be able to get wallet address"
         }
-        println("Returned")
      } catch (e: Exception) {
         assert(false) {
             "Should be able to construct client: " + e.message
@@ -44,15 +45,18 @@ runBlocking {
      }
 }
 
-// runBlocking {
-//     try {
-//         val client = uniffi.xmtpv3.createClient(logger, inboxOwner, "http://malformed:5556", false);
-//         assert(false) {
-//             "Should throw error with malformed network address"
-//         }
-//      } catch (e: Exception) {
-//      }
-// }
+runBlocking {
+    try {
+        println("Running second test - creating client")
+        val client = uniffi.xmtpv3.createClient(inboxOwner, "http://malformed:5556", false);
+        println("Returned")
+        assert(false) {
+            "Should throw error with malformed network address"
+        }
+     } catch (e: Exception) {
+        println("Successful exception")
+     }
+}
 
 // TODO:
 // 1. Fix logger issue - maybe make it a singleton?
@@ -66,12 +70,12 @@ runBlocking {
 
     val apiUrl: String = System.getenv("XMTP_API_URL") ?: "http://localhost:5556"
     try {
-        val client = uniffi.xmtpv3.createClient(newlogger, newinboxOwner, apiUrl, false)
-        println("Calling walletAddress()")
+        println("Creating client")
+        val client = uniffi.xmtpv3.createClient(newinboxOwner, apiUrl, false)
+        println("Returned")
         assert(client.walletAddress() != null) {
             "Should be able to get wallet address"
         }
-        println("Returned")
      } catch (e: Exception) {
         println("Execption")
         assert(false) {
