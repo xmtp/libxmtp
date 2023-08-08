@@ -442,7 +442,7 @@ mod tests {
             InboundInvite, InboundInviteStatus, MessageState, OutboundPayloadState,
             StoredConversation, StoredMessage, StoredUser,
         },
-        test_utils::test_utils::{gen_test_client, gen_test_conversation},
+        test_utils::test_utils::{gen_test_client, gen_test_conversation, gen_two_test_clients},
         utils::{build_envelope, build_user_invite_topic},
         ClientBuilder, Fetch,
     };
@@ -502,8 +502,7 @@ mod tests {
 
     #[tokio::test]
     async fn process_outbound_messages() {
-        let alice_client = gen_test_client().await;
-        let bob_client = gen_test_client().await;
+        let (alice_client, bob_client) = gen_two_test_clients().await;
 
         let conversations = Conversations::new(&alice_client);
         let conversation =
@@ -513,10 +512,9 @@ mod tests {
         let unprocessed_messages = alice_client.store.get_unprocessed_messages().unwrap();
         assert_eq!(unprocessed_messages.len(), 1);
 
-        // TODO replace with Client.refresh_user_installations. Requires us to refactor the SDK so that
-        // two XMTP clients can share the same API client
         alice_client
-            .create_outbound_session(&bob_client.account.contact())
+            .refresh_user_installations(&bob_client.wallet_address())
+            .await
             .unwrap();
 
         conversations.process_outbound_messages().await.unwrap();
