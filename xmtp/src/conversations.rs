@@ -283,13 +283,13 @@ where
             header_bytes,
             ciphertext,
         };
-        Ok(StoredOutboundPayload {
-            created_at_ns: message.created_at,
-            content_topic: build_installation_message_topic(&session.installation_id()),
-            payload: envelope.encode_to_vec(),
-            outbound_payload_state: OutboundPayloadState::Pending as i32,
-            locked_until_ns: 0,
-        })
+        Ok(StoredOutboundPayload::new(
+            message.created_at,
+            build_installation_message_topic(&session.installation_id()),
+            envelope.encode_to_vec(),
+            OutboundPayloadState::Pending as i32,
+            0,
+        ))
     }
 
     pub fn process_outbound_message(
