@@ -162,7 +162,7 @@ where
     // TODO: Reduce Visibility
     pub async fn refresh_user_installations(&self, user_address: &str) -> Result<(), ClientError> {
         // Store the timestamp of when the refresh process begins
-        let refresh_timestmap = now();
+        let refresh_timestamp = now();
 
         let self_install_id = key_fingerprint(&self.account.identity_keys().curve25519);
         let contacts = self.get_contacts(user_address).await?;
@@ -173,7 +173,7 @@ where
 
         let installation_map = self
             .store
-            .get_installations(user_address)?
+            .get_installations(&mut self.store.conn()?, user_address)?
             .into_iter()
             .map(|v| (v.installation_id.clone(), v))
             .collect::<HashMap<_, _>>();
@@ -205,7 +205,7 @@ where
                 self.store.update_user_refresh_timestamp(
                     transaction_manager,
                     user_address,
-                    refresh_timestmap,
+                    refresh_timestamp,
                 )?;
 
                 Ok(())

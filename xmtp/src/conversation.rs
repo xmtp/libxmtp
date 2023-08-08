@@ -79,22 +79,29 @@ impl<'c, A> SecretConversation<'c, A>
 where
     A: XmtpApiClient,
 {
-    pub(crate) fn new(
+    pub(crate) fn new(client: &'c Client<A>, peer_address: Address, members: Vec<Contact>) -> Self {
+        Self {
+            client,
+            peer_address,
+            members,
+        }
+    }
+
+    // Instantiate the conversation and insert all the necessary records into the database
+    pub(crate) fn create(
         client: &'c Client<A>,
         peer_address: Address,
         // TODO: Add user's own contacts as well
         members: Vec<Contact>,
     ) -> Result<Self, ConversationError> {
-        let obj = SecretConversation {
-            client,
-            peer_address,
-            members,
-        };
+        let obj = Self::new(client, peer_address, members);
+
         obj.client.store.insert_or_ignore_user(StoredUser {
             user_address: obj.peer_address(),
             created_at: now(),
             last_refreshed: 0,
         })?;
+
         obj.client
             .store
             .insert_or_ignore_conversation(StoredConversation {
@@ -103,6 +110,7 @@ where
                 created_at: now(),
                 convo_state: ConversationState::Uninitialized as i32,
             })?;
+
         Ok(obj)
     }
 

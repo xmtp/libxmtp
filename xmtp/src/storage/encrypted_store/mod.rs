@@ -14,6 +14,8 @@
 pub mod models;
 pub mod schema;
 
+use std::collections::HashMap;
+
 use self::{
     models::*,
     schema::{
@@ -181,7 +183,7 @@ impl EncryptedMessageStore {
     pub fn get_sessions(
         &self,
         user_address: &str,
-        conn: &mut PooledConnection<ConnectionManager<SqliteConnection>>,
+        conn: &mut DbConnection,
     ) -> Result<Vec<StoredSession>, StorageError> {
         use self::schema::sessions::dsl as schema;
 
@@ -195,10 +197,10 @@ impl EncryptedMessageStore {
 
     pub fn get_installations(
         &self,
+        conn: &mut DbConnection,
         user_address_str: &str,
     ) -> Result<Vec<StoredInstallation>, StorageError> {
         use self::schema::installations::dsl as schema;
-        let conn = &mut self.conn()?;
 
         let installation_list = schema::installations
             .filter(schema::user_address.eq(user_address_str))
@@ -456,11 +458,74 @@ impl EncryptedMessageStore {
             .execute(conn)?;
         Ok(())
     }
+
+    // TODO: Figure out how to join installations as well
+    pub fn get_conversations_and_installations(
+        &self,
+        conn: &mut DbConnection,
+    ) -> Result<Vec<(StoredConversation, Vec<StoredInstallation>)>, StorageError> {
+        let conversations_with_installations: Vec<(StoredConversation, StoredInstallation)> =
+            conversations::table
+                .filter(conversations::convo_state.eq_any(vec![
+                    ConversationState::Invited as i32,
+                    ConversationState::InviteReceived as i32,
+                ]))
+                .inner_join(
+                    installations::table
+                        .on(installations::user_address.eq(conversations::peer_address)),
+                )
+                .select((
+                    StoredConversation::as_select(),
+                    StoredInstallation::as_select(),
+                ))
+                .load::<(StoredConversation, StoredInstallation)>(conn)?;
+
+        let mut installations: HashMap<String, Vec<StoredInstallation>> = HashMap::new();
+        let mut conversations = HashMap::new();
+
+        for (conversation, installation) in &conversations_with_installations {
+            conversations.insert(&conversation.convo_id, conversation.clone());
+
+            installations
+                .entry(conversation.clone().convo_id)
+                .or_insert_with(Vec::new)
+                .push(installation.clone());
+        }
+        let mut out: Vec<(StoredConversation, Vec<StoredInstallation>)> = vec![];
+        for (conversation_id, convo_installations) in installations {
+            out.push((
+                conversations.get(&conversation_id).unwrap().clone(),
+                convo_installations,
+            ));
+        }
+
+        Ok(out)
+    }
 }
 
 impl Store<DbConnection> for NewStoredMessage {
     fn store(&self, into: &mut DbConnection) -> Result<(), StorageError> {
         diesel::insert_into(messages::table)
+            .values(self)
+            .execute(into)?;
+
+        Ok(())
+    }
+}
+
+impl Store<DbConnection> for StoredUser {
+    fn store(&self, into: &mut DbConnection) -> Result<(), StorageError> {
+        diesel::insert_into(users::table)
+            .values(self)
+            .execute(into)?;
+
+        Ok(())
+    }
+}
+
+impl Store<DbConnection> for StoredConversation {
+    fn store(&self, into: &mut DbConnection) -> Result<(), StorageError> {
+        diesel::insert_into(conversations::table)
             .values(self)
             .execute(into)?;
 
@@ -877,5 +942,57 @@ mod tests {
         assert_eq!(first_result.payload, inbound_invite_ptr.payload);
         assert_eq!(first_result.topic, inbound_invite_ptr.topic);
         assert_eq!(first_result.status, inbound_invite_ptr.status);
+    }
+
+    #[test]
+    fn get_conversations_and_installations() {
+        let store = EncryptedMessageStore::new(
+            StorageOption::Ephemeral,
+            EncryptedMessageStore::generate_enc_key(),
+        )
+        .unwrap();
+
+        let address = String::from("0x01");
+        let conn = &mut store.conn().unwrap();
+
+        let convo_1 = StoredConversation {
+            convo_id: "convo_1".into(),
+            peer_address: address.clone(),
+            created_at: 10,
+            convo_state: ConversationState::Invited as i32,
+        };
+        let user_1 = StoredUser {
+            user_address: address.clone(),
+            created_at: 10,
+            last_refreshed: 0,
+        };
+        let installation_1 = StoredInstallation {
+            installation_id: "installation_1".into(),
+            user_address: address.clone(),
+            first_seen_ns: 10,
+            contact: vec![],
+            expires_at_ns: None,
+        };
+        let installation_2 = StoredInstallation {
+            installation_id: "installation_2".into(),
+            user_address: address.clone(),
+            first_seen_ns: 10,
+            contact: vec![],
+            expires_at_ns: None,
+        };
+        user_1.store(conn).unwrap();
+        convo_1.store(conn).unwrap();
+        installation_1.store(conn).unwrap();
+        installation_2.store(conn).unwrap();
+
+        let results = store.get_conversations_and_installations(conn).unwrap();
+        assert_eq!(1, results.len());
+        let (returned_convo, returned_installations) = results.first().unwrap();
+        assert_eq!(returned_convo.convo_id, convo_1.convo_id);
+        assert_eq!(returned_installations.len(), 2);
+        assert_eq!(
+            returned_installations[0].installation_id,
+            installation_1.installation_id
+        );
     }
 }

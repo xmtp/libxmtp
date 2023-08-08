@@ -19,7 +19,7 @@ use crate::{
     storage::{
         now, ConversationState, DbConnection, InboundInvite, InboundInviteStatus, MessageState,
         OutboundPayloadState, RefreshJob, RefreshJobKind, StorageError, StoredConversation,
-        StoredMessage, StoredOutboundPayload, StoredSession, StoredUser,
+        StoredInstallation, StoredMessage, StoredOutboundPayload, StoredSession, StoredUser,
     },
     types::networking::XmtpApiClient,
     utils::{base64_encode, build_installation_message_topic},
@@ -49,7 +49,40 @@ where
         wallet_address: String,
     ) -> Result<SecretConversation<A>, ConversationError> {
         let contacts = self.client.get_contacts(wallet_address.as_str()).await?;
-        SecretConversation::new(self.client, wallet_address, contacts)
+        SecretConversation::create(self.client, wallet_address, contacts)
+    }
+
+    pub async fn list(
+        &self,
+        refresh_from_network: bool,
+    ) -> Result<Vec<SecretConversation<A>>, ConversationError> {
+        if refresh_from_network {
+            self.save_invites()?;
+            self.process_invites()?;
+        }
+        let conn = &mut self.client.store.conn()?;
+
+        let mut secret_convos: Vec<SecretConversation<A>> = vec![];
+
+        let convos_and_installations: Vec<(StoredConversation, Vec<StoredInstallation>)> = self
+            .client
+            .store
+            .get_conversations_and_installations(conn)?;
+
+        for (convo, installations) in convos_and_installations {
+            let peer_address =
+                peer_addr_from_convo_id(&convo.convo_id, &self.client.account.addr())?;
+
+            let members = installations
+                .into_iter()
+                .map(|i| i.get_contact().unwrap())
+                .collect();
+
+            let convo = SecretConversation::new(self.client, peer_address, members);
+            secret_convos.push(convo);
+        }
+
+        Ok(vec![])
     }
 
     pub fn save_invites(&self) -> Result<(), ConversationError> {
@@ -601,5 +634,19 @@ mod tests {
 
         let conversations: Vec<StoredConversation> = conn.fetch().unwrap();
         assert_eq!(conversations.len(), 0);
+    }
+
+    #[tokio::test]
+    async fn list() {
+        let alice_client = gen_test_client().await;
+        let bob_client = gen_test_client().await;
+
+        let conversations = Conversations::new(&alice_client);
+        let conversation =
+            gen_test_conversation(&conversations, &bob_client.wallet_address()).await;
+
+        let list = conversations.list(true).await.unwrap();
+        assert_eq!(list.len(), 1);
+        assert_eq!(list[0].peer_address(), conversation.peer_address());
     }
 }

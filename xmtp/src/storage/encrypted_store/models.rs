@@ -11,8 +11,9 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use xmtp_cryptography::hash::sha256_bytes;
 use xmtp_proto::xmtp::message_api::v1::Envelope;
 
-#[derive(Insertable, Identifiable, Queryable, PartialEq, Debug)]
+#[derive(Insertable, Selectable, Identifiable, Queryable, PartialEq, Debug, Clone)]
 #[diesel(table_name = users)]
+#[diesel(belongs_to(StoredConversation))]
 #[diesel(primary_key(user_address))]
 pub struct StoredUser {
     pub user_address: String,
@@ -26,7 +27,7 @@ pub enum ConversationState {
     InviteReceived = 20,
 }
 
-#[derive(Insertable, Identifiable, Queryable, PartialEq, Debug)]
+#[derive(Insertable, Identifiable, Selectable, Queryable, PartialEq, Debug, Clone)]
 #[diesel(table_name = conversations)]
 #[diesel(primary_key(convo_id))]
 pub struct StoredConversation {
@@ -181,7 +182,11 @@ impl TryFrom<&Account> for NewStoredAccount {
     }
 }
 
-#[derive(Queryable, Insertable, Debug)]
+#[derive(
+    Queryable, Selectable, Associations, Insertable, Debug, PartialEq, Identifiable, Clone,
+)]
+#[diesel(belongs_to(StoredUser, foreign_key = user_address))]
+#[diesel(primary_key(installation_id))]
 #[diesel(table_name = installations)]
 pub struct StoredInstallation {
     pub installation_id: String,
