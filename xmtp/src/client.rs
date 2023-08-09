@@ -41,8 +41,20 @@ pub enum ClientError {
     Ddd(#[from] diesel::result::Error),
     #[error("Query failed: {0}")]
     QueryError(String),
-    #[error("unknown client error")]
-    Unknown,
+    #[error("generic:{0}")]
+    Generic(String),
+}
+
+impl From<String> for ClientError {
+    fn from(value: String) -> Self {
+        Self::Generic(value)
+    }
+}
+
+impl From<&str> for ClientError {
+    fn from(value: &str) -> Self {
+        Self::Generic(value.to_string())
+    }
 }
 
 pub struct Client<A>
@@ -220,10 +232,7 @@ where
         contact: &Contact,
     ) -> Result<SessionManager, ClientError> {
         let olm_session = self.account.create_outbound_session(contact);
-        let session = SessionManager::from_olm_session(olm_session, contact)
-            .map_err(|_| ClientError::Unknown)?;
-
-        Ok(session)
+        Ok(SessionManager::from_olm_session(olm_session, contact)?)
     }
 
     pub fn create_outbound_session(
@@ -231,8 +240,7 @@ where
         contact: &Contact,
     ) -> Result<SessionManager, ClientError> {
         let olm_session = self.account.create_outbound_session(contact);
-        let session = SessionManager::from_olm_session(olm_session, contact)
-            .map_err(|_| ClientError::Unknown)?;
+        let session = SessionManager::from_olm_session(olm_session, contact)?;
 
         session.store(&mut self.store.conn().unwrap())?;
 
@@ -247,19 +255,18 @@ where
         message: &Vec<u8>,
     ) -> Result<(SessionManager, Vec<u8>), ClientError> {
         let olm_message: OlmMessage =
-            serde_json::from_slice(message.as_slice()).map_err(|_| ClientError::Unknown)?;
+            serde_json::from_slice(message.as_slice()).map_err(|e| e.to_string())?;
         let msg = match olm_message {
             OlmMessage::PreKey(msg) => msg,
-            _ => return Err(ClientError::Unknown),
+            _ => return Err("Cannot create inbound session without prekey message".into()),
         };
 
         let create_result = self
             .account
             .create_inbound_session(contact, msg)
-            .map_err(|_| ClientError::Unknown)?;
+            .map_err(|e| e.to_string())?;
 
-        let session = SessionManager::from_olm_session(create_result.session, contact)
-            .map_err(|_| ClientError::Unknown)?;
+        let session = SessionManager::from_olm_session(create_result.session, contact)?;
 
         session.store(conn)?;
 
