@@ -49,8 +49,8 @@ diesel::table! {
 }
 
 diesel::table! {
-    outbound_payloads (msg_id) {
-        msg_id -> Text,
+    outbound_payloads (payload_id) {
+        payload_id -> Text,
         created_at_ns -> BigInt,
         content_topic -> Text,
         payload -> Binary,

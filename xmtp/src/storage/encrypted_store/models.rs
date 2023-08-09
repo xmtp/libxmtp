@@ -97,7 +97,7 @@ pub enum OutboundPayloadState {
 #[diesel(table_name = outbound_payloads)]
 #[diesel(primary_key(created_at_ns))]
 pub struct StoredOutboundPayload {
-    pub msg_id: String,
+    pub payload_id: String,
     pub created_at_ns: i64,
     pub content_topic: String,
     pub payload: Vec<u8>,
@@ -113,11 +113,11 @@ impl StoredOutboundPayload {
         outbound_payload_state: i32,
         locked_until_ns: i64,
     ) -> Self {
-        let msg_id = hex::encode(sha256_bytes(
+        let payload_id = hex::encode(sha256_bytes(
             &(format!("{created_at_ns}:{content_topic}").encode_to_vec()),
         ));
         Self {
-            msg_id,
+            payload_id,
             created_at_ns,
             content_topic,
             payload,
