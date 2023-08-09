@@ -1,9 +1,11 @@
+PROJECT_NAME = xmtpv3
+
 # Simulator config
 ARCHS_IOS = x86_64-apple-ios aarch64-apple-ios-sim
 ARCHS_MAC = x86_64-apple-darwin aarch64-apple-darwin
 # Not used
 # ARCHS_MACCATALYST = x86_64-apple-ios-macabi aarch64-apple-ios-macabi
-LIB=libxmtp_rust_swift.a
+LIB=libbindings_ffi.dylib
 JAR_DIR=$(shell pwd)/tests/jar
 
 install-jar:
@@ -26,48 +28,53 @@ download-toolchains:
 all: framework
 
 $(ARCHS_IOS): %:
-	cargo build --target $@ --target-dir ./target --release --no-default-features
+	cross build --target $@ --target-dir ./target --release --no-default-features
+	mkdir -p build/$@
+	mv target/$@/release/$(LIB) build/$@/$(LIB)
 
 $(ARCHS_MAC): %:
-	cargo build --target $@ --target-dir ./target --release --no-default-features
+	cross build --target $@ --target-dir ./target --release --no-default-features
+	mkdir -p build/$@
+	mv target/$@/release/$(LIB) build/$@/$(LIB)
 
 aarch64-apple-ios:
-	cargo build --target $@ --target-dir ./target --release
+	cross build --target $@ --target-dir ./target --release
+	mkdir -p build/$@
+	mv target/$@/release/$(LIB) build/$@/$(LIB)
 
 $(LIB): $(ARCHS_IOS) $(ARCHS_MAC) aarch64-apple-ios
-	rm -rf lipo_macos lipo_ios_simulator
-	mkdir -p lipo_macos lipo_ios_simulator
-	lipo -create -output lipo_ios_simulator/libxmtp_rust_swift.a $(foreach arch,$(ARCHS_IOS),$(wildcard target/$(arch)/release/$(LIB)))
-	lipo -create -output lipo_macos/libxmtp_rust_swift.a $(foreach arch,$(ARCHS_MAC),$(wildcard target/$(arch)/release/$(LIB)))
 
-move_gen:
-	rm -rf Generated
-	# Clean and build to regenerate swift-bridge "Generated" directory
-	cargo clean
-	cargo build
-	rm -rf include/Generated
-	# Move "Generated" directory to "include"
-	cp -r Generated include/
-	# Delete the *.swift files within include/Generated but
-	# Keep top-level Generated for push-to-swift step where .swift files are
-	# copied over to another repo (xmtp-rust-swift)
-	find include/Generated -type f -name "*.swift" -delete
+# lipo combines libs for different architectures (aarch64, x86_64, ...) into one fat lib
+lipo:
+	mkdir -p build/lipo_macos build/lipo_ios_sim
+	lipo -create -output build/lipo_ios_sim/$(LIB) $(foreach arch,$(ARCHS_IOS),$(wildcard build/$(arch)/$(LIB)))
+	lipo -create -output build/lipo_macos/$(LIB) $(foreach arch,$(ARCHS_MAC),$(wildcard build/$(arch)/$(LIB)))
 
-framework: move_gen $(LIB)
-	rm -rf XMTPRustSwift.xcframework
+# xcframework combines libs for different platforms (iOS, iOS-simulator, macOS, ...) into one framework that can be used in Xcode
+framework: lipo
+	rm -rf LibXMTPRust.xcframework
 	xcodebuild -create-xcframework \
-		-library ./lipo_macos/libxmtp_rust_swift.a \
-		-headers ./include/ \
-		-library ./lipo_ios_simulator/libxmtp_rust_swift.a \
-		-headers ./include/ \
-		-library ./target/aarch64-apple-ios/release/libxmtp_rust_swift.a \
-		-headers ./include/ \
-		-output XMTPRustSwift.xcframework
-	rm -f bundle.zip
-	zip -r bundle.zip XMTPRustSwift.xcframework
-	openssl dgst -sha256 bundle.zip
+		-library build/aarch64-apple-ios/$(LIB) \
+		-headers build/swift/include/ \
+		-library build/lipo_ios_sim/$(LIB) \
+		-headers build/swift/include/ \
+		-library build/lipo_macos/$(LIB) \
+		-headers build/swift/include/ \
+		-output LibXMTPRust.xcframework
 
-swift: framework
-	./copy_xcframework_to_swift.sh
+# build uniffi bindings for swift
+swift:
+	cargo build --release
+	rm -rf build/swift
+	target/release/ffi-uniffi-bindgen generate \
+		--lib-file target/release/$(LIB) \
+		src/$(PROJECT_NAME).udl \
+		--out-dir build/swift \
+		--language swift
+	# https://mozilla.github.io/uniffi-rs/swift/module.html#compiling-a-swift-module
+	mkdir -p build/swift/include
+	mv build/swift/$(PROJECT_NAME)FFI.h build/swift/include/
+	mv build/swift/$(PROJECT_NAME)FFI.modulemap build/swift/include/module.modulemap
+	sed -i '' '1s/^/import LibXMTPRust\n\n/' build/swift/$(PROJECT_NAME).swift
 
-.PHONY: $(ARCHS_IOS) $(ARCHS_MAC) framework all aarch64-apple-ios download-toolchains swift
+.PHONY: $(ARCHS_IOS) $(ARCHS_MAC) framework all aarch64-apple-ios install-jar echo-jar download-toolchains swift lipo

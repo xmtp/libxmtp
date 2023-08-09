@@ -38,6 +38,22 @@ You'll need to do the following one-time setup to run Kotlin tests:
 
 If you want to skip the setup, you can also run `cargo test -- --skip kts` to only run Rust unit tests. CI will run all tests regardless.
 
+# Releasing new version
+
+Tag the commit you want to release with the appropriate version (e.g. 0.3.0-beta0).
+The Release github workflow will run the following jobs:
+
+- android
+    - downloads the `libxmtp-android.zip` build artifact
+    - make a release tagged the same way with the artifact attached
+
+- swift
+    - downloads the `libxmtp-swift.zip`` build artifact
+    - checks out `libxmtp-swift` repo and updates it with the contents of the zip file
+    - pushes new commit to the `libxmtp-swift` repo and tags it with the same tag
+
+NOTES: To allow the workflow to push to another repo the setup follows [this guide](https://docs.github.com/en/apps/creating-github-apps/authenticating-with-a-github-app/making-authenticated-api-requests-with-a-github-app-in-a-github-actions-workflow#authenticating-with-a-github-app). It uses [this app installed on the org](https://github.com/organizations/xmtp/settings/apps/libxmtp-release). The relevant secrets are stored only [in this repo](https://github.com/xmtp/libxmtp/settings/secrets/actions). If additional repos are added to this workflow they MUST be added to [this installation](https://github.com/organizations/xmtp/settings/installations/39118494) of the app.
+
 # Uniffi
 
 We are using Uniffi with the latest procedural macros syntax where possible, which also gives us async support. It is important to learn the syntax: https://github.com/mozilla/uniffi-rs/blob/main/docs/manual/src/proc_macro/index.md.

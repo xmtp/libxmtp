@@ -11,6 +11,7 @@ if [[ "${OSTYPE}" == "darwin"* ]]; then
             /Library/Java/JavaVirtualMachines/
     fi
     if ! kotlinc -version &>/dev/null; then brew install kotlin; fi
+    if ! swiftformat -version &>/dev/null; then brew install swiftformat; fi
 fi
 
 dev/docker/up
