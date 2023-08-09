@@ -44,7 +44,7 @@ where
         Self { client }
     }
 
-    pub async fn new_secret_conversation(
+    pub fn new_secret_conversation(
         &self,
         wallet_address: String,
     ) -> Result<SecretConversation<A>, ConversationError> {
@@ -454,7 +454,6 @@ mod tests {
         let conversations = Conversations::new(&alice_client);
         let conversation = conversations
             .new_secret_conversation(bob_client.wallet_address().to_string())
-            .await
             .unwrap();
 
         assert_eq!(conversation.peer_address(), bob_client.wallet_address());
