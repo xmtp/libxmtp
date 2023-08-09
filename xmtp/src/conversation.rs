@@ -4,14 +4,14 @@ use crate::{
     contact::Contact,
     invitation::{Invitation, InvitationError},
     storage::{
-        now, ConversationState, MessageState, NewStoredMessage, StorageError, StoredConversation,
-        StoredUser,
+        now, ConversationState, DbConnection, MessageState, NewStoredMessage, StorageError,
+        StoredConversation, StoredUser,
     },
     types::networking::PublishRequest,
     types::networking::XmtpApiClient,
     types::Address,
     utils::{build_envelope, build_user_invite_topic},
-    Client, Store,
+    Client, Save, Store,
 };
 
 use prost::{DecodeError, Message};
@@ -71,7 +71,6 @@ where
     A: XmtpApiClient,
 {
     peer_address: Address,
-    members: Vec<Contact>,
     client: &'c Client<A>,
 }
 
@@ -79,30 +78,40 @@ impl<'c, A> SecretConversation<'c, A>
 where
     A: XmtpApiClient,
 {
-    pub(crate) fn new(
-        client: &'c Client<A>,
-        peer_address: Address,
-        // TODO: Add user's own contacts as well
-        members: Vec<Contact>,
-    ) -> Result<Self, ConversationError> {
-        let obj = SecretConversation {
+    pub(crate) fn new(client: &'c Client<A>, peer_address: Address) -> Self {
+        Self {
             client,
             peer_address,
-            members,
-        };
-        obj.client.store.insert_or_ignore_user(StoredUser {
-            user_address: obj.peer_address(),
-            created_at: now(),
-            last_refreshed: 0,
-        })?;
-        obj.client
-            .store
-            .insert_or_ignore_conversation(StoredConversation {
+        }
+    }
+
+    // Instantiate the conversation and insert all the necessary records into the database
+    pub(crate) fn create(
+        client: &'c Client<A>,
+        peer_address: Address,
+    ) -> Result<Self, ConversationError> {
+        let obj = Self::new(client, peer_address);
+        let conn = &mut client.store.conn()?;
+
+        obj.client.store.insert_or_ignore_user_with_conn(
+            conn,
+            StoredUser {
+                user_address: obj.peer_address(),
+                created_at: now(),
+                last_refreshed: 0,
+            },
+        )?;
+
+        obj.client.store.insert_or_ignore_conversation_with_conn(
+            conn,
+            StoredConversation {
                 peer_address: obj.peer_address(),
                 convo_id: obj.convo_id(),
                 created_at: now(),
                 convo_state: ConversationState::Uninitialized as i32,
-            })?;
+            },
+        )?;
+
         Ok(obj)
     }
 
@@ -128,19 +137,33 @@ where
         Ok(())
     }
 
+    fn members(&self, conn: &mut DbConnection) -> Result<Vec<Contact>, ConversationError> {
+        let my_installations = self.client.my_other_devices(conn)?;
+        let peer_installations = self
+            .client
+            .get_contacts_from_db(conn, self.peer_address().as_str())?;
+
+        Ok(vec![my_installations, peer_installations].concat())
+    }
+
     pub async fn initialize(&self) -> Result<(), ConversationError> {
+        self.client
+            .refresh_user_installations(self.peer_address().as_str())
+            .await?;
         let inner_invite_bytes = Invitation::build_inner_invite_bytes(self.peer_address.clone())?;
-        for contact in self.members.iter() {
+        let conn = &mut self.client.store.conn()?;
+        for contact in self.members(conn)?.iter() {
             let id = contact.installation_id();
 
-            // TODO: Persist session to database
-            let session = self.client.create_outbound_session(contact)?;
-            let invitation =
-                Invitation::build(self.client.account.contact(), session, &inner_invite_bytes)?;
+            let mut session = self.client.get_session(conn, contact)?;
+            let invitation = Invitation::build(
+                self.client.account.contact(),
+                &mut session,
+                &inner_invite_bytes,
+            )?;
 
             let envelope = build_envelope(build_user_invite_topic(id), invitation.try_into()?);
 
-            // TODO: Replace with real token
             self.client
                 .api_client
                 // TODO: API authentication
@@ -152,7 +175,15 @@ where
                 )
                 .await
                 .map_err(|_| ConversationError::Unknown)?;
+
+            session.save(conn)?;
         }
+
+        self.client.store.set_conversation_state(
+            conn,
+            self.convo_id().as_str(),
+            ConversationState::Invited,
+        )?;
 
         Ok(())
     }
