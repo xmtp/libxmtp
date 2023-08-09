@@ -5,14 +5,14 @@ on:
     branches:
       - main
 jobs:
+
   build:
-    name: build
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
         target: [
-            aarch64-unknown-linux-gnu,
+            # aarch64-unknown-linux-gnu,
             # x86_64-linux-android,
             i686-linux-android,
             armv7-linux-androideabi,
@@ -55,12 +55,62 @@ jobs:
       - name: Upload binary
         uses: actions/upload-artifact@v3
         with:
-          name: ${{ matrix.target }}.so
+          name: ${{ matrix.target }}
           path: bindings_ffi/target/${{ matrix.target }}/release/libbindings_ffi.so
           retention-days: 1
 
+  build-macos:
+    runs-on: macos-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        target: [
+            aarch64-apple-darwin,
+            aarch64-apple-ios,
+            aarch64-apple-ios-sim,
+          ]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v1
+
+      - name: "Cache"
+        uses: actions/cache@v3
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            ./target/${{ matrix.target }}
+          key: ${{ matrix.target }}-${{ hashFiles('**/Cargo.toml','**/Cargo.lock') }}
+
+      - name: Install rust
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+          profile: minimal
+          override: true
+          target: ${{ matrix.target }}
+
+      # Install latest cross to mitigate unwind linking issue on android builds.
+      # See https://github.com/cross-rs/cross/issues/1222
+      - name: Install rust cross
+        run: |
+          cargo install cross --git https://github.com/cross-rs/cross
+
+      - name: Build target
+        uses: actions-rs/cargo@v1
+        with:
+          use-cross: true
+          command: build
+          args: --release --target ${{ matrix.target }} --manifest-path bindings_ffi/Cargo.toml --target-dir bindings_ffi/target
+
+      - name: Upload binary
+        uses: actions/upload-artifact@v3
+        with:
+          name: ${{ matrix.target }}
+          path: bindings_ffi/target/${{ matrix.target }}/release/libbindings_ffi.dylib
+          retention-days: 1        
+
   kotlin:
-    name: kotlin
     runs-on: macos-latest
     steps:
       - name: Checkout
@@ -88,12 +138,45 @@ jobs:
       - name: Upload artifact
         uses: actions/upload-artifact@v3
         with:
-          name: xmtpv3.kt
+          name: kotlin
           path: bindings_ffi/src/uniffi/xmtpv3/xmtpv3.kt
           retention-days: 1
 
-  package:
-    name: package
+  swift:
+    runs-on: macos-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v1
+      - name: Cache
+        uses: actions/cache@v3
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            ./target/release
+          key: ${{ hashFiles('**/Cargo.toml','**/Cargo.lock') }}
+      - name: Install rust
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+          profile: minimal
+          override: true
+          target: x86_64-apple-darwin
+      - name : Install swift
+        run: brew install swiftformat 
+      - name: Generate bindings
+        working-directory: bindings_ffi
+        run: |
+          make swift
+      - name: Upload artifact
+        uses: actions/upload-artifact@v3
+        with:
+          name: swift
+          path: bindings_ffi/build/swift/
+          retention-days: 1
+        
+
+  package-android:
     needs: [ build, kotlin ]
     runs-on: ubuntu-latest
     steps:
@@ -104,20 +187,45 @@ jobs:
       - name: Build archive
         run: |
           # not sure why we're building this one
-          # mv aarch64-unknown-linux-gnu.so jniLibs/arm64-v8a/libbindings_ffi.so
+          # mv aarch64-unknown-linux-gnu/libbindings_ffi.so jniLibs/arm64-v8a/
           # mkdir -p jniLibs/x86_64
-          # mv x86_64-linux-android.so jniLibs/x86_64/libbindings_ffi.so
+          # mv x86_64-linux-android/libbindings_ffi.so jniLibs/x86_64/
           mkdir -p jniLibs/x86
-          mv i686-linux-android.so jniLibs/x86/libbindings_ffi.so
+          mv i686-linux-android/libbindings_ffi.so jniLibs/x86/
           mkdir -p jniLibs/armeabi-v7a
-          mv armv7-linux-androideabi.so jniLibs/armeabi-v7a/libbindings_ffi.so
+          mv armv7-linux-androideabi/libbindings_ffi.so jniLibs/armeabi-v7a/
           mkdir -p jniLibs/arm64-v8a
-          mv aarch64-linux-android.so jniLibs/arm64-v8a/libbindings_ffi.so
+          mv aarch64-linux-android/libbindings_ffi.so jniLibs/arm64-v8a/
           mkdir -p java
-          mv xmtpv3.kt java/xmtpv3.kt
+          mv kotlin/xmtpv3.kt java/
           zip -r libxmtp-android.zip jniLibs java
       - name: Upload artifact
         uses: actions/upload-artifact@v3
         with:
           name: libxmtp-android.zip
           path: libxmtp-android.zip
+
+  package-swift:
+    needs: [ build-macos, swift ]
+    runs-on: macos-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v1
+      - name: Download artifacts
+        uses: actions/download-artifact@v3
+        with:
+          path: bindings_ffi/build
+      - name: Build archive
+        working-directory: bindings_ffi
+        run: |
+          find .
+          mkdir -p Sources/LibXMTP
+          mv build/swift/xmtpv3.swift Sources/LibXMTP/
+          make framework
+          zip -r libxmtp-swift.zip Sources LibXMTPRust.xcframework
+      - name: Upload artifact
+        uses: actions/upload-artifact@v3
+        with:
+          name: libxmtp-swift.zip
+          path: bindings_ffi/libxmtp-swift.zip
+        

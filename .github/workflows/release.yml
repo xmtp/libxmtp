@@ -7,7 +7,7 @@ on:
 
 jobs:
 
-  swift:
+  swift-v2:
     runs-on: macos-12
     permissions:
       contents: write
@@ -59,8 +59,8 @@ jobs:
         git commit -m "libxmtp release $RELEASE"
         git tag $RELEASE
         git push --tags origin $RELEASE_BRANCH
-
-  ffi:
+      
+  android:
     runs-on: ubuntu-latest
     permissions:
       contents: write # for the release action
@@ -77,3 +77,56 @@ jobs:
         uses: ncipollo/release-action@v1
         with:
           artifacts: "bindings_ffi/libxmtp-android.zip"
+
+  swift:
+    runs-on: macos-12
+    permissions:
+      contents: write
+    env:
+      RELEASE_BRANCH: main
+    steps:
+    - uses: actions/checkout@v3
+    - name: download artifacts
+      env:
+        HEAD_SHA: ${{ github.sha }}
+        GITHUB_REPO: ${{ github.repository }}
+        GH_TOKEN: ${{ github.token }}
+      working-directory: bindings_ffi
+      run: ./get_swift_artifact.sh
+    - name: generate access token
+      id: generate_token
+      uses: tibdex/github-app-token@v1.8.0
+      with:
+        app_id: ${{ secrets.GH_APP_ID }}
+        private_key: ${{ secrets.GH_APP_PK }}
+        installation_id: ${{ secrets.GH_INSTALLATION_ID }}
+    - name: check out libxmtp-swift
+      uses: actions/checkout@v3
+      with:
+        repository: xmtp/libxmtp-swift
+        path: libxmtp-swift
+        ref: ${{ env.RELEASE_BRANCH }}
+        token: ${{ steps.generate_token.outputs.token }}
+    - name: update libxmtp-swift
+      working-directory: libxmtp-swift
+      run: |
+        # set -x
+        # extract the tag fro GITHUB_REF which has the form refs/tags/...
+        RELEASE=$(basename $GITHUB_REF)
+        # Update the version field in the podspec.
+        # This could be single inlined sed expression in theory,
+        # but the quoting issues were a pain to debug,
+        # so instead the sed rule is in a file
+        # and we need to inject the RELEASE tag into it.
+        sed -i '' -e "s/VERSION/$RELEASE/" ../bindings_ffi/update_spec_version.sed
+        sed -i '' -f ../bindings_ffi/update_spec_version.sed LibXMTP.podspec
+        # unzip the new framework version over the repo
+        unzip -o ../bindings_ffi/libxmtp-swift.zip
+        # commit, tag and push
+        git config user.name libxmtp
+        git config user.email libxmtp@xmtp.com
+        git add .
+        git commit -m "libxmtp release $RELEASE"
+        git tag $RELEASE
+        git push --tags origin $RELEASE_BRANCH
+        
