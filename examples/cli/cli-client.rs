@@ -228,7 +228,6 @@ async fn send(client: Client, addr: &str, msg: &String) -> Result<(), CliError> 
     let conversations = Conversations::new(&client);
     let conversation = conversations
         .new_secret_conversation(addr.to_string())
-        .await
         .unwrap();
     conversation.send_message(msg).unwrap();
     client

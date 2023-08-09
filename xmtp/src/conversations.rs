@@ -33,7 +33,7 @@ pub struct Conversations<'c, A>
 where
     A: XmtpApiClient,
 {
-    client: &'c Client<A>,
+    pub(crate) client: &'c Client<A>,
 }
 
 impl<'c, A> Conversations<'c, A>
@@ -44,12 +44,42 @@ where
         Self { client }
     }
 
-    pub async fn new_secret_conversation(
+    pub fn new_secret_conversation(
         &self,
         wallet_address: String,
     ) -> Result<SecretConversation<A>, ConversationError> {
-        let contacts = self.client.get_contacts(wallet_address.as_str()).await?;
-        SecretConversation::new(self.client, wallet_address, contacts)
+        SecretConversation::create(self.client, wallet_address)
+    }
+
+    pub async fn list(
+        &self,
+        refresh_from_network: bool,
+    ) -> Result<Vec<SecretConversation<A>>, ConversationError> {
+        if refresh_from_network {
+            self.save_invites()?;
+            self.process_invites()?;
+        }
+        let conn = &mut self.client.store.conn()?;
+
+        let mut secret_convos: Vec<SecretConversation<A>> = vec![];
+
+        let convos: Vec<StoredConversation> = self.client.store.get_conversations(
+            conn,
+            vec![
+                ConversationState::InviteReceived,
+                ConversationState::Invited,
+            ],
+        )?;
+        log::debug!("Retrieved {:?} convos from the database", convos.len());
+        for convo in convos {
+            let peer_address =
+                peer_addr_from_convo_id(&convo.convo_id, &self.client.account.addr())?;
+
+            let convo = SecretConversation::new(self.client, peer_address);
+            secret_convos.push(convo);
+        }
+
+        Ok(secret_convos)
     }
 
     pub fn save_invites(&self) -> Result<(), ConversationError> {
@@ -344,13 +374,12 @@ where
     pub async fn process_outbound_messages(&self) -> Result<(), ConversationError> {
         let mut messages = self.client.store.get_unprocessed_messages()?;
         messages.sort_by(|a, b| a.created_at.cmp(&b.created_at));
-
         for message in messages {
             if let Err(e) = self.process_outbound_message(&message) {
                 log::error!(
-                    "Couldn't process message with ID {} because of error: {}",
+                    "Couldn't process message with ID {} because of error: {:?}",
                     message.id,
-                    e.to_string()
+                    e
                 );
                 // TODO update message status to failed on non-retryable errors so that we don't retry it next time
             }
@@ -405,11 +434,14 @@ mod tests {
         conversation::convo_id,
         conversations::Conversations,
         invitation::Invitation,
+        mock_xmtp_api_client::MockXmtpApiClient,
         storage::{
             InboundInvite, InboundInviteStatus, MessageState, OutboundPayloadState,
             StoredConversation, StoredMessage, StoredUser,
         },
-        test_utils::test_utils::{gen_test_client, gen_test_conversation, gen_two_test_clients},
+        test_utils::test_utils::{
+            gen_test_client, gen_test_client_internal, gen_test_conversation, gen_two_test_clients,
+        },
         utils::{build_envelope, build_user_invite_topic},
         ClientBuilder, Fetch,
     };
@@ -422,7 +454,6 @@ mod tests {
         let conversations = Conversations::new(&alice_client);
         let conversation = conversations
             .new_secret_conversation(bob_client.wallet_address().to_string())
-            .await
             .unwrap();
 
         assert_eq!(conversation.peer_address(), bob_client.wallet_address());
@@ -445,7 +476,10 @@ mod tests {
 
         let conversations = Conversations::new(&alice_client);
         let mut session = alice_client
-            .create_outbound_session(&bob_client.account.contact())
+            .get_session(
+                &mut alice_client.store.conn().unwrap(),
+                &bob_client.account.contact(),
+            )
             .unwrap();
 
         let _payload = conversations
@@ -508,12 +542,15 @@ mod tests {
 
         let bob_address = bob_client.account.contact().wallet_address;
         let alice_to_bob_inner_invite = Invitation::build_inner_invite_bytes(bob_address).unwrap();
-        let alice_to_bob_session = alice_client
-            .create_outbound_session(&bob_client.account.contact())
+        let mut alice_to_bob_session = alice_client
+            .get_session(
+                &mut alice_client.store.conn().unwrap(),
+                &bob_client.account.contact(),
+            )
             .unwrap();
         let alice_to_bob_invite = Invitation::build(
             alice_client.account.contact(),
-            alice_to_bob_session,
+            &mut alice_to_bob_session,
             &alice_to_bob_inner_invite,
         )
         .unwrap();
@@ -559,12 +596,15 @@ mod tests {
 
         let bob_address = bob_client.account.contact().wallet_address;
         let alice_to_bob_inner_invite = Invitation::build_inner_invite_bytes(bob_address).unwrap();
-        let bad_session = alice_client
-            .create_outbound_session(&gen_test_client().await.account.contact())
+        let mut bad_session = alice_client
+            .get_session(
+                &mut alice_client.store.conn().unwrap(),
+                &gen_test_client().await.account.contact(),
+            )
             .unwrap();
         let alice_to_bob_invite = Invitation::build(
             alice_client.account.contact(),
-            bad_session,
+            &mut bad_session,
             &alice_to_bob_inner_invite,
         )
         .unwrap();
@@ -599,5 +639,20 @@ mod tests {
 
         let conversations: Vec<StoredConversation> = conn.fetch().unwrap();
         assert_eq!(conversations.len(), 0);
+    }
+
+    #[tokio::test]
+    async fn list() {
+        let api_client = MockXmtpApiClient::new();
+        let alice_client = gen_test_client_internal(api_client.clone()).await;
+        let bob_client = gen_test_client_internal(api_client.clone()).await;
+
+        let conversations = Conversations::new(&alice_client);
+        let conversation =
+            gen_test_conversation(&conversations, &bob_client.wallet_address()).await;
+
+        let list = conversations.list(true).await.unwrap();
+        assert_eq!(list.len(), 1);
+        assert_eq!(list[0].peer_address(), conversation.peer_address());
     }
 }

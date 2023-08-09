@@ -12,6 +12,7 @@ use crate::{
     session::SessionManager,
     storage::{
         now, DbConnection, EncryptedMessageStore, StorageError, StoredInstallation, StoredSession,
+        StoredUser,
     },
     types::networking::{PublishRequest, QueryRequest, XmtpApiClient},
     types::Address,
@@ -139,7 +140,7 @@ where
                     contacts.push(bundle);
                 }
                 Err(err) => {
-                    println!("bad contact bundle: {:?}", err);
+                    log::error!("bad contact bundle: {:?}", err);
                 }
             }
         }
@@ -149,24 +150,25 @@ where
 
     pub fn get_session(
         &self,
-        contact: &Contact,
         conn: &mut DbConnection,
+        contact: &Contact,
     ) -> Result<SessionManager, ClientError> {
         let existing_session = self
             .store
             .get_session_with_conn(&contact.installation_id(), conn)?;
         match existing_session {
             Some(i) => Ok(SessionManager::try_from(&i)?),
-            None => self.create_outbound_session(contact),
+            None => self.create_outbound_session(conn, contact),
         }
     }
 
-    pub async fn my_other_devices(&self) -> Result<Vec<Contact>, ClientError> {
-        let contacts = self.get_contacts(self.account.addr().as_str()).await?;
-        let my_contact_id = self.account.contact().installation_id();
+    pub fn my_other_devices(&self, conn: &mut DbConnection) -> Result<Vec<Contact>, ClientError> {
+        let contacts = self.get_contacts_from_db(conn, self.account.addr().as_str())?;
+        let my_installation_id = self.account.contact().installation_id();
+
         Ok(contacts
             .into_iter()
-            .filter(|c| c.installation_id() != my_contact_id)
+            .filter(|c| c.installation_id() != my_installation_id)
             .collect())
     }
 
@@ -174,7 +176,7 @@ where
     // TODO: Reduce Visibility
     pub async fn refresh_user_installations(&self, user_address: &str) -> Result<(), ClientError> {
         // Store the timestamp of when the refresh process begins
-        let refresh_timestmap = now();
+        let refresh_timestamp = now();
 
         let self_install_id = key_fingerprint(&self.account.identity_keys().curve25519);
         let contacts = self.get_contacts(user_address).await?;
@@ -185,7 +187,7 @@ where
 
         let installation_map = self
             .store
-            .get_installations(user_address)?
+            .get_installations(&mut self.store.conn()?, user_address)?
             .into_iter()
             .map(|v| (v.installation_id.clone(), v))
             .collect::<HashMap<_, _>>();
@@ -201,11 +203,21 @@ where
             user_address, new_installs
         );
 
-        self.store.conn().unwrap().transaction(
-            |transaction_manager| -> Result<(), ClientError> {
+        self.store
+            .conn()?
+            .transaction(|transaction_manager| -> Result<(), ClientError> {
+                self.store.insert_or_ignore_user_with_conn(
+                    transaction_manager,
+                    StoredUser {
+                        user_address: user_address.to_string(),
+                        created_at: now(),
+                        last_refreshed: refresh_timestamp,
+                    },
+                )?;
                 for install in new_installs {
                     info!("Saving Install {}", install.installation_id);
                     let session = self.create_uninitialized_session(&install.get_contact()?)?;
+
                     self.store
                         .insert_or_ignore_install(install, transaction_manager)?;
                     self.store.insert_or_ignore_session(
@@ -217,14 +229,26 @@ where
                 self.store.update_user_refresh_timestamp(
                     transaction_manager,
                     user_address,
-                    refresh_timestmap,
+                    refresh_timestamp,
                 )?;
 
                 Ok(())
-            },
-        )?;
+            })?;
 
         Ok(())
+    }
+
+    pub fn get_contacts_from_db(
+        &self,
+        conn: &mut DbConnection,
+        wallet_address: &str,
+    ) -> Result<Vec<Contact>, ClientError> {
+        let installations = self.store.get_installations(conn, wallet_address)?;
+
+        Ok(installations
+            .into_iter()
+            .filter_map(|i| i.get_contact().ok())
+            .collect())
     }
 
     pub fn create_uninitialized_session(
@@ -235,14 +259,15 @@ where
         Ok(SessionManager::from_olm_session(olm_session, contact)?)
     }
 
-    pub fn create_outbound_session(
+    fn create_outbound_session(
         &self,
+        conn: &mut DbConnection,
         contact: &Contact,
     ) -> Result<SessionManager, ClientError> {
         let olm_session = self.account.create_outbound_session(contact);
         let session = SessionManager::from_olm_session(olm_session, contact)?;
-
-        session.store(&mut self.store.conn().unwrap())?;
+      
+        session.store(conn)?;
 
         Ok(session)
     }

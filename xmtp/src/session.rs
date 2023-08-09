@@ -1,6 +1,6 @@
 use crate::{
     contact::Contact,
-    storage::{DbConnection, StorageError, StoredSession},
+    storage::{DbConnection  , StorageError, StoredSession},
     Save, Store,
 };
 use thiserror::Error;
