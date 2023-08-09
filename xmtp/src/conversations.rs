@@ -54,7 +54,15 @@ where
         let contacts = self
             .client
             .get_contacts_from_db(&mut self.client.store.conn()?, wallet_address.as_str())?;
-        SecretConversation::create(self.client, wallet_address, contacts)
+        let my_installations = self.client.get_contacts_from_db(
+            &mut self.client.store.conn()?,
+            self.client.account.addr().as_str(),
+        )?;
+        SecretConversation::create(
+            self.client,
+            wallet_address,
+            vec![contacts, my_installations].concat(),
+        )
     }
 
     pub async fn list(
