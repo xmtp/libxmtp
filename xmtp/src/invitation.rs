@@ -47,7 +47,7 @@ impl Invitation {
 
     pub fn build(
         inviter: Contact,
-        mut session: SessionManager,
+        session: &mut SessionManager,
         inner_invite_bytes: &Vec<u8>,
     ) -> Result<Invitation, InvitationError> {
         let olm_message = session.encrypt(inner_invite_bytes.as_slice());
@@ -172,13 +172,13 @@ mod tests {
     fn serialize_round_trip() {
         let client = ClientBuilder::new_test().build().unwrap();
         let other_account = Account::generate(test_wallet_signer).unwrap();
-        let session = client
+        let mut session = client
             .get_session(&mut client.store.conn().unwrap(), &other_account.contact())
             .unwrap();
 
         let invitation = Invitation::build(
             client.account.contact(),
-            session,
+            &mut session,
             &Invitation::build_inner_invite_bytes(other_account.addr().to_string()).unwrap(),
         )
         .unwrap();
@@ -203,7 +203,7 @@ mod tests {
     fn fail_on_bad_invite() {
         let client = ClientBuilder::new_test().build().unwrap();
         let other_account = Account::generate(test_wallet_signer).unwrap();
-        let session = client
+        let mut session = client
             .get_session(&mut client.store.conn().unwrap(), &other_account.contact())
             .unwrap();
 
@@ -221,7 +221,7 @@ mod tests {
                 bundle: bad_bundle,
                 wallet_address: "".to_string(),
             },
-            session,
+            &mut session,
             &Invitation::build_inner_invite_bytes(other_account.addr().to_string()).unwrap(),
         );
 

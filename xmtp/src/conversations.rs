@@ -542,7 +542,7 @@ mod tests {
 
         let bob_address = bob_client.account.contact().wallet_address;
         let alice_to_bob_inner_invite = Invitation::build_inner_invite_bytes(bob_address).unwrap();
-        let alice_to_bob_session = alice_client
+        let mut alice_to_bob_session = alice_client
             .get_session(
                 &mut alice_client.store.conn().unwrap(),
                 &bob_client.account.contact(),
@@ -550,7 +550,7 @@ mod tests {
             .unwrap();
         let alice_to_bob_invite = Invitation::build(
             alice_client.account.contact(),
-            alice_to_bob_session,
+            &mut alice_to_bob_session,
             &alice_to_bob_inner_invite,
         )
         .unwrap();
@@ -596,7 +596,7 @@ mod tests {
 
         let bob_address = bob_client.account.contact().wallet_address;
         let alice_to_bob_inner_invite = Invitation::build_inner_invite_bytes(bob_address).unwrap();
-        let bad_session = alice_client
+        let mut bad_session = alice_client
             .get_session(
                 &mut alice_client.store.conn().unwrap(),
                 &gen_test_client().await.account.contact(),
@@ -604,7 +604,7 @@ mod tests {
             .unwrap();
         let alice_to_bob_invite = Invitation::build(
             alice_client.account.contact(),
-            bad_session,
+            &mut bad_session,
             &alice_to_bob_inner_invite,
         )
         .unwrap();

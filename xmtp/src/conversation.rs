@@ -11,7 +11,7 @@ use crate::{
     types::networking::XmtpApiClient,
     types::Address,
     utils::{build_envelope, build_user_invite_topic},
-    Client, Store,
+    Client, Save, Store,
 };
 
 use prost::{DecodeError, Message};
@@ -155,9 +155,12 @@ where
         for contact in self.members(conn)?.iter() {
             let id = contact.installation_id();
 
-            let session = self.client.get_session(conn, contact)?;
-            let invitation =
-                Invitation::build(self.client.account.contact(), session, &inner_invite_bytes)?;
+            let mut session = self.client.get_session(conn, contact)?;
+            let invitation = Invitation::build(
+                self.client.account.contact(),
+                &mut session,
+                &inner_invite_bytes,
+            )?;
 
             let envelope = build_envelope(build_user_invite_topic(id), invitation.try_into()?);
 
@@ -172,6 +175,8 @@ where
                 )
                 .await
                 .map_err(|_| ConversationError::Unknown)?;
+
+            session.save(conn)?;
         }
 
         self.client.store.set_conversation_state(
