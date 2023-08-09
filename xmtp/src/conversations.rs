@@ -19,7 +19,7 @@ use crate::{
     storage::{
         now, ConversationState, DbConnection, InboundInvite, InboundInviteStatus, MessageState,
         OutboundPayloadState, RefreshJob, RefreshJobKind, StorageError, StoredConversation,
-        StoredInstallation, StoredMessage, StoredOutboundPayload, StoredSession, StoredUser,
+        StoredMessage, StoredOutboundPayload, StoredSession, StoredUser,
     },
     types::networking::XmtpApiClient,
     utils::{base64_encode, build_installation_message_topic},
@@ -33,7 +33,7 @@ pub struct Conversations<'c, A>
 where
     A: XmtpApiClient,
 {
-    client: &'c Client<A>,
+    pub(crate) client: &'c Client<A>,
 }
 
 impl<'c, A> Conversations<'c, A>
@@ -51,18 +51,8 @@ where
         self.client
             .refresh_user_installations(wallet_address.as_str())
             .await?;
-        let contacts = self
-            .client
-            .get_contacts_from_db(&mut self.client.store.conn()?, wallet_address.as_str())?;
-        let my_installations = self.client.get_contacts_from_db(
-            &mut self.client.store.conn()?,
-            self.client.account.addr().as_str(),
-        )?;
-        SecretConversation::create(
-            self.client,
-            wallet_address,
-            vec![contacts, my_installations].concat(),
-        )
+
+        SecretConversation::create(self.client, wallet_address)
     }
 
     pub async fn list(
@@ -77,24 +67,19 @@ where
 
         let mut secret_convos: Vec<SecretConversation<A>> = vec![];
 
-        let convos_and_installations: Vec<(StoredConversation, Vec<StoredInstallation>)> = self
-            .client
-            .store
-            .get_conversations_and_installations(conn)?;
-        log::debug!(
-            "Retrieved {:?} convos from the database",
-            convos_and_installations.len()
-        );
-        for (convo, installations) in convos_and_installations {
+        let convos: Vec<StoredConversation> = self.client.store.get_conversations(
+            conn,
+            vec![
+                ConversationState::InviteReceived,
+                ConversationState::Invited,
+            ],
+        )?;
+        log::debug!("Retrieved {:?} convos from the database", convos.len());
+        for convo in convos {
             let peer_address =
                 peer_addr_from_convo_id(&convo.convo_id, &self.client.account.addr())?;
 
-            let members = installations
-                .into_iter()
-                .map(|i| i.get_contact().unwrap())
-                .collect();
-
-            let convo = SecretConversation::new(self.client, peer_address, members);
+            let convo = SecretConversation::new(self.client, peer_address);
             secret_convos.push(convo);
         }
 
@@ -393,13 +378,12 @@ where
     pub async fn process_outbound_messages(&self) -> Result<(), ConversationError> {
         let mut messages = self.client.store.get_unprocessed_messages()?;
         messages.sort_by(|a, b| a.created_at.cmp(&b.created_at));
-
         for message in messages {
             if let Err(e) = self.process_outbound_message(&message) {
                 log::error!(
-                    "Couldn't process message with ID {} because of error: {}",
+                    "Couldn't process message with ID {} because of error: {:?}",
                     message.id,
-                    e.to_string()
+                    e
                 );
                 // TODO update message status to failed on non-retryable errors so that we don't retry it next time
             }
@@ -497,7 +481,10 @@ mod tests {
 
         let conversations = Conversations::new(&alice_client);
         let mut session = alice_client
-            .create_outbound_session(&bob_client.account.contact())
+            .create_outbound_session(
+                &mut alice_client.store.conn().unwrap(),
+                &bob_client.account.contact(),
+            )
             .unwrap();
 
         let _payload = conversations
@@ -561,7 +548,10 @@ mod tests {
         let bob_address = bob_client.account.contact().wallet_address;
         let alice_to_bob_inner_invite = Invitation::build_inner_invite_bytes(bob_address).unwrap();
         let alice_to_bob_session = alice_client
-            .create_outbound_session(&bob_client.account.contact())
+            .create_outbound_session(
+                &mut alice_client.store.conn().unwrap(),
+                &bob_client.account.contact(),
+            )
             .unwrap();
         let alice_to_bob_invite = Invitation::build(
             alice_client.account.contact(),
@@ -612,7 +602,10 @@ mod tests {
         let bob_address = bob_client.account.contact().wallet_address;
         let alice_to_bob_inner_invite = Invitation::build_inner_invite_bytes(bob_address).unwrap();
         let bad_session = alice_client
-            .create_outbound_session(&gen_test_client().await.account.contact())
+            .create_outbound_session(
+                &mut alice_client.store.conn().unwrap(),
+                &gen_test_client().await.account.contact(),
+            )
             .unwrap();
         let alice_to_bob_invite = Invitation::build(
             alice_client.account.contact(),

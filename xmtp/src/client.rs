@@ -146,16 +146,17 @@ where
             .get_session_with_conn(&contact.installation_id(), conn)?;
         match existing_session {
             Some(i) => Ok(SessionManager::try_from(&i)?),
-            None => self.create_outbound_session(contact),
+            None => self.create_outbound_session(conn, contact),
         }
     }
 
-    pub async fn my_other_devices(&self) -> Result<Vec<Contact>, ClientError> {
-        let contacts = self.get_contacts(self.account.addr().as_str()).await?;
-        let my_contact_id = self.account.contact().installation_id();
+    pub fn my_other_devices(&self, conn: &mut DbConnection) -> Result<Vec<Contact>, ClientError> {
+        let contacts = self.get_contacts_from_db(conn, self.account.addr().as_str())?;
+        let my_installation_id = self.account.contact().installation_id();
+
         Ok(contacts
             .into_iter()
-            .filter(|c| c.installation_id() != my_contact_id)
+            .filter(|c| c.installation_id() != my_installation_id)
             .collect())
     }
 
@@ -190,8 +191,9 @@ where
             user_address, new_installs
         );
 
-        self.store.conn().unwrap().transaction(
-            |transaction_manager| -> Result<(), ClientError> {
+        self.store
+            .conn()?
+            .transaction(|transaction_manager| -> Result<(), ClientError> {
                 self.store.insert_or_ignore_user_with_conn(
                     transaction_manager,
                     StoredUser {
@@ -219,8 +221,7 @@ where
                 )?;
 
                 Ok(())
-            },
-        )?;
+            })?;
 
         Ok(())
     }
@@ -234,7 +235,7 @@ where
 
         Ok(installations
             .into_iter()
-            .map(|i| i.get_contact().unwrap())
+            .filter_map(|i| i.get_contact().ok())
             .collect())
     }
 
@@ -251,14 +252,15 @@ where
 
     pub fn create_outbound_session(
         &self,
+        conn: &mut DbConnection,
         contact: &Contact,
     ) -> Result<SessionManager, ClientError> {
         let olm_session = self.account.create_outbound_session(contact);
         let session = SessionManager::from_olm_session(olm_session, contact)
             .map_err(|_| ClientError::Unknown)?;
-
-        session.store(&mut self.store.conn().unwrap())?;
-
+        println!("Storing session");
+        session.store(conn)?;
+        println!("Session stored");
         Ok(session)
     }
 

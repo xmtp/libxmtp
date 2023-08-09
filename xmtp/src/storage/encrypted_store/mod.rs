@@ -14,8 +14,6 @@
 pub mod models;
 pub mod schema;
 
-use std::collections::HashMap;
-
 use self::{
     models::*,
     schema::{
@@ -474,46 +472,16 @@ impl EncryptedMessageStore {
     }
 
     // TODO: Figure out how to join installations as well
-    pub fn get_conversations_and_installations(
+    pub fn get_conversations(
         &self,
         conn: &mut DbConnection,
-    ) -> Result<Vec<(StoredConversation, Vec<StoredInstallation>)>, StorageError> {
-        let conversations_with_installations: Vec<(StoredConversation, StoredInstallation)> =
-            conversations::table
-                .filter(conversations::convo_state.eq_any(vec![
-                    ConversationState::Invited as i32,
-                    ConversationState::InviteReceived as i32,
-                ]))
-                .inner_join(
-                    installations::table
-                        .on(installations::user_address.eq(conversations::peer_address)),
-                )
-                .select((
-                    StoredConversation::as_select(),
-                    StoredInstallation::as_select(),
-                ))
-                .load::<(StoredConversation, StoredInstallation)>(conn)?;
+        allowed_states: Vec<ConversationState>,
+    ) -> Result<Vec<StoredConversation>, StorageError> {
+        let convos = conversations::table
+            .filter(conversations::convo_state.eq_any(allowed_states.into_iter().map(|s| s as i32)))
+            .load::<StoredConversation>(conn)?;
 
-        let mut installations: HashMap<String, Vec<StoredInstallation>> = HashMap::new();
-        let mut conversations = HashMap::new();
-
-        for (conversation, installation) in &conversations_with_installations {
-            conversations.insert(&conversation.convo_id, conversation.clone());
-
-            installations
-                .entry(conversation.clone().convo_id)
-                .or_insert_with(Vec::new)
-                .push(installation.clone());
-        }
-        let mut out: Vec<(StoredConversation, Vec<StoredInstallation>)> = vec![];
-        for (conversation_id, convo_installations) in installations {
-            out.push((
-                conversations.get(&conversation_id).unwrap().clone(),
-                convo_installations,
-            ));
-        }
-
-        Ok(out)
+        Ok(convos)
     }
 }
 
@@ -959,7 +927,7 @@ mod tests {
     }
 
     #[test]
-    fn get_conversations_and_installations() {
+    fn get_conversations() {
         let store = EncryptedMessageStore::new(
             StorageOption::Ephemeral,
             EncryptedMessageStore::generate_enc_key(),
@@ -975,38 +943,32 @@ mod tests {
             created_at: 10,
             convo_state: ConversationState::Invited as i32,
         };
+        let convo_2 = StoredConversation {
+            convo_id: "convo_2".into(),
+            peer_address: address.clone(),
+            created_at: 10,
+            convo_state: ConversationState::Uninitialized as i32,
+        };
         let user_1 = StoredUser {
             user_address: address.clone(),
             created_at: 10,
             last_refreshed: 0,
         };
-        let installation_1 = StoredInstallation {
-            installation_id: "installation_1".into(),
-            user_address: address.clone(),
-            first_seen_ns: 10,
-            contact: vec![],
-            expires_at_ns: None,
-        };
-        let installation_2 = StoredInstallation {
-            installation_id: "installation_2".into(),
-            user_address: address.clone(),
-            first_seen_ns: 10,
-            contact: vec![],
-            expires_at_ns: None,
-        };
+
         user_1.store(conn).unwrap();
         convo_1.store(conn).unwrap();
-        installation_1.store(conn).unwrap();
-        installation_2.store(conn).unwrap();
+        convo_2.store(conn).unwrap();
 
-        let results = store.get_conversations_and_installations(conn).unwrap();
-        assert_eq!(1, results.len());
-        let (returned_convo, returned_installations) = results.first().unwrap();
-        assert_eq!(returned_convo.convo_id, convo_1.convo_id);
-        assert_eq!(returned_installations.len(), 2);
-        assert_eq!(
-            returned_installations[0].installation_id,
-            installation_1.installation_id
-        );
+        let invited_conversations = store
+            .get_conversations(conn, vec![ConversationState::Invited])
+            .unwrap();
+        assert_eq!(1, invited_conversations.len());
+        assert_eq!(convo_1.convo_id, invited_conversations[0].convo_id);
+
+        let uninitialized_conversations = store
+            .get_conversations(conn, vec![ConversationState::Uninitialized])
+            .unwrap();
+        assert_eq!(1, uninitialized_conversations.len());
+        assert_eq!(convo_2.convo_id, uninitialized_conversations[0].convo_id);
     }
 }
