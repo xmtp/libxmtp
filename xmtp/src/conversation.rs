@@ -95,21 +95,26 @@ where
         members: Vec<Contact>,
     ) -> Result<Self, ConversationError> {
         let obj = Self::new(client, peer_address, members);
+        let conn = &mut client.store.conn()?;
 
-        obj.client.store.insert_or_ignore_user(StoredUser {
-            user_address: obj.peer_address(),
-            created_at: now(),
-            last_refreshed: 0,
-        })?;
+        obj.client.store.insert_or_ignore_user_with_conn(
+            conn,
+            StoredUser {
+                user_address: obj.peer_address(),
+                created_at: now(),
+                last_refreshed: 0,
+            },
+        )?;
 
-        obj.client
-            .store
-            .insert_or_ignore_conversation(StoredConversation {
+        obj.client.store.insert_or_ignore_conversation_with_conn(
+            conn,
+            StoredConversation {
                 peer_address: obj.peer_address(),
                 convo_id: obj.convo_id(),
                 created_at: now(),
                 convo_state: ConversationState::Uninitialized as i32,
-            })?;
+            },
+        )?;
 
         Ok(obj)
     }
@@ -161,6 +166,12 @@ where
                 .await
                 .map_err(|_| ConversationError::Unknown)?;
         }
+
+        self.client.store.set_conversation_state(
+            &mut self.client.store.conn()?,
+            self.convo_id().as_str(),
+            ConversationState::Invited,
+        )?;
 
         Ok(())
     }

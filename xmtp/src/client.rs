@@ -12,6 +12,7 @@ use crate::{
     session::SessionManager,
     storage::{
         now, DbConnection, EncryptedMessageStore, StorageError, StoredInstallation, StoredSession,
+        StoredUser,
     },
     types::networking::{PublishRequest, QueryRequest, XmtpApiClient},
     types::Address,
@@ -191,9 +192,18 @@ where
 
         self.store.conn().unwrap().transaction(
             |transaction_manager| -> Result<(), ClientError> {
+                self.store.insert_or_ignore_user_with_conn(
+                    transaction_manager,
+                    StoredUser {
+                        user_address: user_address.to_string(),
+                        created_at: now(),
+                        last_refreshed: refresh_timestamp,
+                    },
+                )?;
                 for install in new_installs {
                     info!("Saving Install {}", install.installation_id);
                     let session = self.create_uninitialized_session(&install.get_contact()?)?;
+
                     self.store
                         .insert_or_ignore_install(install, transaction_manager)?;
                     self.store.insert_or_ignore_session(
@@ -213,6 +223,19 @@ where
         )?;
 
         Ok(())
+    }
+
+    pub fn get_contacts_from_db(
+        &self,
+        conn: &mut DbConnection,
+        wallet_address: &str,
+    ) -> Result<Vec<Contact>, ClientError> {
+        let installations = self.store.get_installations(conn, wallet_address)?;
+
+        Ok(installations
+            .into_iter()
+            .map(|i| i.get_contact().unwrap())
+            .collect())
     }
 
     pub fn create_uninitialized_session(

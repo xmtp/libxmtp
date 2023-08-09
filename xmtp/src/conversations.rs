@@ -48,7 +48,12 @@ where
         &self,
         wallet_address: String,
     ) -> Result<SecretConversation<A>, ConversationError> {
-        let contacts = self.client.get_contacts(wallet_address.as_str()).await?;
+        self.client
+            .refresh_user_installations(wallet_address.as_str())
+            .await?;
+        let contacts = self
+            .client
+            .get_contacts_from_db(&mut self.client.store.conn()?, wallet_address.as_str())?;
         SecretConversation::create(self.client, wallet_address, contacts)
     }
 
@@ -68,7 +73,10 @@ where
             .client
             .store
             .get_conversations_and_installations(conn)?;
-
+        log::debug!(
+            "Retrieved {:?} convos from the database",
+            convos_and_installations.len()
+        );
         for (convo, installations) in convos_and_installations {
             let peer_address =
                 peer_addr_from_convo_id(&convo.convo_id, &self.client.account.addr())?;
@@ -82,7 +90,7 @@ where
             secret_convos.push(convo);
         }
 
-        Ok(vec![])
+        Ok(secret_convos)
     }
 
     pub fn save_invites(&self) -> Result<(), ConversationError> {
@@ -438,11 +446,14 @@ mod tests {
         conversation::convo_id,
         conversations::Conversations,
         invitation::Invitation,
+        mock_xmtp_api_client::MockXmtpApiClient,
         storage::{
             InboundInvite, InboundInviteStatus, MessageState, OutboundPayloadState,
             StoredConversation, StoredMessage, StoredUser,
         },
-        test_utils::test_utils::{gen_test_client, gen_test_conversation, gen_two_test_clients},
+        test_utils::test_utils::{
+            gen_test_client, gen_test_client_internal, gen_test_conversation, gen_two_test_clients,
+        },
         utils::{build_envelope, build_user_invite_topic},
         ClientBuilder, Fetch,
     };
@@ -636,8 +647,9 @@ mod tests {
 
     #[tokio::test]
     async fn list() {
-        let alice_client = gen_test_client().await;
-        let bob_client = gen_test_client().await;
+        let api_client = MockXmtpApiClient::new();
+        let alice_client = gen_test_client_internal(api_client.clone()).await;
+        let bob_client = gen_test_client_internal(api_client.clone()).await;
 
         let conversations = Conversations::new(&alice_client);
         let conversation =

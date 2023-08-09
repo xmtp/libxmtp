@@ -459,6 +459,20 @@ impl EncryptedMessageStore {
         Ok(())
     }
 
+    pub fn set_conversation_state(
+        &self,
+        conn: &mut DbConnection,
+        convo_id: &str,
+        state: ConversationState,
+    ) -> Result<(), StorageError> {
+        use self::schema::conversations::dsl;
+        diesel::update(dsl::conversations)
+            .filter(dsl::convo_id.eq(convo_id))
+            .set(dsl::convo_state.eq(state as i32))
+            .execute(conn)?;
+        Ok(())
+    }
+
     // TODO: Figure out how to join installations as well
     pub fn get_conversations_and_installations(
         &self,
