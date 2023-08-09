@@ -128,7 +128,7 @@ where
                     contacts.push(bundle);
                 }
                 Err(err) => {
-                    println!("bad contact bundle: {:?}", err);
+                    log::error!("bad contact bundle: {:?}", err);
                 }
             }
         }
@@ -258,9 +258,7 @@ where
         let olm_session = self.account.create_outbound_session(contact);
         let session = SessionManager::from_olm_session(olm_session, contact)
             .map_err(|_| ClientError::Unknown)?;
-        println!("Storing session");
         session.store(conn)?;
-        println!("Session stored");
         Ok(session)
     }
 
