@@ -471,7 +471,6 @@ impl EncryptedMessageStore {
         Ok(())
     }
 
-    // TODO: Figure out how to join installations as well
     pub fn get_conversations(
         &self,
         conn: &mut DbConnection,
