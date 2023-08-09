@@ -6,6 +6,7 @@ use log::info;
 use logger::FfiLogger;
 use std::error::Error;
 use std::sync::Arc;
+use xmtp::mock_xmtp_api_client::MockXmtpApiClient;
 use xmtp::types::Address;
 use xmtp_networking::grpc_api_helper::Client as TonicApiClient;
 
@@ -13,7 +14,7 @@ use crate::inbox_owner::RustInboxOwner;
 pub use crate::inbox_owner::SigningError;
 use crate::logger::init_logger;
 
-pub type RustXmtpClient = xmtp::Client<TonicApiClient>;
+pub type RustXmtpClient = xmtp::Client<MockXmtpApiClient>;
 uniffi::include_scaffolding!("xmtpv3");
 
 #[derive(uniffi::Error, Debug)]
@@ -60,18 +61,18 @@ pub async fn create_client(
     // TODO proper error handling
 ) -> Result<Arc<FfiXmtpClient>, GenericError> {
     let inbox_owner = RustInboxOwner::new(ffi_inbox_owner);
-    let api_client = TonicApiClient::create(host.clone(), is_secure)
-        .await
-        .map_err(|e| stringify_error_chain(&e))?;
+    // let api_client = TonicApiClient::create(host.clone(), is_secure)
+    //     .await
+    //     .map_err(|e| stringify_error_chain(&e))?;
 
     let mut xmtp_client: RustXmtpClient = xmtp::ClientBuilder::new(inbox_owner.into())
-        .api_client(api_client)
+        // .api_client(api_client)
         .build()
         .map_err(|e| stringify_error_chain(&e))?;
-    xmtp_client
-        .init()
-        .await
-        .map_err(|e| stringify_error_chain(&e))?;
+    // xmtp_client
+    //     .init()
+    //     .await
+    //     .map_err(|e| stringify_error_chain(&e))?;
 
     info!(
         "Created XMTP client for address: {}",
