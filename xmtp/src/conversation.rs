@@ -147,6 +147,9 @@ where
     }
 
     pub async fn initialize(&self) -> Result<(), ConversationError> {
+        self.client
+            .refresh_user_installations(self.peer_address().as_str())
+            .await?;
         let inner_invite_bytes = Invitation::build_inner_invite_bytes(self.peer_address.clone())?;
         let conn = &mut self.client.store.conn()?;
         for contact in self.members(conn)?.iter() {

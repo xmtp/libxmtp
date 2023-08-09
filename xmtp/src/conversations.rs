@@ -48,10 +48,6 @@ where
         &self,
         wallet_address: String,
     ) -> Result<SecretConversation<A>, ConversationError> {
-        self.client
-            .refresh_user_installations(wallet_address.as_str())
-            .await?;
-
         SecretConversation::create(self.client, wallet_address)
     }
 
