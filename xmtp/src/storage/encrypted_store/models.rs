@@ -6,6 +6,7 @@ use crate::{
     Save,
 };
 use diesel::prelude::*;
+use prost::Message;
 use std::fmt;
 use std::time::{SystemTime, UNIX_EPOCH};
 use xmtp_cryptography::hash::sha256_bytes;
@@ -97,11 +98,34 @@ pub enum OutboundPayloadState {
 #[diesel(table_name = outbound_payloads)]
 #[diesel(primary_key(created_at_ns))]
 pub struct StoredOutboundPayload {
+    pub payload_id: String,
     pub created_at_ns: i64,
     pub content_topic: String,
     pub payload: Vec<u8>,
     pub outbound_payload_state: i32,
     pub locked_until_ns: i64,
+}
+
+impl StoredOutboundPayload {
+    pub fn new(
+        created_at_ns: i64,
+        content_topic: String,
+        payload: Vec<u8>,
+        outbound_payload_state: i32,
+        locked_until_ns: i64,
+    ) -> Self {
+        let payload_id = hex::encode(sha256_bytes(
+            &(format!("{created_at_ns}:{content_topic}").encode_to_vec()),
+        ));
+        Self {
+            payload_id,
+            created_at_ns,
+            content_topic,
+            payload,
+            outbound_payload_state,
+            locked_until_ns,
+        }
+    }
 }
 
 pub fn now() -> i64 {

@@ -5,7 +5,7 @@ use thiserror::Error;
 pub enum StorageError {
     #[error("Diesel connection error")]
     DieselConnectError(#[from] diesel::ConnectionError),
-    #[error("Diesel result error")]
+    #[error("Diesel result error: {0}")]
     DieselResultError(#[from] diesel::result::Error),
     #[error("Pool error {0}")]
     PoolError(String),
