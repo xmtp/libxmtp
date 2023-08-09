@@ -153,7 +153,7 @@ where
             let id = contact.installation_id();
 
             // TODO: Persist session to database
-            let session = self.client.get_session(contact, conn)?;
+            let session = self.client.get_session(conn, contact)?;
             let invitation =
                 Invitation::build(self.client.account.contact(), session, &inner_invite_bytes)?;
 

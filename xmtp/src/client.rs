@@ -138,8 +138,8 @@ where
 
     pub fn get_session(
         &self,
-        contact: &Contact,
         conn: &mut DbConnection,
+        contact: &Contact,
     ) -> Result<SessionManager, ClientError> {
         let existing_session = self
             .store
@@ -250,7 +250,7 @@ where
         Ok(session)
     }
 
-    pub fn create_outbound_session(
+    fn create_outbound_session(
         &self,
         conn: &mut DbConnection,
         contact: &Contact,

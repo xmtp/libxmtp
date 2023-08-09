@@ -481,7 +481,7 @@ mod tests {
 
         let conversations = Conversations::new(&alice_client);
         let mut session = alice_client
-            .create_outbound_session(
+            .get_session(
                 &mut alice_client.store.conn().unwrap(),
                 &bob_client.account.contact(),
             )
@@ -548,7 +548,7 @@ mod tests {
         let bob_address = bob_client.account.contact().wallet_address;
         let alice_to_bob_inner_invite = Invitation::build_inner_invite_bytes(bob_address).unwrap();
         let alice_to_bob_session = alice_client
-            .create_outbound_session(
+            .get_session(
                 &mut alice_client.store.conn().unwrap(),
                 &bob_client.account.contact(),
             )
@@ -602,7 +602,7 @@ mod tests {
         let bob_address = bob_client.account.contact().wallet_address;
         let alice_to_bob_inner_invite = Invitation::build_inner_invite_bytes(bob_address).unwrap();
         let bad_session = alice_client
-            .create_outbound_session(
+            .get_session(
                 &mut alice_client.store.conn().unwrap(),
                 &gen_test_client().await.account.contact(),
             )

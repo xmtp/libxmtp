@@ -173,7 +173,7 @@ mod tests {
         let client = ClientBuilder::new_test().build().unwrap();
         let other_account = Account::generate(test_wallet_signer).unwrap();
         let session = client
-            .create_outbound_session(&mut client.store.conn().unwrap(), &other_account.contact())
+            .get_session(&mut client.store.conn().unwrap(), &other_account.contact())
             .unwrap();
 
         let invitation = Invitation::build(
@@ -204,7 +204,7 @@ mod tests {
         let client = ClientBuilder::new_test().build().unwrap();
         let other_account = Account::generate(test_wallet_signer).unwrap();
         let session = client
-            .create_outbound_session(&mut client.store.conn().unwrap(), &other_account.contact())
+            .get_session(&mut client.store.conn().unwrap(), &other_account.contact())
             .unwrap();
 
         let bad_bundle = InstallationContactBundle {
