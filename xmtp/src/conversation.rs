@@ -152,14 +152,12 @@ where
         for contact in self.members(conn)?.iter() {
             let id = contact.installation_id();
 
-            // TODO: Persist session to database
             let session = self.client.get_session(conn, contact)?;
             let invitation =
                 Invitation::build(self.client.account.contact(), session, &inner_invite_bytes)?;
 
             let envelope = build_envelope(build_user_invite_topic(id), invitation.try_into()?);
 
-            // TODO: Replace with real token
             self.client
                 .api_client
                 // TODO: API authentication
