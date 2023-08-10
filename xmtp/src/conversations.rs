@@ -27,10 +27,7 @@ use crate::{
     Client,
 };
 
-const SECOND_IN_NS: i64 = 1000 * 1000 * 1000;
-const MINUTE_IN_NS: i64 = 60 * SECOND_IN_NS;
-const PADDING_TIME_NS: i64 = 30 * SECOND_IN_NS;
-const INSTALLATION_REFRESH_INTERVAL_NS: i64 = 10 * MINUTE_IN_NS;
+const PADDING_TIME_NS: i64 = 30 * 1000 * 1000 * 1000;
 
 pub struct Conversations<'c, A>
 where
@@ -325,29 +322,14 @@ where
         ))
     }
 
-    async fn refresh_installations_if_needed(
-        &self,
-        convo_id: &str,
-    ) -> Result<(), ConversationError> {
-        let my_user_addr = self.client.wallet_address();
-        let their_user_addr = peer_addr_from_convo_id(convo_id, &my_user_addr)?;
-        for user_addr in &[my_user_addr, their_user_addr] {
-            let user = self.client.store.get_user(user_addr)?;
-            if user.is_none()
-                || user.unwrap().last_refreshed < now() - INSTALLATION_REFRESH_INTERVAL_NS
-            {
-                self.client.refresh_user_installations(user_addr).await?;
-            }
-        }
-
-        Ok(())
-    }
-
     pub async fn process_outbound_message(
         &self,
         message: &StoredMessage,
     ) -> Result<(), ConversationError> {
-        self.refresh_installations_if_needed(&message.convo_id)
+        let peer_address =
+            peer_addr_from_convo_id(&message.convo_id, &self.client.wallet_address())?;
+        self.client
+            .refresh_user_installations_if_stale(&peer_address)
             .await?;
         self.client.store.conn().unwrap().transaction(
             |transaction| -> Result<(), ConversationError> {
@@ -395,6 +377,9 @@ where
     }
 
     pub async fn process_outbound_messages(&self) -> Result<(), ConversationError> {
+        self.client
+            .refresh_user_installations_if_stale(&self.client.wallet_address())
+            .await?;
         let mut messages = self.client.store.get_unprocessed_messages()?;
         messages.sort_by(|a, b| a.created_at.cmp(&b.created_at));
         for message in messages {
@@ -408,6 +393,7 @@ where
             }
         }
 
+        self.publish_outbound_payloads().await?;
         Ok(())
     }
 
@@ -451,6 +437,7 @@ where
 #[cfg(test)]
 mod tests {
     use prost::Message;
+    use xmtp_proto::xmtp::message_api::v1::QueryRequest;
 
     use crate::{
         codecs::{text::TextCodec, ContentCodec},
@@ -459,13 +446,14 @@ mod tests {
         invitation::Invitation,
         mock_xmtp_api_client::MockXmtpApiClient,
         storage::{
-            InboundInvite, InboundInviteStatus, MessageState, OutboundPayloadState,
-            StoredConversation, StoredMessage, StoredUser,
+            now, InboundInvite, InboundInviteStatus, MessageState, StoredConversation,
+            StoredMessage, StoredUser,
         },
         test_utils::test_utils::{
             gen_test_client, gen_test_client_internal, gen_test_conversation, gen_two_test_clients,
         },
-        utils::{build_envelope, build_user_invite_topic},
+        types::networking::XmtpApiClient,
+        utils::{build_envelope, build_installation_message_topic, build_user_invite_topic},
         ClientBuilder, Fetch,
     };
 
@@ -537,20 +525,20 @@ mod tests {
         assert_eq!(unprocessed_messages.len(), 1);
 
         conversations.process_outbound_messages().await.unwrap();
-        let unprocessed_messages = alice_client.store.get_unprocessed_messages().unwrap();
-        assert_eq!(unprocessed_messages.len(), 0);
-        let unsent_payloads = alice_client
-            .store
-            .fetch_and_lock_outbound_payloads(OutboundPayloadState::Pending, 0)
+        let response = bob_client
+            .api_client
+            .query(QueryRequest {
+                content_topics: vec![build_installation_message_topic(
+                    &bob_client.installation_id(),
+                )],
+                start_time_ns: 0 as u64,
+                end_time_ns: now() as u64,
+                paging_info: None,
+            })
+            .await
             .unwrap();
-        assert_eq!(unsent_payloads.len(), 1);
-
-        conversations.publish_outbound_payloads().await.unwrap();
-        let unsent_payloads = alice_client
-            .store
-            .fetch_and_lock_outbound_payloads(OutboundPayloadState::Pending, 0)
-            .unwrap();
-        assert_eq!(unsent_payloads.len(), 0);
+        assert_eq!(response.envelopes.len(), 1);
+        // TODO verify using receive logic
     }
 
     #[tokio::test]

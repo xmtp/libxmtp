@@ -22,6 +22,8 @@ use crate::{
 use std::collections::HashMap;
 use xmtp_proto::xmtp::message_api::v1::Envelope;
 
+const INSTALLATION_REFRESH_INTERVAL_NS: i64 = 10 * 60 * 1_000_000_000; // 10 minutes
+
 #[derive(Clone, Copy, Default, Debug)]
 pub enum Network {
     Local(&'static str),
@@ -101,6 +103,10 @@ where
         self.account.addr()
     }
 
+    pub fn installation_id(&self) -> String {
+        self.account.contact().installation_id()
+    }
+
     pub async fn init(&mut self) -> Result<(), ClientError> {
         let app_contact_bundle = self.account.contact();
         let registered_bundles = self.get_contacts(&self.wallet_address()).await?;
@@ -164,12 +170,23 @@ where
 
     pub fn my_other_devices(&self, conn: &mut DbConnection) -> Result<Vec<Contact>, ClientError> {
         let contacts = self.get_contacts_from_db(conn, self.account.addr().as_str())?;
-        let my_installation_id = self.account.contact().installation_id();
-
         Ok(contacts
             .into_iter()
-            .filter(|c| c.installation_id() != my_installation_id)
+            .filter(|c| c.installation_id() != self.installation_id())
             .collect())
+    }
+
+    pub async fn refresh_user_installations_if_stale(
+        &self,
+        user_address: &str,
+    ) -> Result<(), ClientError> {
+        let user = self.store.get_user(user_address)?;
+        if user.is_none() || user.unwrap().last_refreshed < now() - INSTALLATION_REFRESH_INTERVAL_NS
+        {
+            self.refresh_user_installations(user_address).await?;
+        }
+
+        Ok(())
     }
 
     /// Fetch Installations from the Network and create unintialized sessions for newly discovered contacts
@@ -266,7 +283,7 @@ where
     ) -> Result<SessionManager, ClientError> {
         let olm_session = self.account.create_outbound_session(contact);
         let session = SessionManager::from_olm_session(olm_session, contact)?;
-      
+
         session.store(conn)?;
 
         Ok(session)
