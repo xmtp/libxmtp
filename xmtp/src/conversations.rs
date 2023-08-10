@@ -27,7 +27,10 @@ use crate::{
     Client,
 };
 
-const PADDING_TIME_NS: i64 = 30 * 1000 * 1000 * 1000;
+const SECOND_IN_NS: i64 = 1000 * 1000 * 1000;
+const MINUTE_IN_NS: i64 = 60 * SECOND_IN_NS;
+const PADDING_TIME_NS: i64 = 30 * SECOND_IN_NS;
+const INSTALLATION_REFRESH_INTERVAL_NS: i64 = 10 * MINUTE_IN_NS;
 
 pub struct Conversations<'c, A>
 where
@@ -322,10 +325,30 @@ where
         ))
     }
 
-    pub fn process_outbound_message(
+    async fn refresh_installations_if_needed(
+        &self,
+        convo_id: &str,
+    ) -> Result<(), ConversationError> {
+        let my_user_addr = self.client.wallet_address();
+        let their_user_addr = peer_addr_from_convo_id(convo_id, &my_user_addr)?;
+        for user_addr in &[my_user_addr, their_user_addr] {
+            let user = self.client.store.get_user(user_addr)?;
+            if user.is_none()
+                || user.unwrap().last_refreshed < now() - INSTALLATION_REFRESH_INTERVAL_NS
+            {
+                self.client.refresh_user_installations(user_addr).await?;
+            }
+        }
+
+        Ok(())
+    }
+
+    pub async fn process_outbound_message(
         &self,
         message: &StoredMessage,
     ) -> Result<(), ConversationError> {
+        self.refresh_installations_if_needed(&message.convo_id)
+            .await?;
         self.client.store.conn().unwrap().transaction(
             |transaction| -> Result<(), ConversationError> {
                 let my_sessions = self
@@ -375,7 +398,7 @@ where
         let mut messages = self.client.store.get_unprocessed_messages()?;
         messages.sort_by(|a, b| a.created_at.cmp(&b.created_at));
         for message in messages {
-            if let Err(e) = self.process_outbound_message(&message) {
+            if let Err(e) = self.process_outbound_message(&message).await {
                 log::error!(
                     "Couldn't process message with ID {} because of error: {:?}",
                     message.id,
@@ -512,11 +535,6 @@ mod tests {
         conversation.send_message("Hello world").unwrap();
         let unprocessed_messages = alice_client.store.get_unprocessed_messages().unwrap();
         assert_eq!(unprocessed_messages.len(), 1);
-
-        alice_client
-            .refresh_user_installations(&bob_client.wallet_address())
-            .await
-            .unwrap();
 
         conversations.process_outbound_messages().await.unwrap();
         let unprocessed_messages = alice_client.store.get_unprocessed_messages().unwrap();
