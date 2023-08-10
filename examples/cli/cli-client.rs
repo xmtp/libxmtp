@@ -228,7 +228,7 @@ fn get_encrypted_store(db: Option<PathBuf>) -> Result<EncryptedMessageStore, Cli
     let store = match db {
         Some(path) => {
             let s = path.as_path().to_string_lossy().to_string();
-            info!("Using persistent storage:{} ", s);
+            info!("Using persistent storage: {} ", s);
             EncryptedMessageStore::new_unencrypted(StorageOption::Persistent(s))
         }
 
