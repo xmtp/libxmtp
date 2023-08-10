@@ -1,12 +1,5 @@
 /*
 XLI is a Commandline client using XMTPv3.
-
-
-```
-$ RUST_LOG=info cargo run -- --db ~/hello2.db3 send 0x5c1c5699cc216366723fd172e9acf5091dff8811 hiD
-$ RUST_LOG=info cargo run -- --db ~/hello2.db3 send 0x5c1c5699cc216366723fd172e9acf5091dff8811 hiD
-
-```
 */
 
 extern crate ethers;
@@ -48,15 +41,7 @@ struct Cli {
 #[derive(Debug, Subcommand)]
 enum Commands {
     /// Register Account on XMTP Network
-    #[command(arg_required_else_help = true)]
-    Reg {
-        /// use wallect connect to associate an EOA
-        #[clap(short = 'W', long = "use_wc", conflicts_with = "use_local")]
-        use_wc: bool,
-        /// Produce a report of selected PO
-        #[clap(short = 'L', long, conflicts_with = "use_wc")]
-        use_local: bool,
-    },
+    Register {},
     /// Information about the account that owns the DB
     Info {},
     /// Send Message
@@ -119,8 +104,6 @@ impl InboxOwner for Wallet {
     }
 }
 
-/// A complete example of a minimal xmtp client which can send and recieve messages.
-/// run this example from the cli:  `RUST_LOG=DEBUG cargo run --example cli-client`
 #[tokio::main]
 async fn main() {
     env_logger::init();
@@ -129,10 +112,10 @@ async fn main() {
     let cli = Cli::parse();
 
     match &cli.command {
-        Commands::Reg { use_wc, use_local } => {
-            info!("'REG: {use_wc:?} {use_local:?} {:?}", cli.db);
-            if let Err(e) = register(cli.db, *use_local).await {
-                error!("reg failed: {:?}", e)
+        Commands::Register {} => {
+            info!("Register");
+            if let Err(e) = register(cli.db, true).await {
+                error!("Registration failed: {:?}", e)
             }
         }
         Commands::Info {} => {
@@ -205,9 +188,10 @@ async fn create_client(
 
 async fn register(db: Option<PathBuf>, use_local: bool) -> Result<(), CliError> {
     let w = if use_local {
-        info!("Fallback to LocalWallet");
         Wallet::LocalWallet(LocalWallet::new(&mut rng()))
     } else {
+        // Deprecated - WalletConnect V1 is no longer supported and WalletConnect V2
+        // has no rust clients (yet)
         Wallet::WalletConnectWallet(WalletConnectWallet::create().await?)
     };
 
@@ -249,7 +233,7 @@ fn get_encrypted_store(db: Option<PathBuf>) -> Result<EncryptedMessageStore, Cli
         }
 
         None => {
-            info!("USing ephemeral Store");
+            info!("Using ephemeral store");
             EncryptedMessageStore::new(StorageOption::Ephemeral, static_enc_key())
         }
     };
