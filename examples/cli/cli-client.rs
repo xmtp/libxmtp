@@ -41,7 +41,10 @@ struct Cli {
 #[derive(Debug, Subcommand)]
 enum Commands {
     /// Register Account on XMTP Network
-    Register {},
+    Register {
+        #[clap(long = "seed", default_value_t = 0)]
+        wallet_seed: u64,
+    },
     /// Information about the account that owns the DB
     Info {},
     /// Send Message
@@ -50,11 +53,6 @@ enum Commands {
         addr: String,
         #[arg(value_name = "Message")]
         msg: String,
-    },
-
-    TestReg {
-        #[arg(value_name = "seed")]
-        wallet_seed: u64,
     },
 
     Refresh {},
@@ -112,9 +110,9 @@ async fn main() {
     let cli = Cli::parse();
 
     match &cli.command {
-        Commands::Register {} => {
+        Commands::Register { wallet_seed } => {
             info!("Register");
-            if let Err(e) = register(cli.db, true).await {
+            if let Err(e) = register(cli.db, true, wallet_seed).await {
                 error!("Registration failed: {:?}", e)
             }
         }
@@ -132,14 +130,6 @@ async fn main() {
                 .unwrap();
             info!("Address is: {}", client.wallet_address());
             send(client, addr, msg).await.unwrap();
-        }
-        Commands::TestReg { wallet_seed } => {
-            info!("TestReg");
-            let w = Wallet::LocalWallet(LocalWallet::new(&mut seeded_rng(*wallet_seed)));
-            let mut client = create_client(cli.db, AccountStrategy::CreateIfNotFound(w))
-                .await
-                .unwrap();
-            client.init().await.unwrap();
         }
         Commands::Refresh {} => {
             info!("Refresh");
@@ -186,9 +176,13 @@ async fn create_client(
     client_result.map_err(CliError::ClientBuilder)
 }
 
-async fn register(db: Option<PathBuf>, use_local: bool) -> Result<(), CliError> {
+async fn register(db: Option<PathBuf>, use_local: bool, wallet_seed: &u64) -> Result<(), CliError> {
     let w = if use_local {
-        Wallet::LocalWallet(LocalWallet::new(&mut rng()))
+        if wallet_seed == &0 {
+            Wallet::LocalWallet(LocalWallet::new(&mut rng()))
+        } else {
+            Wallet::LocalWallet(LocalWallet::new(&mut seeded_rng(*wallet_seed)))
+        }
     } else {
         // Deprecated - WalletConnect V1 is no longer supported and WalletConnect V2
         // has no rust clients (yet)
@@ -202,8 +196,6 @@ async fn register(db: Option<PathBuf>, use_local: bool) -> Result<(), CliError> 
         error!("Initialization Failed: {}", e.to_string());
         panic!("Could not init");
     };
-
-    info!(" Closing XLI");
 
     Ok(())
 }
