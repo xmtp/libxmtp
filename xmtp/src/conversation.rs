@@ -29,6 +29,8 @@ pub enum ConversationError {
     Codec(#[from] CodecError),
     #[error("decode error {0}")]
     Decode(DecodeError),
+    #[error("decode error {0}")]
+    DecodeVmac(#[from] vodozemac::DecodeError),
     #[error("storage error: {0}")]
     Storage(#[from] StorageError),
     #[error("diesel error: {0}")]

@@ -21,9 +21,9 @@ use crate::{
     session::SessionManager,
     storage::{
         now, ConversationState, DbConnection, InboundInvite, InboundInviteStatus, InboundMessage,
-        MessageState, NewStoredMessage, OutboundPayloadState, RefreshJob, RefreshJobKind,
-        StorageError, StoredConversation, StoredMessage, StoredOutboundPayload, StoredSession,
-        StoredUser,
+        InboundMessageStatus, MessageState, NewStoredMessage, OutboundPayloadState, RefreshJob,
+        RefreshJobKind, StorageError, StoredConversation, StoredMessage, StoredOutboundPayload,
+        StoredSession, StoredUser,
     },
     types::networking::XmtpApiClient,
     utils::{base64_encode, build_installation_message_topic},
@@ -141,7 +141,7 @@ where
             let msgs = self
                 .client
                 .store
-                .get_inbound_messages(transaction_manager, InboundInviteStatus::Pending)?;
+                .get_inbound_messages(transaction_manager, InboundMessageStatus::Pending)?;
             for msg in msgs {
                 let payload_id = msg.id.clone();
                 match self.process_inbound_message(transaction_manager, msg) {
@@ -174,17 +174,17 @@ where
         &self,
         conn: &mut DbConnection,
         msg: InboundMessage,
-    ) -> Result<InboundInviteStatus, ConversationError> {
+    ) -> Result<InboundMessageStatus, ConversationError> {
         let message_envelope: PadlockMessageEnvelope =
-            shuck_ok!(decode_bytes(&msg.payload), InboundInviteStatus::Invalid);
+            shuck_ok!(decode_bytes(&msg.payload), InboundMessageStatus::Invalid);
 
         let message_header: PadlockMessageHeader = shuck_ok!(
             decode_bytes(&message_envelope.header_bytes),
-            InboundInviteStatus::Invalid
+            InboundMessageStatus::Invalid
         );
         let unsealed_header: PadlockMessageSealedMetadata = shuck_ok!(
             decode_bytes(&message_header.sealed_metadata),
-            InboundInviteStatus::Invalid
+            InboundMessageStatus::Invalid
         );
 
         let plaintext = if unsealed_header.is_prekey_message {
@@ -195,7 +195,7 @@ where
 
             let contact = match network_contact {
                 Some(contact) => contact,
-                None => return Ok(InboundInviteStatus::Invalid),
+                None => return Ok(InboundMessageStatus::Invalid),
             };
 
             let (_, message) =
@@ -210,10 +210,8 @@ where
                     "Message was not PreKey message, but no existing session".into(),
                 ))?;
 
-            let olm_message = olm::OlmMessage::Normal(
-                olm::Message::try_from(message_envelope.ciphertext)
-                    .map_err(|e| ConversationError::Unknown)?,
-            );
+            let olm_message =
+                olm::OlmMessage::Normal(olm::Message::try_from(message_envelope.ciphertext)?);
 
             session.decrypt(olm_message, conn)?
         };
@@ -232,7 +230,7 @@ where
             .store
             .insert_or_ignore_message(conn, stored_message)?;
 
-        Ok(InboundInviteStatus::Processed)
+        Ok(InboundMessageStatus::Processed)
     }
 
     pub fn save_invites(&self) -> Result<(), ConversationError> {
@@ -598,7 +596,6 @@ where
 
 #[cfg(test)]
 mod tests {
-    use log::info;
     use prost::Message;
     use xmtp_proto::xmtp::message_api::v1::QueryRequest;
 

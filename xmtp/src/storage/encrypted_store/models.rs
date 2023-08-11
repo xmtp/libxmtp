@@ -277,6 +277,14 @@ pub enum InboundInviteStatus {
     Invalid = 3,
 }
 
+#[derive(Clone, Debug)]
+pub enum InboundMessageStatus {
+    Pending = 0,
+    Processed = 1,
+    DecryptionFailure = 2,
+    Invalid = 3,
+}
+
 #[derive(Insertable, Identifiable, Queryable, Clone, PartialEq, Debug)]
 #[diesel(table_name = inbound_invites)]
 pub struct InboundInvite {
@@ -328,7 +336,7 @@ impl From<Envelope> for InboundMessage {
             sent_at_ns,
             payload,
             topic,
-            status: InboundInviteStatus::Pending as i16,
+            status: InboundMessageStatus::Pending as i16,
         }
     }
 }

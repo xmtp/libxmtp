@@ -4,7 +4,7 @@ use std::fmt::Formatter;
 use diesel::Connection;
 use log::{debug, info};
 use thiserror::Error;
-use vodozemac::olm::{OlmMessage, PreKeyMessage};
+use vodozemac::olm::PreKeyMessage;
 
 use crate::{
     account::Account,

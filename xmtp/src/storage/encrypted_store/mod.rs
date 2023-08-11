@@ -398,7 +398,7 @@ impl EncryptedMessageStore {
     pub fn get_inbound_messages(
         &self,
         conn: &mut PooledConnection<ConnectionManager<SqliteConnection>>,
-        status: InboundInviteStatus,
+        status: InboundMessageStatus,
     ) -> Result<Vec<InboundMessage>, StorageError> {
         use self::schema::inbound_messages::dsl as schema;
 
@@ -427,7 +427,7 @@ impl EncryptedMessageStore {
         &self,
         conn: &mut DbConnection,
         id: String,
-        status: InboundInviteStatus,
+        status: InboundMessageStatus,
     ) -> Result<(), StorageError> {
         use self::schema::inbound_messages::dsl as schema;
 
