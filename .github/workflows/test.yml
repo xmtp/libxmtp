@@ -39,7 +39,6 @@ jobs:
         with:
           workspaces: |
             .
-            bindings_swift
             bindings_ffi
 
       - name: Run cargo test on main workspace
