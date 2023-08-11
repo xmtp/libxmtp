@@ -3,9 +3,7 @@
 members = [
   "examples/cli",
   "xmtp",
-  "xmtp_crypto",
   "xmtp_cryptography",
-  "xmtp_keystore",
   "xmtp_networking",
   "xmtp_proto",
 ]
@@ -16,7 +14,5 @@ members = [
 exclude = [
   "bindings_ffi",
   "bindings_js",
-  "bindings_swift",
   "bindings_wasm",
-  "xmtp_dh",
 ]
