@@ -1,12 +1,5 @@
 /*
 XLI is a Commandline client using XMTPv3.
-
-
-```
-$ RUST_LOG=info cargo run -- --db ~/hello2.db3 send 0x5c1c5699cc216366723fd172e9acf5091dff8811 hiD
-$ RUST_LOG=info cargo run -- --db ~/hello2.db3 send 0x5c1c5699cc216366723fd172e9acf5091dff8811 hiD
-
-```
 */
 
 extern crate ethers;
@@ -50,14 +43,9 @@ struct Cli {
 #[derive(Debug, Subcommand)]
 enum Commands {
     /// Register Account on XMTP Network
-    #[command(arg_required_else_help = true)]
-    Reg {
-        /// use wallect connect to associate an EOA
-        #[clap(short = 'W', long = "use_wc", conflicts_with = "use_local")]
-        use_wc: bool,
-        /// Produce a report of selected PO
-        #[clap(short = 'L', long, conflicts_with = "use_wc")]
-        use_local: bool,
+    Register {
+        #[clap(long = "seed", default_value_t = 0)]
+        wallet_seed: u64,
     },
     /// Information about the account that owns the DB
     Info {},
@@ -69,11 +57,6 @@ enum Commands {
         msg: String,
     },
     Recv {},
-
-    TestReg {
-        #[arg(value_name = "seed")]
-        wallet_seed: u64,
-    },
 
     Refresh {},
     ListContacts {},
@@ -124,8 +107,6 @@ impl InboxOwner for Wallet {
     }
 }
 
-/// A complete example of a minimal xmtp client which can send and recieve messages.
-/// run this example from the cli:  `RUST_LOG=DEBUG cargo run --example cli-client`
 #[tokio::main]
 async fn main() {
     env_logger::init();
@@ -134,10 +115,10 @@ async fn main() {
     let cli = Cli::parse();
 
     match &cli.command {
-        Commands::Reg { use_wc, use_local } => {
-            info!("'REG: {use_wc:?} {use_local:?} {:?}", cli.db);
-            if let Err(e) = register(cli.db, *use_local).await {
-                error!("reg failed: {:?}", e)
+        Commands::Register { wallet_seed } => {
+            info!("Register");
+            if let Err(e) = register(cli.db, true, wallet_seed).await {
+                error!("Registration failed: {:?}", e)
             }
         }
         Commands::Info {} => {
@@ -155,7 +136,6 @@ async fn main() {
             info!("Address is: {}", client.wallet_address());
             send(client, addr, msg).await.unwrap();
         }
-
         Commands::Recv {} => {
             info!("Recv");
             let client = create_client(cli.db, AccountStrategy::CachedOnly("nil".into()))
@@ -163,15 +143,6 @@ async fn main() {
                 .unwrap();
             info!("Address is: {}", client.wallet_address());
             recv(&client).await.unwrap();
-        }
-
-        Commands::TestReg { wallet_seed } => {
-            info!("TestReg");
-            let w = Wallet::LocalWallet(LocalWallet::new(&mut seeded_rng(*wallet_seed)));
-            let mut client = create_client(cli.db, AccountStrategy::CreateIfNotFound(w))
-                .await
-                .unwrap();
-            client.init().await.unwrap();
         }
         Commands::Refresh {} => {
             info!("Refresh");
@@ -218,11 +189,16 @@ async fn create_client(
     client_result.map_err(CliError::ClientBuilder)
 }
 
-async fn register(db: Option<PathBuf>, use_local: bool) -> Result<(), CliError> {
+async fn register(db: Option<PathBuf>, use_local: bool, wallet_seed: &u64) -> Result<(), CliError> {
     let w = if use_local {
-        info!("Fallback to LocalWallet");
-        Wallet::LocalWallet(LocalWallet::new(&mut rng()))
+        if wallet_seed == &0 {
+            Wallet::LocalWallet(LocalWallet::new(&mut rng()))
+        } else {
+            Wallet::LocalWallet(LocalWallet::new(&mut seeded_rng(*wallet_seed)))
+        }
     } else {
+        // Deprecated - WalletConnect V1 is no longer supported and WalletConnect V2
+        // has no rust clients (yet)
         Wallet::WalletConnectWallet(WalletConnectWallet::create().await?)
     };
 
@@ -234,8 +210,6 @@ async fn register(db: Option<PathBuf>, use_local: bool) -> Result<(), CliError> 
         panic!("Could not init");
     };
 
-    info!(" Closing XLI");
-
     Ok(())
 }
 
@@ -245,14 +219,8 @@ async fn send(client: Client, addr: &str, msg: &String) -> Result<(), CliError> 
         .new_secret_conversation(addr.to_string())
         .unwrap();
     conversation.send_message(msg).unwrap();
-    client
-        .refresh_user_installations(&client.wallet_address())
-        .await
-        .unwrap();
-    client.refresh_user_installations(addr).await.unwrap();
     conversations.process_outbound_messages().await.unwrap();
-    conversations.publish_outbound_payloads().await.unwrap();
-    info!("Message locally committed");
+    info!("Message successfully sent");
 
     Ok(())
 }
@@ -276,12 +244,12 @@ fn get_encrypted_store(db: Option<PathBuf>) -> Result<EncryptedMessageStore, Cli
     let store = match db {
         Some(path) => {
             let s = path.as_path().to_string_lossy().to_string();
-            info!("Using persistent storage:{} ", s);
+            info!("Using persistent storage: {} ", s);
             EncryptedMessageStore::new_unencrypted(StorageOption::Persistent(s))
         }
 
         None => {
-            info!("USing ephemeral Store");
+            info!("Using ephemeral store");
             EncryptedMessageStore::new(StorageOption::Ephemeral, static_enc_key())
         }
     };
