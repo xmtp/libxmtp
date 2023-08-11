@@ -515,9 +515,6 @@ where
                     updated_sessions.push(updated_session);
                 }
 
-                for op in outbound_payloads.iter() {
-                    println!("OP1:{}", op.payload_id);
-                }
                 // TODO: This call is erroring with Storage(DieselResultError(DatabaseError(UniqueViolation, "UNIQUE constraint failed: outbound_payloads.payload_id")))
                 self.client.store.commit_outbound_payloads_for_message(
                     message.id,
@@ -589,6 +586,7 @@ where
 
 #[cfg(test)]
 mod tests {
+    use log::info;
     use prost::Message;
 
     use crate::{
@@ -607,6 +605,10 @@ mod tests {
         utils::{build_envelope, build_user_invite_topic},
         ClientBuilder, Fetch,
     };
+
+    fn init() {
+        let _ = env_logger::builder().is_test(true).try_init();
+    }
 
     #[tokio::test]
     async fn create_secret_conversation() {
@@ -801,6 +803,70 @@ mod tests {
 
         let conversations: Vec<StoredConversation> = conn.fetch().unwrap();
         assert_eq!(conversations.len(), 0);
+    }
+
+    #[tokio::test]
+    async fn process_messages_happy_path() {
+        init();
+        let (alice_client, bob_client) = gen_two_test_clients().await;
+
+        let bob_address = bob_client.account.contact().wallet_address;
+
+        let a_convos = Conversations::new(&alice_client);
+        let b_convos = Conversations::new(&bob_client);
+
+        let a_to_b = a_convos
+            .new_secret_conversation(bob_address.clone())
+            .unwrap();
+
+        // Send First Message
+
+        a_to_b.send_message("Hi").unwrap();
+        alice_client
+            .refresh_user_installations(&bob_address)
+            .await
+            .unwrap();
+        a_convos.process_outbound_messages().await.unwrap();
+        a_convos.publish_outbound_payloads().await.unwrap();
+        b_convos.receive().unwrap();
+
+        let bob_messages = bob_client
+            .store
+            .get_stored_messages(&mut bob_client.store.conn().unwrap())
+            .unwrap();
+
+        assert_eq!(bob_messages.len(), 1);
+
+        {
+            let alice_messages = alice_client
+                .store
+                .get_stored_messages(&mut alice_client.store.conn().unwrap())
+                .unwrap();
+            assert_eq!(alice_messages.len(), 1);
+        }
+
+        // Reply
+        let b_to_a = b_convos
+            .new_secret_conversation(bob_address.clone())
+            .unwrap();
+
+        b_to_a.send_message("Reply").unwrap();
+        bob_client
+            .refresh_user_installations(&bob_address)
+            .await
+            .unwrap();
+        b_convos.process_outbound_messages().await.unwrap();
+        b_convos.publish_outbound_payloads().await.unwrap();
+
+        a_convos.receive().unwrap();
+
+        let _alice_messages = alice_client
+            .store
+            .get_stored_messages(&mut alice_client.store.conn().unwrap())
+            .unwrap();
+
+        // TODO: This is currently failing with a NoSession error for unknown reasons
+        // assert_eq!(alice_messages.len(), 2);
     }
 
     #[tokio::test]

@@ -5752,6 +5752,7 @@ dependencies = [
  "base64 0.21.1",
  "diesel",
  "diesel_migrations",
+ "env_logger",
  "ethers",
  "ethers-core 2.0.4",
  "futures",

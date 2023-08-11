@@ -439,6 +439,20 @@ impl EncryptedMessageStore {
         Ok(())
     }
 
+    /// Currently a placeholder function used for validation.
+    pub fn get_stored_messages(
+        &self,
+        conn: &mut DbConnection,
+    ) -> Result<Vec<StoredMessage>, StorageError> {
+        use self::schema::messages::dsl as schema;
+
+        let msgs = schema::messages
+            .order(schema::created_at.asc())
+            .load::<StoredMessage>(conn)?;
+
+        Ok(msgs)
+    }
+
     pub fn insert_or_ignore_install(
         &self,
         install: StoredInstallation,
