@@ -27,22 +27,10 @@ dev/test
 
 ## Structure
 
-Shared:
-
+- `xmtp_cryptography` - cryptographic operations
 - `xmtp_proto` - Generated code for handling XMTP protocol buffers
 - `xmtp_networking` - API client for XMTP's GRPC API, using code from `xmtp_proto`
-
-v3:
-
-- `xmtp` - the pure Rust implementation of XMTP APIs, agnostic to any per-language or per-platform binding
-- `xmtp_cryptography` - cryptographic operations for v3
+- `xmtp` - the pure Rust implementation of the XMTP SDK, agnostic to any per-language or per-platform binding
 - `bindings_ffi` - FFI bindings for Android and iOS
 - `bindings_wasm` (unused) - wasm bindings
 - `bindings_js` (unused) - JS bindings
-
-v2:
-
-- `xmtp_crypto` - cryptographic operations for v2
-- `bindings_swift` - Swift bindings for XMTP v2 - exposes networking and cryptographic operations
-- `xmtp_dh` - A Uniffi binding for the Rust-based Diffie-Hellman operation for Android
-- `xmtp_keystore` (unused) - implements the v2 Keystore API in Rust

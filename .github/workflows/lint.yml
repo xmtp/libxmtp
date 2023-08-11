@@ -20,12 +20,6 @@ jobs:
           name: workspace
           args: --all-features --no-deps
       - uses: actions-rs/clippy-check@v1
-        name: Lint bindings_swift
-        with:
-          token: ${{ secrets.GITHUB_TOKEN }}
-          name: bindings_swift
-          args: --all-features --no-deps --manifest-path bindings_swift/Cargo.toml
-      - uses: actions-rs/clippy-check@v1
         name: Lint xmtpv3
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
