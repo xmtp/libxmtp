@@ -4,7 +4,7 @@ use diesel::Connection;
 use futures::executor::block_on;
 use log::info;
 use prost::Message;
-use vodozemac::olm::OlmMessage;
+use vodozemac::olm;
 use xmtp_proto::xmtp::{
     message_api::v1::{Envelope, PublishRequest},
     v3::message_contents::{
@@ -210,9 +210,9 @@ where
                     "Message was not PreKey message, but no existing session".into(),
                 ))?;
 
-            let olm_message: OlmMessage = shuck_ok!(
-                serde_json::from_slice(&message_envelope.ciphertext),
-                InboundInviteStatus::DecryptionFailure
+            let olm_message = olm::OlmMessage::Normal(
+                olm::Message::try_from(message_envelope.ciphertext)
+                    .map_err(|e| ConversationError::Unknown)?,
             );
 
             session.decrypt(olm_message, conn)?
@@ -312,13 +312,14 @@ where
 
         match existing_session {
             Some(mut session_manager) => {
-                let olm_message: OlmMessage = match serde_json::from_slice(&invitation.ciphertext) {
-                    Ok(olm_message) => olm_message,
-                    Err(err) => {
-                        log::error!("Error deserializing olm message: {:?}", err);
-                        return Ok(InboundInviteStatus::DecryptionFailure);
-                    }
-                };
+                let olm_message: olm::OlmMessage =
+                    match serde_json::from_slice(&invitation.ciphertext) {
+                        Ok(olm_message) => olm_message,
+                        Err(err) => {
+                            log::error!("Error deserializing olm message: {:?}", err);
+                            return Ok(InboundInviteStatus::DecryptionFailure);
+                        }
+                    };
 
                 plaintext = match session_manager.decrypt(olm_message, conn) {
                     Ok(plaintext) => plaintext,
@@ -466,9 +467,10 @@ where
         };
         let olm_message = session.encrypt(&payload.encode_to_vec());
 
-        let ciphertext =
-            serde_json::to_vec(&olm_message).map_err(|_| ConversationError::Unknown)?;
-
+        let ciphertext = match olm_message {
+            olm::OlmMessage::Normal(message) => message.to_bytes(),
+            olm::OlmMessage::PreKey(prekey_message) => prekey_message.to_bytes(),
+        };
         let envelope: PadlockMessageEnvelope = PadlockMessageEnvelope {
             header_bytes,
             ciphertext,

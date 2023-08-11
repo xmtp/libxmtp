@@ -4,7 +4,7 @@ use std::fmt::Formatter;
 use diesel::Connection;
 use log::{debug, info};
 use thiserror::Error;
-use vodozemac::olm::OlmMessage;
+use vodozemac::olm::{OlmMessage, PreKeyMessage};
 
 use crate::{
     account::Account,
@@ -293,15 +293,10 @@ where
         &self,
         conn: &mut DbConnection,
         contact: &Contact,
-        // Message MUST be a pre-key message
-        message: &Vec<u8>,
+        message: &[u8],
     ) -> Result<(SessionManager, Vec<u8>), ClientError> {
-        let olm_message: OlmMessage =
-            serde_json::from_slice(message.as_slice()).map_err(|e| e.to_string())?;
-        let msg = match olm_message {
-            OlmMessage::PreKey(msg) => msg,
-            _ => return Err("Cannot create inbound session without prekey message".into()),
-        };
+        // Message MUST be a pre-key message to create a session
+        let msg = PreKeyMessage::from_bytes(message).map_err(|e| e.to_string())?;
 
         let create_result = self
             .account
