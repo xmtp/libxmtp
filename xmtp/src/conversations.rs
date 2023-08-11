@@ -96,7 +96,9 @@ where
     }
 
     pub fn receive(&self) -> Result<(), ConversationError> {
-        self.save_inbound_messages();
+        if self.save_inbound_messages().is_err() {
+            log::warn!("Saving messages did not complete successfully");
+        }
         self.process_inbound_messages()?;
 
         Ok(())
@@ -123,7 +125,7 @@ where
                         .store
                         .save_inbound_message(conn, envelope.into())
                     {
-                        log::error!("Unable to save message");
+                        log::error!("Unable to save message:{}", e);
                     }
                 }
 
@@ -465,7 +467,7 @@ where
         let olm_message = session.encrypt(&payload.encode_to_vec());
 
         let ciphertext =
-            serde_json::to_vec(&olm_message).map_err(|e| ConversationError::Unknown)?;
+            serde_json::to_vec(&olm_message).map_err(|_| ConversationError::Unknown)?;
 
         let envelope: PadlockMessageEnvelope = PadlockMessageEnvelope {
             header_bytes,

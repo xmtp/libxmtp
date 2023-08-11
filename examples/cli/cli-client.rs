@@ -20,7 +20,6 @@ use xmtp::client::ClientError;
 use xmtp::conversation::ConversationError;
 use xmtp::conversations::Conversations;
 use xmtp::storage::{EncryptedMessageStore, EncryptionKey, StorageError, StorageOption};
-use xmtp::types::networking::{QueryRequest, XmtpApiClient};
 use xmtp::InboxOwner;
 use xmtp_cryptography::signature::{h160addr_to_string, RecoverableSignature, SignatureError};
 use xmtp_cryptography::utils::{rng, seeded_rng, LocalWallet};
@@ -229,8 +228,7 @@ async fn recv(client: &Client) -> Result<(), CliError> {
     let conversations = Conversations::new(client);
     // client.fetch_new_messages().await?;
     // conversations.save_invites()?;
-    conversations.save_inbound_messages();
-
+    conversations.save_inbound_messages()?;
     conversations.process_inbound_messages()?;
 
     Ok(())
