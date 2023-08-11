@@ -45,6 +45,8 @@ enum Commands {
         #[clap(long = "seed", default_value_t = 0)]
         wallet_seed: u64,
     },
+    // List conversations on the registered wallet
+    ListConversations {},
     /// Information about the account that owns the DB
     Info {},
     /// Send Message
@@ -122,6 +124,17 @@ async fn main() {
                 .await
                 .unwrap();
             info!("Address is: {}", client.wallet_address());
+        }
+        Commands::ListConversations {} => {
+            info!("List Conversations");
+            let client = create_client(cli.db, AccountStrategy::CachedOnly("nil".into()))
+                .await
+                .unwrap();
+            let conversations = Conversations::new(&client);
+            let convo_list = conversations.list(true).await.unwrap();
+            for (index, convo) in convo_list.iter().enumerate() {
+                info!(" [{}] Convo with {}", index, convo.peer_address());
+            }
         }
         Commands::Send { addr, msg } => {
             info!("Send");
