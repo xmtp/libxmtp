@@ -522,7 +522,6 @@ where
                     updated_sessions.push(updated_session);
                 }
 
-                // TODO: This call is erroring with Storage(DieselResultError(DatabaseError(UniqueViolation, "UNIQUE constraint failed: outbound_payloads.payload_id")))
                 self.client.store.commit_outbound_payloads_for_message(
                     message.id,
                     MessageState::LocallyCommitted,
