@@ -14,8 +14,11 @@ use crate::{
         now, DbConnection, EncryptedMessageStore, StorageError, StoredInstallation, StoredSession,
         StoredUser,
     },
-    types::networking::{PublishRequest, QueryRequest, XmtpApiClient},
     types::Address,
+    types::{
+        networking::{PublishRequest, QueryRequest, XmtpApiClient},
+        InstallationId,
+    },
     utils::{build_envelope, build_user_contact_topic, key_fingerprint},
     Store,
 };
@@ -99,6 +102,10 @@ where
 
     pub fn wallet_address(&self) -> Address {
         self.account.addr()
+    }
+
+    pub fn installation_id(&self) -> InstallationId {
+        self.account.contact().installation_id()
     }
 
     pub async fn init(&mut self) -> Result<(), ClientError> {
@@ -293,7 +300,12 @@ where
 
         let session = SessionManager::from_olm_session(create_result.session, contact)?;
 
-        session.store(conn)?;
+        if let Err(e) = session.store(conn) {
+            match e {
+                StorageError::DieselResultError(_) => log::warn!("Session Already exists"), // TODO: Some thought is needed here, is this a critical error which should unroll?
+                other_error => return Err(other_error.into()),
+            }
+        }
 
         Ok((session, create_result.plaintext))
     }
@@ -342,6 +354,24 @@ where
             .map_err(|e| ClientError::QueryError(format!("Could not query topic: {}", e)))?;
 
         Ok(response.envelopes)
+    }
+
+    /// Search network for a specific InstallationContact
+    /// This function should be removed as soon as possible given it is a potential DOS vector.
+    /// Contacts for a message should always be known to the client
+    pub async fn download_contact_for_installation(
+        &self,
+        wallet_address: &str,
+        installation_id: &str,
+    ) -> Result<Option<Contact>, ClientError> {
+        let contacts = self.get_contacts(wallet_address).await?; // TODO: Ensure invalid contacts cannot be initialized
+
+        for contact in contacts {
+            if contact.installation_id() == installation_id {
+                return Ok(Some(contact));
+            }
+        }
+        Ok(None)
     }
 }
 
@@ -416,4 +446,7 @@ mod tests {
             }
         }
     }
+
+    #[tokio::test]
+    async fn test_roundtrip_encrypt() {}
 }

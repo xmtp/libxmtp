@@ -24,8 +24,10 @@ use walletconnect::client::{CallError, ConnectorError, SessionError};
 use walletconnect::{qr, Client as WcClient, Metadata};
 use xmtp::builder::{AccountStrategy, ClientBuilderError};
 use xmtp::client::ClientError;
+use xmtp::conversation::ConversationError;
 use xmtp::conversations::Conversations;
 use xmtp::storage::{EncryptedMessageStore, EncryptionKey, StorageError, StorageOption};
+use xmtp::types::networking::{QueryRequest, XmtpApiClient};
 use xmtp::InboxOwner;
 use xmtp_cryptography::signature::{h160addr_to_string, RecoverableSignature, SignatureError};
 use xmtp_cryptography::utils::{rng, seeded_rng, LocalWallet};
@@ -66,6 +68,7 @@ enum Commands {
         #[arg(value_name = "Message")]
         msg: String,
     },
+    Recv {},
 
     TestReg {
         #[arg(value_name = "seed")]
@@ -95,6 +98,8 @@ enum CliError {
     ClientError(#[from] ClientError),
     #[error("clientbuilder error")]
     ClientBuilder(#[from] ClientBuilderError),
+    #[error("ConversationError: {0}")]
+    ConversationError(#[from] ConversationError),
 }
 
 /// This is an abstraction which allows the CLI to choose between different wallet types.
@@ -150,6 +155,16 @@ async fn main() {
             info!("Address is: {}", client.wallet_address());
             send(client, addr, msg).await.unwrap();
         }
+
+        Commands::Recv {} => {
+            info!("Recv");
+            let client = create_client(cli.db, AccountStrategy::CachedOnly("nil".into()))
+                .await
+                .unwrap();
+            info!("Address is: {}", client.wallet_address());
+            recv(&client).await.unwrap();
+        }
+
         Commands::TestReg { wallet_seed } => {
             info!("TestReg");
             let w = Wallet::LocalWallet(LocalWallet::new(&mut seeded_rng(*wallet_seed)));
@@ -238,6 +253,17 @@ async fn send(client: Client, addr: &str, msg: &String) -> Result<(), CliError> 
     conversations.process_outbound_messages().await.unwrap();
     conversations.publish_outbound_payloads().await.unwrap();
     info!("Message locally committed");
+
+    Ok(())
+}
+
+async fn recv(client: &Client) -> Result<(), CliError> {
+    let conversations = Conversations::new(client);
+    // client.fetch_new_messages().await?;
+    // conversations.save_invites()?;
+    conversations.save_inbound_messages();
+
+    conversations.process_inbound_messages()?;
 
     Ok(())
 }

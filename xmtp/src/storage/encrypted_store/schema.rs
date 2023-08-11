@@ -28,6 +28,16 @@ diesel::table! {
 }
 
 diesel::table! {
+    inbound_messages (id) {
+        id -> Text,
+        sent_at_ns -> BigInt,
+        payload -> Binary,
+        topic -> Text,
+        status -> SmallInt,
+    }
+}
+
+diesel::table! {
     installations (installation_id) {
         installation_id -> Text,
         user_address -> Text,
@@ -91,6 +101,7 @@ diesel::allow_tables_to_appear_in_same_query!(
     accounts,
     conversations,
     inbound_invites,
+    inbound_messages,
     installations,
     messages,
     outbound_payloads,

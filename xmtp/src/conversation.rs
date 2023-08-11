@@ -3,6 +3,7 @@ use crate::{
     codecs::{text::TextCodec, CodecError, ContentCodec},
     contact::Contact,
     invitation::{Invitation, InvitationError},
+    session::SessionError,
     storage::{
         now, ConversationState, DbConnection, MessageState, NewStoredMessage, StorageError,
         StoredConversation, StoredUser,
@@ -34,6 +35,8 @@ pub enum ConversationError {
     Diesel(#[from] diesel::result::Error),
     #[error("No sessions for user: {0}")]
     NoSessions(String),
+    #[error("Session: {0}")]
+    Session(#[from] SessionError),
     #[error("Network error: {0}")]
     Networking(#[from] crate::types::networking::Error),
     #[error("unknown error")]

@@ -18,6 +18,7 @@ pub enum SessionError {
     Unknown,
 }
 
+#[derive(Debug)]
 pub struct SessionManager {
     user_address: String,
     peer_installation_id: String,

@@ -1,6 +1,8 @@
 use std::time::Duration;
 
 use diesel::Connection;
+use futures::executor::block_on;
+use log::info;
 use prost::Message;
 use vodozemac::olm::OlmMessage;
 use xmtp_proto::xmtp::{
@@ -15,11 +17,13 @@ use crate::{
     contact::Contact,
     conversation::{convo_id, peer_addr_from_convo_id, ConversationError, SecretConversation},
     invitation::Invitation,
+    message::decode_bytes,
     session::SessionManager,
     storage::{
-        now, ConversationState, DbConnection, InboundInvite, InboundInviteStatus, MessageState,
-        OutboundPayloadState, RefreshJob, RefreshJobKind, StorageError, StoredConversation,
-        StoredMessage, StoredOutboundPayload, StoredSession, StoredUser,
+        now, ConversationState, DbConnection, InboundInvite, InboundInviteStatus, InboundMessage,
+        MessageState, NewStoredMessage, OutboundPayloadState, RefreshJob, RefreshJobKind,
+        StorageError, StoredConversation, StoredMessage, StoredOutboundPayload, StoredSession,
+        StoredUser,
     },
     types::networking::XmtpApiClient,
     utils::{base64_encode, build_installation_message_topic},
@@ -28,6 +32,15 @@ use crate::{
 };
 
 const PADDING_TIME_NS: i64 = 30 * 1000 * 1000 * 1000;
+
+macro_rules! shuck_ok {
+    ( $x:expr, $e:expr ) => {{
+        match $x {
+            Ok(obj) => obj,
+            Err(_) => return Ok($e),
+        }
+    }};
+}
 
 pub struct Conversations<'c, A>
 where
@@ -82,6 +95,144 @@ where
         Ok(secret_convos)
     }
 
+    pub fn receive(&self) -> Result<(), ConversationError> {
+        self.save_inbound_messages();
+        self.process_inbound_messages()?;
+
+        Ok(())
+    }
+
+    pub fn save_inbound_messages(&self) -> Result<(), ConversationError> {
+        let inbound_topic = build_installation_message_topic(&self.client.installation_id());
+
+        self.client
+            .store
+            .lock_refresh_job(RefreshJobKind::Message, |conn, job| {
+                let downloaded =
+                    futures::executor::block_on(self.client.download_latest_from_topic(
+                        self.get_start_time(&job).unsigned_abs(),
+                        inbound_topic,
+                    ))
+                    .map_err(|e| StorageError::Unknown(e.to_string()))?;
+
+                log::info!("Messages Downloaded:{}", downloaded.len());
+
+                for envelope in downloaded {
+                    if let Err(e) = self
+                        .client
+                        .store
+                        .save_inbound_message(conn, envelope.into())
+                    {
+                        log::error!("Unable to save message");
+                    }
+                }
+
+                Ok(())
+            })?;
+
+        Ok(())
+    }
+
+    pub fn process_inbound_messages(&self) -> Result<(), ConversationError> {
+        let conn = &mut self.client.store.conn()?;
+        conn.transaction::<_, StorageError, _>(|transaction_manager| {
+            let msgs = self
+                .client
+                .store
+                .get_inbound_messages(transaction_manager, InboundInviteStatus::Pending)?;
+            for msg in msgs {
+                let payload_id = msg.id.clone();
+                match self.process_inbound_message(transaction_manager, msg) {
+                    Ok(status) => {
+                        info!(
+                            "message processed: {:?}. Status: {:?}",
+                            payload_id,
+                            status.clone()
+                        );
+                        self.client.store.set_msg_status(
+                            transaction_manager,
+                            payload_id,
+                            status,
+                        )?;
+                    }
+                    Err(err) => {
+                        log::error!("Error processing msg: {:?}", err);
+                        return Err(StorageError::Unknown(err.to_string()));
+                    }
+                }
+            }
+
+            Ok(())
+        })?;
+
+        Ok(())
+    }
+
+    fn process_inbound_message(
+        &self,
+        conn: &mut DbConnection,
+        msg: InboundMessage,
+    ) -> Result<InboundInviteStatus, ConversationError> {
+        let message_envelope: PadlockMessageEnvelope =
+            shuck_ok!(decode_bytes(&msg.payload), InboundInviteStatus::Invalid);
+
+        let message_header: PadlockMessageHeader = shuck_ok!(
+            decode_bytes(&message_envelope.header_bytes),
+            InboundInviteStatus::Invalid
+        );
+        let unsealed_header: PadlockMessageSealedMetadata = shuck_ok!(
+            decode_bytes(&message_header.sealed_metadata),
+            InboundInviteStatus::Invalid
+        );
+
+        let plaintext = if unsealed_header.is_prekey_message {
+            let network_contact = block_on(self.client.download_contact_for_installation(
+                &unsealed_header.sender_user_address,
+                &unsealed_header.sender_installation_id,
+            ))?;
+
+            let contact = match network_contact {
+                Some(contact) => contact,
+                None => return Ok(InboundInviteStatus::Invalid),
+            };
+
+            let (_, message) =
+                self.client
+                    .create_inbound_session(conn, &contact, &message_envelope.ciphertext)?;
+
+            message
+        } else {
+            let mut session = self
+                .find_existing_session(&unsealed_header.sender_installation_id, conn)?
+                .ok_or(ConversationError::NoSessions(
+                    "Message was not PreKey message, but no existing session".into(),
+                ))?;
+
+            let olm_message: OlmMessage = shuck_ok!(
+                serde_json::from_slice(&message_envelope.ciphertext),
+                InboundInviteStatus::DecryptionFailure
+            );
+
+            session.decrypt(olm_message, conn)?
+        };
+
+        let message_obj = PadlockMessagePayload::decode(plaintext.as_slice())
+            .map_err(ConversationError::Decode)?;
+
+        let stored_message = NewStoredMessage::new(
+            message_obj.convo_id,
+            unsealed_header.sender_user_address,
+            message_obj.content_bytes,
+            MessageState::Received as i32,
+        );
+
+        self.client
+            .store
+            .insert_or_ignore_message(conn, stored_message)?;
+
+        Ok(InboundInviteStatus::Processed)
+    }
+
     pub fn save_invites(&self) -> Result<(), ConversationError> {
         let my_contact = self.client.account.contact();
 
@@ -90,7 +241,7 @@ where
             .lock_refresh_job(RefreshJobKind::Invite, |conn, job| {
                 let downloaded =
                     futures::executor::block_on(self.client.download_latest_from_topic(
-                        self.get_start_time(job).unsigned_abs(),
+                        self.get_start_time(&job).unsigned_abs(),
                         crate::utils::build_user_invite_topic(my_contact.installation_id()),
                     ))
                     .map_err(|e| StorageError::Unknown(e.to_string()))?;
@@ -253,10 +404,18 @@ where
         contact: &Contact,
         conn: &mut DbConnection,
     ) -> Result<Option<SessionManager>, ConversationError> {
+        self.find_existing_session(&contact.installation_id(), conn)
+    }
+
+    fn find_existing_session(
+        &self,
+        installation_id: &str,
+        conn: &mut DbConnection,
+    ) -> Result<Option<SessionManager>, ConversationError> {
         let stored_session = self
             .client
             .store
-            .get_session_with_conn(contact.installation_id().as_str(), conn)?;
+            .get_session_with_conn(installation_id, conn)?;
 
         match stored_session {
             Some(i) => Ok(Some(SessionManager::try_from(&i)?)),
@@ -264,7 +423,7 @@ where
         }
     }
 
-    fn get_start_time(&self, job: RefreshJob) -> i64 {
+    fn get_start_time(&self, job: &RefreshJob) -> i64 {
         // Adjust for padding and ensure start_time > 0
         std::cmp::max(job.last_run - PADDING_TIME_NS, 0)
     }
@@ -304,12 +463,11 @@ where
             content_bytes: message.content.clone(),
         };
         let olm_message = session.encrypt(&payload.encode_to_vec());
-        let ciphertext = match olm_message {
-            OlmMessage::Normal(message) => message.to_bytes(),
-            OlmMessage::PreKey(prekey_message) => prekey_message.to_bytes(),
-        };
 
-        let envelope = PadlockMessageEnvelope {
+        let ciphertext =
+            serde_json::to_vec(&olm_message).map_err(|e| ConversationError::Unknown)?;
+
+        let envelope: PadlockMessageEnvelope = PadlockMessageEnvelope {
             header_bytes,
             ciphertext,
         };
@@ -357,6 +515,10 @@ where
                     updated_sessions.push(updated_session);
                 }
 
+                for op in outbound_payloads.iter() {
+                    println!("OP1:{}", op.payload_id);
+                }
+                // TODO: This call is erroring with Storage(DieselResultError(DatabaseError(UniqueViolation, "UNIQUE constraint failed: outbound_payloads.payload_id")))
                 self.client.store.commit_outbound_payloads_for_message(
                     message.id,
                     MessageState::LocallyCommitted,

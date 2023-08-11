@@ -304,3 +304,31 @@ impl From<Envelope> for InboundInvite {
         }
     }
 }
+
+#[derive(Insertable, Identifiable, Queryable, Clone, PartialEq, Debug)]
+#[diesel(table_name = inbound_messages)]
+pub struct InboundMessage {
+    pub id: String,
+    pub sent_at_ns: i64,
+    pub payload: Vec<u8>,
+    pub topic: String,
+    pub status: i16,
+}
+
+impl From<Envelope> for InboundMessage {
+    fn from(envelope: Envelope) -> Self {
+        let payload = envelope.message;
+        let topic = envelope.content_topic;
+        let sent_at_ns: i64 = envelope.timestamp_ns.try_into().unwrap();
+        let id =
+            hex::encode(sha256_bytes(&[payload.as_slice(), topic.as_bytes()].concat()).as_slice());
+
+        Self {
+            id,
+            sent_at_ns,
+            payload,
+            topic,
+            status: InboundInviteStatus::Pending as i16,
+        }
+    }
+}
