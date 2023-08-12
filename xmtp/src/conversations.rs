@@ -198,9 +198,11 @@ where
                 None => return Ok(InboundMessageStatus::Invalid),
             };
 
-            let (_, message) =
-                self.client
-                    .create_inbound_session(conn, &contact, &message_envelope.ciphertext)?;
+            let pre_key = olm::PreKeyMessage::from_bytes(message_envelope.ciphertext.as_slice())?;
+
+            let (_, message) = self
+                .client
+                .create_inbound_session(conn, &contact, pre_key)?;
 
             message
         } else {
@@ -308,17 +310,16 @@ where
         let existing_session = self.find_existing_session_with_conn(&invitation.inviter, conn)?;
         let plaintext: Vec<u8>;
 
+        let olm_message = match serde_json::from_slice(&invitation.ciphertext) {
+            Ok(olm_message) => olm_message,
+            Err(err) => {
+                log::error!("Error deserializing olm message: {:?}", err);
+                return Ok(InboundInviteStatus::DecryptionFailure);
+            }
+        };
+
         match existing_session {
             Some(mut session_manager) => {
-                let olm_message: olm::OlmMessage =
-                    match serde_json::from_slice(&invitation.ciphertext) {
-                        Ok(olm_message) => olm_message,
-                        Err(err) => {
-                            log::error!("Error deserializing olm message: {:?}", err);
-                            return Ok(InboundInviteStatus::DecryptionFailure);
-                        }
-                    };
-
                 plaintext = match session_manager.decrypt(olm_message, conn) {
                     Ok(plaintext) => plaintext,
                     Err(err) => {
@@ -328,17 +329,25 @@ where
                 };
             }
             None => {
-                (_, plaintext) = match self.client.create_inbound_session(
-                    conn,
-                    &invitation.inviter,
-                    &invitation.ciphertext,
-                ) {
-                    Ok((session, plaintext)) => (session, plaintext),
-                    Err(err) => {
-                        log::error!("Error creating session: {:?}", err);
+                let prek_key = match olm_message {
+                    olm::OlmMessage::Normal(_) => {
+                        log::error!("Cannot create new session from non-prekey message");
                         return Ok(InboundInviteStatus::DecryptionFailure);
                     }
+                    olm::OlmMessage::PreKey(k) => k,
                 };
+
+                (_, plaintext) =
+                    match self
+                        .client
+                        .create_inbound_session(conn, &invitation.inviter, prek_key)
+                    {
+                        Ok((session, plaintext)) => (session, plaintext),
+                        Err(err) => {
+                            log::error!("Error creating session: {:?}", err);
+                            return Ok(InboundInviteStatus::DecryptionFailure);
+                        }
+                    };
             }
         };
 

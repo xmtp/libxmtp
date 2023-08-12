@@ -293,14 +293,11 @@ where
         &self,
         conn: &mut DbConnection,
         contact: &Contact,
-        message: &[u8],
+        prekey_message: PreKeyMessage,
     ) -> Result<(SessionManager, Vec<u8>), ClientError> {
-        // Message MUST be a pre-key message to create a session
-        let msg = PreKeyMessage::from_bytes(message).map_err(|e| e.to_string())?;
-
         let create_result = self
             .account
-            .create_inbound_session(contact, msg)
+            .create_inbound_session(contact, prekey_message)
             .map_err(|e| e.to_string())?;
 
         let session = SessionManager::from_olm_session(create_result.session, contact)?;
