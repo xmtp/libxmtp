@@ -469,9 +469,11 @@ impl EncryptedMessageStore {
         session: StoredSession,
         conn: &mut PooledConnection<ConnectionManager<SqliteConnection>>,
     ) -> Result<(), StorageError> {
-        diesel::insert_or_ignore_into(schema::sessions::table)
-            .values(session)
-            .execute(conn)?;
+        if !self.session_exists_for_installation(&session.peer_installation_id, conn)? {
+            diesel::insert_or_ignore_into(schema::sessions::table)
+                .values(session)
+                .execute(conn)?;
+        }
         Ok(())
     }
 
