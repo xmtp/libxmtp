@@ -193,6 +193,22 @@ impl EncryptedMessageStore {
         Ok(session_list)
     }
 
+    pub fn session_exists_for_installation(
+        &self,
+        installation_id: &str,
+        conn: &mut PooledConnection<ConnectionManager<SqliteConnection>>,
+    ) -> Result<bool, StorageError> {
+        use self::schema::sessions::dsl as schema;
+
+        let session_count: i64 = schema::sessions
+            .filter(schema::peer_installation_id.eq(installation_id))
+            .count()
+            .get_result(conn)
+            .map_err(|e| StorageError::Unknown(e.to_string()))?;
+
+        Ok(session_count > 0)
+    }
+
     pub fn get_installations(
         &self,
         conn: &mut DbConnection,
@@ -379,6 +395,64 @@ impl EncryptedMessageStore {
         Ok(())
     }
 
+    pub fn get_inbound_messages(
+        &self,
+        conn: &mut PooledConnection<ConnectionManager<SqliteConnection>>,
+        status: InboundMessageStatus,
+    ) -> Result<Vec<InboundMessage>, StorageError> {
+        use self::schema::inbound_messages::dsl as schema;
+
+        let msgs = schema::inbound_messages
+            .filter(schema::status.eq(status as i16))
+            .order(schema::sent_at_ns.asc())
+            .load::<InboundMessage>(conn)?;
+
+        Ok(msgs)
+    }
+    pub fn save_inbound_message(
+        &self,
+        conn: &mut PooledConnection<ConnectionManager<SqliteConnection>>,
+        message: InboundMessage,
+    ) -> Result<(), StorageError> {
+        use self::schema::inbound_messages::dsl as schema;
+
+        diesel::insert_into(schema::inbound_messages)
+            .values(message)
+            .execute(conn)?;
+
+        Ok(())
+    }
+
+    pub fn set_msg_status(
+        &self,
+        conn: &mut DbConnection,
+        id: String,
+        status: InboundMessageStatus,
+    ) -> Result<(), StorageError> {
+        use self::schema::inbound_messages::dsl as schema;
+
+        diesel::update(schema::inbound_messages)
+            .filter(schema::id.eq(id))
+            .set(schema::status.eq(status as i16))
+            .execute(conn)?;
+
+        Ok(())
+    }
+
+    /// Currently a placeholder function used for validation.
+    pub fn get_stored_messages(
+        &self,
+        conn: &mut DbConnection,
+    ) -> Result<Vec<StoredMessage>, StorageError> {
+        use self::schema::messages::dsl as schema;
+
+        let msgs = schema::messages
+            .order(schema::created_at.asc())
+            .load::<StoredMessage>(conn)?;
+
+        Ok(msgs)
+    }
+
     pub fn insert_or_ignore_install(
         &self,
         install: StoredInstallation,
@@ -397,6 +471,17 @@ impl EncryptedMessageStore {
     ) -> Result<(), StorageError> {
         diesel::insert_or_ignore_into(schema::sessions::table)
             .values(session)
+            .execute(conn)?;
+        Ok(())
+    }
+
+    pub fn insert_or_ignore_message(
+        &self,
+        conn: &mut PooledConnection<ConnectionManager<SqliteConnection>>,
+        msg: NewStoredMessage,
+    ) -> Result<(), StorageError> {
+        diesel::insert_or_ignore_into(schema::messages::table)
+            .values(msg)
             .execute(conn)?;
         Ok(())
     }

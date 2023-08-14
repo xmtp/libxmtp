@@ -17,6 +17,7 @@ use walletconnect::client::{CallError, ConnectorError, SessionError};
 use walletconnect::{qr, Client as WcClient, Metadata};
 use xmtp::builder::{AccountStrategy, ClientBuilderError};
 use xmtp::client::ClientError;
+use xmtp::conversation::ConversationError;
 use xmtp::conversations::Conversations;
 use xmtp::storage::{EncryptedMessageStore, EncryptionKey, StorageError, StorageOption};
 use xmtp::InboxOwner;
@@ -56,6 +57,7 @@ enum Commands {
         #[arg(value_name = "Message")]
         msg: String,
     },
+    Recv {},
 
     Refresh {},
     ListContacts {},
@@ -80,6 +82,8 @@ enum CliError {
     ClientError(#[from] ClientError),
     #[error("clientbuilder error")]
     ClientBuilder(#[from] ClientBuilderError),
+    #[error("ConversationError: {0}")]
+    ConversationError(#[from] ConversationError),
 }
 
 /// This is an abstraction which allows the CLI to choose between different wallet types.
@@ -143,6 +147,14 @@ async fn main() {
                 .unwrap();
             info!("Address is: {}", client.wallet_address());
             send(client, addr, msg).await.unwrap();
+        }
+        Commands::Recv {} => {
+            info!("Recv");
+            let client = create_client(cli.db, AccountStrategy::CachedOnly("nil".into()))
+                .await
+                .unwrap();
+            info!("Address is: {}", client.wallet_address());
+            recv(&client).await.unwrap();
         }
         Commands::Refresh {} => {
             info!("Refresh");
@@ -222,6 +234,14 @@ async fn send(client: Client, addr: &str, msg: &String) -> Result<(), CliError> 
     conversation.send_message(msg).unwrap();
     conversations.process_outbound_messages().await.unwrap();
     info!("Message successfully sent");
+
+    Ok(())
+}
+
+async fn recv(client: &Client) -> Result<(), CliError> {
+    let conversations = Conversations::new(client);
+    conversations.save_inbound_messages()?;
+    conversations.process_inbound_messages()?;
 
     Ok(())
 }

@@ -7,6 +7,7 @@ pub mod contact;
 pub mod conversation;
 pub mod conversations;
 pub mod invitation;
+pub mod message;
 pub mod mock_xmtp_api_client;
 pub mod owner;
 pub mod persistence;

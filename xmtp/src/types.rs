@@ -1,4 +1,5 @@
 pub type Address = String;
+pub type InstallationId = String;
 
 pub mod networking {
     use async_trait::async_trait;

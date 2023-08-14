@@ -137,7 +137,7 @@ download_invites():
             Save (or ignore if already exists) raw message to inbound_invite table with status of PENDING
         Update `refresh_jobs` record last_run = current_timestamp
 
-process_nvites():
+process_invites():
     For each inbound_invite in PENDING state:
         If the payload is malformed and the proto cannot be decoded:
             Set inbound_invite state to INVALID
@@ -176,7 +176,45 @@ update_conversations():
 
 ...
 
-### Receiving a pre-key message
+### Receiving a message
+
+```plaintext
+download_invites():
+    Get the `refresh_jobs` record with an id of `invites`, and obtain a lock on the row:
+        Store `now()` in memory to mark the job execution start
+        Fetch all messages from invite topic with timestamp > refresh_job.last_run - PADDING_TIME # PADDING TIME accounts for eventual consistency of network. Maybe 30s.
+        For each message in topic:
+            Save (or ignore if already exists) raw message to inbound_invite table with status of PENDING
+        Update `refresh_jobs` record last_run = current_timestamp
+
+process_inbound_messages():
+    For each inbound_message in PENDING state:
+        If the payload is malformed and the proto cannot be decoded:
+            Set inbound_invite state to INVALID
+            continue
+        If an existing session exists with the `sender.installation_id`:
+            Decrypt the ciphertext using the existing session
+            If decryption fails:
+                Set inbound_message state to DECRYPTION_FAILURE
+                continue
+            Update session in the database
+        else:
+            Create a new inbound session with the sender
+            Decrypt the ciphertext using the new session
+            If decryption fails:
+                Set inbound_invite state to DECRYPTION_FAILURE
+                continue
+            Persist the session to the database
+
+        If message validation fails:
+            Set inbound_invite state to INVALID
+            continue
+
+       
+        persis message
+        Set inbound_invite state to PROCESSED
+
+```
 
 ...
 

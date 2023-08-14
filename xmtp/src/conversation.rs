@@ -3,6 +3,8 @@ use crate::{
     codecs::{text::TextCodec, CodecError, ContentCodec},
     contact::Contact,
     invitation::{Invitation, InvitationError},
+    message::PayloadError,
+    session::SessionError,
     storage::{
         now, ConversationState, DbConnection, MessageState, NewStoredMessage, StorageError,
         StoredConversation, StoredUser,
@@ -27,17 +29,23 @@ pub enum ConversationError {
     #[error("codec error {0}")]
     Codec(#[from] CodecError),
     #[error("decode error {0}")]
-    Decode(DecodeError),
+    Decode(#[from] DecodeError),
+    #[error("vmacdecode error {0}")]
+    DecodeVmac(#[from] vodozemac::DecodeError),
     #[error("storage error: {0}")]
     Storage(#[from] StorageError),
     #[error("diesel error: {0}")]
     Diesel(#[from] diesel::result::Error),
     #[error("No sessions for user: {0}")]
     NoSessions(String),
+    #[error("Session: {0}")]
+    Session(#[from] SessionError),
     #[error("Network error: {0}")]
     Networking(#[from] crate::types::networking::Error),
-    #[error("unknown error")]
-    Unknown,
+    #[error("Payload:{0}")]
+    Payload(#[from] PayloadError),
+    #[error("error:{0}")]
+    Generic(String),
 }
 
 pub fn convo_id(self_addr: String, peer_addr: String) -> String {
@@ -174,7 +182,7 @@ where
                     },
                 )
                 .await
-                .map_err(|_| ConversationError::Unknown)?;
+                .map_err(|e| ConversationError::Generic(format!("initialize:{}", e)))?;
 
             session.save(conn)?;
         }

@@ -4,7 +4,7 @@ use std::fmt::Formatter;
 use diesel::Connection;
 use log::{debug, info};
 use thiserror::Error;
-use vodozemac::olm::OlmMessage;
+use vodozemac::olm::PreKeyMessage;
 
 use crate::{
     account::Account,
@@ -293,24 +293,21 @@ where
         &self,
         conn: &mut DbConnection,
         contact: &Contact,
-        // Message MUST be a pre-key message
-        message: &Vec<u8>,
+        prekey_message: PreKeyMessage,
     ) -> Result<(SessionManager, Vec<u8>), ClientError> {
-        let olm_message: OlmMessage =
-            serde_json::from_slice(message.as_slice()).map_err(|e| e.to_string())?;
-        let msg = match olm_message {
-            OlmMessage::PreKey(msg) => msg,
-            _ => return Err("Cannot create inbound session without prekey message".into()),
-        };
-
         let create_result = self
             .account
-            .create_inbound_session(contact, msg)
+            .create_inbound_session(contact, prekey_message)
             .map_err(|e| e.to_string())?;
 
         let session = SessionManager::from_olm_session(create_result.session, contact)?;
 
-        session.store(conn)?;
+        if let Err(e) = session.store(conn) {
+            match e {
+                StorageError::DieselResultError(_) => log::warn!("Session Already exists"), // TODO: Some thought is needed here, is this a critical error which should unroll?
+                other_error => return Err(other_error.into()),
+            }
+        }
 
         Ok((session, create_result.plaintext))
     }
@@ -359,6 +356,24 @@ where
             .map_err(|e| ClientError::QueryError(format!("Could not query topic: {}", e)))?;
 
         Ok(response.envelopes)
+    }
+
+    /// Search network for a specific InstallationContact
+    /// This function should be removed as soon as possible given it is a potential DOS vector.
+    /// Contacts for a message should always be known to the client
+    pub async fn download_contact_for_installation(
+        &self,
+        wallet_address: &str,
+        installation_id: &str,
+    ) -> Result<Option<Contact>, ClientError> {
+        let contacts = self.get_contacts(wallet_address).await?; // TODO: Ensure invalid contacts cannot be initialized
+
+        for contact in contacts {
+            if contact.installation_id() == installation_id {
+                return Ok(Some(contact));
+            }
+        }
+        Ok(None)
     }
 }
 
@@ -433,4 +448,7 @@ mod tests {
             }
         }
     }
+
+    #[tokio::test]
+    async fn test_roundtrip_encrypt() {}
 }

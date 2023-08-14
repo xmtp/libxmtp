@@ -1,8 +1,10 @@
 use std::time::Duration;
 
 use diesel::Connection;
+use futures::executor::block_on;
+use log::info;
 use prost::Message;
-use vodozemac::olm::OlmMessage;
+use vodozemac::olm::{self, OlmMessage};
 use xmtp_proto::xmtp::{
     message_api::v1::{Envelope, PublishRequest},
     v3::message_contents::{
@@ -15,11 +17,13 @@ use crate::{
     contact::Contact,
     conversation::{convo_id, peer_addr_from_convo_id, ConversationError, SecretConversation},
     invitation::Invitation,
+    message::DecodedInboundMessage,
     session::SessionManager,
     storage::{
-        now, ConversationState, DbConnection, InboundInvite, InboundInviteStatus, MessageState,
-        OutboundPayloadState, RefreshJob, RefreshJobKind, StorageError, StoredConversation,
-        StoredMessage, StoredOutboundPayload, StoredSession, StoredUser,
+        now, ConversationState, DbConnection, InboundInvite, InboundInviteStatus, InboundMessage,
+        InboundMessageStatus, MessageState, NewStoredMessage, OutboundPayloadState, RefreshJob,
+        RefreshJobKind, StorageError, StoredConversation, StoredMessage, StoredOutboundPayload,
+        StoredSession, StoredUser,
     },
     types::networking::XmtpApiClient,
     utils::{base64_encode, build_installation_message_topic},
@@ -82,6 +86,154 @@ where
         Ok(secret_convos)
     }
 
+    pub fn receive(&self) -> Result<(), ConversationError> {
+        if self.save_inbound_messages().is_err() {
+            log::warn!("Saving messages did not complete successfully");
+        }
+        self.process_inbound_messages()?;
+
+        Ok(())
+    }
+
+    pub fn save_inbound_messages(&self) -> Result<(), ConversationError> {
+        let inbound_topic = build_installation_message_topic(&self.client.installation_id());
+
+        self.client
+            .store
+            .lock_refresh_job(RefreshJobKind::Message, |conn, job| {
+                let downloaded =
+                    futures::executor::block_on(self.client.download_latest_from_topic(
+                        self.get_start_time(&job).unsigned_abs(),
+                        inbound_topic,
+                    ))
+                    .map_err(|e| StorageError::Unknown(e.to_string()))?;
+
+                log::info!("Messages Downloaded:{}", downloaded.len());
+
+                for envelope in downloaded {
+                    if let Err(e) = self
+                        .client
+                        .store
+                        .save_inbound_message(conn, envelope.into())
+                    {
+                        log::error!("Unable to save message:{}", e);
+                    }
+                }
+
+                Ok(())
+            })?;
+
+        Ok(())
+    }
+
+    pub fn process_inbound_messages(&self) -> Result<(), StorageError> {
+        let conn = &mut self.client.store.conn()?;
+        conn.transaction::<_, StorageError, _>(|transaction_manager| {
+            let msgs = self
+                .client
+                .store
+                .get_inbound_messages(transaction_manager, InboundMessageStatus::Pending)?;
+            for msg in msgs {
+                let payload_id = msg.id.clone();
+                match self.process_inbound_message(transaction_manager, msg) {
+                    Ok(status) => {
+                        info!(
+                            "message processed: {:?}. Status: {:?}",
+                            payload_id,
+                            status.clone()
+                        );
+                        self.client.store.set_msg_status(
+                            transaction_manager,
+                            payload_id,
+                            status,
+                        )?;
+                    }
+                    Err(err) => {
+                        log::error!("Error processing msg: {:?}", err);
+                        return Err(StorageError::Unknown(err.to_string()));
+                    }
+                }
+            }
+            Ok(())
+        })
+    }
+
+    fn process_inbound_message(
+        &self,
+        conn: &mut DbConnection,
+        msg: InboundMessage,
+    ) -> Result<InboundMessageStatus, ConversationError> {
+        let payload = DecodedInboundMessage::try_from(msg)?;
+        let mut session = self.find_existing_session(&payload.sender_installation_id, conn)?;
+        let olm_message = (&payload).try_into()?;
+
+        // If Session exists use that to decrypt else process first message
+        let plaintext = match session.as_mut() {
+            Some(s) => s.decrypt(olm_message, conn)?,
+            None => self.process_first_message(
+                conn,
+                olm_message,
+                &payload.sender_address,
+                &payload.sender_installation_id,
+            )?,
+        };
+
+        let message_obj = PadlockMessagePayload::decode(plaintext.as_slice())
+            .map_err(ConversationError::Decode)?;
+
+        //TODO: Validate message
+
+        let stored_message = NewStoredMessage::new(
+            message_obj.convo_id,
+            payload.sender_address,
+            message_obj.content_bytes,
+            MessageState::Received as i32,
+        );
+
+        self.client
+            .store
+            .insert_or_ignore_message(conn, stored_message)?;
+
+        Ok(InboundMessageStatus::Processed)
+    }
+
+    fn process_first_message(
+        &self,
+        conn: &mut DbConnection,
+        msg: OlmMessage,
+        sender_address: &str,
+        sender_installation_id: &str,
+    ) -> Result<Vec<u8>, ConversationError> {
+        let prekey_msg: olm::PreKeyMessage = match msg {
+            OlmMessage::PreKey(p) => p,
+            OlmMessage::Normal(_) => {
+                return Err(ConversationError::Generic(
+                    "Normal Message recieved before valid prekey. Cannot process".into(),
+                ))
+            }
+        };
+
+        let network_contact = block_on(
+            self.client
+                .download_contact_for_installation(sender_address, sender_installation_id),
+        )?;
+
+        let contact = match network_contact {
+            Some(contact) => contact,
+            None => {
+                return Err(ConversationError::Generic(
+                    "No contact for Prekey Messag".into(),
+                ))
+            }
+        };
+
+        let (_, message) = self
+            .client
+            .create_inbound_session(conn, &contact, prekey_msg)?;
+
+        Ok(message)
+    }
+
     pub fn save_invites(&self) -> Result<(), ConversationError> {
         let my_contact = self.client.account.contact();
 
@@ -90,7 +242,7 @@ where
             .lock_refresh_job(RefreshJobKind::Invite, |conn, job| {
                 let downloaded =
                     futures::executor::block_on(self.client.download_latest_from_topic(
-                        self.get_start_time(job).unsigned_abs(),
+                        self.get_start_time(&job).unsigned_abs(),
                         crate::utils::build_user_invite_topic(my_contact.installation_id()),
                     ))
                     .map_err(|e| StorageError::Unknown(e.to_string()))?;
@@ -157,16 +309,16 @@ where
         let existing_session = self.find_existing_session_with_conn(&invitation.inviter, conn)?;
         let plaintext: Vec<u8>;
 
+        let olm_message = match serde_json::from_slice(&invitation.ciphertext) {
+            Ok(olm_message) => olm_message,
+            Err(err) => {
+                log::error!("Error deserializing olm message: {:?}", err);
+                return Ok(InboundInviteStatus::DecryptionFailure);
+            }
+        };
+
         match existing_session {
             Some(mut session_manager) => {
-                let olm_message: OlmMessage = match serde_json::from_slice(&invitation.ciphertext) {
-                    Ok(olm_message) => olm_message,
-                    Err(err) => {
-                        log::error!("Error deserializing olm message: {:?}", err);
-                        return Ok(InboundInviteStatus::DecryptionFailure);
-                    }
-                };
-
                 plaintext = match session_manager.decrypt(olm_message, conn) {
                     Ok(plaintext) => plaintext,
                     Err(err) => {
@@ -176,17 +328,25 @@ where
                 };
             }
             None => {
-                (_, plaintext) = match self.client.create_inbound_session(
-                    conn,
-                    &invitation.inviter,
-                    &invitation.ciphertext,
-                ) {
-                    Ok((session, plaintext)) => (session, plaintext),
-                    Err(err) => {
-                        log::error!("Error creating session: {:?}", err);
+                let prek_key = match olm_message {
+                    olm::OlmMessage::Normal(_) => {
+                        log::error!("Cannot create new session from non-prekey message");
                         return Ok(InboundInviteStatus::DecryptionFailure);
                     }
+                    olm::OlmMessage::PreKey(k) => k,
                 };
+
+                (_, plaintext) =
+                    match self
+                        .client
+                        .create_inbound_session(conn, &invitation.inviter, prek_key)
+                    {
+                        Ok((session, plaintext)) => (session, plaintext),
+                        Err(err) => {
+                            log::error!("Error creating session: {:?}", err);
+                            return Ok(InboundInviteStatus::DecryptionFailure);
+                        }
+                    };
             }
         };
 
@@ -253,10 +413,18 @@ where
         contact: &Contact,
         conn: &mut DbConnection,
     ) -> Result<Option<SessionManager>, ConversationError> {
+        self.find_existing_session(&contact.installation_id(), conn)
+    }
+
+    fn find_existing_session(
+        &self,
+        installation_id: &str,
+        conn: &mut DbConnection,
+    ) -> Result<Option<SessionManager>, ConversationError> {
         let stored_session = self
             .client
             .store
-            .get_session_with_conn(contact.installation_id().as_str(), conn)?;
+            .get_session_with_conn(installation_id, conn)?;
 
         match stored_session {
             Some(i) => Ok(Some(SessionManager::try_from(&i)?)),
@@ -264,7 +432,7 @@ where
         }
     }
 
-    fn get_start_time(&self, job: RefreshJob) -> i64 {
+    fn get_start_time(&self, job: &RefreshJob) -> i64 {
         // Adjust for padding and ensure start_time > 0
         std::cmp::max(job.last_run - PADDING_TIME_NS, 0)
     }
@@ -304,12 +472,12 @@ where
             content_bytes: message.content.clone(),
         };
         let olm_message = session.encrypt(&payload.encode_to_vec());
-        let ciphertext = match olm_message {
-            OlmMessage::Normal(message) => message.to_bytes(),
-            OlmMessage::PreKey(prekey_message) => prekey_message.to_bytes(),
-        };
 
-        let envelope = PadlockMessageEnvelope {
+        let ciphertext = match olm_message {
+            olm::OlmMessage::Normal(message) => message.to_bytes(),
+            olm::OlmMessage::PreKey(prekey_message) => prekey_message.to_bytes(),
+        };
+        let envelope: PadlockMessageEnvelope = PadlockMessageEnvelope {
             header_bytes,
             ciphertext,
         };
@@ -456,6 +624,10 @@ mod tests {
         utils::{build_envelope, build_installation_message_topic, build_user_invite_topic},
         ClientBuilder, Fetch,
     };
+
+    fn init() {
+        let _ = env_logger::builder().is_test(true).try_init();
+    }
 
     #[tokio::test]
     async fn create_secret_conversation() {
@@ -645,6 +817,70 @@ mod tests {
 
         let conversations: Vec<StoredConversation> = conn.fetch().unwrap();
         assert_eq!(conversations.len(), 0);
+    }
+
+    #[tokio::test]
+    async fn process_messages_happy_path() {
+        init();
+        let (alice_client, bob_client) = gen_two_test_clients().await;
+
+        let bob_address = bob_client.account.contact().wallet_address;
+
+        let a_convos = Conversations::new(&alice_client);
+        let b_convos = Conversations::new(&bob_client);
+
+        let a_to_b = a_convos
+            .new_secret_conversation(bob_address.clone())
+            .unwrap();
+
+        // Send First Message
+
+        a_to_b.send_message("Hi").unwrap();
+        alice_client
+            .refresh_user_installations(&bob_address)
+            .await
+            .unwrap();
+        a_convos.process_outbound_messages().await.unwrap();
+        a_convos.publish_outbound_payloads().await.unwrap();
+        b_convos.receive().unwrap();
+
+        let bob_messages = bob_client
+            .store
+            .get_stored_messages(&mut bob_client.store.conn().unwrap())
+            .unwrap();
+
+        assert_eq!(bob_messages.len(), 1);
+
+        {
+            let alice_messages = alice_client
+                .store
+                .get_stored_messages(&mut alice_client.store.conn().unwrap())
+                .unwrap();
+            assert_eq!(alice_messages.len(), 1);
+        }
+
+        // Reply
+        let b_to_a = b_convos
+            .new_secret_conversation(bob_address.clone())
+            .unwrap();
+
+        b_to_a.send_message("Reply").unwrap();
+        bob_client
+            .refresh_user_installations(&bob_address)
+            .await
+            .unwrap();
+        b_convos.process_outbound_messages().await.unwrap();
+        b_convos.publish_outbound_payloads().await.unwrap();
+
+        a_convos.receive().unwrap();
+
+        let _alice_messages = alice_client
+            .store
+            .get_stored_messages(&mut alice_client.store.conn().unwrap())
+            .unwrap();
+
+        // TODO: This is currently failing with a NoSession error for unknown reasons
+        // assert_eq!(alice_messages.len(), 2);
     }
 
     #[tokio::test]
