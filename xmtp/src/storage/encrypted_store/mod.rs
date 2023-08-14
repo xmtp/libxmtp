@@ -325,7 +325,7 @@ impl EncryptedMessageStore {
             if result.is_ok() {
                 diesel::update(refresh_jobs::table.find(kind.to_string()))
                     .set(refresh_jobs::last_run.eq(start_time))
-                    .execute(connection)?;
+                    .get_result::<RefreshJob>(connection)?;
             } else {
                 return result;
             }
@@ -374,7 +374,7 @@ impl EncryptedMessageStore {
         diesel::update(dsl::inbound_invites)
             .filter(dsl::id.eq(id))
             .set(dsl::status.eq(status as i16))
-            .execute(conn)?;
+            .get_result::<InboundInvite>(conn)?;
 
         Ok(())
     }
@@ -412,14 +412,14 @@ impl EncryptedMessageStore {
         for session in updated_sessions {
             diesel::update(schema::sessions::table.find(session.session_id))
                 .set(schema::sessions::vmac_session_data.eq(session.vmac_session_data))
-                .execute(conn)?;
+                .get_result::<StoredSession>(conn)?;
         }
         diesel::insert_into(schema::outbound_payloads::table)
             .values(new_outbound_payloads)
             .execute(conn)?;
         diesel::update(messages::table.find(message_id))
             .set(messages::state.eq(updated_message_state as i32))
-            .execute(conn)?;
+            .get_result::<StoredMessage>(conn)?;
         Ok(())
     }
 
@@ -467,7 +467,7 @@ impl EncryptedMessageStore {
         diesel::update(dsl::conversations)
             .filter(dsl::convo_id.eq(convo_id))
             .set(dsl::convo_state.eq(state as i32))
-            .execute(conn)?;
+            .get_result::<StoredConversation>(conn)?;
         Ok(())
     }
 
