@@ -4,7 +4,7 @@ use diesel::Connection;
 use futures::executor::block_on;
 use log::info;
 use prost::Message;
-use vodozemac::olm;
+use vodozemac::olm::{self, OlmMessage};
 use xmtp_proto::xmtp::{
     message_api::v1::{Envelope, PublishRequest},
     v3::message_contents::{
@@ -17,7 +17,7 @@ use crate::{
     contact::Contact,
     conversation::{convo_id, peer_addr_from_convo_id, ConversationError, SecretConversation},
     invitation::Invitation,
-    message::decode_bytes,
+    message::{decode_bytes, DecodedInboundMessage},
     session::SessionManager,
     storage::{
         now, ConversationState, DbConnection, InboundInvite, InboundInviteStatus, InboundMessage,
@@ -25,7 +25,7 @@ use crate::{
         RefreshJobKind, StorageError, StoredConversation, StoredMessage, StoredOutboundPayload,
         StoredSession, StoredUser,
     },
-    types::networking::XmtpApiClient,
+    types::{networking::XmtpApiClient, InstallationId},
     utils::{base64_encode, build_installation_message_topic},
     vmac_protos::ProtoWrapper,
     Client,
@@ -175,55 +175,27 @@ where
         conn: &mut DbConnection,
         msg: InboundMessage,
     ) -> Result<InboundMessageStatus, ConversationError> {
-        let message_envelope: PadlockMessageEnvelope =
-            shuck_ok!(decode_bytes(&msg.payload), InboundMessageStatus::Invalid);
+        let decoded_payload = DecodedInboundMessage::try_from(msg)?;
+        let olm_message = OlmMessage::try_from(decoded_payload)?;
 
-        let message_header: PadlockMessageHeader = shuck_ok!(
-            decode_bytes(&message_envelope.header_bytes),
-            InboundMessageStatus::Invalid
-        );
-        let unsealed_header: PadlockMessageSealedMetadata = shuck_ok!(
-            decode_bytes(&message_header.sealed_metadata),
-            InboundMessageStatus::Invalid
-        );
-
-        let plaintext = if unsealed_header.is_prekey_message {
-            let network_contact = block_on(self.client.download_contact_for_installation(
-                &unsealed_header.sender_user_address,
-                &unsealed_header.sender_installation_id,
-            ))?;
-
-            let contact = match network_contact {
-                Some(contact) => contact,
-                None => return Ok(InboundMessageStatus::Invalid),
-            };
-
-            let pre_key = olm::PreKeyMessage::from_bytes(message_envelope.ciphertext.as_slice())?;
-
-            let (_, message) = self
-                .client
-                .create_inbound_session(conn, &contact, pre_key)?;
-
-            message
-        } else {
-            let mut session = self
-                .find_existing_session(&unsealed_header.sender_installation_id, conn)?
-                .ok_or(ConversationError::NoSessions(
-                    "Message was not PreKey message, but no existing session".into(),
-                ))?;
-
-            let olm_message =
-                olm::OlmMessage::Normal(olm::Message::try_from(message_envelope.ciphertext)?);
-
-            session.decrypt(olm_message, conn)?
-        };
+        let plaintext = match olm_message {
+            OlmMessage::PreKey(m) => self.plaintext_from_prekey(
+                conn,
+                m,
+                &decoded_payload.sender_address,
+                &decoded_payload.sender_installation_id,
+            ),
+            OlmMessage::Normal(m) => {
+                self.plaintext_from_normal(conn, m, &decoded_payload.sender_installation_id)
+            }
+        }?;
 
         let message_obj = PadlockMessagePayload::decode(plaintext.as_slice())
             .map_err(ConversationError::Decode)?;
 
         let stored_message = NewStoredMessage::new(
             message_obj.convo_id,
-            unsealed_header.sender_user_address,
+            decoded_payload.sender_address,
             message_obj.content_bytes,
             MessageState::Received as i32,
         );
@@ -233,6 +205,53 @@ where
             .insert_or_ignore_message(conn, stored_message)?;
 
         Ok(InboundMessageStatus::Processed)
+    }
+
+    /// Decrypt PrekeyMessage by fetching the ContactBundle and intiating a session
+    fn plaintext_from_prekey(
+        &self,
+        conn: &mut DbConnection,
+        prekey_msg: olm::PreKeyMessage,
+        sender_address: &str,
+        sender_installation_id: &str,
+    ) -> Result<Vec<u8>, ConversationError> {
+        let network_contact = block_on(
+            self.client
+                .download_contact_for_installation(&sender_address, sender_installation_id),
+        )?;
+
+        let contact = match network_contact {
+            Some(contact) => contact,
+            None => {
+                return Err(ConversationError::Generic(
+                    "No contact for Prekey Messag".into(),
+                ))
+            }
+        };
+
+        //TODO: Determine correct behavior for recieving a PreKey Message when an existing session is present
+        let (_, message) = self
+            .client
+            .create_inbound_session(conn, &contact, prekey_msg)?;
+
+        Ok(message)
+    }
+
+    /// Decrypt NormalMessage by fetching an existing session
+    fn plaintext_from_normal(
+        &self,
+        conn: &mut DbConnection,
+        msg: olm::Message,
+        sender_installation_id: &str,
+    ) -> Result<Vec<u8>, ConversationError> {
+        let mut session = self
+            .find_existing_session(sender_installation_id, conn)?
+            .ok_or(ConversationError::NoSessions(
+                "Message was not PreKey message, but no existing session".into(),
+            ))?;
+
+        let olm_message = olm::OlmMessage::Normal(olm::Message::try_from(msg.ciphertext())?);
+        Ok(session.decrypt(olm_message, conn)?)
     }
 
     pub fn save_invites(&self) -> Result<(), ConversationError> {
