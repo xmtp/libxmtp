@@ -341,7 +341,7 @@ impl EncryptedMessageStore {
             if result.is_ok() {
                 diesel::update(refresh_jobs::table.find(kind.to_string()))
                     .set(refresh_jobs::last_run.eq(start_time))
-                    .execute(connection)?;
+                    .get_result::<RefreshJob>(connection)?;
             } else {
                 return result;
             }
@@ -390,6 +390,34 @@ impl EncryptedMessageStore {
         diesel::update(dsl::inbound_invites)
             .filter(dsl::id.eq(id))
             .set(dsl::status.eq(status as i16))
+            .get_result::<InboundInvite>(conn)?;
+
+        Ok(())
+    }
+
+    pub fn get_inbound_messages(
+        &self,
+        conn: &mut PooledConnection<ConnectionManager<SqliteConnection>>,
+        status: InboundMessageStatus,
+    ) -> Result<Vec<InboundMessage>, StorageError> {
+        use self::schema::inbound_messages::dsl as schema;
+
+        let msgs = schema::inbound_messages
+            .filter(schema::status.eq(status as i16))
+            .order(schema::sent_at_ns.asc())
+            .load::<InboundMessage>(conn)?;
+
+        Ok(msgs)
+    }
+    pub fn save_inbound_message(
+        &self,
+        conn: &mut PooledConnection<ConnectionManager<SqliteConnection>>,
+        message: InboundMessage,
+    ) -> Result<(), StorageError> {
+        use self::schema::inbound_messages::dsl as schema;
+
+        diesel::insert_into(schema::inbound_messages)
+            .values(message)
             .execute(conn)?;
 
         Ok(())
@@ -484,7 +512,7 @@ impl EncryptedMessageStore {
         for session in updated_sessions {
             diesel::update(schema::sessions::table.find(session.session_id))
                 .set(schema::sessions::vmac_session_data.eq(session.vmac_session_data))
-                .execute(conn)?;
+                .get_result::<StoredSession>(conn)?;
         }
         diesel::insert_into(schema::outbound_payloads::table)
             .values(new_outbound_payloads)
@@ -539,7 +567,7 @@ impl EncryptedMessageStore {
         diesel::update(dsl::conversations)
             .filter(dsl::convo_id.eq(convo_id))
             .set(dsl::convo_state.eq(state as i32))
-            .execute(conn)?;
+            .get_result::<StoredConversation>(conn)?;
         Ok(())
     }
 
@@ -1084,7 +1112,6 @@ mod tests {
             .unwrap();
         assert_eq!(1, invited_conversations.len());
         assert_eq!(convo_1.convo_id, invited_conversations[0].convo_id);
-
         let uninitialized_conversations = store
             .get_conversations(conn, vec![ConversationState::Uninitialized])
             .unwrap();
@@ -1093,6 +1120,18 @@ mod tests {
     }
 
     #[test]
+    fn errors_when_no_update() {
+        let store = EncryptedMessageStore::new(
+            StorageOption::Ephemeral,
+            EncryptedMessageStore::generate_enc_key(),
+        )
+        .unwrap();
+
+        let conn = &mut store.conn().unwrap();
+        let result = store.update_user_refresh_timestamp(conn, "0x01", 1);
+        assert!(result.is_err());
+    }
+
     fn get_stored_messages() {
         let store = EncryptedMessageStore::new(
             StorageOption::Ephemeral,
