@@ -182,7 +182,7 @@ where
                     },
                 )
                 .await
-                .map_err(|_| ConversationError::Unknown)?;
+                .map_err(|e| ConversationError::Generic(format!("initialize:{}", e)))?;
 
             session.save(conn)?;
         }

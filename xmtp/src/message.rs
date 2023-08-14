@@ -52,14 +52,14 @@ impl TryFrom<InboundMessage> for DecodedInboundMessage {
     }
 }
 
-impl TryFrom<DecodedInboundMessage> for olm::OlmMessage {
+impl TryFrom<&DecodedInboundMessage> for olm::OlmMessage {
     type Error = PayloadError;
 
-    fn try_from(value: DecodedInboundMessage) -> Result<Self, Self::Error> {
+    fn try_from(value: &DecodedInboundMessage) -> Result<Self, Self::Error> {
         let olm_message = if value.is_prekey_message {
             olm::OlmMessage::PreKey(olm::PreKeyMessage::from_bytes(value.ciphertext.as_slice())?)
         } else {
-            olm::OlmMessage::Normal(olm::Message::try_from(value.ciphertext)?)
+            olm::OlmMessage::Normal(olm::Message::from_bytes(value.ciphertext.as_slice())?)
         };
 
         Ok(olm_message)
