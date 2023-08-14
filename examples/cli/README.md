@@ -4,12 +4,19 @@ XLI is an demo XMTPv3 console client, which allows developers to send and receiv
 
 ## Running
 
-Register accounts:
+### Register accounts
+
 `./xli.sh --db user1.db3 register`
 `./xli.sh --db user2.db3 register`
 
-Get wallet address:
+### Get wallet address
+
 `./xli.sh --db user2.db3 info`
 
-Send message:
+### Send message
+
 `./xli.sh --db user1.db3 send <user2_address> "hello"`
+
+### List conversations
+
+`./xli.sh --db user1.db3 list-conversations`
