@@ -49,6 +49,7 @@ pub enum MessageState {
 pub struct StoredMessage {
     pub id: i32,
     pub created_at: i64,
+    pub sent_at_ns: i64,
     pub convo_id: String,
     pub addr_from: String,
     pub content: Vec<u8>,
@@ -62,6 +63,7 @@ pub struct StoredMessage {
 #[diesel(table_name = messages)]
 pub struct NewStoredMessage {
     pub created_at: i64,
+    pub sent_at_ns: i64,
     pub convo_id: String,
     pub addr_from: String,
     pub content: Vec<u8>,
@@ -69,10 +71,17 @@ pub struct NewStoredMessage {
 }
 
 impl NewStoredMessage {
-    pub fn new(convo_id: String, addr_from: String, content: Vec<u8>, state: i32) -> Self {
+    pub fn new(
+        convo_id: String,
+        addr_from: String,
+        content: Vec<u8>,
+        state: i32,
+        sent_at_ns: i64,
+    ) -> Self {
         Self {
             created_at: now(),
             convo_id,
+            sent_at_ns,
             addr_from,
             content,
             state,
@@ -83,6 +92,7 @@ impl NewStoredMessage {
 impl PartialEq<StoredMessage> for NewStoredMessage {
     fn eq(&self, other: &StoredMessage) -> bool {
         self.created_at == other.created_at
+            && self.sent_at_ns == other.sent_at_ns
             && self.convo_id == other.convo_id
             && self.addr_from == other.addr_from
             && self.content == other.content
