@@ -170,7 +170,6 @@ where
         let conn = &mut self.client.store.conn()?;
         let messages = self.client.store.get_stored_messages(
             conn,
-            // None,
             Some(vec![MessageState::Received, MessageState::LocallyCommitted]),
             Some(self.convo_id().as_str()),
             opts.start_time_ns,
