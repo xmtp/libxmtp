@@ -7,7 +7,7 @@ use crate::{
     session::SessionError,
     storage::{
         now, ConversationState, DbConnection, MessageState, NewStoredMessage, StorageError,
-        StoredConversation, StoredUser,
+        StoredConversation, StoredMessage, StoredUser,
     },
     types::networking::PublishRequest,
     types::networking::XmtpApiClient,
@@ -69,6 +69,23 @@ pub fn peer_addr_from_convo_id(
         Ok(segments[2].to_string())
     } else {
         Ok(segments[1].to_string())
+    }
+}
+
+#[derive(Default)]
+pub struct ListMessagesOptions {
+    pub start_time_ns: Option<i64>,
+    pub end_time_ns: Option<i64>,
+    pub limit: Option<i64>,
+}
+
+impl ListMessagesOptions {
+    pub fn new(start_time_ns: Option<i64>, end_time_ns: Option<i64>, limit: Option<i64>) -> Self {
+        Self {
+            start_time_ns,
+            end_time_ns,
+            limit,
+        }
     }
 }
 
@@ -140,9 +157,27 @@ where
             self.client.account.addr(),
             content_bytes,
             MessageState::Unprocessed as i32,
+            now(),
         )
         .store(&mut self.client.store.conn().unwrap())?;
         Ok(())
+    }
+
+    pub async fn list_messages(
+        &self,
+        opts: &ListMessagesOptions,
+    ) -> Result<Vec<StoredMessage>, ConversationError> {
+        let conn = &mut self.client.store.conn()?;
+        let messages = self.client.store.get_stored_messages(
+            conn,
+            Some(vec![MessageState::Received, MessageState::LocallyCommitted]),
+            Some(self.convo_id().as_str()),
+            opts.start_time_ns,
+            opts.end_time_ns,
+            opts.limit,
+        )?;
+
+        Ok(messages)
     }
 
     fn members(&self, conn: &mut DbConnection) -> Result<Vec<Contact>, ConversationError> {
@@ -204,8 +239,12 @@ mod tests {
 
     use crate::{
         codecs::{text::TextCodec, ContentCodec},
+        conversation::ListMessagesOptions,
         conversations::Conversations,
-        test_utils::test_utils::{gen_test_client, gen_test_conversation},
+        mock_xmtp_api_client::MockXmtpApiClient,
+        test_utils::test_utils::{
+            gen_test_client, gen_test_client_internal, gen_test_conversation,
+        },
     };
 
     #[tokio::test]
@@ -231,5 +270,27 @@ mod tests {
         let message = &client.store.get_unprocessed_messages().unwrap()[0];
         let content = EncodedContent::decode(&message.content[..]).unwrap();
         assert!(TextCodec::decode(content).unwrap() == "Hello, world!");
+    }
+
+    #[tokio::test]
+    async fn test_list_messages() {
+        let api_client = MockXmtpApiClient::new();
+        let client = gen_test_client_internal(api_client.clone()).await;
+        let recipient = gen_test_client_internal(api_client.clone()).await;
+        let conversations = Conversations::new(&client);
+        let conversation =
+            gen_test_conversation(&conversations, recipient.account.addr().as_str()).await;
+        conversation.initialize().await.unwrap();
+        conversation.send_message("Hello, world!").unwrap();
+        conversation.send_message("Hello, again").unwrap();
+
+        conversations.process_outbound_messages().await.unwrap();
+
+        let results = conversation
+            .list_messages(&ListMessagesOptions::default())
+            .await
+            .unwrap();
+
+        assert_eq!(results.len(), 2);
     }
 }

@@ -115,7 +115,7 @@ impl EncryptedMessageStore {
     }
 
     pub fn create_fake_msg(&self, content: &str, state: i32) {
-        NewStoredMessage::new("convo".into(), "addr".into(), content.into(), state)
+        NewStoredMessage::new("convo".into(), "addr".into(), content.into(), state, 10)
             .store(&mut self.conn().unwrap())
             .unwrap();
     }
@@ -439,20 +439,6 @@ impl EncryptedMessageStore {
         Ok(())
     }
 
-    /// Currently a placeholder function used for validation.
-    pub fn get_stored_messages(
-        &self,
-        conn: &mut DbConnection,
-    ) -> Result<Vec<StoredMessage>, StorageError> {
-        use self::schema::messages::dsl as schema;
-
-        let msgs = schema::messages
-            .order(schema::created_at.asc())
-            .load::<StoredMessage>(conn)?;
-
-        Ok(msgs)
-    }
-
     pub fn insert_or_ignore_install(
         &self,
         install: StoredInstallation,
@@ -566,6 +552,47 @@ impl EncryptedMessageStore {
             .load::<StoredConversation>(conn)?;
 
         Ok(convos)
+    }
+
+    pub fn get_stored_messages(
+        &self,
+        conn: &mut DbConnection,
+        allowed_states: Option<Vec<MessageState>>,
+        conversation_id: Option<&str>,
+        start_time_ns: Option<i64>,
+        end_time_ns: Option<i64>,
+        limit: Option<i64>,
+    ) -> Result<Vec<StoredMessage>, StorageError> {
+        use self::schema::messages::dsl as schema;
+
+        let mut query = schema::messages
+            .order(schema::sent_at_ns.asc())
+            .into_boxed();
+
+        if let Some(allowed_states) = allowed_states {
+            query =
+                query.filter(schema::state.eq_any(allowed_states.into_iter().map(|s| s as i32)));
+        }
+
+        if let Some(conversation_id) = conversation_id {
+            query = query.filter(schema::convo_id.eq(conversation_id));
+        }
+
+        if let Some(start_time_ns) = start_time_ns {
+            query = query.filter(schema::sent_at_ns.ge(start_time_ns));
+        }
+
+        if let Some(end_time_ns) = end_time_ns {
+            query = query.filter(schema::sent_at_ns.le(end_time_ns));
+        }
+
+        if let Some(limit) = limit {
+            query = query.limit(limit);
+        }
+
+        let msgs = query.load::<StoredMessage>(conn)?;
+
+        Ok(msgs)
     }
 }
 
@@ -741,6 +768,7 @@ mod tests {
             "0x000A".into(),
             "Hello Bola".into(),
             MessageState::Unprocessed as i32,
+            10,
         )
         .store(conn)
         .unwrap();
@@ -750,6 +778,7 @@ mod tests {
             "0x000A".into(),
             "Sup Mark".into(),
             MessageState::Unprocessed as i32,
+            10,
         )
         .store(conn)
         .unwrap();
@@ -759,6 +788,7 @@ mod tests {
             "0x000B".into(),
             "Hey Amal".into(),
             MessageState::Unprocessed as i32,
+            10,
         )
         .store(conn)
         .unwrap();
@@ -768,6 +798,7 @@ mod tests {
             "0x000A".into(),
             "bye".into(),
             MessageState::Unprocessed as i32,
+            10,
         )
         .store(conn)
         .unwrap();
@@ -792,6 +823,7 @@ mod tests {
                 "0x000A".into(),
                 "Hello Bola".into(),
                 MessageState::Unprocessed as i32,
+                10,
             )
             .store(conn)
             .unwrap();
@@ -816,6 +848,7 @@ mod tests {
             rand_string(),
             rand_vec(),
             MessageState::Unprocessed as i32,
+            10,
         );
         sleep(Duration::from_millis(10));
         let msg1 = NewStoredMessage::new(
@@ -823,6 +856,7 @@ mod tests {
             rand_string(),
             rand_vec(),
             MessageState::Unprocessed as i32,
+            10,
         );
 
         let conn = &mut store.conn().unwrap();
@@ -857,6 +891,7 @@ mod tests {
                 rand_string(),
                 rand_vec(),
                 MessageState::Unprocessed as i32,
+                10,
             );
             msg0.store(&mut store.conn().unwrap()).unwrap();
         } // Drop it
@@ -1064,8 +1099,78 @@ mod tests {
         .unwrap();
 
         let conn = &mut store.conn().unwrap();
-
         let result = store.update_user_refresh_timestamp(conn, "0x01", 1);
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn get_stored_messages() {
+        let store = EncryptedMessageStore::new(
+            StorageOption::Ephemeral,
+            EncryptedMessageStore::generate_enc_key(),
+        )
+        .unwrap();
+
+        let conn = &mut store.conn().unwrap();
+        let convo_id = "convo_1";
+
+        NewStoredMessage::new(
+            convo_id.to_string(),
+            "0x000A".into(),
+            "Hello Bola".into(),
+            MessageState::LocallyCommitted as i32,
+            10,
+        )
+        .store(conn)
+        .unwrap();
+
+        NewStoredMessage::new(
+            convo_id.to_string(),
+            "0x000A".into(),
+            "Hello again".into(),
+            MessageState::Received as i32,
+            20,
+        )
+        .store(conn)
+        .unwrap();
+
+        NewStoredMessage::new(
+            "convo_2".into(),
+            "0x000A".into(),
+            "Hello from convo 2".into(),
+            MessageState::Received as i32,
+            30,
+        )
+        .store(conn)
+        .unwrap();
+
+        let convo_1_results = store
+            .get_stored_messages(conn, None, Some(convo_id), None, None, None)
+            .unwrap();
+        assert_eq!(2, convo_1_results.len());
+        // Ensure results are properly sorted
+        assert!(convo_1_results[0].sent_at_ns < convo_1_results[1].sent_at_ns);
+
+        let results_with_received_state = store
+            .get_stored_messages(
+                conn,
+                Some(vec![MessageState::Received]),
+                None,
+                None,
+                None,
+                None,
+            )
+            .unwrap();
+        assert_eq!(2, results_with_received_state.len());
+        assert_eq!("convo_2", results_with_received_state[1].convo_id);
+
+        let results_with_time_filter =
+            store.get_stored_messages(conn, None, None, Some(11), Some(20), None);
+        assert_eq!(1, results_with_time_filter.unwrap().len());
+
+        let results_with_limit = store
+            .get_stored_messages(conn, None, None, None, None, Some(1))
+            .unwrap();
+        assert_eq!(1, results_with_limit.len());
     }
 }

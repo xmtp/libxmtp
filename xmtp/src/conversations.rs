@@ -163,7 +163,7 @@ where
         conn: &mut DbConnection,
         msg: InboundMessage,
     ) -> Result<InboundMessageStatus, ConversationError> {
-        let payload = DecodedInboundMessage::try_from(msg)?;
+        let payload = DecodedInboundMessage::try_from(msg.clone())?;
         let mut session = self.find_existing_session(&payload.sender_installation_id, conn)?;
         let olm_message = (&payload).try_into()?;
 
@@ -188,6 +188,7 @@ where
             payload.sender_address,
             message_obj.content_bytes,
             MessageState::Received as i32,
+            msg.sent_at_ns,
         );
 
         self.client
@@ -549,6 +550,7 @@ where
             .refresh_user_installations_if_stale(&self.client.wallet_address())
             .await?;
         let mut messages = self.client.store.get_unprocessed_messages()?;
+        log::debug!("Processing {} messages", messages.len());
         messages.sort_by(|a, b| a.created_at.cmp(&b.created_at));
         for message in messages {
             if let Err(e) = self.process_outbound_message(&message).await {
@@ -673,6 +675,7 @@ mod tests {
                     created_at: 0,
                     convo_id: convo_id(alice_client.wallet_address(), bob_client.wallet_address()),
                     addr_from: alice_client.wallet_address(),
+                    sent_at_ns: 0,
                     content: TextCodec::encode("Hello world".to_string())
                         .unwrap()
                         .encode_to_vec(),
@@ -846,7 +849,14 @@ mod tests {
 
         let bob_messages = bob_client
             .store
-            .get_stored_messages(&mut bob_client.store.conn().unwrap())
+            .get_stored_messages(
+                &mut bob_client.store.conn().unwrap(),
+                None,
+                None,
+                None,
+                None,
+                None,
+            )
             .unwrap();
 
         assert_eq!(bob_messages.len(), 1);
@@ -854,7 +864,14 @@ mod tests {
         {
             let alice_messages = alice_client
                 .store
-                .get_stored_messages(&mut alice_client.store.conn().unwrap())
+                .get_stored_messages(
+                    &mut alice_client.store.conn().unwrap(),
+                    None,
+                    None,
+                    None,
+                    None,
+                    None,
+                )
                 .unwrap();
             assert_eq!(alice_messages.len(), 1);
         }
@@ -876,7 +893,14 @@ mod tests {
 
         let _alice_messages = alice_client
             .store
-            .get_stored_messages(&mut alice_client.store.conn().unwrap())
+            .get_stored_messages(
+                &mut alice_client.store.conn().unwrap(),
+                None,
+                None,
+                None,
+                None,
+                None,
+            )
             .unwrap();
 
         // TODO: This is currently failing with a NoSession error for unknown reasons
