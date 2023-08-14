@@ -481,7 +481,7 @@ impl EncryptedMessageStore {
         conn: &mut PooledConnection<ConnectionManager<SqliteConnection>>,
     ) -> Result<(), StorageError> {
         for session in updated_sessions {
-            diesel::update(schema::sessions::table.find(session.session_id))
+            diesel::update(schema::sessions::table.find(session.peer_installation_id))
                 .set(schema::sessions::vmac_session_data.eq(session.vmac_session_data))
                 .get_result::<StoredSession>(conn)?;
         }
