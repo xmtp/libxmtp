@@ -77,7 +77,7 @@ diesel::table! {
 }
 
 diesel::table! {
-    sessions (session_id) {
+    sessions (peer_installation_id) {
         session_id -> Text,
         created_at -> BigInt,
         peer_installation_id -> Text,
