@@ -8,7 +8,7 @@ use std::error::Error;
 use std::sync::Arc;
 use xmtp::types::Address;
 use xmtp_networking::grpc_api_helper::Client as TonicApiClient;
-
+use xmtp::utils::answer as utils_answer;
 use crate::inbox_owner::RustInboxOwner;
 pub use crate::inbox_owner::SigningError;
 use crate::logger::init_logger;
@@ -144,4 +144,8 @@ mod tests {
         .unwrap();
         assert!(!client.wallet_address().is_empty());
     }
+}
+
+pub fn answer() -> u8 {
+    return utils_answer();
 }

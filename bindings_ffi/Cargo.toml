@@ -11,14 +11,14 @@ crate-type = ["lib", "cdylib"]
 [dependencies]
 log = { version = "0.4", features = ["std"] }
 thiserror = "1.0.40"
-uniffi = { git = "https://github.com/mozilla/uniffi-rs", rev = "6938c262293802f00a373f0d1aa16a2079071b24", features = ["tokio", "cli"] }
-uniffi_macros = { git = "https://github.com/mozilla/uniffi-rs", rev = "6938c262293802f00a373f0d1aa16a2079071b24" }
+uniffi = { git = "https://github.com/mozilla/uniffi-rs", tag = "v0.24.3", features = ["tokio", "cli"] }
+uniffi_macros = { git = "https://github.com/mozilla/uniffi-rs", tag = "v0.24.3" }
 xmtp = { path = "../xmtp" }
 xmtp_cryptography = { path = "../xmtp_cryptography" }
 xmtp_networking = { path = "../xmtp_networking" }
 
 [build_dependencies]
-uniffi = { git = "https://github.com/mozilla/uniffi-rs", rev = "6938c262293802f00a373f0d1aa16a2079071b24", features = ["build"] }
+uniffi = { git = "https://github.com/mozilla/uniffi-rs", tag = "v0.24.3", features = ["build"] }
 
 [[bin]]
 name = "ffi-uniffi-bindgen"
@@ -28,7 +28,7 @@ path = "src/bin.rs"
 ethers = "2.0.4"
 ethers-core = "2.0.4"
 tokio = { version = "1.0", features = ["full"] }
-uniffi = { git = "https://github.com/mozilla/uniffi-rs", rev = "6938c262293802f00a373f0d1aa16a2079071b24", features = ["bindgen-tests"] }
+uniffi = { git = "https://github.com/mozilla/uniffi-rs", tag = "v0.24.3" , features = ["bindgen-tests"] }
 
 # NOTE: Thei release profile reduce bundle size from 230M to 41M - may have performance impliciations
 # https://stackoverflow.com/a/54842093

@@ -14,7 +14,7 @@ pub mod storage;
 mod test_utils;
 #[cfg(feature = "types")]
 pub mod types;
-mod utils;
+pub mod utils;
 pub mod vmac_protos;
 
 pub use builder::ClientBuilder;

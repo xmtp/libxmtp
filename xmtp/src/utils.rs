@@ -36,3 +36,7 @@ pub fn base64_encode(bytes: &[u8]) -> String {
 pub fn key_fingerprint(key: &Curve25519PublicKey) -> String {
     base64_encode(keccak256(key.to_string().as_str()).as_slice())
 }
+
+pub fn answer() -> u8 {
+    42
+}

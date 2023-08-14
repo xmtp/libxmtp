@@ -26,6 +26,12 @@ val credentials: Credentials = Credentials.create(ECKeyPair.create(privateKey))
 val inboxOwner = Web3jInboxOwner(credentials)
 var logger = MockLogger()
 
+runBlocking{
+    assert(uniffi.xmtpv3.answer() == 42) {
+        "Should be able to call answer()"
+    }
+}
+
 // TODO Tests sometimes hang and never complete
 // runBlocking {
 //     val apiUrl: String = System.getenv("XMTP_API_URL") ?: "http://localhost:5556"
