@@ -181,6 +181,8 @@ where
         let message_obj = PadlockMessagePayload::decode(plaintext.as_slice())
             .map_err(ConversationError::Decode)?;
 
+        //TODO: Validate message
+
         let stored_message = NewStoredMessage::new(
             message_obj.convo_id,
             payload.sender_address,
