@@ -240,8 +240,6 @@ async fn send(client: Client, addr: &str, msg: &String) -> Result<(), CliError> 
 
 async fn recv(client: &Client) -> Result<(), CliError> {
     let conversations = Conversations::new(client);
-    // client.fetch_new_messages().await?;
-    // conversations.save_invites()?;
     conversations.save_inbound_messages()?;
     conversations.process_inbound_messages()?;
 
