@@ -480,7 +480,6 @@ impl EncryptedMessageStore {
         updated_sessions: Vec<StoredSession>,
         conn: &mut PooledConnection<ConnectionManager<SqliteConnection>>,
     ) -> Result<(), StorageError> {
-        log::debug!("Updating outbound payloads for message {}", message_id);
         for session in updated_sessions {
             diesel::update(schema::sessions::table.find(session.session_id))
                 .set(schema::sessions::vmac_session_data.eq(session.vmac_session_data))
