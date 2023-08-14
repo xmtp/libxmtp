@@ -963,11 +963,24 @@ mod tests {
             .unwrap();
         assert_eq!(1, invited_conversations.len());
         assert_eq!(convo_1.convo_id, invited_conversations[0].convo_id);
-
         let uninitialized_conversations = store
             .get_conversations(conn, vec![ConversationState::Uninitialized])
             .unwrap();
         assert_eq!(1, uninitialized_conversations.len());
         assert_eq!(convo_2.convo_id, uninitialized_conversations[0].convo_id);
+    }
+
+    #[test]
+    fn errors_when_no_update() {
+        let store = EncryptedMessageStore::new(
+            StorageOption::Ephemeral,
+            EncryptedMessageStore::generate_enc_key(),
+        )
+        .unwrap();
+
+        let conn = &mut store.conn().unwrap();
+
+        let result = store.update_user_refresh_timestamp(conn, "0x01", 1);
+        assert!(result.is_err());
     }
 }
