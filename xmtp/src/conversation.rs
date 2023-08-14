@@ -165,7 +165,7 @@ where
 
     pub async fn list_messages(
         &self,
-        opts: ListMessagesOptions,
+        opts: &ListMessagesOptions,
     ) -> Result<Vec<StoredMessage>, ConversationError> {
         let conn = &mut self.client.store.conn()?;
         let messages = self.client.store.get_stored_messages(
@@ -287,7 +287,7 @@ mod tests {
         conversations.process_outbound_messages().await.unwrap();
 
         let results = conversation
-            .list_messages(ListMessagesOptions::default())
+            .list_messages(&ListMessagesOptions::default())
             .await
             .unwrap();
 
