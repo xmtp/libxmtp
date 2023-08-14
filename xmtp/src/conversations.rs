@@ -163,7 +163,7 @@ where
         conn: &mut DbConnection,
         msg: InboundMessage,
     ) -> Result<InboundMessageStatus, ConversationError> {
-        let payload = DecodedInboundMessage::try_from(msg)?;
+        let payload = DecodedInboundMessage::try_from(msg.clone())?;
         let mut session = self.find_existing_session(&payload.sender_installation_id, conn)?;
         let olm_message = (&payload).try_into()?;
 

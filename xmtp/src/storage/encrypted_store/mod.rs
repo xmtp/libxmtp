@@ -423,34 +423,6 @@ impl EncryptedMessageStore {
         Ok(())
     }
 
-    pub fn get_inbound_messages(
-        &self,
-        conn: &mut PooledConnection<ConnectionManager<SqliteConnection>>,
-        status: InboundMessageStatus,
-    ) -> Result<Vec<InboundMessage>, StorageError> {
-        use self::schema::inbound_messages::dsl as schema;
-
-        let msgs = schema::inbound_messages
-            .filter(schema::status.eq(status as i16))
-            .order(schema::sent_at_ns.asc())
-            .load::<InboundMessage>(conn)?;
-
-        Ok(msgs)
-    }
-    pub fn save_inbound_message(
-        &self,
-        conn: &mut PooledConnection<ConnectionManager<SqliteConnection>>,
-        message: InboundMessage,
-    ) -> Result<(), StorageError> {
-        use self::schema::inbound_messages::dsl as schema;
-
-        diesel::insert_into(schema::inbound_messages)
-            .values(message)
-            .execute(conn)?;
-
-        Ok(())
-    }
-
     pub fn set_msg_status(
         &self,
         conn: &mut DbConnection,
@@ -1132,6 +1104,7 @@ mod tests {
         assert!(result.is_err());
     }
 
+    #[test]
     fn get_stored_messages() {
         let store = EncryptedMessageStore::new(
             StorageOption::Ephemeral,

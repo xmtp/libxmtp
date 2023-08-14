@@ -242,7 +242,10 @@ mod tests {
         codecs::{text::TextCodec, ContentCodec},
         conversation::ListMessagesOptions,
         conversations::Conversations,
-        test_utils::test_utils::{gen_test_client, gen_test_conversation},
+        mock_xmtp_api_client::MockXmtpApiClient,
+        test_utils::test_utils::{
+            gen_test_client, gen_test_client_internal, gen_test_conversation,
+        },
     };
 
     #[tokio::test]
@@ -272,8 +275,9 @@ mod tests {
 
     #[tokio::test]
     async fn test_list_messages() {
-        let client = gen_test_client().await;
-        let recipient = gen_test_client().await;
+        let api_client = MockXmtpApiClient::new();
+        let client = gen_test_client_internal(api_client.clone()).await;
+        let recipient = gen_test_client_internal(api_client.clone()).await;
         let conversations = Conversations::new(&client);
         let conversation =
             gen_test_conversation(&conversations, recipient.account.addr().as_str()).await;
