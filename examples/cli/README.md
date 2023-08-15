@@ -31,7 +31,7 @@ Use the CLI to send a [double ratchet message](https://github.com/xmtp/libxmtp/b
    ./xli.sh --db user2.db3 info
    ```
 
-5. Send a message into the conversation. The message is sent using [one session between each installation](https://github.com/xmtp/libxmtp/blob/main/README.md#installation-key-bundles) associated with the sender and recipient. The message is encrypted using a session key dedicated to this single message per the [double ratchet algorithm](https://github.com/xmtp/libxmtp/blob/main/README.md#double-ratchet-messaging).
+5. Send a message into the conversation. The message is sent using [one session between each installation](https://github.com/xmtp/libxmtp/blob/main/README.md#installation-key-bundles) associated with the sender and recipient. The message is encrypted using a per-message encryption key derived using the [double ratchet algorithm](https://github.com/xmtp/libxmtp/blob/main/README.md#double-ratchet-messaging).
 
    ```bash
    ./xli.sh --db user1.db3 send <user2_address> "hello"
