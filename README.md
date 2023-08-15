@@ -1,36 +1,46 @@
 # LibXMTP
 
-LibXMTP is a shared library encapsulating core functionality of the XMTP messaging protocol such as the cryptography, networking, and language bindings.
+![https://github.com/xmtp/libxmtp/actions/workflows/test.yml/badge.svg](https://github.com/xmtp/libxmtp/actions/workflows/test.yml/badge.svg) ![https://github.com/xmtp/libxmtp/actions/workflows/lint.yml/badge.svg](https://github.com/xmtp/libxmtp/actions/workflows/lint.yml/badge.svg) ![Status](https://img.shields.io/badge/Project_status-Alpha-orange)
 
-[![Test](https://github.com/xmtp/libxmtp/actions/workflows/test.yml/badge.svg)](https://github.com/xmtp/libxmtp/actions/workflows/test.yml)
-[![Lint](https://github.com/xmtp/libxmtp/actions/workflows/lint.yml/badge.svg)](https://github.com/xmtp/libxmtp/actions/workflows/lint.yml)
+LibXMTP is a shared library encapsulating the core functionality of the XMTP messaging protocol, such as cryptography, networking, and language bindings.
 
-**⚠️ Experimental:** Early development stage, expect frequent changes and unresolved issues.
+> **Important**  
+> This software is in **alpha** status and ready for you to start experimenting with. However, we do not recommend using alpha software in production apps. Expect frequent changes as we add features and iterate based on feedback.
 
 ## Requirements
 
-- Install [Rustup](https://rustup.rs/)
+- Install [Rustup](https://rustup.rs/)
+- Install [Docker](https://www.docker.com/get-started/)
 
 ## Development
 
-Install other dependencies and start background services:
+Start Docker Desktop.
 
-```sh
-dev/up
-```
+- To install other dependencies and start background services:
 
-Run tests:
+  ```
+  dev/up
+  ```
 
-```sh
-dev/test
-```
+  Specifically, this command creates and runs an XMTP node in Docker Desktop.
+
+  > **Tip**  
+  > You can use this local node with the [example CLI](https://github.com/xmtp/libxmtp/blob/main/examples/cli/README.md) to try out sending XMTP v3-alpha double ratchet messages.
+
+- To run tests:
+
+  ```
+  dev/test
+  ```
 
 ## Structure
 
-- `xmtp_cryptography` - cryptographic operations
-- `xmtp_proto` - Generated code for handling XMTP protocol buffers
-- `xmtp_networking` - API client for XMTP's GRPC API, using code from `xmtp_proto`
-- `xmtp` - the pure Rust implementation of the XMTP SDK, agnostic to any per-language or per-platform binding
-- `bindings_ffi` - FFI bindings for Android and iOS
-- `bindings_wasm` (unused) - wasm bindings
-- `bindings_js` (unused) - JS bindings
+- [`xmtp`](https://github.com/xmtp/libxmtp/tree/main/xmtp): Pure Rust implementation of XMTP APIs, agnostic to any per-language or per-platform binding
+- [`xmtp_cryptography`](https://github.com/xmtp/libxmtp/tree/main/xmtp_cryptography): Cryptographic operations
+- [`xmtp_networking`](https://github.com/xmtp/libxmtp/tree/main/xmtp_networking): API client for XMTP's gRPC API, using code from `xmtp_proto`
+- [`xmtp_proto`](https://github.com/xmtp/libxmtp/tree/main/xmtp_proto): Generated code for handling XMTP protocol buffers
+- [`examples/cli`](https://github.com/xmtp/libxmtp/tree/main/examples/cli): Example XMTP console client
+- [`examples/android/xmtpv3_example`](https://github.com/xmtp/libxmtp/tree/main/examples/android/xmtpv3_example): Example Android app (in progress)
+- [`bindings_ffi`](https://github.com/xmtp/libxmtp/tree/main/bindings_ffi): FFI bindings for Android and iOS (in progress)
+- [`bindings_js`](https://github.com/xmtp/libxmtp/tree/main/bindings_js): JS bindings (in progress)
+- [`bindings_wasm`](https://github.com/xmtp/libxmtp/tree/main/bindings_wasm): Wasm bindings (in progress)
