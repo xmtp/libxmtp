@@ -137,7 +137,7 @@ where
         store: &mut EncryptedMessageStore,
     ) -> Result<Option<Account>, ClientBuilderError> {
         let conn = &mut store.conn()?;
-        let mut accounts = conn.fetch()?;
+        let mut accounts = conn.fetch_all()?;
         Ok(accounts.pop())
     }
 
