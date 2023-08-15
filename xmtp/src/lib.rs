@@ -37,9 +37,14 @@ pub trait Store<I> {
     fn store(&self, into: &mut I) -> Result<(), StorageError>;
 }
 
-// Fetches all instances of a model from the underlying data store
 pub trait Fetch<T> {
-    fn fetch(&mut self) -> Result<Vec<T>, StorageError>;
+    type Key<'a>
+    where
+        Self: 'a;
+    // Fetches all instances of a model from the underlying data store
+    fn fetch_all(&mut self) -> Result<Vec<T>, StorageError>;
+    // Fetches a single instance by key of a model from the underlying data store
+    fn fetch_one<'a>(&mut self, key: Self::Key<'a>) -> Result<Option<T>, StorageError>;
 }
 
 // Updates an existing instance of the model in the data store

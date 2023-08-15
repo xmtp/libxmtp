@@ -154,7 +154,7 @@ impl EncryptedMessageStore {
     }
 
     pub fn get_account(&mut self) -> Result<Option<Account>, StorageError> {
-        let mut account_list: Vec<Account> = self.conn().unwrap().fetch()?;
+        let mut account_list: Vec<Account> = self.conn().unwrap().fetch_all()?;
 
         warn_length(&account_list, "StoredAccount", 1);
 
@@ -214,13 +214,9 @@ impl EncryptedMessageStore {
         conn: &mut DbConnection,
         user_address_str: &str,
     ) -> Result<Vec<StoredInstallation>, StorageError> {
-        use self::schema::installations::dsl as schema;
-
-        let installation_list = schema::installations
-            .filter(schema::user_address.eq(user_address_str))
-            .load::<StoredInstallation>(conn)
-            .map_err(|e| StorageError::Unknown(e.to_string()))?;
-
+        let installation_list = installations::table
+            .filter(installations::user_address.eq(user_address_str))
+            .load::<StoredInstallation>(conn)?;
         Ok(installation_list)
     }
 
@@ -637,52 +633,83 @@ impl Store<DbConnection> for StoredSession {
 }
 
 impl Fetch<StoredMessage> for DbConnection {
-    fn fetch(&mut self) -> Result<Vec<StoredMessage>, StorageError> {
+    type Key<'a> = i32;
+    fn fetch_all(&mut self) -> Result<Vec<StoredMessage>, StorageError> {
         use self::schema::messages::dsl::*;
 
         messages
             .load::<StoredMessage>(self)
             .map_err(StorageError::DieselResultError)
     }
+
+    fn fetch_one<'a>(&mut self, key: Self::Key<'a>) -> Result<Option<StoredMessage>, StorageError> {
+        use self::schema::messages::dsl::*;
+        Ok(messages.find(key).first(self).optional()?)
+    }
 }
 
 impl Fetch<StoredSession> for DbConnection {
-    fn fetch(&mut self) -> Result<Vec<StoredSession>, StorageError> {
+    type Key<'a> = &'a str;
+    fn fetch_all(&mut self) -> Result<Vec<StoredSession>, StorageError> {
         use self::schema::sessions::dsl::*;
 
         sessions
             .load::<StoredSession>(self)
             .map_err(StorageError::DieselResultError)
     }
+
+    fn fetch_one<'a>(&mut self, key: Self::Key<'a>) -> Result<Option<StoredSession>, StorageError> {
+        use self::schema::sessions::dsl::*;
+        Ok(sessions.find(key).first(self).optional()?)
+    }
 }
 
 impl Fetch<InboundInvite> for DbConnection {
-    fn fetch(&mut self) -> Result<Vec<InboundInvite>, StorageError> {
+    type Key<'a> = &'a str;
+    fn fetch_all(&mut self) -> Result<Vec<InboundInvite>, StorageError> {
         use self::schema::inbound_invites::dsl::*;
 
         inbound_invites
             .load::<InboundInvite>(self)
             .map_err(StorageError::DieselResultError)
     }
+
+    fn fetch_one<'a>(&mut self, key: Self::Key<'a>) -> Result<Option<InboundInvite>, StorageError> {
+        use self::schema::inbound_invites::dsl::*;
+        Ok(inbound_invites.find(key).first(self).optional()?)
+    }
 }
 
 impl Fetch<StoredUser> for DbConnection {
-    fn fetch(&mut self) -> Result<Vec<StoredUser>, StorageError> {
+    type Key<'a> = &'a str;
+    fn fetch_all(&mut self) -> Result<Vec<StoredUser>, StorageError> {
         use self::schema::users::dsl;
 
         dsl::users
             .load::<StoredUser>(self)
             .map_err(StorageError::DieselResultError)
     }
+    fn fetch_one<'a>(&mut self, key: Self::Key<'a>) -> Result<Option<StoredUser>, StorageError> {
+        use self::schema::users::dsl::*;
+        Ok(users.find(key).first(self).optional()?)
+    }
 }
 
 impl Fetch<StoredConversation> for DbConnection {
-    fn fetch(&mut self) -> Result<Vec<StoredConversation>, StorageError> {
+    type Key<'a> = &'a str;
+    fn fetch_all(&mut self) -> Result<Vec<StoredConversation>, StorageError> {
         use self::schema::conversations::dsl;
 
         dsl::conversations
             .load::<StoredConversation>(self)
             .map_err(StorageError::DieselResultError)
+    }
+    fn fetch_one<'a>(
+        &mut self,
+        key: Self::Key<'a>,
+    ) -> Result<Option<StoredConversation>, StorageError> {
+        use self::schema::conversations::dsl::*;
+        Ok(conversations.find(key).first(self).optional()?)
     }
 }
 
@@ -698,7 +725,8 @@ impl Store<DbConnection> for Account {
 }
 
 impl Fetch<Account> for DbConnection {
-    fn fetch(&mut self) -> Result<Vec<Account>, StorageError> {
+    type Key<'a> = i32;
+    fn fetch_all(&mut self) -> Result<Vec<Account>, StorageError> {
         use self::schema::accounts::dsl::*;
 
         let stored_accounts = accounts
@@ -711,6 +739,17 @@ impl Fetch<Account> for DbConnection {
             .map(|f| serde_json::from_slice(&f.serialized_key).unwrap())
             .collect())
     }
+
+    fn fetch_one<'a>(&mut self, key: Self::Key<'a>) -> Result<Option<Account>, StorageError> {
+        use self::schema::accounts::dsl::*;
+        let stored_account: Option<StoredAccount> = accounts.find(key).first(self).optional()?;
+
+        match stored_account {
+            None => Ok(None),
+            Some(a) => serde_json::from_slice(&a.serialized_key)
+                .map_err(|e| StorageError::Unknown(format!("Failed to deserialize key:{}", e))),
+        }
+    }
 }
 
 impl Store<DbConnection> for StoredInstallation {
@@ -720,6 +759,24 @@ impl Store<DbConnection> for StoredInstallation {
             .execute(into)?;
 
         Ok(())
+    }
+}
+
+impl Fetch<StoredInstallation> for DbConnection {
+    type Key<'a> = &'a str;
+    fn fetch_all(&mut self) -> Result<Vec<StoredInstallation>, StorageError> {
+        use self::schema::installations::dsl;
+
+        dsl::installations
+            .load::<StoredInstallation>(self)
+            .map_err(StorageError::DieselResultError)
+    }
+    fn fetch_one<'a>(
+        &mut self,
+        key: Self::Key<'a>,
+    ) -> Result<Option<StoredInstallation>, StorageError> {
+        use self::schema::installations::dsl::*;
+        Ok(installations.find(key).first(self).optional()?)
     }
 }
 
@@ -803,7 +860,7 @@ mod tests {
         .store(conn)
         .unwrap();
 
-        let v: Vec<StoredMessage> = conn.fetch().unwrap();
+        let v: Vec<StoredMessage> = conn.fetch_all().unwrap();
         assert_eq!(4, v.len());
     }
 
@@ -828,7 +885,7 @@ mod tests {
             .store(conn)
             .unwrap();
 
-            let v: Vec<StoredMessage> = conn.fetch().unwrap();
+            let v: Vec<StoredMessage> = conn.fetch_all().unwrap();
             assert_eq!(1, v.len());
         }
 
@@ -864,7 +921,7 @@ mod tests {
         msg0.store(conn).unwrap();
         msg1.store(conn).unwrap();
 
-        let msgs: Vec<StoredMessage> = conn.fetch().unwrap();
+        let msgs: Vec<StoredMessage> = conn.fetch_all().unwrap();
 
         assert_eq!(2, msgs.len());
         assert_eq!(msg0, msgs[0]);
@@ -922,7 +979,7 @@ mod tests {
         let conn = &mut store.conn().unwrap();
         session.store(conn).unwrap();
 
-        let results: Vec<StoredSession> = conn.fetch().unwrap();
+        let results: Vec<StoredSession> = conn.fetch_all().unwrap();
         assert_eq!(1, results.len());
     }
 
@@ -1032,7 +1089,7 @@ mod tests {
         });
 
         assert!(result.is_ok());
-        let db_results: Vec<InboundInvite> = conn.fetch().unwrap();
+        let db_results: Vec<InboundInvite> = conn.fetch_all().unwrap();
         assert_eq!(1, db_results.len());
 
         let inbound_invite_ptr = &inbound_invite;

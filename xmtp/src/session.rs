@@ -151,7 +151,7 @@ mod tests {
 
         a_to_b_session.store(conn).unwrap();
 
-        let results: Vec<StoredSession> = conn.fetch().unwrap();
+        let results: Vec<StoredSession> = conn.fetch_all().unwrap();
         assert_eq!(results.len(), 1);
         let initial_session_data = &results.get(0).unwrap().vmac_session_data;
 
@@ -165,7 +165,7 @@ mod tests {
             let decrypted_reply = a_to_b_session.decrypt(reply, conn).unwrap();
             assert_eq!(decrypted_reply, "hello to you".as_bytes());
 
-            let updated_results: Vec<StoredSession> = conn.fetch().unwrap();
+            let updated_results: Vec<StoredSession> = conn.fetch_all().unwrap();
             assert_eq!(updated_results.len(), 1);
             let updated_session_data = &updated_results.get(0).unwrap().vmac_session_data;
 

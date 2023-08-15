@@ -756,16 +756,16 @@ mod tests {
 
         let conn = &mut bob_client.store.conn().unwrap();
 
-        let inbound_invites: Vec<InboundInvite> = conn.fetch().unwrap();
+        let inbound_invites: Vec<InboundInvite> = conn.fetch_all().unwrap();
         assert_eq!(inbound_invites.len(), 1);
         assert!(inbound_invites[0].status == InboundInviteStatus::Processed as i16);
 
-        let users: Vec<StoredUser> = conn.fetch().unwrap();
+        let users: Vec<StoredUser> = conn.fetch_all().unwrap();
         // Expect 2 users because Bob is always in his own DB already
         assert_eq!(users.len(), 2);
         assert_eq!(users[1].user_address, alice_client.wallet_address());
 
-        let conversations: Vec<StoredConversation> = conn.fetch().unwrap();
+        let conversations: Vec<StoredConversation> = conn.fetch_all().unwrap();
         assert_eq!(conversations.len(), 1);
         assert_eq!(conversations[0].peer_address, alice_client.wallet_address());
     }
@@ -810,15 +810,15 @@ mod tests {
 
         let conn = &mut bob_client.store.conn().unwrap();
 
-        let inbound_invites: Vec<InboundInvite> = conn.fetch().unwrap();
+        let inbound_invites: Vec<InboundInvite> = conn.fetch_all().unwrap();
         assert_eq!(inbound_invites.len(), 1);
         assert!(inbound_invites[0].status == InboundInviteStatus::DecryptionFailure as i16);
 
-        let users: Vec<StoredUser> = conn.fetch().unwrap();
+        let users: Vec<StoredUser> = conn.fetch_all().unwrap();
         // Expect 1 user because Bob is always in his own DB already
         assert_eq!(users.len(), 1);
 
-        let conversations: Vec<StoredConversation> = conn.fetch().unwrap();
+        let conversations: Vec<StoredConversation> = conn.fetch_all().unwrap();
         assert_eq!(conversations.len(), 0);
     }
 
