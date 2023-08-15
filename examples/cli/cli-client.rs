@@ -187,18 +187,30 @@ async fn create_client(
     account: AccountStrategy<Wallet>,
 ) -> Result<Client, CliError> {
     let msg_store = get_encrypted_store(db).unwrap();
+    let mut builder = ClientBuilder::new(account)
+        .store(msg_store);
 
-    let client_result = ClientBuilder::new(account)
-        .network(xmtp::Network::Local("http://localhost:5556"))
-        .api_client(
-            ApiClient::create("http://localhost:5556".into(), false)
-                .await
-                .unwrap(),
-        )
-        .store(msg_store)
-        .build();
+    if true {
+        builder = builder
+            .network(xmtp::Network::Local("https://api.dev.xmtp.network"))
+            .api_client(
+                ApiClient::create("https://api.dev.xmtp.network".into(), true)
+                    .await
+                    .unwrap(),
+            );
+    } else {
+        builder = builder
+            .network(xmtp::Network::Local("http://localhost:5556"))
+            .api_client(
+                ApiClient::create("http://localhost:5556".into(), false)
+                    .await
+                    .unwrap(),
+            );
+    }
 
-    client_result.map_err(CliError::ClientBuilder)
+    builder
+        .build()
+        .map_err(CliError::ClientBuilder)
 }
 
 async fn register(db: Option<PathBuf>, use_local: bool, wallet_seed: &u64) -> Result<(), CliError> {
