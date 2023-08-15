@@ -57,7 +57,12 @@ pub mod networking {
                 ErrorKind::PublishError => "publish error",
                 ErrorKind::QueryError => "query error",
                 ErrorKind::SubscribeError => "subscribe error",
-            })
+            })?;
+            if self.source().is_some() {
+                f.write_str(": ")?;
+                f.write_str(&self.source().unwrap().to_string())?;
+            }
+            Ok(())
         }
     }
 
