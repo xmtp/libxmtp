@@ -642,7 +642,7 @@ impl Fetch<StoredMessage> for DbConnection {
             .map_err(StorageError::DieselResultError)
     }
 
-    fn fetch_one<'a>(&mut self, key: Self::Key<'a>) -> Result<Option<StoredMessage>, StorageError> {
+    fn fetch_one(&mut self, key: i32) -> Result<Option<StoredMessage>, StorageError> where {
         use self::schema::messages::dsl::*;
         Ok(messages.find(key).first(self).optional()?)
     }
@@ -658,7 +658,7 @@ impl Fetch<StoredSession> for DbConnection {
             .map_err(StorageError::DieselResultError)
     }
 
-    fn fetch_one<'a>(&mut self, key: Self::Key<'a>) -> Result<Option<StoredSession>, StorageError> {
+    fn fetch_one(&mut self, key: &str) -> Result<Option<StoredSession>, StorageError> {
         use self::schema::sessions::dsl::*;
         Ok(sessions.find(key).first(self).optional()?)
     }
@@ -674,7 +674,7 @@ impl Fetch<InboundInvite> for DbConnection {
             .map_err(StorageError::DieselResultError)
     }
 
-    fn fetch_one<'a>(&mut self, key: Self::Key<'a>) -> Result<Option<InboundInvite>, StorageError> {
+    fn fetch_one(&mut self, key: &str) -> Result<Option<InboundInvite>, StorageError> {
         use self::schema::inbound_invites::dsl::*;
         Ok(inbound_invites.find(key).first(self).optional()?)
     }
@@ -689,7 +689,7 @@ impl Fetch<StoredUser> for DbConnection {
             .load::<StoredUser>(self)
             .map_err(StorageError::DieselResultError)
     }
-    fn fetch_one<'a>(&mut self, key: Self::Key<'a>) -> Result<Option<StoredUser>, StorageError> {
+    fn fetch_one(&mut self, key: &str) -> Result<Option<StoredUser>, StorageError> {
         use self::schema::users::dsl::*;
         Ok(users.find(key).first(self).optional()?)
     }
@@ -704,10 +704,7 @@ impl Fetch<StoredConversation> for DbConnection {
             .load::<StoredConversation>(self)
             .map_err(StorageError::DieselResultError)
     }
-    fn fetch_one<'a>(
-        &mut self,
-        key: Self::Key<'a>,
-    ) -> Result<Option<StoredConversation>, StorageError> {
+    fn fetch_one(&mut self, key: &str) -> Result<Option<StoredConversation>, StorageError> {
         use self::schema::conversations::dsl::*;
         Ok(conversations.find(key).first(self).optional()?)
     }
@@ -740,7 +737,7 @@ impl Fetch<Account> for DbConnection {
             .collect())
     }
 
-    fn fetch_one<'a>(&mut self, key: Self::Key<'a>) -> Result<Option<Account>, StorageError> {
+    fn fetch_one(&mut self, key: i32) -> Result<Option<Account>, StorageError> {
         use self::schema::accounts::dsl::*;
         let stored_account: Option<StoredAccount> = accounts.find(key).first(self).optional()?;
 
@@ -771,10 +768,7 @@ impl Fetch<StoredInstallation> for DbConnection {
             .load::<StoredInstallation>(self)
             .map_err(StorageError::DieselResultError)
     }
-    fn fetch_one<'a>(
-        &mut self,
-        key: Self::Key<'a>,
-    ) -> Result<Option<StoredInstallation>, StorageError> {
+    fn fetch_one(&mut self, key: &str) -> Result<Option<StoredInstallation>, StorageError> {
         use self::schema::installations::dsl::*;
         Ok(installations.find(key).first(self).optional()?)
     }
