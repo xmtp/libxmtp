@@ -368,10 +368,20 @@ impl EncryptedMessageStore {
         conn: &mut PooledConnection<ConnectionManager<SqliteConnection>>,
         invite: InboundInvite,
     ) -> Result<(), StorageError> {
-        diesel::insert_into(inbound_invites::table)
+        let ref_id = invite.id.clone();
+        let result = diesel::insert_into(inbound_invites::table)
             .values(invite)
-            .execute(conn)?;
+            .execute(conn);
 
+        if let Err(e) = result {
+            use diesel::result as dr;
+            match &e {
+                dr::Error::DatabaseError(dr::DatabaseErrorKind::UniqueViolation, _) => {
+                    warn!("This message has already been stored: {}", ref_id)
+                }
+                _ => return Err(StorageError::from(e)),
+            }
+        }
         Ok(())
     }
 
