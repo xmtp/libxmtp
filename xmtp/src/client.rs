@@ -22,7 +22,7 @@ use crate::{
 use std::collections::HashMap;
 use xmtp_proto::xmtp::message_api::v1::Envelope;
 
-const INSTALLATION_REFRESH_INTERVAL_NS: i64 = 10 * 60 * 1_000_000_000; // 10 minutes
+const INSTALLATION_REFRESH_INTERVAL_NS: i64 = 0;
 
 #[derive(Clone, Copy, Default, Debug)]
 pub enum Network {
