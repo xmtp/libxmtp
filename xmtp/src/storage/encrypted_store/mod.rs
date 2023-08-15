@@ -415,10 +415,20 @@ impl EncryptedMessageStore {
         message: InboundMessage,
     ) -> Result<(), StorageError> {
         use self::schema::inbound_messages::dsl as schema;
-
-        diesel::insert_into(schema::inbound_messages)
+        let mesg_id = message.id.clone();
+        let result = diesel::insert_into(schema::inbound_messages)
             .values(message)
-            .execute(conn)?;
+            .execute(conn);
+
+        if let Err(e) = result {
+            use diesel::result as dr;
+            match &e {
+                dr::Error::DatabaseError(dr::DatabaseErrorKind::UniqueViolation, _) => {
+                    warn!("This message has already been stored: {}", mesg_id)
+                }
+                _ => return Err(StorageError::from(e)),
+            }
+        }
 
         Ok(())
     }
