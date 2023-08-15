@@ -43,7 +43,7 @@ pub enum ClientError {
     #[error("dieselError: {0}")]
     Ddd(#[from] diesel::result::Error),
     #[error("Query failed: {0}")]
-    QueryError(String),
+    QueryError(#[from] crate::types::networking::Error),
     #[error("generic:{0}")]
     Generic(String),
 }
@@ -135,8 +135,7 @@ where
                 end_time_ns: 0,
                 paging_info: None,
             })
-            .await
-            .map_err(|e| ClientError::QueryError(format!("Could not query for contacts: {}", e)))?;
+            .await?;
 
         let mut contacts = vec![];
         for envelope in response.envelopes {
@@ -321,8 +320,7 @@ where
                     envelopes: vec![envelope],
                 },
             )
-            .await
-            .map_err(|e| ClientError::PublishError(format!("Could not publish contact: {}", e)))?;
+            .await?;
 
         Ok(())
     }
@@ -352,8 +350,7 @@ where
                 // TODO: Pagination
                 paging_info: None,
             })
-            .await
-            .map_err(|e| ClientError::QueryError(format!("Could not query topic: {}", e)))?;
+            .await?;
 
         Ok(response.envelopes)
     }

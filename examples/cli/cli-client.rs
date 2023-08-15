@@ -37,6 +37,8 @@ struct Cli {
     /// Sets a custom config file
     #[arg(long, value_name = "FILE", global = true)]
     db: Option<PathBuf>,
+    #[clap(long, default_value_t = false)]
+    local: bool,
 }
 
 #[derive(Debug, Subcommand)]
@@ -118,20 +120,20 @@ async fn main() {
     match &cli.command {
         Commands::Register { wallet_seed } => {
             info!("Register");
-            if let Err(e) = register(cli.db, true, wallet_seed).await {
+            if let Err(e) = register(&cli, true, wallet_seed).await {
                 error!("Registration failed: {:?}", e)
             }
         }
         Commands::Info {} => {
             info!("Info");
-            let client = create_client(cli.db, AccountStrategy::CachedOnly("nil".into()))
+            let client = create_client(&cli, AccountStrategy::CachedOnly("nil".into()))
                 .await
                 .unwrap();
             info!("Address is: {}", client.wallet_address());
         }
         Commands::ListConversations {} => {
             info!("List Conversations");
-            let client = create_client(cli.db, AccountStrategy::CachedOnly("nil".into()))
+            let client = create_client(&cli, AccountStrategy::CachedOnly("nil".into()))
                 .await
                 .unwrap();
             let conversations = Conversations::new(&client);
@@ -142,7 +144,7 @@ async fn main() {
         }
         Commands::Send { addr, msg } => {
             info!("Send");
-            let client = create_client(cli.db, AccountStrategy::CachedOnly("nil".into()))
+            let client = create_client(&cli, AccountStrategy::CachedOnly("nil".into()))
                 .await
                 .unwrap();
             info!("Address is: {}", client.wallet_address());
@@ -150,7 +152,7 @@ async fn main() {
         }
         Commands::Recv {} => {
             info!("Recv");
-            let client = create_client(cli.db, AccountStrategy::CachedOnly("nil".into()))
+            let client = create_client(&cli, AccountStrategy::CachedOnly("nil".into()))
                 .await
                 .unwrap();
             info!("Address is: {}", client.wallet_address());
@@ -158,7 +160,7 @@ async fn main() {
         }
         Commands::Refresh {} => {
             info!("Refresh");
-            let client = create_client(cli.db, AccountStrategy::CachedOnly("nil".into()))
+            let client = create_client(&cli, AccountStrategy::CachedOnly("nil".into()))
                 .await
                 .unwrap();
             client
@@ -167,7 +169,7 @@ async fn main() {
                 .unwrap();
         }
         Commands::ListContacts {} => {
-            let client = create_client(cli.db, AccountStrategy::CachedOnly("nil".into()))
+            let client = create_client(&cli, AccountStrategy::CachedOnly("nil".into()))
                 .await
                 .unwrap();
 
@@ -177,32 +179,36 @@ async fn main() {
             }
         }
         Commands::Clear {} => {
-            fs::remove_file(cli.db.unwrap()).unwrap();
+            fs::remove_file(&cli.db.unwrap()).unwrap();
         }
     }
 }
 
-async fn create_client(
-    db: Option<PathBuf>,
-    account: AccountStrategy<Wallet>,
-) -> Result<Client, CliError> {
-    let msg_store = get_encrypted_store(db).unwrap();
+async fn create_client(cli: &Cli, account: AccountStrategy<Wallet>) -> Result<Client, CliError> {
+    let msg_store = get_encrypted_store(&cli.db).unwrap();
+    let mut builder = ClientBuilder::new(account).store(msg_store);
 
-    let client_result = ClientBuilder::new(account)
-        .network(xmtp::Network::Local("http://localhost:5556"))
-        .api_client(
-            ApiClient::create("http://localhost:5556".into(), false)
+    if cli.local {
+        builder = builder
+            .network(xmtp::Network::Local("http://localhost:5556"))
+            .api_client(
+                ApiClient::create("http://localhost:5556".into(), false)
+                    .await
+                    .unwrap(),
+            );
+    } else {
+        builder = builder.network(xmtp::Network::Dev).api_client(
+            ApiClient::create("https://dev.xmtp.network:5556".into(), true)
                 .await
                 .unwrap(),
-        )
-        .store(msg_store)
-        .build();
+        );
+    }
 
-    client_result.map_err(CliError::ClientBuilder)
+    builder.build().map_err(CliError::ClientBuilder)
 }
 
-async fn register(db: Option<PathBuf>, use_local: bool, wallet_seed: &u64) -> Result<(), CliError> {
-    let w = if use_local {
+async fn register(cli: &Cli, use_local_db: bool, wallet_seed: &u64) -> Result<(), CliError> {
+    let w = if use_local_db {
         if wallet_seed == &0 {
             Wallet::LocalWallet(LocalWallet::new(&mut rng()))
         } else {
@@ -214,7 +220,7 @@ async fn register(db: Option<PathBuf>, use_local: bool, wallet_seed: &u64) -> Re
         Wallet::WalletConnectWallet(WalletConnectWallet::create().await?)
     };
 
-    let mut client = create_client(db, AccountStrategy::CreateIfNotFound(w)).await?;
+    let mut client = create_client(cli, AccountStrategy::CreateIfNotFound(w)).await?;
     info!("Address is: {}", client.wallet_address());
 
     if let Err(e) = client.init().await {
@@ -250,7 +256,7 @@ fn static_enc_key() -> EncryptionKey {
     [2u8; 32]
 }
 
-fn get_encrypted_store(db: Option<PathBuf>) -> Result<EncryptedMessageStore, CliError> {
+fn get_encrypted_store(db: &Option<PathBuf>) -> Result<EncryptedMessageStore, CliError> {
     let store = match db {
         Some(path) => {
             let s = path.as_path().to_string_lossy().to_string();
