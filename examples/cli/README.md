@@ -17,7 +17,13 @@ Use the CLI to send a [double ratchet message](#double-ratchet-messaging) betwee
    dev/up
    ```
 
-2. Create a sender wallet account (user1). Create an [installation key bundle](#installation-key-bundles) and store it in the database. Grant the installation key bundle permission to message on behalf of the sender address. This will allow the CLI to message on behalf of the sender address.
+2. Change directories to `examples/cli`.
+
+   ```bash
+   cd examples/cli
+   ```
+
+3. Create a sender wallet account (user1). Create an [installation key bundle](#installation-key-bundles) and store it in the database. Grant the installation key bundle permission to message on behalf of the sender address. This will allow the CLI to message on behalf of the sender address.
 
    ```bash
    ./xli.sh --db user1.db3 register
