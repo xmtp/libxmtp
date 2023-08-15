@@ -9,21 +9,11 @@ This is a demo XMTP v3-alpha console client (CLI) that you can use to send and r
 
 ## Send a double ratchet message
 
-Use the CLI to send a [double ratchet message](https://github.com/xmtp/libxmtp/blob/main/README.md#double-ratchet-messaging) between test wallets using a local XMTP node and database running in Docker Desktop.
+Use the CLI to send a [double ratchet message](https://github.com/xmtp/libxmtp/blob/main/README.md#double-ratchet-messaging) between test wallets on the XMTP `dev` network. 
 
-1. In the root directory of this repo, run:
+1. Go to the `examples/cli` directory.
 
-   ```bash
-   dev/up
-   ```
-
-2. Change directories to `examples/cli`.
-
-   ```bash
-   cd examples/cli
-   ```
-
-3. Create a sender wallet account (user1). Create an [installation key bundle](https://github.com/xmtp/libxmtp/blob/main/README.md#installation-key-bundles) and store it in the database. Grant the installation key bundle permission to message on behalf of the sender address. This will allow the CLI to message on behalf of the sender address.
+2. Create a sender wallet account (user1). Create an [installation key bundle](https://github.com/xmtp/libxmtp/blob/main/README.md#installation-key-bundles) and store it in the database. Grant the installation key bundle permission to message on behalf of the sender address. This will allow the CLI to message on behalf of the sender address.
 
    ```bash
    ./xli.sh --db user1.db3 register
@@ -52,3 +42,5 @@ Use the CLI to send a [double ratchet message](https://github.com/xmtp/libxmtp/b
    ```bash
    ./xli.sh --db user1.db3 list-conversations
    ```
+
+If you want to run the CLI against localhost, go to the root directory and run `dev/up`. Then run the CLI commands using the `--local` flag.

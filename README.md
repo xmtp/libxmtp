@@ -24,9 +24,6 @@ Start Docker Desktop.
 
   Specifically, this command creates and runs an XMTP node in Docker Desktop.
 
-  > **Tip**  
-  > You can use this local node with the [example CLI](https://github.com/xmtp/libxmtp/blob/main/examples/cli/README.md) to try out sending XMTP v3-alpha double ratchet messages.
-
 - To run tests:
 
   ```
@@ -39,7 +36,7 @@ Start Docker Desktop.
 - [`xmtp_cryptography`](https://github.com/xmtp/libxmtp/tree/main/xmtp_cryptography): Cryptographic operations
 - [`xmtp_networking`](https://github.com/xmtp/libxmtp/tree/main/xmtp_networking): API client for XMTP's gRPC API, using code from `xmtp_proto`
 - [`xmtp_proto`](https://github.com/xmtp/libxmtp/tree/main/xmtp_proto): Generated code for handling XMTP protocol buffers
-- [`examples/cli`](https://github.com/xmtp/libxmtp/tree/main/examples/cli): Example XMTP console client
+- [`examples/cli`](https://github.com/xmtp/libxmtp/tree/main/examples/cli): Example XMTP console client. Use the CLI to try out sending double ratchet messages on the XMTP `dev` network.
 - [`examples/android/xmtpv3_example`](https://github.com/xmtp/libxmtp/tree/main/examples/android/xmtpv3_example): Example Android app (in progress)
 - [`bindings_ffi`](https://github.com/xmtp/libxmtp/tree/main/bindings_ffi): FFI bindings for Android and iOS (in progress)
 - [`bindings_js`](https://github.com/xmtp/libxmtp/tree/main/bindings_js): JS bindings (in progress)
@@ -67,6 +64,9 @@ In contrast, with XMTP v2, if a user’s key bundle becomes compromised:
 - Future messages might not remain secure.
 
 **How**: Specifically, it uses the Rust version of [Olm](https://gitlab.matrix.org/matrix-org/olm/-/blob/master/docs/olm.md), which is Matrix protocol’s implementation of double ratchet. To learn more about the double ratchet algorithm and how sessions and session keys work, see [The Double Ratchet Algorithm](https://signal.org/docs/specifications/doubleratchet/).
+
+> **Tip**  
+> Use the [example CLI](https://github.com/xmtp/libxmtp/blob/main/examples/cli/README.md) to try out sending XMTP v3-alpha double ratchet messages on the XMTP `dev` network.
 
 ### Installation key bundles
 
