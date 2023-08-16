@@ -163,6 +163,7 @@ pub fn now() -> i64 {
 pub struct StoredSession {
     pub session_id: String,
     pub created_at: i64,
+    pub updated_at: i64,
     pub peer_installation_id: String,
     pub vmac_session_data: Vec<u8>,
     pub user_address: String,
@@ -175,10 +176,12 @@ impl StoredSession {
         vmac_session_data: Vec<u8>,
         user_address: String,
     ) -> Self {
+        let now = now();
         Self {
             session_id,
             peer_installation_id,
-            created_at: now(),
+            created_at: now,
+            updated_at: now,
             vmac_session_data,
             user_address,
         }
@@ -192,6 +195,7 @@ impl Save<DbConnection> for StoredSession {
             .set((
                 sessions::vmac_session_data.eq(&self.vmac_session_data),
                 sessions::peer_installation_id.eq(&self.peer_installation_id),
+                sessions::updated_at.eq(now()),
             ))
             .execute(into)?;
 
