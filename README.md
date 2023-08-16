@@ -48,7 +48,7 @@ Start Docker Desktop.
 
 **What**: XMTP v3-alpha introduces the use of the [double ratchet algorithm](https://signal.org/docs/specifications/doubleratchet/) to keep past and future messages secure.
 
-**Why**: With double ratchet messaging, each message is encrypted by its own session key. If the session key a sender used to send a message becomes compromised:
+**Why**: With double ratchet messaging, each message is encrypted by its own key. If a message key becomes compromised:
 
 - All of their past messages remain secure. (Forward secrecy)
 
@@ -74,7 +74,7 @@ In contrast, with XMTP v2, if a user’s key bundle becomes compromised:
 
 With XMTP v3-alpha, there is no XMTP user key bundle. Instead, the user signs with their blockchain account to grant permission to an installation key bundle to send messages from their account address. The user signs to grant permission to an installation key bundle for each installation of an app built with XMTP. The installation key bundle is stored on each device and is not required to be stored on the XMTP network.
 
-**Why**: Storing keys on the XMTP network makes them potentially available to anyone. Moving key storage to devices significantly improves security, as keys never leave a user’s device. Additionally, installation key bundles provide separate and revocable keys for each app installation on a device, simplifying key management. When a user revokes (deletes) a key from a device, you can be sure that it is gone.
+**Why**: Storing keys on the XMTP network makes them potentially available to anyone. Moving key storage to devices significantly improves security, as keys never leave a user’s device. When a user deletes a key from a device, you can be sure that it is gone. Additionally, installation key bundles provide separate and revocable keys for each app installation on a device, simplifying key management.
 
 **How**: If a user has App A installed on Device 1, App B installed on Device 1, and App A installed on Device 2, they will sign three times to grant permission to an installation key bundle per installation.
 
