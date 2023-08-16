@@ -22,4 +22,5 @@ walletconnect = {git="https://github.com/nlordell/walletconnect-rs.git", feature
 xmtp = { path = "../../xmtp" }
 xmtp_cryptography = { path = "../../xmtp_cryptography"}
 xmtp_networking = { path = "../../xmtp_networking"}
+timeago = "0.4.1"
 
