@@ -9,7 +9,7 @@ This is a demo XMTP v3-alpha console client (CLI) that you can use to send and r
 
 ## Send a double ratchet message
 
-Use the CLI to send a [double ratchet message](https://github.com/xmtp/libxmtp/blob/main/README.md#double-ratchet-messaging) between test wallets on the XMTP `dev` network. 
+Use the CLI to send a [double ratchet message](https://github.com/xmtp/libxmtp/blob/main/README.md#double-ratchet-messaging) between test wallets on the XMTP `dev` network.
 
 1. Go to the `examples/cli` directory.
 
@@ -37,7 +37,7 @@ Use the CLI to send a [double ratchet message](https://github.com/xmtp/libxmtp/b
    ./xli.sh --db user1.db3 send <user2_address> "hello"
    ```
 
-6. List conversations.
+6. List conversations and messages.
 
    ```bash
    ./xli.sh --db user1.db3 list-conversations
