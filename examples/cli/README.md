@@ -43,4 +43,4 @@ Use the CLI to send a [double ratchet message](https://github.com/xmtp/libxmtp/b
    ./xli.sh --db user1.db3 list-conversations
    ```
 
-If you want to run the CLI against localhost, go to the root directory and run `dev/up`. Then run the CLI commands using the `--local` flag.
+If you want to run the CLI against localhost, go to the root directory and run `dev/up` to start a local server. Then run the CLI commands using the `--local` flag.
