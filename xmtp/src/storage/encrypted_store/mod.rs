@@ -199,7 +199,7 @@ impl EncryptedMessageStore {
     ) -> Result<Vec<StoredSession>, StorageError> {
         if !is_wallet_address(user_address) {
             return Err(StorageError::Unknown(
-                "incorrectly formatted waleltAddress".into(),
+                "incorrectly formatted walletAddress".into(),
             ));
         }
         let session_list = sql_query("Select sessions.* from
@@ -212,6 +212,7 @@ impl EncryptedMessageStore {
                     )as ids
                 left join sessions on ids.session_id = sessions.session_id
         ").bind::<Text,_>(user_address).load::<StoredSession>(conn).map_err(|e| StorageError::Unknown(e.to_string()))?;
+
         Ok(session_list)
     }
 

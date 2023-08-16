@@ -50,8 +50,8 @@ pub fn is_wallet_address(address: &str) -> bool {
         return false;
     }
 
-    if !address.chars().all(|c| char::is_ascii_hexdigit(&c)) {
+    if !address[2..].chars().all(|c| char::is_ascii_hexdigit(&c)) {
         return false;
     }
-    return true;
+    true
 }
