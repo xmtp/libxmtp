@@ -202,16 +202,28 @@ impl EncryptedMessageStore {
                 "incorrectly formatted walletAddress".into(),
             ));
         }
-        let session_list = sql_query("Select sessions.* from
-                    (
-                        select distinct
-                            first_value(session_id) over (partition by peer_installation_id order by updated_at desc) as session_id
-                        from sessions
-                        where user_address = ?
-
-                    )as ids
-                left join sessions on ids.session_id = sessions.session_id
-        ").bind::<Text,_>(user_address).load::<StoredSession>(conn).map_err(|e| StorageError::Unknown(e.to_string()))?;
+        let session_list = sql_query(
+            "SELECT 
+        sessions.* 
+      FROM 
+        (
+          SELECT 
+            DISTINCT First_value(session_id) OVER (
+              partition BY peer_installation_id 
+              ORDER BY 
+                updated_at DESC
+            ) AS session_id 
+          FROM 
+            sessions 
+          WHERE 
+            user_address = ?
+        ) AS ids 
+        LEFT JOIN sessions ON ids.session_id = sessions.session_id
+      ",
+        )
+        .bind::<Text, _>(user_address)
+        .load::<StoredSession>(conn)
+        .map_err(|e| StorageError::Unknown(e.to_string()))?;
 
         Ok(session_list)
     }
