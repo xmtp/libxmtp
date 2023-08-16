@@ -112,8 +112,8 @@ impl TryFrom<&SessionManager> for StoredSession {
 
     fn try_from(value: &SessionManager) -> Result<Self, Self::Error> {
         Ok(StoredSession::new(
-            value.peer_installation_id.clone(),
             value.session.session_id(),
+            value.peer_installation_id.clone(),
             // TODO: Better error handling approach. StoreError and SessionError end up being dependent on eachother
             value
                 .session_bytes()

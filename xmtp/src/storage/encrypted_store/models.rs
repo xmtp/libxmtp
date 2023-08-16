@@ -170,14 +170,14 @@ pub struct StoredSession {
 
 impl StoredSession {
     pub fn new(
-        peer_installation_id: String,
         session_id: String,
+        peer_installation_id: String,
         vmac_session_data: Vec<u8>,
         user_address: String,
     ) -> Self {
         Self {
-            peer_installation_id,
             session_id,
+            peer_installation_id,
             created_at: now(),
             vmac_session_data,
             user_address,
