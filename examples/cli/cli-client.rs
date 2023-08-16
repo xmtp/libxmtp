@@ -134,22 +134,18 @@ async fn main() {
 
     let cli = Cli::parse();
 
-    match &cli.command {
-        Commands::Register { wallet_seed } => {
-            info!("Register");
-            if let Err(e) = register(&cli, true, wallet_seed).await {
-                error!("Registration failed: {:?}", e)
-            }
+    if let Commands::Register { wallet_seed } = &cli.command {
+        info!("Register");
+        if let Err(e) = register(&cli, true, wallet_seed).await {
+            error!("Registration failed: {:?}", e)
         }
-        _ => (),
+        return;
     }
 
     match &cli.command {
+        #[allow(unused_variables)]
         Commands::Register { wallet_seed } => {
-            info!("Register");
-            if let Err(e) = register(&cli, true, wallet_seed).await {
-                error!("Registration failed: {:?}", e)
-            }
+            unreachable!()
         }
         Commands::Info {} => {
             info!("Info");
