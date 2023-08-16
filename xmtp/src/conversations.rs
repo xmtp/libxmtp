@@ -498,6 +498,8 @@ where
     ) -> Result<(), ConversationError> {
         let peer_address =
             peer_addr_from_convo_id(&message.convo_id, &self.client.wallet_address())?;
+
+        // Refresh remote installations
         self.client
             .refresh_user_installations_if_stale(&peer_address)
             .await?;
@@ -547,6 +549,7 @@ where
     }
 
     pub async fn process_outbound_messages(&self) -> Result<(), ConversationError> {
+        //Update self installations
         self.client
             .refresh_user_installations_if_stale(&self.client.wallet_address())
             .await?;

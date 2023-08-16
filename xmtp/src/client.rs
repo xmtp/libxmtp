@@ -118,9 +118,6 @@ where
             self.publish_user_contact().await?;
         }
 
-        self.refresh_user_installations(&app_contact_bundle.wallet_address)
-            .await?;
-
         self.is_initialized = true;
         Ok(())
     }

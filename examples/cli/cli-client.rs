@@ -64,8 +64,6 @@ enum Commands {
         msg: String,
     },
     Recv {},
-
-    Refresh {},
     ListContacts {},
     Clear {},
 }
@@ -189,16 +187,6 @@ async fn main() {
                 .unwrap();
             info!("Address is: {}", client.wallet_address());
             recv(&client).await.unwrap();
-        }
-        Commands::Refresh {} => {
-            info!("Refresh");
-            let client = create_client(&cli, AccountStrategy::CachedOnly("nil".into()))
-                .await
-                .unwrap();
-            client
-                .refresh_user_installations(&client.wallet_address())
-                .await
-                .unwrap();
         }
         Commands::ListContacts {} => {
             let client = create_client(&cli, AccountStrategy::CachedOnly("nil".into()))
