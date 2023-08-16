@@ -3,14 +3,14 @@ use crate::{
     account::Account,
     contact::{Contact, ContactError},
     storage::StorageError,
-    Save,
+    ContentCodec, Save, TextCodec,
 };
 use diesel::prelude::*;
-use prost::Message;
+use prost::{DecodeError, Message};
 use std::fmt;
 use std::time::{SystemTime, UNIX_EPOCH};
 use xmtp_cryptography::hash::sha256_bytes;
-use xmtp_proto::xmtp::message_api::v1::Envelope;
+use xmtp_proto::xmtp::{message_api::v1::Envelope, message_contents::EncodedContent};
 
 #[derive(Insertable, Selectable, Identifiable, Queryable, PartialEq, Debug, Clone)]
 #[diesel(table_name = users)]
@@ -54,6 +54,17 @@ pub struct StoredMessage {
     pub addr_from: String,
     pub content: Vec<u8>,
     pub state: i32,
+}
+
+impl StoredMessage {
+    pub fn get_text(&self) -> Result<String, DecodeError> {
+        let content = EncodedContent::decode(self.content.as_slice())?;
+        let fallback = String::from(content.fallback());
+        match TextCodec::decode(content) {
+            Ok(t) => Ok(t),
+            Err(_) => Ok(fallback),
+        }
+    }
 }
 
 /// Placeholder type for messages being inserted into the store. This type is the same as
