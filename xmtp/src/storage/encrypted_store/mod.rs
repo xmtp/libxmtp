@@ -21,11 +21,13 @@ use self::{
     },
 };
 use super::{now, StorageError};
-use crate::{account::Account, Errorer, Fetch, Store};
+use crate::{account::Account, utils::is_wallet_address, Errorer, Fetch, Store};
 use diesel::{
     connection::SimpleConnection,
     prelude::*,
     r2d2::{ConnectionManager, Pool, PooledConnection},
+    sql_query,
+    sql_types::Text,
 };
 use diesel_migrations::{embed_migrations, EmbeddedMigrations, MigrationHarness};
 use log::warn;
@@ -190,18 +192,26 @@ impl EncryptedMessageStore {
             .map_err(|e| StorageError::Unknown(e.to_string()))
     }
 
-    pub fn get_sessions(
+    pub fn get_latest_sessions(
         &self,
         user_address: &str,
         conn: &mut DbConnection,
     ) -> Result<Vec<StoredSession>, StorageError> {
-        use self::schema::sessions::dsl as schema;
-        // TODO: Return only the most recently updated sessions for each installation
-        let session_list = schema::sessions
-            .filter(schema::user_address.eq(user_address))
-            .order(schema::created_at.desc())
-            .load::<StoredSession>(conn)
-            .map_err(|e| StorageError::Unknown(e.to_string()))?;
+        if !is_wallet_address(user_address) {
+            return Err(StorageError::Unknown(
+                "incorrectly formatted waleltAddress".into(),
+            ));
+        }
+        let session_list = sql_query("Select sessions.* from
+                    (
+                        select distinct
+                            first_value(session_id) over (partition by peer_installation_id order by updated_at desc) as session_id
+                        from sessions
+                        where user_address = ?
+
+                    )as ids
+                left join sessions on ids.session_id = sessions.session_id
+        ").bind::<Text,_>(user_address).load::<StoredSession>(conn).map_err(|e| StorageError::Unknown(e.to_string()))?;
         Ok(session_list)
     }
 

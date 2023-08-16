@@ -522,13 +522,13 @@ where
                 let my_sessions = self
                     .client
                     .store
-                    .get_sessions(&self.client.wallet_address(), transaction)?;
+                    .get_latest_sessions(&self.client.wallet_address(), transaction)?;
                 let their_user_addr =
                     peer_addr_from_convo_id(&message.convo_id, &self.client.wallet_address())?;
                 let their_sessions = self
                     .client
                     .store
-                    .get_sessions(&their_user_addr, transaction)?;
+                    .get_latest_sessions(&their_user_addr, transaction)?;
                 if their_sessions.is_empty() {
                     return Err(ConversationError::NoSessions(their_user_addr));
                 }

@@ -157,7 +157,7 @@ pub fn now() -> i64 {
         .as_nanos() as i64
 }
 
-#[derive(Insertable, Identifiable, Queryable, Clone, PartialEq, Debug)]
+#[derive(Insertable, Identifiable, Queryable, Clone, PartialEq, Debug, QueryableByName)]
 #[diesel(table_name = sessions)]
 #[diesel(primary_key(session_id))]
 pub struct StoredSession {
