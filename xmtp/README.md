@@ -79,7 +79,7 @@ process_messages():
             If user.last_refreshed is uninitialized or more than THRESHOLD ago:
                 refresh_user_installations()    // Could be kicked off asynchronously or synchronously
                 return  // refreshUserInstallations() will call back into processMessages() when ready
-        Fetch the sessions of all users from the DB
+        Fetch the most recent sessions of all users from the DB
         For each session:
             // Build the plaintext payload
             If conversation.state == UNINITIALIZED:
