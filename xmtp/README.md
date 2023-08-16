@@ -192,28 +192,31 @@ process_inbound_messages():
         If the payload is malformed and the proto cannot be decoded:
             Set inbound_invite state to INVALID
             continue
-        If an existing session exists with the `sender.installation_id`:
-            Decrypt the ciphertext using the existing session
+
+        If session from get_session:
+            Decrypt ciphertext using session
             If decryption fails:
                 Set inbound_message state to DECRYPTION_FAILURE
                 continue
-            Update session in the database
-        else:
-            Create a new inbound session with the sender
-            Decrypt the ciphertext using the new session
-            If decryption fails:
-                Set inbound_invite state to DECRYPTION_FAILURE
-                continue
-            Persist the session to the database
-
+            Update/save session in the database
+    
         If message validation fails:
-            Set inbound_invite state to INVALID
+            Set inbound_message state to INVALID
             continue
 
-       
-        persis message
-        Set inbound_invite state to PROCESSED
+        persist message
+        Set inbound_message state to PROCESSED
 
+get_session(message):
+ 
+    For each session with `session.installation_id` == `sender.installation_id`:  // Regardless of message type
+        If the message can be decrypted:
+            return session
+
+    if message.type == Prekey:
+        return new inbound session
+    else:
+        NoSession available -- message cannot be decrypted
 ```
 
 ...
