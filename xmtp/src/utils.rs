@@ -40,3 +40,18 @@ pub fn base64_encode(bytes: &[u8]) -> String {
 pub fn key_fingerprint(key: &Curve25519PublicKey) -> String {
     base64_encode(keccak256(key.to_string().as_str()).as_slice())
 }
+
+pub fn is_wallet_address(address: &str) -> bool {
+    if !address.starts_with("0x") {
+        return false;
+    }
+
+    if address.len() != 42 {
+        return false;
+    }
+
+    if !address[2..].chars().all(|c| char::is_ascii_hexdigit(&c)) {
+        return false;
+    }
+    true
+}

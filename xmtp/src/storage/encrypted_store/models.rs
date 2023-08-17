@@ -157,12 +157,13 @@ pub fn now() -> i64 {
         .as_nanos() as i64
 }
 
-#[derive(Insertable, Identifiable, Queryable, Clone, PartialEq, Debug)]
+#[derive(Insertable, Identifiable, Queryable, Clone, PartialEq, Debug, QueryableByName)]
 #[diesel(table_name = sessions)]
 #[diesel(primary_key(session_id))]
 pub struct StoredSession {
     pub session_id: String,
     pub created_at: i64,
+    pub updated_at: i64,
     pub peer_installation_id: String,
     pub vmac_session_data: Vec<u8>,
     pub user_address: String,
@@ -170,15 +171,17 @@ pub struct StoredSession {
 
 impl StoredSession {
     pub fn new(
-        peer_installation_id: String,
         session_id: String,
+        peer_installation_id: String,
         vmac_session_data: Vec<u8>,
         user_address: String,
     ) -> Self {
+        let now = now();
         Self {
-            peer_installation_id,
             session_id,
-            created_at: now(),
+            peer_installation_id,
+            created_at: now,
+            updated_at: now,
             vmac_session_data,
             user_address,
         }
@@ -192,6 +195,7 @@ impl Save<DbConnection> for StoredSession {
             .set((
                 sessions::vmac_session_data.eq(&self.vmac_session_data),
                 sessions::peer_installation_id.eq(&self.peer_installation_id),
+                sessions::updated_at.eq(now()),
             ))
             .execute(into)?;
 

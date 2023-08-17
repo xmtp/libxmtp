@@ -21,11 +21,13 @@ use self::{
     },
 };
 use super::{now, StorageError};
-use crate::{account::Account, Errorer, Fetch, Store};
+use crate::{account::Account, utils::is_wallet_address, Errorer, Fetch, Store};
 use diesel::{
     connection::SimpleConnection,
     prelude::*,
     r2d2::{ConnectionManager, Pool, PooledConnection},
+    sql_query,
+    sql_types::Text,
 };
 use diesel_migrations::{embed_migrations, EmbeddedMigrations, MigrationHarness};
 use log::warn;
@@ -161,35 +163,68 @@ impl EncryptedMessageStore {
         Ok(account_list.pop())
     }
 
-    pub fn get_session_with_conn(
+    pub fn get_latest_session_for_installation(
         &self,
         installation_id: &str,
         conn: &mut DbConnection,
     ) -> Result<Option<StoredSession>, StorageError> {
         use self::schema::sessions::dsl::*;
 
-        let mut session_list = sessions
+        sessions
             .filter(peer_installation_id.eq(installation_id))
-            .order(created_at.desc())
-            .load::<StoredSession>(conn)
-            .map_err(|e| StorageError::Unknown(e.to_string()))?;
-
-        warn_length(&session_list, "StoredSession", 1);
-        Ok(session_list.pop())
+            .order(updated_at.desc())
+            .first(conn)
+            .optional()
+            .map_err(|e| StorageError::Unknown(e.to_string()))
     }
 
-    pub fn get_sessions(
+    pub fn get_latest_sessions_for_installation(
+        &self,
+        installation_id: &str,
+        conn: &mut DbConnection,
+    ) -> Result<Vec<StoredSession>, StorageError> {
+        use self::schema::sessions::dsl::*;
+
+        sessions
+            .filter(peer_installation_id.eq(installation_id))
+            .order(updated_at.desc())
+            .get_results(conn)
+            .map_err(|e| StorageError::Unknown(e.to_string()))
+    }
+
+    pub fn get_latest_sessions(
         &self,
         user_address: &str,
         conn: &mut DbConnection,
     ) -> Result<Vec<StoredSession>, StorageError> {
-        use self::schema::sessions::dsl as schema;
+        if !is_wallet_address(user_address) {
+            return Err(StorageError::Unknown(
+                "incorrectly formatted walletAddress".into(),
+            ));
+        }
+        let session_list = sql_query(
+            "SELECT 
+        sessions.* 
+      FROM 
+        (
+          SELECT 
+            DISTINCT First_value(session_id) OVER (
+              partition BY peer_installation_id 
+              ORDER BY 
+                updated_at DESC
+            ) AS session_id 
+          FROM 
+            sessions 
+          WHERE 
+            user_address = ?
+        ) AS ids 
+        LEFT JOIN sessions ON ids.session_id = sessions.session_id
+      ",
+        )
+        .bind::<Text, _>(user_address)
+        .load::<StoredSession>(conn)
+        .map_err(|e| StorageError::Unknown(e.to_string()))?;
 
-        let session_list = schema::sessions
-            .filter(schema::user_address.eq(user_address))
-            .order(schema::created_at.desc())
-            .load::<StoredSession>(conn)
-            .map_err(|e| StorageError::Unknown(e.to_string()))?;
         Ok(session_list)
     }
 
@@ -497,7 +532,7 @@ impl EncryptedMessageStore {
         conn: &mut PooledConnection<ConnectionManager<SqliteConnection>>,
     ) -> Result<(), StorageError> {
         for session in updated_sessions {
-            diesel::update(schema::sessions::table.find(session.peer_installation_id))
+            diesel::update(schema::sessions::table.find(session.session_id))
                 .set(schema::sessions::vmac_session_data.eq(session.vmac_session_data))
                 .get_result::<StoredSession>(conn)?;
         }
@@ -984,17 +1019,38 @@ mod tests {
             EncryptedMessageStore::generate_enc_key(),
         )
         .unwrap();
-        let session = StoredSession::new(
-            rand_string(),
-            rand_string(),
+        let conn = &mut store.conn().unwrap();
+
+        let install_id = rand_string();
+
+        let session_a = StoredSession::new(
+            "A".into(),
+            install_id.clone(),
             rand_vec(),
             rand_string(), // user_address: rand_string(),
         );
-        let conn = &mut store.conn().unwrap();
-        session.store(conn).unwrap();
+        session_a.store(conn).unwrap();
 
         let results: Vec<StoredSession> = conn.fetch_all().unwrap();
         assert_eq!(1, results.len());
+
+        let session_b = StoredSession::new(
+            "B".into(),
+            install_id.clone(),
+            rand_vec(),
+            rand_string(), // user_address: rand_string(),
+        );
+        session_b.store(conn).unwrap();
+
+        let results: Vec<StoredSession> = conn.fetch_all().unwrap();
+        assert_eq!(2, results.len());
+
+        let latest_session = store
+            .get_latest_session_for_installation(&install_id, conn)
+            .unwrap()
+            .expect("No session found");
+
+        assert_eq!(latest_session.session_id, session_b.session_id);
     }
 
     #[test]

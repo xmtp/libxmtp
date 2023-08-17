@@ -153,6 +153,7 @@ async fn main() {
                 .await
                 .unwrap();
             info!("Address is: {}", client.wallet_address());
+            info!("Installation_id: {}", client.installation_id());
         }
         Commands::ListConversations {} => {
             info!("List Conversations");

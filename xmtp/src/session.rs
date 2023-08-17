@@ -66,10 +66,10 @@ impl SessionManager {
 
     pub fn decrypt(
         &mut self,
-        message: OlmMessage,
+        message: &OlmMessage,
         into: &mut DbConnection,
     ) -> Result<Vec<u8>, SessionError> {
-        let res = self.session.decrypt(&message)?;
+        let res = self.session.decrypt(message)?;
 
         self.save(into)?;
 
@@ -112,8 +112,8 @@ impl TryFrom<&SessionManager> for StoredSession {
 
     fn try_from(value: &SessionManager) -> Result<Self, Self::Error> {
         Ok(StoredSession::new(
-            value.peer_installation_id.clone(),
             value.session.session_id(),
+            value.peer_installation_id.clone(),
             // TODO: Better error handling approach. StoreError and SessionError end up being dependent on eachother
             value
                 .session_bytes()
@@ -162,7 +162,7 @@ mod tests {
                 .unwrap();
 
             let reply = b_to_a_olm_session.session.encrypt("hello to you");
-            let decrypted_reply = a_to_b_session.decrypt(reply, conn).unwrap();
+            let decrypted_reply = a_to_b_session.decrypt(&reply, conn).unwrap();
             assert_eq!(decrypted_reply, "hello to you".as_bytes());
 
             let updated_results: Vec<StoredSession> = conn.fetch_all().unwrap();
