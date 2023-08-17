@@ -30,7 +30,7 @@ jobs:
     permissions:
       contents: write
     env:
-      RELEASE_BRANCH: main
+      RELEASE_BRANCH: test-swift
     steps:
     - uses: actions/checkout@v3
     - name: download artifacts
