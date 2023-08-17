@@ -17,3 +17,4 @@ bundle.zip
 
 # Ignore any swift files in include/Generated
 /include/**/*.swift
+build/

@@ -12,8 +12,7 @@ jobs:
       fail-fast: false
       matrix:
         target: [
-            # aarch64-unknown-linux-gnu,
-            # x86_64-linux-android,
+            x86_64-linux-android,
             i686-linux-android,
             armv7-linux-androideabi,
             aarch64-linux-android,
@@ -50,13 +49,13 @@ jobs:
         with:
           use-cross: true
           command: build
-          args: --release --target ${{ matrix.target }} --manifest-path bindings_ffi/Cargo.toml --target-dir bindings_ffi/target
+          args: --release --target ${{ matrix.target }} --manifest-path xmtp_dh/Cargo.toml --target-dir xmtp_dh/target
 
       - name: Upload binary
         uses: actions/upload-artifact@v3
         with:
           name: ${{ matrix.target }}
-          path: bindings_ffi/target/${{ matrix.target }}/release/libbindings_ffi.so
+          path: xmtp_dh/target/${{ matrix.target }}/release/libxmtp_dh.so
           retention-days: 1
 
   build-macos:
@@ -66,13 +65,15 @@ jobs:
       matrix:
         target: [
             aarch64-apple-darwin,
+            x86_64-apple-darwin,
             aarch64-apple-ios,
+            x86_64-apple-ios,
             aarch64-apple-ios-sim,
           ]
     steps:
       - name: Checkout
         uses: actions/checkout@v1
-
+  
       - name: "Cache"
         uses: actions/cache@v3
         with:
@@ -89,25 +90,18 @@ jobs:
           profile: minimal
           override: true
           target: ${{ matrix.target }}
-
-      # Install latest cross to mitigate unwind linking issue on android builds.
-      # See https://github.com/cross-rs/cross/issues/1222
-      - name: Install rust cross
-        run: |
-          cargo install cross --git https://github.com/cross-rs/cross
-
+ 
       - name: Build target
         uses: actions-rs/cargo@v1
         with:
-          use-cross: true
           command: build
-          args: --release --target ${{ matrix.target }} --manifest-path bindings_ffi/Cargo.toml --target-dir bindings_ffi/target
+          args: --release --target ${{ matrix.target }} --manifest-path bindings_swift/Cargo.toml --target-dir bindings_swift/target
 
       - name: Upload binary
         uses: actions/upload-artifact@v3
         with:
           name: ${{ matrix.target }}
-          path: bindings_ffi/target/${{ matrix.target }}/release/libbindings_ffi.dylib
+          path: bindings_swift/target/${{ matrix.target }}/release/libxmtp_rust_swift.a
           retention-days: 1        
 
   kotlin:
@@ -133,13 +127,13 @@ jobs:
       - name : Install kotlin
         run: brew install ktlint 
       - name: Generate Bindings
-        working-directory: bindings_ffi
+        working-directory: xmtp_dh
         run: ./gen_kotlin.sh
-      - name: Upload artifact
+      - name: Upload xmtp_dh.kt
         uses: actions/upload-artifact@v3
         with:
           name: kotlin
-          path: bindings_ffi/src/uniffi/xmtpv3/xmtpv3.kt
+          path: xmtp_dh/src/uniffi/xmtp_dh/xmtp_dh.kt
           retention-days: 1
 
   swift:
@@ -164,46 +158,17 @@ jobs:
           target: x86_64-apple-darwin
       - name : Install swift
         run: brew install swiftformat 
-      - name: Generate bindings
-        working-directory: bindings_ffi
-        run: |
-          make swift
-      - name: Upload artifact
+      - name: Generate and package bindings
+        working-directory: bindings_swift
+        run: make bridge
+      - name: Upload binding archive
         uses: actions/upload-artifact@v3
         with:
-          name: swift
-          path: bindings_ffi/build/swift/
+          name: bridge
+          path: |
+            bindings_swift/include
+            bindings_swift/Sources
           retention-days: 1
-        
-
-  package-android:
-    needs: [ build, kotlin ]
-    runs-on: ubuntu-latest
-    steps:
-      - name: Download artifacts
-        uses: actions/download-artifact@v3
-        with:
-          path: .
-      - name: Build archive
-        run: |
-          # not sure why we're building this one
-          # mv aarch64-unknown-linux-gnu/libbindings_ffi.so jniLibs/arm64-v8a/
-          # mkdir -p jniLibs/x86_64
-          # mv x86_64-linux-android/libbindings_ffi.so jniLibs/x86_64/
-          mkdir -p jniLibs/x86
-          mv i686-linux-android/libbindings_ffi.so jniLibs/x86/
-          mkdir -p jniLibs/armeabi-v7a
-          mv armv7-linux-androideabi/libbindings_ffi.so jniLibs/armeabi-v7a/
-          mkdir -p jniLibs/arm64-v8a
-          mv aarch64-linux-android/libbindings_ffi.so jniLibs/arm64-v8a/
-          mkdir -p java
-          mv kotlin/xmtpv3.kt java/
-          zip -r libxmtp-android.zip jniLibs java
-      - name: Upload artifact
-        uses: actions/upload-artifact@v3
-        with:
-          name: libxmtp-android.zip
-          path: libxmtp-android.zip
 
   package-swift:
     needs: [ build-macos, swift ]
@@ -211,21 +176,50 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v1
-      - name: Download artifacts
+      - name: Download libs
         uses: actions/download-artifact@v3
         with:
-          path: bindings_ffi/build
-      - name: Build archive
-        working-directory: bindings_ffi
+          path: bindings_swift/build
+      - name: Build xmtp-rust-swift.zip
+        working-directory: bindings_swift
         run: |
-          find .
-          mkdir -p Sources/LibXMTP
-          mv build/swift/xmtpv3.swift Sources/LibXMTP/
-          make framework
-          zip -r libxmtp-swift.zip Sources LibXMTPRust.xcframework
-      - name: Upload artifact
+          rm -r ./include
+          mv build/bridge/include .
+          mv build/bridge/Sources .
+          make swift
+      - name: Upload xmtp-rust-swift.zip
         uses: actions/upload-artifact@v3
         with:
-          name: libxmtp-swift.zip
-          path: bindings_ffi/libxmtp-swift.zip
+          name: xmtp-rust-swift.zip
+          path: bindings_swift/xmtp-rust-swift.zip
+          retention-days: 1
         
+
+  package-android:
+    needs: [ build, kotlin ]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download libs & bindings
+        uses: actions/download-artifact@v3
+        with:
+          path: .
+      - name: Build xmtp_dh.zip
+        run: |
+          # not sure why we're building this one
+          # mv aarch64-unknown-linux-gnu/libxmtp_dh.so jniLibs/arm64-v8a/
+          # mkdir -p jniLibs/x86_64
+          # mv x86_64-linux-android/libxmtp_dh.so jniLibs/x86_64/
+          mkdir -p jniLibs/x86
+          mv i686-linux-android/libxmtp_dh.so jniLibs/x86/
+          mkdir -p jniLibs/armeabi-v7a
+          mv armv7-linux-androideabi/libxmtp_dh.so jniLibs/armeabi-v7a/
+          mkdir -p jniLibs/arm64-v8a
+          mv aarch64-linux-android/libxmtp_dh.so jniLibs/arm64-v8a/
+          mkdir -p java
+          mv kotlin/xmtp_dh.kt java/
+          zip -r xmtp_dh.zip jniLibs java
+      - name: Upload xmtp_dh.zip
+        uses: actions/upload-artifact@v3
+        with:
+          name: xmtp_dh.zip
+          path: xmtp_dh.zip

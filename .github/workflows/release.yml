@@ -6,23 +6,40 @@ on:
     - '*'
 
 jobs:
+      
+  android:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write # for the release action
+    steps:
+      - uses: actions/checkout@v3
+      - name: download xmtp_dh.zip
+        env:
+          HEAD_SHA: ${{ github.sha }}
+          GITHUB_REPO: ${{ github.repository }}
+          GH_TOKEN: ${{ github.token }}
+        working-directory: xmtp_dh
+        run: ./get_android_artifact.sh
+      - name: create release
+        uses: ncipollo/release-action@v1
+        with:
+          artifacts: "xmtp_dh/xmtp_dh.zip"
 
-  swift-v2:
-    runs-on: macos-12
+  swift:
+    runs-on: macos-latest
     permissions:
       contents: write
     env:
       RELEASE_BRANCH: main
     steps:
     - uses: actions/checkout@v3
-    - uses: maxim-lobanov/setup-xcode@v1
-      with:
-        xcode-version: latest-stable
-    - name: build package
+    - name: download xmtp-rust-swift.zip
+      env:
+        HEAD_SHA: ${{ github.sha }}
+        GITHUB_REPO: ${{ github.repository }}
+        GH_TOKEN: ${{ github.token }}
       working-directory: bindings_swift
-      run: |
-        make download-toolchains
-        make swift
+      run: ./get_swift_artifact.sh
     - name: generate access token
       id: generate_token
       uses: tibdex/github-app-token@v1.8.0
@@ -52,76 +69,6 @@ jobs:
         sed -i '' -f ../bindings_swift/update_spec_version.sed XMTPRust.podspec
         # unzip the new framework version over the repo
         unzip -o ../bindings_swift/xmtp-rust-swift.zip
-        # commit, tag and push
-        git config user.name libxmtp
-        git config user.email libxmtp@xmtp.com
-        git add .
-        git commit -m "libxmtp release $RELEASE"
-        git tag $RELEASE
-        git push --tags origin $RELEASE_BRANCH
-      
-  android:
-    runs-on: ubuntu-latest
-    permissions:
-      contents: write # for the release action
-    steps:
-      - uses: actions/checkout@v3
-      - name: download package
-        env:
-          HEAD_SHA: ${{ github.sha }}
-          GITHUB_REPO: ${{ github.repository }}
-          GH_TOKEN: ${{ github.token }}
-        working-directory: bindings_ffi
-        run: ./get_android_artifact.sh
-      - name: create release
-        uses: ncipollo/release-action@v1
-        with:
-          artifacts: "bindings_ffi/libxmtp-android.zip"
-
-  swift:
-    runs-on: macos-12
-    permissions:
-      contents: write
-    env:
-      RELEASE_BRANCH: main
-    steps:
-    - uses: actions/checkout@v3
-    - name: download artifacts
-      env:
-        HEAD_SHA: ${{ github.sha }}
-        GITHUB_REPO: ${{ github.repository }}
-        GH_TOKEN: ${{ github.token }}
-      working-directory: bindings_ffi
-      run: ./get_swift_artifact.sh
-    - name: generate access token
-      id: generate_token
-      uses: tibdex/github-app-token@v1.8.0
-      with:
-        app_id: ${{ secrets.GH_APP_ID }}
-        private_key: ${{ secrets.GH_APP_PK }}
-        installation_id: ${{ secrets.GH_INSTALLATION_ID }}
-    - name: check out libxmtp-swift
-      uses: actions/checkout@v3
-      with:
-        repository: xmtp/libxmtp-swift
-        path: libxmtp-swift
-        ref: ${{ env.RELEASE_BRANCH }}
-        token: ${{ steps.generate_token.outputs.token }}
-    - name: update libxmtp-swift
-      working-directory: libxmtp-swift
-      run: |
-        # set -x
-        # extract the tag fro GITHUB_REF which has the form refs/tags/...
-        RELEASE=$(basename $GITHUB_REF)
-        # Update the version field in the podspec.
-        # This could be single inlined sed expression in theory,
-        # but the quoting issues were a pain to debug,
-        # so instead the sed rule is in a file
-        # and we need to inject the RELEASE tag into it.
-        sed -i '' -e "s/VERSION/$RELEASE/" ../bindings_ffi/update_spec_version.sed
-        sed -i '' -f ../bindings_ffi/update_spec_version.sed LibXMTP.podspec
-        # unzip the new framework version over the repo
-        unzip -o ../bindings_ffi/libxmtp-swift.zip
         # commit, tag and push
         git config user.name libxmtp
         git config user.email libxmtp@xmtp.com
