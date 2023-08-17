@@ -66,7 +66,7 @@ jobs:
         # so instead the sed rule is in a file
         # and we need to inject the RELEASE tag into it.
         sed -i '' -e "s/VERSION/$RELEASE/" ../bindings_swift/update_spec_version.sed
-        sed -i '' -f ../bindings_swift/update_spec_version.sed LibXMTP.podspec
+        sed -i '' -f ../bindings_swift/update_spec_version.sed XMTPRust.podspec
         # unzip the new framework version over the repo
         unzip -o ../bindings_swift/xmtp-rust-swift.zip
         # commit, tag and push
