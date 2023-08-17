@@ -22,3 +22,7 @@ The generated bindings (`xmtp_dh.kt`) and the cross-compiled binaries (`jniLibs`
 - Install Docker
 - Install [cross-rs](https://github.com/cross-rs/cross) for zero setup cross-platform builds
 - Run `./cross_build.sh` to cross-compile (this is SLOW)
+
+# Releasing
+
+The bindings and binaries are automatically generated on every commit by the Build action and packaged as an artifact `xmtp_dh.zip` that can be unzipped over the target repo (e.g. xmtp/xmtp-android). To make a release just tag the commit with appropriately formed version tag and the Release action will create a release with the archive as the attached artifact.
