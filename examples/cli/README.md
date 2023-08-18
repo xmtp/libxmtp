@@ -1,22 +1,46 @@
-# XLI
+# CLI
 
-XLI is an demo XMTPv3 console client, which allows developers to send and receive messages via the command line. While potentially useful its primary purpose is to demonstrate how to make a client application using the Rust Apis.
+![Status](https://img.shields.io/badge/Project_status-Alpha-orange)
 
-## Running
+This is a demo XMTP v3-alpha console client (CLI) that you can use to send and receive messages via the command line. Specifically, you can use it to try out [double ratchet messaging](https://github.com/xmtp/libxmtp/blob/main/README.md#double-ratchet-messaging) and [installation key bundles](https://github.com/xmtp/libxmtp/blob/main/README.md#installation-key-bundles) enabled by XMTP v3-alpha.
 
-### Register accounts
+> **Important**  
+> This software is in **alpha** status and ready for you to start experimenting with. Expect frequent changes as we add features and iterate based on feedback.
 
-`./xli.sh --db user1.db3 register`
-`./xli.sh --db user2.db3 register`
+## Send a double ratchet message
 
-### Get wallet address
+Use the CLI to send a [double ratchet message](https://github.com/xmtp/libxmtp/blob/main/README.md#double-ratchet-messaging) between test wallets on the XMTP `dev` network.
 
-`./xli.sh --db user2.db3 info`
+1. Go to the `examples/cli` directory.
 
-### Send message
+2. Create a sender wallet account (user1). Create an [installation key bundle](https://github.com/xmtp/libxmtp/blob/main/README.md#installation-key-bundles) and store it in the database. Grant the installation key bundle permission to message on behalf of the sender address. This will allow the CLI to message on behalf of the sender address.
 
-`./xli.sh --db user1.db3 send <user2_address> "hello"`
+   ```bash
+   ./xli.sh --db user1.db3 register
+   ```
 
-### List conversations
+3. Likewise, create a recipient wallet account (user2) and an installation key bundle.
 
-`./xli.sh --db user1.db3 list-conversations`
+   ```bash
+   ./xli.sh --db user2.db3 register
+   ```
+
+4. Get the recipient's wallet address.
+
+   ```bash
+   ./xli.sh --db user2.db3 info
+   ```
+
+5. Send a message into the conversation. The message is sent using [one session between each installation](https://github.com/xmtp/libxmtp/blob/main/README.md#installation-key-bundles) associated with the sender and recipient. The message is encrypted using a per-message encryption key derived using the [double ratchet algorithm](https://github.com/xmtp/libxmtp/blob/main/README.md#double-ratchet-messaging).
+
+   ```bash
+   ./xli.sh --db user1.db3 send <user2_address> "hello"
+   ```
+
+6. List conversations and messages.
+
+   ```bash
+   ./xli.sh --db user1.db3 list-conversations
+   ```
+
+If you want to run the CLI against localhost, go to the root directory and run `dev/up` to start a local server. Then run the CLI commands using the `--local` flag.

@@ -118,9 +118,6 @@ where
             self.publish_user_contact().await?;
         }
 
-        self.refresh_user_installations(&app_contact_bundle.wallet_address)
-            .await?;
-
         self.is_initialized = true;
         Ok(())
     }
@@ -160,7 +157,7 @@ where
     ) -> Result<SessionManager, ClientError> {
         let existing_session = self
             .store
-            .get_session_with_conn(&contact.installation_id(), conn)?;
+            .get_latest_session_for_installation(&contact.installation_id(), conn)?;
         match existing_session {
             Some(i) => Ok(SessionManager::try_from(&i)?),
             None => self.create_outbound_session(conn, contact),

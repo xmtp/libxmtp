@@ -78,9 +78,10 @@ diesel::table! {
 }
 
 diesel::table! {
-    sessions (peer_installation_id) {
+    sessions (session_id) {
         session_id -> Text,
         created_at -> BigInt,
+        updated_at -> BigInt,
         peer_installation_id -> Text,
         vmac_session_data -> Binary,
         user_address -> Text,

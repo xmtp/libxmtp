@@ -30,6 +30,7 @@ pub struct DecodedInboundMessage {
     pub recipient_installation_id: InstallationId,
     pub is_prekey_message: bool,
     pub ciphertext: Vec<u8>,
+    pub sent_at_ns: i64,
 }
 
 impl TryFrom<InboundMessage> for DecodedInboundMessage {
@@ -48,6 +49,7 @@ impl TryFrom<InboundMessage> for DecodedInboundMessage {
             recipient_installation_id: unsealed_header.recipient_installation_id,
             is_prekey_message: unsealed_header.is_prekey_message,
             ciphertext: message_envelope.ciphertext,
+            sent_at_ns: value.sent_at_ns,
         })
     }
 }

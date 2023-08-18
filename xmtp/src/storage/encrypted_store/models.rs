@@ -3,14 +3,14 @@ use crate::{
     account::Account,
     contact::{Contact, ContactError},
     storage::StorageError,
-    Save,
+    ContentCodec, Save, TextCodec,
 };
 use diesel::prelude::*;
-use prost::Message;
+use prost::{DecodeError, Message};
 use std::fmt;
 use std::time::{SystemTime, UNIX_EPOCH};
 use xmtp_cryptography::hash::sha256_bytes;
-use xmtp_proto::xmtp::message_api::v1::Envelope;
+use xmtp_proto::xmtp::{message_api::v1::Envelope, message_contents::EncodedContent};
 
 #[derive(Insertable, Selectable, Identifiable, Queryable, PartialEq, Debug, Clone)]
 #[diesel(table_name = users)]
@@ -54,6 +54,17 @@ pub struct StoredMessage {
     pub addr_from: String,
     pub content: Vec<u8>,
     pub state: i32,
+}
+
+impl StoredMessage {
+    pub fn get_text(&self) -> Result<String, DecodeError> {
+        let content = EncodedContent::decode(self.content.as_slice())?;
+        let fallback = String::from(content.fallback());
+        match TextCodec::decode(content) {
+            Ok(t) => Ok(t),
+            Err(_) => Ok(fallback),
+        }
+    }
 }
 
 /// Placeholder type for messages being inserted into the store. This type is the same as
@@ -146,12 +157,13 @@ pub fn now() -> i64 {
         .as_nanos() as i64
 }
 
-#[derive(Insertable, Identifiable, Queryable, Clone, PartialEq, Debug)]
+#[derive(Insertable, Identifiable, Queryable, Clone, PartialEq, Debug, QueryableByName)]
 #[diesel(table_name = sessions)]
 #[diesel(primary_key(session_id))]
 pub struct StoredSession {
     pub session_id: String,
     pub created_at: i64,
+    pub updated_at: i64,
     pub peer_installation_id: String,
     pub vmac_session_data: Vec<u8>,
     pub user_address: String,
@@ -159,15 +171,17 @@ pub struct StoredSession {
 
 impl StoredSession {
     pub fn new(
-        peer_installation_id: String,
         session_id: String,
+        peer_installation_id: String,
         vmac_session_data: Vec<u8>,
         user_address: String,
     ) -> Self {
+        let now = now();
         Self {
-            peer_installation_id,
             session_id,
-            created_at: now(),
+            peer_installation_id,
+            created_at: now,
+            updated_at: now,
             vmac_session_data,
             user_address,
         }
@@ -181,6 +195,7 @@ impl Save<DbConnection> for StoredSession {
             .set((
                 sessions::vmac_session_data.eq(&self.vmac_session_data),
                 sessions::peer_installation_id.eq(&self.peer_installation_id),
+                sessions::updated_at.eq(now()),
             ))
             .execute(into)?;
 

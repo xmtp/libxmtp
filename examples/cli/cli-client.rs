@@ -11,15 +11,19 @@ use ethers_core::types::H160;
 use log::{error, info};
 use std::fs;
 use std::path::PathBuf;
+use std::time::Duration;
 use thiserror::Error;
 use url::ParseError;
 use walletconnect::client::{CallError, ConnectorError, SessionError};
 use walletconnect::{qr, Client as WcClient, Metadata};
 use xmtp::builder::{AccountStrategy, ClientBuilderError};
 use xmtp::client::ClientError;
-use xmtp::conversation::ConversationError;
+use xmtp::conversation::{ConversationError, ListMessagesOptions, SecretConversation};
 use xmtp::conversations::Conversations;
-use xmtp::storage::{EncryptedMessageStore, EncryptionKey, StorageError, StorageOption};
+use xmtp::storage::{
+    now, EncryptedMessageStore, EncryptionKey, MessageState, StorageError, StorageOption,
+};
+use xmtp::types::networking::XmtpApiClient;
 use xmtp::InboxOwner;
 use xmtp_cryptography::signature::{h160addr_to_string, RecoverableSignature, SignatureError};
 use xmtp_cryptography::utils::{rng, seeded_rng, LocalWallet};
@@ -60,8 +64,6 @@ enum Commands {
         msg: String,
     },
     Recv {},
-
-    Refresh {},
     ListContacts {},
     Clear {},
 }
@@ -86,8 +88,21 @@ enum CliError {
     ClientBuilder(#[from] ClientBuilderError),
     #[error("ConversationError: {0}")]
     ConversationError(#[from] ConversationError),
+    #[error("generic:{0}")]
+    Generic(String),
 }
 
+impl From<String> for CliError {
+    fn from(value: String) -> Self {
+        Self::Generic(value)
+    }
+}
+
+impl From<&str> for CliError {
+    fn from(value: &str) -> Self {
+        Self::Generic(value.to_string())
+    }
+}
 /// This is an abstraction which allows the CLI to choose between different wallet types.
 enum Wallet {
     WalletConnectWallet(WalletConnectWallet),
@@ -117,12 +132,18 @@ async fn main() {
 
     let cli = Cli::parse();
 
+    if let Commands::Register { wallet_seed } = &cli.command {
+        info!("Register");
+        if let Err(e) = register(&cli, true, wallet_seed).await {
+            error!("Registration failed: {:?}", e)
+        }
+        return;
+    }
+
     match &cli.command {
+        #[allow(unused_variables)]
         Commands::Register { wallet_seed } => {
-            info!("Register");
-            if let Err(e) = register(&cli, true, wallet_seed).await {
-                error!("Registration failed: {:?}", e)
-            }
+            unreachable!()
         }
         Commands::Info {} => {
             info!("Info");
@@ -130,16 +151,26 @@ async fn main() {
                 .await
                 .unwrap();
             info!("Address is: {}", client.wallet_address());
+            info!("Installation_id: {}", client.installation_id());
         }
         Commands::ListConversations {} => {
             info!("List Conversations");
             let client = create_client(&cli, AccountStrategy::CachedOnly("nil".into()))
                 .await
                 .unwrap();
+
+            recv(&client).await.unwrap();
             let conversations = Conversations::new(&client);
             let convo_list = conversations.list(true).await.unwrap();
+
             for (index, convo) in convo_list.iter().enumerate() {
-                info!(" [{}] Convo with {}", index, convo.peer_address());
+                info!(
+                    "====== [{}] Convo with {} ======{}{}",
+                    index,
+                    convo.peer_address(),
+                    "\n",
+                    format_messages(convo).await.unwrap()
+                );
             }
         }
         Commands::Send { addr, msg } => {
@@ -157,16 +188,6 @@ async fn main() {
                 .unwrap();
             info!("Address is: {}", client.wallet_address());
             recv(&client).await.unwrap();
-        }
-        Commands::Refresh {} => {
-            info!("Refresh");
-            let client = create_client(&cli, AccountStrategy::CachedOnly("nil".into()))
-                .await
-                .unwrap();
-            client
-                .refresh_user_installations(&client.wallet_address())
-                .await
-                .unwrap();
         }
         Commands::ListContacts {} => {
             let client = create_client(&cli, AccountStrategy::CachedOnly("nil".into()))
@@ -252,6 +273,34 @@ async fn recv(client: &Client) -> Result<(), CliError> {
     Ok(())
 }
 
+async fn format_messages<'c, A: XmtpApiClient>(
+    convo: &SecretConversation<'c, A>,
+) -> Result<String, CliError> {
+    let mut output: Vec<String> = vec![];
+    let opts = ListMessagesOptions::default();
+
+    for msg in convo.list_messages(&opts).await? {
+        let contents = msg.get_text().map_err(|e| e.to_string())?;
+        let is_inbound = msg.state == MessageState::Received as i32;
+        let direction = if is_inbound {
+            String::from("    -------->")
+        } else {
+            String::from("<--------    ")
+        };
+
+        let msg_line = format!(
+            "[{:>15} ]    {}       {}",
+            pretty_delta(now() as u64, msg.created_at as u64),
+            direction,
+            contents
+        );
+        output.push(msg_line);
+    }
+    output.reverse();
+
+    Ok(output.join("\n"))
+}
+
 fn static_enc_key() -> EncryptionKey {
     [2u8; 32]
 }
@@ -271,6 +320,11 @@ fn get_encrypted_store(db: &Option<PathBuf>) -> Result<EncryptedMessageStore, Cl
     };
 
     store.map_err(|e| e.into())
+}
+
+fn pretty_delta(now: u64, then: u64) -> String {
+    let f = timeago::Formatter::new();
+    f.convert(Duration::from_nanos(now - then))
 }
 
 /// This wraps a Walletconnect::client into a struct which could be used in the xmtp::client.

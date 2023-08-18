@@ -24,6 +24,8 @@ pub use client::{Client, Network};
 use storage::StorageError;
 use xmtp_cryptography::signature::{RecoverableSignature, SignatureError};
 
+pub use codecs::{text::TextCodec, ContentCodec};
+
 pub trait Signable {
     fn bytes_to_sign(&self) -> Vec<u8>;
 }
