@@ -115,6 +115,7 @@ impl FfiConversations {
         let convo = conversations
             .new_secret_conversation(wallet_address)
             .map_err(|e| e.to_string())?;
+        // TODO: This should happen as part of `new_secret_conversation` and should only send to new participants
         convo.initialize().await.map_err(|e| e.to_string())?;
 
         let out = Arc::new(FfiConversation {
@@ -151,16 +152,56 @@ pub struct FfiConversation {
     peer_address: String,
 }
 
-#[uniffi::export]
+#[derive(uniffi::Object)]
+pub struct FfiListMessagesOptions {
+    pub start_time_ns: Option<i64>,
+    pub end_time_ns: Option<i64>,
+    pub limit: Option<i64>,
+}
+
+impl FfiListMessagesOptions {
+    fn to_options(&self) -> ListMessagesOptions {
+        ListMessagesOptions {
+            start_time_ns: self.start_time_ns,
+            end_time_ns: self.end_time_ns,
+            limit: self.limit,
+        }
+    }
+}
+
+#[uniffi::export(async_runtime = "tokio")]
 impl FfiConversation {
-    pub async fn list_messages(&self) -> Result<Vec<Arc<FfiMessage>>, GenericError> {
+    pub async fn send(&self, content_bytes: Vec<u8>) -> Result<(), GenericError> {
         let conversation = xmtp::conversation::SecretConversation::new(
             self.inner_client.as_ref(),
             self.peer_address.clone(),
         );
-        let opts = ListMessagesOptions::default();
+        let conversations = xmtp::conversations::Conversations::new(self.inner_client.as_ref());
+
+        conversation
+            .send(content_bytes)
+            .map_err(|e| e.to_string())?;
+
+        conversations
+            .process_outbound_messages()
+            .await
+            .map_err(|e| e.to_string())?;
+
+        Ok(())
+    }
+
+    pub async fn list_messages(
+        &self,
+        opts: Arc<FfiListMessagesOptions>,
+    ) -> Result<Vec<Arc<FfiMessage>>, GenericError> {
+        let conversation = xmtp::conversation::SecretConversation::new(
+            self.inner_client.as_ref(),
+            self.peer_address.clone(),
+        );
+        let options: ListMessagesOptions = opts.to_options();
+
         let messages: Vec<Arc<FfiMessage>> = conversation
-            .list_messages(&opts)
+            .list_messages(&options)
             .await
             .map_err(|e| e.to_string())?
             .into_iter()
@@ -195,7 +236,8 @@ mod tests {
     use std::sync::Arc;
 
     use crate::{
-        create_client, inbox_owner::SigningError, logger::FfiLogger, FfiInboxOwner, FfiXmtpClient,
+        create_client, inbox_owner::SigningError, logger::FfiLogger, FfiInboxOwner,
+        FfiListMessagesOptions, FfiXmtpClient,
     };
     use xmtp::InboxOwner;
     use xmtp_cryptography::{signature::RecoverableSignature, utils::rng};
@@ -270,5 +312,29 @@ mod tests {
             convos.first().unwrap().peer_address,
             client_a.wallet_address()
         );
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+    async fn test_send_and_list() {
+        let alice = new_test_client().await;
+        let bob = new_test_client().await;
+
+        let alice_to_bob = alice
+            .conversations()
+            .new_conversation(bob.wallet_address())
+            .await
+            .unwrap();
+
+        alice_to_bob.send(vec![1, 2, 3]).await.unwrap();
+        let messages = alice_to_bob
+            .list_messages(Arc::new(FfiListMessagesOptions {
+                start_time_ns: None,
+                end_time_ns: None,
+                limit: None,
+            }))
+            .await
+            .unwrap();
+        assert_eq!(messages.len(), 1);
+        assert_eq!(messages[0].content, vec![1, 2, 3]);
     }
 }
