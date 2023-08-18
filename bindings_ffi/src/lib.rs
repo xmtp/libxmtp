@@ -129,9 +129,7 @@ impl FfiConversations {
     pub async fn list(&self) -> Result<Vec<Arc<FfiConversation>>, GenericError> {
         let inner = self.inner_client.as_ref();
         let conversations = xmtp::conversations::Conversations::new(inner);
-        println!("Listing convos");
         let convo_list = conversations.list(true).await.map_err(|e| e.to_string())?;
-        println!("Convo list complete");
         let out: Vec<Arc<FfiConversation>> = convo_list
             .into_iter()
             .map(|convo| {
