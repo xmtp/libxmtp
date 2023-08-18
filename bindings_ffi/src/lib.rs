@@ -6,6 +6,8 @@ use log::info;
 use logger::FfiLogger;
 use std::error::Error;
 use std::sync::Arc;
+use xmtp::conversation::ListMessagesOptions;
+use xmtp::storage::StoredMessage;
 use xmtp::types::Address;
 use xmtp_networking::grpc_api_helper::Client as TonicApiClient;
 
@@ -76,13 +78,13 @@ pub async fn create_client(
         xmtp_client.wallet_address()
     );
     Ok(Arc::new(FfiXmtpClient {
-        inner_client: xmtp_client,
+        inner_client: Arc::new(xmtp_client),
     }))
 }
 
 #[derive(uniffi::Object)]
 pub struct FfiXmtpClient {
-    inner_client: RustXmtpClient,
+    inner_client: Arc<RustXmtpClient>,
 }
 
 #[uniffi::export]
@@ -90,11 +92,111 @@ impl FfiXmtpClient {
     pub fn wallet_address(&self) -> Address {
         self.inner_client.wallet_address()
     }
+
+    pub fn conversations(&self) -> Arc<FfiConversations> {
+        Arc::new(FfiConversations {
+            inner_client: self.inner_client.clone(),
+        })
+    }
+}
+
+#[derive(uniffi::Object)]
+pub struct FfiConversations {
+    inner_client: Arc<RustXmtpClient>,
+}
+
+#[uniffi::export(async_runtime = "tokio")]
+impl FfiConversations {
+    pub async fn new_conversation(
+        &self,
+        wallet_address: String,
+    ) -> Result<Arc<FfiConversation>, GenericError> {
+        let conversations = xmtp::conversations::Conversations::new(self.inner_client.as_ref());
+        let convo = conversations
+            .new_secret_conversation(wallet_address)
+            .map_err(|e| e.to_string())?;
+        convo.initialize().await.map_err(|e| e.to_string())?;
+
+        let out = Arc::new(FfiConversation {
+            inner_client: self.inner_client.clone(),
+            peer_address: convo.peer_address(),
+        });
+
+        Ok(out)
+    }
+
+    pub async fn list(&self) -> Result<Vec<Arc<FfiConversation>>, GenericError> {
+        let inner = self.inner_client.as_ref();
+        let conversations = xmtp::conversations::Conversations::new(inner);
+        println!("Listing convos");
+        let convo_list = conversations.list(true).await.map_err(|e| e.to_string())?;
+        println!("Convo list complete");
+        let out: Vec<Arc<FfiConversation>> = convo_list
+            .into_iter()
+            .map(|convo| {
+                Arc::new(FfiConversation {
+                    inner_client: self.inner_client.clone(),
+                    peer_address: convo.peer_address(),
+                })
+            })
+            .collect();
+
+        Ok(out)
+    }
+}
+
+#[derive(uniffi::Object)]
+pub struct FfiConversation {
+    inner_client: Arc<RustXmtpClient>,
+    peer_address: String,
+}
+
+#[uniffi::export]
+impl FfiConversation {
+    pub async fn list_messages(&self) -> Result<Vec<Arc<FfiMessage>>, GenericError> {
+        let conversation = xmtp::conversation::SecretConversation::new(
+            self.inner_client.as_ref(),
+            self.peer_address.clone(),
+        );
+        let opts = ListMessagesOptions::default();
+        let messages: Vec<Arc<FfiMessage>> = conversation
+            .list_messages(&opts)
+            .await
+            .map_err(|e| e.to_string())?
+            .into_iter()
+            .map(|msg| Arc::new(msg.into()))
+            .collect();
+
+        Ok(messages)
+    }
+}
+
+#[derive(uniffi::Object)]
+pub struct FfiMessage {
+    pub sent_at_ns: i64,
+    pub convo_id: String,
+    pub addr_from: String,
+    pub content: Vec<u8>,
+}
+
+impl From<StoredMessage> for FfiMessage {
+    fn from(msg: StoredMessage) -> Self {
+        Self {
+            sent_at_ns: msg.sent_at_ns,
+            convo_id: msg.convo_id,
+            addr_from: msg.addr_from,
+            content: msg.content,
+        }
+    }
 }
 
 #[cfg(test)]
 mod tests {
-    use crate::{create_client, inbox_owner::SigningError, logger::FfiLogger, FfiInboxOwner};
+    use std::sync::Arc;
+
+    use crate::{
+        create_client, inbox_owner::SigningError, logger::FfiLogger, FfiInboxOwner, FfiXmtpClient,
+    };
     use xmtp::InboxOwner;
     use xmtp_cryptography::{signature::RecoverableSignature, utils::rng};
 
@@ -130,18 +232,43 @@ mod tests {
         fn log(&self, _level: u32, _level_label: String, _message: String) {}
     }
 
-    // Try a query on a test topic, and make sure we get a response
-    #[tokio::test]
-    async fn test_client_creation() {
+    async fn new_test_client() -> Arc<FfiXmtpClient> {
         let ffi_inbox_owner = LocalWalletInboxOwner::new();
-        let client = create_client(
+
+        create_client(
             Box::new(MockLogger {}),
             Box::new(ffi_inbox_owner),
             xmtp_networking::LOCALHOST_ADDRESS.to_string(),
             false,
         )
         .await
-        .unwrap();
+        .unwrap()
+    }
+
+    // Try a query on a test topic, and make sure we get a response
+    #[tokio::test]
+    async fn test_client_creation() {
+        let client = new_test_client().await;
         assert!(!client.wallet_address().is_empty());
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+    async fn test_conversation_list() {
+        let client_a = new_test_client().await;
+        let client_b = new_test_client().await;
+
+        // Create a conversation between the two clients
+        client_a
+            .conversations()
+            .new_conversation(client_b.wallet_address())
+            .await
+            .unwrap();
+
+        let convos = client_b.conversations().list().await.unwrap();
+        assert_eq!(convos.len(), 1);
+        assert_eq!(
+            convos.first().unwrap().peer_address,
+            client_a.wallet_address()
+        );
     }
 }

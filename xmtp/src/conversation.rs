@@ -103,7 +103,7 @@ impl<'c, A> SecretConversation<'c, A>
 where
     A: XmtpApiClient,
 {
-    pub(crate) fn new(client: &'c Client<A>, peer_address: Address) -> Self {
+    pub fn new(client: &'c Client<A>, peer_address: Address) -> Self {
         Self {
             client,
             peer_address,
