@@ -383,31 +383,6 @@ impl EncryptedMessageStore {
         Ok(())
     }
 
-    pub fn get_refresh_job(
-        &self,
-        conn: &mut DbConnection,
-        kind: RefreshJobKind,
-    ) -> Result<RefreshJob, StorageError> {
-        let job: RefreshJob = refresh_jobs::table
-            .find::<String>(kind.to_string())
-            .first::<RefreshJob>(conn)?;
-
-        Ok(job)
-    }
-
-    pub fn update_refresh_job(
-        &self,
-        conn: &mut DbConnection,
-        kind: RefreshJobKind,
-        last_run_time: i64,
-    ) -> Result<(), StorageError> {
-        diesel::update(refresh_jobs::table.find(kind.to_string()))
-            .set(refresh_jobs::last_run.eq(last_run_time))
-            .get_result::<RefreshJob>(conn)?;
-
-        Ok(())
-    }
-
     pub fn get_inbound_invites(
         &self,
         conn: &mut PooledConnection<ConnectionManager<SqliteConnection>>,
