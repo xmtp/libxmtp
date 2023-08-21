@@ -103,7 +103,7 @@ impl<'c, A> SecretConversation<'c, A>
 where
     A: XmtpApiClient,
 {
-    pub(crate) fn new(client: &'c Client<A>, peer_address: Address) -> Self {
+    pub fn new(client: &'c Client<A>, peer_address: Address) -> Self {
         Self {
             client,
             peer_address,
@@ -148,10 +148,7 @@ where
         self.peer_address.clone()
     }
 
-    pub fn send_message(&self, text: &str) -> Result<(), ConversationError> {
-        // TODO support other codecs
-        let encoded_content = TextCodec::encode(text.to_string())?;
-        let content_bytes = encoded_content.encode_to_vec();
+    pub fn send(&self, content_bytes: Vec<u8>) -> Result<(), ConversationError> {
         NewStoredMessage::new(
             self.convo_id(),
             self.client.account.addr(),
@@ -160,7 +157,16 @@ where
             now(),
         )
         .store(&mut self.client.store.conn().unwrap())?;
+
         Ok(())
+    }
+
+    pub fn send_text(&self, text: &str) -> Result<(), ConversationError> {
+        // TODO support other codecs
+        let encoded_content = TextCodec::encode(text.to_string())?;
+        let content_bytes = encoded_content.encode_to_vec();
+
+        self.send(content_bytes)
     }
 
     pub async fn list_messages(
@@ -261,11 +267,11 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_send_message() {
+    async fn test_send_text() {
         let client = gen_test_client().await;
         let conversations = Conversations::new(&client);
         let conversation = gen_test_conversation(&conversations, "0x000").await;
-        conversation.send_message("Hello, world!").unwrap();
+        conversation.send_text("Hello, world!").unwrap();
 
         let message = &client.store.get_unprocessed_messages().unwrap()[0];
         let content = EncodedContent::decode(&message.content[..]).unwrap();
@@ -281,8 +287,8 @@ mod tests {
         let conversation =
             gen_test_conversation(&conversations, recipient.account.addr().as_str()).await;
         conversation.initialize().await.unwrap();
-        conversation.send_message("Hello, world!").unwrap();
-        conversation.send_message("Hello, again").unwrap();
+        conversation.send_text("Hello, world!").unwrap();
+        conversation.send_text("Hello, again").unwrap();
 
         conversations.process_outbound_messages().await.unwrap();
 
