@@ -258,7 +258,7 @@ async fn send(client: Client, addr: &str, msg: &String) -> Result<(), CliError> 
         .new_secret_conversation(addr.to_string())
         .await
         .unwrap();
-    conversation.send_message(msg).unwrap();
+    conversation.send_text(msg).unwrap();
     conversations.process_outbound_messages().await.unwrap();
     info!("Message successfully sent");
 

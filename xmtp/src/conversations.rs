@@ -727,7 +727,7 @@ mod tests {
         let conversation =
             gen_test_conversation(&conversations, &bob_client.wallet_address()).await;
 
-        conversation.send_message("Hello world").unwrap();
+        conversation.send_text("Hello world").unwrap();
         let unprocessed_messages = alice_client.store.get_unprocessed_messages().unwrap();
         assert_eq!(unprocessed_messages.len(), 1);
 
@@ -871,7 +871,7 @@ mod tests {
 
         // Send First Message
 
-        a_to_b.send_message("Hi").unwrap();
+        a_to_b.send_text("Hi").unwrap();
         alice_client
             .refresh_user_installations(&bob_address)
             .await
@@ -915,7 +915,7 @@ mod tests {
             .await
             .unwrap();
 
-        b_to_a.send_message("Reply").unwrap();
+        b_to_a.send_text("Reply").unwrap();
         bob_client
             .refresh_user_installations(&bob_address)
             .await
