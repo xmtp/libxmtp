@@ -613,28 +613,11 @@ impl EncryptedMessageStore {
         Ok(())
     }
 
-    pub fn set_conversation_state(
-        &self,
-        conn: &mut DbConnection,
-        convo_id: &str,
-        state: ConversationState,
-    ) -> Result<(), StorageError> {
-        use self::schema::conversations::dsl;
-        diesel::update(dsl::conversations)
-            .filter(dsl::convo_id.eq(convo_id))
-            .set(dsl::convo_state.eq(state as i32))
-            .get_result::<StoredConversation>(conn)?;
-        Ok(())
-    }
-
     pub fn get_conversations(
         &self,
         conn: &mut DbConnection,
-        allowed_states: Vec<ConversationState>,
     ) -> Result<Vec<StoredConversation>, StorageError> {
-        let convos = conversations::table
-            .filter(conversations::convo_state.eq_any(allowed_states.into_iter().map(|s| s as i32)))
-            .load::<StoredConversation>(conn)?;
+        let convos = conversations::table.load::<StoredConversation>(conn)?;
 
         Ok(convos)
     }
@@ -1247,13 +1230,11 @@ mod tests {
             convo_id: "convo_1".into(),
             peer_address: address.clone(),
             created_at: 10,
-            convo_state: ConversationState::Invited as i32,
         };
         let convo_2 = StoredConversation {
             convo_id: "convo_2".into(),
             peer_address: address.clone(),
             created_at: 10,
-            convo_state: ConversationState::Uninitialized as i32,
         };
         let user_1 = StoredUser {
             user_address: address.clone(),
@@ -1265,16 +1246,9 @@ mod tests {
         convo_1.store(conn).unwrap();
         convo_2.store(conn).unwrap();
 
-        let invited_conversations = store
-            .get_conversations(conn, vec![ConversationState::Invited])
-            .unwrap();
-        assert_eq!(1, invited_conversations.len());
-        assert_eq!(convo_1.convo_id, invited_conversations[0].convo_id);
-        let uninitialized_conversations = store
-            .get_conversations(conn, vec![ConversationState::Uninitialized])
-            .unwrap();
-        assert_eq!(1, uninitialized_conversations.len());
-        assert_eq!(convo_2.convo_id, uninitialized_conversations[0].convo_id);
+        let all_conversations = store.get_conversations(conn).unwrap();
+        assert_eq!(2, all_conversations.len());
+        assert_eq!(convo_1.convo_id, all_conversations[0].convo_id);
     }
 
     #[test]

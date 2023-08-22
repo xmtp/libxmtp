@@ -6,9 +6,8 @@ use crate::{
     message::PayloadError,
     session::SessionError,
     storage::{
-        now, ConversationInvite, ConversationInviteDirection, ConversationState, DbConnection,
-        MessageState, NewStoredMessage, StorageError, StoredConversation, StoredMessage,
-        StoredUser,
+        now, ConversationInvite, ConversationInviteDirection, DbConnection, MessageState,
+        NewStoredMessage, StorageError, StoredConversation, StoredMessage, StoredUser,
     },
     types::networking::PublishRequest,
     types::networking::XmtpApiClient,
@@ -134,7 +133,6 @@ where
                 peer_address: obj.peer_address(),
                 convo_id: obj.convo_id(),
                 created_at: now(),
-                convo_state: ConversationState::Uninitialized as i32,
             },
         )?;
 
@@ -255,12 +253,6 @@ where
                 ConversationInvite::new(id, self.convo_id(), ConversationInviteDirection::Outbound),
             )?;
         }
-
-        self.client.store.set_conversation_state(
-            conn,
-            self.convo_id().as_str(),
-            ConversationState::Invited,
-        )?;
 
         Ok(())
     }

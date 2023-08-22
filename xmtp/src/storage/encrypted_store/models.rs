@@ -22,12 +22,6 @@ pub struct StoredUser {
     pub last_refreshed: i64,
 }
 
-pub enum ConversationState {
-    Uninitialized = 0,
-    Invited = 10,
-    InviteReceived = 20,
-}
-
 #[derive(Insertable, Identifiable, Selectable, Queryable, PartialEq, Debug, Clone)]
 #[diesel(table_name = conversations)]
 #[diesel(primary_key(convo_id))]
@@ -35,7 +29,6 @@ pub struct StoredConversation {
     pub convo_id: String,
     pub peer_address: String, // links to users table
     pub created_at: i64,
-    pub convo_state: i32, // ConversationState
 }
 
 pub enum MessageState {

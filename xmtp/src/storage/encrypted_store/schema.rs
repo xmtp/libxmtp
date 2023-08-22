@@ -22,7 +22,6 @@ diesel::table! {
         convo_id -> Text,
         peer_address -> Text,
         created_at -> BigInt,
-        convo_state -> Integer,
     }
 }
 

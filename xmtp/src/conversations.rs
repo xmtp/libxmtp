@@ -20,10 +20,10 @@ use crate::{
     message::DecodedInboundMessage,
     session::SessionManager,
     storage::{
-        now, ConversationInvite, ConversationInviteDirection, ConversationState, DbConnection,
-        InboundInvite, InboundInviteStatus, InboundMessage, InboundMessageStatus, MessageState,
-        NewStoredMessage, OutboundPayloadState, RefreshJob, RefreshJobKind, StorageError,
-        StoredConversation, StoredMessage, StoredOutboundPayload, StoredSession, StoredUser,
+        now, ConversationInvite, ConversationInviteDirection, DbConnection, InboundInvite,
+        InboundInviteStatus, InboundMessage, InboundMessageStatus, MessageState, NewStoredMessage,
+        OutboundPayloadState, RefreshJob, RefreshJobKind, StorageError, StoredConversation,
+        StoredMessage, StoredOutboundPayload, StoredSession, StoredUser,
     },
     types::networking::XmtpApiClient,
     utils::{base64_encode, build_installation_message_topic},
@@ -70,13 +70,7 @@ where
 
         let mut secret_convos: Vec<SecretConversation<A>> = vec![];
 
-        let convos: Vec<StoredConversation> = self.client.store.get_conversations(
-            conn,
-            vec![
-                ConversationState::InviteReceived,
-                ConversationState::Invited,
-            ],
-        )?;
+        let convos: Vec<StoredConversation> = self.client.store.get_conversations(conn)?;
         log::debug!("Retrieved {:?} convos from the database", convos.len());
         for convo in convos {
             let peer_address =
@@ -396,7 +390,6 @@ where
                 convo_id: conversation_id.clone(),
                 peer_address,
                 created_at: now(),
-                convo_state: ConversationState::InviteReceived as i32,
             },
         )?;
 
