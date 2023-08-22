@@ -7,14 +7,38 @@ import org.junit.Ignore
 import org.junit.Test
 import org.xmtp.android.library.codecs.Attachment
 import org.xmtp.android.library.codecs.AttachmentCodec
+import org.xmtp.android.library.codecs.ContentTypeAttachment
 import org.xmtp.android.library.codecs.ContentTypeRemoteAttachment
 import org.xmtp.android.library.codecs.RemoteAttachment
 import org.xmtp.android.library.codecs.RemoteAttachmentCodec
+import org.xmtp.android.library.codecs.decoded
+import org.xmtp.android.library.codecs.id
 import org.xmtp.android.library.messages.walletAddress
 import java.io.File
 import java.net.URL
 
 class RemoteAttachmentTest {
+
+    @Test
+    fun testEncryptedContentShouldBeDecryptable() {
+        Client.register(codec = AttachmentCodec())
+        val attachment = Attachment(
+            filename = "test.txt",
+            mimeType = "text/plain",
+            data = "hello world".toByteStringUtf8(),
+        )
+
+        val encrypted = RemoteAttachment.encodeEncrypted(attachment, AttachmentCodec())
+
+        val decrypted = RemoteAttachment.decryptEncoded(encrypted)
+        Assert.assertEquals(ContentTypeAttachment.id, decrypted.type.id)
+
+        val decoded = decrypted.decoded<Attachment>()
+        Assert.assertEquals("test.txt", decoded?.filename)
+        Assert.assertEquals("text/plain", decoded?.mimeType)
+        Assert.assertEquals("hello world", decoded?.data?.toStringUtf8())
+    }
+
     @Test
     @Ignore
     fun testCanUseRemoteAttachmentCodec() {

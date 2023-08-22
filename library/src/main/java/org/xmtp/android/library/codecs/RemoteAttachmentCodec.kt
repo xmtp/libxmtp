@@ -41,26 +41,42 @@ data class RemoteAttachment(
             throw XMTPException("no remote attachment payload")
         }
 
-        if (Hash.sha256(payload).toHex() != contentDigest) {
-            throw XMTPException("contentDigest does not match")
-        }
+        val encrypted = EncryptedEncodedContent(
+            contentDigest,
+            secret,
+            salt,
+            nonce,
+            payload.toByteString(),
+            contentLength,
+            filename,
+        )
 
-        val aes = Ciphertext.Aes256gcmHkdfsha256.newBuilder().also {
-            it.hkdfSalt = salt
-            it.gcmNonce = nonce
-            it.payload = payload.toByteString()
-        }.build()
+        val decrypted = decryptEncoded(encrypted)
 
-        val ciphertext = Ciphertext.newBuilder().also {
-            it.aes256GcmHkdfSha256 = aes
-        }.build()
-
-        val decrypted = Crypto.decrypt(secret = secret.toByteArray(), ciphertext = ciphertext)
-
-        return EncodedContent.parseFrom(decrypted).decoded<T>()
+        return decrypted.decoded<T>()
     }
 
     companion object {
+        fun decryptEncoded(encrypted: EncryptedEncodedContent): EncodedContent {
+            if (Hash.sha256(encrypted.payload.toByteArray()).toHex() != encrypted.contentDigest) {
+                throw XMTPException("contentDigest does not match")
+            }
+
+            val aes = Ciphertext.Aes256gcmHkdfsha256.newBuilder().also {
+                it.hkdfSalt = encrypted.salt
+                it.gcmNonce = encrypted.nonce
+                it.payload = encrypted.payload
+            }.build()
+
+            val ciphertext = Ciphertext.newBuilder().also {
+                it.aes256GcmHkdfSha256 = aes
+            }.build()
+
+            val decrypted = Crypto.decrypt(encrypted.secret.toByteArray(), ciphertext)
+
+            return EncodedContent.parseFrom(decrypted)
+        }
+
         fun <T> encodeEncrypted(content: T, codec: ContentCodec<T>): EncryptedEncodedContent {
             val secret = SecureRandom().generateSeed(32)
             val encodedContent = codec.encode(content).toByteArray()
