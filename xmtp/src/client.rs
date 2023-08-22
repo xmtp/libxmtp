@@ -1,27 +1,37 @@
 use core::fmt;
-use std::fmt::Formatter;
+use std::{fmt::Formatter, time::Duration};
 
 use diesel::Connection;
 use log::{debug, info};
+use prost::Message;
 use thiserror::Error;
-use vodozemac::olm::PreKeyMessage;
+use vodozemac::olm::{self, PreKeyMessage};
 
 use crate::{
     account::Account,
     contact::{Contact, ContactError},
-    conversations::Conversations,
+    conversation::peer_addr_from_convo_id,
     session::SessionManager,
     storage::{
-        now, DbConnection, EncryptedMessageStore, StorageError, StoredInstallation, StoredSession,
-        StoredUser,
+        now, DbConnection, EncryptedMessageStore, MessageState, OutboundPayloadState, StorageError,
+        StoredInstallation, StoredMessage, StoredOutboundPayload, StoredSession, StoredUser,
     },
     types::networking::{PublishRequest, QueryRequest, XmtpApiClient},
     types::Address,
-    utils::{build_envelope, build_user_contact_topic, key_fingerprint},
+    utils::{
+        base64_encode, build_envelope, build_installation_message_topic, build_user_contact_topic,
+        key_fingerprint,
+    },
     Store,
 };
 use std::collections::HashMap;
-use xmtp_proto::xmtp::message_api::v1::Envelope;
+use xmtp_proto::xmtp::{
+    message_api::v1::Envelope,
+    v3::message_contents::{
+        EdDsaSignature, PadlockMessageEnvelope, PadlockMessageHeader, PadlockMessagePayload,
+        PadlockMessagePayloadVersion, PadlockMessageSealedMetadata,
+    },
+};
 
 const INSTALLATION_REFRESH_INTERVAL_NS: i64 = 0;
 
@@ -47,6 +57,8 @@ pub enum ClientError {
     QueryError(#[from] crate::types::networking::Error),
     #[error("generic:{0}")]
     Generic(String),
+    #[error("No sessions for user: {0}")]
+    NoSessions(String),
 }
 
 impl From<String> for ClientError {
@@ -122,8 +134,7 @@ where
         self.is_initialized = true;
 
         // Send any unsent messages
-        let conversations = Conversations::new(&self);
-        if let Err(err) = conversations.process_outbound_messages().await {
+        if let Err(err) = self.process_outbound_messages().await {
             log::error!("Could not process outbound messages on init: {:?}", err)
         }
 
@@ -377,16 +388,184 @@ where
         }
         Ok(None)
     }
+
+    fn create_outbound_payload(
+        &self,
+        session: &mut SessionManager,
+        message: &StoredMessage,
+    ) -> Result<StoredOutboundPayload, ClientError> {
+        let is_prekey_message = !session.has_received_message();
+
+        let metadata = PadlockMessageSealedMetadata {
+            sender_user_address: self.wallet_address(),
+            sender_installation_id: self.account.contact().installation_id(),
+            recipient_user_address: session.user_address(),
+            recipient_installation_id: session.installation_id(),
+            is_prekey_message,
+        };
+        // TODO encrypted sealed metadata using sealed sender
+        let sealed_metadata = metadata.encode_to_vec();
+        let message_header = PadlockMessageHeader {
+            sent_ns: message.created_at as u64,
+            sealed_metadata,
+        };
+        let header_bytes = message_header.encode_to_vec();
+        // TODO expose a vmac method to sign bytes rather than string
+        // https://matrix-org.github.io/vodozemac/vodozemac/olm/struct.Account.html#method.sign
+        let header_signature = self.account.sign(&base64_encode(&header_bytes));
+        let header_signature = EdDsaSignature {
+            bytes: header_signature.to_bytes().to_vec(),
+        };
+
+        let payload = PadlockMessagePayload {
+            message_version: PadlockMessagePayloadVersion::One as i32,
+            header_signature: Some(header_signature),
+            convo_id: message.convo_id.clone(),
+            content_bytes: message.content.clone(),
+        };
+        let olm_message = session.encrypt(&payload.encode_to_vec());
+
+        let ciphertext = match olm_message {
+            olm::OlmMessage::Normal(message) => message.to_bytes(),
+            olm::OlmMessage::PreKey(prekey_message) => prekey_message.to_bytes(),
+        };
+        let envelope: PadlockMessageEnvelope = PadlockMessageEnvelope {
+            header_bytes,
+            ciphertext,
+        };
+        Ok(StoredOutboundPayload::new(
+            message.created_at,
+            build_installation_message_topic(&session.installation_id()),
+            envelope.encode_to_vec(),
+            OutboundPayloadState::Pending as i32,
+            0,
+        ))
+    }
+
+    pub async fn process_outbound_message(
+        &self,
+        message: &StoredMessage,
+    ) -> Result<(), ClientError> {
+        let peer_address = peer_addr_from_convo_id(&message.convo_id, &self.wallet_address())
+            .map_err(|e| e.to_string())?;
+
+        // Refresh remote installations
+        self.refresh_user_installations_if_stale(&peer_address)
+            .await?;
+        self.store
+            .conn()
+            .unwrap()
+            .transaction(|transaction| -> Result<(), ClientError> {
+                let my_sessions = self
+                    .store
+                    .get_latest_sessions(&self.wallet_address(), transaction)?;
+                let their_user_addr =
+                    peer_addr_from_convo_id(&message.convo_id, &self.wallet_address())
+                        .map_err(|e| e.to_string())?;
+                let their_sessions = self
+                    .store
+                    .get_latest_sessions(&their_user_addr, transaction)?;
+                if their_sessions.is_empty() {
+                    return Err(ClientError::NoSessions(their_user_addr));
+                }
+
+                let mut outbound_payloads = Vec::new();
+                let mut updated_sessions = Vec::new();
+                for stored_session in my_sessions.iter().chain(&their_sessions) {
+                    if stored_session.peer_installation_id
+                        == self.account.contact().installation_id()
+                    {
+                        continue;
+                    }
+                    let mut session = SessionManager::try_from(stored_session)?;
+                    let outbound_payload = self.create_outbound_payload(&mut session, message)?;
+                    let updated_session = StoredSession::try_from(&session)?;
+                    outbound_payloads.push(outbound_payload);
+                    updated_sessions.push(updated_session);
+                }
+
+                self.store.commit_outbound_payloads_for_message(
+                    message.id,
+                    MessageState::LocallyCommitted,
+                    outbound_payloads,
+                    updated_sessions,
+                    transaction,
+                )?;
+                Ok(())
+            })?;
+
+        Ok(())
+    }
+
+    pub async fn process_outbound_messages(&self) -> Result<(), ClientError> {
+        //Refresh self installations
+        self.refresh_user_installations_if_stale(&self.wallet_address())
+            .await?;
+        let mut messages = self.store.get_unprocessed_messages()?;
+        log::debug!("Processing {} messages", messages.len());
+        messages.sort_by(|a, b| a.created_at.cmp(&b.created_at));
+        for message in messages {
+            if let Err(e) = self.process_outbound_message(&message).await {
+                log::error!(
+                    "Couldn't process message with ID {} because of error: {:?}",
+                    message.id,
+                    e
+                );
+                // TODO update message status to failed on non-retryable errors so that we don't retry it next time
+            }
+        }
+
+        self.publish_outbound_payloads().await?;
+        Ok(())
+    }
+
+    pub async fn publish_outbound_payloads(&self) -> Result<(), ClientError> {
+        let unsent_payloads = self.store.fetch_and_lock_outbound_payloads(
+            OutboundPayloadState::Pending,
+            Duration::from_secs(60).as_nanos() as i64,
+        )?;
+
+        if unsent_payloads.is_empty() {
+            return Ok(());
+        }
+
+        let envelopes = unsent_payloads
+            .iter()
+            .map(|payload| Envelope {
+                content_topic: payload.content_topic.clone(),
+                timestamp_ns: payload.created_at_ns as u64,
+                message: payload.payload.clone(),
+            })
+            .collect();
+
+        // TODO: API tokens
+        self.api_client
+            .publish("".to_string(), PublishRequest { envelopes })
+            .await?;
+
+        let payload_ids = unsent_payloads
+            .iter()
+            .map(|payload| payload.created_at_ns)
+            .collect();
+        self.store.update_and_unlock_outbound_payloads(
+            payload_ids,
+            OutboundPayloadState::ServerAcknowledged,
+        )?;
+        Ok(())
+    }
 }
 
 #[cfg(test)]
 mod tests {
+    use prost::Message;
     use xmtp_proto::xmtp::v3::message_contents::installation_contact_bundle::Version;
     use xmtp_proto::xmtp::v3::message_contents::vmac_unsigned_public_key::Union::Curve25519;
     use xmtp_proto::xmtp::v3::message_contents::vmac_unsigned_public_key::VodozemacCurve25519;
 
+    use crate::conversation::convo_id;
+    use crate::storage::{MessageState, StoredMessage};
     use crate::test_utils::test_utils::gen_test_client;
-    use crate::ClientBuilder;
+    use crate::{ClientBuilder, ContentCodec, TextCodec};
 
     #[tokio::test]
     async fn registration() {
@@ -453,4 +632,36 @@ mod tests {
 
     #[tokio::test]
     async fn test_roundtrip_encrypt() {}
+
+    #[tokio::test]
+    async fn create_outbound_payload() {
+        let alice_client = gen_test_client().await;
+        let bob_client = gen_test_client().await;
+
+        let mut session = alice_client
+            .get_session(
+                &mut alice_client.store.conn().unwrap(),
+                &bob_client.account.contact(),
+            )
+            .unwrap();
+
+        let _payload = alice_client
+            .create_outbound_payload(
+                &mut session,
+                &StoredMessage {
+                    id: 0,
+                    created_at: 0,
+                    convo_id: convo_id(alice_client.wallet_address(), bob_client.wallet_address()),
+                    addr_from: alice_client.wallet_address(),
+                    sent_at_ns: 0,
+                    content: TextCodec::encode("Hello world".to_string())
+                        .unwrap()
+                        .encode_to_vec(),
+                    state: MessageState::Unprocessed as i32,
+                },
+            )
+            .unwrap();
+
+        // TODO validate the payload when implementing the receiver side
+    }
 }

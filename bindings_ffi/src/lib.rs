@@ -174,8 +174,6 @@ impl FfiConversation {
             self.inner_client.as_ref(),
             self.peer_address.clone(),
         );
-        let conversations = xmtp::conversations::Conversations::new(self.inner_client.as_ref());
-
         conversation
             .send(content_bytes)
             .await

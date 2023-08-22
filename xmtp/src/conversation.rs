@@ -2,7 +2,6 @@ use crate::{
     client::ClientError,
     codecs::{text::TextCodec, CodecError, ContentCodec},
     contact::Contact,
-    conversations::Conversations,
     invitation::{Invitation, InvitationError},
     message::PayloadError,
     session::SessionError,
@@ -37,8 +36,6 @@ pub enum ConversationError {
     Storage(#[from] StorageError),
     #[error("diesel error: {0}")]
     Diesel(#[from] diesel::result::Error),
-    #[error("No sessions for user: {0}")]
-    NoSessions(String),
     #[error("Session: {0}")]
     Session(#[from] SessionError),
     #[error("Network error: {0}")]
@@ -159,8 +156,7 @@ where
         )
         .store(&mut self.client.store.conn().unwrap())?;
 
-        let conversations = Conversations::new(&self.client);
-        if let Err(err) = conversations.process_outbound_messages().await {
+        if let Err(err) = self.client.process_outbound_messages().await {
             log::error!("Could not process outbound messages on init: {:?}", err)
         }
 
@@ -295,9 +291,6 @@ mod tests {
         conversation.initialize().await.unwrap();
         conversation.send_text("Hello, world!").await.unwrap();
         conversation.send_text("Hello, again").await.unwrap();
-
-        conversations.process_outbound_messages().await.unwrap();
-
         let results = conversation
             .list_messages(&ListMessagesOptions::default())
             .await
