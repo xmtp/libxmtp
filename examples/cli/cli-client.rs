@@ -160,8 +160,7 @@ async fn main() {
                 .unwrap();
 
             recv(&client).await.unwrap();
-            let conversations = Conversations::new(&client);
-            let convo_list = conversations.list(true).await.unwrap();
+            let convo_list = Conversations::list(&client, true).await.unwrap();
 
             for (index, convo) in convo_list.iter().enumerate() {
                 info!(
@@ -253,10 +252,7 @@ async fn register(cli: &Cli, use_local_db: bool, wallet_seed: &u64) -> Result<()
 }
 
 async fn send(client: Client, addr: &str, msg: &String) -> Result<(), CliError> {
-    let conversations = Conversations::new(&client);
-    let conversation = conversations
-        .new_secret_conversation(addr.to_string())
-        .unwrap();
+    let conversation = SecretConversation::new(&client, addr.to_string()).unwrap();
     conversation.initialize().await.unwrap();
     conversation.send_text(msg).await.unwrap();
     info!("Message successfully sent");
@@ -265,9 +261,7 @@ async fn send(client: Client, addr: &str, msg: &String) -> Result<(), CliError> 
 }
 
 async fn recv(client: &Client) -> Result<(), CliError> {
-    let conversations = Conversations::new(client);
-    conversations.receive()?;
-
+    Conversations::receive(client)?;
     Ok(())
 }
 

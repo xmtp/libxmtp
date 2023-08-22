@@ -104,19 +104,12 @@ impl<'c, A> SecretConversation<'c, A>
 where
     A: XmtpApiClient,
 {
-    pub fn new(client: &'c Client<A>, peer_address: Address) -> Self {
-        Self {
+    // Instantiate the conversation and insert all the necessary records into the database
+    pub fn new(client: &'c Client<A>, peer_address: Address) -> Result<Self, ConversationError> {
+        let obj = Self {
             client,
             peer_address,
-        }
-    }
-
-    // Instantiate the conversation and insert all the necessary records into the database
-    pub(crate) fn create(
-        client: &'c Client<A>,
-        peer_address: Address,
-    ) -> Result<Self, ConversationError> {
-        let obj = Self::new(client, peer_address);
+        };
         let conn = &mut client.store.conn()?;
 
         obj.client.store.insert_or_ignore_user_with_conn(
@@ -159,8 +152,7 @@ where
         )
         .store(&mut self.client.store.conn().unwrap())?;
 
-        let conversations = Conversations::new(&self.client);
-        if let Err(err) = conversations.process_outbound_messages().await {
+        if let Err(err) = Conversations::process_outbound_messages(&self.client).await {
             log::error!("Could not process outbound messages on init: {:?}", err)
         }
 
@@ -253,10 +245,7 @@ mod tests {
         codecs::{text::TextCodec, ContentCodec},
         conversation::ListMessagesOptions,
         conversations::Conversations,
-        mock_xmtp_api_client::MockXmtpApiClient,
-        test_utils::test_utils::{
-            gen_test_client, gen_test_client_internal, gen_test_conversation,
-        },
+        test_utils::test_utils::{gen_test_client, gen_test_conversation, gen_two_test_clients},
     };
 
     #[tokio::test]
@@ -266,8 +255,7 @@ mod tests {
         let convo_id = format!(":{}:{}", peer_address, client.wallet_address());
         assert!(client.store.get_conversation(&convo_id).unwrap().is_none());
 
-        let conversations = Conversations::new(&client);
-        let conversation = gen_test_conversation(&conversations, peer_address).await;
+        let conversation = gen_test_conversation(&client, peer_address).await;
         assert!(conversation.peer_address() == peer_address);
         assert!(client.store.get_conversation(&convo_id).unwrap().is_some());
     }
@@ -275,8 +263,7 @@ mod tests {
     #[tokio::test]
     async fn test_send_text() {
         let client = gen_test_client().await;
-        let conversations = Conversations::new(&client);
-        let conversation = gen_test_conversation(&conversations, "0x000").await;
+        let conversation = gen_test_conversation(&client, "0x000").await;
         conversation.send_text("Hello, world!").await.unwrap();
 
         let message = &client.store.get_unprocessed_messages().unwrap()[0];
@@ -286,17 +273,15 @@ mod tests {
 
     #[tokio::test]
     async fn test_list_messages() {
-        let api_client = MockXmtpApiClient::new();
-        let client = gen_test_client_internal(api_client.clone()).await;
-        let recipient = gen_test_client_internal(api_client.clone()).await;
-        let conversations = Conversations::new(&client);
-        let conversation =
-            gen_test_conversation(&conversations, recipient.account.addr().as_str()).await;
+        let (client, recipient) = gen_two_test_clients().await;
+        let conversation = gen_test_conversation(&client, recipient.account.addr().as_str()).await;
         conversation.initialize().await.unwrap();
         conversation.send_text("Hello, world!").await.unwrap();
         conversation.send_text("Hello, again").await.unwrap();
 
-        conversations.process_outbound_messages().await.unwrap();
+        Conversations::process_outbound_messages(&client)
+            .await
+            .unwrap();
 
         let results = conversation
             .list_messages(&ListMessagesOptions::default())

@@ -6,7 +6,8 @@ use log::info;
 use logger::FfiLogger;
 use std::error::Error;
 use std::sync::Arc;
-use xmtp::conversation::ListMessagesOptions;
+use xmtp::conversation::{ListMessagesOptions, SecretConversation};
+use xmtp::conversations::Conversations;
 use xmtp::storage::StoredMessage;
 use xmtp::types::Address;
 use xmtp_networking::grpc_api_helper::Client as TonicApiClient;
@@ -111,9 +112,7 @@ impl FfiConversations {
         &self,
         wallet_address: String,
     ) -> Result<Arc<FfiConversation>, GenericError> {
-        let conversations = xmtp::conversations::Conversations::new(self.inner_client.as_ref());
-        let convo = conversations
-            .new_secret_conversation(wallet_address)
+        let convo = SecretConversation::new(self.inner_client.as_ref(), wallet_address)
             .map_err(|e| e.to_string())?;
         // TODO: This should happen as part of `new_secret_conversation` and should only send to new participants
         convo.initialize().await.map_err(|e| e.to_string())?;
@@ -128,8 +127,9 @@ impl FfiConversations {
 
     pub async fn list(&self) -> Result<Vec<Arc<FfiConversation>>, GenericError> {
         let inner = self.inner_client.as_ref();
-        let conversations = xmtp::conversations::Conversations::new(inner);
-        let convo_list = conversations.list(true).await.map_err(|e| e.to_string())?;
+        let convo_list = Conversations::list(inner, true)
+            .await
+            .map_err(|e| e.to_string())?;
         let out: Vec<Arc<FfiConversation>> = convo_list
             .into_iter()
             .map(|convo| {
@@ -173,9 +173,8 @@ impl FfiConversation {
         let conversation = xmtp::conversation::SecretConversation::new(
             self.inner_client.as_ref(),
             self.peer_address.clone(),
-        );
-        let conversations = xmtp::conversations::Conversations::new(self.inner_client.as_ref());
-
+        )
+        .map_err(|e| e.to_string())?;
         conversation
             .send(content_bytes)
             .await
@@ -191,7 +190,8 @@ impl FfiConversation {
         let conversation = xmtp::conversation::SecretConversation::new(
             self.inner_client.as_ref(),
             self.peer_address.clone(),
-        );
+        )
+        .map_err(|e| e.to_string())?;
         let options: ListMessagesOptions = opts.to_options();
 
         let messages: Vec<Arc<FfiMessage>> = conversation
