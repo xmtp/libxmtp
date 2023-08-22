@@ -37,9 +37,8 @@ pub mod test_utils {
     ) -> SecretConversation<'c, A> {
         let convo = conversations
             .new_secret_conversation(peer_address.to_string())
+            .await
             .unwrap();
-
-        convo.initialize().await.unwrap();
 
         convo
     }

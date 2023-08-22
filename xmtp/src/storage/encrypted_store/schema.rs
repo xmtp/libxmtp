@@ -9,6 +9,15 @@ diesel::table! {
 }
 
 diesel::table! {
+    conversation_invites (installation_id, conversation_id) {
+        installation_id -> Text,
+        conversation_id -> Text,
+        created_at_ns -> BigInt,
+        direction -> SmallInt,
+    }
+}
+
+diesel::table! {
     conversations (convo_id) {
         convo_id -> Text,
         peer_address -> Text,
@@ -101,6 +110,7 @@ diesel::joinable!(installations -> users (user_address));
 
 diesel::allow_tables_to_appear_in_same_query!(
     accounts,
+    conversation_invites,
     conversations,
     inbound_invites,
     inbound_messages,

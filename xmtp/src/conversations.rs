@@ -20,10 +20,10 @@ use crate::{
     message::DecodedInboundMessage,
     session::SessionManager,
     storage::{
-        now, ConversationState, DbConnection, InboundInvite, InboundInviteStatus, InboundMessage,
-        InboundMessageStatus, MessageState, NewStoredMessage, OutboundPayloadState, RefreshJob,
-        RefreshJobKind, StorageError, StoredConversation, StoredMessage, StoredOutboundPayload,
-        StoredSession, StoredUser,
+        now, ConversationInvite, ConversationInviteDirection, ConversationState, DbConnection,
+        InboundInvite, InboundInviteStatus, InboundMessage, InboundMessageStatus, MessageState,
+        NewStoredMessage, OutboundPayloadState, RefreshJob, RefreshJobKind, StorageError,
+        StoredConversation, StoredMessage, StoredOutboundPayload, StoredSession, StoredUser,
     },
     types::networking::XmtpApiClient,
     utils::{base64_encode, build_installation_message_topic},
@@ -48,11 +48,14 @@ where
         Self { client }
     }
 
-    pub fn new_secret_conversation(
+    pub async fn new_secret_conversation(
         &self,
         wallet_address: String,
     ) -> Result<SecretConversation<A>, ConversationError> {
-        SecretConversation::create(self.client, wallet_address)
+        let convo = SecretConversation::create(self.client, wallet_address)?;
+        convo.initialize().await?;
+
+        Ok(convo)
     }
 
     pub async fn list(
@@ -382,19 +385,28 @@ where
                 last_refreshed: 0,
             },
         )?;
-
+        let conversation_id = convo_id(
+            peer_address.clone(),
+            self.client.account.contact().wallet_address,
+        );
         // Create the conversation if doesn't exist
         self.client.store.insert_or_ignore_conversation_with_conn(
             conn,
             StoredConversation {
-                convo_id: convo_id(
-                    peer_address.clone(),
-                    self.client.account.contact().wallet_address,
-                ),
+                convo_id: conversation_id.clone(),
                 peer_address,
                 created_at: now(),
                 convo_state: ConversationState::InviteReceived as i32,
             },
+        )?;
+
+        self.client.store.insert_or_ignore_conversation_invite(
+            conn,
+            ConversationInvite::new(
+                invitation.inviter.installation_id(),
+                conversation_id,
+                ConversationInviteDirection::Inbound,
+            ),
         )?;
 
         Ok(InboundInviteStatus::Processed)
@@ -659,10 +671,10 @@ mod tests {
         let conversations = Conversations::new(&alice_client);
         let conversation = conversations
             .new_secret_conversation(bob_client.wallet_address().to_string())
+            .await
             .unwrap();
 
         assert_eq!(conversation.peer_address(), bob_client.wallet_address());
-        conversation.initialize().await.unwrap();
     }
 
     #[tokio::test]
@@ -854,6 +866,7 @@ mod tests {
 
         let a_to_b = a_convos
             .new_secret_conversation(bob_address.clone())
+            .await
             .unwrap();
 
         // Send First Message
@@ -899,6 +912,7 @@ mod tests {
         // Reply
         let b_to_a = b_convos
             .new_secret_conversation(bob_address.clone())
+            .await
             .unwrap();
 
         b_to_a.send_message("Reply").unwrap();

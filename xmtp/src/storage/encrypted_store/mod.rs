@@ -523,6 +523,40 @@ impl EncryptedMessageStore {
         Ok(())
     }
 
+    pub fn insert_or_ignore_conversation_invite(
+        &self,
+        conn: &mut DbConnection,
+        invite: ConversationInvite,
+    ) -> Result<bool, StorageError> {
+        let num_rows = diesel::insert_or_ignore_into(schema::conversation_invites::table)
+            .values(invite)
+            .execute(conn)?;
+
+        let was_inserted = match num_rows {
+            0 => false,
+            1 => true,
+            _ => {
+                return Err(StorageError::Unknown(
+                    "Unexpected number of rows inserted".into(),
+                ))
+            }
+        };
+
+        Ok(was_inserted)
+    }
+
+    pub fn get_conversation_invites(
+        &self,
+        conn: &mut DbConnection,
+        conversation_id: &str,
+    ) -> Result<Vec<ConversationInvite>, StorageError> {
+        let invites = schema::conversation_invites::table
+            .filter(schema::conversation_invites::conversation_id.eq(conversation_id))
+            .load::<ConversationInvite>(conn)?;
+
+        Ok(invites)
+    }
+
     pub fn commit_outbound_payloads_for_message(
         &self,
         message_id: i32,
@@ -1170,6 +1204,32 @@ mod tests {
         assert_eq!(first_result.payload, inbound_invite_ptr.payload);
         assert_eq!(first_result.topic, inbound_invite_ptr.topic);
         assert_eq!(first_result.status, inbound_invite_ptr.status);
+    }
+
+    #[test]
+    fn insert_or_ignore_conversation_invite_test() {
+        let store = EncryptedMessageStore::new(
+            StorageOption::Ephemeral,
+            EncryptedMessageStore::generate_enc_key(),
+        )
+        .unwrap();
+
+        let invite = ConversationInvite::new(
+            "install_1".into(),
+            "convo_1".into(),
+            ConversationInviteDirection::Inbound,
+        );
+
+        let conn = &mut store.conn().unwrap();
+        let first_save_result = store
+            .insert_or_ignore_conversation_invite(conn, invite.clone())
+            .unwrap();
+        assert!(first_save_result);
+
+        let second_save_result = store
+            .insert_or_ignore_conversation_invite(conn, invite.clone())
+            .unwrap();
+        assert!(!second_save_result);
     }
 
     #[test]

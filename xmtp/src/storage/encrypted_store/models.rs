@@ -338,6 +338,37 @@ impl From<Envelope> for InboundInvite {
     }
 }
 
+#[derive(Clone, Debug)]
+pub enum ConversationInviteDirection {
+    Inbound = 0,
+    Outbound = 1,
+}
+
+#[derive(Insertable, Identifiable, Queryable, Clone, PartialEq, Debug)]
+#[diesel(primary_key(installation_id, conversation_id))]
+#[diesel(table_name = conversation_invites)]
+pub struct ConversationInvite {
+    pub installation_id: String,
+    pub conversation_id: String,
+    pub created_at_ns: i64,
+    pub direction: i16,
+}
+
+impl ConversationInvite {
+    pub fn new(
+        installation_id: String,
+        conversation_id: String,
+        direction: ConversationInviteDirection,
+    ) -> Self {
+        Self {
+            installation_id,
+            conversation_id,
+            created_at_ns: now(),
+            direction: direction as i16,
+        }
+    }
+}
+
 #[derive(Insertable, Identifiable, Queryable, Clone, PartialEq, Debug)]
 #[diesel(table_name = inbound_messages)]
 pub struct InboundMessage {

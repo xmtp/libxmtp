@@ -6,8 +6,9 @@ use crate::{
     message::PayloadError,
     session::SessionError,
     storage::{
-        now, ConversationState, DbConnection, MessageState, NewStoredMessage, StorageError,
-        StoredConversation, StoredMessage, StoredUser,
+        now, ConversationInvite, ConversationInviteDirection, ConversationState, DbConnection,
+        MessageState, NewStoredMessage, StorageError, StoredConversation, StoredMessage,
+        StoredUser,
     },
     types::networking::PublishRequest,
     types::networking::XmtpApiClient,
@@ -193,19 +194,42 @@ where
         self.client
             .refresh_user_installations(self.peer_address().as_str())
             .await?;
-        let inner_invite_bytes = Invitation::build_inner_invite_bytes(self.peer_address.clone())?;
         let conn = &mut self.client.store.conn()?;
-        for contact in self.members(conn)?.iter() {
+        let already_invited_installations = self
+            .client
+            .store
+            .get_conversation_invites(conn, &self.convo_id())?
+            .into_iter()
+            .map(|invite| invite.installation_id)
+            .collect::<String>();
+
+        // Get all possible members and then remove anyone we've already invited
+        let to_invite = self
+            .members(conn)?
+            .into_iter()
+            .filter(|contact| {
+                !already_invited_installations.contains(contact.installation_id().as_str())
+            })
+            .collect::<Vec<Contact>>();
+
+        if to_invite.len() == 0 {
+            return Ok(());
+        }
+
+        let inner_invite_bytes = Invitation::build_inner_invite_bytes(self.peer_address.clone())?;
+
+        for contact in to_invite {
             let id = contact.installation_id();
 
-            let mut session = self.client.get_session(conn, contact)?;
+            let mut session = self.client.get_session(conn, &contact)?;
             let invitation = Invitation::build(
                 self.client.account.contact(),
                 &mut session,
                 &inner_invite_bytes,
             )?;
 
-            let envelope = build_envelope(build_user_invite_topic(id), invitation.try_into()?);
+            let envelope =
+                build_envelope(build_user_invite_topic(id.clone()), invitation.try_into()?);
 
             self.client
                 .api_client
@@ -220,6 +244,10 @@ where
                 .map_err(|e| ConversationError::Generic(format!("initialize:{}", e)))?;
 
             session.save(conn)?;
+            self.client.store.insert_or_ignore_conversation_invite(
+                conn,
+                ConversationInvite::new(id, self.convo_id(), ConversationInviteDirection::Outbound),
+            )?;
         }
 
         self.client.store.set_conversation_state(
