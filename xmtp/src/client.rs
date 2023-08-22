@@ -9,6 +9,7 @@ use vodozemac::olm::PreKeyMessage;
 use crate::{
     account::Account,
     contact::{Contact, ContactError},
+    conversations::Conversations,
     session::SessionManager,
     storage::{
         now, DbConnection, EncryptedMessageStore, StorageError, StoredInstallation, StoredSession,
@@ -119,6 +120,13 @@ where
         }
 
         self.is_initialized = true;
+
+        // Send any unsent messages
+        let conversations = Conversations::new(&self);
+        if let Err(err) = conversations.process_outbound_messages().await {
+            log::error!("Could not process outbound messages on init: {:?}", err)
+        }
+
         Ok(())
     }
 

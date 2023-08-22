@@ -178,10 +178,6 @@ impl FfiConversation {
 
         conversation
             .send(content_bytes)
-            .map_err(|e| e.to_string())?;
-
-        conversations
-            .process_outbound_messages()
             .await
             .map_err(|e| e.to_string())?;
 

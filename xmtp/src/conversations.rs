@@ -715,10 +715,7 @@ mod tests {
         let conversation =
             gen_test_conversation(&conversations, &bob_client.wallet_address()).await;
 
-        conversation.send_text("Hello world").unwrap();
-        let unprocessed_messages = alice_client.store.get_unprocessed_messages().unwrap();
-        assert_eq!(unprocessed_messages.len(), 1);
-
+        conversation.send_text("Hello world").await.unwrap();
         conversations.process_outbound_messages().await.unwrap();
         let response = bob_client
             .api_client
@@ -858,11 +855,7 @@ mod tests {
 
         // Send First Message
 
-        a_to_b.send_text("Hi").unwrap();
-        alice_client
-            .refresh_user_installations(&bob_address)
-            .await
-            .unwrap();
+        a_to_b.send_text("Hi").await.unwrap();
         a_convos.process_outbound_messages().await.unwrap();
         a_convos.publish_outbound_payloads().await.unwrap();
         b_convos.receive().unwrap();
@@ -901,7 +894,7 @@ mod tests {
             .new_secret_conversation(bob_address.clone())
             .unwrap();
 
-        b_to_a.send_text("Reply").unwrap();
+        b_to_a.send_text("Reply").await.unwrap();
         bob_client
             .refresh_user_installations(&bob_address)
             .await

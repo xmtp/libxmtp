@@ -2,6 +2,7 @@ use crate::{
     client::ClientError,
     codecs::{text::TextCodec, CodecError, ContentCodec},
     contact::Contact,
+    conversations::Conversations,
     invitation::{Invitation, InvitationError},
     message::PayloadError,
     session::SessionError,
@@ -148,7 +149,7 @@ where
         self.peer_address.clone()
     }
 
-    pub fn send(&self, content_bytes: Vec<u8>) -> Result<(), ConversationError> {
+    pub async fn send(&self, content_bytes: Vec<u8>) -> Result<(), ConversationError> {
         NewStoredMessage::new(
             self.convo_id(),
             self.client.account.addr(),
@@ -158,15 +159,20 @@ where
         )
         .store(&mut self.client.store.conn().unwrap())?;
 
+        let conversations = Conversations::new(&self.client);
+        if let Err(err) = conversations.process_outbound_messages().await {
+            log::error!("Could not process outbound messages on init: {:?}", err)
+        }
+
         Ok(())
     }
 
-    pub fn send_text(&self, text: &str) -> Result<(), ConversationError> {
+    pub async fn send_text(&self, text: &str) -> Result<(), ConversationError> {
         // TODO support other codecs
         let encoded_content = TextCodec::encode(text.to_string())?;
         let content_bytes = encoded_content.encode_to_vec();
 
-        self.send(content_bytes)
+        self.send(content_bytes).await
     }
 
     pub async fn list_messages(
@@ -271,7 +277,7 @@ mod tests {
         let client = gen_test_client().await;
         let conversations = Conversations::new(&client);
         let conversation = gen_test_conversation(&conversations, "0x000").await;
-        conversation.send_text("Hello, world!").unwrap();
+        conversation.send_text("Hello, world!").await.unwrap();
 
         let message = &client.store.get_unprocessed_messages().unwrap()[0];
         let content = EncodedContent::decode(&message.content[..]).unwrap();
@@ -287,8 +293,8 @@ mod tests {
         let conversation =
             gen_test_conversation(&conversations, recipient.account.addr().as_str()).await;
         conversation.initialize().await.unwrap();
-        conversation.send_text("Hello, world!").unwrap();
-        conversation.send_text("Hello, again").unwrap();
+        conversation.send_text("Hello, world!").await.unwrap();
+        conversation.send_text("Hello, again").await.unwrap();
 
         conversations.process_outbound_messages().await.unwrap();
 
