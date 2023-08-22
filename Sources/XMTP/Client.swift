@@ -56,8 +56,6 @@ public class Client {
 	var privateKeyBundleV1: PrivateKeyBundleV1
 	var apiClient: ApiClient
 
-	public private(set) var isGroupChatEnabled = false
-
 	/// Access ``Conversations`` for this Client.
 	public lazy var conversations: Conversations = .init(client: self)
 
@@ -177,11 +175,6 @@ public class Client {
 		self.address = address
 		self.privateKeyBundleV1 = privateKeyBundleV1
 		self.apiClient = apiClient
-	}
-
-	public func enableGroupChat() {
-		self.isGroupChatEnabled = true
-		GroupChat.registerCodecs()
 	}
 
 	public var privateKeyBundle: PrivateKeyBundle {

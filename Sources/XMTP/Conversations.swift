@@ -192,9 +192,9 @@ public class Conversations {
         }
     }
 
-    private func makeConversation(from sealedInvitation: SealedInvitation, isGroup: Bool = false) throws -> ConversationV2 {
+    private func makeConversation(from sealedInvitation: SealedInvitation) throws -> ConversationV2 {
         let unsealed = try sealedInvitation.v1.getInvitation(viewer: client.keys)
-        let conversation = try ConversationV2.create(client: client, invitation: unsealed, header: sealedInvitation.v1.header, isGroup: isGroup)
+        let conversation = try ConversationV2.create(client: client, invitation: unsealed, header: sealedInvitation.v1.header)
 
         return conversation
     }
@@ -227,16 +227,6 @@ public class Conversations {
             do {
                 newConversations.append(
                     Conversation.v2(try makeConversation(from: sealedInvitation))
-                )
-            } catch {
-                print("Error loading invitations: \(error)")
-            }
-        }
-
-        for sealedInvitation in try await listGroupInvitations(pagination: pagination) {
-            do {
-                newConversations.append(
-                    Conversation.v2(try makeConversation(from: sealedInvitation, isGroup: true))
                 )
             } catch {
                 print("Error loading invitations: \(error)")
@@ -294,22 +284,6 @@ public class Conversations {
         }
 
         return seenPeers
-    }
-
-    private func listGroupInvitations(pagination: Pagination?) async throws -> [SealedInvitation] {
-        if !client.isGroupChatEnabled {
-            return []
-        }
-        let envelopes = try await client.apiClient.envelopes(
-            topic: Topic.groupInvite(client.address).description,
-            pagination: pagination
-        )
-
-        return envelopes.compactMap { envelope in
-            // swiftlint:disable no_optional_try
-            try? SealedInvitation(serializedData: envelope.message)
-            // swiftlint:enable no_optional_try
-        }
     }
 
     private func listInvitations(pagination: Pagination?) async throws -> [SealedInvitation] {

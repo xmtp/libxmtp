@@ -29,15 +29,6 @@ public enum Conversation: Sendable {
 		case v1, v2
 	}
 
-	public var isGroup: Bool {
-		switch self {
-		case .v1:
-			return false
-		case let .v2(conversationV2):
-			return conversationV2.isGroup
-		}
-	}
-
 	public var version: Version {
 		switch self {
 		case .v1:
