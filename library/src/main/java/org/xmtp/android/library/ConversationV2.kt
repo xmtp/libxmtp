@@ -28,7 +28,6 @@ data class ConversationV2(
     val context: Invitation.InvitationV1.Context,
     val peerAddress: String,
     val client: Client,
-    val isGroup: Boolean = false,
     private val header: SealedInvitationHeaderV1,
 ) {
 
@@ -37,7 +36,6 @@ data class ConversationV2(
             client: Client,
             invitation: Invitation.InvitationV1,
             header: SealedInvitationHeaderV1,
-            isGroup: Boolean = false,
         ): ConversationV2 {
             val myKeys = client.keys.getPublicKeyBundle()
             val peer =
@@ -51,7 +49,6 @@ data class ConversationV2(
                 peerAddress = peerAddress,
                 client = client,
                 header = header,
-                isGroup = isGroup
             )
         }
     }

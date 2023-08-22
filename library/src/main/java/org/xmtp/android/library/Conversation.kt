@@ -19,14 +19,6 @@ sealed class Conversation {
         V2
     }
 
-    val isGroup: Boolean
-        get() {
-            return when (this) {
-                is V1 -> false
-                is V2 -> conversationV2.isGroup
-            }
-        }
-
     val version: Version
         get() {
             return when (this) {

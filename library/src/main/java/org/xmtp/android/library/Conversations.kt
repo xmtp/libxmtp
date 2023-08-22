@@ -169,13 +169,6 @@ data class Conversations(
                 Log.d(TAG, e.message.toString())
             }
         }
-        for (sealedInvitation in listGroupInvitations()) {
-            try {
-                newConversations.add(Conversation.V2(conversation(sealedInvitation, true)))
-            } catch (e: Exception) {
-                Log.d(TAG, e.message.toString())
-            }
-        }
 
         conversationsByTopic += newConversations.filter { it.peerAddress != client.address }
             .map { Pair(it.topic, it) }
@@ -203,7 +196,6 @@ data class Conversations(
                     context = data.invitation.context,
                     peerAddress = data.peerAddress,
                     client = client,
-                    isGroup = false,
                     header = Invitation.SealedInvitationHeaderV1.getDefaultInstance()
                 )
             )
@@ -259,28 +251,12 @@ data class Conversations(
         }
     }
 
-    private fun listGroupInvitations(): List<SealedInvitation> {
-        if (!client.isGroupChatEnabled) {
-            return listOf()
-        }
-        val envelopes = runBlocking {
-            client.apiClient.envelopes(
-                topic = Topic.groupInvite(client.address).description,
-                pagination = null
-            )
-        }
-        return envelopes.map { envelope ->
-            SealedInvitation.parseFrom(envelope.message)
-        }
-    }
-
-    fun conversation(sealedInvitation: SealedInvitation, isGroup: Boolean = false): ConversationV2 {
+    fun conversation(sealedInvitation: SealedInvitation): ConversationV2 {
         val unsealed = sealedInvitation.v1.getInvitation(viewer = client.keys)
         return ConversationV2.create(
             client = client,
             invitation = unsealed,
             header = sealedInvitation.v1.header,
-            isGroup = isGroup
         )
     }
 
