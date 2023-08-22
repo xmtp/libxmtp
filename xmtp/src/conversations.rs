@@ -1,6 +1,6 @@
 use diesel::Connection;
 use futures::executor::block_on;
-use log::{info, warn};
+use log::info;
 use prost::Message;
 use vodozemac::olm::{self, OlmMessage};
 use xmtp_proto::xmtp::v3::message_contents::{InvitationV1, PadlockMessagePayload};
@@ -92,7 +92,10 @@ where
         self.client
             .store
             .lock_refresh_job(RefreshJobKind::Message, |conn, job| {
-                warn!("{}", self.get_start_time(&job).unsigned_abs());
+                log::debug!(
+                    "Refresh messages start time: {}",
+                    self.get_start_time(&job).unsigned_abs()
+                );
                 let downloaded =
                     futures::executor::block_on(self.client.download_latest_from_topic(
                         self.get_start_time(&job).unsigned_abs(),
