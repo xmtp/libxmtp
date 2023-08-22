@@ -216,7 +216,7 @@ where
             })
             .collect::<Vec<Contact>>();
 
-        if to_invite.len() == 0 {
+        if to_invite.is_empty() {
             return Ok(());
         }
 
