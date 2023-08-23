@@ -46,17 +46,20 @@ impl<A: XmtpApiClient> Conversations<A> {
             Conversations::save_invites(client)?;
             Conversations::process_invites(client)?;
         }
-        let conn = &mut client.store.conn()?;
+        let mut conn = client.store.conn()?;
 
         let mut secret_convos: Vec<SecretConversation<A>> = vec![];
 
         let convos: Vec<StoredConversation> = client.store.get_conversations(
-            conn,
+            &mut conn,
             vec![
                 ConversationState::InviteReceived,
                 ConversationState::Invited,
             ],
         )?;
+        // Releasing the connection early here as SecretConversation::new() will need to acquire a new one
+        drop(conn);
+
         log::debug!("Retrieved {:?} convos from the database", convos.len());
         for convo in convos {
             let peer_address = peer_addr_from_convo_id(&convo.convo_id, &client.account.addr())?;
