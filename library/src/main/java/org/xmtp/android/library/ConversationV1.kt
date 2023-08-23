@@ -59,6 +59,7 @@ data class ConversationV1(
         val encodedMessage = EncodedContent.parseFrom(decrypted)
         val header = message.v1.header
         val decoded = DecodedMessage(
+            topic = envelope.contentTopic,
             encodedContent = encodedMessage,
             senderAddress = header.sender.walletAddress,
             sent = message.v1.sentAt

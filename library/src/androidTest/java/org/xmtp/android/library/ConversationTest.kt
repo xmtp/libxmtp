@@ -7,6 +7,7 @@ import kotlinx.coroutines.ExperimentalCoroutinesApi
 import org.junit.Assert
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertThrows
+import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Ignore
 import org.junit.Test
@@ -180,13 +181,11 @@ class ConversationTest {
     @Test
     fun testCanLoadV2Messages() {
         val bobConversation = bobClient.conversations.newConversation(
-            aliceWallet.address,
-            InvitationV1ContextBuilder.buildFromConversation("hi")
+            aliceWallet.address, InvitationV1ContextBuilder.buildFromConversation("hi")
         )
 
         val aliceConversation = aliceClient.conversations.newConversation(
-            bobWallet.address,
-            InvitationV1ContextBuilder.buildFromConversation("hi")
+            bobWallet.address, InvitationV1ContextBuilder.buildFromConversation("hi")
         )
         bobConversation.send(content = "hey alice")
         val messages = aliceConversation.messages()
@@ -214,31 +213,23 @@ class ConversationTest {
         val preKey = aliceClient.keys?.preKeysList?.get(0)
         val signature = preKey?.sign(digest)
         val bundle = aliceClient.privateKeyBundleV1?.toV2()?.getPublicKeyBundle()
-        val signedContent =
-            SignedContentBuilder.builderFromPayload(
-                payload = originalPayload,
-                sender = bundle,
-                signature = signature
-            )
+        val signedContent = SignedContentBuilder.builderFromPayload(
+            payload = originalPayload, sender = bundle, signature = signature
+        )
         val signedBytes = signedContent.toByteArray()
-        val ciphertext =
-            Crypto.encrypt(
-                aliceConversation.keyMaterial!!,
-                signedBytes,
-                additionalData = headerBytes
-            )
+        val ciphertext = Crypto.encrypt(
+            aliceConversation.keyMaterial!!, signedBytes, additionalData = headerBytes
+        )
         val tamperedMessage =
             MessageV2Builder.buildFromCipherText(headerBytes = headerBytes, ciphertext = ciphertext)
-        val tamperedEnvelope =
-            EnvelopeBuilder.buildFromString(
-                topic = aliceConversation.topic,
-                timestamp = Date(),
-                message = MessageBuilder.buildFromMessageV2(v2 = tamperedMessage).toByteArray()
-            )
+        val tamperedEnvelope = EnvelopeBuilder.buildFromString(
+            topic = aliceConversation.topic,
+            timestamp = Date(),
+            message = MessageBuilder.buildFromMessageV2(v2 = tamperedMessage).toByteArray()
+        )
         aliceClient.publish(envelopes = listOf(tamperedEnvelope))
         val bobConversation = bobClient.conversations.newConversation(
-            aliceWallet.address,
-            InvitationV1ContextBuilder.buildFromConversation("hi")
+            aliceWallet.address, InvitationV1ContextBuilder.buildFromConversation("hi")
         )
         assertThrows("Invalid signature", XMTPException::class.java) {
             bobConversation.decode(tamperedEnvelope)
@@ -330,11 +321,11 @@ class ConversationTest {
         val invitationContext = Invitation.InvitationV1.Context.newBuilder().also {
             it.conversationId = "https://example.com/1"
         }.build()
-        val invitationv1 =
-            InvitationV1.newBuilder().build().createDeterministic(
-                sender = client.keys,
-                recipient = fakeContactClient.keys.getPublicKeyBundle(), context = invitationContext
-            )
+        val invitationv1 = InvitationV1.newBuilder().build().createDeterministic(
+            sender = client.keys,
+            recipient = fakeContactClient.keys.getPublicKeyBundle(),
+            context = invitationContext
+        )
         val senderBundle = client.privateKeyBundleV1?.toV2()
         assertEquals(
             senderBundle?.identityKey?.publicKey?.recoverWalletSignerPublicKey()?.walletAddress,
@@ -397,13 +388,11 @@ class ConversationTest {
     @Test
     fun testCanPaginateV2Messages() {
         val bobConversation = bobClient.conversations.newConversation(
-            alice.walletAddress,
-            context = InvitationV1ContextBuilder.buildFromConversation("hi")
+            alice.walletAddress, context = InvitationV1ContextBuilder.buildFromConversation("hi")
         )
 
         val aliceConversation = aliceClient.conversations.newConversation(
-            bob.walletAddress,
-            context = InvitationV1ContextBuilder.buildFromConversation("hi")
+            bob.walletAddress, context = InvitationV1ContextBuilder.buildFromConversation("hi")
         )
         val date = Date()
         date.time = date.time - 1000000
@@ -421,18 +410,24 @@ class ConversationTest {
     @Test
     fun testListBatchMessages() {
         val bobConversation = aliceClient.conversations.newConversation(bob.walletAddress)
-        val steveConversation = aliceClient.conversations.newConversation(fixtures.steve.walletAddress)
+        val steveConversation =
+            aliceClient.conversations.newConversation(fixtures.steve.walletAddress)
 
         bobConversation.send(text = "hey alice 1")
         bobConversation.send(text = "hey alice 2")
         steveConversation.send(text = "hey alice 3")
         val messages = aliceClient.conversations.listBatchMessages(
             listOf(
-                Pair(steveConversation.topic, null),
-                Pair(bobConversation.topic, null)
+                Pair(steveConversation.topic, null), Pair(bobConversation.topic, null)
             )
         )
+        val isSteveOrBobConversation = { topic: String ->
+            (topic.equals(steveConversation.topic) || topic.equals(bobConversation.topic))
+        }
         assertEquals(3, messages.size)
+        assertTrue(isSteveOrBobConversation(messages[0].topic))
+        assertTrue(isSteveOrBobConversation(messages[1].topic))
+        assertTrue(isSteveOrBobConversation(messages[2].topic))
     }
 
     @Test
@@ -586,9 +581,7 @@ class ConversationTest {
             header = Invitation.SealedInvitationHeaderV1.newBuilder().build()
         )
         val envelope = EnvelopeBuilder.buildFromString(
-            topic = topic,
-            timestamp = Date(),
-            message = envelopeMessage
+            topic = topic, timestamp = Date(), message = envelopeMessage
         )
         assertThrows("pre-key not signed by identity key", XMTPException::class.java) {
             conversation.decodeEnvelope(envelope)
@@ -627,8 +620,38 @@ class ConversationTest {
     fun testFetchConversation() {
         // Generated from JS script
         val ints = arrayOf(
-            31, 116, 198, 193, 189, 122, 19, 254, 191, 189, 211, 215, 255, 131,
-            171, 239, 243, 33, 4, 62, 143, 86, 18, 195, 251, 61, 128, 90, 34, 126, 219, 236
+            31,
+            116,
+            198,
+            193,
+            189,
+            122,
+            19,
+            254,
+            191,
+            189,
+            211,
+            215,
+            255,
+            131,
+            171,
+            239,
+            243,
+            33,
+            4,
+            62,
+            143,
+            86,
+            18,
+            195,
+            251,
+            61,
+            128,
+            90,
+            34,
+            126,
+            219,
+            236
         )
         val bytes =
             ints.foldIndexed(ByteArray(ints.size)) { i, a, v -> a.apply { set(i, v.toByte()) } }

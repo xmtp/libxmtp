@@ -74,6 +74,7 @@ class MessageV2Builder {
                 throw XMTPException("Topic mismatch")
             }
             return DecodedMessage(
+                topic = header.topic,
                 encodedContent = encodedMessage,
                 senderAddress = signed.sender.walletAddress,
                 sent = Date(header.createdNs / 1_000_000)

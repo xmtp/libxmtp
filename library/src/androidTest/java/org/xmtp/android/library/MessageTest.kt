@@ -242,6 +242,7 @@ class MessageTest {
         val messages = convo.messages()
         assertEquals(1, messages.size)
         assertEquals("hello from kotlin", messages[0].body)
+        assertEquals(convo.topic.description, messages[0].topic)
     }
 
     @Test
@@ -257,6 +258,7 @@ class MessageTest {
         val messages = convo.messages()
         assertEquals(1, messages.size)
         assertEquals("hello from kotlin", messages[0].body)
+        assertEquals(convo.topic, messages[0].topic)
     }
 
     @Test
