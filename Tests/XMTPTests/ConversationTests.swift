@@ -434,6 +434,35 @@ class ConversationTests: XCTestCase {
         XCTAssertEqual(bobConversation.topic, messages[2].topic)
     }
 
+    func testProperlyDiscardBadBatchMessages() async throws {
+
+        guard case let .v2(bobConversation) = try await aliceClient.conversations
+            .newConversation(with: bob.address) else {
+            XCTFail("did not get a v2 conversation for bob")
+            return
+        }
+
+        try await bobConversation.send(content: "Hello")
+
+        // Now we send some garbage and expect it to be properly ignored.
+        try await bobClient.apiClient.publish(envelopes: [
+            Envelope(
+                topic: bobConversation.topic,
+                timestamp: Date(),
+                message: Data([1, 2, 3]) // garbage, malformed message
+            )
+        ])
+
+        try await bobConversation.send(content: "Goodbye")
+
+        let messages = try await aliceClient.conversations.listBatchMessages(
+            topics: [bobConversation.topic : nil]
+        )
+        XCTAssertEqual(2, messages.count)
+        XCTAssertEqual("Goodbye", try messages[0].content())
+        XCTAssertEqual("Hello", try messages[1].content())
+    }
+
 	func testImportV1ConversationFromJS() async throws {
 		let jsExportJSONData = Data("""
 		{

@@ -46,18 +46,18 @@ public class Conversations {
         for batch in batches {
             messages += try await client.apiClient.batchQuery(request: batch)
                 .responses.flatMap { (res) in
-                    try res.envelopes.compactMap { (envelope) in
+                    res.envelopes.compactMap { (envelope) in
                         let conversation = conversationsByTopic[envelope.contentTopic]
                         if conversation == nil {
                             print("discarding message, unknown conversation \(envelope)")
                             return nil
                         }
-                        let msg = try conversation?.decode(envelope)
-                        if msg == nil {
+                        do {
+                            return try conversation?.decode(envelope)
+                        } catch {
                             print("discarding message, unable to decode \(envelope)")
                             return nil
                         }
-                        return msg
                     }
                 }
         }
