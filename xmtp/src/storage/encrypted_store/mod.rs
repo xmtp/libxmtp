@@ -80,15 +80,16 @@ impl EncryptedMessageStore {
         opts: StorageOption,
         enc_key: Option<EncryptionKey>,
     ) -> Result<Self, StorageError> {
-        let db_path = match opts {
-            StorageOption::Ephemeral => ":memory:",
-            StorageOption::Persistent(ref path) => path,
+        let pool = match opts {
+            StorageOption::Ephemeral => Pool::builder()
+                .max_size(1)
+                .build(ConnectionManager::<SqliteConnection>::new(":memory:"))
+                .map_err(|e| StorageError::DbInitError(e.to_string()))?,
+            StorageOption::Persistent(ref path) => Pool::builder()
+                .max_size(10)
+                .build(ConnectionManager::<SqliteConnection>::new(path))
+                .map_err(|e| StorageError::DbInitError(e.to_string()))?,
         };
-
-        let pool = Pool::builder()
-            .max_size(10)
-            .build(ConnectionManager::<SqliteConnection>::new(db_path))
-            .map_err(|e| StorageError::DbInitError(e.to_string()))?;
 
         // // Setup SqlCipherKey
         if let Some(key) = enc_key {
