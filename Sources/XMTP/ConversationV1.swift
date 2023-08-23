@@ -194,6 +194,7 @@ public struct ConversationV1 {
 		let header = try message.v1.header
 
 		var decoded = DecodedMessage(
+            topic: envelope.contentTopic,
 			encodedContent: encodedMessage,
 			senderAddress: header.sender.walletAddress,
 			sent: message.v1.sentAt

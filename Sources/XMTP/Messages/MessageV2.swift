@@ -53,6 +53,7 @@ extension MessageV2 {
 			let header = try MessageHeaderV2(serializedData: message.headerBytes)
 
 			return DecodedMessage(
+                topic: header.topic,
 				encodedContent: encodedMessage,
 				senderAddress: try signed.sender.walletAddress,
 				sent: Date(timeIntervalSince1970: Double(header.createdNs / 1_000_000) / 1000)

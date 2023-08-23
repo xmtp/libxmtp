@@ -327,6 +327,7 @@ class ConversationTests: XCTestCase {
 		let messages = try await aliceConversation.messages(limit: 1)
 		XCTAssertEqual(1, messages.count)
 		XCTAssertEqual("hey alice 3", messages[0].body)
+        XCTAssertEqual(aliceConversation.topic.description, messages[0].topic)
 
 		let messages2 = try await aliceConversation.messages(limit: 1, before: messages[0].sent)
 		XCTAssertEqual(1, messages2.count)
@@ -368,6 +369,7 @@ class ConversationTests: XCTestCase {
 		let messages = try await aliceConversation.messages(limit: 1)
 		XCTAssertEqual(1, messages.count)
 		XCTAssertEqual("hey alice 3", messages[0].body)
+        XCTAssertEqual(aliceConversation.topic, messages[0].topic)
 
 		let messages2 = try await aliceConversation.messages(limit: 1, before: messages[0].sent)
 		XCTAssertEqual(1, messages2.count)
@@ -427,6 +429,9 @@ class ConversationTests: XCTestCase {
             topics: [bobConversation.topic : Pagination(limit:3)]
         )
         XCTAssertEqual(3, messages.count)
+        XCTAssertEqual(bobConversation.topic, messages[0].topic)
+        XCTAssertEqual(bobConversation.topic, messages[1].topic)
+        XCTAssertEqual(bobConversation.topic, messages[2].topic)
     }
 
 	func testImportV1ConversationFromJS() async throws {

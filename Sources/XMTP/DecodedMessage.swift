@@ -9,6 +9,8 @@ import Foundation
 
 /// Decrypted messages from a conversation.
 public struct DecodedMessage: Sendable {
+    public var topic: String
+
 	public var id: String = ""
 
 	public var encodedContent: EncodedContent
@@ -19,7 +21,8 @@ public struct DecodedMessage: Sendable {
 	/// When the message was sent
 	public var sent: Date
 
-	public init(encodedContent: EncodedContent, senderAddress: String, sent: Date) {
+    public init(topic: String, encodedContent: EncodedContent, senderAddress: String, sent: Date) {
+        self.topic = topic
 		self.encodedContent = encodedContent
 		self.senderAddress = senderAddress
 		self.sent = sent
@@ -43,10 +46,10 @@ public struct DecodedMessage: Sendable {
 }
 
 public extension DecodedMessage {
-	static func preview(body: String, senderAddress: String, sent: Date) -> DecodedMessage {
+    static func preview(topic: String, body: String, senderAddress: String, sent: Date) -> DecodedMessage {
 		// swiftlint:disable force_try
 		let encoded = try! TextCodec().encode(content: body)
 		// swiftlint:enable force_try
-		return DecodedMessage(encodedContent: encoded, senderAddress: senderAddress, sent: sent)
+        return DecodedMessage(topic: topic, encodedContent: encoded, senderAddress: senderAddress, sent: sent)
 	}
 }
