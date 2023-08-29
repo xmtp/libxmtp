@@ -10,6 +10,9 @@ use xmtp::conversation::{ListMessagesOptions, SecretConversation};
 use xmtp::conversations::Conversations;
 use xmtp::storage::StoredMessage;
 use xmtp::types::Address;
+use xmtp::InboxOwner;
+use xmtp_cryptography::signature::RecoverableSignature;
+use xmtp_cryptography::utils::{seeded_rng, LocalWallet};
 use xmtp_networking::grpc_api_helper::Client as TonicApiClient;
 
 use crate::inbox_owner::RustInboxOwner;
@@ -99,6 +102,43 @@ impl FfiXmtpClient {
             inner_client: self.inner_client.clone(),
         })
     }
+}
+
+/// A Inbox owner used for testing SDKs
+#[derive(uniffi::Object)]
+pub struct TestingInboxOwner {
+    local_wallet: LocalWallet,
+}
+
+impl TestingInboxOwner {
+    pub fn new(seed: u64) -> Self {
+        Self {
+            local_wallet: LocalWallet::new(&mut seeded_rng(seed)),
+        }
+    }
+}
+
+#[uniffi::export]
+impl FfiInboxOwner for TestingInboxOwner {
+    fn get_address(&self) -> String {
+        self.local_wallet.get_address()
+    }
+
+    fn sign(&self, text: String) -> Result<Vec<u8>, SigningError> {
+        let signature = self
+            .local_wallet
+            .sign(&text)
+            .map_err(|_| SigningError::Generic)?;
+
+        Ok(match signature {
+            RecoverableSignature::Eip191Signature(v) => v,
+        })
+    }
+}
+
+#[uniffi::export]
+pub fn create_local_wallet(seed: u64) -> Arc<TestingInboxOwner> {
+    Arc::new(TestingInboxOwner::new(seed))
 }
 
 #[derive(uniffi::Object)]
