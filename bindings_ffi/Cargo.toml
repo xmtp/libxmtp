@@ -1,5 +1,5 @@
 [package]
-name = "bindings_ffi"
+name = "xmtpv3"
 version = "0.1.0"
 edition = "2021"
 
