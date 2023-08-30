@@ -186,10 +186,6 @@ jobs:
           path: .
       - name: Build archive
         run: |
-          # not sure why we're building this one
-          # mv aarch64-unknown-linux-gnu/libxmtpv3.so jniLibs/arm64-v8a/
-          # mkdir -p jniLibs/x86_64
-          # mv x86_64-linux-android/libxmtpv3.so jniLibs/x86_64/
           mkdir -p jniLibs/x86
           mv i686-linux-android/libxmtpv3.so jniLibs/x86/
           mkdir -p jniLibs/armeabi-v7a
