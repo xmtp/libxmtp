@@ -22,7 +22,7 @@ The first iteration is built on top of [Matrix’s Olm](https://gitlab.matrix.or
 ## Objectives
 
 - **Grow the XMTP network securely:** The suite of security properties introduced in XMTP v3 will reduce risk from potentially malicious apps and actors as we grow the XMTP network. These properties are displayed below.
-- **More transparent and agile protocol development:** The core of XMTP v3 is [libxmtp](https://www.notion.so/DRAFT-XMTP-v3-technical-design-17e63194ef7c4803b7eb3dd6051b6019?pvs=21), a Rust library that can be consumed across multiple platforms. Streamlining XMTP’s cryptographic code and protocol logic into one open-source repository allows for increased auditability, security, and development velocity.
+- **More transparent and agile protocol development:** The core of XMTP v3 is [libxmtp](https://github.com/xmtp/libxmtp), a Rust library that can be consumed across multiple platforms. Streamlining XMTP’s cryptographic code and protocol logic into one open-source repository allows for increased auditability, security, and development velocity.
 - **A foundation for group chat, account abstraction, and more:** A more adaptable protocol with strong security and privacy guarantees allows us to develop highly requested features, such as group chat, that rely heavily on handling sensitive key material.
 
 | Protocol property                          | XMTP v2 | XMTP v3 | Description of property                                                                                                                                |
