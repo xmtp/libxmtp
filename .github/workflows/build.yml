@@ -56,7 +56,7 @@ jobs:
         uses: actions/upload-artifact@v3
         with:
           name: ${{ matrix.target }}
-          path: bindings_ffi/target/${{ matrix.target }}/release/libbindings_ffi.so
+          path: bindings_ffi/target/${{ matrix.target }}/release/libxmtpv3.so
           retention-days: 1
 
   build-macos:
@@ -107,7 +107,7 @@ jobs:
         uses: actions/upload-artifact@v3
         with:
           name: ${{ matrix.target }}
-          path: bindings_ffi/target/${{ matrix.target }}/release/libbindings_ffi.dylib
+          path: bindings_ffi/target/${{ matrix.target }}/release/libxmtpv3.dylib
           retention-days: 1        
 
   kotlin:
@@ -186,16 +186,12 @@ jobs:
           path: .
       - name: Build archive
         run: |
-          # not sure why we're building this one
-          # mv aarch64-unknown-linux-gnu/libbindings_ffi.so jniLibs/arm64-v8a/
-          # mkdir -p jniLibs/x86_64
-          # mv x86_64-linux-android/libbindings_ffi.so jniLibs/x86_64/
           mkdir -p jniLibs/x86
-          mv i686-linux-android/libbindings_ffi.so jniLibs/x86/
+          mv i686-linux-android/libxmtpv3.so jniLibs/x86/
           mkdir -p jniLibs/armeabi-v7a
-          mv armv7-linux-androideabi/libbindings_ffi.so jniLibs/armeabi-v7a/
+          mv armv7-linux-androideabi/libxmtpv3.so jniLibs/armeabi-v7a/
           mkdir -p jniLibs/arm64-v8a
-          mv aarch64-linux-android/libbindings_ffi.so jniLibs/arm64-v8a/
+          mv aarch64-linux-android/libxmtpv3.so jniLibs/arm64-v8a/
           mkdir -p java
           mv kotlin/xmtpv3.kt java/
           zip -r libxmtp-android.zip jniLibs java

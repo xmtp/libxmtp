@@ -5,7 +5,7 @@ ARCHS_IOS = x86_64-apple-ios aarch64-apple-ios-sim
 ARCHS_MAC = x86_64-apple-darwin aarch64-apple-darwin
 # Not used
 # ARCHS_MACCATALYST = x86_64-apple-ios-macabi aarch64-apple-ios-macabi
-LIB=libbindings_ffi.dylib
+LIB=libxmtpv3.dylib
 JAR_DIR=$(shell pwd)/tests/jar
 
 install-jar:
