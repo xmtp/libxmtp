@@ -149,7 +149,7 @@ All messages intended for a given installation are published onto the same ‘in
 
 This type of topic structure will reveal the number of payloads being sent to the user. Privacy measures on the message headers mean that sender information is not publicly visible. The fact that a message was sent to an account is not tied to a specific user action (assuming sufficient volume) and so the harm here is reduced.
 
-There may be future plans which would result in higher privacy protections around how many messages have been received, however that is still an open area.
+Better privacy protections around message receipt volume is an open area of research.
 
 **Adding and removing installations**
 
@@ -251,7 +251,7 @@ Future work is described in [Limitations and future work](#limitations-and-futur
 
 **Olm dependency**
 
-- Olm uses 3DH (with no signed prekey) instead of X3DH. XMTP may implement support for this in the future.
+- Olm uses 3DH (with no signed prekey) instead of X3DH. XMTP may implement support for X3DH in the future.
 - [libolm](https://gitlab.matrix.org/matrix-org/olm) was designed to be compatible with [libsignal](https://github.com/signalapp/libsignal), which has a high maintenance cost. XMTP should be careful about inheriting protocol choices. Choosing an approach which makes use of newer primitives (e.g. ChaChaPoly) would be more future-proof, given there is currently no requirement for backward compatibility.
 - Matrix implementations have seen recent vulnerabilities, which lead to questions about its robustness in a secure context. For example, see [Practically-exploitable Cryptographic Vulnerabilities in Matrix](https://nebuchadnezzar-megolm.github.io/).
 
@@ -282,7 +282,7 @@ Future versions of the protocol may incorporate message padding and private inst
 
 **Message portability**
 
-More details TBD.
+It is desirable for users to have an option for their past messages to be available on future app installations. XMTP Labs is evaluating solutions with various trade-offs between security, separation of concerns in the protocol, avoiding ecosystem fragmentation and minimizing user friction. More details TBD.
 
 **Node cooperation**
 
