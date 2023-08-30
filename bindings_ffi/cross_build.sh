@@ -16,7 +16,7 @@ main() {
       cross build --target aarch64-linux-android --target-dir ./target --profile $PROFILE
 
   # Move everything to jniLibs folder and rename
-  LIBRARY_NAME="libbindings_ffi"
+  LIBRARY_NAME="libxmtpv3"
   TARGET_NAME="libuniffi_xmtpv3"
   rm -rf jniLibs/
   # mkdir -p jniLibs/armeabi-v7a/ && \
