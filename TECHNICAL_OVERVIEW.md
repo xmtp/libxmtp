@@ -127,7 +127,7 @@ In the event of a compromise, malicious app, or no longer used installation, the
 
 In XMTP v3, a **conversation** consists of pair-wise sessions between installations (known as ’client-side fanout’). For example, this diagram illustrates the sessions that comprise a conversation consisting of two users, each with two installations. Each message in the conversation is sent from the sending installation to all other installations in the conversation.
 
-<img src="img/conversation-breakdown.png" width=600 />
+<img src="img/conversation-breakdown.png" width="600" />
 
 XMTP v3 introduces a secure peer-to-peer channel that serves as a primitive building block for future versions of the protocol. To learn more, see [Roadmap](#roadmap).
 
@@ -307,7 +307,7 @@ Relevant repos:
 
 The XMTP v3 protocol implementation uses the following tech stack:
 
-<img src="img/tech-stack.png" width=800 />
+<img src="img/tech-stack.png" width="800" />
 
 | Tech                                                        | Responsibility                                                                                                                                                                                              |
 | ----------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
