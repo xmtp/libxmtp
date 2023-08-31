@@ -119,6 +119,7 @@ impl FfiConversations {
 
         let out = Arc::new(FfiConversation {
             inner_client: self.inner_client.clone(),
+            id: convo.convo_id(),
             peer_address: convo.peer_address(),
         });
 
@@ -135,6 +136,7 @@ impl FfiConversations {
             .map(|convo| {
                 Arc::new(FfiConversation {
                     inner_client: self.inner_client.clone(),
+                    id: convo.convo_id(),
                     peer_address: convo.peer_address(),
                 })
             })
@@ -147,10 +149,11 @@ impl FfiConversations {
 #[derive(uniffi::Object)]
 pub struct FfiConversation {
     inner_client: Arc<RustXmtpClient>,
+    id: String,
     peer_address: String,
 }
 
-#[derive(uniffi::Object)]
+#[derive(uniffi::Record)]
 pub struct FfiListMessagesOptions {
     pub start_time_ns: Option<i64>,
     pub end_time_ns: Option<i64>,
@@ -185,8 +188,10 @@ impl FfiConversation {
 
     pub async fn list_messages(
         &self,
-        opts: Arc<FfiListMessagesOptions>,
-    ) -> Result<Vec<Arc<FfiMessage>>, GenericError> {
+        opts: FfiListMessagesOptions,
+    ) -> Result<Vec<FfiMessage>, GenericError> {
+        let _ = Conversations::receive(self.inner_client.as_ref());
+
         let conversation = xmtp::conversation::SecretConversation::new(
             self.inner_client.as_ref(),
             self.peer_address.clone(),
@@ -194,20 +199,28 @@ impl FfiConversation {
         .map_err(|e| e.to_string())?;
         let options: ListMessagesOptions = opts.to_options();
 
-        let messages: Vec<Arc<FfiMessage>> = conversation
+        let messages: Vec<FfiMessage> = conversation
             .list_messages(&options)
             .await
             .map_err(|e| e.to_string())?
             .into_iter()
-            .map(|msg| Arc::new(msg.into()))
+            .map(|msg| msg.into())
             .collect();
 
         Ok(messages)
     }
 }
 
-#[derive(uniffi::Object)]
+#[uniffi::export]
+impl FfiConversation {
+    pub fn id(&self) -> String {
+        self.id.clone()
+    }
+}
+
+#[derive(uniffi::Record)]
 pub struct FfiMessage {
+    pub id: String,
     pub sent_at_ns: i64,
     pub convo_id: String,
     pub addr_from: String,
@@ -217,6 +230,7 @@ pub struct FfiMessage {
 impl From<StoredMessage> for FfiMessage {
     fn from(msg: StoredMessage) -> Self {
         Self {
+            id: msg.id.to_string(),
             sent_at_ns: msg.sent_at_ns,
             convo_id: msg.convo_id,
             addr_from: msg.addr_from,
@@ -321,11 +335,11 @@ mod tests {
 
         alice_to_bob.send(vec![1, 2, 3]).await.unwrap();
         let messages = alice_to_bob
-            .list_messages(Arc::new(FfiListMessagesOptions {
+            .list_messages(FfiListMessagesOptions {
                 start_time_ns: None,
                 end_time_ns: None,
                 limit: None,
-            }))
+            })
             .await
             .unwrap();
         assert_eq!(messages.len(), 1);
