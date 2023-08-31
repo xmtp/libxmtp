@@ -5,6 +5,9 @@ members = [
   "xmtp",
   "xmtp_cryptography",
   "xmtp_networking",
+#  TODO: replace ^ with:
+#  "xmtp_api_grpc",
+#  "xmtp_api_grpc_gateway",
   "xmtp_proto",
 ]
 
@@ -16,3 +19,7 @@ exclude = [
   "bindings_js",
   "bindings_wasm",
 ]
+
+# Make the feature resolver explicit.
+# See https://doc.rust-lang.org/edition-guide/rust-2021/default-cargo-resolver.html#details
+resolver = "2"
