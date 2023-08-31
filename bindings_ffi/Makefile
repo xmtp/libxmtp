@@ -76,4 +76,6 @@ swift:
 	mv build/swift/$(PROJECT_NAME)FFI.h build/swift/include/
 	mv build/swift/$(PROJECT_NAME)FFI.modulemap build/swift/include/module.modulemap
 
+swiftlocal: libbindings_ffi.dylib framework swift
+
 .PHONY: $(ARCHS_IOS) $(ARCHS_MAC) framework all aarch64-apple-ios install-jar echo-jar download-toolchains swift lipo
