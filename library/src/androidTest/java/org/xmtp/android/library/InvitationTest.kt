@@ -21,6 +21,8 @@ import org.xmtp.android.library.messages.generate
 import org.xmtp.android.library.messages.getInvitation
 import org.xmtp.android.library.messages.getPublicKeyBundle
 import org.xmtp.android.library.messages.header
+import org.xmtp.android.library.messages.sharedSecret
+import org.xmtp.android.library.messages.toPublicKeyBundle
 import org.xmtp.android.library.messages.toV2
 import java.util.Date
 
@@ -131,15 +133,66 @@ class InvitationTest {
             Numeric.hexStringToByteArray("0x0a88030ac001088cd68df7923112220a209057f8d813314a2aae74e6c4c30f909c1c496b6037ce32a12c613558a8e961681a9201088cd68df7923112440a420a40501ae9b4f75d5bb5bae3ca4ecfda4ede9edc5a9b7fc2d56dc7325b837957c23235cc3005b46bb9ef485f106404dcf71247097ed509635590f4b7987b833d03661a430a4104e61a7ae511567f4a2b5551221024b6932d6cdb8ecf3876ec64cf29be4291dd5428fc0301963cdf6939978846e2c35fd38fcb70c64296a929f166ef6e4e91045712c20108b8d68df7923112220a2027707399474d417bf6aae4baa3d73b285bf728353bc3e156b0e32461ebb48f8c1a940108b8d68df7923112460a440a40fb96fa38c3f013830abb61cf6b39776e0475eb1379c66013569c3d2daecdd48c7fbee945dcdbdc5717d1f4ffd342c4d3f1b7215912829751a94e3ae11007e0a110011a430a4104952b7158cfe819d92743a4132e2e3ae867d72f6a08292aebf471d0a7a2907f3e9947719033e20edc9ca9665874bd88c64c6b62c01928065f6069c5c80c699924")
         val bobKeys = PrivateKeyBundle.parseFrom(bobKeyData).v1.toV2()
 
-        val invite = InvitationV1.newBuilder().build().createDeterministic(
+        val aliceInvite = InvitationV1.newBuilder().build().createDeterministic(
             sender = aliceKeys,
             recipient = bobKeys.getPublicKeyBundle(),
             context = InvitationV1ContextBuilder.buildFromConversation("test")
         )
 
         assertEquals(
-            invite.topic,
+            aliceInvite.topic,
             "/xmtp/0/m-4b52be1e8567d72d0bc407debe2d3c7fca2ae93a47e58c3f9b5c5068aff80ec5/proto"
         )
+
+        val bobInvite = InvitationV1.newBuilder().build().createDeterministic(
+            sender = bobKeys,
+            recipient = aliceKeys.getPublicKeyBundle(),
+            context = InvitationV1ContextBuilder.buildFromConversation("test")
+        )
+
+        assertEquals(
+            aliceInvite.topic,
+            "/xmtp/0/m-4b52be1e8567d72d0bc407debe2d3c7fca2ae93a47e58c3f9b5c5068aff80ec5/proto"
+        )
+
+        assertEquals(
+            bobInvite.topic,
+            "/xmtp/0/m-4b52be1e8567d72d0bc407debe2d3c7fca2ae93a47e58c3f9b5c5068aff80ec5/proto"
+        )
+    }
+
+    @Test
+    fun testCreatesDeterministicTopicsBidirectionally() {
+        val aliceWallet = FakeWallet.generate()
+        val bobWallet = FakeWallet.generate()
+        val alice = PrivateKeyBundleV1.newBuilder().build().generate(wallet = aliceWallet)
+        val bob = PrivateKeyBundleV1.newBuilder().build().generate(wallet = bobWallet)
+
+        val aliceInvite = InvitationV1.newBuilder().build().createDeterministic(
+            sender = alice.toV2(),
+            recipient = bob.toV2().getPublicKeyBundle(),
+            context = null
+        )
+
+        val bobInvite = InvitationV1.newBuilder().build().createDeterministic(
+            sender = bob.toV2(),
+            recipient = alice.toV2().getPublicKeyBundle(),
+            context = null
+        )
+
+        val aliceSharedSecret = alice.sharedSecret(
+            bob.toPublicKeyBundle(),
+            alice.getPreKeys(0).publicKey,
+            false
+        )
+
+        val bobSharedSecret = bob.sharedSecret(
+            alice.toPublicKeyBundle(), bob.getPreKeys(0).publicKey,
+            true
+        )
+
+        assertEquals(aliceSharedSecret.contentToString(), bobSharedSecret.contentToString())
+
+        assertEquals(aliceInvite.topic, bobInvite.topic)
     }
 }

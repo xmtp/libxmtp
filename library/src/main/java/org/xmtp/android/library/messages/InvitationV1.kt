@@ -61,14 +61,17 @@ fun InvitationV1.createDeterministic(
     recipient: SignedPublicKeyBundle,
     context: Context? = null,
 ): InvitationV1 {
+    val myAddress = sender.toV1().walletAddress
+    val theirAddress = recipient.walletAddress
+
     val inviteContext = context ?: Context.newBuilder().build()
     val secret = sender.sharedSecret(
         peer = recipient,
         myPreKey = sender.preKeysList[0].publicKey,
-        isRecipient = false
+        isRecipient = myAddress < theirAddress
     )
 
-    val addresses = arrayOf(sender.toV1().walletAddress, recipient.walletAddress)
+    val addresses = arrayOf(myAddress, theirAddress)
     addresses.sort()
 
     val msg = if (context != null && !context.conversationId.isNullOrBlank()) {
