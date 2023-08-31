@@ -14,8 +14,6 @@ use std::path::PathBuf;
 use std::time::Duration;
 use thiserror::Error;
 use url::ParseError;
-use walletconnect::client::{CallError, ConnectorError, SessionError};
-use walletconnect::{qr, Client as WcClient, Metadata};
 use xmtp::builder::{AccountStrategy, ClientBuilderError};
 use xmtp::client::ClientError;
 use xmtp::conversation::{ConversationError, ListMessagesOptions, SecretConversation};
@@ -70,14 +68,6 @@ enum Commands {
 
 #[derive(Debug, Error)]
 enum CliError {
-    #[error("Walletconnect connection failed")]
-    WcConnection(#[from] ConnectorError),
-    #[error("Walletconnect session failed")]
-    WcSession(#[from] SessionError),
-    #[error("Walletconnect parse failed")]
-    WcParse(#[from] ParseError),
-    #[error("Walletconnect call failed")]
-    WcCall(#[from] CallError),
     #[error("signature failed to generate")]
     Signature(#[from] SignatureError),
     #[error("stored error occured")]
@@ -105,21 +95,18 @@ impl From<&str> for CliError {
 }
 /// This is an abstraction which allows the CLI to choose between different wallet types.
 enum Wallet {
-    WalletConnectWallet(WalletConnectWallet),
     LocalWallet(LocalWallet),
 }
 
 impl InboxOwner for Wallet {
     fn get_address(&self) -> String {
         match self {
-            Wallet::WalletConnectWallet(w) => w.get_address(),
             Wallet::LocalWallet(w) => w.get_address(),
         }
     }
 
     fn sign(&self, text: &str) -> Result<RecoverableSignature, SignatureError> {
         match self {
-            Wallet::WalletConnectWallet(w) => w.sign(text),
             Wallet::LocalWallet(w) => w.sign(text),
         }
     }
@@ -134,7 +121,7 @@ async fn main() {
 
     if let Commands::Register { wallet_seed } = &cli.command {
         info!("Register");
-        if let Err(e) = register(&cli, true, wallet_seed).await {
+        if let Err(e) = register(&cli, wallet_seed).await {
             error!("Registration failed: {:?}", e)
         }
         return;
@@ -199,7 +186,7 @@ async fn main() {
             }
         }
         Commands::Clear {} => {
-            fs::remove_file(&cli.db.unwrap()).unwrap();
+            fs::remove_file(cli.db.unwrap()).unwrap();
         }
     }
 }
@@ -227,17 +214,11 @@ async fn create_client(cli: &Cli, account: AccountStrategy<Wallet>) -> Result<Cl
     builder.build().map_err(CliError::ClientBuilder)
 }
 
-async fn register(cli: &Cli, use_local_db: bool, wallet_seed: &u64) -> Result<(), CliError> {
-    let w = if use_local_db {
-        if wallet_seed == &0 {
-            Wallet::LocalWallet(LocalWallet::new(&mut rng()))
-        } else {
-            Wallet::LocalWallet(LocalWallet::new(&mut seeded_rng(*wallet_seed)))
-        }
+async fn register(cli: &Cli, wallet_seed: &u64) -> Result<(), CliError> {
+    let w = if wallet_seed == &0 {
+        Wallet::LocalWallet(LocalWallet::new(&mut rng()))
     } else {
-        // Deprecated - WalletConnect V1 is no longer supported and WalletConnect V2
-        // has no rust clients (yet)
-        Wallet::WalletConnectWallet(WalletConnectWallet::create().await?)
+        Wallet::LocalWallet(LocalWallet::new(&mut seeded_rng(*wallet_seed)))
     };
 
     let mut client = create_client(cli, AccountStrategy::CreateIfNotFound(w)).await?;
@@ -251,7 +232,7 @@ async fn register(cli: &Cli, use_local_db: bool, wallet_seed: &u64) -> Result<()
     Ok(())
 }
 
-async fn send(client: Client, addr: &str, msg: &String) -> Result<(), CliError> {
+async fn send(client: Client, addr: &str, msg: &str) -> Result<(), CliError> {
     let conversation = SecretConversation::new(&client, addr.to_string()).unwrap();
     conversation.initialize().await.unwrap();
     conversation.send_text(msg).await.unwrap();
@@ -317,57 +298,4 @@ fn get_encrypted_store(db: &Option<PathBuf>) -> Result<EncryptedMessageStore, Cl
 fn pretty_delta(now: u64, then: u64) -> String {
     let f = timeago::Formatter::new();
     f.convert(Duration::from_nanos(now - then))
-}
-
-/// This wraps a Walletconnect::client into a struct which could be used in the xmtp::client.
-struct WalletConnectWallet {
-    addr: String,
-    client: WcClient,
-}
-
-impl WalletConnectWallet {
-    pub async fn create() -> Result<Self, CliError> {
-        let client = WcClient::new(
-            "examples-cli",
-            Metadata {
-                description: "XMTP CLI.".into(),
-                url: "https://github.com/xmtp/libxmtp".parse()?,
-                icons: vec![
-                    "https://gateway.ipfs.io/ipfs/QmaSZuaXfNUwhF7khaRxCwbhohBhRosVX1ZcGzmtcWnqav"
-                        .parse()?,
-                ],
-                name: "XMTP CLI".into(),
-            },
-        )?;
-
-        let (accounts, _) = client.ensure_session(qr::print_with_url).await?;
-
-        for account in &accounts {
-            info!(" Connected account: {:?}", account);
-        }
-
-        Ok(Self {
-            addr: h160addr_to_string(H160::from_slice(accounts[0].as_bytes())),
-            client,
-        })
-    }
-}
-
-impl InboxOwner for WalletConnectWallet {
-    fn get_address(&self) -> String {
-        self.addr.clone()
-    }
-
-    fn sign(
-        &self,
-        text: &str,
-    ) -> Result<
-        xmtp_cryptography::signature::RecoverableSignature,
-        xmtp_cryptography::signature::SignatureError,
-    > {
-        let sig = futures::executor::block_on(async { self.client.personal_sign(&[text]).await })
-            .map_err(|e| SignatureError::ThirdPartyError(e.to_string()))?;
-
-        Ok(RecoverableSignature::Eip191Signature(sig.to_vec()))
-    }
 }
