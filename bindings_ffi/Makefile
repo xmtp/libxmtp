@@ -75,6 +75,5 @@ swift:
 	mkdir -p build/swift/include
 	mv build/swift/$(PROJECT_NAME)FFI.h build/swift/include/
 	mv build/swift/$(PROJECT_NAME)FFI.modulemap build/swift/include/module.modulemap
-	sed -i '' '1s/^/import LibXMTPRust\n\n/' build/swift/$(PROJECT_NAME).swift
 
 .PHONY: $(ARCHS_IOS) $(ARCHS_MAC) framework all aarch64-apple-ios install-jar echo-jar download-toolchains swift lipo
