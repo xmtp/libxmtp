@@ -109,8 +109,39 @@ class InvitationTests: XCTestCase {
                                "907f3e9947719033e20edc9ca9665874bd88c64c6b62c01928065f6069c5c80c699924").web3.bytesFromHex!)
         let bobKeys = try PrivateKeyBundle(serializedData: bobKeyData)
         
-        let invite = try InvitationV1.createDeterministic(sender: aliceKeys, recipient: bobKeys.v1.toV2().getPublicKeyBundle(), context: InvitationV1.Context.with { $0.conversationID = "test" })
+        let aliceInvite = try InvitationV1.createDeterministic(sender: aliceKeys, recipient: bobKeys.v1.toV2().getPublicKeyBundle(), context: InvitationV1.Context.with { $0.conversationID = "test" })
 
-        XCTAssertEqual(invite.topic, "/xmtp/0/m-4b52be1e8567d72d0bc407debe2d3c7fca2ae93a47e58c3f9b5c5068aff80ec5/proto")
+        XCTAssertEqual(aliceInvite.topic, "/xmtp/0/m-4b52be1e8567d72d0bc407debe2d3c7fca2ae93a47e58c3f9b5c5068aff80ec5/proto")
+        
+        let bobInvite = try InvitationV1.createDeterministic(sender: bobKeys.v1.toV2(), recipient: aliceKeys.getPublicKeyBundle(), context: InvitationV1.Context.with { $0.conversationID = "test" })
+
+        XCTAssertEqual(bobInvite.topic, "/xmtp/0/m-4b52be1e8567d72d0bc407debe2d3c7fca2ae93a47e58c3f9b5c5068aff80ec5/proto")
+    }
+    
+    func testCreatesDeterministicTopicsBidirectionally() async throws {
+        let aliceWallet = try FakeWallet.generate()
+        let bobWallet = try FakeWallet.generate()
+
+        let alice = try await PrivateKeyBundleV1.generate(wallet: aliceWallet)
+        let bob = try await PrivateKeyBundleV1.generate(wallet: bobWallet)
+
+        let aliceInvite = try InvitationV1.createDeterministic(
+            sender: alice.toV2(),
+            recipient: bob.toV2().getPublicKeyBundle()
+        )
+        
+        let bobInvite = try InvitationV1.createDeterministic(
+            sender: bob.toV2(),
+            recipient: alice.toV2().getPublicKeyBundle()
+        )
+                
+        let aliceSharedSecret = try alice.sharedSecret(peer: bob.toPublicKeyBundle(), myPreKey: alice.preKeys[0].publicKey, isRecipient: false)
+        
+        let bobSharedSecret = try bob.sharedSecret(peer: alice.toPublicKeyBundle(), myPreKey: bob.preKeys[0].publicKey, isRecipient: true)
+
+        XCTAssertEqual(aliceSharedSecret.bytes, bobSharedSecret.bytes)
+
+        XCTAssertEqual(aliceInvite.topic, bobInvite.topic)
+
     }
 }

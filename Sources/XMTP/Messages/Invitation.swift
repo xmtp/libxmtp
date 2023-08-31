@@ -14,15 +14,14 @@ extension InvitationV1 {
 			context: InvitationV1.Context? = nil
 	) throws -> InvitationV1 {
 		let context = context ?? InvitationV1.Context()
-
+        let myAddress = try sender.toV1().walletAddress
+        let theirAddress = try recipient.walletAddress
+        
 		let secret = try sender.sharedSecret(
 				peer: recipient,
 				myPreKey: sender.preKeys[0].publicKey,
-				isRecipient: false)
-		let addresses = [
-			try sender.toV1().walletAddress,
-			try recipient.walletAddress,
-		].sorted()
+				isRecipient: myAddress < theirAddress)
+		let addresses = [myAddress, theirAddress].sorted()
 		let msg = "\(context.conversationID)\(addresses.joined(separator: ","))"
 		let topicId = try Crypto.calculateMac(Data(msg.utf8), secret).toHex
 		let topic = Topic.directMessageV2(topicId)
