@@ -190,7 +190,7 @@ impl FfiConversation {
         &self,
         opts: FfiListMessagesOptions,
     ) -> Result<Vec<FfiMessage>, GenericError> {
-        let _ = Conversations::receive(self.inner_client.as_ref());
+        Conversations::receive(self.inner_client.as_ref()).map_err(|e| e.to_string())?;
 
         let conversation = xmtp::conversation::SecretConversation::new(
             self.inner_client.as_ref(),
