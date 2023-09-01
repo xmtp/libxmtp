@@ -15,7 +15,6 @@ use xmtp_networking::grpc_api_helper::Client as TonicApiClient;
 use crate::inbox_owner::RustInboxOwner;
 pub use crate::inbox_owner::SigningError;
 use crate::logger::init_logger;
-use xmtp::account::Account;
 
 pub type RustXmtpClient = xmtp::Client<TonicApiClient>;
 uniffi::include_scaffolding!("xmtpv3");
