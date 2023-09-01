@@ -8,13 +8,14 @@ use std::error::Error;
 use std::sync::Arc;
 use xmtp::conversation::{ListMessagesOptions, SecretConversation};
 use xmtp::conversations::Conversations;
-use xmtp::storage::StoredMessage;
+use xmtp::storage::{EncryptedMessageStore, EncryptionKey, StorageOption, StoredMessage};
 use xmtp::types::Address;
 use xmtp_networking::grpc_api_helper::Client as TonicApiClient;
 
 use crate::inbox_owner::RustInboxOwner;
 pub use crate::inbox_owner::SigningError;
 use crate::logger::init_logger;
+use xmtp::account::Account;
 
 pub type RustXmtpClient = xmtp::Client<TonicApiClient>;
 uniffi::include_scaffolding!("xmtpv3");
@@ -50,12 +51,17 @@ fn stringify_error_chain(error: &(dyn Error + 'static)) -> String {
     result
 }
 
+fn static_enc_key() -> EncryptionKey {
+    [2u8; 32]
+}
+
 #[uniffi::export(async_runtime = "tokio")]
 pub async fn create_client(
     logger: Box<dyn FfiLogger>,
     ffi_inbox_owner: Box<dyn FfiInboxOwner>,
     host: String,
     is_secure: bool,
+    db: Option<String>,
     // TODO proper error handling
 ) -> Result<Arc<FfiXmtpClient>, GenericError> {
     init_logger(logger);
@@ -65,8 +71,21 @@ pub async fn create_client(
         .await
         .map_err(|e| stringify_error_chain(&e))?;
 
+    let store = match db {
+        Some(path) => {
+            info!("Using persistent storage: {} ", path);
+            EncryptedMessageStore::new_unencrypted(StorageOption::Persistent(path))
+        }
+
+        None => {
+            info!("Using ephemeral store");
+            EncryptedMessageStore::new(StorageOption::Ephemeral, static_enc_key())
+        }
+    };
+
     let mut xmtp_client: RustXmtpClient = xmtp::ClientBuilder::new(inbox_owner.into())
         .api_client(api_client)
+        .store(store.unwrap())
         .build()
         .map_err(|e| stringify_error_chain(&e))?;
     xmtp_client
@@ -241,15 +260,17 @@ impl From<StoredMessage> for FfiMessage {
 
 #[cfg(test)]
 mod tests {
-    use std::sync::Arc;
+    use std::{env::temp_dir, sync::Arc};
 
     use crate::{
         create_client, inbox_owner::SigningError, logger::FfiLogger, FfiInboxOwner,
         FfiListMessagesOptions, FfiXmtpClient,
     };
+    use tempfile::TempPath;
     use xmtp::InboxOwner;
     use xmtp_cryptography::{signature::RecoverableSignature, utils::rng};
 
+    #[derive(Clone)]
     pub struct LocalWalletInboxOwner {
         wallet: xmtp_cryptography::utils::LocalWallet,
     }
@@ -290,6 +311,7 @@ mod tests {
             Box::new(ffi_inbox_owner),
             xmtp_networking::LOCALHOST_ADDRESS.to_string(),
             false,
+            None,
         )
         .await
         .unwrap()
@@ -300,6 +322,44 @@ mod tests {
     async fn test_client_creation() {
         let client = new_test_client().await;
         assert!(!client.wallet_address().is_empty());
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+    async fn test_create_client_with_storage() {
+        let ffi_inbox_owner = LocalWalletInboxOwner::new();
+
+        let path = TempPath::from_path("./ffidb.db3");
+
+        let client_a = create_client(
+            Box::new(MockLogger {}),
+            Box::new(ffi_inbox_owner.clone()),
+            xmtp_networking::LOCALHOST_ADDRESS.to_string(),
+            false,
+            Some(path.to_string_lossy().to_string()),
+        )
+        .await
+        .unwrap();
+
+        let installation_id = client_a.inner_client.installation_id();
+        drop(client_a);
+
+        let client_b = create_client(
+            Box::new(MockLogger {}),
+            Box::new(ffi_inbox_owner),
+            xmtp_networking::LOCALHOST_ADDRESS.to_string(),
+            false,
+            Some(path.to_string_lossy().to_string()),
+        )
+        .await
+        .unwrap();
+
+        let other_installation_id = client_b.inner_client.installation_id();
+        drop(client_b);
+
+        assert!(
+            installation_id == other_installation_id,
+            "did not use same installation ID"
+        )
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
