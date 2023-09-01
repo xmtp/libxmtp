@@ -1,0 +1,14 @@
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v2
+      - uses: nanasess/setup-chromedriver@master
+      - run: curl https://rustwasm.github.io/wasm-pack/installer/init.sh -sSf | sh
+      - run: wasm-pack test --headless --chrome
+        working-directory: bindings_wasm
