@@ -80,11 +80,12 @@ pub async fn create_client(
             info!("Using ephemeral store");
             EncryptedMessageStore::new(StorageOption::Ephemeral, static_enc_key())
         }
-    };
+    }
+    .map_err(|e| stringify_error_chain(&e))?;
 
     let mut xmtp_client: RustXmtpClient = xmtp::ClientBuilder::new(inbox_owner.into())
         .api_client(api_client)
-        .store(store.unwrap())
+        .store(store)
         .build()
         .map_err(|e| stringify_error_chain(&e))?;
     xmtp_client
