@@ -1,6 +1,8 @@
 pub mod inbox_owner;
 pub mod logger;
 
+use std::convert::TryInto;
+
 use inbox_owner::FfiInboxOwner;
 use log::info;
 use logger::FfiLogger;
@@ -61,7 +63,7 @@ pub async fn create_client(
     host: String,
     is_secure: bool,
     db: Option<String>,
-    // TODO proper error handling
+    encryption_key: Option<Vec<u8>>,
 ) -> Result<Arc<FfiXmtpClient>, GenericError> {
     init_logger(logger);
 
@@ -70,15 +72,20 @@ pub async fn create_client(
         .await
         .map_err(|e| stringify_error_chain(&e))?;
 
+    let key: EncryptionKey = match encryption_key {
+        Some(key) => key.try_into().unwrap(),
+        None => static_enc_key(),
+    };
+
     let store = match db {
         Some(path) => {
             info!("Using persistent storage: {} ", path);
-            EncryptedMessageStore::new_unencrypted(StorageOption::Persistent(path))
+            EncryptedMessageStore::new(StorageOption::Persistent(path), key)
         }
 
         None => {
             info!("Using ephemeral store");
-            EncryptedMessageStore::new(StorageOption::Ephemeral, static_enc_key())
+            EncryptedMessageStore::new(StorageOption::Ephemeral, key)
         }
     }
     .map_err(|e| stringify_error_chain(&e))?;
@@ -260,10 +267,10 @@ impl From<StoredMessage> for FfiMessage {
 
 #[cfg(test)]
 mod tests {
-    use std::{env::temp_dir, sync::Arc};
+    use std::sync::Arc;
 
     use crate::{
-        create_client, inbox_owner::SigningError, logger::FfiLogger, FfiInboxOwner,
+        create_client, inbox_owner::SigningError, logger::FfiLogger, static_enc_key, FfiInboxOwner,
         FfiListMessagesOptions, FfiXmtpClient,
     };
     use tempfile::TempPath;
@@ -312,6 +319,7 @@ mod tests {
             xmtp_networking::LOCALHOST_ADDRESS.to_string(),
             false,
             None,
+            None,
         )
         .await
         .unwrap()
@@ -336,6 +344,7 @@ mod tests {
             xmtp_networking::LOCALHOST_ADDRESS.to_string(),
             false,
             Some(path.to_string_lossy().to_string()),
+            None,
         )
         .await
         .unwrap();
@@ -349,6 +358,7 @@ mod tests {
             xmtp_networking::LOCALHOST_ADDRESS.to_string(),
             false,
             Some(path.to_string_lossy().to_string()),
+            None,
         )
         .await
         .unwrap();
@@ -360,6 +370,44 @@ mod tests {
             installation_id == other_installation_id,
             "did not use same installation ID"
         )
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+    async fn test_create_client_with_key() {
+        let ffi_inbox_owner = LocalWalletInboxOwner::new();
+
+        let path = TempPath::from_path("./ffidb.db3");
+
+        let key = static_enc_key().to_vec();
+
+        let client_a = create_client(
+            Box::new(MockLogger {}),
+            Box::new(ffi_inbox_owner.clone()),
+            xmtp_networking::LOCALHOST_ADDRESS.to_string(),
+            false,
+            Some(path.to_string_lossy().to_string()),
+            Some(key),
+        )
+        .await
+        .unwrap();
+
+        drop(client_a);
+
+        let mut other_key = static_enc_key();
+        other_key[0] = 1;
+
+        let result_errored = create_client(
+            Box::new(MockLogger {}),
+            Box::new(ffi_inbox_owner),
+            xmtp_networking::LOCALHOST_ADDRESS.to_string(),
+            false,
+            Some(path.to_string_lossy().to_string()),
+            Some(other_key.to_vec()),
+        )
+        .await
+        .is_err();
+
+        assert!(result_errored, "did not error on wrong encryption key")
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
