@@ -37,7 +37,20 @@ data class ReactionCodec(override var contentType: ContentTypeId = ContentTypeRe
     }
 
     override fun decode(content: EncodedContent): Reaction {
-        val gson = GsonBuilder().create()
-        return gson.fromJson(content.content.toStringUtf8(), Reaction::class.java)
+        val text = content.content.toStringUtf8()
+
+        // First try to decode it in the canonical form.
+        try {
+            return GsonBuilder().create().fromJson(text, Reaction::class.java)
+        } catch (ignore: Exception) {
+        }
+
+        // If that fails, try to decode it in the legacy form.
+        return Reaction(
+            reference = content.parametersMap["reference"] ?: "",
+            action = content.parametersMap["action"]?.let { ReactionAction.valueOf(it) }!!,
+            schema = content.parametersMap["schema"]?.let { ReactionSchema.valueOf(it) }!!,
+            content = text,
+        )
     }
 }
