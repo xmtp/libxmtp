@@ -12,6 +12,48 @@ import XCTest
 
 @available(iOS 15, *)
 class ReactionTests: XCTestCase {
+
+    func testCanDecodeLegacyForm() async throws {
+        let codec = ReactionCodec()
+
+        // This is how clients send reactions now.
+        let canonicalEncoded = EncodedContent.with {
+            $0.type = ContentTypeReaction
+            $0.content = Data("""
+            {
+              "action": "added",
+              "content": "smile",
+              "reference": "abc123",
+              "schema": "shortcode"
+            }
+            """.utf8)
+        }
+
+        // Previously, some clients sent reactions like this.
+        // So we test here to make sure we can still decode them.
+        let legacyEncoded = EncodedContent.with {
+            $0.type = ContentTypeReaction
+            $0.parameters = [
+                "action": "added",
+                "reference": "abc123",
+                "schema": "shortcode",
+            ]
+            $0.content = Data("smile".utf8)
+        }
+
+        let canonical = try codec.decode(content: canonicalEncoded)
+        let legacy = try codec.decode(content: legacyEncoded)
+
+        XCTAssertEqual(ReactionAction.added, canonical.action)
+        XCTAssertEqual(ReactionAction.added, legacy.action)
+        XCTAssertEqual("smile", canonical.content)
+        XCTAssertEqual("smile", legacy.content)
+        XCTAssertEqual("abc123", canonical.reference)
+        XCTAssertEqual("abc123", legacy.reference)
+        XCTAssertEqual(ReactionSchema.shortcode, canonical.schema)
+        XCTAssertEqual(ReactionSchema.shortcode, legacy.schema)
+    }
+
     func testCanUseReactionCodec() async throws {
         Client.register(codec: ReactionCodec())
         

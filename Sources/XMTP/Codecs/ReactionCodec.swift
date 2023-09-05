@@ -48,7 +48,20 @@ public struct ReactionCodec: ContentCodec {
     }
 
     public func decode(content: EncodedContent) throws -> Reaction {
-        let reaction = try JSONDecoder().decode(Reaction.self, from: content.content)
-        return reaction
+        // First try to decode it in the canonical form.
+        // swiftlint:disable no_optional_try
+        if let reaction = try? JSONDecoder().decode(Reaction.self, from: content.content) {
+            return reaction
+        }
+        // swiftlint:disable no_optional_try
+        // If that fails, try to decode it in the legacy form.
+        // swiftlint:disable force_unwrapping
+        return Reaction(
+            reference: content.parameters["reference"] ?? "",
+            action: ReactionAction(rawValue: content.parameters["action"] ?? "")!,
+            content: String(data: content.content, encoding: .utf8) ?? "",
+            schema: ReactionSchema(rawValue: content.parameters["schema"] ?? "")!
+        )
+        //swiftlint:disable force_unwrapping
     }
 }
