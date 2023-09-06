@@ -285,18 +285,18 @@ public class Client {
 		_ = try await publish(envelopes: envelopes)
 	}
 
-	func query(topic: Topic, pagination: Pagination? = nil) async throws -> QueryResponse {
+	public func query(topic: Topic, pagination: Pagination? = nil) async throws -> QueryResponse {
 		return try await apiClient.query(
 			topic: topic,
 			pagination: pagination
 		)
 	}
 
-    func batchQuery(request: BatchQueryRequest) async throws -> BatchQueryResponse {
+    public func batchQuery(request: BatchQueryRequest) async throws -> BatchQueryResponse {
         return try await apiClient.batchQuery(request: request)
     }
 
-	@discardableResult func publish(envelopes: [Envelope]) async throws -> PublishResponse {
+	@discardableResult public func publish(envelopes: [Envelope]) async throws -> PublishResponse {
 		let authorized = AuthorizedIdentity(address: address, authorized: privateKeyBundleV1.identityKey.publicKey, identity: privateKeyBundleV1.identityKey)
 		let authToken = try await authorized.createAuthToken()
 
@@ -305,11 +305,11 @@ public class Client {
 		return try await apiClient.publish(envelopes: envelopes)
 	}
 
-	func subscribe(topics: [String]) -> AsyncThrowingStream<Envelope, Error> {
+	public func subscribe(topics: [String]) -> AsyncThrowingStream<Envelope, Error> {
 		return apiClient.subscribe(topics: topics)
 	}
 
-	func subscribe(topics: [Topic]) -> AsyncThrowingStream<Envelope, Error> {
+	public func subscribe(topics: [Topic]) -> AsyncThrowingStream<Envelope, Error> {
 		return subscribe(topics: topics.map(\.description))
 	}
 

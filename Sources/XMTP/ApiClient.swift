@@ -9,14 +9,14 @@ import Foundation
 import XMTPRust
 import XMTPRustSwift
 
-typealias PublishRequest = Xmtp_MessageApi_V1_PublishRequest
-typealias PublishResponse = Xmtp_MessageApi_V1_PublishResponse
-typealias BatchQueryRequest = Xmtp_MessageApi_V1_BatchQueryRequest
-typealias BatchQueryResponse = Xmtp_MessageApi_V1_BatchQueryResponse
-typealias Cursor = Xmtp_MessageApi_V1_Cursor
-typealias QueryRequest = Xmtp_MessageApi_V1_QueryRequest
-typealias QueryResponse = Xmtp_MessageApi_V1_QueryResponse
-typealias SubscribeRequest = Xmtp_MessageApi_V1_SubscribeRequest
+public typealias PublishRequest = Xmtp_MessageApi_V1_PublishRequest
+public typealias PublishResponse = Xmtp_MessageApi_V1_PublishResponse
+public typealias BatchQueryRequest = Xmtp_MessageApi_V1_BatchQueryRequest
+public typealias BatchQueryResponse = Xmtp_MessageApi_V1_BatchQueryResponse
+public typealias Cursor = Xmtp_MessageApi_V1_Cursor
+public typealias QueryRequest = Xmtp_MessageApi_V1_QueryRequest
+public typealias QueryResponse = Xmtp_MessageApi_V1_QueryResponse
+public typealias SubscribeRequest = Xmtp_MessageApi_V1_SubscribeRequest
 
 public enum ApiClientError: Error {
     case batchQueryError(String)

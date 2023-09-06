@@ -39,7 +39,7 @@ class ConversationTests: XCTestCase {
 		let preparedMessage = try await conversation.prepareMessage(content: "hi")
 		let messageID = preparedMessage.messageID
 
-		try await preparedMessage.send()
+        try await conversation.send(prepared: preparedMessage)
 
 		let messages = try await conversation.messages()
 		let message = messages[0]
@@ -47,6 +47,22 @@ class ConversationTests: XCTestCase {
 		XCTAssertEqual("hi", message.body)
 		XCTAssertEqual(message.id, messageID)
 	}
+
+    func testCanSendPreparedMessagesWithoutAConversation() async throws {
+        let conversation = try await aliceClient.conversations.newConversation(with: bob.address)
+        let preparedMessage = try await conversation.prepareMessage(content: "hi")
+        let messageID = preparedMessage.messageID
+
+        // This does not need the `conversation` to `.publish` the message.
+        // This simulates a background task publishes all pending messages upon connection.
+        try await aliceClient.publish(envelopes: preparedMessage.envelopes)
+
+        let messages = try await conversation.messages()
+        let message = messages[0]
+
+        XCTAssertEqual("hi", message.body)
+        XCTAssertEqual(message.id, messageID)
+    }
 
 	func testV2RejectsSpoofedContactBundles() async throws {
 		let topic =

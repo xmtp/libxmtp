@@ -64,35 +64,31 @@ public struct ConversationV1 {
 		} else {
 			isEphemeral = false
 		}
-
+        let msg = try Message(v1: message).serializedData()
 		let messageEnvelope = Envelope(
 			topic: isEphemeral ? ephemeralTopic : topic.description,
 			timestamp: date,
-			message: try Message(v1: message).serializedData()
+			message: msg
 		)
+        var envelopes = [messageEnvelope]
+        if client.contacts.needsIntroduction(peerAddress) && !isEphemeral {
+            envelopes.append(contentsOf: [
+                Envelope(
+                    topic: .userIntro(peerAddress),
+                    timestamp: date,
+                    message: msg
+                ),
+                Envelope(
+                    topic: .userIntro(client.address),
+                    timestamp: date,
+                    message: msg
+                ),
+            ])
 
-		return PreparedMessage(messageEnvelope: messageEnvelope, conversation: .v1(self)) {
-			var envelopes = [messageEnvelope]
+            client.contacts.hasIntroduced[peerAddress] = true
+        }
 
-			if client.contacts.needsIntroduction(peerAddress) && !isEphemeral {
-				envelopes.append(contentsOf: [
-					Envelope(
-						topic: .userIntro(peerAddress),
-						timestamp: date,
-						message: try Message(v1: message).serializedData()
-					),
-					Envelope(
-						topic: .userIntro(client.address),
-						timestamp: date,
-						message: try Message(v1: message).serializedData()
-					),
-				])
-
-				client.contacts.hasIntroduced[peerAddress] = true
-			}
-
-			try await client.publish(envelopes: envelopes)
-		}
+		return PreparedMessage(envelopes: envelopes)
 	}
 
 	func prepareMessage<T>(content: T, options: SendOptions?) async throws -> PreparedMessage {
@@ -123,20 +119,22 @@ public struct ConversationV1 {
 
 	@discardableResult internal func send(content: String, options: SendOptions? = nil, sentAt _: Date? = nil) async throws -> String {
 		let preparedMessage = try await prepareMessage(content: content, options: options)
-		try await preparedMessage.send()
-		return preparedMessage.messageID
+        return try await send(prepared: preparedMessage)
 	}
 
 	@discardableResult func send(encodedContent: EncodedContent, options: SendOptions?) async throws -> String {
 		let preparedMessage = try await prepareMessage(encodedContent: encodedContent, options: options)
-		try await preparedMessage.send()
-		return preparedMessage.messageID
+        return try await send(prepared: preparedMessage)
 	}
+
+    @discardableResult func send(prepared: PreparedMessage) async throws -> String {
+        try await client.publish(envelopes: prepared.envelopes)
+        return prepared.messageID
+    }
 
 	func send<T>(content: T, options: SendOptions? = nil) async throws -> String {
 		let preparedMessage = try await prepareMessage(content: content, options: options)
-		try await preparedMessage.send()
-		return preparedMessage.messageID
+        return try await send(prepared: preparedMessage)
 	}
 
 	public func streamMessages() -> AsyncThrowingStream<DecodedMessage, Error> {

@@ -123,6 +123,17 @@ public enum Conversation: Sendable {
 		}
 	}
 
+    // This is a convenience for invoking the underlying `client.publish(prepared.envelopes)`
+    // If a caller has a `Client` handy, they may opt to do that directly instead.
+    @discardableResult public func send(prepared: PreparedMessage) async throws -> String {
+        switch self {
+        case let .v1(conversationV1):
+            return try await conversationV1.send(prepared: prepared)
+        case let .v2(conversationV2):
+            return try await conversationV2.send(prepared: prepared)
+        }
+    }
+
 	@discardableResult public func send<T>(content: T, options: SendOptions? = nil, fallback _: String? = nil) async throws -> String {
 		switch self {
 		case let .v1(conversationV1):

@@ -83,9 +83,7 @@ public struct ConversationV2 {
 		let topic = options?.ephemeral == true ? ephemeralTopic : topic
 
 		let envelope = Envelope(topic: topic, timestamp: Date(), message: try Message(v2: message).serializedData())
-		return PreparedMessage(messageEnvelope: envelope, conversation: .v2(self)) {
-			try await client.publish(envelopes: [envelope])
-		}
+		return PreparedMessage(envelopes: [envelope])
 	}
 
 	func prepareMessage<T>(content: T, options: SendOptions?) async throws -> PreparedMessage {
@@ -172,21 +170,23 @@ public struct ConversationV2 {
 
 	@discardableResult func send<T>(content: T, options: SendOptions? = nil) async throws -> String {
 		let preparedMessage = try await prepareMessage(content: content, options: options)
-		try await preparedMessage.send()
-		return preparedMessage.messageID
+        return try await send(prepared: preparedMessage)
 	}
 
 	@discardableResult func send(content: String, options: SendOptions? = nil, sentAt _: Date) async throws -> String {
 		let preparedMessage = try await prepareMessage(content: content, options: options)
-		try await preparedMessage.send()
-		return preparedMessage.messageID
+        return try await send(prepared: preparedMessage)
 	}
 
 	@discardableResult func send(encodedContent: EncodedContent, options: SendOptions? = nil) async throws -> String {
 		let preparedMessage = try await prepareMessage(encodedContent: encodedContent, options: options)
-		try await preparedMessage.send()
-		return preparedMessage.messageID
+        return try await send(prepared: preparedMessage)
 	}
+
+    @discardableResult func send(prepared: PreparedMessage) async throws -> String {
+        try await client.publish(envelopes: prepared.envelopes)
+        return prepared.messageID
+    }
 
 	public func encode<Codec: ContentCodec, T>(codec: Codec, content: T) async throws -> Data where Codec.T == T {
 		let content = try codec.encode(content: content)
