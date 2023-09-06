@@ -597,7 +597,7 @@ class ConversationTest {
         assertEquals(conversation.version, Conversation.Version.V1)
         val preparedMessage = conversation.prepareMessage(content = "hi")
         val messageID = preparedMessage.messageId
-        preparedMessage.send()
+        conversation.send(prepared = preparedMessage)
         val messages = conversation.messages()
         val message = messages[0]
         assertEquals("hi", message.body)
@@ -609,7 +609,23 @@ class ConversationTest {
         val conversation = aliceClient.conversations.newConversation(bob.walletAddress)
         val preparedMessage = conversation.prepareMessage(content = "hi")
         val messageID = preparedMessage.messageId
-        preparedMessage.send()
+        conversation.send(prepared = preparedMessage)
+        val messages = conversation.messages()
+        val message = messages[0]
+        assertEquals("hi", message.body)
+        assertEquals(message.id, messageID)
+    }
+
+    @Test
+    fun testCanSendPreparedMessageWithoutConversation() {
+        val conversation = aliceClient.conversations.newConversation(bob.walletAddress)
+        val preparedMessage = conversation.prepareMessage(content = "hi")
+        val messageID = preparedMessage.messageId
+
+        // This does not need the `conversation` to `.publish` the message.
+        // This simulates a background task publishing all pending messages upon connection.
+        aliceClient.publish(envelopes = preparedMessage.envelopes)
+
         val messages = conversation.messages()
         val message = messages[0]
         assertEquals("hi", message.body)

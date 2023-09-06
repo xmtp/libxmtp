@@ -100,20 +100,22 @@ data class ConversationV2(
 
     fun <T> send(content: T, options: SendOptions? = null): String {
         val preparedMessage = prepareMessage(content = content, options = options)
-        preparedMessage.send()
-        return preparedMessage.messageId
+        return send(preparedMessage)
     }
 
     fun send(text: String, options: SendOptions? = null, sentAt: Date? = null): String {
         val preparedMessage = prepareMessage(content = text, options = options)
-        preparedMessage.send()
-        return preparedMessage.messageId
+        return send(preparedMessage)
     }
 
     fun send(encodedContent: EncodedContent, options: SendOptions?): String {
         val preparedMessage = prepareMessage(encodedContent = encodedContent, options = options)
-        preparedMessage.send()
-        return preparedMessage.messageId
+        return send(preparedMessage)
+    }
+
+    fun send(prepared: PreparedMessage): String {
+        client.publish(envelopes = prepared.envelopes)
+        return prepared.messageId
     }
 
     fun <Codec : ContentCodec<T>, T> encode(codec: Codec, content: T): ByteArray {
@@ -170,9 +172,7 @@ data class ConversationV2(
             timestamp = Date(),
             message = MessageBuilder.buildFromMessageV2(v2 = message).toByteArray()
         )
-        return PreparedMessage(messageEnvelope = envelope, conversation = Conversation.V2(this)) {
-            client.publish(envelopes = listOf(envelope))
-        }
+        return PreparedMessage(listOf(envelope))
     }
 
     private fun generateId(envelope: Envelope): String =

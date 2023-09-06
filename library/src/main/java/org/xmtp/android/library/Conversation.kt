@@ -105,6 +105,13 @@ sealed class Conversation {
         }
     }
 
+    fun send(prepared: PreparedMessage) {
+        when (this) {
+            is V1 -> conversationV1.send(prepared = prepared)
+            is V2 -> conversationV2.send(prepared = prepared)
+        }
+    }
+
     fun <T> send(content: T, options: SendOptions? = null) {
         when (this) {
             is V1 -> conversationV1.send(content = content, options = options)

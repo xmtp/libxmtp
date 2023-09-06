@@ -2,7 +2,6 @@ package org.xmtp.android.library
 
 import android.util.Log
 import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.runBlocking
 import org.web3j.crypto.Hash
@@ -89,20 +88,22 @@ data class ConversationV1(
         sentAt: Date? = null,
     ): String {
         val preparedMessage = prepareMessage(content = text, options = sendOptions)
-        preparedMessage.send()
-        return preparedMessage.messageId
+        return send(preparedMessage)
     }
 
     fun <T> send(content: T, options: SendOptions? = null): String {
         val preparedMessage = prepareMessage(content = content, options = options)
-        preparedMessage.send()
-        return preparedMessage.messageId
+        return send(preparedMessage)
     }
 
     fun send(encodedContent: EncodedContent, options: SendOptions? = null): String {
         val preparedMessage = prepareMessage(encodedContent = encodedContent, options = options)
-        preparedMessage.send()
-        return preparedMessage.messageId
+        return send(preparedMessage)
+    }
+
+    fun send(prepared: PreparedMessage): String {
+        client.publish(envelopes = prepared.envelopes)
+        return prepared.messageId
     }
 
     fun <T> prepareMessage(content: T, options: SendOptions?): PreparedMessage {
@@ -147,36 +148,28 @@ data class ConversationV1(
 
         val isEphemeral: Boolean = options != null && options.ephemeral
 
-        val messageEnvelope =
+        val env =
             EnvelopeBuilder.buildFromString(
                 topic = if (isEphemeral) ephemeralTopic else topic.description,
                 timestamp = date,
                 message = MessageBuilder.buildFromMessageV1(v1 = message).toByteArray()
             )
-        return PreparedMessage(
-            messageEnvelope = messageEnvelope,
-            conversation = Conversation.V1(this)
-        ) {
-            val envelopes = mutableListOf(messageEnvelope)
-            if (client.contacts.needsIntroduction(peerAddress) && !isEphemeral) {
-                envelopes.addAll(
-                    listOf(
-                        EnvelopeBuilder.buildFromTopic(
-                            topic = Topic.userIntro(peerAddress),
-                            timestamp = date,
-                            message = MessageBuilder.buildFromMessageV1(v1 = message).toByteArray()
-                        ),
-                        EnvelopeBuilder.buildFromTopic(
-                            topic = Topic.userIntro(client.address),
-                            timestamp = date,
-                            message = MessageBuilder.buildFromMessageV1(v1 = message).toByteArray()
-                        )
-                    )
+
+        val envelopes = mutableListOf(env)
+        if (client.contacts.needsIntroduction(peerAddress) && !isEphemeral) {
+            envelopes.addAll(
+                listOf(
+                    env.toBuilder().apply {
+                        contentTopic = Topic.userIntro(peerAddress).description
+                    }.build(),
+                    env.toBuilder().apply {
+                        contentTopic = Topic.userIntro(client.address).description
+                    }.build(),
                 )
-                client.contacts.hasIntroduced[peerAddress] = true
-            }
-            client.publish(envelopes = envelopes)
+            )
+            client.contacts.hasIntroduced[peerAddress] = true
         }
+        return PreparedMessage(envelopes)
     }
 
     private fun generateId(envelope: Envelope): String =
