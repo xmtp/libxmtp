@@ -12,8 +12,8 @@ crate-type = ["lib", "cdylib"]
 log = { version = "0.4", features = ["std"] }
 thiserror = "1.0.40"
 uniffi = { git = "https://github.com/mozilla/uniffi-rs", rev = "cae8edc45ba5b56bfcbf35b60c1ab6a97d1bf9da", features = [
-    "tokio",
-    "cli",
+  "tokio",
+  "cli",
 ] }
 uniffi_macros = { git = "https://github.com/mozilla/uniffi-rs", rev = "cae8edc45ba5b56bfcbf35b60c1ab6a97d1bf9da" }
 xmtp = { path = "../xmtp", features = ["grpc", "native"] }
@@ -22,7 +22,7 @@ xmtp_networking = { path = "../xmtp_networking" }
 
 [build_dependencies]
 uniffi = { git = "https://github.com/mozilla/uniffi-rs", rev = "cae8edc45ba5b56bfcbf35b60c1ab6a97d1bf9da", features = [
-    "build",
+  "build",
 ] }
 
 [[bin]]
@@ -33,8 +33,9 @@ path = "src/bin.rs"
 ethers = "2.0.4"
 ethers-core = "2.0.4"
 tokio = { version = "1.0", features = ["full"] }
+tempfile = "3.5.0"
 uniffi = { git = "https://github.com/mozilla/uniffi-rs", rev = "cae8edc45ba5b56bfcbf35b60c1ab6a97d1bf9da", features = [
-    "bindgen-tests",
+  "bindgen-tests",
 ] }
 
 # NOTE: Thei release profile reduce bundle size from 230M to 41M - may have performance impliciations
