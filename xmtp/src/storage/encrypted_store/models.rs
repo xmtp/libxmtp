@@ -22,12 +22,6 @@ pub struct StoredUser {
     pub last_refreshed: i64,
 }
 
-pub enum ConversationState {
-    Uninitialized = 0,
-    Invited = 10,
-    InviteReceived = 20,
-}
-
 #[derive(Insertable, Identifiable, Selectable, Queryable, PartialEq, Debug, Clone)]
 #[diesel(table_name = conversations)]
 #[diesel(primary_key(convo_id))]
@@ -35,7 +29,6 @@ pub struct StoredConversation {
     pub convo_id: String,
     pub peer_address: String, // links to users table
     pub created_at: i64,
-    pub convo_state: i32, // ConversationState
 }
 
 pub enum MessageState {
@@ -264,14 +257,12 @@ impl StoredInstallation {
 }
 
 pub enum RefreshJobKind {
-    Invite,
     Message,
 }
 
 impl fmt::Display for RefreshJobKind {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
-            RefreshJobKind::Invite => write!(f, "invite"),
             RefreshJobKind::Message => write!(f, "message"),
         }
     }
@@ -295,47 +286,11 @@ impl Save<DbConnection> for RefreshJob {
 }
 
 #[derive(Clone, Debug)]
-pub enum InboundInviteStatus {
-    Pending = 0,
-    Processed = 1,
-    DecryptionFailure = 2,
-    Invalid = 3,
-}
-
-#[derive(Clone, Debug)]
 pub enum InboundMessageStatus {
     Pending = 0,
     Processed = 1,
     DecryptionFailure = 2,
     Invalid = 3,
-}
-
-#[derive(Insertable, Identifiable, Queryable, Clone, PartialEq, Debug)]
-#[diesel(table_name = inbound_invites)]
-pub struct InboundInvite {
-    pub id: String,
-    pub sent_at_ns: i64,
-    pub payload: Vec<u8>,
-    pub topic: String,
-    pub status: i16,
-}
-
-impl From<Envelope> for InboundInvite {
-    fn from(envelope: Envelope) -> Self {
-        let payload = envelope.message;
-        let topic = envelope.content_topic;
-        let sent_at_ns: i64 = envelope.timestamp_ns.try_into().unwrap();
-        let id =
-            hex::encode(sha256_bytes(&[payload.as_slice(), topic.as_bytes()].concat()).as_slice());
-
-        Self {
-            id,
-            sent_at_ns,
-            payload,
-            topic,
-            status: InboundInviteStatus::Pending as i16,
-        }
-    }
 }
 
 #[derive(Insertable, Identifiable, Queryable, Clone, PartialEq, Debug)]

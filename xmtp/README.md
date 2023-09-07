@@ -7,10 +7,9 @@
 ### Simplifying assumptions
 
 - We use a pull-based approach for detecting if the installations in a conversation has changed - refreshing the installation list whenever the last refresh was more than THRESHOLD ago. We can add push-based mechanisms later.
-- We include message data directly on invites.
 - Every state update is a DB write. This allows us to resume on cold start.
 - On cold start, we can scan the DB for UNINITIALIZED messages and payloads and resume sending them.
-- Repeated sends of the same payload should be idempotent. When receiving a message or invite, the receiving side will store the hash of the encrypted payload alongside the decrypted result. If a message is received with an id that already exists in the DB, it is ignored.
+- Repeated sends of the same payload should be idempotent. When receiving a message, the receiving side will store the hash of the encrypted payload alongside the decrypted result. If a message is received with an id that already exists in the DB, it is ignored.
 - We have ignored race conditions for now (as network requests may take different amounts of time). The receiver side should be tolerant of out-of-order payloads. If ordering is a must, it is possible to use multi-producer, single-consumer queues, or singleton threads for processMessages() and processPayloads() that run on an interval.
 
 ### Helper database models
@@ -199,7 +198,7 @@ process_inbound_messages():
                 Set inbound_message state to DECRYPTION_FAILURE
                 continue
             Update/save session in the database
-    
+
         If message validation fails:
             Set inbound_message state to INVALID
             continue
@@ -208,7 +207,7 @@ process_inbound_messages():
         Set inbound_message state to PROCESSED
 
 get_session(message):
- 
+
     For each session with `session.installation_id` == `sender.installation_id`:  // Regardless of message type
         If the message can be decrypted:
             return session

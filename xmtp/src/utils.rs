@@ -17,10 +17,6 @@ pub fn build_user_contact_topic(wallet_address: String) -> String {
     format!("/xmtp/3/contact-{}/proto", wallet_address)
 }
 
-pub fn build_user_invite_topic(public_key: String) -> String {
-    format!("/xmtp/3/invite-{}/proto", public_key)
-}
-
 pub fn build_installation_message_topic(installation_id: &str) -> String {
     format!("/xmtp/3/message-{}/proto", installation_id)
 }

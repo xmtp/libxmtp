@@ -32,8 +32,6 @@ pub mod test_utils {
         client: &'c Client<A>,
         peer_address: &str,
     ) -> SecretConversation<'c, A> {
-        let convo = SecretConversation::new(client, peer_address.to_string()).unwrap();
-        convo.initialize().await.unwrap();
-        convo
+        SecretConversation::new(client, peer_address.to_string()).unwrap()
     }
 }

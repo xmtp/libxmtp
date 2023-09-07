@@ -253,7 +253,6 @@ async fn register(cli: &Cli, use_local_db: bool, wallet_seed: &u64) -> Result<()
 
 async fn send(client: Client, addr: &str, msg: &String) -> Result<(), CliError> {
     let conversation = SecretConversation::new(&client, addr.to_string()).unwrap();
-    conversation.initialize().await.unwrap();
     conversation.send_text(msg).await.unwrap();
     info!("Message successfully sent");
 
