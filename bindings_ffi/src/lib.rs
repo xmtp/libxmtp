@@ -275,10 +275,7 @@ mod tests {
     };
     use tempfile::TempPath;
     use xmtp::InboxOwner;
-    use xmtp_cryptography::{
-        signature::{RecoverableSignature, SigningKey},
-        utils::rng,
-    };
+    use xmtp_cryptography::{signature::RecoverableSignature, utils::rng};
 
     #[derive(Clone)]
     pub struct LocalWalletInboxOwner {
