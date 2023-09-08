@@ -66,6 +66,7 @@ interface ContentCodec<T> {
     val contentType: ContentTypeId
     fun encode(content: T): EncodedContent
     fun decode(content: EncodedContent): T
+    fun fallback(content: T): String?
 }
 
 val id: String

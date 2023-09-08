@@ -119,9 +119,13 @@ data class ConversationV1(
         }
 
         var encoded = encode(codec = codec as ContentCodec<T>, content = content)
-        encoded = encoded.toBuilder().also {
-            it.fallback = options?.contentFallback ?: ""
-        }.build()
+
+        val fallback = codec.fallback(content)
+        if (!fallback.isNullOrBlank()) {
+            encoded = encoded.toBuilder().also {
+                it.fallback = fallback
+            }.build()
+        }
         val compression = options?.compression
         if (compression != null) {
             encoded = encoded.compress(compression)

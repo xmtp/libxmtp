@@ -36,6 +36,10 @@ data class NumberCodec(
 
     override fun decode(content: EncodedContent): Double =
         content.content.toStringUtf8().filter { it.isDigit() || it == '.' }.toDouble()
+
+    override fun fallback(content: Double): String? {
+        return "Error: This app does not support numbers."
+    }
 }
 @RunWith(AndroidJUnit4::class)
 class CodecTest {
@@ -56,6 +60,7 @@ class CodecTest {
         if (messages.size == 1) {
             val content: Double? = messages[0].content()
             assertEquals(3.14, content)
+            assertEquals("Error: This app does not support numbers.", messages[0].fallbackContent)
         }
     }
 

@@ -45,6 +45,10 @@ data class ReplyCodec(override var contentType: ContentTypeId = ContentTypeReply
         )
     }
 
+    override fun fallback(content: Reply): String? {
+        return "Replied with “${content.content}” to an earlier message"
+    }
+
     private fun <Codec : ContentCodec<T>, T> encodeReply(
         codec: Codec,
         content: Any,

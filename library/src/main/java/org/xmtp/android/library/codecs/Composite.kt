@@ -48,6 +48,10 @@ class CompositeCodec : ContentCodec<DecodedComposite> {
         return fromComposite(composite = composite)
     }
 
+    override fun fallback(content: DecodedComposite): String? {
+        return null
+    }
+
     private fun toComposite(decodedComposite: DecodedComposite): Composite {
         return Composite.newBuilder().also {
             val content = decodedComposite.encodedContent

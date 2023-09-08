@@ -53,4 +53,11 @@ data class ReactionCodec(override var contentType: ContentTypeId = ContentTypeRe
             content = text,
         )
     }
+
+    override fun fallback(content: Reaction): String? {
+        return when (content.action) {
+            ReactionAction.added -> "Reacted “${content.content}” to an earlier message"
+            ReactionAction.removed -> "Removed “${content.content}” from an earlier message"
+        }
+    }
 }

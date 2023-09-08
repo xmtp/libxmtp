@@ -31,4 +31,8 @@ data class ReadReceiptCodec(override var contentType: ContentTypeId = ContentTyp
 
         return ReadReceipt(timestamp = timestamp)
     }
+
+    override fun fallback(content: ReadReceipt): String? {
+        return null
+    }
 }

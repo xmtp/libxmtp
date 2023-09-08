@@ -32,4 +32,8 @@ data class TextCodec(override var contentType: ContentTypeId = ContentTypeText) 
             throw XMTPException("Unknown decoding")
         }
     }
+
+    override fun fallback(content: String): String? {
+        return null
+    }
 }
