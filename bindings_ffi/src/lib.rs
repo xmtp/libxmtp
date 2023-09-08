@@ -275,7 +275,10 @@ mod tests {
     };
     use tempfile::TempPath;
     use xmtp::InboxOwner;
-    use xmtp_cryptography::{signature::RecoverableSignature, utils::rng};
+    use xmtp_cryptography::{
+        signature::{RecoverableSignature, SigningKey},
+        utils::rng,
+    };
 
     #[derive(Clone)]
     pub struct LocalWalletInboxOwner {
@@ -336,8 +339,8 @@ mod tests {
     async fn test_create_client_with_storage() {
         let ffi_inbox_owner = LocalWalletInboxOwner::new();
 
-        // NOTE: if you're copying and pasting this test, make sure you change the filename here
-        let path = TempPath::from_path("./ffidb.db3");
+        let dbfilename = xmtp_cryptography::utils::generate_local_wallet().get_address();
+        let path = TempPath::from_path(format!("./test-{}.db", dbfilename));
 
         let client_a = create_client(
             Box::new(MockLogger {}),
@@ -377,8 +380,8 @@ mod tests {
     async fn test_create_client_with_key() {
         let ffi_inbox_owner = LocalWalletInboxOwner::new();
 
-        // NOTE: if you're copying and pasting this test, make sure you change the filename here
-        let path = TempPath::from_path("./ffidb.db4");
+        let dbfilename = xmtp_cryptography::utils::generate_local_wallet().get_address();
+        let path = TempPath::from_path(format!("./test-{}.db", dbfilename));
 
         let key = static_enc_key().to_vec();
 
