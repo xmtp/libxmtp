@@ -140,8 +140,6 @@ impl FfiConversations {
     ) -> Result<Arc<FfiConversation>, GenericError> {
         let convo = SecretConversation::new(self.inner_client.as_ref(), wallet_address)
             .map_err(|e| e.to_string())?;
-        // TODO: This should happen as part of `new_secret_conversation` and should only send to new participants
-        convo.initialize().await.map_err(|e| e.to_string())?;
 
         let out = Arc::new(FfiConversation {
             inner_client: self.inner_client.clone(),
@@ -416,12 +414,12 @@ mod tests {
         let client_b = new_test_client().await;
 
         // Create a conversation between the two clients
-        client_a
+        let conversation = client_a
             .conversations()
             .new_conversation(client_b.wallet_address())
             .await
             .unwrap();
-
+        conversation.send(vec![1, 2, 3]).await.unwrap();
         let convos = client_b.conversations().list().await.unwrap();
         assert_eq!(convos.len(), 1);
         assert_eq!(

@@ -1,0 +1,1 @@
+ALTER TABLE conversations ADD COLUMN convo_state INTEGER NOT NULL DEFAULT 0;

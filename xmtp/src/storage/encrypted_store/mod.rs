@@ -16,9 +16,7 @@ pub mod schema;
 
 use self::{
     models::*,
-    schema::{
-        accounts, conversations, inbound_invites, installations, messages, refresh_jobs, users,
-    },
+    schema::{accounts, conversations, installations, messages, refresh_jobs, users},
 };
 use super::{now, StorageError};
 use crate::{account::Account, utils::is_wallet_address, Errorer, Fetch, Store};
@@ -384,59 +382,6 @@ impl EncryptedMessageStore {
         Ok(())
     }
 
-    pub fn get_inbound_invites(
-        &self,
-        conn: &mut PooledConnection<ConnectionManager<SqliteConnection>>,
-        status: InboundInviteStatus,
-    ) -> Result<Vec<InboundInvite>, StorageError> {
-        use self::schema::inbound_invites::dsl;
-
-        let invites = dsl::inbound_invites
-            .filter(dsl::status.eq(status as i16))
-            .order(dsl::sent_at_ns.asc())
-            .load::<InboundInvite>(conn)?;
-
-        Ok(invites)
-    }
-
-    pub fn save_inbound_invite(
-        &self,
-        conn: &mut PooledConnection<ConnectionManager<SqliteConnection>>,
-        invite: InboundInvite,
-    ) -> Result<(), StorageError> {
-        let ref_id = invite.id.clone();
-        let result = diesel::insert_into(inbound_invites::table)
-            .values(invite)
-            .execute(conn);
-
-        if let Err(e) = result {
-            use diesel::result as dr;
-            match &e {
-                dr::Error::DatabaseError(dr::DatabaseErrorKind::UniqueViolation, _) => {
-                    warn!("This message has already been stored: {}", ref_id)
-                }
-                _ => return Err(StorageError::from(e)),
-            }
-        }
-        Ok(())
-    }
-
-    pub fn set_invite_status(
-        &self,
-        conn: &mut DbConnection,
-        id: String,
-        status: InboundInviteStatus,
-    ) -> Result<(), StorageError> {
-        use self::schema::inbound_invites::dsl;
-
-        diesel::update(dsl::inbound_invites)
-            .filter(dsl::id.eq(id))
-            .set(dsl::status.eq(status as i16))
-            .get_result::<InboundInvite>(conn)?;
-
-        Ok(())
-    }
-
     pub fn get_inbound_messages(
         &self,
         conn: &mut PooledConnection<ConnectionManager<SqliteConnection>>,
@@ -580,29 +525,11 @@ impl EncryptedMessageStore {
         Ok(())
     }
 
-    pub fn set_conversation_state(
-        &self,
-        conn: &mut DbConnection,
-        convo_id: &str,
-        state: ConversationState,
-    ) -> Result<(), StorageError> {
-        use self::schema::conversations::dsl;
-        diesel::update(dsl::conversations)
-            .filter(dsl::convo_id.eq(convo_id))
-            .set(dsl::convo_state.eq(state as i32))
-            .get_result::<StoredConversation>(conn)?;
-        Ok(())
-    }
-
     pub fn get_conversations(
         &self,
         conn: &mut DbConnection,
-        allowed_states: Vec<ConversationState>,
     ) -> Result<Vec<StoredConversation>, StorageError> {
-        let convos = conversations::table
-            .filter(conversations::convo_state.eq_any(allowed_states.into_iter().map(|s| s as i32)))
-            .load::<StoredConversation>(conn)?;
-
+        let convos = conversations::table.load::<StoredConversation>(conn)?;
         Ok(convos)
     }
 
@@ -720,22 +647,6 @@ impl Fetch<StoredSession> for DbConnection {
     }
 }
 
-impl Fetch<InboundInvite> for DbConnection {
-    type Key<'a> = &'a str;
-    fn fetch_all(&mut self) -> Result<Vec<InboundInvite>, StorageError> {
-        use self::schema::inbound_invites::dsl::*;
-
-        inbound_invites
-            .load::<InboundInvite>(self)
-            .map_err(StorageError::DieselResultError)
-    }
-
-    fn fetch_one(&mut self, key: &str) -> Result<Option<InboundInvite>, StorageError> {
-        use self::schema::inbound_invites::dsl::*;
-        Ok(inbound_invites.find(key).first(self).optional()?)
-    }
-}
-
 impl Fetch<StoredUser> for DbConnection {
     type Key<'a> = &'a str;
     fn fetch_all(&mut self) -> Result<Vec<StoredUser>, StorageError> {
@@ -846,7 +757,6 @@ mod tests {
 
     use super::{models::*, EncryptedMessageStore, StorageError, StorageOption};
     use crate::{Fetch, Store};
-    use diesel::Connection;
     use rand::{
         distributions::{Alphanumeric, DistString},
         Rng,
@@ -1063,8 +973,8 @@ mod tests {
         .unwrap();
 
         store
-            .lock_refresh_job(RefreshJobKind::Invite, |_, job| {
-                assert_eq!(job.id, RefreshJobKind::Invite.to_string());
+            .lock_refresh_job(RefreshJobKind::Message, |_, job| {
+                assert_eq!(job.id, RefreshJobKind::Message.to_string());
                 assert_eq!(job.last_run, 0);
 
                 Ok(())
@@ -1072,15 +982,17 @@ mod tests {
             .unwrap();
 
         store
-            .lock_refresh_job(RefreshJobKind::Invite, |_, job| {
+            .lock_refresh_job(RefreshJobKind::Message, |_, job| {
                 assert!(job.last_run > 0);
 
                 Ok(())
             })
             .unwrap();
-
+        
+        let mut last_run = 0;
         let res_expected_err = store.lock_refresh_job(RefreshJobKind::Message, |_, job| {
             assert_eq!(job.id, RefreshJobKind::Message.to_string());
+            last_run = job.last_run;
 
             Err(StorageError::Unknown(String::from("RefreshJob failed")))
         });
@@ -1089,88 +1001,11 @@ mod tests {
         store
             .lock_refresh_job(RefreshJobKind::Message, |_, job| {
                 // Ensure that last run time does not change if the job fails
-                assert_eq!(job.last_run, 0);
+                assert_eq!(job.last_run, last_run);
 
                 Ok(())
             })
             .unwrap();
-    }
-
-    #[test]
-    fn get_inbound_invites() {
-        let store = EncryptedMessageStore::new(
-            StorageOption::Ephemeral,
-            EncryptedMessageStore::generate_enc_key(),
-        )
-        .unwrap();
-
-        let invite_1 = InboundInvite {
-            sent_at_ns: 20,
-            id: "id_1".into(),
-            payload: vec![1, 2, 3],
-            topic: "topic".into(),
-            status: InboundInviteStatus::Pending as i16,
-        };
-        let invite_2 = InboundInvite {
-            sent_at_ns: 30,
-            id: "id_2".into(),
-            payload: vec![1, 2, 3, 4],
-            topic: "topic".into(),
-            status: InboundInviteStatus::Pending as i16,
-        };
-        store
-            .save_inbound_invite(&mut store.conn().unwrap(), invite_1.clone())
-            .unwrap();
-        store
-            .save_inbound_invite(&mut store.conn().unwrap(), invite_2.clone())
-            .unwrap();
-
-        let pending_results = store
-            .get_inbound_invites(&mut store.conn().unwrap(), InboundInviteStatus::Pending)
-            .unwrap();
-        assert_eq!(2, pending_results.len());
-        assert_eq!(pending_results[0].id, invite_1.id);
-
-        let processed_results = store
-            .get_inbound_invites(&mut store.conn().unwrap(), InboundInviteStatus::Processed)
-            .unwrap();
-        assert_eq!(0, processed_results.len());
-    }
-
-    #[test]
-    fn save_inbound_invite() {
-        let store = EncryptedMessageStore::new(
-            StorageOption::Ephemeral,
-            EncryptedMessageStore::generate_enc_key(),
-        )
-        .unwrap();
-
-        let inbound_invite = InboundInvite {
-            sent_at_ns: 20,
-            id: "id".into(),
-            payload: vec![1, 2, 3],
-            topic: "topic".into(),
-            status: InboundInviteStatus::Pending as i16,
-        };
-
-        let conn = &mut store.conn().unwrap();
-
-        let result = conn.transaction(|transaction_manager| -> Result<(), StorageError> {
-            return store.save_inbound_invite(transaction_manager, inbound_invite.clone());
-        });
-
-        assert!(result.is_ok());
-        let db_results: Vec<InboundInvite> = conn.fetch_all().unwrap();
-        assert_eq!(1, db_results.len());
-
-        let inbound_invite_ptr = &inbound_invite;
-
-        let first_result = db_results.first().unwrap();
-        assert_eq!(first_result.sent_at_ns, inbound_invite_ptr.sent_at_ns);
-        assert_eq!(first_result.id, inbound_invite_ptr.id);
-        assert_eq!(first_result.payload, inbound_invite_ptr.payload);
-        assert_eq!(first_result.topic, inbound_invite_ptr.topic);
-        assert_eq!(first_result.status, inbound_invite_ptr.status);
     }
 
     #[test]
@@ -1188,13 +1023,11 @@ mod tests {
             convo_id: "convo_1".into(),
             peer_address: address.clone(),
             created_at: 10,
-            convo_state: ConversationState::Invited as i32,
         };
         let convo_2 = StoredConversation {
             convo_id: "convo_2".into(),
             peer_address: address.clone(),
             created_at: 10,
-            convo_state: ConversationState::Uninitialized as i32,
         };
         let user_1 = StoredUser {
             user_address: address.clone(),
@@ -1206,16 +1039,8 @@ mod tests {
         convo_1.store(conn).unwrap();
         convo_2.store(conn).unwrap();
 
-        let invited_conversations = store
-            .get_conversations(conn, vec![ConversationState::Invited])
-            .unwrap();
-        assert_eq!(1, invited_conversations.len());
-        assert_eq!(convo_1.convo_id, invited_conversations[0].convo_id);
-        let uninitialized_conversations = store
-            .get_conversations(conn, vec![ConversationState::Uninitialized])
-            .unwrap();
-        assert_eq!(1, uninitialized_conversations.len());
-        assert_eq!(convo_2.convo_id, uninitialized_conversations[0].convo_id);
+        let conversations = store.get_conversations(conn).unwrap();
+        assert_eq!(2, conversations.len());
     }
 
     #[test]
