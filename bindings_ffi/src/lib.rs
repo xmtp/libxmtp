@@ -336,8 +336,7 @@ mod tests {
     async fn test_create_client_with_storage() {
         let ffi_inbox_owner = LocalWalletInboxOwner::new();
 
-        let dbfilename = xmtp_cryptography::utils::generate_local_wallet().get_address();
-        let path = TempPath::from_path(format!("./test-{}.db", dbfilename));
+        let path = TempPath::from_path(format!("./test-{}.db", ffi_inbox_owner.get_address()));
 
         let client_a = create_client(
             Box::new(MockLogger {}),
@@ -377,8 +376,7 @@ mod tests {
     async fn test_create_client_with_key() {
         let ffi_inbox_owner = LocalWalletInboxOwner::new();
 
-        let dbfilename = xmtp_cryptography::utils::generate_local_wallet().get_address();
-        let path = TempPath::from_path(format!("./test-{}.db", dbfilename));
+        let path = TempPath::from_path(format!("./test-{}.db", ffi_inbox_owner.get_address()));
 
         let key = static_enc_key().to_vec();
 
