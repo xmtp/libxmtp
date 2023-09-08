@@ -336,6 +336,7 @@ mod tests {
     async fn test_create_client_with_storage() {
         let ffi_inbox_owner = LocalWalletInboxOwner::new();
 
+        // NOTE: if you're copying and pasting this test, make sure you change the filename here
         let path = TempPath::from_path("./ffidb.db3");
 
         let client_a = create_client(
@@ -376,7 +377,8 @@ mod tests {
     async fn test_create_client_with_key() {
         let ffi_inbox_owner = LocalWalletInboxOwner::new();
 
-        let path = TempPath::from_path("./ffidb.db3");
+        // NOTE: if you're copying and pasting this test, make sure you change the filename here
+        let path = TempPath::from_path("./ffidb.db4");
 
         let key = static_enc_key().to_vec();
 
