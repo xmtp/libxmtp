@@ -5,8 +5,8 @@ use crate::{
     message::PayloadError,
     session::SessionError,
     storage::{
-        now, MessageState, NewStoredMessage, StorageError, StoredConversation, StoredMessage,
-        StoredUser,
+        now, DbConnection, MessageState, NewStoredMessage, StorageError, StoredConversation,
+        StoredMessage, StoredUser,
     },
     types::networking::XmtpApiClient,
     types::Address,
@@ -105,26 +105,36 @@ where
             peer_address,
         };
         let conn = &mut client.store.conn()?;
+        // TODO: lazy create conversation on message insertion
+        SecretConversation::ensure_conversation_exists(client, conn, &obj.convo_id())?;
+        Ok(obj)
+    }
 
-        obj.client.store.insert_or_ignore_user_with_conn(
+    pub fn ensure_conversation_exists(
+        client: &'c Client<A>,
+        conn: &mut DbConnection,
+        convo_id: &str,
+    ) -> Result<(), ConversationError> {
+        let peer_address = peer_addr_from_convo_id(convo_id, &client.wallet_address())?;
+        let created_at = now();
+        client.store.insert_or_ignore_user_with_conn(
             conn,
             StoredUser {
-                user_address: obj.peer_address(),
-                created_at: now(),
+                user_address: peer_address.clone(),
+                created_at,
                 last_refreshed: 0,
             },
         )?;
 
-        obj.client.store.insert_or_ignore_conversation_with_conn(
+        client.store.insert_or_ignore_conversation_with_conn(
             conn,
             StoredConversation {
-                peer_address: obj.peer_address(),
-                convo_id: obj.convo_id(),
-                created_at: now(),
+                peer_address,
+                convo_id: convo_id.to_string(),
+                created_at,
             },
         )?;
-
-        Ok(obj)
+        Ok(())
     }
 
     pub fn convo_id(&self) -> String {

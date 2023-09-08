@@ -39,7 +39,7 @@ impl<A: XmtpApiClient> Conversations<A> {
         refresh_from_network: bool,
     ) -> Result<Vec<SecretConversation<A>>, ConversationError> {
         if refresh_from_network {
-            // TODO before PR
+            Conversations::receive(client)?;
         }
         let mut conn = client.store.conn()?;
 
@@ -180,6 +180,8 @@ impl<A: XmtpApiClient> Conversations<A> {
 
         //TODO: Validate message
 
+        // TODO move this logic into a Conversation::save_message() method
+        SecretConversation::ensure_conversation_exists(client, conn, &message_obj.convo_id)?;
         let stored_message = NewStoredMessage::new(
             message_obj.convo_id,
             payload.sender_address.clone(),

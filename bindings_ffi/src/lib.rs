@@ -414,12 +414,12 @@ mod tests {
         let client_b = new_test_client().await;
 
         // Create a conversation between the two clients
-        client_a
+        let conversation = client_a
             .conversations()
             .new_conversation(client_b.wallet_address())
             .await
             .unwrap();
-
+        conversation.send(vec![1, 2, 3]).await.unwrap();
         let convos = client_b.conversations().list().await.unwrap();
         assert_eq!(convos.len(), 1);
         assert_eq!(
