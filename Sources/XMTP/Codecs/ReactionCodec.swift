@@ -64,4 +64,13 @@ public struct ReactionCodec: ContentCodec {
         )
         //swiftlint:disable force_unwrapping
     }
+    
+    public func fallback(content: Reaction) throws -> String? {
+        switch content.action {
+        case .added:
+            return "Reacted “\(content.content)” to an earlier message"
+        case .removed:
+            return "Removed “\(content.content)” from an earlier message"
+        }
+    }
 }

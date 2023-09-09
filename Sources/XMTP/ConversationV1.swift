@@ -104,8 +104,19 @@ public struct ConversationV1 {
 
 		let content = content as T
 		var encoded = try encode(codec: codec, content: content)
-		encoded.fallback = options?.contentFallback ?? ""
-
+        
+        func fallback<Codec: ContentCodec>(codec: Codec, content: Any) throws -> String? {
+            if let content = content as? Codec.T {
+                return try codec.fallback(content: content)
+            } else {
+                throw CodecError.invalidContent
+            }
+        }
+        
+        if let fallback = try fallback(codec: codec, content: content) {
+            encoded.fallback = fallback
+        }
+        
 		if let compression = options?.compression {
 			encoded = try encoded.compress(compression)
 		}

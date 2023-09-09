@@ -9,6 +9,10 @@ import XCTest
 @testable import XMTP
 
 struct NumberCodec: ContentCodec {
+    func fallback(content: Double) throws -> String? {
+        return "pi"
+    }
+    
 	typealias T = Double
 
 	var contentType: XMTP.ContentTypeID {
@@ -57,7 +61,7 @@ class CodecTests: XCTestCase {
 		let aliceClient = fixtures.aliceClient!
 		let aliceConversation = try await aliceClient.conversations.newConversation(with: fixtures.bob.address)
 
-		try await aliceConversation.send(content: 3.14, options: .init(contentType: NumberCodec().contentType, contentFallback: "pi"))
+		try await aliceConversation.send(content: 3.14, options: .init(contentType: NumberCodec().contentType))
 
 		// Remove number codec from registry
 		Client.codecRegistry.codecs.removeValue(forKey: NumberCodec().id)

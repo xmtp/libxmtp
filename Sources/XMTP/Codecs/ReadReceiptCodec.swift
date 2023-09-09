@@ -41,4 +41,8 @@ public struct ReadReceiptCodec: ContentCodec {
 
         return ReadReceipt(timestamp: timestamp)
     }
+    
+    public func fallback(content: ReadReceipt) throws -> String? {
+        return nil
+    }
 }

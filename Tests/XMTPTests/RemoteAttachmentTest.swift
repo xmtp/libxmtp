@@ -41,7 +41,7 @@ class RemoteAttachmentTests: XCTestCase {
 		remoteAttachmentContent.filename = "hello.txt"
 		remoteAttachmentContent.contentLength = 5
 
-		_ = try await conversation.send(content: remoteAttachmentContent, options: .init(contentType: ContentTypeRemoteAttachment, contentFallback: "hey"))
+		_ = try await conversation.send(content: remoteAttachmentContent, options: .init(contentType: ContentTypeRemoteAttachment))
 	}
 
 	func testCanUseAttachmentCodec() async throws {

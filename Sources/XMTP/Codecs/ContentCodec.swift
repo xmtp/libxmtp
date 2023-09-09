@@ -71,6 +71,7 @@ public protocol ContentCodec: Hashable, Equatable {
 	var contentType: ContentTypeID { get }
 	func encode(content: T) throws -> EncodedContent
 	func decode(content: EncodedContent) throws -> T
+    func fallback(content: T) throws -> String?
 }
 
 public extension ContentCodec {
