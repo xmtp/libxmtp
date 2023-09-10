@@ -5,6 +5,7 @@ use futures::executor::block_on;
 use log::info;
 use prost::Message;
 use vodozemac::olm::{self, OlmMessage};
+use xmtp_proto::api_client::XmtpApiClient;
 use xmtp_proto::xmtp::{
     message_api::v1::{Envelope, PublishRequest},
     v3::message_contents::{
@@ -22,7 +23,6 @@ use crate::{
         OutboundPayloadState, RefreshJob, RefreshJobKind, StorageError, StoredConversation,
         StoredMessage, StoredOutboundPayload, StoredSession,
     },
-    types::networking::XmtpApiClient,
     utils::{base64_encode, build_installation_message_topic},
     Client,
 };
@@ -403,6 +403,7 @@ impl<A: XmtpApiClient> Conversations<A> {
 #[cfg(test)]
 mod tests {
     use prost::Message;
+    use xmtp_proto::api_client::XmtpApiClient;
     use xmtp_proto::xmtp::message_api::v1::QueryRequest;
 
     use crate::{
@@ -411,7 +412,6 @@ mod tests {
         conversations::Conversations,
         storage::{now, MessageState, StoredMessage},
         test_utils::test_utils::{gen_test_client, gen_test_conversation, gen_two_test_clients},
-        types::networking::XmtpApiClient,
         utils::build_installation_message_topic,
     };
 

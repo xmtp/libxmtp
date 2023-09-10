@@ -60,13 +60,11 @@ pub trait InboxOwner {
 
 #[cfg(test)]
 mod tests {
-    use crate::{
-        builder::ClientBuilder,
-        types::networking::{PublishRequest, QueryRequest, XmtpApiClient},
-    };
+    use crate::builder::ClientBuilder;
     use std::time::{SystemTime, UNIX_EPOCH};
     use uuid::Uuid;
-    use xmtp_proto::xmtp::message_api::v1::Envelope;
+    use xmtp_proto::api_client::XmtpApiClient;
+    use xmtp_proto::xmtp::message_api::v1::{Envelope, PublishRequest, QueryRequest};
 
     fn gen_test_envelope(topic: String) -> Envelope {
         let time_since_epoch = SystemTime::now().duration_since(UNIX_EPOCH).unwrap();

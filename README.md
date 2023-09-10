@@ -34,7 +34,8 @@ Start Docker Desktop.
 
 - [`xmtp`](https://github.com/xmtp/libxmtp/tree/main/xmtp): Pure Rust implementation of XMTP APIs, agnostic to any per-language or per-platform binding
 - [`xmtp_cryptography`](https://github.com/xmtp/libxmtp/tree/main/xmtp_cryptography): Cryptographic operations
-- [`xmtp_networking`](https://github.com/xmtp/libxmtp/tree/main/xmtp_networking): API client for XMTP's gRPC API, using code from `xmtp_proto`
+- [`xmtp_api_grpc`](https://github.com/xmtp/libxmtp/tree/main/xmtp_api_grpc): API client for XMTP's gRPC API, using code from `xmtp_proto`
+- [`xmtp_api_grpc_gateway`](https://github.com/xmtp/libxmtp/tree/main/xmtp_api_grpc_gateway): API client for XMTP's gRPC Gateway API, using code from `xmtp_proto` (in progress)
 - [`xmtp_proto`](https://github.com/xmtp/libxmtp/tree/main/xmtp_proto): Generated code for handling XMTP protocol buffers
 - [`examples/cli`](https://github.com/xmtp/libxmtp/tree/main/examples/cli): Example XMTP console client. Use the CLI to try out sending double ratchet messages on the XMTP `dev` network.
 - [`examples/android/xmtpv3_example`](https://github.com/xmtp/libxmtp/tree/main/examples/android/xmtpv3_example): Example Android app (in progress)

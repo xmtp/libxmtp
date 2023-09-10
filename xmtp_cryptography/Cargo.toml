@@ -17,6 +17,9 @@ sha2 = "0.10.7"
 sha3 = "0.10.6"
 thiserror = "1.0.40"
 
+[features]
+ws = ["ethers/ws"]
+
 [dev-dependencies]
 
 tokio = {version="1.28.1", features=["rt", "macros"]}

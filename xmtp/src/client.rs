@@ -15,13 +15,13 @@ use crate::{
         now, DbConnection, EncryptedMessageStore, StorageError, StoredInstallation, StoredSession,
         StoredUser,
     },
-    types::networking::{PublishRequest, QueryRequest, XmtpApiClient},
     types::Address,
     utils::{build_envelope, build_user_contact_topic, key_fingerprint},
     Store,
 };
 use std::collections::HashMap;
-use xmtp_proto::xmtp::message_api::v1::Envelope;
+use xmtp_proto::api_client::XmtpApiClient;
+use xmtp_proto::xmtp::message_api::v1::{Envelope, PublishRequest, QueryRequest};
 
 const INSTALLATION_REFRESH_INTERVAL_NS: i64 = 0;
 
@@ -44,7 +44,7 @@ pub enum ClientError {
     #[error("dieselError: {0}")]
     Ddd(#[from] diesel::result::Error),
     #[error("Query failed: {0}")]
-    QueryError(#[from] crate::types::networking::Error),
+    QueryError(#[from] xmtp_proto::api_client::Error),
     #[error("generic:{0}")]
     Generic(String),
 }

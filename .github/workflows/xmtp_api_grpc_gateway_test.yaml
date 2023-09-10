@@ -12,4 +12,4 @@ jobs:
       - uses: nanasess/setup-chromedriver@master
       - run: curl https://rustwasm.github.io/wasm-pack/installer/init.sh -sSf | sh
       - run: wasm-pack test --headless --chrome
-        working-directory: bindings_wasm
+        working-directory: xmtp_api_grpc_gateway
