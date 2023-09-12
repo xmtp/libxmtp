@@ -84,8 +84,6 @@ impl ListMessagesOptions {
     }
 }
 
-// I had to pick a name for this, and it seems like we are hovering around Conversation ATM
-// May very well change
 pub struct Conversation<'c, A>
 where
     A: XmtpApiClient,
