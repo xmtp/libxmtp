@@ -14,7 +14,7 @@ use xmtp_proto::xmtp::{
 };
 
 use crate::{
-    conversation::{peer_addr_from_convo_id, ConversationError, SecretConversation},
+    conversation::{peer_addr_from_convo_id, ConversationError, Conversation},
     message::DecodedInboundMessage,
     session::SessionManager,
     storage::{
@@ -37,23 +37,23 @@ impl<A: XmtpApiClient> Conversations<A> {
     pub async fn list(
         client: &Client<A>,
         refresh_from_network: bool,
-    ) -> Result<Vec<SecretConversation<A>>, ConversationError> {
+    ) -> Result<Vec<Conversation<A>>, ConversationError> {
         if refresh_from_network {
             Conversations::receive(client)?;
         }
         let mut conn = client.store.conn()?;
 
-        let mut secret_convos: Vec<SecretConversation<A>> = vec![];
+        let mut secret_convos: Vec<Conversation<A>> = vec![];
 
         let convos: Vec<StoredConversation> = client.store.get_conversations(&mut conn)?;
-        // Releasing the connection early here as SecretConversation::new() will need to acquire a new one
+        // Releasing the connection early here as Conversation::new() will need to acquire a new one
         drop(conn);
 
         log::debug!("Retrieved {:?} convos from the database", convos.len());
         for convo in convos {
             let peer_address = peer_addr_from_convo_id(&convo.convo_id, &client.account.addr())?;
 
-            let convo = SecretConversation::new(client, peer_address)?;
+            let convo = Conversation::new(client, peer_address)?;
             secret_convos.push(convo);
         }
 
@@ -181,7 +181,7 @@ impl<A: XmtpApiClient> Conversations<A> {
         //TODO: Validate message
 
         // TODO move this logic into a Conversation::save_message() method
-        SecretConversation::ensure_conversation_exists(client, conn, &message_obj.convo_id)?;
+        Conversation::ensure_conversation_exists(client, conn, &message_obj.convo_id)?;
         let stored_message = NewStoredMessage::new(
             message_obj.convo_id,
             payload.sender_address.clone(),
@@ -401,7 +401,7 @@ mod tests {
 
     use crate::{
         codecs::{text::TextCodec, ContentCodec},
-        conversation::{convo_id, SecretConversation},
+        conversation::{convo_id, Conversation},
         conversations::Conversations,
         storage::{now, MessageState, StoredMessage},
         test_utils::test_utils::{gen_test_client, gen_test_conversation, gen_two_test_clients},
@@ -418,7 +418,7 @@ mod tests {
         let alice_client = gen_test_client().await;
         let bob_client = gen_test_client().await;
         let conversation =
-            SecretConversation::new(&alice_client, bob_client.wallet_address().to_string())
+            Conversation::new(&alice_client, bob_client.wallet_address().to_string())
                 .unwrap();
         assert_eq!(conversation.peer_address(), bob_client.wallet_address());
     }
@@ -487,7 +487,7 @@ mod tests {
 
         let bob_address = bob_client.account.contact().wallet_address;
 
-        let a_to_b = SecretConversation::new(&alice_client, bob_address.clone()).unwrap();
+        let a_to_b = Conversation::new(&alice_client, bob_address.clone()).unwrap();
         // Send First Message
         a_to_b.send_text("Hi").await.unwrap();
         Conversations::receive(&bob_client).unwrap();
@@ -522,7 +522,7 @@ mod tests {
         }
 
         // Reply
-        let b_to_a = SecretConversation::new(&bob_client, bob_address.clone()).unwrap();
+        let b_to_a = Conversation::new(&bob_client, bob_address.clone()).unwrap();
         b_to_a.send_text("Reply").await.unwrap();
         Conversations::receive(&alice_client).unwrap();
 

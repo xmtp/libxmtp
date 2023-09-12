@@ -18,7 +18,7 @@ use walletconnect::client::{CallError, ConnectorError, SessionError};
 use walletconnect::{qr, Client as WcClient, Metadata};
 use xmtp::builder::{AccountStrategy, ClientBuilderError};
 use xmtp::client::ClientError;
-use xmtp::conversation::{ConversationError, ListMessagesOptions, SecretConversation};
+use xmtp::conversation::{ConversationError, ListMessagesOptions, Conversation};
 use xmtp::conversations::Conversations;
 use xmtp::storage::{
     now, EncryptedMessageStore, EncryptionKey, MessageState, StorageError, StorageOption,
@@ -252,7 +252,7 @@ async fn register(cli: &Cli, use_local_db: bool, wallet_seed: &u64) -> Result<()
 }
 
 async fn send(client: Client, addr: &str, msg: &String) -> Result<(), CliError> {
-    let conversation = SecretConversation::new(&client, addr.to_string()).unwrap();
+    let conversation = Conversation::new(&client, addr.to_string()).unwrap();
     conversation.send_text(msg).await.unwrap();
     info!("Message successfully sent");
 
@@ -265,7 +265,7 @@ async fn recv(client: &Client) -> Result<(), CliError> {
 }
 
 async fn format_messages<'c, A: XmtpApiClient>(
-    convo: &SecretConversation<'c, A>,
+    convo: &Conversation<'c, A>,
 ) -> Result<String, CliError> {
     let mut output: Vec<String> = vec![];
     let opts = ListMessagesOptions::default();
