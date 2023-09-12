@@ -84,9 +84,7 @@ impl ListMessagesOptions {
     }
 }
 
-// I had to pick a name for this, and it seems like we are hovering around SecretConversation ATM
-// May very well change
-pub struct SecretConversation<'c, A>
+pub struct Conversation<'c, A>
 where
     A: XmtpApiClient,
 {
@@ -94,7 +92,7 @@ where
     client: &'c Client<A>,
 }
 
-impl<'c, A> SecretConversation<'c, A>
+impl<'c, A> Conversation<'c, A>
 where
     A: XmtpApiClient,
 {
@@ -106,7 +104,7 @@ where
         };
         let conn = &mut client.store.conn()?;
         // TODO: lazy create conversation on message insertion
-        SecretConversation::ensure_conversation_exists(client, conn, &obj.convo_id())?;
+        Conversation::ensure_conversation_exists(client, conn, &obj.convo_id())?;
         Ok(obj)
     }
 

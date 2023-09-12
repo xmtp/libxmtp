@@ -8,7 +8,7 @@ use log::info;
 use logger::FfiLogger;
 use std::error::Error;
 use std::sync::Arc;
-use xmtp::conversation::{ListMessagesOptions, SecretConversation};
+use xmtp::conversation::{ListMessagesOptions, Conversation};
 use xmtp::conversations::Conversations;
 use xmtp::storage::{EncryptedMessageStore, EncryptionKey, StorageOption, StoredMessage};
 use xmtp::types::Address;
@@ -138,7 +138,7 @@ impl FfiConversations {
         &self,
         wallet_address: String,
     ) -> Result<Arc<FfiConversation>, GenericError> {
-        let convo = SecretConversation::new(self.inner_client.as_ref(), wallet_address)
+        let convo = Conversation::new(self.inner_client.as_ref(), wallet_address)
             .map_err(|e| e.to_string())?;
 
         let out = Arc::new(FfiConversation {
@@ -197,7 +197,7 @@ impl FfiListMessagesOptions {
 #[uniffi::export(async_runtime = "tokio")]
 impl FfiConversation {
     pub async fn send(&self, content_bytes: Vec<u8>) -> Result<(), GenericError> {
-        let conversation = xmtp::conversation::SecretConversation::new(
+        let conversation = xmtp::conversation::Conversation::new(
             self.inner_client.as_ref(),
             self.peer_address.clone(),
         )
@@ -216,7 +216,7 @@ impl FfiConversation {
     ) -> Result<Vec<FfiMessage>, GenericError> {
         Conversations::receive(self.inner_client.as_ref()).map_err(|e| e.to_string())?;
 
-        let conversation = xmtp::conversation::SecretConversation::new(
+        let conversation = xmtp::conversation::Conversation::new(
             self.inner_client.as_ref(),
             self.peer_address.clone(),
         )
