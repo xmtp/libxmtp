@@ -85,4 +85,45 @@ class ReactionTests: XCTestCase {
         XCTAssertEqual(ReactionAction.added, content.action)
         XCTAssertEqual(ReactionSchema.unicode, content.schema)
     }
+    
+    func testCanDecodeEmptyForm() async throws {
+        let codec = ReactionCodec()
+
+        // This is how clients send reactions now.
+        let canonicalEncoded = EncodedContent.with {
+            $0.type = ContentTypeReaction
+            $0.content = Data("""
+            {
+              "action": "",
+              "content": "smile",
+              "reference": "",
+              "schema": ""
+            }
+            """.utf8)
+        }
+
+        // Previously, some clients sent reactions like this.
+        // So we test here to make sure we can still decode them.
+        let legacyEncoded = EncodedContent.with {
+            $0.type = ContentTypeReaction
+            $0.parameters = [
+                "action": "",
+                "reference": "",
+                "schema": "",
+            ]
+            $0.content = Data("smile".utf8)
+        }
+
+        let canonical = try codec.decode(content: canonicalEncoded)
+        let legacy = try codec.decode(content: legacyEncoded)
+
+        XCTAssertEqual(ReactionAction.unknown, canonical.action)
+        XCTAssertEqual(ReactionAction.unknown, legacy.action)
+        XCTAssertEqual("smile", canonical.content)
+        XCTAssertEqual("smile", legacy.content)
+        XCTAssertEqual("", canonical.reference)
+        XCTAssertEqual("", legacy.reference)
+        XCTAssertEqual(ReactionSchema.unknown, canonical.schema)
+        XCTAssertEqual(ReactionSchema.unknown, legacy.schema)
+    }
 }

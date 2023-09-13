@@ -25,11 +25,35 @@ public struct Reaction: Codable {
 }
 
 public enum ReactionAction: String, Codable {
-    case added, removed
+    case added, removed, unknown
+    
+    public init(rawValue: String) {
+        switch rawValue {
+        case "added":
+            self = .added
+        case "removed":
+            self = .removed
+        default:
+            self = .unknown
+        }
+    }
 }
 
 public enum ReactionSchema: String, Codable {
-    case unicode, shortcode, custom
+    case unicode, shortcode, custom, unknown
+    
+    public init(rawValue: String) {
+        switch rawValue {
+        case "unicode":
+            self = .unicode
+        case "shortcode":
+            self = .shortcode
+        case "custom":
+            self = .custom
+        default:
+            self = .unknown
+        }
+    }
 }
 
 public struct ReactionCodec: ContentCodec {
@@ -55,14 +79,12 @@ public struct ReactionCodec: ContentCodec {
         }
         // swiftlint:disable no_optional_try
         // If that fails, try to decode it in the legacy form.
-        // swiftlint:disable force_unwrapping
         return Reaction(
             reference: content.parameters["reference"] ?? "",
-            action: ReactionAction(rawValue: content.parameters["action"] ?? "")!,
+            action: ReactionAction(rawValue: content.parameters["action"] ?? ""),
             content: String(data: content.content, encoding: .utf8) ?? "",
-            schema: ReactionSchema(rawValue: content.parameters["schema"] ?? "")!
+            schema: ReactionSchema(rawValue: content.parameters["schema"] ?? "")
         )
-        //swiftlint:disable force_unwrapping
     }
     
     public func fallback(content: Reaction) throws -> String? {
@@ -70,7 +92,9 @@ public struct ReactionCodec: ContentCodec {
         case .added:
             return "Reacted “\(content.content)” to an earlier message"
         case .removed:
-            return "Removed “\(content.content)” from an earlier message"
+            return "Removed “\(content.content)” from an earlier message"            
+        case .unknown:
+            return nil
         }
     }
 }
