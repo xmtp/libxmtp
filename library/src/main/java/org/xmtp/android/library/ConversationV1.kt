@@ -14,12 +14,14 @@ import org.xmtp.android.library.messages.Message
 import org.xmtp.android.library.messages.MessageBuilder
 import org.xmtp.android.library.messages.MessageV1Builder
 import org.xmtp.android.library.messages.Pagination
+import org.xmtp.android.library.messages.PagingInfoSortDirection
 import org.xmtp.android.library.messages.Topic
 import org.xmtp.android.library.messages.decrypt
 import org.xmtp.android.library.messages.header
 import org.xmtp.android.library.messages.sentAt
 import org.xmtp.android.library.messages.toPublicKeyBundle
 import org.xmtp.android.library.messages.walletAddress
+import org.xmtp.proto.message.api.v1.MessageApiOuterClass
 import java.util.Date
 
 data class ConversationV1(
@@ -41,8 +43,10 @@ data class ConversationV1(
         limit: Int? = null,
         before: Date? = null,
         after: Date? = null,
+        direction: PagingInfoSortDirection = MessageApiOuterClass.SortDirection.SORT_DIRECTION_DESCENDING,
     ): List<DecodedMessage> {
-        val pagination = Pagination(limit = limit, before = before, after = after)
+        val pagination =
+            Pagination(limit = limit, before = before, after = after, direction = direction)
         val result = runBlocking {
             client.apiClient.envelopes(topic = topic.description, pagination = pagination)
         }

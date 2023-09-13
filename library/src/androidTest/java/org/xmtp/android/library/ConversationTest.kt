@@ -37,6 +37,7 @@ import org.xmtp.android.library.messages.toPublicKeyBundle
 import org.xmtp.android.library.messages.toSignedPublicKeyBundle
 import org.xmtp.android.library.messages.toV2
 import org.xmtp.android.library.messages.walletAddress
+import org.xmtp.proto.message.api.v1.MessageApiOuterClass
 import org.xmtp.proto.message.contents.Invitation
 import org.xmtp.proto.message.contents.Invitation.InvitationV1.Context
 import java.nio.charset.StandardCharsets
@@ -405,6 +406,10 @@ class ConversationTest {
         val messages2 = aliceConversation.messages(limit = 1, after = date)
         assertEquals(1, messages2.size)
         assertEquals("hey alice 1", messages2[0].body)
+        val messagesAsc = aliceConversation.messages(direction = MessageApiOuterClass.SortDirection.SORT_DIRECTION_ASCENDING)
+        assertEquals("hey alice 1", messagesAsc[0].body)
+        val messagesDesc = aliceConversation.messages(direction = MessageApiOuterClass.SortDirection.SORT_DIRECTION_DESCENDING)
+        assertEquals("hey alice 3", messagesDesc[0].body)
     }
 
     @Test

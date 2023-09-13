@@ -66,15 +66,13 @@ data class GRPCApiClient(
                     if (pagination?.before != null) {
                         it.endTimeNs = pagination.before.time * 1_000_000
                         it.pagingInfo = it.pagingInfo.toBuilder().also { info ->
-                            info.direction =
-                                MessageApiOuterClass.SortDirection.SORT_DIRECTION_DESCENDING
+                            info.direction = pagination.direction
                         }.build()
                     }
                     if (pagination?.after != null) {
                         it.startTimeNs = pagination.after.time * 1_000_000
                         it.pagingInfo = it.pagingInfo.toBuilder().also { info ->
-                            info.direction =
-                                MessageApiOuterClass.SortDirection.SORT_DIRECTION_DESCENDING
+                            info.direction = pagination.direction
                         }.build()
                     }
                     if (cursor != null) {

@@ -10,7 +10,7 @@ typealias PagingInfoSortDirection = SortDirection
 
 data class Pagination(
     val limit: Int? = null,
-    val direction: PagingInfoSortDirection? = null,
+    val direction: PagingInfoSortDirection? = SortDirection.SORT_DIRECTION_DESCENDING,
     val before: Date? = null,
     val after: Date? = null,
 ) {

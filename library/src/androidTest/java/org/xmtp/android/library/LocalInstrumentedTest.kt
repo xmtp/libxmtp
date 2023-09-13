@@ -21,6 +21,7 @@ import org.xmtp.android.library.messages.secp256K1Uncompressed
 import org.xmtp.android.library.messages.toPublicKeyBundle
 import org.xmtp.android.library.messages.walletAddress
 import org.xmtp.proto.keystore.api.v1.Keystore
+import org.xmtp.proto.message.api.v1.MessageApiOuterClass
 import org.xmtp.proto.message.api.v1.MessageApiOuterClass.QueryRequest
 import org.xmtp.proto.message.contents.Contact
 import org.xmtp.proto.message.contents.InvitationV1Kt.context
@@ -142,6 +143,10 @@ class LocalInstrumentedTest {
         val messages3 = convo.messages(after = tenSecondsAgoMessage.sent)
         val nowMessage2 = messages3[0]
         assertEquals("now", nowMessage2.body)
+        val messagesAsc = convo.messages(direction = MessageApiOuterClass.SortDirection.SORT_DIRECTION_ASCENDING)
+        assertEquals("10 seconds ago", messagesAsc[0].body)
+        val messagesDesc = convo.messages(direction = MessageApiOuterClass.SortDirection.SORT_DIRECTION_DESCENDING)
+        assertEquals("now", messagesDesc[0].body)
     }
 
     @Test

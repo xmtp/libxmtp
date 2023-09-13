@@ -5,7 +5,9 @@ import com.google.protobuf.kotlin.toByteString
 import kotlinx.coroutines.flow.Flow
 import org.xmtp.android.library.codecs.EncodedContent
 import org.xmtp.android.library.messages.Envelope
+import org.xmtp.android.library.messages.PagingInfoSortDirection
 import org.xmtp.proto.keystore.api.v1.Keystore.TopicMap.TopicData
+import org.xmtp.proto.message.api.v1.MessageApiOuterClass
 import org.xmtp.proto.message.contents.Invitation
 import org.xmtp.proto.message.contents.Invitation.InvitationV1.Aes256gcmHkdfsha256
 import java.util.Date
@@ -150,19 +152,22 @@ sealed class Conversation {
         limit: Int? = null,
         before: Date? = null,
         after: Date? = null,
+        direction: PagingInfoSortDirection = MessageApiOuterClass.SortDirection.SORT_DIRECTION_DESCENDING,
     ): List<DecodedMessage> {
         return when (this) {
             is V1 -> conversationV1.messages(
                 limit = limit,
                 before = before,
-                after = after
+                after = after,
+                direction = direction
             )
 
             is V2 ->
                 conversationV2.messages(
                     limit = limit,
                     before = before,
-                    after = after
+                    after = after,
+                    direction = direction
                 )
         }
     }

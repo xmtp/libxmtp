@@ -168,6 +168,16 @@ class FakeApiClient : ApiClient {
             }
         }
 
+        val direction = pagination?.direction
+        if (direction != null) {
+            when (direction) {
+                MessageApiOuterClass.SortDirection.SORT_DIRECTION_ASCENDING -> {
+                    result = result.reversed().toMutableList()
+                }
+                else -> Unit
+            }
+        }
+
         return QueryResponse.newBuilder().also {
             it.addAllEnvelopes(result)
         }.build()
