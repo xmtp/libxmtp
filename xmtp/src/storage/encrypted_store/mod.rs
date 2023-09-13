@@ -16,7 +16,7 @@ pub mod schema;
 
 use self::{
     models::*,
-    schema::{accounts, conversations, installations, messages, refresh_jobs, users},
+    schema::{accounts, conversations, installations, messages, refresh_jobs, users, sessions},
 };
 use super::{now, StorageError};
 use crate::{account::Account, utils::is_wallet_address, Errorer, Fetch, Store};
@@ -25,7 +25,8 @@ use diesel::{
     prelude::*,
     r2d2::{ConnectionManager, Pool, PooledConnection},
     sql_query,
-    sql_types::Text,
+    sql_types::Text, result::DatabaseErrorKind,
+    result::Error,
 };
 use diesel_migrations::{embed_migrations, EmbeddedMigrations, MigrationHarness};
 use log::warn;
@@ -277,19 +278,26 @@ impl EncryptedMessageStore {
             .map_err(|e| e.into())
     }
 
-    pub fn insert_or_ignore_user(&self, user: StoredUser) -> Result<(), StorageError> {
+    pub fn insert_user(&self, user: StoredUser) -> Result<(), StorageError> {
         let conn = &mut self.conn()?;
-        self.insert_or_ignore_user_with_conn(conn, user)
+        self.insert_user_with_conn(conn, user)
     }
 
-    pub fn insert_or_ignore_user_with_conn(
+    pub fn insert_user_with_conn(
         &self,
         conn: &mut DbConnection,
         user: StoredUser,
     ) -> Result<(), StorageError> {
-        diesel::insert_or_ignore_into(users::table)
-            .values(user)
-            .execute(conn)?;
+        match diesel::insert_into(users::table)
+        .values(user)
+        .execute(conn)
+        {
+            Ok(_) => Ok(()),
+            Err(Error::DatabaseError(DatabaseErrorKind::UniqueViolation, _)) => {
+                Ok(())
+            }
+            Err(error) => Err(StorageError::from(error)),
+        }?;
         Ok(())
     }
 
@@ -307,23 +315,30 @@ impl EncryptedMessageStore {
         Ok(convo_list.pop())
     }
 
-    pub fn insert_or_ignore_conversation(
+    pub fn insert_conversation(
         &self,
         conversation: StoredConversation,
     ) -> Result<(), StorageError> {
         let conn = &mut self.conn()?;
-        self.insert_or_ignore_conversation_with_conn(conn, conversation)
+        self.insert_conversation_with_conn(conn, conversation)
     }
 
-    pub fn insert_or_ignore_conversation_with_conn(
+    pub fn insert_conversation_with_conn(
         &self,
         conn: &mut DbConnection,
         conversation: StoredConversation,
     ) -> Result<(), StorageError> {
-        diesel::insert_or_ignore_into(schema::conversations::table)
-            .values(conversation)
-            .execute(conn)?;
-        Ok(())
+        match diesel::insert_into(conversations::table)
+        .values(conversation)
+        .execute(conn)
+        {
+            Ok(_) => Ok(()),
+            Err(Error::DatabaseError(DatabaseErrorKind::UniqueViolation, _)) => {
+                Ok(())
+            }
+            Err(error) => Err(StorageError::from(error)),
+        }?;
+        Ok(())    
     }
 
     pub fn get_contacts(
@@ -436,37 +451,58 @@ impl EncryptedMessageStore {
         Ok(())
     }
 
-    pub fn insert_or_ignore_install(
+    pub fn insert_install(
         &self,
+        conn: &mut PooledConnection<ConnectionManager<SqliteConnection>>,
         install: StoredInstallation,
-        conn: &mut PooledConnection<ConnectionManager<SqliteConnection>>,
     ) -> Result<(), StorageError> {
-        diesel::insert_or_ignore_into(installations::table)
-            .values(install)
-            .execute(conn)?;
-        Ok(())
+        match diesel::insert_into(installations::table)
+        .values(install)
+        .execute(conn)
+        {
+            Ok(_) => Ok(()),
+            Err(Error::DatabaseError(DatabaseErrorKind::UniqueViolation, _)) => {
+                Ok(())
+            }
+            Err(error) => Err(StorageError::from(error)),
+        }?;
+        Ok(())    
     }
 
-    pub fn insert_or_ignore_session(
+    pub fn insert_session(
         &self,
-        session: StoredSession,
         conn: &mut PooledConnection<ConnectionManager<SqliteConnection>>,
+        session: StoredSession,
     ) -> Result<(), StorageError> {
-        diesel::insert_or_ignore_into(schema::sessions::table)
-            .values(session)
-            .execute(conn)?;
+        match diesel::insert_into(sessions::table)
+        .values(session)
+        .execute(conn)
+        {
+            Ok(_) => Ok(()),
+            Err(Error::DatabaseError(DatabaseErrorKind::UniqueViolation, _)) => {
+                Ok(())
+            }
+            Err(error) => Err(StorageError::from(error)),
+        }?;
         Ok(())
-    }
+   }
 
-    pub fn insert_or_ignore_message(
+    pub fn insert_message(
         &self,
         conn: &mut PooledConnection<ConnectionManager<SqliteConnection>>,
         msg: NewStoredMessage,
     ) -> Result<(), StorageError> {
-        diesel::insert_or_ignore_into(schema::messages::table)
-            .values(msg)
-            .execute(conn)?;
-        Ok(())
+        match diesel::insert_into(messages::table)
+        .values(msg)
+        .execute(conn)
+        {
+            Ok(_) => Ok(()),
+            Err(Error::DatabaseError(DatabaseErrorKind::UniqueViolation, _)) => {
+                Ok(())
+            }
+            Err(error) => Err(StorageError::from(error)),
+        }?;
+        Ok(())    
     }
 
     pub fn commit_outbound_payloads_for_message(

@@ -192,7 +192,7 @@ impl<A: XmtpApiClient> Conversations<A> {
 
         client
             .store
-            .insert_or_ignore_message(conn, stored_message)?;
+            .insert_message(conn, stored_message)?;
 
         Ok(())
     }

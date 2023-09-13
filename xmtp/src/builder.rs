@@ -170,7 +170,7 @@ where
             #[cfg(test)]
             AccountStrategy::ExternalAccount(a) => a,
         };
-        store.insert_or_ignore_user(StoredUser {
+        store.insert_user(StoredUser {
             user_address: account.addr(),
             created_at: now(),
             last_refreshed: 0,
