@@ -50,14 +50,14 @@ class ReactionTest {
         val canonical = codec.decode(canonicalEncoded)
         val legacy = codec.decode(legacyEncoded)
 
-        assertEquals(ReactionAction.added, canonical.action)
-        assertEquals(ReactionAction.added, legacy.action)
+        assertEquals(ReactionAction.Added, canonical.action)
+        assertEquals(ReactionAction.Added, legacy.action)
         assertEquals("smile", canonical.content)
         assertEquals("smile", legacy.content)
         assertEquals("abc123", canonical.reference)
         assertEquals("abc123", legacy.reference)
-        assertEquals(ReactionSchema.shortcode, canonical.schema)
-        assertEquals(ReactionSchema.shortcode, legacy.schema)
+        assertEquals(ReactionSchema.Shortcode, canonical.schema)
+        assertEquals(ReactionSchema.Shortcode, legacy.schema)
     }
 
     @Test
@@ -75,9 +75,9 @@ class ReactionTest {
 
         val attachment = Reaction(
             reference = messageToReact.id,
-            action = ReactionAction.added,
+            action = ReactionAction.Added,
             content = "U+1F603",
-            schema = ReactionSchema.unicode
+            schema = ReactionSchema.Unicode
         )
 
         aliceConversation.send(
@@ -90,8 +90,8 @@ class ReactionTest {
             val content: Reaction? = messages.first().content()
             assertEquals("U+1F603", content?.content)
             assertEquals(messageToReact.id, content?.reference)
-            assertEquals(ReactionAction.added, content?.action)
-            assertEquals(ReactionSchema.unicode, content?.schema)
+            assertEquals(ReactionAction.Added, content?.action)
+            assertEquals(ReactionSchema.Unicode, content?.schema)
         }
     }
 }
