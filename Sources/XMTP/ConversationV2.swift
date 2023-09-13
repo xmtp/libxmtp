@@ -118,8 +118,8 @@ public struct ConversationV2 {
 		return try await prepareMessage(encodedContent: encoded, options: options)
 	}
 
-	func messages(limit: Int? = nil, before: Date? = nil, after: Date? = nil) async throws -> [DecodedMessage] {
-		let pagination = Pagination(limit: limit, before: before, after: after)
+    func messages(limit: Int? = nil, before: Date? = nil, after: Date? = nil, direction: PagingInfoSortDirection? = .descending) async throws -> [DecodedMessage] {
+        let pagination = Pagination(limit: limit, before: before, after: after, direction: direction)
 		let envelopes = try await client.apiClient.envelopes(topic: topic.description, pagination: pagination)
 
 		return envelopes.compactMap { envelope in

@@ -9,18 +9,19 @@ import Foundation
 
 typealias PagingInfo = Xmtp_MessageApi_V1_PagingInfo
 typealias PagingInfoCursor = Xmtp_MessageApi_V1_Cursor
-typealias PagingInfoSortDirection = Xmtp_MessageApi_V1_SortDirection
+public typealias PagingInfoSortDirection = Xmtp_MessageApi_V1_SortDirection
 
 public struct Pagination {
 	public var limit: Int?
     public var before: Date?
     public var after: Date?
-    var direction: PagingInfoSortDirection?
+    public var direction: PagingInfoSortDirection?
         
-    public init(limit: Int? = nil, before: Date? = nil, after: Date? = nil) {
+    public init(limit: Int? = nil, before: Date? = nil, after: Date? = nil, direction: PagingInfoSortDirection? = .descending) {
         self.limit = limit
         self.before = before
         self.after = after
+        self.direction = direction
     }
 
 	var pagingInfo: PagingInfo {

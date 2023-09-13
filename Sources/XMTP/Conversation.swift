@@ -199,12 +199,12 @@ public enum Conversation: Sendable {
 	}
 
 	/// List messages in the conversation
-	public func messages(limit: Int? = nil, before: Date? = nil, after: Date? = nil) async throws -> [DecodedMessage] {
+    public func messages(limit: Int? = nil, before: Date? = nil, after: Date? = nil, direction: PagingInfoSortDirection? = .descending) async throws -> [DecodedMessage] {
 		switch self {
 		case let .v1(conversationV1):
-			return try await conversationV1.messages(limit: limit, before: before, after: after)
+            return try await conversationV1.messages(limit: limit, before: before, after: after, direction: direction)
 		case let .v2(conversationV2):
-			return try await conversationV2.messages(limit: limit, before: before, after: after)
+			return try await conversationV2.messages(limit: limit, before: before, after: after, direction: direction)
 		}
 	}
 

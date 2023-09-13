@@ -47,11 +47,11 @@ func makeQueryRequest(topic: String, pagination: Pagination? = nil, cursor: Curs
         }
         if let endAt = pagination?.before {
             $0.endTimeNs = UInt64(endAt.millisecondsSinceEpoch) * 1_000_000
-            $0.pagingInfo.direction = .descending
+            $0.pagingInfo.direction = pagination?.direction ?? .descending
         }
         if let startAt = pagination?.after {
             $0.startTimeNs = UInt64(startAt.millisecondsSinceEpoch) * 1_000_000
-            $0.pagingInfo.direction = .descending
+            $0.pagingInfo.direction = pagination?.direction ?? .descending
         }
         if let cursor {
             $0.pagingInfo.cursor = cursor

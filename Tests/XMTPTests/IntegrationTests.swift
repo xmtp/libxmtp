@@ -414,6 +414,12 @@ final class IntegrationTests: XCTestCase {
 		XCTAssertEqual(1, messages3.count)
 		let nowMessage2 = messages3[0]
 		XCTAssertEqual("now", nowMessage2.body)
+
+        let messagesAsc = try await convo.messages(direction: .ascending)
+        XCTAssertEqual("10 seconds ago", messagesAsc[0].body)
+
+        let messagesDesc = try await convo.messages(direction: .descending)
+        XCTAssertEqual("now", messagesDesc[0].body)
 	}
 
     func testStreamingMessagesShouldBeReceived() async throws {

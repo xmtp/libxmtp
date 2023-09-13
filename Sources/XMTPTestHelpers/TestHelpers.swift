@@ -197,6 +197,15 @@ public class FakeApiClient: ApiClient {
 				}
 			}
 		}
+ 
+        if let direction = pagination?.direction {
+            switch direction {
+            case .ascending:
+                result = Array(result.reversed())
+            default:
+                break
+            }
+        }
 
 		var queryResponse = QueryResponse()
 		queryResponse.envelopes = result
