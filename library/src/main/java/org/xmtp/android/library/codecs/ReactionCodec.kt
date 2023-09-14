@@ -37,7 +37,7 @@ sealed class ReactionSchema {
     object Unknown : ReactionSchema()
 }
 
-private fun getReactionSchema(schema: String): ReactionSchema {
+fun getReactionSchema(schema: String): ReactionSchema {
     return when (schema) {
         "unicode" -> ReactionSchema.Unicode
         "shortcode" -> ReactionSchema.Shortcode
@@ -46,7 +46,7 @@ private fun getReactionSchema(schema: String): ReactionSchema {
     }
 }
 
-private fun getReactionAction(action: String): ReactionAction {
+fun getReactionAction(action: String): ReactionAction {
     return when (action) {
         "removed" -> ReactionAction.Removed
         "added" -> ReactionAction.Added
