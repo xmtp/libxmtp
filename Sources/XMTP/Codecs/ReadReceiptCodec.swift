@@ -9,7 +9,9 @@ import Foundation
 
 public let ContentTypeReadReceipt = ContentTypeID(authorityID: "xmtp.org", typeID: "readReceipt", versionMajor: 1, versionMinor: 0)
 
-public struct ReadReceipt {}
+public struct ReadReceipt {
+    public init() {}
+}
 
 public struct ReadReceiptCodec: ContentCodec {
     public typealias T = ReadReceipt
