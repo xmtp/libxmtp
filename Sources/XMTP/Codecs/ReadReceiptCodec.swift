@@ -9,13 +9,7 @@ import Foundation
 
 public let ContentTypeReadReceipt = ContentTypeID(authorityID: "xmtp.org", typeID: "readReceipt", versionMajor: 1, versionMinor: 0)
 
-public struct ReadReceipt {
-    public var timestamp: String
-    
-    public init(timestamp: String) {
-        self.timestamp = timestamp
-    }
-}
+public struct ReadReceipt {}
 
 public struct ReadReceiptCodec: ContentCodec {
     public typealias T = ReadReceipt
@@ -28,18 +22,13 @@ public struct ReadReceiptCodec: ContentCodec {
         var encodedContent = EncodedContent()
 
         encodedContent.type = ContentTypeReadReceipt
-        encodedContent.parameters = ["timestamp": content.timestamp]
         encodedContent.content = Data()
 
         return encodedContent
     }
 
     public func decode(content: EncodedContent) throws -> ReadReceipt {
-        guard let timestamp = content.parameters["timestamp"] else {
-            throw CodecError.invalidContent
-        }
-
-        return ReadReceipt(timestamp: timestamp)
+        return ReadReceipt()
     }
     
     public func fallback(content: ReadReceipt) throws -> String? {

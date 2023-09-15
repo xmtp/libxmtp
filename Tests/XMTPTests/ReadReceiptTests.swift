@@ -20,7 +20,7 @@ class ReadReceiptTests: XCTestCase {
 
         try await conversation.send(text: "hey alice 2 bob")
 
-        let read = ReadReceipt(timestamp: "2019-09-26T07:58:30.996+0200")
+        let read = ReadReceipt()
 
         try await conversation.send(
             content: read,
@@ -30,7 +30,7 @@ class ReadReceiptTests: XCTestCase {
         let updatedMessages = try await conversation.messages()
         
         let message = try await conversation.messages()[0]
-        let content: ReadReceipt = try message.content()
-        XCTAssertEqual("2019-09-26T07:58:30.996+0200", content.timestamp)
+        let contentType: String = message.encodedContent.type.typeID
+        XCTAssertEqual("readReceipt", contentType)
     }
 }
