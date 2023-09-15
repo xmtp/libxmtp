@@ -23,7 +23,7 @@ class ReadReceiptTest {
 
         aliceConversation.send(text = "hey alice 2 bob")
 
-        val readReceipt = ReadReceipt(timestamp = "2019-09-26T07:58:30.996+0200")
+        val readReceipt = ReadReceipt
 
         aliceConversation.send(
             content = readReceipt,
@@ -32,8 +32,8 @@ class ReadReceiptTest {
         val messages = aliceConversation.messages()
         assertEquals(messages.size, 2)
         if (messages.size == 2) {
-            val content: ReadReceipt? = messages.first().content()
-            assertEquals("2019-09-26T07:58:30.996+0200", content?.timestamp)
+            val contentType: String = messages.first().encodedContent.type.typeId
+            assertEquals(contentType, "readReceipt")
         }
     }
 }
