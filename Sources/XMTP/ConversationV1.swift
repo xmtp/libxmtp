@@ -71,7 +71,7 @@ public struct ConversationV1 {
 			message: msg
 		)
         var envelopes = [messageEnvelope]
-        if client.contacts.needsIntroduction(peerAddress) && !isEphemeral {
+        if (await client.contacts.needsIntroduction(peerAddress)) && !isEphemeral {
             envelopes.append(contentsOf: [
                 Envelope(
                     topic: .userIntro(peerAddress),
@@ -85,7 +85,7 @@ public struct ConversationV1 {
                 ),
             ])
 
-            client.contacts.hasIntroduced[peerAddress] = true
+					await client.contacts.markIntroduced(peerAddress, true)
         }
 
 		return PreparedMessage(envelopes: envelopes)

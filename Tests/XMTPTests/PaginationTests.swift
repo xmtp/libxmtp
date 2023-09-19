@@ -85,7 +85,7 @@ class PaginationTests: XCTestCase {
 		expectation1.expectedFulfillmentCount = 2
 
 		Task(priority: .userInitiated) {
-			for try await _ in bobClient.conversations.stream() {
+			for try await _ in await bobClient.conversations.stream() {
 				print("Got one conversation")
 				expectation1.fulfill()
 			}

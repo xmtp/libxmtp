@@ -8,7 +8,7 @@
 import Foundation
 
 /// Provides access to contact bundles.
-public struct Contacts {
+public actor Contacts {
 	var client: Client
 
 	// Save all bundles here
@@ -16,6 +16,14 @@ public struct Contacts {
 
 	// Whether or not we have sent invite/intro to this contact
 	var hasIntroduced: [String: Bool] = [:]
+
+	init(client: Client) {
+		self.client = client
+	}
+
+	func markIntroduced(_ peerAddress: String, _ isIntroduced: Bool) {
+		hasIntroduced[peerAddress] = isIntroduced
+	}
 
 	func has(_ peerAddress: String) -> Bool {
 		return knownBundles[peerAddress] != nil
@@ -25,7 +33,7 @@ public struct Contacts {
 		return hasIntroduced[peerAddress] != true
 	}
 
-	mutating func find(_ peerAddress: String) async throws -> ContactBundle? {
+	func find(_ peerAddress: String) async throws -> ContactBundle? {
 		if let knownBundle = knownBundles[peerAddress] {
 			return knownBundle
 		}

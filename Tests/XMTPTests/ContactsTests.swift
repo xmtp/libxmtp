@@ -50,6 +50,7 @@ class ContactsTests: XCTestCase {
 			XCTAssertEqual(contactBundle.walletAddress, fixtures.bob.walletAddress)
 		}
 
-		XCTAssert(fixtures.aliceClient.contacts.has(fixtures.bob.walletAddress))
+		let hasContact = await fixtures.aliceClient.contacts.has(fixtures.bob.walletAddress)
+		XCTAssert(hasContact)
 	}
 }

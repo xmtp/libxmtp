@@ -5,7 +5,7 @@ public enum ConversationError: Error {
 }
 
 /// Handles listing and creating Conversations.
-public class Conversations {
+public actor Conversations {
     var client: Client
     var conversationsByTopic: [String: Conversation] = [:]
 

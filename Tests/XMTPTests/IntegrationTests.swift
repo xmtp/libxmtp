@@ -162,7 +162,7 @@ final class IntegrationTests: XCTestCase {
 			options: opt
 		)
 		// And it uses the saved topic data for the conversation
-		let aliceConvo2 = alice2.conversations.importTopicData(
+		let aliceConvo2 = await alice2.conversations.importTopicData(
 				data: try Xmtp_KeystoreApi_V1_TopicMap.TopicData(serializedData: topicData))
 		XCTAssertEqual("example.com/alice-bob-1", aliceConvo2.conversationID)
 
@@ -520,7 +520,7 @@ final class IntegrationTests: XCTestCase {
 		expectation1.expectedFulfillmentCount = 2
 
 		Task(priority: .userInitiated) {
-			for try await convo in bobClient.conversations.stream() {
+			for try await convo in await bobClient.conversations.stream() {
 				expectation1.fulfill()
 			}
 		}
