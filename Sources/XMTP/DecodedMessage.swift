@@ -21,7 +21,7 @@ public struct DecodedMessage: Sendable {
 	/// When the message was sent
 	public var sent: Date
 
-	var client: Client
+	public var client: Client
 
     public init(
 			client: Client,
