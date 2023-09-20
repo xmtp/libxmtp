@@ -92,11 +92,11 @@ public struct ConversationV1 {
 	}
 
 	func prepareMessage<T>(content: T, options: SendOptions?) async throws -> PreparedMessage {
-		let codec = Client.codecRegistry.find(for: options?.contentType)
+		let codec = client.codecRegistry.find(for: options?.contentType)
 
 		func encode<Codec: ContentCodec>(codec: Codec, content: Any) throws -> EncodedContent {
 			if let content = content as? Codec.T {
-				return try codec.encode(content: content)
+				return try codec.encode(content: content, client: client)
 			} else {
 				throw CodecError.invalidContent
 			}
@@ -203,7 +203,8 @@ public struct ConversationV1 {
 		let header = try message.v1.header
 
 		var decoded = DecodedMessage(
-            topic: envelope.contentTopic,
+			client: client,
+			topic: envelope.contentTopic,
 			encodedContent: encodedMessage,
 			senderAddress: header.sender.walletAddress,
 			sent: message.v1.sentAt

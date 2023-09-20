@@ -16,7 +16,7 @@ public struct DecodedComposite {
 		self.encodedContent = encodedContent
 	}
 
-	func content<T>() throws -> T? {
-		return try encodedContent?.decoded()
+	func content<T>(with client: Client) throws -> T? {
+		return try encodedContent?.decoded(with: client)
 	}
 }

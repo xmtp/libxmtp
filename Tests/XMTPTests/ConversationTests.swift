@@ -218,7 +218,7 @@ class ConversationTests: XCTestCase {
 		}
 
 		let encoder = TextCodec()
-		let encodedContent = try encoder.encode(content: "hi alice")
+		let encodedContent = try encoder.encode(content: "hi alice", client: aliceClient)
 
 		// Stream a message
 		fakeApiClient.send(
@@ -265,8 +265,8 @@ class ConversationTests: XCTestCase {
 		}
 
 		let codec = TextCodec()
-		let originalContent = try codec.encode(content: "hello")
-		let tamperedContent = try codec.encode(content: "this is a fake")
+		let originalContent = try codec.encode(content: "hello", client: aliceClient)
+		let tamperedContent = try codec.encode(content: "this is a fake", client: aliceClient)
 
 		let originalPayload = try originalContent.serializedData()
 		let tamperedPayload = try tamperedContent.serializedData()
@@ -560,7 +560,7 @@ class ConversationTests: XCTestCase {
 			return
 		}
 
-		let encodedContent = try TextCodec().encode(content: "hi")
+		let encodedContent = try TextCodec().encode(content: "hi", client: aliceClient)
 
 		try await bobConversation.send(encodedContent: encodedContent)
 

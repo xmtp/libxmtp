@@ -71,9 +71,11 @@ struct MessageCellView: View {
 
 struct MessageCellView_Previews: PreviewProvider {
 	static var previews: some View {
-		List {
-			MessageCellView(myAddress: "0x00", message: DecodedMessage.preview(body: "Hi, how is it going?", senderAddress: "0x00", sent: Date()))
+		PreviewClientProvider { client in
+			List {
+				MessageCellView(myAddress: "0x00", message: DecodedMessage.preview(client: client, topic: "foo", body: "Hi, how is it going?", senderAddress: "0x00", sent: Date()))
+			}
+			.listStyle(.plain)
 		}
-		.listStyle(.plain)
 	}
 }

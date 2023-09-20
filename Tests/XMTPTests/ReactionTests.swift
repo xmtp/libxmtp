@@ -41,24 +41,25 @@ class ReactionTests: XCTestCase {
             $0.content = Data("smile".utf8)
         }
 
-        let canonical = try codec.decode(content: canonicalEncoded)
-        let legacy = try codec.decode(content: legacyEncoded)
+			let fixtures = await fixtures()
+			let canonical = try codec.decode(content: canonicalEncoded, client: fixtures.aliceClient)
+			let legacy = try codec.decode(content: legacyEncoded, client: fixtures.aliceClient)
 
-        XCTAssertEqual(ReactionAction.added, canonical.action)
-        XCTAssertEqual(ReactionAction.added, legacy.action)
-        XCTAssertEqual("smile", canonical.content)
-        XCTAssertEqual("smile", legacy.content)
-        XCTAssertEqual("abc123", canonical.reference)
-        XCTAssertEqual("abc123", legacy.reference)
-        XCTAssertEqual(ReactionSchema.shortcode, canonical.schema)
-        XCTAssertEqual(ReactionSchema.shortcode, legacy.schema)
+			XCTAssertEqual(ReactionAction.added, canonical.action)
+			XCTAssertEqual(ReactionAction.added, legacy.action)
+			XCTAssertEqual("smile", canonical.content)
+			XCTAssertEqual("smile", legacy.content)
+			XCTAssertEqual("abc123", canonical.reference)
+			XCTAssertEqual("abc123", legacy.reference)
+			XCTAssertEqual(ReactionSchema.shortcode, canonical.schema)
+			XCTAssertEqual(ReactionSchema.shortcode, legacy.schema)
     }
 
     func testCanUseReactionCodec() async throws {
-        Client.register(codec: ReactionCodec())
-        
         let fixtures = await fixtures()
         let conversation = try await fixtures.aliceClient.conversations.newConversation(with: fixtures.bobClient.address)
+
+			fixtures.aliceClient.register(codec: ReactionCodec())
 
         try await conversation.send(text: "hey alice 2 bob")
 
@@ -114,16 +115,18 @@ class ReactionTests: XCTestCase {
             $0.content = Data("smile".utf8)
         }
 
-        let canonical = try codec.decode(content: canonicalEncoded)
-        let legacy = try codec.decode(content: legacyEncoded)
+			let fixtures = await fixtures()
 
-        XCTAssertEqual(ReactionAction.unknown, canonical.action)
-        XCTAssertEqual(ReactionAction.unknown, legacy.action)
-        XCTAssertEqual("smile", canonical.content)
-        XCTAssertEqual("smile", legacy.content)
-        XCTAssertEqual("", canonical.reference)
-        XCTAssertEqual("", legacy.reference)
-        XCTAssertEqual(ReactionSchema.unknown, canonical.schema)
-        XCTAssertEqual(ReactionSchema.unknown, legacy.schema)
+			let canonical = try codec.decode(content: canonicalEncoded, client: fixtures.aliceClient)
+			let legacy = try codec.decode(content: legacyEncoded, client: fixtures.aliceClient)
+
+			XCTAssertEqual(ReactionAction.unknown, canonical.action)
+			XCTAssertEqual(ReactionAction.unknown, legacy.action)
+			XCTAssertEqual("smile", canonical.content)
+			XCTAssertEqual("smile", legacy.content)
+			XCTAssertEqual("", canonical.reference)
+			XCTAssertEqual("", legacy.reference)
+			XCTAssertEqual(ReactionSchema.unknown, canonical.schema)
+			XCTAssertEqual(ReactionSchema.unknown, legacy.schema)
     }
 }

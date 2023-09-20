@@ -9,7 +9,7 @@ import Foundation
 
 /// Decrypted messages from a conversation.
 public struct DecodedMessage: Sendable {
-    public var topic: String
+	public var topic: String
 
 	public var id: String = ""
 
@@ -21,15 +21,24 @@ public struct DecodedMessage: Sendable {
 	/// When the message was sent
 	public var sent: Date
 
-    public init(topic: String, encodedContent: EncodedContent, senderAddress: String, sent: Date) {
-        self.topic = topic
-		self.encodedContent = encodedContent
-		self.senderAddress = senderAddress
-		self.sent = sent
+	var client: Client
+
+    public init(
+			client: Client,
+			topic: String,
+			encodedContent: EncodedContent,
+			senderAddress: String,
+			sent: Date
+		) {
+			self.client = client
+			self.topic = topic
+			self.encodedContent = encodedContent
+			self.senderAddress = senderAddress
+			self.sent = sent
 	}
 
 	public func content<T>() throws -> T {
-		return try encodedContent.decoded()
+		return try encodedContent.decoded(with: client)
 	}
 
 	public var fallbackContent: String {
@@ -46,10 +55,11 @@ public struct DecodedMessage: Sendable {
 }
 
 public extension DecodedMessage {
-    static func preview(topic: String, body: String, senderAddress: String, sent: Date) -> DecodedMessage {
+	static func preview(client: Client, topic: String, body: String, senderAddress: String, sent: Date) -> DecodedMessage {
 		// swiftlint:disable force_try
-		let encoded = try! TextCodec().encode(content: body)
+		let encoded = try! TextCodec().encode(content: body, client: client)
 		// swiftlint:enable force_try
-        return DecodedMessage(topic: topic, encodedContent: encoded, senderAddress: senderAddress, sent: sent)
+
+		return DecodedMessage(client: client, topic: topic, encodedContent: encoded, senderAddress: senderAddress, sent: sent)
 	}
 }

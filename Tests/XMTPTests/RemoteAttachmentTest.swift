@@ -31,12 +31,13 @@ class RemoteAttachmentTests: XCTestCase {
 	}
 
 	func testBasic() async throws {
-		Client.register(codec: AttachmentCodec())
-		Client.register(codec: RemoteAttachmentCodec())
-
 		let fixtures = await fixtures()
+
+		fixtures.aliceClient.register(codec: AttachmentCodec())
+		fixtures.aliceClient.register(codec: RemoteAttachmentCodec())
+
 		let conversation = try await fixtures.aliceClient.conversations.newConversation(with: fixtures.bobClient.address)
-		let enecryptedEncodedContent = try RemoteAttachment.encodeEncrypted(content: "Hello", codec: TextCodec())
+		let enecryptedEncodedContent = try RemoteAttachment.encodeEncrypted(content: "Hello", codec: TextCodec(), with: fixtures.aliceClient)
 		var remoteAttachmentContent = try RemoteAttachment(url: "https://example.com", encryptedEncodedContent: enecryptedEncodedContent)
 		remoteAttachmentContent.filename = "hello.txt"
 		remoteAttachmentContent.contentLength = 5
@@ -45,18 +46,19 @@ class RemoteAttachmentTests: XCTestCase {
 	}
 
 	func testCanUseAttachmentCodec() async throws {
-		Client.register(codec: AttachmentCodec())
-		Client.register(codec: RemoteAttachmentCodec())
-
 		let fixtures = await fixtures()
 		guard case let .v2(conversation) = try await fixtures.aliceClient.conversations.newConversation(with: fixtures.bobClient.address) else {
 			XCTFail("no v2 convo")
 			return
 		}
 
+		fixtures.aliceClient.register(codec: AttachmentCodec())
+		fixtures.aliceClient.register(codec: RemoteAttachmentCodec())
+
 		let encryptedEncodedContent = try RemoteAttachment.encodeEncrypted(
 			content: Attachment(filename: "icon.png", mimeType: "image/png", data: iconData),
-			codec: AttachmentCodec()
+			codec: AttachmentCodec(),
+			with: fixtures.aliceClient
 		)
 
 		let tempFileURL = URL.temporaryDirectory.appendingPathComponent(UUID().uuidString)
@@ -84,7 +86,7 @@ class RemoteAttachmentTests: XCTestCase {
 		remoteAttachment.fetcher = TestFetcher()
 
 		let encodedContent: EncodedContent = try await remoteAttachment.content()
-		let attachment: Attachment = try encodedContent.decoded()
+		let attachment: Attachment = try encodedContent.decoded(with: fixtures.aliceClient)
 
 		XCTAssertEqual("icon.png", attachment.filename)
 		XCTAssertEqual("image/png", attachment.mimeType)
@@ -93,18 +95,19 @@ class RemoteAttachmentTests: XCTestCase {
 	}
 
 	func testCannotUseNonHTTPSUrl() async throws {
-		Client.register(codec: AttachmentCodec())
-		Client.register(codec: RemoteAttachmentCodec())
-
 		let fixtures = await fixtures()
 		guard case let .v2(conversation) = try await fixtures.aliceClient.conversations.newConversation(with: fixtures.bobClient.address) else {
 			XCTFail("no v2 convo")
 			return
 		}
 
+		fixtures.aliceClient.register(codec: AttachmentCodec())
+		fixtures.aliceClient.register(codec: RemoteAttachmentCodec())
+
 		let encryptedEncodedContent = try RemoteAttachment.encodeEncrypted(
 			content: Attachment(filename: "icon.png", mimeType: "image/png", data: iconData),
-			codec: AttachmentCodec()
+			codec: AttachmentCodec(),
+			with: fixtures.aliceClient
 		)
 
 		let tempFileURL = URL.temporaryDirectory.appendingPathComponent(UUID().uuidString)
@@ -122,14 +125,15 @@ class RemoteAttachmentTests: XCTestCase {
 
 	func testVerifiesContentDigest() async throws {
 		let fixtures = await fixtures()
-		guard case let .v2(conversation) = try await fixtures.aliceClient.conversations.newConversation(with: fixtures.bobClient.address) else {
+		guard case let .v2(_) = try await fixtures.aliceClient.conversations.newConversation(with: fixtures.bobClient.address) else {
 			XCTFail("no v2 convo")
 			return
 		}
 
 		let encryptedEncodedContent = try RemoteAttachment.encodeEncrypted(
 			content: Attachment(filename: "icon.png", mimeType: "image/png", data: iconData),
-			codec: AttachmentCodec()
+			codec: AttachmentCodec(),
+			with: fixtures.aliceClient
 		)
 
 		let tempFileURL = URL.temporaryDirectory.appendingPathComponent(UUID().uuidString)

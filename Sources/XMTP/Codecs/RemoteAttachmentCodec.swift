@@ -78,9 +78,9 @@ public struct RemoteAttachment {
 		}
 	}
 
-	public static func encodeEncrypted<Codec: ContentCodec, T>(content: T, codec: Codec) throws -> EncryptedEncodedContent where Codec.T == T {
+	public static func encodeEncrypted<Codec: ContentCodec, T>(content: T, codec: Codec, with client: Client) throws -> EncryptedEncodedContent where Codec.T == T {
 		let secret = try Crypto.secureRandomBytes(count: 32)
-		let encodedContent = try codec.encode(content: content).serializedData()
+		let encodedContent = try codec.encode(content: content, client: client).serializedData()
 		let ciphertext = try Crypto.encrypt(secret, encodedContent)
 		let contentDigest = sha256(data: ciphertext.aes256GcmHkdfSha256.payload)
 
@@ -139,7 +139,7 @@ public struct RemoteAttachmentCodec: ContentCodec {
 
 	public var contentType = ContentTypeRemoteAttachment
 
-	public func encode(content: RemoteAttachment) throws -> EncodedContent {
+	public func encode(content: RemoteAttachment, client _: Client) throws -> EncodedContent {
 		var encodedContent = EncodedContent()
 
 		encodedContent.type = ContentTypeRemoteAttachment
@@ -157,7 +157,7 @@ public struct RemoteAttachmentCodec: ContentCodec {
 		return encodedContent
 	}
 
-	public func decode(content: EncodedContent) throws -> RemoteAttachment {
+	public func decode(content: EncodedContent, client _: Client) throws -> RemoteAttachment {
 		guard let url = String(data: content.content, encoding: .utf8) else {
 			throw RemoteAttachmentError.invalidURL
 		}

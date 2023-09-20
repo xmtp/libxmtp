@@ -28,7 +28,7 @@ struct CompositeCodec: ContentCodec {
 		ContentTypeComposite
 	}
 
-	public func encode(content: DecodedComposite) throws -> EncodedContent {
+	public func encode(content: DecodedComposite, client _: Client) throws -> EncodedContent {
 		let composite = toComposite(content: content)
 		var encoded = EncodedContent()
 		encoded.type = ContentTypeComposite
@@ -36,7 +36,7 @@ struct CompositeCodec: ContentCodec {
 		return encoded
 	}
 
-	public func decode(content encoded: EncodedContent) throws -> DecodedComposite {
+	public func decode(content encoded: EncodedContent, client _: Client) throws -> DecodedComposite {
 		let composite = try Composite(serializedData: encoded.content)
 		let decodedComposite = fromComposite(composite: composite)
 		return decodedComposite

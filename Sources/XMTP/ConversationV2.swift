@@ -87,11 +87,11 @@ public struct ConversationV2 {
 	}
 
 	func prepareMessage<T>(content: T, options: SendOptions?) async throws -> PreparedMessage {
-		let codec = Client.codecRegistry.find(for: options?.contentType)
+		let codec = client.codecRegistry.find(for: options?.contentType)
 
 		func encode<Codec: ContentCodec>(codec: Codec, content: Any) throws -> EncodedContent {
 			if let content = content as? Codec.T {
-				return try codec.encode(content: content)
+				return try codec.encode(content: content, client: client)
 			} else {
 				throw CodecError.invalidContent
 			}
@@ -176,7 +176,7 @@ public struct ConversationV2 {
 	}
 
 	private func decode(_ message: MessageV2) throws -> DecodedMessage {
-		try MessageV2.decode(message, keyMaterial: keyMaterial)
+		try MessageV2.decode(message, keyMaterial: keyMaterial, client: client)
 	}
 
 	@discardableResult func send<T>(content: T, options: SendOptions? = nil) async throws -> String {
@@ -200,7 +200,7 @@ public struct ConversationV2 {
     }
 
 	public func encode<Codec: ContentCodec, T>(codec: Codec, content: T) async throws -> Data where Codec.T == T {
-		let content = try codec.encode(content: content)
+		let content = try codec.encode(content: content, client: client)
 
 		let message = try await MessageV2.encode(
 			client: client,

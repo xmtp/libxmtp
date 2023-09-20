@@ -12,25 +12,25 @@ import XCTest
 
 @available(iOS 15, *)
 class ReadReceiptTests: XCTestCase {
-    func testCanUseReadReceiptCodec() async throws {
-        Client.register(codec: ReadReceiptCodec())
-        
-        let fixtures = await fixtures()
-        let conversation = try await fixtures.aliceClient.conversations.newConversation(with: fixtures.bobClient.address)
+	func testCanUseReadReceiptCodec() async throws {
+		let fixtures = await fixtures()
+		fixtures.aliceClient.register(codec: ReadReceiptCodec())
 
-        try await conversation.send(text: "hey alice 2 bob")
+		let conversation = try await fixtures.aliceClient.conversations.newConversation(with: fixtures.bobClient.address)
 
-        let read = ReadReceipt()
+		try await conversation.send(text: "hey alice 2 bob")
 
-        try await conversation.send(
-            content: read,
-            options: .init(contentType: ContentTypeReadReceipt)
-        )
+		let read = ReadReceipt()
 
-        let updatedMessages = try await conversation.messages()
-        
-        let message = try await conversation.messages()[0]
-        let contentType: String = message.encodedContent.type.typeID
-        XCTAssertEqual("readReceipt", contentType)
-    }
+		try await conversation.send(
+			content: read,
+			options: .init(contentType: ContentTypeReadReceipt)
+		)
+
+		let updatedMessages = try await conversation.messages()
+
+		let message = try await conversation.messages()[0]
+		let contentType: String = message.encodedContent.type.typeID
+		XCTAssertEqual("readReceipt", contentType)
+	}
 }

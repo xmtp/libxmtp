@@ -12,10 +12,10 @@ import XCTest
 @available(iOS 15, *)
 class ReplyTests: XCTestCase {
 	func testCanUseReplyCodec() async throws {
-		Client.register(codec: ReplyCodec())
-
 		let fixtures = await fixtures()
 		let conversation = try await fixtures.aliceClient.conversations.newConversation(with: fixtures.bobClient.address)
+
+		fixtures.aliceClient.register(codec: ReplyCodec())
 
 		try await conversation.send(text: "hey alice 2 bob")
 

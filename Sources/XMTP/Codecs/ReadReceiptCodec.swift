@@ -20,7 +20,7 @@ public struct ReadReceiptCodec: ContentCodec {
 
     public var contentType = ContentTypeReadReceipt
 
-    public func encode(content: ReadReceipt) throws -> EncodedContent {
+    public func encode(content: ReadReceipt, client _: Client) throws -> EncodedContent {
         var encodedContent = EncodedContent()
 
         encodedContent.type = ContentTypeReadReceipt
@@ -29,7 +29,7 @@ public struct ReadReceiptCodec: ContentCodec {
         return encodedContent
     }
 
-    public func decode(content: EncodedContent) throws -> ReadReceipt {
+    public func decode(content: EncodedContent, client _: Client) throws -> ReadReceipt {
         return ReadReceipt()
     }
     

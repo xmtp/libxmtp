@@ -22,7 +22,7 @@ extension MessageV2 {
 		self.ciphertext = ciphertext
 	}
 
-	static func decode(_ message: MessageV2, keyMaterial: Data) throws -> DecodedMessage {
+	static func decode(_ message: MessageV2, keyMaterial: Data, client: Client) throws -> DecodedMessage {
 		do {
 			let decrypted = try Crypto.decrypt(keyMaterial, message.ciphertext, additionalData: message.headerBytes)
 			let signed = try SignedContent(serializedData: decrypted)
@@ -53,7 +53,8 @@ extension MessageV2 {
 			let header = try MessageHeaderV2(serializedData: message.headerBytes)
 
 			return DecodedMessage(
-                topic: header.topic,
+				client: client,
+				topic: header.topic,
 				encodedContent: encodedMessage,
 				senderAddress: try signed.sender.walletAddress,
 				sent: Date(timeIntervalSince1970: Double(header.createdNs / 1_000_000) / 1000)

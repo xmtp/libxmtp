@@ -25,7 +25,7 @@ public enum ApiClientError: Error {
     case subscribeError(String)
 }
 
-protocol ApiClient {
+protocol ApiClient: Sendable {
 	var environment: XMTPEnvironment { get }
     init(environment: XMTPEnvironment, secure: Bool, rustClient: XMTPRust.RustClient, appVersion: String?) throws
 	func setAuthToken(_ token: String)
