@@ -31,7 +31,7 @@ struct HTTPFetcher: RemoteContentFetcher {
 
 public struct RemoteAttachment {
 	public enum Scheme: String {
-		case https = "https://"
+		case https = "https"
 	}
 
 	public var url: String
@@ -149,7 +149,7 @@ public struct RemoteAttachmentCodec: ContentCodec {
 			"secret": content.secret.toHex,
 			"salt": content.salt.toHex,
 			"nonce": content.nonce.toHex,
-			"scheme": "https://",
+			"scheme": "https",
 			"contentLength": String(content.contentLength ?? -1),
 			"filename": content.filename ?? "",
 		]
