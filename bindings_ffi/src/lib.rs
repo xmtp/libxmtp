@@ -1,5 +1,6 @@
 pub mod inbox_owner;
 pub mod logger;
+mod v2;
 
 use std::convert::TryInto;
 
