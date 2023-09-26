@@ -1,20 +1,16 @@
 use crate::{
     client::ClientError,
     codecs::{text::TextCodec, CodecError, ContentCodec},
-    contact::Contact,
     conversations::Conversations,
-    invitation::{Invitation, InvitationError},
     message::PayloadError,
     session::SessionError,
     storage::{
-        now, ConversationState, DbConnection, MessageState, NewStoredMessage, StorageError,
-        StoredConversation, StoredMessage, StoredUser,
+        now, DbConnection, MessageState, NewStoredMessage, StorageError, StoredConversation,
+        StoredMessage, StoredUser,
     },
-    types::networking::PublishRequest,
     types::networking::XmtpApiClient,
     types::Address,
-    utils::{build_envelope, build_user_invite_topic},
-    Client, Save, Store,
+    Client, Store,
 };
 
 use prost::{DecodeError, Message};
@@ -25,8 +21,6 @@ use thiserror::Error;
 pub enum ConversationError {
     #[error("client error {0}")]
     Client(#[from] ClientError),
-    #[error("invitation error {0}")]
-    Invitation(#[from] InvitationError),
     #[error("codec error {0}")]
     Codec(#[from] CodecError),
     #[error("decode error {0}")]
@@ -90,9 +84,7 @@ impl ListMessagesOptions {
     }
 }
 
-// I had to pick a name for this, and it seems like we are hovering around SecretConversation ATM
-// May very well change
-pub struct SecretConversation<'c, A>
+pub struct Conversation<'c, A>
 where
     A: XmtpApiClient,
 {
@@ -100,7 +92,7 @@ where
     client: &'c Client<A>,
 }
 
-impl<'c, A> SecretConversation<'c, A>
+impl<'c, A> Conversation<'c, A>
 where
     A: XmtpApiClient,
 {
@@ -111,27 +103,36 @@ where
             peer_address,
         };
         let conn = &mut client.store.conn()?;
+        // TODO: lazy create conversation on message insertion
+        Conversation::ensure_conversation_exists(client, conn, &obj.convo_id())?;
+        Ok(obj)
+    }
 
-        obj.client.store.insert_or_ignore_user_with_conn(
+    pub fn ensure_conversation_exists(
+        client: &'c Client<A>,
+        conn: &mut DbConnection,
+        convo_id: &str,
+    ) -> Result<(), ConversationError> {
+        let peer_address = peer_addr_from_convo_id(convo_id, &client.wallet_address())?;
+        let created_at = now();
+        client.store.insert_or_ignore_user_with_conn(
             conn,
             StoredUser {
-                user_address: obj.peer_address(),
-                created_at: now(),
+                user_address: peer_address.clone(),
+                created_at,
                 last_refreshed: 0,
             },
         )?;
 
-        obj.client.store.insert_or_ignore_conversation_with_conn(
+        client.store.insert_or_ignore_conversation_with_conn(
             conn,
             StoredConversation {
-                peer_address: obj.peer_address(),
-                convo_id: obj.convo_id(),
-                created_at: now(),
-                convo_state: ConversationState::Uninitialized as i32,
+                peer_address,
+                convo_id: convo_id.to_string(),
+                created_at,
             },
         )?;
-
-        Ok(obj)
+        Ok(())
     }
 
     pub fn convo_id(&self) -> String {
@@ -183,57 +184,6 @@ where
 
         Ok(messages)
     }
-
-    fn members(&self, conn: &mut DbConnection) -> Result<Vec<Contact>, ConversationError> {
-        let my_installations = self.client.my_other_devices(conn)?;
-        let peer_installations = self
-            .client
-            .get_contacts_from_db(conn, self.peer_address().as_str())?;
-
-        Ok(vec![my_installations, peer_installations].concat())
-    }
-
-    pub async fn initialize(&self) -> Result<(), ConversationError> {
-        self.client
-            .refresh_user_installations(self.peer_address().as_str())
-            .await?;
-        let inner_invite_bytes = Invitation::build_inner_invite_bytes(self.peer_address.clone())?;
-        let conn = &mut self.client.store.conn()?;
-        for contact in self.members(conn)?.iter() {
-            let id = contact.installation_id();
-
-            let mut session = self.client.get_session(conn, contact)?;
-            let invitation = Invitation::build(
-                self.client.account.contact(),
-                &mut session,
-                &inner_invite_bytes,
-            )?;
-
-            let envelope = build_envelope(build_user_invite_topic(id), invitation.try_into()?);
-
-            self.client
-                .api_client
-                // TODO: API authentication
-                .publish(
-                    "".to_string(),
-                    PublishRequest {
-                        envelopes: vec![envelope],
-                    },
-                )
-                .await
-                .map_err(|e| ConversationError::Generic(format!("initialize:{}", e)))?;
-
-            session.save(conn)?;
-        }
-
-        self.client.store.set_conversation_state(
-            conn,
-            self.convo_id().as_str(),
-            ConversationState::Invited,
-        )?;
-
-        Ok(())
-    }
 }
 
 #[cfg(test)]
@@ -275,7 +225,6 @@ mod tests {
     async fn test_list_messages() {
         let (client, recipient) = gen_two_test_clients().await;
         let conversation = gen_test_conversation(&client, recipient.account.addr().as_str()).await;
-        conversation.initialize().await.unwrap();
         conversation.send_text("Hello, world!").await.unwrap();
         conversation.send_text("Hello, again").await.unwrap();
 

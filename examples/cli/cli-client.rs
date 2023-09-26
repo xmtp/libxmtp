@@ -16,7 +16,7 @@ use thiserror::Error;
 use url::ParseError;
 use xmtp::builder::{AccountStrategy, ClientBuilderError};
 use xmtp::client::ClientError;
-use xmtp::conversation::{ConversationError, ListMessagesOptions, SecretConversation};
+use xmtp::conversation::{ConversationError, ListMessagesOptions, Conversation};
 use xmtp::conversations::Conversations;
 use xmtp::storage::{
     now, EncryptedMessageStore, EncryptionKey, MessageState, StorageError, StorageOption,
@@ -233,8 +233,7 @@ async fn register(cli: &Cli, wallet_seed: &u64) -> Result<(), CliError> {
 }
 
 async fn send(client: Client, addr: &str, msg: &str) -> Result<(), CliError> {
-    let conversation = SecretConversation::new(&client, addr.to_string()).unwrap();
-    conversation.initialize().await.unwrap();
+    let conversation = Conversation::new(&client, addr.to_string()).unwrap();
     conversation.send_text(msg).await.unwrap();
     info!("Message successfully sent");
 
@@ -247,7 +246,7 @@ async fn recv(client: &Client) -> Result<(), CliError> {
 }
 
 async fn format_messages<'c, A: XmtpApiClient>(
-    convo: &SecretConversation<'c, A>,
+    convo: &Conversation<'c, A>,
 ) -> Result<String, CliError> {
     let mut output: Vec<String> = vec![];
     let opts = ListMessagesOptions::default();

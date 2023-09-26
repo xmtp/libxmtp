@@ -1,6 +1,6 @@
 # XMTP v3 technical overview
 
-This is a living document that reflects the technical design of XMTP v3 functionality, planned and delivered. XMTP v3 will be delivered in alpha, beta, and production releases, with v3-alpha announced on Aug. XX, 2023.
+This is a living document that reflects the technical design of XMTP v3 functionality, planned and delivered. XMTP v3 will be delivered in alpha, beta, and production releases.
 
 XMTP Labs welcomes all questions and feedback as we build v3 in the open and in partnership with the XMTP community. Your collective expertise and insights are key to ensuring an informed path forward for XMTP, web3’s secure, private, and portable messaging network.
 

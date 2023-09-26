@@ -8,26 +8,22 @@ use vodozemac::olm::{self, OlmMessage};
 use xmtp_proto::xmtp::{
     message_api::v1::{Envelope, PublishRequest},
     v3::message_contents::{
-        EdDsaSignature, InvitationV1, PadlockMessageEnvelope, PadlockMessageHeader,
-        PadlockMessagePayload, PadlockMessagePayloadVersion, PadlockMessageSealedMetadata,
+        EdDsaSignature, PadlockMessageEnvelope, PadlockMessageHeader, PadlockMessagePayload,
+        PadlockMessagePayloadVersion, PadlockMessageSealedMetadata,
     },
 };
 
 use crate::{
-    contact::Contact,
-    conversation::{convo_id, peer_addr_from_convo_id, ConversationError, SecretConversation},
-    invitation::Invitation,
+    conversation::{peer_addr_from_convo_id, ConversationError, Conversation},
     message::DecodedInboundMessage,
     session::SessionManager,
     storage::{
-        now, ConversationState, DbConnection, InboundInvite, InboundInviteStatus, InboundMessage,
-        InboundMessageStatus, MessageState, NewStoredMessage, OutboundPayloadState, RefreshJob,
-        RefreshJobKind, StorageError, StoredConversation, StoredMessage, StoredOutboundPayload,
-        StoredSession, StoredUser,
+        DbConnection, InboundMessage, InboundMessageStatus, MessageState, NewStoredMessage,
+        OutboundPayloadState, RefreshJob, RefreshJobKind, StorageError, StoredConversation,
+        StoredMessage, StoredOutboundPayload, StoredSession,
     },
     types::networking::XmtpApiClient,
     utils::{base64_encode, build_installation_message_topic},
-    vmac_protos::ProtoWrapper,
     Client,
 };
 
@@ -41,30 +37,23 @@ impl<A: XmtpApiClient> Conversations<A> {
     pub async fn list(
         client: &Client<A>,
         refresh_from_network: bool,
-    ) -> Result<Vec<SecretConversation<A>>, ConversationError> {
+    ) -> Result<Vec<Conversation<A>>, ConversationError> {
         if refresh_from_network {
-            Conversations::save_invites(client)?;
-            Conversations::process_invites(client)?;
+            Conversations::receive(client)?;
         }
         let mut conn = client.store.conn()?;
 
-        let mut secret_convos: Vec<SecretConversation<A>> = vec![];
+        let mut secret_convos: Vec<Conversation<A>> = vec![];
 
-        let convos: Vec<StoredConversation> = client.store.get_conversations(
-            &mut conn,
-            vec![
-                ConversationState::InviteReceived,
-                ConversationState::Invited,
-            ],
-        )?;
-        // Releasing the connection early here as SecretConversation::new() will need to acquire a new one
+        let convos: Vec<StoredConversation> = client.store.get_conversations(&mut conn)?;
+        // Releasing the connection early here as Conversation::new() will need to acquire a new one
         drop(conn);
 
         log::debug!("Retrieved {:?} convos from the database", convos.len());
         for convo in convos {
             let peer_address = peer_addr_from_convo_id(&convo.convo_id, &client.account.addr())?;
 
-            let convo = SecretConversation::new(client, peer_address)?;
+            let convo = Conversation::new(client, peer_address)?;
             secret_convos.push(convo);
         }
 
@@ -191,6 +180,8 @@ impl<A: XmtpApiClient> Conversations<A> {
 
         //TODO: Validate message
 
+        // TODO move this logic into a Conversation::save_message() method
+        Conversation::ensure_conversation_exists(client, conn, &message_obj.convo_id)?;
         let stored_message = NewStoredMessage::new(
             message_obj.convo_id,
             payload.sender_address.clone(),
@@ -229,200 +220,6 @@ impl<A: XmtpApiClient> Conversations<A> {
         let (_, plaintext) = client.create_inbound_session(conn, &contact, msg)?;
         Conversations::process_plaintext(client, conn, &plaintext, payload)?;
         Ok(())
-    }
-
-    pub fn save_invites(client: &Client<A>) -> Result<(), ConversationError> {
-        let my_contact = client.account.contact();
-
-        client
-            .store
-            .lock_refresh_job(RefreshJobKind::Invite, |conn, job| {
-                let downloaded = futures::executor::block_on(client.download_latest_from_topic(
-                    Conversations::<A>::get_start_time(&job).unsigned_abs(),
-                    crate::utils::build_user_invite_topic(my_contact.installation_id()),
-                ))
-                .map_err(|e| StorageError::Unknown(e.to_string()))?;
-                // Save all invites
-                for envelope in downloaded {
-                    client.store.save_inbound_invite(conn, envelope.into())?;
-                }
-
-                Ok(())
-            })?;
-
-        Ok(())
-    }
-
-    pub fn process_invites(client: &Client<A>) -> Result<(), ConversationError> {
-        let conn = &mut client.store.conn()?;
-        conn.transaction::<_, StorageError, _>(|transaction_manager| {
-            let invites = client
-                .store
-                .get_inbound_invites(transaction_manager, InboundInviteStatus::Pending)?;
-            for invite in invites {
-                let invite_id = invite.id.clone();
-                match Conversations::process_inbound_invite(client, transaction_manager, invite) {
-                    Ok(status) => {
-                        log::debug!(
-                            "Invite processed: {:?}. Status: {:?}",
-                            invite_id,
-                            status.clone()
-                        );
-                        client
-                            .store
-                            .set_invite_status(transaction_manager, invite_id, status)?;
-                    }
-                    Err(err) => {
-                        log::error!("Error processing invite: {:?}", err);
-                        return Err(StorageError::Unknown(err.to_string()));
-                    }
-                }
-            }
-
-            Ok(())
-        })?;
-
-        Ok(())
-    }
-
-    fn process_inbound_invite(
-        client: &Client<A>,
-        conn: &mut DbConnection,
-        invite: InboundInvite,
-    ) -> Result<InboundInviteStatus, ConversationError> {
-        let invitation: Invitation = match invite.payload.try_into() {
-            Ok(invitation) => invitation,
-            Err(_) => {
-                return Ok(InboundInviteStatus::Invalid);
-            }
-        };
-
-        let existing_session =
-            Conversations::find_existing_session_with_conn(client, &invitation.inviter, conn)?;
-        let plaintext: Vec<u8>;
-
-        let olm_message = match serde_json::from_slice(&invitation.ciphertext) {
-            Ok(olm_message) => olm_message,
-            Err(err) => {
-                log::error!("Error deserializing olm message: {:?}", err);
-                return Ok(InboundInviteStatus::DecryptionFailure);
-            }
-        };
-
-        match existing_session {
-            Some(mut session_manager) => {
-                plaintext = match session_manager.decrypt(&olm_message, conn) {
-                    Ok(plaintext) => plaintext,
-                    Err(err) => {
-                        log::error!("Error decrypting olm message: {:?}", err);
-                        return Ok(InboundInviteStatus::DecryptionFailure);
-                    }
-                };
-            }
-            None => {
-                let prek_key = match olm_message {
-                    olm::OlmMessage::Normal(_) => {
-                        log::error!("Cannot create new session from non-prekey message");
-                        return Ok(InboundInviteStatus::DecryptionFailure);
-                    }
-                    olm::OlmMessage::PreKey(k) => k,
-                };
-
-                (_, plaintext) =
-                    match client.create_inbound_session(conn, &invitation.inviter, prek_key) {
-                        Ok((session, plaintext)) => (session, plaintext),
-                        Err(err) => {
-                            log::error!("Error creating session: {:?}", err);
-                            return Ok(InboundInviteStatus::DecryptionFailure);
-                        }
-                    };
-            }
-        };
-
-        let inner_invite: ProtoWrapper<InvitationV1> = plaintext.try_into()?;
-        if !Conversations::validate_invite(client, &invitation, &inner_invite.proto) {
-            return Ok(InboundInviteStatus::Invalid);
-        }
-        // Create the user if doesn't exist
-        let peer_address =
-            Conversations::get_invite_peer_address(client, &invitation, &inner_invite.proto);
-        client.store.insert_or_ignore_user_with_conn(
-            conn,
-            StoredUser {
-                user_address: peer_address.clone(),
-                created_at: now(),
-                last_refreshed: 0,
-            },
-        )?;
-
-        // Create the conversation if doesn't exist
-        client.store.insert_or_ignore_conversation_with_conn(
-            conn,
-            StoredConversation {
-                convo_id: convo_id(
-                    peer_address.clone(),
-                    client.account.contact().wallet_address,
-                ),
-                peer_address,
-                created_at: now(),
-                convo_state: ConversationState::InviteReceived as i32,
-            },
-        )?;
-
-        Ok(InboundInviteStatus::Processed)
-    }
-
-    fn validate_invite(
-        client: &Client<A>,
-        invitation: &Invitation,
-        inner_invite: &InvitationV1,
-    ) -> bool {
-        let my_wallet_address = client.account.contact().wallet_address;
-        let inviter_is_my_other_device = my_wallet_address == invitation.inviter.wallet_address;
-
-        if inviter_is_my_other_device {
-            true
-        } else {
-            inner_invite.invitee_wallet_address == my_wallet_address
-        }
-    }
-
-    fn get_invite_peer_address(
-        client: &Client<A>,
-        invitation: &Invitation,
-        inner_invite: &InvitationV1,
-    ) -> String {
-        let my_wallet_address = client.account.contact().wallet_address;
-        let inviter_is_my_other_device = my_wallet_address == invitation.inviter.wallet_address;
-
-        if inviter_is_my_other_device {
-            inner_invite.invitee_wallet_address.clone()
-        } else {
-            invitation.inviter.wallet_address.clone()
-        }
-    }
-
-    fn find_existing_session_with_conn(
-        client: &Client<A>,
-        contact: &Contact,
-        conn: &mut DbConnection,
-    ) -> Result<Option<SessionManager>, ConversationError> {
-        Conversations::find_existing_session(client, &contact.installation_id(), conn)
-    }
-
-    fn find_existing_session(
-        client: &Client<A>,
-        installation_id: &str,
-        conn: &mut DbConnection,
-    ) -> Result<Option<SessionManager>, ConversationError> {
-        let stored_session = client
-            .store
-            .get_latest_session_for_installation(installation_id, conn)?;
-
-        match stored_session {
-            Some(i) => Ok(Some(SessionManager::try_from(&i)?)),
-            None => Ok(None),
-        }
     }
 
     fn get_start_time(job: &RefreshJob) -> i64 {
@@ -604,17 +401,12 @@ mod tests {
 
     use crate::{
         codecs::{text::TextCodec, ContentCodec},
-        conversation::{convo_id, SecretConversation},
+        conversation::{convo_id, Conversation},
         conversations::Conversations,
-        invitation::Invitation,
-        storage::{
-            now, InboundInvite, InboundInviteStatus, MessageState, StoredConversation,
-            StoredMessage, StoredUser,
-        },
+        storage::{now, MessageState, StoredMessage},
         test_utils::test_utils::{gen_test_client, gen_test_conversation, gen_two_test_clients},
         types::networking::XmtpApiClient,
-        utils::{build_envelope, build_installation_message_topic, build_user_invite_topic},
-        ClientBuilder, Fetch,
+        utils::build_installation_message_topic,
     };
 
     fn init() {
@@ -626,18 +418,9 @@ mod tests {
         let alice_client = gen_test_client().await;
         let bob_client = gen_test_client().await;
         let conversation =
-            SecretConversation::new(&alice_client, bob_client.wallet_address().to_string())
+            Conversation::new(&alice_client, bob_client.wallet_address().to_string())
                 .unwrap();
         assert_eq!(conversation.peer_address(), bob_client.wallet_address());
-        conversation.initialize().await.unwrap();
-    }
-
-    #[tokio::test]
-    async fn save_invites() {
-        let mut alice_client = ClientBuilder::new_test().build().unwrap();
-        alice_client.init().await.unwrap();
-        let invites = Conversations::save_invites(&alice_client);
-        assert!(invites.is_ok());
     }
 
     #[tokio::test]
@@ -698,117 +481,13 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn process_invites_happy_path() {
-        let alice_client = gen_test_client().await;
-        let bob_client = gen_test_client().await;
-
-        let bob_address = bob_client.account.contact().wallet_address;
-        let alice_to_bob_inner_invite = Invitation::build_inner_invite_bytes(bob_address).unwrap();
-        let mut alice_to_bob_session = alice_client
-            .get_session(
-                &mut alice_client.store.conn().unwrap(),
-                &bob_client.account.contact(),
-            )
-            .unwrap();
-        let alice_to_bob_invite = Invitation::build(
-            alice_client.account.contact(),
-            &mut alice_to_bob_session,
-            &alice_to_bob_inner_invite,
-        )
-        .unwrap();
-
-        let envelope = build_envelope(
-            build_user_invite_topic(bob_client.account.contact().installation_id()),
-            alice_to_bob_invite.try_into().unwrap(),
-        );
-
-        // Save the invite to Bob's DB
-        bob_client
-            .store
-            .save_inbound_invite(
-                &mut bob_client.store.conn().unwrap(),
-                envelope.try_into().unwrap(),
-            )
-            .unwrap();
-
-        let process_result = Conversations::process_invites(&bob_client);
-        assert!(process_result.is_ok());
-
-        let conn = &mut bob_client.store.conn().unwrap();
-
-        let inbound_invites: Vec<InboundInvite> = conn.fetch_all().unwrap();
-        assert_eq!(inbound_invites.len(), 1);
-        assert!(inbound_invites[0].status == InboundInviteStatus::Processed as i16);
-
-        let users: Vec<StoredUser> = conn.fetch_all().unwrap();
-        // Expect 2 users because Bob is always in his own DB already
-        assert_eq!(users.len(), 2);
-        assert_eq!(users[1].user_address, alice_client.wallet_address());
-
-        let conversations: Vec<StoredConversation> = conn.fetch_all().unwrap();
-        assert_eq!(conversations.len(), 1);
-        assert_eq!(conversations[0].peer_address, alice_client.wallet_address());
-    }
-
-    #[tokio::test]
-    async fn process_invites_decryption_failure() {
-        let alice_client = gen_test_client().await;
-        let bob_client = gen_test_client().await;
-
-        let bob_address = bob_client.account.contact().wallet_address;
-        let alice_to_bob_inner_invite = Invitation::build_inner_invite_bytes(bob_address).unwrap();
-        let mut bad_session = alice_client
-            .get_session(
-                &mut alice_client.store.conn().unwrap(),
-                &gen_test_client().await.account.contact(),
-            )
-            .unwrap();
-        let alice_to_bob_invite = Invitation::build(
-            alice_client.account.contact(),
-            &mut bad_session,
-            &alice_to_bob_inner_invite,
-        )
-        .unwrap();
-
-        let envelope = build_envelope(
-            build_user_invite_topic(bob_client.account.contact().installation_id()),
-            alice_to_bob_invite.try_into().unwrap(),
-        );
-
-        // Save the invite to Bob's DB
-        bob_client
-            .store
-            .save_inbound_invite(
-                &mut bob_client.store.conn().unwrap(),
-                envelope.try_into().unwrap(),
-            )
-            .unwrap();
-
-        let process_result = Conversations::process_invites(&bob_client);
-        assert!(process_result.is_ok());
-
-        let conn = &mut bob_client.store.conn().unwrap();
-
-        let inbound_invites: Vec<InboundInvite> = conn.fetch_all().unwrap();
-        assert_eq!(inbound_invites.len(), 1);
-        assert!(inbound_invites[0].status == InboundInviteStatus::DecryptionFailure as i16);
-
-        let users: Vec<StoredUser> = conn.fetch_all().unwrap();
-        // Expect 1 user because Bob is always in his own DB already
-        assert_eq!(users.len(), 1);
-
-        let conversations: Vec<StoredConversation> = conn.fetch_all().unwrap();
-        assert_eq!(conversations.len(), 0);
-    }
-
-    #[tokio::test]
     async fn process_messages_happy_path() {
         init();
         let (alice_client, bob_client) = gen_two_test_clients().await;
 
         let bob_address = bob_client.account.contact().wallet_address;
 
-        let a_to_b = SecretConversation::new(&alice_client, bob_address.clone()).unwrap();
+        let a_to_b = Conversation::new(&alice_client, bob_address.clone()).unwrap();
         // Send First Message
         a_to_b.send_text("Hi").await.unwrap();
         Conversations::receive(&bob_client).unwrap();
@@ -843,7 +522,7 @@ mod tests {
         }
 
         // Reply
-        let b_to_a = SecretConversation::new(&bob_client, bob_address.clone()).unwrap();
+        let b_to_a = Conversation::new(&bob_client, bob_address.clone()).unwrap();
         b_to_a.send_text("Reply").await.unwrap();
         Conversations::receive(&alice_client).unwrap();
 

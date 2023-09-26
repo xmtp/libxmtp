@@ -1,14 +1,16 @@
 pub mod inbox_owner;
 pub mod logger;
 
+use std::convert::TryInto;
+
 use inbox_owner::FfiInboxOwner;
 use log::info;
 use logger::FfiLogger;
 use std::error::Error;
 use std::sync::Arc;
-use xmtp::conversation::{ListMessagesOptions, SecretConversation};
+use xmtp::conversation::{ListMessagesOptions, Conversation};
 use xmtp::conversations::Conversations;
-use xmtp::storage::StoredMessage;
+use xmtp::storage::{EncryptedMessageStore, EncryptionKey, StorageOption, StoredMessage};
 use xmtp::types::Address;
 use xmtp_networking::grpc_api_helper::Client as TonicApiClient;
 
@@ -50,13 +52,18 @@ fn stringify_error_chain(error: &(dyn Error + 'static)) -> String {
     result
 }
 
+fn static_enc_key() -> EncryptionKey {
+    [2u8; 32]
+}
+
 #[uniffi::export(async_runtime = "tokio")]
 pub async fn create_client(
     logger: Box<dyn FfiLogger>,
     ffi_inbox_owner: Box<dyn FfiInboxOwner>,
     host: String,
     is_secure: bool,
-    // TODO proper error handling
+    db: Option<String>,
+    encryption_key: Option<Vec<u8>>,
 ) -> Result<Arc<FfiXmtpClient>, GenericError> {
     init_logger(logger);
 
@@ -65,8 +72,27 @@ pub async fn create_client(
         .await
         .map_err(|e| stringify_error_chain(&e))?;
 
+    let key: EncryptionKey = match encryption_key {
+        Some(key) => key.try_into().unwrap(),
+        None => static_enc_key(),
+    };
+
+    let store = match db {
+        Some(path) => {
+            info!("Using persistent storage: {} ", path);
+            EncryptedMessageStore::new(StorageOption::Persistent(path), key)
+        }
+
+        None => {
+            info!("Using ephemeral store");
+            EncryptedMessageStore::new(StorageOption::Ephemeral, key)
+        }
+    }
+    .map_err(|e| stringify_error_chain(&e))?;
+
     let mut xmtp_client: RustXmtpClient = xmtp::ClientBuilder::new(inbox_owner.into())
         .api_client(api_client)
+        .store(store)
         .build()
         .map_err(|e| stringify_error_chain(&e))?;
     xmtp_client
@@ -112,13 +138,12 @@ impl FfiConversations {
         &self,
         wallet_address: String,
     ) -> Result<Arc<FfiConversation>, GenericError> {
-        let convo = SecretConversation::new(self.inner_client.as_ref(), wallet_address)
+        let convo = Conversation::new(self.inner_client.as_ref(), wallet_address)
             .map_err(|e| e.to_string())?;
-        // TODO: This should happen as part of `new_secret_conversation` and should only send to new participants
-        convo.initialize().await.map_err(|e| e.to_string())?;
 
         let out = Arc::new(FfiConversation {
             inner_client: self.inner_client.clone(),
+            id: convo.convo_id(),
             peer_address: convo.peer_address(),
         });
 
@@ -135,6 +160,7 @@ impl FfiConversations {
             .map(|convo| {
                 Arc::new(FfiConversation {
                     inner_client: self.inner_client.clone(),
+                    id: convo.convo_id(),
                     peer_address: convo.peer_address(),
                 })
             })
@@ -147,10 +173,11 @@ impl FfiConversations {
 #[derive(uniffi::Object)]
 pub struct FfiConversation {
     inner_client: Arc<RustXmtpClient>,
+    id: String,
     peer_address: String,
 }
 
-#[derive(uniffi::Object)]
+#[derive(uniffi::Record)]
 pub struct FfiListMessagesOptions {
     pub start_time_ns: Option<i64>,
     pub end_time_ns: Option<i64>,
@@ -170,7 +197,7 @@ impl FfiListMessagesOptions {
 #[uniffi::export(async_runtime = "tokio")]
 impl FfiConversation {
     pub async fn send(&self, content_bytes: Vec<u8>) -> Result<(), GenericError> {
-        let conversation = xmtp::conversation::SecretConversation::new(
+        let conversation = xmtp::conversation::Conversation::new(
             self.inner_client.as_ref(),
             self.peer_address.clone(),
         )
@@ -185,29 +212,39 @@ impl FfiConversation {
 
     pub async fn list_messages(
         &self,
-        opts: Arc<FfiListMessagesOptions>,
-    ) -> Result<Vec<Arc<FfiMessage>>, GenericError> {
-        let conversation = xmtp::conversation::SecretConversation::new(
+        opts: FfiListMessagesOptions,
+    ) -> Result<Vec<FfiMessage>, GenericError> {
+        Conversations::receive(self.inner_client.as_ref()).map_err(|e| e.to_string())?;
+
+        let conversation = xmtp::conversation::Conversation::new(
             self.inner_client.as_ref(),
             self.peer_address.clone(),
         )
         .map_err(|e| e.to_string())?;
         let options: ListMessagesOptions = opts.to_options();
 
-        let messages: Vec<Arc<FfiMessage>> = conversation
+        let messages: Vec<FfiMessage> = conversation
             .list_messages(&options)
             .await
             .map_err(|e| e.to_string())?
             .into_iter()
-            .map(|msg| Arc::new(msg.into()))
+            .map(|msg| msg.into())
             .collect();
 
         Ok(messages)
     }
 }
 
-#[derive(uniffi::Object)]
+#[uniffi::export]
+impl FfiConversation {
+    pub fn id(&self) -> String {
+        self.id.clone()
+    }
+}
+
+#[derive(uniffi::Record)]
 pub struct FfiMessage {
+    pub id: String,
     pub sent_at_ns: i64,
     pub convo_id: String,
     pub addr_from: String,
@@ -217,6 +254,7 @@ pub struct FfiMessage {
 impl From<StoredMessage> for FfiMessage {
     fn from(msg: StoredMessage) -> Self {
         Self {
+            id: msg.id.to_string(),
             sent_at_ns: msg.sent_at_ns,
             convo_id: msg.convo_id,
             addr_from: msg.addr_from,
@@ -230,12 +268,14 @@ mod tests {
     use std::sync::Arc;
 
     use crate::{
-        create_client, inbox_owner::SigningError, logger::FfiLogger, FfiInboxOwner,
+        create_client, inbox_owner::SigningError, logger::FfiLogger, static_enc_key, FfiInboxOwner,
         FfiListMessagesOptions, FfiXmtpClient,
     };
+    use tempfile::TempPath;
     use xmtp::InboxOwner;
     use xmtp_cryptography::{signature::RecoverableSignature, utils::rng};
 
+    #[derive(Clone)]
     pub struct LocalWalletInboxOwner {
         wallet: xmtp_cryptography::utils::LocalWallet,
     }
@@ -276,6 +316,8 @@ mod tests {
             Box::new(ffi_inbox_owner),
             xmtp_networking::LOCALHOST_ADDRESS.to_string(),
             false,
+            None,
+            None,
         )
         .await
         .unwrap()
@@ -289,17 +331,95 @@ mod tests {
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+    async fn test_create_client_with_storage() {
+        let ffi_inbox_owner = LocalWalletInboxOwner::new();
+
+        let path = TempPath::from_path(format!("./test-{}.db", ffi_inbox_owner.get_address()));
+
+        let client_a = create_client(
+            Box::new(MockLogger {}),
+            Box::new(ffi_inbox_owner.clone()),
+            xmtp_networking::LOCALHOST_ADDRESS.to_string(),
+            false,
+            Some(path.to_string_lossy().to_string()),
+            None,
+        )
+        .await
+        .unwrap();
+
+        let installation_id = client_a.inner_client.installation_id();
+        drop(client_a);
+
+        let client_b = create_client(
+            Box::new(MockLogger {}),
+            Box::new(ffi_inbox_owner),
+            xmtp_networking::LOCALHOST_ADDRESS.to_string(),
+            false,
+            Some(path.to_string_lossy().to_string()),
+            None,
+        )
+        .await
+        .unwrap();
+
+        let other_installation_id = client_b.inner_client.installation_id();
+        drop(client_b);
+
+        assert!(
+            installation_id == other_installation_id,
+            "did not use same installation ID"
+        )
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+    async fn test_create_client_with_key() {
+        let ffi_inbox_owner = LocalWalletInboxOwner::new();
+
+        let path = TempPath::from_path(format!("./test-{}.db", ffi_inbox_owner.get_address()));
+
+        let key = static_enc_key().to_vec();
+
+        let client_a = create_client(
+            Box::new(MockLogger {}),
+            Box::new(ffi_inbox_owner.clone()),
+            xmtp_networking::LOCALHOST_ADDRESS.to_string(),
+            false,
+            Some(path.to_string_lossy().to_string()),
+            Some(key),
+        )
+        .await
+        .unwrap();
+
+        drop(client_a);
+
+        let mut other_key = static_enc_key();
+        other_key[0] = 1;
+
+        let result_errored = create_client(
+            Box::new(MockLogger {}),
+            Box::new(ffi_inbox_owner),
+            xmtp_networking::LOCALHOST_ADDRESS.to_string(),
+            false,
+            Some(path.to_string_lossy().to_string()),
+            Some(other_key.to_vec()),
+        )
+        .await
+        .is_err();
+
+        assert!(result_errored, "did not error on wrong encryption key")
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
     async fn test_conversation_list() {
         let client_a = new_test_client().await;
         let client_b = new_test_client().await;
 
         // Create a conversation between the two clients
-        client_a
+        let conversation = client_a
             .conversations()
             .new_conversation(client_b.wallet_address())
             .await
             .unwrap();
-
+        conversation.send(vec![1, 2, 3]).await.unwrap();
         let convos = client_b.conversations().list().await.unwrap();
         assert_eq!(convos.len(), 1);
         assert_eq!(
@@ -321,11 +441,11 @@ mod tests {
 
         alice_to_bob.send(vec![1, 2, 3]).await.unwrap();
         let messages = alice_to_bob
-            .list_messages(Arc::new(FfiListMessagesOptions {
+            .list_messages(FfiListMessagesOptions {
                 start_time_ns: None,
                 end_time_ns: None,
                 limit: None,
-            }))
+            })
             .await
             .unwrap();
         assert_eq!(messages.len(), 1);

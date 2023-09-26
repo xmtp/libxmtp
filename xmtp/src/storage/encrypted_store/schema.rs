@@ -13,17 +13,6 @@ diesel::table! {
         convo_id -> Text,
         peer_address -> Text,
         created_at -> BigInt,
-        convo_state -> Integer,
-    }
-}
-
-diesel::table! {
-    inbound_invites (id) {
-        id -> Text,
-        sent_at_ns -> BigInt,
-        payload -> Binary,
-        topic -> Text,
-        status -> SmallInt,
     }
 }
 
@@ -102,7 +91,6 @@ diesel::joinable!(installations -> users (user_address));
 diesel::allow_tables_to_appear_in_same_query!(
     accounts,
     conversations,
-    inbound_invites,
     inbound_messages,
     installations,
     messages,
