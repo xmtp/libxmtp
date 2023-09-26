@@ -2,7 +2,7 @@ use std::fmt;
 use std::sync::{Mutex, MutexGuard};
 
 use crate::{
-    association::{Association, AssociationError},
+    association::{AssociationError, Eip191Association},
     contact::Contact,
     types::Address,
     vmac_protos::ProtoWrapper,
@@ -95,7 +95,7 @@ impl<'de> Deserialize<'de> for VmacAccount {
 #[derive(Serialize, Deserialize)]
 pub struct Account {
     pub(crate) keys: Mutex<VmacAccount>,
-    pub(crate) assoc: Association,
+    pub(crate) assoc: Eip191Association,
 }
 
 impl fmt::Debug for Account {
@@ -111,7 +111,7 @@ impl fmt::Debug for Account {
 }
 
 impl Account {
-    pub fn new(keys: VmacAccount, assoc: Association) -> Self {
+    pub fn new(keys: VmacAccount, assoc: Eip191Association) -> Self {
         // TODO: Validate Association on initialization
 
         Self {
@@ -121,7 +121,7 @@ impl Account {
     }
 
     pub fn generate(
-        sf: impl Fn(Vec<u8>) -> Result<Association, AssociationError>,
+        sf: impl Fn(Vec<u8>) -> Result<Eip191Association, AssociationError>,
     ) -> Result<Self, AccountError> {
         let keys = VmacAccount::generate();
         let bytes = keys.bytes_to_sign();
@@ -204,15 +204,15 @@ pub(crate) mod tests {
 
     use crate::association::AssociationError;
 
-    use super::{Account, Association};
+    use super::{Account, Eip191Association};
     use ethers::core::rand::thread_rng;
     use ethers::signers::{LocalWallet, Signer};
     use ethers_core::types::{Address as EthAddress, Signature};
     use ethers_core::utils::hex;
     use serde_json::json;
 
-    pub fn test_wallet_signer(pub_key: Vec<u8>) -> Result<Association, AssociationError> {
-        Association::test(pub_key)
+    pub fn test_wallet_signer(pub_key: Vec<u8>) -> Result<Eip191Association, AssociationError> {
+        Eip191Association::test(pub_key)
     }
 
     #[test]

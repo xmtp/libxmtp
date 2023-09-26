@@ -122,7 +122,7 @@ where
         self.is_initialized = true;
 
         // Send any unsent messages
-        if let Err(err) = Conversations::process_outbound_messages(&self).await {
+        if let Err(err) = Conversations::process_outbound_messages(self).await {
             log::error!("Could not process outbound messages on init: {:?}", err)
         }
 
