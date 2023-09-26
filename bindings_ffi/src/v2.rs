@@ -63,18 +63,4 @@ mod tests {
         let recovered_addr = sig.recover_address(msg).unwrap();
         assert_eq!(recovered_addr, addr.to_lowercase());
     }
-
-    #[tokio::test]
-    async fn test_public_key_from_private_key() {
-        // This test was generated using Etherscans Signature tool: https://etherscan.io/verifySig/18959
-        let addr = "0x1B2a516d691aBb8f08a75B2C73c95c62A1632431";
-        let msg = "TestVector1";
-        let sig_hash = "19d6bec562518e365d07ba3cce26d08a5fffa2cbb1e7fe03c1f2d6a722fd3a5e544097b91f8f8cd11d43b032659f30529139ab1a9ecb6c81ed4a762179e87db81c";
-
-        let sig_bytes = ethers_core::utils::hex::decode(sig_hash).unwrap();
-        let sig = xmtp_cryptography::signature::RecoverableSignature::Eip191Signature(sig_bytes);
-
-        let recovered_addr = sig.recover_address(msg).unwrap();
-        assert_eq!(recovered_addr, addr.to_lowercase());
-    }
 }
