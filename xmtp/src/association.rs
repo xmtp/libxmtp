@@ -24,16 +24,15 @@ pub enum AssociationError {
     Unknown,
 }
 
-/// An Association is link between a blockchain account and an xmtp account for the purposes of
-/// authentication. This certifies the user address (0xadd12e555c541A063cDbBD3Feb3C006d6f996745)
-///  is associated to the XMTP Account.
+/// An Association is link between a blockchain account and an xmtp identity for the purposes of
+/// authentication.
 #[derive(Serialize, Deserialize, PartialEq, Debug, Clone)]
-pub struct Association {
+pub struct Eip191Association {
     text: AssociationText,
     signature: RecoverableSignature,
 }
 
-impl Association {
+impl Eip191Association {
     pub fn new(
         account_public_key: &[u8],
         text: AssociationText,
@@ -44,6 +43,7 @@ impl Association {
         Ok(this)
     }
 
+    // TODO make sure version can't be swapped
     pub fn from_proto_with_expected_address(
         account_public_key: &[u8],
         proto: Eip191AssociationProto,
@@ -91,20 +91,18 @@ impl Association {
     }
 }
 
-impl From<Association> for Eip191AssociationProto {
-    fn from(assoc: Association) -> Self {
+impl From<Eip191Association> for Eip191AssociationProto {
+    fn from(assoc: Eip191Association) -> Self {
         Self {
-            wallet_address: assoc.address(),
-            // Hardcoded version for now
-            association_text_version: 1,
             signature: Some(RecoverableEcdsaSignatureProto {
                 bytes: assoc.signature.into(),
             }),
+            association_data: None, // TODO
         }
     }
 }
 
-/// AssociationText represents the string which was signed by the authorizing blockchain account. a valid AssociationTest must
+/// AssociationText represents the string which was signed by the authorizing blockchain account. a valid AssociationText must
 /// contain the address of the blockchain account and a representation of the XMTP Account publicKey. Different standards may
 /// choose how this information is encoded, as well as adding extra requirements for increased security.
 #[derive(Serialize, Deserialize, PartialEq, Debug, Clone)]
@@ -160,7 +158,7 @@ pub mod tests {
     use xmtp_cryptography::{signature::h160addr_to_string, utils::rng};
     use xmtp_proto::xmtp::v3::message_contents::Eip191Association as Eip191AssociationProto;
 
-    use super::{Association, AssociationText};
+    use super::{AssociationText, Eip191Association};
 
     #[tokio::test]
     async fn assoc_gen() {
@@ -195,11 +193,11 @@ pub mod tests {
             .await
             .expect("BadSign");
 
-        assert!(Association::new(&key_bytes, text.clone(), sig.into()).is_ok());
-        assert!(Association::new(&bad_key_bytes, text.clone(), sig.into()).is_err());
-        assert!(Association::new(&key_bytes, bad_text1.clone(), sig.into()).is_err());
-        assert!(Association::new(&key_bytes, bad_text2.clone(), sig.into()).is_err());
-        assert!(Association::new(&key_bytes, text.clone(), other_sig.into()).is_err());
+        assert!(Eip191Association::new(&key_bytes, text.clone(), sig.into()).is_ok());
+        assert!(Eip191Association::new(&bad_key_bytes, text.clone(), sig.into()).is_err());
+        assert!(Eip191Association::new(&key_bytes, bad_text1.clone(), sig.into()).is_err());
+        assert!(Eip191Association::new(&key_bytes, bad_text2.clone(), sig.into()).is_err());
+        assert!(Eip191Association::new(&key_bytes, text.clone(), other_sig.into()).is_err());
     }
 
     #[tokio::test]
@@ -213,10 +211,9 @@ pub mod tests {
         };
         let sig = wallet.sign_message(text.text()).await.expect("BadSign");
 
-        let assoc = Association::new(&key_bytes, text.clone(), sig.into()).unwrap();
+        let assoc = Eip191Association::new(&key_bytes, text.clone(), sig.into()).unwrap();
         let proto_signature: Eip191AssociationProto = assoc.into();
 
-        assert_eq!(proto_signature.association_text_version, 1);
         assert_eq!(proto_signature.signature.unwrap().bytes, sig.to_vec());
     }
 }
