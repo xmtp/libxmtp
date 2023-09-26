@@ -7,23 +7,21 @@ extern crate log;
 extern crate xmtp;
 
 use clap::{Parser, Subcommand};
-use ethers_core::types::H160;
 use log::{error, info};
 use std::fs;
 use std::path::PathBuf;
 use std::time::Duration;
 use thiserror::Error;
-use url::ParseError;
 use xmtp::builder::{AccountStrategy, ClientBuilderError};
 use xmtp::client::ClientError;
-use xmtp::conversation::{ConversationError, ListMessagesOptions, Conversation};
+use xmtp::conversation::{Conversation, ConversationError, ListMessagesOptions};
 use xmtp::conversations::Conversations;
 use xmtp::storage::{
     now, EncryptedMessageStore, EncryptionKey, MessageState, StorageError, StorageOption,
 };
 use xmtp::types::networking::XmtpApiClient;
 use xmtp::InboxOwner;
-use xmtp_cryptography::signature::{h160addr_to_string, RecoverableSignature, SignatureError};
+use xmtp_cryptography::signature::{RecoverableSignature, SignatureError};
 use xmtp_cryptography::utils::{rng, seeded_rng, LocalWallet};
 use xmtp_networking::grpc_api_helper::Client as ApiClient;
 type Client = xmtp::client::Client<ApiClient>;

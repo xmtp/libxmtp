@@ -153,7 +153,7 @@ where
         )
         .store(&mut self.client.store.conn().unwrap())?;
 
-        if let Err(err) = Conversations::process_outbound_messages(&self.client).await {
+        if let Err(err) = Conversations::process_outbound_messages(self.client).await {
             log::error!("Could not process outbound messages on init: {:?}", err)
         }
 
