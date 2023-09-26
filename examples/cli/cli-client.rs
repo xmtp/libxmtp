@@ -16,7 +16,7 @@ use thiserror::Error;
 use url::ParseError;
 use xmtp::builder::{AccountStrategy, ClientBuilderError};
 use xmtp::client::ClientError;
-use xmtp::conversation::{ConversationError, ListMessagesOptions, Conversation};
+use xmtp::conversation::{Conversation, ConversationError, ListMessagesOptions};
 use xmtp::conversations::Conversations;
 use xmtp::storage::{
     now, EncryptedMessageStore, EncryptionKey, MessageState, StorageError, StorageOption,

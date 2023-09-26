@@ -170,11 +170,14 @@ where
             #[cfg(test)]
             AccountStrategy::ExternalAccount(a) => a,
         };
-        store.insert_or_ignore_user(StoredUser {
-            user_address: account.addr(),
-            created_at: now(),
-            last_refreshed: 0,
-        })?;
+        store.insert_or_ignore_user(
+            &mut store.conn()?,
+            StoredUser {
+                user_address: account.addr(),
+                created_at: now(),
+                last_refreshed: 0,
+            },
+        )?;
 
         Ok(Client::new(api_client, self.network, account, store))
     }
