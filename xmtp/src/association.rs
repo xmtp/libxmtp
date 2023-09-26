@@ -24,9 +24,8 @@ pub enum AssociationError {
     Unknown,
 }
 
-/// An Association is link between a blockchain account and an xmtp account for the purposes of
-/// authentication. This certifies the user address (0xadd12e555c541A063cDbBD3Feb3C006d6f996745)
-///  is associated to the XMTP Account.
+/// An Association is link between a blockchain account and an xmtp installation for the purposes of
+/// authentication.
 #[derive(Serialize, Deserialize, PartialEq, Debug, Clone)]
 pub struct Association {
     text: AssociationText,
@@ -35,31 +34,31 @@ pub struct Association {
 
 impl Association {
     pub fn new(
-        account_public_key: &[u8],
+        installation_public_key: &[u8],
         text: AssociationText,
         signature: RecoverableSignature,
     ) -> Result<Self, AssociationError> {
         let this = Self { text, signature };
-        this.is_valid(account_public_key)?;
+        this.is_valid(installation_public_key)?;
         Ok(this)
     }
 
     pub fn from_proto_with_expected_address(
-        account_public_key: &[u8],
+        installation_public_key: &[u8],
         proto: Eip191AssociationProto,
         expected_wallet_address: String,
     ) -> Result<Self, AssociationError> {
         let text =
-            AssociationText::new_static(expected_wallet_address, account_public_key.to_vec());
+            AssociationText::new_static(expected_wallet_address, installation_public_key.to_vec());
         let signature = RecoverableSignature::Eip191Signature(proto.signature.unwrap().bytes);
-        Self::new(account_public_key, text, signature)
+        Self::new(installation_public_key, text, signature)
     }
 
-    fn is_valid(&self, account_public_key: &[u8]) -> Result<(), AssociationError> {
+    fn is_valid(&self, installation_public_key: &[u8]) -> Result<(), AssociationError> {
         let assumed_addr = self.text.get_address();
 
         // Ensure the Text properly links the Address and Keybytes
-        self.text.is_valid(&assumed_addr, account_public_key)?;
+        self.text.is_valid(&assumed_addr, installation_public_key)?;
 
         let addr = self.signature.recover_address(&self.text.text())?;
 
@@ -104,45 +103,51 @@ impl From<Association> for Eip191AssociationProto {
     }
 }
 
-/// AssociationText represents the string which was signed by the authorizing blockchain account. a valid AssociationTest must
-/// contain the address of the blockchain account and a representation of the XMTP Account publicKey. Different standards may
+/// AssociationText represents the string which was signed by the authorizing blockchain account. A valid AssociationText must
+/// contain the address of the blockchain account and a representation of the XMTP installation public key. Different standards may
 /// choose how this information is encoded, as well as adding extra requirements for increased security.
 #[derive(Serialize, Deserialize, PartialEq, Debug, Clone)]
 pub enum AssociationText {
     Static {
-        addr: Address,
-        account_public_key: Vec<u8>,
+        blockchain_address: Address,
+        installation_public_key: Vec<u8>,
     },
 }
 
 impl AssociationText {
     pub fn get_address(&self) -> Address {
         match self {
-            Self::Static { addr, .. } => addr.clone(),
+            Self::Static {
+                blockchain_address, ..
+            } => blockchain_address.clone(),
         }
     }
 
     pub fn text(&self) -> String {
         match self {
             Self::Static {
-                addr,
-                account_public_key,
-            } => gen_static_text_v1(addr, account_public_key),
+                blockchain_address,
+                installation_public_key,
+            } => gen_static_text_v1(blockchain_address, installation_public_key),
         }
     }
 
-    pub fn is_valid(&self, addr: &str, account_public_key: &[u8]) -> Result<(), AssociationError> {
-        if self.text() == gen_static_text_v1(addr, account_public_key) {
+    pub fn is_valid(
+        &self,
+        blockchain_address: &str,
+        installation_public_key: &[u8],
+    ) -> Result<(), AssociationError> {
+        if self.text() == gen_static_text_v1(blockchain_address, installation_public_key) {
             return Ok(());
         }
 
         Err(AssociationError::TextMismatch)
     }
 
-    pub fn new_static(addr: String, account_public_key: Vec<u8>) -> Self {
+    pub fn new_static(blockchain_address: String, installation_public_key: Vec<u8>) -> Self {
         AssociationText::Static {
-            addr,
-            account_public_key,
+            blockchain_address,
+            installation_public_key,
         }
     }
 }
@@ -171,23 +176,23 @@ pub mod tests {
         let addr = h160addr_to_string(wallet.address());
         let other_addr = h160addr_to_string(other_wallet.address());
         let text = AssociationText::Static {
-            addr: addr.clone(),
-            account_public_key: key_bytes.clone(),
+            blockchain_address: addr.clone(),
+            installation_public_key: key_bytes.clone(),
         };
         let sig = wallet.sign_message(text.text()).await.expect("BadSign");
 
         let bad_key_bytes = vec![11, 22, 33];
         let bad_text1 = AssociationText::Static {
-            addr: addr.clone(),
-            account_public_key: bad_key_bytes.clone(),
+            blockchain_address: addr.clone(),
+            installation_public_key: bad_key_bytes.clone(),
         };
         let bad_text2 = AssociationText::Static {
-            addr: other_addr.clone(),
-            account_public_key: key_bytes.clone(),
+            blockchain_address: other_addr.clone(),
+            installation_public_key: key_bytes.clone(),
         };
         let other_text = AssociationText::Static {
-            addr: other_addr.clone(),
-            account_public_key: key_bytes.clone(),
+            blockchain_address: other_addr.clone(),
+            installation_public_key: key_bytes.clone(),
         };
 
         let other_sig = wallet
@@ -208,8 +213,8 @@ pub mod tests {
         let wallet = LocalWallet::new(&mut rng());
         let addr = h160addr_to_string(wallet.address());
         let text = AssociationText::Static {
-            addr: addr.clone(),
-            account_public_key: key_bytes.clone(),
+            blockchain_address: addr.clone(),
+            installation_public_key: key_bytes.clone(),
         };
         let sig = wallet.sign_message(text.text()).await.expect("BadSign");
 
