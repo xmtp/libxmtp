@@ -1,6 +1,6 @@
 use crate::{
     account::{Account, AccountError},
-    association::{Association, AssociationError, AssociationText},
+    association::{AssociationError, AssociationText, Eip191Association},
     client::{Client, Network},
     storage::{now, EncryptedMessageStore, StoredUser},
     types::networking::XmtpApiClient,
@@ -142,7 +142,7 @@ where
     }
 
     fn sign_new_account(owner: &O) -> Result<Account, ClientBuilderError> {
-        let sign = |public_key_bytes: Vec<u8>| -> Result<Association, AssociationError> {
+        let sign = |public_key_bytes: Vec<u8>| -> Result<Eip191Association, AssociationError> {
             let assoc_text = AssociationText::Static {
                 blockchain_address: owner.get_address(),
                 installation_public_key: public_key_bytes.clone(),
@@ -150,7 +150,7 @@ where
 
             let signature = owner.sign(&assoc_text.text())?;
 
-            Association::new(public_key_bytes.as_slice(), assoc_text, signature)
+            Eip191Association::new(public_key_bytes.as_slice(), assoc_text, signature)
         };
 
         Account::generate(sign).map_err(ClientBuilderError::AccountInitialization)

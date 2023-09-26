@@ -27,12 +27,12 @@ pub enum AssociationError {
 /// An Association is link between a blockchain account and an xmtp installation for the purposes of
 /// authentication.
 #[derive(Serialize, Deserialize, PartialEq, Debug, Clone)]
-pub struct Association {
+pub struct Eip191Association {
     text: AssociationText,
     signature: RecoverableSignature,
 }
 
-impl Association {
+impl Eip191Association {
     pub fn new(
         installation_public_key: &[u8],
         text: AssociationText,
@@ -90,8 +90,8 @@ impl Association {
     }
 }
 
-impl From<Association> for Eip191AssociationProto {
-    fn from(assoc: Association) -> Self {
+impl From<Eip191Association> for Eip191AssociationProto {
+    fn from(assoc: Eip191Association) -> Self {
         Self {
             wallet_address: assoc.address(),
             // Hardcoded version for now
@@ -165,7 +165,7 @@ pub mod tests {
     use xmtp_cryptography::{signature::h160addr_to_string, utils::rng};
     use xmtp_proto::xmtp::v3::message_contents::Eip191Association as Eip191AssociationProto;
 
-    use super::{Association, AssociationText};
+    use super::{AssociationText, Eip191Association};
 
     #[tokio::test]
     async fn assoc_gen() {
@@ -200,11 +200,11 @@ pub mod tests {
             .await
             .expect("BadSign");
 
-        assert!(Association::new(&key_bytes, text.clone(), sig.into()).is_ok());
-        assert!(Association::new(&bad_key_bytes, text.clone(), sig.into()).is_err());
-        assert!(Association::new(&key_bytes, bad_text1.clone(), sig.into()).is_err());
-        assert!(Association::new(&key_bytes, bad_text2.clone(), sig.into()).is_err());
-        assert!(Association::new(&key_bytes, text.clone(), other_sig.into()).is_err());
+        assert!(Eip191Association::new(&key_bytes, text.clone(), sig.into()).is_ok());
+        assert!(Eip191Association::new(&bad_key_bytes, text.clone(), sig.into()).is_err());
+        assert!(Eip191Association::new(&key_bytes, bad_text1.clone(), sig.into()).is_err());
+        assert!(Eip191Association::new(&key_bytes, bad_text2.clone(), sig.into()).is_err());
+        assert!(Eip191Association::new(&key_bytes, text.clone(), other_sig.into()).is_err());
     }
 
     #[tokio::test]
@@ -218,7 +218,7 @@ pub mod tests {
         };
         let sig = wallet.sign_message(text.text()).await.expect("BadSign");
 
-        let assoc = Association::new(&key_bytes, text.clone(), sig.into()).unwrap();
+        let assoc = Eip191Association::new(&key_bytes, text.clone(), sig.into()).unwrap();
         let proto_signature: Eip191AssociationProto = assoc.into();
 
         assert_eq!(proto_signature.association_text_version, 1);

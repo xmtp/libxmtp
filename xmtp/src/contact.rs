@@ -9,7 +9,7 @@ use xmtp_proto::xmtp::v3::message_contents::{
 };
 
 use crate::{
-    association::{Association, AssociationError},
+    association::{AssociationError, Eip191Association},
     utils::key_fingerprint,
     vmac_protos::ProtoWrapper,
 };
@@ -69,7 +69,7 @@ impl Contact {
         extract_identity_key(self.bundle.clone())
     }
 
-    pub fn association(&self) -> Result<Association, ContactError> {
+    pub fn association(&self) -> Result<Eip191Association, ContactError> {
         let ik = self.identity_key()?;
         let key_bytes = match ik.clone().key {
             Some(key) => match key.union {
@@ -81,7 +81,7 @@ impl Contact {
         let proto_association = extract_proto_association(ik)?;
 
         // This will validate that the signature matches the wallet address
-        let association = Association::from_proto_with_expected_address(
+        let association = Eip191Association::from_proto_with_expected_address(
             key_bytes.as_slice(),
             proto_association,
             self.wallet_address.clone(),
