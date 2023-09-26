@@ -22,8 +22,8 @@ pub fn diffie_hellman_k256(
     let shared_secret = xmtp_v2::k256_helper::diffie_hellman_byte_params(
         private_key_bytes.as_slice(),
         public_key_bytes.as_slice(),
-    )
-    .map_err(|e| e)?;
+    )?;
+
     Ok(shared_secret)
 }
 
@@ -39,10 +39,9 @@ pub fn verify_k256_sha256(
         message.as_slice(),
         signature.as_slice(),
         recovery_id,
-    )
-    .map_err(|e| e)?;
+    )?;
 
-    return Ok(result);
+    Ok(result)
 }
 
 #[cfg(test)]
