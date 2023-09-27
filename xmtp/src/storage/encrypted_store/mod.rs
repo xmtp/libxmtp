@@ -16,7 +16,7 @@ pub mod schema;
 
 use self::{
     models::*,
-    schema::{accounts, conversations, installations, messages, refresh_jobs, users},
+    schema::{accounts, conversations, installations, messages, refresh_jobs, users, sessions},
 };
 use super::{now, StorageError};
 use crate::{account::Account, utils::is_wallet_address, Errorer, Fetch, Store};
@@ -25,7 +25,8 @@ use diesel::{
     prelude::*,
     r2d2::{ConnectionManager, Pool, PooledConnection},
     sql_query,
-    sql_types::Text,
+    sql_types::Text, result::DatabaseErrorKind,
+    result::Error,
 };
 use diesel_migrations::{embed_migrations, EmbeddedMigrations, MigrationHarness};
 use log::warn;
@@ -43,6 +44,16 @@ pub enum StorageOption {
     #[default]
     Ephemeral,
     Persistent(String),
+}
+
+pub fn ignore_unique_violation<T>(
+    result: Result<T, diesel::result::Error>,
+) -> Result<(), StorageError> {
+    match result {
+        Ok(_) => Ok(()),
+        Err(Error::DatabaseError(DatabaseErrorKind::UniqueViolation, _)) => Ok(()),
+        Err(error) => Err(StorageError::from(error)),
+    }
 }
 
 #[allow(dead_code)]
@@ -279,15 +290,16 @@ impl EncryptedMessageStore {
             .map_err(|e| e.into())
     }
 
-    pub fn insert_or_ignore_user(
+    pub fn insert_user(
         &self,
         conn: &mut DbConnection,
         user: StoredUser,
     ) -> Result<(), StorageError> {
-        diesel::insert_or_ignore_into(users::table)
+        let result = diesel::insert_into(users::table)
             .values(user)
-            .execute(conn)?;
-        Ok(())
+            .execute(conn);
+
+        ignore_unique_violation(result)
     }
 
     pub fn get_conversation(
@@ -303,15 +315,16 @@ impl EncryptedMessageStore {
         Ok(convo_list.pop())
     }
 
-    pub fn insert_or_ignore_conversation(
+    pub fn insert_conversation(
         &self,
         conn: &mut DbConnection,
         conversation: StoredConversation,
     ) -> Result<(), StorageError> {
-        diesel::insert_or_ignore_into(schema::conversations::table)
+        let result = diesel::insert_into(conversations::table)
             .values(conversation)
-            .execute(conn)?;
-        Ok(())
+            .execute(conn);
+
+        ignore_unique_violation(result) 
     }
 
     pub fn get_contacts(
@@ -429,37 +442,40 @@ impl EncryptedMessageStore {
         Ok(())
     }
 
-    pub fn insert_or_ignore_install(
+    pub fn insert_install(
         &self,
         conn: &mut DbConnection,
         install: StoredInstallation,
     ) -> Result<(), StorageError> {
-        diesel::insert_or_ignore_into(installations::table)
+        let result = diesel::insert_into(installations::table)
             .values(install)
-            .execute(conn)?;
-        Ok(())
+            .execute(conn);
+
+       ignore_unique_violation(result)  
     }
 
-    pub fn insert_or_ignore_session(
+    pub fn insert_session(
         &self,
         conn: &mut DbConnection,
         session: StoredSession,
     ) -> Result<(), StorageError> {
-        diesel::insert_or_ignore_into(schema::sessions::table)
+        let result = diesel::insert_into(sessions::table)
             .values(session)
-            .execute(conn)?;
-        Ok(())
+            .execute(conn);
+
+       ignore_unique_violation(result)  
     }
 
-    pub fn insert_or_ignore_message(
+    pub fn insert_message(
         &self,
         conn: &mut DbConnection,
         msg: NewStoredMessage,
     ) -> Result<(), StorageError> {
-        diesel::insert_or_ignore_into(schema::messages::table)
+        let result = diesel::insert_into(messages::table)
             .values(msg)
-            .execute(conn)?;
-        Ok(())
+            .execute(conn);
+
+        ignore_unique_violation(result)  
     }
 
     pub fn commit_outbound_payloads_for_message(
@@ -756,6 +772,7 @@ mod tests {
     };
     use std::fs;
     use std::{thread::sleep, time::Duration};
+    use std::boxed::Box;
 
     fn rand_string() -> String {
         Alphanumeric.sample_string(&mut rand::thread_rng(), 16)
@@ -1135,4 +1152,28 @@ mod tests {
             .unwrap();
         assert_eq!(1, results_with_limit.len());
     }
+
+   #[test]
+   fn it_returns_ok_when_given_ok_result() {
+       let result: Result<(), diesel::result::Error> = Ok(());
+       assert!(super::ignore_unique_violation(result).is_ok(), "Expected Ok(()) when given Ok result");
+   }
+
+   #[test]
+   fn it_returns_ok_on_unique_violation_error() {
+       let result: Result<(),diesel::result::Error> = Err(diesel::result::Error::DatabaseError(diesel::result::DatabaseErrorKind::UniqueViolation, Box::new("violation".to_string())));
+       assert!(super::ignore_unique_violation(result).is_ok(), "Expected Ok(()) when given UniqueViolation error");
+   }
+
+   #[test]
+   fn it_returns_err_on_non_unique_violation_database_errors() {
+       let result: Result<(), diesel::result::Error> = Err(diesel::result::Error::DatabaseError(diesel::result::DatabaseErrorKind::NotNullViolation, Box::new("other kind".to_string())));
+       assert!(super::ignore_unique_violation(result).is_err(), "Expected Err when given non-UniqueViolation database error");
+   }
+
+   #[test]
+   fn it_returns_err_on_non_database_errors() {
+       let result: Result<(), diesel::result::Error> = Err(diesel::result::Error::NotFound);
+       assert!(super::ignore_unique_violation(result).is_err(), "Expected Err when given a non-database error");
+   }
 }
