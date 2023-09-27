@@ -3,7 +3,8 @@ use hyper::{client::HttpConnector, Uri};
 use hyper_rustls::HttpsConnector;
 use std::str::FromStr;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Mutex}; // TODO switch to async mutexes
+use std::sync::{Arc, Mutex};
+use std::time::Duration; // TODO switch to async mutexes
 use tokio::sync::oneshot;
 use tokio_rustls::rustls::{ClientConfig, OwnedTrustAnchor, RootCertStore};
 use tonic::async_trait;
@@ -122,6 +123,7 @@ impl XmtpApiClient for Client {
             .map_err(|e| Error::new(ErrorKind::PublishError).with(e))?;
 
         let mut tonic_request = Request::new(request);
+        tonic_request.set_timeout(Duration::from_secs(5));
         tonic_request.metadata_mut().insert("authorization", token);
         tonic_request
             .metadata_mut()
@@ -169,6 +171,7 @@ impl XmtpApiClient for Client {
 
     async fn query(&self, request: QueryRequest) -> Result<QueryResponse, Error> {
         let mut tonic_request = Request::new(request);
+        tonic_request.set_timeout(Duration::from_secs(5));
         tonic_request
             .metadata_mut()
             .insert("x-app-version", self.app_version.clone());
@@ -190,6 +193,7 @@ impl Client {
         request: BatchQueryRequest,
     ) -> Result<BatchQueryResponse, Error> {
         let mut tonic_request = Request::new(request);
+        tonic_request.set_timeout(Duration::from_secs(5));
         tonic_request
             .metadata_mut()
             .insert("x-app-version", self.app_version.clone());
