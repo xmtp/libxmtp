@@ -115,7 +115,7 @@ where
     ) -> Result<(), ConversationError> {
         let peer_address = peer_addr_from_convo_id(convo_id, &client.wallet_address())?;
         let created_at = now();
-        client.store.insert_or_ignore_user(
+        client.store.insert_user(
             conn,
             StoredUser {
                 user_address: peer_address.clone(),
@@ -124,7 +124,7 @@ where
             },
         )?;
 
-        client.store.insert_or_ignore_conversation(
+        client.store.insert_conversation(
             conn,
             StoredConversation {
                 peer_address,

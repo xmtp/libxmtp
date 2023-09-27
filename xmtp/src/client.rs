@@ -225,7 +225,7 @@ where
         );
 
         conn.transaction(|transaction_manager| -> Result<(), ClientError> {
-            self.store.insert_or_ignore_user(
+            self.store.insert_user(
                 transaction_manager,
                 StoredUser {
                     user_address: user_address.to_string(),
@@ -238,8 +238,8 @@ where
                 let session = self.create_uninitialized_session(&install.get_contact()?)?;
 
                 self.store
-                    .insert_or_ignore_install(transaction_manager, install)?;
-                self.store.insert_or_ignore_session(
+                    .insert_install(transaction_manager, install)?;
+                self.store.insert_session(
                     transaction_manager,
                     StoredSession::try_from(&session)?,
                 )?;
