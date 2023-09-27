@@ -107,22 +107,22 @@ sealed class Conversation {
         }
     }
 
-    fun send(prepared: PreparedMessage) {
-        when (this) {
+    fun send(prepared: PreparedMessage): String {
+        return when (this) {
             is V1 -> conversationV1.send(prepared = prepared)
             is V2 -> conversationV2.send(prepared = prepared)
         }
     }
 
-    fun <T> send(content: T, options: SendOptions? = null) {
-        when (this) {
+    fun <T> send(content: T, options: SendOptions? = null): String {
+        return when (this) {
             is V1 -> conversationV1.send(content = content, options = options)
             is V2 -> conversationV2.send(content = content, options = options)
         }
     }
 
-    fun send(text: String, sendOptions: SendOptions? = null, sentAt: Date? = null) {
-        when (this) {
+    fun send(text: String, sendOptions: SendOptions? = null, sentAt: Date? = null): String {
+        return when (this) {
             is V1 -> conversationV1.send(text = text, sendOptions, sentAt)
             is V2 -> conversationV2.send(text = text, sendOptions, sentAt)
         }
