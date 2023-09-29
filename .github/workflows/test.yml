@@ -46,6 +46,11 @@ jobs:
         with:
           command: test
 
+      - name: Run cargo test on mls
+        uses: actions-rs/cargo@v1
+        with:
+          command: test --manifest-path mls/Cargo.toml
+
       - name: Run cargo test on FFI bindings
         run: |
           export CLASSPATH="${{ env.CLASSPATH }}"

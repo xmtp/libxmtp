@@ -11,7 +11,9 @@ use openmls::{
 };
 use openmls_traits::types::Ciphersuite;
 use tls_codec::Deserialize;
-use xmtp::types::networking::{Envelope, PublishRequest, QueryRequest, XmtpApiClient};
+use xmtp::types::networking::{
+    Envelope, PagingInfo, PublishRequest, QueryRequest, SortDirection, XmtpApiClient,
+};
 use xmtp_networking::grpc_api_helper::Client as ApiClient;
 const CIPHERSUITE: Ciphersuite = Ciphersuite::MLS_128_DHKEMX25519_AES128GCM_SHA256_Ed25519;
 use uuid::Uuid;
@@ -67,81 +69,86 @@ impl Client {
         return Group::new(&self, mls_group, group_id);
     }
 
-    pub async fn publish_key_packages(&self) {
-        let key_packages = self.identity.kp.values().collect::<Vec<_>>();
-        for kp in key_packages {
-            self.api_client
-                .publish(
-                    "".to_string(),
-                    PublishRequest {
-                        envelopes: vec![Envelope {
-                            timestamp_ns: now_ns(),
-                            message: serde_json::to_string(&kp).unwrap().as_bytes().to_vec(),
-                            content_topic: self.contact_topic(),
-                        }],
-                    },
-                )
-                .await
-                .expect("failed to publish");
-        }
-    }
-
-    pub async fn get_key_package(&self, contact_id: &str) -> Option<KeyPackage> {
-        let query_response = self
-            .api_client
-            .query(QueryRequest {
-                content_topics: vec![build_contact_topic(contact_id)],
-                start_time_ns: 0,
-                end_time_ns: 0,
-                paging_info: None,
-            })
-            .await
-            .unwrap();
-
-        for envelope in query_response.envelopes {
-            let kp: KeyPackage = serde_json::from_slice(&envelope.message).unwrap();
-            return Some(kp);
-        }
-
-        None
-    }
-
-    pub async fn send_welcome(&self, member_id: &str, welcome: MlsMessageOut) {
+    pub async fn publish(&self, topic: String, message: Vec<u8>) {
         self.api_client
             .publish(
                 "".to_string(),
                 PublishRequest {
                     envelopes: vec![Envelope {
                         timestamp_ns: now_ns(),
-                        message: welcome
-                            .tls_serialize_detached()
-                            .expect("serialization failed"),
-                        content_topic: build_welcome_topic(member_id),
+                        message,
+                        content_topic: topic,
                     }],
                 },
             )
             .await
-            .expect("failed to send welcome");
+            .expect("failed to publish");
     }
 
-    pub async fn load_groups(&self) -> Vec<Group> {
+    pub async fn query(&self, topic: String) -> Vec<Envelope> {
         let query_response = self
             .api_client
             .query(QueryRequest {
-                content_topics: vec![build_welcome_topic(self.id.as_str())],
+                content_topics: vec![topic],
                 start_time_ns: 0,
                 end_time_ns: 0,
-                paging_info: None,
+                paging_info: Some(PagingInfo {
+                    limit: 100,
+                    cursor: None,
+                    direction: SortDirection::Ascending as i32,
+                }),
             })
             .await
-            .unwrap();
+            .expect("failed to query");
+
+        query_response.envelopes
+    }
+
+    async fn publish_key_packages(&self) {
+        let key_packages = self.identity.kp.values().collect::<Vec<_>>();
+        for kp in key_packages {
+            self.publish(
+                self.contact_topic(),
+                serde_json::to_string(&kp).unwrap().as_bytes().to_vec(),
+            )
+            .await;
+        }
+    }
+
+    pub async fn get_key_package(&self, contact_id: &str) -> Option<KeyPackage> {
+        let envelopes = self.query(build_contact_topic(contact_id)).await;
+
+        for envelope in envelopes {
+            let kp = serde_json::from_slice(&envelope.message);
+            match kp {
+                Ok(kp) => return Some(kp),
+                Err(_) => continue,
+            }
+        }
+
+        None
+    }
+
+    pub async fn send_welcome(&self, member_id: &str, welcome: MlsMessageOut) {
+        self.publish(
+            build_welcome_topic(member_id),
+            welcome
+                .tls_serialize_detached()
+                .expect("serialization failed"),
+        )
+        .await;
+    }
+
+    pub async fn load_groups(&self) -> Vec<Group> {
+        let envelopes = self.query(build_welcome_topic(self.id.as_str())).await;
 
         let mut groups: Vec<Group> = vec![];
 
-        for env in query_response.envelopes {
+        for env in envelopes {
             let msg: MlsMessageIn = MlsMessageIn::tls_deserialize(&mut env.message.as_slice())
                 .expect("failed to deserialize")
                 .into();
+
             match msg.extract() {
                 MlsMessageInBody::Welcome(welcome) => {
                     let group_config = build_group_config();
@@ -224,6 +231,7 @@ mod tests {
         assert_eq!(client_2_groups.len(), 1);
         let group_from_welcome = client_2_groups.get(0).unwrap();
         assert_eq!(group_from_welcome.group_id, group.group_id);
+
         assert_eq!(
             group_from_welcome
                 .mls_group

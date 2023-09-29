@@ -59,21 +59,13 @@ impl<'c> Group<'c> {
 
     pub async fn publish(&self, message: MlsMessageOut) {
         self.client
-            .api_client
             .publish(
-                "".to_string(),
-                PublishRequest {
-                    envelopes: vec![Envelope {
-                        timestamp_ns: now_ns(),
-                        message: message
-                            .tls_serialize_detached()
-                            .expect("serialization failed"),
-                        content_topic: self.topic(),
-                    }],
-                },
+                self.topic(),
+                message
+                    .tls_serialize_detached()
+                    .expect("serialization failed"),
             )
-            .await
-            .expect("failed to send message");
+            .await;
     }
 
     pub async fn send(&mut self, message: String) {
@@ -91,23 +83,9 @@ impl<'c> Group<'c> {
     }
 
     pub async fn recv(&mut self) {
-        let response = self
-            .client
-            .api_client
-            .query(QueryRequest {
-                content_topics: vec![self.topic()],
-                start_time_ns: 0,
-                end_time_ns: 0,
-                paging_info: Some(PagingInfo {
-                    limit: 100,
-                    cursor: None,
-                    direction: SortDirection::Ascending as i32,
-                }),
-            })
-            .await
-            .expect("failed to receive messages");
+        let envelopes = self.client.query(self.topic()).await;
 
-        for env in response.envelopes {
+        for env in envelopes {
             let msg: MlsMessageIn = MlsMessageIn::tls_deserialize(&mut env.message.as_slice())
                 .expect("failed to deserialize")
                 .into();
@@ -196,7 +174,7 @@ mod tests {
     }
 
     #[test_log::test(tokio::test)]
-    async fn test_send() {
+    async fn test_send_multiple_clients() {
         let client_1 = Client::create().await;
         let client_2 = Client::create().await;
         let client_3 = Client::create().await;
