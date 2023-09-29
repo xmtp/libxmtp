@@ -115,7 +115,7 @@ where
     ) -> Result<(), ConversationError> {
         let peer_address = peer_addr_from_convo_id(convo_id, &client.wallet_address())?;
         let created_at = now();
-        client.store.insert_or_ignore_user_with_conn(
+        client.store.insert_user(
             conn,
             StoredUser {
                 user_address: peer_address.clone(),
@@ -124,7 +124,7 @@ where
             },
         )?;
 
-        client.store.insert_or_ignore_conversation_with_conn(
+        client.store.insert_conversation(
             conn,
             StoredConversation {
                 peer_address,
@@ -153,7 +153,7 @@ where
         )
         .store(&mut self.client.store.conn().unwrap())?;
 
-        if let Err(err) = Conversations::process_outbound_messages(&self.client).await {
+        if let Err(err) = Conversations::process_outbound_messages(self.client).await {
             log::error!("Could not process outbound messages on init: {:?}", err)
         }
 
@@ -203,11 +203,19 @@ mod tests {
         let client = gen_test_client().await;
         let peer_address = "0x000";
         let convo_id = format!(":{}:{}", peer_address, client.wallet_address());
-        assert!(client.store.get_conversation(&convo_id).unwrap().is_none());
+        assert!(client
+            .store
+            .get_conversation(&mut client.store.conn().unwrap(), &convo_id)
+            .unwrap()
+            .is_none());
 
         let conversation = gen_test_conversation(&client, peer_address).await;
         assert!(conversation.peer_address() == peer_address);
-        assert!(client.store.get_conversation(&convo_id).unwrap().is_some());
+        assert!(client
+            .store
+            .get_conversation(&mut client.store.conn().unwrap(), &convo_id)
+            .unwrap()
+            .is_some());
     }
 
     #[tokio::test]
@@ -216,7 +224,10 @@ mod tests {
         let conversation = gen_test_conversation(&client, "0x000").await;
         conversation.send_text("Hello, world!").await.unwrap();
 
-        let message = &client.store.get_unprocessed_messages().unwrap()[0];
+        let message = &client
+            .store
+            .get_unprocessed_messages(&mut client.store.conn().unwrap())
+            .unwrap()[0];
         let content = EncodedContent::decode(&message.content[..]).unwrap();
         assert!(TextCodec::decode(content).unwrap() == "Hello, world!");
     }

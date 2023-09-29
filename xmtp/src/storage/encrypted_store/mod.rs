@@ -16,7 +16,7 @@ pub mod schema;
 
 use self::{
     models::*,
-    schema::{accounts, conversations, installations, messages, refresh_jobs, users},
+    schema::{accounts, conversations, installations, messages, refresh_jobs, users, sessions},
 };
 use super::{now, StorageError};
 use crate::{account::Account, utils::is_wallet_address, Errorer, Fetch, Store};
@@ -25,7 +25,8 @@ use diesel::{
     prelude::*,
     r2d2::{ConnectionManager, Pool, PooledConnection},
     sql_query,
-    sql_types::Text,
+    sql_types::Text, result::DatabaseErrorKind,
+    result::Error,
 };
 use diesel_migrations::{embed_migrations, EmbeddedMigrations, MigrationHarness};
 use log::warn;
@@ -43,6 +44,16 @@ pub enum StorageOption {
     #[default]
     Ephemeral,
     Persistent(String),
+}
+
+pub fn ignore_unique_violation<T>(
+    result: Result<T, diesel::result::Error>,
+) -> Result<(), StorageError> {
+    match result {
+        Ok(_) => Ok(()),
+        Err(Error::DatabaseError(DatabaseErrorKind::UniqueViolation, _)) => Ok(()),
+        Err(error) => Err(StorageError::from(error)),
+    }
 }
 
 #[allow(dead_code)]
@@ -179,8 +190,8 @@ impl EncryptedMessageStore {
 
     pub fn get_latest_sessions_for_installation(
         &self,
-        installation_id: &str,
         conn: &mut DbConnection,
+        installation_id: &str,
     ) -> Result<Vec<StoredSession>, StorageError> {
         use self::schema::sessions::dsl::*;
 
@@ -193,8 +204,8 @@ impl EncryptedMessageStore {
 
     pub fn get_latest_sessions(
         &self,
-        user_address: &str,
         conn: &mut DbConnection,
+        user_address: &str,
     ) -> Result<Vec<StoredSession>, StorageError> {
         if !is_wallet_address(user_address) {
             return Err(StorageError::Unknown(
@@ -229,8 +240,8 @@ impl EncryptedMessageStore {
 
     pub fn session_exists_for_installation(
         &self,
+        conn: &mut DbConnection,
         installation_id: &str,
-        conn: &mut PooledConnection<ConnectionManager<SqliteConnection>>,
     ) -> Result<bool, StorageError> {
         use self::schema::sessions::dsl as schema;
 
@@ -254,9 +265,11 @@ impl EncryptedMessageStore {
         Ok(installation_list)
     }
 
-    pub fn get_user(&self, address: &str) -> Result<Option<StoredUser>, StorageError> {
-        let conn = &mut self.conn()?;
-
+    pub fn get_user(
+        &self,
+        conn: &mut DbConnection,
+        address: &str,
+    ) -> Result<Option<StoredUser>, StorageError> {
         let mut user_list = users::table
             .filter(users::user_address.eq(address))
             .load::<StoredUser>(conn)?;
@@ -267,7 +280,7 @@ impl EncryptedMessageStore {
 
     pub fn update_user_refresh_timestamp(
         &self,
-        conn: &mut PooledConnection<ConnectionManager<SqliteConnection>>,
+        conn: &mut DbConnection,
         user_address: &str,
         timestamp: i64,
     ) -> Result<StoredUser, StorageError> {
@@ -277,28 +290,23 @@ impl EncryptedMessageStore {
             .map_err(|e| e.into())
     }
 
-    pub fn insert_or_ignore_user(&self, user: StoredUser) -> Result<(), StorageError> {
-        let conn = &mut self.conn()?;
-        self.insert_or_ignore_user_with_conn(conn, user)
-    }
-
-    pub fn insert_or_ignore_user_with_conn(
+    pub fn insert_user(
         &self,
         conn: &mut DbConnection,
         user: StoredUser,
     ) -> Result<(), StorageError> {
-        diesel::insert_or_ignore_into(users::table)
+        let result = diesel::insert_into(users::table)
             .values(user)
-            .execute(conn)?;
-        Ok(())
+            .execute(conn);
+
+        ignore_unique_violation(result)
     }
 
     pub fn get_conversation(
         &self,
+        conn: &mut DbConnection,
         convo_id: &str,
     ) -> Result<Option<StoredConversation>, StorageError> {
-        let conn = &mut self.conn()?;
-
         let mut convo_list = conversations::table
             .find(convo_id)
             .load::<StoredConversation>(conn)?;
@@ -307,30 +315,23 @@ impl EncryptedMessageStore {
         Ok(convo_list.pop())
     }
 
-    pub fn insert_or_ignore_conversation(
-        &self,
-        conversation: StoredConversation,
-    ) -> Result<(), StorageError> {
-        let conn = &mut self.conn()?;
-        self.insert_or_ignore_conversation_with_conn(conn, conversation)
-    }
-
-    pub fn insert_or_ignore_conversation_with_conn(
+    pub fn insert_conversation(
         &self,
         conn: &mut DbConnection,
         conversation: StoredConversation,
     ) -> Result<(), StorageError> {
-        diesel::insert_or_ignore_into(schema::conversations::table)
+        let result = diesel::insert_into(conversations::table)
             .values(conversation)
-            .execute(conn)?;
-        Ok(())
+            .execute(conn);
+
+        ignore_unique_violation(result) 
     }
 
     pub fn get_contacts(
         &self,
+        conn: &mut DbConnection,
         user_address: &str,
     ) -> Result<Vec<StoredInstallation>, StorageError> {
-        let conn = &mut self.conn()?;
         use self::schema::installations::dsl;
 
         let install_list = dsl::installations
@@ -342,9 +343,10 @@ impl EncryptedMessageStore {
         Ok(install_list)
     }
 
-    pub fn get_unprocessed_messages(&self) -> Result<Vec<StoredMessage>, StorageError> {
-        let conn = &mut self.conn()?;
-
+    pub fn get_unprocessed_messages(
+        &self,
+        conn: &mut DbConnection,
+    ) -> Result<Vec<StoredMessage>, StorageError> {
         let msg_list = messages::table
             .filter(messages::state.eq(MessageState::Unprocessed as i32))
             .load::<StoredMessage>(conn)?;
@@ -352,14 +354,18 @@ impl EncryptedMessageStore {
         Ok(msg_list)
     }
 
-    pub fn lock_refresh_job<F>(&self, kind: RefreshJobKind, cb: F) -> Result<(), StorageError>
+    pub fn lock_refresh_job<F>(
+        &self,
+        conn: &mut DbConnection,
+        kind: RefreshJobKind,
+        cb: F,
+    ) -> Result<(), StorageError>
     where
         F: FnOnce(
             &mut PooledConnection<ConnectionManager<SqliteConnection>>,
             RefreshJob,
         ) -> Result<(), StorageError>,
     {
-        let conn = &mut self.conn()?;
         conn.transaction::<(), StorageError, _>(|connection| {
             let start_time = now();
             let job: RefreshJob = refresh_jobs::table
@@ -398,7 +404,7 @@ impl EncryptedMessageStore {
     }
     pub fn save_inbound_message(
         &self,
-        conn: &mut PooledConnection<ConnectionManager<SqliteConnection>>,
+        conn: &mut DbConnection,
         message: InboundMessage,
     ) -> Result<(), StorageError> {
         use self::schema::inbound_messages::dsl as schema;
@@ -436,46 +442,49 @@ impl EncryptedMessageStore {
         Ok(())
     }
 
-    pub fn insert_or_ignore_install(
+    pub fn insert_install(
         &self,
+        conn: &mut DbConnection,
         install: StoredInstallation,
-        conn: &mut PooledConnection<ConnectionManager<SqliteConnection>>,
     ) -> Result<(), StorageError> {
-        diesel::insert_or_ignore_into(installations::table)
+        let result = diesel::insert_into(installations::table)
             .values(install)
-            .execute(conn)?;
-        Ok(())
+            .execute(conn);
+
+       ignore_unique_violation(result)  
     }
 
-    pub fn insert_or_ignore_session(
+    pub fn insert_session(
         &self,
+        conn: &mut DbConnection,
         session: StoredSession,
-        conn: &mut PooledConnection<ConnectionManager<SqliteConnection>>,
     ) -> Result<(), StorageError> {
-        diesel::insert_or_ignore_into(schema::sessions::table)
+        let result = diesel::insert_into(sessions::table)
             .values(session)
-            .execute(conn)?;
-        Ok(())
+            .execute(conn);
+
+       ignore_unique_violation(result)  
     }
 
-    pub fn insert_or_ignore_message(
+    pub fn insert_message(
         &self,
-        conn: &mut PooledConnection<ConnectionManager<SqliteConnection>>,
+        conn: &mut DbConnection,
         msg: NewStoredMessage,
     ) -> Result<(), StorageError> {
-        diesel::insert_or_ignore_into(schema::messages::table)
+        let result = diesel::insert_into(messages::table)
             .values(msg)
-            .execute(conn)?;
-        Ok(())
+            .execute(conn);
+
+        ignore_unique_violation(result)  
     }
 
     pub fn commit_outbound_payloads_for_message(
         &self,
+        conn: &mut DbConnection,
         message_id: i32,
         updated_message_state: MessageState,
         new_outbound_payloads: Vec<StoredOutboundPayload>,
         updated_sessions: Vec<StoredSession>,
-        conn: &mut PooledConnection<ConnectionManager<SqliteConnection>>,
     ) -> Result<(), StorageError> {
         for session in updated_sessions {
             diesel::update(schema::sessions::table.find(session.session_id))
@@ -493,10 +502,10 @@ impl EncryptedMessageStore {
 
     pub fn fetch_and_lock_outbound_payloads(
         &self,
+        conn: &mut DbConnection,
         payload_state: OutboundPayloadState,
         lock_duration_ns: i64,
     ) -> Result<Vec<StoredOutboundPayload>, StorageError> {
-        let conn = &mut self.conn()?;
         use self::schema::outbound_payloads::dsl as schema;
         let now = now();
         // Must happen atomically
@@ -510,10 +519,10 @@ impl EncryptedMessageStore {
 
     pub fn update_and_unlock_outbound_payloads(
         &self,
+        conn: &mut DbConnection,
         payload_ids: Vec<i64>,
         new_payload_state: OutboundPayloadState,
     ) -> Result<(), StorageError> {
-        let conn = &mut self.conn()?;
         use self::schema::outbound_payloads::dsl::*;
         diesel::update(outbound_payloads)
             .filter(created_at_ns.eq_any(payload_ids))
@@ -763,6 +772,7 @@ mod tests {
     };
     use std::fs;
     use std::{thread::sleep, time::Duration};
+    use std::boxed::Box;
 
     fn rand_string() -> String {
         Alphanumeric.sample_string(&mut rand::thread_rng(), 16)
@@ -973,38 +983,54 @@ mod tests {
         .unwrap();
 
         store
-            .lock_refresh_job(RefreshJobKind::Message, |_, job| {
-                assert_eq!(job.id, RefreshJobKind::Message.to_string());
-                assert_eq!(job.last_run, 0);
+            .lock_refresh_job(
+                &mut store.conn().unwrap(),
+                RefreshJobKind::Message,
+                |_, job| {
+                    assert_eq!(job.id, RefreshJobKind::Message.to_string());
+                    assert_eq!(job.last_run, 0);
 
-                Ok(())
-            })
+                    Ok(())
+                },
+            )
             .unwrap();
 
         store
-            .lock_refresh_job(RefreshJobKind::Message, |_, job| {
-                assert!(job.last_run > 0);
+            .lock_refresh_job(
+                &mut store.conn().unwrap(),
+                RefreshJobKind::Message,
+                |_, job| {
+                    assert!(job.last_run > 0);
 
-                Ok(())
-            })
+                    Ok(())
+                },
+            )
             .unwrap();
-        
-        let mut last_run = 0;
-        let res_expected_err = store.lock_refresh_job(RefreshJobKind::Message, |_, job| {
-            assert_eq!(job.id, RefreshJobKind::Message.to_string());
-            last_run = job.last_run;
 
-            Err(StorageError::Unknown(String::from("RefreshJob failed")))
-        });
+        let mut last_run = 0;
+        let res_expected_err = store.lock_refresh_job(
+            &mut store.conn().unwrap(),
+            RefreshJobKind::Message,
+            |_, job| {
+                assert_eq!(job.id, RefreshJobKind::Message.to_string());
+                last_run = job.last_run;
+
+                Err(StorageError::Unknown(String::from("RefreshJob failed")))
+            },
+        );
         assert!(res_expected_err.is_err());
 
         store
-            .lock_refresh_job(RefreshJobKind::Message, |_, job| {
-                // Ensure that last run time does not change if the job fails
-                assert_eq!(job.last_run, last_run);
+            .lock_refresh_job(
+                &mut store.conn().unwrap(),
+                RefreshJobKind::Message,
+                |_, job| {
+                    // Ensure that last run time does not change if the job fails
+                    assert_eq!(job.last_run, last_run);
 
-                Ok(())
-            })
+                    Ok(())
+                },
+            )
             .unwrap();
     }
 
@@ -1126,4 +1152,28 @@ mod tests {
             .unwrap();
         assert_eq!(1, results_with_limit.len());
     }
+
+   #[test]
+   fn it_returns_ok_when_given_ok_result() {
+       let result: Result<(), diesel::result::Error> = Ok(());
+       assert!(super::ignore_unique_violation(result).is_ok(), "Expected Ok(()) when given Ok result");
+   }
+
+   #[test]
+   fn it_returns_ok_on_unique_violation_error() {
+       let result: Result<(),diesel::result::Error> = Err(diesel::result::Error::DatabaseError(diesel::result::DatabaseErrorKind::UniqueViolation, Box::new("violation".to_string())));
+       assert!(super::ignore_unique_violation(result).is_ok(), "Expected Ok(()) when given UniqueViolation error");
+   }
+
+   #[test]
+   fn it_returns_err_on_non_unique_violation_database_errors() {
+       let result: Result<(), diesel::result::Error> = Err(diesel::result::Error::DatabaseError(diesel::result::DatabaseErrorKind::NotNullViolation, Box::new("other kind".to_string())));
+       assert!(super::ignore_unique_violation(result).is_err(), "Expected Err when given non-UniqueViolation database error");
+   }
+
+   #[test]
+   fn it_returns_err_on_non_database_errors() {
+       let result: Result<(), diesel::result::Error> = Err(diesel::result::Error::NotFound);
+       assert!(super::ignore_unique_violation(result).is_err(), "Expected Err when given a non-database error");
+   }
 }

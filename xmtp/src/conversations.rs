@@ -14,7 +14,7 @@ use xmtp_proto::xmtp::{
 };
 
 use crate::{
-    conversation::{peer_addr_from_convo_id, ConversationError, Conversation},
+    conversation::{peer_addr_from_convo_id, Conversation, ConversationError},
     message::DecodedInboundMessage,
     session::SessionManager,
     storage::{
@@ -72,9 +72,10 @@ impl<A: XmtpApiClient> Conversations<A> {
     pub fn save_inbound_messages(client: &Client<A>) -> Result<(), ConversationError> {
         let inbound_topic = build_installation_message_topic(&client.installation_id());
 
-        client
-            .store
-            .lock_refresh_job(RefreshJobKind::Message, |conn, job| {
+        client.store.lock_refresh_job(
+            &mut client.store.conn()?,
+            RefreshJobKind::Message,
+            |conn, job| {
                 log::debug!(
                     "Refresh messages start time: {}",
                     Conversations::<A>::get_start_time(&job).unsigned_abs()
@@ -94,7 +95,8 @@ impl<A: XmtpApiClient> Conversations<A> {
                 }
 
                 Ok(())
-            })?;
+            },
+        )?;
 
         Ok(())
     }
@@ -138,7 +140,7 @@ impl<A: XmtpApiClient> Conversations<A> {
 
         let existing_sessions = client
             .store
-            .get_latest_sessions_for_installation(&payload.sender_installation_id, conn)?;
+            .get_latest_sessions_for_installation(conn, &payload.sender_installation_id)?;
 
         // Attempt to decrypt with existing sessions
         for raw_session in existing_sessions {
@@ -192,7 +194,7 @@ impl<A: XmtpApiClient> Conversations<A> {
 
         client
             .store
-            .insert_or_ignore_message(conn, stored_message)?;
+            .insert_message(conn, stored_message)?;
 
         Ok(())
     }
@@ -294,12 +296,12 @@ impl<A: XmtpApiClient> Conversations<A> {
             |transaction| -> Result<(), ConversationError> {
                 let my_sessions = client
                     .store
-                    .get_latest_sessions(&client.wallet_address(), transaction)?;
+                    .get_latest_sessions(transaction, &client.wallet_address())?;
                 let their_user_addr =
                     peer_addr_from_convo_id(&message.convo_id, &client.wallet_address())?;
                 let their_sessions = client
                     .store
-                    .get_latest_sessions(&their_user_addr, transaction)?;
+                    .get_latest_sessions(transaction, &their_user_addr)?;
                 if their_sessions.is_empty() {
                     return Err(ConversationError::NoSessions(their_user_addr));
                 }
@@ -321,11 +323,11 @@ impl<A: XmtpApiClient> Conversations<A> {
                 }
 
                 client.store.commit_outbound_payloads_for_message(
+                    transaction,
                     message.id,
                     MessageState::LocallyCommitted,
                     outbound_payloads,
                     updated_sessions,
-                    transaction,
                 )?;
                 Ok(())
             },
@@ -339,7 +341,9 @@ impl<A: XmtpApiClient> Conversations<A> {
         client
             .refresh_user_installations_if_stale(&client.wallet_address())
             .await?;
-        let mut messages = client.store.get_unprocessed_messages()?;
+        let mut messages = client
+            .store
+            .get_unprocessed_messages(&mut client.store.conn()?)?;
         log::debug!("Processing {} messages", messages.len());
         messages.sort_by(|a, b| a.created_at.cmp(&b.created_at));
         for message in messages {
@@ -359,6 +363,7 @@ impl<A: XmtpApiClient> Conversations<A> {
 
     pub async fn publish_outbound_payloads(client: &Client<A>) -> Result<(), ConversationError> {
         let unsent_payloads = client.store.fetch_and_lock_outbound_payloads(
+            &mut client.store.conn()?,
             OutboundPayloadState::Pending,
             Duration::from_secs(60).as_nanos() as i64,
         )?;
@@ -387,6 +392,7 @@ impl<A: XmtpApiClient> Conversations<A> {
             .map(|payload| payload.created_at_ns)
             .collect();
         client.store.update_and_unlock_outbound_payloads(
+            &mut client.store.conn()?,
             payload_ids,
             OutboundPayloadState::ServerAcknowledged,
         )?;
@@ -418,8 +424,7 @@ mod tests {
         let alice_client = gen_test_client().await;
         let bob_client = gen_test_client().await;
         let conversation =
-            Conversation::new(&alice_client, bob_client.wallet_address().to_string())
-                .unwrap();
+            Conversation::new(&alice_client, bob_client.wallet_address().to_string()).unwrap();
         assert_eq!(conversation.peer_address(), bob_client.wallet_address());
     }
 

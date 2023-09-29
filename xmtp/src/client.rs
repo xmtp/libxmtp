@@ -122,7 +122,7 @@ where
         self.is_initialized = true;
 
         // Send any unsent messages
-        if let Err(err) = Conversations::process_outbound_messages(&self).await {
+        if let Err(err) = Conversations::process_outbound_messages(self).await {
             log::error!("Could not process outbound messages on init: {:?}", err)
         }
 
@@ -183,7 +183,7 @@ where
         &self,
         user_address: &str,
     ) -> Result<(), ClientError> {
-        let user = self.store.get_user(user_address)?;
+        let user = self.store.get_user(&mut self.store.conn()?, user_address)?;
         if user.is_none() || user.unwrap().last_refreshed < now() - INSTALLATION_REFRESH_INTERVAL_NS
         {
             self.refresh_user_installations(user_address).await?;
@@ -200,6 +200,7 @@ where
 
         let self_install_id = key_fingerprint(&self.account.identity_keys().curve25519);
         let contacts = self.get_contacts(user_address).await?;
+        let conn = &mut self.store.conn()?;
         debug!(
             "Fetched contacts for address {}: {:?}",
             user_address, contacts
@@ -207,7 +208,7 @@ where
 
         let installation_map = self
             .store
-            .get_installations(&mut self.store.conn()?, user_address)?
+            .get_installations(conn, user_address)?
             .into_iter()
             .map(|v| (v.installation_id.clone(), v))
             .collect::<HashMap<_, _>>();
@@ -223,37 +224,35 @@ where
             user_address, new_installs
         );
 
-        self.store
-            .conn()?
-            .transaction(|transaction_manager| -> Result<(), ClientError> {
-                self.store.insert_or_ignore_user_with_conn(
+        conn.transaction(|transaction_manager| -> Result<(), ClientError> {
+            self.store.insert_user(
+                transaction_manager,
+                StoredUser {
+                    user_address: user_address.to_string(),
+                    created_at: now(),
+                    last_refreshed: refresh_timestamp,
+                },
+            )?;
+            for install in new_installs {
+                info!("Saving Install {}", install.installation_id);
+                let session = self.create_uninitialized_session(&install.get_contact()?)?;
+
+                self.store
+                    .insert_install(transaction_manager, install)?;
+                self.store.insert_session(
                     transaction_manager,
-                    StoredUser {
-                        user_address: user_address.to_string(),
-                        created_at: now(),
-                        last_refreshed: refresh_timestamp,
-                    },
+                    StoredSession::try_from(&session)?,
                 )?;
-                for install in new_installs {
-                    info!("Saving Install {}", install.installation_id);
-                    let session = self.create_uninitialized_session(&install.get_contact()?)?;
+            }
 
-                    self.store
-                        .insert_or_ignore_install(install, transaction_manager)?;
-                    self.store.insert_or_ignore_session(
-                        StoredSession::try_from(&session)?,
-                        transaction_manager,
-                    )?;
-                }
+            self.store.update_user_refresh_timestamp(
+                transaction_manager,
+                user_address,
+                refresh_timestamp,
+            )?;
 
-                self.store.update_user_refresh_timestamp(
-                    transaction_manager,
-                    user_address,
-                    refresh_timestamp,
-                )?;
-
-                Ok(())
-            })?;
+            Ok(())
+        })?;
 
         Ok(())
     }

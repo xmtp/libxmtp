@@ -5,10 +5,11 @@ members = [
   "xmtp",
   "xmtp_cryptography",
   "xmtp_networking",
-#  TODO: replace ^ with:
-#  "xmtp_api_grpc",
-#  "xmtp_api_grpc_gateway",
+  #  TODO: replace ^ with:
+  #  "xmtp_api_grpc",
+  #  "xmtp_api_grpc_gateway",
   "xmtp_proto",
+  "xmtp_v2",
 ]
 
 # Exclude since

@@ -19,6 +19,7 @@ uniffi_macros = { git = "https://github.com/mozilla/uniffi-rs", rev = "cae8edc45
 xmtp = { path = "../xmtp", features = ["grpc", "native"] }
 xmtp_cryptography = { path = "../xmtp_cryptography" }
 xmtp_networking = { path = "../xmtp_networking" }
+xmtp_v2 = { path = "../xmtp_v2" }
 
 [build_dependencies]
 uniffi = { git = "https://github.com/mozilla/uniffi-rs", rev = "cae8edc45ba5b56bfcbf35b60c1ab6a97d1bf9da", features = [
