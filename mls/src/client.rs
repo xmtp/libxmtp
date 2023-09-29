@@ -1,6 +1,6 @@
 use crate::{
     group::Group, identity::Identity, openmls_rust_persistent_crypto::OpenMlsRustPersistentCrypto,
-    utils::now_ns,
+    owner::InboxOwner, utils::now_ns,
 };
 use openmls::{
     prelude::{
@@ -14,6 +14,7 @@ use tls_codec::Deserialize;
 use xmtp::types::networking::{
     Envelope, PagingInfo, PublishRequest, QueryRequest, SortDirection, XmtpApiClient,
 };
+use xmtp_cryptography::utils::generate_local_wallet;
 use xmtp_networking::grpc_api_helper::Client as ApiClient;
 const CIPHERSUITE: Ciphersuite = Ciphersuite::MLS_128_DHKEMX25519_AES128GCM_SHA256_Ed25519;
 use uuid::Uuid;
@@ -24,22 +25,26 @@ pub struct Client {
     pub identity: Identity,
     pub crypto: OpenMlsRustPersistentCrypto,
     pub api_client: ApiClient,
+    pub wallet_address: String,
     pub id: String,
 }
 
 impl Client {
     pub async fn create() -> Client {
-        let id = Uuid::new_v4();
-        println!("Client ID: {:?}", id.to_string());
+        let wallet = generate_local_wallet();
+        let wallet_address = wallet.get_address();
         let crypto = OpenMlsRustPersistentCrypto::default();
-        let identity = Identity::new(CIPHERSUITE, &crypto, id.to_string().as_bytes());
+        let identity = Identity::new(CIPHERSUITE, &crypto, wallet);
+        let id = sha256::digest(identity.identity());
+
         let networking = ApiClient::create(API_URL.to_string(), true).await.unwrap();
 
         let client = Client {
             identity,
             crypto,
             api_client: networking,
-            id: id.to_string(),
+            wallet_address,
+            id,
         };
 
         client.publish_key_packages().await;
@@ -206,6 +211,7 @@ mod tests {
         assert_eq!(client.identity.kp.len(), 1);
 
         let kp = client.get_key_package(client.id.as_str()).await;
+        println!("KP: {:?}", kp);
         assert!(kp.is_some());
     }
 

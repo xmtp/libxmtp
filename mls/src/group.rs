@@ -1,5 +1,6 @@
 use openmls::prelude::{
-    Credential, MlsGroup, MlsMessageIn, MlsMessageInBody, MlsMessageOut, ProcessedMessageContent,
+    Credential, Member, MlsGroup, MlsMessageIn, MlsMessageInBody, MlsMessageOut,
+    ProcessedMessageContent,
 };
 use openmls::prelude::{ProtocolMessage, TlsSerializeTrait};
 use std::str;
@@ -8,6 +9,7 @@ use xmtp::types::networking::{
     Envelope, PagingInfo, PublishRequest, QueryRequest, SortDirection, XmtpApiClient,
 };
 
+use crate::identity::identity_to_wallet_address;
 use crate::{client::Client, utils::now_ns};
 
 pub struct ConversationMessage {
@@ -120,6 +122,12 @@ impl<'c> Group<'c> {
         }
     }
 
+    fn find_member(&self, identity: &[u8]) -> Option<Member> {
+        self.mls_group
+            .members()
+            .find(|member| member.credential.identity().eq(identity))
+    }
+
     fn process_message_content(
         &mut self,
         content: ProcessedMessageContent,
@@ -127,13 +135,17 @@ impl<'c> Group<'c> {
     ) {
         match content {
             ProcessedMessageContent::ApplicationMessage(application_message) => {
-                let sender = credential.identity();
-                let sender_name = str::from_utf8(sender).unwrap();
+                let sender_identity = credential.identity();
+                let member = self
+                    .find_member(sender_identity)
+                    .expect("Could not find member for identity");
+                let wallet_address =
+                    identity_to_wallet_address(sender_identity, member.signature_key.as_slice());
                 let conversation_message = ConversationMessage::new(
                     String::from_utf8(application_message.into_bytes())
                         .unwrap()
                         .clone(),
-                    sender_name.to_string(),
+                    wallet_address,
                 );
                 self.add_message(conversation_message);
             }
@@ -171,6 +183,28 @@ mod tests {
         assert_eq!(group.mls_group.members().collect::<Vec<Member>>().len(), 1);
         group.add_member(client_2.id.as_str()).await;
         assert_eq!(group.mls_group.members().collect::<Vec<Member>>().len(), 2);
+    }
+
+    #[test_log::test(tokio::test)]
+    async fn test_sender_wallet_address() {
+        let client_1 = Client::create().await;
+        let client_2 = Client::create().await;
+
+        let mut group = client_1.create_group();
+        group.add_member(client_2.id.as_str()).await;
+        group.send("gm".to_string()).await;
+
+        let client_2_groups = client_2.load_groups().await;
+        assert_eq!(client_2_groups.len(), 1);
+
+        for mut client_2_group in client_2_groups {
+            client_2_group.recv().await;
+            assert_eq!(client_2_group.messages.len(), 1);
+            assert_eq!(
+                client_2_group.messages.get(0).unwrap().user,
+                client_1.wallet_address
+            );
+        }
     }
 
     #[test_log::test(tokio::test)]

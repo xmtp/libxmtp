@@ -23,3 +23,9 @@ uuid = { version = "1.4.1", features = ["v4"] }
 tls_codec = "0.3.0"
 test-log = "0.2.12"
 env_logger = "0.10.0"
+xmtp_proto = { path = "../xmtp_proto", features = ["proto_full"] }
+xmtp_cryptography = { path = "../xmtp_cryptography"}
+futures = "0.3.28"
+ethers = "2.0.10"
+sha256 = "1.4.0"
+prost = { version = "0.11", features = ["prost-derive"] }
