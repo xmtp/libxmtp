@@ -11,11 +11,12 @@ use openmls::{
 };
 use openmls_traits::types::Ciphersuite;
 use tls_codec::Deserialize;
-use xmtp::types::networking::{
-    Envelope, PagingInfo, PublishRequest, QueryRequest, SortDirection, XmtpApiClient,
-};
+use xmtp_api_grpc::grpc_api_helper::Client as ApiClient;
 use xmtp_cryptography::utils::generate_local_wallet;
-use xmtp_networking::grpc_api_helper::Client as ApiClient;
+use xmtp_proto::api_client::XmtpApiClient;
+use xmtp_proto::xmtp::message_api::v1::{
+    Envelope, PagingInfo, PublishRequest, QueryRequest, SortDirection,
+};
 const CIPHERSUITE: Ciphersuite = Ciphersuite::MLS_128_DHKEMX25519_AES128GCM_SHA256_Ed25519;
 use uuid::Uuid;
 

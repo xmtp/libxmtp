@@ -17,7 +17,7 @@ openmls_basic_credential = { git= "https://github.com/openmls/openmls" }
 openmls_rust_crypto = { git= "https://github.com/openmls/openmls" }
 rand = "0.8.5"
 xmtp = { path = "../xmtp"}
-xmtp_networking = { path = "../xmtp_networking"}
+xmtp_api_grpc = { path = "../xmtp_api_grpc"}
 hex = "0.4.3"
 uuid = { version = "1.4.1", features = ["v4"] }
 tls_codec = "0.3.0"

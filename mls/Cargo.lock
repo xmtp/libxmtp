@@ -2274,8 +2274,8 @@ dependencies = [
  "tokio",
  "uuid 1.4.1",
  "xmtp",
+ "xmtp_api_grpc",
  "xmtp_cryptography",
- "xmtp_networking",
  "xmtp_proto",
 ]
 
@@ -4678,6 +4678,27 @@ dependencies = [
 ]
 
 [[package]]
+name = "xmtp_api_grpc"
+version = "0.1.0"
+dependencies = [
+ "base64 0.21.4",
+ "http-body",
+ "hyper",
+ "hyper-rustls",
+ "pbjson",
+ "pbjson-types",
+ "prost",
+ "serde",
+ "serde_json",
+ "tokio",
+ "tokio-rustls",
+ "tonic",
+ "tower",
+ "webpki-roots 0.23.1",
+ "xmtp_proto",
+]
+
+[[package]]
 name = "xmtp_cryptography"
 version = "0.1.0"
 dependencies = [
@@ -4695,31 +4716,10 @@ dependencies = [
 ]
 
 [[package]]
-name = "xmtp_networking"
-version = "0.1.0"
-dependencies = [
- "base64 0.21.4",
- "http-body",
- "hyper",
- "hyper-rustls",
- "pbjson",
- "pbjson-types",
- "prost",
- "serde",
- "serde_json",
- "tokio",
- "tokio-rustls",
- "tonic",
- "tower",
- "webpki-roots 0.23.1",
- "xmtp",
- "xmtp_proto",
-]
-
-[[package]]
 name = "xmtp_proto"
 version = "0.1.0"
 dependencies = [
+ "async-trait",
  "pbjson",
  "pbjson-types",
  "prost",

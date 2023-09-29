@@ -5,9 +5,6 @@ use openmls::prelude::{
 use openmls::prelude::{ProtocolMessage, TlsSerializeTrait};
 use std::str;
 use tls_codec::Deserialize;
-use xmtp::types::networking::{
-    Envelope, PagingInfo, PublishRequest, QueryRequest, SortDirection, XmtpApiClient,
-};
 
 use crate::identity::identity_to_wallet_address;
 use crate::{client::Client, utils::now_ns};
