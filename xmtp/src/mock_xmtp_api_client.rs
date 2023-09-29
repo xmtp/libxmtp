@@ -1,9 +1,9 @@
-use crate::types::networking::*;
 use async_trait::async_trait;
 use std::{
     collections::HashMap,
     sync::{Arc, Mutex},
 };
+use xmtp_proto::api_client::*;
 
 pub struct MockXmtpApiSubscription {}
 
@@ -53,7 +53,8 @@ impl Clone for MockXmtpApiClient {
     }
 }
 
-#[async_trait]
+#[cfg_attr(not(target_arch = "wasm32"), async_trait)]
+#[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
 impl XmtpApiClient for MockXmtpApiClient {
     type Subscription = MockXmtpApiSubscription;
 
@@ -95,5 +96,9 @@ impl XmtpApiClient for MockXmtpApiClient {
 
     async fn subscribe(&self, _request: SubscribeRequest) -> Result<Self::Subscription, Error> {
         Err(Error::new(ErrorKind::SubscribeError))
+    }
+
+    async fn batch_query(&self, request: BatchQueryRequest) -> Result<BatchQueryResponse, Error> {
+        Err(Error::new(ErrorKind::BatchQueryError))
     }
 }

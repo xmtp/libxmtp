@@ -2,18 +2,44 @@ extern crate bindings_wasm;
 extern crate wasm_bindgen_test;
 use bindings_wasm::*;
 use prost::Message;
+use wasm_bindgen::prelude::*;
 use wasm_bindgen_test::*;
 use xmtp_cryptography::signature::RecoverableSignature;
-use xmtp_proto::xmtp::message_api::v1::Envelope;
+use xmtp_proto::api_client::XmtpApiClient;
+use xmtp_proto::xmtp::message_api::v1::{
+    BatchQueryRequest, Envelope, PublishRequest, QueryRequest,
+};
 
 // Only run these tests in a browser.
 wasm_bindgen_test_configure!(run_in_browser);
 
+#[wasm_bindgen]
+extern "C" {
+    // Use `js_namespace` here to bind `console.log(..)` instead of just
+    // `log(..)`
+    #[wasm_bindgen(js_namespace = console)]
+    fn log(s: &str);
+}
+
 #[wasm_bindgen_test]
-pub fn test_client_construction() {
-    let client = WasmXmtpClient::new();
-    // TODO: assert things about the client once it does anything.
-    assert!(matches!(client, Ok(_)));
+pub async fn test_client_raw_requests() {
+    let xmtp_url: String = "http://localhost:5555".to_string();
+    let client = WasmXmtpClient::new(xmtp_url).unwrap_or_else(|_error| {
+        panic!("client should be constructed");
+    });
+    let api = client.api();
+
+    let topic = uuid::Uuid::new_v4();
+    let q = QueryRequest {
+        content_topics: vec![topic.to_string()],
+        ..QueryRequest::default()
+    };
+
+    let res = api.query(q.clone()).await.expect("successfully queried");
+    assert_eq!(0, res.envelopes.len());
+
+    // Note: this is mostly just to make sure it's all wired up correctly.
+    //       More functionality tests live in the xmtp_api_grpc_gateway crate.
 }
 
 #[wasm_bindgen_test]

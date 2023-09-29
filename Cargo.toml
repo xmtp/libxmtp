@@ -4,10 +4,7 @@ members = [
   "examples/cli",
   "xmtp",
   "xmtp_cryptography",
-  "xmtp_networking",
-  #  TODO: replace ^ with:
-  #  "xmtp_api_grpc",
-  #  "xmtp_api_grpc_gateway",
+  "xmtp_api_grpc",
   "xmtp_proto",
   "xmtp_v2",
 ]
@@ -20,6 +17,7 @@ exclude = [
   "bindings_js",
   "bindings_wasm",
   "mls",
+  "xmtp_api_grpc_gateway",
 ]
 
 # Make the feature resolver explicit.

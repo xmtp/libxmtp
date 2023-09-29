@@ -1,9 +1,8 @@
-# [Wasm](https://webassembly.org/) bindings for XMTP v3
+# XMTP API client using a gRPC Gateway
 
 # WARNING: DO NOT USE FOR PRODUCTION XMTP CLIENTS
 
 This code is still under development.
 
-- `$ cd bindings_wasm`
+- `$ cd xmtp_api_grpc_gateway`
 - `$ wasm-pack test --headless --chrome`
-- `$ wasm-pack build`

@@ -1,9 +1,9 @@
 #[cfg(test)]
 pub mod test_utils {
     use crate::{
-        conversation::Conversation, mock_xmtp_api_client::MockXmtpApiClient,
-        types::networking::XmtpApiClient, Client, ClientBuilder,
+        conversation::Conversation, mock_xmtp_api_client::MockXmtpApiClient, Client, ClientBuilder,
     };
+    use xmtp_proto::api_client::XmtpApiClient;
 
     async fn gen_test_client_internal(api_client: MockXmtpApiClient) -> Client<MockXmtpApiClient> {
         let mut client = ClientBuilder::new_test()

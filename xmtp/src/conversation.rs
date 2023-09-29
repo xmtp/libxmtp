@@ -8,10 +8,11 @@ use crate::{
         now, DbConnection, MessageState, NewStoredMessage, StorageError, StoredConversation,
         StoredMessage, StoredUser,
     },
-    types::networking::XmtpApiClient,
     types::Address,
     Client, Store,
 };
+use xmtp_proto::api_client::XmtpApiClient;
+use xmtp_proto::xmtp::message_api::v1::PublishRequest;
 
 use prost::{DecodeError, Message};
 // use async_trait::async_trait;
@@ -36,7 +37,7 @@ pub enum ConversationError {
     #[error("Session: {0}")]
     Session(#[from] SessionError),
     #[error("Network error: {0}")]
-    Networking(#[from] crate::types::networking::Error),
+    Networking(#[from] xmtp_proto::api_client::Error),
     #[error("Payload:{0}")]
     Payload(#[from] PayloadError),
     #[error("error:{0}")]

@@ -12,6 +12,7 @@ services:
       # Disable authn until we have reliable support for generating auth tokens
       # - --api.authn.enable
     ports:
+      - 5555:5555
       - 5556:5556
     depends_on:
       - db

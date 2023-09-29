@@ -3,13 +3,13 @@ use crate::{
     association::{AssociationError, AssociationText, Eip191Association},
     client::{Client, Network},
     storage::{now, EncryptedMessageStore, StoredUser},
-    types::networking::XmtpApiClient,
     types::Address,
     InboxOwner, Store,
 };
 use crate::{Fetch, StorageError};
 use log::info;
 use thiserror::Error;
+use xmtp_proto::api_client::XmtpApiClient;
 
 #[derive(Error, Debug)]
 pub enum ClientBuilderError {
