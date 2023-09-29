@@ -7,7 +7,7 @@ pub mod networking {
 
     pub use xmtp_proto::xmtp::message_api::v1::{
         Envelope, PagingInfo, PublishRequest, PublishResponse, QueryRequest, QueryResponse,
-        SubscribeRequest,
+        SortDirection, SubscribeRequest,
     };
 
     #[derive(Debug)]

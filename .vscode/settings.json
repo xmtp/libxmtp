@@ -1,3 +1,7 @@
 {
-    "rust-analyzer.linkedProjects": ["bindings_ffi/Cargo.toml", "examples/cli/Cargo.toml"]
+  "rust-analyzer.linkedProjects": [
+    "bindings_ffi/Cargo.toml",
+    "examples/cli/Cargo.toml",
+    "mls/Cargo.toml"
+  ]
 }

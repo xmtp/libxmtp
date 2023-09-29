@@ -18,6 +18,7 @@ exclude = [
   "bindings_ffi",
   "bindings_js",
   "bindings_wasm",
+  "mls",
 ]
 
 # Make the feature resolver explicit.
