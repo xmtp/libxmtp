@@ -13,7 +13,7 @@ use xmtp::conversation::{ListMessagesOptions, Conversation};
 use xmtp::conversations::Conversations;
 use xmtp::storage::{EncryptedMessageStore, EncryptionKey, StorageOption, StoredMessage};
 use xmtp::types::Address;
-use xmtp_networking::grpc_api_helper::Client as TonicApiClient;
+use xmtp_api_grpc::grpc_api_helper::Client as TonicApiClient;
 
 use crate::inbox_owner::RustInboxOwner;
 pub use crate::inbox_owner::SigningError;
@@ -315,7 +315,7 @@ mod tests {
         create_client(
             Box::new(MockLogger {}),
             Box::new(ffi_inbox_owner),
-            xmtp_networking::LOCALHOST_ADDRESS.to_string(),
+            xmtp_api_grpc::LOCALHOST_ADDRESS.to_string(),
             false,
             None,
             None,
@@ -340,7 +340,7 @@ mod tests {
         let client_a = create_client(
             Box::new(MockLogger {}),
             Box::new(ffi_inbox_owner.clone()),
-            xmtp_networking::LOCALHOST_ADDRESS.to_string(),
+            xmtp_api_grpc::LOCALHOST_ADDRESS.to_string(),
             false,
             Some(path.to_string_lossy().to_string()),
             None,
@@ -354,7 +354,7 @@ mod tests {
         let client_b = create_client(
             Box::new(MockLogger {}),
             Box::new(ffi_inbox_owner),
-            xmtp_networking::LOCALHOST_ADDRESS.to_string(),
+            xmtp_api_grpc::LOCALHOST_ADDRESS.to_string(),
             false,
             Some(path.to_string_lossy().to_string()),
             None,
@@ -382,7 +382,7 @@ mod tests {
         let client_a = create_client(
             Box::new(MockLogger {}),
             Box::new(ffi_inbox_owner.clone()),
-            xmtp_networking::LOCALHOST_ADDRESS.to_string(),
+            xmtp_api_grpc::LOCALHOST_ADDRESS.to_string(),
             false,
             Some(path.to_string_lossy().to_string()),
             Some(key),
@@ -398,7 +398,7 @@ mod tests {
         let result_errored = create_client(
             Box::new(MockLogger {}),
             Box::new(ffi_inbox_owner),
-            xmtp_networking::LOCALHOST_ADDRESS.to_string(),
+            xmtp_api_grpc::LOCALHOST_ADDRESS.to_string(),
             false,
             Some(path.to_string_lossy().to_string()),
             Some(other_key.to_vec()),

@@ -10,8 +10,7 @@ mod tests {
     use std::time::{SystemTime, UNIX_EPOCH};
 
     use super::*;
-    use xmtp::types::networking::XmtpApiClient;
-    use xmtp::types::networking::XmtpApiSubscription;
+    use xmtp_proto::api_client::{XmtpApiClient, XmtpApiSubscription};
     use xmtp_proto::xmtp::message_api::v1::{
         BatchQueryRequest, Envelope, PublishRequest, QueryRequest, SubscribeRequest,
     };

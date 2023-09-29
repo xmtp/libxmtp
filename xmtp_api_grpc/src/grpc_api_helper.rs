@@ -9,7 +9,7 @@ use tokio_rustls::rustls::{ClientConfig, OwnedTrustAnchor, RootCertStore};
 use tonic::async_trait;
 use tonic::Status;
 use tonic::{metadata::MetadataValue, transport::Channel, Request, Streaming};
-use xmtp::types::networking::{Error, ErrorKind, XmtpApiClient, XmtpApiSubscription};
+use xmtp_proto::api_client::{Error, ErrorKind, XmtpApiClient, XmtpApiSubscription};
 use xmtp_proto::xmtp::message_api::v1::{
     message_api_client::MessageApiClient, BatchQueryRequest, BatchQueryResponse, Envelope,
     PublishRequest, PublishResponse, QueryRequest, QueryResponse, SubscribeRequest,
@@ -182,13 +182,8 @@ impl XmtpApiClient for Client {
             Err(e) => Err(Error::new(ErrorKind::QueryError).with(e)),
         }
     }
-}
 
-impl Client {
-    pub async fn batch_query(
-        &self,
-        request: BatchQueryRequest,
-    ) -> Result<BatchQueryResponse, Error> {
+    async fn batch_query(&self, request: BatchQueryRequest) -> Result<BatchQueryResponse, Error> {
         let mut tonic_request = Request::new(request);
         tonic_request
             .metadata_mut()
