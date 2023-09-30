@@ -1,6 +1,10 @@
 package org.xmtp.android.library
 
 import androidx.test.ext.junit.runners.AndroidJUnit4
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -16,6 +20,7 @@ import org.xmtp.android.library.messages.createDeterministic
 import org.xmtp.android.library.messages.getPublicKeyBundle
 import org.xmtp.android.library.messages.toPublicKeyBundle
 import org.xmtp.android.library.messages.walletAddress
+import java.lang.Thread.sleep
 import java.util.Date
 
 @RunWith(AndroidJUnit4::class)
@@ -70,5 +75,66 @@ class ConversationsTest {
         val conversation = client.conversations.fromInvite(envelope = envelope)
         assertEquals(conversation.peerAddress, newWallet.address)
         assertEquals(conversation.createdAt.time, created.time)
+    }
+
+    @Test
+    fun testStreamAllMessages() = runBlocking {
+        val bo = PrivateKeyBuilder()
+        val alix = PrivateKeyBuilder()
+        val clientOptions =
+            ClientOptions(api = ClientOptions.Api(env = XMTPEnvironment.LOCAL, isSecure = false))
+        val boClient = Client().create(bo, clientOptions)
+        val alixClient = Client().create(alix, clientOptions)
+        val boConversation = boClient.conversations.newConversation(alixClient.address)
+
+        // Record message stream across all conversations
+        val allMessages = mutableListOf<DecodedMessage>()
+
+        val job = CoroutineScope(Dispatchers.IO).launch {
+            try {
+                alixClient.conversations.streamAllMessages().collect { message ->
+                    allMessages.add(message)
+                }
+            } catch (e: Exception) {}
+        }
+        sleep(2500)
+
+        for (i in 0 until 5) {
+            boConversation.send(text = "Message $i")
+            sleep(1000)
+        }
+        assertEquals(allMessages.size, 5)
+
+        val caro = PrivateKeyBuilder()
+        val caroClient = Client().create(caro, clientOptions)
+        val caroConversation = caroClient.conversations.newConversation(alixClient.address)
+
+        sleep(2500)
+
+        for (i in 0 until 5) {
+            caroConversation.send(text = "Message $i")
+            sleep(1000)
+        }
+
+        assertEquals(allMessages.size, 10)
+
+        job.cancel()
+
+        CoroutineScope(Dispatchers.IO).launch {
+            try {
+                alixClient.conversations.streamAllMessages().collect { message ->
+                    allMessages.add(message)
+                }
+            } catch (e: Exception) {
+            }
+        }
+        sleep(2500)
+
+        for (i in 0 until 5) {
+            boConversation.send(text = "Message $i")
+            sleep(1000)
+        }
+
+        assertEquals(allMessages.size, 15)
     }
 }

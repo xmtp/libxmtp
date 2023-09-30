@@ -558,18 +558,6 @@ class ConversationTest {
     }
 
     @Test
-    fun testStreamAllMessagesGetsMessageFromKnownConversation() = kotlinx.coroutines.test.runTest {
-        val fixtures = fixtures()
-        val client = fixtures.aliceClient
-        val bobConversation = fixtures.bobClient.conversations.newConversation(client.address)
-        client.conversations.streamAllMessages().test {
-            bobConversation.send(text = "hi")
-            assertEquals("hi", awaitItem().encodedContent.content.toStringUtf8())
-            awaitComplete()
-        }
-    }
-
-    @Test
     fun testV2RejectsSpoofedContactBundles() {
         val topic = "/xmtp/0/m-Gdb7oj5nNdfZ3MJFLAcS4WTABgr6al1hePy6JV1-QUE/proto"
         val envelopeMessage =

@@ -44,12 +44,6 @@ jobs:
         uses: gradle/gradle-build-action@v2
       - name: Validate Gradle Wrapper
         uses: gradle/wrapper-validation-action@v1
-        # Workaround for https://github.com/actions/runner-images/issues/8104
-      - name: Fix Qemu Error
-        run: |
-          brew remove --ignore-dependencies qemu
-          curl -o ./qemu.rb https://raw.githubusercontent.com/Homebrew/homebrew-core/f88e30b3a23ef3735580f9b05535ce5a0a03c9e3/Formula/qemu.rb
-          brew install ./qemu.rb
       - name: Set up Docker
         run: brew install docker docker-compose
       - name: Start Colima

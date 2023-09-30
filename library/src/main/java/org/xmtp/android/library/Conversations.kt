@@ -1,8 +1,10 @@
 package org.xmtp.android.library
 
 import android.util.Log
+import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.job
 import kotlinx.coroutines.runBlocking
 import org.xmtp.android.library.GRPCApiClient.Companion.makeQueryRequest
 import org.xmtp.android.library.messages.Envelope
@@ -354,16 +356,15 @@ data class Conversations(
     }
 
     fun streamAllMessages(): Flow<DecodedMessage> = flow {
+        val topics = mutableListOf(
+            Topic.userInvite(client.address).description,
+            Topic.userIntro(client.address).description
+        )
+
+        for (conversation in list()) {
+            topics.add(conversation.topic)
+        }
         while (true) {
-            val topics = mutableListOf(
-                Topic.userInvite(client.address).description,
-                Topic.userIntro(client.address).description
-            )
-
-            for (conversation in list()) {
-                topics.add(conversation.topic)
-            }
-
             try {
                 client.subscribe(topics = topics).collect { envelope ->
                     when {
@@ -374,24 +375,26 @@ data class Conversations(
                         }
 
                         envelope.contentTopic.startsWith("/xmtp/0/invite-") -> {
-                            val conversation = fromInvite(envelope)
+                            val conversation = fromInvite(envelope = envelope)
                             conversationsByTopic[conversation.topic] = conversation
-                            // Break so we can resubscribe with the new conversation
-                            return@collect
+                            topics.add(conversation.topic)
+                            currentCoroutineContext().job.cancel()
                         }
 
                         envelope.contentTopic.startsWith("/xmtp/0/intro-") -> {
-                            val conversation = fromIntro(envelope)
+                            val conversation = fromIntro(envelope = envelope)
                             conversationsByTopic[conversation.topic] = conversation
                             val decoded = conversation.decode(envelope)
                             emit(decoded)
-                            // Break so we can resubscribe with the new conversation
-                            return@collect
+                            topics.add(conversation.topic)
+                            currentCoroutineContext().job.cancel()
                         }
+
+                        else -> {}
                     }
                 }
             } catch (error: Exception) {
-                throw error
+                continue
             }
         }
     }
