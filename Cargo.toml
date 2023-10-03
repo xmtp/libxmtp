@@ -19,4 +19,5 @@ exclude = [
   "bindings_swift",
   "bindings_wasm",
   "xmtp_dh",
+  "simple_hyper",
 ]
