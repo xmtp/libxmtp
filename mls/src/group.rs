@@ -1,13 +1,13 @@
 use openmls::prelude::{
-    Credential, Member, MlsGroup, MlsMessageIn, MlsMessageInBody, MlsMessageOut,
-    ProcessedMessageContent,
+    MlsGroup, MlsMessageIn, MlsMessageInBody, MlsMessageOut, ProcessedMessage,
+    ProcessedMessageContent, Sender,
 };
 use openmls::prelude::{ProtocolMessage, TlsSerializeTrait};
 use std::str;
 use tls_codec::Deserialize;
 
+use crate::client::Client;
 use crate::identity::identity_to_wallet_address;
-use crate::{client::Client, utils::now_ns};
 
 pub struct ConversationMessage {
     pub user: String,
@@ -105,12 +105,14 @@ impl<'c> Group<'c> {
                             continue;
                         }
                         Ok(processed_message) => {
-                            let processed_message_credential: Credential =
-                                processed_message.credential().clone();
-
+                            let wallet_address = self.get_wallet_address(&processed_message);
+                            if wallet_address.is_err() {
+                                println!("failed to get wallet address");
+                                continue;
+                            }
                             let content = processed_message.into_content();
 
-                            self.process_message_content(content, processed_message_credential);
+                            self.process_message_content(content, wallet_address.unwrap());
                         }
                     }
                 }
@@ -119,30 +121,41 @@ impl<'c> Group<'c> {
         }
     }
 
-    fn find_member(&self, identity: &[u8]) -> Option<Member> {
-        self.mls_group
-            .members()
-            .find(|member| member.credential.identity().eq(identity))
+    fn get_wallet_address(&self, message: &ProcessedMessage) -> Result<String, String> {
+        let sender = message.sender();
+        match sender {
+            Sender::Member(leaf_index) => {
+                let member = match self
+                    .mls_group
+                    .members()
+                    .find(|m| m.index.u32() == leaf_index.u32())
+                {
+                    Some(member) => member,
+                    None => return Err("member not found".to_string()),
+                };
+                let credential = message.credential();
+                let wallet_address = identity_to_wallet_address(
+                    credential.identity(),
+                    member.signature_key.as_slice(),
+                );
+                Ok(wallet_address)
+            }
+            _ => Err("unsupported message sender".to_string()),
+        }
     }
 
     fn process_message_content(
         &mut self,
         content: ProcessedMessageContent,
-        credential: Credential,
+        sender_wallet_address: String,
     ) {
         match content {
             ProcessedMessageContent::ApplicationMessage(application_message) => {
-                let sender_identity = credential.identity();
-                let member = self
-                    .find_member(sender_identity)
-                    .expect("Could not find member for identity");
-                let wallet_address =
-                    identity_to_wallet_address(sender_identity, member.signature_key.as_slice());
                 let conversation_message = ConversationMessage::new(
                     String::from_utf8(application_message.into_bytes())
                         .unwrap()
                         .clone(),
-                    wallet_address,
+                    sender_wallet_address,
                 );
                 self.add_message(conversation_message);
             }
@@ -182,7 +195,7 @@ mod tests {
         assert_eq!(group.mls_group.members().collect::<Vec<Member>>().len(), 2);
     }
 
-    #[test_log::test(tokio::test)]
+    #[tokio::test]
     async fn test_sender_wallet_address() {
         let client_1 = Client::create().await;
         let client_2 = Client::create().await;
@@ -230,7 +243,6 @@ mod tests {
             client_2_group.add_member(client_3.id.as_str()).await;
             client_2_group.send("hello to you".to_string()).await;
         }
-
         group.recv().await;
         assert_eq!(group.messages.len(), 2);
         assert_eq!(group.mls_group.members().collect::<Vec<Member>>().len(), 3);
