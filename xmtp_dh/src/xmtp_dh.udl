@@ -3,9 +3,18 @@ enum DiffieHellmanError {
   "GenericError",
 };
 
+[Error]
+enum EciesError {
+  "GenericError",
+};
+
 namespace xmtp_dh {
     // TODO: Switch from sequence<u8> to bytes once https://github.com/mozilla/uniffi-rs/pull/1543
     // is released in uniffi crate
     [Throws=DiffieHellmanError]
     sequence<u8> diffie_hellman_k256(sequence<u8> private_key_bytes, sequence<u8> public_key_bytes);
+    [Throws=EciesError]
+    sequence<u8> ecies_encrypt_k256_sha3_256(sequence<u8> public_key_bytes, sequence<u8> private_key_bytes, sequence<u8> message_bytes);
+    [Throws=EciesError]
+    sequence<u8> ecies_decrypt_k256_sha3_256(sequence<u8> public_key_bytes, sequence<u8> private_key_bytes, sequence<u8> message_bytes);
 };
