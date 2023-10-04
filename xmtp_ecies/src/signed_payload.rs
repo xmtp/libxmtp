@@ -13,9 +13,9 @@ use crate::{
 };
 
 pub fn encrypt_message(
-    public_key: &[u8],
-    private_key: &[u8],
-    message: &[u8],
+    public_key: &[u8],  // secp256k1 public key
+    private_key: &[u8], // secp256k1 private key
+    message: &[u8],     // any byte array
 ) -> Result<Vec<u8>, String> {
     let signed_payload = build_signed_payload(private_key, message)?;
     let message_bytes = signed_payload.encode_to_vec();
@@ -28,9 +28,9 @@ pub fn encrypt_message(
 }
 
 pub fn decrypt_message(
-    public_key: &[u8],
-    private_key: &[u8],
-    message: &[u8],
+    public_key: &[u8],  // secp256k1 public key
+    private_key: &[u8], // secp256k1 private key
+    message: &[u8],     // message encrypted with `encrypt_message`
 ) -> Result<Vec<u8>, String> {
     let ciphertext = get_ciphertext(message)?;
 
