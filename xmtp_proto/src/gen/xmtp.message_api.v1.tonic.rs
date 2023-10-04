@@ -134,6 +134,31 @@ pub mod message_api_client {
                 .insert(GrpcMethod::new("xmtp.message_api.v1.MessageApi", "Subscribe"));
             self.inner.server_streaming(req, path, codec).await
         }
+        pub async fn subscribe2(
+            &mut self,
+            request: impl tonic::IntoStreamingRequest<Message = super::SubscribeRequest>,
+        ) -> std::result::Result<
+            tonic::Response<tonic::codec::Streaming<super::Envelope>>,
+            tonic::Status,
+        > {
+            self.inner
+                .ready()
+                .await
+                .map_err(|e| {
+                    tonic::Status::new(
+                        tonic::Code::Unknown,
+                        format!("Service was not ready: {}", e.into()),
+                    )
+                })?;
+            let codec = tonic::codec::ProstCodec::default();
+            let path = http::uri::PathAndQuery::from_static(
+                "/xmtp.message_api.v1.MessageApi/Subscribe2",
+            );
+            let mut req = request.into_streaming_request();
+            req.extensions_mut()
+                .insert(GrpcMethod::new("xmtp.message_api.v1.MessageApi", "Subscribe2"));
+            self.inner.streaming(req, path, codec).await
+        }
         pub async fn subscribe_all(
             &mut self,
             request: impl tonic::IntoRequest<super::SubscribeAllRequest>,
