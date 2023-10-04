@@ -32,7 +32,7 @@ fn tls_config() -> ClientConfig {
         .with_no_client_auth()
 }
 
-fn get_tls_connector() -> HttpsConnector<HttpConnector> {
+fn get_tls_connector() -> HttpsConnector<tower::timeout::Timeout<HttpConnector>> {
     let tls = tls_config();
 
     let mut http = HttpConnector::new();
@@ -46,6 +46,7 @@ fn get_tls_connector() -> HttpsConnector<HttpConnector> {
                 .enable_http2()
                 .wrap_connector(s)
         })
+        .timeout(Duration::from_secs(5))
         .service(http)
 }
 
@@ -53,7 +54,10 @@ pub enum InnerApiClient {
     Plain(MessageApiClient<Channel>),
     Tls(
         MessageApiClient<
-            hyper::Client<HttpsConnector<HttpConnector>, UnsyncBoxBody<hyper::body::Bytes, Status>>,
+            hyper::Client<
+                HttpsConnector<tower::timeout::Timeout<HttpConnector>>,
+                UnsyncBoxBody<hyper::body::Bytes, Status>,
+            >,
         >,
     ),
 }
@@ -69,7 +73,11 @@ impl Client {
         if is_secure {
             let connector = get_tls_connector();
 
-            let tls_conn = hyper::Client::builder().build(connector);
+            let tls_conn = hyper::Client::builder()
+                .pool_idle_timeout(Duration::from_secs(30))
+                .http2_keep_alive_interval(Duration::from_secs(10))
+                .http2_keep_alive_timeout(Duration::from_secs(5))
+                .build(connector);
 
             let uri =
                 Uri::from_str(&host).map_err(|e| Error::new(ErrorKind::SetupError).with(e))?;
@@ -83,6 +91,11 @@ impl Client {
         } else {
             let channel = Channel::from_shared(host)
                 .map_err(|e| Error::new(ErrorKind::SetupError).with(e))?
+                .timeout(Duration::from_secs(5))
+                .connect_timeout(Duration::from_secs(5))
+                .tcp_keepalive(Some(Duration::from_secs(10)))
+                .http2_keep_alive_interval(Duration::from_secs(10))
+                .keep_alive_timeout(Duration::from_secs(5))
                 .connect()
                 .await
                 .map_err(|e| Error::new(ErrorKind::SetupError).with(e))?;
@@ -123,7 +136,6 @@ impl XmtpApiClient for Client {
             .map_err(|e| Error::new(ErrorKind::PublishError).with(e))?;
 
         let mut tonic_request = Request::new(request);
-        tonic_request.set_timeout(Duration::from_secs(5));
         tonic_request.metadata_mut().insert("authorization", token);
         tonic_request
             .metadata_mut()
@@ -171,7 +183,6 @@ impl XmtpApiClient for Client {
 
     async fn query(&self, request: QueryRequest) -> Result<QueryResponse, Error> {
         let mut tonic_request = Request::new(request);
-        tonic_request.set_timeout(Duration::from_secs(5));
         tonic_request
             .metadata_mut()
             .insert("x-app-version", self.app_version.clone());
@@ -193,7 +204,6 @@ impl Client {
         request: BatchQueryRequest,
     ) -> Result<BatchQueryResponse, Error> {
         let mut tonic_request = Request::new(request);
-        tonic_request.set_timeout(Duration::from_secs(5));
         tonic_request
             .metadata_mut()
             .insert("x-app-version", self.app_version.clone());
