@@ -1,4 +1,5 @@
 [workspace]
+resolver = "2"
 
 members = [
   "examples/cli",
@@ -8,6 +9,7 @@ members = [
   "xmtp_keystore",
   "xmtp_networking",
   "xmtp_proto",
+  "xmtp_ecies",
 ]
 
 # Exclude since
