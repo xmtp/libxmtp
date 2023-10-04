@@ -50,6 +50,16 @@ mod ffi {
             message: Vec<u8>,
             signature: Vec<u8>,
         ) -> Result<Vec<u8>, String>;
+        fn ecies_encrypt_k256_sha3_256(
+            public_key: Vec<u8>,
+            private_key: Vec<u8>,
+            message: Vec<u8>,
+        ) -> Result<Vec<u8>, String>;
+        fn ecies_decrypt_k256_sha3_256(
+            public_key: Vec<u8>,
+            private_key: Vec<u8>,
+            message: Vec<u8>,
+        ) -> Result<Vec<u8>, String>;
     }
 }
 
@@ -196,8 +206,37 @@ fn recover_public_key_k256_keccak256(
         .map_err(|e| format!("RecoverError k256_keccak256: {}", e))
 }
 
+fn ecies_encrypt_k256_sha3_256(
+    public_key: Vec<u8>,
+    private_key: Vec<u8>,
+    message: Vec<u8>,
+) -> Result<Vec<u8>, String> {
+    let ciphertext = xmtp_ecies::signed_payload::encrypt_message(
+        public_key.as_slice(),
+        private_key.as_slice(),
+        message.as_slice(),
+    )?;
+
+    Ok(ciphertext)
+}
+
+fn ecies_decrypt_k256_sha3_256(
+    public_key: Vec<u8>,
+    private_key: Vec<u8>,
+    message: Vec<u8>,
+) -> Result<Vec<u8>, String> {
+    let ciphertext = xmtp_ecies::signed_payload::decrypt_message(
+        public_key.as_slice(),
+        private_key.as_slice(),
+        message.as_slice(),
+    )?;
+
+    Ok(ciphertext)
+}
+
 #[cfg(test)]
 mod tests {
+    use ecies::utils::generate_keypair;
     use prost::Message;
     use std::time::{SystemTime, UNIX_EPOCH};
     use uuid::Uuid;
@@ -255,7 +294,7 @@ mod tests {
                 .await
                 .unwrap();
         client.set_app_version("0.0.2".to_string());
-        
+
         let topic = Uuid::new_v4();
         client
             .publish(
@@ -331,5 +370,28 @@ mod tests {
         // And now since it is closed, it should error.
         sub.close();
         assert!(sub.get_envelopes_as_query_response().is_err());
+    }
+
+    #[test]
+    fn test_ecies() {
+        let (private_key, pub_key) = generate_keypair();
+        let message = "hello world".as_bytes().to_vec();
+
+        let encrypted = super::ecies_encrypt_k256_sha3_256(
+            pub_key.serialize().to_vec(),
+            private_key.serialize().to_vec(),
+            message.clone(),
+        )
+        .unwrap();
+
+        assert!(encrypted.len() > 0);
+
+        let decrypted = super::ecies_decrypt_k256_sha3_256(
+            pub_key.serialize().to_vec(),
+            private_key.serialize().to_vec(),
+            encrypted,
+        );
+
+        assert_eq!(message, decrypted.unwrap());
     }
 }
