@@ -21,20 +21,13 @@ $(ARCHS_MAC): %:
 aarch64-apple-ios:
 	cargo build --target $@ --target-dir ./target --release
 
-# lib: $(ARCHS_IOS) $(ARCHS_MAC) aarch64-apple-ios
-lib:
-	for arch in $(ARCHS_IOS) $(ARCHS_MAC) aarch64-apple-ios; do \
-	    mkdir -p build/$$arch/; \
-		cp target/$$arch/release/$(LIB) build/$$arch/; \
-	done
+$(LIB): $(ARCHS_IOS) $(ARCHS_MAC) aarch64-apple-ios
+	rm -rf lipo_macos lipo_ios_simulator
+	mkdir -p lipo_macos lipo_ios_simulator
+	lipo -create -output lipo_ios_simulator/libxmtp_rust_swift.a $(foreach arch,$(ARCHS_IOS),$(wildcard target/$(arch)/release/$(LIB)))
+	lipo -create -output lipo_macos/libxmtp_rust_swift.a $(foreach arch,$(ARCHS_MAC),$(wildcard target/$(arch)/release/$(LIB)))
 
-lipo:
-	rm -rf build/lipo_macos build/lipo_ios_simulator
-	mkdir -p build/lipo_macos build/lipo_ios_simulator
-	lipo -create -output build/lipo_ios_simulator/$(LIB) $(foreach arch,$(ARCHS_IOS),$(wildcard build/$(arch)/$(LIB)))
-	lipo -create -output build/lipo_macos/$(LIB) $(foreach arch,$(ARCHS_MAC),$(wildcard build/$(arch)/$(LIB)))
-
-bridge:
+move_gen:
 	rm -rf Generated
 	# Clean and build to regenerate swift-bridge "Generated" directory
 	cargo clean
@@ -46,19 +39,22 @@ bridge:
 	# Keep top-level Generated for push-to-swift step where .swift files are
 	# copied over to another repo (xmtp-rust-swift)
 	find include/Generated -type f -name "*.swift" -delete
-	./make_xmtp_rust_swift_sources.sh
 
-framework: lipo
+framework: move_gen $(LIB)
 	rm -rf XMTPRustSwift.xcframework
 	xcodebuild -create-xcframework \
-		-library build/lipo_macos/libxmtp_rust_swift.a -headers include/ \
-		-library build/lipo_ios_simulator/libxmtp_rust_swift.a -headers include/ \
-		-library build/aarch64-apple-ios/libxmtp_rust_swift.a -headers include/ \
+		-library ./lipo_macos/libxmtp_rust_swift.a \
+		-headers ./include/ \
+		-library ./lipo_ios_simulator/libxmtp_rust_swift.a \
+		-headers ./include/ \
+		-library ./target/aarch64-apple-ios/release/libxmtp_rust_swift.a \
+		-headers ./include/ \
 		-output XMTPRustSwift.xcframework
+	rm -f bundle.zip
+	zip -r bundle.zip XMTPRustSwift.xcframework
+	openssl dgst -sha256 bundle.zip
 
 swift: framework
-	rm -f xmtp-rust-swift.zip
-	zip -r xmtp-rust-swift.zip XMTPRustSwift.xcframework Sources
-	openssl dgst -sha256 xmtp-rust-swift.zip
+	./copy_xcframework_to_swift.sh
 
 .PHONY: $(ARCHS_IOS) $(ARCHS_MAC) framework all aarch64-apple-ios download-toolchains swift
