@@ -1,0 +1,52 @@
+name: Release NPM
+
+on:
+  push:
+    branches:
+      - v2
+
+concurrency: ${{ github.workflow }}-${{ github.ref }}
+
+jobs:
+  release:
+    permissions:
+      id-token: write
+      contents: write #  to create release (changesets/action)
+      issues: write # to post issue comments (changesets/action)
+      pull-requests: write #  to create pull request (changesets/action)
+    name: Release
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v3
+        with:
+          # This makes Actions fetch all Git history so that Changesets can generate changelogs with the correct commits
+          fetch-depth: 0
+
+      - name: Install stable toolchain
+        uses: actions-rs/toolchain@v1
+        with:
+          profile: minimal
+          toolchain: stable
+          override: true
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: 18.14.0
+          cache: "npm"
+
+      - name: Install dependencies
+        working-directory: ./ecies_bindings_wasm
+        run: npm i
+
+      - name: Publish
+        uses: changesets/action@v1
+        with:
+          title: "release: version packages"
+          commit: "release: version packages"
+          publish: npm publish
+          cwd: ./ecies_bindings_wasm
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}

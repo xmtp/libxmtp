@@ -2,6 +2,7 @@
   "rust-analyzer.linkedProjects": [
     "bindings_ffi/Cargo.toml",
     "bindings_swift/Cargo.toml",
+    "ecies_bindings_wasm/Cargo.toml",
     "xmtp_dh/Cargo.toml",
     "examples/cli/Cargo.toml"
   ]
