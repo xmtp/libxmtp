@@ -11,6 +11,9 @@
     "clean": "rm -rf ./dist",
     "clean:gitignore": "rm -f ./dist/**/.gitignore"
   },
+  "publishConfig": {
+    "access": "public"
+  },
   "version": "0.1.5",
   "files": [
     "./dist/**/*"
