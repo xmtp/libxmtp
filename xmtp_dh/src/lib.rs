@@ -25,6 +25,27 @@ impl std::fmt::Display for DiffieHellmanError {
     }
 }
 
+#[derive(Debug)]
+pub enum EciesError {
+    GenericError(String),
+}
+
+impl std::error::Error for EciesError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match *self {
+            EciesError::GenericError(_) => None,
+        }
+    }
+}
+
+impl std::fmt::Display for EciesError {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        match *self {
+            EciesError::GenericError(ref message) => write!(f, "{}", message),
+        }
+    }
+}
+
 pub fn diffie_hellman_k256(
     private_key_bytes: Vec<u8>,
     public_key_bytes: Vec<u8>,
@@ -35,4 +56,34 @@ pub fn diffie_hellman_k256(
     )
     .map_err(DiffieHellmanError::GenericError)?;
     Ok(shared_secret)
+}
+
+pub fn ecies_encrypt_k256_sha3_256(
+    public_key_bytes: Vec<u8>,
+    private_key_bytes: Vec<u8>,
+    message_bytes: Vec<u8>,
+) -> Result<Vec<u8>, EciesError> {
+    let ciphertext = xmtp_ecies::signed_payload::encrypt_message(
+        public_key_bytes.as_slice(),
+        private_key_bytes.as_slice(),
+        message_bytes.as_slice(),
+    )
+    .map_err(|e| EciesError::GenericError(e))?;
+
+    Ok(ciphertext)
+}
+
+pub fn ecies_decrypt_k256_sha3_256(
+    public_key_bytes: Vec<u8>,
+    private_key_bytes: Vec<u8>,
+    message_bytes: Vec<u8>,
+) -> Result<Vec<u8>, EciesError> {
+    let ciphertext = xmtp_ecies::signed_payload::decrypt_message(
+        public_key_bytes.as_slice(),
+        private_key_bytes.as_slice(),
+        message_bytes.as_slice(),
+    )
+    .map_err(|e| EciesError::GenericError(e))?;
+
+    Ok(ciphertext)
 }
