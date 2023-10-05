@@ -6,8 +6,8 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-ecies = {version = "0.2.6", default-features = false, features = ["pure", "std"]}
+ecies = {version = "0.2.6", default-features = false, features = ["pure"]}
 xmtp_proto = { path = "../xmtp_proto", features = ["xmtp-message_contents"] }
-libsecp256k1 = {version = "0.7.1", default-features = false, features = ["static-context", "hmac"]}
+libsecp256k1 = {version = "0.7.1", default-features = false, features = ["hmac"]}
 prost = { version = "0.11", features = ["prost-derive"] }
-sha3 = "0.10.8"
+sha3 = { version = "0.10.8", features = ["std"] }
