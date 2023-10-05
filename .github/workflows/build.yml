@@ -6,13 +6,13 @@ on:
       - main
       - v2
 jobs:
-
   build:
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
-        target: [
+        target:
+          [
             x86_64-linux-android,
             i686-linux-android,
             armv7-linux-androideabi,
@@ -64,7 +64,8 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        target: [
+        target:
+          [
             aarch64-apple-darwin,
             x86_64-apple-darwin,
             aarch64-apple-ios,
@@ -74,7 +75,7 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v1
-  
+
       - name: "Cache"
         uses: actions/cache@v3
         with:
@@ -91,7 +92,7 @@ jobs:
           profile: minimal
           override: true
           target: ${{ matrix.target }}
- 
+
       - name: Build target
         uses: actions-rs/cargo@v1
         with:
@@ -103,7 +104,7 @@ jobs:
         with:
           name: ${{ matrix.target }}
           path: bindings_swift/target/${{ matrix.target }}/release/libxmtp_rust_swift.a
-          retention-days: 1        
+          retention-days: 1
 
   kotlin:
     runs-on: macos-latest
@@ -125,8 +126,8 @@ jobs:
           profile: minimal
           override: true
           target: x86_64-apple-darwin
-      - name : Install kotlin
-        run: brew install ktlint 
+      - name: Install kotlin
+        run: brew install ktlint
       - name: Generate Bindings
         working-directory: xmtp_dh
         run: ./gen_kotlin.sh
@@ -137,67 +138,66 @@ jobs:
           path: xmtp_dh/src/uniffi/xmtp_dh/xmtp_dh.kt
           retention-days: 1
 
-  swift:
-    runs-on: macos-latest
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v1
-      - name: Cache
-        uses: actions/cache@v3
-        with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-            ./target/release
-          key: ${{ hashFiles('**/Cargo.toml','**/Cargo.lock') }}
-      - name: Install rust
-        uses: actions-rs/toolchain@v1
-        with:
-          toolchain: stable
-          profile: minimal
-          override: true
-          target: x86_64-apple-darwin
-      - name : Install swift
-        run: brew install swiftformat 
-      - name: Generate and package bindings
-        working-directory: bindings_swift
-        run: make bridge
-      - name: Upload binding archive
-        uses: actions/upload-artifact@v3
-        with:
-          name: bridge
-          path: |
-            bindings_swift/include
-            bindings_swift/Sources
-          retention-days: 1
+  # swift:
+  #   runs-on: macos-latest
+  #   steps:
+  #     - name: Checkout
+  #       uses: actions/checkout@v1
+  #     - name: Cache
+  #       uses: actions/cache@v3
+  #       with:
+  #         path: |
+  #           ~/.cargo/registry
+  #           ~/.cargo/git
+  #           ./target/release
+  #         key: ${{ hashFiles('**/Cargo.toml','**/Cargo.lock') }}
+  #     - name: Install rust
+  #       uses: actions-rs/toolchain@v1
+  #       with:
+  #         toolchain: stable
+  #         profile: minimal
+  #         override: true
+  #         target: x86_64-apple-darwin
+  #     - name : Install swift
+  #       run: brew install swiftformat
+  #     - name: Generate and package bindings
+  #       working-directory: bindings_swift
+  #       run: make bridge
+  #     - name: Upload binding archive
+  #       uses: actions/upload-artifact@v3
+  #       with:
+  #         name: bridge
+  #         path: |
+  #           bindings_swift/include
+  #           bindings_swift/Sources
+  #         retention-days: 1
 
-  package-swift:
-    needs: [ build-macos, swift ]
-    runs-on: macos-latest
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v1
-      - name: Download libs
-        uses: actions/download-artifact@v3
-        with:
-          path: bindings_swift/build
-      - name: Build xmtp-rust-swift.zip
-        working-directory: bindings_swift
-        run: |
-          rm -r ./include
-          mv build/bridge/include .
-          mv build/bridge/Sources .
-          make swift
-      - name: Upload xmtp-rust-swift.zip
-        uses: actions/upload-artifact@v3
-        with:
-          name: xmtp-rust-swift.zip
-          path: bindings_swift/xmtp-rust-swift.zip
-          retention-days: 1
-        
+  # package-swift:
+  #   needs: [ build-macos, swift ]
+  #   runs-on: macos-latest
+  #   steps:
+  #     - name: Checkout
+  #       uses: actions/checkout@v1
+  #     - name: Download libs
+  #       uses: actions/download-artifact@v3
+  #       with:
+  #         path: bindings_swift/build
+  #     - name: Build xmtp-rust-swift.zip
+  #       working-directory: bindings_swift
+  #       run: |
+  #         rm -r ./include
+  #         mv build/bridge/include .
+  #         mv build/bridge/Sources .
+  #         make swift
+  #     - name: Upload xmtp-rust-swift.zip
+  #       uses: actions/upload-artifact@v3
+  #       with:
+  #         name: xmtp-rust-swift.zip
+  #         path: bindings_swift/xmtp-rust-swift.zip
+  #         retention-days: 1
 
   package-android:
-    needs: [ build, kotlin ]
+    needs: [build, kotlin]
     runs-on: ubuntu-latest
     steps:
       - name: Download libs & bindings
