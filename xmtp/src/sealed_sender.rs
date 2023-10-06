@@ -187,18 +187,10 @@ fn generate_keypair() -> (StaticSecret, PublicKey) {
 mod tests {
     use super::*;
 
-    fn generate_static_keypair() -> (StaticSecret, PublicKey) {
-        let rng = thread_rng();
-        let ephemeral_private_key = StaticSecret::random_from_rng(rng);
-        let ephemeral_public_key = PublicKey::from(&ephemeral_private_key);
-
-        (ephemeral_private_key, ephemeral_public_key)
-    }
-
     #[test]
     fn test_encrypt() {
-        let (my_priv_key, my_pub_key) = generate_static_keypair();
-        let (_, recipient_pub_key) = generate_static_keypair();
+        let (my_priv_key, my_pub_key) = generate_keypair();
+        let (_, recipient_pub_key) = generate_keypair();
         let message = b"hello world";
 
         let encrypted =
@@ -210,8 +202,8 @@ mod tests {
 
     #[test]
     fn test_round_trip() {
-        let (sender_priv_key, sender_pub_key) = generate_static_keypair();
-        let (recipient_priv_key, recipient_pub_key) = generate_static_keypair();
+        let (sender_priv_key, sender_pub_key) = generate_keypair();
+        let (recipient_priv_key, recipient_pub_key) = generate_keypair();
         let message = b"hello world";
 
         let encrypted = sealed_sender_encrypt(
