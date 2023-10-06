@@ -143,7 +143,7 @@ pub fn sealed_sender_decrypt(
     // Convert to [u8; 32] so it can be cast to a PublicKey
     let ephem_pub_bytes: [u8; 32] = message.ephemeral_public_key.as_slice().try_into().unwrap();
     let ephem_keys =
-        EphemeralKeys::build(our_pub_key, &our_priv_key, &ephem_pub_bytes.into(), false);
+        EphemeralKeys::build(our_pub_key, our_priv_key, &ephem_pub_bytes.into(), false);
 
     // Decrypt the message key and coerce into [u8; 32]
     let message_key_bytes: [u8; 32] = aes256_ctr_hmac_sha256_decrypt(
