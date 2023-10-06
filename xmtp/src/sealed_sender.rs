@@ -1,5 +1,5 @@
 use crate::cryptography::{
-    aes256_ctr_hmac_sha256_decrypt, aes256_ctr_hmac_sha256_encrypt, hmac_sha256, DecryptionError,
+    aes256_ctr_hmac_sha256_decrypt, aes256_ctr_hmac_sha256_encrypt, DecryptionError,
     EncryptionError,
 };
 use arrayref::array_ref;
@@ -56,12 +56,14 @@ impl EphemeralKeys {
 
         let shared_secret = our_priv_key.diffie_hellman(their_pub_key);
         let mut derived_values = [0; EPHEMERAL_KEYS_KDF_LEN];
+        // Generate new keys using the salt and shared secret
         hkdf::Hkdf::<sha2::Sha256>::new(Some(&ephemeral_salt), shared_secret.as_bytes())
             .expand(&[], &mut derived_values)
             .expect("valid output length");
 
         Self {
             ephemeral_public_key: *our_pub_key_bytes,
+            // Slice the new key up into a chain key, cipher key, and mac key
             chain_key: *array_ref![&derived_values, 0, 32],
             cipher_key: *array_ref![&derived_values, 32, 32],
             mac_key: *array_ref![&derived_values, 64, 32],
@@ -106,6 +108,7 @@ pub fn sealed_sender_encrypt(
     message: &[u8],
 ) -> Result<SealedSenderMessage, EncryptionError> {
     let (ephem_priv_key, ephem_pub_key) = generate_keypair();
+    // Generate the ephemeral chain key, cipher key, and mac key from the randomly generated keypair
     let e_keys = EphemeralKeys::build(&ephem_pub_key, &ephem_priv_key, recipient_pub_key, true);
     let static_key_ciphertext = aes256_ctr_hmac_sha256_encrypt(
         our_pub_key.as_bytes(),
@@ -113,6 +116,7 @@ pub fn sealed_sender_encrypt(
         &e_keys.mac_key,
     )?;
 
+    // These are the keys used for message encryption
     let static_keys = StaticKeys::build(
         our_private_key,
         recipient_pub_key,
@@ -120,6 +124,7 @@ pub fn sealed_sender_encrypt(
         static_key_ciphertext.as_slice(),
     );
 
+    // Actually encrypt the message
     let encrypted_message =
         aes256_ctr_hmac_sha256_encrypt(message, &static_keys.cipher_key, &static_keys.mac_key)?;
 
@@ -135,24 +140,24 @@ pub fn sealed_sender_decrypt(
     our_priv_key: &StaticSecret,
     message: &SealedSenderMessage,
 ) -> Result<Vec<u8>, DecryptionError> {
+    // Convert to [u8; 32] so it can be cast to a PublicKey
     let ephem_pub_bytes: [u8; 32] = message.ephemeral_public_key.as_slice().try_into().unwrap();
-    let ephem_keys = EphemeralKeys::build(
-        our_pub_key,
-        &our_priv_key,
-        &PublicKey::from(ephem_pub_bytes),
-        false,
-    );
+    let ephem_keys =
+        EphemeralKeys::build(our_pub_key, &our_priv_key, &ephem_pub_bytes.into(), false);
 
-    let message_key_bytes = aes256_ctr_hmac_sha256_decrypt(
+    // Decrypt the message key and coerce into [u8; 32]
+    let message_key_bytes: [u8; 32] = aes256_ctr_hmac_sha256_decrypt(
         message.encrypted_static_key.as_slice(),
         &ephem_keys.cipher_key,
         &ephem_keys.mac_key,
-    )?;
+    )?
+    .as_slice()
+    .try_into()
+    .unwrap();
 
-    let sized_message_key_bytes: [u8; 32] = message_key_bytes.as_slice().try_into().unwrap();
+    let static_key: PublicKey = message_key_bytes.into();
 
-    let static_key = PublicKey::from(sized_message_key_bytes);
-
+    // Now creat the Static Keys
     let static_keys = StaticKeys::build(
         our_priv_key,
         &static_key,
@@ -160,6 +165,7 @@ pub fn sealed_sender_decrypt(
         &message.encrypted_static_key,
     );
 
+    // Actually decrypt the message
     let message_bytes = aes256_ctr_hmac_sha256_decrypt(
         &message.encrypted_message,
         &static_keys.cipher_key,
