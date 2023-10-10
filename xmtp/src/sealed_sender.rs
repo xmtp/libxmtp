@@ -86,9 +86,7 @@ impl StaticKeys {
         let salt = [chain_key, ctext].concat();
 
         let shared_secret = our_priv_key.diffie_hellman(their_key);
-        // 96 bytes are derived, but the first 32 are discarded/unused. This is intended to
-        // mirror the way the EphemeralKeys are derived, even though StaticKeys does not end up
-        // requiring a third "chain key".
+
         let mut derived_values = [0; 96];
         hkdf::Hkdf::<sha2::Sha256>::new(Some(&salt), shared_secret.as_bytes())
             .expand(&[], &mut derived_values)
@@ -153,7 +151,7 @@ pub fn sealed_sender_decrypt(
     )?
     .as_slice()
     .try_into()
-    .unwrap();
+    .map_err(|_| DecryptionError::BadCiphertext("invalid input length".to_string()))?;
 
     let static_key: PublicKey = message_key_bytes.into();
 
