@@ -74,8 +74,8 @@ impl Client {
             let connector = get_tls_connector();
 
             let tls_conn = hyper::Client::builder()
-                .pool_idle_timeout(Duration::from_secs(30))
-                .http2_keep_alive_interval(Duration::from_secs(10))
+                .pool_idle_timeout(Duration::from_secs(5))
+                .http2_keep_alive_interval(Duration::from_secs(3))
                 .http2_keep_alive_timeout(Duration::from_secs(5))
                 .build(connector);
 
@@ -93,8 +93,8 @@ impl Client {
                 .map_err(|e| Error::new(ErrorKind::SetupError).with(e))?
                 .timeout(Duration::from_secs(5))
                 .connect_timeout(Duration::from_secs(5))
-                .tcp_keepalive(Some(Duration::from_secs(10)))
-                .http2_keep_alive_interval(Duration::from_secs(10))
+                .tcp_keepalive(Some(Duration::from_secs(3)))
+                .http2_keep_alive_interval(Duration::from_secs(3))
                 .keep_alive_timeout(Duration::from_secs(5))
                 .connect()
                 .await
