@@ -46,7 +46,7 @@ fn get_tls_connector() -> HttpsConnector<tower::timeout::Timeout<HttpConnector>>
                 .enable_http2()
                 .wrap_connector(s)
         })
-        .timeout(Duration::from_secs(2))
+        .timeout(Duration::from_secs(5))
         .service(http)
 }
 
@@ -76,7 +76,7 @@ impl Client {
             let tls_conn = hyper::Client::builder()
                 .pool_idle_timeout(Duration::from_secs(5))
                 .http2_keep_alive_interval(Duration::from_secs(3))
-                .http2_keep_alive_timeout(Duration::from_secs(2))
+                .http2_keep_alive_timeout(Duration::from_secs(5))
                 .build(connector);
 
             let uri =
@@ -91,11 +91,11 @@ impl Client {
         } else {
             let channel = Channel::from_shared(host)
                 .map_err(|e| Error::new(ErrorKind::SetupError).with(e))?
-                .timeout(Duration::from_secs(2))
-                .connect_timeout(Duration::from_secs(2))
-                .tcp_keepalive(Some(Duration::from_secs(5)))
-                .http2_keep_alive_interval(Duration::from_secs(5))
-                .keep_alive_timeout(Duration::from_secs(2))
+                .timeout(Duration::from_secs(5))
+                .connect_timeout(Duration::from_secs(5))
+                .tcp_keepalive(Some(Duration::from_secs(3)))
+                .http2_keep_alive_interval(Duration::from_secs(3))
+                .keep_alive_timeout(Duration::from_secs(5))
                 .connect()
                 .await
                 .map_err(|e| Error::new(ErrorKind::SetupError).with(e))?;
