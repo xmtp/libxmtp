@@ -72,9 +72,11 @@ impl StdError for Error {
     }
 }
 
+#[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
+#[cfg_attr(not(target_arch = "wasm32"), async_trait)]
 pub trait XmtpApiSubscription {
     fn is_closed(&self) -> bool;
-    fn get_messages(&self) -> Vec<Envelope>;
+    async fn get_messages(&mut self) -> Vec<Envelope>;
     fn close_stream(&mut self);
 }
 

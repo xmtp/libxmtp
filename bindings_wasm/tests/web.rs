@@ -6,9 +6,7 @@ use wasm_bindgen::prelude::*;
 use wasm_bindgen_test::*;
 use xmtp_cryptography::signature::RecoverableSignature;
 use xmtp_proto::api_client::XmtpApiClient;
-use xmtp_proto::xmtp::message_api::v1::{
-    BatchQueryRequest, Envelope, PublishRequest, QueryRequest,
-};
+use xmtp_proto::xmtp::message_api::v1::{Envelope, QueryRequest};
 
 // Only run these tests in a browser.
 wasm_bindgen_test_configure!(run_in_browser);

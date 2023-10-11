@@ -7,12 +7,14 @@ use xmtp_proto::api_client::*;
 
 pub struct MockXmtpApiSubscription {}
 
+#[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
+#[cfg_attr(not(target_arch = "wasm32"), async_trait)]
 impl XmtpApiSubscription for MockXmtpApiSubscription {
     fn is_closed(&self) -> bool {
         false
     }
 
-    fn get_messages(&self) -> Vec<Envelope> {
+    async fn get_messages(&mut self) -> Vec<Envelope> {
         vec![]
     }
 

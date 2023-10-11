@@ -3,7 +3,7 @@ use xmtp_api_grpc_gateway::XmtpGrpcGatewayClient;
 
 #[wasm_bindgen]
 pub struct WasmXmtpClient {
-    api: XmtpGrpcGatewayClient,
+    api: XmtpGrpcGatewayClient<'static>,
     // inbox_owner: WasmInboxOwner,
 }
 

@@ -116,12 +116,12 @@ mod tests {
             tokio::time::sleep(std::time::Duration::from_millis(100)).await;
 
             // Ensure that messages appear
-            let results = stream_handler.get_messages();
+            let results = stream_handler.get_messages().await;
             println!("{}", results.len());
             assert!(results.len() == 1);
 
             // Ensure that the messages array has been cleared
-            let second_results = stream_handler.get_messages();
+            let second_results = stream_handler.get_messages().await;
             assert!(second_results.is_empty());
 
             // Ensure the is_closed status is propagated

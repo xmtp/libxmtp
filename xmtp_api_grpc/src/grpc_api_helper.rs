@@ -245,12 +245,13 @@ impl Subscription {
     }
 }
 
-impl XmtpApiSubscription for Subscription {
+#[async_trait]
+impl<'a> XmtpApiSubscription for Subscription {
     fn is_closed(&self) -> bool {
         self.closed.load(Ordering::SeqCst)
     }
 
-    fn get_messages(&self) -> Vec<Envelope> {
+    async fn get_messages(&mut self) -> Vec<Envelope> {
         let mut pending = self.pending.lock().unwrap();
         let items = pending.drain(..).collect::<Vec<Envelope>>();
         items

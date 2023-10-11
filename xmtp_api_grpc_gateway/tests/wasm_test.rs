@@ -1,11 +1,15 @@
 extern crate wasm_bindgen_test;
 extern crate xmtp_api_grpc_gateway;
+
+use futures_util::task::noop_waker_ref;
+use futures_util::StreamExt;
+use std::task::Context;
 use wasm_bindgen::prelude::*;
 use wasm_bindgen_test::*;
 use xmtp_api_grpc_gateway::XmtpGrpcGatewayClient;
-use xmtp_proto::api_client::XmtpApiClient;
+use xmtp_proto::api_client::{XmtpApiClient, XmtpApiSubscription};
 use xmtp_proto::xmtp::message_api::v1::{
-    BatchQueryRequest, Envelope, PublishRequest, QueryRequest,
+    BatchQueryRequest, Envelope, PublishRequest, QueryRequest, SubscribeRequest,
 };
 
 // Only run these tests in a browser.
@@ -21,6 +25,7 @@ extern "C" {
 
 #[wasm_bindgen_test]
 pub async fn test_query_publish_query() {
+    log("test_query_publish_query");
     let xmtp_url: String = "http://localhost:5555".to_string();
     let topic = uuid::Uuid::new_v4();
     let auth_token = ""; // TODO
@@ -59,6 +64,7 @@ pub async fn test_query_publish_query() {
 
 #[wasm_bindgen_test]
 pub async fn test_batch_query_publish_batch_query() {
+    log("test_batch_query_publish_batch_query");
     let xmtp_url: String = "http://localhost:5555".to_string();
     let api = XmtpGrpcGatewayClient::new(xmtp_url);
     let topic1 = uuid::Uuid::new_v4();
@@ -128,4 +134,65 @@ pub async fn test_batch_query_publish_batch_query() {
     assert_eq!(2222, e2.timestamp_ns);
     assert_eq!(vec![1, 1, 1, 1], e1.message);
     assert_eq!(vec![2, 2, 2, 2], e2.message);
+}
+
+#[wasm_bindgen_test]
+pub async fn test_client_subscribe() {
+    log("test_client_subscribe");
+    let xmtp_url: String = "http://localhost:5555".to_string();
+    let api = XmtpGrpcGatewayClient::new(xmtp_url);
+
+    let topic = uuid::Uuid::new_v4();
+    log(&topic.to_string());
+    let auth_token = ""; // TODO
+
+    // Subscribe to a topic and then expect to see what we publish.
+    let mut sub = api
+        .subscribe(SubscribeRequest {
+            content_topics: vec![topic.to_string()],
+            // ..SubscribeRequest::default()
+        })
+        .await
+        .expect("successfully subscribed");
+    assert_eq!(false, sub.is_closed());
+
+    // HACK: this tugs at the stream w/ poll_next() to initiate the HTTP req.
+    //       we need to do this _before_ we publish, otherwise the
+    //       publish will happen before the subscription is ready.
+    // TODO: implement a JS-friendly promise/future interface instead
+    let mut cx = Context::from_waker(noop_waker_ref());
+    let stream = sub.stream.as_mut().unwrap();
+    let init = stream.as_mut().poll_next(&mut cx);
+    assert_eq!(true, init.is_pending());
+
+    log("publishing message");
+    api.publish(
+        auth_token.to_string(),
+        PublishRequest {
+            envelopes: vec![Envelope {
+                content_topic: topic.to_string(),
+                message: vec![1, 2, 3, 4],
+                timestamp_ns: 1234,
+            }],
+        },
+    )
+    .await
+    .expect("published");
+
+    log("waiting for the next message");
+    let msg = sub
+        .stream
+        .as_mut()
+        .expect("a subscription stream")
+        .next()
+        .await
+        .expect("received subscription message");
+    assert_eq!(true, msg.is_ok());
+    let env = msg.ok().unwrap();
+    assert_eq!(topic.to_string(), env.content_topic);
+    assert_eq!(vec![1, 2, 3, 4], env.message);
+
+    sub.close_stream();
+
+    assert_eq!(true, sub.is_closed());
 }
