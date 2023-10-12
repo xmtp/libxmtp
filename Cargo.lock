@@ -3190,6 +3190,10 @@ name = "openmls"
 version = "0.1.0"
 dependencies = [
  "openmls 0.5.0",
+ "openmls_basic_credential",
+ "openmls_memory_keystore",
+ "openmls_rust_crypto",
+ "openmls_traits",
 ]
 
 [[package]]
