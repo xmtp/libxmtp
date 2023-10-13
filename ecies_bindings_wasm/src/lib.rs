@@ -32,3 +32,11 @@ pub fn ecies_decrypt_k256_sha3_256(
 
     Ok(decrypted)
 }
+
+#[wasm_bindgen]
+pub fn generate_private_preferences_topic(private_key: Vec<u8>) -> Result<String, String> {
+    let topic =
+        xmtp_ecies::topic::generate_private_preferences_topic_identifier(private_key.as_slice())?;
+
+    Ok(topic)
+}

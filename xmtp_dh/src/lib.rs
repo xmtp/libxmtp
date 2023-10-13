@@ -87,3 +87,10 @@ pub fn ecies_decrypt_k256_sha3_256(
 
     Ok(ciphertext)
 }
+
+pub fn generate_private_preferences_topic_identifier(
+    private_key_bytes: Vec<u8>,
+) -> Result<String, EciesError> {
+    xmtp_ecies::topic::generate_private_preferences_topic_identifier(private_key_bytes.as_slice())
+        .map_err(|e| EciesError::GenericError(e))
+}

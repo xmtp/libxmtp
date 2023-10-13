@@ -17,4 +17,6 @@ namespace xmtp_dh {
     sequence<u8> ecies_encrypt_k256_sha3_256(sequence<u8> public_key_bytes, sequence<u8> private_key_bytes, sequence<u8> message_bytes);
     [Throws=EciesError]
     sequence<u8> ecies_decrypt_k256_sha3_256(sequence<u8> public_key_bytes, sequence<u8> private_key_bytes, sequence<u8> message_bytes);
+    [Throws=EciesError]
+    string generate_private_preferences_topic_identifier(sequence<u8> private_key_bytes);
 };
