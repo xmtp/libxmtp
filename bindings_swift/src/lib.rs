@@ -60,6 +60,9 @@ mod ffi {
             private_key: Vec<u8>,
             message: Vec<u8>,
         ) -> Result<Vec<u8>, String>;
+        fn generate_private_preferences_topic_identifier(
+            private_key: Vec<u8>,
+        ) -> Result<String, String>;
     }
 }
 
@@ -234,6 +237,10 @@ fn ecies_decrypt_k256_sha3_256(
     Ok(ciphertext)
 }
 
+fn generate_private_preferences_topic_identifier(private_key: Vec<u8>) -> Result<String, String> {
+    xmtp_ecies::topic::generate_private_preferences_topic_identifier(private_key.as_slice())
+}
+
 #[cfg(test)]
 mod tests {
     use ecies::utils::generate_keypair;
@@ -393,5 +400,20 @@ mod tests {
         );
 
         assert_eq!(message, decrypted.unwrap());
+    }
+
+    #[test]
+    fn generate_topic() {
+        let (private_key, _) = generate_keypair();
+
+        let topic =
+            super::generate_private_preferences_topic_identifier(private_key.serialize().to_vec())
+                .unwrap();
+
+        let topic_2 =
+            super::generate_private_preferences_topic_identifier(private_key.serialize().to_vec())
+                .unwrap();
+        assert!(topic.len() > 0);
+        assert_eq!(topic, topic_2)
     }
 }

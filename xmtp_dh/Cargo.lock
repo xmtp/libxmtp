@@ -2572,6 +2572,7 @@ dependencies = [
  "ecies",
  "hkdf",
  "libsecp256k1",
+ "once_cell",
  "prost",
  "sha3",
  "xmtp_proto",
