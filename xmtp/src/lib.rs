@@ -1,5 +1,6 @@
 pub mod account;
 pub mod association;
+pub mod backups;
 pub mod builder;
 pub mod client;
 mod codecs;

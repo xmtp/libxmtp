@@ -20,7 +20,7 @@ native = ["libsqlite3-sys/bundled-sqlcipher-vendored-openssl"]
 serde = "1.0.160"
 serde_json = "1.0.96"
 thiserror = "1.0.40"
-vodozemac = {git= "https://github.com/xmtp/vodozemac", branch="dev"}
+vodozemac = { git= "https://github.com/xmtp/vodozemac", branch="dev" }
 xmtp_proto = { path = "../xmtp_proto", features = ["proto_full"] }
 async-trait = "0.1.68"
 xmtp_cryptography = { path = "../xmtp_cryptography"}
@@ -36,8 +36,9 @@ ethers-core = "2.0.4"
 prost = { version = "0.11", features = ["prost-derive"] }
 futures = "0.3.28"
 base64 = "0.21.1"
-tokio = "1.28.1"
+tokio = { version = "1.33.0", features = ["full"] }
 anyhow = "1.0.71"
+byteorder = "1.5.0"
 
 [dev-dependencies]
 tempfile = "3.5.0"
