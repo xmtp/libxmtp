@@ -1,10 +1,12 @@
 [workspace]
 
 members = [
+  "bindings_wasm",
   "examples/cli",
   "xmtp",
   "xmtp_cryptography",
   "xmtp_api_grpc",
+  "xmtp_api_grpc_gateway",
   "xmtp_proto",
   "xmtp_v2",
 ]
@@ -12,10 +14,14 @@ members = [
 exclude = [
   "bindings_ffi",
   "bindings_js",
-  "bindings_wasm",
-  "xmtp_api_grpc_gateway",
 ]
 
 # Make the feature resolver explicit.
 # See https://doc.rust-lang.org/edition-guide/rust-2021/default-cargo-resolver.html#details
 resolver = "2"
+
+[profile.release.package.bindings_wasm]
+opt-level = "s"
+
+[profile.release.package.xmtp_api_grpc_gateway]
+opt-level = "s"

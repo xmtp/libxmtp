@@ -4038,6 +4038,7 @@ name = "xmtp_proto"
 version = "0.1.0"
 dependencies = [
  "async-trait",
+ "futures",
  "pbjson",
  "pbjson-types",
  "prost",

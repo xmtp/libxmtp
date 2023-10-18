@@ -13,7 +13,7 @@ use xmtp::conversation::{ListMessagesOptions, Conversation};
 use xmtp::conversations::Conversations;
 use xmtp::storage::{EncryptedMessageStore, EncryptionKey, StorageOption, StoredMessage};
 use xmtp::types::Address;
-use xmtp_api_grpc::grpc_api_helper::Client as TonicApiClient;
+use xmtp_api_grpc::grpc_api_helper::XmtpGrpcClient as TonicApiClient;
 
 use crate::inbox_owner::RustInboxOwner;
 pub use crate::inbox_owner::SigningError;

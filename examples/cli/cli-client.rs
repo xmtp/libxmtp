@@ -20,7 +20,7 @@ use xmtp::storage::{
     now, EncryptedMessageStore, EncryptionKey, MessageState, StorageError, StorageOption,
 };
 use xmtp::InboxOwner;
-use xmtp_api_grpc::grpc_api_helper::Client as ApiClient;
+use xmtp_api_grpc::grpc_api_helper::XmtpGrpcClient as ApiClient;
 use xmtp_cryptography::signature::{RecoverableSignature, SignatureError};
 use xmtp_cryptography::utils::{rng, seeded_rng, LocalWallet};
 use xmtp_proto::api_client::XmtpApiClient;

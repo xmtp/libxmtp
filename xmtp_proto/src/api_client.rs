@@ -1,4 +1,5 @@
 use async_trait::async_trait;
+use futures::Stream;
 use std::{error::Error as StdError, fmt};
 
 pub use super::xmtp::message_api::v1::{
@@ -72,13 +73,9 @@ impl StdError for Error {
     }
 }
 
-#[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
-#[cfg_attr(not(target_arch = "wasm32"), async_trait)]
-pub trait XmtpApiSubscription {
-    fn is_closed(&self) -> bool;
-    async fn get_messages(&mut self) -> Vec<Envelope>;
-    fn close_stream(&mut self);
-}
+pub trait XmtpApiSubscription {}
+
+impl<T: Stream<Item = Envelope>> XmtpApiSubscription for T {}
 
 // Wasm futures don't have `Send` or `Sync` bounds.
 #[cfg_attr(target_arch = "wasm32", async_trait(?Send))]

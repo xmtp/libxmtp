@@ -1,4 +1,5 @@
 use async_trait::async_trait;
+use futures::stream::Empty;
 use std::{
     collections::HashMap,
     sync::{Arc, Mutex},
@@ -6,20 +7,6 @@ use std::{
 use xmtp_proto::api_client::*;
 
 pub struct MockXmtpApiSubscription {}
-
-#[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
-#[cfg_attr(not(target_arch = "wasm32"), async_trait)]
-impl XmtpApiSubscription for MockXmtpApiSubscription {
-    fn is_closed(&self) -> bool {
-        false
-    }
-
-    async fn get_messages(&mut self) -> Vec<Envelope> {
-        vec![]
-    }
-
-    fn close_stream(&mut self) {}
-}
 
 struct InnerMockXmtpApiClient {
     pub messages: HashMap<String, Vec<Envelope>>,
@@ -58,7 +45,7 @@ impl Clone for MockXmtpApiClient {
 #[cfg_attr(not(target_arch = "wasm32"), async_trait)]
 #[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
 impl XmtpApiClient for MockXmtpApiClient {
-    type Subscription = MockXmtpApiSubscription;
+    type Subscription = Empty<Envelope>;
 
     fn set_app_version(&mut self, version: String) {
         let mut inner = self.inner_client.lock().unwrap();
@@ -100,7 +87,7 @@ impl XmtpApiClient for MockXmtpApiClient {
         Err(Error::new(ErrorKind::SubscribeError))
     }
 
-    async fn batch_query(&self, request: BatchQueryRequest) -> Result<BatchQueryResponse, Error> {
+    async fn batch_query(&self, _request: BatchQueryRequest) -> Result<BatchQueryResponse, Error> {
         Err(Error::new(ErrorKind::BatchQueryError))
     }
 }
