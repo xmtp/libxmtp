@@ -98,7 +98,7 @@ impl XmtpApiClient for MockXmtpApiClient {
         Err(Error::new(ErrorKind::SubscribeError))
     }
 
-    async fn batch_query(&self, request: BatchQueryRequest) -> Result<BatchQueryResponse, Error> {
+    async fn batch_query(&self, _request: BatchQueryRequest) -> Result<BatchQueryResponse, Error> {
         Err(Error::new(ErrorKind::BatchQueryError))
     }
 }

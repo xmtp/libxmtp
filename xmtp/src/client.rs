@@ -75,10 +75,7 @@ impl<ApiClient> core::fmt::Debug for Client<ApiClient> {
     }
 }
 
-impl<ApiClient> Client<ApiClient>
-where
-    ApiClient: XmtpApiClient,
-{
+impl<ApiClient> Client<ApiClient> {
     pub fn new(
         api_client: ApiClient,
         network: Network,
@@ -97,11 +94,95 @@ where
     pub fn wallet_address(&self) -> Address {
         self.account.addr()
     }
-
+    
     pub fn installation_id(&self) -> String {
         self.account.contact().installation_id()
     }
+    
+    pub fn get_session(
+        &self,
+        conn: &mut DbConnection,
+        contact: &Contact,
+    ) -> Result<SessionManager, ClientError> {
+        let existing_session = self
+            .store
+            .get_latest_session_for_installation(&contact.installation_id(), conn)?;
+        match existing_session {
+            Some(i) => Ok(SessionManager::try_from(&i)?),
+            None => self.create_outbound_session(conn, contact),
+        }
+    }
 
+    pub fn my_other_devices(&self, conn: &mut DbConnection) -> Result<Vec<Contact>, ClientError> {
+        let contacts = self.get_contacts_from_db(conn, self.account.addr().as_str())?;
+        Ok(contacts
+            .into_iter()
+            .filter(|c| c.installation_id() != self.installation_id())
+            .collect())
+    }
+
+    pub fn get_contacts_from_db(
+        &self,
+        conn: &mut DbConnection,
+        wallet_address: &str,
+    ) -> Result<Vec<Contact>, ClientError> {
+        let installations = self.store.get_installations(conn, wallet_address)?;
+
+        Ok(installations
+            .into_iter()
+            .filter_map(|i| i.get_contact().ok())
+            .collect())
+    }
+
+    pub fn create_uninitialized_session(
+        &self,
+        contact: &Contact,
+    ) -> Result<SessionManager, ClientError> {
+        let olm_session = self.account.create_outbound_session(contact);
+        Ok(SessionManager::from_olm_session(olm_session, contact)?)
+    }
+
+    fn create_outbound_session(
+        &self,
+        conn: &mut DbConnection,
+        contact: &Contact,
+    ) -> Result<SessionManager, ClientError> {
+        let olm_session = self.account.create_outbound_session(contact);
+        let session = SessionManager::from_olm_session(olm_session, contact)?;
+
+        session.store(conn)?;
+
+        Ok(session)
+    }
+
+    pub fn create_inbound_session(
+        &self,
+        conn: &mut DbConnection,
+        contact: &Contact,
+        prekey_message: PreKeyMessage,
+    ) -> Result<(SessionManager, Vec<u8>), ClientError> {
+        let create_result = self
+            .account
+            .create_inbound_session(contact, prekey_message)
+            .map_err(|e| e.to_string())?;
+
+        let session = SessionManager::from_olm_session(create_result.session, contact)?;
+
+        if let Err(e) = session.store(conn) {
+            match e {
+                StorageError::DieselResultError(_) => log::warn!("Session Already exists"), // TODO: Some thought is needed here, is this a critical error which should unroll?
+                other_error => return Err(other_error.into()),
+            }
+        }
+
+        Ok((session, create_result.plaintext))
+    }
+}
+
+impl<ApiClient> Client<ApiClient>
+where
+    ApiClient: XmtpApiClient
+{
     pub async fn init(&mut self) -> Result<(), ClientError> {
         let app_contact_bundle = self.account.contact();
         let registered_bundles = self.get_contacts(&self.wallet_address()).await?;
@@ -151,26 +232,66 @@ where
         Ok(contacts)
     }
 
-    pub fn get_session(
-        &self,
-        conn: &mut DbConnection,
-        contact: &Contact,
-    ) -> Result<SessionManager, ClientError> {
-        let existing_session = self
-            .store
-            .get_latest_session_for_installation(&contact.installation_id(), conn)?;
-        match existing_session {
-            Some(i) => Ok(SessionManager::try_from(&i)?),
-            None => self.create_outbound_session(conn, contact),
-        }
+    async fn publish_user_contact(&self) -> Result<(), ClientError> {
+        let envelope = self.build_contact_envelope()?;
+        self.api_client
+            .publish(
+                "".to_string(),
+                PublishRequest {
+                    envelopes: vec![envelope],
+                },
+            )
+            .await?;
+
+        Ok(())
     }
 
-    pub fn my_other_devices(&self, conn: &mut DbConnection) -> Result<Vec<Contact>, ClientError> {
-        let contacts = self.get_contacts_from_db(conn, self.account.addr().as_str())?;
-        Ok(contacts
-            .into_iter()
-            .filter(|c| c.installation_id() != self.installation_id())
-            .collect())
+    fn build_contact_envelope(&self) -> Result<Envelope, ClientError> {
+        let contact = self.account.contact();
+
+        let envelope = build_envelope(
+            build_user_contact_topic(self.wallet_address()),
+            contact.try_into()?,
+        );
+
+        Ok(envelope)
+    }
+
+    pub async fn download_latest_from_topic(
+        &self,
+        start_time: u64,
+        topic: String,
+    ) -> Result<Vec<Envelope>, ClientError> {
+        let response = self
+            .api_client
+            .query(QueryRequest {
+                content_topics: vec![topic],
+                start_time_ns: start_time,
+                end_time_ns: 0,
+                // TODO: Pagination
+                paging_info: None,
+            })
+            .await?;
+
+        Ok(response.envelopes)
+    }
+
+    /// Search network for a specific InstallationContact
+    /// This function should be removed as soon as possible given it is a potential DOS vector.
+    /// Contacts for a message should always be known to the client
+    pub async fn download_contact_for_installation(
+        &self,
+        wallet_address: &str,
+        installation_id: &str,
+    ) -> Result<Option<Contact>, ClientError> {
+        let contacts = self.get_contacts(wallet_address).await?; // TODO: Ensure invalid contacts cannot be initialized
+
+        for contact in contacts {
+            if contact.installation_id() == installation_id {
+                return Ok(Some(contact));
+            }
+        }
+        Ok(None)
     }
 
     pub async fn refresh_user_installations_if_stale(
@@ -249,125 +370,6 @@ where
         })?;
 
         Ok(())
-    }
-
-    pub fn get_contacts_from_db(
-        &self,
-        conn: &mut DbConnection,
-        wallet_address: &str,
-    ) -> Result<Vec<Contact>, ClientError> {
-        let installations = self.store.get_installations(conn, wallet_address)?;
-
-        Ok(installations
-            .into_iter()
-            .filter_map(|i| i.get_contact().ok())
-            .collect())
-    }
-
-    pub fn create_uninitialized_session(
-        &self,
-        contact: &Contact,
-    ) -> Result<SessionManager, ClientError> {
-        let olm_session = self.account.create_outbound_session(contact);
-        Ok(SessionManager::from_olm_session(olm_session, contact)?)
-    }
-
-    fn create_outbound_session(
-        &self,
-        conn: &mut DbConnection,
-        contact: &Contact,
-    ) -> Result<SessionManager, ClientError> {
-        let olm_session = self.account.create_outbound_session(contact);
-        let session = SessionManager::from_olm_session(olm_session, contact)?;
-
-        session.store(conn)?;
-
-        Ok(session)
-    }
-
-    pub fn create_inbound_session(
-        &self,
-        conn: &mut DbConnection,
-        contact: &Contact,
-        prekey_message: PreKeyMessage,
-    ) -> Result<(SessionManager, Vec<u8>), ClientError> {
-        let create_result = self
-            .account
-            .create_inbound_session(contact, prekey_message)
-            .map_err(|e| e.to_string())?;
-
-        let session = SessionManager::from_olm_session(create_result.session, contact)?;
-
-        if let Err(e) = session.store(conn) {
-            match e {
-                StorageError::DieselResultError(_) => log::warn!("Session Already exists"), // TODO: Some thought is needed here, is this a critical error which should unroll?
-                other_error => return Err(other_error.into()),
-            }
-        }
-
-        Ok((session, create_result.plaintext))
-    }
-
-    async fn publish_user_contact(&self) -> Result<(), ClientError> {
-        let envelope = self.build_contact_envelope()?;
-        self.api_client
-            .publish(
-                "".to_string(),
-                PublishRequest {
-                    envelopes: vec![envelope],
-                },
-            )
-            .await?;
-
-        Ok(())
-    }
-
-    fn build_contact_envelope(&self) -> Result<Envelope, ClientError> {
-        let contact = self.account.contact();
-
-        let envelope = build_envelope(
-            build_user_contact_topic(self.wallet_address()),
-            contact.try_into()?,
-        );
-
-        Ok(envelope)
-    }
-
-    pub async fn download_latest_from_topic(
-        &self,
-        start_time: u64,
-        topic: String,
-    ) -> Result<Vec<Envelope>, ClientError> {
-        let response = self
-            .api_client
-            .query(QueryRequest {
-                content_topics: vec![topic],
-                start_time_ns: start_time,
-                end_time_ns: 0,
-                // TODO: Pagination
-                paging_info: None,
-            })
-            .await?;
-
-        Ok(response.envelopes)
-    }
-
-    /// Search network for a specific InstallationContact
-    /// This function should be removed as soon as possible given it is a potential DOS vector.
-    /// Contacts for a message should always be known to the client
-    pub async fn download_contact_for_installation(
-        &self,
-        wallet_address: &str,
-        installation_id: &str,
-    ) -> Result<Option<Contact>, ClientError> {
-        let contacts = self.get_contacts(wallet_address).await?; // TODO: Ensure invalid contacts cannot be initialized
-
-        for contact in contacts {
-            if contact.installation_id() == installation_id {
-                return Ok(Some(contact));
-            }
-        }
-        Ok(None)
     }
 }
 
