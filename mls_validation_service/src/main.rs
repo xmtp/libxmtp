@@ -1,4 +1,5 @@
 mod handlers;
+mod owner;
 mod validation_helpers;
 
 use handlers::ValidationServer;

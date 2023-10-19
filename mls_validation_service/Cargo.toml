@@ -16,3 +16,6 @@ openmls = { git= "https://github.com/openmls/openmls", features = ["test-utils"]
 openmls_traits = { git= "https://github.com/openmls/openmls" }
 openmls_basic_credential = { git= "https://github.com/openmls/openmls" }
 openmls_rust_crypto = { git= "https://github.com/openmls/openmls" }
+xmtp_cryptography = { path = "../xmtp_cryptography" }
+thiserror = "1.0.50"
+ethers = "2.0.10"
