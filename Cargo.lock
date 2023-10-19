@@ -3047,11 +3047,13 @@ name = "mls_validation_service"
 version = "0.1.0"
 dependencies = [
  "ethers",
+ "hex",
  "openmls",
  "openmls_basic_credential",
  "openmls_rust_crypto",
  "openmls_traits",
  "prost 0.12.1",
+ "rand 0.8.5",
  "serde",
  "thiserror",
  "tokio",

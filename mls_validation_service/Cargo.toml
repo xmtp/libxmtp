@@ -20,3 +20,5 @@ xmtp_cryptography = { path = "../xmtp_cryptography" }
 thiserror = "1.0.50"
 ethers = "2.0.10"
 serde = "1.0.189"
+rand = "0.8.5"
+hex = "0.4.3"
