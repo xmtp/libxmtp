@@ -33,9 +33,6 @@ pub enum ClientBuilderError {
 
     #[error("Storage Error")]
     StorageError(#[from] StorageError),
-
-    #[error("No Api Defined")]
-    NoApi
 }
 
 pub enum AccountStrategy<InboxOwner> {
