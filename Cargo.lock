@@ -6198,6 +6198,7 @@ dependencies = [
  "tempfile",
  "thiserror",
  "tokio",
+ "toml 0.7.4",
  "xmtp_cryptography",
  "xmtp_proto",
 ]
