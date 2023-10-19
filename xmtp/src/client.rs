@@ -69,10 +69,7 @@ pub struct Client<ApiClient> {
     is_initialized: bool,
 }
 
-impl<ApiClient> core::fmt::Debug for Client<ApiClient>
-where
-    ApiClient: XmtpApiClient,
-{
+impl<ApiClient> core::fmt::Debug for Client<ApiClient> {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         write!(f, "Client({:?})::{}", self.network, self.account.addr())
     }
