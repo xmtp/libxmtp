@@ -15,12 +15,34 @@ pub mod xmtp {
             include!("xmtp.message_api.v1.rs");
             // @@protoc_insertion_point(xmtp.message_api.v1)
         }
+        #[cfg(feature = "xmtp-message_api-v3")]
+        // @@protoc_insertion_point(attribute:xmtp.message_api.v3)
+        pub mod v3 {
+            include!("xmtp.message_api.v3.rs");
+            // @@protoc_insertion_point(xmtp.message_api.v3)
+        }
     }
     #[cfg(feature = "xmtp-message_contents")]
     // @@protoc_insertion_point(attribute:xmtp.message_contents)
     pub mod message_contents {
         include!("xmtp.message_contents.rs");
         // @@protoc_insertion_point(xmtp.message_contents)
+    }
+    pub mod mls {
+        #[cfg(feature = "xmtp-mls-message_contents")]
+        // @@protoc_insertion_point(attribute:xmtp.mls.message_contents)
+        pub mod message_contents {
+            include!("xmtp.mls.message_contents.rs");
+            // @@protoc_insertion_point(xmtp.mls.message_contents)
+        }
+    }
+    pub mod mls_validation {
+        #[cfg(feature = "xmtp-mls_validation-v1")]
+        // @@protoc_insertion_point(attribute:xmtp.mls_validation.v1)
+        pub mod v1 {
+            include!("xmtp.mls_validation.v1.rs");
+            // @@protoc_insertion_point(xmtp.mls_validation.v1)
+        }
     }
     pub mod v3 {
         #[cfg(feature = "xmtp-v3-message_contents")]
