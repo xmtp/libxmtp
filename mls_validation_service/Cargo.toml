@@ -8,7 +8,7 @@ name = "server"
 path = "src/main.rs"
 
 [dependencies]
-prost = "0.12.1"
+prost = { version = "0.12.1", features = ["prost-derive"] }
 tokio = { version = "1.33.0", features = ["macros", "rt-multi-thread"] }
 tonic = "^0.9"
 xmtp_proto = { path = "../xmtp_proto", features = ["xmtp-mls_validation-v1", "server"] }
@@ -19,3 +19,4 @@ openmls_rust_crypto = { git= "https://github.com/openmls/openmls" }
 xmtp_cryptography = { path = "../xmtp_cryptography" }
 thiserror = "1.0.50"
 ethers = "2.0.10"
+serde = "1.0.189"

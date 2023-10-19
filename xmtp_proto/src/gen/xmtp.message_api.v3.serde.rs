@@ -1187,15 +1187,15 @@ impl serde::Serialize for RegisterInstallationRequest {
     {
         use serde::ser::SerializeStruct;
         let mut len = 0;
-        if !self.credential_bytes.is_empty() {
+        if !self.identity_bytes.is_empty() {
             len += 1;
         }
         if !self.signing_key_public.is_empty() {
             len += 1;
         }
         let mut struct_ser = serializer.serialize_struct("xmtp.message_api.v3.RegisterInstallationRequest", len)?;
-        if !self.credential_bytes.is_empty() {
-            struct_ser.serialize_field("credentialBytes", pbjson::private::base64::encode(&self.credential_bytes).as_str())?;
+        if !self.identity_bytes.is_empty() {
+            struct_ser.serialize_field("identityBytes", pbjson::private::base64::encode(&self.identity_bytes).as_str())?;
         }
         if !self.signing_key_public.is_empty() {
             struct_ser.serialize_field("signingKeyPublic", pbjson::private::base64::encode(&self.signing_key_public).as_str())?;
@@ -1210,15 +1210,15 @@ impl<'de> serde::Deserialize<'de> for RegisterInstallationRequest {
         D: serde::Deserializer<'de>,
     {
         const FIELDS: &[&str] = &[
-            "credential_bytes",
-            "credentialBytes",
+            "identity_bytes",
+            "identityBytes",
             "signing_key_public",
             "signingKeyPublic",
         ];
 
         #[allow(clippy::enum_variant_names)]
         enum GeneratedField {
-            CredentialBytes,
+            IdentityBytes,
             SigningKeyPublic,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
@@ -1241,7 +1241,7 @@ impl<'de> serde::Deserialize<'de> for RegisterInstallationRequest {
                         E: serde::de::Error,
                     {
                         match value {
-                            "credentialBytes" | "credential_bytes" => Ok(GeneratedField::CredentialBytes),
+                            "identityBytes" | "identity_bytes" => Ok(GeneratedField::IdentityBytes),
                             "signingKeyPublic" | "signing_key_public" => Ok(GeneratedField::SigningKeyPublic),
                             _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
                         }
@@ -1262,15 +1262,15 @@ impl<'de> serde::Deserialize<'de> for RegisterInstallationRequest {
                 where
                     V: serde::de::MapAccess<'de>,
             {
-                let mut credential_bytes__ = None;
+                let mut identity_bytes__ = None;
                 let mut signing_key_public__ = None;
                 while let Some(k) = map.next_key()? {
                     match k {
-                        GeneratedField::CredentialBytes => {
-                            if credential_bytes__.is_some() {
-                                return Err(serde::de::Error::duplicate_field("credentialBytes"));
+                        GeneratedField::IdentityBytes => {
+                            if identity_bytes__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("identityBytes"));
                             }
-                            credential_bytes__ = 
+                            identity_bytes__ = 
                                 Some(map.next_value::<::pbjson::private::BytesDeserialize<_>>()?.0)
                             ;
                         }
@@ -1285,7 +1285,7 @@ impl<'de> serde::Deserialize<'de> for RegisterInstallationRequest {
                     }
                 }
                 Ok(RegisterInstallationRequest {
-                    credential_bytes: credential_bytes__.unwrap_or_default(),
+                    identity_bytes: identity_bytes__.unwrap_or_default(),
                     signing_key_public: signing_key_public__.unwrap_or_default(),
                 })
             }

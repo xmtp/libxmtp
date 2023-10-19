@@ -1,3 +1,4 @@
+mod association;
 mod handlers;
 mod owner;
 mod validation_helpers;
