@@ -1,4 +1,5 @@
 mod handlers;
+mod validation_helpers;
 
 use handlers::ValidationServer;
 use tonic::transport::Server;
