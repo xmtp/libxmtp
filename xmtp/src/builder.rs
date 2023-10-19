@@ -27,8 +27,7 @@ pub enum ClientBuilderError {
 
     #[error("Associating an address to account failed")]
     AssociationFailed(#[from] AssociationError),
-    // #[error("Error Initializing Store")]
-    // StoreInitialization(#[from] SE),
+    
     #[error("Error Initializing Account")]
     AccountInitialization(#[from] AccountError),
 
