@@ -14,10 +14,10 @@ use xmtp_proto::api_client::XmtpApiClient;
 #[derive(Error, Debug)]
 pub enum ClientBuilderError {
     #[error("Missing parameter: {parameter}")]
-    MissingParameterError { parameter: &'static str },
+    MissingParameter { parameter: &'static str },
 
     #[error("Failed to serialize/deserialize state for persistence: {source}")]
-    SerializationError { source: serde_json::Error },
+    Serialization { source: serde_json::Error },
 
     #[error("Required account was not found in cache.")]
     RequiredAccountNotFound,
@@ -27,17 +27,20 @@ pub enum ClientBuilderError {
 
     #[error("Associating an address to account failed")]
     AssociationFailed(#[from] AssociationError),
-    // #[error("Error Initalizing Store")]
+    // #[error("Error Initializing Store")]
     // StoreInitialization(#[from] SE),
-    #[error("Error Initalizing Account")]
+    #[error("Error Initializing Account")]
     AccountInitialization(#[from] AccountError),
 
     #[error("Storage Error")]
     StorageError(#[from] StorageError),
+
+    #[error("No Api Defined")]
+    NoApi
 }
 
-pub enum AccountStrategy<O: InboxOwner> {
-    CreateIfNotFound(O),
+pub enum AccountStrategy<InboxOwner> {
+    CreateIfNotFound(InboxOwner),
     CachedOnly(Address),
     #[cfg(test)]
     ExternalAccount(Account),
@@ -61,24 +64,20 @@ where
     }
 }
 
-pub struct ClientBuilder<A, O>
-where
-    A: XmtpApiClient + Default,
-    O: InboxOwner,
-{
-    api_client: Option<A>,
+pub struct ClientBuilder<ApiClient, Owner> {
+    api_client: Option<ApiClient>,
     network: Network,
     account: Option<Account>,
     store: Option<EncryptedMessageStore>,
-    account_strategy: AccountStrategy<O>,
+    account_strategy: AccountStrategy<Owner>,
 }
 
-impl<A, O> ClientBuilder<A, O>
+impl<ApiClient, Owner> ClientBuilder<ApiClient, Owner>
 where
-    A: XmtpApiClient + Default,
-    O: InboxOwner,
+    ApiClient: XmtpApiClient,
+    Owner: InboxOwner,
 {
-    pub fn new(strat: AccountStrategy<O>) -> Self {
+    pub fn new(strat: AccountStrategy<Owner>) -> Self {
         Self {
             api_client: None,
             network: Network::Dev,
@@ -88,7 +87,7 @@ where
         }
     }
 
-    pub fn api_client(mut self, api_client: A) -> Self {
+    pub fn api_client(mut self, api_client: ApiClient) -> Self {
         self.api_client = Some(api_client);
         self
     }
@@ -110,7 +109,7 @@ where
 
     /// Fetch account from peristence or generate and sign a new one
     fn find_or_create_account(
-        owner: &O,
+        owner: &Owner,
         store: &mut EncryptedMessageStore,
     ) -> Result<Account, ClientBuilderError> {
         let account = Self::retrieve_persisted_account(store)?;
@@ -141,7 +140,7 @@ where
         Ok(accounts.pop())
     }
 
-    fn sign_new_account(owner: &O) -> Result<Account, ClientBuilderError> {
+    fn sign_new_account(owner: &Owner) -> Result<Account, ClientBuilderError> {
         let sign = |public_key_bytes: Vec<u8>| -> Result<Eip191Association, AssociationError> {
             let assoc_text = AssociationText::Static {
                 blockchain_address: owner.get_address(),
@@ -155,8 +154,9 @@ where
 
         Account::generate(sign).map_err(ClientBuilderError::AccountInitialization)
     }
-    pub fn build(mut self) -> Result<Client<A>, ClientBuilderError> {
-        let api_client = self.api_client.take().unwrap_or_default();
+
+    pub fn build(mut self) -> Result<Client<ApiClient>, ClientBuilderError> {
+        let api_client = self.api_client.take().ok_or(ClientBuilderError::MissingParameter { parameter: "api_client"})?;
         let mut store = self.store.take().unwrap_or_default();
         // Fetch the Account based upon the account strategy.
         let account = match self.account_strategy {
@@ -193,7 +193,6 @@ mod tests {
     use crate::{
         mock_xmtp_api_client::MockXmtpApiClient,
         storage::{EncryptedMessageStore, StorageOption},
-        Client,
     };
 
     use super::ClientBuilder;
@@ -203,6 +202,7 @@ mod tests {
             let wallet = generate_local_wallet();
 
             Self::new(wallet.into())
+                .api_client(MockXmtpApiClient::default())
         }
     }
 
@@ -231,8 +231,9 @@ mod tests {
         ))
         .unwrap();
 
-        let client_a: Client<MockXmtpApiClient> = ClientBuilder::new(wallet.clone().into())
+        let client_a = ClientBuilder::new(wallet.clone().into())
             .store(store_a)
+            .api_client(MockXmtpApiClient::default())
             .build()
             .unwrap();
         let keybytes_a = client_a
@@ -251,8 +252,9 @@ mod tests {
         ))
         .unwrap();
 
-        let client_b: Client<MockXmtpApiClient> = ClientBuilder::new(wallet.into())
+        let client_b = ClientBuilder::new(wallet.into())
             .store(store_b)
+            .api_client(MockXmtpApiClient::default())
             .build()
             .unwrap();
         let keybytes_b = client_b

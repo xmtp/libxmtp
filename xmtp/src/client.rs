@@ -61,32 +61,29 @@ impl From<&str> for ClientError {
     }
 }
 
-pub struct Client<A>
-where
-    A: XmtpApiClient,
-{
-    pub api_client: A,
+pub struct Client<ApiClient> {
+    pub api_client: ApiClient,
     pub(crate) network: Network,
     pub(crate) account: Account,
     pub store: EncryptedMessageStore, // Temporarily exposed outside crate for CLI client
     is_initialized: bool,
 }
 
-impl<A> core::fmt::Debug for Client<A>
+impl<ApiClient> core::fmt::Debug for Client<ApiClient>
 where
-    A: XmtpApiClient,
+    ApiClient: XmtpApiClient,
 {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         write!(f, "Client({:?})::{}", self.network, self.account.addr())
     }
 }
 
-impl<A> Client<A>
+impl<ApiClient> Client<ApiClient>
 where
-    A: XmtpApiClient,
+    ApiClient: XmtpApiClient,
 {
     pub fn new(
-        api_client: A,
+        api_client: ApiClient,
         network: Network,
         account: Account,
         store: EncryptedMessageStore,
@@ -192,7 +189,7 @@ where
         Ok(())
     }
 
-    /// Fetch Installations from the Network and create unintialized sessions for newly discovered contacts
+    /// Fetch Installations from the Network and create uninitialized sessions for newly discovered contacts
     // TODO: Reduce Visibility
     pub async fn refresh_user_installations(&self, user_address: &str) -> Result<(), ClientError> {
         // Store the timestamp of when the refresh process begins
@@ -448,7 +445,4 @@ mod tests {
             }
         }
     }
-
-    #[tokio::test]
-    async fn test_roundtrip_encrypt() {}
 }
