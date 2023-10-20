@@ -20,11 +20,6 @@ futures = "0.3.28"
 hex = "0.4.3"
 libsqlite3-sys = { version = "0.26.0", optional = true}
 log = "0.4.17"
-openmls = { path = "../../openmls/openmls", features = ["test-utils"] }
-openmls_traits = { path = "../../openmls/traits" }
-openmls_rust_crypto = { path = "../../openmls/openmls_rust_crypto" }
-openmls_memory_keystore = { path = "../../openmls/memory_keystore" }
-openmls_basic_credential = { path = "../../openmls/basic_credential" }
 rand = "0.8.5"
 serde = "1.0.160"
 serde_json = "1.0.96"
