@@ -32,8 +32,6 @@ pub enum AccountError {
     BadAssocation(#[from] AssociationError),
     #[error("mutex poisoned error")]
     MutexPoisoned,
-    #[error("unknown error")]
-    Unknown,
 }
 
 /// Holds an account and adds some serialization methods on top

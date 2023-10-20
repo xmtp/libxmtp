@@ -89,11 +89,11 @@ impl EncryptedMessageStore {
             StorageOption::Ephemeral => Pool::builder()
                 .max_size(1)
                 .build(ConnectionManager::<SqliteConnection>::new(":memory:"))
-                .map_err(|e| StorageError::DbInitError(e.to_string()))?,
+                .map_err(|e| StorageError::DbInit(e.to_string()))?,
             StorageOption::Persistent(ref path) => Pool::builder()
                 .max_size(10)
                 .build(ConnectionManager::<SqliteConnection>::new(path))
-                .map_err(|e| StorageError::DbInitError(e.to_string()))?,
+                .map_err(|e| StorageError::DbInit(e.to_string()))?,
         };
 
         // // Setup SqlCipherKey
@@ -117,7 +117,7 @@ impl EncryptedMessageStore {
         let conn = &mut self.conn()?;
 
         conn.run_pending_migrations(MIGRATIONS)
-            .map_err(|e| StorageError::DbInitError(e.to_string()))?;
+            .map_err(|e| StorageError::DbInit(e.to_string()))?;
 
         Ok(())
     }
@@ -134,7 +134,7 @@ impl EncryptedMessageStore {
         let conn = self
             .pool
             .get()
-            .map_err(|e| StorageError::PoolError(e.to_string()))?;
+            .map_err(|e| StorageError::Pool(e.to_string()))?;
 
         Ok(conn)
     }
@@ -145,7 +145,7 @@ impl EncryptedMessageStore {
     ) -> Result<(), StorageError> {
         let conn = &mut pool
             .get()
-            .map_err(|e| StorageError::PoolError(e.to_string()))?;
+            .map_err(|e| StorageError::Pool(e.to_string()))?;
 
         conn.batch_execute(&format!(
             "PRAGMA key = \"x'{}'\";",
@@ -627,7 +627,7 @@ impl Fetch<StoredMessage> for DbConnection {
 
         messages
             .load::<StoredMessage>(self)
-            .map_err(StorageError::DieselResultError)
+            .map_err(StorageError::DieselResult)
     }
 
     fn fetch_one(&mut self, key: i32) -> Result<Option<StoredMessage>, StorageError> where {
@@ -643,7 +643,7 @@ impl Fetch<StoredSession> for DbConnection {
 
         sessions
             .load::<StoredSession>(self)
-            .map_err(StorageError::DieselResultError)
+            .map_err(StorageError::DieselResult)
     }
 
     fn fetch_one(&mut self, key: &str) -> Result<Option<StoredSession>, StorageError> {
@@ -659,7 +659,7 @@ impl Fetch<StoredUser> for DbConnection {
 
         dsl::users
             .load::<StoredUser>(self)
-            .map_err(StorageError::DieselResultError)
+            .map_err(StorageError::DieselResult)
     }
     fn fetch_one(&mut self, key: &str) -> Result<Option<StoredUser>, StorageError> {
         use self::schema::users::dsl::*;
@@ -674,7 +674,7 @@ impl Fetch<StoredConversation> for DbConnection {
 
         dsl::conversations
             .load::<StoredConversation>(self)
-            .map_err(StorageError::DieselResultError)
+            .map_err(StorageError::DieselResult)
     }
     fn fetch_one(&mut self, key: &str) -> Result<Option<StoredConversation>, StorageError> {
         use self::schema::conversations::dsl::*;
@@ -738,7 +738,7 @@ impl Fetch<StoredInstallation> for DbConnection {
 
         dsl::installations
             .load::<StoredInstallation>(self)
-            .map_err(StorageError::DieselResultError)
+            .map_err(StorageError::DieselResult)
     }
     fn fetch_one(&mut self, key: &str) -> Result<Option<StoredInstallation>, StorageError> {
         use self::schema::installations::dsl::*;
@@ -923,8 +923,8 @@ mod tests {
         let res = EncryptedMessageStore::new(StorageOption::Persistent(db_path.clone()), enc_key);
         // Ensure it fails
         match res.err() {
-            Some(StorageError::DbInitError(_)) => (),
-            _ => panic!("Expected a DbInitError"),
+            Some(StorageError::DbInit(_)) => (),
+            _ => panic!("Expected a DbInit"),
         }
         fs::remove_file(db_path).unwrap();
     }

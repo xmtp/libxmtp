@@ -170,7 +170,7 @@ impl<ApiClient> Client<ApiClient> {
 
         if let Err(e) = session.store(conn) {
             match e {
-                StorageError::DieselResultError(_) => log::warn!("Session Already exists"), // TODO: Some thought is needed here, is this a critical error which should unroll?
+                StorageError::DieselResult(_) => log::warn!("Session Already exists"), // TODO: Some thought is needed here, is this a critical error which should unroll?
                 other_error => return Err(other_error.into()),
             }
         }
