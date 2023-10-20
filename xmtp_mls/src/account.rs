@@ -9,10 +9,6 @@ pub enum AccountError {
     BadGeneration(#[from] SignatureError),
     #[error("bad association")]
     BadAssocation(#[from] AssociationError),
-    #[error("mutex poisoned error")]
-    MutexPoisoned,
-    #[error("unknown error")]
-    Unknown,
 }
 
 pub struct Account {}

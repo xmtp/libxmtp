@@ -20,8 +20,6 @@ pub enum AssociationError {
         provided_addr: Address,
         signing_addr: Address,
     },
-    #[error("unknown association error")]
-    Unknown,
 }
 
 /// An Association is link between a blockchain account and an xmtp installation for the purposes of
