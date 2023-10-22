@@ -3061,6 +3061,7 @@ dependencies = [
  "tokio",
  "tonic",
  "xmtp_cryptography",
+ "xmtp_mls",
  "xmtp_proto",
 ]
 
@@ -6292,6 +6293,31 @@ dependencies = [
  "sha3 0.10.8",
  "thiserror",
  "tokio",
+]
+
+[[package]]
+name = "xmtp_mls"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "diesel",
+ "diesel_migrations",
+ "ethers",
+ "ethers-core 2.0.10",
+ "futures",
+ "hex",
+ "libsqlite3-sys",
+ "log",
+ "rand 0.8.5",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "thiserror",
+ "tokio",
+ "toml 0.7.4",
+ "xmtp_cryptography",
+ "xmtp_proto",
 ]
 
 [[package]]

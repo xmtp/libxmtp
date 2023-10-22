@@ -1,5 +1,5 @@
-use crate::association::Eip191Association;
 use base64::{engine::general_purpose, Engine as _};
+use xmtp_mls::association::Eip191Association;
 
 use prost::Message;
 use xmtp_proto::xmtp::v3::message_contents::Eip191Association as Eip191AssociationProto;

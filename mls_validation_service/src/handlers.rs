@@ -169,10 +169,6 @@ fn validate_key_package(key_package_bytes: Vec<u8>) -> Result<ValidateKeyPackage
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{
-        association::{AssociationText, Eip191Association},
-        owner::InboxOwner,
-    };
     use ethers::signers::LocalWallet;
     use openmls::{
         prelude::{
@@ -183,6 +179,10 @@ mod tests {
     };
     use openmls_basic_credential::SignatureKeyPair;
     use prost::Message;
+    use xmtp_mls::{
+        association::{AssociationText, Eip191Association},
+        InboxOwner,
+    };
     use xmtp_proto::xmtp::{
         mls_validation::v1::{
             validate_identities_request::Credential,

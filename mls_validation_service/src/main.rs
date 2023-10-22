@@ -1,7 +1,5 @@
-mod association;
 mod config;
 mod handlers;
-mod owner;
 mod validation_helpers;
 
 use clap::Parser;
@@ -11,7 +9,7 @@ use handlers::ValidationService;
 use tokio::signal::unix::{signal, SignalKind};
 use tokio::{
     spawn,
-    sync::oneshot::{self, Receiver, Sender},
+    sync::oneshot::{self, Sender},
 };
 use tonic::transport::Server;
 use xmtp_proto::xmtp::mls_validation::v1::validation_api_server::ValidationApiServer;
@@ -43,6 +41,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 }
 
 async fn wait_for_sigint(tx: Sender<()>) {
+    // I was having shutdown problems without adding this helper
+    // The thing just refused to die locally
     let _ = signal(SignalKind::interrupt())
         .expect("failed to install signal handler")
         .recv()
