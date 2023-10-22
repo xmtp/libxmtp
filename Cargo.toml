@@ -8,6 +8,7 @@ members = [
   "xmtp_api_grpc",
   "xmtp_proto",
   "xmtp_v2",
+  "xmtp_mls",
 ]
 
 exclude = [
