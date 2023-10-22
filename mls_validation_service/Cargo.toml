@@ -3,15 +3,15 @@ name = "mls_validation_service"
 version = "0.1.0"
 edition = "2021"
 
-[[bin]] # Bin to run the HelloWorld gRPC server
-name = "server"
+[[bin]] # Bin to run the Validation Service
+name = "mls-validation-service"
 path = "src/main.rs"
 
 [dependencies]
-prost = { version = "0.12.1", features = ["prost-derive"] }
-tokio = { version = "1.33.0", features = ["macros", "rt-multi-thread"] }
+prost = { version = "0.11", features = ["prost-derive"] }
+tokio = { version = "1.33.0", features = ["macros", "rt-multi-thread", "full"] }
 tonic = "^0.9"
-xmtp_proto = { path = "../xmtp_proto", features = ["xmtp-mls_validation-v1", "server"] }
+xmtp_proto = { path = "../xmtp_proto", features = ["proto_full", "grpc", "tonic"] }
 openmls = { git= "https://github.com/openmls/openmls", features = ["test-utils"] }
 openmls_traits = { git= "https://github.com/openmls/openmls" }
 openmls_basic_credential = { git= "https://github.com/openmls/openmls" }
@@ -22,3 +22,8 @@ ethers = "2.0.10"
 serde = "1.0.189"
 rand = "0.8.5"
 hex = "0.4.3"
+futures = "0.3.28"
+base64 = "0.21.4"
+clap = { version = "4.4.6", features = ["derive"] }
+log = "0.4.20"
+env_logger = "0.10.0"

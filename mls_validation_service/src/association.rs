@@ -4,8 +4,10 @@ use serde::{Deserialize, Serialize};
 use thiserror::Error;
 use xmtp_cryptography::signature::{RecoverableSignature, SignatureError};
 use xmtp_cryptography::utils::generate_local_wallet;
-use xmtp_proto::xmtp::v3::message_contents::Eip191Association as Eip191AssociationProto;
-use xmtp_proto::xmtp::v3::message_contents::RecoverableEcdsaSignature as RecoverableEcdsaSignatureProto;
+use xmtp_proto::xmtp::v3::message_contents::{
+    Eip191Association as Eip191AssociationProto,
+    RecoverableEcdsaSignature as RecoverableEcdsaSignatureProto,
+};
 
 pub type Address = String;
 

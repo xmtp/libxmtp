@@ -1,24 +1,58 @@
+use openmls_rust_crypto::OpenMlsRustCrypto;
+use openmls_traits::OpenMlsProvider;
 use tonic::{Request, Response, Status};
 
-use openmls::prelude::TlsDeserializeTrait;
+use openmls::{
+    prelude::{KeyPackageIn, MlsMessageIn, ProtocolMessage, TlsDeserializeTrait},
+    versions::ProtocolVersion,
+};
 use xmtp_proto::xmtp::mls_validation::v1::{
-    validate_identities_response::ValidationResponse, validation_api_server::ValidationApi,
-    ValidateGroupMessagesRequest, ValidateGroupMessagesResponse, ValidateIdentitiesRequest,
-    ValidateIdentitiesResponse, ValidateKeyPackagesRequest, ValidateKeyPackagesResponse,
+    validate_group_messages_response::ValidationResponse as ValidateGroupMessageValidationResponse,
+    validate_identities_response::ValidationResponse as ValidateIdentitiesValidationResponse,
+    validate_key_packages_response::ValidationResponse as ValidateKeyPackageValidationResponse,
+    validation_api_server::ValidationApi, ValidateGroupMessagesRequest,
+    ValidateGroupMessagesResponse, ValidateIdentitiesRequest, ValidateIdentitiesResponse,
+    ValidateKeyPackagesRequest, ValidateKeyPackagesResponse,
 };
 
-use crate::validation_helpers::{identity_to_wallet_address, pub_key_to_installation_id};
+use crate::validation_helpers::{
+    base64_encode, identity_to_wallet_address, pub_key_to_installation_id,
+};
 
 #[derive(Debug, Default)]
-pub struct ValidationServer {}
+pub struct ValidationService {}
 
 #[tonic::async_trait]
-impl ValidationApi for ValidationServer {
+impl ValidationApi for ValidationService {
     async fn validate_key_packages(
         &self,
         request: Request<ValidateKeyPackagesRequest>,
     ) -> Result<Response<ValidateKeyPackagesResponse>, Status> {
-        Err(Status::unimplemented("not implemented"))
+        let out: Vec<ValidateKeyPackageValidationResponse> = request
+            .into_inner()
+            .key_packages
+            .into_iter()
+            .map(
+                |kp| match validate_key_package(kp.key_package_bytes_tls_serialized) {
+                    Ok(res) => ValidateKeyPackageValidationResponse {
+                        installation_id: res.installation_id,
+                        wallet_address: res.wallet_address,
+                        error_message: "".to_string(),
+                        is_ok: true,
+                    },
+                    Err(e) => ValidateKeyPackageValidationResponse {
+                        is_ok: false,
+                        error_message: e,
+                        installation_id: "".to_string(),
+                        wallet_address: "".to_string(),
+                    },
+                },
+            )
+            .collect();
+
+        Ok(Response::new(ValidateKeyPackagesResponse {
+            responses: out,
+        }))
     }
 
     async fn validate_identities(
@@ -26,34 +60,29 @@ impl ValidationApi for ValidationServer {
         request: Request<ValidateIdentitiesRequest>,
     ) -> Result<Response<ValidateIdentitiesResponse>, Status> {
         let identities = request.into_inner().credentials;
-        let mut out: Vec<ValidationResponse> = vec![];
+        let out: Vec<ValidateIdentitiesValidationResponse> = identities
+            .iter()
+            .map(|identity| {
+                let pub_key_bytes = identity.signing_public_key_bytes.as_slice();
+                let result =
+                    identity_to_wallet_address(identity.identity_bytes.as_slice(), pub_key_bytes);
 
-        for identity in identities {
-            let pub_key_bytes = identity.signing_public_key_bytes.as_slice();
-            let wallet_address =
-                identity_to_wallet_address(identity.identity_bytes.as_slice(), pub_key_bytes);
-
-            if wallet_address.is_err() {
-                out.push(ValidationResponse {
-                    installation_id: "".to_string(),
-                    error_message: wallet_address
-                        .err()
-                        .ok_or("could not derive wallet address".to_string())
-                        .unwrap(),
-                    wallet_address: "".to_string(),
-                    is_ok: false,
-                });
-
-                continue;
-            }
-
-            out.push(ValidationResponse {
-                installation_id: pub_key_to_installation_id(pub_key_bytes),
-                error_message: "".to_string(),
-                wallet_address: wallet_address.unwrap(),
-                is_ok: true,
+                match result {
+                    Ok(wallet_address) => ValidateIdentitiesValidationResponse {
+                        installation_id: pub_key_to_installation_id(pub_key_bytes),
+                        error_message: "".to_string(),
+                        wallet_address: wallet_address,
+                        is_ok: true,
+                    },
+                    Err(err) => ValidateIdentitiesValidationResponse {
+                        installation_id: "".to_string(),
+                        error_message: err.to_string(),
+                        wallet_address: "".to_string(),
+                        is_ok: false,
+                    },
+                }
             })
-        }
+            .collect();
 
         Ok(Response::new(ValidateIdentitiesResponse { responses: out }))
     }
@@ -62,26 +91,116 @@ impl ValidationApi for ValidationServer {
         &self,
         request: Request<ValidateGroupMessagesRequest>,
     ) -> Result<Response<ValidateGroupMessagesResponse>, Status> {
-        Err(Status::unimplemented("not implemented"))
+        let out: Vec<ValidateGroupMessageValidationResponse> = request
+            .into_inner()
+            .group_messages
+            .into_iter()
+            .map(|message| {
+                match validate_group_message(message.group_message_bytes_tls_serialized) {
+                    Ok(res) => ValidateGroupMessageValidationResponse {
+                        group_id: res.group_id,
+                        epoch: res.epoch,
+                        error_message: "".to_string(),
+                        is_ok: true,
+                    },
+                    Err(e) => ValidateGroupMessageValidationResponse {
+                        group_id: "".to_string(),
+                        epoch: 0,
+                        error_message: e,
+                        is_ok: false,
+                    },
+                }
+            })
+            .collect();
+
+        Ok(Response::new(ValidateGroupMessagesResponse {
+            responses: out,
+        }))
     }
+}
+
+struct ValidateGroupMessageResult {
+    group_id: String,
+    epoch: u64,
+}
+
+fn validate_group_message(message: Vec<u8>) -> Result<ValidateGroupMessageResult, String> {
+    let msg_result = MlsMessageIn::tls_deserialize(&mut message.as_slice())
+        .map_err(|_| "failed to decode".to_string())?;
+
+    let private_message: ProtocolMessage = msg_result.into();
+
+    Ok(ValidateGroupMessageResult {
+        // TODO: I wonder if we really want to be base64 encoding this or if we can treat it as a slice
+        group_id: base64_encode(private_message.group_id().as_slice()),
+        epoch: private_message.epoch().as_u64(),
+    })
+}
+
+struct ValidateKeyPackageResult {
+    installation_id: String,
+    wallet_address: String,
+}
+
+fn validate_key_package(key_package_bytes: Vec<u8>) -> Result<ValidateKeyPackageResult, String> {
+    let deserialize_result = KeyPackageIn::tls_deserialize_bytes(key_package_bytes.as_slice())
+        .map_err(|e| format!("deserialization error: {}", e))?;
+    let rust_crypto = OpenMlsRustCrypto::default();
+    let crypto = rust_crypto.crypto();
+
+    // Validate the key package and check all signatures
+    let kp = deserialize_result
+        .clone()
+        .validate(crypto, ProtocolVersion::Mls10)
+        .map_err(|e| format!("validation failed: {}", e))?;
+
+    // Get the credential so we can
+    let leaf_node = kp.leaf_node();
+    let identity_bytes = leaf_node.credential().identity();
+    let pub_key_bytes = leaf_node.signature_key().as_slice();
+    let wallet_address = identity_to_wallet_address(identity_bytes, pub_key_bytes)?;
+
+    Ok(ValidateKeyPackageResult {
+        installation_id: pub_key_to_installation_id(pub_key_bytes),
+        wallet_address: wallet_address,
+    })
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use openmls_basic_credential::SignatureKeyPair;
+    use crate::{
+        association::{AssociationText, Eip191Association},
+        owner::InboxOwner,
+    };
     use ethers::signers::LocalWallet;
-    use xmtp_proto::xmtp::v3::message_contents::Eip191Association as Eip191AssociationProto;
-    use crate::{owner::InboxOwner, association::{AssociationText, Eip191Association}};
+    use openmls::{
+        prelude::{
+            Ciphersuite, Credential as OpenMlsCredential, CredentialType, CredentialWithKey,
+            CryptoConfig, TlsSerializeTrait,
+        },
+        prelude_test::KeyPackage,
+    };
+    use openmls_basic_credential::SignatureKeyPair;
     use prost::Message;
+    use xmtp_proto::xmtp::{
+        mls_validation::v1::{
+            validate_identities_request::Credential,
+            validate_key_packages_request::KeyPackage as KeyPackageProtoWrapper,
+        },
+        v3::message_contents::Eip191Association as Eip191AssociationProto,
+    };
 
-    fn generate_identity() {
+    const CIPHERSUITE: Ciphersuite = Ciphersuite::MLS_128_DHKEMX25519_AES128GCM_SHA256_Ed25519;
+
+    fn generate_identity() -> (Vec<u8>, SignatureKeyPair, String) {
         let rng = &mut rand::thread_rng();
         let wallet = LocalWallet::new(rng);
-        let signature_key_pair = SignatureKeyPair::new(ciphersuite.signature_algorithm()).unwrap();
+        let signature_key_pair = SignatureKeyPair::new(CIPHERSUITE.signature_algorithm()).unwrap();
         let pub_key = signature_key_pair.public();
         let wallet_address = wallet.get_address();
-        let association_text = AssociationText::new_static(wallet_address, pub_key.to_vec());
+        let association_text =
+            AssociationText::new_static(wallet_address.clone(), pub_key.to_vec());
         let signature = wallet
             .sign(&association_text.text())
             .expect("failed to sign");
@@ -93,11 +212,112 @@ mod tests {
         association_proto
             .encode(&mut buf)
             .expect("failed to serialize");
-        buf
+
+        return (buf, signature_key_pair, wallet_address);
+    }
+
+    fn build_key_package_bytes(
+        keypair: &SignatureKeyPair,
+        credential_with_key: &CredentialWithKey,
+    ) -> Vec<u8> {
+        let rust_crypto = OpenMlsRustCrypto::default();
+        let kp = KeyPackage::builder()
+            .build(
+                CryptoConfig {
+                    ciphersuite: CIPHERSUITE,
+                    version: ProtocolVersion::default(),
+                },
+                &rust_crypto,
+                keypair,
+                credential_with_key.clone(),
+            )
+            .unwrap();
+        kp.tls_serialize_detached().unwrap()
     }
 
     #[tokio::test]
-    async fn test_validate_identities_happy() {
-        let pub_key = generate_identity()
+    async fn test_validate_key_packages_happy_path() {
+        let (identity, keypair, wallet_address) = generate_identity();
+
+        let credential = OpenMlsCredential::new(identity, CredentialType::Basic).unwrap();
+        let credential_with_key = CredentialWithKey {
+            credential,
+            signature_key: keypair.to_public_vec().into(),
+        };
+
+        let key_package_bytes = build_key_package_bytes(&keypair, &credential_with_key);
+        let request = ValidateKeyPackagesRequest {
+            key_packages: vec![KeyPackageProtoWrapper {
+                key_package_bytes_tls_serialized: key_package_bytes,
+            }],
+        };
+
+        let res = ValidationService::default()
+            .validate_key_packages(Request::new(request))
+            .await
+            .unwrap();
+
+        let first_response = &res.into_inner().responses[0];
+        assert_eq!(
+            first_response.installation_id,
+            pub_key_to_installation_id(keypair.public())
+        );
+        assert_eq!(first_response.wallet_address, wallet_address);
+    }
+
+    #[tokio::test]
+    async fn test_validate_key_packages_fail() {
+        let (identity, keypair, _) = generate_identity();
+        let (_, other_keypair, _) = generate_identity();
+
+        let credential = OpenMlsCredential::new(identity, CredentialType::Basic).unwrap();
+        let credential_with_key = CredentialWithKey {
+            credential,
+            // Use the wrong signature key to make the validation fail
+            signature_key: other_keypair.to_public_vec().into(),
+        };
+
+        let key_package_bytes = build_key_package_bytes(&keypair, &credential_with_key);
+
+        let request = ValidateKeyPackagesRequest {
+            key_packages: vec![KeyPackageProtoWrapper {
+                key_package_bytes_tls_serialized: key_package_bytes,
+            }],
+        };
+
+        let res = ValidationService::default()
+            .validate_key_packages(Request::new(request))
+            .await
+            .unwrap();
+
+        let first_response = &res.into_inner().responses[0];
+
+        assert_eq!(first_response.is_ok, false);
+        assert_eq!(first_response.wallet_address, "".to_string());
+    }
+
+    #[tokio::test]
+    async fn test_validate_identities_happy_path() {
+        let (identity, keypair, wallet_address) = generate_identity();
+        let req = Request::new(ValidateIdentitiesRequest {
+            credentials: vec![Credential {
+                identity_bytes: identity,
+                signing_public_key_bytes: keypair.public().to_vec(),
+            }],
+        });
+
+        let res = ValidationService::default()
+            .validate_identities(req)
+            .await
+            .unwrap();
+
+        let first_response = &res.into_inner().responses[0];
+        assert!(first_response.is_ok);
+        assert_eq!(first_response.wallet_address, wallet_address);
+    }
+
+    #[tokio::test]
+    async fn test_validate_group_messages() {
+        // TODO: Generate some test fixtures to test this properly
     }
 }

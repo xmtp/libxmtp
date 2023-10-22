@@ -19,8 +19,8 @@ plugins:
       # Exclude it from non-tonic builds (so we can use the rest in Wasm)
       - client_mod_attribute=xmtp.message_api.v1=#[cfg(feature = "tonic")]
       - client_mod_attribute=xmtp.mls_validation.v1=#[cfg(feature = "tonic")]
-      - server_mod_attribute=xmtp.mls_validation.v1=#[cfg(feature = "server")]
-      - server_mod_attribute=xmtp.message_api.v1=#[cfg(feature = "server")]
+      - server_mod_attribute=xmtp.mls_validation.v1=#[cfg(feature = "tonic")]
+      - server_mod_attribute=xmtp.message_api.v1=#[cfg(feature = "tonic")]
   - name: prost-crate
     out: .
     strategy: all

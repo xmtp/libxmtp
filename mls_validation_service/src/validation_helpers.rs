@@ -1,6 +1,7 @@
 use crate::association::Eip191Association;
-use xmtp_cryptography::hash::keccak256;
+use base64::{engine::general_purpose, Engine as _};
 
+use prost::Message;
 use xmtp_proto::xmtp::v3::message_contents::Eip191Association as Eip191AssociationProto;
 
 pub fn base64_encode(bytes: &[u8]) -> String {
@@ -8,7 +9,7 @@ pub fn base64_encode(bytes: &[u8]) -> String {
 }
 
 pub fn pub_key_to_installation_id(key: &[u8]) -> String {
-    base64_encode(keccak256(key.to_string().as_str()).as_slice())
+    base64_encode(key)
 }
 
 pub fn identity_to_wallet_address(identity: &[u8], pub_key: &[u8]) -> Result<String, String> {
