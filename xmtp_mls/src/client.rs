@@ -4,7 +4,6 @@ use crate::{
     account::Account,
     storage::{EncryptedMessageStore, StorageError},
 };
-use xmtp_proto::api_client::XmtpApiClient;
 
 #[derive(Clone, Copy, Default, Debug)]
 pub enum Network {
@@ -47,10 +46,7 @@ pub struct Client<ApiClient> {
     pub store: EncryptedMessageStore, // Temporarily exposed outside crate for CLI client
 }
 
-impl<ApiClient> Client<ApiClient>
-where
-    ApiClient: XmtpApiClient,
-{
+impl<ApiClient> Client<ApiClient> {
     pub fn new(
         api_client: ApiClient,
         network: Network,

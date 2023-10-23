@@ -12,7 +12,7 @@ use xmtp_proto::api_client::XmtpApiClient;
 #[derive(Error, Debug)]
 pub enum ClientBuilderError {
     #[error("Missing parameter: {parameter}")]
-    MissingParameterError { parameter: &'static str },
+    MissingParameter { parameter: &'static str },
 
     // #[error("Failed to serialize/deserialize state for persistence: {source}")]
     // SerializationError { source: serde_json::Error },
@@ -24,9 +24,9 @@ pub enum ClientBuilderError {
 
     // #[error("Associating an address to account failed")]
     // AssociationFailed(#[from] AssociationError),
-    // #[error("Error Initalizing Store")]
+    // #[error("Error Initializing Store")]
     // StoreInitialization(#[from] SE),
-    #[error("Error Initalizing Account")]
+    #[error("Error Initializing Account")]
     AccountInitialization(#[from] AccountError),
 
     #[error("Storage Error")]
@@ -63,12 +63,12 @@ pub struct ClientBuilder<ApiClient, Owner> {
     account_strategy: AccountStrategy<Owner>,
 }
 
-impl<A, O> ClientBuilder<A, O>
+impl<ApiClient, Owner> ClientBuilder<ApiClient, Owner>
 where
-    A: XmtpApiClient + Default,
-    O: InboxOwner,
+    ApiClient: XmtpApiClient,
+    Owner: InboxOwner,
 {
-    pub fn new(strat: AccountStrategy<O>) -> Self {
+    pub fn new(strat: AccountStrategy<Owner>) -> Self {
         Self {
             api_client: None,
             network: Network::Dev,
@@ -78,7 +78,7 @@ where
         }
     }
 
-    pub fn api_client(mut self, api_client: A) -> Self {
+    pub fn api_client(mut self, api_client: ApiClient) -> Self {
         self.api_client = Some(api_client);
         self
     }
@@ -98,8 +98,8 @@ where
         self
     }
 
-    pub fn build(mut self) -> Result<Client<A>, ClientBuilderError> {
-        let api_client = self.api_client.take().unwrap_or_default();
+    pub fn build(mut self) -> Result<Client<ApiClient>, ClientBuilderError> {
+        let api_client = self.api_client.take().ok_or(ClientBuilderError::MissingParameter { parameter: "api_client"})?;
         let store = self.store.take().unwrap_or_default();
         // Fetch the Account based upon the account strategy.
         let account = match self.account_strategy {
