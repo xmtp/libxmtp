@@ -1,7 +1,7 @@
-pub mod account;
 pub mod association;
 pub mod builder;
 pub mod client;
+pub mod identity;
 pub mod mock_xmtp_api_client;
 pub mod owner;
 pub mod storage;

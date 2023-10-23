@@ -1,7 +1,7 @@
 use thiserror::Error;
 
 use crate::{
-    account::Account,
+    identity::Identity,
     storage::{EncryptedMessageStore, StorageError},
 };
 use xmtp_proto::api_client::XmtpApiClient;
@@ -46,7 +46,7 @@ where
 {
     pub api_client: A,
     pub(crate) _network: Network,
-    pub(crate) _account: Account,
+    pub(crate) _identity: Identity,
     pub store: EncryptedMessageStore, // Temporarily exposed outside crate for CLI client
 }
 
@@ -57,13 +57,13 @@ where
     pub fn new(
         api_client: A,
         network: Network,
-        account: Account,
+        identity: Identity,
         store: EncryptedMessageStore,
     ) -> Self {
         Self {
             api_client,
             _network: network,
-            _account: account,
+            _identity: identity,
             store,
         }
     }
