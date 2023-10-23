@@ -4,7 +4,6 @@ use crate::{
     identity::Identity,
     storage::{EncryptedMessageStore, StorageError},
 };
-use xmtp_proto::api_client::{XmtpApiClient, XmtpMlsClient};
 
 #[derive(Clone, Copy, Default, Debug)]
 pub enum Network {
