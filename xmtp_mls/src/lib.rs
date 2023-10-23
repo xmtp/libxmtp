@@ -1,11 +1,13 @@
 pub mod association;
 pub mod builder;
 pub mod client;
+mod configuration;
 pub mod identity;
 pub mod mock_xmtp_api_client;
 pub mod owner;
 pub mod storage;
 pub mod types;
+mod xmtp_openmls_provider;
 
 pub use client::{Client, Network};
 use storage::StorageError;

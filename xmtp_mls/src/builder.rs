@@ -1,3 +1,5 @@
+use crate::configuration::CIPHERSUITE;
+use crate::xmtp_openmls_provider::XmtpOpenMlsProvider;
 use crate::StorageError;
 use crate::{
     client::{Client, Network},
@@ -109,13 +111,14 @@ where
         // Fetch the Identity based upon the identity strategy.
         let identity = match self.identity_strategy {
             IdentityStrategy::CachedOnly(_) => {
-                // TODO
-                Identity {}
+                // TODO: persistence/retrieval
+                unimplemented!()
             }
-            IdentityStrategy::CreateIfNotFound(_owner) => {
-                // TODO
-                Identity {}
-            }
+            IdentityStrategy::CreateIfNotFound(_owner) => Identity::new(
+                CIPHERSUITE,
+                &XmtpOpenMlsProvider::default(),
+                "unimplemented".as_bytes(), // TODO
+            ),
             #[cfg(test)]
             IdentityStrategy::ExternalIdentity(a) => a,
         };
