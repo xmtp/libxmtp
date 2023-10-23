@@ -61,32 +61,23 @@ impl From<&str> for ClientError {
     }
 }
 
-pub struct Client<A>
-where
-    A: XmtpApiClient,
-{
-    pub api_client: A,
+pub struct Client<ApiClient> {
+    pub api_client: ApiClient,
     pub(crate) network: Network,
     pub(crate) account: Account,
     pub store: EncryptedMessageStore, // Temporarily exposed outside crate for CLI client
     is_initialized: bool,
 }
 
-impl<A> core::fmt::Debug for Client<A>
-where
-    A: XmtpApiClient,
-{
+impl<ApiClient> core::fmt::Debug for Client<ApiClient> {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         write!(f, "Client({:?})::{}", self.network, self.account.addr())
     }
 }
 
-impl<A> Client<A>
-where
-    A: XmtpApiClient,
-{
+impl<ApiClient> Client<ApiClient> {
     pub fn new(
-        api_client: A,
+        api_client: ApiClient,
         network: Network,
         account: Account,
         store: EncryptedMessageStore,
@@ -103,60 +94,11 @@ where
     pub fn wallet_address(&self) -> Address {
         self.account.addr()
     }
-
+    
     pub fn installation_id(&self) -> String {
         self.account.contact().installation_id()
     }
-
-    pub async fn init(&mut self) -> Result<(), ClientError> {
-        let app_contact_bundle = self.account.contact();
-        let registered_bundles = self.get_contacts(&self.wallet_address()).await?;
-
-        if !registered_bundles
-            .iter()
-            .any(|contact| contact.installation_id() == app_contact_bundle.installation_id())
-        {
-            self.publish_user_contact().await?;
-        }
-
-        self.is_initialized = true;
-
-        // Send any unsent messages
-        if let Err(err) = Conversations::process_outbound_messages(self).await {
-            log::error!("Could not process outbound messages on init: {:?}", err)
-        }
-
-        Ok(())
-    }
-
-    pub async fn get_contacts(&self, wallet_address: &str) -> Result<Vec<Contact>, ClientError> {
-        let topic = build_user_contact_topic(wallet_address.to_string());
-        let response = self
-            .api_client
-            .query(QueryRequest {
-                content_topics: vec![topic],
-                start_time_ns: 0,
-                end_time_ns: 0,
-                paging_info: None,
-            })
-            .await?;
-
-        let mut contacts = vec![];
-        for envelope in response.envelopes {
-            let contact_bundle = Contact::from_bytes(envelope.message, wallet_address.to_string());
-            match contact_bundle {
-                Ok(bundle) => {
-                    contacts.push(bundle);
-                }
-                Err(err) => {
-                    log::error!("bad contact bundle: {:?}", err);
-                }
-            }
-        }
-
-        Ok(contacts)
-    }
-
+    
     pub fn get_session(
         &self,
         conn: &mut DbConnection,
@@ -177,84 +119,6 @@ where
             .into_iter()
             .filter(|c| c.installation_id() != self.installation_id())
             .collect())
-    }
-
-    pub async fn refresh_user_installations_if_stale(
-        &self,
-        user_address: &str,
-    ) -> Result<(), ClientError> {
-        let user = self.store.get_user(&mut self.store.conn()?, user_address)?;
-        if user.is_none() || user.unwrap().last_refreshed < now() - INSTALLATION_REFRESH_INTERVAL_NS
-        {
-            self.refresh_user_installations(user_address).await?;
-        }
-
-        Ok(())
-    }
-
-    /// Fetch Installations from the Network and create unintialized sessions for newly discovered contacts
-    // TODO: Reduce Visibility
-    pub async fn refresh_user_installations(&self, user_address: &str) -> Result<(), ClientError> {
-        // Store the timestamp of when the refresh process begins
-        let refresh_timestamp = now();
-
-        let self_install_id = key_fingerprint(&self.account.identity_keys().curve25519);
-        let contacts = self.get_contacts(user_address).await?;
-        let conn = &mut self.store.conn()?;
-        debug!(
-            "Fetched contacts for address {}: {:?}",
-            user_address, contacts
-        );
-
-        let installation_map = self
-            .store
-            .get_installations(conn, user_address)?
-            .into_iter()
-            .map(|v| (v.installation_id.clone(), v))
-            .collect::<HashMap<_, _>>();
-
-        let new_installs: Vec<StoredInstallation> = contacts
-            .iter()
-            .filter(|contact| self_install_id != contact.installation_id())
-            .filter(|contact| !installation_map.contains_key(&contact.installation_id()))
-            .filter_map(|contact| StoredInstallation::new(contact).ok())
-            .collect();
-        debug!(
-            "New installs for address {}: {:?}",
-            user_address, new_installs
-        );
-
-        conn.transaction(|transaction_manager| -> Result<(), ClientError> {
-            self.store.insert_user(
-                transaction_manager,
-                StoredUser {
-                    user_address: user_address.to_string(),
-                    created_at: now(),
-                    last_refreshed: refresh_timestamp,
-                },
-            )?;
-            for install in new_installs {
-                info!("Saving Install {}", install.installation_id);
-                let session = self.create_uninitialized_session(&install.get_contact()?)?;
-
-                self.store
-                    .insert_install(transaction_manager, install)?;
-                self.store.insert_session(
-                    transaction_manager,
-                    StoredSession::try_from(&session)?,
-                )?;
-            }
-
-            self.store.update_user_refresh_timestamp(
-                transaction_manager,
-                user_address,
-                refresh_timestamp,
-            )?;
-
-            Ok(())
-        })?;
-
-        Ok(())
     }
 
     pub fn get_contacts_from_db(
@@ -306,12 +170,66 @@ where
 
         if let Err(e) = session.store(conn) {
             match e {
-                StorageError::DieselResultError(_) => log::warn!("Session Already exists"), // TODO: Some thought is needed here, is this a critical error which should unroll?
+                StorageError::DieselResult(_) => log::warn!("Session Already exists"), // TODO: Some thought is needed here, is this a critical error which should unroll?
                 other_error => return Err(other_error.into()),
             }
         }
 
         Ok((session, create_result.plaintext))
+    }
+}
+
+impl<ApiClient> Client<ApiClient>
+where
+    ApiClient: XmtpApiClient
+{
+    pub async fn init(&mut self) -> Result<(), ClientError> {
+        let app_contact_bundle = self.account.contact();
+        let registered_bundles = self.get_contacts(&self.wallet_address()).await?;
+
+        if !registered_bundles
+            .iter()
+            .any(|contact| contact.installation_id() == app_contact_bundle.installation_id())
+        {
+            self.publish_user_contact().await?;
+        }
+
+        self.is_initialized = true;
+
+        // Send any unsent messages
+        if let Err(err) = Conversations::process_outbound_messages(self).await {
+            log::error!("Could not process outbound messages on init: {:?}", err)
+        }
+
+        Ok(())
+    }
+
+    pub async fn get_contacts(&self, wallet_address: &str) -> Result<Vec<Contact>, ClientError> {
+        let topic = build_user_contact_topic(wallet_address.to_string());
+        let response = self
+            .api_client
+            .query(QueryRequest {
+                content_topics: vec![topic],
+                start_time_ns: 0,
+                end_time_ns: 0,
+                paging_info: None,
+            })
+            .await?;
+
+        let mut contacts = vec![];
+        for envelope in response.envelopes {
+            let contact_bundle = Contact::from_bytes(envelope.message, wallet_address.to_string());
+            match contact_bundle {
+                Ok(bundle) => {
+                    contacts.push(bundle);
+                }
+                Err(err) => {
+                    log::error!("bad contact bundle: {:?}", err);
+                }
+            }
+        }
+
+        Ok(contacts)
     }
 
     async fn publish_user_contact(&self) -> Result<(), ClientError> {
@@ -374,6 +292,84 @@ where
             }
         }
         Ok(None)
+    }
+
+    pub async fn refresh_user_installations_if_stale(
+        &self,
+        user_address: &str,
+    ) -> Result<(), ClientError> {
+        let user = self.store.get_user(&mut self.store.conn()?, user_address)?;
+        if user.is_none() || user.unwrap().last_refreshed < now() - INSTALLATION_REFRESH_INTERVAL_NS
+        {
+            self.refresh_user_installations(user_address).await?;
+        }
+
+        Ok(())
+    }
+
+    /// Fetch Installations from the Network and create uninitialized sessions for newly discovered contacts
+    // TODO: Reduce Visibility
+    pub async fn refresh_user_installations(&self, user_address: &str) -> Result<(), ClientError> {
+        // Store the timestamp of when the refresh process begins
+        let refresh_timestamp = now();
+
+        let self_install_id = key_fingerprint(&self.account.identity_keys().curve25519);
+        let contacts = self.get_contacts(user_address).await?;
+        let conn = &mut self.store.conn()?;
+        debug!(
+            "Fetched contacts for address {}: {:?}",
+            user_address, contacts
+        );
+
+        let installation_map = self
+            .store
+            .get_installations(conn, user_address)?
+            .into_iter()
+            .map(|v| (v.installation_id.clone(), v))
+            .collect::<HashMap<_, _>>();
+
+        let new_installs: Vec<StoredInstallation> = contacts
+            .iter()
+            .filter(|contact| self_install_id != contact.installation_id())
+            .filter(|contact| !installation_map.contains_key(&contact.installation_id()))
+            .filter_map(|contact| StoredInstallation::new(contact).ok())
+            .collect();
+        debug!(
+            "New installs for address {}: {:?}",
+            user_address, new_installs
+        );
+
+        conn.transaction(|transaction_manager| -> Result<(), ClientError> {
+            self.store.insert_user(
+                transaction_manager,
+                StoredUser {
+                    user_address: user_address.to_string(),
+                    created_at: now(),
+                    last_refreshed: refresh_timestamp,
+                },
+            )?;
+            for install in new_installs {
+                info!("Saving Install {}", install.installation_id);
+                let session = self.create_uninitialized_session(&install.get_contact()?)?;
+
+                self.store
+                    .insert_install(transaction_manager, install)?;
+                self.store.insert_session(
+                    transaction_manager,
+                    StoredSession::try_from(&session)?,
+                )?;
+            }
+
+            self.store.update_user_refresh_timestamp(
+                transaction_manager,
+                user_address,
+                refresh_timestamp,
+            )?;
+
+            Ok(())
+        })?;
+
+        Ok(())
     }
 }
 
@@ -448,7 +444,4 @@ mod tests {
             }
         }
     }
-
-    #[tokio::test]
-    async fn test_roundtrip_encrypt() {}
 }

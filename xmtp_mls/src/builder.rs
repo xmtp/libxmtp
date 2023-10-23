@@ -12,7 +12,7 @@ use xmtp_proto::api_client::XmtpApiClient;
 #[derive(Error, Debug)]
 pub enum ClientBuilderError {
     #[error("Missing parameter: {parameter}")]
-    MissingParameterError { parameter: &'static str },
+    MissingParameter { parameter: &'static str },
 
     // #[error("Failed to serialize/deserialize state for persistence: {source}")]
     // SerializationError { source: serde_json::Error },
@@ -24,7 +24,7 @@ pub enum ClientBuilderError {
 
     // #[error("Associating an address to account failed")]
     // AssociationFailed(#[from] AssociationError),
-    // #[error("Error Initalizing Store")]
+    // #[error("Error Initializing Store")]
     // StoreInitialization(#[from] SE),
     #[error("Error Initalizing Identity")]
     IdentityInitialization(#[from] IdentityError),
@@ -33,49 +33,42 @@ pub enum ClientBuilderError {
     StorageError(#[from] StorageError),
 }
 
-pub enum IdentityStrategy<O: InboxOwner> {
-    CreateIfNotFound(O),
+pub enum IdentityStrategy<Owner> {
+    CreateIfNotFound(Owner),
     CachedOnly(Address),
     #[cfg(test)]
     ExternalIdentity(Identity),
 }
 
-impl<O> From<String> for IdentityStrategy<O>
-where
-    O: InboxOwner,
-{
+impl<Owner> From<String> for IdentityStrategy<Owner> {
     fn from(value: String) -> Self {
         IdentityStrategy::CachedOnly(value)
     }
 }
 
-impl<O> From<O> for IdentityStrategy<O>
+impl<Owner> From<Owner> for IdentityStrategy<Owner>
 where
-    O: InboxOwner,
+    Owner: InboxOwner,
 {
-    fn from(value: O) -> Self {
+    fn from(value: Owner) -> Self {
         IdentityStrategy::CreateIfNotFound(value)
     }
 }
 
-pub struct ClientBuilder<A, O>
-where
-    A: XmtpApiClient + Default,
-    O: InboxOwner,
-{
-    api_client: Option<A>,
+pub struct ClientBuilder<ApiClient, Owner> {
+    api_client: Option<ApiClient>,
     network: Network,
     identity: Option<Identity>,
     store: Option<EncryptedMessageStore>,
-    identity_strategy: IdentityStrategy<O>,
+    identity_strategy: IdentityStrategy<Owner>,
 }
 
-impl<A, O> ClientBuilder<A, O>
+impl<ApiClient, Owner> ClientBuilder<ApiClient, Owner>
 where
-    A: XmtpApiClient + Default,
-    O: InboxOwner,
+    ApiClient: XmtpApiClient,
+    Owner: InboxOwner,
 {
-    pub fn new(strat: IdentityStrategy<O>) -> Self {
+    pub fn new(strat: IdentityStrategy<Owner>) -> Self {
         Self {
             api_client: None,
             network: Network::Dev,
@@ -85,7 +78,7 @@ where
         }
     }
 
-    pub fn api_client(mut self, api_client: A) -> Self {
+    pub fn api_client(mut self, api_client: ApiClient) -> Self {
         self.api_client = Some(api_client);
         self
     }
@@ -105,8 +98,13 @@ where
         self
     }
 
-    pub fn build(mut self) -> Result<Client<A>, ClientBuilderError> {
-        let api_client = self.api_client.take().unwrap_or_default();
+    pub fn build(mut self) -> Result<Client<ApiClient>, ClientBuilderError> {
+        let api_client = self
+            .api_client
+            .take()
+            .ok_or(ClientBuilderError::MissingParameter {
+                parameter: "api_client",
+            })?;
         let store = self.store.take().unwrap_or_default();
         // Fetch the Identity based upon the identity strategy.
         let identity = match self.identity_strategy {

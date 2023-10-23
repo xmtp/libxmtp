@@ -29,10 +29,6 @@ pub trait Signable {
     fn bytes_to_sign(&self) -> Vec<u8>;
 }
 
-pub trait Errorer {
-    type Error;
-}
-
 // Inserts a model to the underlying data store
 pub trait Store<I> {
     fn store(&self, into: &mut I) -> Result<(), StorageError>;

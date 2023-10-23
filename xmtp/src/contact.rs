@@ -24,9 +24,8 @@ pub enum ContactError {
     Decode(#[from] DecodeError),
     #[error("encode error")]
     Encode(#[from] EncodeError),
-    #[error("unknown error")]
-    Unknown,
 }
+
 #[derive(Clone, Debug)]
 pub struct Contact {
     pub(crate) bundle: InstallationContactBundle,
