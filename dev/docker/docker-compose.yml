@@ -1,7 +1,7 @@
 services:
   node:
     image: xmtp/node-go:mls
-    # platform: linux/amd64
+    platform: linux/amd64
     environment:
       - GOWAKU-NODEKEY=8a30dcb604b0b53627a5adc054dbf434b446628d4bd1eccc681d223f0550ce67
     command:
