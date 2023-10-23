@@ -4,7 +4,7 @@ use crate::{
     account::Account,
     storage::{EncryptedMessageStore, StorageError},
 };
-use xmtp_proto::api_client::XmtpApiClient;
+use xmtp_proto::api_client::{XmtpApiClient, XmtpMlsClient};
 
 #[derive(Clone, Copy, Default, Debug)]
 pub enum Network {
@@ -42,7 +42,7 @@ impl From<&str> for ClientError {
 
 pub struct Client<A>
 where
-    A: XmtpApiClient,
+    A: XmtpApiClient + XmtpMlsClient,
 {
     pub api_client: A,
     pub(crate) _network: Network,
@@ -52,7 +52,7 @@ where
 
 impl<A> Client<A>
 where
-    A: XmtpApiClient,
+    A: XmtpApiClient + XmtpMlsClient,
 {
     pub fn new(
         api_client: A,

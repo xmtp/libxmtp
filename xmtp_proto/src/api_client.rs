@@ -1,5 +1,11 @@
 use async_trait::async_trait;
+use pbjson_types::Empty;
 use std::{error::Error as StdError, fmt};
+
+use crate::xmtp::message_api::v3::{
+    ConsumeKeyPackagesRequest, ConsumeKeyPackagesResponse, RegisterInstallationRequest,
+    RegisterInstallationResponse, UploadKeyPackagesRequest,
+};
 
 pub use super::xmtp::message_api::v1::{
     BatchQueryRequest, BatchQueryResponse, Envelope, PagingInfo, PublishRequest, PublishResponse,
@@ -13,6 +19,7 @@ pub enum ErrorKind {
     QueryError,
     SubscribeError,
     BatchQueryError,
+    MlsError,
 }
 
 type ErrorSource = Box<dyn StdError + Send + Sync + 'static>;
@@ -55,6 +62,7 @@ impl fmt::Display for Error {
             ErrorKind::QueryError => "query error",
             ErrorKind::SubscribeError => "subscribe error",
             ErrorKind::BatchQueryError => "batch query error",
+            ErrorKind::MlsError => "mls error",
         })?;
         if self.source().is_some() {
             f.write_str(": ")?;
@@ -97,4 +105,19 @@ pub trait XmtpApiClient {
     async fn query(&self, request: QueryRequest) -> Result<QueryResponse, Error>;
 
     async fn batch_query(&self, request: BatchQueryRequest) -> Result<BatchQueryResponse, Error>;
+}
+
+// Wasm futures don't have `Send` or `Sync` bounds.
+#[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
+#[cfg_attr(not(target_arch = "wasm32"), async_trait)]
+pub trait XmtpMlsClient {
+    async fn register_installation(
+        &self,
+        request: RegisterInstallationRequest,
+    ) -> Result<RegisterInstallationResponse, Error>;
+    async fn upload_key_packages(&self, request: UploadKeyPackagesRequest) -> Result<(), Error>;
+    async fn consume_key_packages(
+        &self,
+        request: ConsumeKeyPackagesRequest,
+    ) -> Result<ConsumeKeyPackagesResponse, Error>;
 }

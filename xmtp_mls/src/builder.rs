@@ -7,7 +7,7 @@ use crate::{
     InboxOwner,
 };
 use thiserror::Error;
-use xmtp_proto::api_client::XmtpApiClient;
+use xmtp_proto::api_client::{XmtpApiClient, XmtpMlsClient};
 
 #[derive(Error, Debug)]
 pub enum ClientBuilderError {
@@ -60,7 +60,7 @@ where
 
 pub struct ClientBuilder<A, O>
 where
-    A: XmtpApiClient + Default,
+    A: XmtpApiClient + Default + XmtpMlsClient,
     O: InboxOwner,
 {
     api_client: Option<A>,
@@ -72,7 +72,7 @@ where
 
 impl<A, O> ClientBuilder<A, O>
 where
-    A: XmtpApiClient + Default,
+    A: XmtpApiClient + Default + XmtpMlsClient,
     O: InboxOwner,
 {
     pub fn new(strat: AccountStrategy<O>) -> Self {
@@ -129,17 +129,41 @@ where
 mod tests {
 
     use ethers::signers::LocalWallet;
+    use xmtp_api_grpc::grpc_api_helper::Client as GrpcClient;
     use xmtp_cryptography::utils::generate_local_wallet;
-
-    use crate::mock_xmtp_api_client::MockXmtpApiClient;
+    use xmtp_proto::{
+        api_client::XmtpMlsClient,
+        xmtp::message_api::v3::{KeyPackageUpload, RegisterInstallationRequest},
+    };
 
     use super::ClientBuilder;
 
-    impl ClientBuilder<MockXmtpApiClient, LocalWallet> {
-        pub fn new_test() -> Self {
+    impl ClientBuilder<GrpcClient, LocalWallet> {
+        pub async fn new_test() -> Self {
             let wallet = generate_local_wallet();
+            let grpc_client = GrpcClient::create("http://localhost:5556".to_string(), false)
+                .await
+                .unwrap();
 
-            Self::new(wallet.into())
+            Self::new(wallet.into()).api_client(grpc_client)
         }
+    }
+
+    #[tokio::test]
+    async fn test_mls() {
+        let client = ClientBuilder::new_test().await.build().unwrap();
+
+        let result = client
+            .api_client
+            .register_installation(RegisterInstallationRequest {
+                last_resort_key_package: Some(KeyPackageUpload {
+                    key_package_tls_serialized: vec![],
+                }),
+            })
+            .await;
+
+        assert!(result.is_err());
+        let error_string = result.err().unwrap().to_string();
+        assert!(error_string.contains("invalid identity"));
     }
 }
