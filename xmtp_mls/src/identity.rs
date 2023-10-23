@@ -1,5 +1,5 @@
 use openmls::{
-    prelude::{Credential, CredentialType, CredentialWithKey, CryptoConfig},
+    prelude::{Credential, CredentialType, CredentialWithKey, CryptoConfig, KeyPackageNewError},
     prelude_test::KeyPackage,
     versions::ProtocolVersion,
 };
@@ -26,6 +26,8 @@ pub enum IdentityError {
     KeyGenerationError(#[from] CryptoError),
     #[error("storage error")]
     StorageError(#[from] StorageError),
+    #[error("generating key package")]
+    KeyPackageGenerationError(#[from] KeyPackageNewError<StorageError>),
 }
 
 #[derive(serde::Serialize, serde::Deserialize)]
@@ -48,18 +50,17 @@ impl Identity {
         };
         signature_keys.store(provider.key_store())?;
 
+        // The builder automatically stores it in the key store
         // TODO: Make OpenMLS not delete this once used
-        let _last_resort_key_package = KeyPackage::builder()
-            .build(
-                CryptoConfig {
-                    ciphersuite,
-                    version: ProtocolVersion::default(),
-                },
-                provider,
-                &signature_keys,
-                credential_with_key.clone(),
-            )
-            .unwrap();
+        let _last_resort_key_package = KeyPackage::builder().build(
+            CryptoConfig {
+                ciphersuite,
+                version: ProtocolVersion::default(),
+            },
+            provider,
+            &signature_keys,
+            credential_with_key.clone(),
+        )?;
 
         // TODO: upload
 
