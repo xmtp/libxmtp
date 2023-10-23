@@ -1,5 +1,4 @@
 use async_trait::async_trait;
-use pbjson_types::Empty;
 use std::{error::Error as StdError, fmt};
 
 use crate::xmtp::message_api::v3::{
