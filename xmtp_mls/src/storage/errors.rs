@@ -1,6 +1,6 @@
 use thiserror::Error;
 
-#[derive(Debug, Error)]
+#[derive(Debug, Error, PartialEq)]
 pub enum StorageError {
     #[error("Diesel connection error")]
     DieselConnectError(#[from] diesel::ConnectionError),
@@ -12,8 +12,6 @@ pub enum StorageError {
     DbInitError(String),
     #[error("Store Error")]
     Store(String),
-    #[error(transparent)]
-    ImplementationError(#[from] anyhow::Error),
     #[error("serialization error")]
     SerializationError,
     #[error("unknown storage error: {0}")]

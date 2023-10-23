@@ -118,7 +118,7 @@ where
                 CIPHERSUITE,
                 &XmtpOpenMlsProvider::default(),
                 "unimplemented".as_bytes(), // TODO
-            ),
+            )?,
             #[cfg(test)]
             IdentityStrategy::ExternalIdentity(a) => a,
         };
