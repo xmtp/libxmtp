@@ -33,41 +33,34 @@ pub enum ClientBuilderError {
     StorageError(#[from] StorageError),
 }
 
-pub enum AccountStrategy<O: InboxOwner> {
-    CreateIfNotFound(O),
+pub enum AccountStrategy<Owner> {
+    CreateIfNotFound(Owner),
     CachedOnly(Address),
     #[cfg(test)]
     ExternalAccount(Account),
 }
 
-impl<O> From<String> for AccountStrategy<O>
-where
-    O: InboxOwner,
-{
+impl<Owner> From<String> for AccountStrategy<Owner> {
     fn from(value: String) -> Self {
         AccountStrategy::CachedOnly(value)
     }
 }
 
-impl<O> From<O> for AccountStrategy<O>
+impl<Owner> From<Owner> for AccountStrategy<Owner> 
 where
-    O: InboxOwner,
+    Owner: InboxOwner,
 {
-    fn from(value: O) -> Self {
+    fn from(value: Owner) -> Self {
         AccountStrategy::CreateIfNotFound(value)
     }
 }
 
-pub struct ClientBuilder<A, O>
-where
-    A: XmtpApiClient + Default,
-    O: InboxOwner,
-{
-    api_client: Option<A>,
+pub struct ClientBuilder<ApiClient, Owner> {
+    api_client: Option<ApiClient>,
     network: Network,
     account: Option<Account>,
     store: Option<EncryptedMessageStore>,
-    account_strategy: AccountStrategy<O>,
+    account_strategy: AccountStrategy<Owner>,
 }
 
 impl<A, O> ClientBuilder<A, O>

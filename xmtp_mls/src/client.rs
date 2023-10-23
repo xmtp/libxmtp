@@ -40,22 +40,19 @@ impl From<&str> for ClientError {
     }
 }
 
-pub struct Client<A>
-where
-    A: XmtpApiClient,
-{
-    pub api_client: A,
+pub struct Client<ApiClient> {
+    pub api_client: ApiClient,
     pub(crate) _network: Network,
     pub(crate) _account: Account,
     pub store: EncryptedMessageStore, // Temporarily exposed outside crate for CLI client
 }
 
-impl<A> Client<A>
+impl<ApiClient> Client<ApiClient>
 where
-    A: XmtpApiClient,
+    ApiClient: XmtpApiClient,
 {
     pub fn new(
-        api_client: A,
+        api_client: ApiClient,
         network: Network,
         account: Account,
         store: EncryptedMessageStore,
