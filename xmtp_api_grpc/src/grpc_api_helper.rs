@@ -115,13 +115,6 @@ impl Client {
     }
 }
 
-impl Default for Client {
-    fn default() -> Self {
-        //TODO: Remove once Default constraint lifted from clientBuilder
-        unimplemented!()
-    }
-}
-
 #[async_trait]
 impl XmtpApiClient for Client {
     type Subscription = Subscription;

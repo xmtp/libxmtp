@@ -1,7 +1,7 @@
 use thiserror::Error;
 
 use crate::{
-    account::Account,
+    identity::Identity,
     storage::{EncryptedMessageStore, StorageError},
 };
 use xmtp_proto::api_client::{XmtpApiClient, XmtpMlsClient};
@@ -40,30 +40,24 @@ impl From<&str> for ClientError {
     }
 }
 
-pub struct Client<A>
-where
-    A: XmtpApiClient + XmtpMlsClient,
-{
-    pub api_client: A,
+pub struct Client<ApiClient> {
+    pub api_client: ApiClient,
     pub(crate) _network: Network,
-    pub(crate) _account: Account,
+    pub(crate) _identity: Identity,
     pub store: EncryptedMessageStore, // Temporarily exposed outside crate for CLI client
 }
 
-impl<A> Client<A>
-where
-    A: XmtpApiClient + XmtpMlsClient,
-{
+impl<ApiClient> Client<ApiClient> {
     pub fn new(
-        api_client: A,
+        api_client: ApiClient,
         network: Network,
-        account: Account,
+        identity: Identity,
         store: EncryptedMessageStore,
     ) -> Self {
         Self {
             api_client,
             _network: network,
-            _account: account,
+            _identity: identity,
             store,
         }
     }

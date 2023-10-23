@@ -97,7 +97,7 @@ impl TryFrom<&StoredSession> for SessionManager {
     type Error = StorageError;
     fn try_from(value: &StoredSession) -> Result<Self, StorageError> {
         let pickle = serde_json::from_slice(&value.vmac_session_data)
-            .map_err(|_| StorageError::SerializationError)?;
+            .map_err(|_| StorageError::Serialization)?;
 
         Ok(Self::new(
             OlmSession::from_pickle(pickle),
@@ -117,7 +117,7 @@ impl TryFrom<&SessionManager> for StoredSession {
             // TODO: Better error handling approach. StoreError and SessionError end up being dependent on eachother
             value
                 .session_bytes()
-                .map_err(|_| StorageError::SerializationError)?,
+                .map_err(|_| StorageError::Serialization)?,
             value.user_address.clone(),
         ))
     }

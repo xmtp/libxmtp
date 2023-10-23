@@ -5,6 +5,7 @@ pkg/
 wasm-pack.log
 
 !xmtp/src/bin/
+!xmtp_mls/src/bin/
 
 # generated
 bindings_swift/Sources

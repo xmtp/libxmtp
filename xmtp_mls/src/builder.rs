@@ -1,7 +1,7 @@
 use crate::StorageError;
 use crate::{
-    account::{Account, AccountError},
     client::{Client, Network},
+    identity::{Identity, IdentityError},
     storage::EncryptedMessageStore,
     types::Address,
     InboxOwner,
@@ -12,80 +12,73 @@ use xmtp_proto::api_client::{XmtpApiClient, XmtpMlsClient};
 #[derive(Error, Debug)]
 pub enum ClientBuilderError {
     #[error("Missing parameter: {parameter}")]
-    MissingParameterError { parameter: &'static str },
+    MissingParameter { parameter: &'static str },
 
     // #[error("Failed to serialize/deserialize state for persistence: {source}")]
     // SerializationError { source: serde_json::Error },
-    #[error("Required account was not found in cache.")]
-    RequiredAccountNotFound,
+    #[error("Required identity was not found in cache.")]
+    RequiredIdentityNotFound,
 
     #[error("Database was configured with a different wallet")]
-    StoredAccountMismatch,
+    StoredIdentityMismatch,
 
     // #[error("Associating an address to account failed")]
     // AssociationFailed(#[from] AssociationError),
-    // #[error("Error Initalizing Store")]
+    // #[error("Error Initializing Store")]
     // StoreInitialization(#[from] SE),
-    #[error("Error Initalizing Account")]
-    AccountInitialization(#[from] AccountError),
+    #[error("Error Initalizing Identity")]
+    IdentityInitialization(#[from] IdentityError),
 
     #[error("Storage Error")]
     StorageError(#[from] StorageError),
 }
 
-pub enum AccountStrategy<O: InboxOwner> {
-    CreateIfNotFound(O),
+pub enum IdentityStrategy<Owner> {
+    CreateIfNotFound(Owner),
     CachedOnly(Address),
     #[cfg(test)]
-    ExternalAccount(Account),
+    ExternalIdentity(Identity),
 }
 
-impl<O> From<String> for AccountStrategy<O>
-where
-    O: InboxOwner,
-{
+impl<Owner> From<String> for IdentityStrategy<Owner> {
     fn from(value: String) -> Self {
-        AccountStrategy::CachedOnly(value)
+        IdentityStrategy::CachedOnly(value)
     }
 }
 
-impl<O> From<O> for AccountStrategy<O>
+impl<Owner> From<Owner> for IdentityStrategy<Owner>
 where
-    O: InboxOwner,
+    Owner: InboxOwner,
 {
-    fn from(value: O) -> Self {
-        AccountStrategy::CreateIfNotFound(value)
+    fn from(value: Owner) -> Self {
+        IdentityStrategy::CreateIfNotFound(value)
     }
 }
 
-pub struct ClientBuilder<A, O>
-where
-    A: XmtpApiClient + Default + XmtpMlsClient,
-    O: InboxOwner,
-{
-    api_client: Option<A>,
+pub struct ClientBuilder<ApiClient, Owner> {
+    api_client: Option<ApiClient>,
     network: Network,
-    account: Option<Account>,
+    identity: Option<Identity>,
     store: Option<EncryptedMessageStore>,
-    account_strategy: AccountStrategy<O>,
+    identity_strategy: IdentityStrategy<Owner>,
 }
 
-impl<A, O> ClientBuilder<A, O>
+impl<ApiClient, Owner> ClientBuilder<ApiClient, Owner>
 where
-    A: XmtpApiClient + Default + XmtpMlsClient,
-    O: InboxOwner,
+    ApiClient: XmtpApiClient + XmtpMlsClient,
+    Owner: InboxOwner,
 {
-    pub fn new(strat: AccountStrategy<O>) -> Self {
+    pub fn new(strat: IdentityStrategy<Owner>) -> Self {
         Self {
             api_client: None,
             network: Network::Dev,
-            account: None,
+            identity: None,
             store: None,
-            account_strategy: strat,
+            identity_strategy: strat,
         }
     }
 
-    pub fn api_client(mut self, api_client: A) -> Self {
+    pub fn api_client(mut self, api_client: ApiClient) -> Self {
         self.api_client = Some(api_client);
         self
     }
@@ -95,8 +88,8 @@ where
         self
     }
 
-    pub fn account(mut self, account: Account) -> Self {
-        self.account = Some(account);
+    pub fn identity(mut self, identity: Identity) -> Self {
+        self.identity = Some(identity);
         self
     }
 
@@ -105,23 +98,28 @@ where
         self
     }
 
-    pub fn build(mut self) -> Result<Client<A>, ClientBuilderError> {
-        let api_client = self.api_client.take().unwrap_or_default();
+    pub fn build(mut self) -> Result<Client<ApiClient>, ClientBuilderError> {
+        let api_client = self
+            .api_client
+            .take()
+            .ok_or(ClientBuilderError::MissingParameter {
+                parameter: "api_client",
+            })?;
         let store = self.store.take().unwrap_or_default();
-        // Fetch the Account based upon the account strategy.
-        let account = match self.account_strategy {
-            AccountStrategy::CachedOnly(_) => {
+        // Fetch the Identity based upon the identity strategy.
+        let identity = match self.identity_strategy {
+            IdentityStrategy::CachedOnly(_) => {
                 // TODO
-                Account {}
+                Identity {}
             }
-            AccountStrategy::CreateIfNotFound(_owner) => {
+            IdentityStrategy::CreateIfNotFound(_owner) => {
                 // TODO
-                Account {}
+                Identity {}
             }
             #[cfg(test)]
-            AccountStrategy::ExternalAccount(a) => a,
+            IdentityStrategy::ExternalIdentity(a) => a,
         };
-        Ok(Client::new(api_client, self.network, account, store))
+        Ok(Client::new(api_client, self.network, identity, store))
     }
 }
 
