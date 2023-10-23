@@ -145,36 +145,6 @@ pub mod validation_api_client {
                 );
             self.inner.unary(req, path, codec).await
         }
-        pub async fn validate_identities(
-            &mut self,
-            request: impl tonic::IntoRequest<super::ValidateIdentitiesRequest>,
-        ) -> std::result::Result<
-            tonic::Response<super::ValidateIdentitiesResponse>,
-            tonic::Status,
-        > {
-            self.inner
-                .ready()
-                .await
-                .map_err(|e| {
-                    tonic::Status::new(
-                        tonic::Code::Unknown,
-                        format!("Service was not ready: {}", e.into()),
-                    )
-                })?;
-            let codec = tonic::codec::ProstCodec::default();
-            let path = http::uri::PathAndQuery::from_static(
-                "/xmtp.mls_validation.v1.ValidationApi/ValidateIdentities",
-            );
-            let mut req = request.into_request();
-            req.extensions_mut()
-                .insert(
-                    GrpcMethod::new(
-                        "xmtp.mls_validation.v1.ValidationApi",
-                        "ValidateIdentities",
-                    ),
-                );
-            self.inner.unary(req, path, codec).await
-        }
     }
 }
 /// Generated server implementations.
@@ -197,13 +167,6 @@ pub mod validation_api_server {
             request: tonic::Request<super::ValidateGroupMessagesRequest>,
         ) -> std::result::Result<
             tonic::Response<super::ValidateGroupMessagesResponse>,
-            tonic::Status,
-        >;
-        async fn validate_identities(
-            &self,
-            request: tonic::Request<super::ValidateIdentitiesRequest>,
-        ) -> std::result::Result<
-            tonic::Response<super::ValidateIdentitiesResponse>,
             tonic::Status,
         >;
     }
@@ -363,52 +326,6 @@ pub mod validation_api_server {
                     let fut = async move {
                         let inner = inner.0;
                         let method = ValidateGroupMessagesSvc(inner);
-                        let codec = tonic::codec::ProstCodec::default();
-                        let mut grpc = tonic::server::Grpc::new(codec)
-                            .apply_compression_config(
-                                accept_compression_encodings,
-                                send_compression_encodings,
-                            )
-                            .apply_max_message_size_config(
-                                max_decoding_message_size,
-                                max_encoding_message_size,
-                            );
-                        let res = grpc.unary(method, req).await;
-                        Ok(res)
-                    };
-                    Box::pin(fut)
-                }
-                "/xmtp.mls_validation.v1.ValidationApi/ValidateIdentities" => {
-                    #[allow(non_camel_case_types)]
-                    struct ValidateIdentitiesSvc<T: ValidationApi>(pub Arc<T>);
-                    impl<
-                        T: ValidationApi,
-                    > tonic::server::UnaryService<super::ValidateIdentitiesRequest>
-                    for ValidateIdentitiesSvc<T> {
-                        type Response = super::ValidateIdentitiesResponse;
-                        type Future = BoxFuture<
-                            tonic::Response<Self::Response>,
-                            tonic::Status,
-                        >;
-                        fn call(
-                            &mut self,
-                            request: tonic::Request<super::ValidateIdentitiesRequest>,
-                        ) -> Self::Future {
-                            let inner = Arc::clone(&self.0);
-                            let fut = async move {
-                                (*inner).validate_identities(request).await
-                            };
-                            Box::pin(fut)
-                        }
-                    }
-                    let accept_compression_encodings = self.accept_compression_encodings;
-                    let send_compression_encodings = self.send_compression_encodings;
-                    let max_decoding_message_size = self.max_decoding_message_size;
-                    let max_encoding_message_size = self.max_encoding_message_size;
-                    let inner = self.inner.clone();
-                    let fut = async move {
-                        let inner = inner.0;
-                        let method = ValidateIdentitiesSvc(inner);
                         let codec = tonic::codec::ProstCodec::default();
                         let mut grpc = tonic::server::Grpc::new(codec)
                             .apply_compression_config(

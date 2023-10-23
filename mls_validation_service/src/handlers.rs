@@ -8,11 +8,9 @@ use openmls::{
 };
 use xmtp_proto::xmtp::mls_validation::v1::{
     validate_group_messages_response::ValidationResponse as ValidateGroupMessageValidationResponse,
-    validate_identities_response::ValidationResponse as ValidateIdentitiesValidationResponse,
     validate_key_packages_response::ValidationResponse as ValidateKeyPackageValidationResponse,
     validation_api_server::ValidationApi, ValidateGroupMessagesRequest,
-    ValidateGroupMessagesResponse, ValidateIdentitiesRequest, ValidateIdentitiesResponse,
-    ValidateKeyPackagesRequest, ValidateKeyPackagesResponse,
+    ValidateGroupMessagesResponse, ValidateKeyPackagesRequest, ValidateKeyPackagesResponse,
 };
 
 use crate::validation_helpers::{
@@ -53,38 +51,6 @@ impl ValidationApi for ValidationService {
         Ok(Response::new(ValidateKeyPackagesResponse {
             responses: out,
         }))
-    }
-
-    async fn validate_identities(
-        &self,
-        request: Request<ValidateIdentitiesRequest>,
-    ) -> Result<Response<ValidateIdentitiesResponse>, Status> {
-        let identities = request.into_inner().credentials;
-        let out: Vec<ValidateIdentitiesValidationResponse> = identities
-            .iter()
-            .map(|identity| {
-                let pub_key_bytes = identity.signing_public_key_bytes.as_slice();
-                let result =
-                    identity_to_wallet_address(identity.identity_bytes.as_slice(), pub_key_bytes);
-
-                match result {
-                    Ok(wallet_address) => ValidateIdentitiesValidationResponse {
-                        installation_id: pub_key_to_installation_id(pub_key_bytes),
-                        error_message: "".to_string(),
-                        wallet_address: wallet_address,
-                        is_ok: true,
-                    },
-                    Err(err) => ValidateIdentitiesValidationResponse {
-                        installation_id: "".to_string(),
-                        error_message: err.to_string(),
-                        wallet_address: "".to_string(),
-                        is_ok: false,
-                    },
-                }
-            })
-            .collect();
-
-        Ok(Response::new(ValidateIdentitiesResponse { responses: out }))
     }
 
     async fn validate_group_messages(
@@ -184,10 +150,7 @@ mod tests {
         InboxOwner,
     };
     use xmtp_proto::xmtp::{
-        mls_validation::v1::{
-            validate_identities_request::Credential,
-            validate_key_packages_request::KeyPackage as KeyPackageProtoWrapper,
-        },
+        mls_validation::v1::validate_key_packages_request::KeyPackage as KeyPackageProtoWrapper,
         v3::message_contents::Eip191Association as Eip191AssociationProto,
     };
 
@@ -294,30 +257,5 @@ mod tests {
 
         assert_eq!(first_response.is_ok, false);
         assert_eq!(first_response.wallet_address, "".to_string());
-    }
-
-    #[tokio::test]
-    async fn test_validate_identities_happy_path() {
-        let (identity, keypair, wallet_address) = generate_identity();
-        let req = Request::new(ValidateIdentitiesRequest {
-            credentials: vec![Credential {
-                identity_bytes: identity,
-                signing_public_key_bytes: keypair.public().to_vec(),
-            }],
-        });
-
-        let res = ValidationService::default()
-            .validate_identities(req)
-            .await
-            .unwrap();
-
-        let first_response = &res.into_inner().responses[0];
-        assert!(first_response.is_ok);
-        assert_eq!(first_response.wallet_address, wallet_address);
-    }
-
-    #[tokio::test]
-    async fn test_validate_group_messages() {
-        // TODO: Generate some test fixtures to test this properly
     }
 }
