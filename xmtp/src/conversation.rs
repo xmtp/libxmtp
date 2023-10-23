@@ -12,7 +12,6 @@ use crate::{
     Client, Store,
 };
 use xmtp_proto::api_client::XmtpApiClient;
-use xmtp_proto::xmtp::message_api::v1::PublishRequest;
 
 use prost::{DecodeError, Message};
 // use async_trait::async_trait;

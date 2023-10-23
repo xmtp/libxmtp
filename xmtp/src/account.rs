@@ -32,17 +32,15 @@ pub enum AccountError {
     BadAssocation(#[from] AssociationError),
     #[error("mutex poisoned error")]
     MutexPoisoned,
-    #[error("unknown error")]
-    Unknown,
 }
 
+/// Holds an account and adds some serialization methods on top
 pub struct VmacAccount {
     account: OlmAccount,
 }
 
-// Struct that holds an account and adds some serialization methods on top
 impl VmacAccount {
-    // Create a new instance
+    /// Create a new instance
     pub fn new(account: OlmAccount) -> Self {
         Self { account }
     }
