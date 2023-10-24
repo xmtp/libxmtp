@@ -22,4 +22,4 @@ Edit the `up.sql` and `down.sql` files created
 cargo run --bin update-schema
 ```
 
-This updates the generated `schema.rs` file. You can now update `models.rs` to reference it and consume your new model in the rest of the crate.
+This updates the generated `schema.rs` file. You can now update `models.rs` to reference it and `encrypted_store/mod.rs` to define queries against the model.

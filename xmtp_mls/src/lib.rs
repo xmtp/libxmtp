@@ -26,10 +26,14 @@ pub trait Store<I> {
 
 pub trait Fetch<T> {
     type Key<'a>;
-    // Fetches all instances of a model from the underlying data store
-    fn fetch_all(&mut self) -> Result<Vec<T>, StorageError>;
-
     // Fetches a single instance by key of a model from the underlying data store
     #[allow(clippy::needless_lifetimes)]
-    fn fetch_one<'a>(&mut self, key: Self::Key<'a>) -> Result<Option<T>, StorageError>;
+    fn fetch<'a>(&mut self, key: Self::Key<'a>) -> Result<Option<T>, StorageError>;
+}
+
+pub trait Delete<T> {
+    type Key<'a>;
+    // Fetches a single instance by key of a model from the underlying data store
+    #[allow(clippy::needless_lifetimes)]
+    fn delete<'a>(&mut self, key: Self::Key<'a>) -> Result<usize, StorageError>;
 }
