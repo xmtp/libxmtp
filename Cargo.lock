@@ -3043,11 +3043,9 @@ dependencies = [
 name = "mls_validation_service"
 version = "0.1.0"
 dependencies = [
- "base64 0.21.4",
  "clap",
  "env_logger",
  "ethers",
- "futures",
  "hex",
  "log",
  "openmls",
@@ -3057,10 +3055,8 @@ dependencies = [
  "prost",
  "rand 0.8.5",
  "serde",
- "thiserror",
  "tokio",
  "tonic",
- "xmtp_cryptography",
  "xmtp_mls",
  "xmtp_proto",
 ]

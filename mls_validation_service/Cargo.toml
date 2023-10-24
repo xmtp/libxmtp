@@ -16,15 +16,13 @@ openmls = { git= "https://github.com/openmls/openmls", features = ["test-utils"]
 openmls_traits = { git= "https://github.com/openmls/openmls" }
 openmls_basic_credential = { git= "https://github.com/openmls/openmls" }
 openmls_rust_crypto = { git= "https://github.com/openmls/openmls" }
-xmtp_cryptography = { path = "../xmtp_cryptography" }
 xmtp_mls = { path = "../xmtp_mls" }
-thiserror = "1.0.50"
-ethers = "2.0.10"
 serde = "1.0.189"
-rand = "0.8.5"
 hex = "0.4.3"
-futures = "0.3.28"
-base64 = "0.21.4"
 clap = { version = "4.4.6", features = ["derive"] }
 log = "0.4.20"
 env_logger = "0.10.0"
+
+[dev-dependencies]
+ethers = "2.0.10"
+rand = "0.8.5"

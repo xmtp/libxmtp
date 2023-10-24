@@ -13,9 +13,7 @@ use xmtp_proto::xmtp::mls_validation::v1::{
     ValidateGroupMessagesResponse, ValidateKeyPackagesRequest, ValidateKeyPackagesResponse,
 };
 
-use crate::validation_helpers::{
-    base64_encode, identity_to_wallet_address, pub_key_to_installation_id,
-};
+use crate::validation_helpers::{hex_encode, identity_to_wallet_address};
 
 #[derive(Debug, Default)]
 pub struct ValidationService {}
@@ -98,7 +96,7 @@ fn validate_group_message(message: Vec<u8>) -> Result<ValidateGroupMessageResult
 
     Ok(ValidateGroupMessageResult {
         // TODO: I wonder if we really want to be base64 encoding this or if we can treat it as a slice
-        group_id: base64_encode(private_message.group_id().as_slice()),
+        group_id: hex_encode(private_message.group_id().as_slice()),
         epoch: private_message.epoch().as_u64(),
     })
 }
@@ -127,7 +125,7 @@ fn validate_key_package(key_package_bytes: Vec<u8>) -> Result<ValidateKeyPackage
     let wallet_address = identity_to_wallet_address(identity_bytes, pub_key_bytes)?;
 
     Ok(ValidateKeyPackageResult {
-        installation_id: pub_key_to_installation_id(pub_key_bytes),
+        installation_id: hex_encode(pub_key_bytes),
         wallet_address,
     })
 }
@@ -221,10 +219,7 @@ mod tests {
             .unwrap();
 
         let first_response = &res.into_inner().responses[0];
-        assert_eq!(
-            first_response.installation_id,
-            pub_key_to_installation_id(keypair.public())
-        );
+        assert_eq!(first_response.installation_id, hex_encode(keypair.public()));
         assert_eq!(first_response.wallet_address, wallet_address);
     }
 
