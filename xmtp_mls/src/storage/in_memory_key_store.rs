@@ -52,3 +52,25 @@ impl OpenMlsKeyStore for InMemoryKeyStore {
         Ok(())
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use openmls_basic_credential::SignatureKeyPair;
+    use openmls_traits::key_store::OpenMlsKeyStore;
+
+    use crate::configuration::CIPHERSUITE;
+
+    use super::InMemoryKeyStore;
+
+    #[test]
+    fn store_read_delete() {
+        let key_store = InMemoryKeyStore::default();
+        let signature_keys = SignatureKeyPair::new(CIPHERSUITE.signature_algorithm()).unwrap();
+        let index = "index".as_bytes();
+        assert!(key_store.read::<SignatureKeyPair>(index).is_none());
+        key_store.store(index, &signature_keys).unwrap();
+        assert!(key_store.read::<SignatureKeyPair>(index).is_some());
+        key_store.delete::<SignatureKeyPair>(index).unwrap();
+        assert!(key_store.read::<SignatureKeyPair>(index).is_none());
+    }
+}
