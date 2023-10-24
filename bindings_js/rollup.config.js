@@ -43,7 +43,7 @@ const rolls = (fmt, env) => ({
       name: "copy-pkg",
 
       // wasm-bindgen outputs a import.meta.url when using the web target.
-      // rollup will either perserve the the statement when outputting an esm,
+      // rollup will either preserve the statement when outputting an esm,
       // which will cause webpack < 5 to choke or it will output a
       // "require('url')", for other output types, causing more choking. Since
       // we want a downstream developer to either not worry about providing wasm
