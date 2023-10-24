@@ -2,8 +2,9 @@ use async_trait::async_trait;
 use std::{error::Error as StdError, fmt};
 
 use crate::xmtp::message_api::v3::{
-    ConsumeKeyPackagesRequest, ConsumeKeyPackagesResponse, RegisterInstallationRequest,
-    RegisterInstallationResponse, UploadKeyPackagesRequest,
+    ConsumeKeyPackagesRequest, ConsumeKeyPackagesResponse, GetIdentityUpdatesRequest,
+    GetIdentityUpdatesResponse, PublishToGroupRequest, PublishWelcomesRequest,
+    RegisterInstallationRequest, RegisterInstallationResponse, UploadKeyPackagesRequest,
 };
 
 pub use super::xmtp::message_api::v1::{
@@ -119,4 +120,10 @@ pub trait XmtpMlsClient {
         &self,
         request: ConsumeKeyPackagesRequest,
     ) -> Result<ConsumeKeyPackagesResponse, Error>;
+    async fn publish_to_group(&self, request: PublishToGroupRequest) -> Result<(), Error>;
+    async fn publish_welcomes(&self, request: PublishWelcomesRequest) -> Result<(), Error>;
+    async fn get_identity_updates(
+        &self,
+        request: GetIdentityUpdatesRequest,
+    ) -> Result<GetIdentityUpdatesResponse, Error>;
 }
