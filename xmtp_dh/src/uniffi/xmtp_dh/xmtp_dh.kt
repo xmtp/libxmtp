@@ -370,6 +370,8 @@ internal interface _UniFFILib : Library {
     ): RustBuffer.ByValue
     fun uniffi_xmtp_dh_fn_func_ecies_decrypt_k256_sha3_256(`publicKeyBytes`: RustBuffer.ByValue,`privateKeyBytes`: RustBuffer.ByValue,`messageBytes`: RustBuffer.ByValue,_uniffi_out_err: RustCallStatus, 
     ): RustBuffer.ByValue
+    fun uniffi_xmtp_dh_fn_func_generate_private_preferences_topic_identifier(`privateKeyBytes`: RustBuffer.ByValue,_uniffi_out_err: RustCallStatus, 
+    ): RustBuffer.ByValue
     fun ffi_xmtp_dh_rustbuffer_alloc(`size`: Int,_uniffi_out_err: RustCallStatus, 
     ): RustBuffer.ByValue
     fun ffi_xmtp_dh_rustbuffer_from_bytes(`bytes`: ForeignBytes.ByValue,_uniffi_out_err: RustCallStatus, 
@@ -383,6 +385,8 @@ internal interface _UniFFILib : Library {
     fun uniffi_xmtp_dh_checksum_func_ecies_encrypt_k256_sha3_256(
     ): Short
     fun uniffi_xmtp_dh_checksum_func_ecies_decrypt_k256_sha3_256(
+    ): Short
+    fun uniffi_xmtp_dh_checksum_func_generate_private_preferences_topic_identifier(
     ): Short
     fun ffi_xmtp_dh_uniffi_contract_version(
     ): Int
@@ -408,6 +412,9 @@ private fun uniffiCheckApiChecksums(lib: _UniFFILib) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_xmtp_dh_checksum_func_ecies_decrypt_k256_sha3_256() != 45037.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_xmtp_dh_checksum_func_generate_private_preferences_topic_identifier() != 65141.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
 }
@@ -609,6 +616,15 @@ fun `eciesDecryptK256Sha3256`(`publicKeyBytes`: List<UByte>, `privateKeyBytes`: 
     return FfiConverterSequenceUByte.lift(
     rustCallWithError(EciesException) { _status ->
     _UniFFILib.INSTANCE.uniffi_xmtp_dh_fn_func_ecies_decrypt_k256_sha3_256(FfiConverterSequenceUByte.lower(`publicKeyBytes`),FfiConverterSequenceUByte.lower(`privateKeyBytes`),FfiConverterSequenceUByte.lower(`messageBytes`),_status)
+})
+}
+
+@Throws(EciesException::class)
+
+fun `generatePrivatePreferencesTopicIdentifier`(`privateKeyBytes`: List<UByte>): String {
+    return FfiConverterString.lift(
+    rustCallWithError(EciesException) { _status ->
+    _UniFFILib.INSTANCE.uniffi_xmtp_dh_fn_func_generate_private_preferences_topic_identifier(FfiConverterSequenceUByte.lower(`privateKeyBytes`),_status)
 })
 }
 
