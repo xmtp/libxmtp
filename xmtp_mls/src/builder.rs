@@ -129,10 +129,7 @@ mod tests {
     use ethers::signers::LocalWallet;
     use xmtp_api_grpc::grpc_api_helper::Client as GrpcClient;
     use xmtp_cryptography::utils::generate_local_wallet;
-    use xmtp_proto::{
-        api_client::XmtpMlsClient,
-        xmtp::message_api::v3::{KeyPackageUpload, RegisterInstallationRequest},
-    };
+    use xmtp_proto::xmtp::message_api::v3::{KeyPackageUpload, RegisterInstallationRequest};
 
     use super::ClientBuilder;
 
@@ -151,14 +148,7 @@ mod tests {
     async fn test_mls() {
         let client = ClientBuilder::new_test().await.build().unwrap();
 
-        let result = client
-            .api_client
-            .register_installation(RegisterInstallationRequest {
-                last_resort_key_package: Some(KeyPackageUpload {
-                    key_package_tls_serialized: vec![],
-                }),
-            })
-            .await;
+        let result = client.api_client.register_installation(&[1, 2, 3]).await;
 
         assert!(result.is_err());
         let error_string = result.err().unwrap().to_string();

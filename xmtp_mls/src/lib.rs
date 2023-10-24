@@ -1,3 +1,4 @@
+pub mod api_client_wrapper;
 pub mod association;
 pub mod builder;
 pub mod client;
