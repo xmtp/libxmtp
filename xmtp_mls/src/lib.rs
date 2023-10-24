@@ -5,6 +5,7 @@ mod configuration;
 pub mod identity;
 pub mod mock_xmtp_api_client;
 pub mod owner;
+mod proto_wrapper;
 pub mod storage;
 pub mod types;
 mod xmtp_openmls_provider;

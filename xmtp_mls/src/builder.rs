@@ -114,11 +114,10 @@ where
                 // TODO: persistence/retrieval
                 unimplemented!()
             }
-            IdentityStrategy::CreateIfNotFound(_owner) => Identity::new(
-                CIPHERSUITE,
-                &XmtpOpenMlsProvider::default(),
-                "unimplemented".as_bytes(), // TODO
-            )?,
+            IdentityStrategy::CreateIfNotFound(owner) => {
+                // TODO: persistence/retrieval
+                Identity::new(CIPHERSUITE, &XmtpOpenMlsProvider::default(), &owner)?
+            }
             #[cfg(test)]
             IdentityStrategy::ExternalIdentity(a) => a,
         };
