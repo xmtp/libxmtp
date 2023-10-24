@@ -129,7 +129,6 @@ mod tests {
     use ethers::signers::LocalWallet;
     use xmtp_api_grpc::grpc_api_helper::Client as GrpcClient;
     use xmtp_cryptography::utils::generate_local_wallet;
-    use xmtp_proto::xmtp::message_api::v3::{KeyPackageUpload, RegisterInstallationRequest};
 
     use super::ClientBuilder;
 

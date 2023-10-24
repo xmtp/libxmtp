@@ -128,7 +128,7 @@ fn validate_key_package(key_package_bytes: Vec<u8>) -> Result<ValidateKeyPackage
 
     Ok(ValidateKeyPackageResult {
         installation_id: pub_key_to_installation_id(pub_key_bytes),
-        wallet_address: wallet_address,
+        wallet_address,
     })
 }
 
