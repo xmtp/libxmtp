@@ -12,17 +12,14 @@ use openmls_traits::{
 use prost::Message;
 use thiserror::Error;
 use xmtp_cryptography::signature::SignatureError;
-use xmtp_proto::xmtp::v3::message_contents::{
-    vmac_account_linked_key::Association, VmacAccountLinkedKey, VmacUnsignedPublicKey,
-};
 
 use crate::{
     association::{AssociationError, AssociationText, Eip191Association},
-    proto_wrapper::ProtoWrapper,
     storage::StorageError,
     xmtp_openmls_provider::XmtpOpenMlsProvider,
     InboxOwner,
 };
+use xmtp_proto::xmtp::v3::message_contents::Eip191Association as Eip191AssociationProto;
 
 #[derive(Debug, Error)]
 pub enum IdentityError {
@@ -87,19 +84,12 @@ impl Identity {
         };
         let signature = owner.sign(&assoc_text.text())?;
         let association = Eip191Association::new(signature_keys.public(), assoc_text, signature)?;
-
-        // Create AccountLinkedKey proto
-        // TODO: Rename/revise protos. Eip191Associations are relatively big, we should decide if we want smaller credentials or not
-        let installation_key_proto: ProtoWrapper<VmacUnsignedPublicKey> =
-            signature_keys.to_public_vec().into();
-        let account_linked_key = VmacAccountLinkedKey {
-            key: Some(installation_key_proto.proto),
-            association: Some(Association::Eip191(association.into())),
-        };
+        // TODO wrap in a Credential proto to allow flexibility for different association types
+        let association_proto: Eip191AssociationProto = association.into();
 
         // Serialize into credential
         let credential =
-            Credential::new(account_linked_key.encode_to_vec(), CredentialType::Basic).unwrap();
+            Credential::new(association_proto.encode_to_vec(), CredentialType::Basic).unwrap();
         Ok(CredentialWithKey {
             credential,
             signature_key: signature_keys.to_public_vec().into(),
