@@ -96,3 +96,22 @@ impl Identity {
         })
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use xmtp_cryptography::utils::generate_local_wallet;
+
+    use crate::{configuration::CIPHERSUITE, xmtp_openmls_provider::XmtpOpenMlsProvider};
+
+    use super::Identity;
+
+    #[test]
+    fn does_not_error() {
+        Identity::new(
+            CIPHERSUITE,
+            &XmtpOpenMlsProvider::default(),
+            &generate_local_wallet(),
+        )
+        .unwrap();
+    }
+}
