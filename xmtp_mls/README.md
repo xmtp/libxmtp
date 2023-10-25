@@ -58,7 +58,7 @@ CREATE TABLE pending_outbound_welcome_messages {
 
 -- OpenMLS Keystore backing database to lookup objects. Interface and matching types defined here https://github.com/openmls/openmls/blob/main/traits/src/key_store.rs
 CREATE TABLE openmls_keystore {
-    "key" TEXT PRIMARY KEY NOT NULL,
+    "key" BLOB PRIMARY KEY NOT NULL,
     "value" BLOB NOT NULL,
 }
 ```
