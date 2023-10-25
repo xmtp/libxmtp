@@ -37,8 +37,9 @@ pub enum IdentityError {
 
 #[derive(serde::Serialize, serde::Deserialize)]
 pub struct Identity {
-    pub(crate) credential_with_key: CredentialWithKey,
-    pub(crate) signer: SignatureKeyPair,
+    account_address: String,
+    signer: SignatureKeyPair,
+    credential: Credential,
 }
 
 impl Identity {
@@ -50,7 +51,7 @@ impl Identity {
         let signature_keys = SignatureKeyPair::new(ciphersuite.signature_algorithm())?;
         signature_keys.store(provider.key_store())?;
 
-        let credential_with_key = Identity::create_credential(&signature_keys, owner)?;
+        let credential = Identity::create_credential(&signature_keys, owner)?;
 
         // The builder automatically stores it in the key store
         // TODO: Make OpenMLS not delete this once used
@@ -61,22 +62,26 @@ impl Identity {
             },
             provider,
             &signature_keys,
-            credential_with_key.clone(),
+            CredentialWithKey {
+                credential: credential.clone(),
+                signature_key: signature_keys.to_public_vec().into(),
+            },
         )?;
 
         // TODO: persist identity
         // TODO: upload credential_with_key and last_resort_key_package
 
         Ok(Self {
-            credential_with_key,
+            account_address: owner.get_address(),
             signer: signature_keys,
+            credential,
         })
     }
 
     fn create_credential(
         signature_keys: &SignatureKeyPair,
         owner: &impl InboxOwner,
-    ) -> Result<CredentialWithKey, IdentityError> {
+    ) -> Result<Credential, IdentityError> {
         // Generate association
         let assoc_text = AssociationText::Static {
             blockchain_address: owner.get_address(),
@@ -88,12 +93,7 @@ impl Identity {
         let association_proto: Eip191AssociationProto = association.into();
 
         // Serialize into credential
-        let credential =
-            Credential::new(association_proto.encode_to_vec(), CredentialType::Basic).unwrap();
-        Ok(CredentialWithKey {
-            credential,
-            signature_key: signature_keys.to_public_vec().into(),
-        })
+        Ok(Credential::new(association_proto.encode_to_vec(), CredentialType::Basic).unwrap())
     }
 }
 
