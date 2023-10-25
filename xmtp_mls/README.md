@@ -2,14 +2,14 @@
 
 ## Database Schema
 
-Foreign key constraints and indexes omitted for simplicity
+Foreign key constraints and indexes omitted for simplicity.
 
 ```sql
 -- Would be a table that only holds a single identity (your own)
 CREATE TABLE identities {
     id TEXT PRIMARY KEY NOT NULL, -- The installation_id of the identity
     signature_keypair BLOB NOT NULL,
-    credential BLOB NOT NULL,
+    "credential" BLOB NOT NULL,
     created_at_ns BIGINT NOT NULL,
     wallet_address TEXT NOT NULL,
 }
@@ -39,11 +39,11 @@ CREATE TABLE topic_refresh_state {
 
 -- This table is required to retry messages that do not send successfully due to epoch conflicts
 CREATE TABLE group_intents {
-    id SERIAL PRIMARY KEY NOT NULL, -- Derived via SHA256(CONCAT(group_id, kind, data))
+    id SERIAL PRIMARY KEY NOT NULL,
     kind INT NOT NULL, -- INTENT_KIND
     group_id TEXT NOT NULL,
-    data BLOB NOT NULL, -- Some sort of serializable blob that can be used to re-try the message if the first attempt failed due to conflict
-    state INT NOT NULL, -- INTENT_STATE,
+    "data" BLOB NOT NULL, -- Some sort of serializable blob that can be used to re-try the message if the first attempt failed due to conflict
+    "state" INT NOT NULL, -- INTENT_STATE,
     message_hash TEXT -- The hash of the encrypted, concrete, form of the message if it was published.
 }
 
@@ -54,6 +54,12 @@ CREATE TABLE pending_outbound_welcome_messages {
     group_id TEXT NOT NULL,
     welcome_message BLOB NOT NULL,
     ratchet_tree BLOB NOT NULL,
+}
+
+-- OpenMLS Keystore backing database to lookup objects. Interface and matching types defined here https://github.com/openmls/openmls/blob/main/traits/src/key_store.rs
+CREATE TABLE openmls_keystore {
+    "key" TEXT PRIMARY KEY NOT NULL,
+    "value" BLOB NOT NULL,
 }
 ```
 
@@ -80,7 +86,7 @@ CREATE TABLE pending_outbound_welcome_messages {
 
 ## State Machine
 
-The [following diagram](https://excalidraw.com/#json=91zMhXDieZ4-RYbHtofK3,quEOr_qjV3Whz0HRU0Ryug) illustrates some common flows in the state machine
+The [following diagram](https://app.excalidraw.com/s/4nwb0c8ork7/6pPH1kQDoj3) illustrates some common flows in the state machine
 
 ![MLS State Machione](../img/mls-state-machine.png "MLS State Machine")
 
