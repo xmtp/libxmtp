@@ -5,7 +5,7 @@ use crate::{Delete, Fetch, Store};
 
 use super::{encrypted_store::models::StoredKeyStoreEntry, EncryptedMessageStore, StorageError};
 
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub struct SqlKeyStore {
     store: EncryptedMessageStore,
 }
