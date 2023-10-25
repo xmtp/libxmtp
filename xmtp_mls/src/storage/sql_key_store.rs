@@ -5,12 +5,24 @@ use crate::{Delete, Fetch, Store};
 
 use super::{encrypted_store::models::StoredKeyStoreEntry, EncryptedMessageStore, StorageError};
 
-#[derive(Debug, Default)]
-pub struct SqlKeyStore {
-    store: EncryptedMessageStore,
+#[derive(Debug)]
+pub struct SqlKeyStore<'a> {
+    store: &'a EncryptedMessageStore,
 }
 
-impl OpenMlsKeyStore for SqlKeyStore {
+impl Default for SqlKeyStore<'_> {
+    fn default() -> Self {
+        unimplemented!()
+    }
+}
+
+impl<'a> SqlKeyStore<'a> {
+    pub fn new(store: &'a EncryptedMessageStore) -> Self {
+        SqlKeyStore { store }
+    }
+}
+
+impl OpenMlsKeyStore for SqlKeyStore<'_> {
     /// The error type returned by the [`OpenMlsKeyStore`].
     type Error = StorageError;
 
@@ -85,7 +97,7 @@ mod tests {
     fn store_read_delete() {
         let db_path = format!("{}.db3", rand_string());
         let key_store = SqlKeyStore {
-            store: EncryptedMessageStore::new(
+            store: &EncryptedMessageStore::new(
                 StorageOption::Persistent(db_path),
                 EncryptedMessageStore::generate_enc_key(),
             )

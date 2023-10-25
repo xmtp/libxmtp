@@ -108,6 +108,7 @@ where
                 parameter: "api_client",
             })?;
         let store = self.store.take().unwrap_or_default();
+        let provider = XmtpOpenMlsProvider::new(&store);
         // Fetch the Identity based upon the identity strategy.
         let identity = match self.identity_strategy {
             IdentityStrategy::CachedOnly(_) => {
@@ -116,7 +117,7 @@ where
             }
             IdentityStrategy::CreateIfNotFound(owner) => {
                 // TODO: persistence/retrieval
-                Identity::new(CIPHERSUITE, &XmtpOpenMlsProvider::default(), &owner)?
+                Identity::new(CIPHERSUITE, &provider, &owner)?
             }
             #[cfg(test)]
             IdentityStrategy::ExternalIdentity(a) => a,
