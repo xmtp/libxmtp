@@ -80,7 +80,7 @@ CREATE TABLE pending_outbound_welcome_messages {
 
 ## State Machine
 
-The following diagram illustrates some common flows in the state machine
+The [following diagram](https://excalidraw.com/#json=91zMhXDieZ4-RYbHtofK3,quEOr_qjV3Whz0HRU0Ryug) illustrates some common flows in the state machine
 
 ![MLS State Machione](../img/mls-state-machine.png "MLS State Machine")
 
