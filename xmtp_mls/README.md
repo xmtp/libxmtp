@@ -47,8 +47,9 @@ CREATE TABLE group_intents {
     message_hash TEXT -- The hash of the encrypted, concrete, form of the message if it was published.
 }
 
-CREATE TABLE pending_outbound_welcome_messages {
+CREATE TABLE outbound_welcome_messages {
     id TEXT PRIMARY KEY NOT NULL, -- Derived via SHA256(CONCAT(group_id, welcome_message, ratchet_tree, installation_id))
+    state INT NOT NULL, -- OUTBOUND_WELCOME_STATE
     installation_id TEXT PRIMARY KEY NOT NULL,
     commit_hash TEXT NOT NULL, -- The hash of the commit which created this
     group_id TEXT NOT NULL,
@@ -83,6 +84,12 @@ CREATE TABLE openmls_keystore {
 - ADD_MEMBERS // An intent to add members to the group
 - REMOVE_MEMBERS // An intent to remove members from the group
 - KEY_UPDATE // An intent to update your own group key
+
+### OUTBOUND_WELCOME_STATE
+
+- PENDING // Needs to wait for commit to be applied before sending
+- READY_TO_SEND
+- SENT // Messages may be deleted at this point. We may decide to remove this state altogether.
 
 ## State Machine
 
