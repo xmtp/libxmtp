@@ -16,6 +16,7 @@ use xmtp_cryptography::signature::SignatureError;
 use crate::{
     association::{AssociationError, AssociationText, Eip191Association},
     storage::StorageError,
+    types::Address,
     xmtp_openmls_provider::XmtpOpenMlsProvider,
     InboxOwner,
 };
@@ -36,8 +37,8 @@ pub enum IdentityError {
 }
 
 pub struct Identity {
-    pub(crate) account_address: String,
-    pub(crate) signer: SignatureKeyPair,
+    pub(crate) account_address: Address,
+    pub(crate) installation_keys: SignatureKeyPair,
     pub(crate) credential: Credential,
 }
 
@@ -72,22 +73,23 @@ impl Identity {
 
         Ok(Self {
             account_address: owner.get_address(),
-            signer: signature_keys,
+            installation_keys: signature_keys,
             credential,
         })
     }
 
     fn create_credential(
-        signature_keys: &SignatureKeyPair,
+        installation_keys: &SignatureKeyPair,
         owner: &impl InboxOwner,
     ) -> Result<Credential, IdentityError> {
         // Generate association
         let assoc_text = AssociationText::Static {
             blockchain_address: owner.get_address(),
-            installation_public_key: signature_keys.to_public_vec(),
+            installation_public_key: installation_keys.to_public_vec(),
         };
         let signature = owner.sign(&assoc_text.text())?;
-        let association = Eip191Association::new(signature_keys.public(), assoc_text, signature)?;
+        let association =
+            Eip191Association::new(installation_keys.public(), assoc_text, signature)?;
         // TODO wrap in a Credential proto to allow flexibility for different association types
         let association_proto: Eip191AssociationProto = association.into();
 

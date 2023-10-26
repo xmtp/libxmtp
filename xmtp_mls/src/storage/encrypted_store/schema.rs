@@ -3,7 +3,7 @@
 diesel::table! {
     identity (rowid) {
         account_address -> Text,
-        signature_keypair -> Binary,
+        installation_keys -> Binary,
         credential_bytes -> Binary,
         rowid -> Nullable<Integer>,
     }

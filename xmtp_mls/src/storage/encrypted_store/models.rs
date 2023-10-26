@@ -19,7 +19,7 @@ pub struct StoredKeyStoreEntry {
 #[diesel(table_name = identity)]
 pub struct StoredIdentity {
     pub account_address: String,
-    pub signature_keypair: Vec<u8>,
+    pub installation_keys: Vec<u8>,
     pub credential_bytes: Vec<u8>,
     rowid: Option<i32>,
 }
@@ -27,12 +27,12 @@ pub struct StoredIdentity {
 impl StoredIdentity {
     pub fn new(
         account_address: String,
-        signature_keypair: Vec<u8>,
+        installation_keys: Vec<u8>,
         credential_bytes: Vec<u8>,
     ) -> Self {
         Self {
             account_address,
-            signature_keypair,
+            installation_keys,
             credential_bytes,
             rowid: None,
         }
@@ -43,7 +43,7 @@ impl From<Identity> for StoredIdentity {
     fn from(identity: Identity) -> Self {
         StoredIdentity {
             account_address: identity.account_address,
-            signature_keypair: db_serialize(&identity.signer).unwrap(),
+            installation_keys: db_serialize(&identity.installation_keys).unwrap(),
             credential_bytes: db_serialize(&identity.credential).unwrap(),
             rowid: None,
         }
@@ -54,7 +54,7 @@ impl Into<Identity> for StoredIdentity {
     fn into(self) -> Identity {
         Identity {
             account_address: self.account_address,
-            signer: db_deserialize(&self.signature_keypair).unwrap(),
+            installation_keys: db_deserialize(&self.installation_keys).unwrap(),
             credential: db_deserialize(&self.credential_bytes).unwrap(),
         }
     }
