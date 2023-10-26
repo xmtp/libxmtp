@@ -277,7 +277,7 @@ class LocalInstrumentedTest {
 
     @OptIn(ExperimentalCoroutinesApi::class)
     @Test
-    fun testStreamAllMessagesWorksWithIntros() = runBlocking {
+    fun testStreamAllMessagesWorksWithIntros() {
         val bob = PrivateKeyBuilder()
         val alice = PrivateKeyBuilder()
         val clientOptions =

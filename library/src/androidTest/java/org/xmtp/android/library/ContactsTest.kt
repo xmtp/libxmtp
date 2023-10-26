@@ -1,9 +1,11 @@
 package org.xmtp.android.library
 
+import androidx.test.ext.junit.runners.AndroidJUnit4
 import org.junit.Assert.assertEquals
 import org.junit.Test
+import org.junit.runner.RunWith
 import org.xmtp.android.library.messages.walletAddress
-
+@RunWith(AndroidJUnit4::class)
 class ContactsTest {
 
     @Test
@@ -34,5 +36,35 @@ class ContactsTest {
             assertEquals(contactBundle?.walletAddress, fixtures.bob.walletAddress)
         }
         assert(fixtures.aliceClient.contacts.has(fixtures.bob.walletAddress))
+    }
+
+    @Test
+    fun testAllowAddress() {
+        val fixtures = fixtures()
+
+        val contacts = fixtures.bobClient.contacts
+        var result = contacts.isAllowed(fixtures.alice.walletAddress)
+
+        assert(!result)
+
+        contacts.allow(listOf(fixtures.alice.walletAddress))
+
+        result = contacts.isAllowed(fixtures.alice.walletAddress)
+        assert(result)
+    }
+
+    @Test
+    fun testBlockAddress() {
+        val fixtures = fixtures()
+
+        val contacts = fixtures.bobClient.contacts
+        var result = contacts.isAllowed(fixtures.alice.walletAddress)
+
+        assert(!result)
+
+        contacts.block(listOf(fixtures.alice.walletAddress))
+
+        result = contacts.isBlocked(fixtures.alice.walletAddress)
+        assert(result)
     }
 }

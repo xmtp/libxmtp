@@ -7,7 +7,7 @@ sealed class Topic {
     data class userInvite(val address: String?) : Topic()
     data class directMessageV1(val address1: String?, val address2: String?) : Topic()
     data class directMessageV2(val addresses: String?) : Topic()
-    data class groupInvite(val address: String?) : Topic()
+    data class preferenceList(val identifier: String?) : Topic()
 
     val description: String
         get() {
@@ -22,7 +22,7 @@ sealed class Topic {
                     wrap("dm-${addresses.joinToString(separator = "-")}")
                 }
                 is directMessageV2 -> wrap("m-$addresses")
-                is groupInvite -> wrap("groupInvite-$address")
+                is preferenceList -> wrap("pppp-$identifier")
             }
         }
 

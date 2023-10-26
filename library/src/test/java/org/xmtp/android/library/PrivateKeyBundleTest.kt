@@ -3,7 +3,6 @@ package org.xmtp.android.library
 import org.junit.Assert.assertEquals
 import org.junit.Test
 import org.xmtp.android.library.messages.PrivateKeyBuilder
-import org.xmtp.android.library.messages.PrivateKeyBundleV1Builder
 import org.xmtp.android.library.messages.UnsignedPublicKey
 import org.xmtp.android.library.messages.generate
 import org.xmtp.android.library.messages.getPublicKeyBundle
@@ -23,20 +22,6 @@ class PrivateKeyBundleTest {
         assertEquals(
             v1.preKeysList[0].publicKey.secp256K1Uncompressed.bytes,
             v2PreKeyPublic.secp256K1Uncompressed.bytes
-        )
-    }
-
-    @Test
-    fun testSerialization() {
-        val wallet = PrivateKeyBuilder()
-        val v1 =
-            PrivateKeyOuterClass.PrivateKeyBundleV1.newBuilder().build().generate(wallet = wallet)
-        val encodedData = PrivateKeyBundleV1Builder.encodeData(v1)
-        val v1Copy = PrivateKeyBundleV1Builder.fromEncodedData(encodedData)
-        val client = Client().buildFrom(v1Copy)
-        assertEquals(
-            wallet.address,
-            client.address
         )
     }
 

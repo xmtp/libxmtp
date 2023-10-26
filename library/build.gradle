@@ -12,6 +12,12 @@ dokkaGfmPartial {
     outputDirectory.set(file("build/docs/partial"))
 }
 
+ktlint {
+    filter {
+        exclude { it.file.path.contains("xmtp_dh") }
+    }
+}
+
 android {
     namespace 'org.xmtp.android.library'
     compileSdk 33
@@ -80,7 +86,7 @@ dependencies {
     implementation 'org.web3j:crypto:5.0.0'
     implementation "net.java.dev.jna:jna:5.13.0@aar"
     api 'com.google.protobuf:protobuf-kotlin-lite:3.22.3'
-    api 'org.xmtp:proto-kotlin:3.24.1'
+    api 'org.xmtp:proto-kotlin:3.31.0'
 
     testImplementation 'junit:junit:4.13.2'
     androidTestImplementation 'app.cash.turbine:turbine:0.12.1'

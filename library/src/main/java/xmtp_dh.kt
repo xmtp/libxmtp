@@ -18,12 +18,14 @@ package uniffi.xmtp_dh
 // helpers directly inline like we're doing here.
 
 import com.sun.jna.Library
+import com.sun.jna.IntegerType
 import com.sun.jna.Native
 import com.sun.jna.Pointer
 import com.sun.jna.Structure
-import com.sun.jna.ptr.ByReference
+import com.sun.jna.ptr.*
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
+import java.util.concurrent.ConcurrentHashMap
 
 // This is a helper for safely working with byte buffers returned from the Rust code.
 // A rust-owned buffer is represented by its capacity, its current length, and a
@@ -45,15 +47,15 @@ open class RustBuffer : Structure() {
 
     companion object {
         internal fun alloc(size: Int = 0) = rustCall() { status ->
-            _UniFFILib.INSTANCE.ffi_xmtp_dh_ff4a_rustbuffer_alloc(size, status).also {
+            _UniFFILib.INSTANCE.ffi_xmtp_dh_rustbuffer_alloc(size, status).also {
                 if (it.data == null) {
-                    throw RuntimeException("RustBuffer.alloc() returned null data pointer (size=$size)")
+                    throw RuntimeException("RustBuffer.alloc() returned null data pointer (size=${size})")
                 }
             }
         }
 
         internal fun free(buf: RustBuffer.ByValue) = rustCall() { status ->
-            _UniFFILib.INSTANCE.ffi_xmtp_dh_ff4a_rustbuffer_free(buf, status)
+            _UniFFILib.INSTANCE.ffi_xmtp_dh_rustbuffer_free(buf, status)
         }
     }
 
@@ -80,6 +82,19 @@ class RustBufferByReference : ByReference(16) {
         pointer.setInt(0, value.capacity)
         pointer.setInt(4, value.len)
         pointer.setPointer(8, value.data)
+    }
+
+    /**
+     * Get a `RustBuffer.ByValue` from this reference.
+     */
+    fun getValue(): RustBuffer.ByValue {
+        val pointer = getPointer()
+        val value = RustBuffer.ByValue()
+        value.writeField("capacity", pointer.getInt(0))
+        value.writeField("len", pointer.getInt(4))
+        value.writeField("data", pointer.getPointer(8))
+
+        return value
     }
 }
 
@@ -178,21 +193,23 @@ public interface FfiConverterRustBuffer<KotlinType> : FfiConverter<KotlinType, R
 @Structure.FieldOrder("code", "error_buf")
 internal open class RustCallStatus : Structure() {
     @JvmField
-    var code: Int = 0
+    var code: Byte = 0
 
     @JvmField
     var error_buf: RustBuffer.ByValue = RustBuffer.ByValue()
 
+    class ByValue : RustCallStatus(), Structure.ByValue
+
     fun isSuccess(): Boolean {
-        return code == 0
+        return code == 0.toByte()
     }
 
     fun isError(): Boolean {
-        return code == 1
+        return code == 1.toByte()
     }
 
     fun isPanic(): Boolean {
-        return code == 2
+        return code == 2.toByte()
     }
 }
 
@@ -200,7 +217,7 @@ class InternalException(message: String) : Exception(message)
 
 // Each top-level error class has a companion object that can lift the error from the call status's rust buffer
 interface CallStatusErrorHandler<E> {
-    fun lift(error_buf: RustBuffer.ByValue): E
+    fun lift(error_buf: RustBuffer.ByValue): E;
 }
 
 // Helpers for calling Rust
@@ -212,10 +229,19 @@ private inline fun <U, E : Exception> rustCallWithError(
     errorHandler: CallStatusErrorHandler<E>,
     callback: (RustCallStatus) -> U,
 ): U {
-    var status = RustCallStatus()
+    var status = RustCallStatus();
     val return_value = callback(status)
+    checkCallStatus(errorHandler, status)
+    return return_value
+}
+
+// Check RustCallStatus and throw an error if the call wasn't successful
+private fun <E : Exception> checkCallStatus(
+    errorHandler: CallStatusErrorHandler<E>,
+    status: RustCallStatus,
+) {
     if (status.isSuccess()) {
-        return return_value
+        return
     } else if (status.isError()) {
         throw errorHandler.lift(status.error_buf)
     } else if (status.isPanic()) {
@@ -242,7 +268,88 @@ object NullCallStatusErrorHandler : CallStatusErrorHandler<InternalException> {
 
 // Call a rust function that returns a plain value
 private inline fun <U> rustCall(callback: (RustCallStatus) -> U): U {
-    return rustCallWithError(NullCallStatusErrorHandler, callback)
+    return rustCallWithError(NullCallStatusErrorHandler, callback);
+}
+
+// IntegerType that matches Rust's `usize` / C's `size_t`
+public class USize(value: Long = 0) : IntegerType(Native.SIZE_T_SIZE, value, true) {
+    // This is needed to fill in the gaps of IntegerType's implementation of Number for Kotlin.
+    override fun toByte() = toInt().toByte()
+    override fun toChar() = toInt().toChar()
+    override fun toShort() = toInt().toShort()
+
+    fun writeToBuffer(buf: ByteBuffer) {
+        // Make sure we always write usize integers using native byte-order, since they may be
+        // casted to pointer values
+        buf.order(ByteOrder.nativeOrder())
+        try {
+            when (Native.SIZE_T_SIZE) {
+                4 -> buf.putInt(toInt())
+                8 -> buf.putLong(toLong())
+                else -> throw RuntimeException("Invalid SIZE_T_SIZE: ${Native.SIZE_T_SIZE}")
+            }
+        } finally {
+            buf.order(ByteOrder.BIG_ENDIAN)
+        }
+    }
+
+    companion object {
+        val size: Int
+            get() = Native.SIZE_T_SIZE
+
+        fun readFromBuffer(buf: ByteBuffer): USize {
+            // Make sure we always read usize integers using native byte-order, since they may be
+            // casted from pointer values
+            buf.order(ByteOrder.nativeOrder())
+            try {
+                return when (Native.SIZE_T_SIZE) {
+                    4 -> USize(buf.getInt().toLong())
+                    8 -> USize(buf.getLong())
+                    else -> throw RuntimeException("Invalid SIZE_T_SIZE: ${Native.SIZE_T_SIZE}")
+                }
+            } finally {
+                buf.order(ByteOrder.BIG_ENDIAN)
+            }
+        }
+    }
+}
+
+
+// Map handles to objects
+//
+// This is used when the Rust code expects an opaque pointer to represent some foreign object.
+// Normally we would pass a pointer to the object, but JNA doesn't support getting a pointer from an
+// object reference , nor does it support leaking a reference to Rust.
+//
+// Instead, this class maps USize values to objects so that we can pass a pointer-sized type to
+// Rust when it needs an opaque pointer.
+//
+// TODO: refactor callbacks to use this class
+internal class UniFfiHandleMap<T : Any> {
+    private val map = ConcurrentHashMap<USize, T>()
+
+    // Use AtomicInteger for our counter, since we may be on a 32-bit system.  4 billion possible
+    // values seems like enough. If somehow we generate 4 billion handles, then this will wrap
+    // around back to zero and we can assume the first handle generated will have been dropped by
+    // then.
+    private val counter = java.util.concurrent.atomic.AtomicInteger(0)
+
+    val size: Int
+        get() = map.size
+
+    fun insert(obj: T): USize {
+        val handle = USize(counter.getAndAdd(1).toLong())
+        map.put(handle, obj)
+        return handle
+    }
+
+    fun get(handle: USize): T? {
+        return map.get(handle)
+    }
+
+    fun remove(handle: USize) {
+        map.remove(handle)
+    }
 }
 
 // Contains loading, initialization code,
@@ -269,38 +376,99 @@ internal interface _UniFFILib : Library {
     companion object {
         internal val INSTANCE: _UniFFILib by lazy {
             loadIndirect<_UniFFILib>(componentName = "xmtp_dh")
+                .also { lib: _UniFFILib ->
+                    uniffiCheckContractApiVersion(lib)
+                    uniffiCheckApiChecksums(lib)
+                }
         }
     }
 
-    fun xmtp_dh_ff4a_diffie_hellman_k256(
+    fun uniffi_xmtp_dh_fn_func_diffie_hellman_k256(
         `privateKeyBytes`: RustBuffer.ByValue,
         `publicKeyBytes`: RustBuffer.ByValue,
         _uniffi_out_err: RustCallStatus,
     ): RustBuffer.ByValue
 
-    fun ffi_xmtp_dh_ff4a_rustbuffer_alloc(
-        `size`: Int,
+    fun uniffi_xmtp_dh_fn_func_ecies_encrypt_k256_sha3_256(
+        `publicKeyBytes`: RustBuffer.ByValue,
+        `privateKeyBytes`: RustBuffer.ByValue,
+        `messageBytes`: RustBuffer.ByValue,
         _uniffi_out_err: RustCallStatus,
     ): RustBuffer.ByValue
 
-    fun ffi_xmtp_dh_ff4a_rustbuffer_from_bytes(
-        `bytes`: ForeignBytes.ByValue,
+    fun uniffi_xmtp_dh_fn_func_ecies_decrypt_k256_sha3_256(
+        `publicKeyBytes`: RustBuffer.ByValue,
+        `privateKeyBytes`: RustBuffer.ByValue,
+        `messageBytes`: RustBuffer.ByValue,
         _uniffi_out_err: RustCallStatus,
     ): RustBuffer.ByValue
 
-    fun ffi_xmtp_dh_ff4a_rustbuffer_free(
-        `buf`: RustBuffer.ByValue,
-        _uniffi_out_err: RustCallStatus,
+    fun uniffi_xmtp_dh_fn_func_generate_private_preferences_topic_identifier(
+        `privateKeyBytes`: RustBuffer.ByValue, _uniffi_out_err: RustCallStatus,
+    ): RustBuffer.ByValue
+
+    fun ffi_xmtp_dh_rustbuffer_alloc(
+        `size`: Int, _uniffi_out_err: RustCallStatus,
+    ): RustBuffer.ByValue
+
+    fun ffi_xmtp_dh_rustbuffer_from_bytes(
+        `bytes`: ForeignBytes.ByValue, _uniffi_out_err: RustCallStatus,
+    ): RustBuffer.ByValue
+
+    fun ffi_xmtp_dh_rustbuffer_free(
+        `buf`: RustBuffer.ByValue, _uniffi_out_err: RustCallStatus,
     ): Unit
 
-    fun ffi_xmtp_dh_ff4a_rustbuffer_reserve(
-        `buf`: RustBuffer.ByValue,
-        `additional`: Int,
-        _uniffi_out_err: RustCallStatus,
+    fun ffi_xmtp_dh_rustbuffer_reserve(
+        `buf`: RustBuffer.ByValue, `additional`: Int, _uniffi_out_err: RustCallStatus,
     ): RustBuffer.ByValue
+
+    fun uniffi_xmtp_dh_checksum_func_diffie_hellman_k256(
+    ): Short
+
+    fun uniffi_xmtp_dh_checksum_func_ecies_encrypt_k256_sha3_256(
+    ): Short
+
+    fun uniffi_xmtp_dh_checksum_func_ecies_decrypt_k256_sha3_256(
+    ): Short
+
+    fun uniffi_xmtp_dh_checksum_func_generate_private_preferences_topic_identifier(
+    ): Short
+
+    fun ffi_xmtp_dh_uniffi_contract_version(
+    ): Int
+
+}
+
+private fun uniffiCheckContractApiVersion(lib: _UniFFILib) {
+    // Get the bindings contract version from our ComponentInterface
+    val bindings_contract_version = 22
+    // Get the scaffolding contract version by calling the into the dylib
+    val scaffolding_contract_version = lib.ffi_xmtp_dh_uniffi_contract_version()
+    if (bindings_contract_version != scaffolding_contract_version) {
+        throw RuntimeException("UniFFI contract version mismatch: try cleaning and rebuilding your project")
+    }
+}
+
+@Suppress("UNUSED_PARAMETER")
+private fun uniffiCheckApiChecksums(lib: _UniFFILib) {
+    if (lib.uniffi_xmtp_dh_checksum_func_diffie_hellman_k256() != 64890.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_xmtp_dh_checksum_func_ecies_encrypt_k256_sha3_256() != 28010.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_xmtp_dh_checksum_func_ecies_decrypt_k256_sha3_256() != 45037.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_xmtp_dh_checksum_func_generate_private_preferences_topic_identifier() != 65141.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
 }
 
 // Public interface members begin here.
+
+
 public object FfiConverterUByte : FfiConverter<UByte, Byte> {
     override fun lift(value: Byte): UByte {
         return value.toUByte()
@@ -367,10 +535,12 @@ public object FfiConverterString : FfiConverter<String, RustBuffer.ByValue> {
     }
 }
 
+
 sealed class DiffieHellmanException(message: String) : Exception(message) {
     // Each variant is a nested class
     // Flat enums carries a string error message, so no special implementation is necessary.
     class GenericException(message: String) : DiffieHellmanException(message)
+
 
     companion object ErrorHandler : CallStatusErrorHandler<DiffieHellmanException> {
         override fun lift(error_buf: RustBuffer.ByValue): DiffieHellmanException =
@@ -385,6 +555,7 @@ public object FfiConverterTypeDiffieHellmanError : FfiConverterRustBuffer<Diffie
             1 -> DiffieHellmanException.GenericException(FfiConverterString.read(buf))
             else -> throw RuntimeException("invalid error enum value, something is very wrong!!")
         }
+
     }
 
     override fun allocationSize(value: DiffieHellmanException): Int {
@@ -399,7 +570,47 @@ public object FfiConverterTypeDiffieHellmanError : FfiConverterRustBuffer<Diffie
             }
         }.let { /* this makes the `when` an expression, which ensures it is exhaustive */ }
     }
+
 }
+
+
+sealed class EciesException(message: String) : Exception(message) {
+    // Each variant is a nested class
+    // Flat enums carries a string error message, so no special implementation is necessary.
+    class GenericException(message: String) : EciesException(message)
+
+
+    companion object ErrorHandler : CallStatusErrorHandler<EciesException> {
+        override fun lift(error_buf: RustBuffer.ByValue): EciesException =
+            FfiConverterTypeEciesError.lift(error_buf)
+    }
+}
+
+public object FfiConverterTypeEciesError : FfiConverterRustBuffer<EciesException> {
+    override fun read(buf: ByteBuffer): EciesException {
+
+        return when (buf.getInt()) {
+            1 -> EciesException.GenericException(FfiConverterString.read(buf))
+            else -> throw RuntimeException("invalid error enum value, something is very wrong!!")
+        }
+
+    }
+
+    override fun allocationSize(value: EciesException): Int {
+        return 4
+    }
+
+    override fun write(value: EciesException, buf: ByteBuffer) {
+        when (value) {
+            is EciesException.GenericException -> {
+                buf.putInt(1)
+                Unit
+            }
+        }.let { /* this makes the `when` an expression, which ensures it is exhaustive */ }
+    }
+
+}
+
 
 public object FfiConverterSequenceUByte : FfiConverterRustBuffer<List<UByte>> {
     override fun read(buf: ByteBuffer): List<UByte> {
@@ -431,13 +642,60 @@ fun `diffieHellmanK256`(
 ): List<UByte> {
     return FfiConverterSequenceUByte.lift(
         rustCallWithError(DiffieHellmanException) { _status ->
-            _UniFFILib.INSTANCE.xmtp_dh_ff4a_diffie_hellman_k256(
+            _UniFFILib.INSTANCE.uniffi_xmtp_dh_fn_func_diffie_hellman_k256(
                 FfiConverterSequenceUByte.lower(
                     `privateKeyBytes`
-                ),
+                ), FfiConverterSequenceUByte.lower(`publicKeyBytes`), _status
+            )
+        })
+}
+
+@Throws(EciesException::class)
+
+fun `eciesEncryptK256Sha3256`(
+    `publicKeyBytes`: List<UByte>,
+    `privateKeyBytes`: List<UByte>,
+    `messageBytes`: List<UByte>,
+): List<UByte> {
+    return FfiConverterSequenceUByte.lift(
+        rustCallWithError(EciesException) { _status ->
+            _UniFFILib.INSTANCE.uniffi_xmtp_dh_fn_func_ecies_encrypt_k256_sha3_256(
                 FfiConverterSequenceUByte.lower(`publicKeyBytes`),
+                FfiConverterSequenceUByte.lower(`privateKeyBytes`),
+                FfiConverterSequenceUByte.lower(`messageBytes`),
                 _status
             )
-        }
-    )
+        })
 }
+
+@Throws(EciesException::class)
+
+fun `eciesDecryptK256Sha3256`(
+    `publicKeyBytes`: List<UByte>,
+    `privateKeyBytes`: List<UByte>,
+    `messageBytes`: List<UByte>,
+): List<UByte> {
+    return FfiConverterSequenceUByte.lift(
+        rustCallWithError(EciesException) { _status ->
+            _UniFFILib.INSTANCE.uniffi_xmtp_dh_fn_func_ecies_decrypt_k256_sha3_256(
+                FfiConverterSequenceUByte.lower(`publicKeyBytes`),
+                FfiConverterSequenceUByte.lower(`privateKeyBytes`),
+                FfiConverterSequenceUByte.lower(`messageBytes`),
+                _status
+            )
+        })
+}
+
+@Throws(EciesException::class)
+
+fun `generatePrivatePreferencesTopicIdentifier`(`privateKeyBytes`: List<UByte>): String {
+    return FfiConverterString.lift(
+        rustCallWithError(EciesException) { _status ->
+            _UniFFILib.INSTANCE.uniffi_xmtp_dh_fn_func_generate_private_preferences_topic_identifier(
+                FfiConverterSequenceUByte.lower(`privateKeyBytes`),
+                _status
+            )
+        })
+}
+
+

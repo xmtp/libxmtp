@@ -142,6 +142,7 @@ data class Conversations(
             invitation = invitation,
             header = sealedInvitation.v1.header
         )
+        client.contacts.allow(addresses = listOf(peerAddress))
         val conversation = Conversation.V2(conversationV2)
         conversationsByTopic[conversation.topic] = conversation
         return conversation
