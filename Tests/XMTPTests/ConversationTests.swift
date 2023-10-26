@@ -606,31 +606,31 @@ class ConversationTests: XCTestCase {
 		XCTAssertEqual(bob.address, messages[0].senderAddress)
 	}
 
-	func testCanHaveAllowState() async throws {
+	func testCanHaveConsentState() async throws {
 		let bobConversation = try await bobClient.conversations.newConversation(with: alice.address, context: InvitationV1.Context(conversationID: "hi"))
-		let isAllowed = (await bobConversation.allowState()) == .allowed
+		let isAllowed = (await bobConversation.consentState()) == .allowed
 
 		// Conversations you start should start as allowed
 		XCTAssertTrue(isAllowed)
 
 		let aliceConversation = (try await aliceClient.conversations.list())[0]
-		let isUnknown = (await aliceConversation.allowState()) == .unknown
+		let isUnknown = (await aliceConversation.consentState()) == .unknown
 
 		// Conversations started with you should start as unknown
 		XCTAssertTrue(isUnknown)
 
 		try await aliceClient.contacts.allow(addresses: [bob.address])
 
-		let isBobAllowed = (await aliceConversation.allowState()) == .allowed
+		let isBobAllowed = (await aliceConversation.consentState()) == .allowed
 		XCTAssertTrue(isBobAllowed)
 
 		let aliceClient2 = try await Client.create(account: alice, apiClient: fakeApiClient)
 		let aliceConversation2 = (try await aliceClient2.conversations.list())[0]
 
-		try await aliceClient2.contacts.refreshAllowList()
+		try await aliceClient2.contacts.refreshConsentList()
 
 		// Allow state should sync across clients
-		let isBobAllowed2 = (await aliceConversation2.allowState()) == .allowed
+		let isBobAllowed2 = (await aliceConversation2.consentState()) == .allowed
 
 		XCTAssertTrue(isBobAllowed2)
 	}

@@ -11,22 +11,22 @@ import XMTPRust
 
 public typealias PrivatePreferencesAction = Xmtp_MessageContents_PrivatePreferencesAction
 
-public enum AllowState: String, Codable {
+public enum ConsentState: String, Codable {
 	case allowed, blocked, unknown
 }
 
-struct AllowListEntry: Codable, Hashable {
+struct ConsentListEntry: Codable, Hashable {
 	enum EntryType: String, Codable {
 		case address
 	}
 
-	static func address(_ address: String, type: AllowState = .unknown) -> AllowListEntry {
-		AllowListEntry(value: address, entryType: .address, permissionType: type)
+	static func address(_ address: String, type: ConsentState = .unknown) -> ConsentListEntry {
+		ConsentListEntry(value: address, entryType: .address, consentType: type)
 	}
 
 	var value: String
 	var entryType: EntryType
-	var permissionType: AllowState
+	var consentType: ConsentState
 
 	var key: String {
 		"\(entryType)-\(value)"
@@ -37,8 +37,8 @@ public enum ContactError: Error {
     case invalidIdentifier
 }
 
-class AllowList {
-	var entries: [String: AllowState] = [:]
+class ConsentList {
+	var entries: [String: ConsentState] = [:]
     var publicKey: Data
     var privateKey: Data
     var identifier: String?
@@ -54,14 +54,14 @@ class AllowList {
         // swiftlint:enable no_optional_try
     }
 
-    func load() async throws -> AllowList {
+    func load() async throws -> ConsentList {
         guard let identifier = identifier else {
             throw ContactError.invalidIdentifier
         }        
         
         let envelopes = try await client.query(topic: .preferenceList(identifier))
 
-		let allowList = AllowList(client: client)
+		let consentList = ConsentList(client: client)
         
         var preferences: [PrivatePreferencesAction] = []
 
@@ -79,23 +79,23 @@ class AllowList {
         
         preferences.forEach { preference in
             preference.allow.walletAddresses.forEach { address in
-                allowList.allow(address: address)
+                consentList.allow(address: address)
             }
             preference.block.walletAddresses.forEach { address in
-                allowList.block(address: address)
+                consentList.block(address: address)
             }
         }
 
-		return allowList
+		return consentList
 	}
 
-	func publish(entry: AllowListEntry) async throws {
+	func publish(entry: ConsentListEntry) async throws {
         guard let identifier = identifier else {
             throw ContactError.invalidIdentifier
         }
 
         var payload = PrivatePreferencesAction()
-        switch entry.permissionType {
+        switch entry.consentType {
         case .allowed:
             payload.allow.walletAddresses = [entry.value]
         case .blocked:
@@ -119,20 +119,20 @@ class AllowList {
 		try await client.publish(envelopes: [envelope])
 	}
 
-	func allow(address: String) -> AllowListEntry {
-		entries[AllowListEntry.address(address).key] = .allowed
+	func allow(address: String) -> ConsentListEntry {
+		entries[ConsentListEntry.address(address).key] = .allowed
 
 		return .address(address, type: .allowed)
 	}
 
-	func block(address: String) -> AllowListEntry {
-		entries[AllowListEntry.address(address).key] = .blocked
+	func block(address: String) -> ConsentListEntry {
+		entries[ConsentListEntry.address(address).key] = .blocked
 
 		return .address(address, type: .blocked)
 	}
 
-	func state(address: String) -> AllowState {
-		let state = entries[AllowListEntry.address(address).key]
+	func state(address: String) -> ConsentState {
+		let state = entries[ConsentListEntry.address(address).key]
 
 		return state ?? .unknown
 	}
@@ -148,34 +148,34 @@ public actor Contacts {
 	// Whether or not we have sent invite/intro to this contact
 	var hasIntroduced: [String: Bool] = [:]
 
-    var allowList: AllowList
+    var consentList: ConsentList
 	
     init(client: Client) {
 		self.client = client
-        self.allowList = AllowList(client: client)
+        self.consentList = ConsentList(client: client)
 	}
 
-	public func refreshAllowList() async throws {
-		self.allowList = try await AllowList(client: client).load()
+	public func refreshConsentList() async throws {
+		self.consentList = try await ConsentList(client: client).load()
 	}
 
 	public func isAllowed(_ address: String) -> Bool {
-		return allowList.state(address: address) == .allowed
+		return consentList.state(address: address) == .allowed
 	}
 
 	public func isBlocked(_ address: String) -> Bool {
-		return allowList.state(address: address) == .blocked
+		return consentList.state(address: address) == .blocked
 	}
 
 	public func allow(addresses: [String]) async throws {
 		for address in addresses {
-			try await AllowList(client: client).publish(entry: allowList.allow(address: address))
+			try await ConsentList(client: client).publish(entry: consentList.allow(address: address))
 		}
 	}
 
 	public func block(addresses: [String]) async throws {
 		for address in addresses {
-			try await AllowList(client: client).publish(entry: allowList.block(address: address))
+			try await ConsentList(client: client).publish(entry: consentList.block(address: address))
 		}
 	}
 

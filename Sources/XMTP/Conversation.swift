@@ -29,7 +29,7 @@ public enum Conversation: Sendable {
 		case v1, v2
 	}
 
-	public func allowState() async -> AllowState {
+	public func consentState() async -> ConsentState {
 		let client: Client
 
 		switch self {
@@ -39,7 +39,7 @@ public enum Conversation: Sendable {
 			client = conversationV2.client
 		}
 
-		return await client.contacts.allowList.state(address: peerAddress)
+		return await client.contacts.consentList.state(address: peerAddress)
 	}
 
 	public var version: Version {
