@@ -77,7 +77,7 @@ class ConsentList {
             preferences.append(try PrivatePreferencesAction(serializedData: Data(payload)))
 		}
         
-        preferences.forEach { preference in
+        preferences.reversed().forEach { preference in
             preference.allow.walletAddresses.forEach { address in
                 consentList.allow(address: address)
             }
