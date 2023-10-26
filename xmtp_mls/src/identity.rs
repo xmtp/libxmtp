@@ -35,11 +35,10 @@ pub enum IdentityError {
     KeyPackageGenerationError(#[from] KeyPackageNewError<StorageError>),
 }
 
-#[derive(serde::Serialize, serde::Deserialize)]
 pub struct Identity {
-    account_address: String,
-    signer: SignatureKeyPair,
-    credential: Credential,
+    pub(crate) account_address: String,
+    pub(crate) signer: SignatureKeyPair,
+    pub(crate) credential: Credential,
 }
 
 impl Identity {

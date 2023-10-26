@@ -3,7 +3,11 @@ use openmls_traits::key_store::{MlsEntity, OpenMlsKeyStore};
 
 use crate::{Delete, Fetch, Store};
 
-use super::{encrypted_store::models::StoredKeyStoreEntry, EncryptedMessageStore, StorageError};
+use super::{
+    encrypted_store::models::StoredKeyStoreEntry,
+    serialization::{db_deserialize, db_serialize},
+    EncryptedMessageStore, StorageError,
+};
 
 #[derive(Debug)]
 pub struct SqlKeyStore<'a> {
@@ -33,7 +37,7 @@ impl OpenMlsKeyStore for SqlKeyStore<'_> {
     fn store<V: MlsEntity>(&self, k: &[u8], v: &V) -> Result<(), Self::Error> {
         let entry = StoredKeyStoreEntry {
             key_bytes: k.to_vec(),
-            value_bytes: serde_json::to_vec(v).map_err(|_| StorageError::SerializationError)?,
+            value_bytes: db_serialize(v)?,
         };
         entry.store(&mut self.store.conn()?)?;
         Ok(())
@@ -60,7 +64,7 @@ impl OpenMlsKeyStore for SqlKeyStore<'_> {
             debug!("No entry to read for key {:?}", k);
             return None;
         }
-        serde_json::from_slice(&entry_option.unwrap().value_bytes).ok()
+        db_deserialize(&entry_option.unwrap().value_bytes).ok()
     }
 
     /// Delete a value stored for ID `k`.

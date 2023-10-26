@@ -1,13 +1,13 @@
 use crate::configuration::CIPHERSUITE;
+use crate::storage::StoredIdentity;
 use crate::xmtp_openmls_provider::XmtpOpenMlsProvider;
-use crate::StorageError;
 use crate::{
     client::{Client, Network},
     identity::{Identity, IdentityError},
     storage::EncryptedMessageStore,
-    types::Address,
     InboxOwner,
 };
+use crate::{Fetch, StorageError};
 use thiserror::Error;
 use xmtp_proto::api_client::XmtpApiClient;
 
@@ -37,15 +37,9 @@ pub enum ClientBuilderError {
 
 pub enum IdentityStrategy<Owner> {
     CreateIfNotFound(Owner),
-    CachedOnly(Address),
+    CachedOnly,
     #[cfg(test)]
     ExternalIdentity(Identity),
-}
-
-impl<Owner> From<String> for IdentityStrategy<Owner> {
-    fn from(value: String) -> Self {
-        IdentityStrategy::CachedOnly(value)
-    }
 }
 
 impl<Owner> From<Owner> for IdentityStrategy<Owner>
@@ -107,22 +101,36 @@ where
             .ok_or(ClientBuilderError::MissingParameter {
                 parameter: "api_client",
             })?;
+        let network = self.network;
         let store = self.store.take().unwrap_or_default();
         let provider = XmtpOpenMlsProvider::new(&store);
-        // Fetch the Identity based upon the identity strategy.
-        let identity = match self.identity_strategy {
-            IdentityStrategy::CachedOnly(_) => {
-                // TODO: persistence/retrieval
-                unimplemented!()
+        let identity = self.initialize_identity(&store, &provider)?;
+        Ok(Client::new(api_client, network, identity, store))
+    }
+
+    fn initialize_identity(
+        self,
+        store: &EncryptedMessageStore,
+        provider: &XmtpOpenMlsProvider,
+    ) -> Result<Identity, ClientBuilderError> {
+        let conn = &mut store.conn()?;
+        let identity_option: Option<Identity> = conn.fetch(())?.map(|i: StoredIdentity| i.into());
+        match self.identity_strategy {
+            IdentityStrategy::CachedOnly => {
+                identity_option.ok_or(ClientBuilderError::RequiredIdentityNotFound)
             }
-            IdentityStrategy::CreateIfNotFound(owner) => {
-                // TODO: persistence/retrieval
-                Identity::new(CIPHERSUITE, &provider, &owner)?
-            }
+            IdentityStrategy::CreateIfNotFound(owner) => match identity_option {
+                Some(identity) => {
+                    if identity.account_address != owner.get_address() {
+                        return Err(ClientBuilderError::StoredIdentityMismatch);
+                    }
+                    Ok(identity)
+                }
+                None => Ok(Identity::new(CIPHERSUITE, &provider, &owner)?),
+            },
             #[cfg(test)]
-            IdentityStrategy::ExternalIdentity(a) => a,
-        };
-        Ok(Client::new(api_client, self.network, identity, store))
+            IdentityStrategy::ExternalIdentity(identity) => Ok(identity),
+        }
     }
 }
 

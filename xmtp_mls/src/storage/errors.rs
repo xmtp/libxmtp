@@ -14,6 +14,8 @@ pub enum StorageError {
     Store(String),
     #[error("serialization error")]
     SerializationError,
+    #[error("deserialization error")]
+    DeserializationError,
     #[error("unknown storage error: {0}")]
     Unknown(String),
 }

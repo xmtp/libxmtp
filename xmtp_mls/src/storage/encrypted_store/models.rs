@@ -1,5 +1,10 @@
 use diesel::prelude::*;
 
+use crate::{
+    identity::Identity,
+    storage::serialization::{db_deserialize, db_serialize},
+};
+
 use super::schema::*;
 
 #[derive(Insertable, Queryable, Debug, Clone)]
@@ -30,6 +35,27 @@ impl StoredIdentity {
             signature_keypair,
             credential_bytes,
             rowid: None,
+        }
+    }
+}
+
+impl From<Identity> for StoredIdentity {
+    fn from(identity: Identity) -> Self {
+        StoredIdentity {
+            account_address: identity.account_address,
+            signature_keypair: db_serialize(&identity.signer).unwrap(),
+            credential_bytes: db_serialize(&identity.credential).unwrap(),
+            rowid: None,
+        }
+    }
+}
+
+impl Into<Identity> for StoredIdentity {
+    fn into(self) -> Identity {
+        Identity {
+            account_address: self.account_address,
+            signer: db_deserialize(&self.signature_keypair).unwrap(),
+            credential: db_deserialize(&self.credential_bytes).unwrap(),
         }
     }
 }
