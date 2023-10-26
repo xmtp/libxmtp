@@ -14,6 +14,7 @@ enum class ConsentState {
     BLOCKED,
     UNKNOWN
 }
+
 data class ConsentListEntry(
     val value: String,
     val entryType: EntryType,
@@ -67,7 +68,7 @@ class ConsentList(val client: Client) {
             )
         }
 
-        preferences.iterator().forEach { preference ->
+        preferences.reversed().iterator().forEach { preference ->
             preference.allow?.walletAddressesList?.forEach { address ->
                 consentList.allow(address)
             }
@@ -75,6 +76,7 @@ class ConsentList(val client: Client) {
                 consentList.block(address)
             }
         }
+
         return consentList
     }
 
@@ -82,8 +84,14 @@ class ConsentList(val client: Client) {
     fun publish(entry: ConsentListEntry) {
         val payload = PrivatePreferencesAction.newBuilder().also {
             when (entry.consentType) {
-                ConsentState.ALLOWED -> it.setAllow(PrivatePreferencesAction.Allow.newBuilder().addWalletAddresses(entry.value))
-                ConsentState.BLOCKED -> it.setBlock(PrivatePreferencesAction.Block.newBuilder().addWalletAddresses(entry.value))
+                ConsentState.ALLOWED -> it.setAllow(
+                    PrivatePreferencesAction.Allow.newBuilder().addWalletAddresses(entry.value)
+                )
+
+                ConsentState.BLOCKED -> it.setBlock(
+                    PrivatePreferencesAction.Block.newBuilder().addWalletAddresses(entry.value)
+                )
+
                 ConsentState.UNKNOWN -> it.clearMessageType()
             }
         }.build()
