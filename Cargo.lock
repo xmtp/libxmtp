@@ -3048,10 +3048,10 @@ dependencies = [
  "ethers",
  "hex",
  "log",
- "openmls",
- "openmls_basic_credential",
- "openmls_rust_crypto",
- "openmls_traits",
+ "openmls 0.5.0 (git+https://github.com/openmls/openmls)",
+ "openmls_basic_credential 0.2.0 (git+https://github.com/openmls/openmls)",
+ "openmls_rust_crypto 0.2.0 (git+https://github.com/openmls/openmls)",
+ "openmls_traits 0.2.0 (git+https://github.com/openmls/openmls)",
  "prost",
  "rand 0.8.5",
  "serde",
@@ -3255,9 +3255,30 @@ dependencies = [
  "backtrace",
  "itertools 0.10.5",
  "log",
- "openmls_basic_credential",
- "openmls_rust_crypto",
- "openmls_traits",
+ "openmls_basic_credential 0.2.0 (git+https://github.com/openmls/openmls)",
+ "openmls_rust_crypto 0.2.0 (git+https://github.com/openmls/openmls)",
+ "openmls_traits 0.2.0 (git+https://github.com/openmls/openmls)",
+ "rand 0.8.5",
+ "rayon",
+ "rstest",
+ "rstest_reuse",
+ "serde",
+ "serde_json",
+ "thiserror",
+ "tls_codec",
+]
+
+[[package]]
+name = "openmls"
+version = "0.5.0"
+source = "git+https://github.com/xmtp/openmls#2d4991b53feb3f8490ca23fbb5a5ccfff094d07d"
+dependencies = [
+ "backtrace",
+ "itertools 0.10.5",
+ "log",
+ "openmls_basic_credential 0.2.0 (git+https://github.com/xmtp/openmls)",
+ "openmls_rust_crypto 0.2.0 (git+https://github.com/xmtp/openmls)",
+ "openmls_traits 0.2.0 (git+https://github.com/xmtp/openmls)",
  "rand 0.8.5",
  "rayon",
  "rstest",
@@ -3274,7 +3295,20 @@ version = "0.2.0"
 source = "git+https://github.com/openmls/openmls#2d4991b53feb3f8490ca23fbb5a5ccfff094d07d"
 dependencies = [
  "ed25519-dalek",
- "openmls_traits",
+ "openmls_traits 0.2.0 (git+https://github.com/openmls/openmls)",
+ "p256",
+ "rand 0.8.5",
+ "serde",
+ "tls_codec",
+]
+
+[[package]]
+name = "openmls_basic_credential"
+version = "0.2.0"
+source = "git+https://github.com/xmtp/openmls#2d4991b53feb3f8490ca23fbb5a5ccfff094d07d"
+dependencies = [
+ "ed25519-dalek",
+ "openmls_traits 0.2.0 (git+https://github.com/xmtp/openmls)",
  "p256",
  "rand 0.8.5",
  "serde",
@@ -3286,7 +3320,17 @@ name = "openmls_memory_keystore"
 version = "0.2.0"
 source = "git+https://github.com/openmls/openmls#2d4991b53feb3f8490ca23fbb5a5ccfff094d07d"
 dependencies = [
- "openmls_traits",
+ "openmls_traits 0.2.0 (git+https://github.com/openmls/openmls)",
+ "serde_json",
+ "thiserror",
+]
+
+[[package]]
+name = "openmls_memory_keystore"
+version = "0.2.0"
+source = "git+https://github.com/xmtp/openmls#2d4991b53feb3f8490ca23fbb5a5ccfff094d07d"
+dependencies = [
+ "openmls_traits 0.2.0 (git+https://github.com/xmtp/openmls)",
  "serde_json",
  "thiserror",
 ]
@@ -3304,8 +3348,32 @@ dependencies = [
  "hpke-rs",
  "hpke-rs-crypto",
  "hpke-rs-rust-crypto",
- "openmls_memory_keystore",
- "openmls_traits",
+ "openmls_memory_keystore 0.2.0 (git+https://github.com/openmls/openmls)",
+ "openmls_traits 0.2.0 (git+https://github.com/openmls/openmls)",
+ "p256",
+ "rand 0.8.5",
+ "rand_chacha 0.3.1",
+ "serde",
+ "sha2 0.10.7",
+ "thiserror",
+ "tls_codec",
+]
+
+[[package]]
+name = "openmls_rust_crypto"
+version = "0.2.0"
+source = "git+https://github.com/xmtp/openmls#2d4991b53feb3f8490ca23fbb5a5ccfff094d07d"
+dependencies = [
+ "aes-gcm",
+ "chacha20poly1305",
+ "ed25519-dalek",
+ "hkdf",
+ "hmac",
+ "hpke-rs",
+ "hpke-rs-crypto",
+ "hpke-rs-rust-crypto",
+ "openmls_memory_keystore 0.2.0 (git+https://github.com/xmtp/openmls)",
+ "openmls_traits 0.2.0 (git+https://github.com/xmtp/openmls)",
  "p256",
  "rand 0.8.5",
  "rand_chacha 0.3.1",
@@ -3319,6 +3387,15 @@ dependencies = [
 name = "openmls_traits"
 version = "0.2.0"
 source = "git+https://github.com/openmls/openmls#2d4991b53feb3f8490ca23fbb5a5ccfff094d07d"
+dependencies = [
+ "serde",
+ "tls_codec",
+]
+
+[[package]]
+name = "openmls_traits"
+version = "0.2.0"
+source = "git+https://github.com/xmtp/openmls#2d4991b53feb3f8490ca23fbb5a5ccfff094d07d"
 dependencies = [
  "serde",
  "tls_codec",
@@ -6305,6 +6382,11 @@ dependencies = [
  "hex",
  "libsqlite3-sys",
  "log",
+ "openmls 0.5.0 (git+https://github.com/xmtp/openmls)",
+ "openmls_basic_credential 0.2.0 (git+https://github.com/xmtp/openmls)",
+ "openmls_rust_crypto 0.2.0 (git+https://github.com/xmtp/openmls)",
+ "openmls_traits 0.2.0 (git+https://github.com/xmtp/openmls)",
+ "prost",
  "rand 0.8.5",
  "serde",
  "serde_json",
