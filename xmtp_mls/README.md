@@ -80,7 +80,7 @@ CREATE TABLE openmls_keystore {
 
 ### INTENT_KIND
 
-- APPLICATION // An intent to send a message to the group
+- SEND_MESSAGE // An intent to send a message to the group
 - ADD_MEMBERS // An intent to add members to the group
 - REMOVE_MEMBERS // An intent to remove members from the group
 - KEY_UPDATE // An intent to update your own group key
