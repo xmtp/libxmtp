@@ -9,7 +9,7 @@ use crate::{
     InboxOwner,
 };
 use thiserror::Error;
-use xmtp_proto::api_client::XmtpApiClient;
+use xmtp_proto::api_client::{XmtpApiClient, XmtpMlsClient};
 
 #[derive(Error, Debug)]
 pub enum ClientBuilderError {
@@ -67,7 +67,7 @@ pub struct ClientBuilder<ApiClient, Owner> {
 
 impl<ApiClient, Owner> ClientBuilder<ApiClient, Owner>
 where
-    ApiClient: XmtpApiClient,
+    ApiClient: XmtpApiClient + XmtpMlsClient,
     Owner: InboxOwner,
 {
     pub fn new(strat: IdentityStrategy<Owner>) -> Self {
@@ -129,17 +129,30 @@ where
 mod tests {
 
     use ethers::signers::LocalWallet;
+    use xmtp_api_grpc::grpc_api_helper::Client as GrpcClient;
     use xmtp_cryptography::utils::generate_local_wallet;
-
-    use crate::mock_xmtp_api_client::MockXmtpApiClient;
 
     use super::ClientBuilder;
 
-    impl ClientBuilder<MockXmtpApiClient, LocalWallet> {
-        pub fn new_test() -> Self {
+    impl ClientBuilder<GrpcClient, LocalWallet> {
+        pub async fn new_test() -> Self {
             let wallet = generate_local_wallet();
+            let grpc_client = GrpcClient::create("http://localhost:5556".to_string(), false)
+                .await
+                .unwrap();
 
-            Self::new(wallet.into())
+            Self::new(wallet.into()).api_client(grpc_client)
         }
+    }
+
+    #[tokio::test]
+    async fn test_mls() {
+        let client = ClientBuilder::new_test().await.build().unwrap();
+
+        let result = client.api_client.register_installation(&[1, 2, 3]).await;
+
+        assert!(result.is_err());
+        let error_string = result.err().unwrap().to_string();
+        assert!(error_string.contains("invalid identity"));
     }
 }
