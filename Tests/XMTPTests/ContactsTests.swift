@@ -53,4 +53,32 @@ class ContactsTests: XCTestCase {
 		let hasContact = await fixtures.aliceClient.contacts.has(fixtures.bob.walletAddress)
 		XCTAssert(hasContact)
 	}
+
+	func testAllowAddress() async throws {
+		let fixtures = await fixtures()
+
+		let contacts = fixtures.bobClient.contacts
+		var result = await contacts.isAllowed(fixtures.alice.address)
+
+		XCTAssertFalse(result)
+
+		try await contacts.allow(addresses: [fixtures.alice.address])
+
+		result = await contacts.isAllowed(fixtures.alice.address)
+		XCTAssertTrue(result)
+	}
+
+	func testBlockAddress() async throws {
+		let fixtures = await fixtures()
+
+		let contacts = fixtures.bobClient.contacts
+		var result = await contacts.isAllowed(fixtures.alice.address)
+
+		XCTAssertFalse(result)
+
+		try await contacts.block(addresses: [fixtures.alice.address])
+
+		result = await contacts.isBlocked(fixtures.alice.address)
+		XCTAssertTrue(result)
+	}
 }

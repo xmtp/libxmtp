@@ -39,7 +39,7 @@ class ConversationTests: XCTestCase {
 		let preparedMessage = try await conversation.prepareMessage(content: "hi")
 		let messageID = preparedMessage.messageID
 
-        try await conversation.send(prepared: preparedMessage)
+		try await conversation.send(prepared: preparedMessage)
 
 		let messages = try await conversation.messages()
 		let message = messages[0]
@@ -48,27 +48,27 @@ class ConversationTests: XCTestCase {
 		XCTAssertEqual(message.id, messageID)
 	}
 
-    func testCanSendPreparedMessagesWithoutAConversation() async throws {
-        let conversation = try await aliceClient.conversations.newConversation(with: bob.address)
-        let preparedMessage = try await conversation.prepareMessage(content: "hi")
-        let messageID = preparedMessage.messageID
+	func testCanSendPreparedMessagesWithoutAConversation() async throws {
+		let conversation = try await aliceClient.conversations.newConversation(with: bob.address)
+		let preparedMessage = try await conversation.prepareMessage(content: "hi")
+		let messageID = preparedMessage.messageID
 
-        // This does not need the `conversation` to `.publish` the message.
-        // This simulates a background task publishes all pending messages upon connection.
-        try await aliceClient.publish(envelopes: preparedMessage.envelopes)
+		// This does not need the `conversation` to `.publish` the message.
+		// This simulates a background task publishes all pending messages upon connection.
+		try await aliceClient.publish(envelopes: preparedMessage.envelopes)
 
-        let messages = try await conversation.messages()
-        let message = messages[0]
+		let messages = try await conversation.messages()
+		let message = messages[0]
 
-        XCTAssertEqual("hi", message.body)
-        XCTAssertEqual(message.id, messageID)
-    }
+		XCTAssertEqual("hi", message.body)
+		XCTAssertEqual(message.id, messageID)
+	}
 
 	func testV2RejectsSpoofedContactBundles() async throws {
 		let topic =
 			"/xmtp/0/m-Gdb7oj5nNdfZ3MJFLAcS4WTABgr6al1hePy6JV1-QUE/proto"
 		guard let envelopeMessage = Data(base64String: "Er0ECkcIwNruhKLgkKUXEjsveG10cC8wL20tR2RiN29qNW5OZGZaM01KRkxBY1M0V1RBQmdyNmFsMWhlUHk2SlYxLVFVRS9wcm90bxLxAwruAwognstLoG6LWgiBRsWuBOt+tYNJz+CqCj9zq6hYymLoak8SDFsVSy+cVAII0/r3sxq7A/GCOrVtKH6J+4ggfUuI5lDkFPJ8G5DHlysCfRyFMcQDIG/2SFUqSILAlpTNbeTC9eSI2hUjcnlpH9+ncFcBu8StGfmilVGfiADru2fGdThiQ+VYturqLIJQXCHO2DkvbbUOg9xI66E4Hj41R9vE8yRGeZ/eRGRLRm06HftwSQgzAYf2AukbvjNx/k+xCMqti49Qtv9AjzxVnwttLiA/9O+GDcOsiB1RQzbZZzaDjQ/nLDTF6K4vKI4rS9QwzTJqnoCdp0SbMZFf+KVZpq3VWnMGkMxLW5Fr6gMvKny1e1LAtUJSIclI/1xPXu5nsKd4IyzGb2ZQFXFQ/BVL9Z4CeOZTsjZLGTOGS75xzzGHDtKohcl79+0lgIhAuSWSLDa2+o2OYT0fAjChp+qqxXcisAyrD5FB6c9spXKfoDZsqMV/bnCg3+udIuNtk7zBk7jdTDMkofEtE3hyIm8d3ycmxKYOakDPqeo+Nk1hQ0ogxI8Z7cEoS2ovi9+rGBMwREzltUkTVR3BKvgV2EOADxxTWo7y8WRwWxQ+O6mYPACsiFNqjX5Nvah5lRjihphQldJfyVOG8Rgf4UwkFxmI"),
-		      let keyMaterial = Data(base64String: "R0BBM5OPftNEuavH/991IKyJ1UqsgdEG4SrdxlIG2ZY=")
+					let keyMaterial = Data(base64String: "R0BBM5OPftNEuavH/991IKyJ1UqsgdEG4SrdxlIG2ZY=")
 		else {
 			XCTFail("did not have correct setup data")
 			return
@@ -88,7 +88,7 @@ class ConversationTests: XCTestCase {
 	}
 
 	func testDoesNotAllowConversationWithSelf() async throws {
-        try TestConfig.skipIfNotRunningLocalNodeTests()
+		try TestConfig.skipIfNotRunningLocalNodeTests()
 		let expectation = expectation(description: "convo with self throws")
 		let client = aliceClient!
 
@@ -221,12 +221,12 @@ class ConversationTests: XCTestCase {
 		let encodedContent = try encoder.encode(content: "hi alice", client: aliceClient)
 
 		// Stream a message
-		fakeApiClient.send(
+		try fakeApiClient.send(
 			envelope: Envelope(
 				topic: conversation.topic,
 				timestamp: Date(),
-				message: try Message(
-					v2: try await MessageV2.encode(
+				message: Message(
+					v2: await MessageV2.encode(
 						client: bobClient,
 						content: encodedContent,
 						topic: conversation.topic,
@@ -292,7 +292,7 @@ class ConversationTests: XCTestCase {
 		)
 
 		try await aliceClient.publish(envelopes: [
-			Envelope(topic: aliceConversation.topic, timestamp: Date(), message: try Message(v2: tamperedMessage).serializedData()),
+			Envelope(topic: aliceConversation.topic, timestamp: Date(), message: Message(v2: tamperedMessage).serializedData()),
 		])
 
 		guard case let .v2(bobConversation) = try await bobClient.conversations.newConversation(with: alice.address, context: InvitationV1.Context(conversationID: "hi")) else {
@@ -343,7 +343,7 @@ class ConversationTests: XCTestCase {
 		let messages = try await aliceConversation.messages(limit: 1)
 		XCTAssertEqual(1, messages.count)
 		XCTAssertEqual("hey alice 3", messages[0].body)
-        XCTAssertEqual(aliceConversation.topic.description, messages[0].topic)
+		XCTAssertEqual(aliceConversation.topic.description, messages[0].topic)
 
 		let messages2 = try await aliceConversation.messages(limit: 1, before: messages[0].sent)
 		XCTAssertEqual(1, messages2.count)
@@ -385,7 +385,7 @@ class ConversationTests: XCTestCase {
 		let messages = try await aliceConversation.messages(limit: 1)
 		XCTAssertEqual(1, messages.count)
 		XCTAssertEqual("hey alice 3", messages[0].body)
-        XCTAssertEqual(aliceConversation.topic, messages[0].topic)
+		XCTAssertEqual(aliceConversation.topic, messages[0].topic)
 
 		let messages2 = try await aliceConversation.messages(limit: 1, before: messages[0].sent)
 		XCTAssertEqual(1, messages2.count)
@@ -393,7 +393,6 @@ class ConversationTests: XCTestCase {
 	}
 
 	func testCanRetrieveAllMessages() async throws {
-
 		guard case let .v2(bobConversation) = try await bobClient.conversations.newConversation(with: alice.address, context: InvitationV1.Context(conversationID: "hi")) else {
 			XCTFail("did not get a v2 conversation for bob")
 			return
@@ -404,7 +403,7 @@ class ConversationTests: XCTestCase {
 			return
 		}
 
-		for i in 0..<110 {
+		for i in 0 ..< 110 {
 			do {
 				let content = "hey alice \(i)"
 				let sentAt = Date().addingTimeInterval(-1000)
@@ -423,61 +422,60 @@ class ConversationTests: XCTestCase {
 		let messages = try await aliceConversation.messages()
 		XCTAssertEqual(110, messages.count)
 	}
-    
-    func testCanRetrieveBatchMessages() async throws {
 
-        guard case let .v2(bobConversation) = try await aliceClient.conversations.newConversation(with: bob.address, context: InvitationV1.Context(conversationID: "hi")) else {
-            XCTFail("did not get a v2 conversation for bob")
-            return
-        }
+	func testCanRetrieveBatchMessages() async throws {
+		guard case let .v2(bobConversation) = try await aliceClient.conversations.newConversation(with: bob.address, context: InvitationV1.Context(conversationID: "hi")) else {
+			XCTFail("did not get a v2 conversation for bob")
+			return
+		}
 
-        for i in 0..<3 {
-            do {
-                let content = "hey alice \(i)"
-                let sentAt = Date().addingTimeInterval(-1000)
-                try await bobConversation.send(content: content, sentAt: sentAt)
-            } catch {
-                print("Error sending message:", error)
-            }
-        }
+		for i in 0 ..< 3 {
+			do {
+				let content = "hey alice \(i)"
+				let sentAt = Date().addingTimeInterval(-1000)
+				try await bobConversation.send(content: content, sentAt: sentAt)
+			} catch {
+				print("Error sending message:", error)
+			}
+		}
 
-        let messages = try await aliceClient.conversations.listBatchMessages(
-            topics: [bobConversation.topic : Pagination(limit:3)]
-        )
-        XCTAssertEqual(3, messages.count)
-        XCTAssertEqual(bobConversation.topic, messages[0].topic)
-        XCTAssertEqual(bobConversation.topic, messages[1].topic)
-        XCTAssertEqual(bobConversation.topic, messages[2].topic)
-    }
+		let messages = try await aliceClient.conversations.listBatchMessages(
+			topics: [bobConversation.topic: Pagination(limit: 3)]
+		)
+		XCTAssertEqual(3, messages.count)
+		XCTAssertEqual(bobConversation.topic, messages[0].topic)
+		XCTAssertEqual(bobConversation.topic, messages[1].topic)
+		XCTAssertEqual(bobConversation.topic, messages[2].topic)
+	}
 
-    func testProperlyDiscardBadBatchMessages() async throws {
+	func testProperlyDiscardBadBatchMessages() async throws {
+		guard case let .v2(bobConversation) = try await aliceClient.conversations
+			.newConversation(with: bob.address)
+		else {
+			XCTFail("did not get a v2 conversation for bob")
+			return
+		}
 
-        guard case let .v2(bobConversation) = try await aliceClient.conversations
-            .newConversation(with: bob.address) else {
-            XCTFail("did not get a v2 conversation for bob")
-            return
-        }
+		try await bobConversation.send(content: "Hello")
 
-        try await bobConversation.send(content: "Hello")
+		// Now we send some garbage and expect it to be properly ignored.
+		try await bobClient.apiClient.publish(envelopes: [
+			Envelope(
+				topic: bobConversation.topic,
+				timestamp: Date(),
+				message: Data([1, 2, 3]) // garbage, malformed message
+			),
+		])
 
-        // Now we send some garbage and expect it to be properly ignored.
-        try await bobClient.apiClient.publish(envelopes: [
-            Envelope(
-                topic: bobConversation.topic,
-                timestamp: Date(),
-                message: Data([1, 2, 3]) // garbage, malformed message
-            )
-        ])
+		try await bobConversation.send(content: "Goodbye")
 
-        try await bobConversation.send(content: "Goodbye")
-
-        let messages = try await aliceClient.conversations.listBatchMessages(
-            topics: [bobConversation.topic : nil]
-        )
-        XCTAssertEqual(2, messages.count)
-        XCTAssertEqual("Goodbye", try messages[0].content())
-        XCTAssertEqual("Hello", try messages[1].content())
-    }
+		let messages = try await aliceClient.conversations.listBatchMessages(
+			topics: [bobConversation.topic: nil]
+		)
+		XCTAssertEqual(2, messages.count)
+		XCTAssertEqual("Goodbye", try messages[0].content())
+		XCTAssertEqual("Hello", try messages[1].content())
+	}
 
 	func testImportV1ConversationFromJS() async throws {
 		let jsExportJSONData = Data("""
@@ -606,5 +604,34 @@ class ConversationTests: XCTestCase {
 		XCTAssertEqual(1, messages.count)
 		XCTAssertEqual(Array(repeating: "A", count: 1000).joined(), messages[0].body)
 		XCTAssertEqual(bob.address, messages[0].senderAddress)
+	}
+
+	func testCanHaveAllowState() async throws {
+		let bobConversation = try await bobClient.conversations.newConversation(with: alice.address, context: InvitationV1.Context(conversationID: "hi"))
+		let isAllowed = (await bobConversation.allowState()) == .allowed
+
+		// Conversations you start should start as allowed
+		XCTAssertTrue(isAllowed)
+
+		let aliceConversation = (try await aliceClient.conversations.list())[0]
+		let isUnknown = (await aliceConversation.allowState()) == .unknown
+
+		// Conversations started with you should start as unknown
+		XCTAssertTrue(isUnknown)
+
+		try await aliceClient.contacts.allow(addresses: [bob.address])
+
+		let isBobAllowed = (await aliceConversation.allowState()) == .allowed
+		XCTAssertTrue(isBobAllowed)
+
+		let aliceClient2 = try await Client.create(account: alice, apiClient: fakeApiClient)
+		let aliceConversation2 = (try await aliceClient2.conversations.list())[0]
+
+		try await aliceClient2.contacts.refreshAllowList()
+
+		// Allow state should sync across clients
+		let isBobAllowed2 = (await aliceConversation2.allowState()) == .allowed
+
+		XCTAssertTrue(isBobAllowed2)
 	}
 }

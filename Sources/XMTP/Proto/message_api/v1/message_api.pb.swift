@@ -58,7 +58,7 @@ public enum Xmtp_MessageApi_V1_SortDirection: SwiftProtobuf.Enum {
 
 extension Xmtp_MessageApi_V1_SortDirection: CaseIterable {
   // The compiler won't synthesize support with the UNRECOGNIZED case.
-  public static var allCases: [Xmtp_MessageApi_V1_SortDirection] = [
+  public static let allCases: [Xmtp_MessageApi_V1_SortDirection] = [
     .unspecified,
     .ascending,
     .descending,

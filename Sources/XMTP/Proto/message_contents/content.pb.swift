@@ -56,7 +56,7 @@ public enum Xmtp_MessageContents_Compression: SwiftProtobuf.Enum {
 
 extension Xmtp_MessageContents_Compression: CaseIterable {
   // The compiler won't synthesize support with the UNRECOGNIZED case.
-  public static var allCases: [Xmtp_MessageContents_Compression] = [
+  public static let allCases: [Xmtp_MessageContents_Compression] = [
     .deflate,
     .gzip,
   ]

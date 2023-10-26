@@ -73,7 +73,7 @@ public struct Xmtp_MessageApi_V1_AuthData {
   /// address of the wallet
   public var walletAddr: String = String()
 
-  /// time when the token was generated/signed 
+  /// time when the token was generated/signed
   public var createdNs: UInt64 = 0
 
   public var unknownFields = SwiftProtobuf.UnknownStorage()

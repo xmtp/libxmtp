@@ -29,6 +29,19 @@ public enum Conversation: Sendable {
 		case v1, v2
 	}
 
+	public func allowState() async -> AllowState {
+		let client: Client
+
+		switch self {
+		case .v1(let conversationV1):
+			client = conversationV1.client
+		case .v2(let conversationV2):
+			client = conversationV2.client
+		}
+
+		return await client.contacts.allowList.state(address: peerAddress)
+	}
+
 	public var version: Version {
 		switch self {
 		case .v1:
@@ -82,7 +95,7 @@ public enum Conversation: Sendable {
 	/// See Conversations.importTopicData()
 	public func toTopicData() -> Xmtp_KeystoreApi_V1_TopicMap.TopicData {
 		Xmtp_KeystoreApi_V1_TopicMap.TopicData.with {
-			$0.createdNs = UInt64(createdAt.timeIntervalSince1970 * 1_000) * 1_000_000
+			$0.createdNs = UInt64(createdAt.timeIntervalSince1970 * 1000) * 1_000_000
 			$0.peerAddress = peerAddress
 			if case let .v2(cv2) = self {
 				$0.invitation = Xmtp_MessageContents_InvitationV1.with {
@@ -123,16 +136,16 @@ public enum Conversation: Sendable {
 		}
 	}
 
-    // This is a convenience for invoking the underlying `client.publish(prepared.envelopes)`
-    // If a caller has a `Client` handy, they may opt to do that directly instead.
-    @discardableResult public func send(prepared: PreparedMessage) async throws -> String {
-        switch self {
-        case let .v1(conversationV1):
-            return try await conversationV1.send(prepared: prepared)
-        case let .v2(conversationV2):
-            return try await conversationV2.send(prepared: prepared)
-        }
-    }
+	// This is a convenience for invoking the underlying `client.publish(prepared.envelopes)`
+	// If a caller has a `Client` handy, they may opt to do that directly instead.
+	@discardableResult public func send(prepared: PreparedMessage) async throws -> String {
+		switch self {
+		case let .v1(conversationV1):
+			return try await conversationV1.send(prepared: prepared)
+		case let .v2(conversationV2):
+			return try await conversationV2.send(prepared: prepared)
+		}
+	}
 
 	@discardableResult public func send<T>(content: T, options: SendOptions? = nil, fallback _: String? = nil) async throws -> String {
 		switch self {
@@ -199,10 +212,10 @@ public enum Conversation: Sendable {
 	}
 
 	/// List messages in the conversation
-    public func messages(limit: Int? = nil, before: Date? = nil, after: Date? = nil, direction: PagingInfoSortDirection? = .descending) async throws -> [DecodedMessage] {
+	public func messages(limit: Int? = nil, before: Date? = nil, after: Date? = nil, direction: PagingInfoSortDirection? = .descending) async throws -> [DecodedMessage] {
 		switch self {
 		case let .v1(conversationV1):
-            return try await conversationV1.messages(limit: limit, before: before, after: after, direction: direction)
+			return try await conversationV1.messages(limit: limit, before: before, after: after, direction: direction)
 		case let .v2(conversationV2):
 			return try await conversationV2.messages(limit: limit, before: before, after: after, direction: direction)
 		}

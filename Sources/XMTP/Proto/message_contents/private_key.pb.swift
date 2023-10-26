@@ -279,7 +279,7 @@ public struct Xmtp_MessageContents_EncryptedPrivateKeyBundleV1 {
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
   // methods supported on all messages.
 
-  /// randomly generated pre-key 
+  /// randomly generated pre-key
   public var walletPreKey: Data = Data()
 
   /// MUST contain encrypted PrivateKeyBundle

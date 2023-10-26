@@ -79,7 +79,7 @@ public struct Xmtp_MessageContents_UnsignedPublicKey {
   public init() {}
 }
 
-/// SignedPublicKey 
+/// SignedPublicKey
 public struct Xmtp_MessageContents_SignedPublicKey {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
