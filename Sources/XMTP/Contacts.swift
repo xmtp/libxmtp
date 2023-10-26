@@ -74,7 +74,7 @@ class AllowList {
 				RustVec(envelope.message)
 			)
 
-            preferences.append(try PrivatePreferencesAction(contiguousBytes: Data(payload).bytes))
+            preferences.append(try PrivatePreferencesAction(serializedData: Data(payload)))
 		}
         
         preferences.forEach { preference in
@@ -101,7 +101,7 @@ class AllowList {
         case .blocked:
             payload.block.walletAddresses = [entry.value]
         case .unknown:
-            payload.unknownFields
+            payload.messageType = nil
         }
 
 		let message = try XMTPRust.ecies_encrypt_k256_sha3_256(
