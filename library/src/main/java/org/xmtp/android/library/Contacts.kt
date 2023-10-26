@@ -9,17 +9,15 @@ import org.xmtp.android.library.messages.walletAddress
 import org.xmtp.proto.message.contents.PrivatePreferences.PrivatePreferencesAction
 import java.util.Date
 
-typealias MessageType = PrivatePreferencesAction.MessageTypeCase
-
-enum class AllowState {
-    ALLOW,
-    BLOCK,
+enum class ConsentState {
+    ALLOWED,
+    BLOCKED,
     UNKNOWN
 }
-data class AllowListEntry(
+data class ConsentListEntry(
     val value: String,
     val entryType: EntryType,
-    val permissionType: AllowState,
+    val consentType: ConsentState,
 ) {
     enum class EntryType {
         ADDRESS
@@ -28,9 +26,9 @@ data class AllowListEntry(
     companion object {
         fun address(
             address: String,
-            type: AllowState = AllowState.UNKNOWN,
-        ): AllowListEntry {
-            return AllowListEntry(address, EntryType.ADDRESS, type)
+            type: ConsentState = ConsentState.UNKNOWN,
+        ): ConsentListEntry {
+            return ConsentListEntry(address, EntryType.ADDRESS, type)
         }
     }
 
@@ -38,8 +36,8 @@ data class AllowListEntry(
         get() = "${entryType.name}-$value"
 }
 
-class AllowList(val client: Client) {
-    private val entries: MutableMap<String, AllowState> = mutableMapOf()
+class ConsentList(val client: Client) {
+    private val entries: MutableMap<String, ConsentState> = mutableMapOf()
     private val publicKey =
         client.privateKeyBundleV1.identityKey.publicKey.secp256K1Uncompressed.bytes
     private val privateKey = client.privateKeyBundleV1.identityKey.secp256K1.bytes
@@ -50,9 +48,9 @@ class AllowList(val client: Client) {
     )
 
     @OptIn(ExperimentalUnsignedTypes::class)
-    suspend fun load(): AllowList {
+    suspend fun load(): ConsentList {
         val envelopes = client.query(Topic.preferenceList(identifier))
-        val allowList = AllowList(client)
+        val consentList = ConsentList(client)
         val preferences: MutableList<PrivatePreferencesAction> = mutableListOf()
 
         for (envelope in envelopes.envelopesList) {
@@ -71,22 +69,22 @@ class AllowList(val client: Client) {
 
         preferences.iterator().forEach { preference ->
             preference.allow?.walletAddressesList?.forEach { address ->
-                allowList.allow(address)
+                consentList.allow(address)
             }
             preference.block?.walletAddressesList?.forEach { address ->
-                allowList.block(address)
+                consentList.block(address)
             }
         }
-        return allowList
+        return consentList
     }
 
     @OptIn(ExperimentalUnsignedTypes::class)
-    fun publish(entry: AllowListEntry) {
+    fun publish(entry: ConsentListEntry) {
         val payload = PrivatePreferencesAction.newBuilder().also {
-            when (entry.permissionType) {
-                AllowState.ALLOW -> it.setAllow(PrivatePreferencesAction.Allow.newBuilder().addWalletAddresses(entry.value))
-                AllowState.BLOCK -> it.setBlock(PrivatePreferencesAction.Block.newBuilder().addWalletAddresses(entry.value))
-                AllowState.UNKNOWN -> it.clearMessageType()
+            when (entry.consentType) {
+                ConsentState.ALLOWED -> it.setAllow(PrivatePreferencesAction.Allow.newBuilder().addWalletAddresses(entry.value))
+                ConsentState.BLOCKED -> it.setBlock(PrivatePreferencesAction.Block.newBuilder().addWalletAddresses(entry.value))
+                ConsentState.UNKNOWN -> it.clearMessageType()
             }
         }.build()
 
@@ -105,22 +103,22 @@ class AllowList(val client: Client) {
         client.publish(listOf(envelope))
     }
 
-    fun allow(address: String): AllowListEntry {
-        entries[AllowListEntry.address(address).key] = AllowState.ALLOW
+    fun allow(address: String): ConsentListEntry {
+        entries[ConsentListEntry.address(address).key] = ConsentState.ALLOWED
 
-        return AllowListEntry.address(address, AllowState.ALLOW)
+        return ConsentListEntry.address(address, ConsentState.ALLOWED)
     }
 
-    fun block(address: String): AllowListEntry {
-        entries[AllowListEntry.address(address).key] = AllowState.BLOCK
+    fun block(address: String): ConsentListEntry {
+        entries[ConsentListEntry.address(address).key] = ConsentState.BLOCKED
 
-        return AllowListEntry.address(address, AllowState.BLOCK)
+        return ConsentListEntry.address(address, ConsentState.BLOCKED)
     }
 
-    fun state(address: String): AllowState {
-        val state = entries[AllowListEntry.address(address).key]
+    fun state(address: String): ConsentState {
+        val state = entries[ConsentListEntry.address(address).key]
 
-        return state ?: AllowState.UNKNOWN
+        return state ?: ConsentState.UNKNOWN
     }
 }
 
@@ -130,31 +128,31 @@ data class Contacts(
     val hasIntroduced: MutableMap<String, Boolean> = mutableMapOf(),
 ) {
 
-    var allowList: AllowList = AllowList(client)
+    var consentList: ConsentList = ConsentList(client)
 
-    fun refreshAllowList() {
+    fun refreshConsentList() {
         runBlocking {
-            allowList = AllowList(client).load()
+            consentList = ConsentList(client).load()
         }
     }
 
     fun isAllowed(address: String): Boolean {
-        return allowList.state(address) == AllowState.ALLOW
+        return consentList.state(address) == ConsentState.ALLOWED
     }
 
     fun isBlocked(address: String): Boolean {
-        return allowList.state(address) == AllowState.BLOCK
+        return consentList.state(address) == ConsentState.BLOCKED
     }
 
     fun allow(addresses: List<String>) {
         for (address in addresses) {
-            AllowList(client).publish(allowList.allow(address))
+            ConsentList(client).publish(consentList.allow(address))
         }
     }
 
     fun block(addresses: List<String>) {
         for (address in addresses) {
-            AllowList(client).publish(allowList.block(address))
+            ConsentList(client).publish(consentList.block(address))
         }
     }
 

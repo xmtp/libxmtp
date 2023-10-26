@@ -61,12 +61,12 @@ sealed class Conversation {
             }
         }
 
-    fun allowState(): AllowState {
+    fun consentState(): ConsentState {
         val client: Client = when (this) {
             is V1 -> conversationV1.client
             is V2 -> conversationV2.client
         }
-        return client.contacts.allowList.state(address = peerAddress)
+        return client.contacts.consentList.state(address = peerAddress)
     }
 
     fun toTopicData(): TopicData {
