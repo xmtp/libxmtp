@@ -95,7 +95,7 @@ CREATE TABLE openmls_keystore {
 
 The [following diagram](https://app.excalidraw.com/s/4nwb0c8ork7/6pPH1kQDoj3) illustrates some common flows in the state machine
 
-![MLS State Machione](../img/mls-state-machine.png "MLS State Machine")
+![MLS State Machine](../img/mls-state-machine.png "MLS State Machine")
 
 ### Known missing items from the state machine
 
