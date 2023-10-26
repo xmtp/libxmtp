@@ -12,7 +12,7 @@ impl serde::Serialize for ConsumeKeyPackagesRequest {
         }
         let mut struct_ser = serializer.serialize_struct("xmtp.message_api.v3.ConsumeKeyPackagesRequest", len)?;
         if !self.installation_ids.is_empty() {
-            struct_ser.serialize_field("installationIds", &self.installation_ids)?;
+            struct_ser.serialize_field("installationIds", &self.installation_ids.iter().map(pbjson::private::base64::encode).collect::<Vec<_>>())?;
         }
         struct_ser.end()
     }
@@ -79,7 +79,10 @@ impl<'de> serde::Deserialize<'de> for ConsumeKeyPackagesRequest {
                             if installation_ids__.is_some() {
                                 return Err(serde::de::Error::duplicate_field("installationIds"));
                             }
-                            installation_ids__ = Some(map.next_value()?);
+                            installation_ids__ = 
+                                Some(map.next_value::<Vec<::pbjson::private::BytesDeserialize<_>>>()?
+                                    .into_iter().map(|x| x.0).collect())
+                            ;
                         }
                     }
                 }
@@ -491,9 +494,15 @@ impl serde::Serialize for get_identity_updates_response::NewInstallationUpdate {
         if !self.installation_id.is_empty() {
             len += 1;
         }
+        if !self.credential_identity.is_empty() {
+            len += 1;
+        }
         let mut struct_ser = serializer.serialize_struct("xmtp.message_api.v3.GetIdentityUpdatesResponse.NewInstallationUpdate", len)?;
         if !self.installation_id.is_empty() {
-            struct_ser.serialize_field("installationId", &self.installation_id)?;
+            struct_ser.serialize_field("installationId", pbjson::private::base64::encode(&self.installation_id).as_str())?;
+        }
+        if !self.credential_identity.is_empty() {
+            struct_ser.serialize_field("credentialIdentity", pbjson::private::base64::encode(&self.credential_identity).as_str())?;
         }
         struct_ser.end()
     }
@@ -507,11 +516,14 @@ impl<'de> serde::Deserialize<'de> for get_identity_updates_response::NewInstalla
         const FIELDS: &[&str] = &[
             "installation_id",
             "installationId",
+            "credential_identity",
+            "credentialIdentity",
         ];
 
         #[allow(clippy::enum_variant_names)]
         enum GeneratedField {
             InstallationId,
+            CredentialIdentity,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
             fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
@@ -534,6 +546,7 @@ impl<'de> serde::Deserialize<'de> for get_identity_updates_response::NewInstalla
                     {
                         match value {
                             "installationId" | "installation_id" => Ok(GeneratedField::InstallationId),
+                            "credentialIdentity" | "credential_identity" => Ok(GeneratedField::CredentialIdentity),
                             _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
                         }
                     }
@@ -554,18 +567,30 @@ impl<'de> serde::Deserialize<'de> for get_identity_updates_response::NewInstalla
                     V: serde::de::MapAccess<'de>,
             {
                 let mut installation_id__ = None;
+                let mut credential_identity__ = None;
                 while let Some(k) = map.next_key()? {
                     match k {
                         GeneratedField::InstallationId => {
                             if installation_id__.is_some() {
                                 return Err(serde::de::Error::duplicate_field("installationId"));
                             }
-                            installation_id__ = Some(map.next_value()?);
+                            installation_id__ = 
+                                Some(map.next_value::<::pbjson::private::BytesDeserialize<_>>()?.0)
+                            ;
+                        }
+                        GeneratedField::CredentialIdentity => {
+                            if credential_identity__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("credentialIdentity"));
+                            }
+                            credential_identity__ = 
+                                Some(map.next_value::<::pbjson::private::BytesDeserialize<_>>()?.0)
+                            ;
                         }
                     }
                 }
                 Ok(get_identity_updates_response::NewInstallationUpdate {
                     installation_id: installation_id__.unwrap_or_default(),
+                    credential_identity: credential_identity__.unwrap_or_default(),
                 })
             }
         }
@@ -585,7 +610,7 @@ impl serde::Serialize for get_identity_updates_response::RevokedInstallationUpda
         }
         let mut struct_ser = serializer.serialize_struct("xmtp.message_api.v3.GetIdentityUpdatesResponse.RevokedInstallationUpdate", len)?;
         if !self.installation_id.is_empty() {
-            struct_ser.serialize_field("installationId", &self.installation_id)?;
+            struct_ser.serialize_field("installationId", pbjson::private::base64::encode(&self.installation_id).as_str())?;
         }
         struct_ser.end()
     }
@@ -652,7 +677,9 @@ impl<'de> serde::Deserialize<'de> for get_identity_updates_response::RevokedInst
                             if installation_id__.is_some() {
                                 return Err(serde::de::Error::duplicate_field("installationId"));
                             }
-                            installation_id__ = Some(map.next_value()?);
+                            installation_id__ = 
+                                Some(map.next_value::<::pbjson::private::BytesDeserialize<_>>()?.0)
+                            ;
                         }
                     }
                 }
@@ -1179,7 +1206,7 @@ impl serde::Serialize for publish_welcomes_request::WelcomeMessageRequest {
         }
         let mut struct_ser = serializer.serialize_struct("xmtp.message_api.v3.PublishWelcomesRequest.WelcomeMessageRequest", len)?;
         if !self.installation_id.is_empty() {
-            struct_ser.serialize_field("installationId", &self.installation_id)?;
+            struct_ser.serialize_field("installationId", pbjson::private::base64::encode(&self.installation_id).as_str())?;
         }
         if let Some(v) = self.welcome_message.as_ref() {
             struct_ser.serialize_field("welcomeMessage", v)?;
@@ -1254,7 +1281,9 @@ impl<'de> serde::Deserialize<'de> for publish_welcomes_request::WelcomeMessageRe
                             if installation_id__.is_some() {
                                 return Err(serde::de::Error::duplicate_field("installationId"));
                             }
-                            installation_id__ = Some(map.next_value()?);
+                            installation_id__ = 
+                                Some(map.next_value::<::pbjson::private::BytesDeserialize<_>>()?.0)
+                            ;
                         }
                         GeneratedField::WelcomeMessage => {
                             if welcome_message__.is_some() {
@@ -1378,7 +1407,7 @@ impl serde::Serialize for RegisterInstallationResponse {
         }
         let mut struct_ser = serializer.serialize_struct("xmtp.message_api.v3.RegisterInstallationResponse", len)?;
         if !self.installation_id.is_empty() {
-            struct_ser.serialize_field("installationId", &self.installation_id)?;
+            struct_ser.serialize_field("installationId", pbjson::private::base64::encode(&self.installation_id).as_str())?;
         }
         struct_ser.end()
     }
@@ -1445,7 +1474,9 @@ impl<'de> serde::Deserialize<'de> for RegisterInstallationResponse {
                             if installation_id__.is_some() {
                                 return Err(serde::de::Error::duplicate_field("installationId"));
                             }
-                            installation_id__ = Some(map.next_value()?);
+                            installation_id__ = 
+                                Some(map.next_value::<::pbjson::private::BytesDeserialize<_>>()?.0)
+                            ;
                         }
                     }
                 }
@@ -1473,7 +1504,7 @@ impl serde::Serialize for RevokeInstallationRequest {
         }
         let mut struct_ser = serializer.serialize_struct("xmtp.message_api.v3.RevokeInstallationRequest", len)?;
         if !self.installation_id.is_empty() {
-            struct_ser.serialize_field("installationId", &self.installation_id)?;
+            struct_ser.serialize_field("installationId", pbjson::private::base64::encode(&self.installation_id).as_str())?;
         }
         if let Some(v) = self.wallet_signature.as_ref() {
             struct_ser.serialize_field("walletSignature", v)?;
@@ -1548,7 +1579,9 @@ impl<'de> serde::Deserialize<'de> for RevokeInstallationRequest {
                             if installation_id__.is_some() {
                                 return Err(serde::de::Error::duplicate_field("installationId"));
                             }
-                            installation_id__ = Some(map.next_value()?);
+                            installation_id__ = 
+                                Some(map.next_value::<::pbjson::private::BytesDeserialize<_>>()?.0)
+                            ;
                         }
                         GeneratedField::WalletSignature => {
                             if wallet_signature__.is_some() {

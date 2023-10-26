@@ -19,10 +19,10 @@ use xmtp_proto::{
 
 pub struct WelcomeMessage {
     pub(crate) ciphertext: Vec<u8>,
-    pub(crate) installation_id: String,
+    pub(crate) installation_id: Vec<u8>,
 }
 
-type KeyPackageMap = HashMap<String, Vec<u8>>;
+type KeyPackageMap = HashMap<Vec<u8>, Vec<u8>>;
 
 pub struct ApiClientWrapper<ApiClient> {
     api_client: ApiClient,
@@ -39,7 +39,7 @@ where
     pub async fn register_installation(
         &self,
         last_resort_key_package: &[u8],
-    ) -> Result<String, ApiError> {
+    ) -> Result<Vec<u8>, ApiError> {
         let res = self
             .api_client
             .register_installation(RegisterInstallationRequest {
@@ -69,12 +69,12 @@ where
 
     pub async fn consume_key_packages(
         &self,
-        installation_ids: Vec<String>,
+        installation_ids: Vec<&[u8]>,
     ) -> Result<KeyPackageMap, ApiError> {
         let res = self
             .api_client
             .consume_key_packages(ConsumeKeyPackagesRequest {
-                installation_ids: installation_ids.clone(),
+                installation_ids: installation_ids.iter().map(|id| id.to_vec()).collect(),
             })
             .await?;
 
@@ -89,7 +89,7 @@ where
             .enumerate()
             .map(|(idx, key_package)| {
                 (
-                    installation_ids[idx].clone(),
+                    installation_ids[idx].to_vec(),
                     key_package.key_package_tls_serialized,
                 )
             })
@@ -108,7 +108,7 @@ where
                 installation_id: msg.installation_id,
                 welcome_message: Some(WelcomeMessageProto {
                     version: Some(WelcomeMessageVersion::V1(WelcomeMessageV1 {
-                        ciphertext: msg.ciphertext,
+                        welcome_message_tls_serialized: msg.ciphertext,
                     })),
                 }),
             })
@@ -122,6 +122,7 @@ where
 
         Ok(())
     }
+
     pub async fn publish_to_group(&self, group_messages: Vec<&[u8]>) -> Result<(), ApiError> {
         let to_send: Vec<GroupMessage> = group_messages
             .iter()

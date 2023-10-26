@@ -32,7 +32,6 @@ impl ValidationApi for ValidationService {
                 |kp| match validate_key_package(kp.key_package_bytes_tls_serialized) {
                     Ok(res) => ValidateKeyPackageValidationResponse {
                         installation_id: res.installation_id,
-                        pub_key_bytes: res.pub_key_bytes,
                         credential_identity_bytes: res.credential_identity_bytes,
                         wallet_address: res.wallet_address,
                         error_message: "".to_string(),
@@ -41,9 +40,8 @@ impl ValidationApi for ValidationService {
                     Err(e) => ValidateKeyPackageValidationResponse {
                         is_ok: false,
                         error_message: e,
-                        pub_key_bytes: vec![],
                         credential_identity_bytes: vec![],
-                        installation_id: "".to_string(),
+                        installation_id: vec![],
                         wallet_address: "".to_string(),
                     },
                 },
@@ -106,9 +104,8 @@ fn validate_group_message(message: Vec<u8>) -> Result<ValidateGroupMessageResult
 }
 
 struct ValidateKeyPackageResult {
-    installation_id: String,
+    installation_id: Vec<u8>,
     wallet_address: String,
-    pub_key_bytes: Vec<u8>,
     credential_identity_bytes: Vec<u8>,
 }
 
@@ -131,9 +128,8 @@ fn validate_key_package(key_package_bytes: Vec<u8>) -> Result<ValidateKeyPackage
     let wallet_address = identity_to_wallet_address(identity_bytes, pub_key_bytes)?;
 
     Ok(ValidateKeyPackageResult {
-        installation_id: hex_encode(pub_key_bytes),
+        installation_id: pub_key_bytes.to_vec(),
         wallet_address,
-        pub_key_bytes: pub_key_bytes.to_vec(),
         credential_identity_bytes: identity_bytes.to_vec(),
     })
 }
@@ -227,10 +223,9 @@ mod tests {
             .unwrap();
 
         let first_response = &res.into_inner().responses[0];
-        assert_eq!(first_response.installation_id, hex_encode(keypair.public()));
+        assert_eq!(first_response.installation_id, keypair.public());
         assert_eq!(first_response.wallet_address, wallet_address);
         assert!(first_response.credential_identity_bytes.len() > 0);
-        assert!(first_response.pub_key_bytes.len() > 0);
     }
 
     #[tokio::test]

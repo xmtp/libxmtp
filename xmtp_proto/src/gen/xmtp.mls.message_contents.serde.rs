@@ -293,12 +293,12 @@ impl serde::Serialize for welcome_message::V1 {
     {
         use serde::ser::SerializeStruct;
         let mut len = 0;
-        if !self.ciphertext.is_empty() {
+        if !self.welcome_message_tls_serialized.is_empty() {
             len += 1;
         }
         let mut struct_ser = serializer.serialize_struct("xmtp.mls.message_contents.WelcomeMessage.V1", len)?;
-        if !self.ciphertext.is_empty() {
-            struct_ser.serialize_field("ciphertext", pbjson::private::base64::encode(&self.ciphertext).as_str())?;
+        if !self.welcome_message_tls_serialized.is_empty() {
+            struct_ser.serialize_field("welcomeMessageTlsSerialized", pbjson::private::base64::encode(&self.welcome_message_tls_serialized).as_str())?;
         }
         struct_ser.end()
     }
@@ -310,12 +310,13 @@ impl<'de> serde::Deserialize<'de> for welcome_message::V1 {
         D: serde::Deserializer<'de>,
     {
         const FIELDS: &[&str] = &[
-            "ciphertext",
+            "welcome_message_tls_serialized",
+            "welcomeMessageTlsSerialized",
         ];
 
         #[allow(clippy::enum_variant_names)]
         enum GeneratedField {
-            Ciphertext,
+            WelcomeMessageTlsSerialized,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
             fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
@@ -337,7 +338,7 @@ impl<'de> serde::Deserialize<'de> for welcome_message::V1 {
                         E: serde::de::Error,
                     {
                         match value {
-                            "ciphertext" => Ok(GeneratedField::Ciphertext),
+                            "welcomeMessageTlsSerialized" | "welcome_message_tls_serialized" => Ok(GeneratedField::WelcomeMessageTlsSerialized),
                             _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
                         }
                     }
@@ -357,21 +358,21 @@ impl<'de> serde::Deserialize<'de> for welcome_message::V1 {
                 where
                     V: serde::de::MapAccess<'de>,
             {
-                let mut ciphertext__ = None;
+                let mut welcome_message_tls_serialized__ = None;
                 while let Some(k) = map.next_key()? {
                     match k {
-                        GeneratedField::Ciphertext => {
-                            if ciphertext__.is_some() {
-                                return Err(serde::de::Error::duplicate_field("ciphertext"));
+                        GeneratedField::WelcomeMessageTlsSerialized => {
+                            if welcome_message_tls_serialized__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("welcomeMessageTlsSerialized"));
                             }
-                            ciphertext__ = 
+                            welcome_message_tls_serialized__ = 
                                 Some(map.next_value::<::pbjson::private::BytesDeserialize<_>>()?.0)
                             ;
                         }
                     }
                 }
                 Ok(welcome_message::V1 {
-                    ciphertext: ciphertext__.unwrap_or_default(),
+                    welcome_message_tls_serialized: welcome_message_tls_serialized__.unwrap_or_default(),
                 })
             }
         }
