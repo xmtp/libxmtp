@@ -20,20 +20,19 @@ pub trait InboxOwner {
 }
 
 // Inserts a model to the underlying data store
-pub trait Store<I> {
-    fn store(&self, into: &mut I) -> Result<(), StorageError>;
+pub trait Store<StorageConnection> {
+    fn store(&self, into: &mut StorageConnection) -> Result<(), StorageError>;
 }
 
-pub trait Fetch<T> {
-    type Key<'a>;
-    // Fetches a single instance by key of a model from the underlying data store
-    #[allow(clippy::needless_lifetimes)]
-    fn fetch<'a>(&mut self, key: Self::Key<'a>) -> Result<Option<T>, StorageError>;
+pub trait Fetch<Model> {
+    type Key;
+    fn fetch(&mut self, key: Self::Key) -> Result<Option<Model>, StorageError>;
 }
 
-pub trait Delete<T> {
-    type Key<'a>;
-    // Fetches a single instance by key of a model from the underlying data store
-    #[allow(clippy::needless_lifetimes)]
-    fn delete<'a>(&mut self, key: Self::Key<'a>) -> Result<usize, StorageError>;
+pub trait Delete<Model> {
+    type Key;
+    fn delete(&mut self, key: Self::Key) -> Result<usize, StorageError>;
 }
+
+#[cfg(test)]
+mod tests {}

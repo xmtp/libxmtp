@@ -55,7 +55,7 @@ impl OpenMlsKeyStore for SqlKeyStore<'_> {
             error!("Failed to fetch key: {:?}", e);
             return None;
         }
-        let entry_option = fetch_result.unwrap();
+        let entry_option: Option<StoredKeyStoreEntry> = fetch_result.unwrap();
         if entry_option.is_none() {
             debug!("No entry to read for key {:?}", k);
             return None;

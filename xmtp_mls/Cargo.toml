@@ -10,6 +10,12 @@ path = "src/bin/update-schema.rs"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
+[features]
+default = ["types", "native"]
+types = []
+grpc = ["xmtp_proto/grpc"]
+native = ["libsqlite3-sys/bundled-sqlcipher-vendored-openssl"]
+
 [dependencies]
 anyhow = "1.0.71"
 async-trait = "0.1.68"
