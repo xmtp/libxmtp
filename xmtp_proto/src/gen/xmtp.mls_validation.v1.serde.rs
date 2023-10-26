@@ -293,9 +293,6 @@ impl serde::Serialize for validate_group_messages_response::ValidationResponse {
         if !self.group_id.is_empty() {
             len += 1;
         }
-        if self.epoch != 0 {
-            len += 1;
-        }
         let mut struct_ser = serializer.serialize_struct("xmtp.mls_validation.v1.ValidateGroupMessagesResponse.ValidationResponse", len)?;
         if self.is_ok {
             struct_ser.serialize_field("isOk", &self.is_ok)?;
@@ -305,9 +302,6 @@ impl serde::Serialize for validate_group_messages_response::ValidationResponse {
         }
         if !self.group_id.is_empty() {
             struct_ser.serialize_field("groupId", &self.group_id)?;
-        }
-        if self.epoch != 0 {
-            struct_ser.serialize_field("epoch", ToString::to_string(&self.epoch).as_str())?;
         }
         struct_ser.end()
     }
@@ -325,7 +319,6 @@ impl<'de> serde::Deserialize<'de> for validate_group_messages_response::Validati
             "errorMessage",
             "group_id",
             "groupId",
-            "epoch",
         ];
 
         #[allow(clippy::enum_variant_names)]
@@ -333,7 +326,6 @@ impl<'de> serde::Deserialize<'de> for validate_group_messages_response::Validati
             IsOk,
             ErrorMessage,
             GroupId,
-            Epoch,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
             fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
@@ -358,7 +350,6 @@ impl<'de> serde::Deserialize<'de> for validate_group_messages_response::Validati
                             "isOk" | "is_ok" => Ok(GeneratedField::IsOk),
                             "errorMessage" | "error_message" => Ok(GeneratedField::ErrorMessage),
                             "groupId" | "group_id" => Ok(GeneratedField::GroupId),
-                            "epoch" => Ok(GeneratedField::Epoch),
                             _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
                         }
                     }
@@ -381,7 +372,6 @@ impl<'de> serde::Deserialize<'de> for validate_group_messages_response::Validati
                 let mut is_ok__ = None;
                 let mut error_message__ = None;
                 let mut group_id__ = None;
-                let mut epoch__ = None;
                 while let Some(k) = map.next_key()? {
                     match k {
                         GeneratedField::IsOk => {
@@ -402,21 +392,12 @@ impl<'de> serde::Deserialize<'de> for validate_group_messages_response::Validati
                             }
                             group_id__ = Some(map.next_value()?);
                         }
-                        GeneratedField::Epoch => {
-                            if epoch__.is_some() {
-                                return Err(serde::de::Error::duplicate_field("epoch"));
-                            }
-                            epoch__ = 
-                                Some(map.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
-                            ;
-                        }
                     }
                 }
                 Ok(validate_group_messages_response::ValidationResponse {
                     is_ok: is_ok__.unwrap_or_default(),
                     error_message: error_message__.unwrap_or_default(),
                     group_id: group_id__.unwrap_or_default(),
-                    epoch: epoch__.unwrap_or_default(),
                 })
             }
         }
