@@ -8,6 +8,10 @@ use crate::{
     InboxOwner,
 };
 use crate::{Fetch, StorageError};
+#[cfg(not(test))]
+use log::debug;
+#[cfg(test)]
+use std::println as debug;
 use thiserror::Error;
 use xmtp_proto::api_client::XmtpApiClient;
 
@@ -113,8 +117,9 @@ where
         store: &EncryptedMessageStore,
         provider: &XmtpOpenMlsProvider,
     ) -> Result<Identity, ClientBuilderError> {
-        let conn = &mut store.conn()?;
-        let identity_option: Option<Identity> = conn.fetch(())?.map(|i: StoredIdentity| i.into());
+        let identity_option: Option<Identity> =
+            store.conn()?.fetch(())?.map(|i: StoredIdentity| i.into());
+        debug!("Existing identity in store: {:?}", identity_option);
         match self.identity_strategy {
             IdentityStrategy::CachedOnly => {
                 identity_option.ok_or(ClientBuilderError::RequiredIdentityNotFound)
@@ -126,7 +131,7 @@ where
                     }
                     Ok(identity)
                 }
-                None => Ok(Identity::new(CIPHERSUITE, &provider, &owner)?),
+                None => Ok(Identity::new(store, CIPHERSUITE, &provider, &owner)?),
             },
             #[cfg(test)]
             IdentityStrategy::ExternalIdentity(identity) => Ok(identity),
@@ -137,18 +142,87 @@ where
 #[cfg(test)]
 mod tests {
 
-    use ethers::signers::LocalWallet;
+    use ethers::signers::{LocalWallet, Signer};
+    use tempfile::TempPath;
     use xmtp_cryptography::utils::generate_local_wallet;
 
-    use crate::mock_xmtp_api_client::MockXmtpApiClient;
+    use crate::{
+        mock_xmtp_api_client::MockXmtpApiClient,
+        storage::{EncryptedMessageStore, StorageOption},
+    };
 
     use super::ClientBuilder;
 
-    impl ClientBuilder<MockXmtpApiClient, LocalWallet> {
-        pub fn new_test() -> Self {
-            let wallet = generate_local_wallet();
+    #[test]
+    fn builder_test() {
+        let wallet = generate_local_wallet();
+        let address = wallet.address();
+        let client = ClientBuilder::new(wallet.into())
+            .api_client(MockXmtpApiClient::default())
+            .build()
+            .unwrap();
+        assert!(client.account_address() == format!("{address:#020x}"));
+        assert!(!client.installation_public_key().is_empty());
+    }
 
-            Self::new(wallet.into())
-        }
+    #[test]
+    fn identity_persistence_test() {
+        let tmpdb = TempPath::from_path("./db.db3")
+            .to_str()
+            .unwrap()
+            .to_string();
+        let wallet = generate_local_wallet();
+
+        // Generate a new Wallet + Store
+        let store_a =
+            EncryptedMessageStore::new_unencrypted(StorageOption::Persistent(tmpdb.clone()))
+                .unwrap();
+
+        let client_a = ClientBuilder::new(wallet.clone().into())
+            .store(store_a)
+            .api_client(MockXmtpApiClient::default())
+            .build()
+            .unwrap();
+        let keybytes_a = client_a.installation_public_key();
+        drop(client_a);
+
+        // Reload the existing store and wallet
+        let store_b =
+            EncryptedMessageStore::new_unencrypted(StorageOption::Persistent(tmpdb.clone()))
+                .unwrap();
+
+        let client_b = ClientBuilder::new(wallet.into())
+            .store(store_b)
+            .api_client(MockXmtpApiClient::default())
+            .build()
+            .unwrap();
+        let keybytes_b = client_b.installation_public_key();
+        drop(client_b);
+
+        // Ensure the persistence was used to store the generated keys
+        assert_eq!(keybytes_a, keybytes_b);
+
+        // Create a new wallet and store
+        let store_c =
+            EncryptedMessageStore::new_unencrypted(StorageOption::Persistent(tmpdb.clone()))
+                .unwrap();
+
+        ClientBuilder::<MockXmtpApiClient, LocalWallet>::new(generate_local_wallet().into())
+            .store(store_c)
+            .build()
+            .expect_err("Testing expected mismatch error");
+
+        // Use cached only strategy
+        let store_d =
+            EncryptedMessageStore::new_unencrypted(StorageOption::Persistent(tmpdb.clone()))
+                .unwrap();
+        let client_d = ClientBuilder::<MockXmtpApiClient, LocalWallet>::new(
+            crate::builder::IdentityStrategy::CachedOnly,
+        )
+        .store(store_d)
+        .api_client(MockXmtpApiClient::default())
+        .build()
+        .unwrap();
+        assert_eq!(client_d.installation_public_key(), keybytes_a);
     }
 }

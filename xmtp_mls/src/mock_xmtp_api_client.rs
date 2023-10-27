@@ -19,11 +19,13 @@ impl XmtpApiSubscription for MockXmtpApiSubscription {
     fn close_stream(&mut self) {}
 }
 
+#[derive(Debug)]
 struct InnerMockXmtpApiClient {
     pub messages: HashMap<String, Vec<Envelope>>,
     pub app_version: String,
 }
 
+#[derive(Debug)]
 pub struct MockXmtpApiClient {
     inner_client: Arc<Mutex<InnerMockXmtpApiClient>>,
 }

@@ -3,6 +3,7 @@ use thiserror::Error;
 use crate::{
     identity::Identity,
     storage::{EncryptedMessageStore, StorageError},
+    types::Address,
 };
 
 #[derive(Clone, Copy, Default, Debug)]
@@ -39,10 +40,11 @@ impl From<&str> for ClientError {
     }
 }
 
+#[derive(Debug)]
 pub struct Client<ApiClient> {
     pub api_client: ApiClient,
     pub(crate) _network: Network,
-    pub(crate) _identity: Identity,
+    pub(crate) identity: Identity,
     pub store: EncryptedMessageStore, // Temporarily exposed outside crate for CLI client
 }
 
@@ -56,8 +58,16 @@ impl<ApiClient> Client<ApiClient> {
         Self {
             api_client,
             _network: network,
-            _identity: identity,
+            identity,
             store,
         }
+    }
+
+    pub fn account_address(&self) -> Address {
+        self.identity.account_address.clone()
+    }
+
+    pub fn installation_public_key(&self) -> Vec<u8> {
+        self.identity.installation_keys.to_public_vec()
     }
 }

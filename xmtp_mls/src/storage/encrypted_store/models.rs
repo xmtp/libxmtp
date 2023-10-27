@@ -39,10 +39,10 @@ impl StoredIdentity {
     }
 }
 
-impl From<Identity> for StoredIdentity {
-    fn from(identity: Identity) -> Self {
+impl From<&Identity> for StoredIdentity {
+    fn from(identity: &Identity) -> Self {
         StoredIdentity {
-            account_address: identity.account_address,
+            account_address: identity.account_address.clone(),
             installation_keys: db_serialize(&identity.installation_keys).unwrap(),
             credential_bytes: db_serialize(&identity.credential).unwrap(),
             rowid: None,
