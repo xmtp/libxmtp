@@ -1,15 +1,15 @@
 // @generated
 /// Generated client implementations.
 #[cfg(feature = "tonic")]
-pub mod message_api_client {
+pub mod mls_api_client {
     #![allow(unused_variables, dead_code, missing_docs, clippy::let_unit_value)]
     use tonic::codegen::*;
     use tonic::codegen::http::Uri;
     #[derive(Debug, Clone)]
-    pub struct MessageApiClient<T> {
+    pub struct MlsApiClient<T> {
         inner: tonic::client::Grpc<T>,
     }
-    impl MessageApiClient<tonic::transport::Channel> {
+    impl MlsApiClient<tonic::transport::Channel> {
         /// Attempt to create a new client by connecting to a given endpoint.
         pub async fn connect<D>(dst: D) -> Result<Self, tonic::transport::Error>
         where
@@ -20,7 +20,7 @@ pub mod message_api_client {
             Ok(Self::new(conn))
         }
     }
-    impl<T> MessageApiClient<T>
+    impl<T> MlsApiClient<T>
     where
         T: tonic::client::GrpcService<tonic::body::BoxBody>,
         T::Error: Into<StdError>,
@@ -38,7 +38,7 @@ pub mod message_api_client {
         pub fn with_interceptor<F>(
             inner: T,
             interceptor: F,
-        ) -> MessageApiClient<InterceptedService<T, F>>
+        ) -> MlsApiClient<InterceptedService<T, F>>
         where
             F: tonic::service::Interceptor,
             T::ResponseBody: Default,
@@ -52,7 +52,7 @@ pub mod message_api_client {
                 http::Request<tonic::body::BoxBody>,
             >>::Error: Into<StdError> + Send + Sync,
         {
-            MessageApiClient::new(InterceptedService::new(inner, interceptor))
+            MlsApiClient::new(InterceptedService::new(inner, interceptor))
         }
         /// Compress requests with the given encoding.
         ///
@@ -85,13 +85,10 @@ pub mod message_api_client {
             self.inner = self.inner.max_encoding_message_size(limit);
             self
         }
-        pub async fn publish(
+        pub async fn publish_to_group(
             &mut self,
-            request: impl tonic::IntoRequest<super::PublishRequest>,
-        ) -> std::result::Result<
-            tonic::Response<super::PublishResponse>,
-            tonic::Status,
-        > {
+            request: impl tonic::IntoRequest<super::PublishToGroupRequest>,
+        ) -> std::result::Result<tonic::Response<::pbjson_types::Empty>, tonic::Status> {
             self.inner
                 .ready()
                 .await
@@ -103,20 +100,17 @@ pub mod message_api_client {
                 })?;
             let codec = tonic::codec::ProstCodec::default();
             let path = http::uri::PathAndQuery::from_static(
-                "/xmtp.message_api.v1.MessageApi/Publish",
+                "/xmtp.message_api.v3.MlsApi/PublishToGroup",
             );
             let mut req = request.into_request();
             req.extensions_mut()
-                .insert(GrpcMethod::new("xmtp.message_api.v1.MessageApi", "Publish"));
+                .insert(GrpcMethod::new("xmtp.message_api.v3.MlsApi", "PublishToGroup"));
             self.inner.unary(req, path, codec).await
         }
-        pub async fn subscribe(
+        pub async fn publish_welcomes(
             &mut self,
-            request: impl tonic::IntoRequest<super::SubscribeRequest>,
-        ) -> std::result::Result<
-            tonic::Response<tonic::codec::Streaming<super::Envelope>>,
-            tonic::Status,
-        > {
+            request: impl tonic::IntoRequest<super::PublishWelcomesRequest>,
+        ) -> std::result::Result<tonic::Response<::pbjson_types::Empty>, tonic::Status> {
             self.inner
                 .ready()
                 .await
@@ -128,92 +122,20 @@ pub mod message_api_client {
                 })?;
             let codec = tonic::codec::ProstCodec::default();
             let path = http::uri::PathAndQuery::from_static(
-                "/xmtp.message_api.v1.MessageApi/Subscribe",
-            );
-            let mut req = request.into_request();
-            req.extensions_mut()
-                .insert(GrpcMethod::new("xmtp.message_api.v1.MessageApi", "Subscribe"));
-            self.inner.server_streaming(req, path, codec).await
-        }
-        pub async fn subscribe2(
-            &mut self,
-            request: impl tonic::IntoStreamingRequest<Message = super::SubscribeRequest>,
-        ) -> std::result::Result<
-            tonic::Response<tonic::codec::Streaming<super::Envelope>>,
-            tonic::Status,
-        > {
-            self.inner
-                .ready()
-                .await
-                .map_err(|e| {
-                    tonic::Status::new(
-                        tonic::Code::Unknown,
-                        format!("Service was not ready: {}", e.into()),
-                    )
-                })?;
-            let codec = tonic::codec::ProstCodec::default();
-            let path = http::uri::PathAndQuery::from_static(
-                "/xmtp.message_api.v1.MessageApi/Subscribe2",
-            );
-            let mut req = request.into_streaming_request();
-            req.extensions_mut()
-                .insert(GrpcMethod::new("xmtp.message_api.v1.MessageApi", "Subscribe2"));
-            self.inner.streaming(req, path, codec).await
-        }
-        pub async fn subscribe_all(
-            &mut self,
-            request: impl tonic::IntoRequest<super::SubscribeAllRequest>,
-        ) -> std::result::Result<
-            tonic::Response<tonic::codec::Streaming<super::Envelope>>,
-            tonic::Status,
-        > {
-            self.inner
-                .ready()
-                .await
-                .map_err(|e| {
-                    tonic::Status::new(
-                        tonic::Code::Unknown,
-                        format!("Service was not ready: {}", e.into()),
-                    )
-                })?;
-            let codec = tonic::codec::ProstCodec::default();
-            let path = http::uri::PathAndQuery::from_static(
-                "/xmtp.message_api.v1.MessageApi/SubscribeAll",
+                "/xmtp.message_api.v3.MlsApi/PublishWelcomes",
             );
             let mut req = request.into_request();
             req.extensions_mut()
                 .insert(
-                    GrpcMethod::new("xmtp.message_api.v1.MessageApi", "SubscribeAll"),
+                    GrpcMethod::new("xmtp.message_api.v3.MlsApi", "PublishWelcomes"),
                 );
-            self.inner.server_streaming(req, path, codec).await
-        }
-        pub async fn query(
-            &mut self,
-            request: impl tonic::IntoRequest<super::QueryRequest>,
-        ) -> std::result::Result<tonic::Response<super::QueryResponse>, tonic::Status> {
-            self.inner
-                .ready()
-                .await
-                .map_err(|e| {
-                    tonic::Status::new(
-                        tonic::Code::Unknown,
-                        format!("Service was not ready: {}", e.into()),
-                    )
-                })?;
-            let codec = tonic::codec::ProstCodec::default();
-            let path = http::uri::PathAndQuery::from_static(
-                "/xmtp.message_api.v1.MessageApi/Query",
-            );
-            let mut req = request.into_request();
-            req.extensions_mut()
-                .insert(GrpcMethod::new("xmtp.message_api.v1.MessageApi", "Query"));
             self.inner.unary(req, path, codec).await
         }
-        pub async fn batch_query(
+        pub async fn register_installation(
             &mut self,
-            request: impl tonic::IntoRequest<super::BatchQueryRequest>,
+            request: impl tonic::IntoRequest<super::RegisterInstallationRequest>,
         ) -> std::result::Result<
-            tonic::Response<super::BatchQueryResponse>,
+            tonic::Response<super::RegisterInstallationResponse>,
             tonic::Status,
         > {
             self.inner
@@ -227,74 +149,167 @@ pub mod message_api_client {
                 })?;
             let codec = tonic::codec::ProstCodec::default();
             let path = http::uri::PathAndQuery::from_static(
-                "/xmtp.message_api.v1.MessageApi/BatchQuery",
+                "/xmtp.message_api.v3.MlsApi/RegisterInstallation",
             );
             let mut req = request.into_request();
             req.extensions_mut()
-                .insert(GrpcMethod::new("xmtp.message_api.v1.MessageApi", "BatchQuery"));
+                .insert(
+                    GrpcMethod::new("xmtp.message_api.v3.MlsApi", "RegisterInstallation"),
+                );
+            self.inner.unary(req, path, codec).await
+        }
+        pub async fn upload_key_packages(
+            &mut self,
+            request: impl tonic::IntoRequest<super::UploadKeyPackagesRequest>,
+        ) -> std::result::Result<tonic::Response<::pbjson_types::Empty>, tonic::Status> {
+            self.inner
+                .ready()
+                .await
+                .map_err(|e| {
+                    tonic::Status::new(
+                        tonic::Code::Unknown,
+                        format!("Service was not ready: {}", e.into()),
+                    )
+                })?;
+            let codec = tonic::codec::ProstCodec::default();
+            let path = http::uri::PathAndQuery::from_static(
+                "/xmtp.message_api.v3.MlsApi/UploadKeyPackages",
+            );
+            let mut req = request.into_request();
+            req.extensions_mut()
+                .insert(
+                    GrpcMethod::new("xmtp.message_api.v3.MlsApi", "UploadKeyPackages"),
+                );
+            self.inner.unary(req, path, codec).await
+        }
+        pub async fn consume_key_packages(
+            &mut self,
+            request: impl tonic::IntoRequest<super::ConsumeKeyPackagesRequest>,
+        ) -> std::result::Result<
+            tonic::Response<super::ConsumeKeyPackagesResponse>,
+            tonic::Status,
+        > {
+            self.inner
+                .ready()
+                .await
+                .map_err(|e| {
+                    tonic::Status::new(
+                        tonic::Code::Unknown,
+                        format!("Service was not ready: {}", e.into()),
+                    )
+                })?;
+            let codec = tonic::codec::ProstCodec::default();
+            let path = http::uri::PathAndQuery::from_static(
+                "/xmtp.message_api.v3.MlsApi/ConsumeKeyPackages",
+            );
+            let mut req = request.into_request();
+            req.extensions_mut()
+                .insert(
+                    GrpcMethod::new("xmtp.message_api.v3.MlsApi", "ConsumeKeyPackages"),
+                );
+            self.inner.unary(req, path, codec).await
+        }
+        pub async fn revoke_installation(
+            &mut self,
+            request: impl tonic::IntoRequest<super::RevokeInstallationRequest>,
+        ) -> std::result::Result<tonic::Response<::pbjson_types::Empty>, tonic::Status> {
+            self.inner
+                .ready()
+                .await
+                .map_err(|e| {
+                    tonic::Status::new(
+                        tonic::Code::Unknown,
+                        format!("Service was not ready: {}", e.into()),
+                    )
+                })?;
+            let codec = tonic::codec::ProstCodec::default();
+            let path = http::uri::PathAndQuery::from_static(
+                "/xmtp.message_api.v3.MlsApi/RevokeInstallation",
+            );
+            let mut req = request.into_request();
+            req.extensions_mut()
+                .insert(
+                    GrpcMethod::new("xmtp.message_api.v3.MlsApi", "RevokeInstallation"),
+                );
+            self.inner.unary(req, path, codec).await
+        }
+        pub async fn get_identity_updates(
+            &mut self,
+            request: impl tonic::IntoRequest<super::GetIdentityUpdatesRequest>,
+        ) -> std::result::Result<
+            tonic::Response<super::GetIdentityUpdatesResponse>,
+            tonic::Status,
+        > {
+            self.inner
+                .ready()
+                .await
+                .map_err(|e| {
+                    tonic::Status::new(
+                        tonic::Code::Unknown,
+                        format!("Service was not ready: {}", e.into()),
+                    )
+                })?;
+            let codec = tonic::codec::ProstCodec::default();
+            let path = http::uri::PathAndQuery::from_static(
+                "/xmtp.message_api.v3.MlsApi/GetIdentityUpdates",
+            );
+            let mut req = request.into_request();
+            req.extensions_mut()
+                .insert(
+                    GrpcMethod::new("xmtp.message_api.v3.MlsApi", "GetIdentityUpdates"),
+                );
             self.inner.unary(req, path, codec).await
         }
     }
 }
 /// Generated server implementations.
 #[cfg(feature = "tonic")]
-pub mod message_api_server {
+pub mod mls_api_server {
     #![allow(unused_variables, dead_code, missing_docs, clippy::let_unit_value)]
     use tonic::codegen::*;
-    /// Generated trait containing gRPC methods that should be implemented for use with MessageApiServer.
+    /// Generated trait containing gRPC methods that should be implemented for use with MlsApiServer.
     #[async_trait]
-    pub trait MessageApi: Send + Sync + 'static {
-        async fn publish(
+    pub trait MlsApi: Send + Sync + 'static {
+        async fn publish_to_group(
             &self,
-            request: tonic::Request<super::PublishRequest>,
-        ) -> std::result::Result<tonic::Response<super::PublishResponse>, tonic::Status>;
-        /// Server streaming response type for the Subscribe method.
-        type SubscribeStream: futures_core::Stream<
-                Item = std::result::Result<super::Envelope, tonic::Status>,
-            >
-            + Send
-            + 'static;
-        async fn subscribe(
+            request: tonic::Request<super::PublishToGroupRequest>,
+        ) -> std::result::Result<tonic::Response<::pbjson_types::Empty>, tonic::Status>;
+        async fn publish_welcomes(
             &self,
-            request: tonic::Request<super::SubscribeRequest>,
-        ) -> std::result::Result<tonic::Response<Self::SubscribeStream>, tonic::Status>;
-        /// Server streaming response type for the Subscribe2 method.
-        type Subscribe2Stream: futures_core::Stream<
-                Item = std::result::Result<super::Envelope, tonic::Status>,
-            >
-            + Send
-            + 'static;
-        async fn subscribe2(
+            request: tonic::Request<super::PublishWelcomesRequest>,
+        ) -> std::result::Result<tonic::Response<::pbjson_types::Empty>, tonic::Status>;
+        async fn register_installation(
             &self,
-            request: tonic::Request<tonic::Streaming<super::SubscribeRequest>>,
-        ) -> std::result::Result<tonic::Response<Self::Subscribe2Stream>, tonic::Status>;
-        /// Server streaming response type for the SubscribeAll method.
-        type SubscribeAllStream: futures_core::Stream<
-                Item = std::result::Result<super::Envelope, tonic::Status>,
-            >
-            + Send
-            + 'static;
-        async fn subscribe_all(
-            &self,
-            request: tonic::Request<super::SubscribeAllRequest>,
+            request: tonic::Request<super::RegisterInstallationRequest>,
         ) -> std::result::Result<
-            tonic::Response<Self::SubscribeAllStream>,
+            tonic::Response<super::RegisterInstallationResponse>,
             tonic::Status,
         >;
-        async fn query(
+        async fn upload_key_packages(
             &self,
-            request: tonic::Request<super::QueryRequest>,
-        ) -> std::result::Result<tonic::Response<super::QueryResponse>, tonic::Status>;
-        async fn batch_query(
+            request: tonic::Request<super::UploadKeyPackagesRequest>,
+        ) -> std::result::Result<tonic::Response<::pbjson_types::Empty>, tonic::Status>;
+        async fn consume_key_packages(
             &self,
-            request: tonic::Request<super::BatchQueryRequest>,
+            request: tonic::Request<super::ConsumeKeyPackagesRequest>,
         ) -> std::result::Result<
-            tonic::Response<super::BatchQueryResponse>,
+            tonic::Response<super::ConsumeKeyPackagesResponse>,
+            tonic::Status,
+        >;
+        async fn revoke_installation(
+            &self,
+            request: tonic::Request<super::RevokeInstallationRequest>,
+        ) -> std::result::Result<tonic::Response<::pbjson_types::Empty>, tonic::Status>;
+        async fn get_identity_updates(
+            &self,
+            request: tonic::Request<super::GetIdentityUpdatesRequest>,
+        ) -> std::result::Result<
+            tonic::Response<super::GetIdentityUpdatesResponse>,
             tonic::Status,
         >;
     }
     #[derive(Debug)]
-    pub struct MessageApiServer<T: MessageApi> {
+    pub struct MlsApiServer<T: MlsApi> {
         inner: _Inner<T>,
         accept_compression_encodings: EnabledCompressionEncodings,
         send_compression_encodings: EnabledCompressionEncodings,
@@ -302,7 +317,7 @@ pub mod message_api_server {
         max_encoding_message_size: Option<usize>,
     }
     struct _Inner<T>(Arc<T>);
-    impl<T: MessageApi> MessageApiServer<T> {
+    impl<T: MlsApi> MlsApiServer<T> {
         pub fn new(inner: T) -> Self {
             Self::from_arc(Arc::new(inner))
         }
@@ -354,9 +369,9 @@ pub mod message_api_server {
             self
         }
     }
-    impl<T, B> tonic::codegen::Service<http::Request<B>> for MessageApiServer<T>
+    impl<T, B> tonic::codegen::Service<http::Request<B>> for MlsApiServer<T>
     where
-        T: MessageApi,
+        T: MlsApi,
         B: Body + Send + 'static,
         B::Error: Into<StdError> + Send + 'static,
     {
@@ -372,162 +387,25 @@ pub mod message_api_server {
         fn call(&mut self, req: http::Request<B>) -> Self::Future {
             let inner = self.inner.clone();
             match req.uri().path() {
-                "/xmtp.message_api.v1.MessageApi/Publish" => {
+                "/xmtp.message_api.v3.MlsApi/PublishToGroup" => {
                     #[allow(non_camel_case_types)]
-                    struct PublishSvc<T: MessageApi>(pub Arc<T>);
+                    struct PublishToGroupSvc<T: MlsApi>(pub Arc<T>);
                     impl<
-                        T: MessageApi,
-                    > tonic::server::UnaryService<super::PublishRequest>
-                    for PublishSvc<T> {
-                        type Response = super::PublishResponse;
+                        T: MlsApi,
+                    > tonic::server::UnaryService<super::PublishToGroupRequest>
+                    for PublishToGroupSvc<T> {
+                        type Response = ::pbjson_types::Empty;
                         type Future = BoxFuture<
                             tonic::Response<Self::Response>,
                             tonic::Status,
                         >;
                         fn call(
                             &mut self,
-                            request: tonic::Request<super::PublishRequest>,
-                        ) -> Self::Future {
-                            let inner = Arc::clone(&self.0);
-                            let fut = async move { (*inner).publish(request).await };
-                            Box::pin(fut)
-                        }
-                    }
-                    let accept_compression_encodings = self.accept_compression_encodings;
-                    let send_compression_encodings = self.send_compression_encodings;
-                    let max_decoding_message_size = self.max_decoding_message_size;
-                    let max_encoding_message_size = self.max_encoding_message_size;
-                    let inner = self.inner.clone();
-                    let fut = async move {
-                        let inner = inner.0;
-                        let method = PublishSvc(inner);
-                        let codec = tonic::codec::ProstCodec::default();
-                        let mut grpc = tonic::server::Grpc::new(codec)
-                            .apply_compression_config(
-                                accept_compression_encodings,
-                                send_compression_encodings,
-                            )
-                            .apply_max_message_size_config(
-                                max_decoding_message_size,
-                                max_encoding_message_size,
-                            );
-                        let res = grpc.unary(method, req).await;
-                        Ok(res)
-                    };
-                    Box::pin(fut)
-                }
-                "/xmtp.message_api.v1.MessageApi/Subscribe" => {
-                    #[allow(non_camel_case_types)]
-                    struct SubscribeSvc<T: MessageApi>(pub Arc<T>);
-                    impl<
-                        T: MessageApi,
-                    > tonic::server::ServerStreamingService<super::SubscribeRequest>
-                    for SubscribeSvc<T> {
-                        type Response = super::Envelope;
-                        type ResponseStream = T::SubscribeStream;
-                        type Future = BoxFuture<
-                            tonic::Response<Self::ResponseStream>,
-                            tonic::Status,
-                        >;
-                        fn call(
-                            &mut self,
-                            request: tonic::Request<super::SubscribeRequest>,
-                        ) -> Self::Future {
-                            let inner = Arc::clone(&self.0);
-                            let fut = async move { (*inner).subscribe(request).await };
-                            Box::pin(fut)
-                        }
-                    }
-                    let accept_compression_encodings = self.accept_compression_encodings;
-                    let send_compression_encodings = self.send_compression_encodings;
-                    let max_decoding_message_size = self.max_decoding_message_size;
-                    let max_encoding_message_size = self.max_encoding_message_size;
-                    let inner = self.inner.clone();
-                    let fut = async move {
-                        let inner = inner.0;
-                        let method = SubscribeSvc(inner);
-                        let codec = tonic::codec::ProstCodec::default();
-                        let mut grpc = tonic::server::Grpc::new(codec)
-                            .apply_compression_config(
-                                accept_compression_encodings,
-                                send_compression_encodings,
-                            )
-                            .apply_max_message_size_config(
-                                max_decoding_message_size,
-                                max_encoding_message_size,
-                            );
-                        let res = grpc.server_streaming(method, req).await;
-                        Ok(res)
-                    };
-                    Box::pin(fut)
-                }
-                "/xmtp.message_api.v1.MessageApi/Subscribe2" => {
-                    #[allow(non_camel_case_types)]
-                    struct Subscribe2Svc<T: MessageApi>(pub Arc<T>);
-                    impl<
-                        T: MessageApi,
-                    > tonic::server::StreamingService<super::SubscribeRequest>
-                    for Subscribe2Svc<T> {
-                        type Response = super::Envelope;
-                        type ResponseStream = T::Subscribe2Stream;
-                        type Future = BoxFuture<
-                            tonic::Response<Self::ResponseStream>,
-                            tonic::Status,
-                        >;
-                        fn call(
-                            &mut self,
-                            request: tonic::Request<
-                                tonic::Streaming<super::SubscribeRequest>,
-                            >,
-                        ) -> Self::Future {
-                            let inner = Arc::clone(&self.0);
-                            let fut = async move { (*inner).subscribe2(request).await };
-                            Box::pin(fut)
-                        }
-                    }
-                    let accept_compression_encodings = self.accept_compression_encodings;
-                    let send_compression_encodings = self.send_compression_encodings;
-                    let max_decoding_message_size = self.max_decoding_message_size;
-                    let max_encoding_message_size = self.max_encoding_message_size;
-                    let inner = self.inner.clone();
-                    let fut = async move {
-                        let inner = inner.0;
-                        let method = Subscribe2Svc(inner);
-                        let codec = tonic::codec::ProstCodec::default();
-                        let mut grpc = tonic::server::Grpc::new(codec)
-                            .apply_compression_config(
-                                accept_compression_encodings,
-                                send_compression_encodings,
-                            )
-                            .apply_max_message_size_config(
-                                max_decoding_message_size,
-                                max_encoding_message_size,
-                            );
-                        let res = grpc.streaming(method, req).await;
-                        Ok(res)
-                    };
-                    Box::pin(fut)
-                }
-                "/xmtp.message_api.v1.MessageApi/SubscribeAll" => {
-                    #[allow(non_camel_case_types)]
-                    struct SubscribeAllSvc<T: MessageApi>(pub Arc<T>);
-                    impl<
-                        T: MessageApi,
-                    > tonic::server::ServerStreamingService<super::SubscribeAllRequest>
-                    for SubscribeAllSvc<T> {
-                        type Response = super::Envelope;
-                        type ResponseStream = T::SubscribeAllStream;
-                        type Future = BoxFuture<
-                            tonic::Response<Self::ResponseStream>,
-                            tonic::Status,
-                        >;
-                        fn call(
-                            &mut self,
-                            request: tonic::Request<super::SubscribeAllRequest>,
+                            request: tonic::Request<super::PublishToGroupRequest>,
                         ) -> Self::Future {
                             let inner = Arc::clone(&self.0);
                             let fut = async move {
-                                (*inner).subscribe_all(request).await
+                                (*inner).publish_to_group(request).await
                             };
                             Box::pin(fut)
                         }
@@ -539,49 +417,7 @@ pub mod message_api_server {
                     let inner = self.inner.clone();
                     let fut = async move {
                         let inner = inner.0;
-                        let method = SubscribeAllSvc(inner);
-                        let codec = tonic::codec::ProstCodec::default();
-                        let mut grpc = tonic::server::Grpc::new(codec)
-                            .apply_compression_config(
-                                accept_compression_encodings,
-                                send_compression_encodings,
-                            )
-                            .apply_max_message_size_config(
-                                max_decoding_message_size,
-                                max_encoding_message_size,
-                            );
-                        let res = grpc.server_streaming(method, req).await;
-                        Ok(res)
-                    };
-                    Box::pin(fut)
-                }
-                "/xmtp.message_api.v1.MessageApi/Query" => {
-                    #[allow(non_camel_case_types)]
-                    struct QuerySvc<T: MessageApi>(pub Arc<T>);
-                    impl<T: MessageApi> tonic::server::UnaryService<super::QueryRequest>
-                    for QuerySvc<T> {
-                        type Response = super::QueryResponse;
-                        type Future = BoxFuture<
-                            tonic::Response<Self::Response>,
-                            tonic::Status,
-                        >;
-                        fn call(
-                            &mut self,
-                            request: tonic::Request<super::QueryRequest>,
-                        ) -> Self::Future {
-                            let inner = Arc::clone(&self.0);
-                            let fut = async move { (*inner).query(request).await };
-                            Box::pin(fut)
-                        }
-                    }
-                    let accept_compression_encodings = self.accept_compression_encodings;
-                    let send_compression_encodings = self.send_compression_encodings;
-                    let max_decoding_message_size = self.max_decoding_message_size;
-                    let max_encoding_message_size = self.max_encoding_message_size;
-                    let inner = self.inner.clone();
-                    let fut = async move {
-                        let inner = inner.0;
-                        let method = QuerySvc(inner);
+                        let method = PublishToGroupSvc(inner);
                         let codec = tonic::codec::ProstCodec::default();
                         let mut grpc = tonic::server::Grpc::new(codec)
                             .apply_compression_config(
@@ -597,24 +433,26 @@ pub mod message_api_server {
                     };
                     Box::pin(fut)
                 }
-                "/xmtp.message_api.v1.MessageApi/BatchQuery" => {
+                "/xmtp.message_api.v3.MlsApi/PublishWelcomes" => {
                     #[allow(non_camel_case_types)]
-                    struct BatchQuerySvc<T: MessageApi>(pub Arc<T>);
+                    struct PublishWelcomesSvc<T: MlsApi>(pub Arc<T>);
                     impl<
-                        T: MessageApi,
-                    > tonic::server::UnaryService<super::BatchQueryRequest>
-                    for BatchQuerySvc<T> {
-                        type Response = super::BatchQueryResponse;
+                        T: MlsApi,
+                    > tonic::server::UnaryService<super::PublishWelcomesRequest>
+                    for PublishWelcomesSvc<T> {
+                        type Response = ::pbjson_types::Empty;
                         type Future = BoxFuture<
                             tonic::Response<Self::Response>,
                             tonic::Status,
                         >;
                         fn call(
                             &mut self,
-                            request: tonic::Request<super::BatchQueryRequest>,
+                            request: tonic::Request<super::PublishWelcomesRequest>,
                         ) -> Self::Future {
                             let inner = Arc::clone(&self.0);
-                            let fut = async move { (*inner).batch_query(request).await };
+                            let fut = async move {
+                                (*inner).publish_welcomes(request).await
+                            };
                             Box::pin(fut)
                         }
                     }
@@ -625,7 +463,237 @@ pub mod message_api_server {
                     let inner = self.inner.clone();
                     let fut = async move {
                         let inner = inner.0;
-                        let method = BatchQuerySvc(inner);
+                        let method = PublishWelcomesSvc(inner);
+                        let codec = tonic::codec::ProstCodec::default();
+                        let mut grpc = tonic::server::Grpc::new(codec)
+                            .apply_compression_config(
+                                accept_compression_encodings,
+                                send_compression_encodings,
+                            )
+                            .apply_max_message_size_config(
+                                max_decoding_message_size,
+                                max_encoding_message_size,
+                            );
+                        let res = grpc.unary(method, req).await;
+                        Ok(res)
+                    };
+                    Box::pin(fut)
+                }
+                "/xmtp.message_api.v3.MlsApi/RegisterInstallation" => {
+                    #[allow(non_camel_case_types)]
+                    struct RegisterInstallationSvc<T: MlsApi>(pub Arc<T>);
+                    impl<
+                        T: MlsApi,
+                    > tonic::server::UnaryService<super::RegisterInstallationRequest>
+                    for RegisterInstallationSvc<T> {
+                        type Response = super::RegisterInstallationResponse;
+                        type Future = BoxFuture<
+                            tonic::Response<Self::Response>,
+                            tonic::Status,
+                        >;
+                        fn call(
+                            &mut self,
+                            request: tonic::Request<super::RegisterInstallationRequest>,
+                        ) -> Self::Future {
+                            let inner = Arc::clone(&self.0);
+                            let fut = async move {
+                                (*inner).register_installation(request).await
+                            };
+                            Box::pin(fut)
+                        }
+                    }
+                    let accept_compression_encodings = self.accept_compression_encodings;
+                    let send_compression_encodings = self.send_compression_encodings;
+                    let max_decoding_message_size = self.max_decoding_message_size;
+                    let max_encoding_message_size = self.max_encoding_message_size;
+                    let inner = self.inner.clone();
+                    let fut = async move {
+                        let inner = inner.0;
+                        let method = RegisterInstallationSvc(inner);
+                        let codec = tonic::codec::ProstCodec::default();
+                        let mut grpc = tonic::server::Grpc::new(codec)
+                            .apply_compression_config(
+                                accept_compression_encodings,
+                                send_compression_encodings,
+                            )
+                            .apply_max_message_size_config(
+                                max_decoding_message_size,
+                                max_encoding_message_size,
+                            );
+                        let res = grpc.unary(method, req).await;
+                        Ok(res)
+                    };
+                    Box::pin(fut)
+                }
+                "/xmtp.message_api.v3.MlsApi/UploadKeyPackages" => {
+                    #[allow(non_camel_case_types)]
+                    struct UploadKeyPackagesSvc<T: MlsApi>(pub Arc<T>);
+                    impl<
+                        T: MlsApi,
+                    > tonic::server::UnaryService<super::UploadKeyPackagesRequest>
+                    for UploadKeyPackagesSvc<T> {
+                        type Response = ::pbjson_types::Empty;
+                        type Future = BoxFuture<
+                            tonic::Response<Self::Response>,
+                            tonic::Status,
+                        >;
+                        fn call(
+                            &mut self,
+                            request: tonic::Request<super::UploadKeyPackagesRequest>,
+                        ) -> Self::Future {
+                            let inner = Arc::clone(&self.0);
+                            let fut = async move {
+                                (*inner).upload_key_packages(request).await
+                            };
+                            Box::pin(fut)
+                        }
+                    }
+                    let accept_compression_encodings = self.accept_compression_encodings;
+                    let send_compression_encodings = self.send_compression_encodings;
+                    let max_decoding_message_size = self.max_decoding_message_size;
+                    let max_encoding_message_size = self.max_encoding_message_size;
+                    let inner = self.inner.clone();
+                    let fut = async move {
+                        let inner = inner.0;
+                        let method = UploadKeyPackagesSvc(inner);
+                        let codec = tonic::codec::ProstCodec::default();
+                        let mut grpc = tonic::server::Grpc::new(codec)
+                            .apply_compression_config(
+                                accept_compression_encodings,
+                                send_compression_encodings,
+                            )
+                            .apply_max_message_size_config(
+                                max_decoding_message_size,
+                                max_encoding_message_size,
+                            );
+                        let res = grpc.unary(method, req).await;
+                        Ok(res)
+                    };
+                    Box::pin(fut)
+                }
+                "/xmtp.message_api.v3.MlsApi/ConsumeKeyPackages" => {
+                    #[allow(non_camel_case_types)]
+                    struct ConsumeKeyPackagesSvc<T: MlsApi>(pub Arc<T>);
+                    impl<
+                        T: MlsApi,
+                    > tonic::server::UnaryService<super::ConsumeKeyPackagesRequest>
+                    for ConsumeKeyPackagesSvc<T> {
+                        type Response = super::ConsumeKeyPackagesResponse;
+                        type Future = BoxFuture<
+                            tonic::Response<Self::Response>,
+                            tonic::Status,
+                        >;
+                        fn call(
+                            &mut self,
+                            request: tonic::Request<super::ConsumeKeyPackagesRequest>,
+                        ) -> Self::Future {
+                            let inner = Arc::clone(&self.0);
+                            let fut = async move {
+                                (*inner).consume_key_packages(request).await
+                            };
+                            Box::pin(fut)
+                        }
+                    }
+                    let accept_compression_encodings = self.accept_compression_encodings;
+                    let send_compression_encodings = self.send_compression_encodings;
+                    let max_decoding_message_size = self.max_decoding_message_size;
+                    let max_encoding_message_size = self.max_encoding_message_size;
+                    let inner = self.inner.clone();
+                    let fut = async move {
+                        let inner = inner.0;
+                        let method = ConsumeKeyPackagesSvc(inner);
+                        let codec = tonic::codec::ProstCodec::default();
+                        let mut grpc = tonic::server::Grpc::new(codec)
+                            .apply_compression_config(
+                                accept_compression_encodings,
+                                send_compression_encodings,
+                            )
+                            .apply_max_message_size_config(
+                                max_decoding_message_size,
+                                max_encoding_message_size,
+                            );
+                        let res = grpc.unary(method, req).await;
+                        Ok(res)
+                    };
+                    Box::pin(fut)
+                }
+                "/xmtp.message_api.v3.MlsApi/RevokeInstallation" => {
+                    #[allow(non_camel_case_types)]
+                    struct RevokeInstallationSvc<T: MlsApi>(pub Arc<T>);
+                    impl<
+                        T: MlsApi,
+                    > tonic::server::UnaryService<super::RevokeInstallationRequest>
+                    for RevokeInstallationSvc<T> {
+                        type Response = ::pbjson_types::Empty;
+                        type Future = BoxFuture<
+                            tonic::Response<Self::Response>,
+                            tonic::Status,
+                        >;
+                        fn call(
+                            &mut self,
+                            request: tonic::Request<super::RevokeInstallationRequest>,
+                        ) -> Self::Future {
+                            let inner = Arc::clone(&self.0);
+                            let fut = async move {
+                                (*inner).revoke_installation(request).await
+                            };
+                            Box::pin(fut)
+                        }
+                    }
+                    let accept_compression_encodings = self.accept_compression_encodings;
+                    let send_compression_encodings = self.send_compression_encodings;
+                    let max_decoding_message_size = self.max_decoding_message_size;
+                    let max_encoding_message_size = self.max_encoding_message_size;
+                    let inner = self.inner.clone();
+                    let fut = async move {
+                        let inner = inner.0;
+                        let method = RevokeInstallationSvc(inner);
+                        let codec = tonic::codec::ProstCodec::default();
+                        let mut grpc = tonic::server::Grpc::new(codec)
+                            .apply_compression_config(
+                                accept_compression_encodings,
+                                send_compression_encodings,
+                            )
+                            .apply_max_message_size_config(
+                                max_decoding_message_size,
+                                max_encoding_message_size,
+                            );
+                        let res = grpc.unary(method, req).await;
+                        Ok(res)
+                    };
+                    Box::pin(fut)
+                }
+                "/xmtp.message_api.v3.MlsApi/GetIdentityUpdates" => {
+                    #[allow(non_camel_case_types)]
+                    struct GetIdentityUpdatesSvc<T: MlsApi>(pub Arc<T>);
+                    impl<
+                        T: MlsApi,
+                    > tonic::server::UnaryService<super::GetIdentityUpdatesRequest>
+                    for GetIdentityUpdatesSvc<T> {
+                        type Response = super::GetIdentityUpdatesResponse;
+                        type Future = BoxFuture<
+                            tonic::Response<Self::Response>,
+                            tonic::Status,
+                        >;
+                        fn call(
+                            &mut self,
+                            request: tonic::Request<super::GetIdentityUpdatesRequest>,
+                        ) -> Self::Future {
+                            let inner = Arc::clone(&self.0);
+                            let fut = async move {
+                                (*inner).get_identity_updates(request).await
+                            };
+                            Box::pin(fut)
+                        }
+                    }
+                    let accept_compression_encodings = self.accept_compression_encodings;
+                    let send_compression_encodings = self.send_compression_encodings;
+                    let max_decoding_message_size = self.max_decoding_message_size;
+                    let max_encoding_message_size = self.max_encoding_message_size;
+                    let inner = self.inner.clone();
+                    let fut = async move {
+                        let inner = inner.0;
+                        let method = GetIdentityUpdatesSvc(inner);
                         let codec = tonic::codec::ProstCodec::default();
                         let mut grpc = tonic::server::Grpc::new(codec)
                             .apply_compression_config(
@@ -656,7 +724,7 @@ pub mod message_api_server {
             }
         }
     }
-    impl<T: MessageApi> Clone for MessageApiServer<T> {
+    impl<T: MlsApi> Clone for MlsApiServer<T> {
         fn clone(&self) -> Self {
             let inner = self.inner.clone();
             Self {
@@ -668,7 +736,7 @@ pub mod message_api_server {
             }
         }
     }
-    impl<T: MessageApi> Clone for _Inner<T> {
+    impl<T: MlsApi> Clone for _Inner<T> {
         fn clone(&self) -> Self {
             Self(Arc::clone(&self.0))
         }
@@ -678,7 +746,7 @@ pub mod message_api_server {
             write!(f, "{:?}", self.0)
         }
     }
-    impl<T: MessageApi> tonic::server::NamedService for MessageApiServer<T> {
-        const NAME: &'static str = "xmtp.message_api.v1.MessageApi";
+    impl<T: MlsApi> tonic::server::NamedService for MlsApiServer<T> {
+        const NAME: &'static str = "xmtp.message_api.v3.MlsApi";
     }
 }
