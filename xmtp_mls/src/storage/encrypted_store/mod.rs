@@ -291,7 +291,7 @@ mod tests {
         enc_key[3] = 145; // Alter the enc_key
         let res = EncryptedMessageStore::new(StorageOption::Persistent(db_path.clone()), enc_key);
         // Ensure it fails
-        match res.err() {
+        assert!(matches!(res.err(), Some(StorageError::DbInitError(_)), "Expected DbInitError");
             Some(StorageError::DbInitError(_)) => (),
             _ => panic!("Expected a DbInitError"),
         }
