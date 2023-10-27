@@ -126,7 +126,7 @@ where
                     }
                     Ok(identity)
                 }
-                None => Ok(Identity::new(CIPHERSUITE, &provider, &owner)?),
+                None => Ok(Identity::new(&provider, &owner)?),
             },
             #[cfg(test)]
             IdentityStrategy::ExternalIdentity(identity) => Ok(identity),

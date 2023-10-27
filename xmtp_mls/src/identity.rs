@@ -15,6 +15,7 @@ use xmtp_cryptography::signature::SignatureError;
 
 use crate::{
     association::{AssociationError, AssociationText, Eip191Association},
+    configuration::CIPHERSUITE,
     storage::StorageError,
     types::Address,
     xmtp_openmls_provider::XmtpOpenMlsProvider,
@@ -44,11 +45,10 @@ pub struct Identity {
 
 impl Identity {
     pub(crate) fn new(
-        ciphersuite: Ciphersuite,
         provider: &XmtpOpenMlsProvider,
         owner: &impl InboxOwner,
     ) -> Result<Self, IdentityError> {
-        let signature_keys = SignatureKeyPair::new(ciphersuite.signature_algorithm())?;
+        let signature_keys = SignatureKeyPair::new(CIPHERSUITE.signature_algorithm())?;
         signature_keys.store(provider.key_store())?;
 
         let credential = Identity::create_credential(&signature_keys, owner)?;
@@ -57,7 +57,7 @@ impl Identity {
         // TODO: Make OpenMLS not delete this once used
         let _last_resort_key_package = KeyPackage::builder().build(
             CryptoConfig {
-                ciphersuite,
+                ciphersuite: CIPHERSUITE,
                 version: ProtocolVersion::default(),
             },
             provider,
@@ -76,6 +76,26 @@ impl Identity {
             installation_keys: signature_keys,
             credential,
         })
+    }
+
+    pub(crate) fn new_key_package(
+        &self,
+        provider: &XmtpOpenMlsProvider,
+    ) -> Result<KeyPackage, IdentityError> {
+        let kp = KeyPackage::builder().build(
+            CryptoConfig {
+                ciphersuite: CIPHERSUITE,
+                version: ProtocolVersion::default(),
+            },
+            provider,
+            &self.installation_keys,
+            CredentialWithKey {
+                credential: self.credential.clone(),
+                signature_key: self.installation_keys.to_public_vec().into(),
+            },
+        )?;
+
+        Ok(kp)
     }
 
     fn create_credential(
@@ -102,17 +122,13 @@ impl Identity {
 mod tests {
     use xmtp_cryptography::utils::generate_local_wallet;
 
-    use crate::{
-        configuration::CIPHERSUITE, storage::EncryptedMessageStore,
-        xmtp_openmls_provider::XmtpOpenMlsProvider,
-    };
+    use crate::{storage::EncryptedMessageStore, xmtp_openmls_provider::XmtpOpenMlsProvider};
 
     use super::Identity;
 
     #[test]
     fn does_not_error() {
         Identity::new(
-            CIPHERSUITE,
             &XmtpOpenMlsProvider::new(&EncryptedMessageStore::default()),
             &generate_local_wallet(),
         )
