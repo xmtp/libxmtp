@@ -9,10 +9,16 @@ use tokio_rustls::rustls::{ClientConfig, OwnedTrustAnchor, RootCertStore};
 use tonic::async_trait;
 use tonic::Status;
 use tonic::{metadata::MetadataValue, transport::Channel, Request, Streaming};
-use xmtp_proto::api_client::{Error, ErrorKind, XmtpApiClient, XmtpApiSubscription};
+use xmtp_proto::api_client::{Error, ErrorKind, XmtpApiClient, XmtpApiSubscription, XmtpMlsClient};
 use xmtp_proto::xmtp::message_api::v1::{
     message_api_client::MessageApiClient, BatchQueryRequest, BatchQueryResponse, Envelope,
     PublishRequest, PublishResponse, QueryRequest, QueryResponse, SubscribeRequest,
+};
+use xmtp_proto::xmtp::message_api::v3::mls_api_client::MlsApiClient as ProtoMlsApiClient;
+use xmtp_proto::xmtp::message_api::v3::{
+    ConsumeKeyPackagesRequest, ConsumeKeyPackagesResponse, GetIdentityUpdatesRequest,
+    GetIdentityUpdatesResponse, PublishToGroupRequest, PublishWelcomesRequest,
+    RegisterInstallationRequest, RegisterInstallationResponse, UploadKeyPackagesRequest,
 };
 
 fn tls_config() -> ClientConfig {
@@ -48,6 +54,7 @@ fn get_tls_connector() -> HttpsConnector<HttpConnector> {
         .service(http)
 }
 
+#[derive(Debug)]
 pub enum InnerApiClient {
     Plain(MessageApiClient<Channel>),
     Tls(
@@ -57,8 +64,20 @@ pub enum InnerApiClient {
     ),
 }
 
+#[derive(Debug)]
+pub enum InnerMlsClient {
+    Plain(ProtoMlsApiClient<Channel>),
+    Tls(
+        ProtoMlsApiClient<
+            hyper::Client<HttpsConnector<HttpConnector>, UnsyncBoxBody<hyper::body::Bytes, Status>>,
+        >,
+    ),
+}
+
+#[derive(Debug)]
 pub struct Client {
     client: InnerApiClient,
+    mls_client: InnerMlsClient,
     app_version: MetadataValue<tonic::metadata::Ascii>,
 }
 
@@ -73,10 +92,12 @@ impl Client {
             let uri =
                 Uri::from_str(&host).map_err(|e| Error::new(ErrorKind::SetupError).with(e))?;
 
-            let tls_client = MessageApiClient::with_origin(tls_conn, uri);
+            let tls_client = MessageApiClient::with_origin(tls_conn.clone(), uri.clone());
+            let mls_client = ProtoMlsApiClient::with_origin(tls_conn, uri);
 
             Ok(Self {
                 client: InnerApiClient::Tls(tls_client),
+                mls_client: InnerMlsClient::Tls(mls_client),
                 app_version: MetadataValue::try_from(&String::from("0.0.0")).unwrap(),
             })
         } else {
@@ -86,10 +107,12 @@ impl Client {
                 .await
                 .map_err(|e| Error::new(ErrorKind::SetupError).with(e))?;
 
-            let client = MessageApiClient::new(channel);
+            let client = MessageApiClient::new(channel.clone());
+            let mls_client = ProtoMlsApiClient::new(channel);
 
             Ok(Self {
                 client: InnerApiClient::Plain(client),
+                mls_client: InnerMlsClient::Plain(mls_client),
                 app_version: MetadataValue::try_from(&String::from("0.0.0")).unwrap(),
             })
         }
@@ -255,6 +278,85 @@ impl XmtpApiSubscription for Subscription {
         self.closed.store(true, Ordering::SeqCst);
         if let Some(close_tx) = self.close_sender.take() {
             let _ = close_tx.send(());
+        }
+    }
+}
+
+#[async_trait]
+impl XmtpMlsClient for Client {
+    async fn register_installation(
+        &self,
+        req: RegisterInstallationRequest,
+    ) -> Result<RegisterInstallationResponse, Error> {
+        let res = match &self.mls_client {
+            InnerMlsClient::Plain(c) => c.clone().register_installation(req).await,
+            InnerMlsClient::Tls(c) => c.clone().register_installation(req).await,
+        };
+        match res {
+            Ok(response) => Ok(response.into_inner()),
+            Err(e) => Err(Error::new(ErrorKind::MlsError).with(e)),
+        }
+    }
+
+    async fn upload_key_packages(&self, req: UploadKeyPackagesRequest) -> Result<(), Error> {
+        let res = match &self.mls_client {
+            InnerMlsClient::Plain(c) => c.clone().upload_key_packages(req).await,
+            InnerMlsClient::Tls(c) => c.clone().upload_key_packages(req).await,
+        };
+        match res {
+            Ok(_) => Ok(()),
+            Err(e) => Err(Error::new(ErrorKind::MlsError).with(e)),
+        }
+    }
+
+    async fn consume_key_packages(
+        &self,
+        req: ConsumeKeyPackagesRequest,
+    ) -> Result<ConsumeKeyPackagesResponse, Error> {
+        let res = match &self.mls_client {
+            InnerMlsClient::Plain(c) => c.clone().consume_key_packages(req).await,
+            InnerMlsClient::Tls(c) => c.clone().consume_key_packages(req).await,
+        };
+
+        match res {
+            Ok(response) => Ok(response.into_inner()),
+            Err(e) => Err(Error::new(ErrorKind::MlsError).with(e)),
+        }
+    }
+
+    async fn publish_to_group(&self, req: PublishToGroupRequest) -> Result<(), Error> {
+        let res = match &self.mls_client {
+            InnerMlsClient::Plain(c) => c.clone().publish_to_group(req).await,
+            InnerMlsClient::Tls(c) => c.clone().publish_to_group(req).await,
+        };
+        match res {
+            Ok(_) => Ok(()),
+            Err(e) => Err(Error::new(ErrorKind::MlsError).with(e)),
+        }
+    }
+
+    async fn publish_welcomes(&self, req: PublishWelcomesRequest) -> Result<(), Error> {
+        let res = match &self.mls_client {
+            InnerMlsClient::Plain(c) => c.clone().publish_welcomes(req).await,
+            InnerMlsClient::Tls(c) => c.clone().publish_welcomes(req).await,
+        };
+        match res {
+            Ok(_) => Ok(()),
+            Err(e) => Err(Error::new(ErrorKind::MlsError).with(e)),
+        }
+    }
+
+    async fn get_identity_updates(
+        &self,
+        req: GetIdentityUpdatesRequest,
+    ) -> Result<GetIdentityUpdatesResponse, Error> {
+        let res = match &self.mls_client {
+            InnerMlsClient::Plain(c) => c.clone().get_identity_updates(req).await,
+            InnerMlsClient::Tls(c) => c.clone().get_identity_updates(req).await,
+        };
+        match res {
+            Ok(response) => Ok(response.into_inner()),
+            Err(e) => Err(Error::new(ErrorKind::MlsError).with(e)),
         }
     }
 }

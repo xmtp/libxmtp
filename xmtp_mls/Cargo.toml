@@ -44,3 +44,4 @@ xmtp_proto = { path = "../xmtp_proto", features = ["proto_full"] }
 [dev-dependencies]
 rand = "0.8.5"
 tempfile = "3.5.0"
+xmtp_api_grpc = { path = "../xmtp_api_grpc" }

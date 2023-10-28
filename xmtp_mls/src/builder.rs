@@ -13,7 +13,7 @@ use log::debug;
 #[cfg(test)]
 use std::println as debug;
 use thiserror::Error;
-use xmtp_proto::api_client::XmtpApiClient;
+use xmtp_proto::api_client::{XmtpApiClient, XmtpMlsClient};
 
 #[derive(Error, Debug)]
 pub enum ClientBuilderError {
@@ -96,7 +96,7 @@ pub struct ClientBuilder<ApiClient, Owner> {
 
 impl<ApiClient, Owner> ClientBuilder<ApiClient, Owner>
 where
-    ApiClient: XmtpApiClient,
+    ApiClient: XmtpApiClient + XmtpMlsClient,
     Owner: InboxOwner,
 {
     pub fn new(strat: IdentityStrategy<Owner>) -> Self {
@@ -149,31 +149,58 @@ where
 #[cfg(test)]
 mod tests {
 
-    use ethers::signers::{LocalWallet, Signer};
+    use ethers::signers::{LocalWallet, Signer, Wallet};
+    use ethers_core::k256::ecdsa::SigningKey;
     use tempfile::TempPath;
+    use xmtp_api_grpc::grpc_api_helper::Client as GrpcClient;
     use xmtp_cryptography::utils::generate_local_wallet;
 
     use crate::{
-        mock_xmtp_api_client::MockXmtpApiClient,
         storage::{EncryptedMessageStore, StorageOption},
+        Client,
     };
 
-    use super::ClientBuilder;
+    use super::{ClientBuilder, IdentityStrategy};
 
-    #[test]
-    fn builder_test() {
+    async fn get_local_grpc_client() -> GrpcClient {
+        GrpcClient::create("http://localhost:5556".to_string(), false)
+            .await
+            .unwrap()
+    }
+
+    impl ClientBuilder<GrpcClient, LocalWallet> {
+        pub async fn local_grpc(self) -> Self {
+            self.api_client(get_local_grpc_client().await)
+        }
+
+        pub async fn new_test_client(
+            strat: IdentityStrategy<Wallet<SigningKey>>,
+        ) -> Client<GrpcClient> {
+            Self::new(strat).local_grpc().await.build().unwrap()
+        }
+    }
+
+    #[tokio::test]
+    async fn builder_test() {
         let wallet = generate_local_wallet();
         let address = wallet.address();
-        let client = ClientBuilder::new(wallet.into())
-            .api_client(MockXmtpApiClient::default())
-            .build()
-            .unwrap();
+        let client = ClientBuilder::new_test_client(wallet.into()).await;
         assert!(client.account_address() == format!("{address:#020x}"));
         assert!(!client.installation_public_key().is_empty());
     }
 
-    #[test]
-    fn identity_persistence_test() {
+    #[tokio::test]
+    async fn test_mls() {
+        let client = ClientBuilder::new_test_client(generate_local_wallet().into()).await;
+        let result = client.api_client.register_installation(&[1, 2, 3]).await;
+
+        assert!(result.is_err());
+        let error_string = result.err().unwrap().to_string();
+        assert!(error_string.contains("invalid identity"));
+    }
+
+    #[tokio::test]
+    async fn identity_persistence_test() {
         let tmpdb = TempPath::from_path("./db.db3")
             .to_str()
             .unwrap()
@@ -186,8 +213,9 @@ mod tests {
                 .unwrap();
 
         let client_a = ClientBuilder::new(wallet.clone().into())
+            .local_grpc()
+            .await
             .store(store_a)
-            .api_client(MockXmtpApiClient::default())
             .build()
             .unwrap();
         let keybytes_a = client_a.installation_public_key();
@@ -198,9 +226,10 @@ mod tests {
             EncryptedMessageStore::new_unencrypted(StorageOption::Persistent(tmpdb.clone()))
                 .unwrap();
 
-        let client_b = ClientBuilder::new(wallet.into())
+        let client_b = ClientBuilder::new(wallet.clone().into())
+            .local_grpc()
+            .await
             .store(store_b)
-            .api_client(MockXmtpApiClient::default())
             .build()
             .unwrap();
         let keybytes_b = client_b.installation_public_key();
@@ -214,7 +243,9 @@ mod tests {
             EncryptedMessageStore::new_unencrypted(StorageOption::Persistent(tmpdb.clone()))
                 .unwrap();
 
-        ClientBuilder::<MockXmtpApiClient, LocalWallet>::new(generate_local_wallet().into())
+        ClientBuilder::new(generate_local_wallet().into())
+            .local_grpc()
+            .await
             .store(store_c)
             .build()
             .expect_err("Testing expected mismatch error");
@@ -223,13 +254,12 @@ mod tests {
         let store_d =
             EncryptedMessageStore::new_unencrypted(StorageOption::Persistent(tmpdb.clone()))
                 .unwrap();
-        let client_d = ClientBuilder::<MockXmtpApiClient, LocalWallet>::new(
-            crate::builder::IdentityStrategy::CachedOnly,
-        )
-        .store(store_d)
-        .api_client(MockXmtpApiClient::default())
-        .build()
-        .unwrap();
+        let client_d = ClientBuilder::new(IdentityStrategy::CachedOnly)
+            .local_grpc()
+            .await
+            .store(store_d)
+            .build()
+            .unwrap();
         assert_eq!(client_d.installation_public_key(), keybytes_a);
     }
 }
