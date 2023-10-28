@@ -46,6 +46,37 @@ pub enum IdentityStrategy<Owner> {
     ExternalIdentity(Identity),
 }
 
+impl<Owner> IdentityStrategy<Owner>
+where
+    Owner: InboxOwner,
+{
+    fn initialize_identity(
+        self,
+        store: &EncryptedMessageStore,
+        provider: &XmtpOpenMlsProvider,
+    ) -> Result<Identity, ClientBuilderError> {
+        let identity_option: Option<Identity> =
+            store.conn()?.fetch(())?.map(|i: StoredIdentity| i.into());
+        debug!("Existing identity in store: {:?}", identity_option);
+        match self {
+            IdentityStrategy::CachedOnly => {
+                identity_option.ok_or(ClientBuilderError::RequiredIdentityNotFound)
+            }
+            IdentityStrategy::CreateIfNotFound(owner) => match identity_option {
+                Some(identity) => {
+                    if identity.account_address != owner.get_address() {
+                        return Err(ClientBuilderError::StoredIdentityMismatch);
+                    }
+                    Ok(identity)
+                }
+                None => Ok(Identity::new(store, CIPHERSUITE, provider, &owner)?),
+            },
+            #[cfg(test)]
+            IdentityStrategy::ExternalIdentity(identity) => Ok(identity),
+        }
+    }
+}
+
 impl<Owner> From<Owner> for IdentityStrategy<Owner>
 where
     Owner: InboxOwner,
@@ -108,34 +139,10 @@ where
         let network = self.network;
         let store = self.store.take().unwrap_or_default();
         let provider = XmtpOpenMlsProvider::new(&store);
-        let identity = self.initialize_identity(&store, &provider)?;
+        let identity = self
+            .identity_strategy
+            .initialize_identity(&store, &provider)?;
         Ok(Client::new(api_client, network, identity, store))
-    }
-
-    fn initialize_identity(
-        self,
-        store: &EncryptedMessageStore,
-        provider: &XmtpOpenMlsProvider,
-    ) -> Result<Identity, ClientBuilderError> {
-        let identity_option: Option<Identity> =
-            store.conn()?.fetch(())?.map(|i: StoredIdentity| i.into());
-        debug!("Existing identity in store: {:?}", identity_option);
-        match self.identity_strategy {
-            IdentityStrategy::CachedOnly => {
-                identity_option.ok_or(ClientBuilderError::RequiredIdentityNotFound)
-            }
-            IdentityStrategy::CreateIfNotFound(owner) => match identity_option {
-                Some(identity) => {
-                    if identity.account_address != owner.get_address() {
-                        return Err(ClientBuilderError::StoredIdentityMismatch);
-                    }
-                    Ok(identity)
-                }
-                None => Ok(Identity::new(store, CIPHERSUITE, provider, &owner)?),
-            },
-            #[cfg(test)]
-            IdentityStrategy::ExternalIdentity(identity) => Ok(identity),
-        }
     }
 }
 
