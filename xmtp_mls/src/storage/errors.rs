@@ -3,19 +3,17 @@ use thiserror::Error;
 #[derive(Debug, Error, PartialEq)]
 pub enum StorageError {
     #[error("Diesel connection error")]
-    DieselConnectError(#[from] diesel::ConnectionError),
+    DieselConnect(#[from] diesel::ConnectionError),
     #[error("Diesel result error: {0}")]
-    DieselResultError(#[from] diesel::result::Error),
+    DieselResult(#[from] diesel::result::Error),
     #[error("Pool error {0}")]
-    PoolError(String),
+    Pool(String),
     #[error("Either incorrect encryptionkey or file is not a db {0}")]
-    DbInitError(String),
+    DbInit(String),
     #[error("Store Error")]
     Store(String),
     #[error("serialization error")]
-    SerializationError,
+    Serialization,
     #[error("deserialization error")]
-    DeserializationError,
-    #[error("unknown storage error: {0}")]
-    Unknown(String),
+    Deserialization,
 }
