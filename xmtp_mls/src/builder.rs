@@ -59,7 +59,7 @@ pub struct ClientBuilder<ApiClient, Owner> {
     identity_strategy: IdentityStrategy<Owner>,
 }
 
-impl<ApiClient, Owner> ClientBuilder<ApiClient, Owner>
+impl<'a, ApiClient, Owner> ClientBuilder<ApiClient, Owner>
 where
     ApiClient: XmtpApiClient + XmtpMlsClient,
     Owner: InboxOwner,
@@ -102,10 +102,10 @@ where
                 parameter: "api_client",
             })?;
         let network = self.network;
-        let store = self.store.take().unwrap_or_default();
-        let provider = XmtpOpenMlsProvider::new(&store);
+        let store = &self.store.take().unwrap_or_default();
+        let provider = XmtpOpenMlsProvider::new(store);
         let identity = self.initialize_identity(&store, &provider)?;
-        Ok(Client::new(api_client, network, identity, store))
+        Ok(Client::new(api_client, network, identity, store.clone()))
     }
 
     fn initialize_identity(
@@ -158,7 +158,7 @@ mod tests {
     async fn test_mls() {
         let client = ClientBuilder::new_test().await.build().unwrap();
 
-        let result = client.api_client.register_installation(&[1, 2, 3]).await;
+        let result = client.api_client.register_installation(vec![1, 2, 3]).await;
 
         assert!(result.is_err());
         let error_string = result.err().unwrap().to_string();

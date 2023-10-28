@@ -6402,6 +6402,7 @@ dependencies = [
  "serde_json",
  "tempfile",
  "thiserror",
+ "tls_codec",
  "tokio",
  "toml 0.7.4",
  "xmtp_api_grpc",

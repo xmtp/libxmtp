@@ -38,7 +38,7 @@ where
 
     pub async fn register_installation(
         &self,
-        last_resort_key_package: &[u8],
+        last_resort_key_package: Vec<u8>,
     ) -> Result<Vec<u8>, ApiError> {
         let res = self
             .api_client
@@ -52,13 +52,13 @@ where
         Ok(res.installation_id)
     }
 
-    pub async fn upload_key_packages(&self, key_packages: Vec<&[u8]>) -> Result<(), ApiError> {
+    pub async fn upload_key_packages(&self, key_packages: Vec<Vec<u8>>) -> Result<(), ApiError> {
         self.api_client
             .upload_key_packages(UploadKeyPackagesRequest {
                 key_packages: key_packages
                     .into_iter()
                     .map(|kp| KeyPackageUpload {
-                        key_package_tls_serialized: kp.to_vec(),
+                        key_package_tls_serialized: kp,
                     })
                     .collect(),
             })
