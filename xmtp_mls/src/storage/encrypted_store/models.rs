@@ -39,10 +39,10 @@ impl StoredIdentity {
     }
 }
 
-impl From<Identity> for StoredIdentity {
-    fn from(identity: Identity) -> Self {
+impl From<&Identity> for StoredIdentity {
+    fn from(identity: &Identity) -> Self {
         StoredIdentity {
-            account_address: identity.account_address,
+            account_address: identity.account_address.clone(),
             installation_keys: db_serialize(&identity.installation_keys).unwrap(),
             credential_bytes: db_serialize(&identity.credential).unwrap(),
             rowid: None,
@@ -50,12 +50,12 @@ impl From<Identity> for StoredIdentity {
     }
 }
 
-impl Into<Identity> for StoredIdentity {
-    fn into(self) -> Identity {
+impl From<StoredIdentity> for Identity {
+    fn from(identity: StoredIdentity) -> Self {
         Identity {
-            account_address: self.account_address,
-            installation_keys: db_deserialize(&self.installation_keys).unwrap(),
-            credential: db_deserialize(&self.credential_bytes).unwrap(),
+            account_address: identity.account_address,
+            installation_keys: db_deserialize(&identity.installation_keys).unwrap(),
+            credential: db_deserialize(&identity.credential_bytes).unwrap(),
         }
     }
 }

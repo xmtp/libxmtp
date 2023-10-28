@@ -24,6 +24,7 @@ pub struct WelcomeMessage {
 
 type KeyPackageMap = HashMap<Vec<u8>, Vec<u8>>;
 
+#[derive(Debug)]
 pub struct ApiClientWrapper<ApiClient> {
     api_client: ApiClient,
 }

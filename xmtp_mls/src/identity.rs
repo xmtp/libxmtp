@@ -16,10 +16,10 @@ use xmtp_cryptography::signature::SignatureError;
 use crate::{
     association::{AssociationError, AssociationText, Eip191Association},
     configuration::CIPHERSUITE,
-    storage::StorageError,
+    storage::{EncryptedMessageStore, StorageError, StoredIdentity},
     types::Address,
     xmtp_openmls_provider::XmtpOpenMlsProvider,
-    InboxOwner,
+    InboxOwner, Store,
 };
 use xmtp_proto::xmtp::v3::message_contents::Eip191Association as Eip191AssociationProto;
 
@@ -37,6 +37,7 @@ pub enum IdentityError {
     KeyPackageGenerationError(#[from] KeyPackageNewError<StorageError>),
 }
 
+#[derive(Debug)]
 pub struct Identity {
     pub(crate) account_address: Address,
     pub(crate) installation_keys: SignatureKeyPair,
@@ -45,6 +46,7 @@ pub struct Identity {
 
 impl Identity {
     pub(crate) fn new(
+        store: &EncryptedMessageStore,
         provider: &XmtpOpenMlsProvider,
         owner: &impl InboxOwner,
     ) -> Result<Self, IdentityError> {
@@ -68,14 +70,16 @@ impl Identity {
             },
         )?;
 
-        // TODO: persist identity
-        // TODO: upload credential_with_key and last_resort_key_package
-
-        Ok(Self {
+        let identity = Self {
             account_address: owner.get_address(),
             installation_keys: signature_keys,
             credential,
-        })
+        };
+        StoredIdentity::from(&identity).store(&mut store.conn()?)?;
+
+        // TODO: upload credential_with_key and last_resort_key_package
+
+        Ok(identity)
     }
 
     pub(crate) fn new_key_package(
@@ -128,8 +132,10 @@ mod tests {
 
     #[test]
     fn does_not_error() {
+        let store = EncryptedMessageStore::default();
         Identity::new(
-            &XmtpOpenMlsProvider::new(&EncryptedMessageStore::default()),
+            &store,
+            &XmtpOpenMlsProvider::new(&store),
             &generate_local_wallet(),
         )
         .unwrap();

@@ -8,6 +8,7 @@ use crate::{
     configuration::KEY_PACKAGE_TOP_UP_AMOUNT,
     identity::Identity,
     storage::{EncryptedMessageStore, StorageError},
+    types::Address,
     xmtp_openmls_provider::XmtpOpenMlsProvider,
 };
 
@@ -49,10 +50,11 @@ impl From<&str> for ClientError {
     }
 }
 
+#[derive(Debug)]
 pub struct Client<ApiClient> {
     pub api_client: ApiClientWrapper<ApiClient>,
     pub(crate) _network: Network,
-    pub(crate) _identity: Identity,
+    pub(crate) identity: Identity,
     pub store: EncryptedMessageStore, // Temporarily exposed outside crate for CLI client
 }
 
@@ -69,7 +71,7 @@ where
         Self {
             api_client: ApiClientWrapper::new(api_client),
             _network: network,
-            _identity: identity,
+            identity,
             store,
         }
     }
@@ -81,7 +83,7 @@ where
 
     pub(crate) async fn register_identity(&self) -> Result<(), ClientError> {
         // TODO: Mark key package as last_resort in creation
-        let last_resort_kp = self._identity.new_key_package(&self.mls_provider())?;
+        let last_resort_kp = self.identity.new_key_package(&self.mls_provider())?;
         let last_resort_kp_bytes = last_resort_kp.tls_serialize_detached()?;
 
         self.api_client
@@ -95,7 +97,7 @@ where
         let key_packages: Result<Vec<Vec<u8>>, ClientError> = (0..KEY_PACKAGE_TOP_UP_AMOUNT)
             .into_iter()
             .map(|_| -> Result<Vec<u8>, ClientError> {
-                let kp = self._identity.new_key_package(&self.mls_provider())?;
+                let kp = self.identity.new_key_package(&self.mls_provider())?;
                 let kp_bytes = kp.tls_serialize_detached()?;
 
                 Ok(kp_bytes)
@@ -106,22 +108,34 @@ where
 
         Ok(())
     }
+
+    pub fn account_address(&self) -> Address {
+        self.identity.account_address.clone()
+    }
+
+    pub fn installation_public_key(&self) -> Vec<u8> {
+        self.identity.installation_keys.to_public_vec()
+    }
 }
 
 #[cfg(test)]
-mod test {
+mod tests {
+    use xmtp_cryptography::utils::generate_local_wallet;
+
     use crate::builder::ClientBuilder;
 
     #[tokio::test]
     async fn test_register_installation() {
-        let client = ClientBuilder::new_test().await.build().unwrap();
+        let wallet = generate_local_wallet();
+        let client = ClientBuilder::new_test_client(wallet.into()).await;
         let res = client.register_identity().await;
         assert!(res.is_ok());
     }
 
     #[tokio::test]
     async fn top_up_key_packages() {
-        let client = ClientBuilder::new_test().await.build().unwrap();
+        let wallet = generate_local_wallet();
+        let client = ClientBuilder::new_test_client(wallet.into()).await;
         client.register_identity().await.unwrap();
 
         let res = client.top_up_key_packages().await;

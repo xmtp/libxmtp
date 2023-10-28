@@ -88,11 +88,11 @@ impl EncryptedMessageStore {
             StorageOption::Ephemeral => Pool::builder()
                 .max_size(1)
                 .build(ConnectionManager::<SqliteConnection>::new(":memory:"))
-                .map_err(|e| StorageError::DbInitError(e.to_string()))?,
+                .map_err(|e| StorageError::DbInit(e.to_string()))?,
             StorageOption::Persistent(ref path) => Pool::builder()
                 .max_size(10)
                 .build(ConnectionManager::<SqliteConnection>::new(path))
-                .map_err(|e| StorageError::DbInitError(e.to_string()))?,
+                .map_err(|e| StorageError::DbInit(e.to_string()))?,
         };
 
         // // Setup SqlCipherKey
@@ -116,7 +116,7 @@ impl EncryptedMessageStore {
         let conn = &mut self.conn()?;
 
         conn.run_pending_migrations(MIGRATIONS)
-            .map_err(|e| StorageError::DbInitError(e.to_string()))?;
+            .map_err(|e| StorageError::DbInit(e.to_string()))?;
 
         Ok(())
     }
@@ -127,7 +127,7 @@ impl EncryptedMessageStore {
         let conn = self
             .pool
             .get()
-            .map_err(|e| StorageError::PoolError(e.to_string()))?;
+            .map_err(|e| StorageError::Pool(e.to_string()))?;
 
         Ok(conn)
     }
@@ -136,9 +136,7 @@ impl EncryptedMessageStore {
         pool: Pool<ConnectionManager<SqliteConnection>>,
         encryption_key: &[u8; 32],
     ) -> Result<(), StorageError> {
-        let conn = &mut pool
-            .get()
-            .map_err(|e| StorageError::PoolError(e.to_string()))?;
+        let conn = &mut pool.get().map_err(|e| StorageError::Pool(e.to_string()))?;
 
         conn.batch_execute(&format!(
             "PRAGMA key = \"x'{}'\";",
@@ -291,10 +289,10 @@ mod tests {
         enc_key[3] = 145; // Alter the enc_key
         let res = EncryptedMessageStore::new(StorageOption::Persistent(db_path.clone()), enc_key);
         // Ensure it fails
-        match res.err() {
-            Some(StorageError::DbInitError(_)) => (),
-            _ => panic!("Expected a DbInitError"),
-        }
+        assert!(
+            matches!(res.err(), Some(StorageError::DbInit(_))),
+            "Expected DbInitError"
+        );
         fs::remove_file(db_path).unwrap();
     }
 
