@@ -542,7 +542,7 @@ mod tests {
         let topic = "topic";
         let start_time_ns = 10;
         // Set expectation for first request with no cursor
-        mock_api.expect_query().returning(move |req| {
+        mock_api.expect_query().times(1).returning(move |req| {
             assert_eq!(req.content_topics[0], topic);
 
             Ok(QueryResponse {
