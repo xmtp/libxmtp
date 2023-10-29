@@ -93,7 +93,7 @@ pub struct ClientBuilder<ApiClient, Owner> {
     identity_strategy: IdentityStrategy<Owner>,
 }
 
-impl<'a, ApiClient, Owner> ClientBuilder<ApiClient, Owner>
+impl<ApiClient, Owner> ClientBuilder<ApiClient, Owner>
 where
     ApiClient: XmtpApiClient + XmtpMlsClient,
     Owner: InboxOwner,
