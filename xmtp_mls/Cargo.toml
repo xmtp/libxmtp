@@ -43,6 +43,7 @@ xmtp_proto = { path = "../xmtp_proto", features = ["proto_full"] }
 tls_codec = "0.3.0"
 
 [dev-dependencies]
+mockall = "0.11.4"
 rand = "0.8.5"
 tempfile = "3.5.0"
 xmtp_api_grpc = { path = "../xmtp_api_grpc" }

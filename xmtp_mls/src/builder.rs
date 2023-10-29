@@ -1,4 +1,3 @@
-use crate::configuration::CIPHERSUITE;
 use crate::storage::StoredIdentity;
 use crate::xmtp_openmls_provider::XmtpOpenMlsProvider;
 use crate::{
@@ -187,16 +186,6 @@ mod tests {
         let client = ClientBuilder::new_test_client(wallet.into()).await;
         assert!(client.account_address() == format!("{address:#020x}"));
         assert!(!client.installation_public_key().is_empty());
-    }
-
-    #[tokio::test]
-    async fn test_mls() {
-        let client = ClientBuilder::new_test_client(generate_local_wallet().into()).await;
-        let result = client.api_client.register_installation(vec![1, 2, 3]).await;
-
-        assert!(result.is_err());
-        let error_string = result.err().unwrap().to_string();
-        assert!(error_string.contains("invalid identity"));
     }
 
     #[tokio::test]

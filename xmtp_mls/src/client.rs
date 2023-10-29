@@ -1,14 +1,17 @@
+use std::collections::HashSet;
+
 use openmls::prelude::TlsSerializeTrait;
 use thiserror::Error;
 use tls_codec::Error as TlsSerializationError;
 use xmtp_proto::api_client::{XmtpApiClient, XmtpMlsClient};
 
 use crate::{
-    api_client_wrapper::ApiClientWrapper,
+    api_client_wrapper::{ApiClientWrapper, IdentityUpdate},
     configuration::KEY_PACKAGE_TOP_UP_AMOUNT,
     identity::Identity,
     storage::{EncryptedMessageStore, StorageError},
     types::Address,
+    verified_key_package::{KeyPackageVerificationError, VerifiedKeyPackage},
     xmtp_openmls_provider::XmtpOpenMlsProvider,
 };
 
@@ -34,6 +37,8 @@ pub enum ClientError {
     Identity(#[from] crate::identity::IdentityError),
     #[error("serialization error: {0}")]
     Serialization(#[from] TlsSerializationError),
+    #[error("key package verification: {0}")]
+    KeyPackageVerification(#[from] KeyPackageVerificationError),
     #[error("generic:{0}")]
     Generic(String),
 }
@@ -81,7 +86,7 @@ where
         XmtpOpenMlsProvider::new(&self.store)
     }
 
-    pub(crate) async fn register_identity(&self) -> Result<(), ClientError> {
+    pub async fn register_identity(&self) -> Result<(), ClientError> {
         // TODO: Mark key package as last_resort in creation
         let last_resort_kp = self.identity.new_key_package(&self.mls_provider())?;
         let last_resort_kp_bytes = last_resort_kp.tls_serialize_detached()?;
@@ -109,6 +114,67 @@ where
         Ok(())
     }
 
+    async fn get_all_active_installation_ids(
+        &self,
+        wallet_addresses: Vec<String>,
+    ) -> Result<Vec<Vec<u8>>, ClientError> {
+        let update_mapping = self
+            .api_client
+            .get_identity_updates(0, wallet_addresses)
+            .await?;
+
+        let mut installation_ids: Vec<Vec<u8>> = vec![];
+
+        for (_, updates) in update_mapping {
+            let mut tmp: HashSet<Vec<u8>> = HashSet::new();
+            for update in updates {
+                match update {
+                    IdentityUpdate::Invalid => {}
+                    IdentityUpdate::NewInstallation(new_installation) => {
+                        // TODO: Validate credential
+                        tmp.insert(new_installation.installation_id);
+                    }
+                    IdentityUpdate::RevokeInstallation(revoke_installation) => {
+                        tmp.remove(&revoke_installation.installation_id);
+                    }
+                }
+            }
+            installation_ids.extend(tmp);
+        }
+
+        Ok(installation_ids)
+    }
+
+    // Get a flat list of one key package per installation for all the wallet addresses provided.
+    // Revoked installations will be omitted from the list
+    pub async fn get_key_packages_for_wallet_addresses(
+        &self,
+        wallet_addresses: Vec<String>,
+    ) -> Result<Vec<VerifiedKeyPackage>, ClientError> {
+        let installation_ids = self
+            .get_all_active_installation_ids(wallet_addresses)
+            .await?;
+
+        let key_package_results = self
+            .api_client
+            .consume_key_packages(installation_ids)
+            .await?;
+
+        let mut out: Vec<VerifiedKeyPackage> = vec![];
+        let mls_provider = self.mls_provider();
+
+        for kp_bytes in key_package_results.values() {
+            // Do we actually want to return errors here or should we just log them and move on?
+            // These key packages are validated by the node, so all should be valid
+            out.push(VerifiedKeyPackage::from_bytes(
+                &mls_provider,
+                kp_bytes.as_slice(),
+            )?)
+        }
+
+        Ok(out)
+    }
+
     pub fn account_address(&self) -> Address {
         self.identity.account_address.clone()
     }
@@ -122,23 +188,62 @@ where
 mod tests {
     use xmtp_cryptography::utils::generate_local_wallet;
 
-    use crate::builder::ClientBuilder;
+    use crate::{builder::ClientBuilder, InboxOwner};
+
+    #[tokio::test]
+    async fn test_mls_error() {
+        let client = ClientBuilder::new_test_client(generate_local_wallet().into()).await;
+        let result = client.api_client.register_installation(vec![1, 2, 3]).await;
+
+        assert!(result.is_err());
+        let error_string = result.err().unwrap().to_string();
+        assert!(error_string.contains("invalid identity"));
+    }
 
     #[tokio::test]
     async fn test_register_installation() {
         let wallet = generate_local_wallet();
-        let client = ClientBuilder::new_test_client(wallet.into()).await;
-        let res = client.register_identity().await;
-        assert!(res.is_ok());
+        let client = ClientBuilder::new_test_client(wallet.clone().into()).await;
+        client.register_identity().await.unwrap();
+
+        // Make sure the installation is actually on the network
+        let installation_ids = client
+            .get_all_active_installation_ids(vec![wallet.get_address()])
+            .await
+            .unwrap();
+        assert_eq!(installation_ids.len(), 1);
     }
 
     #[tokio::test]
-    async fn top_up_key_packages() {
+    async fn test_top_up_key_packages() {
         let wallet = generate_local_wallet();
-        let client = ClientBuilder::new_test_client(wallet.into()).await;
-        client.register_identity().await.unwrap();
+        let wallet_address = wallet.get_address();
 
-        let res = client.top_up_key_packages().await;
-        assert!(res.is_ok());
+        println!("Wallet address {:?}", wallet_address);
+        let client = ClientBuilder::new_test_client(wallet.clone().into()).await;
+        client.register_identity().await.unwrap();
+        client.top_up_key_packages().await.unwrap();
+
+        let key_packages = client
+            .get_key_packages_for_wallet_addresses(vec![wallet_address.clone()])
+            .await
+            .unwrap();
+
+        assert_eq!(key_packages.len(), 1);
+
+        let key_package = key_packages.first().unwrap();
+        assert_eq!(key_package.wallet_address, wallet_address);
+
+        let key_packages_2 = client
+            .get_key_packages_for_wallet_addresses(vec![wallet_address.clone()])
+            .await
+            .unwrap();
+
+        assert_eq!(key_packages_2.len(), 1);
+
+        // Ensure we got back different key packages
+        let key_package_2 = key_packages_2.first().unwrap();
+        assert_eq!(key_package_2.wallet_address, wallet_address);
+        assert!(!(key_package_2.eq(&key_package)));
     }
 }

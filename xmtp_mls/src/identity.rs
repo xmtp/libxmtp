@@ -5,10 +5,7 @@ use openmls::{
     versions::ProtocolVersion,
 };
 use openmls_basic_credential::SignatureKeyPair;
-use openmls_traits::{
-    types::{Ciphersuite, CryptoError},
-    OpenMlsProvider,
-};
+use openmls_traits::{types::CryptoError, OpenMlsProvider};
 use prost::Message;
 use thiserror::Error;
 use xmtp_cryptography::signature::SignatureError;
