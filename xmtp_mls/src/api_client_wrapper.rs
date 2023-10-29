@@ -373,6 +373,7 @@ mod tests {
         let mut mock_api = MockApiClient::new();
         let start_time_ns = 12;
         let wallet_addresses = vec!["wallet1".to_string(), "wallet2".to_string()];
+        // wallet_addresses gets moved below but needs to be used for assertions later
         let wallet_addresses_clone = wallet_addresses.clone();
         mock_api
             .expect_get_identity_updates()
