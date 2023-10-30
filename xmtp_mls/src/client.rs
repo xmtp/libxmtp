@@ -159,19 +159,13 @@ where
             .consume_key_packages(installation_ids)
             .await?;
 
-        let mut out: Vec<VerifiedKeyPackage> = vec![];
         let mls_provider = self.mls_provider();
 
-        for kp_bytes in key_package_results.values() {
-            // Do we actually want to return errors here or should we just log them and move on?
-            // These key packages are validated by the node, so all should be valid
-            out.push(VerifiedKeyPackage::from_bytes(
-                &mls_provider,
-                kp_bytes.as_slice(),
-            )?)
-        }
-
-        Ok(out)
+        Ok(key_package_results
+            .values()
+            .into_iter()
+            .map(|bytes| VerifiedKeyPackage::from_bytes(&mls_provider, bytes.as_slice()))
+            .collect::<Result<_, _>>()?)
     }
 
     pub fn account_address(&self) -> Address {
