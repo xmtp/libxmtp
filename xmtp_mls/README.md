@@ -6,12 +6,10 @@ Foreign key constraints and indexes omitted for simplicity.
 
 ```sql
 -- Would be a table that only holds a single identity (your own)
-CREATE TABLE identities {
-    id TEXT PRIMARY KEY NOT NULL, -- The installation_id of the identity
-    signature_keypair BLOB NOT NULL,
-    "credential" BLOB NOT NULL,
-    created_at_ns BIGINT NOT NULL,
-    wallet_address TEXT NOT NULL,
+CREATE TABLE identity {
+    account_address TEXT NOT NULL,
+    installation_keys BLOB NOT NULL,
+    credential_bytes BLOB NOT NULL,
 }
 
 -- Minimum viable group schema
