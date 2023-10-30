@@ -4,7 +4,7 @@ use openmls_traits::key_store::{MlsEntity, OpenMlsKeyStore};
 use crate::{Delete, Fetch, Store};
 
 use super::{
-    encrypted_store::models::StoredKeyStoreEntry,
+    encrypted_store::key_store::StoredKeyStoreEntry,
     serialization::{db_deserialize, db_serialize},
     EncryptedMessageStore, StorageError,
 };

@@ -1,5 +1,5 @@
 use crate::configuration::CIPHERSUITE;
-use crate::storage::StoredIdentity;
+use crate::storage::identity::StoredIdentity;
 use crate::xmtp_openmls_provider::XmtpOpenMlsProvider;
 use crate::{
     client::{Client, Network},

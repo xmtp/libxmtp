@@ -15,7 +15,7 @@ use xmtp_cryptography::signature::SignatureError;
 
 use crate::{
     association::{AssociationError, AssociationText, Eip191Association},
-    storage::{EncryptedMessageStore, StorageError, StoredIdentity},
+    storage::{identity::StoredIdentity, EncryptedMessageStore, StorageError},
     types::Address,
     xmtp_openmls_provider::XmtpOpenMlsProvider,
     InboxOwner, Store,
