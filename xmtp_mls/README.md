@@ -28,6 +28,8 @@ CREATE TABLE group_messages (
     "decrypted_message_bytes" BLOB NOT NULL,
     -- Based on the timestamp of the message
     "sent_at_ns" BIGINT NOT NULL,
+    -- Enum GROUP_MESSAGE_KIND
+    "kind" INT NOT NULL,
     -- Could remove this if we added a table mapping installation_ids to wallet addresses
     "sender_installation_id" BLOB NOT NULL,
     "sender_wallet_address" TEXT NOT NULL,
@@ -103,6 +105,12 @@ CREATE INDEX outbound_welcome_messages_commit_hash ON outbound_welcome_messages(
 - PENDING // Needs to wait for commit to be applied before sending
 - READY_TO_SEND
 - SENT // Messages may be deleted at this point. We may decide to remove this state altogether.
+
+### GROUP_MESSAGE_KIND
+
+- APPLICATION
+- MEMBER_ADDED
+- MEMBER_REMOVED
 
 ## State Machine
 
