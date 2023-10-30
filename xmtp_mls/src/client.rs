@@ -100,7 +100,6 @@ where
 
     pub async fn top_up_key_packages(&self) -> Result<(), ClientError> {
         let key_packages: Result<Vec<Vec<u8>>, ClientError> = (0..KEY_PACKAGE_TOP_UP_AMOUNT)
-            .into_iter()
             .map(|_| -> Result<Vec<u8>, ClientError> {
                 let kp = self.identity.new_key_package(&self.mls_provider())?;
                 let kp_bytes = kp.tls_serialize_detached()?;
