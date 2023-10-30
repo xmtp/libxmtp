@@ -99,6 +99,9 @@ The [following diagram](https://app.excalidraw.com/s/4nwb0c8ork7/6pPH1kQDoj3) il
 
 - Key updates
 - Processing incoming welcome messages
+- Tracking group membership at the account/user level
+- Permissioning for adding/removing accounts/users
+- Mechanism for syncing installations under each account/user
 
 ### Add members to a group
 
