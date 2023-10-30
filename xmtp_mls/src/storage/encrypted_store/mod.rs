@@ -14,6 +14,10 @@
 pub mod models;
 pub mod schema;
 
+use crate::{Delete, Fetch, Store};
+
+use self::{models::*, schema::*};
+
 use super::StorageError;
 use diesel::{
     connection::SimpleConnection,
@@ -52,7 +56,7 @@ pub fn ignore_unique_violation<T>(
 }
 
 #[allow(dead_code)]
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 /// Manages a Sqlite db for persisting messages and other objects.
 pub struct EncryptedMessageStore {
     connect_opt: StorageOption,
@@ -84,11 +88,11 @@ impl EncryptedMessageStore {
             StorageOption::Ephemeral => Pool::builder()
                 .max_size(1)
                 .build(ConnectionManager::<SqliteConnection>::new(":memory:"))
-                .map_err(|e| StorageError::DbInitError(e.to_string()))?,
+                .map_err(|e| StorageError::DbInit(e.to_string()))?,
             StorageOption::Persistent(ref path) => Pool::builder()
                 .max_size(10)
                 .build(ConnectionManager::<SqliteConnection>::new(path))
-                .map_err(|e| StorageError::DbInitError(e.to_string()))?,
+                .map_err(|e| StorageError::DbInit(e.to_string()))?,
         };
 
         // // Setup SqlCipherKey
@@ -112,7 +116,7 @@ impl EncryptedMessageStore {
         let conn = &mut self.conn()?;
 
         conn.run_pending_migrations(MIGRATIONS)
-            .map_err(|e| StorageError::DbInitError(e.to_string()))?;
+            .map_err(|e| StorageError::DbInit(e.to_string()))?;
 
         Ok(())
     }
@@ -123,7 +127,7 @@ impl EncryptedMessageStore {
         let conn = self
             .pool
             .get()
-            .map_err(|e| StorageError::PoolError(e.to_string()))?;
+            .map_err(|e| StorageError::Pool(e.to_string()))?;
 
         Ok(conn)
     }
@@ -132,9 +136,7 @@ impl EncryptedMessageStore {
         pool: Pool<ConnectionManager<SqliteConnection>>,
         encryption_key: &[u8; 32],
     ) -> Result<(), StorageError> {
-        let conn = &mut pool
-            .get()
-            .map_err(|e| StorageError::PoolError(e.to_string()))?;
+        let conn = &mut pool.get().map_err(|e| StorageError::Pool(e.to_string()))?;
 
         conn.batch_execute(&format!(
             "PRAGMA key = \"x'{}'\";",
@@ -163,8 +165,155 @@ fn warn_length<T>(list: &Vec<T>, str_id: &str, max_length: usize) {
     }
 }
 
+impl Store<DbConnection> for StoredKeyStoreEntry {
+    fn store(&self, into: &mut DbConnection) -> Result<(), StorageError> {
+        diesel::insert_into(openmls_key_store::table)
+            .values(self)
+            .execute(into)?;
+
+        Ok(())
+    }
+}
+
+impl Fetch<StoredKeyStoreEntry> for DbConnection {
+    type Key = Vec<u8>;
+    fn fetch(&mut self, key: Vec<u8>) -> Result<Option<StoredKeyStoreEntry>, StorageError> where {
+        use self::schema::openmls_key_store::dsl::*;
+        Ok(openmls_key_store.find(key).first(self).optional()?)
+    }
+}
+
+impl Delete<StoredKeyStoreEntry> for DbConnection {
+    type Key = Vec<u8>;
+    fn delete(&mut self, key: Vec<u8>) -> Result<usize, StorageError> where {
+        use self::schema::openmls_key_store::dsl::*;
+        Ok(diesel::delete(openmls_key_store.filter(key_bytes.eq(key))).execute(self)?)
+    }
+}
+
+impl Store<DbConnection> for StoredIdentity {
+    fn store(&self, into: &mut DbConnection) -> Result<(), StorageError> {
+        diesel::insert_into(identity::table)
+            .values(self)
+            .execute(into)?;
+        Ok(())
+    }
+}
+
+impl Fetch<StoredIdentity> for DbConnection {
+    type Key = ();
+    fn fetch(&mut self, _key: ()) -> Result<Option<StoredIdentity>, StorageError> where {
+        use self::schema::identity::dsl::*;
+        Ok(identity.first(self).optional()?)
+    }
+}
+
 #[cfg(test)]
 mod tests {
+    use super::{models::*, EncryptedMessageStore, StorageError, StorageOption};
+    use crate::{Fetch, Store};
+    use rand::{
+        distributions::{Alphanumeric, DistString},
+        Rng,
+    };
+    use std::boxed::Box;
+    use std::fs;
+
+    fn rand_string() -> String {
+        Alphanumeric.sample_string(&mut rand::thread_rng(), 16)
+    }
+
+    fn rand_vec() -> Vec<u8> {
+        rand::thread_rng().gen::<[u8; 16]>().to_vec()
+    }
+
+    #[test]
+    fn ephemeral_store() {
+        let store = EncryptedMessageStore::new(
+            StorageOption::Ephemeral,
+            EncryptedMessageStore::generate_enc_key(),
+        )
+        .unwrap();
+        let conn = &mut store.conn().unwrap();
+
+        let account_address = "address";
+        StoredIdentity::new(account_address.to_string(), rand_vec(), rand_vec())
+            .store(conn)
+            .unwrap();
+
+        let fetched_identity: StoredIdentity = conn.fetch(()).unwrap().unwrap();
+        assert_eq!(fetched_identity.account_address, account_address);
+    }
+
+    #[test]
+    fn persistent_store() {
+        let db_path = format!("{}.db3", rand_string());
+        {
+            let store = EncryptedMessageStore::new(
+                StorageOption::Persistent(db_path.clone()),
+                EncryptedMessageStore::generate_enc_key(),
+            )
+            .unwrap();
+            let conn = &mut store.conn().unwrap();
+
+            let account_address = "address";
+            StoredIdentity::new(account_address.to_string(), rand_vec(), rand_vec())
+                .store(conn)
+                .unwrap();
+
+            let fetched_identity: StoredIdentity = conn.fetch(()).unwrap().unwrap();
+            assert_eq!(fetched_identity.account_address, account_address);
+        }
+
+        fs::remove_file(db_path).unwrap();
+    }
+
+    #[test]
+    fn mismatched_encryption_key() {
+        let mut enc_key = [1u8; 32];
+
+        let db_path = format!("{}.db3", rand_string());
+        {
+            // Setup a persistent store
+            let store = EncryptedMessageStore::new(
+                StorageOption::Persistent(db_path.clone()),
+                enc_key.clone(),
+            )
+            .unwrap();
+
+            StoredIdentity::new("dummy_address".to_string(), rand_vec(), rand_vec())
+                .store(&mut store.conn().unwrap())
+                .unwrap();
+        } // Drop it
+
+        enc_key[3] = 145; // Alter the enc_key
+        let res = EncryptedMessageStore::new(StorageOption::Persistent(db_path.clone()), enc_key);
+        // Ensure it fails
+        assert!(
+            matches!(res.err(), Some(StorageError::DbInit(_))),
+            "Expected DbInitError"
+        );
+        fs::remove_file(db_path).unwrap();
+    }
+
+    #[test]
+    fn can_only_store_one_identity() {
+        let store = EncryptedMessageStore::new(
+            StorageOption::Ephemeral,
+            EncryptedMessageStore::generate_enc_key(),
+        )
+        .unwrap();
+        let conn = &mut store.conn().unwrap();
+
+        StoredIdentity::new("".to_string(), rand_vec(), rand_vec())
+            .store(conn)
+            .unwrap();
+
+        let duplicate_insertion =
+            StoredIdentity::new("".to_string(), rand_vec(), rand_vec()).store(conn);
+        assert!(duplicate_insertion.is_err());
+    }
+
     #[test]
     fn it_returns_ok_when_given_ok_result() {
         let result: Result<(), diesel::result::Error> = Ok(());

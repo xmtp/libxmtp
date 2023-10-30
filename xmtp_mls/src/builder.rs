@@ -1,13 +1,17 @@
 use crate::configuration::CIPHERSUITE;
+use crate::storage::StoredIdentity;
 use crate::xmtp_openmls_provider::XmtpOpenMlsProvider;
-use crate::StorageError;
 use crate::{
     client::{Client, Network},
     identity::{Identity, IdentityError},
     storage::EncryptedMessageStore,
-    types::Address,
     InboxOwner,
 };
+use crate::{Fetch, StorageError};
+#[cfg(not(test))]
+use log::debug;
+#[cfg(test)]
+use std::println as debug;
 use thiserror::Error;
 use xmtp_proto::api_client::{XmtpApiClient, XmtpMlsClient};
 
@@ -37,14 +41,39 @@ pub enum ClientBuilderError {
 
 pub enum IdentityStrategy<Owner> {
     CreateIfNotFound(Owner),
-    CachedOnly(Address),
+    CachedOnly,
     #[cfg(test)]
     ExternalIdentity(Identity),
 }
 
-impl<Owner> From<String> for IdentityStrategy<Owner> {
-    fn from(value: String) -> Self {
-        IdentityStrategy::CachedOnly(value)
+impl<Owner> IdentityStrategy<Owner>
+where
+    Owner: InboxOwner,
+{
+    fn initialize_identity(
+        self,
+        store: &EncryptedMessageStore,
+        provider: &XmtpOpenMlsProvider,
+    ) -> Result<Identity, ClientBuilderError> {
+        let identity_option: Option<Identity> =
+            store.conn()?.fetch(())?.map(|i: StoredIdentity| i.into());
+        debug!("Existing identity in store: {:?}", identity_option);
+        match self {
+            IdentityStrategy::CachedOnly => {
+                identity_option.ok_or(ClientBuilderError::RequiredIdentityNotFound)
+            }
+            IdentityStrategy::CreateIfNotFound(owner) => match identity_option {
+                Some(identity) => {
+                    if identity.account_address != owner.get_address() {
+                        return Err(ClientBuilderError::StoredIdentityMismatch);
+                    }
+                    Ok(identity)
+                }
+                None => Ok(Identity::new(store, CIPHERSUITE, provider, &owner)?),
+            },
+            #[cfg(test)]
+            IdentityStrategy::ExternalIdentity(identity) => Ok(identity),
+        }
     }
 }
 
@@ -107,52 +136,130 @@ where
             .ok_or(ClientBuilderError::MissingParameter {
                 parameter: "api_client",
             })?;
+        let network = self.network;
         let store = self.store.take().unwrap_or_default();
-        // Fetch the Identity based upon the identity strategy.
-        let identity = match self.identity_strategy {
-            IdentityStrategy::CachedOnly(_) => {
-                // TODO: persistence/retrieval
-                unimplemented!()
-            }
-            IdentityStrategy::CreateIfNotFound(owner) => {
-                // TODO: persistence/retrieval
-                Identity::new(CIPHERSUITE, &XmtpOpenMlsProvider::default(), &owner)?
-            }
-            #[cfg(test)]
-            IdentityStrategy::ExternalIdentity(a) => a,
-        };
-        Ok(Client::new(api_client, self.network, identity, store))
+        let provider = XmtpOpenMlsProvider::new(&store);
+        let identity = self
+            .identity_strategy
+            .initialize_identity(&store, &provider)?;
+        Ok(Client::new(api_client, network, identity, store))
     }
 }
 
 #[cfg(test)]
 mod tests {
 
-    use ethers::signers::LocalWallet;
+    use ethers::signers::{LocalWallet, Signer, Wallet};
+    use ethers_core::k256::ecdsa::SigningKey;
+    use tempfile::TempPath;
     use xmtp_api_grpc::grpc_api_helper::Client as GrpcClient;
     use xmtp_cryptography::utils::generate_local_wallet;
 
-    use super::ClientBuilder;
+    use crate::{
+        storage::{EncryptedMessageStore, StorageOption},
+        Client,
+    };
+
+    use super::{ClientBuilder, IdentityStrategy};
+
+    async fn get_local_grpc_client() -> GrpcClient {
+        GrpcClient::create("http://localhost:5556".to_string(), false)
+            .await
+            .unwrap()
+    }
 
     impl ClientBuilder<GrpcClient, LocalWallet> {
-        pub async fn new_test() -> Self {
-            let wallet = generate_local_wallet();
-            let grpc_client = GrpcClient::create("http://localhost:5556".to_string(), false)
-                .await
-                .unwrap();
+        pub async fn local_grpc(self) -> Self {
+            self.api_client(get_local_grpc_client().await)
+        }
 
-            Self::new(wallet.into()).api_client(grpc_client)
+        pub async fn new_test_client(
+            strat: IdentityStrategy<Wallet<SigningKey>>,
+        ) -> Client<GrpcClient> {
+            Self::new(strat).local_grpc().await.build().unwrap()
         }
     }
 
     #[tokio::test]
-    async fn test_mls() {
-        let client = ClientBuilder::new_test().await.build().unwrap();
+    async fn builder_test() {
+        let wallet = generate_local_wallet();
+        let address = wallet.address();
+        let client = ClientBuilder::new_test_client(wallet.into()).await;
+        assert!(client.account_address() == format!("{address:#020x}"));
+        assert!(!client.installation_public_key().is_empty());
+    }
 
+    #[tokio::test]
+    async fn test_mls() {
+        let client = ClientBuilder::new_test_client(generate_local_wallet().into()).await;
         let result = client.api_client.register_installation(&[1, 2, 3]).await;
 
         assert!(result.is_err());
         let error_string = result.err().unwrap().to_string();
         assert!(error_string.contains("invalid identity"));
+    }
+
+    #[tokio::test]
+    async fn identity_persistence_test() {
+        let tmpdb = TempPath::from_path("./db.db3")
+            .to_str()
+            .unwrap()
+            .to_string();
+        let wallet = generate_local_wallet();
+
+        // Generate a new Wallet + Store
+        let store_a =
+            EncryptedMessageStore::new_unencrypted(StorageOption::Persistent(tmpdb.clone()))
+                .unwrap();
+
+        let client_a = ClientBuilder::new(wallet.clone().into())
+            .local_grpc()
+            .await
+            .store(store_a)
+            .build()
+            .unwrap();
+        let keybytes_a = client_a.installation_public_key();
+        drop(client_a);
+
+        // Reload the existing store and wallet
+        let store_b =
+            EncryptedMessageStore::new_unencrypted(StorageOption::Persistent(tmpdb.clone()))
+                .unwrap();
+
+        let client_b = ClientBuilder::new(wallet.clone().into())
+            .local_grpc()
+            .await
+            .store(store_b)
+            .build()
+            .unwrap();
+        let keybytes_b = client_b.installation_public_key();
+        drop(client_b);
+
+        // Ensure the persistence was used to store the generated keys
+        assert_eq!(keybytes_a, keybytes_b);
+
+        // Create a new wallet and store
+        let store_c =
+            EncryptedMessageStore::new_unencrypted(StorageOption::Persistent(tmpdb.clone()))
+                .unwrap();
+
+        ClientBuilder::new(generate_local_wallet().into())
+            .local_grpc()
+            .await
+            .store(store_c)
+            .build()
+            .expect_err("Testing expected mismatch error");
+
+        // Use cached only strategy
+        let store_d =
+            EncryptedMessageStore::new_unencrypted(StorageOption::Persistent(tmpdb.clone()))
+                .unwrap();
+        let client_d = ClientBuilder::new(IdentityStrategy::CachedOnly)
+            .local_grpc()
+            .await
+            .store(store_d)
+            .build()
+            .unwrap();
+        assert_eq!(client_d.installation_public_key(), keybytes_a);
     }
 }

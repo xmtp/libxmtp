@@ -11,7 +11,7 @@ path = "src/bin/update-schema.rs"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [features]
-default = ["types"]
+default = ["types", "native"]
 types = []
 grpc = ["xmtp_proto/grpc"]
 native = ["libsqlite3-sys/bundled-sqlcipher-vendored-openssl"]
@@ -36,7 +36,7 @@ ethers-core = "2.0.4"
 prost = { version = "0.11", features = ["prost-derive"] }
 futures = "0.3.28"
 base64 = "0.21.1"
-tokio = "1.28.1"
+tokio = { version = "1.28.1", features = ["rt", "macros"] }
 anyhow = "1.0.71"
 
 [dev-dependencies]

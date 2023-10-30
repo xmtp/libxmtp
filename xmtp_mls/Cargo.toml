@@ -10,7 +10,14 @@ path = "src/bin/update-schema.rs"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
+[features]
+default = ["types", "native"]
+types = []
+grpc = ["xmtp_proto/grpc"]
+native = ["libsqlite3-sys/bundled-sqlcipher-vendored-openssl"]
+
 [dependencies]
+anyhow = "1.0.71"
 async-trait = "0.1.68"
 diesel = { version = "2.0.4", features = ["sqlite", "r2d2", "returning_clauses_for_sqlite_3_35"] }
 diesel_migrations = { version = "2.0.0", features = ["sqlite"] }
@@ -33,8 +40,8 @@ tokio = { version = "1.28.1", features = ["macros"]  }
 toml = "0.7.4"
 xmtp_cryptography = { path = "../xmtp_cryptography"}
 xmtp_proto = { path = "../xmtp_proto", features = ["proto_full"] }
-anyhow = "1.0.71"
 
 [dev-dependencies]
+rand = "0.8.5"
 tempfile = "3.5.0"
 xmtp_api_grpc = { path = "../xmtp_api_grpc" }

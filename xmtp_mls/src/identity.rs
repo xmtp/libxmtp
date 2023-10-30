@@ -15,9 +15,10 @@ use xmtp_cryptography::signature::SignatureError;
 
 use crate::{
     association::{AssociationError, AssociationText, Eip191Association},
-    storage::StorageError,
+    storage::{EncryptedMessageStore, StorageError, StoredIdentity},
+    types::Address,
     xmtp_openmls_provider::XmtpOpenMlsProvider,
-    InboxOwner,
+    InboxOwner, Store,
 };
 use xmtp_proto::xmtp::v3::message_contents::Eip191Association as Eip191AssociationProto;
 
@@ -35,14 +36,16 @@ pub enum IdentityError {
     KeyPackageGenerationError(#[from] KeyPackageNewError<StorageError>),
 }
 
-#[derive(serde::Serialize, serde::Deserialize)]
+#[derive(Debug)]
 pub struct Identity {
-    pub(crate) credential_with_key: CredentialWithKey,
-    pub(crate) signer: SignatureKeyPair,
+    pub(crate) account_address: Address,
+    pub(crate) installation_keys: SignatureKeyPair,
+    pub(crate) credential: Credential,
 }
 
 impl Identity {
     pub(crate) fn new(
+        store: &EncryptedMessageStore,
         ciphersuite: Ciphersuite,
         provider: &XmtpOpenMlsProvider,
         owner: &impl InboxOwner,
@@ -50,7 +53,7 @@ impl Identity {
         let signature_keys = SignatureKeyPair::new(ciphersuite.signature_algorithm())?;
         signature_keys.store(provider.key_store())?;
 
-        let credential_with_key = Identity::create_credential(&signature_keys, owner)?;
+        let credential = Identity::create_credential(&signature_keys, owner)?;
 
         // The builder automatically stores it in the key store
         // TODO: Make OpenMLS not delete this once used
@@ -61,39 +64,41 @@ impl Identity {
             },
             provider,
             &signature_keys,
-            credential_with_key.clone(),
+            CredentialWithKey {
+                credential: credential.clone(),
+                signature_key: signature_keys.to_public_vec().into(),
+            },
         )?;
 
-        // TODO: persist identity
+        let identity = Self {
+            account_address: owner.get_address(),
+            installation_keys: signature_keys,
+            credential,
+        };
+        StoredIdentity::from(&identity).store(&mut store.conn()?)?;
+
         // TODO: upload credential_with_key and last_resort_key_package
 
-        Ok(Self {
-            credential_with_key,
-            signer: signature_keys,
-        })
+        Ok(identity)
     }
 
     fn create_credential(
-        signature_keys: &SignatureKeyPair,
+        installation_keys: &SignatureKeyPair,
         owner: &impl InboxOwner,
-    ) -> Result<CredentialWithKey, IdentityError> {
+    ) -> Result<Credential, IdentityError> {
         // Generate association
         let assoc_text = AssociationText::Static {
             blockchain_address: owner.get_address(),
-            installation_public_key: signature_keys.to_public_vec(),
+            installation_public_key: installation_keys.to_public_vec(),
         };
         let signature = owner.sign(&assoc_text.text())?;
-        let association = Eip191Association::new(signature_keys.public(), assoc_text, signature)?;
+        let association =
+            Eip191Association::new(installation_keys.public(), assoc_text, signature)?;
         // TODO wrap in a Credential proto to allow flexibility for different association types
         let association_proto: Eip191AssociationProto = association.into();
 
         // Serialize into credential
-        let credential =
-            Credential::new(association_proto.encode_to_vec(), CredentialType::Basic).unwrap();
-        Ok(CredentialWithKey {
-            credential,
-            signature_key: signature_keys.to_public_vec().into(),
-        })
+        Ok(Credential::new(association_proto.encode_to_vec(), CredentialType::Basic).unwrap())
     }
 }
 
@@ -101,15 +106,19 @@ impl Identity {
 mod tests {
     use xmtp_cryptography::utils::generate_local_wallet;
 
-    use crate::{configuration::CIPHERSUITE, xmtp_openmls_provider::XmtpOpenMlsProvider};
+    use crate::{
+        configuration::CIPHERSUITE, storage::EncryptedMessageStore,
+        xmtp_openmls_provider::XmtpOpenMlsProvider,
+    };
 
     use super::Identity;
 
     #[test]
     fn does_not_error() {
         Identity::new(
+            &EncryptedMessageStore::default(),
             CIPHERSUITE,
-            &XmtpOpenMlsProvider::default(),
+            &XmtpOpenMlsProvider::new(&EncryptedMessageStore::default()),
             &generate_local_wallet(),
         )
         .unwrap();

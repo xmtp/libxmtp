@@ -54,6 +54,7 @@ fn get_tls_connector() -> HttpsConnector<HttpConnector> {
         .service(http)
 }
 
+#[derive(Debug)]
 pub enum InnerApiClient {
     Plain(MessageApiClient<Channel>),
     Tls(
@@ -63,6 +64,7 @@ pub enum InnerApiClient {
     ),
 }
 
+#[derive(Debug)]
 pub enum InnerMlsClient {
     Plain(ProtoMlsApiClient<Channel>),
     Tls(
@@ -72,6 +74,7 @@ pub enum InnerMlsClient {
     ),
 }
 
+#[derive(Debug)]
 pub struct Client {
     client: InnerApiClient,
     mls_client: InnerMlsClient,
