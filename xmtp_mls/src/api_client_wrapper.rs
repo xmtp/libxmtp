@@ -28,7 +28,7 @@ pub struct ApiClientWrapper<ApiClient> {
 
 impl<ApiClient> ApiClientWrapper<ApiClient>
 where
-    ApiClient: XmtpMlsClient,
+    ApiClient: XmtpMlsClient + XmtpApiClient,
 {
     pub fn new(api_client: ApiClient) -> Self {
         Self { api_client }
