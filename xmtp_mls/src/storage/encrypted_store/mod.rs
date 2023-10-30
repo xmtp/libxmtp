@@ -20,10 +20,6 @@ pub mod outbound_welcome_message;
 pub mod schema;
 pub mod topic_refresh_state;
 
-use crate::{Delete, Fetch, Store};
-
-use self::{models::*, schema::*};
-
 use super::StorageError;
 use diesel::{
     connection::SimpleConnection,
@@ -168,49 +164,6 @@ fn warn_length<T>(list: &Vec<T>, str_id: &str, max_length: usize) {
             str_id,
             list.len()
         )
-    }
-}
-
-impl Store<DbConnection> for StoredKeyStoreEntry {
-    fn store(&self, into: &mut DbConnection) -> Result<(), StorageError> {
-        diesel::insert_into(openmls_key_store::table)
-            .values(self)
-            .execute(into)?;
-
-        Ok(())
-    }
-}
-
-impl Fetch<StoredKeyStoreEntry> for DbConnection {
-    type Key = Vec<u8>;
-    fn fetch(&mut self, key: Vec<u8>) -> Result<Option<StoredKeyStoreEntry>, StorageError> where {
-        use self::schema::openmls_key_store::dsl::*;
-        Ok(openmls_key_store.find(key).first(self).optional()?)
-    }
-}
-
-impl Delete<StoredKeyStoreEntry> for DbConnection {
-    type Key = Vec<u8>;
-    fn delete(&mut self, key: Vec<u8>) -> Result<usize, StorageError> where {
-        use self::schema::openmls_key_store::dsl::*;
-        Ok(diesel::delete(openmls_key_store.filter(key_bytes.eq(key))).execute(self)?)
-    }
-}
-
-impl Store<DbConnection> for StoredIdentity {
-    fn store(&self, into: &mut DbConnection) -> Result<(), StorageError> {
-        diesel::insert_into(identity::table)
-            .values(self)
-            .execute(into)?;
-        Ok(())
-    }
-}
-
-impl Fetch<StoredIdentity> for DbConnection {
-    type Key = ();
-    fn fetch(&mut self, _key: ()) -> Result<Option<StoredIdentity>, StorageError> where {
-        use self::schema::identity::dsl::*;
-        Ok(identity.first(self).optional()?)
     }
 }
 
