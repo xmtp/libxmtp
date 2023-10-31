@@ -69,7 +69,7 @@ CREATE TABLE outbound_welcome_messages (
     "state" INT NOT NULL,
     "installation_id" BLOB NOT NULL,
     -- The hash of the commit message which created this welcome
-    "commit_hash" BLOB NOT NULL,
+    "message_hash" BLOB NOT NULL,
     -- The group this welcome belongs to
     "group_id" BLOB NOT NULL,
     "welcome_message" BLOB NOT NULL,
