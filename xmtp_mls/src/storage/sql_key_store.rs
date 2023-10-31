@@ -1,5 +1,6 @@
 use log::{debug, error};
 use openmls_traits::key_store::{MlsEntity, OpenMlsKeyStore};
+use std::borrow::Cow;
 
 use crate::{Delete, Fetch, Store};
 
@@ -10,19 +11,22 @@ use super::{
 };
 
 #[derive(Debug)]
+/// CRUD Operations for an [`EncryptedMessageStore`]
 pub struct SqlKeyStore<'a> {
-    store: &'a EncryptedMessageStore,
+    store: Cow<'a, EncryptedMessageStore>,
 }
 
 impl Default for SqlKeyStore<'_> {
     fn default() -> Self {
-        unimplemented!()
+        Self {
+            store: Cow::Owned(EncryptedMessageStore::default())
+        }
     }
 }
 
 impl<'a> SqlKeyStore<'a> {
     pub fn new(store: &'a EncryptedMessageStore) -> Self {
-        SqlKeyStore { store }
+        SqlKeyStore { store: Cow::Borrowed(store) }
     }
 }
 

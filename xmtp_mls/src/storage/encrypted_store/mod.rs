@@ -1,11 +1,11 @@
 //! A durable object store powered by Sqlite and Diesel.
 //!
-//! Provides mechanism to store objects between sessions. The behavor of the store can be tailored by
+//! Provides mechanism to store objects between sessions. The behavior of the store can be tailored by
 //! choosing an appropriate `StoreOption`.
 //!
 //! ## Migrations
 //!
-//! Table definitions are located `<PacakgeRoot>/migrations/`. On intialization the store will see if
+//! Table definitions are located `<PackageRoot>/migrations/`. On initialization the store will see if
 //! there are any outstanding database migrations and perform them as needed. When updating the table
 //! definitions `schema.rs` must also be updated. To generate the correct schemas you can run
 //! `diesel print-schema` or use `cargo run update-schema` which will update the files for you.      
@@ -68,7 +68,7 @@ pub struct EncryptedMessageStore {
 impl Default for EncryptedMessageStore {
     fn default() -> Self {
         Self::new(StorageOption::Ephemeral, Self::generate_enc_key())
-            .expect("Error Occured: tring to create default Ephemeral store")
+            .expect("Error Occurred: trying to create default Ephemeral store")
     }
 }
 
