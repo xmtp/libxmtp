@@ -169,8 +169,8 @@ macro_rules! impl_fetch_and_store {
         }
 
         impl Fetch<$model> for DbConnection {
-            type Key = $key;
-            fn fetch(&mut self, key: Self::Key) -> Result<Option<$model>, StorageError> {
+            type Key = ();
+            fn fetch(&mut self, _key: Self::Key) -> Result<Option<$model>, StorageError> {
                 use super::schema::$table::dsl::*;
                 Ok($table.first(self).optional()?)
             }

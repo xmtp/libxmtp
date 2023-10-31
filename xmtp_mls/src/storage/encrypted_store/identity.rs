@@ -2,7 +2,7 @@ use super::{schema::identity, DbConnection, StorageError};
 use crate::{
     identity::Identity,
     storage::serialization::{db_deserialize, db_serialize},
-    Fetch, Store,
+    Fetch, Store, impl_fetch_and_store
 };
 use diesel::prelude::*;
 
