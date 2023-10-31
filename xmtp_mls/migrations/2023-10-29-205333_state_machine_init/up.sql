@@ -14,8 +14,8 @@ CREATE INDEX groups_membership_state ON groups(membership_state);
 
 -- Successfully processed messages meant to be returned to the user
 CREATE TABLE group_messages (
-    "id" BLOB PRIMARY KEY NOT NULL,
     -- Derived via SHA256(CONCAT(decrypted_message_bytes, conversation_id, timestamp))
+    "id" BLOB PRIMARY KEY NOT NULL,
     "group_id" BLOB NOT NULL,
     -- Message contents after decryption
     "decrypted_message_bytes" BLOB NOT NULL,
@@ -62,7 +62,7 @@ CREATE TABLE outbound_welcome_messages (
     "state" INT NOT NULL,
     "installation_id" BLOB NOT NULL,
     -- The hash of the commit message which created this welcome
-    "commit_hash" BLOB NOT NULL,
+    "message_hash" BLOB NOT NULL,
     -- The group this welcome belongs to
     "group_id" BLOB NOT NULL,
     "welcome_message" BLOB NOT NULL,
