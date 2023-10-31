@@ -11,6 +11,5 @@ pub struct StoredGroup {
     pub membership_state: i32,
 }
 
-
 impl_fetch_and_store!(StoredGroup, groups, Vec<u8>);
 

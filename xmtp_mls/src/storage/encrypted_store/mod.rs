@@ -21,6 +21,7 @@ pub mod schema;
 pub mod topic_refresh_state;
 
 use super::StorageError;
+use std::borrow::Cow;
 use diesel::{
     connection::SimpleConnection,
     prelude::*,
@@ -69,6 +70,12 @@ impl Default for EncryptedMessageStore {
     fn default() -> Self {
         Self::new(StorageOption::Ephemeral, Self::generate_enc_key())
             .expect("Error Occurred: trying to create default Ephemeral store")
+    }
+}
+
+impl<'a> From<&'a EncryptedMessageStore> for Cow<'a, EncryptedMessageStore> {
+    fn from(store: &'a EncryptedMessageStore) -> Cow<'a, EncryptedMessageStore> {
+        Cow::Borrowed(store)
     }
 }
 

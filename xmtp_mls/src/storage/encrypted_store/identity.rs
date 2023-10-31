@@ -6,6 +6,8 @@ use crate::{
 };
 use diesel::prelude::*;
 
+/// Identity of this installation
+/// There can only be one.
 #[derive(Insertable, Queryable, Debug, Clone)]
 #[diesel(table_name = identity)]
 pub struct StoredIdentity {
@@ -14,6 +16,8 @@ pub struct StoredIdentity {
     pub credential_bytes: Vec<u8>,
     rowid: Option<i32>,
 }
+
+impl_fetch_and_store!(StoredIdentity, identity);
 
 impl StoredIdentity {
     pub fn new(
@@ -50,8 +54,6 @@ impl From<StoredIdentity> for Identity {
         }
     }
 }
-
-impl_fetch_and_store!(StoredIdentity, identity);
 
 #[cfg(test)]
 mod tests {

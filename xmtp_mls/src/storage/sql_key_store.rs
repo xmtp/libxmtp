@@ -104,12 +104,9 @@ mod tests {
     #[test]
     fn store_read_delete() {
         let db_path = format!("{}.db3", rand_string());
+        let store = EncryptedMessageStore::new(StorageOption::Persistent(db_path), EncryptedMessageStore::generate_enc_key()).unwrap();
         let key_store = SqlKeyStore {
-            store: &EncryptedMessageStore::new(
-                StorageOption::Persistent(db_path),
-                EncryptedMessageStore::generate_enc_key(),
-            )
-            .unwrap(),
+            store: (&store).into(),
         };
         let signature_keys = SignatureKeyPair::new(CIPHERSUITE.signature_algorithm()).unwrap();
         let index = "index".as_bytes();
