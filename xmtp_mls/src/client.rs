@@ -211,6 +211,7 @@ mod tests {
         let wallet = generate_local_wallet();
         let wallet_address = wallet.get_address();
         let client = ClientBuilder::new_test_client(wallet.clone().into()).await;
+        
         client.register_identity().await.unwrap();
         client.top_up_key_packages().await.unwrap();
 

@@ -71,13 +71,11 @@ where
                 break;
             }
 
-            cursor = match result.paging_info.unwrap().cursor {
-                Some(cursor_wrapper) => match cursor_wrapper.cursor {
-                    Some(_) => Some(cursor_wrapper),
-                    None => None,
-                },
-                None => None,
-            };
+            cursor = result
+                .paging_info
+                .expect("Empty paging info")
+                .cursor
+                .map(|wrapper| wrapper);
 
             if cursor.is_none() {
                 break;
