@@ -195,10 +195,10 @@ where
         let mapping: IdentityUpdatesMap = result
             .updates
             .into_iter()
-            .enumerate()
-            .map(|(idx, update)| {
+            .zip(wallet_addresses.into_iter())
+            .map(|(update, wallet_address)| {
                 (
-                    wallet_addresses[idx].clone(),
+                    wallet_address,
                     update
                         .updates
                         .into_iter()

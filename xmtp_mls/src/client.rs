@@ -100,7 +100,6 @@ where
 
     pub async fn top_up_key_packages(&self) -> Result<(), ClientError> {
         let key_packages: Result<Vec<Vec<u8>>, ClientError> = (0..KEY_PACKAGE_TOP_UP_AMOUNT)
-            .into_iter()
             .map(|_| -> Result<Vec<u8>, ClientError> {
                 let kp = self.identity.new_key_package(&self.mls_provider())?;
                 let kp_bytes = kp.tls_serialize_detached()?;
@@ -160,19 +159,12 @@ where
             .consume_key_packages(installation_ids)
             .await?;
 
-        let mut out: Vec<VerifiedKeyPackage> = vec![];
         let mls_provider = self.mls_provider();
 
-        for kp_bytes in key_package_results.values() {
-            // Do we actually want to return errors here or should we just log them and move on?
-            // These key packages are validated by the node, so all should be valid
-            out.push(VerifiedKeyPackage::from_bytes(
-                &mls_provider,
-                kp_bytes.as_slice(),
-            )?)
-        }
-
-        Ok(out)
+        Ok(key_package_results
+            .values()
+            .map(|bytes| VerifiedKeyPackage::from_bytes(&mls_provider, bytes.as_slice()))
+            .collect::<Result<_, _>>()?)
     }
 
     pub fn account_address(&self) -> Address {
@@ -218,8 +210,6 @@ mod tests {
     async fn test_top_up_key_packages() {
         let wallet = generate_local_wallet();
         let wallet_address = wallet.get_address();
-
-        println!("Wallet address {:?}", wallet_address);
         let client = ClientBuilder::new_test_client(wallet.clone().into()).await;
         client.register_identity().await.unwrap();
         client.top_up_key_packages().await.unwrap();
