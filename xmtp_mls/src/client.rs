@@ -163,7 +163,6 @@ where
 
         Ok(key_package_results
             .values()
-            .into_iter()
             .map(|bytes| VerifiedKeyPackage::from_bytes(&mls_provider, bytes.as_slice()))
             .collect::<Result<_, _>>()?)
     }
