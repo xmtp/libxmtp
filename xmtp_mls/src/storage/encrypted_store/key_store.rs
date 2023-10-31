@@ -1,6 +1,6 @@
 use super::DbConnection;
 use super::{schema::openmls_key_store, StorageError};
-use crate::{Delete, Fetch, Store};
+use crate::{Delete, Fetch, Store, impl_fetch_and_store};
 use diesel::prelude::*;
 
 #[derive(Insertable, Queryable, Debug, Clone)]
@@ -11,23 +11,7 @@ pub struct StoredKeyStoreEntry {
     pub value_bytes: Vec<u8>,
 }
 
-impl Store<DbConnection> for StoredKeyStoreEntry {
-    fn store(&self, into: &mut DbConnection) -> Result<(), StorageError> {
-        diesel::insert_into(openmls_key_store::table)
-            .values(self)
-            .execute(into)?;
-
-        Ok(())
-    }
-}
-
-impl Fetch<StoredKeyStoreEntry> for DbConnection {
-    type Key = Vec<u8>;
-    fn fetch(&mut self, key: Vec<u8>) -> Result<Option<StoredKeyStoreEntry>, StorageError> where {
-        use super::schema::openmls_key_store::dsl::*;
-        Ok(openmls_key_store.find(key).first(self).optional()?)
-    }
-}
+impl_fetch_and_store!(StoredKeyStoreEntry, openmls_key_store, Vec<u8>);
 
 impl Delete<StoredKeyStoreEntry> for DbConnection {
     type Key = Vec<u8>;

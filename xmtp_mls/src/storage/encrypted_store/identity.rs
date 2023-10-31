@@ -51,22 +51,7 @@ impl From<StoredIdentity> for Identity {
     }
 }
 
-impl Store<DbConnection> for StoredIdentity {
-    fn store(&self, into: &mut DbConnection) -> Result<(), StorageError> {
-        diesel::insert_into(identity::table)
-            .values(self)
-            .execute(into)?;
-        Ok(())
-    }
-}
-
-impl Fetch<StoredIdentity> for DbConnection {
-    type Key = ();
-    fn fetch(&mut self, _key: ()) -> Result<Option<StoredIdentity>, StorageError> where {
-        use super::schema::identity::dsl::*;
-        Ok(identity.first(self).optional()?)
-    }
-}
+impl_fetch_and_store!(StoredIdentity, identity);
 
 #[cfg(test)]
 mod tests {

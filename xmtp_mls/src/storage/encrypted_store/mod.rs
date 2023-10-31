@@ -155,6 +155,49 @@ impl EncryptedMessageStore {
     }
 }
 
+#[macro_export]
+macro_rules! impl_fetch_and_store {
+    ($model:ty, $table:ident) => {
+        impl Store<DbConnection> for $model {
+            fn store(&self, into: &mut DbConnection) -> Result<(), StorageError> {
+                diesel::insert_into($table::table)
+                    .values(self)
+                    .execute(into)
+                    .map_err(|e| StorageError::from(e))?;
+                Ok(())
+            }
+        }
+
+        impl Fetch<$model> for DbConnection {
+            type Key = $key;
+            fn fetch(&mut self, key: Self::Key) -> Result<Option<$model>, StorageError> {
+                use super::schema::$table::dsl::*;
+                Ok($table.first(self).optional()?)
+            }
+        }
+    };
+
+    ($model:ty, $table:ident, $key:ty) => {
+        impl Store<DbConnection> for $model {
+            fn store(&self, into: &mut DbConnection) -> Result<(), StorageError> {
+                diesel::insert_into($table::table)
+                    .values(self)
+                    .execute(into)
+                    .map_err(|e| StorageError::from(e))?;
+                Ok(())
+            }
+        }
+
+        impl Fetch<$model> for DbConnection {
+            type Key = $key;
+            fn fetch(&mut self, key: Self::Key) -> Result<Option<$model>, StorageError> {
+                use super::schema::$table::dsl::*;
+                Ok($table.find(key).first(self).optional()?)
+            }
+        }
+    };
+}
+
 #[allow(dead_code)]
 fn warn_length<T>(list: &Vec<T>, str_id: &str, max_length: usize) {
     if list.len() > max_length {
