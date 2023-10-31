@@ -1,4 +1,4 @@
-use super::schema::groups;
+use super::{schema::groups, DbConnection};
 use crate::{Fetch, Store, storage::StorageError};
 use diesel::prelude::*;
 
@@ -12,16 +12,20 @@ pub struct StoredGroup {
 }
 
 
-impl<StorageConnection> Store<StorageConnection> for StoredGroup {
-    fn store(&self, _into: &mut StorageConnection) -> Result<(), StorageError> {
-        todo!();
+impl Store<DbConnection> for StoredGroup {
+    fn store(&self, into: &mut DbConnection) -> Result<(), StorageError> {
+        diesel::insert_into(groups::table)
+            .values(self)
+            .execute(into)?;
+        Ok(())
     }
 }
 
-impl<Model> Fetch<Model> for StoredGroup {
-    type Key = ();
-    fn fetch(&mut self, _key: Self::Key) -> Result<Option<Model>, StorageError> {
-        todo!();
+impl Fetch<StoredGroup> for DbConnection {
+    type Key = Vec<u8>;
+    fn fetch(&mut self, key: Self::Key) -> Result<Option<StoredGroup>, StorageError> {
+        use super::schema::groups::dsl::*;
+        Ok(groups.find(key).first(self).optional()?)
     }
 }
 
