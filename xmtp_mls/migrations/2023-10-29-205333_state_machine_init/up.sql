@@ -49,24 +49,10 @@ CREATE TABLE group_intents (
     -- INTENT_STATE,
     "state" INT NOT NULL,
     -- The hash of the encrypted, concrete, form of the message if it was published.
-    "message_hash" BLOB,
+    "payload_hash" BLOB,
+    -- (Optional) data needed for the post-commit flow. For example, welcome messages
+    "post_commit_data" BLOB,
     FOREIGN KEY (group_id) REFERENCES groups(id)
 );
 
 CREATE INDEX group_intents_group_id_id ON group_intents(group_id, id);
-
-CREATE TABLE outbound_welcome_messages (
-    -- Derived via SHA256(CONCAT(group_id, welcome_message, installation_id))
-    "id" BLOB PRIMARY KEY NOT NULL,
-    -- OUTBOUND_WELCOME_STATE
-    "state" INT NOT NULL,
-    "installation_id" BLOB NOT NULL,
-    -- The hash of the commit message which created this welcome
-    "message_hash" BLOB NOT NULL,
-    -- The group this welcome belongs to
-    "group_id" BLOB NOT NULL,
-    "welcome_message" BLOB NOT NULL,
-    FOREIGN KEY (group_id) REFERENCES groups(id)
-);
-
-CREATE INDEX outbound_welcome_messages_commit_hash ON outbound_welcome_messages(commit_hash, state);
