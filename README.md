@@ -252,7 +252,38 @@ val decodedConversation = containerAgain.decode(client)
 decodedConversation.send(text = "hi")
 ```
 
-### Handle different types of content
+### Cache conversations
+
+As a performance optimization, you may want to persist the list of conversations in your application outside of the SDK to speed up the first call to `client.conversations.list()`.
+
+The exported conversation list contains encryption keys for any V2 conversations included in the list. As such, you should treat it with the same care that you treat private keys.
+
+You can get a JSON serializable list of conversations by calling:
+
+```kotlin
+val client = Client().create(wallet)
+val conversations = client.conversations.export()
+saveConversationsSomewhere(JSON.stringify(conversations))
+// To load the conversations in a new SDK instance you can run:
+
+val client = Client.create(wallet)
+val conversations = JSON.parse(loadConversationsFromSomewhere())
+val client.importConversation(conversations)
+```
+
+## Request and respect user consent
+
+![Feature status](https://img.shields.io/badge/Feature_status-Alpha-orange)
+
+The user consent feature enables your app to request and respect user consent preferences. With this feature, another blockchain account address registered on the XMTP network can have one of three consent preference values:
+
+- Unknown
+- Allowed
+- Denied
+
+To learn more, see [Request and respect user consent](https://xmtp.org/docs/build/user-consent).
+
+## Handle different types of content
 
 All the send functions support `SendOptions` as an optional parameter. The `contentType` option allows specifying different types of content than the default simple string, which is identified with content type identifier `ContentTypeText`. 
 
@@ -274,11 +305,11 @@ As shown in the example above, you must provide a `contentFallback` value. Use i
 > **Caution**  
 > If you don't provide a `contentFallback` value, clients that don't support the content type will display an empty message. This results in a poor user experience and breaks interoperability.
 
-#### Handle custom content types
+### Handle custom content types
 
 Beyond this, custom codecs and content types may be proposed as interoperable standards through XRCs. To learn more about the custom content type proposal process, see [XIP-5](https://github.com/xmtp/XIPs/blob/main/XIPs/xip-5-message-content-types.md).
 
-### Compression
+## Compression
 
 Message content can be optionally compressed using the compression option. The value of the option is the name of the compression algorithm to use. Currently supported are gzip and deflate. Compression is applied to the bytes produced by the content codec.
 
@@ -286,25 +317,6 @@ Content will be decompressed transparently on the receiving end. Note that Clien
 
 ```kotlin
 conversation.send(text = '#'.repeat(1000), options = ClientOptions.Api(compression = EncodedContentCompression.GZIP))
-```
-
-### Cache conversations
-
-As a performance optimization, you may want to persist the list of conversations in your application outside of the SDK to speed up the first call to `client.conversations.list()`.
-
-The exported conversation list contains encryption keys for any V2 conversations included in the list. As such, you should treat it with the same care that you treat private keys.
-
-You can get a JSON serializable list of conversations by calling:
-
-```kotlin
-val client = Client().create(wallet)
-val conversations = client.conversations.export()
-saveConversationsSomewhere(JSON.stringify(conversations))
-// To load the conversations in a new SDK instance you can run:
-
-val client = Client.create(wallet)
-val conversations = JSON.parse(loadConversationsFromSomewhere())
-val client.importConversation(conversations)
 ```
 
 ## 🏗 Breaking revisions
