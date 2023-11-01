@@ -7,7 +7,8 @@ diesel::table! {
         group_id -> Binary,
         data -> Binary,
         state -> Integer,
-        message_hash -> Nullable<Binary>,
+        payload_hash -> Nullable<Binary>,
+        post_commit_data -> Nullable<Binary>,
     }
 }
 
@@ -17,6 +18,7 @@ diesel::table! {
         group_id -> Binary,
         decrypted_message_bytes -> Binary,
         sent_at_ns -> BigInt,
+        kind -> Integer,
         sender_installation_id -> Binary,
         sender_wallet_address -> Text,
     }
@@ -47,17 +49,6 @@ diesel::table! {
 }
 
 diesel::table! {
-    outbound_welcome_messages (id) {
-        id -> Binary,
-        state -> Integer,
-        installation_id -> Binary,
-        commit_hash -> Binary,
-        group_id -> Binary,
-        welcome_message -> Binary,
-    }
-}
-
-diesel::table! {
     topic_refresh_state (topic) {
         topic -> Text,
         last_message_timestamp_ns -> BigInt,
@@ -66,7 +57,6 @@ diesel::table! {
 
 diesel::joinable!(group_intents -> groups (group_id));
 diesel::joinable!(group_messages -> groups (group_id));
-diesel::joinable!(outbound_welcome_messages -> groups (group_id));
 
 diesel::allow_tables_to_appear_in_same_query!(
     group_intents,
@@ -74,6 +64,5 @@ diesel::allow_tables_to_appear_in_same_query!(
     groups,
     identity,
     openmls_key_store,
-    outbound_welcome_messages,
     topic_refresh_state,
 );
