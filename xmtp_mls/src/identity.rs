@@ -5,10 +5,7 @@ use openmls::{
     versions::ProtocolVersion,
 };
 use openmls_basic_credential::SignatureKeyPair;
-use openmls_traits::{
-    types::{Ciphersuite, CryptoError},
-    OpenMlsProvider,
-};
+use openmls_traits::{types::CryptoError, OpenMlsProvider};
 use prost::Message;
 use thiserror::Error;
 use xmtp_cryptography::signature::SignatureError;
@@ -46,11 +43,10 @@ pub struct Identity {
 impl Identity {
     pub(crate) fn new(
         store: &EncryptedMessageStore,
-        ciphersuite: Ciphersuite,
         provider: &XmtpOpenMlsProvider,
         owner: &impl InboxOwner,
     ) -> Result<Self, IdentityError> {
-        let signature_keys = SignatureKeyPair::new(ciphersuite.signature_algorithm())?;
+        let signature_keys = SignatureKeyPair::new(CIPHERSUITE.signature_algorithm())?;
         signature_keys.store(provider.key_store())?;
 
         let credential = Identity::create_credential(&signature_keys, owner)?;
@@ -59,7 +55,7 @@ impl Identity {
         // TODO: Make OpenMLS not delete this once used
         let _last_resort_key_package = KeyPackage::builder().build(
             CryptoConfig {
-                ciphersuite,
+                ciphersuite: CIPHERSUITE,
                 version: ProtocolVersion::default(),
             },
             provider,
@@ -80,6 +76,26 @@ impl Identity {
         // TODO: upload credential_with_key and last_resort_key_package
 
         Ok(identity)
+    }
+
+    pub(crate) fn new_key_package(
+        &self,
+        provider: &XmtpOpenMlsProvider,
+    ) -> Result<KeyPackage, IdentityError> {
+        let kp = KeyPackage::builder().build(
+            CryptoConfig {
+                ciphersuite: CIPHERSUITE,
+                version: ProtocolVersion::default(),
+            },
+            provider,
+            &self.installation_keys,
+            CredentialWithKey {
+                credential: self.credential.clone(),
+                signature_key: self.installation_keys.to_public_vec().into(),
+            },
+        )?;
+
+        Ok(kp)
     }
 
     fn create_credential(
@@ -106,19 +122,16 @@ impl Identity {
 mod tests {
     use xmtp_cryptography::utils::generate_local_wallet;
 
-    use crate::{
-        configuration::CIPHERSUITE, storage::EncryptedMessageStore,
-        xmtp_openmls_provider::XmtpOpenMlsProvider,
-    };
+    use crate::{storage::EncryptedMessageStore, xmtp_openmls_provider::XmtpOpenMlsProvider};
 
     use super::Identity;
 
     #[test]
     fn does_not_error() {
+        let store = EncryptedMessageStore::default();
         Identity::new(
-            &EncryptedMessageStore::default(),
-            CIPHERSUITE,
-            &XmtpOpenMlsProvider::new(&EncryptedMessageStore::default()),
+            &store,
+            &XmtpOpenMlsProvider::new(&store),
             &generate_local_wallet(),
         )
         .unwrap();
