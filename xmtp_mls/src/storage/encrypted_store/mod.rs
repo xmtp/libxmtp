@@ -11,12 +11,13 @@
 //! `diesel print-schema` or use `cargo run update-schema` which will update the files for you.      
 //!
 
-pub mod models;
+pub mod group;
+pub mod group_intent;
+pub mod group_message;
+pub mod identity;
+pub mod key_store_entry;
 pub mod schema;
-
-use crate::{Delete, Fetch, Store};
-
-use self::{models::*, schema::*};
+pub mod topic_refresh_state;
 
 use super::StorageError;
 use diesel::{
@@ -165,52 +166,9 @@ fn warn_length<T>(list: &Vec<T>, str_id: &str, max_length: usize) {
     }
 }
 
-impl Store<DbConnection> for StoredKeyStoreEntry {
-    fn store(&self, into: &mut DbConnection) -> Result<(), StorageError> {
-        diesel::insert_into(openmls_key_store::table)
-            .values(self)
-            .execute(into)?;
-
-        Ok(())
-    }
-}
-
-impl Fetch<StoredKeyStoreEntry> for DbConnection {
-    type Key = Vec<u8>;
-    fn fetch(&mut self, key: Vec<u8>) -> Result<Option<StoredKeyStoreEntry>, StorageError> where {
-        use self::schema::openmls_key_store::dsl::*;
-        Ok(openmls_key_store.find(key).first(self).optional()?)
-    }
-}
-
-impl Delete<StoredKeyStoreEntry> for DbConnection {
-    type Key = Vec<u8>;
-    fn delete(&mut self, key: Vec<u8>) -> Result<usize, StorageError> where {
-        use self::schema::openmls_key_store::dsl::*;
-        Ok(diesel::delete(openmls_key_store.filter(key_bytes.eq(key))).execute(self)?)
-    }
-}
-
-impl Store<DbConnection> for StoredIdentity {
-    fn store(&self, into: &mut DbConnection) -> Result<(), StorageError> {
-        diesel::insert_into(identity::table)
-            .values(self)
-            .execute(into)?;
-        Ok(())
-    }
-}
-
-impl Fetch<StoredIdentity> for DbConnection {
-    type Key = ();
-    fn fetch(&mut self, _key: ()) -> Result<Option<StoredIdentity>, StorageError> where {
-        use self::schema::identity::dsl::*;
-        Ok(identity.first(self).optional()?)
-    }
-}
-
 #[cfg(test)]
 mod tests {
-    use super::{models::*, EncryptedMessageStore, StorageError, StorageOption};
+    use super::{identity::StoredIdentity, EncryptedMessageStore, StorageError, StorageOption};
     use crate::{Fetch, Store};
     use rand::{
         distributions::{Alphanumeric, DistString},
@@ -219,11 +177,11 @@ mod tests {
     use std::boxed::Box;
     use std::fs;
 
-    fn rand_string() -> String {
+    pub(crate) fn rand_string() -> String {
         Alphanumeric.sample_string(&mut rand::thread_rng(), 16)
     }
 
-    fn rand_vec() -> Vec<u8> {
+    pub(crate) fn rand_vec() -> Vec<u8> {
         rand::thread_rng().gen::<[u8; 16]>().to_vec()
     }
 
@@ -294,24 +252,6 @@ mod tests {
             "Expected DbInitError"
         );
         fs::remove_file(db_path).unwrap();
-    }
-
-    #[test]
-    fn can_only_store_one_identity() {
-        let store = EncryptedMessageStore::new(
-            StorageOption::Ephemeral,
-            EncryptedMessageStore::generate_enc_key(),
-        )
-        .unwrap();
-        let conn = &mut store.conn().unwrap();
-
-        StoredIdentity::new("".to_string(), rand_vec(), rand_vec())
-            .store(conn)
-            .unwrap();
-
-        let duplicate_insertion =
-            StoredIdentity::new("".to_string(), rand_vec(), rand_vec()).store(conn);
-        assert!(duplicate_insertion.is_err());
     }
 
     #[test]

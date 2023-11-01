@@ -1,19 +1,10 @@
-use diesel::prelude::*;
-
+use super::{schema::identity, DbConnection, StorageError};
 use crate::{
     identity::Identity,
     storage::serialization::{db_deserialize, db_serialize},
+    Fetch, Store,
 };
-
-use super::schema::*;
-
-#[derive(Insertable, Queryable, Debug, Clone)]
-#[diesel(table_name = openmls_key_store)]
-#[diesel(primary_key(key_bytes))]
-pub struct StoredKeyStoreEntry {
-    pub key_bytes: Vec<u8>,
-    pub value_bytes: Vec<u8>,
-}
+use diesel::prelude::*;
 
 #[derive(Insertable, Queryable, Debug, Clone)]
 #[diesel(table_name = identity)]
@@ -57,5 +48,49 @@ impl From<StoredIdentity> for Identity {
             installation_keys: db_deserialize(&identity.installation_keys).unwrap(),
             credential: db_deserialize(&identity.credential_bytes).unwrap(),
         }
+    }
+}
+
+impl Store<DbConnection> for StoredIdentity {
+    fn store(&self, into: &mut DbConnection) -> Result<(), StorageError> {
+        diesel::insert_into(identity::table)
+            .values(self)
+            .execute(into)?;
+        Ok(())
+    }
+}
+
+impl Fetch<StoredIdentity> for DbConnection {
+    type Key = ();
+    fn fetch(&mut self, _key: ()) -> Result<Option<StoredIdentity>, StorageError> where {
+        use super::schema::identity::dsl::*;
+        Ok(identity.first(self).optional()?)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{
+        super::{tests::rand_vec, EncryptedMessageStore, StorageOption},
+        StoredIdentity,
+    };
+    use crate::Store;
+
+    #[test]
+    fn can_only_store_one_identity() {
+        let store = EncryptedMessageStore::new(
+            StorageOption::Ephemeral,
+            EncryptedMessageStore::generate_enc_key(),
+        )
+        .unwrap();
+        let conn = &mut store.conn().unwrap();
+
+        StoredIdentity::new("".to_string(), rand_vec(), rand_vec())
+            .store(conn)
+            .unwrap();
+
+        let duplicate_insertion =
+            StoredIdentity::new("".to_string(), rand_vec(), rand_vec()).store(conn);
+        assert!(duplicate_insertion.is_err());
     }
 }
