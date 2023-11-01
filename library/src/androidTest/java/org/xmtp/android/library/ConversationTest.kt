@@ -406,9 +406,11 @@ class ConversationTest {
         val messages2 = aliceConversation.messages(limit = 1, after = date)
         assertEquals(1, messages2.size)
         assertEquals("hey alice 1", messages2[0].body)
-        val messagesAsc = aliceConversation.messages(direction = MessageApiOuterClass.SortDirection.SORT_DIRECTION_ASCENDING)
+        val messagesAsc =
+            aliceConversation.messages(direction = MessageApiOuterClass.SortDirection.SORT_DIRECTION_ASCENDING)
         assertEquals("hey alice 1", messagesAsc[0].body)
-        val messagesDesc = aliceConversation.messages(direction = MessageApiOuterClass.SortDirection.SORT_DIRECTION_DESCENDING)
+        val messagesDesc =
+            aliceConversation.messages(direction = MessageApiOuterClass.SortDirection.SORT_DIRECTION_DESCENDING)
         assertEquals("hey alice 3", messagesDesc[0].body)
     }
 
@@ -723,11 +725,11 @@ class ConversationTest {
         assertTrue(isAllowed)
         assertTrue(bobClient.contacts.isAllowed(alice.walletAddress))
 
-        bobClient.contacts.block(listOf(alice.walletAddress))
+        bobClient.contacts.deny(listOf(alice.walletAddress))
         bobClient.contacts.refreshConsentList()
 
-        val isBlocked = bobConversation.consentState() == ConsentState.BLOCKED
-        assertTrue(isBlocked)
+        val isDenied = bobConversation.consentState() == ConsentState.DENIED
+        assertTrue(isDenied)
 
         val aliceConversation = aliceClient.conversations.list()[0]
         val isUnknown = aliceConversation.consentState() == ConsentState.UNKNOWN
@@ -749,5 +751,27 @@ class ConversationTest {
         val isBobAllowed2 = aliceConversation2.consentState() == ConsentState.ALLOWED
 
         assertTrue(isBobAllowed2)
+    }
+
+    @Test
+    fun testCanHaveImplicitConsentOnMessageSend() {
+        val bobConversation = bobClient.conversations.newConversation(alice.walletAddress, null)
+        val isAllowed = bobConversation.consentState() == ConsentState.ALLOWED
+
+        // Conversations you start should start as allowed
+        assertTrue(isAllowed)
+
+        val aliceConversation = aliceClient.conversations.list()[0]
+        val isUnknown = aliceConversation.consentState() == ConsentState.UNKNOWN
+
+        // Conversations you receive should start as unknown
+        assertTrue(isUnknown)
+
+        aliceConversation.send(content = "hey bob")
+        aliceClient.contacts.refreshConsentList()
+        val isNowAllowed = aliceConversation.consentState() == ConsentState.ALLOWED
+
+        // Conversations you send a message to get marked as allowed
+        assertTrue(isNowAllowed)
     }
 }

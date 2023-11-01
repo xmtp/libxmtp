@@ -119,6 +119,9 @@ data class ConversationV2(
 
     fun send(prepared: PreparedMessage): String {
         client.publish(envelopes = prepared.envelopes)
+        if (client.contacts.consentList.state(address = peerAddress) == ConsentState.UNKNOWN) {
+            client.contacts.allow(addresses = listOf(peerAddress))
+        }
         return prepared.messageId
     }
 

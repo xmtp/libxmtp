@@ -62,9 +62,9 @@ class ContactsTest {
 
         assert(!result)
 
-        contacts.block(listOf(fixtures.alice.walletAddress))
+        contacts.deny(listOf(fixtures.alice.walletAddress))
 
-        result = contacts.isBlocked(fixtures.alice.walletAddress)
+        result = contacts.isDenied(fixtures.alice.walletAddress)
         assert(result)
     }
 }

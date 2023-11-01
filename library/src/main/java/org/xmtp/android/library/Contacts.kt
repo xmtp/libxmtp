@@ -4,14 +4,16 @@ import kotlinx.coroutines.runBlocking
 import org.xmtp.android.library.messages.ContactBundle
 import org.xmtp.android.library.messages.ContactBundleBuilder
 import org.xmtp.android.library.messages.EnvelopeBuilder
+import org.xmtp.android.library.messages.Pagination
 import org.xmtp.android.library.messages.Topic
 import org.xmtp.android.library.messages.walletAddress
+import org.xmtp.proto.message.api.v1.MessageApiOuterClass
 import org.xmtp.proto.message.contents.PrivatePreferences.PrivatePreferencesAction
 import java.util.Date
 
 enum class ConsentState {
     ALLOWED,
-    BLOCKED,
+    DENIED,
     UNKNOWN
 }
 
@@ -50,7 +52,10 @@ class ConsentList(val client: Client) {
 
     @OptIn(ExperimentalUnsignedTypes::class)
     suspend fun load(): ConsentList {
-        val envelopes = client.query(Topic.preferenceList(identifier))
+        val envelopes = client.query(
+            Topic.preferenceList(identifier),
+            Pagination(direction = MessageApiOuterClass.SortDirection.SORT_DIRECTION_ASCENDING)
+        )
         val consentList = ConsentList(client)
         val preferences: MutableList<PrivatePreferencesAction> = mutableListOf()
 
@@ -68,12 +73,12 @@ class ConsentList(val client: Client) {
             )
         }
 
-        preferences.reversed().iterator().forEach { preference ->
+        preferences.iterator().forEach { preference ->
             preference.allow?.walletAddressesList?.forEach { address ->
                 consentList.allow(address)
             }
             preference.block?.walletAddressesList?.forEach { address ->
-                consentList.block(address)
+                consentList.deny(address)
             }
         }
 
@@ -88,7 +93,7 @@ class ConsentList(val client: Client) {
                     PrivatePreferencesAction.Allow.newBuilder().addWalletAddresses(entry.value)
                 )
 
-                ConsentState.BLOCKED -> it.setBlock(
+                ConsentState.DENIED -> it.setBlock(
                     PrivatePreferencesAction.Block.newBuilder().addWalletAddresses(entry.value)
                 )
 
@@ -117,10 +122,10 @@ class ConsentList(val client: Client) {
         return ConsentListEntry.address(address, ConsentState.ALLOWED)
     }
 
-    fun block(address: String): ConsentListEntry {
-        entries[ConsentListEntry.address(address).key] = ConsentState.BLOCKED
+    fun deny(address: String): ConsentListEntry {
+        entries[ConsentListEntry.address(address).key] = ConsentState.DENIED
 
-        return ConsentListEntry.address(address, ConsentState.BLOCKED)
+        return ConsentListEntry.address(address, ConsentState.DENIED)
     }
 
     fun state(address: String): ConsentState {
@@ -148,8 +153,8 @@ data class Contacts(
         return consentList.state(address) == ConsentState.ALLOWED
     }
 
-    fun isBlocked(address: String): Boolean {
-        return consentList.state(address) == ConsentState.BLOCKED
+    fun isDenied(address: String): Boolean {
+        return consentList.state(address) == ConsentState.DENIED
     }
 
     fun allow(addresses: List<String>) {
@@ -158,9 +163,9 @@ data class Contacts(
         }
     }
 
-    fun block(addresses: List<String>) {
+    fun deny(addresses: List<String>) {
         for (address in addresses) {
-            ConsentList(client).publish(consentList.block(address))
+            ConsentList(client).publish(consentList.deny(address))
         }
     }
 
