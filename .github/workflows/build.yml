@@ -5,7 +5,6 @@ on:
     branches:
       - main
 jobs:
-
   build:
     runs-on: ubuntu-latest
     strategy:
@@ -14,9 +13,9 @@ jobs:
         target: [
             # aarch64-unknown-linux-gnu,
             # x86_64-linux-android,
-            i686-linux-android,
+            # i686-linux-android,
             armv7-linux-androideabi,
-            aarch64-linux-android,
+            # aarch64-linux-android,
           ]
     steps:
       - name: Checkout
@@ -65,9 +64,9 @@ jobs:
       fail-fast: false
       matrix:
         target: [
-            aarch64-apple-darwin,
+            # aarch64-apple-darwin,
             aarch64-apple-ios,
-            aarch64-apple-ios-sim,
+            # aarch64-apple-ios-sim,
           ]
     steps:
       - name: Checkout
@@ -108,7 +107,7 @@ jobs:
         with:
           name: ${{ matrix.target }}
           path: bindings_ffi/target/${{ matrix.target }}/release/libxmtpv3.dylib
-          retention-days: 1        
+          retention-days: 1
 
   kotlin:
     runs-on: macos-latest
@@ -130,8 +129,8 @@ jobs:
           profile: minimal
           override: true
           target: x86_64-apple-darwin
-      - name : Install kotlin
-        run: brew install ktlint 
+      - name: Install kotlin
+        run: brew install ktlint
       - name: Generate Bindings
         working-directory: bindings_ffi
         run: ./gen_kotlin.sh
@@ -162,8 +161,8 @@ jobs:
           profile: minimal
           override: true
           target: x86_64-apple-darwin
-      - name : Install swift
-        run: brew install swiftformat 
+      - name: Install swift
+        run: brew install swiftformat
       - name: Generate bindings
         working-directory: bindings_ffi
         run: |
@@ -176,7 +175,7 @@ jobs:
           retention-days: 1
 
   package-android:
-    needs: [ build, kotlin ]
+    needs: [build, kotlin]
     runs-on: ubuntu-latest
     steps:
       - name: Download artifacts
@@ -201,7 +200,7 @@ jobs:
           path: libxmtp-android.zip
 
   package-swift:
-    needs: [ build-macos, swift ]
+    needs: [build-macos, swift]
     runs-on: macos-latest
     steps:
       - name: Checkout
@@ -223,4 +222,3 @@ jobs:
         with:
           name: libxmtp-swift.zip
           path: bindings_ffi/libxmtp-swift.zip
-        
