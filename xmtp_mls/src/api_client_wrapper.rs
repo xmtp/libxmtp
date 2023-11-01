@@ -49,7 +49,7 @@ where
         let mut out: Vec<Envelope> = vec![];
         let page_size = 100;
         loop {
-            let result = self
+            let mut result = self
                 .api_client
                 .query(QueryRequest {
                     content_topics: vec![topic.to_string()],
@@ -63,19 +63,14 @@ where
                 })
                 .await?;
 
-            for envelope in &result.envelopes {
-                out.push(envelope.clone());
-            }
+            let num_envelopes = result.envelopes.len();
+            out.append(&mut result.envelopes);
 
-            if result.envelopes.len() < page_size as usize || result.paging_info.is_none() {
+            if num_envelopes < page_size as usize || result.paging_info.is_none() {
                 break;
             }
 
-            cursor = result
-                .paging_info
-                .expect("Empty paging info")
-                .cursor
-                .map(|wrapper| wrapper);
+            cursor = result.paging_info.expect("Empty paging info").cursor;
 
             if cursor.is_none() {
                 break;
