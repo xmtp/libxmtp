@@ -204,6 +204,7 @@ mod tests {
         rand::thread_rng().gen::<[u8; 16]>().to_vec()
     }
 
+    /// Test harness that loads an Ephemeral store.
     pub fn with_store<F, R>(fun: F) -> R 
     where
         F: FnOnce(EncryptedMessageStore) -> R
@@ -327,5 +328,4 @@ mod tests {
             "Expected Err when given a non-database error"
         );
     }
-
 }

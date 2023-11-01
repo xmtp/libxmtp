@@ -1,8 +1,11 @@
+//! The Group database table. Stored information surrounding group membership and ID's.
+
 use super::schema::groups;
 use crate::impl_fetch_and_store;
 use diesel::prelude::*;
 use diesel::{backend::Backend, sqlite::Sqlite, serialize::{self, Output, ToSql, IsNull}, deserialize::{self, FromSql}, sql_types::Integer, expression::AsExpression};
 
+/// The Group ID type.
 pub type ID = Vec<u8>;
 
 #[derive(Insertable, Identifiable, Queryable, Debug, Clone, PartialEq)]
@@ -33,11 +36,13 @@ impl StoredGroup {
 #[diesel(sql_type = Integer)]
 /// Status of membership in a group, once a user sends a request to join
 pub enum GroupMembershipState {
+    /// User is allowed to interact with this Group
     Allowed = 1,
+    /// User has been Rejected from this Group
     Rejected = 2,
+    /// User is Pending acceptance to the Group
     Pending = 3,
 }
-
 
 impl ToSql<Integer, Sqlite> for GroupMembershipState 
 where
@@ -75,10 +80,12 @@ mod tests {
     fn it_stores_group() {
         with_store(|store| {
             let mut conn = store.conn().unwrap();
-            StoredGroup::new(vec![0x0], 100, GroupMembershipState::Allowed).store(&mut conn).unwrap();
+            let test_group = StoredGroup::new(vec![0x0], 100, GroupMembershipState::Allowed);
+            
+            test_group.store(&mut conn).unwrap();
             assert_eq!(
                 groups.first::<StoredGroup>(&mut conn).unwrap(), 
-                StoredGroup { id: vec![0x0], created_at_ns: 100, membership_state: GroupMembershipState::Allowed as i32 }
+                test_group 
             );
         })
     }
@@ -102,12 +109,11 @@ mod tests {
         with_store(|store| {
             let id = vec![0x0];
             let mut conn = store.conn().unwrap();
-            StoredGroup::new(id.clone(), 100, GroupMembershipState::Pending).store(&mut conn).unwrap();
+            let test_group = StoredGroup::new(id.clone(), 100, GroupMembershipState::Pending);
+            
+            test_group.store(&mut conn).unwrap();
             let updated_group = store.update_group_membership(&mut conn, id, GroupMembershipState::Rejected).unwrap();
-            assert_eq!(updated_group, StoredGroup { id: vec![0x0], created_at_ns: 100, membership_state: GroupMembershipState::Rejected as i32});
+            assert_eq!(updated_group, StoredGroup { membership_state: GroupMembershipState::Rejected as i32, ..test_group });
         })
     }
-
-    #[test]
-    fn it_should_
 }
