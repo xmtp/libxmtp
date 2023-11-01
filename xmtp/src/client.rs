@@ -94,11 +94,11 @@ impl<ApiClient> Client<ApiClient> {
     pub fn wallet_address(&self) -> Address {
         self.account.addr()
     }
-    
+
     pub fn installation_id(&self) -> String {
         self.account.contact().installation_id()
     }
-    
+
     pub fn get_session(
         &self,
         conn: &mut DbConnection,
@@ -181,7 +181,7 @@ impl<ApiClient> Client<ApiClient> {
 
 impl<ApiClient> Client<ApiClient>
 where
-    ApiClient: XmtpApiClient
+    ApiClient: XmtpApiClient,
 {
     pub async fn init(&mut self) -> Result<(), ClientError> {
         let app_contact_bundle = self.account.contact();
@@ -352,12 +352,9 @@ where
                 info!("Saving Install {}", install.installation_id);
                 let session = self.create_uninitialized_session(&install.get_contact()?)?;
 
+                self.store.insert_install(transaction_manager, install)?;
                 self.store
-                    .insert_install(transaction_manager, install)?;
-                self.store.insert_session(
-                    transaction_manager,
-                    StoredSession::try_from(&session)?,
-                )?;
+                    .insert_session(transaction_manager, StoredSession::try_from(&session)?)?;
             }
 
             self.store.update_user_refresh_timestamp(

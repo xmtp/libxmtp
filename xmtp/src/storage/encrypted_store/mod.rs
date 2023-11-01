@@ -16,7 +16,7 @@ pub mod schema;
 
 use self::{
     models::*,
-    schema::{accounts, conversations, installations, messages, refresh_jobs, users, sessions},
+    schema::{accounts, conversations, installations, messages, refresh_jobs, sessions, users},
 };
 use super::{now, StorageError};
 use crate::{account::Account, utils::is_wallet_address, Fetch, Store};
@@ -24,9 +24,10 @@ use diesel::{
     connection::SimpleConnection,
     prelude::*,
     r2d2::{ConnectionManager, Pool, PooledConnection},
-    sql_query,
-    sql_types::Text, result::DatabaseErrorKind,
+    result::DatabaseErrorKind,
     result::Error,
+    sql_query,
+    sql_types::Text,
 };
 use diesel_migrations::{embed_migrations, EmbeddedMigrations, MigrationHarness};
 use log::warn;
@@ -143,9 +144,7 @@ impl EncryptedMessageStore {
         pool: Pool<ConnectionManager<SqliteConnection>>,
         encryption_key: &[u8; 32],
     ) -> Result<(), StorageError> {
-        let conn = &mut pool
-            .get()
-            .map_err(|e| StorageError::Pool(e.to_string()))?;
+        let conn = &mut pool.get().map_err(|e| StorageError::Pool(e.to_string()))?;
 
         conn.batch_execute(&format!(
             "PRAGMA key = \"x'{}'\";",
@@ -291,9 +290,7 @@ impl EncryptedMessageStore {
         conn: &mut DbConnection,
         user: StoredUser,
     ) -> Result<(), StorageError> {
-        let result = diesel::insert_into(users::table)
-            .values(user)
-            .execute(conn);
+        let result = diesel::insert_into(users::table).values(user).execute(conn);
 
         ignore_unique_violation(result)
     }
@@ -320,7 +317,7 @@ impl EncryptedMessageStore {
             .values(conversation)
             .execute(conn);
 
-        ignore_unique_violation(result) 
+        ignore_unique_violation(result)
     }
 
     pub fn get_contacts(
@@ -447,7 +444,7 @@ impl EncryptedMessageStore {
             .values(install)
             .execute(conn);
 
-       ignore_unique_violation(result)  
+        ignore_unique_violation(result)
     }
 
     pub fn insert_session(
@@ -459,7 +456,7 @@ impl EncryptedMessageStore {
             .values(session)
             .execute(conn);
 
-       ignore_unique_violation(result)  
+        ignore_unique_violation(result)
     }
 
     pub fn insert_message(
@@ -471,7 +468,7 @@ impl EncryptedMessageStore {
             .values(msg)
             .execute(conn);
 
-        ignore_unique_violation(result)  
+        ignore_unique_violation(result)
     }
 
     pub fn commit_outbound_payloads_for_message(
@@ -766,9 +763,9 @@ mod tests {
         distributions::{Alphanumeric, DistString},
         Rng,
     };
+    use std::boxed::Box;
     use std::fs;
     use std::{thread::sleep, time::Duration};
-    use std::boxed::Box;
 
     fn rand_string() -> String {
         Alphanumeric.sample_string(&mut rand::thread_rng(), 16)
@@ -1149,27 +1146,45 @@ mod tests {
         assert_eq!(1, results_with_limit.len());
     }
 
-   #[test]
-   fn it_returns_ok_when_given_ok_result() {
-       let result: Result<(), diesel::result::Error> = Ok(());
-       assert!(super::ignore_unique_violation(result).is_ok(), "Expected Ok(()) when given Ok result");
-   }
+    #[test]
+    fn it_returns_ok_when_given_ok_result() {
+        let result: Result<(), diesel::result::Error> = Ok(());
+        assert!(
+            super::ignore_unique_violation(result).is_ok(),
+            "Expected Ok(()) when given Ok result"
+        );
+    }
 
-   #[test]
-   fn it_returns_ok_on_unique_violation_error() {
-       let result: Result<(),diesel::result::Error> = Err(diesel::result::Error::DatabaseError(diesel::result::DatabaseErrorKind::UniqueViolation, Box::new("violation".to_string())));
-       assert!(super::ignore_unique_violation(result).is_ok(), "Expected Ok(()) when given UniqueViolation error");
-   }
+    #[test]
+    fn it_returns_ok_on_unique_violation_error() {
+        let result: Result<(), diesel::result::Error> = Err(diesel::result::Error::DatabaseError(
+            diesel::result::DatabaseErrorKind::UniqueViolation,
+            Box::new("violation".to_string()),
+        ));
+        assert!(
+            super::ignore_unique_violation(result).is_ok(),
+            "Expected Ok(()) when given UniqueViolation error"
+        );
+    }
 
-   #[test]
-   fn it_returns_err_on_non_unique_violation_database_errors() {
-       let result: Result<(), diesel::result::Error> = Err(diesel::result::Error::DatabaseError(diesel::result::DatabaseErrorKind::NotNullViolation, Box::new("other kind".to_string())));
-       assert!(super::ignore_unique_violation(result).is_err(), "Expected Err when given non-UniqueViolation database error");
-   }
+    #[test]
+    fn it_returns_err_on_non_unique_violation_database_errors() {
+        let result: Result<(), diesel::result::Error> = Err(diesel::result::Error::DatabaseError(
+            diesel::result::DatabaseErrorKind::NotNullViolation,
+            Box::new("other kind".to_string()),
+        ));
+        assert!(
+            super::ignore_unique_violation(result).is_err(),
+            "Expected Err when given non-UniqueViolation database error"
+        );
+    }
 
-   #[test]
-   fn it_returns_err_on_non_database_errors() {
-       let result: Result<(), diesel::result::Error> = Err(diesel::result::Error::NotFound);
-       assert!(super::ignore_unique_violation(result).is_err(), "Expected Err when given a non-database error");
-   }
+    #[test]
+    fn it_returns_err_on_non_database_errors() {
+        let result: Result<(), diesel::result::Error> = Err(diesel::result::Error::NotFound);
+        assert!(
+            super::ignore_unique_violation(result).is_err(),
+            "Expected Err when given a non-database error"
+        );
+    }
 }

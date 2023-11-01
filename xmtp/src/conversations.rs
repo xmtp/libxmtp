@@ -192,9 +192,7 @@ impl<A: XmtpApiClient> Conversations<A> {
             payload.sent_at_ns,
         );
 
-        client
-            .store
-            .insert_message(conn, stored_message)?;
+        client.store.insert_message(conn, stored_message)?;
 
         Ok(())
     }

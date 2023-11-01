@@ -16,7 +16,4 @@ diesel::table! {
     }
 }
 
-diesel::allow_tables_to_appear_in_same_query!(
-    identity,
-    openmls_key_store,
-);
+diesel::allow_tables_to_appear_in_same_query!(identity, openmls_key_store,);

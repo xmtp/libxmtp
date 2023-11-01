@@ -27,7 +27,7 @@ pub enum ClientBuilderError {
 
     #[error("Associating an address to account failed")]
     AssociationFailed(#[from] AssociationError),
-    
+
     #[error("Error Initializing Account")]
     AccountInitialization(#[from] AccountError),
 
@@ -152,7 +152,12 @@ where
     }
 
     pub fn build(mut self) -> Result<Client<ApiClient>, ClientBuilderError> {
-        let api_client = self.api_client.take().ok_or(ClientBuilderError::MissingParameter { parameter: "api_client"})?;
+        let api_client = self
+            .api_client
+            .take()
+            .ok_or(ClientBuilderError::MissingParameter {
+                parameter: "api_client",
+            })?;
         let mut store = self.store.take().unwrap_or_default();
         // Fetch the Account based upon the account strategy.
         let account = match self.account_strategy {
@@ -197,8 +202,7 @@ mod tests {
         pub fn new_test() -> Self {
             let wallet = generate_local_wallet();
 
-            Self::new(wallet.into())
-                .api_client(MockXmtpApiClient::default())
+            Self::new(wallet.into()).api_client(MockXmtpApiClient::default())
         }
     }
 
