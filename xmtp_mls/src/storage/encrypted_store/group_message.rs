@@ -22,3 +22,4 @@ pub struct StoredGroupMessage {
 }
 
 impl_fetch_and_store!(StoredGroupMessage, group_messages, Vec<u8>);
+

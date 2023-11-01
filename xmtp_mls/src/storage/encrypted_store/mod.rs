@@ -15,8 +15,7 @@ pub mod group;
 pub mod group_intent;
 pub mod group_message;
 pub mod identity;
-pub mod key_store;
-pub mod outbound_welcome_message;
+pub mod key_store_entry;
 pub mod schema;
 pub mod topic_refresh_state;
 

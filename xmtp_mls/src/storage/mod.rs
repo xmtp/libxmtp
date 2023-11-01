@@ -4,8 +4,8 @@ mod serialization;
 pub mod sql_key_store;
 
 pub use encrypted_store::{
-    group_intent, group_message, identity, key_store, outbound_welcome_message,
-    topic_refresh_state, DbConnection, EncryptedMessageStore, EncryptionKey, StorageOption,
+    group_intent, group_message, identity, key_store_entry, topic_refresh_state, DbConnection,
+    EncryptedMessageStore, EncryptionKey, StorageOption,
 };
 pub use errors::StorageError;
 

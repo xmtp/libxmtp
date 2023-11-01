@@ -5,7 +5,7 @@ use std::borrow::Cow;
 use crate::{Delete, Fetch, Store};
 
 use super::{
-    encrypted_store::key_store::StoredKeyStoreEntry,
+    encrypted_store::key_store_entry::StoredKeyStoreEntry,
     serialization::{db_deserialize, db_serialize},
     EncryptedMessageStore, StorageError,
 };

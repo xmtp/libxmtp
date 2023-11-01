@@ -9,6 +9,7 @@ pub mod owner;
 mod proto_wrapper;
 pub mod storage;
 pub mod types;
+pub mod verified_key_package;
 mod xmtp_openmls_provider;
 
 pub use client::{Client, Network};

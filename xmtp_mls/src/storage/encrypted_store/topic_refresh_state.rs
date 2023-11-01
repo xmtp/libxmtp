@@ -1,5 +1,6 @@
 use super::schema::topic_refresh_state;
 use crate::impl_fetch_and_store;
+
 use diesel::prelude::*;
 
 #[derive(Insertable, Identifiable, Queryable, Debug, Clone)]
@@ -11,3 +12,4 @@ pub struct TopicRefreshState {
 }
 
 impl_fetch_and_store!(TopicRefreshState, topic_refresh_state);
+
