@@ -267,6 +267,18 @@ let decodedConversation = containerAgain.decode(with: client)
 try await decodedConversation.send(text: "hi")
 ```
 
+## Request and respect user consent
+
+![Feature status](https://img.shields.io/badge/Feature_status-Alpha-orange)
+
+The user consent feature enables your app to request and respect user consent preferences. With this feature, another blockchain account address registered on the XMTP network can have one of three consent preference values:
+
+- Unknown
+- Allowed
+- Denied
+
+To learn more, see [Request and respect user consent](https://xmtp.org/docs/build/user-consent).
+
 ## Handle different content types
 
 All of the send functions support `SendOptions` as an optional parameter. The `contentType` option allows specifying different types of content other than the default simple string standard content type, which is identified with content type identifier `ContentTypeText`. 
