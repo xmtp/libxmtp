@@ -21,6 +21,7 @@ pub mod schema;
 pub mod topic_refresh_state;
 
 use super::StorageError;
+use group::{GroupMembershipState, StoredGroup};
 use std::borrow::Cow;
 use diesel::{
     connection::SimpleConnection,
@@ -160,49 +161,16 @@ impl EncryptedMessageStore {
         crypto_utils::rng().fill_bytes(&mut key[..]);
         key
     }
-}
-
-#[macro_export]
-macro_rules! impl_fetch_and_store {
-    ($model:ty, $table:ident) => {
-        impl Store<DbConnection> for $model {
-            fn store(&self, into: &mut DbConnection) -> Result<(), StorageError> {
-                diesel::insert_into($table::table)
-                    .values(self)
-                    .execute(into)
-                    .map_err(|e| StorageError::from(e))?;
-                Ok(())
-            }
-        }
-
-        impl Fetch<$model> for DbConnection {
-            type Key = ();
-            fn fetch(&mut self, _key: Self::Key) -> Result<Option<$model>, StorageError> {
-                use super::schema::$table::dsl::*;
-                Ok($table.first(self).optional()?)
-            }
-        }
-    };
-
-    ($model:ty, $table:ident, $key:ty) => {
-        impl Store<DbConnection> for $model {
-            fn store(&self, into: &mut DbConnection) -> Result<(), StorageError> {
-                diesel::insert_into($table::table)
-                    .values(self)
-                    .execute(into)
-                    .map_err(|e| StorageError::from(e))?;
-                Ok(())
-            }
-        }
-
-        impl Fetch<$model> for DbConnection {
-            type Key = $key;
-            fn fetch(&mut self, key: Self::Key) -> Result<Option<$model>, StorageError> {
-                use super::schema::$table::dsl::*;
-                Ok($table.find(key).first(self).optional()?)
-            }
-        }
-    };
+    
+    /// Updates group membership state
+    pub fn update_group_membership(&self, conn: &mut DbConnection, id: group::ID, state: GroupMembershipState) -> Result<StoredGroup, StorageError> {
+        use self::schema::groups::dsl::{groups, membership_state};
+        
+        diesel::update(groups.find(id))
+            .set(membership_state.eq(state))
+            .get_result::<group::StoredGroup>(conn)
+            .map_err(Into::into)
+    }
 }
 
 #[allow(dead_code)]
@@ -234,6 +202,19 @@ mod tests {
 
     pub(crate) fn rand_vec() -> Vec<u8> {
         rand::thread_rng().gen::<[u8; 16]>().to_vec()
+    }
+
+    pub fn with_store<F, R>(fun: F) -> R 
+    where
+        F: FnOnce(EncryptedMessageStore) -> R
+    {
+        crate::tests::setup();
+        let store = EncryptedMessageStore::new(
+            StorageOption::Ephemeral,
+            EncryptedMessageStore::generate_enc_key(),
+        )
+        .unwrap();
+        fun(store)
     }
 
     #[test]
@@ -346,4 +327,5 @@ mod tests {
             "Expected Err when given a non-database error"
         );
     }
+
 }

@@ -1,8 +1,8 @@
-use super::{schema::identity, DbConnection, StorageError};
+use super::schema::identity;
 use crate::{
     identity::Identity,
     storage::serialization::{db_deserialize, db_serialize},
-    Fetch, Store, impl_fetch_and_store
+    impl_fetch_and_store
 };
 use diesel::prelude::*;
 

@@ -1,4 +1,5 @@
 use super::schema::group_messages;
+use crate::impl_fetch_and_store;
 use diesel::prelude::*;
 
 #[derive(Insertable, Identifiable, Queryable, Debug, Clone)]
@@ -12,3 +13,5 @@ pub struct StoredGroupMessage {
     pub sender_installation_id: Vec<u8>,
     pub sender_wallet_address: String,
 }
+
+impl_fetch_and_store!(StoredGroupMessage, group_messages, Vec<u8>);
