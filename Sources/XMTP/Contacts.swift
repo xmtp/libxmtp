@@ -12,7 +12,7 @@ import XMTPRust
 public typealias PrivatePreferencesAction = Xmtp_MessageContents_PrivatePreferencesAction
 
 public enum ConsentState: String, Codable {
-	case allowed, blocked, unknown
+	case allowed, denied, unknown
 }
 
 struct ConsentListEntry: Codable, Hashable {
@@ -59,7 +59,7 @@ class ConsentList {
             throw ContactError.invalidIdentifier
         }        
         
-        let envelopes = try await client.query(topic: .preferenceList(identifier))
+        let envelopes = try await client.query(topic: .preferenceList(identifier), pagination: Pagination(direction: .ascending))
 
 		let consentList = ConsentList(client: client)
         
@@ -77,12 +77,12 @@ class ConsentList {
             preferences.append(try PrivatePreferencesAction(serializedData: Data(payload)))
 		}
         
-        preferences.reversed().forEach { preference in
+        preferences.forEach { preference in
             preference.allow.walletAddresses.forEach { address in
                 consentList.allow(address: address)
             }
             preference.block.walletAddresses.forEach { address in
-                consentList.block(address: address)
+                consentList.deny(address: address)
             }
         }
 
@@ -98,7 +98,7 @@ class ConsentList {
         switch entry.consentType {
         case .allowed:
             payload.allow.walletAddresses = [entry.value]
-        case .blocked:
+        case .denied:
             payload.block.walletAddresses = [entry.value]
         case .unknown:
             payload.messageType = nil
@@ -125,10 +125,10 @@ class ConsentList {
 		return .address(address, type: .allowed)
 	}
 
-	func block(address: String) -> ConsentListEntry {
-		entries[ConsentListEntry.address(address).key] = .blocked
+	func deny(address: String) -> ConsentListEntry {
+		entries[ConsentListEntry.address(address).key] = .denied
 
-		return .address(address, type: .blocked)
+		return .address(address, type: .denied)
 	}
 
 	func state(address: String) -> ConsentState {
@@ -163,8 +163,8 @@ public actor Contacts {
 		return consentList.state(address: address) == .allowed
 	}
 
-	public func isBlocked(_ address: String) -> Bool {
-		return consentList.state(address: address) == .blocked
+	public func isDenied(_ address: String) -> Bool {
+		return consentList.state(address: address) == .denied
 	}
 
 	public func allow(addresses: [String]) async throws {
@@ -173,9 +173,9 @@ public actor Contacts {
 		}
 	}
 
-	public func block(addresses: [String]) async throws {
+	public func deny(addresses: [String]) async throws {
 		for address in addresses {
-			try await ConsentList(client: client).publish(entry: consentList.block(address: address))
+			try await ConsentList(client: client).publish(entry: consentList.deny(address: address))
 		}
 	}
 

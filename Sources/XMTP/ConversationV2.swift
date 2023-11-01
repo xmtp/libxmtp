@@ -196,6 +196,9 @@ public struct ConversationV2 {
 
     @discardableResult func send(prepared: PreparedMessage) async throws -> String {
         try await client.publish(envelopes: prepared.envelopes)
+        if((await client.contacts.consentList.state(address: peerAddress)) == .unknown) {
+            try await client.contacts.allow(addresses: [peerAddress])
+        }
         return prepared.messageID
     }
 

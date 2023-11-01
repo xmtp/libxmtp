@@ -76,9 +76,9 @@ class ContactsTests: XCTestCase {
 
 		XCTAssertFalse(result)
 
-		try await contacts.block(addresses: [fixtures.alice.address])
+		try await contacts.deny(addresses: [fixtures.alice.address])
 
-		result = await contacts.isBlocked(fixtures.alice.address)
+		result = await contacts.isDenied(fixtures.alice.address)
 		XCTAssertTrue(result)
 	}
 }
