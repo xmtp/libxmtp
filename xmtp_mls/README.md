@@ -143,7 +143,7 @@ Simplified high level flow for removing members from a group:
 1. Convert the intent into concrete commit for the current epoch
 1. Publish commit to the network
 1. Sync the state of the group with the network
-1. If no conflicts: Done. If there are welcome messages in the `post_commit_data` field, publish them.
+1. If no conflicts: Done.
    If conflicts: Go back to step 2 and try again (reset the intent's state to `TO_SEND` and clear the `publish_data` and `post_commit_data` fields)
 
 ### Send a message
@@ -154,7 +154,7 @@ Simplified high level flow for sending a group message:
 1. Convert the intent into a concrete message for the current epoch
 1. Publish message to the network
 1. Sync the state of the group with the network (can be debounced or otherwise only done periodically)
-1. If no conflicts: Mark the message as committed. If there are welcome messages in the `post_commit_data` field, publish them.
+1. If no conflicts: Mark the message as committed.
    If conflicts: Go back to step 2 and try again (reset the intent's state to `TO_SEND` and clear the `publish_data` and `post_commit_data` fields)
 
 ### Syncing group state
