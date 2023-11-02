@@ -112,6 +112,8 @@ The [following diagram](https://app.excalidraw.com/s/4nwb0c8ork7/6pPH1kQDoj3) il
 
 ![MLS State Machine](../img/mls-state-machine.png "MLS State Machine")
 
+For the first version of MLS in XMTP, all members commit their own proposals immediately, and immediately discard any proposals from other members upon receiving them. Future versions of XMTP will have more sophisticated logic, such as batching proposals, allowing members to commit proposals from other members, as well as more sophisticated validation logic for which proposals are permitted from which members.
+
 ### Known missing items from the state machine
 
 - Key updates
@@ -126,37 +128,34 @@ Simplified high level flow for adding members to a group:
 
 1. Create a `group_intent` for adding the members
 1. Consume Key Packages for all new members
-1. Convert the intent (and any pending proposals) into concrete commit and welcome messages for the current epoch
+1. Convert the intent into concrete commit and welcome messages for the current epoch
    1. Write the welcome messages to the `post_commit_data` field for later
 1. Publish commit message
 1. Sync the state of the group with the network
 1. If no conflicts: Publish welcome messages to new members.
-   If conflicts: Go back to step 2 and try again (reset the intent's state to `TO_SEND` and clear the `data` and `post_commit_data` fields)
+   If conflicts: Go back to step 2 and try again (reset the intent's state to `TO_SEND` and clear the `publish_data` and `post_commit_data` fields)
 
 ### Remove members from a group
 
 Simplified high level flow for removing members from a group:
 
 1. Create a `group_intent` for removing the members
-1. Convert the intent (and any pending proposals) into concrete commit for the current epoch
-   1. If there are welcome messages, write them to the `post_commit_data` field for later
+1. Convert the intent into concrete commit for the current epoch
 1. Publish commit to the network
 1. Sync the state of the group with the network
 1. If no conflicts: Done. If there are welcome messages in the `post_commit_data` field, publish them.
-   If conflicts: Go back to step 2 and try again (reset the intent's state to `TO_SEND` and clear the `data` and `post_commit_data` fields)
+   If conflicts: Go back to step 2 and try again (reset the intent's state to `TO_SEND` and clear the `publish_data` and `post_commit_data` fields)
 
 ### Send a message
 
 Simplified high level flow for sending a group message:
 
 1. Create a `group_intent` for sending the message
-1. Commit any pending proposals
-   1. If there are welcome messages, write them to the `post_commit_data` field for later
 1. Convert the intent into a concrete message for the current epoch
 1. Publish message to the network
 1. Sync the state of the group with the network (can be debounced or otherwise only done periodically)
 1. If no conflicts: Mark the message as committed. If there are welcome messages in the `post_commit_data` field, publish them.
-   If conflicts: Go back to step 2 and try again (reset the intent's state to `TO_SEND` and clear the `data` and `post_commit_data` fields)
+   If conflicts: Go back to step 2 and try again (reset the intent's state to `TO_SEND` and clear the `publish_data` and `post_commit_data` fields)
 
 ### Syncing group state
 
