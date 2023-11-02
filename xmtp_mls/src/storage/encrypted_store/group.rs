@@ -26,7 +26,7 @@ impl_fetch_and_store!(StoredGroup, groups, Vec<u8>);
 impl StoredGroup {
     pub fn new(id: ID, created_at_ns: i64, membership_state: GroupMembershipState) -> Self {
         Self {
-            id, created_at_ns, membership_state: membership_state
+            id, created_at_ns, membership_state
         }
     }
 }

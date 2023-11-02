@@ -267,7 +267,7 @@ mod tests {
             // Setup a persistent store
             let store = EncryptedMessageStore::new(
                 StorageOption::Persistent(db_path.clone()),
-                enc_key.clone(),
+                enc_key,
             )
             .unwrap();
 
