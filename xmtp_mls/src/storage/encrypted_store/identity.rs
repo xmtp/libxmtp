@@ -1,11 +1,13 @@
-use super::{schema::identity, DbConnection, StorageError};
+use super::schema::identity;
 use crate::{
     identity::Identity,
     storage::serialization::{db_deserialize, db_serialize},
-    Fetch, Store,
+    impl_fetch_and_store
 };
 use diesel::prelude::*;
 
+/// Identity of this installation
+/// There can only be one.
 #[derive(Insertable, Queryable, Debug, Clone)]
 #[diesel(table_name = identity)]
 pub struct StoredIdentity {
@@ -14,6 +16,8 @@ pub struct StoredIdentity {
     pub credential_bytes: Vec<u8>,
     rowid: Option<i32>,
 }
+
+impl_fetch_and_store!(StoredIdentity, identity);
 
 impl StoredIdentity {
     pub fn new(
@@ -48,23 +52,6 @@ impl From<StoredIdentity> for Identity {
             installation_keys: db_deserialize(&identity.installation_keys).unwrap(),
             credential: db_deserialize(&identity.credential_bytes).unwrap(),
         }
-    }
-}
-
-impl Store<DbConnection> for StoredIdentity {
-    fn store(&self, into: &mut DbConnection) -> Result<(), StorageError> {
-        diesel::insert_into(identity::table)
-            .values(self)
-            .execute(into)?;
-        Ok(())
-    }
-}
-
-impl Fetch<StoredIdentity> for DbConnection {
-    type Key = ();
-    fn fetch(&mut self, _key: ()) -> Result<Option<StoredIdentity>, StorageError> where {
-        use super::schema::identity::dsl::*;
-        Ok(identity.first(self).optional()?)
     }
 }
 

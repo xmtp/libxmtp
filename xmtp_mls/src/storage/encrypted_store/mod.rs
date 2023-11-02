@@ -1,11 +1,11 @@
 //! A durable object store powered by Sqlite and Diesel.
 //!
-//! Provides mechanism to store objects between sessions. The behavor of the store can be tailored by
+//! Provides mechanism to store objects between sessions. The behavior of the store can be tailored by
 //! choosing an appropriate `StoreOption`.
 //!
 //! ## Migrations
 //!
-//! Table definitions are located `<PacakgeRoot>/migrations/`. On intialization the store will see if
+//! Table definitions are located `<PackageRoot>/migrations/`. On initialization the store will see if
 //! there are any outstanding database migrations and perform them as needed. When updating the table
 //! definitions `schema.rs` must also be updated. To generate the correct schemas you can run
 //! `diesel print-schema` or use `cargo run update-schema` which will update the files for you.      
@@ -20,6 +20,8 @@ pub mod schema;
 pub mod topic_refresh_state;
 
 use super::StorageError;
+use group::{GroupMembershipState, StoredGroup};
+use std::borrow::Cow;
 use diesel::{
     connection::SimpleConnection,
     prelude::*,
@@ -67,7 +69,13 @@ pub struct EncryptedMessageStore {
 impl Default for EncryptedMessageStore {
     fn default() -> Self {
         Self::new(StorageOption::Ephemeral, Self::generate_enc_key())
-            .expect("Error Occured: tring to create default Ephemeral store")
+            .expect("Error Occurred: trying to create default Ephemeral store")
+    }
+}
+
+impl<'a> From<&'a EncryptedMessageStore> for Cow<'a, EncryptedMessageStore> {
+    fn from(store: &'a EncryptedMessageStore) -> Cow<'a, EncryptedMessageStore> {
+        Cow::Borrowed(store)
     }
 }
 
@@ -152,6 +160,16 @@ impl EncryptedMessageStore {
         crypto_utils::rng().fill_bytes(&mut key[..]);
         key
     }
+    
+    /// Updates group membership state
+    pub fn update_group_membership(&self, conn: &mut DbConnection, id: group::ID, state: GroupMembershipState) -> Result<StoredGroup, StorageError> {
+        use self::schema::groups::dsl::{groups, membership_state};
+        
+        diesel::update(groups.find(id))
+            .set(membership_state.eq(state))
+            .get_result::<group::StoredGroup>(conn)
+            .map_err(Into::into)
+    }
 }
 
 #[allow(dead_code)]
@@ -183,6 +201,20 @@ mod tests {
 
     pub(crate) fn rand_vec() -> Vec<u8> {
         rand::thread_rng().gen::<[u8; 16]>().to_vec()
+    }
+
+    /// Test harness that loads an Ephemeral store.
+    pub fn with_store<F, R>(fun: F) -> R 
+    where
+        F: FnOnce(EncryptedMessageStore) -> R
+    {
+        crate::tests::setup();
+        let store = EncryptedMessageStore::new(
+            StorageOption::Ephemeral,
+            EncryptedMessageStore::generate_enc_key(),
+        )
+        .unwrap();
+        fun(store)
     }
 
     #[test]
@@ -235,7 +267,7 @@ mod tests {
             // Setup a persistent store
             let store = EncryptedMessageStore::new(
                 StorageOption::Persistent(db_path.clone()),
-                enc_key.clone(),
+                enc_key,
             )
             .unwrap();
 
