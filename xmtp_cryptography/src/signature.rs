@@ -26,8 +26,9 @@ pub enum SignatureError {
 
 #[derive(Debug, Serialize, Deserialize, PartialEq, Clone)]
 pub enum RecoverableSignature {
-    // This Signature is primary used by EVM compatible accounts. It assumes that the recoveryid is included in the signature and
-    // that all messages passed in have not been prefixed with '\0x19Ethereum....'
+    // This Signature is primary used by EVM compatible accounts. It assumes that the recoveryid
+    // is included in the signature and that all messages passed in have not been prefixed
+    // with '\0x19Ethereum....'
     Eip191Signature(Vec<u8>),
 }
 
@@ -112,9 +113,12 @@ pub fn h160addr_to_string(bytes: H160) -> String {
 
 #[cfg(test)]
 pub mod tests {
+    use ethers::{
+        core::rand::thread_rng,
+        signers::{LocalWallet, Signer},
+    };
+
     use crate::signature::RecoverableSignature;
-    use ethers::core::rand::thread_rng;
-    use ethers::signers::{LocalWallet, Signer};
 
     pub async fn generate_random_signature(msg: &str) -> (String, Vec<u8>) {
         let wallet = LocalWallet::new(&mut thread_rng());

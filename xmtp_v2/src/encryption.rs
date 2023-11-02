@@ -1,13 +1,11 @@
-use hkdf::Hkdf;
-use rand::Rng;
-use sha2::Sha256;
-
-use generic_array::GenericArray;
-
 use aes_gcm::{
     aead::{Aead, KeyInit, Payload},
     Aes256Gcm, Nonce,
 };
+use generic_array::GenericArray;
+use hkdf::Hkdf;
+use rand::Rng;
+use sha2::Sha256;
 
 // Lightweight ciphertext holder
 pub struct Ciphertext {

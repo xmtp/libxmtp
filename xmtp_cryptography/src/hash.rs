@@ -7,7 +7,8 @@ pub fn keccak256(msg: &str) -> Vec<u8> {
     k.as_slice().to_vec()
 }
 
-/// Sha256 is used in places where cryptographic security is not required, as sha256 has a significant speed improvement over Keccak.
+/// Sha256 is used in places where cryptographic security is not required, as sha256 has a
+/// significant speed improvement over Keccak.
 pub fn sha256_bytes(bytes: &[u8]) -> Vec<u8> {
     let k = Sha256::digest(bytes);
 

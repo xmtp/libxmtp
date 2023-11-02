@@ -1,5 +1,6 @@
-use super::schema::group_intents;
 use diesel::prelude::*;
+
+use super::schema::group_intents;
 
 #[derive(Queryable, Identifiable, Debug, Clone)]
 #[diesel(table_name = group_intents)]
@@ -22,4 +23,3 @@ pub struct NewGroupIntent {
     pub data: Vec<u8>,
     pub state: i32,
 }
-

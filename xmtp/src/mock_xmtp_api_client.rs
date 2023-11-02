@@ -1,8 +1,9 @@
-use async_trait::async_trait;
 use std::{
     collections::HashMap,
     sync::{Arc, Mutex},
 };
+
+use async_trait::async_trait;
 use xmtp_proto::api_client::*;
 
 pub struct MockXmtpApiSubscription {}

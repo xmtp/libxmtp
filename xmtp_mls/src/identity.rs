@@ -9,6 +9,7 @@ use openmls_traits::{types::CryptoError, OpenMlsProvider};
 use prost::Message;
 use thiserror::Error;
 use xmtp_cryptography::signature::SignatureError;
+use xmtp_proto::xmtp::v3::message_contents::Eip191Association as Eip191AssociationProto;
 
 use crate::{
     association::{AssociationError, AssociationText, Eip191Association},
@@ -18,7 +19,6 @@ use crate::{
     xmtp_openmls_provider::XmtpOpenMlsProvider,
     InboxOwner, Store,
 };
-use xmtp_proto::xmtp::v3::message_contents::Eip191Association as Eip191AssociationProto;
 
 #[derive(Debug, Error)]
 pub enum IdentityError {
@@ -123,9 +123,8 @@ impl Identity {
 mod tests {
     use xmtp_cryptography::utils::generate_local_wallet;
 
-    use crate::{storage::EncryptedMessageStore, xmtp_openmls_provider::XmtpOpenMlsProvider};
-
     use super::Identity;
+    use crate::{storage::EncryptedMessageStore, xmtp_openmls_provider::XmtpOpenMlsProvider};
 
     #[test]
     fn does_not_error() {

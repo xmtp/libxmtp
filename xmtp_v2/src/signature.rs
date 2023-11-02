@@ -1,10 +1,9 @@
-use crate::traits;
-
-use k256::ecdsa::signature::DigestVerifier;
 pub use k256::ecdsa::{RecoveryId, SigningKey, VerifyingKey};
-use k256::PublicKey;
+use k256::{ecdsa::signature::DigestVerifier, PublicKey};
 use sha2::Sha256;
 use sha3::{Digest, Keccak256};
+
+use crate::traits;
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum EcdsaSignature {

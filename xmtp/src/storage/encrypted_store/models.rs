@@ -1,3 +1,13 @@
+use std::{
+    fmt,
+    time::{SystemTime, UNIX_EPOCH},
+};
+
+use diesel::prelude::*;
+use prost::{DecodeError, Message};
+use xmtp_cryptography::hash::sha256_bytes;
+use xmtp_proto::xmtp::{message_api::v1::Envelope, message_contents::EncodedContent};
+
 use super::{schema::*, DbConnection};
 use crate::{
     account::Account,
@@ -5,12 +15,6 @@ use crate::{
     storage::StorageError,
     ContentCodec, Save, TextCodec,
 };
-use diesel::prelude::*;
-use prost::{DecodeError, Message};
-use std::fmt;
-use std::time::{SystemTime, UNIX_EPOCH};
-use xmtp_cryptography::hash::sha256_bytes;
-use xmtp_proto::xmtp::{message_api::v1::Envelope, message_contents::EncodedContent};
 
 #[derive(Insertable, Selectable, Identifiable, Queryable, PartialEq, Debug, Clone)]
 #[diesel(table_name = users)]

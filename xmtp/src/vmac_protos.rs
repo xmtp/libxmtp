@@ -1,8 +1,6 @@
 use vodozemac::Curve25519PublicKey;
-use xmtp_proto::xmtp::v3::message_contents::vmac_unsigned_public_key::{
-    Union, VodozemacCurve25519,
-};
 use xmtp_proto::xmtp::v3::message_contents::{
+    vmac_unsigned_public_key::{Union, VodozemacCurve25519},
     VmacAccountLinkedKey, VmacInstallationLinkedKey, VmacUnsignedPublicKey,
 };
 
@@ -57,12 +55,13 @@ impl From<ProtoWrapper<VmacInstallationLinkedKey>> for Curve25519PublicKey {
 
 #[cfg(test)]
 mod test {
-    use super::*;
     use vodozemac::olm::{Account, SessionConfig};
     use xmtp_proto::xmtp::v3::message_contents::{
         VmacAccountLinkedKey, VmacInstallationLinkedKey, VmacInstallationPublicKeyBundleV1,
         VmacUnsignedPublicKey,
     };
+
+    use super::*;
 
     // Generate a VmacContactBundle
     fn generate_test_contact_bundle() -> VmacInstallationPublicKeyBundleV1 {

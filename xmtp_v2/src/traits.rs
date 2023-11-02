@@ -1,4 +1,5 @@
-// This trait acts as a abstraction layer to allow "SignatureVerifiers" to be used with other types of Signature-like enums one day
+// This trait acts as a abstraction layer to allow "SignatureVerifiers" to be used with other types
+// of Signature-like enums one day
 pub trait SignatureVerifiable<T> {
     fn get_signature(&self) -> Option<T>;
 }

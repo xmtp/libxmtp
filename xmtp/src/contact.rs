@@ -1,6 +1,5 @@
 use prost::{DecodeError, EncodeError, Message};
 use thiserror::Error;
-
 use vodozemac::Curve25519PublicKey;
 use xmtp_proto::xmtp::v3::message_contents::{
     installation_contact_bundle::Version as ContactBundleVersionProto,
@@ -42,7 +41,8 @@ impl Contact {
             wallet_address,
         };
         // .association() will return an error if it fails to validate
-        // If you try and create with a wallet address that doesn't match the signature, this will fail
+        // If you try and create with a wallet address that doesn't match the signature, this will
+        // fail
         contact.association()?;
 
         Ok(contact)
@@ -170,9 +170,8 @@ fn extract_proto_association(
 
 #[cfg(test)]
 mod tests {
-    use crate::account::{tests::test_wallet_signer, Account};
-
     use super::Contact;
+    use crate::account::{tests::test_wallet_signer, Account};
 
     #[test]
     fn serialize_round_trip() {

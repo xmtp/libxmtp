@@ -1,31 +1,24 @@
 //! A durable object store powered by Sqlite and Diesel.
 //!
-//! Provides mechanism to store objects between sessions. The behavior of the store can be tailored by
-//! choosing an appropriate `StoreOption`.
+//! Provides mechanism to store objects between sessions. The behavior of the store can be tailored
+//! by choosing an appropriate `StoreOption`.
 //!
 //! ## Migrations
 //!
-//! Table definitions are located `<PacakgeRoot>/migrations/`. On initialization the store will see if
-//! there are any outstanding database migrations and perform them as needed. When updating the table
-//! definitions `schema.rs` must also be updated. To generate the correct schemas you can run
-//! `diesel print-schema` or use `cargo run update-schema` which will update the files for you.      
+//! Table definitions are located `<PacakgeRoot>/migrations/`. On initialization the store will see
+//! if there are any outstanding database migrations and perform them as needed. When updating the
+//! table definitions `schema.rs` must also be updated. To generate the correct schemas you can run
+//! `diesel print-schema` or use `cargo run update-schema` which will update the files for you.
 //!
 
 pub mod models;
 pub mod schema;
 
-use self::{
-    models::*,
-    schema::{accounts, conversations, installations, messages, refresh_jobs, sessions, users},
-};
-use super::{now, StorageError};
-use crate::{account::Account, utils::is_wallet_address, Fetch, Store};
 use diesel::{
     connection::SimpleConnection,
     prelude::*,
     r2d2::{ConnectionManager, Pool, PooledConnection},
-    result::DatabaseErrorKind,
-    result::Error,
+    result::{DatabaseErrorKind, Error},
     sql_query,
     sql_types::Text,
 };
@@ -33,6 +26,13 @@ use diesel_migrations::{embed_migrations, EmbeddedMigrations, MigrationHarness};
 use log::warn;
 use rand::RngCore;
 use xmtp_cryptography::utils as crypto_utils;
+
+use self::{
+    models::*,
+    schema::{accounts, conversations, installations, messages, refresh_jobs, sessions, users},
+};
+use super::{now, StorageError};
+use crate::{account::Account, utils::is_wallet_address, Fetch, Store};
 
 pub const MIGRATIONS: EmbeddedMigrations = embed_migrations!("./migrations/");
 
@@ -102,8 +102,8 @@ impl EncryptedMessageStore {
             Self::set_sqlcipher_key(pool.clone(), &key)?;
         }
 
-        // TODO: Validate that sqlite is correctly configured. Bad EncKey is not detected until the migrations run which returns an
-        // unhelpful error.
+        // TODO: Validate that sqlite is correctly configured. Bad EncKey is not detected until the
+        // migrations run which returns an unhelpful error.
 
         let mut obj = Self {
             connect_opt: opts,
@@ -757,15 +757,15 @@ fn warn_length<T>(list: &Vec<T>, str_id: &str, max_length: usize) {
 #[cfg(test)]
 mod tests {
 
-    use super::{models::*, EncryptedMessageStore, StorageError, StorageOption};
-    use crate::{Fetch, Store};
+    use std::{boxed::Box, fs, thread::sleep, time::Duration};
+
     use rand::{
         distributions::{Alphanumeric, DistString},
         Rng,
     };
-    use std::boxed::Box;
-    use std::fs;
-    use std::{thread::sleep, time::Duration};
+
+    use super::{models::*, EncryptedMessageStore, StorageError, StorageOption};
+    use crate::{Fetch, Store};
 
     fn rand_string() -> String {
         Alphanumeric.sample_string(&mut rand::thread_rng(), 16)

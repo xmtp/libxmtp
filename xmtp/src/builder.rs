@@ -1,15 +1,15 @@
+use log::info;
+use thiserror::Error;
+use xmtp_proto::api_client::XmtpApiClient;
+
 use crate::{
     account::{Account, AccountError},
     association::{AssociationError, AssociationText, Eip191Association},
     client::{Client, Network},
     storage::{now, EncryptedMessageStore, StoredUser},
     types::Address,
-    InboxOwner, Store,
+    Fetch, InboxOwner, StorageError, Store,
 };
-use crate::{Fetch, StorageError};
-use log::info;
-use thiserror::Error;
-use xmtp_proto::api_client::XmtpApiClient;
 
 #[derive(Error, Debug)]
 pub enum ClientBuilderError {
@@ -191,12 +191,11 @@ mod tests {
     use tempfile::TempPath;
     use xmtp_cryptography::utils::generate_local_wallet;
 
+    use super::ClientBuilder;
     use crate::{
         mock_xmtp_api_client::MockXmtpApiClient,
         storage::{EncryptedMessageStore, StorageOption},
     };
-
-    use super::ClientBuilder;
 
     impl ClientBuilder<MockXmtpApiClient, LocalWallet> {
         pub fn new_test() -> Self {

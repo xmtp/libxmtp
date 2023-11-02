@@ -1,19 +1,18 @@
+#[cfg(test)]
+use std::println as debug;
 
-use crate::storage::identity::StoredIdentity;
-use crate::xmtp_openmls_provider::XmtpOpenMlsProvider;
+#[cfg(not(test))]
+use log::debug;
+use thiserror::Error;
+use xmtp_proto::api_client::{XmtpApiClient, XmtpMlsClient};
+
 use crate::{
     client::{Client, Network},
     identity::{Identity, IdentityError},
-    storage::EncryptedMessageStore,
-    InboxOwner,
+    storage::{identity::StoredIdentity, EncryptedMessageStore},
+    xmtp_openmls_provider::XmtpOpenMlsProvider,
+    Fetch, InboxOwner, StorageError,
 };
-use crate::{Fetch, StorageError};
-#[cfg(not(test))]
-use log::debug;
-#[cfg(test)]
-use std::println as debug;
-use thiserror::Error;
-use xmtp_proto::api_client::{XmtpApiClient, XmtpMlsClient};
 
 #[derive(Error, Debug)]
 pub enum ClientBuilderError {
@@ -155,12 +154,11 @@ mod tests {
     use xmtp_api_grpc::grpc_api_helper::Client as GrpcClient;
     use xmtp_cryptography::utils::generate_local_wallet;
 
+    use super::{ClientBuilder, IdentityStrategy};
     use crate::{
         storage::{EncryptedMessageStore, StorageOption},
         Client,
     };
-
-    use super::{ClientBuilder, IdentityStrategy};
 
     async fn get_local_grpc_client() -> GrpcClient {
         GrpcClient::create("http://localhost:5556".to_string(), false)
