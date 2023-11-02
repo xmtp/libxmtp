@@ -563,10 +563,7 @@ mod tests {
         mock_api
             .expect_query()
             .withf(move |req| match req.paging_info.clone() {
-                Some(paging_info) => match paging_info.cursor {
-                    Some(_) => false,
-                    None => true,
-                },
+                Some(paging_info) => paging_info.cursor.is_none(),
                 None => true,
             } && req.start_time_ns == 10)
             .returning(move |req| {
@@ -590,10 +587,7 @@ mod tests {
         mock_api
             .expect_query()
             .withf(|req| match req.paging_info.clone() {
-                Some(paging_info) => match paging_info.cursor {
-                    Some(_) => true,
-                    None => false,
-                },
+                Some(paging_info) => paging_info.cursor.is_some(),
                 None => false,
             })
             .returning(move |req| {

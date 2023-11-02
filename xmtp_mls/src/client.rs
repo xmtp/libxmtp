@@ -235,6 +235,6 @@ mod tests {
         // Ensure we got back different key packages
         let key_package_2 = key_packages_2.first().unwrap();
         assert_eq!(key_package_2.wallet_address, wallet_address);
-        assert!(!(key_package_2.eq(&key_package)));
+        assert!(!(key_package_2.eq(key_package)));
     }
 }

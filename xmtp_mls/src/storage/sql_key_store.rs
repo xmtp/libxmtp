@@ -1,5 +1,6 @@
 use log::{debug, error};
 use openmls_traits::key_store::{MlsEntity, OpenMlsKeyStore};
+use std::borrow::Cow;
 
 use crate::{Delete, Fetch, Store};
 
@@ -10,19 +11,22 @@ use super::{
 };
 
 #[derive(Debug)]
+/// CRUD Operations for an [`EncryptedMessageStore`]
 pub struct SqlKeyStore<'a> {
-    store: &'a EncryptedMessageStore,
+    store: Cow<'a, EncryptedMessageStore>,
 }
 
 impl Default for SqlKeyStore<'_> {
     fn default() -> Self {
-        unimplemented!()
+        Self {
+            store: Cow::Owned(EncryptedMessageStore::default())
+        }
     }
 }
 
 impl<'a> SqlKeyStore<'a> {
     pub fn new(store: &'a EncryptedMessageStore) -> Self {
-        SqlKeyStore { store }
+        SqlKeyStore { store: Cow::Borrowed(store) }
     }
 }
 
@@ -100,12 +104,9 @@ mod tests {
     #[test]
     fn store_read_delete() {
         let db_path = format!("{}.db3", rand_string());
+        let store = EncryptedMessageStore::new(StorageOption::Persistent(db_path), EncryptedMessageStore::generate_enc_key()).unwrap();
         let key_store = SqlKeyStore {
-            store: &EncryptedMessageStore::new(
-                StorageOption::Persistent(db_path),
-                EncryptedMessageStore::generate_enc_key(),
-            )
-            .unwrap(),
+            store: (&store).into(),
         };
         let signature_keys = SignatureKeyPair::new(CIPHERSUITE.signature_algorithm()).unwrap();
         let index = "index".as_bytes();

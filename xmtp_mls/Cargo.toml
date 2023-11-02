@@ -26,7 +26,6 @@ ethers-core = "2.0.4"
 futures = "0.3.28"
 hex = "0.4.3"
 libsqlite3-sys = { version = "0.26.0", optional = true}
-log = "0.4.17"
 openmls = { git= "https://github.com/xmtp/openmls", features = ["test-utils"] }
 openmls_traits = { git= "https://github.com/xmtp/openmls" }
 openmls_basic_credential = { git= "https://github.com/xmtp/openmls" }
@@ -37,6 +36,8 @@ serde = "1.0.160"
 serde_json = "1.0.96"
 thiserror = "1.0.40"
 tokio = { version = "1.28.1", features = ["macros"]  }
+log = "0.4.17"
+tracing = "0.1.37" 
 toml = "0.7.4"
 xmtp_cryptography = { path = "../xmtp_cryptography"}
 xmtp_proto = { path = "../xmtp_proto", features = ["proto_full"] }
@@ -46,4 +47,5 @@ tls_codec = "0.3.0"
 mockall = "0.11.4"
 rand = "0.8.5"
 tempfile = "3.5.0"
+tracing-subscriber = { version = "0.3.17", features = ["env-filter"] }
 xmtp_api_grpc = { path = "../xmtp_api_grpc" }
