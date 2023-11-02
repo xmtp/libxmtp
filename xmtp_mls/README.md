@@ -166,8 +166,6 @@ The server maintains an inbound topic for each group, and a single inbound topic
 1. Sequentially process each payload. For each payload, update the `last_message_timestamp_ns` and any corresponding database writes for that payload in a single transaction
 1. When the sync is complete, release the lock by setting `lock_until_ns` to 0
 
-This flow will be similar regardless of if the sync happens via a poll-based or subscription-based mechanism. For a subscription-based mechanism, the lock will be obtained at the start of the subscription, and extended on a heartbeat time interval, until the subscription is closed.
-
 ### Updating your list of conversations
 
 1. Read from the welcome topic for your `installation_id`, filtering for messages since `last_message_timestamp`
