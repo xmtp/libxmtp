@@ -48,19 +48,11 @@ CREATE TABLE group_intents (
     "data" BLOB NOT NULL,
     -- INTENT_STATE,
     "state" INT NOT NULL,
+    -- The hash of the encrypted, concrete, form of the message if it was published.
+    "payload_hash" BLOB,
+    -- (Optional) data needed for the post-commit flow. For example, welcome messages
+    "post_commit_data" BLOB,
     FOREIGN KEY (group_id) REFERENCES groups(id)
 );
 
 CREATE INDEX group_intents_group_id_id ON group_intents(group_id, id);
-
-CREATE TABLE group_intent_payloads (
-    -- The hash of the payload sent to the network
-    "payload_hash" BLOB PRIMARY KEY NOT NULL,
-    -- The id of the intent this payload is associated with
-    "intent_id" INT NOT NULL,
-    -- Optional data used once the commit has been processed
-    "post_commit_data" BLOB,
-    FOREIGN KEY (intent_id) REFERENCES group_intents(id) ON DELETE CASCADE
-);
-
-CREATE INDEX group_intent_payloads_intent_id ON group_intent_payloads(intent_id);
