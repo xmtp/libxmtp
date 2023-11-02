@@ -1,6 +1,7 @@
+use diesel::prelude::*;
+
 use super::schema::group_messages;
 use crate::impl_fetch_and_store;
-use diesel::prelude::*;
 
 #[derive(Insertable, Identifiable, Queryable, Debug, Clone)]
 #[diesel(table_name = group_messages)]
@@ -24,4 +25,3 @@ pub struct StoredGroupMessage {
 }
 
 impl_fetch_and_store!(StoredGroupMessage, group_messages, Vec<u8>);
-

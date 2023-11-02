@@ -1,24 +1,29 @@
+use std::sync::{Arc, Mutex}; // TODO switch to async mutexes
+use std::{
+    str::FromStr,
+    sync::atomic::{AtomicBool, Ordering},
+};
+
 use http_body::combinators::UnsyncBoxBody;
 use hyper::{client::HttpConnector, Uri};
 use hyper_rustls::HttpsConnector;
-use std::str::FromStr;
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Mutex}; // TODO switch to async mutexes
 use tokio::sync::oneshot;
 use tokio_rustls::rustls::{ClientConfig, OwnedTrustAnchor, RootCertStore};
-use tonic::async_trait;
-use tonic::Status;
-use tonic::{metadata::MetadataValue, transport::Channel, Request, Streaming};
-use xmtp_proto::api_client::{Error, ErrorKind, XmtpApiClient, XmtpApiSubscription, XmtpMlsClient};
-use xmtp_proto::xmtp::message_api::v1::{
-    message_api_client::MessageApiClient, BatchQueryRequest, BatchQueryResponse, Envelope,
-    PublishRequest, PublishResponse, QueryRequest, QueryResponse, SubscribeRequest,
-};
-use xmtp_proto::xmtp::message_api::v3::mls_api_client::MlsApiClient as ProtoMlsApiClient;
-use xmtp_proto::xmtp::message_api::v3::{
-    ConsumeKeyPackagesRequest, ConsumeKeyPackagesResponse, GetIdentityUpdatesRequest,
-    GetIdentityUpdatesResponse, PublishToGroupRequest, PublishWelcomesRequest,
-    RegisterInstallationRequest, RegisterInstallationResponse, UploadKeyPackagesRequest,
+use tonic::{async_trait, metadata::MetadataValue, transport::Channel, Request, Status, Streaming};
+use xmtp_proto::{
+    api_client::{Error, ErrorKind, XmtpApiClient, XmtpApiSubscription, XmtpMlsClient},
+    xmtp::message_api::{
+        v1::{
+            message_api_client::MessageApiClient, BatchQueryRequest, BatchQueryResponse, Envelope,
+            PublishRequest, PublishResponse, QueryRequest, QueryResponse, SubscribeRequest,
+        },
+        v3::{
+            mls_api_client::MlsApiClient as ProtoMlsApiClient, ConsumeKeyPackagesRequest,
+            ConsumeKeyPackagesResponse, GetIdentityUpdatesRequest, GetIdentityUpdatesResponse,
+            PublishToGroupRequest, PublishWelcomesRequest, RegisterInstallationRequest,
+            RegisterInstallationResponse, UploadKeyPackagesRequest,
+        },
+    },
 };
 
 fn tls_config() -> ClientConfig {

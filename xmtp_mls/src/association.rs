@@ -1,11 +1,15 @@
-use crate::types::Address;
-use crate::InboxOwner;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
-use xmtp_cryptography::signature::{RecoverableSignature, SignatureError};
-use xmtp_cryptography::utils::generate_local_wallet;
-use xmtp_proto::xmtp::v3::message_contents::Eip191Association as Eip191AssociationProto;
-use xmtp_proto::xmtp::v3::message_contents::RecoverableEcdsaSignature as RecoverableEcdsaSignatureProto;
+use xmtp_cryptography::{
+    signature::{RecoverableSignature, SignatureError},
+    utils::generate_local_wallet,
+};
+use xmtp_proto::xmtp::v3::message_contents::{
+    Eip191Association as Eip191AssociationProto,
+    RecoverableEcdsaSignature as RecoverableEcdsaSignatureProto,
+};
+
+use crate::{types::Address, InboxOwner};
 
 #[derive(Debug, Error)]
 pub enum AssociationError {
@@ -101,9 +105,10 @@ impl From<Eip191Association> for Eip191AssociationProto {
     }
 }
 
-/// AssociationText represents the string which was signed by the authorizing blockchain account. A valid AssociationText must
-/// contain the address of the blockchain account and a representation of the XMTP installation public key. Different standards may
-/// choose how this information is encoded, as well as adding extra requirements for increased security.
+/// AssociationText represents the string which was signed by the authorizing blockchain account. A
+/// valid AssociationText must contain the address of the blockchain account and a representation of
+/// the XMTP installation public key. Different standards may choose how this information is
+/// encoded, as well as adding extra requirements for increased security.
 #[derive(Serialize, Deserialize, PartialEq, Debug, Clone)]
 pub enum AssociationText {
     Static {

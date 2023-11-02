@@ -1,11 +1,10 @@
-use openmls_rust_crypto::OpenMlsRustCrypto;
-use openmls_traits::OpenMlsProvider;
-use tonic::{Request, Response, Status};
-
 use openmls::{
     prelude::{KeyPackageIn, MlsMessageIn, ProtocolMessage, TlsDeserializeTrait},
     versions::ProtocolVersion,
 };
+use openmls_rust_crypto::OpenMlsRustCrypto;
+use openmls_traits::OpenMlsProvider;
+use tonic::{Request, Response, Status};
 use xmtp_proto::xmtp::mls_validation::v1::{
     validate_group_messages_response::ValidationResponse as ValidateGroupMessageValidationResponse,
     validate_key_packages_response::ValidationResponse as ValidateKeyPackageValidationResponse,
@@ -97,7 +96,8 @@ fn validate_group_message(message: Vec<u8>) -> Result<ValidateGroupMessageResult
     let private_message: ProtocolMessage = msg_result.into();
 
     Ok(ValidateGroupMessageResult {
-        // TODO: I wonder if we really want to be base64 encoding this or if we can treat it as a slice
+        // TODO: I wonder if we really want to be base64 encoding this or if we can treat it as a
+        // slice
         group_id: hex_encode(private_message.group_id().as_slice()),
         epoch: private_message.epoch().as_u64(),
     })
@@ -136,7 +136,6 @@ fn validate_key_package(key_package_bytes: Vec<u8>) -> Result<ValidateKeyPackage
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use ethers::signers::LocalWallet;
     use openmls::{
         prelude::{
@@ -155,6 +154,8 @@ mod tests {
         mls_validation::v1::validate_key_packages_request::KeyPackage as KeyPackageProtoWrapper,
         v3::message_contents::Eip191Association as Eip191AssociationProto,
     };
+
+    use super::*;
 
     const CIPHERSUITE: Ciphersuite = Ciphersuite::MLS_128_DHKEMX25519_AES128GCM_SHA256_Ed25519;
 

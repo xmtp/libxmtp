@@ -1,12 +1,13 @@
 extern crate toml;
 extern crate xmtp_mls;
-use rand::distributions::{Alphanumeric, DistString};
 use std::{
     env,
     fs::{self, File},
     io::{Read, Write},
     process::Command,
 };
+
+use rand::distributions::{Alphanumeric, DistString};
 use toml::Table;
 use xmtp_mls::storage::{EncryptedMessageStore, StorageOption};
 

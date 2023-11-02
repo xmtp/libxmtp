@@ -1,14 +1,14 @@
 //! A durable object store powered by Sqlite and Diesel.
 //!
-//! Provides mechanism to store objects between sessions. The behavior of the store can be tailored by
-//! choosing an appropriate `StoreOption`.
+//! Provides mechanism to store objects between sessions. The behavior of the store can be tailored
+//! by choosing an appropriate `StoreOption`.
 //!
 //! ## Migrations
 //!
-//! Table definitions are located `<PackageRoot>/migrations/`. On initialization the store will see if
-//! there are any outstanding database migrations and perform them as needed. When updating the table
-//! definitions `schema.rs` must also be updated. To generate the correct schemas you can run
-//! `diesel print-schema` or use `cargo run update-schema` which will update the files for you.      
+//! Table definitions are located `<PackageRoot>/migrations/`. On initialization the store will see
+//! if there are any outstanding database migrations and perform them as needed. When updating the
+//! table definitions `schema.rs` must also be updated. To generate the correct schemas you can run
+//! `diesel print-schema` or use `cargo run update-schema` which will update the files for you.
 //!
 
 pub mod group;
@@ -19,20 +19,21 @@ pub mod key_store_entry;
 pub mod schema;
 pub mod topic_refresh_state;
 
-use super::StorageError;
-use group::{GroupMembershipState, StoredGroup};
 use std::borrow::Cow;
+
 use diesel::{
     connection::SimpleConnection,
     prelude::*,
     r2d2::{ConnectionManager, Pool, PooledConnection},
-    result::DatabaseErrorKind,
-    result::Error,
+    result::{DatabaseErrorKind, Error},
 };
 use diesel_migrations::{embed_migrations, EmbeddedMigrations, MigrationHarness};
+use group::{GroupMembershipState, StoredGroup};
 use log::warn;
 use rand::RngCore;
 use xmtp_cryptography::utils as crypto_utils;
+
+use super::StorageError;
 
 pub const MIGRATIONS: EmbeddedMigrations = embed_migrations!("./migrations/");
 
@@ -109,8 +110,8 @@ impl EncryptedMessageStore {
             Self::set_sqlcipher_key(pool.clone(), &key)?;
         }
 
-        // TODO: Validate that sqlite is correctly configured. Bad EncKey is not detected until the migrations run which returns an
-        // unhelpful error.
+        // TODO: Validate that sqlite is correctly configured. Bad EncKey is not detected until the
+        // migrations run which returns an unhelpful error.
 
         let mut obj = Self {
             connect_opt: opts,
@@ -160,11 +161,16 @@ impl EncryptedMessageStore {
         crypto_utils::rng().fill_bytes(&mut key[..]);
         key
     }
-    
+
     /// Updates group membership state
-    pub fn update_group_membership(&self, conn: &mut DbConnection, id: group::ID, state: GroupMembershipState) -> Result<StoredGroup, StorageError> {
+    pub fn update_group_membership(
+        &self,
+        conn: &mut DbConnection,
+        id: group::ID,
+        state: GroupMembershipState,
+    ) -> Result<StoredGroup, StorageError> {
         use self::schema::groups::dsl::{groups, membership_state};
-        
+
         diesel::update(groups.find(id))
             .set(membership_state.eq(state))
             .get_result::<group::StoredGroup>(conn)
@@ -186,14 +192,15 @@ fn warn_length<T>(list: &Vec<T>, str_id: &str, max_length: usize) {
 
 #[cfg(test)]
 mod tests {
-    use super::{identity::StoredIdentity, EncryptedMessageStore, StorageError, StorageOption};
-    use crate::{Fetch, Store};
+    use std::{boxed::Box, fs};
+
     use rand::{
         distributions::{Alphanumeric, DistString},
         Rng,
     };
-    use std::boxed::Box;
-    use std::fs;
+
+    use super::{identity::StoredIdentity, EncryptedMessageStore, StorageError, StorageOption};
+    use crate::{Fetch, Store};
 
     pub(crate) fn rand_string() -> String {
         Alphanumeric.sample_string(&mut rand::thread_rng(), 16)
@@ -204,9 +211,9 @@ mod tests {
     }
 
     /// Test harness that loads an Ephemeral store.
-    pub fn with_store<F, R>(fun: F) -> R 
+    pub fn with_store<F, R>(fun: F) -> R
     where
-        F: FnOnce(EncryptedMessageStore) -> R
+        F: FnOnce(EncryptedMessageStore) -> R,
     {
         crate::tests::setup();
         let store = EncryptedMessageStore::new(
@@ -265,11 +272,9 @@ mod tests {
         let db_path = format!("{}.db3", rand_string());
         {
             // Setup a persistent store
-            let store = EncryptedMessageStore::new(
-                StorageOption::Persistent(db_path.clone()),
-                enc_key,
-            )
-            .unwrap();
+            let store =
+                EncryptedMessageStore::new(StorageOption::Persistent(db_path.clone()), enc_key)
+                    .unwrap();
 
             StoredIdentity::new("dummy_address".to_string(), rand_vec(), rand_vec())
                 .store(&mut store.conn().unwrap())

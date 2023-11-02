@@ -6,23 +6,26 @@ extern crate ethers;
 extern crate log;
 extern crate xmtp;
 
+use std::{fs, path::PathBuf, time::Duration};
+
 use clap::{Parser, Subcommand};
 use log::{error, info};
-use std::fs;
-use std::path::PathBuf;
-use std::time::Duration;
 use thiserror::Error;
-use xmtp::builder::{AccountStrategy, ClientBuilderError};
-use xmtp::client::ClientError;
-use xmtp::conversation::{Conversation, ConversationError, ListMessagesOptions};
-use xmtp::conversations::Conversations;
-use xmtp::storage::{
-    now, EncryptedMessageStore, EncryptionKey, MessageState, StorageError, StorageOption,
+use xmtp::{
+    builder::{AccountStrategy, ClientBuilderError},
+    client::ClientError,
+    conversation::{Conversation, ConversationError, ListMessagesOptions},
+    conversations::Conversations,
+    storage::{
+        now, EncryptedMessageStore, EncryptionKey, MessageState, StorageError, StorageOption,
+    },
+    InboxOwner,
 };
-use xmtp::InboxOwner;
 use xmtp_api_grpc::grpc_api_helper::Client as ApiClient;
-use xmtp_cryptography::signature::{RecoverableSignature, SignatureError};
-use xmtp_cryptography::utils::{rng, seeded_rng, LocalWallet};
+use xmtp_cryptography::{
+    signature::{RecoverableSignature, SignatureError},
+    utils::{rng, seeded_rng, LocalWallet},
+};
 use xmtp_proto::api_client::XmtpApiClient;
 type Client = xmtp::client::Client<ApiClient>;
 type ClientBuilder = xmtp::builder::ClientBuilder<ApiClient, Wallet>;

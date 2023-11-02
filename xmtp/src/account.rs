@@ -1,5 +1,24 @@
-use std::fmt;
-use std::sync::{Mutex, MutexGuard};
+use std::{
+    fmt,
+    sync::{Mutex, MutexGuard},
+};
+
+use serde::{Deserialize, Serialize};
+use thiserror::Error;
+use vodozemac::{
+    olm::{
+        Account as OlmAccount, AccountPickle as OlmAccountPickle, IdentityKeys,
+        InboundCreationResult, PreKeyMessage, Session as OlmSession, SessionConfig,
+        SessionCreationError,
+    },
+    Ed25519Signature,
+};
+use xmtp_cryptography::signature::SignatureError;
+use xmtp_proto::xmtp::v3::message_contents::{
+    installation_contact_bundle::Version, vmac_account_linked_key::Association as AssociationProto,
+    InstallationContactBundle, VmacAccountLinkedKey, VmacInstallationLinkedKey,
+    VmacInstallationPublicKeyBundleV1, VmacUnsignedPublicKey,
+};
 
 use crate::{
     association::{AssociationError, Eip191Association},
@@ -7,19 +26,6 @@ use crate::{
     types::Address,
     vmac_protos::ProtoWrapper,
     Signable,
-};
-use serde::{Deserialize, Serialize};
-use thiserror::Error;
-use vodozemac::olm::{
-    Account as OlmAccount, AccountPickle as OlmAccountPickle, IdentityKeys, InboundCreationResult,
-    PreKeyMessage, Session as OlmSession, SessionConfig, SessionCreationError,
-};
-use vodozemac::Ed25519Signature;
-use xmtp_cryptography::signature::SignatureError;
-use xmtp_proto::xmtp::v3::message_contents::{
-    installation_contact_bundle::Version, vmac_account_linked_key::Association as AssociationProto,
-    InstallationContactBundle, VmacAccountLinkedKey, VmacInstallationLinkedKey,
-    VmacInstallationPublicKeyBundleV1, VmacUnsignedPublicKey,
 };
 
 #[derive(Debug, Error)]
@@ -200,14 +206,18 @@ impl Account {
 #[cfg(test)]
 pub(crate) mod tests {
 
-    use crate::association::AssociationError;
+    use ethers::{
+        core::rand::thread_rng,
+        signers::{LocalWallet, Signer},
+    };
+    use ethers_core::{
+        types::{Address as EthAddress, Signature},
+        utils::hex,
+    };
+    use serde_json::json;
 
     use super::{Account, Eip191Association};
-    use ethers::core::rand::thread_rng;
-    use ethers::signers::{LocalWallet, Signer};
-    use ethers_core::types::{Address as EthAddress, Signature};
-    use ethers_core::utils::hex;
-    use serde_json::json;
+    use crate::association::AssociationError;
 
     pub fn test_wallet_signer(pub_key: Vec<u8>) -> Result<Eip191Association, AssociationError> {
         Eip191Association::test(pub_key)

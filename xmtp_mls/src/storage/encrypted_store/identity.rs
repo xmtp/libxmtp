@@ -1,10 +1,11 @@
+use diesel::prelude::*;
+
 use super::schema::identity;
 use crate::{
     identity::Identity,
+    impl_fetch_and_store,
     storage::serialization::{db_deserialize, db_serialize},
-    impl_fetch_and_store
 };
-use diesel::prelude::*;
 
 /// Identity of this installation
 /// There can only be one.

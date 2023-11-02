@@ -1,12 +1,13 @@
-use crate::{
-    storage::InboundMessage,
-    types::{Address, InstallationId},
-};
 use prost::DecodeError as ProstDecodeError;
 use thiserror::Error;
 use vodozemac::{olm, DecodeError as VmacDecodeError};
 use xmtp_proto::xmtp::v3::message_contents::{
     PadlockMessageEnvelope, PadlockMessageHeader, PadlockMessageSealedMetadata,
+};
+
+use crate::{
+    storage::InboundMessage,
+    types::{Address, InstallationId},
 };
 
 #[derive(Debug, Error)]

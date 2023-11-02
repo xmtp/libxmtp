@@ -1,6 +1,8 @@
-use super::{CodecError, ContentCodec};
 use std::collections::HashMap;
+
 use xmtp_proto::xmtp::message_contents::{ContentTypeId, EncodedContent};
+
+use super::{CodecError, ContentCodec};
 
 pub struct TextCodec {}
 impl TextCodec {

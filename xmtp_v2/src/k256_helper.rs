@@ -1,6 +1,6 @@
-use k256::elliptic_curve::sec1::ToEncodedPoint;
 use k256::{
     ecdsa::{signature::Verifier, RecoveryId, Signature, VerifyingKey},
+    elliptic_curve::sec1::ToEncodedPoint,
     PublicKey, SecretKey,
 };
 use sha2::{digest::Update, Digest, Sha256};
@@ -73,7 +73,8 @@ pub fn recover_public_key_predigest_sha256(
     Ok(recovered_key.to_encoded_point(false).as_bytes().to_vec())
 }
 
-/// Return recovered key from a compact signature, recovery_id, and message (does keccak256 internally)
+/// Return recovered key from a compact signature, recovery_id, and message (does keccak256
+/// internally)
 pub fn recover_public_key_predigest_keccak256(
     message: &[u8],
     signature: &[u8],

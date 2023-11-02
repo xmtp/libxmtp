@@ -40,8 +40,10 @@ pub trait Delete<Model> {
 macro_rules! impl_fetch_and_store {
     ($model:ty, $table:ident) => {
         impl $crate::Store<$crate::storage::encrypted_store::DbConnection> for $model {
-
-            fn store(&self, into: &mut $crate::storage::encrypted_store::DbConnection) -> Result<(), $crate::StorageError> {
+            fn store(
+                &self,
+                into: &mut $crate::storage::encrypted_store::DbConnection,
+            ) -> Result<(), $crate::StorageError> {
                 diesel::insert_into($table::table)
                     .values(self)
                     .execute(into)
@@ -61,7 +63,10 @@ macro_rules! impl_fetch_and_store {
 
     ($model:ty, $table:ident, $key:ty) => {
         impl $crate::Store<$crate::storage::encrypted_store::DbConnection> for $model {
-            fn store(&self, into: &mut $crate::storage::encrypted_store::DbConnection) -> Result<(), $crate::StorageError> {
+            fn store(
+                &self,
+                into: &mut $crate::storage::encrypted_store::DbConnection,
+            ) -> Result<(), $crate::StorageError> {
                 diesel::insert_into($table::table)
                     .values(self)
                     .execute(into)
@@ -84,7 +89,7 @@ macro_rules! impl_fetch_and_store {
 mod tests {
     use std::sync::Once;
     static INIT: Once = Once::new();
-    
+
     /// Setup for tests
     pub fn setup() {
         INIT.call_once(|| {
@@ -92,4 +97,3 @@ mod tests {
         })
     }
 }
-

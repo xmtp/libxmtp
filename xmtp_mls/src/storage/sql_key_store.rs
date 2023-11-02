@@ -1,14 +1,14 @@
-use log::{debug, error};
-use openmls_traits::key_store::{MlsEntity, OpenMlsKeyStore};
 use std::borrow::Cow;
 
-use crate::{Delete, Fetch, Store};
+use log::{debug, error};
+use openmls_traits::key_store::{MlsEntity, OpenMlsKeyStore};
 
 use super::{
     encrypted_store::key_store_entry::StoredKeyStoreEntry,
     serialization::{db_deserialize, db_serialize},
     EncryptedMessageStore, StorageError,
 };
+use crate::{Delete, Fetch, Store};
 
 #[derive(Debug)]
 /// CRUD Operations for an [`EncryptedMessageStore`]
@@ -19,14 +19,16 @@ pub struct SqlKeyStore<'a> {
 impl Default for SqlKeyStore<'_> {
     fn default() -> Self {
         Self {
-            store: Cow::Owned(EncryptedMessageStore::default())
+            store: Cow::Owned(EncryptedMessageStore::default()),
         }
     }
 }
 
 impl<'a> SqlKeyStore<'a> {
     pub fn new(store: &'a EncryptedMessageStore) -> Self {
-        SqlKeyStore { store: Cow::Borrowed(store) }
+        SqlKeyStore {
+            store: Cow::Borrowed(store),
+        }
     }
 }
 
@@ -90,12 +92,11 @@ mod tests {
     use openmls_traits::key_store::OpenMlsKeyStore;
     use rand::distributions::{Alphanumeric, DistString};
 
+    use super::SqlKeyStore;
     use crate::{
         configuration::CIPHERSUITE,
         storage::{EncryptedMessageStore, StorageOption},
     };
-
-    use super::SqlKeyStore;
 
     fn rand_string() -> String {
         Alphanumeric.sample_string(&mut rand::thread_rng(), 16)
@@ -104,7 +105,11 @@ mod tests {
     #[test]
     fn store_read_delete() {
         let db_path = format!("{}.db3", rand_string());
-        let store = EncryptedMessageStore::new(StorageOption::Persistent(db_path), EncryptedMessageStore::generate_enc_key()).unwrap();
+        let store = EncryptedMessageStore::new(
+            StorageOption::Persistent(db_path),
+            EncryptedMessageStore::generate_enc_key(),
+        )
+        .unwrap();
         let key_store = SqlKeyStore {
             store: (&store).into(),
         };

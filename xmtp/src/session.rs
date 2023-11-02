@@ -1,10 +1,11 @@
+use thiserror::Error;
+use vodozemac::olm::{DecryptionError, OlmMessage, Session as OlmSession};
+
 use crate::{
     contact::Contact,
     storage::{DbConnection, StorageError, StoredSession},
     Save, Store,
 };
-use thiserror::Error;
-use vodozemac::olm::{DecryptionError, OlmMessage, Session as OlmSession};
 
 #[derive(Debug, Error)]
 pub enum SessionError {
@@ -114,7 +115,8 @@ impl TryFrom<&SessionManager> for StoredSession {
         Ok(StoredSession::new(
             value.session.session_id(),
             value.peer_installation_id.clone(),
-            // TODO: Better error handling approach. StoreError and SessionError end up being dependent on eachother
+            // TODO: Better error handling approach. StoreError and SessionError end up being
+            // dependent on eachother
             value
                 .session_bytes()
                 .map_err(|_| StorageError::Serialization)?,

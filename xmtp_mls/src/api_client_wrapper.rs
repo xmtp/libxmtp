@@ -6,24 +6,20 @@ use xmtp_proto::{
         XmtpMlsClient,
     },
     xmtp::{
-        message_api::{v1::Cursor, v3::GetIdentityUpdatesRequest},
-        mls::message_contents::{
-            group_message::{Version as GroupMessageVersion, V1 as GroupMessageV1},
-            welcome_message::{Version as WelcomeMessageVersion, V1 as WelcomeMessageV1},
-            WelcomeMessage as WelcomeMessageProto,
-        },
-    },
-    xmtp::{
         message_api::{
-            v1::SortDirection,
+            v1::{Cursor, SortDirection},
             v3::{
                 get_identity_updates_response::update::Kind as UpdateKind,
                 publish_welcomes_request::WelcomeMessageRequest, ConsumeKeyPackagesRequest,
-                KeyPackageUpload, PublishToGroupRequest, PublishWelcomesRequest,
-                RegisterInstallationRequest, UploadKeyPackagesRequest,
+                GetIdentityUpdatesRequest, KeyPackageUpload, PublishToGroupRequest,
+                PublishWelcomesRequest, RegisterInstallationRequest, UploadKeyPackagesRequest,
             },
         },
-        mls::message_contents::GroupMessage,
+        mls::message_contents::{
+            group_message::{Version as GroupMessageVersion, V1 as GroupMessageV1},
+            welcome_message::{Version as WelcomeMessageVersion, V1 as WelcomeMessageV1},
+            GroupMessage, WelcomeMessage as WelcomeMessageProto,
+        },
     },
 };
 
@@ -272,29 +268,30 @@ type IdentityUpdatesMap = HashMap<String, Vec<IdentityUpdate>>;
 
 #[cfg(test)]
 mod tests {
-    use super::ApiClientWrapper;
-    use mockall::mock;
-    use xmtp_proto::api_client::{
-        Error, PagingInfo, XmtpApiClient, XmtpApiSubscription, XmtpMlsClient,
-    };
-    use xmtp_proto::xmtp::message_api::v1::IndexCursor;
-    use xmtp_proto::xmtp::message_api::v3::consume_key_packages_response::KeyPackage;
-    use xmtp_proto::xmtp::message_api::v3::get_identity_updates_response::update::Kind as UpdateKind;
-    use xmtp_proto::xmtp::message_api::v3::get_identity_updates_response::{
-        NewInstallationUpdate, Update, WalletUpdates,
-    };
-    use xmtp_proto::xmtp::message_api::v3::{
-        ConsumeKeyPackagesRequest, ConsumeKeyPackagesResponse, GetIdentityUpdatesRequest,
-        GetIdentityUpdatesResponse, PublishToGroupRequest, PublishWelcomesRequest,
-        RegisterInstallationRequest, RegisterInstallationResponse, UploadKeyPackagesRequest,
-    };
-
-    use xmtp_proto::xmtp::message_api::v1::{
-        cursor::Cursor as InnerCursor, BatchQueryRequest, BatchQueryResponse, Cursor, Envelope,
-        PublishRequest, PublishResponse, QueryRequest, QueryResponse, SubscribeRequest,
-    };
-
     use async_trait::async_trait;
+    use mockall::mock;
+    use xmtp_proto::{
+        api_client::{Error, PagingInfo, XmtpApiClient, XmtpApiSubscription, XmtpMlsClient},
+        xmtp::message_api::{
+            v1::{
+                cursor::Cursor as InnerCursor, BatchQueryRequest, BatchQueryResponse, Cursor,
+                Envelope, IndexCursor, PublishRequest, PublishResponse, QueryRequest,
+                QueryResponse, SubscribeRequest,
+            },
+            v3::{
+                consume_key_packages_response::KeyPackage,
+                get_identity_updates_response::{
+                    update::Kind as UpdateKind, NewInstallationUpdate, Update, WalletUpdates,
+                },
+                ConsumeKeyPackagesRequest, ConsumeKeyPackagesResponse, GetIdentityUpdatesRequest,
+                GetIdentityUpdatesResponse, PublishToGroupRequest, PublishWelcomesRequest,
+                RegisterInstallationRequest, RegisterInstallationResponse,
+                UploadKeyPackagesRequest,
+            },
+        },
+    };
+
+    use super::ApiClientWrapper;
 
     fn build_envelopes(num_envelopes: usize, topic: &str) -> Vec<Envelope> {
         let mut out: Vec<Envelope> = vec![];

@@ -9,11 +9,14 @@ pub use grpc_api_helper::Client;
 mod tests {
     use std::time::{SystemTime, UNIX_EPOCH};
 
-    use super::*;
-    use xmtp_proto::api_client::{XmtpApiClient, XmtpApiSubscription};
-    use xmtp_proto::xmtp::message_api::v1::{
-        BatchQueryRequest, Envelope, PublishRequest, QueryRequest, SubscribeRequest,
+    use xmtp_proto::{
+        api_client::{XmtpApiClient, XmtpApiSubscription},
+        xmtp::message_api::v1::{
+            BatchQueryRequest, Envelope, PublishRequest, QueryRequest, SubscribeRequest,
+        },
     };
+
+    use super::*;
 
     // Return the json serialization of an Envelope with bytes
     pub fn test_envelope(topic: String) -> Envelope {
