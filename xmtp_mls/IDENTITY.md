@@ -52,13 +52,13 @@ Every new app installation gains messaging access as follows:
    ```
 
 4. A last resort KeyPackage (signed by the installation key per the MLS spec) is generated and stored on the device.
-5. The app publishes the public signing key, credential, and last resort key package to the account's contact topic on the server. This enables other apps to understand that the installation is on the network, associated with the account, and how to contact it.
+5. The app publishes the public signing key, credential, and last resort key package to the server, which stores it under the account. Other apps may query for this information to understand that the installation is on the network, associated with the account, and how to contact it.
 
 **Installation management**
 
-At any time, the user may enumerate active installations by querying the contact topic for the account. The user may identify each installation by the creation time as well as the installation key from the signing text.
+At any time, the user may enumerate active installations by querying for all identity updates under the account. The user may identify each installation by the creation time as well as the installation key from the signing text.
 
-In the event of a compromise, malicious app, or no longer used installation, the user may revoke an installation’s messaging access going forward by signing a revocation payload containing the installation’s identity keys using their wallet and publishing it onto the revocation topic.
+In the event of a compromise, malicious app, or no longer used installation, the user may revoke an installation’s messaging access going forward by signing a revocation payload containing the installation’s identity keys using their wallet and publishing it to the server. This will subsequently be surfaced in the identity update list for clients to validate.
 
 **Authentication service**
 
@@ -75,7 +75,7 @@ At the user level, messages are exchanged between accounts, however at the crypt
 
 **Mapping from accounts to installations**
 
-The latter can be addressed using the mechanism described in the earlier section - any participant in a conversation can query the contact topic for any account in the conversation and construct the current list of valid installations from the registration and revocation payloads in the topic. If the current installation list does not match what is in the group, the participant may add or remove installations in the group to match the latest state, and all other participants may perform the same verification. This can be performed at any frequency (for example before every message send), with various performance optimizations possible.
+The latter can be addressed using the mechanism described in the earlier section - any participant in a conversation can query for updates on any account in the conversation and construct the current list of valid installations. If the current installation list does not match what is in the group, the participant may add or remove installations in the group to match the latest state, and all other participants may perform the same verification. This can be performed at any frequency (for example before every message send), with various performance optimizations possible.
 
 **Mapping from conversations to accounts**
 
