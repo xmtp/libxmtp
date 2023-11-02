@@ -52,7 +52,9 @@ CREATE TABLE group_intents (
     "kind" INT NOT NULL,
     "group_id" BLOB NOT NULL,
     -- Some sort of serializable blob that can be used to re-try the message if the first attempt failed due to conflict
-    "data" BLOB NOT NULL,
+    "publish_data" BLOB NOT NULL,
+    -- Data needed after applying a commit, such as welcome messages
+    "post_commit_data" BLOB NOT NULL,
     -- INTENT_STATE,
     "state" INT NOT NULL,
     -- The hash of the encrypted, concrete, form of the message if it was published.
@@ -62,21 +64,13 @@ CREATE TABLE group_intents (
 
 CREATE INDEX group_intents_group_id_id ON group_intents(group_id, id);
 
-CREATE TABLE outbound_welcome_messages (
-    -- Derived via SHA256(CONCAT(group_id, welcome_message, installation_id))
-    "id" BLOB PRIMARY KEY NOT NULL,
-    -- OUTBOUND_WELCOME_STATE
-    "state" INT NOT NULL,
-    "installation_id" BLOB NOT NULL,
-    -- The hash of the commit message which created this welcome
-    "message_hash" BLOB NOT NULL,
-    -- The group this welcome belongs to
-    "group_id" BLOB NOT NULL,
-    "welcome_message" BLOB NOT NULL,
-    FOREIGN KEY (group_id) REFERENCES groups(id)
+CREATE TABLE topic_refresh_state (
+    "topic" TEXT PRIMARY KEY NOT NULL,
+    "last_message_timestamp_ns" BIGINT NOT NULL,
+    -- Only allow one concurrent sync at a time per topic. This value is 0 when no sync is happening
+    -- All locks should be cleared on cold start
+    "lock_until_ns" BIGINT NOT NULL
 );
-
-CREATE INDEX outbound_welcome_messages_commit_hash ON outbound_welcome_messages(commit_hash, state);
 ```
 
 ## Enums
@@ -118,35 +112,39 @@ The [following diagram](https://app.excalidraw.com/s/4nwb0c8ork7/6pPH1kQDoj3) il
 
 ![MLS State Machine](../img/mls-state-machine.png "MLS State Machine")
 
+For the first version of MLS in XMTP, all members commit their own proposals immediately, and immediately discard any proposals from other members upon receiving them. Future versions of XMTP will have more sophisticated logic, such as batching proposals, allowing members to commit proposals from other members, as well as more sophisticated validation logic for which proposals are permitted from which members.
+
 ### Known missing items from the state machine
 
 - Key updates
 - Processing incoming welcome messages
+- Tracking group membership at the account/user level
+- Permissioning for adding/removing accounts/users
+- Mechanism for syncing installations under each account/user
 
 ### Add members to a group
 
 Simplified high level flow for adding members to a group:
 
-1. Consume Key Packages for all new members
 1. Create a `group_intent` for adding the members
-1. Sync the state of the group with the network
+1. Consume Key Packages for all new members
 1. Convert the intent into concrete commit and welcome messages for the current epoch
+   1. Write the welcome messages to the `post_commit_data` field for later
 1. Publish commit message
 1. Sync the state of the group with the network
 1. If no conflicts: Publish welcome messages to new members.
-   If conflicts: Go back to step 4 and try again
+   If conflicts: Go back to step 2 and try again (reset the intent's state to `TO_SEND` and clear the `publish_data` and `post_commit_data` fields)
 
 ### Remove members from a group
 
 Simplified high level flow for removing members from a group:
 
 1. Create a `group_intent` for removing the members
-1. Sync the state of the group with the network
 1. Convert the intent into concrete commit for the current epoch
 1. Publish commit to the network
 1. Sync the state of the group with the network
 1. If no conflicts: Done.
-   If conflicts: Go back to step 3 and try again
+   If conflicts: Go back to step 2 and try again (reset the intent's state to `TO_SEND` and clear the `publish_data` and `post_commit_data` fields)
 
 ### Send a message
 
@@ -156,7 +154,19 @@ Simplified high level flow for sending a group message:
 1. Convert the intent into a concrete message for the current epoch
 1. Publish message to the network
 1. Sync the state of the group with the network (can be debounced or otherwise only done periodically)
-1. If no conflicts: Mark the message as committed. If conflicts: Go back to step 2.
+1. If no conflicts: Mark the message as committed.
+   If conflicts: Go back to step 2 and try again (reset the intent's state to `TO_SEND` and clear the `publish_data` and `post_commit_data` fields)
+
+### Syncing group state
+
+The server maintains an inbound topic for each group, and a single inbound topic for the client's identity. For each topic, the client maintains a row that stores `last_synced_payload_id` and `lock_sync_until_ns` fields.
+
+1. In a single transaction, validate that `lock_until_ns` is not set to a value greater than `now()`, set it to a timeframe in the future, and fetch the `last_message_timestamp_ns`
+1. Fetch all payloads greater than the timestamp from the server
+1. Sequentially process each payload. For each payload, update the `last_message_timestamp_ns` and any corresponding database writes for that payload in a single transaction
+1. When the sync is complete, release the lock by setting `lock_until_ns` to 0
+
+This flow will be similar regardless of if the sync happens via a poll-based or subscription-based mechanism. For a subscription-based mechanism, the lock will be obtained at the start of the subscription, and extended on a heartbeat time interval, until the subscription is closed.
 
 ### Updating your list of conversations
 
