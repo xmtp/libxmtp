@@ -15,6 +15,8 @@ pub struct StoredGroupMessage {
     pub decrypted_message_bytes: Vec<u8>,
     /// Time in nanoseconds the message was sent.
     pub sent_at_ns: i64,
+    /// Group Message Kind Enum
+    pub kind: i32,
     /// The ID of the App Installation this message was sent from.
     pub sender_installation_id: Vec<u8>,
     /// Network wallet address of the Sender

@@ -3,7 +3,7 @@
 use super::schema::groups;
 use crate::impl_fetch_and_store;
 use diesel::prelude::*;
-use diesel::{backend::Backend, sqlite::Sqlite, serialize::{self, Output, ToSql, IsNull}, deserialize::{self, FromSql}, sql_types::Integer, expression::AsExpression};
+use diesel::{backend::Backend, sqlite::Sqlite, serialize::{self, Output, ToSql, IsNull}, deserialize::{self, FromSql, FromSqlRow}, sql_types::Integer, expression::AsExpression};
 
 /// The Group ID type.
 pub type ID = Vec<u8>;
@@ -18,7 +18,7 @@ pub struct StoredGroup {
     /// based on timestamp of this welcome message
     pub created_at_ns: i64,
     /// enum, [`GroupMembershipState`] representing access to the group.
-    pub membership_state: i32,
+    pub membership_state: GroupMembershipState,
 }
 
 impl_fetch_and_store!(StoredGroup, groups, Vec<u8>);
@@ -26,13 +26,13 @@ impl_fetch_and_store!(StoredGroup, groups, Vec<u8>);
 impl StoredGroup {
     pub fn new(id: ID, created_at_ns: i64, membership_state: GroupMembershipState) -> Self {
         Self {
-            id, created_at_ns, membership_state: membership_state as i32
+            id, created_at_ns, membership_state: membership_state
         }
     }
 }
 
 #[repr(i32)]
-#[derive(Debug, Clone, Copy, AsExpression)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, AsExpression, FromSqlRow)]
 #[diesel(sql_type = Integer)]
 /// Status of membership in a group, once a user sends a request to join
 pub enum GroupMembershipState {
@@ -113,7 +113,7 @@ mod tests {
             
             test_group.store(&mut conn).unwrap();
             let updated_group = store.update_group_membership(&mut conn, id, GroupMembershipState::Rejected).unwrap();
-            assert_eq!(updated_group, StoredGroup { membership_state: GroupMembershipState::Rejected as i32, ..test_group });
+            assert_eq!(updated_group, StoredGroup { membership_state: GroupMembershipState::Rejected, ..test_group });
         })
     }
 }
