@@ -49,10 +49,10 @@ CREATE TABLE group_intents (
     -- INTENT_STATE,
     "state" INT NOT NULL,
     -- The hash of the encrypted, concrete, form of the message if it was published.
-    "payload_hash" BLOB,
+    "payload_hash" BLOB UNIQUE,
     -- (Optional) data needed for the post-commit flow. For example, welcome messages
     "post_commit_data" BLOB,
     FOREIGN KEY (group_id) REFERENCES groups(id)
 );
 
-CREATE INDEX group_intents_group_id_id ON group_intents(group_id, id);
+CREATE INDEX group_intents_group_id_state ON group_intents(group_id, state);
