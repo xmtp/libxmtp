@@ -1,7 +1,8 @@
 use diesel::prelude::*;
 
 use super::schema::topic_refresh_state;
-use crate::impl_fetch_and_store;
+use crate::impl_fetch;
+use crate::impl_store;
 
 #[derive(Insertable, Identifiable, Queryable, Debug, Clone)]
 #[diesel(table_name = topic_refresh_state)]
@@ -11,4 +12,5 @@ pub struct TopicRefreshState {
     pub last_message_timestamp_ns: i64,
 }
 
-impl_fetch_and_store!(TopicRefreshState, topic_refresh_state);
+impl_fetch!(TopicRefreshState, topic_refresh_state, String);
+impl_store!(TopicRefreshState, topic_refresh_state);
