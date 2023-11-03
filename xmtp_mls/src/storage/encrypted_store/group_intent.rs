@@ -1,18 +1,19 @@
-use super::schema::group_intents::dsl;
-use super::{group, schema::group_intents};
-use super::{DbConnection, EncryptedMessageStore};
-use crate::storage::StorageError;
-use crate::{impl_fetch, impl_store};
-
-use diesel::prelude::*;
 use diesel::{
     backend::Backend,
     deserialize::{self, FromSql, FromSqlRow},
     expression::AsExpression,
+    prelude::*,
     serialize::{self, IsNull, Output, ToSql},
     sql_types::Integer,
     sqlite::Sqlite,
 };
+
+use super::{
+    group,
+    schema::{group_intents, group_intents::dsl},
+    DbConnection, EncryptedMessageStore,
+};
+use crate::{impl_fetch, impl_store, storage::StorageError};
 
 pub type ID = i32;
 
@@ -98,7 +99,8 @@ impl EncryptedMessageStore {
         Ok(query.load::<StoredGroupIntent>(conn)?)
     }
 
-    // Set the intent with the given ID to `Published` and set the payload hash. Optionally add `post_commit_data`
+    // Set the intent with the given ID to `Published` and set the payload hash. Optionally add
+    // `post_commit_data`
     pub fn set_group_intent_published(
         &self,
         conn: &mut DbConnection,
@@ -108,7 +110,8 @@ impl EncryptedMessageStore {
     ) -> Result<(), StorageError> {
         let res = diesel::update(dsl::group_intents)
             .filter(dsl::id.eq(intent_id))
-            // State machine requires that the only valid state transition to Published is from ToPublish
+            // State machine requires that the only valid state transition to Published is from
+            // ToPublish
             .filter(dsl::state.eq(IntentState::ToPublish))
             .set((
                 dsl::state.eq(IntentState::Published),
@@ -132,7 +135,8 @@ impl EncryptedMessageStore {
     ) -> Result<(), StorageError> {
         let res = diesel::update(dsl::group_intents)
             .filter(dsl::id.eq(intent_id))
-            // State machine requires that the only valid state transition to Committed is from Published
+            // State machine requires that the only valid state transition to Committed is from
+            // Published
             .filter(dsl::state.eq(IntentState::Published))
             .set(dsl::state.eq(IntentState::Committed))
             .execute(conn)?;
@@ -144,7 +148,8 @@ impl EncryptedMessageStore {
         }
     }
 
-    // Set the intent with the given ID to `ToPublish`. Wipe any values for `payload_hash` and `post_commit_data`
+    // Set the intent with the given ID to `ToPublish`. Wipe any values for `payload_hash` and
+    // `post_commit_data`
     pub fn set_group_intent_to_publish(
         &self,
         conn: &mut DbConnection,
@@ -152,7 +157,8 @@ impl EncryptedMessageStore {
     ) -> Result<(), StorageError> {
         let res = diesel::update(dsl::group_intents)
             .filter(dsl::id.eq(intent_id))
-            // State machine requires that the only valid state transition to ToPublish is from Published
+            // State machine requires that the only valid state transition to ToPublish is from
+            // Published
             .filter(dsl::state.eq(IntentState::Published))
             .set((
                 dsl::state.eq(IntentState::ToPublish),
@@ -169,7 +175,8 @@ impl EncryptedMessageStore {
         }
     }
 
-    // Simple lookup of intents by payload hash, meant to be used when processing messages off the network
+    // Simple lookup of intents by payload hash, meant to be used when processing messages off the
+    // network
     pub fn find_group_intent_by_payload_hash(
         &self,
         conn: &mut DbConnection,
@@ -236,9 +243,13 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::storage::encrypted_store::group::{GroupMembershipState, StoredGroup};
-    use crate::storage::encrypted_store::tests::{rand_vec, with_store};
-    use crate::{Fetch, Store};
+    use crate::{
+        storage::encrypted_store::{
+            group::{GroupMembershipState, StoredGroup},
+            tests::{rand_vec, with_store},
+        },
+        Fetch, Store,
+    };
 
     fn insert_group(conn: &mut DbConnection, group_id: Vec<u8>) {
         let group = StoredGroup::new(group_id, 100, GroupMembershipState::Allowed);
@@ -246,7 +257,8 @@ mod tests {
     }
 
     impl NewGroupIntent {
-        // Real group intents must always start as ToPublish. But for tests we allow forcing the state
+        // Real group intents must always start as ToPublish. But for tests we allow forcing the
+        // state
         pub fn new_test(
             kind: IntentKind,
             group_id: Vec<u8>,
