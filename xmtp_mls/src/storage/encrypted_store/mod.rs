@@ -190,6 +190,47 @@ fn warn_length<T>(list: &Vec<T>, str_id: &str, max_length: usize) {
     }
 }
 
+#[macro_export]
+macro_rules! impl_fetch {
+    ($model:ty, $table:ident) => {
+        impl $crate::Fetch<$model> for $crate::storage::encrypted_store::DbConnection {
+            type Key = ();
+            fn fetch(&mut self, _key: Self::Key) -> Result<Option<$model>, $crate::StorageError> {
+                use $crate::storage::encrypted_store::schema::$table::dsl::*;
+                Ok($table.first(self).optional()?)
+            }
+        }
+    };
+
+    ($model:ty, $table:ident, $key:ty) => {
+        impl $crate::Fetch<$model> for $crate::storage::encrypted_store::DbConnection {
+            type Key = $key;
+            fn fetch(&mut self, key: Self::Key) -> Result<Option<$model>, $crate::StorageError> {
+                use $crate::storage::encrypted_store::schema::$table::dsl::*;
+                Ok($table.find(key).first(self).optional()?)
+            }
+        }
+    };
+}
+
+#[macro_export]
+macro_rules! impl_store {
+    ($model:ty, $table:ident) => {
+        impl $crate::Store<$crate::storage::encrypted_store::DbConnection> for $model {
+            fn store(
+                &self,
+                into: &mut $crate::storage::encrypted_store::DbConnection,
+            ) -> Result<(), $crate::StorageError> {
+                diesel::insert_into($table::table)
+                    .values(self)
+                    .execute(into)
+                    .map_err(|e| $crate::StorageError::from(e))?;
+                Ok(())
+            }
+        }
+    };
+}
+
 #[cfg(test)]
 mod tests {
     use std::{boxed::Box, fs};

@@ -11,7 +11,8 @@ use diesel::{
 };
 
 use super::schema::groups;
-use crate::impl_fetch_and_store;
+use crate::impl_fetch;
+use crate::impl_store;
 
 /// The Group ID type.
 pub type ID = Vec<u8>;
@@ -29,7 +30,8 @@ pub struct StoredGroup {
     pub membership_state: GroupMembershipState,
 }
 
-impl_fetch_and_store!(StoredGroup, groups, Vec<u8>);
+impl_fetch!(StoredGroup, groups, Vec<u8>);
+impl_store!(StoredGroup, groups);
 
 impl StoredGroup {
     pub fn new(id: ID, created_at_ns: i64, membership_state: GroupMembershipState) -> Self {

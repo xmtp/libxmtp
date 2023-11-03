@@ -1,7 +1,7 @@
 use diesel::prelude::*;
 
 use super::{schema::openmls_key_store, DbConnection, StorageError};
-use crate::{impl_fetch_and_store, Delete};
+use crate::{impl_fetch, impl_store, Delete};
 
 #[derive(Insertable, Queryable, Debug, Clone)]
 #[diesel(table_name = openmls_key_store)]
@@ -11,7 +11,8 @@ pub struct StoredKeyStoreEntry {
     pub value_bytes: Vec<u8>,
 }
 
-impl_fetch_and_store!(StoredKeyStoreEntry, openmls_key_store, Vec<u8>);
+impl_fetch!(StoredKeyStoreEntry, openmls_key_store, Vec<u8>);
+impl_store!(StoredKeyStoreEntry, openmls_key_store);
 
 impl Delete<StoredKeyStoreEntry> for DbConnection {
     type Key = Vec<u8>;
