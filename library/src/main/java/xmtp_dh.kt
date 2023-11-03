@@ -35,10 +35,8 @@ import java.util.concurrent.ConcurrentHashMap
 open class RustBuffer : Structure() {
     @JvmField
     var capacity: Int = 0
-
     @JvmField
     var len: Int = 0
-
     @JvmField
     var data: Pointer? = null
 
@@ -407,6 +405,14 @@ internal interface _UniFFILib : Library {
         `privateKeyBytes`: RustBuffer.ByValue, _uniffi_out_err: RustCallStatus,
     ): RustBuffer.ByValue
 
+    fun uniffi_xmtp_dh_fn_func_verify_k256_sha256(
+        `signedBy`: RustBuffer.ByValue,
+        `message`: RustBuffer.ByValue,
+        `signature`: RustBuffer.ByValue,
+        `recoveryId`: Byte,
+        _uniffi_out_err: RustCallStatus,
+    ): Byte
+
     fun ffi_xmtp_dh_rustbuffer_alloc(
         `size`: Int, _uniffi_out_err: RustCallStatus,
     ): RustBuffer.ByValue
@@ -433,6 +439,9 @@ internal interface _UniFFILib : Library {
     ): Short
 
     fun uniffi_xmtp_dh_checksum_func_generate_private_preferences_topic_identifier(
+    ): Short
+
+    fun uniffi_xmtp_dh_checksum_func_verify_k256_sha256(
     ): Short
 
     fun ffi_xmtp_dh_uniffi_contract_version(
@@ -464,6 +473,9 @@ private fun uniffiCheckApiChecksums(lib: _UniFFILib) {
     if (lib.uniffi_xmtp_dh_checksum_func_generate_private_preferences_topic_identifier() != 65141.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
+    if (lib.uniffi_xmtp_dh_checksum_func_verify_k256_sha256() != 45969.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
 }
 
 // Public interface members begin here.
@@ -486,6 +498,26 @@ public object FfiConverterUByte : FfiConverter<UByte, Byte> {
 
     override fun write(value: UByte, buf: ByteBuffer) {
         buf.put(value.toByte())
+    }
+}
+
+public object FfiConverterBoolean : FfiConverter<Boolean, Byte> {
+    override fun lift(value: Byte): Boolean {
+        return value.toInt() != 0
+    }
+
+    override fun read(buf: ByteBuffer): Boolean {
+        return lift(buf.get())
+    }
+
+    override fun lower(value: Boolean): Byte {
+        return if (value) 1.toByte() else 0.toByte()
+    }
+
+    override fun allocationSize(value: Boolean) = 1
+
+    override fun write(value: Boolean, buf: ByteBuffer) {
+        buf.put(lower(value))
     }
 }
 
@@ -612,6 +644,44 @@ public object FfiConverterTypeEciesError : FfiConverterRustBuffer<EciesException
 }
 
 
+sealed class VerifyException(message: String) : Exception(message) {
+    // Each variant is a nested class
+    // Flat enums carries a string error message, so no special implementation is necessary.
+    class GenericException(message: String) : VerifyException(message)
+
+
+    companion object ErrorHandler : CallStatusErrorHandler<VerifyException> {
+        override fun lift(error_buf: RustBuffer.ByValue): VerifyException =
+            FfiConverterTypeVerifyError.lift(error_buf)
+    }
+}
+
+public object FfiConverterTypeVerifyError : FfiConverterRustBuffer<VerifyException> {
+    override fun read(buf: ByteBuffer): VerifyException {
+
+        return when (buf.getInt()) {
+            1 -> VerifyException.GenericException(FfiConverterString.read(buf))
+            else -> throw RuntimeException("invalid error enum value, something is very wrong!!")
+        }
+
+    }
+
+    override fun allocationSize(value: VerifyException): Int {
+        return 4
+    }
+
+    override fun write(value: VerifyException, buf: ByteBuffer) {
+        when (value) {
+            is VerifyException.GenericException -> {
+                buf.putInt(1)
+                Unit
+            }
+        }.let { /* this makes the `when` an expression, which ensures it is exhaustive */ }
+    }
+
+}
+
+
 public object FfiConverterSequenceUByte : FfiConverterRustBuffer<List<UByte>> {
     override fun read(buf: ByteBuffer): List<UByte> {
         val len = buf.getInt()
@@ -693,6 +763,28 @@ fun `generatePrivatePreferencesTopicIdentifier`(`privateKeyBytes`: List<UByte>):
         rustCallWithError(EciesException) { _status ->
             _UniFFILib.INSTANCE.uniffi_xmtp_dh_fn_func_generate_private_preferences_topic_identifier(
                 FfiConverterSequenceUByte.lower(`privateKeyBytes`),
+                _status
+            )
+        })
+}
+
+@Throws(VerifyException::class)
+
+fun `verifyK256Sha256`(
+    `signedBy`: List<UByte>,
+    `message`: List<UByte>,
+    `signature`: List<UByte>,
+    `recoveryId`: UByte,
+): Boolean {
+    return FfiConverterBoolean.lift(
+        rustCallWithError(VerifyException) { _status ->
+            _UniFFILib.INSTANCE.uniffi_xmtp_dh_fn_func_verify_k256_sha256(
+                FfiConverterSequenceUByte.lower(
+                    `signedBy`
+                ),
+                FfiConverterSequenceUByte.lower(`message`),
+                FfiConverterSequenceUByte.lower(`signature`),
+                FfiConverterUByte.lower(`recoveryId`),
                 _status
             )
         })
