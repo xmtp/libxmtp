@@ -1,5 +1,13 @@
 # XMTP MLS
 
+Problem:
+A pull fails completely because it misses one payload that is processed somewhere else
+
+Pull from network - via: streaming API, manual pull, commit processing, push notifs
+Write them all to DB for processing
+Singleton processing thread that's always running? How do you decrypt for push notif?
+I can work on receive flow?
+
 ## Database Schema
 
 Foreign key constraints and indexes omitted for simplicity.
