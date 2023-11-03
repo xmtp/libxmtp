@@ -80,3 +80,29 @@ The latter can be addressed using the mechanism described in the earlier section
 **Mapping from conversations to accounts**
 
 Will add this in next PR.
+
+How are key packages exchanged and how does this affect forward secrecy/PCS with ephemeral keys if there are multiple devices with the same inbox keys?
+
+Registering a new installation:
+
+1. Generate and store identity key and credential as above.
+2. Group ID of `account:<wallet_address>`
+   External join (or create if does not exist)
+   - Other members of the group will validate that this join is from the same wallet address, and ignore the commit otherwise.
+3. [Export a group secret](https://openmls.tech/openmls/doc/openmls/group/struct.MlsGroup.html#method.export_secret) and use it to derive a key pair - we can call this the 'Inbox' key pair. Save the inbox key pair on-device.
+4. Sign the inbox key pair using the identity key.
+5. Upload the identity key, credential, and inbox key to the server.
+
+Revoking an installation:
+
+Updating existing groups:
+
+Could be done by auto-refresh
+Or could be done by new installation - sync group conversations list (mechanism is), then do external commit to replace the inbox key pair
+Other installations of group need to verify that old and new inbox key pairs are signed by the same wallet, and the new inbox key pair is the latest for the given user.
+
+Sending a message:
+
+Sign the message using
+
+Other installations:
