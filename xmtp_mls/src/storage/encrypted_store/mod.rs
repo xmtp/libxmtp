@@ -231,7 +231,6 @@ macro_rules! impl_store {
     };
 }
 
-
 #[cfg(test)]
 mod tests {
     use std::{boxed::Box, fs};

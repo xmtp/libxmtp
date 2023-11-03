@@ -38,10 +38,10 @@ pub struct StoredGroupMessage {
 pub enum GroupMessageKind {
     Application = 1,
     MemberAdded = 2,
-    MemberRemoved = 3
+    MemberRemoved = 3,
 }
 
-impl ToSql<Integer, Sqlite> for GroupMessageKind 
+impl ToSql<Integer, Sqlite> for GroupMessageKind
 where
     i32: ToSql<Integer, Sqlite>,
 {
@@ -51,7 +51,7 @@ where
     }
 }
 
-impl FromSql<Integer, Sqlite> for GroupMessageKind 
+impl FromSql<Integer, Sqlite> for GroupMessageKind
 where
     i32: FromSql<Integer, Sqlite>,
 {
@@ -68,9 +68,7 @@ where
 impl_fetch!(StoredGroupMessage, group_messages, Vec<u8>);
 impl_store!(StoredGroupMessage, group_messages);
 
-
 impl EncryptedMessageStore {
-
     /// Query for group messages
     pub fn get_group_messages(
         &self,
@@ -81,7 +79,7 @@ impl EncryptedMessageStore {
         kind: Option<i32>,
     ) -> Result<Vec<StoredGroupMessage>, StorageError> {
         use super::schema::group_messages::dsl;
-       
+
         let mut query = dsl::group_messages
             .filter(dsl::group_id.eq(group_id))
             .into_boxed();
@@ -99,7 +97,7 @@ impl EncryptedMessageStore {
         }
         Ok(query.load::<StoredGroupMessage>(conn)?)
     }
-    
+
     /// Get a particular group message
     pub fn get_group_message(
         &self,
@@ -107,22 +105,26 @@ impl EncryptedMessageStore {
         conn: &mut DbConnection,
     ) -> Result<Option<StoredGroupMessage>, StorageError> {
         use super::schema::group_messages::dsl;
-        Ok(dsl::group_messages.filter(dsl::id.eq(id)).first(conn).optional()?)
+        Ok(dsl::group_messages
+            .filter(dsl::id.eq(id))
+            .first(conn)
+            .optional()?)
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use rand::Rng;
+
+    use super::*;
     use crate::{
         storage::encrypted_store::{schema::groups::dsl::groups, tests::with_store},
         Fetch, Store,
     };
 
     fn rand_bytes(length: usize) -> Vec<u8> {
-        (0..length).map(|_| { rand::random::<u8>() }).collect()
-    } 
+        (0..length).map(|_| rand::random::<u8>()).collect()
+    }
 
     fn generate_message(kind: Option<GroupMessageKind>) -> StoredGroupMessage {
         let mut rng = rand::thread_rng();
@@ -148,7 +150,7 @@ mod tests {
             assert!(matches!(store.get_group_message(&id, &mut conn), Ok(_)));
         })
     }
-    
+
     #[test]
     fn it_gets_messages() {
         with_store(|store, conn| {
