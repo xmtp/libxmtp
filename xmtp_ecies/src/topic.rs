@@ -33,4 +33,16 @@ mod tests {
 
         assert!(topic != topic_2);
     }
+
+    #[test]
+    fn generate_reference_identifier() {
+        // We randomly generated this key as an explicit example for reference tests across SDKs.
+        let k = &[
+            69, 239, 223, 17, 3, 219, 126, 21, 172, 74, 55, 18, 123, 240, 246, 149, 158, 74, 183,
+            229, 236, 98, 133, 184, 95, 44, 130, 35, 138, 113, 36, 211,
+        ];
+        let identifier = generate_private_preferences_topic_identifier(k).unwrap();
+
+        assert_eq!(identifier, "IiwU3YF9vPmMVR9dswQYscoRZyzroOkVBndrmnxJmSk");
+    }
 }
