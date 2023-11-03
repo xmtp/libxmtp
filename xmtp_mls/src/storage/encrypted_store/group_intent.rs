@@ -75,6 +75,7 @@ impl NewGroupIntent {
 }
 
 impl EncryptedMessageStore {
+    // Query for group_intents by group_id, optionally filtering by state and kind
     pub fn find_group_intents(
         &self,
         conn: &mut DbConnection,
@@ -97,6 +98,7 @@ impl EncryptedMessageStore {
         Ok(query.load::<StoredGroupIntent>(conn)?)
     }
 
+    // Set the intent with the given ID to `Published` and set the payload hash. Optionally add `post_commit_data`
     pub fn set_group_intent_published(
         &self,
         conn: &mut DbConnection,
@@ -122,6 +124,7 @@ impl EncryptedMessageStore {
         }
     }
 
+    // Set the intent with the given ID to `Committed`
     pub fn set_group_intent_committed(
         &self,
         conn: &mut DbConnection,
@@ -141,6 +144,7 @@ impl EncryptedMessageStore {
         }
     }
 
+    // Set the intent with the given ID to `ToPublish`. Wipe any values for `payload_hash` and `post_commit_data`
     pub fn set_group_intent_to_publish(
         &self,
         conn: &mut DbConnection,
@@ -165,6 +169,7 @@ impl EncryptedMessageStore {
         }
     }
 
+    // Simple lookup of intents by payload hash, meant to be used when processing messages off the network
     pub fn find_group_intent_by_payload_hash(
         &self,
         conn: &mut DbConnection,
