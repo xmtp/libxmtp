@@ -20,10 +20,9 @@ pub mod vmac_protos;
 
 pub use builder::ClientBuilder;
 pub use client::{Client, Network};
+pub use codecs::{text::TextCodec, ContentCodec};
 use storage::StorageError;
 use xmtp_cryptography::signature::{RecoverableSignature, SignatureError};
-
-pub use codecs::{text::TextCodec, ContentCodec};
 
 pub trait Signable {
     fn bytes_to_sign(&self) -> Vec<u8>;
@@ -56,11 +55,15 @@ pub trait InboxOwner {
 
 #[cfg(test)]
 mod tests {
-    use crate::builder::ClientBuilder;
     use std::time::{SystemTime, UNIX_EPOCH};
+
     use uuid::Uuid;
-    use xmtp_proto::api_client::XmtpApiClient;
-    use xmtp_proto::xmtp::message_api::v1::{Envelope, PublishRequest, QueryRequest};
+    use xmtp_proto::{
+        api_client::XmtpApiClient,
+        xmtp::message_api::v1::{Envelope, PublishRequest, QueryRequest},
+    };
+
+    use crate::builder::ClientBuilder;
 
     fn gen_test_envelope(topic: String) -> Envelope {
         let time_since_epoch = SystemTime::now().duration_since(UNIX_EPOCH).unwrap();

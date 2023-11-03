@@ -1,6 +1,5 @@
-use xmtp_mls::association::Eip191Association;
-
 use prost::Message;
+use xmtp_mls::association::Eip191Association;
 use xmtp_proto::xmtp::v3::message_contents::Eip191Association as Eip191AssociationProto;
 
 pub fn hex_encode(key: &[u8]) -> String {

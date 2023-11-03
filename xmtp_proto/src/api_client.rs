@@ -1,15 +1,15 @@
-use async_trait::async_trait;
 use std::{error::Error as StdError, fmt};
 
-use crate::xmtp::message_api::v3::{
-    ConsumeKeyPackagesRequest, ConsumeKeyPackagesResponse, GetIdentityUpdatesRequest,
-    GetIdentityUpdatesResponse, PublishToGroupRequest, PublishWelcomesRequest,
-    RegisterInstallationRequest, RegisterInstallationResponse, UploadKeyPackagesRequest,
-};
+use async_trait::async_trait;
 
 pub use super::xmtp::message_api::v1::{
     BatchQueryRequest, BatchQueryResponse, Envelope, PagingInfo, PublishRequest, PublishResponse,
     QueryRequest, QueryResponse, SubscribeRequest,
+};
+use crate::xmtp::message_api::v3::{
+    ConsumeKeyPackagesRequest, ConsumeKeyPackagesResponse, GetIdentityUpdatesRequest,
+    GetIdentityUpdatesResponse, PublishToGroupRequest, PublishWelcomesRequest,
+    RegisterInstallationRequest, RegisterInstallationResponse, UploadKeyPackagesRequest,
 };
 
 #[derive(Debug)]

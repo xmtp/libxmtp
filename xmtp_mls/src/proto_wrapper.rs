@@ -1,7 +1,5 @@
-use xmtp_proto::xmtp::v3::message_contents::vmac_unsigned_public_key::{
-    Union, VodozemacCurve25519,
-};
 use xmtp_proto::xmtp::v3::message_contents::{
+    vmac_unsigned_public_key::{Union, VodozemacCurve25519},
     VmacAccountLinkedKey, VmacInstallationLinkedKey, VmacUnsignedPublicKey,
 };
 

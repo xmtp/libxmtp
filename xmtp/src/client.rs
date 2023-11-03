@@ -1,10 +1,14 @@
 use core::fmt;
-use std::fmt::Formatter;
+use std::{collections::HashMap, fmt::Formatter};
 
 use diesel::Connection;
 use log::{debug, info};
 use thiserror::Error;
 use vodozemac::olm::PreKeyMessage;
+use xmtp_proto::{
+    api_client::XmtpApiClient,
+    xmtp::message_api::v1::{Envelope, PublishRequest, QueryRequest},
+};
 
 use crate::{
     account::Account,
@@ -19,9 +23,6 @@ use crate::{
     utils::{build_envelope, build_user_contact_topic, key_fingerprint},
     Store,
 };
-use std::collections::HashMap;
-use xmtp_proto::api_client::XmtpApiClient;
-use xmtp_proto::xmtp::message_api::v1::{Envelope, PublishRequest, QueryRequest};
 
 const INSTALLATION_REFRESH_INTERVAL_NS: i64 = 0;
 
@@ -94,11 +95,11 @@ impl<ApiClient> Client<ApiClient> {
     pub fn wallet_address(&self) -> Address {
         self.account.addr()
     }
-    
+
     pub fn installation_id(&self) -> String {
         self.account.contact().installation_id()
     }
-    
+
     pub fn get_session(
         &self,
         conn: &mut DbConnection,
@@ -170,7 +171,7 @@ impl<ApiClient> Client<ApiClient> {
 
         if let Err(e) = session.store(conn) {
             match e {
-                StorageError::DieselResult(_) => log::warn!("Session Already exists"), // TODO: Some thought is needed here, is this a critical error which should unroll?
+                StorageError::DieselResult(_) => log::warn!("Session Already exists"), /* TODO: Some thought is needed here, is this a critical error which should unroll? */
                 other_error => return Err(other_error.into()),
             }
         }
@@ -181,7 +182,7 @@ impl<ApiClient> Client<ApiClient> {
 
 impl<ApiClient> Client<ApiClient>
 where
-    ApiClient: XmtpApiClient
+    ApiClient: XmtpApiClient,
 {
     pub async fn init(&mut self) -> Result<(), ClientError> {
         let app_contact_bundle = self.account.contact();
@@ -307,7 +308,8 @@ where
         Ok(())
     }
 
-    /// Fetch Installations from the Network and create uninitialized sessions for newly discovered contacts
+    /// Fetch Installations from the Network and create uninitialized sessions for newly discovered
+    /// contacts
     // TODO: Reduce Visibility
     pub async fn refresh_user_installations(&self, user_address: &str) -> Result<(), ClientError> {
         // Store the timestamp of when the refresh process begins
@@ -352,12 +354,9 @@ where
                 info!("Saving Install {}", install.installation_id);
                 let session = self.create_uninitialized_session(&install.get_contact()?)?;
 
+                self.store.insert_install(transaction_manager, install)?;
                 self.store
-                    .insert_install(transaction_manager, install)?;
-                self.store.insert_session(
-                    transaction_manager,
-                    StoredSession::try_from(&session)?,
-                )?;
+                    .insert_session(transaction_manager, StoredSession::try_from(&session)?)?;
             }
 
             self.store.update_user_refresh_timestamp(
@@ -375,12 +374,12 @@ where
 
 #[cfg(test)]
 mod tests {
-    use xmtp_proto::xmtp::v3::message_contents::installation_contact_bundle::Version;
-    use xmtp_proto::xmtp::v3::message_contents::vmac_unsigned_public_key::Union::Curve25519;
-    use xmtp_proto::xmtp::v3::message_contents::vmac_unsigned_public_key::VodozemacCurve25519;
+    use xmtp_proto::xmtp::v3::message_contents::{
+        installation_contact_bundle::Version,
+        vmac_unsigned_public_key::{Union::Curve25519, VodozemacCurve25519},
+    };
 
-    use crate::test_utils::test_utils::gen_test_client;
-    use crate::ClientBuilder;
+    use crate::{test_utils::test_utils::gen_test_client, ClientBuilder};
 
     #[tokio::test]
     async fn registration() {

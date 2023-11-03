@@ -5,12 +5,14 @@ use futures::executor::block_on;
 use log::info;
 use prost::Message;
 use vodozemac::olm::{self, OlmMessage};
-use xmtp_proto::api_client::XmtpApiClient;
-use xmtp_proto::xmtp::{
-    message_api::v1::{Envelope, PublishRequest},
-    v3::message_contents::{
-        EdDsaSignature, PadlockMessageEnvelope, PadlockMessageHeader, PadlockMessagePayload,
-        PadlockMessagePayloadVersion, PadlockMessageSealedMetadata,
+use xmtp_proto::{
+    api_client::XmtpApiClient,
+    xmtp::{
+        message_api::v1::{Envelope, PublishRequest},
+        v3::message_contents::{
+            EdDsaSignature, PadlockMessageEnvelope, PadlockMessageHeader, PadlockMessagePayload,
+            PadlockMessagePayloadVersion, PadlockMessageSealedMetadata,
+        },
     },
 };
 
@@ -192,9 +194,7 @@ impl<A: XmtpApiClient> Conversations<A> {
             payload.sent_at_ns,
         );
 
-        client
-            .store
-            .insert_message(conn, stored_message)?;
+        client.store.insert_message(conn, stored_message)?;
 
         Ok(())
     }
@@ -353,7 +353,8 @@ impl<A: XmtpApiClient> Conversations<A> {
                     message.id,
                     e
                 );
-                // TODO update message status to failed on non-retryable errors so that we don't retry it next time
+                // TODO update message status to failed on non-retryable errors so that we don't
+                // retry it next time
             }
         }
 
@@ -403,8 +404,7 @@ impl<A: XmtpApiClient> Conversations<A> {
 #[cfg(test)]
 mod tests {
     use prost::Message;
-    use xmtp_proto::api_client::XmtpApiClient;
-    use xmtp_proto::xmtp::message_api::v1::QueryRequest;
+    use xmtp_proto::{api_client::XmtpApiClient, xmtp::message_api::v1::QueryRequest};
 
     use crate::{
         codecs::{text::TextCodec, ContentCodec},

@@ -1,8 +1,8 @@
-use base64::{engine::general_purpose, Engine as _};
 use std::time::{SystemTime, UNIX_EPOCH};
+
+use base64::{engine::general_purpose, Engine as _};
 use vodozemac::Curve25519PublicKey;
 use xmtp_cryptography::hash::keccak256;
-
 use xmtp_proto::xmtp::message_api::v1::Envelope;
 
 pub fn get_current_time_ns() -> u64 {

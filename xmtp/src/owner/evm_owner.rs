@@ -1,8 +1,8 @@
-use crate::InboxOwner;
-
 pub use ethers::signers::{LocalWallet, Signer};
 use futures::executor;
 use xmtp_cryptography::signature::{h160addr_to_string, RecoverableSignature, SignatureError};
+
+use crate::InboxOwner;
 
 impl InboxOwner for LocalWallet {
     fn get_address(&self) -> String {

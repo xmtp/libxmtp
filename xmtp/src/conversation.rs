@@ -1,3 +1,8 @@
+use prost::{DecodeError, Message};
+// use async_trait::async_trait;
+use thiserror::Error;
+use xmtp_proto::api_client::XmtpApiClient;
+
 use crate::{
     client::ClientError,
     codecs::{text::TextCodec, CodecError, ContentCodec},
@@ -11,11 +16,6 @@ use crate::{
     types::Address,
     Client, Store,
 };
-use xmtp_proto::api_client::XmtpApiClient;
-
-use prost::{DecodeError, Message};
-// use async_trait::async_trait;
-use thiserror::Error;
 
 #[derive(Debug, Error)]
 pub enum ConversationError {

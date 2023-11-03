@@ -6,8 +6,8 @@ use clap::Parser;
 use config::Args;
 use env_logger::Env;
 use handlers::ValidationService;
-use tokio::signal::unix::{signal, SignalKind};
 use tokio::{
+    signal::unix::{signal, SignalKind},
     spawn,
     sync::oneshot::{self, Sender},
 };
