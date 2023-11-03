@@ -11,8 +11,7 @@ use diesel::{
 };
 
 use super::schema::groups;
-use crate::impl_fetch;
-use crate::impl_store;
+use crate::{impl_fetch, impl_store};
 
 /// The Group ID type.
 pub type ID = Vec<u8>;
@@ -90,23 +89,21 @@ mod tests {
 
     #[test]
     fn it_stores_group() {
-        with_store(|store| {
-            let mut conn = store.conn().unwrap();
+        with_store(|_, conn| {
             let test_group = StoredGroup::new(vec![0x0], 100, GroupMembershipState::Allowed);
 
-            test_group.store(&mut conn).unwrap();
-            assert_eq!(groups.first::<StoredGroup>(&mut conn).unwrap(), test_group);
+            test_group.store(conn).unwrap();
+            assert_eq!(groups.first::<StoredGroup>(conn).unwrap(), test_group);
         })
     }
 
     #[test]
     fn it_fetches_group() {
-        with_store(|store| {
-            let mut conn = store.conn().unwrap();
+        with_store(|_, conn| {
             let test_group = StoredGroup::new(vec![0x0], 100, GroupMembershipState::Allowed);
             diesel::insert_into(groups)
                 .values(test_group.clone())
-                .execute(&mut conn)
+                .execute(conn)
                 .unwrap();
             let fetched_group = conn.fetch(vec![0x0]).ok().flatten().unwrap();
             assert_eq!(test_group, fetched_group);
@@ -115,14 +112,13 @@ mod tests {
 
     #[test]
     fn it_updates_group_membership_state() {
-        with_store(|store| {
+        with_store(|store, conn| {
             let id = vec![0x0];
-            let mut conn = store.conn().unwrap();
             let test_group = StoredGroup::new(id.clone(), 100, GroupMembershipState::Pending);
 
-            test_group.store(&mut conn).unwrap();
+            test_group.store(conn).unwrap();
             let updated_group = store
-                .update_group_membership(&mut conn, id, GroupMembershipState::Rejected)
+                .update_group_membership(conn, id, GroupMembershipState::Rejected)
                 .unwrap();
             assert_eq!(
                 updated_group,

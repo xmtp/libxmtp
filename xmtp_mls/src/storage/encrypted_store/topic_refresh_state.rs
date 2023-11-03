@@ -1,8 +1,7 @@
 use diesel::prelude::*;
 
 use super::schema::topic_refresh_state;
-use crate::impl_fetch;
-use crate::impl_store;
+use crate::{impl_fetch, impl_store};
 
 #[derive(Insertable, Identifiable, Queryable, Debug, Clone)]
 #[diesel(table_name = topic_refresh_state)]

@@ -9,7 +9,6 @@
 //! if there are any outstanding database migrations and perform them as needed. When updating the
 //! table definitions `schema.rs` must also be updated. To generate the correct schemas you can run
 //! `diesel print-schema` or use `cargo run update-schema` which will update the files for you.
-//!
 
 pub mod group;
 pub mod group_intent;
@@ -29,6 +28,7 @@ use diesel::{
 };
 use diesel_migrations::{embed_migrations, EmbeddedMigrations, MigrationHarness};
 use group::{GroupMembershipState, StoredGroup};
+use group_message::StoredGroupMessage;
 use log::warn;
 use rand::RngCore;
 use xmtp_cryptography::utils as crypto_utils;
@@ -231,6 +231,7 @@ macro_rules! impl_store {
     };
 }
 
+
 #[cfg(test)]
 mod tests {
     use std::{boxed::Box, fs};
@@ -254,7 +255,7 @@ mod tests {
     /// Test harness that loads an Ephemeral store.
     pub fn with_store<F, R>(fun: F) -> R
     where
-        F: FnOnce(EncryptedMessageStore) -> R,
+        F: FnOnce(EncryptedMessageStore, &mut super::DbConnection) -> R,
     {
         crate::tests::setup();
         let store = EncryptedMessageStore::new(
@@ -262,7 +263,8 @@ mod tests {
             EncryptedMessageStore::generate_enc_key(),
         )
         .unwrap();
-        fun(store)
+        let mut conn = store.conn().expect("acquiring a Connection failed");
+        fun(store, &mut conn)
     }
 
     #[test]
