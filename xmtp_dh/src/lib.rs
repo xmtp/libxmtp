@@ -46,6 +46,26 @@ impl std::fmt::Display for EciesError {
     }
 }
 
+#[derive(Debug)]
+pub enum VerifyError {
+    GenericError(String),
+}
+
+impl std::error::Error for VerifyError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match *self {
+            VerifyError::GenericError(_) => None,
+        }
+    }
+}
+
+impl std::fmt::Display for VerifyError {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        match *self {
+            VerifyError::GenericError(ref message) => write!(f, "{}", message),
+        }
+    }
+}
 pub fn diffie_hellman_k256(
     private_key_bytes: Vec<u8>,
     public_key_bytes: Vec<u8>,
@@ -56,6 +76,22 @@ pub fn diffie_hellman_k256(
     )
     .map_err(DiffieHellmanError::GenericError)?;
     Ok(shared_secret)
+}
+
+pub fn verify_k256_sha256(
+    signed_by: Vec<u8>,
+    message: Vec<u8>,
+    signature: Vec<u8>,
+    recovery_id: u8,
+) -> Result<bool, VerifyError> {
+    let result = k256_helper::verify_sha256(
+        signed_by.as_slice(),
+        message.as_slice(),
+        signature.as_slice(),
+        recovery_id,
+    )?;
+
+    Ok(result)
 }
 
 pub fn ecies_encrypt_k256_sha3_256(
