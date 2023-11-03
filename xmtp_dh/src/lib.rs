@@ -89,7 +89,7 @@ pub fn verify_k256_sha256(
         message.as_slice(),
         signature.as_slice(),
         recovery_id,
-    )?;
+    ).map_err(VerifyError::GenericError)?;
 
     Ok(result)
 }
