@@ -247,10 +247,6 @@ mod tests {
         rand::thread_rng().gen::<[u8; 16]>().to_vec()
     }
 
-    pub(crate) fn rand_bytes(length: usize) -> Vec<u8> {
-        (0..length).map(|_| rand::random::<u8>()).collect()
-    }
-
     pub(crate) fn rand_time() -> i64 {
         let mut rng = rand::thread_rng();
         rng.gen_range(0..1_000_000_000)

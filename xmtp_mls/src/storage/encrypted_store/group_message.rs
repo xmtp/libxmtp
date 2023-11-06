@@ -119,7 +119,7 @@ mod tests {
         assert_err, assert_ok,
         storage::encrypted_store::{
             group::tests::generate_group,
-            tests::{rand_bytes, rand_time, with_store},
+            tests::{rand_time, rand_vec, with_store},
         },
         Store,
     };
@@ -130,11 +130,11 @@ mod tests {
         sent_at_ns: Option<i64>,
     ) -> StoredGroupMessage {
         StoredGroupMessage {
-            id: rand_bytes(32),
-            group_id: group_id.map(<[u8]>::to_vec).unwrap_or(rand_bytes(32)),
-            decrypted_message_bytes: rand_bytes(600),
+            id: rand_vec(),
+            group_id: group_id.map(<[u8]>::to_vec).unwrap_or(rand_vec()),
+            decrypted_message_bytes: rand_vec(),
             sent_at_ns: sent_at_ns.unwrap_or(rand_time()),
-            sender_installation_id: rand_bytes(64),
+            sender_installation_id: rand_vec(),
             sender_wallet_address: "0x0".to_string(),
             kind: kind.unwrap_or(GroupMessageKind::Application),
         }
@@ -230,9 +230,9 @@ mod tests {
             group.store(&mut conn).unwrap();
 
             // just a bunch of random messages so we have something to filter through
-            for i in 0..4_000 {
-                match i % 4 {
-                    0 | 1 => {
+            for i in 0..3_000 {
+                match i % 3 {
+                    0 => {
                         let msg = generate_message(
                             Some(GroupMessageKind::Application),
                             Some(&group.id),
@@ -240,7 +240,7 @@ mod tests {
                         );
                         msg.store(&mut conn).unwrap();
                     }
-                    2 => {
+                    1 => {
                         let msg = generate_message(
                             Some(GroupMessageKind::MemberRemoved),
                             Some(&group.id),
@@ -268,7 +268,7 @@ mod tests {
                     Some(GroupMessageKind::Application),
                 )
                 .unwrap();
-            assert_eq!(application_messages.len(), 2_000);
+            assert_eq!(application_messages.len(), 1_000);
 
             let member_removed = store
                 .get_group_messages(
