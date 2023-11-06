@@ -221,10 +221,14 @@ mod tests {
             assert_eq!(message.len(), 1);
             assert_eq!(message.first().unwrap().sent_at_ns, 10_000);
 
-            let messages = store.get_group_messages(&mut conn, &group.id, None, Some(100_000), None).unwrap();
+            let messages = store
+                .get_group_messages(&mut conn, &group.id, None, Some(100_000), None)
+                .unwrap();
             assert_eq!(messages.len(), 2);
 
-            let messages = store.get_group_messages(&mut conn, &group.id, Some(10_000), None, None).unwrap();
+            let messages = store
+                .get_group_messages(&mut conn, &group.id, Some(10_000), None, None)
+                .unwrap();
             assert_eq!(messages.len(), 2);
         })
     }
