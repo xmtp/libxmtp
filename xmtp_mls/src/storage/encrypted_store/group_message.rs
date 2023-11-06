@@ -70,7 +70,7 @@ impl_store!(StoredGroupMessage, group_messages);
 
 impl EncryptedMessageStore {
     /// Query for group messages
-    pub fn get_group_messages<GroupId: AsRef<super::group::ID>>(
+    pub fn get_group_messages<GroupId: AsRef<[u8]>>(
         &self,
         conn: &mut DbConnection,
         group_id: GroupId,
