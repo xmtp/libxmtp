@@ -116,12 +116,12 @@ impl EncryptedMessageStore {
 mod tests {
     use super::*;
     use crate::{
+        assert_err, assert_ok,
         storage::encrypted_store::{
             group::tests::generate_group,
             tests::{rand_bytes, rand_time, with_store},
         },
         Store,
-        assert_err, assert_ok
     };
 
     fn generate_message(
@@ -129,7 +129,6 @@ mod tests {
         group_id: Option<&[u8]>,
         sent_at_ns: Option<i64>,
     ) -> StoredGroupMessage {
-        
         StoredGroupMessage {
             id: rand_bytes(32),
             group_id: group_id.map(<[u8]>::to_vec).unwrap_or(rand_bytes(32)),
@@ -172,11 +171,8 @@ mod tests {
             let message = generate_message(None, None, None);
             assert_err!(
                 message.store(&mut conn),
-                StorageError::DieselResult(DatabaseError(
-                    ForeignKeyViolation,
-                    _
-                )
-            ));
+                StorageError::DieselResult(DatabaseError(ForeignKeyViolation, _))
+            );
         })
     }
 
@@ -187,19 +183,21 @@ mod tests {
         with_store(|store, mut conn| {
             let group = generate_group(None);
             group.store(&mut conn).unwrap();
-            
+
             for _ in 0..4_000 {
                 let msg = generate_message(None, Some(&group.id), None);
                 assert_ok!(msg.store(&mut conn));
             }
-            
+
             let count: i64 = dsl::group_messages
                 .select(diesel::dsl::count_star())
                 .first(&mut conn)
                 .unwrap();
             assert_eq!(count, 4_000);
 
-            let messages = store.get_group_messages(&mut conn, &group.id, None, None, None).unwrap();
+            let messages = store
+                .get_group_messages(&mut conn, &group.id, None, None, None)
+                .unwrap();
             assert_eq!(messages.len(), 4_000);
         })
     }
@@ -209,7 +207,7 @@ mod tests {
         with_store(|store, mut conn| {
             let group = generate_group(None);
             group.store(&mut conn).unwrap();
-            
+
             let messages = vec![
                 generate_message(None, Some(&group.id), Some(1_000)),
                 generate_message(None, Some(&group.id), Some(10_000)),
@@ -217,7 +215,9 @@ mod tests {
                 generate_message(None, Some(&group.id), Some(1_000_000)),
             ];
             assert_ok!(messages.store(&mut conn));
-            let message = store.get_group_messages(&mut conn, &group.id, Some(1_000), Some(100_000), None).unwrap();
+            let message = store
+                .get_group_messages(&mut conn, &group.id, Some(1_000), Some(100_000), None)
+                .unwrap();
             assert_eq!(message.len(), 1);
             assert_eq!(message.first().unwrap().sent_at_ns, 10_000);
         })
@@ -228,32 +228,68 @@ mod tests {
         with_store(|store, mut conn| {
             let group = generate_group(None);
             group.store(&mut conn).unwrap();
-           
-            // just a bunch of random messages so we have something to filter through 
+
+            // just a bunch of random messages so we have something to filter through
             for i in 0..4_000 {
                 match i % 4 {
                     0 | 1 => {
-                        let msg = generate_message(Some(GroupMessageKind::Application), Some(&group.id), None);
+                        let msg = generate_message(
+                            Some(GroupMessageKind::Application),
+                            Some(&group.id),
+                            None,
+                        );
                         msg.store(&mut conn).unwrap();
-                    },
+                    }
                     2 => {
-                        let msg = generate_message(Some(GroupMessageKind::MemberRemoved), Some(&group.id), None);
+                        let msg = generate_message(
+                            Some(GroupMessageKind::MemberRemoved),
+                            Some(&group.id),
+                            None,
+                        );
                         msg.store(&mut conn).unwrap();
                     }
                     3 | _ => {
-                        let msg = generate_message(Some(GroupMessageKind::MemberAdded), Some(&group.id), None);
+                        let msg = generate_message(
+                            Some(GroupMessageKind::MemberAdded),
+                            Some(&group.id),
+                            None,
+                        );
                         msg.store(&mut conn).unwrap();
                     }
                 }
             }
 
-            let application_messages = store.get_group_messages(&mut conn, &group.id, None, None, Some(GroupMessageKind::Application)).unwrap();
+            let application_messages = store
+                .get_group_messages(
+                    &mut conn,
+                    &group.id,
+                    None,
+                    None,
+                    Some(GroupMessageKind::Application),
+                )
+                .unwrap();
             assert_eq!(application_messages.len(), 2_000);
 
-            let member_removed = store.get_group_messages(&mut conn, &group.id, None, None, Some(GroupMessageKind::MemberAdded)).unwrap();
+            let member_removed = store
+                .get_group_messages(
+                    &mut conn,
+                    &group.id,
+                    None,
+                    None,
+                    Some(GroupMessageKind::MemberAdded),
+                )
+                .unwrap();
             assert_eq!(member_removed.len(), 1_000);
 
-            let member_added = store.get_group_messages(&mut conn, &group.id, None, None, Some(GroupMessageKind::MemberRemoved)).unwrap();
+            let member_added = store
+                .get_group_messages(
+                    &mut conn,
+                    &group.id,
+                    None,
+                    None,
+                    Some(GroupMessageKind::MemberRemoved),
+                )
+                .unwrap();
             assert_eq!(member_added.len(), 1_000);
         })
     }

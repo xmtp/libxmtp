@@ -30,9 +30,9 @@ use diesel_migrations::{embed_migrations, EmbeddedMigrations, MigrationHarness};
 use log::warn;
 use rand::RngCore;
 use xmtp_cryptography::utils as crypto_utils;
-use crate::Store;
 
 use super::StorageError;
+use crate::Store;
 
 pub const MIGRATIONS: EmbeddedMigrations = embed_migrations!("./migrations/");
 
@@ -160,7 +160,6 @@ impl EncryptedMessageStore {
         crypto_utils::rng().fill_bytes(&mut key[..]);
         key
     }
-
 }
 
 #[allow(dead_code)]
@@ -216,7 +215,10 @@ macro_rules! impl_store {
     };
 }
 
-impl<T> Store<DbConnection> for Vec<T> where T: Store<DbConnection> {
+impl<T> Store<DbConnection> for Vec<T>
+where
+    T: Store<DbConnection>,
+{
     fn store(&self, into: &mut DbConnection) -> Result<(), StorageError> {
         for item in self {
             item.store(into)?;
@@ -244,7 +246,7 @@ mod tests {
     pub(crate) fn rand_vec() -> Vec<u8> {
         rand::thread_rng().gen::<[u8; 16]>().to_vec()
     }
-    
+
     pub(crate) fn rand_bytes(length: usize) -> Vec<u8> {
         (0..length).map(|_| rand::random::<u8>()).collect()
     }

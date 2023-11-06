@@ -100,12 +100,12 @@ where
 pub(crate) mod tests {
     use super::*;
     use crate::{
+        assert_ok,
         storage::encrypted_store::{
             schema::groups::dsl::groups,
             tests::{rand_time, rand_vec, with_store},
         },
         Fetch, Store,
-        assert_ok
     };
 
     /// Generate a test group
@@ -136,7 +136,7 @@ pub(crate) mod tests {
                 .values(test_group.clone())
                 .execute(&mut conn)
                 .unwrap();
-            
+
             let fetched_group = Fetch::<StoredGroup>::fetch(&mut conn, &test_group.id);
             assert_ok!(fetched_group, Some(test_group));
         })

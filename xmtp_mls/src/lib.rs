@@ -63,12 +63,12 @@ mod tests {
             assert!(matches!($x, Err($y)), $($msg)+)
         }}
     }
-    
-    /// wrapper over assert! macros for Ok's 
-    /// 
+
+    /// wrapper over assert! macros for Ok's
+    ///
     /// Make sure something is Ok(_) without caring about return value.
     /// assert_ok!(fun());
-    /// 
+    ///
     /// Against an expected value, e.g Ok(true)
     /// assert_ok!(fun(), true);
     ///
@@ -76,7 +76,7 @@ mod tests {
     /// assert_ok!(fun(), Ok(_), "the storage is not ok");
     #[macro_export]
     macro_rules! assert_ok {
-       
+
         ( $e:expr ) => {
             assert_ok!($e,)
         };
@@ -88,7 +88,7 @@ mod tests {
                 Err(e) => panic!("assertion failed: Err({:?})", e),
             }
         }};
-        
+
         ( $x:expr , $y:expr $(,)? ) => {
             assert_eq!($x, Ok($y.into()));
         };
