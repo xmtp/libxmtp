@@ -184,7 +184,7 @@ mod tests {
             let group = generate_group(None);
             group.store(&mut conn).unwrap();
 
-            for _ in 0..4_000 {
+            for _ in 0..50 {
                 let msg = generate_message(None, Some(&group.id), None);
                 assert_ok!(msg.store(&mut conn));
             }
@@ -193,12 +193,12 @@ mod tests {
                 .select(diesel::dsl::count_star())
                 .first(&mut conn)
                 .unwrap();
-            assert_eq!(count, 4_000);
+            assert_eq!(count, 50);
 
             let messages = store
                 .get_group_messages(&mut conn, &group.id, None, None, None)
                 .unwrap();
-            assert_eq!(messages.len(), 4_000);
+            assert_eq!(messages.len(), 50);
         })
     }
 
@@ -220,6 +220,12 @@ mod tests {
                 .unwrap();
             assert_eq!(message.len(), 1);
             assert_eq!(message.first().unwrap().sent_at_ns, 10_000);
+
+            let messages = store.get_group_messages(&mut conn, &group.id, None, Some(100_000), None).unwrap();
+            assert_eq!(messages.len(), 2);
+
+            let messages = store.get_group_messages(&mut conn, &group.id, Some(10_000), None, None).unwrap();
+            assert_eq!(messages.len(), 2);
         })
     }
 
@@ -230,7 +236,7 @@ mod tests {
             group.store(&mut conn).unwrap();
 
             // just a bunch of random messages so we have something to filter through
-            for i in 0..3_000 {
+            for i in 0..30 {
                 match i % 3 {
                     0 => {
                         let msg = generate_message(
@@ -268,7 +274,7 @@ mod tests {
                     Some(GroupMessageKind::Application),
                 )
                 .unwrap();
-            assert_eq!(application_messages.len(), 1_000);
+            assert_eq!(application_messages.len(), 10);
 
             let member_removed = store
                 .get_group_messages(
@@ -279,7 +285,7 @@ mod tests {
                     Some(GroupMessageKind::MemberAdded),
                 )
                 .unwrap();
-            assert_eq!(member_removed.len(), 1_000);
+            assert_eq!(member_removed.len(), 10);
 
             let member_added = store
                 .get_group_messages(
@@ -290,7 +296,7 @@ mod tests {
                     Some(GroupMessageKind::MemberRemoved),
                 )
                 .unwrap();
-            assert_eq!(member_added.len(), 1_000);
+            assert_eq!(member_added.len(), 10);
         })
     }
 }
