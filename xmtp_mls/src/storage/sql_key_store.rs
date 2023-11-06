@@ -60,7 +60,7 @@ impl OpenMlsKeyStore for SqlKeyStore<'_> {
             return None;
         }
         let mut conn = conn_result.unwrap();
-        let fetch_result = conn.fetch(k.to_vec());
+        let fetch_result = conn.fetch(&k.to_vec());
         if let Err(e) = fetch_result {
             error!("Failed to fetch key: {:?}", e);
             return None;
