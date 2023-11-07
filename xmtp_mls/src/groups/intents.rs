@@ -105,6 +105,7 @@ impl AddMembersIntentData {
         let key_packages: Result<Vec<VerifiedKeyPackage>, KeyPackageVerificationError> =
             key_package_bytes
                 .iter()
+                // TODO: Serialize VerifiedKeyPackages directly, so that we don't have to re-verify
                 .map(|kp| VerifiedKeyPackage::from_bytes(provider, kp))
                 .collect();
 

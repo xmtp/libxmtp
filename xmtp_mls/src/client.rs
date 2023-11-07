@@ -8,6 +8,7 @@ use xmtp_proto::api_client::{XmtpApiClient, XmtpMlsClient};
 use crate::{
     api_client_wrapper::{ApiClientWrapper, IdentityUpdate},
     configuration::KEY_PACKAGE_TOP_UP_AMOUNT,
+    groups::MlsGroup,
     identity::Identity,
     storage::{EncryptedMessageStore, StorageError},
     types::Address,
@@ -30,7 +31,7 @@ pub enum ClientError {
     #[error("storage error: {0}")]
     Storage(#[from] StorageError),
     #[error("dieselError: {0}")]
-    Ddd(#[from] diesel::result::Error),
+    Diesel(#[from] diesel::result::Error),
     #[error("Query failed: {0}")]
     QueryError(#[from] xmtp_proto::api_client::Error),
     #[error("identity error: {0}")]
@@ -84,6 +85,16 @@ where
     // TODO: Remove this and figure out the correct lifetimes to allow long lived provider
     pub fn mls_provider(&self) -> XmtpOpenMlsProvider {
         XmtpOpenMlsProvider::new(&self.store)
+    }
+
+    pub fn create_group(&self) -> Result<MlsGroup<ApiClient>, ClientError> {
+        let group = MlsGroup::create_and_insert(
+            &self,
+            crate::storage::group::GroupMembershipState::Allowed,
+        )
+        .map_err(|e| ClientError::Generic(format!("group create error {}", e.to_string())))?;
+
+        Ok(group)
     }
 
     pub async fn register_identity(&self) -> Result<(), ClientError> {

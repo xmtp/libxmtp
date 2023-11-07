@@ -148,8 +148,11 @@ where
 #[cfg(test)]
 mod tests {
 
+    use std::env;
+
     use ethers::signers::{LocalWallet, Signer, Wallet};
     use ethers_core::k256::ecdsa::SigningKey;
+    use rand::distributions::{Alphanumeric, DistString};
     use tempfile::TempPath;
     use xmtp_api_grpc::grpc_api_helper::Client as GrpcClient;
     use xmtp_cryptography::utils::generate_local_wallet;
@@ -166,15 +169,39 @@ mod tests {
             .unwrap()
     }
 
+    pub(crate) fn rand_string() -> String {
+        Alphanumeric.sample_string(&mut rand::thread_rng(), 24)
+    }
+
     impl ClientBuilder<GrpcClient, LocalWallet> {
         pub async fn local_grpc(self) -> Self {
             self.api_client(get_local_grpc_client().await)
         }
 
+        fn temp_store(self) -> Self {
+            let db_name = rand_string();
+            let tmpdb = tempfile::TempPath::from_path(format!(
+                "{}/{}.db3",
+                env::temp_dir().to_str().unwrap(),
+                db_name
+            ))
+            .to_str()
+            .unwrap()
+            .to_string();
+            self.store(
+                EncryptedMessageStore::new_unencrypted(StorageOption::Persistent(tmpdb)).unwrap(),
+            )
+        }
+
         pub async fn new_test_client(
             strat: IdentityStrategy<Wallet<SigningKey>>,
         ) -> Client<GrpcClient> {
-            Self::new(strat).local_grpc().await.build().unwrap()
+            Self::new(strat)
+                .temp_store()
+                .local_grpc()
+                .await
+                .build()
+                .unwrap()
         }
     }
 
