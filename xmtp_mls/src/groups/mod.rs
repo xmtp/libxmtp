@@ -243,12 +243,13 @@ fn build_group_config() -> MlsGroupConfig {
 
 #[cfg(test)]
 mod tests {
+    use crate::builder::ClientBuilder;
     use xmtp_cryptography::utils::generate_local_wallet;
 
     #[tokio::test]
     async fn test_send_message() {
         let wallet = generate_local_wallet();
-        let client = crate::builder::ClientBuilder::new_test_client(wallet.into()).await;
+        let client = ClientBuilder::new_test_client(wallet.into()).await;
         let group = client.create_group().expect("create group");
         group.send_message(b"hello").await.expect("send message");
 
@@ -265,10 +266,8 @@ mod tests {
 
     #[tokio::test]
     async fn test_add_members() {
-        let client =
-            crate::builder::ClientBuilder::new_test_client(generate_local_wallet().into()).await;
-        let client_2 =
-            crate::builder::ClientBuilder::new_test_client(generate_local_wallet().into()).await;
+        let client = ClientBuilder::new_test_client(generate_local_wallet().into()).await;
+        let client_2 = ClientBuilder::new_test_client(generate_local_wallet().into()).await;
         client_2.register_identity().await.unwrap();
         let group = client.create_group().expect("create group");
 
@@ -289,5 +288,17 @@ mod tests {
             .unwrap();
 
         assert_eq!(messages.len(), 1);
+    }
+
+    #[tokio::test]
+    async fn test_add_invalid_member() {
+        let client = ClientBuilder::new_test_client(generate_local_wallet().into()).await;
+        let group = client.create_group().expect("create group");
+
+        let result = group
+            .add_members_by_installation_id(vec![b"1234".to_vec()])
+            .await;
+
+        assert!(result.is_err());
     }
 }
