@@ -87,7 +87,7 @@ mod tests {
     use crate::{
         configuration::CIPHERSUITE,
         storage::{EncryptedMessageStore, StorageOption},
-        utils::test::{rand_string, tmp_path},
+        utils::test::{tmp_path},
     };
 
     #[test]

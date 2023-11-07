@@ -15,5 +15,5 @@ pub fn rand_vec() -> Vec<u8> {
 
 pub fn tmp_path() -> String {
     let db_name = rand_string();
-    return format!("{}/{}.db3", env::temp_dir().to_str().unwrap(), db_name);
+    format!("{}/{}.db3", env::temp_dir().to_str().unwrap(), db_name)
 }
