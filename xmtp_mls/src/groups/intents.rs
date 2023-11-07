@@ -1,4 +1,4 @@
-use openmls::{prelude::MlsMessageOut};
+use openmls::prelude::MlsMessageOut;
 use prost::{DecodeError, Message};
 use thiserror::Error;
 use tls_codec::Serialize;

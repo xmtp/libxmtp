@@ -88,11 +88,9 @@ where
     }
 
     pub fn create_group(&self) -> Result<MlsGroup<ApiClient>, ClientError> {
-        let group = MlsGroup::create_and_insert(
-            self,
-            crate::storage::group::GroupMembershipState::Allowed,
-        )
-        .map_err(|e| ClientError::Generic(format!("group create error {}", e)))?;
+        let group =
+            MlsGroup::create_and_insert(self, crate::storage::group::GroupMembershipState::Allowed)
+                .map_err(|e| ClientError::Generic(format!("group create error {}", e)))?;
 
         Ok(group)
     }

@@ -47,4 +47,3 @@ impl From<ProtoWrapper<VmacInstallationLinkedKey>> for InstallationPublicKey {
         }
     }
 }
-
