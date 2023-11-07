@@ -1,17 +1,5 @@
 mod intents;
 
-use crate::{
-    client::ClientError,
-    configuration::CIPHERSUITE,
-    storage::{
-        group::{GroupMembershipState, StoredGroup},
-        group_intent::{IntentKind, IntentState, NewGroupIntent, StoredGroupIntent},
-        DbConnection, StorageError,
-    },
-    utils::{hash::sha256, time::now_ns, topic::get_group_topic},
-    xmtp_openmls_provider::XmtpOpenMlsProvider,
-    Client, Store,
-};
 use intents::SendMessageIntentData;
 use openmls::{
     prelude::{
@@ -26,6 +14,18 @@ use tls_codec::Serialize;
 use xmtp_proto::api_client::{XmtpApiClient, XmtpMlsClient};
 
 use self::intents::{AddMembersIntentData, IntentError, PostCommitAction};
+use crate::{
+    client::ClientError,
+    configuration::CIPHERSUITE,
+    storage::{
+        group::{GroupMembershipState, StoredGroup},
+        group_intent::{IntentKind, IntentState, NewGroupIntent, StoredGroupIntent},
+        DbConnection, StorageError,
+    },
+    utils::{hash::sha256, time::now_ns, topic::get_group_topic},
+    xmtp_openmls_provider::XmtpOpenMlsProvider,
+    Client, Store,
+};
 
 #[derive(Debug, Error)]
 pub enum GroupError {
@@ -147,7 +147,8 @@ where
             let result = self.get_publish_intent_data(&provider, &mut openmls_group, &intent);
             if let Err(e) = result {
                 log::error!("error getting publish intent data {:?}", e);
-                // TODO: Figure out which types of errors we should abort completely on and which ones are safe to continue with
+                // TODO: Figure out which types of errors we should abort completely on and which
+                // ones are safe to continue with
                 continue;
             }
 
@@ -209,7 +210,8 @@ where
 
                 let commit_bytes = commit.tls_serialize_detached()?;
 
-                // If somehow another installation has made it into the commit, this will be missing their installation ID
+                // If somehow another installation has made it into the commit, this will be missing
+                // their installation ID
                 let installation_ids: Vec<Vec<u8>> = intent_data
                     .key_packages
                     .iter()
@@ -241,8 +243,9 @@ fn build_group_config() -> MlsGroupConfig {
 
 #[cfg(test)]
 mod tests {
-    use crate::builder::ClientBuilder;
     use xmtp_cryptography::utils::generate_local_wallet;
+
+    use crate::builder::ClientBuilder;
 
     #[tokio::test]
     async fn test_send_message() {

@@ -199,9 +199,8 @@ impl From<Vec<u8>> for PostCommitAction {
 mod tests {
     use xmtp_cryptography::utils::generate_local_wallet;
 
-    use crate::{builder::ClientBuilder, InboxOwner};
-
     use super::*;
+    use crate::{builder::ClientBuilder, InboxOwner};
 
     #[test]
     fn test_serialize_send_message() {
