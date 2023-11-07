@@ -4,7 +4,7 @@ use rand::{
     distributions::{Alphanumeric, DistString},
     Rng,
 };
-use tempfile::{Builder, TempPath};
+use tempfile::{TempPath};
 
 pub fn rand_string() -> String {
     Alphanumeric.sample_string(&mut rand::thread_rng(), 24)
