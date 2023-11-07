@@ -29,6 +29,12 @@ pub mod xmtp {
         // @@protoc_insertion_point(xmtp.message_contents)
     }
     pub mod mls {
+        #[cfg(feature = "xmtp-mls-database")]
+        // @@protoc_insertion_point(attribute:xmtp.mls.database)
+        pub mod database {
+            include!("xmtp.mls.database.rs");
+            // @@protoc_insertion_point(xmtp.mls.database)
+        }
         #[cfg(feature = "xmtp-mls-message_contents")]
         // @@protoc_insertion_point(attribute:xmtp.mls.message_contents)
         pub mod message_contents {

@@ -64,13 +64,11 @@ impl ValidationApi for ValidationService {
                 match validate_group_message(message.group_message_bytes_tls_serialized) {
                     Ok(res) => ValidateGroupMessageValidationResponse {
                         group_id: res.group_id,
-                        epoch: res.epoch,
                         error_message: "".to_string(),
                         is_ok: true,
                     },
                     Err(e) => ValidateGroupMessageValidationResponse {
                         group_id: "".to_string(),
-                        epoch: 0,
                         error_message: e,
                         is_ok: false,
                     },

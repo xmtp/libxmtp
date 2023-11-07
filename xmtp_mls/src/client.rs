@@ -82,7 +82,7 @@ where
     }
 
     // TODO: Remove this and figure out the correct lifetimes to allow long lived provider
-    fn mls_provider(&self) -> XmtpOpenMlsProvider {
+    pub fn mls_provider(&self) -> XmtpOpenMlsProvider {
         XmtpOpenMlsProvider::new(&self.store)
     }
 
@@ -154,6 +154,14 @@ where
             .get_all_active_installation_ids(wallet_addresses)
             .await?;
 
+        self.get_key_packages_for_installation_ids(installation_ids)
+            .await
+    }
+
+    pub async fn get_key_packages_for_installation_ids(
+        &self,
+        installation_ids: Vec<Vec<u8>>,
+    ) -> Result<Vec<VerifiedKeyPackage>, ClientError> {
         let key_package_results = self
             .api_client
             .consume_key_packages(installation_ids)

@@ -3,12 +3,14 @@ pub mod association;
 pub mod builder;
 pub mod client;
 mod configuration;
+pub mod groups;
 pub mod identity;
 pub mod mock_xmtp_api_client;
 pub mod owner;
 mod proto_wrapper;
 pub mod storage;
 pub mod types;
+pub mod utils;
 pub mod verified_key_package;
 mod xmtp_openmls_provider;
 

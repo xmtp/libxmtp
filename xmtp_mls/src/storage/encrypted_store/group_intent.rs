@@ -95,6 +95,8 @@ impl EncryptedMessageStore {
             query = query.filter(dsl::kind.eq_any(allowed_kinds));
         }
 
+        query = query.order(dsl::id.asc());
+
         Ok(query.load::<StoredGroupIntent>(conn)?)
     }
 
