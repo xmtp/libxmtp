@@ -10,9 +10,8 @@ use diesel::{
     sqlite::Sqlite,
 };
 
-use super::schema::groups;
-use crate::impl_fetch;
-use crate::impl_store;
+use super::{schema::groups, DbConnection, EncryptedMessageStore};
+use crate::{impl_fetch, impl_store, StorageError};
 
 /// The Group ID type.
 pub type ID = Vec<u8>;
@@ -40,6 +39,24 @@ impl StoredGroup {
             created_at_ns,
             membership_state,
         }
+    }
+}
+
+impl EncryptedMessageStore {
+    /// Updates group membership state
+    pub fn update_group_membership<GroupId: AsRef<[u8]>>(
+        &self,
+        conn: &mut DbConnection,
+        id: GroupId,
+        state: GroupMembershipState,
+    ) -> Result<(), StorageError> {
+        use super::schema::groups::dsl;
+
+        diesel::update(dsl::groups.find(id.as_ref()))
+            .set(dsl::membership_state.eq(state))
+            .execute(conn)?;
+
+        Ok(())
     }
 }
 
@@ -81,18 +98,30 @@ where
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
     use crate::{
-        storage::encrypted_store::{schema::groups::dsl::groups, tests::with_store},
+        assert_ok,
+        storage::encrypted_store::{
+            schema::groups::dsl::groups,
+            tests::{rand_time, rand_vec, with_store},
+        },
         Fetch, Store,
     };
 
+    /// Generate a test group
+    pub fn generate_group(state: Option<GroupMembershipState>) -> StoredGroup {
+        StoredGroup {
+            id: rand_vec(),
+            created_at_ns: rand_time(),
+            membership_state: state.unwrap_or(GroupMembershipState::Allowed),
+        }
+    }
+
     #[test]
     fn it_stores_group() {
-        with_store(|store| {
-            let mut conn = store.conn().unwrap();
-            let test_group = StoredGroup::new(vec![0x0], 100, GroupMembershipState::Allowed);
+        with_store(|_, mut conn| {
+            let test_group = generate_group(None);
 
             test_group.store(&mut conn).unwrap();
             assert_eq!(groups.first::<StoredGroup>(&mut conn).unwrap(), test_group);
@@ -101,29 +130,30 @@ mod tests {
 
     #[test]
     fn it_fetches_group() {
-        with_store(|store| {
-            let mut conn = store.conn().unwrap();
-            let test_group = StoredGroup::new(vec![0x0], 100, GroupMembershipState::Allowed);
+        with_store(|_, mut conn| {
+            let test_group = generate_group(None);
+
             diesel::insert_into(groups)
                 .values(test_group.clone())
                 .execute(&mut conn)
                 .unwrap();
-            let fetched_group = conn.fetch(vec![0x0]).ok().flatten().unwrap();
-            assert_eq!(test_group, fetched_group);
+
+            let fetched_group = Fetch::<StoredGroup>::fetch(&mut conn, &test_group.id);
+            assert_ok!(fetched_group, Some(test_group));
         })
     }
 
     #[test]
     fn it_updates_group_membership_state() {
-        with_store(|store| {
-            let id = vec![0x0];
-            let mut conn = store.conn().unwrap();
-            let test_group = StoredGroup::new(id.clone(), 100, GroupMembershipState::Pending);
+        with_store(|store, mut conn| {
+            let test_group = generate_group(Some(GroupMembershipState::Pending));
 
             test_group.store(&mut conn).unwrap();
-            let updated_group = store
-                .update_group_membership(&mut conn, id, GroupMembershipState::Rejected)
+            store
+                .update_group_membership(&mut conn, &test_group.id, GroupMembershipState::Rejected)
                 .unwrap();
+
+            let updated_group: StoredGroup = conn.fetch(&test_group.id).ok().flatten().unwrap();
             assert_eq!(
                 updated_group,
                 StoredGroup {

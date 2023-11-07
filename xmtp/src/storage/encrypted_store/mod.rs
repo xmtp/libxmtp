@@ -9,7 +9,6 @@
 //! if there are any outstanding database migrations and perform them as needed. When updating the
 //! table definitions `schema.rs` must also be updated. To generate the correct schemas you can run
 //! `diesel print-schema` or use `cargo run update-schema` which will update the files for you.
-//!
 
 pub mod models;
 pub mod schema;

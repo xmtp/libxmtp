@@ -55,7 +55,7 @@ where
         provider: &XmtpOpenMlsProvider,
     ) -> Result<Identity, ClientBuilderError> {
         let identity_option: Option<Identity> =
-            store.conn()?.fetch(())?.map(|i: StoredIdentity| i.into());
+            store.conn()?.fetch(&())?.map(|i: StoredIdentity| i.into());
         debug!("Existing identity in store: {:?}", identity_option);
         match self {
             IdentityStrategy::CachedOnly => {

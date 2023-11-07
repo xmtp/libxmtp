@@ -1,18 +1,19 @@
-use super::schema::group_intents::dsl;
-use super::{group, schema::group_intents};
-use super::{DbConnection, EncryptedMessageStore};
-use crate::storage::StorageError;
-use crate::{impl_fetch, impl_store};
-
-use diesel::prelude::*;
 use diesel::{
     backend::Backend,
     deserialize::{self, FromSql, FromSqlRow},
     expression::AsExpression,
+    prelude::*,
     serialize::{self, IsNull, Output, ToSql},
     sql_types::Integer,
     sqlite::Sqlite,
 };
+
+use super::{
+    group,
+    schema::{group_intents, group_intents::dsl},
+    DbConnection, EncryptedMessageStore,
+};
+use crate::{impl_fetch, impl_store, storage::StorageError};
 
 pub type ID = i32;
 
@@ -98,7 +99,8 @@ impl EncryptedMessageStore {
         Ok(query.load::<StoredGroupIntent>(conn)?)
     }
 
-    // Set the intent with the given ID to `Published` and set the payload hash. Optionally add `post_commit_data`
+    // Set the intent with the given ID to `Published` and set the payload hash. Optionally add
+    // `post_commit_data`
     pub fn set_group_intent_published(
         &self,
         conn: &mut DbConnection,
@@ -108,7 +110,8 @@ impl EncryptedMessageStore {
     ) -> Result<(), StorageError> {
         let res = diesel::update(dsl::group_intents)
             .filter(dsl::id.eq(intent_id))
-            // State machine requires that the only valid state transition to Published is from ToPublish
+            // State machine requires that the only valid state transition to Published is from
+            // ToPublish
             .filter(dsl::state.eq(IntentState::ToPublish))
             .set((
                 dsl::state.eq(IntentState::Published),
@@ -132,7 +135,8 @@ impl EncryptedMessageStore {
     ) -> Result<(), StorageError> {
         let res = diesel::update(dsl::group_intents)
             .filter(dsl::id.eq(intent_id))
-            // State machine requires that the only valid state transition to Committed is from Published
+            // State machine requires that the only valid state transition to Committed is from
+            // Published
             .filter(dsl::state.eq(IntentState::Published))
             .set(dsl::state.eq(IntentState::Committed))
             .execute(conn)?;
@@ -144,7 +148,8 @@ impl EncryptedMessageStore {
         }
     }
 
-    // Set the intent with the given ID to `ToPublish`. Wipe any values for `payload_hash` and `post_commit_data`
+    // Set the intent with the given ID to `ToPublish`. Wipe any values for `payload_hash` and
+    // `post_commit_data`
     pub fn set_group_intent_to_publish(
         &self,
         conn: &mut DbConnection,
@@ -152,7 +157,8 @@ impl EncryptedMessageStore {
     ) -> Result<(), StorageError> {
         let res = diesel::update(dsl::group_intents)
             .filter(dsl::id.eq(intent_id))
-            // State machine requires that the only valid state transition to ToPublish is from Published
+            // State machine requires that the only valid state transition to ToPublish is from
+            // Published
             .filter(dsl::state.eq(IntentState::Published))
             .set((
                 dsl::state.eq(IntentState::ToPublish),
@@ -169,7 +175,8 @@ impl EncryptedMessageStore {
         }
     }
 
-    // Simple lookup of intents by payload hash, meant to be used when processing messages off the network
+    // Simple lookup of intents by payload hash, meant to be used when processing messages off the
+    // network
     pub fn find_group_intent_by_payload_hash(
         &self,
         conn: &mut DbConnection,
@@ -236,9 +243,13 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::storage::encrypted_store::group::{GroupMembershipState, StoredGroup};
-    use crate::storage::encrypted_store::tests::{rand_vec, with_store};
-    use crate::{Fetch, Store};
+    use crate::{
+        storage::encrypted_store::{
+            group::{GroupMembershipState, StoredGroup},
+            tests::{rand_vec, with_store},
+        },
+        Fetch, Store,
+    };
 
     fn insert_group(conn: &mut DbConnection, group_id: Vec<u8>) {
         let group = StoredGroup::new(group_id, 100, GroupMembershipState::Allowed);
@@ -246,7 +257,8 @@ mod tests {
     }
 
     impl NewGroupIntent {
-        // Real group intents must always start as ToPublish. But for tests we allow forcing the state
+        // Real group intents must always start as ToPublish. But for tests we allow forcing the
+        // state
         pub fn new_test(
             kind: IntentKind,
             group_id: Vec<u8>,
@@ -278,9 +290,7 @@ mod tests {
 
         let to_insert = NewGroupIntent::new_test(kind, group_id.clone(), data.clone(), state);
 
-        with_store(|store| {
-            let mut conn = store.conn().unwrap();
-
+        with_store(|store, mut conn| {
             // Group needs to exist or FK constraint will fail
             insert_group(&mut conn, group_id.clone());
 
@@ -302,7 +312,7 @@ mod tests {
 
             let id = results[0].id;
 
-            let fetched: StoredGroupIntent = conn.fetch(id).unwrap().unwrap();
+            let fetched: StoredGroupIntent = conn.fetch(&id).unwrap().unwrap();
 
             assert_eq!(fetched.id, id);
         })
@@ -333,9 +343,7 @@ mod tests {
             ),
         ];
 
-        with_store(|store| {
-            let mut conn = store.conn().unwrap();
-
+        with_store(|store, mut conn| {
             // Group needs to exist or FK constraint will fail
             insert_group(&mut conn, group_id.clone());
 
@@ -402,9 +410,7 @@ mod tests {
     fn find_by_payload_hash() {
         let group_id = rand_vec();
 
-        with_store(|store| {
-            let mut conn = store.conn().unwrap();
-
+        with_store(|store, mut conn| {
             insert_group(&mut conn, group_id.clone());
 
             // Store the intent
@@ -440,9 +446,7 @@ mod tests {
     fn test_happy_path_state_transitions() {
         let group_id = rand_vec();
 
-        with_store(|store| {
-            let mut conn = store.conn().unwrap();
-
+        with_store(|store, mut conn| {
             insert_group(&mut conn, group_id.clone());
 
             // Store the intent
@@ -464,7 +468,7 @@ mod tests {
                 )
                 .unwrap();
 
-            intent = conn.fetch(intent.id).unwrap().unwrap();
+            intent = conn.fetch(&intent.id).unwrap().unwrap();
             assert_eq!(intent.state, IntentState::Published);
             assert_eq!(intent.payload_hash, Some(payload_hash.clone()));
             assert_eq!(intent.post_commit_data, Some(post_commit_data.clone()));
@@ -473,7 +477,7 @@ mod tests {
                 .set_group_intent_committed(&mut conn, intent.id)
                 .unwrap();
             // Refresh from the DB
-            intent = conn.fetch(intent.id).unwrap().unwrap();
+            intent = conn.fetch(&intent.id).unwrap().unwrap();
             assert_eq!(intent.state, IntentState::Committed);
             // Make sure we haven't lost the payload hash
             assert_eq!(intent.payload_hash, Some(payload_hash.clone()));
@@ -484,9 +488,7 @@ mod tests {
     fn test_republish_state_transition() {
         let group_id = rand_vec();
 
-        with_store(|store| {
-            let mut conn = store.conn().unwrap();
-
+        with_store(|store, mut conn| {
             insert_group(&mut conn, group_id.clone());
 
             // Store the intent
@@ -508,7 +510,7 @@ mod tests {
                 )
                 .unwrap();
 
-            intent = conn.fetch(intent.id).unwrap().unwrap();
+            intent = conn.fetch(&intent.id).unwrap().unwrap();
             assert_eq!(intent.state, IntentState::Published);
             assert_eq!(intent.payload_hash, Some(payload_hash.clone()));
 
@@ -516,7 +518,7 @@ mod tests {
             store
                 .set_group_intent_to_publish(&mut conn, intent.id)
                 .unwrap();
-            intent = conn.fetch(intent.id).unwrap().unwrap();
+            intent = conn.fetch(&intent.id).unwrap().unwrap();
             assert_eq!(intent.state, IntentState::ToPublish);
             assert!(intent.payload_hash.is_none());
             assert!(intent.post_commit_data.is_none());
@@ -527,9 +529,7 @@ mod tests {
     fn test_invalid_state_transition() {
         let group_id = rand_vec();
 
-        with_store(|store| {
-            let mut conn = store.conn().unwrap();
-
+        with_store(|store, mut conn| {
             insert_group(&mut conn, group_id.clone());
 
             // Store the intent
