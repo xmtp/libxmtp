@@ -61,7 +61,7 @@ conversation.streamMessages().collect {
 > **Important**  
 > If you are building a production-grade app, be sure to use an architecture that includes a local cache backed by an XMTP SDK.  
 
-To learn more, see [Use a local cache](https://xmtp.org/docs/tutorials/performance#use-a-local-cache).
+To learn more, see [Use a local cache](https://xmtp.org/docs/build/local-first).
 
 ## Create a client
 
