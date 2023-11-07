@@ -133,13 +133,13 @@ where
 
     pub(crate) async fn publish_intents(
         &self,
-        mut conn: &mut DbConnection,
+        conn: &mut DbConnection,
     ) -> Result<(), GroupError> {
         let provider = self.client.mls_provider();
         let mut openmls_group = self.load_mls_group(&provider)?;
 
         let intents = self.client.store.find_group_intents(
-            &mut conn,
+            conn,
             self.group_id.clone(),
             Some(vec![IntentState::ToPublish]),
             None,
@@ -156,7 +156,7 @@ where
                         .await?;
 
                     self.client.store.set_group_intent_published(
-                        &mut conn,
+                        conn,
                         intent.id,
                         sha256(payload.as_slice()),
                         post_commit_data,
@@ -194,7 +194,7 @@ where
             }
             IntentKind::AddMembers => {
                 let intent_data =
-                    AddMembersIntentData::from_bytes(intent.data.as_slice(), &provider)?;
+                    AddMembersIntentData::from_bytes(intent.data.as_slice(), provider)?;
 
                 let key_packages: Vec<KeyPackage> = intent_data
                     .key_packages
@@ -205,7 +205,7 @@ where
                 let (commit, welcome, _group_info) = openmls_group.add_members(
                     provider,
                     &self.client.identity.installation_keys,
-                    &key_packages.as_slice(),
+                    key_packages.as_slice(),
                 )?;
 
                 let commit_bytes = commit.tls_serialize_detached()?;
@@ -222,7 +222,7 @@ where
 
                 Ok((commit_bytes, post_commit_data))
             }
-            _ => return Err(GroupError::GroupNotFound),
+            _ => Err(GroupError::GroupNotFound),
         }
     }
 

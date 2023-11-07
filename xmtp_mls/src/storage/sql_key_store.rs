@@ -90,7 +90,7 @@ impl OpenMlsKeyStore for SqlKeyStore<'_> {
 mod tests {
     use openmls_basic_credential::SignatureKeyPair;
     use openmls_traits::key_store::OpenMlsKeyStore;
-    use rand::distributions::{Alphanumeric, DistString};
+    
 
     use super::SqlKeyStore;
     use crate::{

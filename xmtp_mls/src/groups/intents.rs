@@ -1,4 +1,4 @@
-use openmls::{error, prelude::MlsMessageOut};
+use openmls::{prelude::MlsMessageOut};
 use prost::{DecodeError, Message};
 use thiserror::Error;
 use tls_codec::Serialize;
@@ -32,7 +32,7 @@ pub struct SendMessageIntentData {
 
 impl SendMessageIntentData {
     pub fn new(message: Vec<u8>) -> Self {
-        Self { message: message }
+        Self { message }
     }
 
     pub(crate) fn to_bytes(&self) -> Vec<u8> {
