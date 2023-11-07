@@ -84,7 +84,6 @@ impl ValidationApi for ValidationService {
 
 struct ValidateGroupMessageResult {
     group_id: String,
-    epoch: u64,
 }
 
 fn validate_group_message(message: Vec<u8>) -> Result<ValidateGroupMessageResult, String> {
