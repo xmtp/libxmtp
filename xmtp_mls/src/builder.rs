@@ -169,17 +169,13 @@ mod tests {
             .unwrap()
     }
 
-    pub(crate) fn rand_string() -> String {
-        Alphanumeric.sample_string(&mut rand::thread_rng(), 24)
-    }
-
     impl ClientBuilder<GrpcClient, LocalWallet> {
         pub async fn local_grpc(self) -> Self {
             self.api_client(get_local_grpc_client().await)
         }
 
         fn temp_store(self) -> Self {
-            let db_name = rand_string();
+            let db_name = crate::utils::test::rand_string();
             let tmpdb = tempfile::TempPath::from_path(format!(
                 "{}/{}.db3",
                 env::temp_dir().to_str().unwrap(),

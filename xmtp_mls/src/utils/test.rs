@@ -1,0 +1,12 @@
+use rand::{
+    distributions::{Alphanumeric, DistString},
+    Rng,
+};
+
+pub fn rand_string() -> String {
+    Alphanumeric.sample_string(&mut rand::thread_rng(), 24)
+}
+
+pub fn rand_vec() -> Vec<u8> {
+    rand::thread_rng().gen::<[u8; 24]>().to_vec()
+}

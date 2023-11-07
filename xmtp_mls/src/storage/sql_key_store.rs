@@ -96,11 +96,8 @@ mod tests {
     use crate::{
         configuration::CIPHERSUITE,
         storage::{EncryptedMessageStore, StorageOption},
+        utils::test::rand_string,
     };
-
-    fn rand_string() -> String {
-        Alphanumeric.sample_string(&mut rand::thread_rng(), 16)
-    }
 
     #[test]
     fn store_read_delete() {

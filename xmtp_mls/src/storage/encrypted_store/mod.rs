@@ -235,21 +235,11 @@ macro_rules! impl_store {
 mod tests {
     use std::{boxed::Box, fs};
 
-    use rand::{
-        distributions::{Alphanumeric, DistString},
-        Rng,
-    };
-
     use super::{identity::StoredIdentity, EncryptedMessageStore, StorageError, StorageOption};
-    use crate::{Fetch, Store};
-
-    pub(crate) fn rand_string() -> String {
-        Alphanumeric.sample_string(&mut rand::thread_rng(), 16)
-    }
-
-    pub(crate) fn rand_vec() -> Vec<u8> {
-        rand::thread_rng().gen::<[u8; 16]>().to_vec()
-    }
+    use crate::{
+        utils::test::{rand_string, rand_vec},
+        Fetch, Store,
+    };
 
     /// Test harness that loads an Ephemeral store.
     pub fn with_store<F, R>(fun: F) -> R

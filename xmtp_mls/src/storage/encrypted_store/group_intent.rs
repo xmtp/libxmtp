@@ -239,7 +239,8 @@ where
 mod tests {
     use super::*;
     use crate::storage::encrypted_store::group::{GroupMembershipState, StoredGroup};
-    use crate::storage::encrypted_store::tests::{rand_vec, with_store};
+    use crate::storage::encrypted_store::tests::with_store;
+    use crate::utils::test::rand_vec;
     use crate::{Fetch, Store};
 
     fn insert_group(conn: &mut DbConnection, group_id: Vec<u8>) {
