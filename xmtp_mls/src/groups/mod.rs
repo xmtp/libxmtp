@@ -131,10 +131,7 @@ where
         Ok(())
     }
 
-    pub(crate) async fn publish_intents(
-        &self,
-        conn: &mut DbConnection,
-    ) -> Result<(), GroupError> {
+    pub(crate) async fn publish_intents(&self, conn: &mut DbConnection) -> Result<(), GroupError> {
         let provider = self.client.mls_provider();
         let mut openmls_group = self.load_mls_group(&provider)?;
 
@@ -167,6 +164,8 @@ where
                 }
             }
         }
+
+        openmls_group.save(provider.key_store())?;
 
         Ok(())
     }

@@ -237,7 +237,7 @@ mod tests {
 
     use super::{identity::StoredIdentity, EncryptedMessageStore, StorageError, StorageOption};
     use crate::{
-        utils::test::{rand_string, rand_vec},
+        utils::test::{rand_string, rand_vec, tmp_path},
         Fetch, Store,
     };
 
@@ -275,7 +275,7 @@ mod tests {
 
     #[test]
     fn persistent_store() {
-        let db_path = format!("{}.db3", rand_string());
+        let db_path = tmp_path();
         {
             let store = EncryptedMessageStore::new(
                 StorageOption::Persistent(db_path.clone()),
@@ -300,7 +300,7 @@ mod tests {
     fn mismatched_encryption_key() {
         let mut enc_key = [1u8; 32];
 
-        let db_path = format!("{}.db3", rand_string());
+        let db_path = tmp_path();
         {
             // Setup a persistent store
             let store =

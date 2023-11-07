@@ -8,7 +8,7 @@ use super::{
     serialization::{db_deserialize, db_serialize},
     EncryptedMessageStore, StorageError,
 };
-use crate::{Delete, Fetch, Store};
+use crate::{Delete, Fetch};
 
 #[derive(Debug)]
 /// CRUD Operations for an [`EncryptedMessageStore`]
@@ -41,11 +41,11 @@ impl OpenMlsKeyStore for SqlKeyStore<'_> {
     ///
     /// Returns an error if storing fails.
     fn store<V: MlsEntity>(&self, k: &[u8], v: &V) -> Result<(), Self::Error> {
-        let entry = StoredKeyStoreEntry {
-            key_bytes: k.to_vec(),
-            value_bytes: db_serialize(v)?,
-        };
-        entry.store(&mut self.store.conn()?)?;
+        self.store.insert_or_update_key_store_entry(
+            &mut self.store.conn()?,
+            k.to_vec(),
+            db_serialize(v)?,
+        )?;
         Ok(())
     }
 
@@ -90,7 +90,6 @@ impl OpenMlsKeyStore for SqlKeyStore<'_> {
 mod tests {
     use openmls_basic_credential::SignatureKeyPair;
     use openmls_traits::key_store::OpenMlsKeyStore;
-    
 
     use super::SqlKeyStore;
     use crate::{
