@@ -67,13 +67,6 @@ pub struct EncryptedMessageStore {
     pool: Pool<ConnectionManager<SqliteConnection>>,
 }
 
-impl Default for EncryptedMessageStore {
-    fn default() -> Self {
-        Self::new(StorageOption::Ephemeral, Self::generate_enc_key())
-            .expect("Error Occurred: trying to create default Ephemeral store")
-    }
-}
-
 impl<'a> From<&'a EncryptedMessageStore> for Cow<'a, EncryptedMessageStore> {
     fn from(store: &'a EncryptedMessageStore) -> Cow<'a, EncryptedMessageStore> {
         Cow::Borrowed(store)
@@ -253,6 +246,17 @@ mod tests {
         )
         .unwrap();
         fun(store)
+    }
+
+    impl EncryptedMessageStore {
+        pub fn new_test() -> Self {
+            let tmp_path = tmp_path();
+            EncryptedMessageStore::new(
+                StorageOption::Persistent(tmp_path),
+                EncryptedMessageStore::generate_enc_key(),
+            )
+            .unwrap()
+        }
     }
 
     #[test]

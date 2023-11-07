@@ -136,7 +136,7 @@ where
                 parameter: "api_client",
             })?;
         let network = self.network;
-        let store = self.store.take().unwrap_or_default();
+        let store = self.store.take().unwrap();
         let provider = XmtpOpenMlsProvider::new(&store);
         let identity = self
             .identity_strategy
@@ -148,11 +148,8 @@ where
 #[cfg(test)]
 mod tests {
 
-    use std::env;
-
     use ethers::signers::{LocalWallet, Signer, Wallet};
     use ethers_core::k256::ecdsa::SigningKey;
-    use tempfile::TempPath;
     use xmtp_api_grpc::grpc_api_helper::Client as GrpcClient;
     use xmtp_cryptography::utils::generate_local_wallet;
 
@@ -175,7 +172,7 @@ mod tests {
         }
 
         fn temp_store(self) -> Self {
-            crate::utils::test::temp_path();
+            let tmpdb = crate::utils::test::tmp_path();
             self.store(
                 EncryptedMessageStore::new_unencrypted(StorageOption::Persistent(tmpdb)).unwrap(),
             )

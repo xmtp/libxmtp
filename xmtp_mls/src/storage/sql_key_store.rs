@@ -16,14 +16,6 @@ pub struct SqlKeyStore<'a> {
     store: Cow<'a, EncryptedMessageStore>,
 }
 
-impl Default for SqlKeyStore<'_> {
-    fn default() -> Self {
-        Self {
-            store: Cow::Owned(EncryptedMessageStore::default()),
-        }
-    }
-}
-
 impl<'a> SqlKeyStore<'a> {
     pub fn new(store: &'a EncryptedMessageStore) -> Self {
         SqlKeyStore {
