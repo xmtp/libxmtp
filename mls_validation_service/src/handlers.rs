@@ -96,7 +96,6 @@ fn validate_group_message(message: Vec<u8>) -> Result<ValidateGroupMessageResult
         // TODO: I wonder if we really want to be base64 encoding this or if we can treat it as a
         // slice
         group_id: hex_encode(private_message.group_id().as_slice()),
-        epoch: private_message.epoch().as_u64(),
     })
 }
 
