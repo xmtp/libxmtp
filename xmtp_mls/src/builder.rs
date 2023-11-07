@@ -136,7 +136,10 @@ where
                 parameter: "api_client",
             })?;
         let network = self.network;
-        let store = self.store.take().unwrap();
+        let store = self
+            .store
+            .take()
+            .ok_or(ClientBuilderError::MissingParameter { parameter: "store" })?;
         let provider = XmtpOpenMlsProvider::new(&store);
         let identity = self
             .identity_strategy
