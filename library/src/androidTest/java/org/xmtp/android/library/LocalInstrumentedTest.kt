@@ -30,7 +30,7 @@ import org.xmtp.proto.message.contents.PrivateKeyOuterClass.PrivateKeyBundle
 import java.util.Date
 
 @RunWith(AndroidJUnit4::class)
-@Ignore("All Flaky")
+@Ignore("CI Issues")
 class LocalInstrumentedTest {
     @Test
     fun testPublishingAndFetchingContactBundlesWithWhileGeneratingKeys() {

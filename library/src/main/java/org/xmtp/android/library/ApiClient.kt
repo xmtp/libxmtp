@@ -9,7 +9,6 @@ import kotlinx.coroutines.flow.Flow
 import org.xmtp.android.library.messages.Pagination
 import org.xmtp.android.library.messages.Topic
 import org.xmtp.proto.message.api.v1.MessageApiGrpcKt
-import org.xmtp.proto.message.api.v1.MessageApiOuterClass
 import org.xmtp.proto.message.api.v1.MessageApiOuterClass.BatchQueryRequest
 import org.xmtp.proto.message.api.v1.MessageApiOuterClass.BatchQueryResponse
 import org.xmtp.proto.message.api.v1.MessageApiOuterClass.Cursor
@@ -18,6 +17,7 @@ import org.xmtp.proto.message.api.v1.MessageApiOuterClass.PublishRequest
 import org.xmtp.proto.message.api.v1.MessageApiOuterClass.PublishResponse
 import org.xmtp.proto.message.api.v1.MessageApiOuterClass.QueryRequest
 import org.xmtp.proto.message.api.v1.MessageApiOuterClass.QueryResponse
+import org.xmtp.proto.message.api.v1.MessageApiOuterClass.SubscribeRequest
 import java.io.Closeable
 import java.util.concurrent.TimeUnit
 
@@ -35,6 +35,7 @@ interface ApiClient {
     suspend fun envelopes(topic: String, pagination: Pagination? = null): List<Envelope>
     suspend fun publish(envelopes: List<Envelope>): PublishResponse
     suspend fun subscribe(topics: List<String>): Flow<Envelope>
+    suspend fun subscribe2(request: Flow<SubscribeRequest>): Flow<Envelope>
 }
 
 data class GRPCApiClient(
@@ -81,6 +82,10 @@ data class GRPCApiClient(
                         }.build()
                     }
                 }.build()
+
+        fun makeSubscribeRequest(
+            topics: List<String>,
+        ): SubscribeRequest = SubscribeRequest.newBuilder().addAllContentTopics(topics).build()
     }
 
     private val channel: ManagedChannel =
@@ -174,8 +179,7 @@ data class GRPCApiClient(
     }
 
     override suspend fun subscribe(topics: List<String>): Flow<Envelope> {
-        val request =
-            MessageApiOuterClass.SubscribeRequest.newBuilder().addAllContentTopics(topics).build()
+        val request = makeSubscribeRequest(topics)
         val headers = Metadata()
 
         headers.put(CLIENT_VERSION_HEADER_KEY, Constants.VERSION)
@@ -184,6 +188,16 @@ data class GRPCApiClient(
         }
 
         return client.subscribe(request, headers)
+    }
+    override suspend fun subscribe2(request: Flow<SubscribeRequest>): Flow<Envelope> {
+        val headers = Metadata()
+
+        headers.put(CLIENT_VERSION_HEADER_KEY, Constants.VERSION)
+        if (appVersion != null) {
+            headers.put(APP_VERSION_HEADER_KEY, appVersion)
+        }
+
+        return client.subscribe2(request, headers)
     }
 
     override fun close() {

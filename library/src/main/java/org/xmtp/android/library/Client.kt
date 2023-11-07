@@ -255,6 +255,10 @@ class Client() {
         return apiClient.subscribe(topics = topics)
     }
 
+    suspend fun subscribe2(request: Flow<MessageApiOuterClass.SubscribeRequest>): Flow<Envelope> {
+        return apiClient.subscribe2(request = request)
+    }
+
     suspend fun subscribeTopic(topics: List<Topic>): Flow<Envelope> {
         return subscribe(topics.map { it.description })
     }

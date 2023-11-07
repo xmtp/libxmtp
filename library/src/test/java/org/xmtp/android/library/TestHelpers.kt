@@ -195,6 +195,15 @@ class FakeApiClient : ApiClient {
         }
         return flowOf()
     }
+
+    override suspend fun subscribe2(request: Flow<MessageApiOuterClass.SubscribeRequest>): Flow<MessageApiOuterClass.Envelope> {
+        val env = stream.counts().first()
+
+        if (request.first().contentTopicsList.contains(env.contentTopic)) {
+            return flowOf(env)
+        }
+        return flowOf()
+    }
 }
 
 data class Fixtures(val aliceAccount: PrivateKeyBuilder, val bobAccount: PrivateKeyBuilder) {

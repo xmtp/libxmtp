@@ -4,7 +4,6 @@ import androidx.test.ext.junit.runners.AndroidJUnit4
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Ignore
 import org.junit.Test
@@ -79,8 +78,8 @@ class ConversationsTest {
     }
 
     @Test
-    @Ignore("Flaky Test")
-    fun testStreamAllMessages() = runBlocking {
+    @Ignore("CI Issues")
+    fun testStreamAllMessages() {
         val bo = PrivateKeyBuilder()
         val alix = PrivateKeyBuilder()
         val clientOptions =
@@ -110,7 +109,6 @@ class ConversationsTest {
         val caro = PrivateKeyBuilder()
         val caroClient = Client().create(caro, clientOptions)
         val caroConversation = caroClient.conversations.newConversation(alixClient.address)
-
         sleep(2500)
 
         for (i in 0 until 5) {
