@@ -117,10 +117,8 @@ mod tests {
     use super::*;
     use crate::{
         assert_err, assert_ok,
-        storage::encrypted_store::{
-            group::tests::generate_group,
-            tests::{rand_time, rand_vec, with_store},
-        },
+        storage::encrypted_store::{group::tests::generate_group, tests::with_store},
+        utils::test::{rand_time, rand_vec},
         Store,
     };
 

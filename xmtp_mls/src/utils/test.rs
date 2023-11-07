@@ -17,3 +17,8 @@ pub fn tmp_path() -> String {
     let db_name = rand_string();
     format!("{}/{}.db3", env::temp_dir().to_str().unwrap(), db_name)
 }
+
+pub fn rand_time() -> i64 {
+    let mut rng = rand::thread_rng();
+    rng.gen_range(0..1_000_000_000)
+}

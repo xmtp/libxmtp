@@ -250,7 +250,7 @@ mod tests {
             group::{GroupMembershipState, StoredGroup},
             tests::with_store,
         },
-        utils::tests::rand_vec,
+        utils::test::rand_vec,
         Fetch, Store,
     };
 

@@ -226,14 +226,9 @@ mod tests {
 
     use super::{identity::StoredIdentity, EncryptedMessageStore, StorageError, StorageOption};
     use crate::{
-        utils::test::{rand_vec, tmp_path},
+        utils::test::{rand_time, rand_vec, tmp_path},
         Fetch, Store,
     };
-
-    pub(crate) fn rand_time() -> i64 {
-        let mut rng = rand::thread_rng();
-        rng.gen_range(0..1_000_000_000)
-    }
 
     /// Test harness that loads an Ephemeral store.
     pub fn with_store<F, R>(fun: F) -> R
