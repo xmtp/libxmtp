@@ -95,12 +95,12 @@ mod tests {
     use crate::{
         configuration::CIPHERSUITE,
         storage::{EncryptedMessageStore, StorageOption},
-        utils::test::rand_string,
+        utils::test::{rand_string, tmp_path},
     };
 
     #[test]
     fn store_read_delete() {
-        let db_path = format!("{}.db3", rand_string());
+        let db_path = tmp_path();
         let store = EncryptedMessageStore::new(
             StorageOption::Persistent(db_path),
             EncryptedMessageStore::generate_enc_key(),

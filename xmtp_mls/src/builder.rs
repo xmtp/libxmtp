@@ -159,6 +159,7 @@ mod tests {
     use super::{ClientBuilder, IdentityStrategy};
     use crate::{
         storage::{EncryptedMessageStore, StorageOption},
+        utils::test::tmp_path,
         Client,
     };
 
@@ -174,15 +175,7 @@ mod tests {
         }
 
         fn temp_store(self) -> Self {
-            let db_name = crate::utils::test::rand_string();
-            let tmpdb = tempfile::TempPath::from_path(format!(
-                "{}/{}.db3",
-                env::temp_dir().to_str().unwrap(),
-                db_name
-            ))
-            .to_str()
-            .unwrap()
-            .to_string();
+            crate::utils::test::temp_path();
             self.store(
                 EncryptedMessageStore::new_unencrypted(StorageOption::Persistent(tmpdb)).unwrap(),
             )
@@ -211,10 +204,7 @@ mod tests {
 
     #[tokio::test]
     async fn identity_persistence_test() {
-        let tmpdb = TempPath::from_path("./db.db3")
-            .to_str()
-            .unwrap()
-            .to_string();
+        let tmpdb = tmp_path();
         let wallet = generate_local_wallet();
 
         // Generate a new Wallet + Store
