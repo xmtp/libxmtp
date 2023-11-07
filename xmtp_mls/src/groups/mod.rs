@@ -145,24 +145,24 @@ where
         for intent in intents {
             // TODO: Wrap in a transaction once we can synchronize with the MLS Keystore
             let result = self.get_publish_intent_data(&provider, &mut openmls_group, &intent);
-            match result {
-                Ok((payload, post_commit_data)) => {
-                    self.client
-                        .api_client
-                        .publish_to_group(vec![payload.as_slice()])
-                        .await?;
-
-                    self.client.store.set_group_intent_published(
-                        conn,
-                        intent.id,
-                        sha256(payload.as_slice()),
-                        post_commit_data,
-                    )?;
-                }
-                Err(error) => {
-                    log::error!("error getting publish intent data {:?}", error);
-                }
+            if let Err(e) = result {
+                log::error!("error getting publish intent data {:?}", e);
+                // TODO: Figure out which types of errors we should abort completely on and which ones are safe to continue with
+                continue;
             }
+
+            let (payload, post_commit_data) = result.expect("result already checked");
+            self.client
+                .api_client
+                .publish_to_group(vec![payload.as_slice()])
+                .await?;
+
+            self.client.store.set_group_intent_published(
+                conn,
+                intent.id,
+                sha256(payload.as_slice()),
+                post_commit_data,
+            )?;
         }
 
         openmls_group.save(provider.key_store())?;
