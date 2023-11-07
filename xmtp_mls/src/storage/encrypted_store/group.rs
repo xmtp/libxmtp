@@ -44,7 +44,7 @@ impl StoredGroup {
 
 impl EncryptedMessageStore {
     /// Updates group membership state
-    pub fn update_group_membership<GroupId: AsRef<ID>>(
+    pub fn update_group_membership<GroupId: AsRef<[u8]>>(
         &self,
         conn: &mut DbConnection,
         id: GroupId,
@@ -152,7 +152,7 @@ pub(crate) mod tests {
             store
                 .update_group_membership(&mut conn, &test_group.id, GroupMembershipState::Rejected)
                 .unwrap();
-            
+
             let updated_group: StoredGroup = conn.fetch(&test_group.id).ok().flatten().unwrap();
             assert_eq!(
                 updated_group,
