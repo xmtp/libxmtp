@@ -123,7 +123,7 @@ where
             .client
             .get_key_packages_for_installation_ids(installation_ids)
             .await?;
-        let intent_data: Vec<u8> = AddMembersIntentData::new(key_packages).into();
+        let intent_data: Vec<u8> = AddMembersIntentData::new(key_packages).try_into()?;
         let intent =
             NewGroupIntent::new(IntentKind::AddMembers, self.group_id.clone(), intent_data);
         intent.store(&mut conn)?;
@@ -162,7 +162,7 @@ where
                     )?;
                 }
                 Err(error) => {
-                    println!("error getting publish intent data {:?}", error);
+                    log::error!("error getting publish intent data {:?}", error);
                 }
             }
         }

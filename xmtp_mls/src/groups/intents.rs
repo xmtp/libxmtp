@@ -76,23 +76,23 @@ impl AddMembersIntentData {
         Self { key_packages }
     }
 
-    pub(crate) fn to_bytes(&self) -> Vec<u8> {
+    pub(crate) fn to_bytes(&self) -> Result<Vec<u8>, IntentError> {
         let mut buf = Vec::new();
-        let key_package_bytes: Vec<Vec<u8>> = self
+        let key_package_bytes_result: Result<Vec<Vec<u8>>, tls_codec::Error> = self
             .key_packages
             .iter()
-            .map(|kp| kp.inner.tls_serialize_detached().unwrap())
+            .map(|kp| kp.inner.tls_serialize_detached())
             .collect();
 
         AddMembersPublishData {
             version: Some(AddMembersVersion::V1(AddMembersV1 {
-                key_packages_bytes_tls_serialized: key_package_bytes,
+                key_packages_bytes_tls_serialized: key_package_bytes_result?,
             })),
         }
         .encode(&mut buf)
         .unwrap();
 
-        buf
+        Ok(buf)
     }
 
     pub(crate) fn from_bytes(
@@ -115,8 +115,10 @@ impl AddMembersIntentData {
     }
 }
 
-impl From<AddMembersIntentData> for Vec<u8> {
-    fn from(intent: AddMembersIntentData) -> Self {
+impl TryFrom<AddMembersIntentData> for Vec<u8> {
+    type Error = IntentError;
+
+    fn try_from(intent: AddMembersIntentData) -> Result<Self, Self::Error> {
         intent.to_bytes()
     }
 }
@@ -223,7 +225,7 @@ mod tests {
         let verified_key_package = VerifiedKeyPackage::new(key_package, wallet_address.clone());
 
         let intent = AddMembersIntentData::new(vec![verified_key_package.clone()]);
-        let as_bytes: Vec<u8> = intent.clone().into();
+        let as_bytes: Vec<u8> = intent.clone().try_into().unwrap();
         let restored_intent =
             AddMembersIntentData::from_bytes(as_bytes.as_slice(), &client.mls_provider()).unwrap();
 
