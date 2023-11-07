@@ -226,7 +226,7 @@ mod tests {
 
     use super::{identity::StoredIdentity, EncryptedMessageStore, StorageError, StorageOption};
     use crate::{
-        utils::test::{rand_time, rand_vec, tmp_path},
+        utils::test::{rand_vec, tmp_path},
         Fetch, Store,
     };
 
