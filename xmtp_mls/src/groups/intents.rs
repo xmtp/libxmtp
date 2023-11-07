@@ -26,6 +26,7 @@ pub enum IntentError {
     Generic(String),
 }
 
+#[derive(Debug, Clone)]
 pub struct SendMessageIntentData {
     pub message: Vec<u8>,
 }
@@ -65,6 +66,7 @@ impl From<SendMessageIntentData> for Vec<u8> {
     }
 }
 
+#[derive(Debug, Clone)]
 pub struct AddMembersIntentData {
     pub key_packages: Vec<VerifiedKeyPackage>,
 }
@@ -119,10 +121,12 @@ impl From<AddMembersIntentData> for Vec<u8> {
     }
 }
 
+#[derive(Debug, Clone)]
 pub enum PostCommitAction {
     SendWelcomes(SendWelcomesAction),
 }
 
+#[derive(Debug, Clone)]
 pub struct SendWelcomesAction {
     pub installation_ids: Vec<Vec<u8>>,
     pub welcome_message: Vec<u8>,
@@ -186,5 +190,49 @@ impl PostCommitAction {
 impl From<Vec<u8>> for PostCommitAction {
     fn from(data: Vec<u8>) -> Self {
         PostCommitAction::from_bytes(data.as_slice()).unwrap()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use xmtp_cryptography::utils::generate_local_wallet;
+
+    use crate::{builder::ClientBuilder, InboxOwner};
+
+    use super::*;
+
+    #[test]
+    fn test_serialize_send_message() {
+        let message = vec![1, 2, 3];
+        let intent = SendMessageIntentData::new(message.clone());
+        let as_bytes: Vec<u8> = intent.into();
+        let restored_intent = SendMessageIntentData::from_bytes(as_bytes.as_slice()).unwrap();
+
+        assert_eq!(restored_intent.message, message);
+    }
+
+    #[tokio::test]
+    async fn test_serialize_add_members() {
+        let wallet = generate_local_wallet();
+        let wallet_address = wallet.get_address();
+        let client = ClientBuilder::new_test_client(wallet.into()).await;
+        let key_package = client
+            .identity
+            .new_key_package(&client.mls_provider())
+            .unwrap();
+        let verified_key_package = VerifiedKeyPackage::new(key_package, wallet_address.clone());
+
+        let intent = AddMembersIntentData::new(vec![verified_key_package.clone()]);
+        let as_bytes: Vec<u8> = intent.clone().into();
+        let restored_intent =
+            AddMembersIntentData::from_bytes(as_bytes.as_slice(), &client.mls_provider()).unwrap();
+
+        assert!(intent.key_packages[0]
+            .inner
+            .eq(&restored_intent.key_packages[0].inner));
+        assert_eq!(
+            intent.key_packages[0].wallet_address,
+            restored_intent.key_packages[0].wallet_address
+        );
     }
 }
