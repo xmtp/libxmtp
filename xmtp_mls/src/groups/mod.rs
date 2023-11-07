@@ -47,6 +47,8 @@ pub enum GroupError {
     GroupCreate(#[from] openmls::prelude::NewGroupError<StorageError>),
     #[error("client: {0}")]
     Client(#[from] ClientError),
+    #[error("generic: {0}")]
+    Generic(String),
 }
 
 pub struct MlsGroup<'c, ApiClient> {
@@ -221,7 +223,7 @@ where
 
                 Ok((commit_bytes, post_commit_data))
             }
-            _ => Err(GroupError::GroupNotFound),
+            _ => Err(GroupError::Generic("invalid intent kind".to_string())),
         }
     }
 
