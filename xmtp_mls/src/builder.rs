@@ -172,7 +172,7 @@ mod tests {
         }
 
         fn temp_store(self) -> Self {
-            let tmpdb = crate::utils::test::tmp_path();
+            let tmpdb = tmp_path();
             self.store(
                 EncryptedMessageStore::new_unencrypted(StorageOption::Persistent(tmpdb)).unwrap(),
             )
