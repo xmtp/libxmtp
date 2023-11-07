@@ -70,10 +70,8 @@ where
         provider: &XmtpOpenMlsProvider,
     ) -> Result<OpenMlsGroup, GroupError> {
         let mls_group =
-            match OpenMlsGroup::load(&GroupId::from_slice(&self.group_id), provider.key_store()) {
-                Some(group) => group,
-                None => return Err(GroupError::GroupNotFound),
-            };
+            OpenMlsGroup::load(&GroupId::from_slice(&self.group_id), provider.key_store())
+                .ok_or(GroupError::GroupNotFound)?;
 
         Ok(mls_group)
     }
