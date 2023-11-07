@@ -1,6 +1,6 @@
 use diesel::prelude::*;
 
-use super::{schema::openmls_key_store, DbConnection, StorageError};
+use super::{schema::openmls_key_store, DbConnection, EncryptedMessageStore, StorageError};
 use crate::{impl_fetch, impl_store, Delete};
 
 #[derive(Insertable, Queryable, Debug, Clone)]
@@ -19,5 +19,25 @@ impl Delete<StoredKeyStoreEntry> for DbConnection {
     fn delete(&mut self, key: Vec<u8>) -> Result<usize, StorageError> where {
         use super::schema::openmls_key_store::dsl::*;
         Ok(diesel::delete(openmls_key_store.filter(key_bytes.eq(key))).execute(self)?)
+    }
+}
+
+impl EncryptedMessageStore {
+    pub fn insert_or_update_key_store_entry(
+        &self,
+        conn: &mut DbConnection,
+        key: Vec<u8>,
+        value: Vec<u8>,
+    ) -> Result<(), StorageError> {
+        use super::schema::openmls_key_store::dsl::*;
+        let entry = StoredKeyStoreEntry {
+            key_bytes: key,
+            value_bytes: value,
+        };
+
+        diesel::replace_into(openmls_key_store)
+            .values(entry)
+            .execute(conn)?;
+        Ok(())
     }
 }

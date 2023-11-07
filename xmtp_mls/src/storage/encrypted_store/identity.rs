@@ -60,10 +60,10 @@ impl From<StoredIdentity> for Identity {
 #[cfg(test)]
 mod tests {
     use super::{
-        super::{tests::rand_vec, EncryptedMessageStore, StorageOption},
+        super::{EncryptedMessageStore, StorageOption},
         StoredIdentity,
     };
-    use crate::Store;
+    use crate::{utils::test::rand_vec, Store};
 
     #[test]
     fn can_only_store_one_identity() {

@@ -8,8 +8,9 @@ use xmtp_proto::api_client::{XmtpApiClient, XmtpMlsClient};
 use crate::{
     api_client_wrapper::{ApiClientWrapper, IdentityUpdate},
     configuration::KEY_PACKAGE_TOP_UP_AMOUNT,
+    groups::MlsGroup,
     identity::Identity,
-    storage::{EncryptedMessageStore, StorageError},
+    storage::{group::GroupMembershipState, EncryptedMessageStore, StorageError},
     types::Address,
     verified_key_package::{KeyPackageVerificationError, VerifiedKeyPackage},
     xmtp_openmls_provider::XmtpOpenMlsProvider,
@@ -30,7 +31,7 @@ pub enum ClientError {
     #[error("storage error: {0}")]
     Storage(#[from] StorageError),
     #[error("dieselError: {0}")]
-    Ddd(#[from] diesel::result::Error),
+    Diesel(#[from] diesel::result::Error),
     #[error("Query failed: {0}")]
     QueryError(#[from] xmtp_proto::api_client::Error),
     #[error("identity error: {0}")]
@@ -82,8 +83,15 @@ where
     }
 
     // TODO: Remove this and figure out the correct lifetimes to allow long lived provider
-    fn mls_provider(&self) -> XmtpOpenMlsProvider {
+    pub fn mls_provider(&self) -> XmtpOpenMlsProvider {
         XmtpOpenMlsProvider::new(&self.store)
+    }
+
+    pub fn create_group(&self) -> Result<MlsGroup<ApiClient>, ClientError> {
+        let group = MlsGroup::create_and_insert(self, GroupMembershipState::Allowed)
+            .map_err(|e| ClientError::Generic(format!("group create error {}", e)))?;
+
+        Ok(group)
     }
 
     pub async fn register_identity(&self) -> Result<(), ClientError> {
@@ -154,6 +162,14 @@ where
             .get_all_active_installation_ids(wallet_addresses)
             .await?;
 
+        self.get_key_packages_for_installation_ids(installation_ids)
+            .await
+    }
+
+    pub async fn get_key_packages_for_installation_ids(
+        &self,
+        installation_ids: Vec<Vec<u8>>,
+    ) -> Result<Vec<VerifiedKeyPackage>, ClientError> {
         let key_package_results = self
             .api_client
             .consume_key_packages(installation_ids)
