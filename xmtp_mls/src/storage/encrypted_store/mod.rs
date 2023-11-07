@@ -9,7 +9,6 @@
 //! if there are any outstanding database migrations and perform them as needed. When updating the
 //! table definitions `schema.rs` must also be updated. To generate the correct schemas you can run
 //! `diesel print-schema` or use `cargo run update-schema` which will update the files for you.
-//!
 
 pub mod group;
 pub mod group_intent;
@@ -28,12 +27,12 @@ use diesel::{
     result::{DatabaseErrorKind, Error},
 };
 use diesel_migrations::{embed_migrations, EmbeddedMigrations, MigrationHarness};
-use group::{GroupMembershipState, StoredGroup};
 use log::warn;
 use rand::RngCore;
 use xmtp_cryptography::utils as crypto_utils;
 
 use super::StorageError;
+use crate::Store;
 
 pub const MIGRATIONS: EmbeddedMigrations = embed_migrations!("./migrations/");
 
@@ -154,21 +153,6 @@ impl EncryptedMessageStore {
         crypto_utils::rng().fill_bytes(&mut key[..]);
         key
     }
-
-    /// Updates group membership state
-    pub fn update_group_membership(
-        &self,
-        conn: &mut DbConnection,
-        id: group::ID,
-        state: GroupMembershipState,
-    ) -> Result<StoredGroup, StorageError> {
-        use self::schema::groups::dsl::{groups, membership_state};
-
-        diesel::update(groups.find(id))
-            .set(membership_state.eq(state))
-            .get_result::<group::StoredGroup>(conn)
-            .map_err(Into::into)
-    }
 }
 
 #[allow(dead_code)]
@@ -188,7 +172,7 @@ macro_rules! impl_fetch {
     ($model:ty, $table:ident) => {
         impl $crate::Fetch<$model> for $crate::storage::encrypted_store::DbConnection {
             type Key = ();
-            fn fetch(&mut self, _key: Self::Key) -> Result<Option<$model>, $crate::StorageError> {
+            fn fetch(&mut self, _key: &Self::Key) -> Result<Option<$model>, $crate::StorageError> {
                 use $crate::storage::encrypted_store::schema::$table::dsl::*;
                 Ok($table.first(self).optional()?)
             }
@@ -198,7 +182,7 @@ macro_rules! impl_fetch {
     ($model:ty, $table:ident, $key:ty) => {
         impl $crate::Fetch<$model> for $crate::storage::encrypted_store::DbConnection {
             type Key = $key;
-            fn fetch(&mut self, key: Self::Key) -> Result<Option<$model>, $crate::StorageError> {
+            fn fetch(&mut self, key: &Self::Key) -> Result<Option<$model>, $crate::StorageError> {
                 use $crate::storage::encrypted_store::schema::$table::dsl::*;
                 Ok($table.find(key).first(self).optional()?)
             }
@@ -224,6 +208,18 @@ macro_rules! impl_store {
     };
 }
 
+impl<T> Store<DbConnection> for Vec<T>
+where
+    T: Store<DbConnection>,
+{
+    fn store(&self, into: &mut DbConnection) -> Result<(), StorageError> {
+        for item in self {
+            item.store(into)?;
+        }
+        Ok(())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use std::{boxed::Box, fs};
@@ -234,10 +230,15 @@ mod tests {
         Fetch, Store,
     };
 
+    pub(crate) fn rand_time() -> i64 {
+        let mut rng = rand::thread_rng();
+        rng.gen_range(0..1_000_000_000)
+    }
+
     /// Test harness that loads an Ephemeral store.
     pub fn with_store<F, R>(fun: F) -> R
     where
-        F: FnOnce(EncryptedMessageStore) -> R,
+        F: FnOnce(EncryptedMessageStore, super::DbConnection) -> R,
     {
         crate::tests::setup();
         let store = EncryptedMessageStore::new(
@@ -245,7 +246,8 @@ mod tests {
             EncryptedMessageStore::generate_enc_key(),
         )
         .unwrap();
-        fun(store)
+        let conn = store.conn().expect("acquiring a Connection failed");
+        fun(store, conn)
     }
 
     impl EncryptedMessageStore {
@@ -273,7 +275,7 @@ mod tests {
             .store(conn)
             .unwrap();
 
-        let fetched_identity: StoredIdentity = conn.fetch(()).unwrap().unwrap();
+        let fetched_identity: StoredIdentity = conn.fetch(&()).unwrap().unwrap();
         assert_eq!(fetched_identity.account_address, account_address);
     }
 
@@ -293,7 +295,7 @@ mod tests {
                 .store(conn)
                 .unwrap();
 
-            let fetched_identity: StoredIdentity = conn.fetch(()).unwrap().unwrap();
+            let fetched_identity: StoredIdentity = conn.fetch(&()).unwrap().unwrap();
             assert_eq!(fetched_identity.account_address, account_address);
         }
 
