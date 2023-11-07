@@ -49,13 +49,14 @@ impl EncryptedMessageStore {
         conn: &mut DbConnection,
         id: GroupId,
         state: GroupMembershipState,
-    ) -> Result<StoredGroup, StorageError> {
+    ) -> Result<(), StorageError> {
         use super::schema::groups::dsl;
 
         diesel::update(dsl::groups.find(id.as_ref()))
             .set(dsl::membership_state.eq(state))
-            .get_result::<StoredGroup>(conn)
-            .map_err(Into::into)
+            .execute(conn)?;
+
+        Ok(())
     }
 }
 
@@ -148,9 +149,11 @@ pub(crate) mod tests {
             let test_group = generate_group(Some(GroupMembershipState::Pending));
 
             test_group.store(&mut conn).unwrap();
-            let updated_group = store
+            store
                 .update_group_membership(&mut conn, &test_group.id, GroupMembershipState::Rejected)
                 .unwrap();
+            
+            let updated_group: StoredGroup = conn.fetch(&test_group.id).ok().flatten().unwrap();
             assert_eq!(
                 updated_group,
                 StoredGroup {
