@@ -10,7 +10,7 @@ use crate::{
     configuration::KEY_PACKAGE_TOP_UP_AMOUNT,
     groups::MlsGroup,
     identity::Identity,
-    storage::{EncryptedMessageStore, StorageError},
+    storage::{group::GroupMembershipState, EncryptedMessageStore, StorageError},
     types::Address,
     verified_key_package::{KeyPackageVerificationError, VerifiedKeyPackage},
     xmtp_openmls_provider::XmtpOpenMlsProvider,
@@ -88,9 +88,8 @@ where
     }
 
     pub fn create_group(&self) -> Result<MlsGroup<ApiClient>, ClientError> {
-        let group =
-            MlsGroup::create_and_insert(self, crate::storage::group::GroupMembershipState::Allowed)
-                .map_err(|e| ClientError::Generic(format!("group create error {}", e)))?;
+        let group = MlsGroup::create_and_insert(self, GroupMembershipState::Allowed)
+            .map_err(|e| ClientError::Generic(format!("group create error {}", e)))?;
 
         Ok(group)
     }
