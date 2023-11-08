@@ -268,7 +268,7 @@ where
                 let (commit, _, _) = openmls_group.remove_members(
                     provider,
                     &self.client.identity.installation_keys,
-                    &leaf_nodes.as_slice(),
+                    leaf_nodes.as_slice(),
                 )?;
 
                 let commit_bytes = commit.tls_serialize_detached()?;
