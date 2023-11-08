@@ -136,7 +136,10 @@ where
                 parameter: "api_client",
             })?;
         let network = self.network;
-        let store = self.store.take().unwrap_or_default();
+        let store = self
+            .store
+            .take()
+            .ok_or(ClientBuilderError::MissingParameter { parameter: "store" })?;
         let provider = XmtpOpenMlsProvider::new(&store);
         let identity = self
             .identity_strategy
@@ -150,13 +153,13 @@ mod tests {
 
     use ethers::signers::{LocalWallet, Signer, Wallet};
     use ethers_core::k256::ecdsa::SigningKey;
-    use tempfile::TempPath;
     use xmtp_api_grpc::grpc_api_helper::Client as GrpcClient;
     use xmtp_cryptography::utils::generate_local_wallet;
 
     use super::{ClientBuilder, IdentityStrategy};
     use crate::{
         storage::{EncryptedMessageStore, StorageOption},
+        utils::test::tmp_path,
         Client,
     };
 
@@ -171,10 +174,22 @@ mod tests {
             self.api_client(get_local_grpc_client().await)
         }
 
+        fn temp_store(self) -> Self {
+            let tmpdb = tmp_path();
+            self.store(
+                EncryptedMessageStore::new_unencrypted(StorageOption::Persistent(tmpdb)).unwrap(),
+            )
+        }
+
         pub async fn new_test_client(
             strat: IdentityStrategy<Wallet<SigningKey>>,
         ) -> Client<GrpcClient> {
-            Self::new(strat).local_grpc().await.build().unwrap()
+            Self::new(strat)
+                .temp_store()
+                .local_grpc()
+                .await
+                .build()
+                .unwrap()
         }
     }
 
@@ -189,10 +204,7 @@ mod tests {
 
     #[tokio::test]
     async fn identity_persistence_test() {
-        let tmpdb = TempPath::from_path("./db.db3")
-            .to_str()
-            .unwrap()
-            .to_string();
+        let tmpdb = tmp_path();
         let wallet = generate_local_wallet();
 
         // Generate a new Wallet + Store

@@ -47,9 +47,8 @@ impl traits::SignatureVerifier<EcdsaSignature> for PublicKey {
                 verifying_key
                     .verify_digest(digest, &signature)
                     .map_err(|e| e.to_string())
-            }
-            // The idea for unsupported types is to uncomment this catch-all
-            // _ => Err("Unsupported signature type for k256 public key".to_string()),
+            } /* The idea for unsupported types is to uncomment this catch-all
+               * _ => Err("Unsupported signature type for k256 public key".to_string()), */
         }
     }
 }

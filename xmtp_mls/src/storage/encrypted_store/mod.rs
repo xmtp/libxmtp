@@ -66,13 +66,6 @@ pub struct EncryptedMessageStore {
     pool: Pool<ConnectionManager<SqliteConnection>>,
 }
 
-impl Default for EncryptedMessageStore {
-    fn default() -> Self {
-        Self::new(StorageOption::Ephemeral, Self::generate_enc_key())
-            .expect("Error Occurred: trying to create default Ephemeral store")
-    }
-}
-
 impl<'a> From<&'a EncryptedMessageStore> for Cow<'a, EncryptedMessageStore> {
     fn from(store: &'a EncryptedMessageStore) -> Cow<'a, EncryptedMessageStore> {
         Cow::Borrowed(store)
@@ -231,26 +224,11 @@ where
 mod tests {
     use std::{boxed::Box, fs};
 
-    use rand::{
-        distributions::{Alphanumeric, DistString},
-        Rng,
-    };
-
     use super::{identity::StoredIdentity, EncryptedMessageStore, StorageError, StorageOption};
-    use crate::{Fetch, Store};
-
-    pub(crate) fn rand_string() -> String {
-        Alphanumeric.sample_string(&mut rand::thread_rng(), 16)
-    }
-
-    pub(crate) fn rand_vec() -> Vec<u8> {
-        rand::thread_rng().gen::<[u8; 16]>().to_vec()
-    }
-
-    pub(crate) fn rand_time() -> i64 {
-        let mut rng = rand::thread_rng();
-        rng.gen_range(0..1_000_000_000)
-    }
+    use crate::{
+        utils::test::{rand_vec, tmp_path},
+        Fetch, Store,
+    };
 
     /// Test harness that loads an Ephemeral store.
     pub fn with_store<F, R>(fun: F) -> R
@@ -265,6 +243,17 @@ mod tests {
         .unwrap();
         let conn = store.conn().expect("acquiring a Connection failed");
         fun(store, conn)
+    }
+
+    impl EncryptedMessageStore {
+        pub fn new_test() -> Self {
+            let tmp_path = tmp_path();
+            EncryptedMessageStore::new(
+                StorageOption::Persistent(tmp_path),
+                EncryptedMessageStore::generate_enc_key(),
+            )
+            .unwrap()
+        }
     }
 
     #[test]
@@ -287,7 +276,7 @@ mod tests {
 
     #[test]
     fn persistent_store() {
-        let db_path = format!("{}.db3", rand_string());
+        let db_path = tmp_path();
         {
             let store = EncryptedMessageStore::new(
                 StorageOption::Persistent(db_path.clone()),
@@ -312,7 +301,7 @@ mod tests {
     fn mismatched_encryption_key() {
         let mut enc_key = [1u8; 32];
 
-        let db_path = format!("{}.db3", rand_string());
+        let db_path = tmp_path();
         {
             // Setup a persistent store
             let store =

@@ -128,7 +128,7 @@ mod tests {
 
     #[test]
     fn does_not_error() {
-        let store = EncryptedMessageStore::default();
+        let store = EncryptedMessageStore::new_test();
         Identity::new(
             &store,
             &XmtpOpenMlsProvider::new(&store),

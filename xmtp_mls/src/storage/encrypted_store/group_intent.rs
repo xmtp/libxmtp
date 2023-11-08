@@ -96,6 +96,8 @@ impl EncryptedMessageStore {
             query = query.filter(dsl::kind.eq_any(allowed_kinds));
         }
 
+        query = query.order(dsl::id.asc());
+
         Ok(query.load::<StoredGroupIntent>(conn)?)
     }
 
@@ -246,8 +248,9 @@ mod tests {
     use crate::{
         storage::encrypted_store::{
             group::{GroupMembershipState, StoredGroup},
-            tests::{rand_vec, with_store},
+            tests::with_store,
         },
+        utils::test::rand_vec,
         Fetch, Store,
     };
 

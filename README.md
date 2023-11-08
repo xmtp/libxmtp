@@ -30,6 +30,20 @@ Start Docker Desktop.
   dev/test
   ```
 
+## Quick Start (Dev Containers)
+
+This project supports containerized development. From Visual Studio Code Dev Containers extension specify the Dockerfile as the target:
+
+`Reopen in Container`
+
+or
+
+Command line build using docker
+
+```bash
+$ docker build . -t libxmtp:1
+```
+
 ## Structure
 
 - [`xmtp`](https://github.com/xmtp/libxmtp/tree/main/xmtp): Pure Rust implementation of XMTP APIs, agnostic to any per-language or per-platform binding

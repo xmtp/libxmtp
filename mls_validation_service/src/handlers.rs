@@ -64,13 +64,11 @@ impl ValidationApi for ValidationService {
                 match validate_group_message(message.group_message_bytes_tls_serialized) {
                     Ok(res) => ValidateGroupMessageValidationResponse {
                         group_id: res.group_id,
-                        epoch: res.epoch,
                         error_message: "".to_string(),
                         is_ok: true,
                     },
                     Err(e) => ValidateGroupMessageValidationResponse {
                         group_id: "".to_string(),
-                        epoch: 0,
                         error_message: e,
                         is_ok: false,
                     },
@@ -86,7 +84,6 @@ impl ValidationApi for ValidationService {
 
 struct ValidateGroupMessageResult {
     group_id: String,
-    epoch: u64,
 }
 
 fn validate_group_message(message: Vec<u8>) -> Result<ValidateGroupMessageResult, String> {
@@ -99,7 +96,6 @@ fn validate_group_message(message: Vec<u8>) -> Result<ValidateGroupMessageResult
         // TODO: I wonder if we really want to be base64 encoding this or if we can treat it as a
         // slice
         group_id: hex_encode(private_message.group_id().as_slice()),
-        epoch: private_message.epoch().as_u64(),
     })
 }
 
