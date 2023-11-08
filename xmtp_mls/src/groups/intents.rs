@@ -5,8 +5,10 @@ use tls_codec::Serialize;
 use xmtp_proto::xmtp::mls::database::{
     add_members_publish_data::{Version as AddMembersVersion, V1 as AddMembersV1},
     post_commit_action::{Kind as PostCommitActionKind, SendWelcomes as SendWelcomesProto},
+    remove_members_publish_data::{Version as RemoveMembersVersion, V1 as RemoveMembersV1},
     send_message_publish_data::{Version as SendMessageVersion, V1 as SendMessageV1},
-    AddMembersPublishData, PostCommitAction as PostCommitActionProto, SendMessagePublishData,
+    AddMembersPublishData, PostCommitAction as PostCommitActionProto, RemoveMembersPublishData,
+    SendMessagePublishData,
 };
 
 use crate::{
@@ -90,7 +92,7 @@ impl AddMembersIntentData {
             })),
         }
         .encode(&mut buf)
-        .unwrap();
+        .expect("encode error");
 
         Ok(buf)
     }
@@ -119,6 +121,47 @@ impl TryFrom<AddMembersIntentData> for Vec<u8> {
     type Error = IntentError;
 
     fn try_from(intent: AddMembersIntentData) -> Result<Self, Self::Error> {
+        intent.to_bytes()
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct RemoveMembersIntentData {
+    pub installation_ids: Vec<Vec<u8>>,
+}
+
+impl RemoveMembersIntentData {
+    pub fn new(installation_ids: Vec<Vec<u8>>) -> Self {
+        Self { installation_ids }
+    }
+
+    pub(crate) fn to_bytes(&self) -> Vec<u8> {
+        let mut buf = Vec::new();
+
+        RemoveMembersPublishData {
+            version: Some(RemoveMembersVersion::V1(RemoveMembersV1 {
+                installation_ids: self.installation_ids.clone(),
+            })),
+        }
+        .encode(&mut buf)
+        .expect("encode error");
+
+        buf
+    }
+
+    pub(crate) fn from_bytes(data: &[u8]) -> Result<Self, IntentError> {
+        let msg = RemoveMembersPublishData::decode(data)?;
+        let installation_ids = match msg.version {
+            Some(RemoveMembersVersion::V1(v1)) => v1.installation_ids,
+            None => return Err(IntentError::Generic("missing payload".to_string())),
+        };
+
+        Ok(Self::new(installation_ids))
+    }
+}
+
+impl From<RemoveMembersIntentData> for Vec<u8> {
+    fn from(intent: RemoveMembersIntentData) -> Self {
         intent.to_bytes()
     }
 }
