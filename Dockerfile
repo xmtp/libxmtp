@@ -77,9 +77,8 @@ COPY --chown=xmtp:xmtp --from=builder /home/xmtp/.rustup /home/xmtp/.rustup
 
 USER xmtp
 
-# fmt coming from nightly
-RUN ~xmtp/.cargo/bin/rustup toolchain install nightly
-RUN ~xmtp/.cargo/bin/rustup component add rustfmt --toolchain nightly
+RUN ~xmtp/.cargo/bin/rustup toolchain install stable 
+RUN ~xmtp/.cargo/bin/rustup component add rustfmt
 RUN ~xmtp/.cargo/bin/rustup component add clippy
 
 WORKDIR /workspaces/libxmtp
@@ -89,8 +88,8 @@ ENV PATH=~xmtp/.cargo/bin:$PATH
 ENV USER=xmtp
 
 RUN ~xmtp/.cargo/bin/cargo check
-RUN ~xmtp/.cargo/bin/cargo +nightly --version
-RUN ~xmtp/.cargo/bin/cargo +nightly fmt --check
+RUN ~xmtp/.cargo/bin/cargo --version
+RUN ~xmtp/.cargo/bin/cargo fmt --check
 RUN ~xmtp/.cargo/bin/cargo clippy --all-features --no-deps
 RUN ~xmtp/.cargo/bin/cargo clippy --all-features --no-deps --manifest-path xmtp/Cargo.toml
 # some tests are setup as integration tests 👀 xmtp_mls
