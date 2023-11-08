@@ -253,6 +253,16 @@ where
                     .map(|member| member.index)
                     .collect();
 
+                let num_leaf_nodes = leaf_nodes.len();
+
+                if num_leaf_nodes != intent_data.installation_ids.len() {
+                    return Err(GroupError::Generic(format!(
+                        "expected {} leaf nodes, found {}",
+                        intent_data.installation_ids.len(),
+                        num_leaf_nodes
+                    )));
+                }
+
                 // The second return value is a Welcome, which is only possible if there
                 // are pending proposals. Ignoring for now
                 let (commit, _, _) = openmls_group.remove_members(
