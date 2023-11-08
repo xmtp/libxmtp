@@ -47,6 +47,8 @@ pub enum GroupError {
     RemoveMembers(#[from] openmls::prelude::RemoveMembersError<StorageError>),
     #[error("group create: {0}")]
     GroupCreate(#[from] openmls::prelude::NewGroupError<StorageError>),
+    #[error("self update: {0}")]
+    SelfUpdate(#[from] openmls::group::SelfUpdateError<StorageError>),
     #[error("client: {0}")]
     Client(#[from] ClientError),
     #[error("generic: {0}")]
@@ -144,6 +146,16 @@ where
             self.group_id.clone(),
             intent_data,
         );
+        intent.store(&mut conn)?;
+
+        self.publish_intents(&mut conn).await?;
+
+        Ok(())
+    }
+
+    pub async fn key_update(&self) -> Result<(), GroupError> {
+        let mut conn = self.client.store.conn()?;
+        let intent = NewGroupIntent::new(IntentKind::KeyUpdate, self.group_id.clone(), vec![]);
         intent.store(&mut conn)?;
 
         self.publish_intents(&mut conn).await?;
@@ -275,7 +287,12 @@ where
 
                 Ok((commit_bytes, None))
             }
-            _ => Err(GroupError::Generic("invalid intent kind".to_string())),
+            IntentKind::KeyUpdate => {
+                let (commit, _, _) =
+                    openmls_group.self_update(provider, &self.client.identity.installation_keys)?;
+
+                Ok((commit.tls_serialize_detached()?, None))
+            }
         }
     }
 
@@ -409,5 +426,24 @@ mod tests {
             .expect("read topic");
 
         assert_eq!(messages_after_second_try.len(), 2)
+    }
+
+    #[tokio::test]
+    async fn test_key_update() {
+        let client = ClientBuilder::new_test_client(generate_local_wallet().into()).await;
+        let group = client.create_group().expect("create group");
+
+        group.key_update().await.unwrap();
+
+        let messages = client
+            .api_client
+            .read_topic(group.topic().as_str(), 0)
+            .await
+            .unwrap();
+        assert_eq!(messages.len(), 1);
+
+        let mls_group = group.load_mls_group(&client.mls_provider()).unwrap();
+        let pending_commit = mls_group.pending_commit();
+        assert!(pending_commit.is_some());
     }
 }
