@@ -352,8 +352,6 @@ mod tests {
         // Add another client onto the network
         let client_2 = ClientBuilder::new_test_client(generate_local_wallet().into()).await;
         client_2.register_identity().await.unwrap();
-        let client_3 = ClientBuilder::new_test_client(generate_local_wallet().into()).await;
-        client_3.register_identity().await.unwrap();
 
         let provider = client_1.mls_provider();
         let group = client_1.create_group().expect("create group");
@@ -367,7 +365,7 @@ mod tests {
 
         // Try and add another member without merging the pending commit
         group
-            .add_members_by_installation_id(vec![client_3
+            .remove_members_by_installation_id(vec![client_2
                 .identity
                 .installation_keys
                 .to_public_vec()])
