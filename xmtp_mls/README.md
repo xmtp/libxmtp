@@ -1,5 +1,7 @@
 # XMTP MLS
 
+This document describes plans for how XMTP can implement [Messaging Layer Security](https://messaginglayersecurity.rocks/) (MLS).
+
 ## Database Schema
 
 Foreign key constraints and indexes omitted for simplicity.
