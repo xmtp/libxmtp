@@ -1,4 +1,7 @@
 FROM ghcr.io/xmtp/rust:latest
+
+RUN curl -fsSL https://get.docker.com | sh
+
 USER xmtp
 
 RUN ~xmtp/.cargo/bin/rustup toolchain install stable 
