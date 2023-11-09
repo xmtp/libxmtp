@@ -13,7 +13,7 @@ use super::{
     schema::{group_intents, group_intents::dsl},
     DbConnection, EncryptedMessageStore,
 };
-use crate::{impl_fetch, impl_store, storage::StorageError};
+use crate::{impl_fetch, impl_store, storage::StorageError, Delete};
 
 pub type ID = i32;
 
@@ -52,6 +52,13 @@ pub struct StoredGroupIntent {
 }
 
 impl_fetch!(StoredGroupIntent, group_intents, ID);
+
+impl Delete<StoredGroupIntent> for DbConnection {
+    type Key = ID;
+    fn delete(&mut self, key: ID) -> Result<usize, StorageError> {
+        Ok(diesel::delete(dsl::group_intents.find(key)).execute(self)?)
+    }
+}
 
 #[derive(Insertable, Debug, PartialEq, Clone)]
 #[diesel(table_name = group_intents)]
