@@ -57,6 +57,7 @@ pub enum GroupError {
 
 pub struct MlsGroup<'c, ApiClient> {
     pub group_id: Vec<u8>,
+    pub created_at_ns: i64,
     client: &'c Client<ApiClient>,
 }
 
@@ -65,8 +66,12 @@ where
     ApiClient: XmtpApiClient + XmtpMlsClient,
 {
     // Creates a new group instance. Does not validate that the group exists in the DB
-    pub fn new(group_id: Vec<u8>, client: &'c Client<ApiClient>) -> Self {
-        Self { client, group_id }
+    pub fn new(client: &'c Client<ApiClient>, group_id: Vec<u8>, created_at_ns: i64) -> Self {
+        Self {
+            client,
+            group_id,
+            created_at_ns,
+        }
     }
 
     pub fn load_mls_group(
@@ -102,7 +107,7 @@ where
         let stored_group = StoredGroup::new(group_id.clone(), now_ns(), membership_state);
         stored_group.store(&mut conn)?;
 
-        Ok(Self::new(group_id, client))
+        Ok(Self::new(client, group_id, stored_group.created_at_ns))
     }
 
     pub async fn send_message(&self, message: &[u8]) -> Result<(), GroupError> {
