@@ -5,6 +5,7 @@ use openmls::{
 use openmls_rust_crypto::OpenMlsRustCrypto;
 use openmls_traits::OpenMlsProvider;
 use tonic::{Request, Response, Status};
+use xmtp_mls::utils::topic::serialize_group_id;
 use xmtp_proto::xmtp::mls_validation::v1::{
     validate_group_messages_response::ValidationResponse as ValidateGroupMessageValidationResponse,
     validate_key_packages_response::ValidationResponse as ValidateKeyPackageValidationResponse,
@@ -12,7 +13,7 @@ use xmtp_proto::xmtp::mls_validation::v1::{
     ValidateGroupMessagesResponse, ValidateKeyPackagesRequest, ValidateKeyPackagesResponse,
 };
 
-use crate::validation_helpers::{hex_encode, identity_to_wallet_address};
+use crate::validation_helpers::identity_to_wallet_address;
 
 #[derive(Debug, Default)]
 pub struct ValidationService {}
@@ -93,9 +94,7 @@ fn validate_group_message(message: Vec<u8>) -> Result<ValidateGroupMessageResult
     let private_message: ProtocolMessage = msg_result.into();
 
     Ok(ValidateGroupMessageResult {
-        // TODO: I wonder if we really want to be base64 encoding this or if we can treat it as a
-        // slice
-        group_id: hex_encode(private_message.group_id().as_slice()),
+        group_id: serialize_group_id(private_message.group_id().as_slice()),
     })
 }
 

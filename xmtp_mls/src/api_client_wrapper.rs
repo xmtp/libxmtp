@@ -2,8 +2,8 @@ use std::collections::HashMap;
 
 use xmtp_proto::{
     api_client::{
-        Envelope, Error as ApiError, ErrorKind, PagingInfo, QueryRequest, XmtpApiClient,
-        XmtpMlsClient,
+        BatchQueryRequest, BatchQueryResponse, Envelope, Error as ApiError, ErrorKind, PagingInfo,
+        QueryRequest, QueryResponse, SubscribeRequest, XmtpApiClient, XmtpMlsClient,
     },
     xmtp::{
         message_api::{
@@ -34,6 +34,24 @@ where
 {
     pub fn new(api_client: ApiClient) -> Self {
         Self { api_client }
+    }
+
+    pub async fn subscribe(
+        &self,
+        request: SubscribeRequest,
+    ) -> Result<ApiClient::Subscription, ApiError> {
+        self.api_client.subscribe(request).await
+    }
+
+    pub async fn query(&self, request: QueryRequest) -> Result<QueryResponse, ApiError> {
+        self.api_client.query(request).await
+    }
+
+    pub async fn batch_query(
+        &self,
+        request: BatchQueryRequest,
+    ) -> Result<BatchQueryResponse, ApiError> {
+        self.api_client.batch_query(request).await
     }
 
     pub async fn read_topic(

@@ -32,6 +32,8 @@ pub enum IdentityError {
     StorageError(#[from] StorageError),
     #[error("generating key package")]
     KeyPackageGenerationError(#[from] KeyPackageNewError<StorageError>),
+    #[error("deserialization")]
+    Deserialization(#[from] prost::DecodeError),
 }
 
 #[derive(Debug)]
@@ -116,6 +118,21 @@ impl Identity {
 
         // Serialize into credential
         Ok(Credential::new(association_proto.encode_to_vec(), CredentialType::Basic).unwrap())
+    }
+
+    pub(crate) fn get_validated_account_address(
+        installation_public_key: &[u8],
+        credential: &[u8],
+    ) -> Result<String, IdentityError> {
+        let proto = Eip191AssociationProto::decode(credential)?;
+        let expected_wallet_address = proto.wallet_address.clone();
+        let association = Eip191Association::from_proto_with_expected_address(
+            installation_public_key,
+            proto,
+            expected_wallet_address,
+        )?;
+
+        Ok(association.address())
     }
 }
 
