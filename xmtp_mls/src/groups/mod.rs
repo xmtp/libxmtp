@@ -132,6 +132,8 @@ where
         intent.store(&mut conn)?;
 
         self.publish_intents(&mut conn).await?;
+        // ... sync state with the network
+        self.post_commit(&mut conn).await?;
 
         Ok(())
     }
