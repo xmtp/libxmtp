@@ -63,14 +63,6 @@ CREATE TABLE group_intents (
 );
 
 CREATE INDEX group_intents_group_id_id ON group_intents(group_id, id);
-
-CREATE TABLE topic_refresh_state (
-    "topic" TEXT PRIMARY KEY NOT NULL,
-    "last_message_timestamp_ns" BIGINT NOT NULL,
-    -- Only allow one concurrent sync at a time per topic. This value is 0 when no sync is happening
-    -- All locks should be cleared on cold start
-    "lock_until_ns" BIGINT NOT NULL
-);
 ```
 
 ## Enums
@@ -159,12 +151,40 @@ Simplified high level flow for sending a group message:
 
 ### Syncing group state
 
-The server maintains an inbound topic for each group, and a single inbound topic for the client's identity. For each topic, the client maintains a row that stores `last_synced_payload_id` and `lock_sync_until_ns` fields.
+The latest payloads on a group could be synced from the server in the following cases:
 
-1. In a single transaction, validate that `lock_until_ns` is not set to a value greater than `now()`, set it to a timeframe in the future, and fetch the `last_message_timestamp_ns`
-1. Fetch all payloads greater than the timestamp from the server
-1. Sequentially process each payload. For each payload, update the `last_message_timestamp_ns` and any corresponding database writes for that payload in a single transaction
-1. When the sync is complete, release the lock by setting `lock_until_ns` to 0
+- Push notifications
+- Application-triggered subscription
+- Application-triggered pull
+- Commit publishing flow
+
+Any syncing strategy must be able to handle the following constraints:
+
+- Payload syncing could be initiated concurrently from multiple locations
+- Due to forward secrecy constraints, each payload may only be decrypted successfully once
+
+These are the following possible strategies, each with their own limitations:
+
+- Co-ordinated: Syncing can only happen in one location at a time via locks/queues
+- Unco-ordinated: Allow syncing to happen in parallel
+
+The latter is simpler to implement in the short-term, but raises the following potential challenges:
+
+- How to handle concurrent decryption failures and return the latest data regardless
+- How to handle updating the `last_message_timestamp_ns` on the `topic_refresh_state` table
+- How to know if a failure is due to the message having already been decrypted, or permanent failure
+
+For the initial version, this simple strategy can be used to pull the latest payloads:
+
+1. Read the `last_message_timestamp_ns` from the database and pull all payloads from the server with timestamp greater than it
+1. For each payload, attempt to decrypt it
+   1. If it succeeds, process the payload. Write the result, update the cryptographic state, and update the `last_message_timestamp_ns`, together in a single transaction. Set `last_message_timestamp_ns` to the larger value out of the value in the database and the payload's timestamp.
+   1. If it fails, only attempt to update `last_message_timestamp_ns` in the database to the larger value out of the value in the database and the payload's timestamp.
+1. To return the result of the sync, pull the latest data from the database rather than using the in-memory data from the syncing process
+
+This strategy effectively means that the processing of each payload succeeds or fails atomically. In the event of failure due to concurrency, the actual result can be read from the database.
+
+For now, we can put off the issue of detecting if a decryption failure is due to concurrency or permanent failure. If OpenMLS cryptographic state is entirely database-driven, we may be able to detect that a failure is due to concurrency by the fact that `last_message_timestamp_ns` has already been updated. If OpenMLS cryptographic state is partially driven by in-memory data, we can record per-payload successes and failures in a separate table, with successes always overwriting failures.
 
 ### Updating your list of conversations
 
