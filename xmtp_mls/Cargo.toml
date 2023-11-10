@@ -19,7 +19,7 @@ native = ["libsqlite3-sys/bundled-sqlcipher-vendored-openssl"]
 [dependencies]
 anyhow = "1.0.71"
 async-trait = "0.1.68"
-diesel = { version = "2.1.3", features = ["sqlite", "r2d2", "returning_clauses_for_sqlite_3_35"] }
+diesel = { version = "2.1.3", features = ["sqlite", "r2d2", "returning_clauses_for_sqlite_3_35", "i-implement-a-third-party-backend-and-opt-into-breaking-changes"] }
 diesel_migrations = { version = "2.1.0", features = ["sqlite"] }
 ethers = "2.0.4"
 ethers-core = "2.0.4"
