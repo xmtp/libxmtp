@@ -134,13 +134,13 @@ where
         let mut receive_errors = Vec::<GroupReceiveError>::new();
         for envelope in envelopes {
             let mls_message_in = MlsMessageIn::tls_deserialize_exact(&envelope.message)
-                .expect("Could not deserialize message.");
+                .expect("Could not deserialize message."); // TODO
 
             match mls_message_in.extract() {
                 MlsMessageInBody::PrivateMessage(message) => {
                     let decrypted_message = openmls_group
                         .process_message(&provider, message)
-                        .expect("Could not parse message.");
+                        .expect("Could not parse message."); // TODO
                     let mut sender_account_address = None;
                     let mut sender_installation_id = None;
                     if let Sender::Member(leaf_node_index) = decrypted_message.sender() {
