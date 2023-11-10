@@ -4,10 +4,7 @@ use std::sync::{Arc, Mutex};
 
 use diesel::{
     associations::HasTable,
-    connection::{
-        AnsiTransactionManager, ConnectionSealed, DefaultLoadingMode, LoadConnection,
-        SimpleConnection, TransactionManager,
-    },
+    connection::{AnsiTransactionManager, ConnectionSealed, SimpleConnection, TransactionManager},
     expression::{is_aggregate, MixedAggregates, ValidGrouping},
     helper_types::{Find, Update},
     prelude::{Connection, Identifiable, SqliteConnection},
@@ -33,20 +30,24 @@ impl Connection for SyncSqliteConnection {
     type TransactionManager = AnsiTransactionManager;
 
     fn establish(database_url: &str) -> ConnectionResult<Self> {
-        todo!()
+        Ok(Self {
+            inner: Arc::new(Mutex::new(SqliteConnection::establish(database_url)?)),
+        })
     }
 
     fn execute_returning_count<T>(&mut self, source: &T) -> QueryResult<usize>
     where
         T: QueryFragment<Self::Backend> + QueryId,
     {
-        todo!()
+        let mut conn = self.inner.lock().unwrap();
+        (*conn).execute_returning_count(source)
     }
 
     fn transaction_state(
         &mut self,
     ) -> &mut <Self::TransactionManager as TransactionManager<Self>>::TransactionStateData {
-        todo!()
+        let mut conn = self.inner.lock().unwrap();
+        (*conn).transaction_state()
     }
 }
 
@@ -54,7 +55,8 @@ impl ConnectionSealed for SyncSqliteConnection {}
 
 impl SimpleConnection for SyncSqliteConnection {
     fn batch_execute(&mut self, query: &str) -> QueryResult<()> {
-        todo!()
+        let mut conn = self.inner.lock().unwrap();
+        (*conn).batch_execute(query)
     }
 }
 
