@@ -50,7 +50,8 @@ impl EncryptedMessageStore {
         &self,
         conn: &mut DbConnection,
         allowed_states: Option<Vec<GroupMembershipState>>,
-        created_at_ns_gt: Option<i64>,
+        created_after_ns: Option<i64>,
+        created_before_ns: Option<i64>,
         limit: Option<i64>,
     ) -> Result<Vec<StoredGroup>, StorageError> {
         let mut query = dsl::groups.order(dsl::created_at_ns.asc()).into_boxed();
@@ -59,8 +60,12 @@ impl EncryptedMessageStore {
             query = query.filter(dsl::membership_state.eq_any(allowed_states));
         }
 
-        if let Some(created_at_ns_gt) = created_at_ns_gt {
-            query = query.filter(dsl::created_at_ns.gt(created_at_ns_gt));
+        if let Some(created_after_ns) = created_after_ns {
+            query = query.filter(dsl::created_at_ns.gt(created_after_ns));
+        }
+
+        if let Some(created_before_ns) = created_before_ns {
+            query = query.filter(dsl::created_at_ns.lt(created_before_ns));
         }
 
         if let Some(limit) = limit {
@@ -195,7 +200,9 @@ pub(crate) mod tests {
             let test_group_2 = generate_group(Some(GroupMembershipState::Allowed));
             test_group_2.store(&mut conn).unwrap();
 
-            let all_results = store.find_groups(&mut conn, None, None, None).unwrap();
+            let all_results = store
+                .find_groups(&mut conn, None, None, None, None)
+                .unwrap();
             assert_eq!(all_results.len(), 2);
 
             let pending_results = store
@@ -204,18 +211,27 @@ pub(crate) mod tests {
                     Some(vec![GroupMembershipState::Pending]),
                     None,
                     None,
+                    None,
                 )
                 .unwrap();
             assert_eq!(pending_results[0].id, test_group_1.id);
             assert_eq!(pending_results.len(), 1);
 
             // Offset and limit
-            let results_with_limit = store.find_groups(&mut conn, None, None, Some(1)).unwrap();
+            let results_with_limit = store
+                .find_groups(&mut conn, None, None, None, Some(1))
+                .unwrap();
             assert_eq!(results_with_limit.len(), 1);
             assert_eq!(results_with_limit[0].id, test_group_1.id);
 
             let results_with_created_at_ns_after = store
-                .find_groups(&mut conn, None, Some(test_group_1.created_at_ns), Some(1))
+                .find_groups(
+                    &mut conn,
+                    None,
+                    Some(test_group_1.created_at_ns),
+                    None,
+                    Some(1),
+                )
                 .unwrap();
             assert_eq!(results_with_created_at_ns_after.len(), 1);
             assert_eq!(results_with_created_at_ns_after[0].id, test_group_2.id);
