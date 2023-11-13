@@ -127,21 +127,6 @@ where
         Ok(())
     }
 
-    pub async fn top_up_key_packages(&self) -> Result<(), ClientError> {
-        let key_packages: Result<Vec<Vec<u8>>, ClientError> = (0..KEY_PACKAGE_TOP_UP_AMOUNT)
-            .map(|_| -> Result<Vec<u8>, ClientError> {
-                let kp = self.identity.new_key_package(&self.mls_provider())?;
-                let kp_bytes = kp.tls_serialize_detached()?;
-
-                Ok(kp_bytes)
-            })
-            .collect();
-
-        self.api_client.upload_key_packages(key_packages?).await?;
-
-        Ok(())
-    }
-
     async fn get_all_active_installation_ids(
         &self,
         wallet_addresses: Vec<String>,
@@ -241,38 +226,6 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(installation_ids.len(), 1);
-    }
-
-    #[tokio::test]
-    async fn test_top_up_key_packages() {
-        let wallet = generate_local_wallet();
-        let wallet_address = wallet.get_address();
-        let client = ClientBuilder::new_test_client(wallet.clone().into()).await;
-
-        client.register_identity().await.unwrap();
-        client.top_up_key_packages().await.unwrap();
-
-        let key_packages = client
-            .get_key_packages_for_wallet_addresses(vec![wallet_address.clone()])
-            .await
-            .unwrap();
-
-        assert_eq!(key_packages.len(), 1);
-
-        let key_package = key_packages.first().unwrap();
-        assert_eq!(key_package.wallet_address, wallet_address);
-
-        let key_packages_2 = client
-            .get_key_packages_for_wallet_addresses(vec![wallet_address.clone()])
-            .await
-            .unwrap();
-
-        assert_eq!(key_packages_2.len(), 1);
-
-        // Ensure we got back different key packages
-        let key_package_2 = key_packages_2.first().unwrap();
-        assert_eq!(key_package_2.wallet_address, wallet_address);
-        assert!(!(key_package_2.eq(key_package)));
     }
 
     #[tokio::test]
