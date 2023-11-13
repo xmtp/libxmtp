@@ -10,7 +10,6 @@ use openmls::{
     prelude_test::KeyPackage,
 };
 use openmls_traits::OpenMlsProvider;
-use prost::Message;
 use thiserror::Error;
 use tls_codec::{Deserialize, Serialize};
 use xmtp_proto::api_client::{Envelope, XmtpApiClient, XmtpMlsClient};
@@ -175,8 +174,8 @@ where
             if let Some(member) = openmls_group.member_at(*leaf_node_index) {
                 if member.credential == *decrypted_message.credential() {
                     sender_account_address = Identity::get_validated_account_address(
-                        &member.signature_key,
                         member.credential.identity(),
+                        &member.signature_key,
                     )
                     .ok();
                     sender_installation_id = Some(member.signature_key);

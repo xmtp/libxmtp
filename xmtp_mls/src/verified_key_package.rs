@@ -62,11 +62,11 @@ impl VerifiedKeyPackage {
 }
 
 fn identity_to_wallet_address(
-    identity_bytes: &[u8],
     credential_bytes: &[u8],
+    installation_key_bytes: &[u8],
 ) -> Result<String, KeyPackageVerificationError> {
     Ok(Identity::get_validated_account_address(
-        identity_bytes,
         credential_bytes,
+        installation_key_bytes,
     )?)
 }

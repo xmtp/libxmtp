@@ -7,7 +7,6 @@ use xmtp_proto::api_client::{XmtpApiClient, XmtpMlsClient};
 
 use crate::{
     api_client_wrapper::{ApiClientWrapper, IdentityUpdate},
-    configuration::KEY_PACKAGE_TOP_UP_AMOUNT,
     groups::MlsGroup,
     identity::Identity,
     storage::{group::GroupMembershipState, EncryptedMessageStore, StorageError},

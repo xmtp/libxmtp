@@ -1,5 +1,3 @@
-use std::default;
-
 use openmls::{
     extensions::LastResortExtension,
     prelude::{
@@ -126,8 +124,8 @@ impl Identity {
     }
 
     pub(crate) fn get_validated_account_address(
-        installation_public_key: &[u8],
         credential: &[u8],
+        installation_public_key: &[u8],
     ) -> Result<String, IdentityError> {
         let proto = Eip191AssociationProto::decode(credential)?;
         let expected_wallet_address = proto.wallet_address.clone();
