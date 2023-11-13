@@ -63,13 +63,17 @@ pub enum GroupError {
 
 #[derive(Debug, Error)]
 pub enum MessageProcessingError {
-    #[error("storage error: {0}")]
-    Storage(#[from] crate::storage::StorageError),
     #[error("[{message_time_ns:?}] invalid sender with credential: {credential:?}")]
     InvalidSender {
         message_time_ns: u64,
         credential: Vec<u8>,
     },
+    #[error("openmls process message error: {0}")]
+    OpenMlsProcessMessage(#[from] openmls::prelude::ProcessMessageError),
+    #[error("storage error: {0}")]
+    Storage(#[from] crate::storage::StorageError),
+    #[error("tls deserialization: {0}")]
+    TlsDeserialization(#[from] tls_codec::Error),
 }
 
 pub struct MlsGroup<'c, ApiClient> {
@@ -107,7 +111,6 @@ where
             &provider,
             &client.identity.installation_keys,
             &build_group_config(),
-            // TODO: Confirm I should be using the installation keys here
             CredentialWithKey {
                 credential: client.identity.credential.clone(),
                 signature_key: client.identity.installation_keys.to_public_vec().into(),
@@ -174,9 +177,7 @@ where
         message: PrivateMessageIn,
         envelope_timestamp_ns: u64,
     ) -> Result<(), MessageProcessingError> {
-        let decrypted_message = openmls_group
-            .process_message(provider, message)
-            .expect("Could not parse message."); // TODO
+        let decrypted_message = openmls_group.process_message(provider, message)?;
         let (sender_account_address, sender_installation_id) =
             self.validate_message_sender(openmls_group, &decrypted_message, envelope_timestamp_ns)?;
 
@@ -215,8 +216,7 @@ where
         let receive_errors: Vec<MessageProcessingError> = envelopes
             .into_iter()
             .map(|envelope| -> Result<(), MessageProcessingError> {
-                let mls_message_in = MlsMessageIn::tls_deserialize_exact(&envelope.message)
-                    .expect("Could not deserialize message."); // TODO
+                let mls_message_in = MlsMessageIn::tls_deserialize_exact(&envelope.message)?;
 
                 match mls_message_in.extract() {
                     MlsMessageInBody::PrivateMessage(message) => self.process_private_message(
