@@ -94,6 +94,27 @@ where
         Ok(group)
     }
 
+    pub fn find_groups(
+        &self,
+        allowed_states: Option<Vec<GroupMembershipState>>,
+        created_after_ns: Option<i64>,
+        created_before_ns: Option<i64>,
+        limit: Option<i64>,
+    ) -> Result<Vec<MlsGroup<ApiClient>>, ClientError> {
+        Ok(self
+            .store
+            .find_groups(
+                &mut self.store.conn()?,
+                allowed_states,
+                created_after_ns,
+                created_before_ns,
+                limit,
+            )?
+            .into_iter()
+            .map(|stored_group| MlsGroup::new(self, stored_group.id, stored_group.created_at_ns))
+            .collect())
+    }
+
     pub async fn register_identity(&self) -> Result<(), ClientError> {
         // TODO: Mark key package as last_resort in creation
         let last_resort_kp = self.identity.new_key_package(&self.mls_provider())?;
@@ -252,5 +273,17 @@ mod tests {
         let key_package_2 = key_packages_2.first().unwrap();
         assert_eq!(key_package_2.wallet_address, wallet_address);
         assert!(!(key_package_2.eq(key_package)));
+    }
+
+    #[tokio::test]
+    async fn test_find_groups() {
+        let client = ClientBuilder::new_test_client(generate_local_wallet().into()).await;
+        let group_1 = client.create_group().unwrap();
+        let group_2 = client.create_group().unwrap();
+
+        let groups = client.find_groups(None, None, None, None).unwrap();
+        assert_eq!(groups.len(), 2);
+        assert_eq!(groups[0].group_id, group_1.group_id);
+        assert_eq!(groups[1].group_id, group_2.group_id);
     }
 }

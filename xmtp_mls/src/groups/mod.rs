@@ -15,16 +15,18 @@ use xmtp_proto::api_client::{XmtpApiClient, XmtpMlsClient};
 
 use self::intents::{AddMembersIntentData, IntentError, PostCommitAction, RemoveMembersIntentData};
 use crate::{
+    api_client_wrapper::WelcomeMessage,
     client::ClientError,
     configuration::CIPHERSUITE,
     storage::{
         group::{GroupMembershipState, StoredGroup},
         group_intent::{IntentKind, IntentState, NewGroupIntent, StoredGroupIntent},
+        group_message::{GroupMessageKind, StoredGroupMessage},
         DbConnection, StorageError,
     },
     utils::{hash::sha256, time::now_ns, topic::get_group_topic},
     xmtp_openmls_provider::XmtpOpenMlsProvider,
-    Client, Store,
+    Client, Delete, Store,
 };
 
 #[derive(Debug, Error)]
@@ -57,6 +59,7 @@ pub enum GroupError {
 
 pub struct MlsGroup<'c, ApiClient> {
     pub group_id: Vec<u8>,
+    pub created_at_ns: i64,
     client: &'c Client<ApiClient>,
 }
 
@@ -65,8 +68,12 @@ where
     ApiClient: XmtpApiClient + XmtpMlsClient,
 {
     // Creates a new group instance. Does not validate that the group exists in the DB
-    pub fn new(group_id: Vec<u8>, client: &'c Client<ApiClient>) -> Self {
-        Self { client, group_id }
+    pub fn new(client: &'c Client<ApiClient>, group_id: Vec<u8>, created_at_ns: i64) -> Self {
+        Self {
+            client,
+            group_id,
+            created_at_ns,
+        }
     }
 
     pub fn load_mls_group(
@@ -102,7 +109,27 @@ where
         let stored_group = StoredGroup::new(group_id.clone(), now_ns(), membership_state);
         stored_group.store(&mut conn)?;
 
-        Ok(Self::new(group_id, client))
+        Ok(Self::new(client, group_id, stored_group.created_at_ns))
+    }
+
+    pub fn find_messages(
+        &self,
+        kind: Option<GroupMessageKind>,
+        sent_before_ns: Option<i64>,
+        sent_after_ns: Option<i64>,
+        limit: Option<i64>,
+    ) -> Result<Vec<StoredGroupMessage>, GroupError> {
+        let mut conn = self.client.store.conn()?;
+        let messages = self.client.store.get_group_messages(
+            &mut conn,
+            &self.group_id,
+            sent_after_ns,
+            sent_before_ns,
+            kind,
+            limit,
+        )?;
+
+        Ok(messages)
     }
 
     pub async fn send_message(&self, message: &[u8]) -> Result<(), GroupError> {
@@ -131,6 +158,8 @@ where
         intent.store(&mut conn)?;
 
         self.publish_intents(&mut conn).await?;
+        // ... sync state with the network
+        self.post_commit(&mut conn).await?;
 
         Ok(())
     }
@@ -296,6 +325,39 @@ where
         }
     }
 
+    pub(crate) async fn post_commit(&self, conn: &mut DbConnection) -> Result<(), GroupError> {
+        let intents = self.client.store.find_group_intents(
+            conn,
+            self.group_id.clone(),
+            Some(vec![IntentState::Committed]),
+            None,
+        )?;
+
+        for intent in intents {
+            if intent.post_commit_data.is_some() {
+                let post_commit_data = intent.post_commit_data.unwrap();
+                let post_commit_action = PostCommitAction::from_bytes(post_commit_data.as_slice())?;
+                match post_commit_action {
+                    PostCommitAction::SendWelcomes(action) => {
+                        let welcomes: Vec<WelcomeMessage> = action
+                            .installation_ids
+                            .into_iter()
+                            .map(|installation_id| WelcomeMessage {
+                                installation_id,
+                                ciphertext: action.welcome_message.clone(),
+                            })
+                            .collect();
+                        self.client.api_client.publish_welcomes(welcomes).await?;
+                    }
+                }
+            }
+            let deleter: &mut dyn Delete<StoredGroupIntent, Key = i32> = conn;
+            deleter.delete(intent.id)?;
+        }
+
+        Ok(())
+    }
+
     pub fn topic(&self) -> String {
         get_group_topic(&self.group_id)
     }
@@ -315,7 +377,7 @@ mod tests {
     use openmls_traits::OpenMlsProvider;
     use xmtp_cryptography::utils::generate_local_wallet;
 
-    use crate::builder::ClientBuilder;
+    use crate::{builder::ClientBuilder, utils::topic::get_welcome_topic};
 
     #[tokio::test]
     async fn test_send_message() {
@@ -445,5 +507,44 @@ mod tests {
         let mls_group = group.load_mls_group(&client.mls_provider()).unwrap();
         let pending_commit = mls_group.pending_commit();
         assert!(pending_commit.is_some());
+    }
+
+    #[tokio::test]
+    async fn test_post_commit() {
+        let client = ClientBuilder::new_test_client(generate_local_wallet().into()).await;
+        let client_2 = ClientBuilder::new_test_client(generate_local_wallet().into()).await;
+        client_2.register_identity().await.unwrap();
+        let group = client.create_group().expect("create group");
+        let conn = &mut client.store.conn().unwrap();
+
+        group
+            .add_members_by_installation_id(vec![client_2
+                .identity
+                .installation_keys
+                .to_public_vec()])
+            .await
+            .unwrap();
+
+        let intents = client
+            .store
+            .find_group_intents(conn, group.group_id.clone(), None, None)
+            .unwrap();
+        let intent = intents.first().unwrap();
+        // Set the intent to committed manually
+        client
+            .store
+            .set_group_intent_committed(conn, intent.id)
+            .unwrap();
+        group.post_commit(conn).await.unwrap();
+
+        // Check if the welcome was actually sent
+        let welcome_topic = get_welcome_topic(&client_2.identity.installation_keys.to_public_vec());
+        let welcome_messages = client
+            .api_client
+            .read_topic(welcome_topic.as_str(), 0)
+            .await
+            .unwrap();
+
+        assert_eq!(welcome_messages.len(), 1);
     }
 }

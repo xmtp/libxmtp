@@ -10,7 +10,10 @@ use diesel::{
     sqlite::Sqlite,
 };
 
-use super::{schema::groups, DbConnection, EncryptedMessageStore};
+use super::{
+    schema::{groups, groups::dsl},
+    DbConnection, EncryptedMessageStore,
+};
 use crate::{impl_fetch, impl_store, StorageError};
 
 /// The Group ID type.
@@ -43,6 +46,34 @@ impl StoredGroup {
 }
 
 impl EncryptedMessageStore {
+    pub fn find_groups(
+        &self,
+        conn: &mut DbConnection,
+        allowed_states: Option<Vec<GroupMembershipState>>,
+        created_after_ns: Option<i64>,
+        created_before_ns: Option<i64>,
+        limit: Option<i64>,
+    ) -> Result<Vec<StoredGroup>, StorageError> {
+        let mut query = dsl::groups.order(dsl::created_at_ns.asc()).into_boxed();
+
+        if let Some(allowed_states) = allowed_states {
+            query = query.filter(dsl::membership_state.eq_any(allowed_states));
+        }
+
+        if let Some(created_after_ns) = created_after_ns {
+            query = query.filter(dsl::created_at_ns.gt(created_after_ns));
+        }
+
+        if let Some(created_before_ns) = created_before_ns {
+            query = query.filter(dsl::created_at_ns.lt(created_before_ns));
+        }
+
+        if let Some(limit) = limit {
+            query = query.limit(limit);
+        }
+
+        Ok(query.load(conn)?)
+    }
     /// Updates group membership state
     pub fn update_group_membership<GroupId: AsRef<[u8]>>(
         &self,
@@ -50,8 +81,6 @@ impl EncryptedMessageStore {
         id: GroupId,
         state: GroupMembershipState,
     ) -> Result<(), StorageError> {
-        use super::schema::groups::dsl;
-
         diesel::update(dsl::groups.find(id.as_ref()))
             .set(dsl::membership_state.eq(state))
             .execute(conn)?;
@@ -99,11 +128,12 @@ where
 
 #[cfg(test)]
 pub(crate) mod tests {
+
     use super::*;
     use crate::{
         assert_ok,
         storage::encrypted_store::{schema::groups::dsl::groups, tests::with_store},
-        utils::test::{rand_time, rand_vec},
+        utils::{test::rand_vec, time::now_ns},
         Fetch, Store,
     };
 
@@ -111,7 +141,7 @@ pub(crate) mod tests {
     pub fn generate_group(state: Option<GroupMembershipState>) -> StoredGroup {
         StoredGroup {
             id: rand_vec(),
-            created_at_ns: rand_time(),
+            created_at_ns: now_ns(),
             membership_state: state.unwrap_or(GroupMembershipState::Allowed),
         }
     }
@@ -159,6 +189,52 @@ pub(crate) mod tests {
                     ..test_group
                 }
             );
+        })
+    }
+
+    #[test]
+    fn test_find_groups() {
+        with_store(|store, mut conn| {
+            let test_group_1 = generate_group(Some(GroupMembershipState::Pending));
+            test_group_1.store(&mut conn).unwrap();
+            let test_group_2 = generate_group(Some(GroupMembershipState::Allowed));
+            test_group_2.store(&mut conn).unwrap();
+
+            let all_results = store
+                .find_groups(&mut conn, None, None, None, None)
+                .unwrap();
+            assert_eq!(all_results.len(), 2);
+
+            let pending_results = store
+                .find_groups(
+                    &mut conn,
+                    Some(vec![GroupMembershipState::Pending]),
+                    None,
+                    None,
+                    None,
+                )
+                .unwrap();
+            assert_eq!(pending_results[0].id, test_group_1.id);
+            assert_eq!(pending_results.len(), 1);
+
+            // Offset and limit
+            let results_with_limit = store
+                .find_groups(&mut conn, None, None, None, Some(1))
+                .unwrap();
+            assert_eq!(results_with_limit.len(), 1);
+            assert_eq!(results_with_limit[0].id, test_group_1.id);
+
+            let results_with_created_at_ns_after = store
+                .find_groups(
+                    &mut conn,
+                    None,
+                    Some(test_group_1.created_at_ns),
+                    None,
+                    Some(1),
+                )
+                .unwrap();
+            assert_eq!(results_with_created_at_ns_after.len(), 1);
+            assert_eq!(results_with_created_at_ns_after[0].id, test_group_2.id);
         })
     }
 }
