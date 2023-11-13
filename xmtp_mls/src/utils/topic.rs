@@ -7,3 +7,7 @@ pub fn serialize_group_id(group_id: &[u8]) -> String {
     // slice
     hex::encode(group_id)
 }
+
+pub fn get_welcome_topic(installation_id: &Vec<u8>) -> String {
+    format!("/xmtp/3/w-{}/proto", hex::encode(installation_id))
+}

@@ -94,6 +94,27 @@ where
         Ok(group)
     }
 
+    pub fn find_groups(
+        &self,
+        allowed_states: Option<Vec<GroupMembershipState>>,
+        created_after_ns: Option<i64>,
+        created_before_ns: Option<i64>,
+        limit: Option<i64>,
+    ) -> Result<Vec<MlsGroup<ApiClient>>, ClientError> {
+        Ok(self
+            .store
+            .find_groups(
+                &mut self.store.conn()?,
+                allowed_states,
+                created_after_ns,
+                created_before_ns,
+                limit,
+            )?
+            .into_iter()
+            .map(|stored_group| MlsGroup::new(self, stored_group.id, stored_group.created_at_ns))
+            .collect())
+    }
+
     pub async fn register_identity(&self) -> Result<(), ClientError> {
         // TODO: Mark key package as last_resort in creation
         let last_resort_kp = self.identity.new_key_package(&self.mls_provider())?;
@@ -102,21 +123,6 @@ where
         self.api_client
             .register_installation(last_resort_kp_bytes)
             .await?;
-
-        Ok(())
-    }
-
-    pub async fn top_up_key_packages(&self) -> Result<(), ClientError> {
-        let key_packages: Result<Vec<Vec<u8>>, ClientError> = (0..KEY_PACKAGE_TOP_UP_AMOUNT)
-            .map(|_| -> Result<Vec<u8>, ClientError> {
-                let kp = self.identity.new_key_package(&self.mls_provider())?;
-                let kp_bytes = kp.tls_serialize_detached()?;
-
-                Ok(kp_bytes)
-            })
-            .collect();
-
-        self.api_client.upload_key_packages(key_packages?).await?;
 
         Ok(())
     }
@@ -223,34 +229,14 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_top_up_key_packages() {
-        let wallet = generate_local_wallet();
-        let wallet_address = wallet.get_address();
-        let client = ClientBuilder::new_test_client(wallet.clone().into()).await;
+    async fn test_find_groups() {
+        let client = ClientBuilder::new_test_client(generate_local_wallet().into()).await;
+        let group_1 = client.create_group().unwrap();
+        let group_2 = client.create_group().unwrap();
 
-        client.register_identity().await.unwrap();
-        client.top_up_key_packages().await.unwrap();
-
-        let key_packages = client
-            .get_key_packages_for_wallet_addresses(vec![wallet_address.clone()])
-            .await
-            .unwrap();
-
-        assert_eq!(key_packages.len(), 1);
-
-        let key_package = key_packages.first().unwrap();
-        assert_eq!(key_package.wallet_address, wallet_address);
-
-        let key_packages_2 = client
-            .get_key_packages_for_wallet_addresses(vec![wallet_address.clone()])
-            .await
-            .unwrap();
-
-        assert_eq!(key_packages_2.len(), 1);
-
-        // Ensure we got back different key packages
-        let key_package_2 = key_packages_2.first().unwrap();
-        assert_eq!(key_package_2.wallet_address, wallet_address);
-        assert!(!(key_package_2.eq(key_package)));
+        let groups = client.find_groups(None, None, None, None).unwrap();
+        assert_eq!(groups.len(), 2);
+        assert_eq!(groups[0].group_id, group_1.group_id);
+        assert_eq!(groups[1].group_id, group_2.group_id);
     }
 }

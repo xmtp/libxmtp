@@ -6,10 +6,23 @@
         {
             "label": "fmt",
             "type": "shell",
-            "command": "cargo +nightly fmt --check",
+            "command": "cargo fmt --check",
             "options": {
                 "cwd": "${workspaceFolder}"
             },
+            "group": {
+                "kind": "build",
+                "isDefault": "false"
+            }
+        },
+        {
+            "label": "lint",
+            "type": "shell",
+            "command": "cargo clippy --all-features --no-deps",
+            "options": {
+                "cwd": "${workspaceFolder}"
+            },
+            "dependsOn": "fmt",
             "group": {
                 "kind": "build",
                 "isDefault": "false"
@@ -22,6 +35,7 @@
             "options": {
                 "cwd": "${workspaceFolder}"
             },
+            "dependsOn": "lint",
             "group": {
                 "kind": "build",
                 "isDefault": "false"
@@ -34,6 +48,7 @@
             "options": {
                 "cwd": "${workspaceFolder}"
             },
+            "dependsOn": "lint",            
             "group": {
                 "kind": "build",
                 "isDefault": "true"
@@ -46,6 +61,7 @@
             "options": {
                 "cwd": "${workspaceFolder}"
             },
+            "dependsOn": "lint",            
             "group": {
                 "kind": "test",
                 "isDefault": "true"

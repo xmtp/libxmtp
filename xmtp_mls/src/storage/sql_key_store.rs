@@ -70,7 +70,8 @@ impl OpenMlsKeyStore for SqlKeyStore<'_> {
     /// Interface is unclear on expected behavior when item is already deleted -
     /// we choose to not surface an error if this is the case.
     fn delete<V: MlsEntity>(&self, k: &[u8]) -> Result<(), Self::Error> {
-        let num_deleted = self.store.conn()?.delete(k.to_vec())?;
+        let conn: &mut dyn Delete<StoredKeyStoreEntry, Key = Vec<u8>> = &mut self.store.conn()?;
+        let num_deleted = conn.delete(k.to_vec())?;
         if num_deleted == 0 {
             debug!("No entry to delete for key {:?}", k);
         }

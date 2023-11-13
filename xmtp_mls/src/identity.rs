@@ -1,6 +1,10 @@
+use std::default;
+
 use openmls::{
+    extensions::LastResortExtension,
     prelude::{
-        Credential, CredentialType, CredentialWithKey, CryptoConfig, KeyPackage, KeyPackageNewError,
+        Capabilities, Credential, CredentialType, CredentialWithKey, CryptoConfig, Extension,
+        ExtensionType, Extensions, KeyPackage, KeyPackageNewError,
     },
     versions::ProtocolVersion,
 };
@@ -54,26 +58,12 @@ impl Identity {
 
         let credential = Identity::create_credential(&signature_keys, owner)?;
 
-        // The builder automatically stores it in the key store
-        // TODO: Make OpenMLS not delete this once used
-        let _last_resort_key_package = KeyPackage::builder().build(
-            CryptoConfig {
-                ciphersuite: CIPHERSUITE,
-                version: ProtocolVersion::default(),
-            },
-            provider,
-            &signature_keys,
-            CredentialWithKey {
-                credential: credential.clone(),
-                signature_key: signature_keys.to_public_vec().into(),
-            },
-        )?;
-
         let identity = Self {
             account_address: owner.get_address(),
             installation_keys: signature_keys,
             credential,
         };
+        identity.new_key_package(&provider)?;
         StoredIdentity::from(&identity).store(&mut store.conn()?)?;
 
         // TODO: upload credential_with_key and last_resort_key_package
@@ -81,22 +71,37 @@ impl Identity {
         Ok(identity)
     }
 
+    // ONLY CREATES LAST RESORT KEY PACKAGES
+    // TODO: Implement key package rotation https://github.com/xmtp/libxmtp/issues/293
     pub(crate) fn new_key_package(
         &self,
         provider: &XmtpOpenMlsProvider,
     ) -> Result<KeyPackage, IdentityError> {
-        let kp = KeyPackage::builder().build(
-            CryptoConfig {
-                ciphersuite: CIPHERSUITE,
-                version: ProtocolVersion::default(),
-            },
-            provider,
-            &self.installation_keys,
-            CredentialWithKey {
-                credential: self.credential.clone(),
-                signature_key: self.installation_keys.to_public_vec().into(),
-            },
-        )?;
+        let last_resort = Extension::LastResort(LastResortExtension::default());
+        let extensions = Extensions::single(last_resort);
+        let capabilities = Capabilities::new(
+            None,
+            Some(&[CIPHERSUITE]),
+            Some(&[ExtensionType::LastResort]),
+            None,
+            None,
+        );
+        // TODO: Set expiration
+        let kp = KeyPackage::builder()
+            .leaf_node_capabilities(capabilities)
+            .key_package_extensions(extensions)
+            .build(
+                CryptoConfig {
+                    ciphersuite: CIPHERSUITE,
+                    version: ProtocolVersion::default(),
+                },
+                provider,
+                &self.installation_keys,
+                CredentialWithKey {
+                    credential: self.credential.clone(),
+                    signature_key: self.installation_keys.to_public_vec().into(),
+                },
+            )?;
 
         Ok(kp)
     }
@@ -138,6 +143,7 @@ impl Identity {
 
 #[cfg(test)]
 mod tests {
+    use openmls::prelude::ExtensionType;
     use xmtp_cryptography::utils::generate_local_wallet;
 
     use super::Identity;
@@ -152,5 +158,18 @@ mod tests {
             &generate_local_wallet(),
         )
         .unwrap();
+    }
+
+    #[test]
+    fn test_key_package_extensions() {
+        let store = EncryptedMessageStore::new_test();
+        let provider = XmtpOpenMlsProvider::new(&store);
+        let identity = Identity::new(&store, &provider, &generate_local_wallet()).unwrap();
+
+        let new_key_package = identity.new_key_package(&provider).unwrap();
+        assert!(new_key_package
+            .extensions()
+            .contains(ExtensionType::LastResort));
+        assert!(new_key_package.last_resort())
     }
 }

@@ -19,27 +19,33 @@ native = ["libsqlite3-sys/bundled-sqlcipher-vendored-openssl"]
 [dependencies]
 anyhow = "1.0.71"
 async-trait = "0.1.68"
-diesel = { version = "2.1.3", features = ["sqlite", "r2d2", "returning_clauses_for_sqlite_3_35"] }
+diesel = { version = "2.1.3", features = [
+    "sqlite",
+    "r2d2",
+    "returning_clauses_for_sqlite_3_35",
+] }
 diesel_migrations = { version = "2.1.0", features = ["sqlite"] }
 ethers = "2.0.4"
 ethers-core = "2.0.4"
 futures = "0.3.28"
 hex = "0.4.3"
-libsqlite3-sys = { version = "0.26.0", optional = true}
-openmls = { git= "https://github.com/xmtp/openmls", features = ["test-utils"] }
-openmls_traits = { git= "https://github.com/xmtp/openmls" }
-openmls_basic_credential = { git= "https://github.com/xmtp/openmls" }
-openmls_rust_crypto = { git= "https://github.com/xmtp/openmls" }
+libsqlite3-sys = { version = "0.26.0", optional = true }
+openmls = { git = "https://github.com/xmtp/openmls", branch = "main", features = [
+    "test-utils",
+] }
+openmls_traits = { git = "https://github.com/xmtp/openmls", branch = "main" }
+openmls_basic_credential = { git = "https://github.com/xmtp/openmls", branch = "main" }
+openmls_rust_crypto = { git = "https://github.com/xmtp/openmls", branch = "main" }
 prost = { version = "0.11", features = ["prost-derive"] }
 rand = "0.8.5"
 serde = "1.0.160"
 serde_json = "1.0.96"
 thiserror = "1.0.40"
-tokio = { version = "1.28.1", features = ["macros"]  }
+tokio = { version = "1.28.1", features = ["macros"] }
 log = "0.4.17"
-tracing = "0.1.37" 
+tracing = "0.1.37"
 toml = "0.7.4"
-xmtp_cryptography = { path = "../xmtp_cryptography"}
+xmtp_cryptography = { path = "../xmtp_cryptography" }
 xmtp_proto = { path = "../xmtp_proto", features = ["proto_full"] }
 tls_codec = "0.3.0"
 

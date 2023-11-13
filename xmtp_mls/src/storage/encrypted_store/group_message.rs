@@ -74,9 +74,10 @@ impl EncryptedMessageStore {
         &self,
         conn: &mut DbConnection,
         group_id: GroupId,
-        sent_after: Option<i64>,
-        sent_before: Option<i64>,
+        sent_after_ns: Option<i64>,
+        sent_before_ns: Option<i64>,
         kind: Option<GroupMessageKind>,
+        limit: Option<i64>,
     ) -> Result<Vec<StoredGroupMessage>, StorageError> {
         use super::schema::group_messages::dsl;
 
@@ -84,17 +85,22 @@ impl EncryptedMessageStore {
             .filter(dsl::group_id.eq(group_id.as_ref()))
             .into_boxed();
 
-        if let Some(sent_after) = sent_after {
+        if let Some(sent_after) = sent_after_ns {
             query = query.filter(dsl::sent_at_ns.gt(sent_after));
         }
 
-        if let Some(sent_before) = sent_before {
+        if let Some(sent_before) = sent_before_ns {
             query = query.filter(dsl::sent_at_ns.lt(sent_before));
         }
 
         if let Some(kind) = kind {
             query = query.filter(dsl::kind.eq(kind));
         }
+
+        if let Some(limit) = limit {
+            query = query.limit(limit);
+        }
+
         Ok(query.load::<StoredGroupMessage>(conn)?)
     }
 
@@ -194,7 +200,7 @@ mod tests {
             assert_eq!(count, 50);
 
             let messages = store
-                .get_group_messages(&mut conn, &group.id, None, None, None)
+                .get_group_messages(&mut conn, &group.id, None, None, None, None)
                 .unwrap();
             assert_eq!(messages.len(), 50);
         })
@@ -214,18 +220,18 @@ mod tests {
             ];
             assert_ok!(messages.store(&mut conn));
             let message = store
-                .get_group_messages(&mut conn, &group.id, Some(1_000), Some(100_000), None)
+                .get_group_messages(&mut conn, &group.id, Some(1_000), Some(100_000), None, None)
                 .unwrap();
             assert_eq!(message.len(), 1);
             assert_eq!(message.first().unwrap().sent_at_ns, 10_000);
 
             let messages = store
-                .get_group_messages(&mut conn, &group.id, None, Some(100_000), None)
+                .get_group_messages(&mut conn, &group.id, None, Some(100_000), None, None)
                 .unwrap();
             assert_eq!(messages.len(), 2);
 
             let messages = store
-                .get_group_messages(&mut conn, &group.id, Some(10_000), None, None)
+                .get_group_messages(&mut conn, &group.id, Some(10_000), None, None, None)
                 .unwrap();
             assert_eq!(messages.len(), 2);
         })
@@ -274,6 +280,7 @@ mod tests {
                     None,
                     None,
                     Some(GroupMessageKind::Application),
+                    None,
                 )
                 .unwrap();
             assert_eq!(application_messages.len(), 10);
@@ -285,6 +292,7 @@ mod tests {
                     None,
                     None,
                     Some(GroupMessageKind::MemberAdded),
+                    None,
                 )
                 .unwrap();
             assert_eq!(member_removed.len(), 10);
@@ -296,6 +304,7 @@ mod tests {
                     None,
                     None,
                     Some(GroupMessageKind::MemberRemoved),
+                    None,
                 )
                 .unwrap();
             assert_eq!(member_added.len(), 10);
