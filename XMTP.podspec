@@ -16,7 +16,7 @@ Pod::Spec.new do |spec|
   #
 
   spec.name         = "XMTP"
-  spec.version      = "0.6.6-alpha0"
+  spec.version      = "0.6.7-alpha0"
   spec.summary      = "XMTP SDK Cocoapod"
 
   # This description is used to generate tags and improve search results.
@@ -45,6 +45,4 @@ Pod::Spec.new do |spec|
   spec.dependency "GzipSwift"
   spec.dependency "Connect-Swift"
   spec.dependency 'XMTPRust', '= 0.3.6-beta0'
-
-  spec.xcconfig = {'VALID_ARCHS' =>  'armv7 arm64 x86_64' }
 end
