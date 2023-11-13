@@ -97,7 +97,8 @@ where
     pub fn find_groups(
         &self,
         allowed_states: Option<Vec<GroupMembershipState>>,
-        created_at_ns_gt: Option<i64>,
+        created_after_ns: Option<i64>,
+        created_before_ns: Option<i64>,
         limit: Option<i64>,
     ) -> Result<Vec<MlsGroup<ApiClient>>, ClientError> {
         Ok(self
@@ -105,7 +106,8 @@ where
             .find_groups(
                 &mut self.store.conn()?,
                 allowed_states,
-                created_at_ns_gt,
+                created_after_ns,
+                created_before_ns,
                 limit,
             )?
             .into_iter()
@@ -279,7 +281,7 @@ mod tests {
         let group_1 = client.create_group().unwrap();
         let group_2 = client.create_group().unwrap();
 
-        let groups = client.find_groups(None, None, None).unwrap();
+        let groups = client.find_groups(None, None, None, None).unwrap();
         assert_eq!(groups.len(), 2);
         assert_eq!(groups[0].group_id, group_1.group_id);
         assert_eq!(groups[1].group_id, group_2.group_id);

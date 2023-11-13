@@ -21,6 +21,7 @@ use crate::{
     storage::{
         group::{GroupMembershipState, StoredGroup},
         group_intent::{IntentKind, IntentState, NewGroupIntent, StoredGroupIntent},
+        group_message::{GroupMessageKind, StoredGroupMessage},
         DbConnection, StorageError,
     },
     utils::{hash::sha256, time::now_ns, topic::get_group_topic},
@@ -109,6 +110,26 @@ where
         stored_group.store(&mut conn)?;
 
         Ok(Self::new(client, group_id, stored_group.created_at_ns))
+    }
+
+    pub fn find_messages(
+        &self,
+        kind: Option<GroupMessageKind>,
+        sent_before_ns: Option<i64>,
+        sent_after_ns: Option<i64>,
+        limit: Option<i64>,
+    ) -> Result<Vec<StoredGroupMessage>, GroupError> {
+        let mut conn = self.client.store.conn()?;
+        let messages = self.client.store.get_group_messages(
+            &mut conn,
+            &self.group_id,
+            sent_after_ns,
+            sent_before_ns,
+            kind,
+            limit,
+        )?;
+
+        Ok(messages)
     }
 
     pub async fn send_message(&self, message: &[u8]) -> Result<(), GroupError> {
