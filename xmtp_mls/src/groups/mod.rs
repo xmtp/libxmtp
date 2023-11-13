@@ -4,15 +4,16 @@ use intents::SendMessageIntentData;
 use openmls::{
     prelude::{
         CredentialWithKey, CryptoConfig, GroupId, LeafNodeIndex, MlsGroup as OpenMlsGroup,
-        MlsGroupConfig, MlsMessageIn, MlsMessageInBody, ProcessedMessageContent, Sender,
-        WireFormatPolicy,
+        MlsGroupConfig, MlsMessageIn, MlsMessageInBody, PrivateMessageIn, ProcessedMessage,
+        ProcessedMessageContent, Sender, WireFormatPolicy,
     },
     prelude_test::KeyPackage,
 };
 use openmls_traits::OpenMlsProvider;
+use prost::Message;
 use thiserror::Error;
 use tls_codec::{Deserialize, Serialize};
-use xmtp_proto::api_client::{XmtpApiClient, XmtpMlsClient};
+use xmtp_proto::api_client::{Envelope, XmtpApiClient, XmtpMlsClient};
 
 use self::intents::{AddMembersIntentData, IntentError, PostCommitAction, RemoveMembersIntentData};
 use crate::{
@@ -55,13 +56,15 @@ pub enum GroupError {
     #[error("client: {0}")]
     Client(#[from] ClientError),
     #[error("receive errors: {0:?}")]
-    ReceiveError(Vec<GroupReceiveError>),
+    ReceiveError(Vec<MessageProcessingError>),
     #[error("generic: {0}")]
     Generic(String),
 }
 
 #[derive(Debug, Error)]
-pub enum GroupReceiveError {
+pub enum MessageProcessingError {
+    #[error("storage error: {0}")]
+    Storage(#[from] crate::storage::StorageError),
     #[error("[{message_time_ns:?}] invalid sender with credential: {credential:?}")]
     InvalidSender {
         message_time_ns: u64,
@@ -119,6 +122,123 @@ where
         Ok(Self::new(group_id, client))
     }
 
+    fn get_message_id(
+        group_id: &[u8],
+        envelope_timestamp_ns: u64,
+        decrypted_message_bytes: &[u8],
+    ) -> Vec<u8> {
+        let mut id_vec = Vec::new();
+        id_vec.extend_from_slice(group_id);
+        id_vec.extend_from_slice(&envelope_timestamp_ns.to_be_bytes());
+        id_vec.extend_from_slice(decrypted_message_bytes);
+        sha256(&id_vec)
+    }
+
+    fn validate_message_sender(
+        &self,
+        openmls_group: &mut OpenMlsGroup,
+        decrypted_message: &ProcessedMessage,
+        envelope_timestamp_ns: u64,
+    ) -> Result<(String, Vec<u8>), MessageProcessingError> {
+        let mut sender_account_address = None;
+        let mut sender_installation_id = None;
+        if let Sender::Member(leaf_node_index) = decrypted_message.sender() {
+            if let Some(member) = openmls_group.member_at(*leaf_node_index) {
+                if member.credential == *decrypted_message.credential() {
+                    sender_account_address = Identity::get_validated_account_address(
+                        &member.signature_key,
+                        member.credential.identity(),
+                    )
+                    .ok();
+                    sender_installation_id = Some(member.signature_key);
+                }
+            }
+        }
+
+        if sender_account_address.is_none() {
+            return Err(MessageProcessingError::InvalidSender {
+                message_time_ns: envelope_timestamp_ns,
+                credential: decrypted_message.credential().identity().to_vec(),
+            });
+        }
+        Ok((
+            sender_account_address.unwrap(),
+            sender_installation_id.unwrap(),
+        ))
+    }
+
+    fn process_private_message(
+        &self,
+        openmls_group: &mut OpenMlsGroup,
+        provider: &XmtpOpenMlsProvider,
+        message: PrivateMessageIn,
+        envelope_timestamp_ns: u64,
+    ) -> Result<(), MessageProcessingError> {
+        let decrypted_message = openmls_group
+            .process_message(provider, message)
+            .expect("Could not parse message."); // TODO
+        let (sender_account_address, sender_installation_id) =
+            self.validate_message_sender(openmls_group, &decrypted_message, envelope_timestamp_ns)?;
+
+        match decrypted_message.into_content() {
+            ProcessedMessageContent::ApplicationMessage(application_message) => {
+                let message_bytes = application_message.into_bytes();
+                let message_id =
+                    Self::get_message_id(&self.group_id, envelope_timestamp_ns, &message_bytes);
+                let message = StoredGroupMessage {
+                    id: message_id,
+                    group_id: self.group_id.clone(),
+                    decrypted_message_bytes: message_bytes,
+                    sent_at_ns: envelope_timestamp_ns as i64, // TODO validate that this timestamp is controlled by server
+                    kind: GroupMessageKind::Application,
+                    sender_installation_id: sender_installation_id,
+                    sender_wallet_address: sender_account_address,
+                };
+                message.store(&mut self.client.store.conn()?)?;
+            }
+            ProcessedMessageContent::ProposalMessage(_proposal_ptr) => {
+                // intentionally left blank.
+            }
+            ProcessedMessageContent::ExternalJoinProposalMessage(_external_proposal_ptr) => {
+                // intentionally left blank.
+            }
+            ProcessedMessageContent::StagedCommitMessage(_commit_ptr) => {
+                // intentionally left blank.
+            }
+        }
+        Ok(())
+    }
+
+    pub fn process_messages(&self, envelopes: Vec<Envelope>) -> Result<(), GroupError> {
+        let provider = self.client.mls_provider();
+        let mut openmls_group = self.load_mls_group(&provider)?;
+        let receive_errors: Vec<MessageProcessingError> = envelopes
+            .into_iter()
+            .map(|envelope| -> Result<(), MessageProcessingError> {
+                let mls_message_in = MlsMessageIn::tls_deserialize_exact(&envelope.message)
+                    .expect("Could not deserialize message."); // TODO
+
+                match mls_message_in.extract() {
+                    MlsMessageInBody::PrivateMessage(message) => self.process_private_message(
+                        &mut openmls_group,
+                        &provider,
+                        message,
+                        envelope.timestamp_ns,
+                    ),
+                    _ => panic!("Unsupported message type"),
+                }
+            })
+            .filter(|result| result.is_err())
+            .map(|result| result.unwrap_err())
+            .collect();
+
+        if receive_errors.is_empty() {
+            Ok(())
+        } else {
+            Err(GroupError::ReceiveError(receive_errors))
+        }
+    }
+
     pub async fn receive(&self) -> Result<(), GroupError> {
         let topic = get_group_topic(&self.group_id);
         let envelopes = self
@@ -128,83 +248,7 @@ where
                 &topic, 0, // TODO: query from last query point
             )
             .await?;
-
-        let provider = self.client.mls_provider();
-        let mut openmls_group = self.load_mls_group(&provider)?;
-        let mut receive_errors = Vec::<GroupReceiveError>::new();
-        for envelope in envelopes {
-            let mls_message_in = MlsMessageIn::tls_deserialize_exact(&envelope.message)
-                .expect("Could not deserialize message."); // TODO
-
-            match mls_message_in.extract() {
-                MlsMessageInBody::PrivateMessage(message) => {
-                    let decrypted_message = openmls_group
-                        .process_message(&provider, message)
-                        .expect("Could not parse message."); // TODO
-                    let mut sender_account_address = None;
-                    let mut sender_installation_id = None;
-                    if let Sender::Member(leaf_node_index) = decrypted_message.sender() {
-                        if let Some(member) = openmls_group.member_at(*leaf_node_index) {
-                            if member.credential == *decrypted_message.credential() {
-                                sender_account_address = Identity::get_validated_account_address(
-                                    &member.signature_key,
-                                    member.credential.identity(),
-                                )
-                                .ok();
-                                sender_installation_id = Some(member.signature_key);
-                            }
-                        }
-                    }
-
-                    if sender_account_address.is_none() {
-                        receive_errors.push(GroupReceiveError::InvalidSender {
-                            message_time_ns: envelope.timestamp_ns,
-                            credential: decrypted_message.credential().identity().to_vec(),
-                        });
-                        continue;
-                    }
-
-                    match decrypted_message.into_content() {
-                        ProcessedMessageContent::ApplicationMessage(application_message) => {
-                            let message_bytes = application_message.into_bytes();
-                            let mut id_vec = Vec::new();
-                            id_vec.extend_from_slice(&self.group_id);
-                            id_vec.extend_from_slice(&envelope.timestamp_ns.to_be_bytes());
-                            id_vec.extend_from_slice(&message_bytes);
-                            let message_id = sha256(&id_vec);
-                            let message = StoredGroupMessage {
-                                id: message_id,
-                                group_id: self.group_id.clone(),
-                                decrypted_message_bytes: message_bytes,
-                                sent_at_ns: envelope.timestamp_ns as i64, // TODO validate that this timestamp is controlled by server
-                                kind: GroupMessageKind::Application,
-                                sender_installation_id: sender_installation_id.unwrap(),
-                                sender_wallet_address: sender_account_address.unwrap(),
-                            };
-                            message.store(&mut self.client.store.conn()?)?;
-                        }
-                        ProcessedMessageContent::ProposalMessage(_proposal_ptr) => {
-                            // intentionally left blank.
-                        }
-                        ProcessedMessageContent::ExternalJoinProposalMessage(
-                            _external_proposal_ptr,
-                        ) => {
-                            // intentionally left blank.
-                        }
-                        ProcessedMessageContent::StagedCommitMessage(_commit_ptr) => {
-                            // intentionally left blank.
-                        }
-                    }
-                }
-                _ => panic!("Unsupported message type"),
-            }
-        }
-
-        if receive_errors.is_empty() {
-            Ok(())
-        } else {
-            Err(GroupError::ReceiveError(receive_errors))
-        }
+        self.process_messages(envelopes)
     }
 
     pub async fn send_message(&self, message: &[u8]) -> Result<(), GroupError> {
