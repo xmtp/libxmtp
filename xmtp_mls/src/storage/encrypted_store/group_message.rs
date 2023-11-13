@@ -71,7 +71,6 @@ impl_store!(StoredGroupMessage, group_messages);
 impl EncryptedMessageStore {
     /// Query for group messages
     pub fn get_group_messages<GroupId: AsRef<[u8]>>(
-        &self,
         conn: &mut DbConnection,
         group_id: GroupId,
         sent_after_ns: Option<i64>,
@@ -106,7 +105,6 @@ impl EncryptedMessageStore {
 
     /// Get a particular group message
     pub fn get_group_message<MessageId: AsRef<[u8]>>(
-        &self,
         id: MessageId,
         conn: &mut DbConnection,
     ) -> Result<Option<StoredGroupMessage>, StorageError> {

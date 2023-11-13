@@ -10,7 +10,7 @@ use crate::{
     configuration::KEY_PACKAGE_TOP_UP_AMOUNT,
     groups::MlsGroup,
     identity::Identity,
-    storage::{group::GroupMembershipState, EncryptedMessageStore, StorageError},
+    storage::{group::GroupMembershipState, DbConnection, EncryptedMessageStore, StorageError},
     types::Address,
     verified_key_package::{KeyPackageVerificationError, VerifiedKeyPackage},
     xmtp_openmls_provider::XmtpOpenMlsProvider,
@@ -83,8 +83,14 @@ where
     }
 
     // TODO: Remove this and figure out the correct lifetimes to allow long lived provider
-    pub fn mls_provider(&self) -> XmtpOpenMlsProvider {
-        XmtpOpenMlsProvider::new(&self.store)
+    pub fn with_provider<'a, R, F, E>(&'a self, fun: F) -> Result<R, ClientError>
+    where
+        F: FnOnce(XmtpOpenMlsProvider) -> Result<R, E>,
+        ClientError: From<E>,
+    {
+        let mut connection = self.store.conn()?;
+        let provider = XmtpOpenMlsProvider::new(&mut connection);
+        fun(provider).map_err(ClientError::from)
     }
 
     pub fn create_group(&self) -> Result<MlsGroup<ApiClient>, ClientError> {
@@ -101,18 +107,16 @@ where
         created_before_ns: Option<i64>,
         limit: Option<i64>,
     ) -> Result<Vec<MlsGroup<ApiClient>>, ClientError> {
-        Ok(self
-            .store
-            .find_groups(
-                &mut self.store.conn()?,
-                allowed_states,
-                created_after_ns,
-                created_before_ns,
-                limit,
-            )?
-            .into_iter()
-            .map(|stored_group| MlsGroup::new(self, stored_group.id, stored_group.created_at_ns))
-            .collect())
+        Ok(EncryptedMessageStore::find_groups(
+            &mut self.store.conn()?,
+            allowed_states,
+            created_after_ns,
+            created_before_ns,
+            limit,
+        )?
+        .into_iter()
+        .map(|stored_group| MlsGroup::new(self, stored_group.id, stored_group.created_at_ns))
+        .collect())
     }
 
     pub async fn register_identity(&self) -> Result<(), ClientError> {

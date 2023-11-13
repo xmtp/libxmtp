@@ -47,7 +47,6 @@ impl StoredGroup {
 
 impl EncryptedMessageStore {
     pub fn find_groups(
-        &self,
         conn: &mut DbConnection,
         allowed_states: Option<Vec<GroupMembershipState>>,
         created_after_ns: Option<i64>,
@@ -74,9 +73,9 @@ impl EncryptedMessageStore {
 
         Ok(query.load(conn)?)
     }
+
     /// Updates group membership state
     pub fn update_group_membership<GroupId: AsRef<[u8]>>(
-        &self,
         conn: &mut DbConnection,
         id: GroupId,
         state: GroupMembershipState,

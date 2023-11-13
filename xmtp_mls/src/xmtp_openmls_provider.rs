@@ -1,7 +1,7 @@
 use openmls_rust_crypto::RustCrypto;
 use openmls_traits::OpenMlsProvider;
 
-use crate::storage::{sql_key_store::SqlKeyStore, EncryptedMessageStore};
+use crate::storage::{sql_key_store::SqlKeyStore, DbConnection, EncryptedMessageStore};
 
 #[derive(Debug)]
 pub struct XmtpOpenMlsProvider<'a> {
@@ -10,11 +10,15 @@ pub struct XmtpOpenMlsProvider<'a> {
 }
 
 impl<'a> XmtpOpenMlsProvider<'a> {
-    pub fn new(store: &'a EncryptedMessageStore) -> Self {
+    pub fn new(conn: &mut DbConnection) -> Self {
         Self {
             crypto: RustCrypto::default(),
-            key_store: SqlKeyStore::new(store),
+            key_store: SqlKeyStore::new(conn),
         }
+    }
+
+    pub fn conn(&self) -> &mut DbConnection {
+        self.key_store.conn()
     }
 }
 

@@ -22,7 +22,7 @@ use crate::{
         group::{GroupMembershipState, StoredGroup},
         group_intent::{IntentKind, IntentState, NewGroupIntent, StoredGroupIntent},
         group_message::{GroupMessageKind, StoredGroupMessage},
-        DbConnection, StorageError,
+        DbConnection, EncryptedMessageStore, StorageError,
     },
     utils::{hash::sha256, time::now_ns, topic::get_group_topic},
     xmtp_openmls_provider::XmtpOpenMlsProvider,
@@ -91,8 +91,8 @@ where
         client: &'c Client<ApiClient>,
         membership_state: GroupMembershipState,
     ) -> Result<Self, GroupError> {
-        let provider = client.mls_provider();
         let mut conn = client.store.conn()?;
+        let provider = XmtpOpenMlsProvider::new(&mut conn);
         let mut mls_group = OpenMlsGroup::new(
             &provider,
             &client.identity.installation_keys,
@@ -107,7 +107,7 @@ where
         mls_group.save(provider.key_store())?;
         let group_id = mls_group.group_id().to_vec();
         let stored_group = StoredGroup::new(group_id.clone(), now_ns(), membership_state);
-        stored_group.store(&mut conn)?;
+        stored_group.store(provider.conn())?;
 
         Ok(Self::new(client, group_id, stored_group.created_at_ns))
     }
@@ -120,7 +120,7 @@ where
         limit: Option<i64>,
     ) -> Result<Vec<StoredGroupMessage>, GroupError> {
         let mut conn = self.client.store.conn()?;
-        let messages = self.client.store.get_group_messages(
+        let messages = EncryptedMessageStore::get_group_messages(
             &mut conn,
             &self.group_id,
             sent_after_ns,
@@ -196,7 +196,7 @@ where
         let provider = self.client.mls_provider();
         let mut openmls_group = self.load_mls_group(&provider)?;
 
-        let intents = self.client.store.find_group_intents(
+        let intents = EncryptedMessageStore::find_group_intents(
             conn,
             self.group_id.clone(),
             Some(vec![IntentState::ToPublish]),
@@ -221,7 +221,7 @@ where
                 .publish_to_group(vec![payload_slice])
                 .await?;
 
-            self.client.store.set_group_intent_published(
+            EncryptedMessageStore::set_group_intent_published(
                 conn,
                 intent.id,
                 sha256(payload_slice),
@@ -326,7 +326,7 @@ where
     }
 
     pub(crate) async fn post_commit(&self, conn: &mut DbConnection) -> Result<(), GroupError> {
-        let intents = self.client.store.find_group_intents(
+        let intents = EncryptedMessageStore::find_group_intents(
             conn,
             self.group_id.clone(),
             Some(vec![IntentState::Committed]),

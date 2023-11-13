@@ -1,4 +1,3 @@
-mod connection;
 mod encrypted_store;
 mod errors;
 mod serialization;
