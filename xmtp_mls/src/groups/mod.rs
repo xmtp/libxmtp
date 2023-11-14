@@ -338,7 +338,7 @@ where
                 // intentionally left blank.
             }
             ProcessedMessageContent::StagedCommitMessage(staged_commit) => {
-                println!("[{}] received staged commit", self.client.account_address());
+                debug!("[{}] received staged commit", self.client.account_address());
                 openmls_group.merge_staged_commit(provider, *staged_commit)?;
             }
         }
