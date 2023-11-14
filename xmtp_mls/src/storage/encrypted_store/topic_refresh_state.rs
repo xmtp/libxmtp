@@ -34,3 +34,42 @@ impl EncryptedMessageStore {
         }
     }
 }
+
+#[cfg(test)]
+pub(crate) mod tests {
+    use super::*;
+    use crate::{storage::encrypted_store::tests::with_store, Fetch, Store};
+
+    #[test]
+    fn no_existing_state() {
+        with_store(|store, mut conn| {
+            let entry: Option<TopicRefreshState> = conn.fetch(&"topic".to_string()).unwrap();
+            assert!(entry.is_none());
+            assert_eq!(
+                store
+                    .get_last_synced_timestamp_for_topic(&mut conn, "topic")
+                    .unwrap(),
+                0
+            );
+            let entry: Option<TopicRefreshState> = conn.fetch(&"topic".to_string()).unwrap();
+            assert!(entry.is_some());
+        })
+    }
+
+    #[test]
+    fn with_existing_state() {
+        with_store(|store, mut conn| {
+            let entry = TopicRefreshState {
+                topic: "topic".to_string(),
+                last_message_timestamp_ns: 123,
+            };
+            entry.store(&mut conn).unwrap();
+            assert_eq!(
+                store
+                    .get_last_synced_timestamp_for_topic(&mut conn, "topic")
+                    .unwrap(),
+                123
+            );
+        })
+    }
+}
