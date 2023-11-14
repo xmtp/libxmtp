@@ -228,15 +228,20 @@ where
         intent: StoredGroupIntent,
         openmls_group: &mut OpenMlsGroup,
         provider: &XmtpOpenMlsProvider,
-        message: PrivateMessageIn,
+        message: ProtocolMessage,
         envelope_timestamp_ns: u64,
     ) -> Result<(), MessageProcessingError> {
-        let pm: ProtocolMessage = message.into();
-        let message_epoch = pm.epoch();
+        if intent.state == IntentState::Committed {
+            return Ok(());
+        }
+        log::debug!("processing own message for intent {}", intent.id);
+        let message_epoch = message.epoch();
         let group_epoch = openmls_group.epoch();
 
+        // TODO: Figure out if we really need to do this for application messages
+        // With the max_past_epochs flag this likely isn't necessary
         if group_epoch != message_epoch {
-            log::error!(
+            log::warn!(
                 "wrong epoch. expected {}. received {}",
                 group_epoch,
                 message_epoch
@@ -278,6 +283,10 @@ where
                 .store(conn)?;
             }
         };
+
+        self.client
+            .store
+            .set_group_intent_committed(conn, intent.id)?;
 
         Ok(())
     }
@@ -328,9 +337,17 @@ where
         conn: &mut DbConnection,
         openmls_group: &mut OpenMlsGroup,
         provider: &XmtpOpenMlsProvider,
-        message: PrivateMessageIn,
         envelope: &Envelope,
     ) -> Result<(), MessageProcessingError> {
+        let mls_message_in = MlsMessageIn::tls_deserialize_exact(&envelope.message)?;
+
+        let message = match mls_message_in.extract() {
+            MlsMessageInBody::PrivateMessage(message) => Ok(message),
+            other => Err(MessageProcessingError::UnsupportedMessageType(
+                discriminant(&other),
+            )),
+        }?;
+
         match self
             .client
             .store
@@ -342,7 +359,7 @@ where
                 intent,
                 openmls_group,
                 provider,
-                message,
+                message.into(),
                 envelope.timestamp_ns,
             ),
             Err(err) => Err(MessageProcessingError::Storage(err)),
@@ -364,16 +381,7 @@ where
         let receive_errors: Vec<MessageProcessingError> = envelopes
             .into_iter()
             .map(|envelope| -> Result<(), MessageProcessingError> {
-                let mls_message_in = MlsMessageIn::tls_deserialize_exact(&envelope.message)?;
-
-                let pm = match mls_message_in.extract() {
-                    MlsMessageInBody::PrivateMessage(message) => Ok(message),
-                    other => Err(MessageProcessingError::UnsupportedMessageType(
-                        discriminant(&other),
-                    )),
-                }?;
-
-                self.process_message(conn, &mut openmls_group, &provider, pm, &envelope)
+                self.process_message(conn, &mut openmls_group, &provider, &envelope)
             })
             .filter(|result| result.is_err())
             .map(|result| result.unwrap_err())
@@ -401,13 +409,14 @@ where
     }
 
     pub async fn send_message(&self, message: &[u8]) -> Result<(), GroupError> {
-        let mut conn = self.client.store.conn()?;
+        let conn = &mut self.client.store.conn()?;
         let intent_data: Vec<u8> = SendMessageIntentData::new(message.to_vec()).into();
         let intent =
             NewGroupIntent::new(IntentKind::SendMessage, self.group_id.clone(), intent_data);
-        intent.store(&mut conn)?;
+        intent.store(conn)?;
 
-        self.publish_intents(&mut conn).await?;
+        // Skipping a full sync here and instead just firing and forgetting
+        self.publish_intents(conn).await?;
         Ok(())
     }
 
@@ -415,7 +424,7 @@ where
         &self,
         installation_ids: Vec<Vec<u8>>,
     ) -> Result<(), GroupError> {
-        let mut conn = self.client.store.conn()?;
+        let conn = &mut self.client.store.conn()?;
         let key_packages = self
             .client
             .get_key_packages_for_installation_ids(installation_ids)
@@ -423,39 +432,41 @@ where
         let intent_data: Vec<u8> = AddMembersIntentData::new(key_packages).try_into()?;
         let intent =
             NewGroupIntent::new(IntentKind::AddMembers, self.group_id.clone(), intent_data);
-        intent.store(&mut conn)?;
+        intent.store(conn)?;
 
-        self.publish_intents(&mut conn).await?;
-        // ... sync state with the network
-        self.post_commit(&mut conn).await?;
-
-        Ok(())
+        self.sync(conn).await
     }
 
     pub async fn remove_members_by_installation_id(
         &self,
         installation_ids: Vec<Vec<u8>>,
     ) -> Result<(), GroupError> {
-        let mut conn = self.client.store.conn()?;
+        let conn = &mut self.client.store.conn()?;
         let intent_data: Vec<u8> = RemoveMembersIntentData::new(installation_ids).into();
         let intent = NewGroupIntent::new(
             IntentKind::RemoveMembers,
             self.group_id.clone(),
             intent_data,
         );
-        intent.store(&mut conn)?;
+        intent.store(conn)?;
 
-        self.publish_intents(&mut conn).await?;
-
-        Ok(())
+        self.sync(conn).await
     }
 
     pub async fn key_update(&self) -> Result<(), GroupError> {
-        let mut conn = self.client.store.conn()?;
+        let conn = &mut self.client.store.conn()?;
         let intent = NewGroupIntent::new(IntentKind::KeyUpdate, self.group_id.clone(), vec![]);
-        intent.store(&mut conn)?;
+        intent.store(conn)?;
 
-        self.publish_intents(&mut conn).await?;
+        self.sync(conn).await
+    }
+
+    pub async fn sync(&self, conn: &mut DbConnection) -> Result<(), GroupError> {
+        self.publish_intents(conn).await?;
+        if let Err(e) = self.receive().await {
+            log::warn!("receive error {:?}", e);
+        }
+        self.post_commit(conn).await?;
 
         Ok(())
     }
@@ -642,10 +653,13 @@ fn build_group_config() -> MlsGroupConfig {
 
 #[cfg(test)]
 mod tests {
+    use openmls::prelude::Member;
     use openmls_traits::OpenMlsProvider;
     use xmtp_cryptography::utils::generate_local_wallet;
 
-    use crate::{builder::ClientBuilder, utils::topic::get_welcome_topic};
+    use crate::{
+        builder::ClientBuilder, storage::group_intent::IntentState, utils::topic::get_welcome_topic,
+    };
 
     #[tokio::test]
     async fn test_send_message() {
@@ -680,6 +694,8 @@ mod tests {
         assert_eq!(messages.first().unwrap().decrypted_message_bytes, msg);
     }
 
+    // Amal and Bola will both try and add Charlie from the same epoch.
+    // The group should resolve to a consistent state
     #[tokio::test]
     async fn test_add_member_conflict() {
         let amal = ClientBuilder::new_test_client(generate_local_wallet().into()).await;
@@ -698,6 +714,58 @@ mod tests {
             .add_members_by_installation_id(vec![bola.installation_public_key()])
             .await
             .unwrap();
+
+        // Get bola's version of the same group
+        let bola_groups = bola.sync_welcomes().await.unwrap();
+        let bola_group = bola_groups.first().unwrap();
+
+        // Have amal and bola both invite charlie.
+        amal_group
+            .add_members_by_installation_id(vec![charlie.installation_public_key()])
+            .await
+            .expect("failed to add charlie");
+
+        //
+        bola_group
+            .add_members_by_installation_id(vec![charlie.installation_public_key()])
+            .await
+            .unwrap();
+
+        amal_group.receive().await.expect_err("expected error");
+        bola_group.receive().await.expect_err("expected error");
+
+        // Check Amal's MLS group state.
+        let amal_mls_group = amal_group.load_mls_group(&amal.mls_provider()).unwrap();
+        let amal_members: Vec<Member> = amal_mls_group.members().collect();
+        assert_eq!(amal_members.len(), 3);
+
+        // Check Bola's MLS group state.
+        let bola_mls_group = bola_group.load_mls_group(&bola.mls_provider()).unwrap();
+        let bola_members: Vec<Member> = bola_mls_group.members().collect();
+        assert_eq!(bola_members.len(), 3);
+
+        let amal_uncommitted_intents = amal
+            .store
+            .find_group_intents(
+                &mut amal.store.conn().unwrap(),
+                amal_group.group_id.clone(),
+                Some(vec![IntentState::ToPublish, IntentState::Published]),
+                None,
+            )
+            .unwrap();
+        assert_eq!(amal_uncommitted_intents.len(), 0);
+
+        let bola_uncommitted_intents = bola
+            .store
+            .find_group_intents(
+                &mut bola.store.conn().unwrap(),
+                bola_group.group_id.clone(),
+                Some(vec![IntentState::ToPublish, IntentState::Published]),
+                None,
+            )
+            .unwrap();
+        // Bola should have one uncommitted intent for the failed attempt at adding Charlie, who is already in the group
+        assert_eq!(bola_uncommitted_intents.len(), 0);
     }
 
     #[tokio::test]
