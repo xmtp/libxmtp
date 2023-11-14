@@ -141,7 +141,7 @@ pub(crate) mod tests {
     pub fn generate_group(state: Option<GroupMembershipState>) -> StoredGroup {
         StoredGroup {
             id: rand_vec(),
-            created_at_ns: now_ns() as i64,
+            created_at_ns: now_ns(),
             membership_state: state.unwrap_or(GroupMembershipState::Allowed),
         }
     }

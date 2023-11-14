@@ -129,7 +129,7 @@ where
 
         mls_group.save(provider.key_store())?;
         let group_id = mls_group.group_id().to_vec();
-        let stored_group = StoredGroup::new(group_id.clone(), now_ns() as i64, membership_state);
+        let stored_group = StoredGroup::new(group_id.clone(), now_ns(), membership_state);
         stored_group.store(&mut conn)?;
 
         Ok(Self::new(client, group_id, stored_group.created_at_ns))
