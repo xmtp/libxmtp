@@ -204,7 +204,7 @@ where
                     id: message_id,
                     group_id: self.group_id.clone(),
                     decrypted_message_bytes: message_bytes,
-                    sent_at_ns: envelope_timestamp_ns as i64, // TODO validate that this timestamp is controlled by server
+                    sent_at_ns: envelope_timestamp_ns as i64,
                     kind: GroupMessageKind::Application,
                     sender_installation_id: sender_installation_id,
                     sender_wallet_address: sender_account_address,
