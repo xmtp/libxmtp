@@ -47,8 +47,8 @@ pub enum ClientError {
     Serialization(#[from] TlsSerializationError),
     #[error("key package verification: {0}")]
     KeyPackageVerification(#[from] KeyPackageVerificationError),
-    #[error("message processing: {0}")]
-    MessageProcessing(#[from] MessageProcessingError),
+    #[error("syncing errors: {0:?}")]
+    SyncingError(Vec<MessageProcessingError>),
     #[error("generic:{0}")]
     Generic(String),
 }
@@ -231,31 +231,31 @@ where
         Ok(envelopes)
     }
 
-    pub(crate) fn process_for_topic<F>(
+    pub(crate) fn process_for_topic<ProcessingFn, ReturnValue>(
         &self,
         topic: &str,
         envelope_timestamp_ns: u64,
-        process_envelope: F,
-    ) -> Result<(), MessageProcessingError>
+        process_envelope: ProcessingFn,
+    ) -> Result<ReturnValue, MessageProcessingError>
     where
-        F: FnOnce(&mut DbConnection) -> Result<(), MessageProcessingError>,
+        ProcessingFn: FnOnce(&mut DbConnection) -> Result<ReturnValue, MessageProcessingError>,
     {
-        self.store.conn()?.transaction(
-            |transaction_manager| -> Result<(), MessageProcessingError> {
-                let is_updated = self.store.update_last_synced_timestamp_for_topic(
-                    transaction_manager,
-                    topic,
-                    envelope_timestamp_ns as i64,
-                )?;
-                if !is_updated {
-                    return Err(MessageProcessingError::AlreadyProcessed(
-                        envelope_timestamp_ns,
-                    ));
-                }
-                process_envelope(transaction_manager)
-            },
-        )?;
-        Ok(())
+        // TODO: We can handle errors in the transaction() function to make error handling
+        // cleaner. Retryable errors can possibly be part of their own enum
+        XmtpOpenMlsProvider::transaction(&mut self.store.conn()?, |provider| {
+            let transaction_manager = &mut provider.conn().borrow_mut();
+            let is_updated = self.store.update_last_synced_timestamp_for_topic(
+                transaction_manager,
+                topic,
+                envelope_timestamp_ns as i64,
+            )?;
+            if !is_updated {
+                return Err(MessageProcessingError::AlreadyProcessed(
+                    envelope_timestamp_ns,
+                ));
+            }
+            process_envelope(transaction_manager)
+        })
     }
 
     // Get a flat list of one key package per installation for all the wallet addresses provided.
@@ -299,34 +299,35 @@ where
         let welcome_topic = get_welcome_topic(&self.installation_public_key());
         let envelopes = self.pull_from_topic(&welcome_topic).await?;
 
-        let mut conn = self.store.conn()?;
         let groups: Vec<MlsGroup<ApiClient>> = envelopes
             .into_iter()
-            .filter_map(|envelope| {
-                // TODO: We can handle errors in the transaction() function to make error handling
-                // cleaner. Retryable errors can possibly be part of their own enum
-                XmtpOpenMlsProvider::transaction(&mut conn, |provider| {
-                    let welcome = match extract_welcome(&envelope.message) {
-                        Ok(welcome) => welcome,
-                        Err(err) => {
-                            log::error!("failed to extract welcome: {}", err);
-                            return Ok::<_, ClientError>(None);
-                        }
-                    };
+            .map(|envelope: Envelope| -> Option<MlsGroup<ApiClient>> {
+                self.process_for_topic(
+                    &welcome_topic,
+                    envelope.timestamp_ns,
+                    |transaction_manager| {
+                        let welcome = match extract_welcome(&envelope.message) {
+                            Ok(welcome) => welcome,
+                            Err(err) => {
+                                log::error!("failed to extract welcome: {}", err);
+                                return Ok(None);
+                            }
+                        };
 
-                    // TODO: Update last_message_timestamp_ns on success or non-retryable error
-                    // TODO: Abort if error is retryable
-                    match MlsGroup::create_from_welcome(self, &provider, welcome) {
-                        Ok(mls_group) => Ok(Some(mls_group)),
-                        Err(err) => {
-                            log::error!("failed to create group from welcome: {}", err);
-                            Ok(None)
+                        // TODO: Abort if error is retryable
+                        match MlsGroup::create_from_welcome(self, &provider, welcome) {
+                            Ok(mls_group) => Ok(Some(mls_group)),
+                            Err(err) => {
+                                log::error!("failed to create group from welcome: {}", err);
+                                Ok(None)
+                            }
                         }
-                    }
-                })
+                    },
+                )
                 .ok()
                 .flatten()
             })
+            .filter_map(|option| option)
             .collect();
 
         Ok(groups)
