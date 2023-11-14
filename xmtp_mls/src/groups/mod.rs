@@ -1,5 +1,7 @@
 mod intents;
 
+use std::mem::{discriminant, Discriminant};
+
 use intents::SendMessageIntentData;
 use log::debug;
 use openmls::{
@@ -75,6 +77,8 @@ pub enum MessageProcessingError {
     Storage(#[from] crate::storage::StorageError),
     #[error("tls deserialization: {0}")]
     TlsDeserialization(#[from] tls_codec::Error),
+    #[error("unsupported message type: {0:?}")]
+    UnsupportedMessageType(Discriminant<MlsMessageInBody>),
 }
 
 pub struct MlsGroup<'c, ApiClient> {
@@ -239,7 +243,9 @@ where
                         message,
                         envelope.timestamp_ns,
                     ),
-                    _ => panic!("Unsupported message type"),
+                    other => Err(MessageProcessingError::UnsupportedMessageType(
+                        discriminant(&other),
+                    )),
                 }
             })
             .filter(|result| result.is_err())
