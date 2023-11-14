@@ -82,6 +82,8 @@ pub enum MessageProcessingError {
     OpenMlsProcessMessage(#[from] openmls::prelude::ProcessMessageError),
     #[error("merge pending commit: {0}")]
     MergePendingCommit(#[from] openmls::group::MergePendingCommitError<StorageError>),
+    #[error("merge staged commit: {0}")]
+    MergeStagedCommit(#[from] openmls::group::MergeCommitError<StorageError>),
     #[error("wrong epoch. expected {group_epoch:?} and got {message_epoch:?}")]
     WrongEpoch {
         message_epoch: GroupEpoch,
@@ -234,7 +236,12 @@ where
         if intent.state == IntentState::Committed {
             return Ok(());
         }
-        log::debug!("processing own message for intent {}", intent.id);
+        debug!(
+            "[{}]processing own message for intent {} / {:?}",
+            self.client.account_address(),
+            intent.id,
+            intent.kind
+        );
         let message_epoch = message.epoch();
         let group_epoch = openmls_group.epoch();
 
@@ -263,6 +270,7 @@ where
 
         match intent.kind {
             IntentKind::AddMembers | IntentKind::RemoveMembers | IntentKind::KeyUpdate => {
+                debug!("[{}] merging pending commit", self.client.account_address());
                 openmls_group.merge_pending_commit(provider)?;
                 // TOOD: Handle writing transcript messages for adding/removing members
             }
@@ -299,6 +307,10 @@ where
         message: PrivateMessageIn,
         envelope_timestamp_ns: u64,
     ) -> Result<(), MessageProcessingError> {
+        debug!(
+            "[{}] processing private message",
+            self.client.account_address()
+        );
         let decrypted_message = openmls_group.process_message(provider, message)?;
         let (sender_account_address, sender_installation_id) =
             self.validate_message_sender(openmls_group, &decrypted_message, envelope_timestamp_ns)?;
@@ -325,8 +337,9 @@ where
             ProcessedMessageContent::ExternalJoinProposalMessage(_external_proposal_ptr) => {
                 // intentionally left blank.
             }
-            ProcessedMessageContent::StagedCommitMessage(_commit_ptr) => {
-                // intentionally left blank.
+            ProcessedMessageContent::StagedCommitMessage(staged_commit) => {
+                println!("[{}] received staged commit", self.client.account_address());
+                openmls_group.merge_staged_commit(provider, *staged_commit)?;
             }
         }
         Ok(())
@@ -709,6 +722,7 @@ mod tests {
         .await;
 
         let amal_group = amal.create_group().unwrap();
+        log::debug!("amal adding bola");
         // Add bola
         amal_group
             .add_members_by_installation_id(vec![bola.installation_public_key()])
@@ -719,18 +733,20 @@ mod tests {
         let bola_groups = bola.sync_welcomes().await.unwrap();
         let bola_group = bola_groups.first().unwrap();
 
+        log::debug!("amal adding charlie");
         // Have amal and bola both invite charlie.
         amal_group
             .add_members_by_installation_id(vec![charlie.installation_public_key()])
             .await
             .expect("failed to add charlie");
 
-        //
+        log::debug!("bola adding charlie");
         bola_group
             .add_members_by_installation_id(vec![charlie.installation_public_key()])
             .await
             .unwrap();
 
+        log::debug!("amal and bola running receive");
         amal_group.receive().await.expect_err("expected error");
         bola_group.receive().await.expect_err("expected error");
 
@@ -765,7 +781,7 @@ mod tests {
             )
             .unwrap();
         // Bola should have one uncommitted intent for the failed attempt at adding Charlie, who is already in the group
-        assert_eq!(bola_uncommitted_intents.len(), 0);
+        assert_eq!(bola_uncommitted_intents.len(), 1);
     }
 
     #[tokio::test]
@@ -813,7 +829,6 @@ mod tests {
         let client_2 = ClientBuilder::new_test_client(generate_local_wallet().into()).await;
         client_2.register_identity().await.unwrap();
 
-        let provider = client_1.mls_provider();
         let group = client_1.create_group().expect("create group");
         group
             .add_members_by_installation_id(vec![client_2
@@ -841,24 +856,7 @@ mod tests {
             .await
             .expect("read topic");
 
-        assert_eq!(messages.len(), 1);
-        // Now merge the commit and try again
-        let mut mls_group = group.load_mls_group(&provider).unwrap();
-        mls_group.merge_pending_commit(&provider).unwrap();
-        mls_group.save(provider.key_store()).unwrap();
-
-        group
-            .publish_intents(&mut client_1.store.conn().unwrap())
-            .await
-            .unwrap();
-
-        let messages_after_second_try = client_1
-            .api_client
-            .read_topic(topic.as_str(), 0)
-            .await
-            .expect("read topic");
-
-        assert_eq!(messages_after_second_try.len(), 2)
+        assert_eq!(messages.len(), 2);
     }
 
     #[tokio::test]
