@@ -88,8 +88,16 @@ where
         }
     }
 
+    pub fn account_address(&self) -> Address {
+        self.identity.account_address.clone()
+    }
+
+    pub fn installation_public_key(&self) -> Vec<u8> {
+        self.identity.installation_keys.to_public_vec()
+    }
+
     // TODO: Remove this and figure out the correct lifetimes to allow long lived provider
-    pub fn mls_provider(&self, conn: &'a mut DbConnection) -> XmtpOpenMlsProvider<'a> {
+    pub(crate) fn mls_provider(&self, conn: &'a mut DbConnection) -> XmtpOpenMlsProvider<'a> {
         XmtpOpenMlsProvider::new(conn)
     }
 
@@ -134,7 +142,7 @@ where
         Ok(())
     }
 
-    async fn get_all_active_installation_ids(
+    pub async fn get_all_active_installation_ids(
         &self,
         wallet_addresses: Vec<String>,
     ) -> Result<Vec<Vec<u8>>, ClientError> {
@@ -165,9 +173,22 @@ where
         Ok(installation_ids)
     }
 
+    pub(crate) async fn pull_from_topic(&self, topic: &str) -> Result<Vec<Envelope>, ClientError> {
+        let mut conn = self.store.conn()?;
+        let last_synced_timestamp_ns = self
+            .store
+            .get_last_synced_timestamp_for_topic(&mut conn, topic)?;
+
+        Ok(self
+            .api_client
+            .read_topic(topic, last_synced_timestamp_ns as u64)
+            .await?)
+    }
+
     // Get a flat list of one key package per installation for all the wallet addresses provided.
     // Revoked installations will be omitted from the list
-    pub async fn get_key_packages_for_wallet_addresses(
+    #[allow(dead_code)]
+    pub(crate) async fn get_key_packages_for_wallet_addresses(
         &self,
         wallet_addresses: Vec<String>,
     ) -> Result<Vec<VerifiedKeyPackage>, ClientError> {
@@ -179,7 +200,7 @@ where
             .await
     }
 
-    pub async fn get_key_packages_for_installation_ids(
+    pub(crate) async fn get_key_packages_for_installation_ids(
         &self,
         installation_ids: Vec<Vec<u8>>,
     ) -> Result<Vec<VerifiedKeyPackage>, ClientError> {
@@ -198,21 +219,10 @@ where
             .collect::<Result<_, _>>()?)
     }
 
-    pub async fn pull_from_topic(&self, topic: &str) -> Result<Vec<Envelope>, ClientError> {
-        let mut conn = self.store.conn()?;
-        let last_synced_timestamp_ns = self
-            .store
-            .get_last_synced_timestamp_for_topic(&mut conn, topic)?;
-
-        Ok(self
-            .api_client
-            .read_topic(topic, last_synced_timestamp_ns as u64)
-            .await?)
-    }
-
     // Download all unread welcome messages and convert to groups.
     // Returns any new groups created in the operation
-    pub async fn sync_welcomes(&self) -> Result<Vec<MlsGroup<ApiClient>>, ClientError> {
+    #[allow(dead_code)]
+    pub(crate) async fn sync_welcomes(&self) -> Result<Vec<MlsGroup<ApiClient>>, ClientError> {
         let welcome_topic = get_welcome_topic(&self.installation_public_key());
         let envelopes = self.pull_from_topic(&welcome_topic).await?;
 
@@ -248,14 +258,6 @@ where
             .collect();
 
         Ok(groups)
-    }
-
-    pub fn account_address(&self) -> Address {
-        self.identity.account_address.clone()
-    }
-
-    pub fn installation_public_key(&self) -> Vec<u8> {
-        self.identity.installation_keys.to_public_vec()
     }
 }
 
