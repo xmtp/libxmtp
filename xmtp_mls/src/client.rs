@@ -1,17 +1,22 @@
 use std::collections::HashSet;
 
-use openmls::prelude::TlsSerializeTrait;
+use openmls::{
+    framing::{MlsMessageIn, MlsMessageInBody},
+    messages::Welcome,
+    prelude::{MlsGroup as OpenMlsGroup, TlsSerializeTrait},
+};
+use prost::Message;
 use thiserror::Error;
-use tls_codec::Error as TlsSerializationError;
+use tls_codec::{Deserialize, Error as TlsSerializationError};
 use xmtp_proto::api_client::{XmtpApiClient, XmtpMlsClient};
 
 use crate::{
     api_client_wrapper::{ApiClientWrapper, IdentityUpdate},
-    configuration::KEY_PACKAGE_TOP_UP_AMOUNT,
     groups::MlsGroup,
     identity::Identity,
     storage::{group::GroupMembershipState, EncryptedMessageStore, StorageError},
     types::Address,
+    utils::topic::get_welcome_topic,
     verified_key_package::{KeyPackageVerificationError, VerifiedKeyPackage},
     xmtp_openmls_provider::XmtpOpenMlsProvider,
 };
@@ -38,6 +43,8 @@ pub enum ClientError {
     Identity(#[from] crate::identity::IdentityError),
     #[error("serialization error: {0}")]
     Serialization(#[from] TlsSerializationError),
+    #[error("protobuf error: {0}")]
+    Protobuf(#[from] prost::DecodeError),
     #[error("key package verification: {0}")]
     KeyPackageVerification(#[from] KeyPackageVerificationError),
     #[error("generic:{0}")]
@@ -187,6 +194,44 @@ where
             .values()
             .map(|bytes| VerifiedKeyPackage::from_bytes(&mls_provider, bytes.as_slice()))
             .collect::<Result<_, _>>()?)
+    }
+
+    pub async fn sync_welcomes(&self) -> Result<i32, ClientError> {
+        let welcome_topic = get_welcome_topic(&self.installation_public_key());
+        let mut conn = self.store.conn()?;
+        // TODO: Use the last_message_timestamp_ns field on the TopicRefreshState to only fetch new messages
+        // Waiting for more atomic update methods
+        let envelopes = self.api_client.read_topic(&welcome_topic, 0).await?;
+        let provider = self.mls_provider();
+        for envelope in envelopes {
+            let welcome = self.extract_welcome(&envelope.message)?;
+            let group = MlsGroup::create_from_welcome(self, &mut conn, &provider, welcome)
+                .map_err(|_| ClientError::Generic("create from welcome failed".to_string()))?;
+        }
+
+        Ok(0)
+    }
+
+    fn extract_welcome(&self, welcome_bytes: &Vec<u8>) -> Result<Welcome, ClientError> {
+        let welcome_proto = xmtp_proto::xmtp::mls::message_contents::WelcomeMessage::decode(
+            &mut welcome_bytes.as_slice(),
+        )?;
+        let welcome = match welcome_proto.version {
+            Some(xmtp_proto::xmtp::mls::message_contents::welcome_message::Version::V1(v1)) => {
+                MlsMessageIn::tls_deserialize(&mut v1.welcome_message_tls_serialized.as_slice())?
+            }
+            _ => {
+                return Err(ClientError::Generic(
+                    "unsupported welcome version".to_string(),
+                ))
+            }
+        };
+        match welcome.extract() {
+            MlsMessageInBody::Welcome(welcome) => Ok(welcome),
+            _ => Err(ClientError::Generic(
+                "unexpected message type in welcome".to_string(),
+            )),
+        }
     }
 
     pub fn account_address(&self) -> Address {

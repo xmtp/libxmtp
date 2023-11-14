@@ -4,7 +4,7 @@ use intents::SendMessageIntentData;
 use openmls::{
     prelude::{
         CredentialWithKey, CryptoConfig, GroupId, LeafNodeIndex, MlsGroup as OpenMlsGroup,
-        MlsGroupConfig, WireFormatPolicy,
+        MlsGroupConfig, Welcome as MlsWelcome, WireFormatPolicy,
     },
     prelude_test::KeyPackage,
 };
@@ -51,6 +51,8 @@ pub enum GroupError {
     GroupCreate(#[from] openmls::prelude::NewGroupError<StorageError>),
     #[error("self update: {0}")]
     SelfUpdate(#[from] openmls::group::SelfUpdateError<StorageError>),
+    #[error("welcome error: {0}")]
+    WelcomeError(#[from] openmls::prelude::WelcomeError<StorageError>),
     #[error("client: {0}")]
     Client(#[from] ClientError),
     #[error("generic: {0}")]
@@ -108,6 +110,24 @@ where
         let group_id = mls_group.group_id().to_vec();
         let stored_group = StoredGroup::new(group_id.clone(), now_ns(), membership_state);
         stored_group.store(&mut conn)?;
+
+        Ok(Self::new(client, group_id, stored_group.created_at_ns))
+    }
+
+    pub fn create_from_welcome(
+        client: &'c Client<ApiClient>,
+        conn: &mut DbConnection,
+        provider: &XmtpOpenMlsProvider,
+        welcome: MlsWelcome,
+    ) -> Result<Self, GroupError> {
+        let mut mls_group =
+            OpenMlsGroup::new_from_welcome(provider, &build_group_config(), welcome, None)?;
+
+        mls_group.save(provider.key_store())?;
+        let group_id = mls_group.group_id().to_vec();
+        let stored_group =
+            StoredGroup::new(group_id.clone(), now_ns(), GroupMembershipState::Pending);
+        stored_group.store(conn)?;
 
         Ok(Self::new(client, group_id, stored_group.created_at_ns))
     }
