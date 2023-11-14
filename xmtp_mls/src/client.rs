@@ -202,10 +202,16 @@ where
     // Returns any new groups created in the operation
     pub async fn sync_welcomes(&self) -> Result<Vec<MlsGroup<ApiClient>>, ClientError> {
         let welcome_topic = get_welcome_topic(&self.installation_public_key());
+        let last_message_timestamp_ns = self
+            .store
+            .get_last_synced_timestamp_for_topic(&mut self.store.conn()?, &welcome_topic)?;
         let mut conn = self.store.conn()?;
         // TODO: Use the last_message_timestamp_ns field on the TopicRefreshState to only fetch new messages
         // Waiting for more atomic update methods
-        let envelopes = self.api_client.read_topic(&welcome_topic, 0).await?;
+        let envelopes = self
+            .api_client
+            .read_topic(&welcome_topic, last_message_timestamp_ns as u64)
+            .await?;
 
         let groups: Vec<MlsGroup<ApiClient>> = envelopes
             .into_iter()
