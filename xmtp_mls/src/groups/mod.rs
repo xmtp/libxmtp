@@ -3,7 +3,6 @@ mod intents;
 #[cfg(test)]
 use std::println as debug;
 
-use std::mem::{discriminant, Discriminant};
 use intents::SendMessageIntentData;
 #[cfg(not(test))]
 use log::debug;
@@ -16,6 +15,7 @@ use openmls::{
     prelude_test::KeyPackage,
 };
 use openmls_traits::OpenMlsProvider;
+use std::mem::{discriminant, Discriminant};
 use thiserror::Error;
 use tls_codec::{Deserialize, Serialize};
 use xmtp_proto::api_client::{Envelope, XmtpApiClient, XmtpMlsClient};
@@ -213,7 +213,7 @@ where
                     decrypted_message_bytes: message_bytes,
                     sent_at_ns: envelope_timestamp_ns as i64,
                     kind: GroupMessageKind::Application,
-                    sender_installation_id: sender_installation_id,
+                    sender_installation_id,
                     sender_wallet_address: sender_account_address,
                 };
                 message.store(&mut self.client.store.conn()?)?;

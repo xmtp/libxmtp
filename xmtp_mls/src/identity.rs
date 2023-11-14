@@ -61,7 +61,7 @@ impl Identity {
             installation_keys: signature_keys,
             credential,
         };
-        identity.new_key_package(&provider)?;
+        identity.new_key_package(provider)?;
         StoredIdentity::from(&identity).store(&mut store.conn()?)?;
 
         // TODO: upload credential_with_key and last_resort_key_package
