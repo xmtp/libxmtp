@@ -1,6 +1,11 @@
 mod intents;
 
+#[cfg(test)]
+use std::println as debug;
+
 use intents::SendMessageIntentData;
+#[cfg(not(test))]
+use log::debug;
 use openmls::{
     prelude::{
         CredentialWithKey, CryptoConfig, GroupId, LeafNodeIndex, MlsGroup as OpenMlsGroup,
@@ -26,7 +31,7 @@ use crate::{
         group_message::{GroupMessageKind, StoredGroupMessage},
         DbConnection, StorageError,
     },
-    utils::{hash::sha256, time::now_ns, topic::get_group_topic},
+    utils::{hash::sha256, id::get_message_id, time::now_ns, topic::get_group_topic},
     xmtp_openmls_provider::XmtpOpenMlsProvider,
     Client, Delete, Store,
 };
@@ -150,18 +155,6 @@ where
         Ok(messages)
     }
 
-    fn get_message_id(
-        group_id: &[u8],
-        envelope_timestamp_ns: u64,
-        decrypted_message_bytes: &[u8],
-    ) -> Vec<u8> {
-        let mut id_vec = Vec::new();
-        id_vec.extend_from_slice(group_id);
-        id_vec.extend_from_slice(&envelope_timestamp_ns.to_be_bytes());
-        id_vec.extend_from_slice(decrypted_message_bytes);
-        sha256(&id_vec)
-    }
-
     fn validate_message_sender(
         &self,
         openmls_group: &mut OpenMlsGroup,
@@ -210,7 +203,7 @@ where
             ProcessedMessageContent::ApplicationMessage(application_message) => {
                 let message_bytes = application_message.into_bytes();
                 let message_id =
-                    Self::get_message_id(&self.group_id, envelope_timestamp_ns, &message_bytes);
+                    get_message_id(&message_bytes, &self.group_id, envelope_timestamp_ns);
                 let message = StoredGroupMessage {
                     id: message_id,
                     group_id: self.group_id.clone(),
@@ -256,6 +249,7 @@ where
             .filter(|result| result.is_err())
             .map(|result| result.unwrap_err())
             .collect();
+        openmls_group.save(provider.key_store())?; // TODO handle concurrency
 
         if receive_errors.is_empty() {
             Ok(())
@@ -273,6 +267,7 @@ where
                 &topic, 0, // TODO: query from last query point
             )
             .await?;
+        debug!("Received {} envelopes", envelopes.len());
         self.process_messages(envelopes)
     }
 
@@ -537,6 +532,30 @@ mod tests {
             .read_topic(topic.as_str(), 0)
             .await
             .expect("read topic");
+
+        assert_eq!(messages.len(), 1)
+    }
+
+    #[tokio::test]
+    async fn test_receive_self_message() {
+        let wallet = generate_local_wallet();
+        let client = ClientBuilder::new_test_client(wallet.into()).await;
+        let group = client.create_group().expect("create group");
+        group.send_message(b"hello").await.expect("send message");
+
+        group.receive().await.expect("receive");
+
+        let messages = client
+            .store
+            .get_group_messages(
+                &mut client.store.conn().unwrap(),
+                group.group_id,
+                None,
+                None,
+                None,
+                None,
+            )
+            .unwrap();
 
         assert_eq!(messages.len(), 1)
     }

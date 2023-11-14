@@ -5,7 +5,7 @@ use openmls::{
 use openmls_rust_crypto::OpenMlsRustCrypto;
 use openmls_traits::OpenMlsProvider;
 use tonic::{Request, Response, Status};
-use xmtp_mls::utils::topic::serialize_group_id;
+use xmtp_mls::utils::id::serialize_group_id;
 use xmtp_proto::xmtp::mls_validation::v1::{
     validate_group_messages_response::ValidationResponse as ValidateGroupMessageValidationResponse,
     validate_key_packages_response::ValidationResponse as ValidateKeyPackageValidationResponse,
