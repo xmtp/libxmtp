@@ -7,7 +7,7 @@ use openmls::{
 };
 use thiserror::Error;
 use tls_codec::{Deserialize, Error as TlsSerializationError};
-use xmtp_proto::api_client::{XmtpApiClient, XmtpMlsClient};
+use xmtp_proto::api_client::{Envelope, XmtpApiClient, XmtpMlsClient};
 
 use crate::{
     api_client_wrapper::{ApiClientWrapper, IdentityUpdate},
@@ -198,21 +198,26 @@ where
             .collect::<Result<_, _>>()?)
     }
 
+    pub async fn pull_from_topic(&self, topic: &str) -> Result<Vec<Envelope>, ClientError> {
+        let mut conn = self.store.conn()?;
+        let last_synced_timestamp_ns = self
+            .store
+            .get_last_synced_timestamp_for_topic(&mut conn, topic)?;
+
+        Ok(self
+            .api_client
+            .read_topic(topic, last_synced_timestamp_ns as u64)
+            .await?)
+    }
+
     // Download all unread welcome messages and convert to groups.
     // Returns any new groups created in the operation
     pub async fn sync_welcomes(&self) -> Result<Vec<MlsGroup<ApiClient>>, ClientError> {
         let welcome_topic = get_welcome_topic(&self.installation_public_key());
-        let last_message_timestamp_ns = self
-            .store
-            .get_last_synced_timestamp_for_topic(&mut self.store.conn()?, &welcome_topic)?;
-        let mut conn = self.store.conn()?;
-        // TODO: Use the last_message_timestamp_ns field on the TopicRefreshState to only fetch new messages
-        // Waiting for more atomic update methods
-        let envelopes = self
-            .api_client
-            .read_topic(&welcome_topic, last_message_timestamp_ns as u64)
-            .await?;
+        let envelopes = self.pull_from_topic(&welcome_topic).await?;
 
+        let mut conn = self.store.conn()?;
+        let provider = self.mls_provider();
         let groups: Vec<MlsGroup<ApiClient>> = envelopes
             .into_iter()
             .filter_map(|envelope| {

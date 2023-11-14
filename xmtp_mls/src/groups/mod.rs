@@ -411,15 +411,7 @@ where
 
     pub async fn receive(&self) -> Result<(), GroupError> {
         let topic = get_group_topic(&self.group_id);
-        let last_message_timestamp_ns = self
-            .client
-            .store
-            .get_last_synced_timestamp_for_topic(&mut self.client.store.conn()?, &topic)?;
-        let envelopes = self
-            .client
-            .api_client
-            .read_topic(&topic, last_message_timestamp_ns as u64)
-            .await?;
+        let envelopes = self.client.pull_from_topic(&topic).await?;
         debug!("Received {} envelopes", envelopes.len());
         self.process_messages(envelopes)
     }
