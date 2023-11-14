@@ -3,12 +3,18 @@ use std::collections::HashSet;
 use openmls::{
     framing::{MlsMessageIn, MlsMessageInBody},
     messages::Welcome,
-    prelude::{MlsGroup as OpenMlsGroup, TlsSerializeTrait},
+    prelude::TlsSerializeTrait,
 };
 use prost::Message;
 use thiserror::Error;
 use tls_codec::{Deserialize, Error as TlsSerializationError};
-use xmtp_proto::api_client::{XmtpApiClient, XmtpMlsClient};
+use xmtp_proto::{
+    api_client::{XmtpApiClient, XmtpMlsClient},
+    xmtp::mls::message_contents::{
+        welcome_message::Version as WelcomeMessageVersionProto,
+        WelcomeMessage as WelcomeMessageProto,
+    },
+};
 
 use crate::{
     api_client_wrapper::{ApiClientWrapper, IdentityUpdate},
@@ -47,6 +53,8 @@ pub enum ClientError {
     Protobuf(#[from] prost::DecodeError),
     #[error("key package verification: {0}")]
     KeyPackageVerification(#[from] KeyPackageVerificationError),
+    #[error("message processing: {0}")]
+    MessageProcessing(#[from] crate::groups::MessageProcessingError),
     #[error("generic:{0}")]
     Generic(String),
 }
@@ -196,42 +204,38 @@ where
             .collect::<Result<_, _>>()?)
     }
 
-    pub async fn sync_welcomes(&self) -> Result<i32, ClientError> {
+    // Download all unread welcome messages and convert to groups.
+    // Returns any new groups created in the operation
+    pub async fn sync_welcomes(&self) -> Result<Vec<MlsGroup<ApiClient>>, ClientError> {
         let welcome_topic = get_welcome_topic(&self.installation_public_key());
         let mut conn = self.store.conn()?;
+        let provider = self.mls_provider();
         // TODO: Use the last_message_timestamp_ns field on the TopicRefreshState to only fetch new messages
         // Waiting for more atomic update methods
         let envelopes = self.api_client.read_topic(&welcome_topic, 0).await?;
-        let provider = self.mls_provider();
-        for envelope in envelopes {
-            let welcome = self.extract_welcome(&envelope.message)?;
-            let group = MlsGroup::create_from_welcome(self, &mut conn, &provider, welcome)
-                .map_err(|_| ClientError::Generic("create from welcome failed".to_string()))?;
-        }
 
-        Ok(0)
-    }
+        let groups: Vec<MlsGroup<ApiClient>> = envelopes
+            .into_iter()
+            .filter_map(|envelope| {
+                let welcome = match extract_welcome(&envelope.message) {
+                    Ok(welcome) => welcome,
+                    Err(err) => {
+                        log::error!("failed to extract welcome: {}", err);
+                        return None;
+                    }
+                };
 
-    fn extract_welcome(&self, welcome_bytes: &Vec<u8>) -> Result<Welcome, ClientError> {
-        let welcome_proto = xmtp_proto::xmtp::mls::message_contents::WelcomeMessage::decode(
-            &mut welcome_bytes.as_slice(),
-        )?;
-        let welcome = match welcome_proto.version {
-            Some(xmtp_proto::xmtp::mls::message_contents::welcome_message::Version::V1(v1)) => {
-                MlsMessageIn::tls_deserialize(&mut v1.welcome_message_tls_serialized.as_slice())?
-            }
-            _ => {
-                return Err(ClientError::Generic(
-                    "unsupported welcome version".to_string(),
-                ))
-            }
-        };
-        match welcome.extract() {
-            MlsMessageInBody::Welcome(welcome) => Ok(welcome),
-            _ => Err(ClientError::Generic(
-                "unexpected message type in welcome".to_string(),
-            )),
-        }
+                match MlsGroup::create_from_welcome(self, &mut conn, &provider, welcome) {
+                    Ok(mls_group) => Some(mls_group),
+                    Err(err) => {
+                        log::error!("failed to create group from welcome: {}", err);
+                        None
+                    }
+                }
+            })
+            .collect();
+
+        Ok(groups)
     }
 
     pub fn account_address(&self) -> Address {
@@ -240,6 +244,26 @@ where
 
     pub fn installation_public_key(&self) -> Vec<u8> {
         self.identity.installation_keys.to_public_vec()
+    }
+}
+
+fn extract_welcome(welcome_bytes: &Vec<u8>) -> Result<Welcome, ClientError> {
+    let welcome_proto = WelcomeMessageProto::decode(&mut welcome_bytes.as_slice())?;
+    let welcome = match welcome_proto.version {
+        Some(WelcomeMessageVersionProto::V1(v1)) => {
+            MlsMessageIn::tls_deserialize(&mut v1.welcome_message_tls_serialized.as_slice())?
+        }
+        _ => {
+            return Err(ClientError::Generic(
+                "unsupported welcome version".to_string(),
+            ))
+        }
+    };
+    match welcome.extract() {
+        MlsMessageInBody::Welcome(welcome) => Ok(welcome),
+        _ => Err(ClientError::Generic(
+            "unexpected message type in welcome".to_string(),
+        )),
     }
 }
 
