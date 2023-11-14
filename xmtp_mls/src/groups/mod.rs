@@ -879,7 +879,6 @@ mod tests {
         let client_2 = ClientBuilder::new_test_client(generate_local_wallet().into()).await;
         client_2.register_identity().await.unwrap();
         let group = client.create_group().expect("create group");
-        let conn = &mut client.store.conn().unwrap();
 
         group
             .add_members_by_installation_id(vec![client_2
@@ -888,19 +887,6 @@ mod tests {
                 .to_public_vec()])
             .await
             .unwrap();
-
-        let intents = client
-            .store
-            .find_group_intents(conn, group.group_id.clone(), None, None)
-            .unwrap();
-        let intent = intents.first().unwrap();
-        // Set the intent to committed manually
-        // TODO: Replace with working synchronization once we can add members end to end
-        client
-            .store
-            .set_group_intent_committed(conn, intent.id)
-            .unwrap();
-        group.post_commit(conn).await.unwrap();
 
         // Check if the welcome was actually sent
         let welcome_topic = get_welcome_topic(&client_2.identity.installation_keys.to_public_vec());
