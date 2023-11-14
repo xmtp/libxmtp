@@ -1,11 +1,6 @@
 mod intents;
 
-#[cfg(test)]
-use std::println as debug;
-
 use intents::SendMessageIntentData;
-#[cfg(not(test))]
-use log::debug;
 use openmls::{
     framing::ProtocolMessage,
     group::{GroupEpoch, MergePendingCommitError},
@@ -412,7 +407,6 @@ where
     pub async fn receive(&self) -> Result<(), GroupError> {
         let topic = get_group_topic(&self.group_id);
         let envelopes = self.client.pull_from_topic(&topic).await?;
-        debug!("Received {} envelopes", envelopes.len());
         self.process_messages(envelopes)
     }
 

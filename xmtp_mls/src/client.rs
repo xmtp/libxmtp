@@ -1,5 +1,6 @@
 use std::collections::HashSet;
 
+use log::debug;
 use openmls::{
     framing::{MlsMessageIn, MlsMessageInBody},
     messages::Welcome,
@@ -179,10 +180,19 @@ where
             .store
             .get_last_synced_timestamp_for_topic(&mut conn, topic)?;
 
-        Ok(self
+        let envelopes = self
             .api_client
             .read_topic(topic, last_synced_timestamp_ns as u64)
-            .await?)
+            .await?;
+
+        debug!(
+            "Pulled {} envelopes from topic {} starting at timestamp {}",
+            envelopes.len(),
+            topic,
+            last_synced_timestamp_ns
+        );
+
+        Ok(envelopes)
     }
 
     // Get a flat list of one key package per installation for all the wallet addresses provided.
