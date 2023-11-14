@@ -7,6 +7,8 @@ use intents::SendMessageIntentData;
 #[cfg(not(test))]
 use log::debug;
 use openmls::{
+    framing::ProtocolMessage,
+    group::GroupEpoch,
     prelude::{
         CredentialWithKey, CryptoConfig, GroupId, LeafNodeIndex, MlsGroup as OpenMlsGroup,
         MlsGroupConfig, MlsMessageIn, MlsMessageInBody, PrivateMessageIn, ProcessedMessage,
@@ -76,6 +78,15 @@ pub enum MessageProcessingError {
     },
     #[error("openmls process message error: {0}")]
     OpenMlsProcessMessage(#[from] openmls::prelude::ProcessMessageError),
+    #[error("merge pending commit: {0}")]
+    MergePendingCommit(#[from] openmls::group::MergePendingCommitError<StorageError>),
+    #[error("wrong epoch. expected {group_epoch:?} and got {message_epoch:?}")]
+    WrongEpoch {
+        message_epoch: GroupEpoch,
+        group_epoch: GroupEpoch,
+    },
+    #[error("intent error: {0}")]
+    Intent(#[from] IntentError),
     #[error("storage error: {0}")]
     Storage(#[from] crate::storage::StorageError),
     #[error("tls deserialization: {0}")]
@@ -191,13 +202,93 @@ where
         ))
     }
 
+    fn process_own_message(
+        &self,
+        conn: &mut DbConnection,
+        intent: StoredGroupIntent,
+        openmls_group: &mut OpenMlsGroup,
+        provider: &XmtpOpenMlsProvider,
+        message: PrivateMessageIn,
+        envelope_timestamp_ns: u64,
+    ) -> Result<(), MessageProcessingError> {
+        let pm: ProtocolMessage = message.into();
+        let message_epoch = pm.epoch();
+        let group_epoch = openmls_group.epoch();
+
+        if group_epoch != message_epoch {
+            log::error!(
+                "wrong epoch. expected {}. received {}",
+                group_epoch,
+                message_epoch
+            );
+            // All other intent kinds create pending commits. They need to be cleared
+            if intent.kind != IntentKind::SendMessage {
+                openmls_group.clear_pending_commit();
+            }
+            // Revert intent to ToPublish state
+            self.client
+                .store
+                .set_group_intent_to_publish(conn, intent.id)?;
+
+            return Err(MessageProcessingError::WrongEpoch {
+                message_epoch,
+                group_epoch,
+            });
+        }
+
+        match intent.kind {
+            IntentKind::AddMembers | IntentKind::RemoveMembers | IntentKind::KeyUpdate => {
+                openmls_group.merge_pending_commit(provider)?;
+                // TOOD: Handle writing transcript messages for adding/removing members
+            }
+            IntentKind::SendMessage => {
+                let intent_data = SendMessageIntentData::from_bytes(intent.data.as_slice())?;
+                let group_id = openmls_group.group_id().as_slice();
+                let decrypted_message_data = intent_data.message.as_slice();
+
+                StoredGroupMessage {
+                    id: get_message_id(decrypted_message_data, group_id, envelope_timestamp_ns),
+                    group_id: group_id.to_vec(),
+                    decrypted_message_bytes: intent_data.message,
+                    sent_at_ns: envelope_timestamp_ns as i64,
+                    kind: GroupMessageKind::Application,
+                    sender_installation_id: self.client.installation_public_key(),
+                    sender_wallet_address: self.client.account_address(),
+                }
+                .store(conn)?;
+            }
+        };
+
+        Ok(())
+    }
+
     fn process_private_message(
         &self,
         openmls_group: &mut OpenMlsGroup,
         provider: &XmtpOpenMlsProvider,
         message: PrivateMessageIn,
         envelope_timestamp_ns: u64,
+        envelope_message_hash: Vec<u8>,
     ) -> Result<(), MessageProcessingError> {
+        let conn = &mut self.client.store.conn()?;
+
+        // If the message is from one of your own intents, it won't be decryptable
+        // Instead process it using a special flow
+        if let Some(intent) = self
+            .client
+            .store
+            .find_group_intent_by_payload_hash(conn, envelope_message_hash)?
+        {
+            return self.process_own_message(
+                conn,
+                intent,
+                openmls_group,
+                provider,
+                message,
+                envelope_timestamp_ns,
+            );
+        }
+
         let decrypted_message = openmls_group.process_message(provider, message)?;
         let (sender_account_address, sender_installation_id) =
             self.validate_message_sender(openmls_group, &decrypted_message, envelope_timestamp_ns)?;
@@ -216,7 +307,7 @@ where
                     sender_installation_id,
                     sender_wallet_address: sender_account_address,
                 };
-                message.store(&mut self.client.store.conn()?)?;
+                message.store(conn)?;
             }
             ProcessedMessageContent::ProposalMessage(_proposal_ptr) => {
                 // intentionally left blank.
@@ -245,6 +336,7 @@ where
                         &provider,
                         message,
                         envelope.timestamp_ns,
+                        sha256(envelope.message.as_slice()),
                     ),
                     other => Err(MessageProcessingError::UnsupportedMessageType(
                         discriminant(&other),
@@ -521,7 +613,7 @@ mod tests {
     use openmls_traits::OpenMlsProvider;
     use xmtp_cryptography::utils::generate_local_wallet;
 
-    use crate::{builder::ClientBuilder, groups::GroupError, utils::topic::get_welcome_topic};
+    use crate::{builder::ClientBuilder, utils::topic::get_welcome_topic};
 
     #[tokio::test]
     async fn test_send_message() {
@@ -546,14 +638,34 @@ mod tests {
         let wallet = generate_local_wallet();
         let client = ClientBuilder::new_test_client(wallet.into()).await;
         let group = client.create_group().expect("create group");
-        group.send_message(b"hello").await.expect("send message");
+        let msg = b"hello";
+        group.send_message(msg).await.expect("send message");
 
-        let result = group.receive().await;
-        if let GroupError::ReceiveError(errors) = result.err().unwrap() {
-            assert_eq!(errors.len(), 1);
-        } else {
-            panic!("expected GroupError::ReceiveError")
-        }
+        group.receive().await.unwrap();
+        // Check for messages
+        let messages = group.find_messages(None, None, None, None).unwrap();
+        assert_eq!(messages.len(), 1);
+        assert_eq!(messages.first().unwrap().decrypted_message_bytes, msg);
+    }
+
+    #[tokio::test]
+    async fn test_add_member_conflict() {
+        let amal = ClientBuilder::new_test_client(generate_local_wallet().into()).await;
+        let bola = ClientBuilder::new_test_client(generate_local_wallet().into()).await;
+        let charlie = ClientBuilder::new_test_client(generate_local_wallet().into()).await;
+        futures::future::join_all(vec![
+            amal.register_identity(),
+            bola.register_identity(),
+            charlie.register_identity(),
+        ])
+        .await;
+
+        let amal_group = amal.create_group().unwrap();
+        // Add bola
+        amal_group
+            .add_members_by_installation_id(vec![bola.installation_public_key()])
+            .await
+            .unwrap();
     }
 
     #[tokio::test]
