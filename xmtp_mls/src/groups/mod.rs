@@ -1,8 +1,11 @@
 mod intents;
 
-use std::mem::{discriminant, Discriminant};
+#[cfg(test)]
+use std::println as debug;
 
+use std::mem::{discriminant, Discriminant};
 use intents::SendMessageIntentData;
+#[cfg(not(test))]
 use log::debug;
 use openmls::{
     prelude::{
@@ -516,7 +519,6 @@ fn build_group_config() -> MlsGroupConfig {
 #[cfg(test)]
 mod tests {
     use openmls_traits::OpenMlsProvider;
-    use test_log::test;
     use xmtp_cryptography::utils::generate_local_wallet;
 
     use crate::{builder::ClientBuilder, groups::GroupError, utils::topic::get_welcome_topic};
@@ -539,7 +541,7 @@ mod tests {
         assert_eq!(messages.len(), 1)
     }
 
-    #[test(tokio::test)]
+    #[tokio::test]
     async fn test_receive_self_message() {
         let wallet = generate_local_wallet();
         let client = ClientBuilder::new_test_client(wallet.into()).await;
