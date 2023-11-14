@@ -42,8 +42,6 @@ pub enum ClientError {
     Identity(#[from] crate::identity::IdentityError),
     #[error("serialization error: {0}")]
     Serialization(#[from] TlsSerializationError),
-    #[error("protobuf error: {0}")]
-    Protobuf(#[from] prost::DecodeError),
     #[error("key package verification: {0}")]
     KeyPackageVerification(#[from] KeyPackageVerificationError),
     #[error("message processing: {0}")]
