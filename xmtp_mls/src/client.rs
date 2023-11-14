@@ -5,16 +5,9 @@ use openmls::{
     messages::Welcome,
     prelude::TlsSerializeTrait,
 };
-use prost::Message;
 use thiserror::Error;
 use tls_codec::{Deserialize, Error as TlsSerializationError};
-use xmtp_proto::{
-    api_client::{XmtpApiClient, XmtpMlsClient},
-    xmtp::mls::message_contents::{
-        welcome_message::Version as WelcomeMessageVersionProto,
-        WelcomeMessage as WelcomeMessageProto,
-    },
-};
+use xmtp_proto::api_client::{XmtpApiClient, XmtpMlsClient};
 
 use crate::{
     api_client_wrapper::{ApiClientWrapper, IdentityUpdate},
@@ -217,6 +210,7 @@ where
         let groups: Vec<MlsGroup<ApiClient>> = envelopes
             .into_iter()
             .filter_map(|envelope| {
+                // TODO: Wrap in a transaction
                 let welcome = match extract_welcome(&envelope.message) {
                     Ok(welcome) => welcome,
                     Err(err) => {
@@ -225,6 +219,8 @@ where
                     }
                 };
 
+                // TODO: Update last_message_timestamp_ns on success or non-retryable error
+                // TODO: Abort if error is retryable
                 match MlsGroup::create_from_welcome(self, &mut conn, &provider, welcome) {
                     Ok(mls_group) => Some(mls_group),
                     Err(err) => {
@@ -248,17 +244,8 @@ where
 }
 
 fn extract_welcome(welcome_bytes: &Vec<u8>) -> Result<Welcome, ClientError> {
-    let welcome_proto = WelcomeMessageProto::decode(&mut welcome_bytes.as_slice())?;
-    let welcome = match welcome_proto.version {
-        Some(WelcomeMessageVersionProto::V1(v1)) => {
-            MlsMessageIn::tls_deserialize(&mut v1.welcome_message_tls_serialized.as_slice())?
-        }
-        _ => {
-            return Err(ClientError::Generic(
-                "unsupported welcome version".to_string(),
-            ))
-        }
-    };
+    // let welcome_proto = WelcomeMessageProto::decode(&mut welcome_bytes.as_slice())?;
+    let welcome = MlsMessageIn::tls_deserialize(&mut welcome_bytes.as_slice())?;
     match welcome.extract() {
         MlsMessageInBody::Welcome(welcome) => Ok(welcome),
         _ => Err(ClientError::Generic(
@@ -307,5 +294,42 @@ mod tests {
         assert_eq!(groups.len(), 2);
         assert_eq!(groups[0].group_id, group_1.group_id);
         assert_eq!(groups[1].group_id, group_2.group_id);
+    }
+
+    #[tokio::test]
+    async fn test_sync_welcomes() {
+        let alice = ClientBuilder::new_test_client(generate_local_wallet().into()).await;
+        alice.register_identity().await.unwrap();
+        let bob = ClientBuilder::new_test_client(generate_local_wallet().into()).await;
+        bob.register_identity().await.unwrap();
+
+        let conn = &mut alice.store.conn().unwrap();
+        let alice_bob_group = alice.create_group().unwrap();
+        alice_bob_group
+            .add_members_by_installation_id(vec![bob.installation_public_key()])
+            .await
+            .unwrap();
+
+        // Manually mark as committed
+        // TODO: Replace with working synchronization once we can add members end to end
+        let intents = alice
+            .store
+            .find_group_intents(conn, alice_bob_group.group_id.clone(), None, None)
+            .unwrap();
+        let intent = intents.first().unwrap();
+        // Set the intent to committed manually
+        alice
+            .store
+            .set_group_intent_committed(conn, intent.id)
+            .unwrap();
+
+        alice_bob_group.post_commit(conn).await.unwrap();
+
+        let bob_received_groups = bob.sync_welcomes().await.unwrap();
+        assert_eq!(bob_received_groups.len(), 1);
+        assert_eq!(
+            bob_received_groups.first().unwrap().group_id,
+            alice_bob_group.group_id
+        );
     }
 }

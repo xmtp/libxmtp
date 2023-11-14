@@ -148,8 +148,8 @@ where
     ) -> Result<Self, GroupError> {
         let mut mls_group =
             OpenMlsGroup::new_from_welcome(provider, &build_group_config(), welcome, None)?;
-
         mls_group.save(provider.key_store())?;
+
         let group_id = mls_group.group_id().to_vec();
         let stored_group =
             StoredGroup::new(group_id.clone(), now_ns(), GroupMembershipState::Pending);
@@ -710,6 +710,7 @@ mod tests {
             .unwrap();
         let intent = intents.first().unwrap();
         // Set the intent to committed manually
+        // TODO: Replace with working synchronization once we can add members end to end
         client
             .store
             .set_group_intent_committed(conn, intent.id)
