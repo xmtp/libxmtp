@@ -13,18 +13,12 @@
   // "features": {},
 
   // Use 'forwardPorts' to make a list of ports inside the container available locally.
-"forwardPorts": [
-	5556,
-	5555
-],
-"customizations": {
-	"vscode": {
-		"extensions": [
-			"tamasfe.even-better-toml",
-			"rust-lang.rust-analyzer"
-		]
-	}
-}
+  "forwardPorts": [],
+  "customizations": {
+    "vscode": {
+      "extensions": ["tamasfe.even-better-toml", "rust-lang.rust-analyzer"]
+    }
+  }
 
   // Uncomment the next line to run commands after the container is created.
   // "postCreateCommand": "cat /etc/os-release",
