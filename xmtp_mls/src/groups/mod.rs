@@ -264,31 +264,12 @@ where
 
     fn process_private_message(
         &self,
+        conn: &mut DbConnection,
         openmls_group: &mut OpenMlsGroup,
         provider: &XmtpOpenMlsProvider,
         message: PrivateMessageIn,
         envelope_timestamp_ns: u64,
-        envelope_message_hash: Vec<u8>,
     ) -> Result<(), MessageProcessingError> {
-        let conn = &mut self.client.store.conn()?;
-
-        // If the message is from one of your own intents, it won't be decryptable
-        // Instead process it using a special flow
-        if let Some(intent) = self
-            .client
-            .store
-            .find_group_intent_by_payload_hash(conn, envelope_message_hash)?
-        {
-            return self.process_own_message(
-                conn,
-                intent,
-                openmls_group,
-                provider,
-                message,
-                envelope_timestamp_ns,
-            );
-        }
-
         let decrypted_message = openmls_group.process_message(provider, message)?;
         let (sender_account_address, sender_installation_id) =
             self.validate_message_sender(openmls_group, &decrypted_message, envelope_timestamp_ns)?;
@@ -322,26 +303,57 @@ where
         Ok(())
     }
 
+    fn process_message(
+        &self,
+        conn: &mut DbConnection,
+        openmls_group: &mut OpenMlsGroup,
+        provider: &XmtpOpenMlsProvider,
+        message: PrivateMessageIn,
+        envelope: &Envelope,
+    ) -> Result<(), MessageProcessingError> {
+        match self
+            .client
+            .store
+            .find_group_intent_by_payload_hash(conn, sha256(envelope.message.as_slice()))
+        {
+            // Intent with the payload hash matches
+            Ok(Some(intent)) => self.process_own_message(
+                conn,
+                intent,
+                openmls_group,
+                provider,
+                message,
+                envelope.timestamp_ns,
+            ),
+            Err(err) => Err(MessageProcessingError::Storage(err)),
+            // No matching intent found
+            Ok(None) => self.process_private_message(
+                conn,
+                openmls_group,
+                provider,
+                message,
+                envelope.timestamp_ns,
+            ),
+        }
+    }
+
     pub fn process_messages(&self, envelopes: Vec<Envelope>) -> Result<(), GroupError> {
         let provider = self.client.mls_provider();
         let mut openmls_group = self.load_mls_group(&provider)?;
+        let conn = &mut self.client.store.conn()?;
         let receive_errors: Vec<MessageProcessingError> = envelopes
             .into_iter()
             .map(|envelope| -> Result<(), MessageProcessingError> {
                 let mls_message_in = MlsMessageIn::tls_deserialize_exact(&envelope.message)?;
 
-                match mls_message_in.extract() {
-                    MlsMessageInBody::PrivateMessage(message) => self.process_private_message(
-                        &mut openmls_group,
-                        &provider,
-                        message,
-                        envelope.timestamp_ns,
-                        sha256(envelope.message.as_slice()),
-                    ),
+                let pm = match mls_message_in.extract() {
+                    MlsMessageInBody::PrivateMessage(message) => Ok(message),
                     other => Err(MessageProcessingError::UnsupportedMessageType(
                         discriminant(&other),
                     )),
-                }
+                }?;
+
+                self.process_message(conn, &mut openmls_group, &provider, pm, &envelope)
             })
             .filter(|result| result.is_err())
             .map(|result| result.unwrap_err())
