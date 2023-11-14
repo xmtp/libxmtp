@@ -1,30 +1,38 @@
 mod intents;
 
+#[cfg(test)]
+use std::println as debug;
+
 use intents::SendMessageIntentData;
+#[cfg(not(test))]
+use log::debug;
 use openmls::{
     prelude::{
         CredentialWithKey, CryptoConfig, GroupId, LeafNodeIndex, MlsGroup as OpenMlsGroup,
-        MlsGroupConfig, WireFormatPolicy,
+        MlsGroupConfig, MlsMessageIn, MlsMessageInBody, PrivateMessageIn, ProcessedMessage,
+        ProcessedMessageContent, Sender, WireFormatPolicy,
     },
     prelude_test::KeyPackage,
 };
 use openmls_traits::OpenMlsProvider;
+use std::mem::{discriminant, Discriminant};
 use thiserror::Error;
-use tls_codec::Serialize;
-use xmtp_proto::api_client::{XmtpApiClient, XmtpMlsClient};
+use tls_codec::{Deserialize, Serialize};
+use xmtp_proto::api_client::{Envelope, XmtpApiClient, XmtpMlsClient};
 
 use self::intents::{AddMembersIntentData, IntentError, PostCommitAction, RemoveMembersIntentData};
 use crate::{
     api_client_wrapper::WelcomeMessage,
     client::ClientError,
     configuration::CIPHERSUITE,
+    identity::Identity,
     storage::{
         group::{GroupMembershipState, StoredGroup},
         group_intent::{IntentKind, IntentState, NewGroupIntent, StoredGroupIntent},
         group_message::{GroupMessageKind, StoredGroupMessage},
         DbConnection, StorageError,
     },
-    utils::{hash::sha256, time::now_ns, topic::get_group_topic},
+    utils::{hash::sha256, id::get_message_id, time::now_ns, topic::get_group_topic},
     xmtp_openmls_provider::XmtpOpenMlsProvider,
     Client, Delete, Store,
 };
@@ -53,8 +61,27 @@ pub enum GroupError {
     SelfUpdate(#[from] openmls::group::SelfUpdateError<StorageError>),
     #[error("client: {0}")]
     Client(#[from] ClientError),
+    #[error("receive errors: {0:?}")]
+    ReceiveError(Vec<MessageProcessingError>),
     #[error("generic: {0}")]
     Generic(String),
+}
+
+#[derive(Debug, Error)]
+pub enum MessageProcessingError {
+    #[error("[{message_time_ns:?}] invalid sender with credential: {credential:?}")]
+    InvalidSender {
+        message_time_ns: u64,
+        credential: Vec<u8>,
+    },
+    #[error("openmls process message error: {0}")]
+    OpenMlsProcessMessage(#[from] openmls::prelude::ProcessMessageError),
+    #[error("storage error: {0}")]
+    Storage(#[from] crate::storage::StorageError),
+    #[error("tls deserialization: {0}")]
+    TlsDeserialization(#[from] tls_codec::Error),
+    #[error("unsupported message type: {0:?}")]
+    UnsupportedMessageType(Discriminant<MlsMessageInBody>),
 }
 
 pub struct MlsGroup<'c, ApiClient> {
@@ -97,7 +124,6 @@ where
             &provider,
             &client.identity.installation_keys,
             &build_group_config(),
-            // TODO: Confirm I should be using the installation keys here
             CredentialWithKey {
                 credential: client.identity.credential.clone(),
                 signature_key: client.identity.installation_keys.to_public_vec().into(),
@@ -130,6 +156,124 @@ where
         )?;
 
         Ok(messages)
+    }
+
+    fn validate_message_sender(
+        &self,
+        openmls_group: &mut OpenMlsGroup,
+        decrypted_message: &ProcessedMessage,
+        envelope_timestamp_ns: u64,
+    ) -> Result<(String, Vec<u8>), MessageProcessingError> {
+        let mut sender_account_address = None;
+        let mut sender_installation_id = None;
+        if let Sender::Member(leaf_node_index) = decrypted_message.sender() {
+            if let Some(member) = openmls_group.member_at(*leaf_node_index) {
+                if member.credential.eq(decrypted_message.credential()) {
+                    sender_account_address = Identity::get_validated_account_address(
+                        member.credential.identity(),
+                        &member.signature_key,
+                    )
+                    .ok();
+                    sender_installation_id = Some(member.signature_key);
+                }
+            }
+        }
+
+        if sender_account_address.is_none() {
+            return Err(MessageProcessingError::InvalidSender {
+                message_time_ns: envelope_timestamp_ns,
+                credential: decrypted_message.credential().identity().to_vec(),
+            });
+        }
+        Ok((
+            sender_account_address.unwrap(),
+            sender_installation_id.unwrap(),
+        ))
+    }
+
+    fn process_private_message(
+        &self,
+        openmls_group: &mut OpenMlsGroup,
+        provider: &XmtpOpenMlsProvider,
+        message: PrivateMessageIn,
+        envelope_timestamp_ns: u64,
+    ) -> Result<(), MessageProcessingError> {
+        let decrypted_message = openmls_group.process_message(provider, message)?;
+        let (sender_account_address, sender_installation_id) =
+            self.validate_message_sender(openmls_group, &decrypted_message, envelope_timestamp_ns)?;
+
+        match decrypted_message.into_content() {
+            ProcessedMessageContent::ApplicationMessage(application_message) => {
+                let message_bytes = application_message.into_bytes();
+                let message_id =
+                    get_message_id(&message_bytes, &self.group_id, envelope_timestamp_ns);
+                let message = StoredGroupMessage {
+                    id: message_id,
+                    group_id: self.group_id.clone(),
+                    decrypted_message_bytes: message_bytes,
+                    sent_at_ns: envelope_timestamp_ns as i64,
+                    kind: GroupMessageKind::Application,
+                    sender_installation_id,
+                    sender_wallet_address: sender_account_address,
+                };
+                message.store(&mut self.client.store.conn()?)?;
+            }
+            ProcessedMessageContent::ProposalMessage(_proposal_ptr) => {
+                // intentionally left blank.
+            }
+            ProcessedMessageContent::ExternalJoinProposalMessage(_external_proposal_ptr) => {
+                // intentionally left blank.
+            }
+            ProcessedMessageContent::StagedCommitMessage(_commit_ptr) => {
+                // intentionally left blank.
+            }
+        }
+        Ok(())
+    }
+
+    pub fn process_messages(&self, envelopes: Vec<Envelope>) -> Result<(), GroupError> {
+        let provider = self.client.mls_provider();
+        let mut openmls_group = self.load_mls_group(&provider)?;
+        let receive_errors: Vec<MessageProcessingError> = envelopes
+            .into_iter()
+            .map(|envelope| -> Result<(), MessageProcessingError> {
+                let mls_message_in = MlsMessageIn::tls_deserialize_exact(&envelope.message)?;
+
+                match mls_message_in.extract() {
+                    MlsMessageInBody::PrivateMessage(message) => self.process_private_message(
+                        &mut openmls_group,
+                        &provider,
+                        message,
+                        envelope.timestamp_ns,
+                    ),
+                    other => Err(MessageProcessingError::UnsupportedMessageType(
+                        discriminant(&other),
+                    )),
+                }
+            })
+            .filter(|result| result.is_err())
+            .map(|result| result.unwrap_err())
+            .collect();
+        openmls_group.save(provider.key_store())?; // TODO handle concurrency
+
+        if receive_errors.is_empty() {
+            Ok(())
+        } else {
+            Err(GroupError::ReceiveError(receive_errors))
+        }
+    }
+
+    pub async fn receive(&self) -> Result<(), GroupError> {
+        let topic = get_group_topic(&self.group_id);
+        let envelopes = self
+            .client
+            .api_client
+            .read_topic(
+                &topic, 0, // TODO: query from last query point
+            )
+            .await?;
+        debug!("Received {} envelopes", envelopes.len());
+        self.process_messages(envelopes)
     }
 
     pub async fn send_message(&self, message: &[u8]) -> Result<(), GroupError> {
@@ -377,7 +521,7 @@ mod tests {
     use openmls_traits::OpenMlsProvider;
     use xmtp_cryptography::utils::generate_local_wallet;
 
-    use crate::{builder::ClientBuilder, utils::topic::get_welcome_topic};
+    use crate::{builder::ClientBuilder, groups::GroupError, utils::topic::get_welcome_topic};
 
     #[tokio::test]
     async fn test_send_message() {
@@ -395,6 +539,21 @@ mod tests {
             .expect("read topic");
 
         assert_eq!(messages.len(), 1)
+    }
+
+    #[tokio::test]
+    async fn test_receive_self_message() {
+        let wallet = generate_local_wallet();
+        let client = ClientBuilder::new_test_client(wallet.into()).await;
+        let group = client.create_group().expect("create group");
+        group.send_message(b"hello").await.expect("send message");
+
+        let result = group.receive().await;
+        if let GroupError::ReceiveError(errors) = result.err().unwrap() {
+            assert_eq!(errors.len(), 1);
+        } else {
+            panic!("expected GroupError::ReceiveError")
+        }
     }
 
     #[tokio::test]
