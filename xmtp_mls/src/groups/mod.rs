@@ -667,7 +667,6 @@ fn build_group_config() -> MlsGroupConfig {
 #[cfg(test)]
 mod tests {
     use openmls::prelude::Member;
-    use openmls_traits::OpenMlsProvider;
     use xmtp_cryptography::utils::generate_local_wallet;
 
     use crate::{
@@ -722,7 +721,6 @@ mod tests {
         .await;
 
         let amal_group = amal.create_group().unwrap();
-        log::debug!("amal adding bola");
         // Add bola
         amal_group
             .add_members_by_installation_id(vec![bola.installation_public_key()])
@@ -733,20 +731,17 @@ mod tests {
         let bola_groups = bola.sync_welcomes().await.unwrap();
         let bola_group = bola_groups.first().unwrap();
 
-        log::debug!("amal adding charlie");
         // Have amal and bola both invite charlie.
         amal_group
             .add_members_by_installation_id(vec![charlie.installation_public_key()])
             .await
             .expect("failed to add charlie");
 
-        log::debug!("bola adding charlie");
         bola_group
             .add_members_by_installation_id(vec![charlie.installation_public_key()])
             .await
             .unwrap();
 
-        log::debug!("amal and bola running receive");
         amal_group.receive().await.expect_err("expected error");
         bola_group.receive().await.expect_err("expected error");
 
