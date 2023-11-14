@@ -165,7 +165,7 @@ where
         let mut sender_installation_id = None;
         if let Sender::Member(leaf_node_index) = decrypted_message.sender() {
             if let Some(member) = openmls_group.member_at(*leaf_node_index) {
-                if member.credential == *decrypted_message.credential() {
+                if member.credential.eq(decrypted_message.credential()) {
                     sender_account_address = Identity::get_validated_account_address(
                         member.credential.identity(),
                         &member.signature_key,
