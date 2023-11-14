@@ -1,8 +1,12 @@
 use std::collections::HashSet;
 
-use openmls::prelude::TlsSerializeTrait;
+use openmls::{
+    framing::{MlsMessageIn, MlsMessageInBody},
+    messages::Welcome,
+    prelude::TlsSerializeTrait,
+};
 use thiserror::Error;
-use tls_codec::Error as TlsSerializationError;
+use tls_codec::{Deserialize, Error as TlsSerializationError};
 use xmtp_proto::api_client::{XmtpApiClient, XmtpMlsClient};
 
 use crate::{
@@ -11,6 +15,7 @@ use crate::{
     identity::Identity,
     storage::{group::GroupMembershipState, EncryptedMessageStore, StorageError},
     types::Address,
+    utils::topic::get_welcome_topic,
     verified_key_package::{KeyPackageVerificationError, VerifiedKeyPackage},
     xmtp_openmls_provider::XmtpOpenMlsProvider,
 };
@@ -39,6 +44,8 @@ pub enum ClientError {
     Serialization(#[from] TlsSerializationError),
     #[error("key package verification: {0}")]
     KeyPackageVerification(#[from] KeyPackageVerificationError),
+    #[error("message processing: {0}")]
+    MessageProcessing(#[from] crate::groups::MessageProcessingError),
     #[error("generic:{0}")]
     Generic(String),
 }
@@ -188,12 +195,60 @@ where
             .collect::<Result<_, _>>()?)
     }
 
+    // Download all unread welcome messages and convert to groups.
+    // Returns any new groups created in the operation
+    pub async fn sync_welcomes(&self) -> Result<Vec<MlsGroup<ApiClient>>, ClientError> {
+        let welcome_topic = get_welcome_topic(&self.installation_public_key());
+        let mut conn = self.store.conn()?;
+        let provider = self.mls_provider();
+        // TODO: Use the last_message_timestamp_ns field on the TopicRefreshState to only fetch new messages
+        // Waiting for more atomic update methods
+        let envelopes = self.api_client.read_topic(&welcome_topic, 0).await?;
+
+        let groups: Vec<MlsGroup<ApiClient>> = envelopes
+            .into_iter()
+            .filter_map(|envelope| {
+                // TODO: Wrap in a transaction
+                let welcome = match extract_welcome(&envelope.message) {
+                    Ok(welcome) => welcome,
+                    Err(err) => {
+                        log::error!("failed to extract welcome: {}", err);
+                        return None;
+                    }
+                };
+
+                // TODO: Update last_message_timestamp_ns on success or non-retryable error
+                // TODO: Abort if error is retryable
+                match MlsGroup::create_from_welcome(self, &mut conn, &provider, welcome) {
+                    Ok(mls_group) => Some(mls_group),
+                    Err(err) => {
+                        log::error!("failed to create group from welcome: {}", err);
+                        None
+                    }
+                }
+            })
+            .collect();
+
+        Ok(groups)
+    }
+
     pub fn account_address(&self) -> Address {
         self.identity.account_address.clone()
     }
 
     pub fn installation_public_key(&self) -> Vec<u8> {
         self.identity.installation_keys.to_public_vec()
+    }
+}
+
+fn extract_welcome(welcome_bytes: &Vec<u8>) -> Result<Welcome, ClientError> {
+    // let welcome_proto = WelcomeMessageProto::decode(&mut welcome_bytes.as_slice())?;
+    let welcome = MlsMessageIn::tls_deserialize(&mut welcome_bytes.as_slice())?;
+    match welcome.extract() {
+        MlsMessageInBody::Welcome(welcome) => Ok(welcome),
+        _ => Err(ClientError::Generic(
+            "unexpected message type in welcome".to_string(),
+        )),
     }
 }
 
@@ -237,5 +292,42 @@ mod tests {
         assert_eq!(groups.len(), 2);
         assert_eq!(groups[0].group_id, group_1.group_id);
         assert_eq!(groups[1].group_id, group_2.group_id);
+    }
+
+    #[tokio::test]
+    async fn test_sync_welcomes() {
+        let alice = ClientBuilder::new_test_client(generate_local_wallet().into()).await;
+        alice.register_identity().await.unwrap();
+        let bob = ClientBuilder::new_test_client(generate_local_wallet().into()).await;
+        bob.register_identity().await.unwrap();
+
+        let conn = &mut alice.store.conn().unwrap();
+        let alice_bob_group = alice.create_group().unwrap();
+        alice_bob_group
+            .add_members_by_installation_id(vec![bob.installation_public_key()])
+            .await
+            .unwrap();
+
+        // Manually mark as committed
+        // TODO: Replace with working synchronization once we can add members end to end
+        let intents = alice
+            .store
+            .find_group_intents(conn, alice_bob_group.group_id.clone(), None, None)
+            .unwrap();
+        let intent = intents.first().unwrap();
+        // Set the intent to committed manually
+        alice
+            .store
+            .set_group_intent_committed(conn, intent.id)
+            .unwrap();
+
+        alice_bob_group.post_commit(conn).await.unwrap();
+
+        let bob_received_groups = bob.sync_welcomes().await.unwrap();
+        assert_eq!(bob_received_groups.len(), 1);
+        assert_eq!(
+            bob_received_groups.first().unwrap().group_id,
+            alice_bob_group.group_id
+        );
     }
 }
