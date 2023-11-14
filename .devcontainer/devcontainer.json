@@ -18,7 +18,8 @@
     "vscode": {
       "extensions": ["tamasfe.even-better-toml", "rust-lang.rust-analyzer"]
     }
-  }
+  },
+  "runArgs": ["--network=host"]
 
   // Uncomment the next line to run commands after the container is created.
   // "postCreateCommand": "cat /etc/os-release",
