@@ -1,0 +1,125 @@
+name: test bindings_flutter
+on:
+  pull_request:
+  push:
+    branches:
+      - v2
+jobs:
+  build_android:
+    runs-on: macos-latest
+    defaults:
+      run:
+        working-directory: ./bindings_flutter
+    steps:
+      - uses: actions/checkout@v2
+      - uses: actions/setup-java@v2
+        with:
+          distribution: 'zulu'
+          java-version: '11'
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-linux-android,armv7-linux-androideabi,x86_64-linux-android,i686-linux-android
+      - uses: Swatinem/rust-cache@v2
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.13.9'
+          channel: 'stable'
+      - run: flutter pub get
+      - run: cargo install cargo-expand
+      - run: cargo install flutter_rust_bridge_codegen --version 1.82.4
+      - run: flutter_rust_bridge_codegen
+      - run: scripts/build-android.sh
+      - uses: actions/upload-artifact@v3
+        with:
+          name: xmtp_bindings_flutter.jniLibs.tar.gz
+          path: bindings_flutter/platform-build/xmtp_bindings_flutter.jniLibs.tar.gz
+          retention-days: 1
+      # Ordinarily, our CMake script (which is triggered by gradle build via flutter test)
+      # will try to download the corresponding jniLibs.tar.gz release artifact.
+      # But because this release hasn't been published yet we short-circuit that
+      # by moving the just-built artifact into place manually before testing.
+      # This way the CMake script thinks it already downloaded it and proceeds.
+      # See the file-exists check in android/CMakeLists.txt for more details.
+      - run: cp platform-build/xmtp_bindings_flutter.jniLibs.tar.gz android/xmtp_bindings_flutter.jniLibs.tar.gz
+        working-directory: ./bindings_flutter
+      - run: flutter pub get
+        working-directory: ./bindings_flutter/example
+      - uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 29
+          script: flutter test -d emulator integration_test -v
+          working-directory: ./bindings_flutter/example
+  build_linux:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ./bindings_flutter
+    steps:
+      - uses: actions/checkout@v2
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-unknown-linux-gnu,x86_64-unknown-linux-gnu
+      - uses: Swatinem/rust-cache@v2
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.13.9'
+          channel: 'stable'
+      - uses: goto-bus-stop/setup-zig@v2
+      - run: flutter pub get
+      - run: cargo install cargo-expand
+      - run: cargo install flutter_rust_bridge_codegen --version 1.82.4
+      - run: flutter_rust_bridge_codegen
+      - run: scripts/build-linux.sh
+      - uses: actions/upload-artifact@v3
+        with:
+          name: xmtp_bindings_flutter.linux.tar.gz
+          path: bindings_flutter/platform-build/xmtp_bindings_flutter.linux.tar.gz
+          retention-days: 1
+      - run: cp platform-build/xmtp_bindings_flutter.linux.tar.gz linux/xmtp_bindings_flutter.linux.tar.gz
+        working-directory: ./bindings_flutter
+      - run: flutter pub get
+        working-directory: ./bindings_flutter/example
+      - run: flutter test -d linux integration_test
+        working-directory: ./bindings_flutter/example
+  build_apple:
+    runs-on: macos-latest
+    defaults:
+      run:
+        working-directory: ./bindings_flutter
+    steps:
+      - uses: actions/checkout@v2
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-ios,x86_64-apple-ios,aarch64-apple-ios-sim,aarch64-apple-darwin,x86_64-apple-darwin
+      - uses: Swatinem/rust-cache@v2
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.13.9'
+          channel: 'stable'
+      - run: flutter pub get
+      - run: cargo install cargo-expand
+      - run: cargo install flutter_rust_bridge_codegen --version 1.82.4
+      - run: flutter_rust_bridge_codegen
+      - run: scripts/build-apple.sh
+      - uses: actions/upload-artifact@v3
+        with:
+          name: xmtp_bindings_flutter.xcframework.zip
+          path: bindings_flutter/platform-build/xmtp_bindings_flutter.xcframework.zip
+          retention-days: 1
+      # Ordinarily, our .podspec script (which is triggered by pod install)
+      # will try to download the corresponding xcframework.zip release artifact.
+      # But because this release hasn't been published yet we short-circuit that
+      # by moving the just-built artifact into place manually before pod install.
+      # This way the .podspec script thinks it already downloaded it and proceeds.
+      # See the file-exists check in the .podspec script for more details.
+      - run: cp platform-build/xmtp_bindings_flutter.xcframework.zip macos/Frameworks/xmtp_bindings_flutter.xcframework.zip
+        working-directory: ./bindings_flutter
+      - run: flutter pub get
+        working-directory: ./bindings_flutter/example
+      - run: pod install
+        working-directory: ./bindings_flutter/example/macos
+      - run: flutter test -d macos integration_test
+        working-directory: ./bindings_flutter/example
+# TODO: build & publish artifacts in a release job
+# TODO: ios/macos: update .podspec script to curl the release xcframework
+# TODO: android: update gradle script to download the release jniLibs

@@ -1,0 +1,14 @@
+# These are placed by our CI (before release)
+# or fetched from the GitHub releases at build time.
+xmtp_bindings_flutter.jniLibs.tar.gz
+src/main/jniLibs/**
+
+*.iml
+.gradle
+/local.properties
+/.idea/workspace.xml
+/.idea/libraries
+.DS_Store
+/build
+/captures
+.cxx
