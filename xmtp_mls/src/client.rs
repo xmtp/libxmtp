@@ -65,10 +65,10 @@ impl From<&str> for ClientError {
 
 #[derive(Debug)]
 pub struct Client<ApiClient> {
-    pub api_client: ApiClientWrapper<ApiClient>,
+    pub(crate) api_client: ApiClientWrapper<ApiClient>,
     pub(crate) _network: Network,
     pub(crate) identity: Identity,
-    pub store: EncryptedMessageStore, // Temporarily exposed outside crate for CLI client
+    pub(crate) store: EncryptedMessageStore,
 }
 
 impl<ApiClient> Client<ApiClient>
