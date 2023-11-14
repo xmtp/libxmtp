@@ -301,27 +301,11 @@ mod tests {
         let bob = ClientBuilder::new_test_client(generate_local_wallet().into()).await;
         bob.register_identity().await.unwrap();
 
-        let conn = &mut alice.store.conn().unwrap();
         let alice_bob_group = alice.create_group().unwrap();
         alice_bob_group
             .add_members_by_installation_id(vec![bob.installation_public_key()])
             .await
             .unwrap();
-
-        // Manually mark as committed
-        // TODO: Replace with working synchronization once we can add members end to end
-        let intents = alice
-            .store
-            .find_group_intents(conn, alice_bob_group.group_id.clone(), None, None)
-            .unwrap();
-        let intent = intents.first().unwrap();
-        // Set the intent to committed manually
-        alice
-            .store
-            .set_group_intent_committed(conn, intent.id)
-            .unwrap();
-
-        alice_bob_group.post_commit(conn).await.unwrap();
 
         let bob_received_groups = bob.sync_welcomes().await.unwrap();
         assert_eq!(bob_received_groups.len(), 1);
