@@ -516,7 +516,7 @@ mod tests {
     use openmls_traits::OpenMlsProvider;
     use xmtp_cryptography::utils::generate_local_wallet;
 
-    use crate::{builder::ClientBuilder, utils::topic::get_welcome_topic};
+    use crate::{builder::ClientBuilder, groups::GroupError, utils::topic::get_welcome_topic};
 
     #[tokio::test]
     async fn test_send_message() {
@@ -543,21 +543,12 @@ mod tests {
         let group = client.create_group().expect("create group");
         group.send_message(b"hello").await.expect("send message");
 
-        group.receive().await.expect("receive");
-
-        let messages = client
-            .store
-            .get_group_messages(
-                &mut client.store.conn().unwrap(),
-                group.group_id,
-                None,
-                None,
-                None,
-                None,
-            )
-            .unwrap();
-
-        assert_eq!(messages.len(), 1)
+        let result = group.receive().await;
+        if let GroupError::ReceiveError(errors) = result.err().unwrap() {
+            assert_eq!(errors.len(), 1);
+        } else {
+            panic!("expected GroupError::ReceiveError")
+        }
     }
 
     #[tokio::test]
