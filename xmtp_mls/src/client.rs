@@ -1,8 +1,10 @@
-use std::collections::HashSet;
+use std::{collections::HashSet, mem::Discriminant};
 
+use diesel::Connection;
 use log::debug;
 use openmls::{
     framing::{MlsMessageIn, MlsMessageInBody},
+    group::GroupEpoch,
     messages::Welcome,
     prelude::TlsSerializeTrait,
 };
@@ -12,7 +14,7 @@ use xmtp_proto::api_client::{Envelope, XmtpApiClient, XmtpMlsClient};
 
 use crate::{
     api_client_wrapper::{ApiClientWrapper, IdentityUpdate},
-    groups::MlsGroup,
+    groups::{IntentError, MlsGroup},
     identity::Identity,
     storage::{group::GroupMembershipState, DbConnection, EncryptedMessageStore, StorageError},
     types::Address,
@@ -46,9 +48,43 @@ pub enum ClientError {
     #[error("key package verification: {0}")]
     KeyPackageVerification(#[from] KeyPackageVerificationError),
     #[error("message processing: {0}")]
-    MessageProcessing(#[from] crate::groups::MessageProcessingError),
+    MessageProcessing(#[from] MessageProcessingError),
     #[error("generic:{0}")]
     Generic(String),
+}
+
+#[derive(Debug, Error)]
+pub enum MessageProcessingError {
+    #[error("[{0}] already processed")]
+    AlreadyProcessed(u64),
+    #[error("diesel error: {0}")]
+    Diesel(#[from] diesel::result::Error),
+    #[error("[{message_time_ns:?}] invalid sender with credential: {credential:?}")]
+    InvalidSender {
+        message_time_ns: u64,
+        credential: Vec<u8>,
+    },
+    #[error("openmls process message error: {0}")]
+    OpenMlsProcessMessage(#[from] openmls::prelude::ProcessMessageError),
+    #[error("merge pending commit: {0}")]
+    MergePendingCommit(#[from] openmls::group::MergePendingCommitError<StorageError>),
+    #[error("merge staged commit: {0}")]
+    MergeStagedCommit(#[from] openmls::group::MergeCommitError<StorageError>),
+    #[error(
+        "no pending commit to merge. group epoch is {group_epoch:?} and got {message_epoch:?}"
+    )]
+    NoPendingCommit {
+        message_epoch: GroupEpoch,
+        group_epoch: GroupEpoch,
+    },
+    #[error("intent error: {0}")]
+    Intent(#[from] IntentError),
+    #[error("storage error: {0}")]
+    Storage(#[from] crate::storage::StorageError),
+    #[error("tls deserialization: {0}")]
+    TlsDeserialization(#[from] tls_codec::Error),
+    #[error("unsupported message type: {0:?}")]
+    UnsupportedMessageType(Discriminant<MlsMessageInBody>),
 }
 
 impl From<String> for ClientError {
@@ -195,6 +231,33 @@ where
         Ok(envelopes)
     }
 
+    pub(crate) fn process_for_topic<F>(
+        &self,
+        topic: &str,
+        envelope_timestamp_ns: u64,
+        process_envelope: F,
+    ) -> Result<(), MessageProcessingError>
+    where
+        F: FnOnce(&mut DbConnection) -> Result<(), MessageProcessingError>,
+    {
+        self.store.conn()?.transaction(
+            |transaction_manager| -> Result<(), MessageProcessingError> {
+                let is_updated = self.store.update_last_synced_timestamp_for_topic(
+                    transaction_manager,
+                    topic,
+                    envelope_timestamp_ns as i64,
+                )?;
+                if !is_updated {
+                    return Err(MessageProcessingError::AlreadyProcessed(
+                        envelope_timestamp_ns,
+                    ));
+                }
+                process_envelope(transaction_manager)
+            },
+        )?;
+        Ok(())
+    }
+
     // Get a flat list of one key package per installation for all the wallet addresses provided.
     // Revoked installations will be omitted from the list
     #[allow(dead_code)]
@@ -237,7 +300,6 @@ where
         let envelopes = self.pull_from_topic(&welcome_topic).await?;
 
         let mut conn = self.store.conn()?;
-        let provider = self.mls_provider();
         let groups: Vec<MlsGroup<ApiClient>> = envelopes
             .into_iter()
             .filter_map(|envelope| {

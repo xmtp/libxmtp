@@ -1,11 +1,10 @@
 mod intents;
 
-use diesel::Connection;
 use intents::SendMessageIntentData;
 use log::debug;
 use openmls::{
     framing::ProtocolMessage,
-    group::{GroupEpoch, MergePendingCommitError},
+    group::MergePendingCommitError,
     prelude::{
         CredentialWithKey, CryptoConfig, GroupId, LeafNodeIndex, MlsGroup as OpenMlsGroup,
         MlsGroupConfig, MlsMessageIn, MlsMessageInBody, PrivateMessageIn, ProcessedMessage,
@@ -14,15 +13,16 @@ use openmls::{
     prelude_test::KeyPackage,
 };
 use openmls_traits::OpenMlsProvider;
-use std::mem::{discriminant, Discriminant};
+use std::mem::discriminant;
 use thiserror::Error;
 use tls_codec::{Deserialize, Serialize};
 use xmtp_proto::api_client::{Envelope, XmtpApiClient, XmtpMlsClient};
 
-use self::intents::{AddMembersIntentData, IntentError, PostCommitAction, RemoveMembersIntentData};
+pub use self::intents::IntentError;
+use self::intents::{AddMembersIntentData, PostCommitAction, RemoveMembersIntentData};
 use crate::{
     api_client_wrapper::WelcomeMessage,
-    client::ClientError,
+    client::{ClientError, MessageProcessingError},
     configuration::CIPHERSUITE,
     identity::Identity,
     storage::{
@@ -68,40 +68,6 @@ pub enum GroupError {
     Generic(String),
     #[error("diesel error {0}")]
     Diesel(#[from] diesel::result::Error),
-}
-
-#[derive(Debug, Error)]
-pub enum MessageProcessingError {
-    #[error("[{0}] already processed")]
-    AlreadyProcessed(u64),
-    #[error("diesel error: {0}")]
-    Diesel(#[from] diesel::result::Error),
-    #[error("[{message_time_ns:?}] invalid sender with credential: {credential:?}")]
-    InvalidSender {
-        message_time_ns: u64,
-        credential: Vec<u8>,
-    },
-    #[error("openmls process message error: {0}")]
-    OpenMlsProcessMessage(#[from] openmls::prelude::ProcessMessageError),
-    #[error("merge pending commit: {0}")]
-    MergePendingCommit(#[from] openmls::group::MergePendingCommitError<StorageError>),
-    #[error("merge staged commit: {0}")]
-    MergeStagedCommit(#[from] openmls::group::MergeCommitError<StorageError>),
-    #[error(
-        "no pending commit to merge. group epoch is {group_epoch:?} and got {message_epoch:?}"
-    )]
-    NoPendingCommit {
-        message_epoch: GroupEpoch,
-        group_epoch: GroupEpoch,
-    },
-    #[error("intent error: {0}")]
-    Intent(#[from] IntentError),
-    #[error("storage error: {0}")]
-    Storage(#[from] crate::storage::StorageError),
-    #[error("tls deserialization: {0}")]
-    TlsDeserialization(#[from] tls_codec::Error),
-    #[error("unsupported message type: {0:?}")]
-    UnsupportedMessageType(Discriminant<MlsMessageInBody>),
 }
 
 pub struct MlsGroup<'c, ApiClient> {
@@ -300,7 +266,7 @@ where
 
     fn process_private_message(
         &self,
-        conn: &mut DbConnection,
+        transaction_manager: &mut DbConnection,
         openmls_group: &mut OpenMlsGroup,
         provider: &XmtpOpenMlsProvider,
         message: PrivateMessageIn,
@@ -310,71 +276,49 @@ where
             "[{}] processing private message",
             self.client.account_address()
         );
-        self.client.store.conn()?.transaction(
-            |transaction_manager| -> Result<(), MessageProcessingError> {
-                let is_updated = self.client.store.update_last_synced_timestamp_for_topic(
-                    transaction_manager,
-                    &self.topic(),
-                    envelope_timestamp_ns as i64,
-                )?;
-                if !is_updated {
-                    return Err(MessageProcessingError::AlreadyProcessed(
-                        envelope_timestamp_ns,
-                    ));
-                }
+        // TODO include provider in transaction
+        let decrypted_message = openmls_group.process_message(provider, message)?;
+        let (sender_account_address, sender_installation_id) =
+            self.validate_message_sender(openmls_group, &decrypted_message, envelope_timestamp_ns)?;
 
-                // TODO include provider in transaction
-                let decrypted_message = openmls_group.process_message(provider, message)?;
-                let (sender_account_address, sender_installation_id) = self
-                    .validate_message_sender(
-                        openmls_group,
-                        &decrypted_message,
-                        envelope_timestamp_ns,
-                    )?;
-
-                match decrypted_message.into_content() {
-                    ProcessedMessageContent::ApplicationMessage(application_message) => {
-                        let message_bytes = application_message.into_bytes();
-                        let message_id =
-                            get_message_id(&message_bytes, &self.group_id, envelope_timestamp_ns);
-                        let message = StoredGroupMessage {
-                            id: message_id,
-                            group_id: self.group_id.clone(),
-                            decrypted_message_bytes: message_bytes,
-                            sent_at_ns: envelope_timestamp_ns as i64,
-                            kind: GroupMessageKind::Application,
-                            sender_installation_id,
-                            sender_wallet_address: sender_account_address,
-                        };
-                        message.store(transaction_manager)?;
-                    }
-                    ProcessedMessageContent::ProposalMessage(_proposal_ptr) => {
-                        // intentionally left blank.
-                    }
-                    ProcessedMessageContent::ExternalJoinProposalMessage(
-                        _external_proposal_ptr,
-                    ) => {
-                        // intentionally left blank.
-                    }
-                    ProcessedMessageContent::StagedCommitMessage(staged_commit) => {
-                        debug!(
-                            "[{}] received staged commit. Merging and clearing any pending commits",
-                            self.client.account_address()
-                        );
-                        openmls_group.merge_staged_commit(provider, *staged_commit)?;
-                    }
+        match decrypted_message.into_content() {
+            ProcessedMessageContent::ApplicationMessage(application_message) => {
+                let message_bytes = application_message.into_bytes();
+                let message_id =
+                    get_message_id(&message_bytes, &self.group_id, envelope_timestamp_ns);
+                let message = StoredGroupMessage {
+                    id: message_id,
+                    group_id: self.group_id.clone(),
+                    decrypted_message_bytes: message_bytes,
+                    sent_at_ns: envelope_timestamp_ns as i64,
+                    kind: GroupMessageKind::Application,
+                    sender_installation_id,
+                    sender_wallet_address: sender_account_address,
                 };
+                message.store(transaction_manager)?;
+            }
+            ProcessedMessageContent::ProposalMessage(_proposal_ptr) => {
+                // intentionally left blank.
+            }
+            ProcessedMessageContent::ExternalJoinProposalMessage(_external_proposal_ptr) => {
+                // intentionally left blank.
+            }
+            ProcessedMessageContent::StagedCommitMessage(staged_commit) => {
+                debug!(
+                    "[{}] received staged commit. Merging and clearing any pending commits",
+                    self.client.account_address()
+                );
+                openmls_group.merge_staged_commit(provider, *staged_commit)?;
+            }
+        };
 
-                openmls_group.save(provider.key_store())?; // TODO include provider in transaction
-                Ok(())
-            },
-        )?;
+        openmls_group.save(provider.key_store())?; // TODO include provider in transaction
         Ok(())
     }
 
     fn process_message(
         &self,
-        conn: &mut DbConnection,
+        transaction_manager: &mut DbConnection,
         openmls_group: &mut OpenMlsGroup,
         provider: &XmtpOpenMlsProvider,
         envelope: &Envelope,
@@ -389,12 +333,12 @@ where
         }?;
 
         match EncryptedMessageStore::find_group_intent_by_payload_hash(
-            conn,
+            transaction_manager,
             sha256(envelope.message.as_slice()),
         ) {
             // Intent with the payload hash matches
             Ok(Some(intent)) => self.process_own_message(
-                conn,
+                transaction_manager,
                 intent,
                 openmls_group,
                 provider,
@@ -404,7 +348,7 @@ where
             Err(err) => Err(MessageProcessingError::Storage(err)),
             // No matching intent found
             Ok(None) => self.process_private_message(
-                conn,
+                transaction_manager,
                 openmls_group,
                 provider,
                 message,
@@ -417,15 +361,24 @@ where
         let mut conn = self.client.store.conn()?;
         let provider = self.client.mls_provider(&mut conn);
         let mut openmls_group = self.load_mls_group(&provider)?;
-        let conn = &mut self.client.store.conn()?;
         let receive_errors: Vec<MessageProcessingError> = envelopes
             .into_iter()
             .map(|envelope| -> Result<(), MessageProcessingError> {
-                self.process_message(conn, &mut openmls_group, &provider, &envelope)
+                self.client.process_for_topic(
+                    &self.topic(),
+                    envelope.timestamp_ns,
+                    |transaction_manager| -> Result<(), MessageProcessingError> {
+                        self.process_message(
+                            transaction_manager,
+                            &mut openmls_group,
+                            &provider,
+                            &envelope,
+                        )
+                    },
+                )
             })
             .filter_map(|result| result.err())
             .collect();
-        openmls_group.save(provider.key_store())?; // TODO handle concurrency
 
         if receive_errors.is_empty() {
             Ok(())
