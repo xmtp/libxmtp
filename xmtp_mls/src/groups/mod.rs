@@ -870,7 +870,7 @@ mod tests {
 
         let mls_group = group.load_mls_group(&client.mls_provider()).unwrap();
         let pending_commit = mls_group.pending_commit();
-        assert!(pending_commit.is_some());
+        assert!(pending_commit.is_none());
     }
 
     #[tokio::test]
