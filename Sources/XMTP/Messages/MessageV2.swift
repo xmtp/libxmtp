@@ -22,42 +22,55 @@ extension MessageV2 {
 		self.ciphertext = ciphertext
 	}
 
-	static func decode(_ message: MessageV2, keyMaterial: Data, client: Client) throws -> DecodedMessage {
+	static func decrypt(_ id: String, _ topic: String, _ message: MessageV2, keyMaterial: Data, client: Client) throws -> DecryptedMessage {
+		let decrypted = try Crypto.decrypt(keyMaterial, message.ciphertext, additionalData: message.headerBytes)
+		let signed = try SignedContent(serializedData: decrypted)
+
+		guard signed.sender.hasPreKey, signed.sender.hasIdentityKey else {
+			throw MessageV2Error.decodeError("missing sender pre-key or identity key")
+		}
+
+		let senderPreKey = try PublicKey(signed.sender.preKey)
+		let senderIdentityKey = try PublicKey(signed.sender.identityKey)
+
+		// This is a bit confusing since we're passing keyBytes as the digest instead of a SHA256 hash.
+		// That's because our underlying crypto library always SHA256's whatever data is sent to it for this.
+		if !(try senderPreKey.signature.verify(signedBy: senderIdentityKey, digest: signed.sender.preKey.keyBytes)) {
+			throw MessageV2Error.decodeError("pre-key not signed by identity key")
+		}
+
+		// Verify content signature
+		let key = try PublicKey.with { key in
+			key.secp256K1Uncompressed.bytes = try KeyUtilx.recoverPublicKeySHA256(from: signed.signature.rawData, message: Data(message.headerBytes + signed.payload))
+		}
+
+		if key.walletAddress != (try PublicKey(signed.sender.preKey).walletAddress) {
+			throw MessageV2Error.invalidSignature
+		}
+
+		let encodedMessage = try EncodedContent(serializedData: signed.payload)
+		let header = try MessageHeaderV2(serializedData: message.headerBytes)
+
+		return DecryptedMessage(
+			id: id,
+			encodedContent: encodedMessage,
+			senderAddress: try signed.sender.walletAddress,
+			sentAt: Date(timeIntervalSince1970: Double(header.createdNs / 1_000_000) / 1000),
+			topic: topic
+		)
+	}
+
+	static func decode(_ id: String, _ topic: String, _ message: MessageV2, keyMaterial: Data, client: Client) throws -> DecodedMessage {
 		do {
-			let decrypted = try Crypto.decrypt(keyMaterial, message.ciphertext, additionalData: message.headerBytes)
-			let signed = try SignedContent(serializedData: decrypted)
-
-			guard signed.sender.hasPreKey, signed.sender.hasIdentityKey else {
-				throw MessageV2Error.decodeError("missing sender pre-key or identity key")
-			}
-
-			let senderPreKey = try PublicKey(signed.sender.preKey)
-			let senderIdentityKey = try PublicKey(signed.sender.identityKey)
-
-			// This is a bit confusing since we're passing keyBytes as the digest instead of a SHA256 hash.
-			// That's because our underlying crypto library always SHA256's whatever data is sent to it for this.
-			if !(try senderPreKey.signature.verify(signedBy: senderIdentityKey, digest: signed.sender.preKey.keyBytes)) {
-				throw MessageV2Error.decodeError("pre-key not signed by identity key")
-			}
-
-			// Verify content signature
-			let key = try PublicKey.with { key in
-				key.secp256K1Uncompressed.bytes = try KeyUtilx.recoverPublicKeySHA256(from: signed.signature.rawData, message: Data(message.headerBytes + signed.payload))
-			}
-
-			if key.walletAddress != (try PublicKey(signed.sender.preKey).walletAddress) {
-				throw MessageV2Error.invalidSignature
-			}
-
-			let encodedMessage = try EncodedContent(serializedData: signed.payload)
-			let header = try MessageHeaderV2(serializedData: message.headerBytes)
+			let decryptedMessage = try decrypt(id, topic, message, keyMaterial: keyMaterial, client: client)
 
 			return DecodedMessage(
+				id: id,
 				client: client,
-				topic: header.topic,
-				encodedContent: encodedMessage,
-				senderAddress: try signed.sender.walletAddress,
-				sent: Date(timeIntervalSince1970: Double(header.createdNs / 1_000_000) / 1000)
+				topic: decryptedMessage.topic,
+				encodedContent: decryptedMessage.encodedContent,
+				senderAddress: decryptedMessage.senderAddress,
+				sent: decryptedMessage.sentAt
 			)
 		} catch {
 			print("ERROR DECODING: \(error)")

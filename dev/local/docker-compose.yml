@@ -2,7 +2,6 @@ version: "3.8"
 services:
   wakunode:
     image: xmtp/node-go
-    platform: linux/arm64
     environment:
       - GOWAKU-NODEKEY=8a30dcb604b0b53627a5adc054dbf434b446628d4bd1eccc681d223f0550ce67
     command:

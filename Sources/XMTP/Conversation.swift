@@ -221,6 +221,15 @@ public enum Conversation: Sendable {
 		}
 	}
 
+	public func decryptedMessages(limit: Int? = nil, before: Date? = nil, after: Date? = nil, direction: PagingInfoSortDirection? = .descending) async throws -> [DecryptedMessage] {
+		switch self {
+		case let .v1(conversationV1):
+			return try await conversationV1.decryptedMessages(limit: limit, before: before, after: after, direction: direction)
+		case let .v2(conversationV2):
+			return try await conversationV2.decryptedMessages(limit: limit, before: before, after: after, direction: direction)
+		}
+	}
+
 	var client: Client {
 		switch self {
 		case let .v1(conversationV1):

@@ -116,7 +116,7 @@ class RemoteAttachmentTests: XCTestCase {
 		XCTAssertThrowsError(try RemoteAttachment(url: tempFileURL.absoluteString, encryptedEncodedContent: encryptedEncodedContent)) { error in
 			switch error as! RemoteAttachmentError {
 			case let .invalidScheme(message):
-				XCTAssertEqual(message, "scheme must be https://")
+				XCTAssertEqual(message, "scheme must be https")
 			default:
 				XCTFail("did not raise correct error")
 			}

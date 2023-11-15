@@ -180,6 +180,17 @@ public struct ConversationV1 {
 		}
 	}
 
+	func decryptedMessages(limit: Int? = nil, before: Date? = nil, after: Date? = nil, direction: PagingInfoSortDirection? = .descending) async throws -> [DecryptedMessage] {
+		let pagination = Pagination(limit: limit, before: before, after: after, direction: direction)
+
+		let envelopes = try await client.apiClient.envelopes(
+						topic: Topic.directMessageV1(client.address, peerAddress).description,
+			pagination: pagination
+		)
+
+		return try envelopes.map { try decrypt(envelope: $0) }
+	}
+
 	func messages(limit: Int? = nil, before: Date? = nil, after: Date? = nil, direction: PagingInfoSortDirection? = .descending) async throws -> [DecodedMessage] {
 		let pagination = Pagination(limit: limit, before: before, after: after, direction: direction)
 
@@ -198,19 +209,25 @@ public struct ConversationV1 {
 		}
 	}
 
-	public func decode(envelope: Envelope) throws -> DecodedMessage {
+	func decrypt(envelope: Envelope) throws -> DecryptedMessage {
 		let message = try Message(serializedData: envelope.message)
 		let decrypted = try message.v1.decrypt(with: client.privateKeyBundleV1)
 
 		let encodedMessage = try EncodedContent(serializedData: decrypted)
 		let header = try message.v1.header
 
+		return DecryptedMessage(id: generateID(from: envelope), encodedContent: encodedMessage, senderAddress: header.sender.walletAddress, sentAt: message.v1.sentAt)
+	}
+
+	public func decode(envelope: Envelope) throws -> DecodedMessage {
+		let decryptedMessage = try decrypt(envelope: envelope)
+
 		var decoded = DecodedMessage(
 			client: client,
 			topic: envelope.contentTopic,
-			encodedContent: encodedMessage,
-			senderAddress: header.sender.walletAddress,
-			sent: message.v1.sentAt
+			encodedContent: decryptedMessage.encodedContent,
+			senderAddress: decryptedMessage.senderAddress,
+			sent: decryptedMessage.sentAt
 		)
 
 		decoded.id = generateID(from: envelope)

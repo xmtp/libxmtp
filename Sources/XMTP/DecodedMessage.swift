@@ -23,6 +23,22 @@ public struct DecodedMessage: Sendable {
 
 	public var client: Client
 
+	init(
+		id: String,
+		client: Client,
+		topic: String,
+		encodedContent: EncodedContent,
+		senderAddress: String,
+		sent: Date
+	) {
+		self.id = id
+		self.client = client
+		self.topic = topic
+		self.encodedContent = encodedContent
+		self.senderAddress = senderAddress
+		self.sent = sent
+}
+
     public init(
 			client: Client,
 			topic: String,
