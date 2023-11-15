@@ -8,7 +8,7 @@ use intents::SendMessageIntentData;
 use log::debug;
 use openmls::{
     framing::ProtocolMessage,
-    group::GroupEpoch,
+    group::{GroupEpoch, MergePendingCommitError},
     prelude::{
         CredentialWithKey, CryptoConfig, GroupId, LeafNodeIndex, MlsGroup as OpenMlsGroup,
         MlsGroupConfig, MlsMessageIn, MlsMessageInBody, PrivateMessageIn, ProcessedMessage,
@@ -84,8 +84,10 @@ pub enum MessageProcessingError {
     MergePendingCommit(#[from] openmls::group::MergePendingCommitError<StorageError>),
     #[error("merge staged commit: {0}")]
     MergeStagedCommit(#[from] openmls::group::MergeCommitError<StorageError>),
-    #[error("wrong epoch. expected {group_epoch:?} and got {message_epoch:?}")]
-    WrongEpoch {
+    #[error(
+        "no pending commit to merge. group epoch is {group_epoch:?} and got {message_epoch:?}"
+    )]
+    NoPendingCommit {
         message_epoch: GroupEpoch,
         group_epoch: GroupEpoch,
     },
@@ -242,36 +244,37 @@ where
             intent.id,
             intent.kind
         );
-        let message_epoch = message.epoch();
-        let group_epoch = openmls_group.epoch();
-
-        // TODO: Figure out if we really need to do this for application messages
-        // With the max_past_epochs flag this likely isn't necessary
-        if group_epoch != message_epoch {
-            log::warn!(
-                "wrong epoch. expected {}. received {}",
-                group_epoch,
-                message_epoch
-            );
-            // All other intent kinds create pending commits. They need to be cleared
-            if intent.kind != IntentKind::SendMessage {
-                openmls_group.clear_pending_commit();
-            }
-            // Revert intent to ToPublish state
-            self.client
-                .store
-                .set_group_intent_to_publish(conn, intent.id)?;
-
-            return Err(MessageProcessingError::WrongEpoch {
-                message_epoch,
-                group_epoch,
-            });
-        }
 
         match intent.kind {
             IntentKind::AddMembers | IntentKind::RemoveMembers | IntentKind::KeyUpdate => {
+                // We don't get errors with merge_pending_commit when there are no commits to merge
+                if openmls_group.pending_commit().is_none() {
+                    let message_epoch = message.epoch();
+                    let group_epoch = openmls_group.epoch();
+                    debug!(
+                        "no pending commit to merge. Group epoch: {}. Message epoch: {}",
+                        group_epoch, message_epoch
+                    );
+                    self.client
+                        .store
+                        .set_group_intent_to_publish(conn, intent.id)?;
+
+                    return Err(MessageProcessingError::NoPendingCommit {
+                        message_epoch,
+                        group_epoch,
+                    });
+                }
                 debug!("[{}] merging pending commit", self.client.account_address());
-                openmls_group.merge_pending_commit(provider)?;
+                match openmls_group.merge_pending_commit(provider) {
+                    Err(MergePendingCommitError::MlsGroupStateError(err)) => {
+                        debug!("error merging commit: {}", err);
+                        openmls_group.clear_pending_commit();
+                        self.client
+                            .store
+                            .set_group_intent_to_publish(conn, intent.id)?;
+                    }
+                    _ => (),
+                };
                 // TOOD: Handle writing transcript messages for adding/removing members
             }
             IntentKind::SendMessage => {
@@ -338,7 +341,10 @@ where
                 // intentionally left blank.
             }
             ProcessedMessageContent::StagedCommitMessage(staged_commit) => {
-                debug!("[{}] received staged commit", self.client.account_address());
+                debug!(
+                    "[{}] received staged commit. Merging and clearing any pending commits",
+                    self.client.account_address()
+                );
                 openmls_group.merge_staged_commit(provider, *staged_commit)?;
             }
         }
@@ -736,7 +742,6 @@ mod tests {
             .add_members_by_installation_id(vec![charlie.installation_public_key()])
             .await
             .expect("failed to add charlie");
-
         bola_group
             .add_members_by_installation_id(vec![charlie.installation_public_key()])
             .await
