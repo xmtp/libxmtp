@@ -254,7 +254,8 @@ where
     }
 
     pub fn process_messages(&self, envelopes: Vec<Envelope>) -> Result<(), GroupError> {
-        let provider = self.client.mls_provider();
+        let mut conn = self.client.store.conn()?;
+        let provider = self.client.mls_provider(&mut conn);
         let mut openmls_group = self.load_mls_group(&provider)?;
         let receive_errors: Vec<MessageProcessingError> = envelopes
             .into_iter()

@@ -88,25 +88,6 @@ where
         }
     }
 
-    /// Build this struct
-    /// # Arguments
-    /// * `strat`: the [`IdentityStrategy`] for this client
-    ///
-    /// # Example
-    ///
-    ///  TODO: Fix this example
-    ///  ```no_run
-    ///  Client::builder()
-    ///     .api_client(api_client)
-    ///     .network(Network::Dev)
-    ///     .build()
-    ///  ```
-    pub fn builder<Owner: crate::InboxOwner>(
-        strat: IdentityStrategy<Owner>,
-    ) -> ClientBuilder<ApiClient, Owner> {
-        ClientBuilder::new(strat)
-    }
-
     // TODO: Remove this and figure out the correct lifetimes to allow long lived provider
     pub fn mls_provider(&self, conn: &'a mut DbConnection) -> XmtpOpenMlsProvider<'a> {
         XmtpOpenMlsProvider::new(conn)
@@ -141,8 +122,9 @@ where
     pub async fn register_identity(&self) -> Result<(), ClientError> {
         // TODO: Mark key package as last_resort in creation
         let mut connection = self.store.conn()?;
-        let mls_provider = XmtpOpenMlsProvider::new(&mut connection);
-        let last_resort_kp = self.identity.new_key_package(&mls_provider)?;
+        let last_resort_kp = self
+            .identity
+            .new_key_package(&self.mls_provider(&mut connection))?;
         let last_resort_kp_bytes = last_resort_kp.tls_serialize_detached()?;
 
         self.api_client
@@ -221,7 +203,6 @@ where
     pub async fn sync_welcomes(&self) -> Result<Vec<MlsGroup<ApiClient>>, ClientError> {
         let welcome_topic = get_welcome_topic(&self.installation_public_key());
         let mut conn = self.store.conn()?;
-        let provider = self.mls_provider();
         // TODO: Use the last_message_timestamp_ns field on the TopicRefreshState to only fetch new messages
         // Waiting for more atomic update methods
         let envelopes = self.api_client.read_topic(&welcome_topic, 0).await?;
@@ -229,24 +210,32 @@ where
         let groups: Vec<MlsGroup<ApiClient>> = envelopes
             .into_iter()
             .filter_map(|envelope| {
-                // TODO: Wrap in a transaction
-                let welcome = match extract_welcome(&envelope.message) {
-                    Ok(welcome) => welcome,
-                    Err(err) => {
-                        log::error!("failed to extract welcome: {}", err);
-                        return None;
-                    }
-                };
+                XmtpOpenMlsProvider::transaction(&mut conn, |provider| {
+                    let welcome = match extract_welcome(&envelope.message) {
+                        Ok(welcome) => welcome,
+                        Err(err) => {
+                            log::error!("failed to extract welcome: {}", err);
+                            return Ok::<_, ClientError>(None);
+                        }
+                    };
 
-                // TODO: Update last_message_timestamp_ns on success or non-retryable error
-                // TODO: Abort if error is retryable
-                match MlsGroup::create_from_welcome(self, &mut conn, &provider, welcome) {
-                    Ok(mls_group) => Some(mls_group),
-                    Err(err) => {
-                        log::error!("failed to create group from welcome: {}", err);
-                        None
+                    // TODO: Update last_message_timestamp_ns on success or non-retryable error
+                    // TODO: Abort if error is retryable
+                    match MlsGroup::create_from_welcome(
+                        self,
+                        *provider.conn().borrow_mut(),
+                        &provider,
+                        welcome,
+                    ) {
+                        Ok(mls_group) => Ok(Some(mls_group)),
+                        Err(err) => {
+                            log::error!("failed to create group from welcome: {}", err);
+                            Ok(None)
+                        }
                     }
-                }
+                })
+                .ok()
+                .flatten()
             })
             .collect();
 
@@ -277,7 +266,7 @@ fn extract_welcome(welcome_bytes: &Vec<u8>) -> Result<Welcome, ClientError> {
 mod tests {
     use xmtp_cryptography::utils::generate_local_wallet;
 
-    use crate::{builder::ClientBuilder, InboxOwner};
+    use crate::{builder::ClientBuilder, storage::EncryptedMessageStore, InboxOwner};
 
     #[tokio::test]
     async fn test_mls_error() {
@@ -331,16 +320,16 @@ mod tests {
 
         // Manually mark as committed
         // TODO: Replace with working synchronization once we can add members end to end
-        let intents = alice
-            .store
-            .find_group_intents(conn, alice_bob_group.group_id.clone(), None, None)
-            .unwrap();
+        let intents = EncryptedMessageStore::find_group_intents(
+            conn,
+            alice_bob_group.group_id.clone(),
+            None,
+            None,
+        )
+        .unwrap();
         let intent = intents.first().unwrap();
         // Set the intent to committed manually
-        alice
-            .store
-            .set_group_intent_committed(conn, intent.id)
-            .unwrap();
+        EncryptedMessageStore::set_group_intent_committed(conn, intent.id).unwrap();
 
         alice_bob_group.post_commit(conn).await.unwrap();
 

@@ -160,7 +160,8 @@ mod tests {
     #[test]
     fn test_key_package_extensions() {
         let store = EncryptedMessageStore::new_test();
-        let provider = XmtpOpenMlsProvider::new(&store);
+        let mut conn = store.conn().unwrap();
+        let provider = XmtpOpenMlsProvider::new(&mut conn);
         let identity = Identity::new(&store, &provider, &generate_local_wallet()).unwrap();
 
         let new_key_package = identity.new_key_package(&provider).unwrap();
