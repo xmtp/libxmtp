@@ -1,6 +1,8 @@
 use openmls::{
+    extensions::LastResortExtension,
     prelude::{
-        Credential, CredentialType, CredentialWithKey, CryptoConfig, KeyPackage, KeyPackageNewError,
+        Capabilities, Credential, CredentialType, CredentialWithKey, CryptoConfig, Extension,
+        ExtensionType, Extensions, KeyPackage, KeyPackageNewError,
     },
     versions::ProtocolVersion,
 };
@@ -32,6 +34,8 @@ pub enum IdentityError {
     StorageError(#[from] StorageError),
     #[error("generating key package")]
     KeyPackageGenerationError(#[from] KeyPackageNewError<StorageError>),
+    #[error("deserialization")]
+    Deserialization(#[from] prost::DecodeError),
 }
 
 #[derive(Debug)]
@@ -52,27 +56,13 @@ impl<'a> Identity {
 
         let credential = Identity::create_credential(&signature_keys, owner)?;
 
-        // The builder automatically stores it in the key store
-        // TODO: Make OpenMLS not delete this once used
-        let _last_resort_key_package = KeyPackage::builder().build(
-            CryptoConfig {
-                ciphersuite: CIPHERSUITE,
-                version: ProtocolVersion::default(),
-            },
-            provider,
-            &signature_keys,
-            CredentialWithKey {
-                credential: credential.clone(),
-                signature_key: signature_keys.to_public_vec().into(),
-            },
-        )?;
-
         let identity = Self {
             account_address: owner.get_address(),
             installation_keys: signature_keys,
             credential,
         };
 
+        identity.new_key_package(provider)?;
         StoredIdentity::from(&identity).store(&mut store.conn()?)?;
         // StoredIdentity::from(&identity).store(*provider.conn().borrow_mut())?;
 
@@ -81,22 +71,37 @@ impl<'a> Identity {
         Ok(identity)
     }
 
+    // ONLY CREATES LAST RESORT KEY PACKAGES
+    // TODO: Implement key package rotation https://github.com/xmtp/libxmtp/issues/293
     pub(crate) fn new_key_package(
         &self,
         provider: &XmtpOpenMlsProvider,
     ) -> Result<KeyPackage, IdentityError> {
-        let kp = KeyPackage::builder().build(
-            CryptoConfig {
-                ciphersuite: CIPHERSUITE,
-                version: ProtocolVersion::default(),
-            },
-            provider,
-            &self.installation_keys,
-            CredentialWithKey {
-                credential: self.credential.clone(),
-                signature_key: self.installation_keys.to_public_vec().into(),
-            },
-        )?;
+        let last_resort = Extension::LastResort(LastResortExtension::default());
+        let extensions = Extensions::single(last_resort);
+        let capabilities = Capabilities::new(
+            None,
+            Some(&[CIPHERSUITE]),
+            Some(&[ExtensionType::LastResort]),
+            None,
+            None,
+        );
+        // TODO: Set expiration
+        let kp = KeyPackage::builder()
+            .leaf_node_capabilities(capabilities)
+            .key_package_extensions(extensions)
+            .build(
+                CryptoConfig {
+                    ciphersuite: CIPHERSUITE,
+                    version: ProtocolVersion::default(),
+                },
+                provider,
+                &self.installation_keys,
+                CredentialWithKey {
+                    credential: self.credential.clone(),
+                    signature_key: self.installation_keys.to_public_vec().into(),
+                },
+            )?;
 
         Ok(kp)
     }
@@ -119,11 +124,26 @@ impl<'a> Identity {
         // Serialize into credential
         Ok(Credential::new(association_proto.encode_to_vec(), CredentialType::Basic).unwrap())
     }
+
+    pub(crate) fn get_validated_account_address(
+        credential: &[u8],
+        installation_public_key: &[u8],
+    ) -> Result<String, IdentityError> {
+        let proto = Eip191AssociationProto::decode(credential)?;
+        let expected_wallet_address = proto.wallet_address.clone();
+        let association = Eip191Association::from_proto_with_expected_address(
+            installation_public_key,
+            proto,
+            expected_wallet_address,
+        )?;
+
+        Ok(association.address())
+    }
 }
 
 #[cfg(test)]
 mod tests {
-    use std::error::Error;
+    use openmls::prelude::ExtensionType;
     use xmtp_cryptography::utils::generate_local_wallet;
 
     use super::Identity;
@@ -134,11 +154,19 @@ mod tests {
         let store = EncryptedMessageStore::new_test();
         let mut conn = store.conn().unwrap();
         let provider = XmtpOpenMlsProvider::new(&mut conn);
-        let result = Identity::new(&store, &provider, &generate_local_wallet());
-        if let Err(e) = result {
-            println!("{:?}", e);
-            println!("{:?}", e.source());
-            panic!("d");
-        }
+        Identity::new(&store, &provider, &generate_local_wallet()).unwrap();
+    }
+
+    #[test]
+    fn test_key_package_extensions() {
+        let store = EncryptedMessageStore::new_test();
+        let provider = XmtpOpenMlsProvider::new(&store);
+        let identity = Identity::new(&store, &provider, &generate_local_wallet()).unwrap();
+
+        let new_key_package = identity.new_key_package(&provider).unwrap();
+        assert!(new_key_package
+            .extensions()
+            .contains(ExtensionType::LastResort));
+        assert!(new_key_package.last_resort())
     }
 }

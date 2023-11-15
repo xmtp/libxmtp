@@ -1,13 +1,11 @@
 use openmls::prelude::{KeyPackage, KeyPackageIn, KeyPackageVerifyError};
 use openmls_traits::OpenMlsProvider;
-use prost::{DecodeError, Message};
 use thiserror::Error;
 use tls_codec::{Deserialize, Error as TlsSerializationError};
-use xmtp_proto::xmtp::v3::message_contents::Eip191Association as Eip191AssociationProto;
 
 use crate::{
-    association::{AssociationError, Eip191Association},
     configuration::MLS_PROTOCOL_VERSION,
+    identity::{Identity, IdentityError},
     xmtp_openmls_provider::XmtpOpenMlsProvider,
 };
 
@@ -17,10 +15,8 @@ pub enum KeyPackageVerificationError {
     Serialization(#[from] TlsSerializationError),
     #[error("mls validation: {0}")]
     MlsValidation(#[from] KeyPackageVerifyError),
-    #[error("association: {0}")]
-    Association(#[from] AssociationError),
-    #[error("decode: {0}")]
-    Decode(#[from] DecodeError),
+    #[error("identity: {0}")]
+    Identity(#[from] IdentityError),
     #[error("generic: {0}")]
     Generic(String),
 }
@@ -66,15 +62,11 @@ impl VerifiedKeyPackage {
 }
 
 fn identity_to_wallet_address(
-    identity_bytes: &[u8],
-    pub_key_bytes: &[u8],
+    credential_bytes: &[u8],
+    installation_key_bytes: &[u8],
 ) -> Result<String, KeyPackageVerificationError> {
-    let proto_value = Eip191AssociationProto::decode(identity_bytes)?;
-    let association = Eip191Association::from_proto_with_expected_address(
-        pub_key_bytes,
-        proto_value.clone(),
-        proto_value.wallet_address,
-    )?;
-
-    Ok(association.address())
+    Ok(Identity::get_validated_account_address(
+        credential_bytes,
+        installation_key_bytes,
+    )?)
 }

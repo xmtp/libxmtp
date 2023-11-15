@@ -1,18 +1,21 @@
 use std::collections::HashSet;
 
-use openmls::prelude::TlsSerializeTrait;
+use openmls::{
+    framing::{MlsMessageIn, MlsMessageInBody},
+    messages::Welcome,
+    prelude::TlsSerializeTrait,
+};
 use thiserror::Error;
-use tls_codec::Error as TlsSerializationError;
+use tls_codec::{Deserialize, Error as TlsSerializationError};
 use xmtp_proto::api_client::{XmtpApiClient, XmtpMlsClient};
 
 use crate::{
     api_client_wrapper::{ApiClientWrapper, IdentityUpdate},
-    builder::{ClientBuilder, IdentityStrategy},
-    configuration::KEY_PACKAGE_TOP_UP_AMOUNT,
     groups::MlsGroup,
     identity::Identity,
     storage::{group::GroupMembershipState, DbConnection, EncryptedMessageStore, StorageError},
     types::Address,
+    utils::topic::get_welcome_topic,
     verified_key_package::{KeyPackageVerificationError, VerifiedKeyPackage},
     xmtp_openmls_provider::XmtpOpenMlsProvider,
 };
@@ -41,6 +44,8 @@ pub enum ClientError {
     Serialization(#[from] TlsSerializationError),
     #[error("key package verification: {0}")]
     KeyPackageVerification(#[from] KeyPackageVerificationError),
+    #[error("message processing: {0}")]
+    MessageProcessing(#[from] crate::groups::MessageProcessingError),
     #[error("generic:{0}")]
     Generic(String),
 }
@@ -59,10 +64,10 @@ impl From<&str> for ClientError {
 
 #[derive(Debug)]
 pub struct Client<ApiClient> {
-    pub api_client: ApiClientWrapper<ApiClient>,
+    pub(crate) api_client: ApiClientWrapper<ApiClient>,
     pub(crate) _network: Network,
     pub(crate) identity: Identity,
-    pub store: EncryptedMessageStore, // Temporarily exposed outside crate for CLI client
+    pub(crate) store: EncryptedMessageStore,
 }
 
 impl<'a, ApiClient> Client<ApiClient>
@@ -147,23 +152,6 @@ where
         Ok(())
     }
 
-    pub async fn top_up_key_packages(&self) -> Result<(), ClientError> {
-        let mut connection = self.store.conn()?;
-        let mls_provider = XmtpOpenMlsProvider::new(&mut connection);
-        let key_packages: Result<Vec<Vec<u8>>, ClientError> = (0..KEY_PACKAGE_TOP_UP_AMOUNT)
-            .map(|_| -> Result<Vec<u8>, ClientError> {
-                let kp = self.identity.new_key_package(&mls_provider)?;
-                let kp_bytes = kp.tls_serialize_detached()?;
-
-                Ok(kp_bytes)
-            })
-            .collect();
-
-        self.api_client.upload_key_packages(key_packages?).await?;
-
-        Ok(())
-    }
-
     async fn get_all_active_installation_ids(
         &self,
         wallet_addresses: Vec<String>,
@@ -228,12 +216,60 @@ where
             .collect::<Result<_, _>>()?)
     }
 
+    // Download all unread welcome messages and convert to groups.
+    // Returns any new groups created in the operation
+    pub async fn sync_welcomes(&self) -> Result<Vec<MlsGroup<ApiClient>>, ClientError> {
+        let welcome_topic = get_welcome_topic(&self.installation_public_key());
+        let mut conn = self.store.conn()?;
+        let provider = self.mls_provider();
+        // TODO: Use the last_message_timestamp_ns field on the TopicRefreshState to only fetch new messages
+        // Waiting for more atomic update methods
+        let envelopes = self.api_client.read_topic(&welcome_topic, 0).await?;
+
+        let groups: Vec<MlsGroup<ApiClient>> = envelopes
+            .into_iter()
+            .filter_map(|envelope| {
+                // TODO: Wrap in a transaction
+                let welcome = match extract_welcome(&envelope.message) {
+                    Ok(welcome) => welcome,
+                    Err(err) => {
+                        log::error!("failed to extract welcome: {}", err);
+                        return None;
+                    }
+                };
+
+                // TODO: Update last_message_timestamp_ns on success or non-retryable error
+                // TODO: Abort if error is retryable
+                match MlsGroup::create_from_welcome(self, &mut conn, &provider, welcome) {
+                    Ok(mls_group) => Some(mls_group),
+                    Err(err) => {
+                        log::error!("failed to create group from welcome: {}", err);
+                        None
+                    }
+                }
+            })
+            .collect();
+
+        Ok(groups)
+    }
+
     pub fn account_address(&self) -> Address {
         self.identity.account_address.clone()
     }
 
     pub fn installation_public_key(&self) -> Vec<u8> {
         self.identity.installation_keys.to_public_vec()
+    }
+}
+
+fn extract_welcome(welcome_bytes: &Vec<u8>) -> Result<Welcome, ClientError> {
+    // let welcome_proto = WelcomeMessageProto::decode(&mut welcome_bytes.as_slice())?;
+    let welcome = MlsMessageIn::tls_deserialize(&mut welcome_bytes.as_slice())?;
+    match welcome.extract() {
+        MlsMessageInBody::Welcome(welcome) => Ok(welcome),
+        _ => Err(ClientError::Generic(
+            "unexpected message type in welcome".to_string(),
+        )),
     }
 }
 
@@ -268,38 +304,6 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_top_up_key_packages() {
-        let wallet = generate_local_wallet();
-        let wallet_address = wallet.get_address();
-        let client = ClientBuilder::new_test_client(wallet.clone().into()).await;
-
-        client.register_identity().await.unwrap();
-        client.top_up_key_packages().await.unwrap();
-
-        let key_packages = client
-            .get_key_packages_for_wallet_addresses(vec![wallet_address.clone()])
-            .await
-            .unwrap();
-
-        assert_eq!(key_packages.len(), 1);
-
-        let key_package = key_packages.first().unwrap();
-        assert_eq!(key_package.wallet_address, wallet_address);
-
-        let key_packages_2 = client
-            .get_key_packages_for_wallet_addresses(vec![wallet_address.clone()])
-            .await
-            .unwrap();
-
-        assert_eq!(key_packages_2.len(), 1);
-
-        // Ensure we got back different key packages
-        let key_package_2 = key_packages_2.first().unwrap();
-        assert_eq!(key_package_2.wallet_address, wallet_address);
-        assert!(!(key_package_2.eq(key_package)));
-    }
-
-    #[tokio::test]
     async fn test_find_groups() {
         let client = ClientBuilder::new_test_client(generate_local_wallet().into()).await;
         let group_1 = client.create_group().unwrap();
@@ -309,5 +313,42 @@ mod tests {
         assert_eq!(groups.len(), 2);
         assert_eq!(groups[0].group_id, group_1.group_id);
         assert_eq!(groups[1].group_id, group_2.group_id);
+    }
+
+    #[tokio::test]
+    async fn test_sync_welcomes() {
+        let alice = ClientBuilder::new_test_client(generate_local_wallet().into()).await;
+        alice.register_identity().await.unwrap();
+        let bob = ClientBuilder::new_test_client(generate_local_wallet().into()).await;
+        bob.register_identity().await.unwrap();
+
+        let conn = &mut alice.store.conn().unwrap();
+        let alice_bob_group = alice.create_group().unwrap();
+        alice_bob_group
+            .add_members_by_installation_id(vec![bob.installation_public_key()])
+            .await
+            .unwrap();
+
+        // Manually mark as committed
+        // TODO: Replace with working synchronization once we can add members end to end
+        let intents = alice
+            .store
+            .find_group_intents(conn, alice_bob_group.group_id.clone(), None, None)
+            .unwrap();
+        let intent = intents.first().unwrap();
+        // Set the intent to committed manually
+        alice
+            .store
+            .set_group_intent_committed(conn, intent.id)
+            .unwrap();
+
+        alice_bob_group.post_commit(conn).await.unwrap();
+
+        let bob_received_groups = bob.sync_welcomes().await.unwrap();
+        assert_eq!(bob_received_groups.len(), 1);
+        assert_eq!(
+            bob_received_groups.first().unwrap().group_id,
+            alice_bob_group.group_id
+        );
     }
 }
