@@ -144,15 +144,18 @@ mod tests {
 
     #[test]
     fn it_does_not_error_on_empty_messages() {
-        with_store(|store, mut conn| {
+        with_store(|mut conn| {
             let id = vec![0x0];
-            assert_ok!(store.get_group_message(&id, &mut conn), None);
+            assert_ok!(
+                EncryptedMessageStore::get_group_message(&id, &mut conn),
+                None
+            );
         })
     }
 
     #[test]
     fn it_gets_messages() {
-        with_store(|store, mut conn| {
+        with_store(|mut conn| {
             let group = generate_group(None);
             let message = generate_message(None, Some(&group.id), None);
             group.store(&mut conn).unwrap();
@@ -160,7 +163,7 @@ mod tests {
 
             message.store(&mut conn).unwrap();
 
-            let stored_message = store.get_group_message(&id, &mut conn);
+            let stored_message = EncryptedMessageStore::get_group_message(&id, &mut conn);
             assert_ok!(stored_message, Some(message));
         })
     }
@@ -169,7 +172,7 @@ mod tests {
     fn it_cannot_insert_message_without_group() {
         use diesel::result::{DatabaseErrorKind::ForeignKeyViolation, Error::DatabaseError};
 
-        with_store(|_, mut conn| {
+        with_store(|mut conn| {
             let message = generate_message(None, None, None);
             assert_err!(
                 message.store(&mut conn),
@@ -182,7 +185,7 @@ mod tests {
     fn it_gets_many_messages() {
         use crate::storage::encrypted_store::schema::group_messages::dsl;
 
-        with_store(|store, mut conn| {
+        with_store(|mut conn| {
             let group = generate_group(None);
             group.store(&mut conn).unwrap();
 
@@ -197,16 +200,17 @@ mod tests {
                 .unwrap();
             assert_eq!(count, 50);
 
-            let messages = store
-                .get_group_messages(&mut conn, &group.id, None, None, None, None)
-                .unwrap();
+            let messages = EncryptedMessageStore::get_group_messages(
+                &mut conn, &group.id, None, None, None, None,
+            )
+            .unwrap();
             assert_eq!(messages.len(), 50);
         })
     }
 
     #[test]
     fn it_gets_messages_by_time() {
-        with_store(|store, mut conn| {
+        with_store(|mut conn| {
             let group = generate_group(None);
             group.store(&mut conn).unwrap();
 
@@ -217,27 +221,45 @@ mod tests {
                 generate_message(None, Some(&group.id), Some(1_000_000)),
             ];
             assert_ok!(messages.store(&mut conn));
-            let message = store
-                .get_group_messages(&mut conn, &group.id, Some(1_000), Some(100_000), None, None)
-                .unwrap();
+            let message = EncryptedMessageStore::get_group_messages(
+                &mut conn,
+                &group.id,
+                Some(1_000),
+                Some(100_000),
+                None,
+                None,
+            )
+            .unwrap();
             assert_eq!(message.len(), 1);
             assert_eq!(message.first().unwrap().sent_at_ns, 10_000);
 
-            let messages = store
-                .get_group_messages(&mut conn, &group.id, None, Some(100_000), None, None)
-                .unwrap();
+            let messages = EncryptedMessageStore::get_group_messages(
+                &mut conn,
+                &group.id,
+                None,
+                Some(100_000),
+                None,
+                None,
+            )
+            .unwrap();
             assert_eq!(messages.len(), 2);
 
-            let messages = store
-                .get_group_messages(&mut conn, &group.id, Some(10_000), None, None, None)
-                .unwrap();
+            let messages = EncryptedMessageStore::get_group_messages(
+                &mut conn,
+                &group.id,
+                Some(10_000),
+                None,
+                None,
+                None,
+            )
+            .unwrap();
             assert_eq!(messages.len(), 2);
         })
     }
 
     #[test]
     fn it_gets_messages_by_kind() {
-        with_store(|store, mut conn| {
+        with_store(|mut conn| {
             let group = generate_group(None);
             group.store(&mut conn).unwrap();
 
@@ -271,40 +293,37 @@ mod tests {
                 }
             }
 
-            let application_messages = store
-                .get_group_messages(
-                    &mut conn,
-                    &group.id,
-                    None,
-                    None,
-                    Some(GroupMessageKind::Application),
-                    None,
-                )
-                .unwrap();
+            let application_messages = EncryptedMessageStore::get_group_messages(
+                &mut conn,
+                &group.id,
+                None,
+                None,
+                Some(GroupMessageKind::Application),
+                None,
+            )
+            .unwrap();
             assert_eq!(application_messages.len(), 10);
 
-            let member_removed = store
-                .get_group_messages(
-                    &mut conn,
-                    &group.id,
-                    None,
-                    None,
-                    Some(GroupMessageKind::MemberAdded),
-                    None,
-                )
-                .unwrap();
+            let member_removed = EncryptedMessageStore::get_group_messages(
+                &mut conn,
+                &group.id,
+                None,
+                None,
+                Some(GroupMessageKind::MemberAdded),
+                None,
+            )
+            .unwrap();
             assert_eq!(member_removed.len(), 10);
 
-            let member_added = store
-                .get_group_messages(
-                    &mut conn,
-                    &group.id,
-                    None,
-                    None,
-                    Some(GroupMessageKind::MemberRemoved),
-                    None,
-                )
-                .unwrap();
+            let member_added = EncryptedMessageStore::get_group_messages(
+                &mut conn,
+                &group.id,
+                None,
+                None,
+                Some(GroupMessageKind::MemberRemoved),
+                None,
+            )
+            .unwrap();
             assert_eq!(member_added.len(), 10);
         })
     }

@@ -41,7 +41,7 @@ pub struct Identity {
     pub(crate) credential: Credential,
 }
 
-impl Identity {
+impl<'a> Identity {
     pub(crate) fn new(
         store: &EncryptedMessageStore,
         provider: &XmtpOpenMlsProvider,
@@ -72,6 +72,7 @@ impl Identity {
             installation_keys: signature_keys,
             credential,
         };
+
         StoredIdentity::from(&identity).store(&mut store.conn()?)?;
 
         // TODO: upload credential_with_key and last_resort_key_package
@@ -129,11 +130,8 @@ mod tests {
     #[test]
     fn does_not_error() {
         let store = EncryptedMessageStore::new_test();
-        Identity::new(
-            &store,
-            &XmtpOpenMlsProvider::new(&store),
-            &generate_local_wallet(),
-        )
-        .unwrap();
+        let mut conn = store.conn().unwrap();
+        let provider = XmtpOpenMlsProvider::new(&mut conn);
+        Identity::new(&provider, &generate_local_wallet()).unwrap();
     }
 }

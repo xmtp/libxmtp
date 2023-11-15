@@ -1,7 +1,10 @@
+use std::cell::RefCell;
+
+use diesel::Connection;
 use openmls_rust_crypto::RustCrypto;
 use openmls_traits::OpenMlsProvider;
 
-use crate::storage::{sql_key_store::SqlKeyStore, DbConnection, EncryptedMessageStore};
+use crate::storage::{sql_key_store::SqlKeyStore, DbConnection};
 
 #[derive(Debug)]
 pub struct XmtpOpenMlsProvider<'a> {
@@ -10,15 +13,40 @@ pub struct XmtpOpenMlsProvider<'a> {
 }
 
 impl<'a> XmtpOpenMlsProvider<'a> {
-    pub fn new(conn: &mut DbConnection) -> Self {
+    pub fn new(conn: &'a mut DbConnection) -> Self {
         Self {
             crypto: RustCrypto::default(),
             key_store: SqlKeyStore::new(conn),
         }
     }
 
-    pub fn conn(&self) -> &mut DbConnection {
+    pub(crate) fn conn(&self) -> &RefCell<&'a mut DbConnection> {
         self.key_store.conn()
+    }
+
+    /// Start a new database transaction with the OpenMLS Provider from XMTP
+    /// # Arguments
+    /// `fun`: Scoped closure providing a MLSProvider to carry out the transaction
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// let connection = EncryptedMessageStore::new_unencrypted(StorageOptions::default());
+    /// XmtpOpenMlsProvider::transaction(conn, |provider| {
+    ///     // do some operations requiring provider
+    ///     // access the connection with .conn()
+    ///     provider.conn().borrow_mut()
+    /// })
+    /// ```
+    pub fn transaction<T, F, E>(connection: &mut DbConnection, fun: F) -> Result<T, E>
+    where
+        F: FnOnce(XmtpOpenMlsProvider) -> Result<T, E>,
+        E: From<diesel::result::Error>,
+    {
+        connection.transaction(|conn| {
+            let provider = XmtpOpenMlsProvider::new(conn);
+            fun(provider)
+        })
     }
 }
 

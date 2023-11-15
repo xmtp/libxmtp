@@ -7,6 +7,7 @@ use xmtp_proto::api_client::{XmtpApiClient, XmtpMlsClient};
 
 use crate::{
     api_client_wrapper::{ApiClientWrapper, IdentityUpdate},
+    builder::{ClientBuilder, IdentityStrategy},
     configuration::KEY_PACKAGE_TOP_UP_AMOUNT,
     groups::MlsGroup,
     identity::Identity,
@@ -64,7 +65,7 @@ pub struct Client<ApiClient> {
     pub store: EncryptedMessageStore, // Temporarily exposed outside crate for CLI client
 }
 
-impl<ApiClient> Client<ApiClient>
+impl<'a, ApiClient> Client<ApiClient>
 where
     ApiClient: XmtpMlsClient + XmtpApiClient,
 {
@@ -82,15 +83,28 @@ where
         }
     }
 
+    /// Build this struct
+    /// # Arguments
+    /// * `strat`: the [`IdentityStrategy`] for this client
+    ///
+    /// # Example
+    ///
+    ///  TODO: Fix this example
+    ///  ```no_run
+    ///  Client::builder()
+    ///     .api_client(api_client)
+    ///     .network(Network::Dev)
+    ///     .build()
+    ///  ```
+    pub fn builder<Owner: crate::InboxOwner>(
+        strat: IdentityStrategy<Owner>,
+    ) -> ClientBuilder<ApiClient, Owner> {
+        ClientBuilder::new(strat)
+    }
+
     // TODO: Remove this and figure out the correct lifetimes to allow long lived provider
-    pub fn with_provider<'a, R, F, E>(&'a self, fun: F) -> Result<R, ClientError>
-    where
-        F: FnOnce(XmtpOpenMlsProvider) -> Result<R, E>,
-        ClientError: From<E>,
-    {
-        let mut connection = self.store.conn()?;
-        let provider = XmtpOpenMlsProvider::new(&mut connection);
-        fun(provider).map_err(ClientError::from)
+    pub fn mls_provider(&self, conn: &'a mut DbConnection) -> XmtpOpenMlsProvider<'a> {
+        XmtpOpenMlsProvider::new(conn)
     }
 
     pub fn create_group(&self) -> Result<MlsGroup<ApiClient>, ClientError> {
@@ -121,7 +135,9 @@ where
 
     pub async fn register_identity(&self) -> Result<(), ClientError> {
         // TODO: Mark key package as last_resort in creation
-        let last_resort_kp = self.identity.new_key_package(&self.mls_provider())?;
+        let mut connection = self.store.conn()?;
+        let mls_provider = XmtpOpenMlsProvider::new(&mut connection);
+        let last_resort_kp = self.identity.new_key_package(&mls_provider)?;
         let last_resort_kp_bytes = last_resort_kp.tls_serialize_detached()?;
 
         self.api_client
@@ -132,9 +148,11 @@ where
     }
 
     pub async fn top_up_key_packages(&self) -> Result<(), ClientError> {
+        let mut connection = self.store.conn()?;
+        let mls_provider = XmtpOpenMlsProvider::new(&mut connection);
         let key_packages: Result<Vec<Vec<u8>>, ClientError> = (0..KEY_PACKAGE_TOP_UP_AMOUNT)
             .map(|_| -> Result<Vec<u8>, ClientError> {
-                let kp = self.identity.new_key_package(&self.mls_provider())?;
+                let kp = self.identity.new_key_package(&mls_provider)?;
                 let kp_bytes = kp.tls_serialize_detached()?;
 
                 Ok(kp_bytes)
@@ -199,8 +217,8 @@ where
             .api_client
             .consume_key_packages(installation_ids)
             .await?;
-
-        let mls_provider = self.mls_provider();
+        let mut conn = self.store.conn()?;
+        let mls_provider = XmtpOpenMlsProvider::new(&mut conn);
 
         Ok(key_package_results
             .values()

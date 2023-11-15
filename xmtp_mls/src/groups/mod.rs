@@ -55,6 +55,8 @@ pub enum GroupError {
     Client(#[from] ClientError),
     #[error("generic: {0}")]
     Generic(String),
+    #[error("diesel error {0}")]
+    Diesel(#[from] diesel::result::Error),
 }
 
 pub struct MlsGroup<'c, ApiClient> {
@@ -107,7 +109,7 @@ where
         mls_group.save(provider.key_store())?;
         let group_id = mls_group.group_id().to_vec();
         let stored_group = StoredGroup::new(group_id.clone(), now_ns(), membership_state);
-        stored_group.store(provider.conn())?;
+        stored_group.store(*provider.conn().borrow_mut())?;
 
         Ok(Self::new(client, group_id, stored_group.created_at_ns))
     }
@@ -193,8 +195,7 @@ where
     }
 
     pub(crate) async fn publish_intents(&self, conn: &mut DbConnection) -> Result<(), GroupError> {
-        let provider = self.client.mls_provider();
-        let mut openmls_group = self.load_mls_group(&provider)?;
+        let mut openmls_group = self.load_mls_group(&self.client.mls_provider(conn))?;
 
         let intents = EncryptedMessageStore::find_group_intents(
             conn,
@@ -202,34 +203,35 @@ where
             Some(vec![IntentState::ToPublish]),
             None,
         )?;
-
         for intent in intents {
-            // TODO: Wrap in a transaction once we can synchronize with the MLS Keystore
-            let result = self.get_publish_intent_data(&provider, &mut openmls_group, &intent);
+            let result = XmtpOpenMlsProvider::transaction(conn, |provider| {
+                let (payload, post_commit_data) =
+                    self.get_publish_intent_data(&provider, &mut openmls_group, &intent)?;
+
+                let payload_slice = payload.as_slice();
+
+                self.client
+                    .api_client
+                    .publish_to_group(vec![payload_slice])
+                    .await?;
+
+                EncryptedMessageStore::set_group_intent_published(
+                    &mut provider.conn().borrow_mut(),
+                    intent.id,
+                    sha256(payload_slice),
+                    post_commit_data,
+                )?;
+                Ok::<_, GroupError>(())
+            });
+
             if let Err(e) = result {
                 log::error!("error getting publish intent data {:?}", e);
                 // TODO: Figure out which types of errors we should abort completely on and which
                 // ones are safe to continue with
                 continue;
             }
-
-            let (payload, post_commit_data) = result.expect("result already checked");
-            let payload_slice = payload.as_slice();
-
-            self.client
-                .api_client
-                .publish_to_group(vec![payload_slice])
-                .await?;
-
-            EncryptedMessageStore::set_group_intent_published(
-                conn,
-                intent.id,
-                sha256(payload_slice),
-                post_commit_data,
-            )?;
         }
-
-        openmls_group.save(provider.key_store())?;
+        openmls_group.save(self.client.mls_provider(conn).key_store())?;
 
         Ok(())
     }
@@ -377,7 +379,9 @@ mod tests {
     use openmls_traits::OpenMlsProvider;
     use xmtp_cryptography::utils::generate_local_wallet;
 
-    use crate::{builder::ClientBuilder, utils::topic::get_welcome_topic};
+    use crate::{
+        builder::ClientBuilder, storage::EncryptedMessageStore, utils::topic::get_welcome_topic,
+    };
 
     #[tokio::test]
     async fn test_send_message() {
@@ -442,7 +446,8 @@ mod tests {
         let client_2 = ClientBuilder::new_test_client(generate_local_wallet().into()).await;
         client_2.register_identity().await.unwrap();
 
-        let provider = client_1.mls_provider();
+        let mut conn = client_1.store.conn().unwrap();
+        let provider = super::XmtpOpenMlsProvider::new(&mut conn);
         let group = client_1.create_group().expect("create group");
         group
             .add_members_by_installation_id(vec![client_2
@@ -504,7 +509,9 @@ mod tests {
             .unwrap();
         assert_eq!(messages.len(), 1);
 
-        let mls_group = group.load_mls_group(&client.mls_provider()).unwrap();
+        let mut conn = client.store.conn().unwrap();
+        let provider = super::XmtpOpenMlsProvider::new(&mut conn);
+        let mls_group = group.load_mls_group(&provider).unwrap();
         let pending_commit = mls_group.pending_commit();
         assert!(pending_commit.is_some());
     }
@@ -525,16 +532,12 @@ mod tests {
             .await
             .unwrap();
 
-        let intents = client
-            .store
-            .find_group_intents(conn, group.group_id.clone(), None, None)
-            .unwrap();
+        let intents =
+            EncryptedMessageStore::find_group_intents(conn, group.group_id.clone(), None, None)
+                .unwrap();
         let intent = intents.first().unwrap();
         // Set the intent to committed manually
-        client
-            .store
-            .set_group_intent_committed(conn, intent.id)
-            .unwrap();
+        EncryptedMessageStore::set_group_intent_committed(conn, intent.id).unwrap();
         group.post_commit(conn).await.unwrap();
 
         // Check if the welcome was actually sent

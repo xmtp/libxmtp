@@ -260,16 +260,15 @@ mod tests {
         let wallet = generate_local_wallet();
         let wallet_address = wallet.get_address();
         let client = ClientBuilder::new_test_client(wallet.into()).await;
-        let key_package = client
-            .identity
-            .new_key_package(&client.mls_provider())
-            .unwrap();
+        let mut conn = client.store.conn().unwrap();
+        let mls_provider = XmtpOpenMlsProvider::new(&mut conn);
+        let key_package = client.identity.new_key_package(&mls_provider).unwrap();
         let verified_key_package = VerifiedKeyPackage::new(key_package, wallet_address.clone());
 
         let intent = AddMembersIntentData::new(vec![verified_key_package.clone()]);
         let as_bytes: Vec<u8> = intent.clone().try_into().unwrap();
         let restored_intent =
-            AddMembersIntentData::from_bytes(as_bytes.as_slice(), &client.mls_provider()).unwrap();
+            AddMembersIntentData::from_bytes(as_bytes.as_slice(), &mls_provider).unwrap();
 
         assert!(intent.key_packages[0]
             .inner
