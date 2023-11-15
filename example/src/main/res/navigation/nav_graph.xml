@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="utf-8"?>
+<navigation xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    xmlns:tools="http://schemas.android.com/tools"
+    android:id="@+id/nav_graph"
+    app:startDestination="@id/connectWalletFragment">
+
+
+    <fragment
+        android:id="@+id/connectWalletFragment"
+        android:name="org.xmtp.android.example.connect.ConnectWalletFragment"
+        android:label="fragment_connect_wallet"
+        tools:layout="@layout/fragment_connect_wallet" >
+
+        <action
+            android:id="@+id/action_to_bottomSheet"
+            app:destination="@id/bottomSheet" />
+    </fragment>
+
+    <dialog
+        android:id="@+id/bottomSheet"
+        android:name="com.walletconnect.wcmodal.ui.WalletConnectModalSheet" />
+
+</navigation>

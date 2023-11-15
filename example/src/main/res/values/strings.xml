@@ -3,6 +3,7 @@
     <string name="account_type">org.xmtp.example.android</string>
     <string name="error">Something went wrong</string>
 
+    <string name="wallet_connect">WalletConnect</string>
     <string name="generate_wallet">Generate wallet</string>
     <string name="connect_wallet">Connect wallet</string>
     <string name="no_wallet_apps">No wallet apps installed</string>
