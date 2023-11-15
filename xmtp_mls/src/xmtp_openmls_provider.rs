@@ -30,7 +30,7 @@ impl<'a> XmtpOpenMlsProvider<'a> {
     ///
     /// # Examples
     ///
-    /// ```
+    /// ```ignore
     /// let connection = EncryptedMessageStore::new_unencrypted(StorageOptions::default());
     /// XmtpOpenMlsProvider::transaction(conn, |provider| {
     ///     // do some operations requiring provider

@@ -16,7 +16,7 @@ use xmtp_proto::xmtp::v3::message_contents::Eip191Association as Eip191Associati
 use crate::{
     association::{AssociationError, AssociationText, Eip191Association},
     configuration::CIPHERSUITE,
-    storage::{identity::StoredIdentity, EncryptedMessageStore, StorageError},
+    storage::{identity::StoredIdentity, StorageError},
     types::Address,
     xmtp_openmls_provider::XmtpOpenMlsProvider,
     InboxOwner, Store,
