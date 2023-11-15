@@ -217,12 +217,14 @@ where
             .api_client
             .consume_key_packages(installation_ids)
             .await?;
+
         let mut conn = self.store.conn()?;
-        let mls_provider = XmtpOpenMlsProvider::new(&mut conn);
 
         Ok(key_package_results
             .values()
-            .map(|bytes| VerifiedKeyPackage::from_bytes(&mls_provider, bytes.as_slice()))
+            .map(|bytes| {
+                VerifiedKeyPackage::from_bytes(&self.mls_provider(&mut conn), bytes.as_slice())
+            })
             .collect::<Result<_, _>>()?)
     }
 
