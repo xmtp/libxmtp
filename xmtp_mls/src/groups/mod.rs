@@ -209,7 +209,7 @@ where
             return Ok(());
         }
         debug!(
-            "[{}]processing own message for intent {} / {:?}",
+            "[{}] processing own message for intent {} / {:?}",
             self.client.account_address(),
             intent.id,
             intent.kind
@@ -314,7 +314,6 @@ where
             }
         };
 
-        openmls_group.save(provider.key_store())?; // TODO include provider in transaction
         Ok(())
     }
 
@@ -375,7 +374,9 @@ where
                             &mut openmls_group,
                             &provider,
                             &envelope,
-                        )
+                        )?;
+                        openmls_group.save(provider.key_store())?;
+                        Ok(())
                     },
                 )
             })
@@ -385,6 +386,7 @@ where
         if receive_errors.is_empty() {
             Ok(())
         } else {
+            debug!("Message processing errors: {:?}", receive_errors);
             Err(GroupError::ReceiveError(receive_errors))
         }
     }
@@ -610,6 +612,7 @@ where
                                 ciphertext: action.welcome_message.clone(),
                             })
                             .collect();
+                        debug!("Sending {} welcomes", welcomes.len());
                         self.client.api_client.publish_welcomes(welcomes).await?;
                     }
                 }
