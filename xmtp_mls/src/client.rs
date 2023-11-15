@@ -210,6 +210,8 @@ where
         let groups: Vec<MlsGroup<ApiClient>> = envelopes
             .into_iter()
             .filter_map(|envelope| {
+                // TODO: We can handle errors in the transaction() function to make error handling
+                // cleaner. Retryable errors can possibly be part of their own enum
                 XmtpOpenMlsProvider::transaction(&mut conn, |provider| {
                     let welcome = match extract_welcome(&envelope.message) {
                         Ok(welcome) => welcome,
@@ -221,12 +223,7 @@ where
 
                     // TODO: Update last_message_timestamp_ns on success or non-retryable error
                     // TODO: Abort if error is retryable
-                    match MlsGroup::create_from_welcome(
-                        self,
-                        *provider.conn().borrow_mut(),
-                        &provider,
-                        welcome,
-                    ) {
+                    match MlsGroup::create_from_welcome(self, &provider, welcome) {
                         Ok(mls_group) => Ok(Some(mls_group)),
                         Err(err) => {
                             log::error!("failed to create group from welcome: {}", err);

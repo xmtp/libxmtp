@@ -45,9 +45,8 @@ pub struct Identity {
     pub(crate) credential: Credential,
 }
 
-impl<'a> Identity {
+impl Identity {
     pub(crate) fn new(
-        store: &EncryptedMessageStore,
         provider: &XmtpOpenMlsProvider,
         owner: &impl InboxOwner,
     ) -> Result<Self, IdentityError> {
@@ -63,8 +62,7 @@ impl<'a> Identity {
         };
 
         identity.new_key_package(provider)?;
-        StoredIdentity::from(&identity).store(&mut store.conn()?)?;
-        // StoredIdentity::from(&identity).store(*provider.conn().borrow_mut())?;
+        StoredIdentity::from(&identity).store(*provider.conn().borrow_mut())?;
 
         // TODO: upload credential_with_key and last_resort_key_package
 
@@ -154,7 +152,7 @@ mod tests {
         let store = EncryptedMessageStore::new_test();
         let mut conn = store.conn().unwrap();
         let provider = XmtpOpenMlsProvider::new(&mut conn);
-        Identity::new(&store, &provider, &generate_local_wallet()).unwrap();
+        Identity::new(&provider, &generate_local_wallet()).unwrap();
     }
 
     #[test]
@@ -162,7 +160,7 @@ mod tests {
         let store = EncryptedMessageStore::new_test();
         let mut conn = store.conn().unwrap();
         let provider = XmtpOpenMlsProvider::new(&mut conn);
-        let identity = Identity::new(&store, &provider, &generate_local_wallet()).unwrap();
+        let identity = Identity::new(&provider, &generate_local_wallet()).unwrap();
 
         let new_key_package = identity.new_key_package(&provider).unwrap();
         assert!(new_key_package

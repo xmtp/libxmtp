@@ -144,7 +144,6 @@ where
 
     pub fn create_from_welcome(
         client: &'c Client<ApiClient>,
-        conn: &mut DbConnection,
         provider: &XmtpOpenMlsProvider,
         welcome: MlsWelcome,
     ) -> Result<Self, GroupError> {
@@ -155,7 +154,7 @@ where
         let group_id = mls_group.group_id().to_vec();
         let stored_group =
             StoredGroup::new(group_id.clone(), now_ns(), GroupMembershipState::Pending);
-        stored_group.store(conn)?;
+        stored_group.store(*provider.conn().borrow_mut())?;
 
         Ok(Self::new(client, group_id, stored_group.created_at_ns))
     }
