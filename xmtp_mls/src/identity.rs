@@ -74,6 +74,7 @@ impl<'a> Identity {
         };
 
         StoredIdentity::from(&identity).store(&mut store.conn()?)?;
+        // StoredIdentity::from(&identity).store(*provider.conn().borrow_mut())?;
 
         // TODO: upload credential_with_key and last_resort_key_package
 
@@ -122,6 +123,7 @@ impl<'a> Identity {
 
 #[cfg(test)]
 mod tests {
+    use std::error::Error;
     use xmtp_cryptography::utils::generate_local_wallet;
 
     use super::Identity;
@@ -132,6 +134,11 @@ mod tests {
         let store = EncryptedMessageStore::new_test();
         let mut conn = store.conn().unwrap();
         let provider = XmtpOpenMlsProvider::new(&mut conn);
-        Identity::new(&store, &provider, &generate_local_wallet()).unwrap();
+        let result = Identity::new(&store, &provider, &generate_local_wallet());
+        if let Err(e) = result {
+            println!("{:?}", e);
+            println!("{:?}", e.source());
+            panic!("d");
+        }
     }
 }

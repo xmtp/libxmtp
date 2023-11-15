@@ -168,6 +168,7 @@ impl EncryptedMessageStore {
     }
 
     pub fn get_latest_session_for_installation(
+        &self,
         installation_id: &str,
         conn: &mut DbConnection,
     ) -> Result<Option<StoredSession>, StorageError> {
@@ -182,6 +183,7 @@ impl EncryptedMessageStore {
     }
 
     pub fn get_latest_sessions_for_installation(
+        &self,
         conn: &mut DbConnection,
         installation_id: &str,
     ) -> Result<Vec<StoredSession>, StorageError> {
@@ -195,6 +197,7 @@ impl EncryptedMessageStore {
     }
 
     pub fn get_latest_sessions(
+        &self,
         conn: &mut DbConnection,
         user_address: &str,
     ) -> Result<Vec<StoredSession>, StorageError> {
@@ -230,6 +233,7 @@ impl EncryptedMessageStore {
     }
 
     pub fn session_exists_for_installation(
+        &self,
         conn: &mut DbConnection,
         installation_id: &str,
     ) -> Result<bool, StorageError> {
@@ -245,6 +249,7 @@ impl EncryptedMessageStore {
     }
 
     pub fn get_installations(
+        &self,
         conn: &mut DbConnection,
         user_address_str: &str,
     ) -> Result<Vec<StoredInstallation>, StorageError> {
@@ -255,6 +260,7 @@ impl EncryptedMessageStore {
     }
 
     pub fn get_user(
+        &self,
         conn: &mut DbConnection,
         address: &str,
     ) -> Result<Option<StoredUser>, StorageError> {
@@ -267,6 +273,7 @@ impl EncryptedMessageStore {
     }
 
     pub fn update_user_refresh_timestamp(
+        &self,
         conn: &mut DbConnection,
         user_address: &str,
         timestamp: i64,
@@ -277,13 +284,18 @@ impl EncryptedMessageStore {
             .map_err(|e| e.into())
     }
 
-    pub fn insert_user(conn: &mut DbConnection, user: StoredUser) -> Result<(), StorageError> {
+    pub fn insert_user(
+        &self,
+        conn: &mut DbConnection,
+        user: StoredUser,
+    ) -> Result<(), StorageError> {
         let result = diesel::insert_into(users::table).values(user).execute(conn);
 
         ignore_unique_violation(result)
     }
 
     pub fn get_conversation(
+        &self,
         conn: &mut DbConnection,
         convo_id: &str,
     ) -> Result<Option<StoredConversation>, StorageError> {
@@ -296,6 +308,7 @@ impl EncryptedMessageStore {
     }
 
     pub fn insert_conversation(
+        &self,
         conn: &mut DbConnection,
         conversation: StoredConversation,
     ) -> Result<(), StorageError> {
@@ -307,6 +320,7 @@ impl EncryptedMessageStore {
     }
 
     pub fn get_contacts(
+        &self,
         conn: &mut DbConnection,
         user_address: &str,
     ) -> Result<Vec<StoredInstallation>, StorageError> {
@@ -322,6 +336,7 @@ impl EncryptedMessageStore {
     }
 
     pub fn get_unprocessed_messages(
+        &self,
         conn: &mut DbConnection,
     ) -> Result<Vec<StoredMessage>, StorageError> {
         let msg_list = messages::table
@@ -332,6 +347,7 @@ impl EncryptedMessageStore {
     }
 
     pub fn lock_refresh_job<F>(
+        &self,
         conn: &mut DbConnection,
         kind: RefreshJobKind,
         cb: F,
@@ -365,6 +381,7 @@ impl EncryptedMessageStore {
     }
 
     pub fn get_inbound_messages(
+        &self,
         conn: &mut PooledConnection<ConnectionManager<SqliteConnection>>,
         status: InboundMessageStatus,
     ) -> Result<Vec<InboundMessage>, StorageError> {
@@ -378,6 +395,7 @@ impl EncryptedMessageStore {
         Ok(msgs)
     }
     pub fn save_inbound_message(
+        &self,
         conn: &mut DbConnection,
         message: InboundMessage,
     ) -> Result<(), StorageError> {
@@ -401,6 +419,7 @@ impl EncryptedMessageStore {
     }
 
     pub fn set_msg_status(
+        &self,
         conn: &mut DbConnection,
         id: String,
         status: InboundMessageStatus,
@@ -416,6 +435,7 @@ impl EncryptedMessageStore {
     }
 
     pub fn insert_install(
+        &self,
         conn: &mut DbConnection,
         install: StoredInstallation,
     ) -> Result<(), StorageError> {
@@ -427,6 +447,7 @@ impl EncryptedMessageStore {
     }
 
     pub fn insert_session(
+        &self,
         conn: &mut DbConnection,
         session: StoredSession,
     ) -> Result<(), StorageError> {
@@ -438,6 +459,7 @@ impl EncryptedMessageStore {
     }
 
     pub fn insert_message(
+        &self,
         conn: &mut DbConnection,
         msg: NewStoredMessage,
     ) -> Result<(), StorageError> {
@@ -449,6 +471,7 @@ impl EncryptedMessageStore {
     }
 
     pub fn commit_outbound_payloads_for_message(
+        &self,
         conn: &mut DbConnection,
         message_id: i32,
         updated_message_state: MessageState,
@@ -470,6 +493,7 @@ impl EncryptedMessageStore {
     }
 
     pub fn fetch_and_lock_outbound_payloads(
+        &self,
         conn: &mut DbConnection,
         payload_state: OutboundPayloadState,
         lock_duration_ns: i64,
@@ -486,6 +510,7 @@ impl EncryptedMessageStore {
     }
 
     pub fn update_and_unlock_outbound_payloads(
+        &self,
         conn: &mut DbConnection,
         payload_ids: Vec<i64>,
         new_payload_state: OutboundPayloadState,
@@ -502,6 +527,7 @@ impl EncryptedMessageStore {
     }
 
     pub fn get_conversations(
+        &self,
         conn: &mut DbConnection,
     ) -> Result<Vec<StoredConversation>, StorageError> {
         let convos = conversations::table.load::<StoredConversation>(conn)?;
@@ -509,6 +535,7 @@ impl EncryptedMessageStore {
     }
 
     pub fn get_stored_messages(
+        &self,
         conn: &mut DbConnection,
         allowed_states: Option<Vec<MessageState>>,
         conversation_id: Option<&str>,
