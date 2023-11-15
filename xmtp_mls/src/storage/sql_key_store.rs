@@ -1,26 +1,34 @@
-use std::borrow::Cow;
-
 use log::{debug, error};
 use openmls_traits::key_store::{MlsEntity, OpenMlsKeyStore};
+use std::{cell::RefCell, fmt};
 
 use super::{
-    encrypted_store::key_store_entry::StoredKeyStoreEntry,
+    encrypted_store::{key_store_entry::StoredKeyStoreEntry, DbConnection},
     serialization::{db_deserialize, db_serialize},
     EncryptedMessageStore, StorageError,
 };
 use crate::{Delete, Fetch};
 
-#[derive(Debug)]
 /// CRUD Operations for an [`EncryptedMessageStore`]
 pub struct SqlKeyStore<'a> {
-    store: Cow<'a, EncryptedMessageStore>,
+    pub conn: RefCell<&'a mut DbConnection>,
 }
 
 impl<'a> SqlKeyStore<'a> {
-    pub fn new(store: &'a EncryptedMessageStore) -> Self {
-        SqlKeyStore {
-            store: Cow::Borrowed(store),
-        }
+    pub fn new(conn: &'a mut DbConnection) -> Self {
+        Self { conn: conn.into() }
+    }
+
+    pub fn conn(&self) -> &RefCell<&'a mut DbConnection> {
+        &self.conn
+    }
+}
+
+impl fmt::Debug for SqlKeyStore<'_> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("SqlKeyStore")
+            .field("conn", &"DbConnection")
+            .finish()
     }
 }
 
@@ -33,8 +41,8 @@ impl OpenMlsKeyStore for SqlKeyStore<'_> {
     ///
     /// Returns an error if storing fails.
     fn store<V: MlsEntity>(&self, k: &[u8], v: &V) -> Result<(), Self::Error> {
-        self.store.insert_or_update_key_store_entry(
-            &mut self.store.conn()?,
+        EncryptedMessageStore::insert_or_update_key_store_entry(
+            *self.conn.borrow_mut(),
             k.to_vec(),
             db_serialize(v)?,
         )?;
@@ -46,18 +54,14 @@ impl OpenMlsKeyStore for SqlKeyStore<'_> {
     ///
     /// Returns [`None`] if no value is stored for `k` or reading fails.
     fn read<V: MlsEntity>(&self, k: &[u8]) -> Option<V> {
-        let conn_result = self.store.conn();
-        if let Err(e) = conn_result {
-            error!("Failed to get connection: {:?}", e);
-            return None;
-        }
-        let mut conn = conn_result.unwrap();
-        let fetch_result = conn.fetch(&k.to_vec());
+        let fetch_result = (*self.conn.borrow_mut()).fetch(&k.to_vec());
+
         if let Err(e) = fetch_result {
             error!("Failed to fetch key: {:?}", e);
             return None;
         }
         let entry_option: Option<StoredKeyStoreEntry> = fetch_result.unwrap();
+
         if entry_option.is_none() {
             debug!("No entry to read for key {:?}", k);
             return None;
@@ -70,7 +74,8 @@ impl OpenMlsKeyStore for SqlKeyStore<'_> {
     /// Interface is unclear on expected behavior when item is already deleted -
     /// we choose to not surface an error if this is the case.
     fn delete<V: MlsEntity>(&self, k: &[u8]) -> Result<(), Self::Error> {
-        let conn: &mut dyn Delete<StoredKeyStoreEntry, Key = Vec<u8>> = &mut self.store.conn()?;
+        let mut conn = self.conn.borrow_mut();
+        let conn: &mut dyn Delete<StoredKeyStoreEntry, Key = Vec<u8>> = *conn;
         let num_deleted = conn.delete(k.to_vec())?;
         if num_deleted == 0 {
             debug!("No entry to delete for key {:?}", k);
@@ -99,9 +104,8 @@ mod tests {
             EncryptedMessageStore::generate_enc_key(),
         )
         .unwrap();
-        let key_store = SqlKeyStore {
-            store: (&store).into(),
-        };
+        let mut conn = store.conn().unwrap();
+        let key_store = SqlKeyStore::new(&mut conn);
         let signature_keys = SignatureKeyPair::new(CIPHERSUITE.signature_algorithm()).unwrap();
         let index = "index".as_bytes();
         assert!(key_store.read::<SignatureKeyPair>(index).is_none());

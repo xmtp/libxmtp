@@ -24,7 +24,6 @@ impl Delete<StoredKeyStoreEntry> for DbConnection {
 
 impl EncryptedMessageStore {
     pub fn insert_or_update_key_store_entry(
-        &self,
         conn: &mut DbConnection,
         key: Vec<u8>,
         value: Vec<u8>,

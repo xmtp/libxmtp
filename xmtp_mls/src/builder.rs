@@ -45,14 +45,14 @@ pub enum IdentityStrategy<Owner> {
     ExternalIdentity(Identity),
 }
 
-impl<Owner> IdentityStrategy<Owner>
+impl<'a, Owner> IdentityStrategy<Owner>
 where
     Owner: InboxOwner,
 {
     fn initialize_identity(
         self,
         store: &EncryptedMessageStore,
-        provider: &XmtpOpenMlsProvider,
+        provider: &'a XmtpOpenMlsProvider,
     ) -> Result<Identity, ClientBuilderError> {
         let identity_option: Option<Identity> =
             store.conn()?.fetch(&())?.map(|i: StoredIdentity| i.into());
@@ -68,7 +68,7 @@ where
                     }
                     Ok(identity)
                 }
-                None => Ok(Identity::new(store, provider, &owner)?),
+                None => Ok(Identity::new(provider, &owner)?),
             },
             #[cfg(test)]
             IdentityStrategy::ExternalIdentity(identity) => Ok(identity),
@@ -140,7 +140,8 @@ where
             .store
             .take()
             .ok_or(ClientBuilderError::MissingParameter { parameter: "store" })?;
-        let provider = XmtpOpenMlsProvider::new(&store);
+        let mut conn = store.conn()?;
+        let provider = XmtpOpenMlsProvider::new(&mut conn);
         let identity = self
             .identity_strategy
             .initialize_identity(&store, &provider)?;

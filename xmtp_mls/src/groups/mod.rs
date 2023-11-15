@@ -32,7 +32,7 @@ use crate::{
         group::{GroupMembershipState, StoredGroup},
         group_intent::{IntentKind, IntentState, NewGroupIntent, StoredGroupIntent},
         group_message::{GroupMessageKind, StoredGroupMessage},
-        DbConnection, StorageError,
+        DbConnection, EncryptedMessageStore, StorageError,
     },
     utils::{hash::sha256, id::get_message_id, time::now_ns, topic::get_group_topic},
     xmtp_openmls_provider::XmtpOpenMlsProvider,
@@ -69,6 +69,8 @@ pub enum GroupError {
     ReceiveError(Vec<MessageProcessingError>),
     #[error("generic: {0}")]
     Generic(String),
+    #[error("diesel error {0}")]
+    Diesel(#[from] diesel::result::Error),
 }
 
 #[derive(Debug, Error)]
@@ -135,8 +137,8 @@ where
         client: &'c Client<ApiClient>,
         membership_state: GroupMembershipState,
     ) -> Result<Self, GroupError> {
-        let provider = client.mls_provider();
         let mut conn = client.store.conn()?;
+        let provider = XmtpOpenMlsProvider::new(&mut conn);
         let mut mls_group = OpenMlsGroup::new(
             &provider,
             &client.identity.installation_keys,
@@ -150,14 +152,13 @@ where
         mls_group.save(provider.key_store())?;
         let group_id = mls_group.group_id().to_vec();
         let stored_group = StoredGroup::new(group_id.clone(), now_ns(), membership_state);
-        stored_group.store(&mut conn)?;
+        stored_group.store(*provider.conn().borrow_mut())?;
 
         Ok(Self::new(client, group_id, stored_group.created_at_ns))
     }
 
     pub fn create_from_welcome(
         client: &'c Client<ApiClient>,
-        conn: &mut DbConnection,
         provider: &XmtpOpenMlsProvider,
         welcome: MlsWelcome,
     ) -> Result<Self, GroupError> {
@@ -168,7 +169,7 @@ where
         let group_id = mls_group.group_id().to_vec();
         let stored_group =
             StoredGroup::new(group_id.clone(), now_ns(), GroupMembershipState::Pending);
-        stored_group.store(conn)?;
+        stored_group.store(*provider.conn().borrow_mut())?;
 
         Ok(Self::new(client, group_id, stored_group.created_at_ns))
     }
@@ -181,7 +182,7 @@ where
         limit: Option<i64>,
     ) -> Result<Vec<StoredGroupMessage>, GroupError> {
         let mut conn = self.client.store.conn()?;
-        let messages = self.client.store.get_group_messages(
+        let messages = EncryptedMessageStore::get_group_messages(
             &mut conn,
             &self.group_id,
             sent_after_ns,
@@ -255,9 +256,7 @@ where
                         "no pending commit to merge. Group epoch: {}. Message epoch: {}",
                         group_epoch, message_epoch
                     );
-                    self.client
-                        .store
-                        .set_group_intent_to_publish(conn, intent.id)?;
+                    EncryptedMessageStore::set_group_intent_to_publish(conn, intent.id)?;
 
                     return Err(MessageProcessingError::NoPendingCommit {
                         message_epoch,
@@ -269,9 +268,7 @@ where
                     Err(MergePendingCommitError::MlsGroupStateError(err)) => {
                         debug!("error merging commit: {}", err);
                         openmls_group.clear_pending_commit();
-                        self.client
-                            .store
-                            .set_group_intent_to_publish(conn, intent.id)?;
+                        EncryptedMessageStore::set_group_intent_to_publish(conn, intent.id)?;
                     }
                     _ => (),
                 };
@@ -295,9 +292,7 @@ where
             }
         };
 
-        self.client
-            .store
-            .set_group_intent_committed(conn, intent.id)?;
+        EncryptedMessageStore::set_group_intent_committed(conn, intent.id)?;
 
         Ok(())
     }
@@ -367,11 +362,10 @@ where
             )),
         }?;
 
-        match self
-            .client
-            .store
-            .find_group_intent_by_payload_hash(conn, sha256(envelope.message.as_slice()))
-        {
+        match EncryptedMessageStore::find_group_intent_by_payload_hash(
+            conn,
+            sha256(envelope.message.as_slice()),
+        ) {
             // Intent with the payload hash matches
             Ok(Some(intent)) => self.process_own_message(
                 conn,
@@ -394,7 +388,8 @@ where
     }
 
     pub fn process_messages(&self, envelopes: Vec<Envelope>) -> Result<(), GroupError> {
-        let provider = self.client.mls_provider();
+        let mut conn = self.client.store.conn()?;
+        let provider = self.client.mls_provider(&mut conn);
         let mut openmls_group = self.load_mls_group(&provider)?;
         let conn = &mut self.client.store.conn()?;
         let receive_errors: Vec<MessageProcessingError> = envelopes
@@ -491,18 +486,17 @@ where
     }
 
     pub(crate) async fn publish_intents(&self, conn: &mut DbConnection) -> Result<(), GroupError> {
-        let provider = self.client.mls_provider();
+        let provider = self.client.mls_provider(conn);
         let mut openmls_group = self.load_mls_group(&provider)?;
 
-        let intents = self.client.store.find_group_intents(
-            conn,
+        let intents = EncryptedMessageStore::find_group_intents(
+            &mut provider.conn().borrow_mut(),
             self.group_id.clone(),
             Some(vec![IntentState::ToPublish]),
             None,
         )?;
 
         for intent in intents {
-            // TODO: Wrap in a transaction once we can synchronize with the MLS Keystore
             let result = self.get_publish_intent_data(&provider, &mut openmls_group, &intent);
             if let Err(e) = result {
                 log::error!("error getting publish intent data {:?}", e);
@@ -519,15 +513,14 @@ where
                 .publish_to_group(vec![payload_slice])
                 .await?;
 
-            self.client.store.set_group_intent_published(
-                conn,
+            EncryptedMessageStore::set_group_intent_published(
+                &mut provider.conn().borrow_mut(),
                 intent.id,
                 sha256(payload_slice),
                 post_commit_data,
             )?;
         }
-
-        openmls_group.save(provider.key_store())?;
+        openmls_group.save(self.client.mls_provider(conn).key_store())?;
 
         Ok(())
     }
@@ -624,7 +617,7 @@ where
     }
 
     pub(crate) async fn post_commit(&self, conn: &mut DbConnection) -> Result<(), GroupError> {
-        let intents = self.client.store.find_group_intents(
+        let intents = EncryptedMessageStore::find_group_intents(
             conn,
             self.group_id.clone(),
             Some(vec![IntentState::Committed]),
@@ -676,7 +669,8 @@ mod tests {
     use xmtp_cryptography::utils::generate_local_wallet;
 
     use crate::{
-        builder::ClientBuilder, storage::group_intent::IntentState, utils::topic::get_welcome_topic,
+        builder::ClientBuilder, storage::group_intent::IntentState, storage::EncryptedMessageStore,
+        utils::topic::get_welcome_topic,
     };
 
     #[tokio::test]
@@ -751,35 +745,37 @@ mod tests {
         bola_group.receive().await.expect_err("expected error");
 
         // Check Amal's MLS group state.
-        let amal_mls_group = amal_group.load_mls_group(&amal.mls_provider()).unwrap();
+        let mut amal_db = amal.store.conn().unwrap();
+        let amal_mls_group = amal_group
+            .load_mls_group(&amal.mls_provider(&mut amal_db))
+            .unwrap();
         let amal_members: Vec<Member> = amal_mls_group.members().collect();
         assert_eq!(amal_members.len(), 3);
 
         // Check Bola's MLS group state.
-        let bola_mls_group = bola_group.load_mls_group(&bola.mls_provider()).unwrap();
+        let mut bola_db = bola.store.conn().unwrap();
+        let bola_mls_group = bola_group
+            .load_mls_group(&bola.mls_provider(&mut bola_db))
+            .unwrap();
         let bola_members: Vec<Member> = bola_mls_group.members().collect();
         assert_eq!(bola_members.len(), 3);
 
-        let amal_uncommitted_intents = amal
-            .store
-            .find_group_intents(
-                &mut amal.store.conn().unwrap(),
-                amal_group.group_id.clone(),
-                Some(vec![IntentState::ToPublish, IntentState::Published]),
-                None,
-            )
-            .unwrap();
+        let amal_uncommitted_intents = EncryptedMessageStore::find_group_intents(
+            &mut amal.store.conn().unwrap(),
+            amal_group.group_id.clone(),
+            Some(vec![IntentState::ToPublish, IntentState::Published]),
+            None,
+        )
+        .unwrap();
         assert_eq!(amal_uncommitted_intents.len(), 0);
 
-        let bola_uncommitted_intents = bola
-            .store
-            .find_group_intents(
-                &mut bola.store.conn().unwrap(),
-                bola_group.group_id.clone(),
-                Some(vec![IntentState::ToPublish, IntentState::Published]),
-                None,
-            )
-            .unwrap();
+        let bola_uncommitted_intents = EncryptedMessageStore::find_group_intents(
+            &mut bola.store.conn().unwrap(),
+            bola_group.group_id.clone(),
+            Some(vec![IntentState::ToPublish, IntentState::Published]),
+            None,
+        )
+        .unwrap();
         // Bola should have one uncommitted intent for the failed attempt at adding Charlie, who is already in the group
         assert_eq!(bola_uncommitted_intents.len(), 1);
     }
@@ -873,7 +869,9 @@ mod tests {
             .unwrap();
         assert_eq!(messages.len(), 1);
 
-        let mls_group = group.load_mls_group(&client.mls_provider()).unwrap();
+        let mut conn = client.store.conn().unwrap();
+        let provider = super::XmtpOpenMlsProvider::new(&mut conn);
+        let mls_group = group.load_mls_group(&provider).unwrap();
         let pending_commit = mls_group.pending_commit();
         assert!(pending_commit.is_none());
     }

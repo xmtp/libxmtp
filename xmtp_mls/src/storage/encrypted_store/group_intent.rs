@@ -85,7 +85,6 @@ impl NewGroupIntent {
 impl EncryptedMessageStore {
     // Query for group_intents by group_id, optionally filtering by state and kind
     pub fn find_group_intents(
-        &self,
         conn: &mut DbConnection,
         group_id: Vec<u8>,
         allowed_states: Option<Vec<IntentState>>,
@@ -111,7 +110,6 @@ impl EncryptedMessageStore {
     // Set the intent with the given ID to `Published` and set the payload hash. Optionally add
     // `post_commit_data`
     pub fn set_group_intent_published(
-        &self,
         conn: &mut DbConnection,
         intent_id: ID,
         payload_hash: Vec<u8>,
@@ -138,7 +136,6 @@ impl EncryptedMessageStore {
 
     // Set the intent with the given ID to `Committed`
     pub fn set_group_intent_committed(
-        &self,
         conn: &mut DbConnection,
         intent_id: ID,
     ) -> Result<(), StorageError> {
@@ -160,7 +157,6 @@ impl EncryptedMessageStore {
     // Set the intent with the given ID to `ToPublish`. Wipe any values for `payload_hash` and
     // `post_commit_data`
     pub fn set_group_intent_to_publish(
-        &self,
         conn: &mut DbConnection,
         intent_id: ID,
     ) -> Result<(), StorageError> {
@@ -187,7 +183,6 @@ impl EncryptedMessageStore {
     // Simple lookup of intents by payload hash, meant to be used when processing messages off the
     // network
     pub fn find_group_intent_by_payload_hash(
-        &self,
         conn: &mut DbConnection,
         payload_hash: Vec<u8>,
     ) -> Result<Option<StoredGroupIntent>, StorageError> {
@@ -300,20 +295,19 @@ mod tests {
 
         let to_insert = NewGroupIntent::new_test(kind, group_id.clone(), data.clone(), state);
 
-        with_store(|store, mut conn| {
+        with_store(|mut conn| {
             // Group needs to exist or FK constraint will fail
             insert_group(&mut conn, group_id.clone());
 
             to_insert.store(&mut conn).unwrap();
 
-            let results = store
-                .find_group_intents(
-                    &mut conn,
-                    group_id.clone(),
-                    Some(vec![IntentState::ToPublish]),
-                    None,
-                )
-                .unwrap();
+            let results = EncryptedMessageStore::find_group_intents(
+                &mut conn,
+                group_id.clone(),
+                Some(vec![IntentState::ToPublish]),
+                None,
+            )
+            .unwrap();
 
             assert_eq!(results.len(), 1);
             assert_eq!(results[0].kind, kind);
@@ -353,7 +347,7 @@ mod tests {
             ),
         ];
 
-        with_store(|store, mut conn| {
+        with_store(|mut conn| {
             // Group needs to exist or FK constraint will fail
             insert_group(&mut conn, group_id.clone());
 
@@ -362,56 +356,51 @@ mod tests {
             }
 
             // Can query for multiple states
-            let mut results = store
-                .find_group_intents(
-                    &mut conn,
-                    group_id.clone(),
-                    Some(vec![IntentState::ToPublish, IntentState::Published]),
-                    None,
-                )
-                .unwrap();
+            let mut results = EncryptedMessageStore::find_group_intents(
+                &mut conn,
+                group_id.clone(),
+                Some(vec![IntentState::ToPublish, IntentState::Published]),
+                None,
+            )
+            .unwrap();
 
             assert_eq!(results.len(), 2);
 
             // Can query by kind
-            results = store
-                .find_group_intents(
-                    &mut conn,
-                    group_id.clone(),
-                    None,
-                    Some(vec![IntentKind::RemoveMembers]),
-                )
-                .unwrap();
+            results = EncryptedMessageStore::find_group_intents(
+                &mut conn,
+                group_id.clone(),
+                None,
+                Some(vec![IntentKind::RemoveMembers]),
+            )
+            .unwrap();
             assert_eq!(results.len(), 2);
 
             // Can query by kind and state
-            results = store
-                .find_group_intents(
-                    &mut conn,
-                    group_id.clone(),
-                    Some(vec![IntentState::Committed]),
-                    Some(vec![IntentKind::RemoveMembers]),
-                )
-                .unwrap();
+            results = EncryptedMessageStore::find_group_intents(
+                &mut conn,
+                group_id.clone(),
+                Some(vec![IntentState::Committed]),
+                Some(vec![IntentKind::RemoveMembers]),
+            )
+            .unwrap();
 
             assert_eq!(results.len(), 1);
 
             // Can get no results
-            results = store
-                .find_group_intents(
-                    &mut conn,
-                    group_id.clone(),
-                    Some(vec![IntentState::Committed]),
-                    Some(vec![IntentKind::SendMessage]),
-                )
-                .unwrap();
+            results = EncryptedMessageStore::find_group_intents(
+                &mut conn,
+                group_id.clone(),
+                Some(vec![IntentState::Committed]),
+                Some(vec![IntentKind::SendMessage]),
+            )
+            .unwrap();
 
             assert_eq!(results.len(), 0);
 
             // Can get all intents
-            results = store
-                .find_group_intents(&mut conn, group_id, None, None)
-                .unwrap();
+            results =
+                EncryptedMessageStore::find_group_intents(&mut conn, group_id, None, None).unwrap();
             assert_eq!(results.len(), 3);
         })
     }
@@ -420,7 +409,7 @@ mod tests {
     fn find_by_payload_hash() {
         let group_id = rand_vec();
 
-        with_store(|store, mut conn| {
+        with_store(|mut conn| {
             insert_group(&mut conn, group_id.clone());
 
             // Store the intent
@@ -434,19 +423,18 @@ mod tests {
             // Set the payload hash
             let payload_hash = rand_vec();
             let post_commit_data = rand_vec();
-            store
-                .set_group_intent_published(
-                    &mut conn,
-                    intent.id,
-                    payload_hash.clone(),
-                    Some(post_commit_data.clone()),
-                )
-                .unwrap();
+            EncryptedMessageStore::set_group_intent_published(
+                &mut conn,
+                intent.id,
+                payload_hash.clone(),
+                Some(post_commit_data.clone()),
+            )
+            .unwrap();
 
-            let find_result = store
-                .find_group_intent_by_payload_hash(&mut conn, payload_hash)
-                .unwrap()
-                .unwrap();
+            let find_result =
+                EncryptedMessageStore::find_group_intent_by_payload_hash(&mut conn, payload_hash)
+                    .unwrap()
+                    .unwrap();
 
             assert_eq!(find_result.id, intent.id);
         })
@@ -456,7 +444,7 @@ mod tests {
     fn test_happy_path_state_transitions() {
         let group_id = rand_vec();
 
-        with_store(|store, mut conn| {
+        with_store(|mut conn| {
             insert_group(&mut conn, group_id.clone());
 
             // Store the intent
@@ -469,23 +457,20 @@ mod tests {
             // Set to published
             let payload_hash = rand_vec();
             let post_commit_data = rand_vec();
-            store
-                .set_group_intent_published(
-                    &mut conn,
-                    intent.id,
-                    payload_hash.clone(),
-                    Some(post_commit_data.clone()),
-                )
-                .unwrap();
+            EncryptedMessageStore::set_group_intent_published(
+                &mut conn,
+                intent.id,
+                payload_hash.clone(),
+                Some(post_commit_data.clone()),
+            )
+            .unwrap();
 
             intent = conn.fetch(&intent.id).unwrap().unwrap();
             assert_eq!(intent.state, IntentState::Published);
             assert_eq!(intent.payload_hash, Some(payload_hash.clone()));
             assert_eq!(intent.post_commit_data, Some(post_commit_data.clone()));
 
-            store
-                .set_group_intent_committed(&mut conn, intent.id)
-                .unwrap();
+            EncryptedMessageStore::set_group_intent_committed(&mut conn, intent.id).unwrap();
             // Refresh from the DB
             intent = conn.fetch(&intent.id).unwrap().unwrap();
             assert_eq!(intent.state, IntentState::Committed);
@@ -498,7 +483,7 @@ mod tests {
     fn test_republish_state_transition() {
         let group_id = rand_vec();
 
-        with_store(|store, mut conn| {
+        with_store(|mut conn| {
             insert_group(&mut conn, group_id.clone());
 
             // Store the intent
@@ -511,23 +496,20 @@ mod tests {
             // Set to published
             let payload_hash = rand_vec();
             let post_commit_data = rand_vec();
-            store
-                .set_group_intent_published(
-                    &mut conn,
-                    intent.id,
-                    payload_hash.clone(),
-                    Some(post_commit_data.clone()),
-                )
-                .unwrap();
+            EncryptedMessageStore::set_group_intent_published(
+                &mut conn,
+                intent.id,
+                payload_hash.clone(),
+                Some(post_commit_data.clone()),
+            )
+            .unwrap();
 
             intent = conn.fetch(&intent.id).unwrap().unwrap();
             assert_eq!(intent.state, IntentState::Published);
             assert_eq!(intent.payload_hash, Some(payload_hash.clone()));
 
             // Now revert back to ToPublish
-            store
-                .set_group_intent_to_publish(&mut conn, intent.id)
-                .unwrap();
+            EncryptedMessageStore::set_group_intent_to_publish(&mut conn, intent.id).unwrap();
             intent = conn.fetch(&intent.id).unwrap().unwrap();
             assert_eq!(intent.state, IntentState::ToPublish);
             assert!(intent.payload_hash.is_none());
@@ -539,7 +521,7 @@ mod tests {
     fn test_invalid_state_transition() {
         let group_id = rand_vec();
 
-        with_store(|store, mut conn| {
+        with_store(|mut conn| {
             insert_group(&mut conn, group_id.clone());
 
             // Store the intent
@@ -549,11 +531,13 @@ mod tests {
 
             let intent = find_first_intent(&mut conn, group_id.clone());
 
-            let commit_result = store.set_group_intent_committed(&mut conn, intent.id);
+            let commit_result =
+                EncryptedMessageStore::set_group_intent_committed(&mut conn, intent.id);
             assert!(commit_result.is_err());
             assert_eq!(commit_result.err().unwrap(), StorageError::NotFound);
 
-            let to_publish_result = store.set_group_intent_to_publish(&mut conn, intent.id);
+            let to_publish_result =
+                EncryptedMessageStore::set_group_intent_to_publish(&mut conn, intent.id);
             assert!(to_publish_result.is_err());
             assert_eq!(to_publish_result.err().unwrap(), StorageError::NotFound);
         })

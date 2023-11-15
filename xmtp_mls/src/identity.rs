@@ -16,7 +16,7 @@ use xmtp_proto::xmtp::v3::message_contents::Eip191Association as Eip191Associati
 use crate::{
     association::{AssociationError, AssociationText, Eip191Association},
     configuration::CIPHERSUITE,
-    storage::{identity::StoredIdentity, EncryptedMessageStore, StorageError},
+    storage::{identity::StoredIdentity, StorageError},
     types::Address,
     xmtp_openmls_provider::XmtpOpenMlsProvider,
     InboxOwner, Store,
@@ -47,7 +47,6 @@ pub struct Identity {
 
 impl Identity {
     pub(crate) fn new(
-        store: &EncryptedMessageStore,
         provider: &XmtpOpenMlsProvider,
         owner: &impl InboxOwner,
     ) -> Result<Self, IdentityError> {
@@ -61,8 +60,9 @@ impl Identity {
             installation_keys: signature_keys,
             credential,
         };
+
         identity.new_key_package(provider)?;
-        StoredIdentity::from(&identity).store(&mut store.conn()?)?;
+        StoredIdentity::from(&identity).store(*provider.conn().borrow_mut())?;
 
         // TODO: upload credential_with_key and last_resort_key_package
 
@@ -150,19 +150,17 @@ mod tests {
     #[test]
     fn does_not_error() {
         let store = EncryptedMessageStore::new_test();
-        Identity::new(
-            &store,
-            &XmtpOpenMlsProvider::new(&store),
-            &generate_local_wallet(),
-        )
-        .unwrap();
+        let mut conn = store.conn().unwrap();
+        let provider = XmtpOpenMlsProvider::new(&mut conn);
+        Identity::new(&provider, &generate_local_wallet()).unwrap();
     }
 
     #[test]
     fn test_key_package_extensions() {
         let store = EncryptedMessageStore::new_test();
-        let provider = XmtpOpenMlsProvider::new(&store);
-        let identity = Identity::new(&store, &provider, &generate_local_wallet()).unwrap();
+        let mut conn = store.conn().unwrap();
+        let provider = XmtpOpenMlsProvider::new(&mut conn);
+        let identity = Identity::new(&provider, &generate_local_wallet()).unwrap();
 
         let new_key_package = identity.new_key_package(&provider).unwrap();
         assert!(new_key_package

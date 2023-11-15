@@ -13,7 +13,7 @@ use crate::{
     api_client_wrapper::{ApiClientWrapper, IdentityUpdate},
     groups::MlsGroup,
     identity::Identity,
-    storage::{group::GroupMembershipState, EncryptedMessageStore, StorageError},
+    storage::{group::GroupMembershipState, DbConnection, EncryptedMessageStore, StorageError},
     types::Address,
     utils::topic::get_welcome_topic,
     verified_key_package::{KeyPackageVerificationError, VerifiedKeyPackage},
@@ -70,7 +70,7 @@ pub struct Client<ApiClient> {
     pub(crate) store: EncryptedMessageStore,
 }
 
-impl<ApiClient> Client<ApiClient>
+impl<'a, ApiClient> Client<ApiClient>
 where
     ApiClient: XmtpMlsClient + XmtpApiClient,
 {
@@ -89,8 +89,8 @@ where
     }
 
     // TODO: Remove this and figure out the correct lifetimes to allow long lived provider
-    pub fn mls_provider(&self) -> XmtpOpenMlsProvider {
-        XmtpOpenMlsProvider::new(&self.store)
+    pub fn mls_provider(&self, conn: &'a mut DbConnection) -> XmtpOpenMlsProvider<'a> {
+        XmtpOpenMlsProvider::new(conn)
     }
 
     pub fn create_group(&self) -> Result<MlsGroup<ApiClient>, ClientError> {
@@ -107,23 +107,24 @@ where
         created_before_ns: Option<i64>,
         limit: Option<i64>,
     ) -> Result<Vec<MlsGroup<ApiClient>>, ClientError> {
-        Ok(self
-            .store
-            .find_groups(
-                &mut self.store.conn()?,
-                allowed_states,
-                created_after_ns,
-                created_before_ns,
-                limit,
-            )?
-            .into_iter()
-            .map(|stored_group| MlsGroup::new(self, stored_group.id, stored_group.created_at_ns))
-            .collect())
+        Ok(EncryptedMessageStore::find_groups(
+            &mut self.store.conn()?,
+            allowed_states,
+            created_after_ns,
+            created_before_ns,
+            limit,
+        )?
+        .into_iter()
+        .map(|stored_group| MlsGroup::new(self, stored_group.id, stored_group.created_at_ns))
+        .collect())
     }
 
     pub async fn register_identity(&self) -> Result<(), ClientError> {
         // TODO: Mark key package as last_resort in creation
-        let last_resort_kp = self.identity.new_key_package(&self.mls_provider())?;
+        let mut connection = self.store.conn()?;
+        let last_resort_kp = self
+            .identity
+            .new_key_package(&self.mls_provider(&mut connection))?;
         let last_resort_kp_bytes = last_resort_kp.tls_serialize_detached()?;
 
         self.api_client
@@ -187,11 +188,13 @@ where
             .consume_key_packages(installation_ids)
             .await?;
 
-        let mls_provider = self.mls_provider();
+        let mut conn = self.store.conn()?;
 
         Ok(key_package_results
             .values()
-            .map(|bytes| VerifiedKeyPackage::from_bytes(&mls_provider, bytes.as_slice()))
+            .map(|bytes| {
+                VerifiedKeyPackage::from_bytes(&self.mls_provider(&mut conn), bytes.as_slice())
+            })
             .collect::<Result<_, _>>()?)
     }
 
@@ -200,7 +203,6 @@ where
     pub async fn sync_welcomes(&self) -> Result<Vec<MlsGroup<ApiClient>>, ClientError> {
         let welcome_topic = get_welcome_topic(&self.installation_public_key());
         let mut conn = self.store.conn()?;
-        let provider = self.mls_provider();
         // TODO: Use the last_message_timestamp_ns field on the TopicRefreshState to only fetch new messages
         // Waiting for more atomic update methods
         let envelopes = self.api_client.read_topic(&welcome_topic, 0).await?;
@@ -208,24 +210,29 @@ where
         let groups: Vec<MlsGroup<ApiClient>> = envelopes
             .into_iter()
             .filter_map(|envelope| {
-                // TODO: Wrap in a transaction
-                let welcome = match extract_welcome(&envelope.message) {
-                    Ok(welcome) => welcome,
-                    Err(err) => {
-                        log::error!("failed to extract welcome: {}", err);
-                        return None;
-                    }
-                };
+                // TODO: We can handle errors in the transaction() function to make error handling
+                // cleaner. Retryable errors can possibly be part of their own enum
+                XmtpOpenMlsProvider::transaction(&mut conn, |provider| {
+                    let welcome = match extract_welcome(&envelope.message) {
+                        Ok(welcome) => welcome,
+                        Err(err) => {
+                            log::error!("failed to extract welcome: {}", err);
+                            return Ok::<_, ClientError>(None);
+                        }
+                    };
 
-                // TODO: Update last_message_timestamp_ns on success or non-retryable error
-                // TODO: Abort if error is retryable
-                match MlsGroup::create_from_welcome(self, &mut conn, &provider, welcome) {
-                    Ok(mls_group) => Some(mls_group),
-                    Err(err) => {
-                        log::error!("failed to create group from welcome: {}", err);
-                        None
+                    // TODO: Update last_message_timestamp_ns on success or non-retryable error
+                    // TODO: Abort if error is retryable
+                    match MlsGroup::create_from_welcome(self, &provider, welcome) {
+                        Ok(mls_group) => Ok(Some(mls_group)),
+                        Err(err) => {
+                            log::error!("failed to create group from welcome: {}", err);
+                            Ok(None)
+                        }
                     }
-                }
+                })
+                .ok()
+                .flatten()
             })
             .collect();
 

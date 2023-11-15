@@ -233,7 +233,7 @@ mod tests {
     /// Test harness that loads an Ephemeral store.
     pub fn with_store<F, R>(fun: F) -> R
     where
-        F: FnOnce(EncryptedMessageStore, super::DbConnection) -> R,
+        F: FnOnce(super::DbConnection) -> R,
     {
         crate::tests::setup();
         let store = EncryptedMessageStore::new(
@@ -242,7 +242,7 @@ mod tests {
         )
         .unwrap();
         let conn = store.conn().expect("acquiring a Connection failed");
-        fun(store, conn)
+        fun(conn)
     }
 
     impl EncryptedMessageStore {
@@ -252,7 +252,7 @@ mod tests {
                 StorageOption::Persistent(tmp_path),
                 EncryptedMessageStore::generate_enc_key(),
             )
-            .unwrap()
+            .expect("constructing message store failed.")
         }
     }
 
