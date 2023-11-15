@@ -33,6 +33,26 @@ impl EncryptedMessageStore {
             }
         }
     }
+
+    pub fn update_last_synced_timestamp_for_topic(
+        &self,
+        conn: &mut DbConnection,
+        topic: &str,
+        timestamp_ns: i64,
+    ) -> Result<bool, StorageError> {
+        let state: Option<TopicRefreshState> = conn.fetch(&topic.to_string())?;
+        match state {
+            Some(state) => {
+                use super::schema::topic_refresh_state::dsl;
+                let num_updated = diesel::update(&state)
+                    .filter(dsl::last_message_timestamp_ns.lt(timestamp_ns))
+                    .set(dsl::last_message_timestamp_ns.eq(timestamp_ns))
+                    .execute(conn)?;
+                Ok(if num_updated == 1 { true } else { false })
+            }
+            None => Err(StorageError::NotFound),
+        }
+    }
 }
 
 #[cfg(test)]
@@ -41,7 +61,7 @@ pub(crate) mod tests {
     use crate::{storage::encrypted_store::tests::with_store, Fetch, Store};
 
     #[test]
-    fn no_existing_state() {
+    fn get_timestamp_with_no_existing_state() {
         with_store(|store, mut conn| {
             let entry: Option<TopicRefreshState> = conn.fetch(&"topic".to_string()).unwrap();
             assert!(entry.is_none());
@@ -57,7 +77,7 @@ pub(crate) mod tests {
     }
 
     #[test]
-    fn with_existing_state() {
+    fn get_timestamp_with_existing_state() {
         with_store(|store, mut conn| {
             let entry = TopicRefreshState {
                 topic: "topic".to_string(),
@@ -70,6 +90,44 @@ pub(crate) mod tests {
                     .unwrap(),
                 123
             );
+        })
+    }
+
+    #[test]
+    fn update_timestamp_when_bigger() {
+        with_store(|store, mut conn| {
+            let entry = TopicRefreshState {
+                topic: "topic".to_string(),
+                last_message_timestamp_ns: 123,
+            };
+            entry.store(&mut conn).unwrap();
+            assert_eq!(
+                store
+                    .update_last_synced_timestamp_for_topic(&mut conn, "topic", 124)
+                    .unwrap(),
+                true
+            );
+            let entry: Option<TopicRefreshState> = conn.fetch(&"topic".to_string()).unwrap();
+            assert_eq!(entry.unwrap().last_message_timestamp_ns, 124);
+        })
+    }
+
+    #[test]
+    fn dont_update_timestamp_when_smaller() {
+        with_store(|store, mut conn| {
+            let entry = TopicRefreshState {
+                topic: "topic".to_string(),
+                last_message_timestamp_ns: 123,
+            };
+            entry.store(&mut conn).unwrap();
+            assert_eq!(
+                store
+                    .update_last_synced_timestamp_for_topic(&mut conn, "topic", 122)
+                    .unwrap(),
+                false
+            );
+            let entry: Option<TopicRefreshState> = conn.fetch(&"topic".to_string()).unwrap();
+            assert_eq!(entry.unwrap().last_message_timestamp_ns, 123);
         })
     }
 }

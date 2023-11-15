@@ -1,6 +1,8 @@
 mod intents;
 
+use diesel::Connection;
 use intents::SendMessageIntentData;
+use log::debug;
 use openmls::{
     framing::ProtocolMessage,
     group::{GroupEpoch, MergePendingCommitError},
@@ -70,6 +72,10 @@ pub enum GroupError {
 
 #[derive(Debug, Error)]
 pub enum MessageProcessingError {
+    #[error("[{0}] already processed")]
+    AlreadyProcessed(u64),
+    #[error("diesel error: {0}")]
+    Diesel(#[from] diesel::result::Error),
     #[error("[{message_time_ns:?}] invalid sender with credential: {credential:?}")]
     InvalidSender {
         message_time_ns: u64,
@@ -304,40 +310,65 @@ where
             "[{}] processing private message",
             self.client.account_address()
         );
-        let decrypted_message = openmls_group.process_message(provider, message)?;
-        let (sender_account_address, sender_installation_id) =
-            self.validate_message_sender(openmls_group, &decrypted_message, envelope_timestamp_ns)?;
+        self.client.store.conn()?.transaction(
+            |transaction_manager| -> Result<(), MessageProcessingError> {
+                let is_updated = self.client.store.update_last_synced_timestamp_for_topic(
+                    transaction_manager,
+                    &self.topic(),
+                    envelope_timestamp_ns as i64,
+                )?;
+                if !is_updated {
+                    return Err(MessageProcessingError::AlreadyProcessed(
+                        envelope_timestamp_ns,
+                    ));
+                }
 
-        match decrypted_message.into_content() {
-            ProcessedMessageContent::ApplicationMessage(application_message) => {
-                let message_bytes = application_message.into_bytes();
-                let message_id =
-                    get_message_id(&message_bytes, &self.group_id, envelope_timestamp_ns);
-                let message = StoredGroupMessage {
-                    id: message_id,
-                    group_id: self.group_id.clone(),
-                    decrypted_message_bytes: message_bytes,
-                    sent_at_ns: envelope_timestamp_ns as i64,
-                    kind: GroupMessageKind::Application,
-                    sender_installation_id,
-                    sender_wallet_address: sender_account_address,
+                // TODO include provider in transaction
+                let decrypted_message = openmls_group.process_message(provider, message)?;
+                let (sender_account_address, sender_installation_id) = self
+                    .validate_message_sender(
+                        openmls_group,
+                        &decrypted_message,
+                        envelope_timestamp_ns,
+                    )?;
+
+                match decrypted_message.into_content() {
+                    ProcessedMessageContent::ApplicationMessage(application_message) => {
+                        let message_bytes = application_message.into_bytes();
+                        let message_id =
+                            get_message_id(&message_bytes, &self.group_id, envelope_timestamp_ns);
+                        let message = StoredGroupMessage {
+                            id: message_id,
+                            group_id: self.group_id.clone(),
+                            decrypted_message_bytes: message_bytes,
+                            sent_at_ns: envelope_timestamp_ns as i64,
+                            kind: GroupMessageKind::Application,
+                            sender_installation_id,
+                            sender_wallet_address: sender_account_address,
+                        };
+                        message.store(transaction_manager)?;
+                    }
+                    ProcessedMessageContent::ProposalMessage(_proposal_ptr) => {
+                        // intentionally left blank.
+                    }
+                    ProcessedMessageContent::ExternalJoinProposalMessage(
+                        _external_proposal_ptr,
+                    ) => {
+                        // intentionally left blank.
+                    }
+                    ProcessedMessageContent::StagedCommitMessage(staged_commit) => {
+                        debug!(
+                            "[{}] received staged commit. Merging and clearing any pending commits",
+                            self.client.account_address()
+                        );
+                        openmls_group.merge_staged_commit(provider, *staged_commit)?;
+                    }
                 };
-                message.store(conn)?;
-            }
-            ProcessedMessageContent::ProposalMessage(_proposal_ptr) => {
-                // intentionally left blank.
-            }
-            ProcessedMessageContent::ExternalJoinProposalMessage(_external_proposal_ptr) => {
-                // intentionally left blank.
-            }
-            ProcessedMessageContent::StagedCommitMessage(staged_commit) => {
-                debug!(
-                    "[{}] received staged commit. Merging and clearing any pending commits",
-                    self.client.account_address()
-                );
-                openmls_group.merge_staged_commit(provider, *staged_commit)?;
-            }
-        }
+
+                openmls_group.save(provider.key_store())?; // TODO include provider in transaction
+                Ok(())
+            },
+        )?;
         Ok(())
     }
 
@@ -382,7 +413,7 @@ where
         }
     }
 
-    pub fn process_messages(&self, envelopes: Vec<Envelope>) -> Result<(), GroupError> {
+    pub(crate) fn process_messages(&self, envelopes: Vec<Envelope>) -> Result<(), GroupError> {
         let mut conn = self.client.store.conn()?;
         let provider = self.client.mls_provider(&mut conn);
         let mut openmls_group = self.load_mls_group(&provider)?;
@@ -392,8 +423,7 @@ where
             .map(|envelope| -> Result<(), MessageProcessingError> {
                 self.process_message(conn, &mut openmls_group, &provider, &envelope)
             })
-            .filter(|result| result.is_err())
-            .map(|result| result.unwrap_err())
+            .filter_map(|result| result.err())
             .collect();
         openmls_group.save(provider.key_store())?; // TODO handle concurrency
 
@@ -405,8 +435,7 @@ where
     }
 
     pub async fn receive(&self) -> Result<(), GroupError> {
-        let topic = get_group_topic(&self.group_id);
-        let envelopes = self.client.pull_from_topic(&topic).await?;
+        let envelopes = self.client.pull_from_topic(&self.topic()).await?;
         self.process_messages(envelopes)
     }
 
@@ -637,7 +666,7 @@ where
         Ok(())
     }
 
-    pub fn topic(&self) -> String {
+    fn topic(&self) -> String {
         get_group_topic(&self.group_id)
     }
 }
