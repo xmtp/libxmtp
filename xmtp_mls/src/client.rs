@@ -298,7 +298,7 @@ where
 
         let groups: Vec<MlsGroup<ApiClient>> = envelopes
             .into_iter()
-            .map(|envelope: Envelope| -> Option<MlsGroup<ApiClient>> {
+            .filter_map(|envelope: Envelope| {
                 self.process_for_topic(&welcome_topic, envelope.timestamp_ns, |provider| {
                     let welcome = match extract_welcome(&envelope.message) {
                         Ok(welcome) => welcome,
@@ -320,7 +320,6 @@ where
                 .ok()
                 .flatten()
             })
-            .filter_map(|option| option)
             .collect();
 
         Ok(groups)

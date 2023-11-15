@@ -285,7 +285,6 @@ where
             "[{}] processing private message",
             self.client.account_address()
         );
-        // TODO include provider in transaction
         let decrypted_message = openmls_group.process_message(provider, message)?;
         let (sender_account_address, sender_installation_id) =
             self.validate_message_sender(openmls_group, &decrypted_message, envelope_timestamp_ns)?;
