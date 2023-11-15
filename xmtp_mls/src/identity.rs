@@ -132,6 +132,6 @@ mod tests {
         let store = EncryptedMessageStore::new_test();
         let mut conn = store.conn().unwrap();
         let provider = XmtpOpenMlsProvider::new(&mut conn);
-        Identity::new(&provider, &generate_local_wallet()).unwrap();
+        Identity::new(&store, &provider, &generate_local_wallet()).unwrap();
     }
 }

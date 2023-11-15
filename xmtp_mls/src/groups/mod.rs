@@ -195,41 +195,39 @@ where
     }
 
     pub(crate) async fn publish_intents(&self, conn: &mut DbConnection) -> Result<(), GroupError> {
-        let mut openmls_group = self.load_mls_group(&self.client.mls_provider(conn))?;
+        let provider = self.client.mls_provider(conn);
+        let mut openmls_group = self.load_mls_group(&provider)?;
 
         let intents = EncryptedMessageStore::find_group_intents(
-            conn,
+            &mut provider.conn().borrow_mut(),
             self.group_id.clone(),
             Some(vec![IntentState::ToPublish]),
             None,
         )?;
+
         for intent in intents {
-            let result = XmtpOpenMlsProvider::transaction(conn, |provider| {
-                let (payload, post_commit_data) =
-                    self.get_publish_intent_data(&provider, &mut openmls_group, &intent)?;
-
-                let payload_slice = payload.as_slice();
-
-                self.client
-                    .api_client
-                    .publish_to_group(vec![payload_slice])
-                    .await?;
-
-                EncryptedMessageStore::set_group_intent_published(
-                    &mut provider.conn().borrow_mut(),
-                    intent.id,
-                    sha256(payload_slice),
-                    post_commit_data,
-                )?;
-                Ok::<_, GroupError>(())
-            });
-
+            let result = self.get_publish_intent_data(&provider, &mut openmls_group, &intent);
             if let Err(e) = result {
                 log::error!("error getting publish intent data {:?}", e);
                 // TODO: Figure out which types of errors we should abort completely on and which
                 // ones are safe to continue with
                 continue;
             }
+
+            let (payload, post_commit_data) = result.expect("result already checked");
+            let payload_slice = payload.as_slice();
+
+            self.client
+                .api_client
+                .publish_to_group(vec![payload_slice])
+                .await?;
+
+            EncryptedMessageStore::set_group_intent_published(
+                &mut provider.conn().borrow_mut(),
+                intent.id,
+                sha256(payload_slice),
+                post_commit_data,
+            )?;
         }
         openmls_group.save(self.client.mls_provider(conn).key_store())?;
 
