@@ -22,6 +22,7 @@ import org.xmtp.android.library.messages.sentAt
 import org.xmtp.android.library.messages.toPublicKeyBundle
 import org.xmtp.android.library.messages.walletAddress
 import org.xmtp.proto.message.api.v1.MessageApiOuterClass
+import uniffi.xmtp_dh.org.xmtp.android.library.messages.DecryptedMessage
 import java.util.Date
 
 data class ConversationV1(
@@ -56,21 +57,59 @@ data class ConversationV1(
         }
     }
 
+    fun decryptedMessages(
+        limit: Int? = null,
+        before: Date? = null,
+        after: Date? = null,
+        direction: PagingInfoSortDirection = MessageApiOuterClass.SortDirection.SORT_DIRECTION_DESCENDING,
+    ): List<DecryptedMessage> {
+        val pagination =
+            Pagination(limit = limit, before = before, after = after, direction = direction)
+
+        val envelopes = runBlocking {
+            client.apiClient.envelopes(
+                topic = Topic.directMessageV1(client.address, peerAddress).description,
+                pagination = pagination
+            )
+        }
+
+        return envelopes.map { decrypt(it) }
+    }
+
+    fun decrypt(envelope: Envelope): DecryptedMessage {
+        try {
+            val message = Message.parseFrom(envelope.message)
+            val decrypted = message.v1.decrypt(client.privateKeyBundleV1)
+
+            val encodedMessage = EncodedContent.parseFrom(decrypted)
+            val header = message.v1.header
+
+            return DecryptedMessage(
+                id = generateId(envelope),
+                encodedContent = encodedMessage,
+                senderAddress = header.sender.walletAddress,
+                sentAt = message.v1.sentAt
+            )
+        } catch (e: Exception) {
+            throw XMTPException("Error decrypting message", e)
+        }
+    }
+
     fun decode(envelope: Envelope): DecodedMessage {
-        val message = Message.parseFrom(envelope.message)
-        val decrypted = message.v1.decrypt(client.privateKeyBundleV1)
-        val encodedMessage = EncodedContent.parseFrom(decrypted)
-        val header = message.v1.header
-        val decoded = DecodedMessage(
-            topic = envelope.contentTopic,
-            encodedContent = encodedMessage,
-            senderAddress = header.sender.walletAddress,
-            sent = message.v1.sentAt
-        )
+        try {
+            val decryptedMessage = decrypt(envelope)
 
-        decoded.id = generateId(envelope)
-
-        return decoded
+            return DecodedMessage(
+                id = generateId(envelope),
+                client = client,
+                topic = envelope.contentTopic,
+                encodedContent = decryptedMessage.encodedContent,
+                senderAddress = decryptedMessage.senderAddress,
+                sent = decryptedMessage.sentAt
+            )
+        } catch (e: Exception) {
+            throw XMTPException("Error decoding message", e)
+        }
     }
 
     private fun decodeOrNull(envelope: Envelope): DecodedMessage? {

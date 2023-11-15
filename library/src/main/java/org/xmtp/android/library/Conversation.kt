@@ -10,6 +10,7 @@ import org.xmtp.proto.keystore.api.v1.Keystore.TopicMap.TopicData
 import org.xmtp.proto.message.api.v1.MessageApiOuterClass
 import org.xmtp.proto.message.contents.Invitation
 import org.xmtp.proto.message.contents.Invitation.InvitationV1.Aes256gcmHkdfsha256
+import uniffi.xmtp_dh.org.xmtp.android.library.messages.DecryptedMessage
 import java.util.Date
 
 sealed class Conversation {
@@ -177,6 +178,18 @@ sealed class Conversation {
                     after = after,
                     direction = direction
                 )
+        }
+    }
+
+    fun decryptedMessages(
+        limit: Int? = null,
+        before: Date? = null,
+        after: Date? = null,
+        direction: PagingInfoSortDirection = MessageApiOuterClass.SortDirection.SORT_DIRECTION_DESCENDING,
+    ): List<DecryptedMessage> {
+        return when (this) {
+            is V1 -> conversationV1.decryptedMessages(limit, before, after, direction)
+            is V2 -> conversationV2.decryptedMessages(limit, before, after, direction)
         }
     }
 

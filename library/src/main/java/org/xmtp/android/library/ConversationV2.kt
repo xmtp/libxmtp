@@ -13,7 +13,6 @@ import org.xmtp.android.library.messages.Envelope
 import org.xmtp.android.library.messages.EnvelopeBuilder
 import org.xmtp.android.library.messages.Message
 import org.xmtp.android.library.messages.MessageBuilder
-import org.xmtp.android.library.messages.MessageV2
 import org.xmtp.android.library.messages.MessageV2Builder
 import org.xmtp.android.library.messages.Pagination
 import org.xmtp.android.library.messages.PagingInfoSortDirection
@@ -22,6 +21,7 @@ import org.xmtp.android.library.messages.getPublicKeyBundle
 import org.xmtp.android.library.messages.walletAddress
 import org.xmtp.proto.message.api.v1.MessageApiOuterClass
 import org.xmtp.proto.message.contents.Invitation
+import uniffi.xmtp_dh.org.xmtp.android.library.messages.DecryptedMessage
 import java.util.Date
 
 data class ConversationV2(
@@ -77,6 +77,28 @@ data class ConversationV2(
         }
     }
 
+    fun decryptedMessages(
+        limit: Int? = null,
+        before: Date? = null,
+        after: Date? = null,
+        direction: PagingInfoSortDirection = MessageApiOuterClass.SortDirection.SORT_DIRECTION_DESCENDING,
+    ): List<DecryptedMessage> {
+        val pagination =
+            Pagination(limit = limit, before = before, after = after, direction = direction)
+        val envelopes = runBlocking { client.apiClient.envelopes(topic, pagination) }
+
+        return envelopes.map { envelope ->
+            val message = Message.parseFrom(envelope.message)
+            MessageV2Builder.buildDecrypt(
+                id = generateId(envelope = envelope),
+                topic,
+                message.v2,
+                keyMaterial,
+                client
+            )
+        }
+    }
+
     fun streamMessages(): Flow<DecodedMessage> = flow {
         client.subscribe(listOf(topic)).mapNotNull { decodeEnvelopeOrNull(envelope = it) }.collect {
             emit(it)
@@ -85,9 +107,13 @@ data class ConversationV2(
 
     fun decodeEnvelope(envelope: Envelope): DecodedMessage {
         val message = Message.parseFrom(envelope.message)
-        val decoded = decode(message.v2)
-        decoded.id = generateId(envelope)
-        return decoded
+        return MessageV2Builder.buildDecode(
+            generateId(envelope = envelope),
+            topic = topic,
+            message.v2,
+            keyMaterial = keyMaterial,
+            client = client
+        )
     }
 
     private fun decodeEnvelopeOrNull(envelope: Envelope): DecodedMessage? {
@@ -98,9 +124,6 @@ data class ConversationV2(
             null
         }
     }
-
-    fun decode(message: MessageV2): DecodedMessage =
-        MessageV2Builder.buildDecode(message, keyMaterial = keyMaterial, topic = topic)
 
     fun <T> send(content: T, options: SendOptions? = null): String {
         val preparedMessage = prepareMessage(content = content, options = options)

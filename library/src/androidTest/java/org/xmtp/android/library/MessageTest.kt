@@ -94,7 +94,9 @@ class MessageTest {
             keyMaterial = invitationv1.aes256GcmHkdfSha256.keyMaterial.toByteArray()
         )
         val decoded = MessageV2Builder.buildDecode(
-            message1,
+            id = "",
+            client = client,
+            message = message1,
             keyMaterial = invitationv1.aes256GcmHkdfSha256.keyMaterial.toByteArray(),
             topic = invitationv1.topic
         )

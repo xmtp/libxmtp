@@ -11,6 +11,7 @@ import org.xmtp.android.library.DecodedMessage
 import org.xmtp.android.library.KeyUtil
 import org.xmtp.android.library.XMTPException
 import org.xmtp.android.library.codecs.EncodedContent
+import uniffi.xmtp_dh.org.xmtp.android.library.messages.DecryptedMessage
 import java.math.BigInteger
 import java.util.Date
 
@@ -25,7 +26,36 @@ class MessageV2Builder {
             }.build()
         }
 
-        fun buildDecode(message: MessageV2, keyMaterial: ByteArray, topic: String): DecodedMessage {
+        fun buildDecode(
+            id: String,
+            topic: String,
+            message: MessageV2,
+            keyMaterial: ByteArray,
+            client: Client,
+        ): DecodedMessage {
+            try {
+                val decryptedMessage = buildDecrypt(id, topic, message, keyMaterial, client)
+
+                return DecodedMessage(
+                    id = id,
+                    client = client,
+                    topic = decryptedMessage.topic,
+                    encodedContent = decryptedMessage.encodedContent,
+                    senderAddress = decryptedMessage.senderAddress,
+                    sent = decryptedMessage.sentAt
+                )
+            } catch (e: Exception) {
+                throw XMTPException("Error decoding message", e)
+            }
+        }
+
+        fun buildDecrypt(
+            id: String,
+            topic: String,
+            message: MessageV2,
+            keyMaterial: ByteArray,
+            client: Client,
+        ): DecryptedMessage {
             val decrypted =
                 Crypto.decrypt(keyMaterial, message.ciphertext, message.headerBytes.toByteArray())
             val signed = SignedContent.parseFrom(decrypted)
@@ -68,16 +98,19 @@ class MessageV2Builder {
             if (key.walletAddress != (PublicKeyBuilder.buildFromSignedPublicKey(signed.sender.preKey).walletAddress)) {
                 throw XMTPException("Invalid signature")
             }
+
             val encodedMessage = EncodedContent.parseFrom(signed.payload)
             val header = MessageHeaderV2.parseFrom(message.headerBytes)
             if (header.topic != topic) {
                 throw XMTPException("Topic mismatch")
             }
-            return DecodedMessage(
-                topic = header.topic,
+
+            return DecryptedMessage(
+                id = id,
                 encodedContent = encodedMessage,
                 senderAddress = signed.sender.walletAddress,
-                sent = Date(header.createdNs / 1_000_000)
+                sentAt = Date(header.createdNs / 1_000_000),
+                topic = topic
             )
         }
 
