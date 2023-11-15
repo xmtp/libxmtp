@@ -1,6 +1,6 @@
 mod intents;
-
 use intents::SendMessageIntentData;
+#[cfg(not(test))]
 use log::debug;
 use openmls::{
     framing::ProtocolMessage,
@@ -14,6 +14,8 @@ use openmls::{
 };
 use openmls_traits::OpenMlsProvider;
 use std::mem::discriminant;
+#[cfg(test)]
+use std::println as debug;
 use thiserror::Error;
 use tls_codec::{Deserialize, Serialize};
 use xmtp_proto::api_client::{Envelope, XmtpApiClient, XmtpMlsClient};
