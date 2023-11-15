@@ -16,7 +16,6 @@ impl_store!(TopicRefreshState, topic_refresh_state);
 
 impl EncryptedMessageStore {
     pub fn get_last_synced_timestamp_for_topic(
-        &self,
         conn: &mut DbConnection,
         topic: &str,
     ) -> Result<i64, StorageError> {
@@ -35,7 +34,6 @@ impl EncryptedMessageStore {
     }
 
     pub fn update_last_synced_timestamp_for_topic(
-        &self,
         conn: &mut DbConnection,
         topic: &str,
         timestamp_ns: i64,
@@ -62,12 +60,11 @@ pub(crate) mod tests {
 
     #[test]
     fn get_timestamp_with_no_existing_state() {
-        with_store(|store, mut conn| {
+        with_store(|mut conn| {
             let entry: Option<TopicRefreshState> = conn.fetch(&"topic".to_string()).unwrap();
             assert!(entry.is_none());
             assert_eq!(
-                store
-                    .get_last_synced_timestamp_for_topic(&mut conn, "topic")
+                EncryptedMessageStore::get_last_synced_timestamp_for_topic(&mut conn, "topic")
                     .unwrap(),
                 0
             );
@@ -78,15 +75,14 @@ pub(crate) mod tests {
 
     #[test]
     fn get_timestamp_with_existing_state() {
-        with_store(|store, mut conn| {
+        with_store(|mut conn| {
             let entry = TopicRefreshState {
                 topic: "topic".to_string(),
                 last_message_timestamp_ns: 123,
             };
             entry.store(&mut conn).unwrap();
             assert_eq!(
-                store
-                    .get_last_synced_timestamp_for_topic(&mut conn, "topic")
+                EncryptedMessageStore::get_last_synced_timestamp_for_topic(&mut conn, "topic")
                     .unwrap(),
                 123
             );
@@ -95,16 +91,17 @@ pub(crate) mod tests {
 
     #[test]
     fn update_timestamp_when_bigger() {
-        with_store(|store, mut conn| {
+        with_store(|mut conn| {
             let entry = TopicRefreshState {
                 topic: "topic".to_string(),
                 last_message_timestamp_ns: 123,
             };
             entry.store(&mut conn).unwrap();
             assert_eq!(
-                store
-                    .update_last_synced_timestamp_for_topic(&mut conn, "topic", 124)
-                    .unwrap(),
+                EncryptedMessageStore::update_last_synced_timestamp_for_topic(
+                    &mut conn, "topic", 124
+                )
+                .unwrap(),
                 true
             );
             let entry: Option<TopicRefreshState> = conn.fetch(&"topic".to_string()).unwrap();
@@ -114,16 +111,17 @@ pub(crate) mod tests {
 
     #[test]
     fn dont_update_timestamp_when_smaller() {
-        with_store(|store, mut conn| {
+        with_store(|mut conn| {
             let entry = TopicRefreshState {
                 topic: "topic".to_string(),
                 last_message_timestamp_ns: 123,
             };
             entry.store(&mut conn).unwrap();
             assert_eq!(
-                store
-                    .update_last_synced_timestamp_for_topic(&mut conn, "topic", 122)
-                    .unwrap(),
+                EncryptedMessageStore::update_last_synced_timestamp_for_topic(
+                    &mut conn, "topic", 122
+                )
+                .unwrap(),
                 false
             );
             let entry: Option<TopicRefreshState> = conn.fetch(&"topic".to_string()).unwrap();

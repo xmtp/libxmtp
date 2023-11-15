@@ -198,7 +198,6 @@ where
 
     fn process_own_message(
         &self,
-        conn: &mut DbConnection,
         intent: StoredGroupIntent,
         openmls_group: &mut OpenMlsGroup,
         provider: &XmtpOpenMlsProvider,
@@ -225,7 +224,10 @@ where
                         "no pending commit to merge. Group epoch: {}. Message epoch: {}",
                         group_epoch, message_epoch
                     );
-                    EncryptedMessageStore::set_group_intent_to_publish(conn, intent.id)?;
+                    EncryptedMessageStore::set_group_intent_to_publish(
+                        &mut provider.conn().borrow_mut(),
+                        intent.id,
+                    )?;
 
                     return Err(MessageProcessingError::NoPendingCommit {
                         message_epoch,
@@ -237,7 +239,10 @@ where
                     Err(MergePendingCommitError::MlsGroupStateError(err)) => {
                         debug!("error merging commit: {}", err);
                         openmls_group.clear_pending_commit();
-                        EncryptedMessageStore::set_group_intent_to_publish(conn, intent.id)?;
+                        EncryptedMessageStore::set_group_intent_to_publish(
+                            &mut provider.conn().borrow_mut(),
+                            intent.id,
+                        )?;
                     }
                     _ => (),
                 };
@@ -257,18 +262,20 @@ where
                     sender_installation_id: self.client.installation_public_key(),
                     sender_wallet_address: self.client.account_address(),
                 }
-                .store(conn)?;
+                .store(&mut provider.conn().borrow_mut())?;
             }
         };
 
-        EncryptedMessageStore::set_group_intent_committed(conn, intent.id)?;
+        EncryptedMessageStore::set_group_intent_committed(
+            &mut provider.conn().borrow_mut(),
+            intent.id,
+        )?;
 
         Ok(())
     }
 
     fn process_private_message(
         &self,
-        transaction_manager: &mut DbConnection,
         openmls_group: &mut OpenMlsGroup,
         provider: &XmtpOpenMlsProvider,
         message: PrivateMessageIn,
@@ -297,7 +304,7 @@ where
                     sender_installation_id,
                     sender_wallet_address: sender_account_address,
                 };
-                message.store(transaction_manager)?;
+                message.store(&mut provider.conn().borrow_mut())?;
             }
             ProcessedMessageContent::ProposalMessage(_proposal_ptr) => {
                 // intentionally left blank.
@@ -319,7 +326,6 @@ where
 
     fn process_message(
         &self,
-        transaction_manager: &mut DbConnection,
         openmls_group: &mut OpenMlsGroup,
         provider: &XmtpOpenMlsProvider,
         envelope: &Envelope,
@@ -334,12 +340,11 @@ where
         }?;
 
         match EncryptedMessageStore::find_group_intent_by_payload_hash(
-            transaction_manager,
+            &mut provider.conn().borrow_mut(),
             sha256(envelope.message.as_slice()),
         ) {
             // Intent with the payload hash matches
             Ok(Some(intent)) => self.process_own_message(
-                transaction_manager,
                 intent,
                 openmls_group,
                 provider,
@@ -349,7 +354,6 @@ where
             Err(err) => Err(MessageProcessingError::Storage(err)),
             // No matching intent found
             Ok(None) => self.process_private_message(
-                transaction_manager,
                 openmls_group,
                 provider,
                 message,
@@ -368,13 +372,8 @@ where
                 self.client.process_for_topic(
                     &self.topic(),
                     envelope.timestamp_ns,
-                    |transaction_manager| -> Result<(), MessageProcessingError> {
-                        self.process_message(
-                            transaction_manager,
-                            &mut openmls_group,
-                            &provider,
-                            &envelope,
-                        )?;
+                    |provider| -> Result<(), MessageProcessingError> {
+                        self.process_message(&mut openmls_group, &provider, &envelope)?;
                         openmls_group.save(provider.key_store())?;
                         Ok(())
                     },

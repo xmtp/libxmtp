@@ -1,6 +1,5 @@
 use std::{collections::HashSet, mem::Discriminant};
 
-use diesel::Connection;
 use log::debug;
 use openmls::{
     framing::{MlsMessageIn, MlsMessageInBody},
@@ -212,9 +211,8 @@ where
 
     pub(crate) async fn pull_from_topic(&self, topic: &str) -> Result<Vec<Envelope>, ClientError> {
         let mut conn = self.store.conn()?;
-        let last_synced_timestamp_ns = self
-            .store
-            .get_last_synced_timestamp_for_topic(&mut conn, topic)?;
+        let last_synced_timestamp_ns =
+            EncryptedMessageStore::get_last_synced_timestamp_for_topic(&mut conn, topic)?;
 
         let envelopes = self
             .api_client
@@ -238,14 +236,13 @@ where
         process_envelope: ProcessingFn,
     ) -> Result<ReturnValue, MessageProcessingError>
     where
-        ProcessingFn: FnOnce(&mut DbConnection) -> Result<ReturnValue, MessageProcessingError>,
+        ProcessingFn: FnOnce(XmtpOpenMlsProvider) -> Result<ReturnValue, MessageProcessingError>,
     {
         // TODO: We can handle errors in the transaction() function to make error handling
         // cleaner. Retryable errors can possibly be part of their own enum
         XmtpOpenMlsProvider::transaction(&mut self.store.conn()?, |provider| {
-            let transaction_manager = &mut provider.conn().borrow_mut();
-            let is_updated = self.store.update_last_synced_timestamp_for_topic(
-                transaction_manager,
+            let is_updated = EncryptedMessageStore::update_last_synced_timestamp_for_topic(
+                &mut provider.conn().borrow_mut(),
                 topic,
                 envelope_timestamp_ns as i64,
             )?;
@@ -254,7 +251,7 @@ where
                     envelope_timestamp_ns,
                 ));
             }
-            process_envelope(transaction_manager)
+            process_envelope(provider)
         })
     }
 
@@ -302,28 +299,24 @@ where
         let groups: Vec<MlsGroup<ApiClient>> = envelopes
             .into_iter()
             .map(|envelope: Envelope| -> Option<MlsGroup<ApiClient>> {
-                self.process_for_topic(
-                    &welcome_topic,
-                    envelope.timestamp_ns,
-                    |transaction_manager| {
-                        let welcome = match extract_welcome(&envelope.message) {
-                            Ok(welcome) => welcome,
-                            Err(err) => {
-                                log::error!("failed to extract welcome: {}", err);
-                                return Ok(None);
-                            }
-                        };
-
-                        // TODO: Abort if error is retryable
-                        match MlsGroup::create_from_welcome(self, &provider, welcome) {
-                            Ok(mls_group) => Ok(Some(mls_group)),
-                            Err(err) => {
-                                log::error!("failed to create group from welcome: {}", err);
-                                Ok(None)
-                            }
+                self.process_for_topic(&welcome_topic, envelope.timestamp_ns, |provider| {
+                    let welcome = match extract_welcome(&envelope.message) {
+                        Ok(welcome) => welcome,
+                        Err(err) => {
+                            log::error!("failed to extract welcome: {}", err);
+                            return Ok(None);
                         }
-                    },
-                )
+                    };
+
+                    // TODO: Abort if error is retryable
+                    match MlsGroup::create_from_welcome(self, &provider, welcome) {
+                        Ok(mls_group) => Ok(Some(mls_group)),
+                        Err(err) => {
+                            log::error!("failed to create group from welcome: {}", err);
+                            Ok(None)
+                        }
+                    }
+                })
                 .ok()
                 .flatten()
             })
