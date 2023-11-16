@@ -400,5 +400,8 @@ mod tests {
             bob_received_groups.first().unwrap().group_id,
             alice_bob_group.group_id
         );
+
+        let duplicate_received_groups = bob.sync_welcomes().await.unwrap();
+        assert_eq!(duplicate_received_groups.len(), 0);
     }
 }
