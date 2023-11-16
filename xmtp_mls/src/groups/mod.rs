@@ -434,6 +434,23 @@ where
         Ok(())
     }
 
+    pub async fn add_members_by_wallet_address(
+        &self,
+        wallet_addresses: Vec<String>,
+    ) -> Result<(), GroupError> {
+        let conn = &mut self.client.store.conn()?;
+        let key_packages = self
+            .client
+            .get_key_packages_for_wallet_addresses(wallet_addresses)
+            .await?;
+        let intent_data: Vec<u8> = AddMembersIntentData::new(key_packages).try_into()?;
+        let intent =
+            NewGroupIntent::new(IntentKind::AddMembers, self.group_id.clone(), intent_data);
+        intent.store(conn)?;
+
+        self.sync(conn).await
+    }
+
     pub async fn add_members_by_installation_id(
         &self,
         installation_ids: Vec<Vec<u8>>,
