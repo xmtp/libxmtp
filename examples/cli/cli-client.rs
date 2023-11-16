@@ -195,10 +195,7 @@ async fn main() {
             let group = client
                 .group(hex::decode(group_id).unwrap())
                 .expect("failed to find group");
-            group
-                .sync(&mut client.store.conn().unwrap())
-                .await
-                .expect("failed to sync");
+            group.sync().await.expect("failed to sync");
             let messages =
                 format_messages(&group, client.account_address()).expect("failed to get messages");
             info!(

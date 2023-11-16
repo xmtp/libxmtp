@@ -71,7 +71,7 @@ pub struct Client<ApiClient> {
     pub(crate) api_client: ApiClientWrapper<ApiClient>,
     pub(crate) _network: Network,
     pub(crate) identity: Identity,
-    pub store: EncryptedMessageStore,
+    pub(crate) store: EncryptedMessageStore,
 }
 
 impl<'a, ApiClient> Client<ApiClient>
