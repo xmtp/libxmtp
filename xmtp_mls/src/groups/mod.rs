@@ -121,7 +121,9 @@ where
         mls_group.save(provider.key_store())?;
         let group_id = mls_group.group_id().to_vec();
         let stored_group = StoredGroup::new(group_id.clone(), now_ns(), membership_state);
-        stored_group.store(*provider.conn().borrow_mut())?;
+        {
+            stored_group.store(*provider.conn().borrow_mut())?;
+        }
 
         Ok(Self::new(client, group_id, stored_group.created_at_ns))
     }
@@ -138,7 +140,9 @@ where
         let group_id = mls_group.group_id().to_vec();
         let stored_group =
             StoredGroup::new(group_id.clone(), now_ns(), GroupMembershipState::Pending);
-        stored_group.store(*provider.conn().borrow_mut())?;
+        {
+            stored_group.store(*provider.conn().borrow_mut())?;
+        }
 
         Ok(Self::new(client, group_id, stored_group.created_at_ns))
     }
@@ -224,10 +228,12 @@ where
                         "no pending commit to merge. Group epoch: {}. Message epoch: {}",
                         group_epoch, message_epoch
                     );
-                    EncryptedMessageStore::set_group_intent_to_publish(
-                        &mut provider.conn().borrow_mut(),
-                        intent.id,
-                    )?;
+                    {
+                        EncryptedMessageStore::set_group_intent_to_publish(
+                            &mut provider.conn().borrow_mut(),
+                            intent.id,
+                        )?;
+                    }
 
                     return Err(MessageProcessingError::NoPendingCommit {
                         message_epoch,
@@ -239,10 +245,12 @@ where
                     Err(MergePendingCommitError::MlsGroupStateError(err)) => {
                         debug!("error merging commit: {}", err);
                         openmls_group.clear_pending_commit();
-                        EncryptedMessageStore::set_group_intent_to_publish(
-                            &mut provider.conn().borrow_mut(),
-                            intent.id,
-                        )?;
+                        {
+                            EncryptedMessageStore::set_group_intent_to_publish(
+                                &mut provider.conn().borrow_mut(),
+                                intent.id,
+                            )?;
+                        }
                     }
                     _ => (),
                 };
@@ -253,23 +261,27 @@ where
                 let group_id = openmls_group.group_id().as_slice();
                 let decrypted_message_data = intent_data.message.as_slice();
 
-                StoredGroupMessage {
-                    id: get_message_id(decrypted_message_data, group_id, envelope_timestamp_ns),
-                    group_id: group_id.to_vec(),
-                    decrypted_message_bytes: intent_data.message,
-                    sent_at_ns: envelope_timestamp_ns as i64,
-                    kind: GroupMessageKind::Application,
-                    sender_installation_id: self.client.installation_public_key(),
-                    sender_wallet_address: self.client.account_address(),
+                {
+                    StoredGroupMessage {
+                        id: get_message_id(decrypted_message_data, group_id, envelope_timestamp_ns),
+                        group_id: group_id.to_vec(),
+                        decrypted_message_bytes: intent_data.message,
+                        sent_at_ns: envelope_timestamp_ns as i64,
+                        kind: GroupMessageKind::Application,
+                        sender_installation_id: self.client.installation_public_key(),
+                        sender_wallet_address: self.client.account_address(),
+                    }
+                    .store(&mut provider.conn().borrow_mut())?;
                 }
-                .store(&mut provider.conn().borrow_mut())?;
             }
         };
 
-        EncryptedMessageStore::set_group_intent_committed(
-            &mut provider.conn().borrow_mut(),
-            intent.id,
-        )?;
+        {
+            EncryptedMessageStore::set_group_intent_committed(
+                &mut provider.conn().borrow_mut(),
+                intent.id,
+            )?;
+        }
 
         Ok(())
     }
@@ -303,7 +315,9 @@ where
                     sender_installation_id,
                     sender_wallet_address: sender_account_address,
                 };
-                message.store(&mut provider.conn().borrow_mut())?;
+                {
+                    message.store(&mut provider.conn().borrow_mut())?;
+                }
             }
             ProcessedMessageContent::ProposalMessage(_proposal_ptr) => {
                 // intentionally left blank.
@@ -338,10 +352,13 @@ where
             )),
         }?;
 
-        match EncryptedMessageStore::find_group_intent_by_payload_hash(
-            &mut provider.conn().borrow_mut(),
-            sha256(envelope.message.as_slice()),
-        ) {
+        let intent = {
+            EncryptedMessageStore::find_group_intent_by_payload_hash(
+                &mut provider.conn().borrow_mut(),
+                sha256(envelope.message.as_slice()),
+            )
+        };
+        match intent {
             // Intent with the payload hash matches
             Ok(Some(intent)) => self.process_own_message(
                 intent,
@@ -461,12 +478,14 @@ where
         let provider = self.client.mls_provider(conn);
         let mut openmls_group = self.load_mls_group(&provider)?;
 
-        let intents = EncryptedMessageStore::find_group_intents(
-            &mut provider.conn().borrow_mut(),
-            self.group_id.clone(),
-            Some(vec![IntentState::ToPublish]),
-            None,
-        )?;
+        let intents = {
+            EncryptedMessageStore::find_group_intents(
+                &mut provider.conn().borrow_mut(),
+                self.group_id.clone(),
+                Some(vec![IntentState::ToPublish]),
+                None,
+            )?
+        };
 
         for intent in intents {
             let result = self.get_publish_intent_data(&provider, &mut openmls_group, &intent);
@@ -485,12 +504,14 @@ where
                 .publish_to_group(vec![payload_slice])
                 .await?;
 
-            EncryptedMessageStore::set_group_intent_published(
-                &mut provider.conn().borrow_mut(),
-                intent.id,
-                sha256(payload_slice),
-                post_commit_data,
-            )?;
+            {
+                EncryptedMessageStore::set_group_intent_published(
+                    &mut provider.conn().borrow_mut(),
+                    intent.id,
+                    sha256(payload_slice),
+                    post_commit_data,
+                )?;
+            }
         }
         openmls_group.save(self.client.mls_provider(conn).key_store())?;
 

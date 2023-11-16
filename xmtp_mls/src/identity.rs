@@ -62,7 +62,9 @@ impl Identity {
         };
 
         identity.new_key_package(provider)?;
-        StoredIdentity::from(&identity).store(*provider.conn().borrow_mut())?;
+        {
+            StoredIdentity::from(&identity).store(*provider.conn().borrow_mut())?;
+        }
 
         // TODO: upload credential_with_key and last_resort_key_package
 

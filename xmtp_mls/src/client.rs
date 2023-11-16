@@ -241,11 +241,13 @@ where
         // TODO: We can handle errors in the transaction() function to make error handling
         // cleaner. Retryable errors can possibly be part of their own enum
         XmtpOpenMlsProvider::transaction(&mut self.store.conn()?, |provider| {
-            let is_updated = EncryptedMessageStore::update_last_synced_timestamp_for_topic(
-                &mut provider.conn().borrow_mut(),
-                topic,
-                envelope_timestamp_ns as i64,
-            )?;
+            let is_updated = {
+                EncryptedMessageStore::update_last_synced_timestamp_for_topic(
+                    &mut provider.conn().borrow_mut(),
+                    topic,
+                    envelope_timestamp_ns as i64,
+                )?
+            };
             if !is_updated {
                 return Err(MessageProcessingError::AlreadyProcessed(
                     envelope_timestamp_ns,
