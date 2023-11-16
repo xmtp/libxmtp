@@ -46,7 +46,7 @@ impl EncryptedMessageStore {
                     .filter(dsl::last_message_timestamp_ns.lt(timestamp_ns))
                     .set(dsl::last_message_timestamp_ns.eq(timestamp_ns))
                     .execute(conn)?;
-                Ok(if num_updated == 1 { true } else { false })
+                Ok(num_updated == 1)
             }
             None => Err(StorageError::NotFound),
         }

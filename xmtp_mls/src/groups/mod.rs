@@ -241,19 +241,18 @@ where
                     });
                 }
                 debug!("[{}] merging pending commit", self.client.account_address());
-                match openmls_group.merge_pending_commit(provider) {
-                    Err(MergePendingCommitError::MlsGroupStateError(err)) => {
-                        debug!("error merging commit: {}", err);
-                        openmls_group.clear_pending_commit();
-                        {
-                            EncryptedMessageStore::set_group_intent_to_publish(
-                                &mut provider.conn().borrow_mut(),
-                                intent.id,
-                            )?;
-                        }
+                if let Err(MergePendingCommitError::MlsGroupStateError(err)) =
+                    openmls_group.merge_pending_commit(provider)
+                {
+                    debug!("error merging commit: {}", err);
+                    openmls_group.clear_pending_commit();
+                    {
+                        EncryptedMessageStore::set_group_intent_to_publish(
+                            &mut provider.conn().borrow_mut(),
+                            intent.id,
+                        )?;
                     }
-                    _ => (),
-                };
+                }
                 // TOOD: Handle writing transcript messages for adding/removing members
             }
             IntentKind::SendMessage => {
