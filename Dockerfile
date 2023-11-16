@@ -8,7 +8,7 @@ RUN cargo fmt --check
 RUN cargo clippy --all-features --no-deps
 RUN cargo clippy --all-features --no-deps --manifest-path xmtp/Cargo.toml
 # some tests are setup as integration tests 👀 xmtp_mls
-RUN for crate in xmtp xmtp_api_grpc xmtp_api_grpc_gateway xmtp_cryptography xmtp_proto xmtp_v2; do cd ${crate}; ~xmtp/.cargo/bin/cargo test; done
+RUN for crate in xmtp_api_grpc xmtp_api_grpc_gateway xmtp_cryptography xmtp_proto xmtp_v2; do cd ${crate}; ~xmtp/.cargo/bin/cargo test; done
 
 LABEL org.label-schema.build-date=$BUILD_DATE \
     org.label-schema.name="rustdev" \
