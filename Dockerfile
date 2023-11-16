@@ -1,10 +1,6 @@
 FROM ghcr.io/xmtp/rust:latest
 USER xmtp
 
-RUN ~xmtp/.cargo/bin/rustup toolchain install stable 
-RUN ~xmtp/.cargo/bin/rustup component add rustfmt
-RUN ~xmtp/.cargo/bin/rustup component add clippy
-
 WORKDIR /workspaces/libxmtp
 COPY --chown=xmtp:xmtp . .
 
