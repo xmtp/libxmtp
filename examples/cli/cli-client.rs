@@ -219,7 +219,7 @@ async fn main() {
                 .expect("failed to find group");
 
             group
-                .add_members_by_wallet_address(vec![wallet_address.clone()])
+                .add_members(vec![wallet_address.clone()])
                 .await
                 .expect("failed to add member");
 

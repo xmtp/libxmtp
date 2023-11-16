@@ -434,10 +434,7 @@ where
         Ok(())
     }
 
-    pub async fn add_members_by_wallet_address(
-        &self,
-        wallet_addresses: Vec<String>,
-    ) -> Result<(), GroupError> {
+    pub async fn add_members(&self, wallet_addresses: Vec<String>) -> Result<(), GroupError> {
         let conn = &mut self.client.store.conn()?;
         let key_packages = self
             .client
