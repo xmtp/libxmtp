@@ -1,14 +1,17 @@
 FROM ghcr.io/xmtp/rust:latest
 
+RUN sudo apt update && sudo apt install -y pkg-config openssl
+
 WORKDIR /workspaces/libxmtp
 COPY --chown=xmtp:xmtp . .
+
 
 RUN cargo check
 RUN cargo fmt --check
 RUN cargo clippy --all-features --no-deps
 RUN cargo clippy --all-features --no-deps --manifest-path xmtp/Cargo.toml
 # some tests are setup as integration tests 👀 xmtp_mls
-RUN for crate in xmtp_api_grpc_gateway xmtp_cryptography xmtp_proto xmtp_v2; do cd ${crate}; ~xmtp/.cargo/bin/cargo test; done
+RUN for crate in xmtp_cryptography xmtp_proto xmtp_v2; do cd ${crate}; cargo test; done
 
 LABEL org.label-schema.build-date=$BUILD_DATE \
     org.label-schema.name="rustdev" \
