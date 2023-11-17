@@ -216,7 +216,7 @@ where
 
         let envelopes = self
             .api_client
-            .read_topic(topic, last_synced_timestamp_ns as u64)
+            .read_topic(topic, last_synced_timestamp_ns as u64 + 1)
             .await?;
 
         debug!(
