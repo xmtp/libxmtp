@@ -35,7 +35,10 @@ impl<'a> XmtpOpenMlsProvider<'a> {
     /// XmtpOpenMlsProvider::transaction(conn, |provider| {
     ///     // do some operations requiring provider
     ///     // access the connection with .conn()
-    ///     provider.conn().borrow_mut()
+    ///     // wrap in a block so that the borrow is ended
+    ///    {
+    ///         provider.conn().borrow_mut()
+    ///    }
     /// })
     /// ```
     pub fn transaction<T, F, E>(connection: &mut DbConnection, fun: F) -> Result<T, E>
