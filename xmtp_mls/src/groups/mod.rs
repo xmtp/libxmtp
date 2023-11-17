@@ -1,4 +1,5 @@
 mod intents;
+mod members;
 
 #[cfg(test)]
 use std::println as debug;
