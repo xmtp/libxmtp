@@ -21,24 +21,28 @@ where
         let openmls_group =
             self.load_mls_group(&self.client.mls_provider(&mut self.client.store.conn()?))?;
 
-        let mut member_map: HashMap<String, GroupMember> = HashMap::new();
-        for member in openmls_group.members() {
-            let wallet_address_result = Identity::get_validated_account_address(
-                member.credential.identity(),
-                &member.signature_key,
+        let member_map: HashMap<String, GroupMember> = openmls_group
+            .members()
+            .filter_map(|member| {
+                Identity::get_validated_account_address(
+                    member.credential.identity(),
+                    &member.signature_key,
+                )
+                .ok()
+                .map(|wallet_address| (wallet_address, member.signature_key.clone()))
+            })
+            .fold(
+                HashMap::new(),
+                |mut acc, (wallet_address, signature_key)| {
+                    acc.entry(wallet_address.clone())
+                        .and_modify(|e| e.installation_ids.push(signature_key.clone()))
+                        .or_insert(GroupMember {
+                            wallet_address,
+                            installation_ids: vec![signature_key],
+                        });
+                    acc
+                },
             );
-            if wallet_address_result.is_err() {
-                continue;
-            }
-            let wallet_address = wallet_address_result.expect("already checked");
-            member_map
-                .entry(wallet_address.clone())
-                .and_modify(|e| e.installation_ids.push(member.signature_key.clone()))
-                .or_insert(GroupMember {
-                    wallet_address,
-                    installation_ids: vec![member.signature_key],
-                });
-        }
 
         Ok(member_map.into_values().collect())
     }
