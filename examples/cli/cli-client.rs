@@ -150,7 +150,7 @@ async fn main() {
             );
         }
         Commands::ListGroups {} => {
-            info!("List Conversations");
+            info!("List Groups");
             let client = create_client(&cli, IdentityStrategy::CachedOnly)
                 .await
                 .unwrap();
@@ -158,18 +158,25 @@ async fn main() {
             client
                 .sync_welcomes()
                 .await
-                .expect("failed to sync welcome");
+                .expect("failed to sync welcomes");
 
             // recv(&client).await.unwrap();
-            let convo_list = client
+            let group_list = client
                 .find_groups(None, None, None, None)
                 .expect("failed to list groups");
 
-            for (index, convo) in convo_list.iter().enumerate() {
+            for group in group_list.iter() {
+                group.sync().await.expect("error syncing group");
                 info!(
-                    "====== [{}] Group {} ======",
-                    index,
-                    hex::encode(convo.group_id.clone()),
+                    "\n====== Group {} ======\n====================== Members ======================\n{}",
+                    hex::encode(group.group_id.clone()),
+                    group
+                        .members()
+                        .unwrap()
+                        .into_iter()
+                        .map(|m| m.wallet_address)
+                        .collect::<Vec<String>>()
+                        .join("\n"),
                 );
             }
         }
@@ -179,23 +186,21 @@ async fn main() {
                 .await
                 .unwrap();
             info!("Address is: {}", client.account_address());
-            send(
-                client,
-                hex::decode(group_id).expect("group id decode"),
-                msg.clone(),
-            )
-            .await
-            .unwrap();
+            let group = get_group(&client, hex::decode(group_id).expect("group id decode"))
+                .await
+                .expect("failed to get group");
+            send(group, msg.clone()).await.unwrap();
         }
         Commands::ListGroupMessages { group_id } => {
             info!("Recv");
             let client = create_client(&cli, IdentityStrategy::CachedOnly)
                 .await
                 .unwrap();
-            let group = client
-                .group(hex::decode(group_id).unwrap())
-                .expect("failed to find group");
-            group.sync().await.expect("failed to sync");
+
+            let group = get_group(&client, hex::decode(group_id).expect("group id decode"))
+                .await
+                .expect("failed to get group");
+
             let messages =
                 format_messages(&group, client.account_address()).expect("failed to get messages");
             info!(
@@ -211,9 +216,10 @@ async fn main() {
             let client = create_client(&cli, IdentityStrategy::CachedOnly)
                 .await
                 .unwrap();
-            let group = client
-                .group(hex::decode(group_id).unwrap())
-                .expect("failed to find group");
+
+            let group = get_group(&client, hex::decode(group_id).expect("group id decode"))
+                .await
+                .expect("failed to get group");
 
             group
                 .add_members(vec![wallet_address.clone()])
@@ -281,13 +287,26 @@ async fn register(cli: &Cli, wallet_seed: &u64) -> Result<(), CliError> {
     Ok(())
 }
 
-async fn send(client: Client, group_id: Vec<u8>, msg: String) -> Result<(), CliError> {
-    let group = client.group(group_id).unwrap();
+async fn get_group(client: &Client, group_id: Vec<u8>) -> Result<MlsGroup<ApiClient>, CliError> {
+    client.sync_welcomes().await?;
+    let group = client.group(group_id)?;
+    group
+        .sync()
+        .await
+        .map_err(|_| CliError::Generic("failed to sync group".to_string()))?;
+
+    Ok(group)
+}
+
+async fn send<'c>(group: MlsGroup<'c, ApiClient>, msg: String) -> Result<(), CliError> {
     group
         .send_message(msg.into_bytes().as_slice())
         .await
         .unwrap();
-    info!("Message successfully sent");
+    info!(
+        "Message successfully sent to group {}",
+        hex::encode(group.group_id)
+    );
 
     Ok(())
 }
@@ -342,5 +361,6 @@ fn get_encrypted_store(db: &Option<PathBuf>) -> Result<EncryptedMessageStore, Cl
 
 fn pretty_delta(now: u64, then: u64) -> String {
     let f = timeago::Formatter::new();
-    f.convert(Duration::from_nanos(now - then))
+    let diff = if now > then { now - then } else { then - now };
+    f.convert(Duration::from_nanos(diff))
 }
