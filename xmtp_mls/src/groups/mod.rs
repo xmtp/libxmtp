@@ -435,6 +435,20 @@ where
         Ok(())
     }
 
+    pub async fn add_members(&self, wallet_addresses: Vec<String>) -> Result<(), GroupError> {
+        let conn = &mut self.client.store.conn()?;
+        let key_packages = self
+            .client
+            .get_key_packages_for_wallet_addresses(wallet_addresses)
+            .await?;
+        let intent_data: Vec<u8> = AddMembersIntentData::new(key_packages).try_into()?;
+        let intent =
+            NewGroupIntent::new(IntentKind::AddMembers, self.group_id.clone(), intent_data);
+        intent.store(conn)?;
+
+        self.sync_with_conn(conn).await
+    }
+
     pub async fn add_members_by_installation_id(
         &self,
         installation_ids: Vec<Vec<u8>>,
@@ -449,7 +463,7 @@ where
             NewGroupIntent::new(IntentKind::AddMembers, self.group_id.clone(), intent_data);
         intent.store(conn)?;
 
-        self.sync(conn).await
+        self.sync_with_conn(conn).await
     }
 
     pub async fn remove_members_by_installation_id(
@@ -465,7 +479,7 @@ where
         );
         intent.store(conn)?;
 
-        self.sync(conn).await
+        self.sync_with_conn(conn).await
     }
 
     pub async fn key_update(&self) -> Result<(), GroupError> {
@@ -473,10 +487,15 @@ where
         let intent = NewGroupIntent::new(IntentKind::KeyUpdate, self.group_id.clone(), vec![]);
         intent.store(conn)?;
 
-        self.sync(conn).await
+        self.sync_with_conn(conn).await
     }
 
-    pub async fn sync(&self, conn: &mut DbConnection) -> Result<(), GroupError> {
+    pub async fn sync(&self) -> Result<(), GroupError> {
+        let conn = &mut self.client.store.conn()?;
+        self.sync_with_conn(conn).await
+    }
+
+    async fn sync_with_conn(&self, conn: &mut DbConnection) -> Result<(), GroupError> {
         self.publish_intents(conn).await?;
         if let Err(e) = self.receive().await {
             log::warn!("receive error {:?}", e);

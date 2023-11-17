@@ -13,11 +13,15 @@ use crate::{
     api_client_wrapper::{ApiClientWrapper, IdentityUpdate},
     groups::MlsGroup,
     identity::Identity,
-    storage::{group::GroupMembershipState, DbConnection, EncryptedMessageStore, StorageError},
+    storage::{
+        group::{GroupMembershipState, StoredGroup},
+        DbConnection, EncryptedMessageStore, StorageError,
+    },
     types::Address,
     utils::topic::get_welcome_topic,
     verified_key_package::{KeyPackageVerificationError, VerifiedKeyPackage},
     xmtp_openmls_provider::XmtpOpenMlsProvider,
+    Fetch,
 };
 
 #[derive(Clone, Copy, Default, Debug)]
@@ -98,6 +102,15 @@ where
             .map_err(|e| ClientError::Generic(format!("group create error {}", e)))?;
 
         Ok(group)
+    }
+
+    pub fn group(&self, group_id: Vec<u8>) -> Result<MlsGroup<ApiClient>, ClientError> {
+        let conn = &mut self.store.conn()?;
+        let stored_group: Option<StoredGroup> = conn.fetch(&group_id)?;
+        match stored_group {
+            Some(group) => Ok(MlsGroup::new(self, group.id, group.created_at_ns)),
+            None => Err(ClientError::Generic("group not found".to_string())),
+        }
     }
 
     pub fn find_groups(

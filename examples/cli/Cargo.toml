@@ -9,7 +9,7 @@ name = "cli-client"
 path = "cli-client.rs"
 
 [dependencies]
-clap = {version = "4.3.0", features=["derive"]}
+clap = { version = "4.4.6", features = ["derive"] }
 ethers = "2.0.4"
 ethers-core = "2.0.4"
 env_logger = "0.10.0"
@@ -18,10 +18,13 @@ log = "0.4.17"
 thiserror = "1.0.40"
 tokio = "1.28.1"
 url = "2.3.1"
-walletconnect = {git="https://github.com/nlordell/walletconnect-rs.git", features=["qr", "transport"]}
-xmtp = { path = "../../xmtp", features = ["grpc", "native"] }
-xmtp_cryptography = { path = "../../xmtp_cryptography"}
+walletconnect = { git = "https://github.com/nlordell/walletconnect-rs.git", features = [
+    "qr",
+    "transport",
+] }
+xmtp_mls = { path = "../../xmtp_mls", features = ["grpc", "native"] }
+xmtp_cryptography = { path = "../../xmtp_cryptography" }
 xmtp_api_grpc = { path = "../../xmtp_api_grpc" }
 xmtp_proto = { path = "../../xmtp_proto", features = ["proto_full", "grpc"] }
 timeago = "0.4.1"
-
+hex = "0.4.3"
