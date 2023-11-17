@@ -16,7 +16,7 @@ impl<'c, ApiClient> MlsGroup<'c, ApiClient>
 where
     ApiClient: XmtpApiClient + XmtpMlsClient,
 {
-    // Load the member list for the group, merging together multiple installations into a single entry
+    // Load the member list for the group from the DB, merging together multiple installations into a single entry
     pub fn members(&self) -> Result<Vec<GroupMember>, GroupError> {
         let openmls_group =
             self.load_mls_group(&self.client.mls_provider(&mut self.client.store.conn()?))?;
