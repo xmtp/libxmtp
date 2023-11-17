@@ -73,6 +73,15 @@ pub enum GroupError {
     Diesel(#[from] diesel::result::Error),
 }
 
+impl crate::retry::RetryableError for GroupError {
+    fn is_retryable(&self) -> bool {
+        match self {
+            Self::Diesel(_) => true,
+            _ => false,
+        }
+    }
+}
+
 #[derive(Debug, Error)]
 pub enum MessageProcessingError {
     #[error("[{message_time_ns:?}] invalid sender with credential: {credential:?}")]
@@ -272,7 +281,7 @@ where
                     }
                     _ => (),
                 };
-                // TOOD: Handle writing transcript messages for adding/removing members
+                // TODO: Handle writing transcript messages for adding/removing members
             }
             IntentKind::SendMessage => {
                 let intent_data = SendMessageIntentData::from_bytes(intent.data.as_slice())?;
@@ -668,7 +677,7 @@ mod tests {
     use openmls::prelude::Member;
     use xmtp_cryptography::utils::generate_local_wallet;
 
-    use crate::{
+    use create::{
         builder::ClientBuilder, storage::group_intent::IntentState, storage::EncryptedMessageStore,
         utils::topic::get_welcome_topic,
     };
