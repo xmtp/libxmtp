@@ -1,4 +1,5 @@
 mod intents;
+mod members;
 use intents::SendMessageIntentData;
 #[cfg(not(test))]
 use log::debug;
