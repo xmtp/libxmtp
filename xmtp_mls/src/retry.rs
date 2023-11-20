@@ -58,7 +58,7 @@ pub struct RetryBuilder {
 ///     .build();
 /// ```
 impl RetryBuilder {
-    /// Specify the numaber of retries to allow
+    /// Specify the number of retries to allow
     pub fn retries(mut self, retries: usize) -> Self {
         self.retries = Some(retries);
         self
