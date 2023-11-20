@@ -194,10 +194,10 @@ macro_rules! retry {
 /// async fn main() -> Result<(), MyError> {
 ///     
 ///     let (tx, rx) = flume::bounded(3);
-///     tx.send(0);
-///     tx.send(1);
-///     tx.send(2);
 ///
+///     for i in 0..3 {
+///         tx.send(i).unwrap();
+///     }
 ///     retry_async!(Retry::default(), (|| async {
 ///         fallable_fn(&rx.clone()).await
 ///     }))
@@ -335,11 +335,11 @@ mod tests {
         }
 
         let (tx, rx) = flume::bounded(3);
-        tx.send(0).unwrap();
-        tx.send(1).unwrap();
-        tx.send(2).unwrap();
-        let test_future = || async { retryable_async_fn(&rx.clone()).await };
 
+        for i in 0..3 {
+            tx.send(i).unwrap();
+        }
+        let test_future = || async { retryable_async_fn(&rx.clone()).await };
         retry_async!(Retry::default(), test_future).unwrap();
         assert!(rx.is_empty());
     }
