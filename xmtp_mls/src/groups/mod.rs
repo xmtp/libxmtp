@@ -28,6 +28,9 @@ use crate::{
     client::ClientError,
     configuration::CIPHERSUITE,
     identity::Identity,
+    retry,
+    retry::Retry,
+    retry_async,
     storage::{
         group::{GroupMembershipState, StoredGroup},
         group_intent::{IntentKind, IntentState, NewGroupIntent, StoredGroupIntent},
@@ -506,7 +509,10 @@ where
         )?;
 
         for intent in intents {
-            let result = self.get_publish_intent_data(&provider, &mut openmls_group, &intent);
+            let result = retry!(
+                Retry::default(),
+                (|| self.get_publish_intent_data(&provider, &mut openmls_group, &intent))
+            );
             if let Err(e) = result {
                 log::error!("error getting publish intent data {:?}", e);
                 // TODO: Figure out which types of errors we should abort completely on and which
@@ -517,10 +523,15 @@ where
             let (payload, post_commit_data) = result.expect("result already checked");
             let payload_slice = payload.as_slice();
 
-            self.client
-                .api_client
-                .publish_to_group(vec![payload_slice])
-                .await?;
+            retry_async!(
+                Retry::default(),
+                (|| async {
+                    self.client
+                        .api_client
+                        .publish_to_group(vec![payload_slice])
+                        .await
+                })
+            )?;
 
             EncryptedMessageStore::set_group_intent_published(
                 &mut provider.conn().borrow_mut(),
@@ -677,7 +688,7 @@ mod tests {
     use openmls::prelude::Member;
     use xmtp_cryptography::utils::generate_local_wallet;
 
-    use create::{
+    use crate::{
         builder::ClientBuilder, storage::group_intent::IntentState, storage::EncryptedMessageStore,
         utils::topic::get_welcome_topic,
     };

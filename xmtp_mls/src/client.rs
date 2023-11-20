@@ -13,7 +13,6 @@ use crate::{
     api_client_wrapper::{ApiClientWrapper, IdentityUpdate},
     groups::MlsGroup,
     identity::Identity,
-    retry::RetryableError,
     storage::{group::GroupMembershipState, DbConnection, EncryptedMessageStore, StorageError},
     types::Address,
     utils::topic::get_welcome_topic,

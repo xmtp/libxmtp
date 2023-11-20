@@ -56,3 +56,4 @@ rand = "0.8.5"
 tempfile = "3.5.0"
 tracing-subscriber = { version = "0.3.17", features = ["env-filter"] }
 xmtp_api_grpc = { path = "../xmtp_api_grpc" }
+flume = "0.11"
