@@ -402,7 +402,7 @@ where
             &self.topic(),
             envelope.timestamp_ns,
             |provider| -> Result<(), MessageProcessingError> {
-                self.process_message(openmls_group, &provider, &envelope)?;
+                self.process_message(openmls_group, &provider, envelope)?;
                 openmls_group.save(provider.key_store())?;
                 Ok(())
             },

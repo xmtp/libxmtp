@@ -155,6 +155,7 @@ macro_rules! retry {
         use $crate::retry::RetryableError;
         let mut attempts = 0;
         loop {
+            #[allow(clippy::redundant_closure_call)]
             match $code() {
                 Ok(v) => break Ok(v),
                 Err(e) => {
@@ -224,6 +225,7 @@ macro_rules! retry_async {
         use $crate::retry::RetryableError;
         let mut attempts = 0;
         loop {
+            #[allow(clippy::redundant_closure_call)]
             match $code().await {
                 Ok(v) => break Ok(v),
                 Err(e) => {
