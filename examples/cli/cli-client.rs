@@ -69,6 +69,12 @@ enum Commands {
         #[arg(value_name = "Wallet Address")]
         wallet_address: String,
     },
+    RemoveGroupMember {
+        #[arg(value_name = "Group ID")]
+        group_id: String,
+        #[arg(value_name = "Wallet Address")]
+        wallet_address: String,
+    },
     /// Information about the account that owns the DB
     Info {},
     Clear {},
@@ -228,6 +234,28 @@ async fn main() {
 
             info!(
                 "Successfully added {} to group {}",
+                wallet_address, group_id
+            );
+        }
+        Commands::RemoveGroupMember {
+            group_id,
+            wallet_address,
+        } => {
+            let client = create_client(&cli, IdentityStrategy::CachedOnly)
+                .await
+                .unwrap();
+
+            let group = get_group(&client, hex::decode(group_id).expect("group id decode"))
+                .await
+                .expect("failed to get group");
+
+            group
+                .remove_members(vec![wallet_address.clone()])
+                .await
+                .expect("failed to add member");
+
+            info!(
+                "Successfully removed {} from group {}",
                 wallet_address, group_id
             );
         }
