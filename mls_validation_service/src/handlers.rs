@@ -174,7 +174,7 @@ mod tests {
             .encode(&mut buf)
             .expect("failed to serialize");
 
-        return (buf, signature_key_pair, wallet_address);
+        (buf, signature_key_pair, wallet_address)
     }
 
     fn build_key_package_bytes(
@@ -221,7 +221,7 @@ mod tests {
         let first_response = &res.into_inner().responses[0];
         assert_eq!(first_response.installation_id, keypair.public());
         assert_eq!(first_response.wallet_address, wallet_address);
-        assert!(first_response.credential_identity_bytes.len() > 0);
+        assert!(!first_response.credential_identity_bytes.is_empty());
     }
 
     #[tokio::test]
@@ -251,7 +251,7 @@ mod tests {
 
         let first_response = &res.into_inner().responses[0];
 
-        assert_eq!(first_response.is_ok, false);
+        assert!(!first_response.is_ok);
         assert_eq!(first_response.wallet_address, "".to_string());
     }
 }

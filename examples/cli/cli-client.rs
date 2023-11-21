@@ -311,8 +311,8 @@ async fn send<'c>(group: MlsGroup<'c, ApiClient>, msg: String) -> Result<(), Cli
     Ok(())
 }
 
-fn format_messages<'c, A: XmtpApiClient + XmtpMlsClient>(
-    convo: &MlsGroup<'c, A>,
+fn format_messages<A: XmtpApiClient + XmtpMlsClient>(
+    convo: &MlsGroup<'_, A>,
     my_wallet_address: String,
 ) -> Result<String, CliError> {
     let mut output: Vec<String> = vec![];
