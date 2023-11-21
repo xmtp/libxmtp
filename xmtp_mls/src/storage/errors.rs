@@ -19,3 +19,15 @@ pub enum StorageError {
     #[error("not found")]
     NotFound,
 }
+
+impl crate::retry::RetryableError for StorageError {
+    fn is_retryable(&self) -> bool {
+        match self {
+            Self::DieselConnect(connection) => {
+                matches!(connection, diesel::ConnectionError::BadConnection(_))
+            }
+            Self::Pool(_) => true,
+            _ => false,
+        }
+    }
+}

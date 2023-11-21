@@ -14,9 +14,9 @@ use openmls::{
     prelude_test::KeyPackage,
 };
 use openmls_traits::OpenMlsProvider;
-use std::mem::discriminant;
 #[cfg(test)]
 use std::println as debug;
+use std::{collections::VecDeque, mem::discriminant};
 use thiserror::Error;
 use tls_codec::{Deserialize, Serialize};
 use xmtp_proto::api_client::{Envelope, XmtpApiClient, XmtpMlsClient};
@@ -30,7 +30,7 @@ use crate::{
     identity::Identity,
     retry,
     retry::Retry,
-    retry_async,
+    retry_async, retryable,
     storage::{
         group::{GroupMembershipState, StoredGroup},
         group_intent::{IntentKind, IntentState, NewGroupIntent, StoredGroupIntent},
@@ -68,8 +68,10 @@ pub enum GroupError {
     WelcomeError(#[from] openmls::prelude::WelcomeError<StorageError>),
     #[error("client: {0}")]
     Client(#[from] ClientError),
-    #[error("receive errors: {0:?}")]
-    ReceiveError(Vec<MessageProcessingError>),
+    #[error("receive error: {0}")]
+    ReceiveError(#[from] MessageProcessingError),
+    #[error("Receive errors: {0:?}")]
+    ReceiveErrors(Vec<MessageProcessingError>),
     #[error("generic: {0}")]
     Generic(String),
     #[error("diesel error {0}")]
@@ -80,39 +82,10 @@ impl crate::retry::RetryableError for GroupError {
     fn is_retryable(&self) -> bool {
         match self {
             Self::Diesel(_) => true,
+            Self::ReceiveError(msg) => retryable!(msg),
             _ => false,
         }
     }
-}
-
-#[derive(Debug, Error)]
-pub enum MessageProcessingError {
-    #[error("[{message_time_ns:?}] invalid sender with credential: {credential:?}")]
-    InvalidSender {
-        message_time_ns: u64,
-        credential: Vec<u8>,
-    },
-    #[error("openmls process message error: {0}")]
-    OpenMlsProcessMessage(#[from] openmls::prelude::ProcessMessageError),
-    #[error("merge pending commit: {0}")]
-    MergePendingCommit(#[from] openmls::group::MergePendingCommitError<StorageError>),
-    #[error("merge staged commit: {0}")]
-    MergeStagedCommit(#[from] openmls::group::MergeCommitError<StorageError>),
-    #[error(
-        "no pending commit to merge. group epoch is {group_epoch:?} and got {message_epoch:?}"
-    )]
-    NoPendingCommit {
-        message_epoch: GroupEpoch,
-        group_epoch: GroupEpoch,
-    },
-    #[error("intent error: {0}")]
-    Intent(#[from] IntentError),
-    #[error("storage error: {0}")]
-    Storage(#[from] crate::storage::StorageError),
-    #[error("tls deserialization: {0}")]
-    TlsDeserialization(#[from] tls_codec::Error),
-    #[error("unsupported message type: {0:?}")]
-    UnsupportedMessageType(Discriminant<MlsMessageInBody>),
 }
 
 pub struct MlsGroup<'c, ApiClient> {
@@ -420,37 +393,64 @@ where
         }
     }
 
-    pub(crate) fn process_messages(&self, envelopes: Vec<Envelope>) -> Result<(), GroupError> {
+    fn consume_message(
+        &self,
+        envelopes: &mut VecDeque<Envelope>,
+        openmls_group: &mut OpenMlsGroup,
+    ) -> Result<(), MessageProcessingError> {
+        let envelope = envelopes.pop_front();
+        if let Some(envelope) = envelope {
+            let result = self.client.process_for_topic(
+                &self.topic(),
+                envelope.timestamp_ns,
+                |provider| -> Result<(), MessageProcessingError> {
+                    self.process_message(openmls_group, &provider, &envelope)?;
+                    openmls_group.save(provider.key_store())?;
+                    Ok(())
+                },
+            );
+            if result.is_err() && retryable!(result.as_ref().unwrap_err()) {
+                envelopes.push_front(envelope);
+                return result;
+            }
+        }
+
+        Ok(())
+    }
+
+    pub fn process_messages(&self, envelopes: Vec<Envelope>) -> Result<(), GroupError> {
+        let mut receive_errors = vec![];
+        let mut envelopes = VecDeque::from(envelopes);
+
         let mut conn = self.client.store.conn()?;
         let provider = self.client.mls_provider(&mut conn);
         let mut openmls_group = self.load_mls_group(&provider)?;
-        let receive_errors: Vec<MessageProcessingError> = envelopes
-            .into_iter()
-            .map(|envelope| -> Result<(), MessageProcessingError> {
-                self.client.process_for_topic(
-                    &self.topic(),
-                    envelope.timestamp_ns,
-                    |provider| -> Result<(), MessageProcessingError> {
-                        self.process_message(&mut openmls_group, &provider, &envelope)?;
-                        openmls_group.save(provider.key_store())?;
-                        Ok(())
-                    },
-                )
-            })
-            .filter_map(|result| result.err())
-            .collect();
+
+        loop {
+            let result = retry!(
+                Retry::default(),
+                (|| self.consume_message(&mut envelopes, &mut openmls_group))
+            );
+
+            if envelopes.is_empty() {
+                break;
+            }
+        }
 
         if receive_errors.is_empty() {
             Ok(())
         } else {
             debug!("Message processing errors: {:?}", receive_errors);
-            Err(GroupError::ReceiveError(receive_errors))
+            Err(GroupError::ReceiveErrors(receive_errors))
         }
     }
 
     pub async fn receive(&self) -> Result<(), GroupError> {
         let envelopes = self.client.pull_from_topic(&self.topic()).await?;
-        self.process_messages(envelopes)
+
+        self.process_messages(envelopes)?;
+
+        Ok(())
     }
 
     pub async fn send_message(&self, message: &[u8]) -> Result<(), GroupError> {

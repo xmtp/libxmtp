@@ -2,6 +2,19 @@
 //!
 //! TODO: Could make the impl of `RetryableError` trait into a proc-macro to auto-derive Retryable
 //! on annotated enum variants.
+//! ```ignore
+//! #[derive(Debug, Error)]
+//! enum ErrorFoo {
+//!     #[error("I am retryable")]
+//!     #[retryable]
+//!     Retryable,
+//!     #[error("Nested errors are retryable")]
+//!     #[retryable(inherit)]
+//!     NestedRetryable(AnotherErrorWithRetryableVariants),
+//!     #[error("Always fail")]
+//!     NotRetryable
+//! }
+//! ```
 
 use std::time::Duration;
 
@@ -138,6 +151,7 @@ impl Retry {
 #[macro_export]
 macro_rules! retry {
     ($retry: expr, $code: tt) => {{
+        #[allow(unused)]
         use $crate::retry::RetryableError;
         let mut attempts = 0;
         loop {
@@ -206,6 +220,7 @@ macro_rules! retry {
 #[macro_export]
 macro_rules! retry_async {
     ($retry: expr, $code: tt) => {{
+        #[allow(unused)]
         use $crate::retry::RetryableError;
         let mut attempts = 0;
         loop {
@@ -222,6 +237,19 @@ macro_rules! retry_async {
                 }
             }
         }
+    }};
+}
+
+#[macro_export]
+macro_rules! retryable {
+    ($error: ident) => {{
+        #[allow(unused)]
+        use $crate::retry::RetryableError;
+        (&$error).is_retryable()
+    }};
+    ($error: expr) => {{
+        use $crate::retry::RetryableError;
+        (&$error).is_retryable()
     }};
 }
 

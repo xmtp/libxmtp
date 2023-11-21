@@ -32,7 +32,7 @@ use rand::RngCore;
 use xmtp_cryptography::utils as crypto_utils;
 
 use super::StorageError;
-use crate::Store;
+use crate::{retry, retry::Retry, Store};
 
 pub const MIGRATIONS: EmbeddedMigrations = embed_migrations!("./migrations/");
 
