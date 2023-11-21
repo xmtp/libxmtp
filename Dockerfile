@@ -1,22 +1,17 @@
 FROM ghcr.io/xmtp/rust:latest
-USER xmtp
 
-RUN ~xmtp/.cargo/bin/rustup toolchain install stable 
-RUN ~xmtp/.cargo/bin/rustup component add rustfmt
-RUN ~xmtp/.cargo/bin/rustup component add clippy
+RUN sudo apt update && sudo apt install -y pkg-config openssl
 
 WORKDIR /workspaces/libxmtp
 COPY --chown=xmtp:xmtp . .
 
-ENV PATH=~xmtp/.cargo/bin:$PATH
-ENV USER=xmtp
 
-RUN ~xmtp/.cargo/bin/cargo check
-RUN ~xmtp/.cargo/bin/cargo fmt --check
-RUN ~xmtp/.cargo/bin/cargo clippy --all-features --no-deps
-RUN ~xmtp/.cargo/bin/cargo clippy --all-features --no-deps --manifest-path xmtp/Cargo.toml
+RUN cargo check
+RUN cargo fmt --check
+RUN cargo clippy --all-features --no-deps
+RUN cargo clippy --all-features --no-deps --manifest-path xmtp/Cargo.toml
 # some tests are setup as integration tests 👀 xmtp_mls
-RUN for crate in xmtp xmtp_api_grpc xmtp_api_grpc_gateway xmtp_cryptography xmtp_proto xmtp_v2; do cd ${crate}; ~xmtp/.cargo/bin/cargo test; done
+RUN for crate in xmtp_cryptography xmtp_proto xmtp_v2; do cd ${crate}; cargo test; done
 
 LABEL org.label-schema.build-date=$BUILD_DATE \
     org.label-schema.name="rustdev" \

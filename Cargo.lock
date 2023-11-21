@@ -6492,15 +6492,16 @@ dependencies = [
  "ethers",
  "ethers-core 2.0.10",
  "futures",
+ "hex",
  "log",
  "thiserror",
  "timeago",
  "tokio",
  "url",
  "walletconnect",
- "xmtp",
  "xmtp_api_grpc",
  "xmtp_cryptography",
+ "xmtp_mls",
  "xmtp_proto",
 ]
 

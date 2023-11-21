@@ -1,14 +1,11 @@
 mod intents;
-
-#[cfg(test)]
-use std::println as debug;
-
+mod members;
 use intents::SendMessageIntentData;
 #[cfg(not(test))]
 use log::debug;
 use openmls::{
     framing::ProtocolMessage,
-    group::{GroupEpoch, MergePendingCommitError},
+    group::MergePendingCommitError,
     prelude::{
         CredentialWithKey, CryptoConfig, GroupId, LeafNodeIndex, MlsGroup as OpenMlsGroup,
         MlsGroupConfig, MlsMessageIn, MlsMessageInBody, PrivateMessageIn, ProcessedMessage,
@@ -17,15 +14,18 @@ use openmls::{
     prelude_test::KeyPackage,
 };
 use openmls_traits::OpenMlsProvider;
-use std::mem::{discriminant, Discriminant};
+use std::mem::discriminant;
+#[cfg(test)]
+use std::println as debug;
 use thiserror::Error;
 use tls_codec::{Deserialize, Serialize};
 use xmtp_proto::api_client::{Envelope, XmtpApiClient, XmtpMlsClient};
 
-use self::intents::{AddMembersIntentData, IntentError, PostCommitAction, RemoveMembersIntentData};
+pub use self::intents::IntentError;
+use self::intents::{AddMembersIntentData, PostCommitAction, RemoveMembersIntentData};
 use crate::{
     api_client_wrapper::WelcomeMessage,
-    client::ClientError,
+    client::{ClientError, MessageProcessingError},
     configuration::CIPHERSUITE,
     identity::Identity,
     retry,
@@ -164,7 +164,9 @@ where
         mls_group.save(provider.key_store())?;
         let group_id = mls_group.group_id().to_vec();
         let stored_group = StoredGroup::new(group_id.clone(), now_ns(), membership_state);
-        stored_group.store(*provider.conn().borrow_mut())?;
+        {
+            stored_group.store(*provider.conn().borrow_mut())?;
+        }
 
         Ok(Self::new(client, group_id, stored_group.created_at_ns))
     }
@@ -181,7 +183,9 @@ where
         let group_id = mls_group.group_id().to_vec();
         let stored_group =
             StoredGroup::new(group_id.clone(), now_ns(), GroupMembershipState::Pending);
-        stored_group.store(*provider.conn().borrow_mut())?;
+        {
+            stored_group.store(*provider.conn().borrow_mut())?;
+        }
 
         Ok(Self::new(client, group_id, stored_group.created_at_ns))
     }
@@ -241,7 +245,6 @@ where
 
     fn process_own_message(
         &self,
-        conn: &mut DbConnection,
         intent: StoredGroupIntent,
         openmls_group: &mut OpenMlsGroup,
         provider: &XmtpOpenMlsProvider,
@@ -252,7 +255,7 @@ where
             return Ok(());
         }
         debug!(
-            "[{}]processing own message for intent {} / {:?}",
+            "[{}] processing own message for intent {} / {:?}",
             self.client.account_address(),
             intent.id,
             intent.kind
@@ -268,7 +271,12 @@ where
                         "no pending commit to merge. Group epoch: {}. Message epoch: {}",
                         group_epoch, message_epoch
                     );
-                    EncryptedMessageStore::set_group_intent_to_publish(conn, intent.id)?;
+                    {
+                        EncryptedMessageStore::set_group_intent_to_publish(
+                            &mut provider.conn().borrow_mut(),
+                            intent.id,
+                        )?;
+                    }
 
                     return Err(MessageProcessingError::NoPendingCommit {
                         message_epoch,
@@ -276,42 +284,52 @@ where
                     });
                 }
                 debug!("[{}] merging pending commit", self.client.account_address());
-                match openmls_group.merge_pending_commit(provider) {
-                    Err(MergePendingCommitError::MlsGroupStateError(err)) => {
-                        debug!("error merging commit: {}", err);
-                        openmls_group.clear_pending_commit();
-                        EncryptedMessageStore::set_group_intent_to_publish(conn, intent.id)?;
+                if let Err(MergePendingCommitError::MlsGroupStateError(err)) =
+                    openmls_group.merge_pending_commit(provider)
+                {
+                    debug!("error merging commit: {}", err);
+                    openmls_group.clear_pending_commit();
+                    {
+                        EncryptedMessageStore::set_group_intent_to_publish(
+                            &mut provider.conn().borrow_mut(),
+                            intent.id,
+                        )?;
                     }
-                    _ => (),
-                };
-                // TODO: Handle writing transcript messages for adding/removing members
+                }
+                // TOOD: Handle writing transcript messages for adding/removing members
             }
             IntentKind::SendMessage => {
                 let intent_data = SendMessageIntentData::from_bytes(intent.data.as_slice())?;
                 let group_id = openmls_group.group_id().as_slice();
                 let decrypted_message_data = intent_data.message.as_slice();
 
-                StoredGroupMessage {
-                    id: get_message_id(decrypted_message_data, group_id, envelope_timestamp_ns),
-                    group_id: group_id.to_vec(),
-                    decrypted_message_bytes: intent_data.message,
-                    sent_at_ns: envelope_timestamp_ns as i64,
-                    kind: GroupMessageKind::Application,
-                    sender_installation_id: self.client.installation_public_key(),
-                    sender_wallet_address: self.client.account_address(),
+                {
+                    StoredGroupMessage {
+                        id: get_message_id(decrypted_message_data, group_id, envelope_timestamp_ns),
+                        group_id: group_id.to_vec(),
+                        decrypted_message_bytes: intent_data.message,
+                        sent_at_ns: envelope_timestamp_ns as i64,
+                        kind: GroupMessageKind::Application,
+                        sender_installation_id: self.client.installation_public_key(),
+                        sender_wallet_address: self.client.account_address(),
+                    }
+                    .store(&mut provider.conn().borrow_mut())?;
                 }
-                .store(conn)?;
             }
         };
 
-        EncryptedMessageStore::set_group_intent_committed(conn, intent.id)?;
+        {
+            EncryptedMessageStore::set_group_intent_committed(
+                &mut provider.conn().borrow_mut(),
+                intent.id,
+            )?;
+        }
 
         Ok(())
     }
 
     fn process_private_message(
         &self,
-        conn: &mut DbConnection,
         openmls_group: &mut OpenMlsGroup,
         provider: &XmtpOpenMlsProvider,
         message: PrivateMessageIn,
@@ -339,7 +357,9 @@ where
                     sender_installation_id,
                     sender_wallet_address: sender_account_address,
                 };
-                message.store(conn)?;
+                {
+                    message.store(&mut provider.conn().borrow_mut())?;
+                }
             }
             ProcessedMessageContent::ProposalMessage(_proposal_ptr) => {
                 // intentionally left blank.
@@ -354,13 +374,13 @@ where
                 );
                 openmls_group.merge_staged_commit(provider, *staged_commit)?;
             }
-        }
+        };
+
         Ok(())
     }
 
     fn process_message(
         &self,
-        conn: &mut DbConnection,
         openmls_group: &mut OpenMlsGroup,
         provider: &XmtpOpenMlsProvider,
         envelope: &Envelope,
@@ -374,13 +394,15 @@ where
             )),
         }?;
 
-        match EncryptedMessageStore::find_group_intent_by_payload_hash(
-            conn,
-            sha256(envelope.message.as_slice()),
-        ) {
+        let intent = {
+            EncryptedMessageStore::find_group_intent_by_payload_hash(
+                &mut provider.conn().borrow_mut(),
+                sha256(envelope.message.as_slice()),
+            )
+        };
+        match intent {
             // Intent with the payload hash matches
             Ok(Some(intent)) => self.process_own_message(
-                conn,
                 intent,
                 openmls_group,
                 provider,
@@ -390,7 +412,6 @@ where
             Err(err) => Err(MessageProcessingError::Storage(err)),
             // No matching intent found
             Ok(None) => self.process_private_message(
-                conn,
                 openmls_group,
                 provider,
                 message,
@@ -399,38 +420,36 @@ where
         }
     }
 
-    pub fn process_messages(&self, envelopes: Vec<Envelope>) -> Result<(), GroupError> {
+    pub(crate) fn process_messages(&self, envelopes: Vec<Envelope>) -> Result<(), GroupError> {
         let mut conn = self.client.store.conn()?;
         let provider = self.client.mls_provider(&mut conn);
         let mut openmls_group = self.load_mls_group(&provider)?;
-        let conn = &mut self.client.store.conn()?;
         let receive_errors: Vec<MessageProcessingError> = envelopes
             .into_iter()
             .map(|envelope| -> Result<(), MessageProcessingError> {
-                self.process_message(conn, &mut openmls_group, &provider, &envelope)
+                self.client.process_for_topic(
+                    &self.topic(),
+                    envelope.timestamp_ns,
+                    |provider| -> Result<(), MessageProcessingError> {
+                        self.process_message(&mut openmls_group, &provider, &envelope)?;
+                        openmls_group.save(provider.key_store())?;
+                        Ok(())
+                    },
+                )
             })
-            .filter(|result| result.is_err())
-            .map(|result| result.unwrap_err())
+            .filter_map(|result| result.err())
             .collect();
-        openmls_group.save(provider.key_store())?; // TODO handle concurrency
 
         if receive_errors.is_empty() {
             Ok(())
         } else {
+            debug!("Message processing errors: {:?}", receive_errors);
             Err(GroupError::ReceiveError(receive_errors))
         }
     }
 
     pub async fn receive(&self) -> Result<(), GroupError> {
-        let topic = get_group_topic(&self.group_id);
-        let envelopes = self
-            .client
-            .api_client
-            .read_topic(
-                &topic, 0, // TODO: query from last query point
-            )
-            .await?;
-        debug!("Received {} envelopes", envelopes.len());
+        let envelopes = self.client.pull_from_topic(&self.topic()).await?;
         self.process_messages(envelopes)
     }
 
@@ -444,6 +463,20 @@ where
         // Skipping a full sync here and instead just firing and forgetting
         self.publish_intents(conn).await?;
         Ok(())
+    }
+
+    pub async fn add_members(&self, wallet_addresses: Vec<String>) -> Result<(), GroupError> {
+        let conn = &mut self.client.store.conn()?;
+        let key_packages = self
+            .client
+            .get_key_packages_for_wallet_addresses(wallet_addresses)
+            .await?;
+        let intent_data: Vec<u8> = AddMembersIntentData::new(key_packages).try_into()?;
+        let intent =
+            NewGroupIntent::new(IntentKind::AddMembers, self.group_id.clone(), intent_data);
+        intent.store(conn)?;
+
+        self.sync_with_conn(conn).await
     }
 
     pub async fn add_members_by_installation_id(
@@ -460,7 +493,7 @@ where
             NewGroupIntent::new(IntentKind::AddMembers, self.group_id.clone(), intent_data);
         intent.store(conn)?;
 
-        self.sync(conn).await
+        self.sync_with_conn(conn).await
     }
 
     pub async fn remove_members_by_installation_id(
@@ -476,7 +509,7 @@ where
         );
         intent.store(conn)?;
 
-        self.sync(conn).await
+        self.sync_with_conn(conn).await
     }
 
     pub async fn key_update(&self) -> Result<(), GroupError> {
@@ -484,10 +517,15 @@ where
         let intent = NewGroupIntent::new(IntentKind::KeyUpdate, self.group_id.clone(), vec![]);
         intent.store(conn)?;
 
-        self.sync(conn).await
+        self.sync_with_conn(conn).await
     }
 
-    pub async fn sync(&self, conn: &mut DbConnection) -> Result<(), GroupError> {
+    pub async fn sync(&self) -> Result<(), GroupError> {
+        let conn = &mut self.client.store.conn()?;
+        self.sync_with_conn(conn).await
+    }
+
+    async fn sync_with_conn(&self, conn: &mut DbConnection) -> Result<(), GroupError> {
         self.publish_intents(conn).await?;
         if let Err(e) = self.receive().await {
             log::warn!("receive error {:?}", e);
@@ -501,12 +539,14 @@ where
         let provider = self.client.mls_provider(conn);
         let mut openmls_group = self.load_mls_group(&provider)?;
 
-        let intents = EncryptedMessageStore::find_group_intents(
-            &mut provider.conn().borrow_mut(),
-            self.group_id.clone(),
-            Some(vec![IntentState::ToPublish]),
-            None,
-        )?;
+        let intents = {
+            EncryptedMessageStore::find_group_intents(
+                &mut provider.conn().borrow_mut(),
+                self.group_id.clone(),
+                Some(vec![IntentState::ToPublish]),
+                None,
+            )?
+        };
 
         for intent in intents {
             let result = retry!(
@@ -533,12 +573,14 @@ where
                 })
             )?;
 
-            EncryptedMessageStore::set_group_intent_published(
-                &mut provider.conn().borrow_mut(),
-                intent.id,
-                sha256(payload_slice),
-                post_commit_data,
-            )?;
+            {
+                EncryptedMessageStore::set_group_intent_published(
+                    &mut provider.conn().borrow_mut(),
+                    intent.id,
+                    sha256(payload_slice),
+                    post_commit_data,
+                )?;
+            }
         }
         openmls_group.save(self.client.mls_provider(conn).key_store())?;
 
@@ -658,6 +700,7 @@ where
                                 ciphertext: action.welcome_message.clone(),
                             })
                             .collect();
+                        debug!("Sending {} welcomes", welcomes.len());
                         self.client.api_client.publish_welcomes(welcomes).await?;
                     }
                 }
@@ -669,7 +712,7 @@ where
         Ok(())
     }
 
-    pub fn topic(&self) -> String {
+    fn topic(&self) -> String {
         get_group_topic(&self.group_id)
     }
 }
