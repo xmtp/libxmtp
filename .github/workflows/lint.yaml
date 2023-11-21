@@ -1,0 +1,33 @@
+name: Lint
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v1
+      - run: rustup component add clippy
+      - uses: bufbuild/buf-setup-action@v1.17.0
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+      - uses: actions-rs/clippy-check@v1
+        name: Lint main workspace
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          name: workspace
+          args: --all-features --no-deps
+      - uses: actions-rs/clippy-check@v1
+        name: Lint ffi
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          name: ffi
+          args: --all-features --no-deps --manifest-path bindings_ffi/Cargo.toml
+      - uses: actions-rs/clippy-check@v1
+        name: Lint api_grpc_gateway
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          name: api_grpc_gateway
+          args: --all-features --no-deps --manifest-path xmtp_api_grpc_gateway/Cargo.toml
