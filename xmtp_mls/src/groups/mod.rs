@@ -14,9 +14,9 @@ use openmls::{
     prelude_test::KeyPackage,
 };
 use openmls_traits::OpenMlsProvider;
+use std::mem::discriminant;
 #[cfg(test)]
 use std::println as debug;
-use std::{collections::VecDeque, mem::discriminant};
 use thiserror::Error;
 use tls_codec::{Deserialize, Serialize};
 use xmtp_proto::api_client::{Envelope, XmtpApiClient, XmtpMlsClient};
@@ -395,47 +395,36 @@ where
 
     fn consume_message(
         &self,
-        envelopes: &mut VecDeque<Envelope>,
+        envelope: &Envelope,
         openmls_group: &mut OpenMlsGroup,
     ) -> Result<(), MessageProcessingError> {
-        let envelope = envelopes.pop_front();
-        if let Some(envelope) = envelope {
-            let result = self.client.process_for_topic(
-                &self.topic(),
-                envelope.timestamp_ns,
-                |provider| -> Result<(), MessageProcessingError> {
-                    self.process_message(openmls_group, &provider, &envelope)?;
-                    openmls_group.save(provider.key_store())?;
-                    Ok(())
-                },
-            );
-            if result.is_err() && retryable!(result.as_ref().unwrap_err()) {
-                envelopes.push_front(envelope);
-                return result;
-            }
-        }
-
+        self.client.process_for_topic(
+            &self.topic(),
+            envelope.timestamp_ns,
+            |provider| -> Result<(), MessageProcessingError> {
+                self.process_message(openmls_group, &provider, &envelope)?;
+                openmls_group.save(provider.key_store())?;
+                Ok(())
+            },
+        )?;
         Ok(())
     }
 
     pub fn process_messages(&self, envelopes: Vec<Envelope>) -> Result<(), GroupError> {
-        let mut receive_errors = vec![];
-        let mut envelopes = VecDeque::from(envelopes);
-
         let mut conn = self.client.store.conn()?;
         let provider = self.client.mls_provider(&mut conn);
         let mut openmls_group = self.load_mls_group(&provider)?;
 
-        loop {
-            let result = retry!(
-                Retry::default(),
-                (|| self.consume_message(&mut envelopes, &mut openmls_group))
-            );
-
-            if envelopes.is_empty() {
-                break;
-            }
-        }
+        let receive_errors: Vec<MessageProcessingError> = envelopes
+            .into_iter()
+            .map(|envelope| -> Result<(), MessageProcessingError> {
+                retry!(
+                    Retry::default(),
+                    (|| self.consume_message(&envelope, &mut openmls_group))
+                )
+            })
+            .filter_map(Result::err)
+            .collect();
 
         if receive_errors.is_empty() {
             Ok(())
