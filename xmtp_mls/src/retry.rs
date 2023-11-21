@@ -58,7 +58,7 @@ pub struct RetryBuilder {
 ///     .build();
 /// ```
 impl RetryBuilder {
-    /// Specify the number of retries to allow
+    /// Specify the  of retries to allow
     pub fn retries(mut self, retries: usize) -> Self {
         self.retries = Some(retries);
         self
@@ -223,6 +223,13 @@ macro_rules! retry_async {
             }
         }
     }};
+}
+
+// network errors should generally be retryable, unless there's a bug in our code
+impl RetryableError for xmtp_proto::api_client::Error {
+    fn is_retryable(&self) -> bool {
+        true
+    }
 }
 
 #[cfg(test)]
