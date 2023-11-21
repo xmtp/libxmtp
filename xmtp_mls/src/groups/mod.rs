@@ -454,7 +454,7 @@ where
         self.sync_with_conn(conn).await
     }
 
-    pub async fn remove_members_by_installation_id(
+    pub(crate) async fn remove_members_by_installation_id(
         &self,
         installation_ids: Vec<Vec<u8>>,
     ) -> Result<(), GroupError> {
@@ -468,6 +468,20 @@ where
         intent.store(conn)?;
 
         self.sync_with_conn(conn).await
+    }
+
+    pub async fn remove_members(&self, wallet_addresses: Vec<String>) -> Result<(), GroupError> {
+        let installation_ids = self
+            .members()?
+            .into_iter()
+            .filter(|member| wallet_addresses.contains(&member.wallet_address))
+            .fold(vec![], |mut acc, member| {
+                acc.extend(member.installation_ids);
+                acc
+            });
+
+        self.remove_members_by_installation_id(installation_ids)
+            .await
     }
 
     pub async fn key_update(&self) -> Result<(), GroupError> {
@@ -913,5 +927,28 @@ mod tests {
             .unwrap();
 
         assert_eq!(welcome_messages.len(), 1);
+    }
+
+    #[tokio::test]
+    async fn test_remove_by_wallet_address() {
+        let amal = ClientBuilder::new_test_client(generate_local_wallet().into()).await;
+        amal.register_identity().await.unwrap();
+        let bola = ClientBuilder::new_test_client(generate_local_wallet().into()).await;
+        bola.register_identity().await.unwrap();
+        let charlie = ClientBuilder::new_test_client(generate_local_wallet().into()).await;
+        charlie.register_identity().await.unwrap();
+
+        let group = amal.create_group().unwrap();
+        group
+            .add_members(vec![bola.account_address(), charlie.account_address()])
+            .await
+            .unwrap();
+        assert_eq!(group.members().unwrap().len(), 3);
+
+        group
+            .remove_members(vec![bola.account_address()])
+            .await
+            .unwrap();
+        assert_eq!(group.members().unwrap().len(), 2);
     }
 }
