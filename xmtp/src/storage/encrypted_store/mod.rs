@@ -901,7 +901,7 @@ mod tests {
             let store = EncryptedMessageStore::new(
                 // StorageOption::Ephemeral,
                 StorageOption::Persistent(db_path.clone()),
-                enc_key.clone(),
+                enc_key,
             )
             .unwrap();
 

@@ -6,10 +6,10 @@ use super::{CodecError, ContentCodec};
 
 pub struct TextCodec {}
 impl TextCodec {
-    const AUTHORITY_ID: &str = "xmtp.org";
-    const TYPE_ID: &str = "text";
-    const ENCODING_KEY: &str = "encoding";
-    const ENCODING_UTF8: &str = "UTF-8";
+    const AUTHORITY_ID: &'static str = "xmtp.org";
+    const TYPE_ID: &'static str = "text";
+    const ENCODING_KEY: &'static str = "encoding";
+    const ENCODING_UTF8: &'static str = "UTF-8";
 }
 
 impl ContentCodec<String> for TextCodec {

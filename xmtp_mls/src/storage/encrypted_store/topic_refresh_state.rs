@@ -97,12 +97,11 @@ pub(crate) mod tests {
                 last_message_timestamp_ns: 123,
             };
             entry.store(&mut conn).unwrap();
-            assert_eq!(
+            assert!(
                 EncryptedMessageStore::update_last_synced_timestamp_for_topic(
                     &mut conn, "topic", 124
                 )
-                .unwrap(),
-                true
+                .unwrap()
             );
             let entry: Option<TopicRefreshState> = conn.fetch(&"topic".to_string()).unwrap();
             assert_eq!(entry.unwrap().last_message_timestamp_ns, 124);
@@ -117,12 +116,11 @@ pub(crate) mod tests {
                 last_message_timestamp_ns: 123,
             };
             entry.store(&mut conn).unwrap();
-            assert_eq!(
-                EncryptedMessageStore::update_last_synced_timestamp_for_topic(
+            assert!(
+                !EncryptedMessageStore::update_last_synced_timestamp_for_topic(
                     &mut conn, "topic", 122
                 )
-                .unwrap(),
-                false
+                .unwrap()
             );
             let entry: Option<TopicRefreshState> = conn.fetch(&"topic".to_string()).unwrap();
             assert_eq!(entry.unwrap().last_message_timestamp_ns, 123);
