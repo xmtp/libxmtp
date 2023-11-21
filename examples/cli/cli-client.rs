@@ -298,7 +298,7 @@ async fn get_group(client: &Client, group_id: Vec<u8>) -> Result<MlsGroup<ApiCli
     Ok(group)
 }
 
-async fn send<'c>(group: MlsGroup<'c, ApiClient>, msg: String) -> Result<(), CliError> {
+async fn send(group: MlsGroup<'_, ApiClient>, msg: String) -> Result<(), CliError> {
     group
         .send_message(msg.into_bytes().as_slice())
         .await
@@ -311,8 +311,8 @@ async fn send<'c>(group: MlsGroup<'c, ApiClient>, msg: String) -> Result<(), Cli
     Ok(())
 }
 
-fn format_messages<'c, A: XmtpApiClient + XmtpMlsClient>(
-    convo: &MlsGroup<'c, A>,
+fn format_messages<A: XmtpApiClient + XmtpMlsClient>(
+    convo: &MlsGroup<'_, A>,
     my_wallet_address: String,
 ) -> Result<String, CliError> {
     let mut output: Vec<String> = vec![];

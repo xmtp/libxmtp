@@ -409,9 +409,7 @@ mod tests {
             .unwrap();
 
         assert_eq!(contacts.len(), 1);
-        let installation_bundle = match contacts[0].clone().bundle.version.unwrap() {
-            Version::V1(bundle) => bundle,
-        };
+        let Version::V1(installation_bundle) = contacts[0].clone().bundle.version.unwrap();
         assert!(installation_bundle.fallback_key.is_some());
         assert!(installation_bundle.identity_key.is_some());
         contacts[0].vmac_identity_key();

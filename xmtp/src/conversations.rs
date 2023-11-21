@@ -475,7 +475,7 @@ mod tests {
                 content_topics: vec![build_installation_message_topic(
                     &bob_client.installation_id(),
                 )],
-                start_time_ns: 0 as u64,
+                start_time_ns: 0_u64,
                 end_time_ns: now() as u64,
                 paging_info: None,
             })

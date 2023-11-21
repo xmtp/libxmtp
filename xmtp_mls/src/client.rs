@@ -314,7 +314,7 @@ where
     // Download all unread welcome messages and convert to groups.
     // Returns any new groups created in the operation
     #[allow(dead_code)]
-    pub(crate) async fn sync_welcomes(&self) -> Result<Vec<MlsGroup<ApiClient>>, ClientError> {
+    pub async fn sync_welcomes(&self) -> Result<Vec<MlsGroup<ApiClient>>, ClientError> {
         let welcome_topic = get_welcome_topic(&self.installation_public_key());
         let envelopes = self.pull_from_topic(&welcome_topic).await?;
 
