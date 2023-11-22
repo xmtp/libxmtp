@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 
+use crate::{retry::Retry, retry_async};
 use xmtp_proto::{
     api_client::{
         Envelope, Error as ApiError, ErrorKind, PagingInfo, QueryRequest, XmtpApiClient,
@@ -26,14 +27,18 @@ use xmtp_proto::{
 #[derive(Debug)]
 pub struct ApiClientWrapper<ApiClient> {
     api_client: ApiClient,
+    retry_strategy: Retry,
 }
 
 impl<ApiClient> ApiClientWrapper<ApiClient>
 where
     ApiClient: XmtpMlsClient + XmtpApiClient,
 {
-    pub fn new(api_client: ApiClient) -> Self {
-        Self { api_client }
+    pub fn new(api_client: ApiClient, retry_strategy: Retry) -> Self {
+        Self {
+            api_client,
+            retry_strategy,
+        }
     }
 
     pub async fn read_topic(
@@ -45,19 +50,23 @@ where
         let mut out: Vec<Envelope> = vec![];
         let page_size = 100;
         loop {
-            let mut result = self
-                .api_client
-                .query(QueryRequest {
-                    content_topics: vec![topic.to_string()],
-                    start_time_ns,
-                    end_time_ns: 0,
-                    paging_info: Some(PagingInfo {
-                        cursor,
-                        limit: page_size,
-                        direction: SortDirection::Ascending as i32,
-                    }),
+            let mut result = retry_async!(
+                self.retry_strategy,
+                (|| async {
+                    self.api_client
+                        .query(QueryRequest {
+                            content_topics: vec![topic.to_string()],
+                            start_time_ns,
+                            end_time_ns: 0,
+                            paging_info: Some(PagingInfo {
+                                cursor: cursor.clone(),
+                                limit: page_size,
+                                direction: SortDirection::Ascending as i32,
+                            }),
+                        })
+                        .await
                 })
-                .await?;
+            )?;
 
             let num_envelopes = result.envelopes.len();
             out.append(&mut result.envelopes);
@@ -80,29 +89,39 @@ where
         &self,
         last_resort_key_package: Vec<u8>,
     ) -> Result<Vec<u8>, ApiError> {
-        let res = self
-            .api_client
-            .register_installation(RegisterInstallationRequest {
-                last_resort_key_package: Some(KeyPackageUpload {
-                    key_package_tls_serialized: last_resort_key_package.to_vec(),
-                }),
+        let res = retry_async!(
+            self.retry_strategy,
+            (|| async {
+                self.api_client
+                    .register_installation(RegisterInstallationRequest {
+                        last_resort_key_package: Some(KeyPackageUpload {
+                            key_package_tls_serialized: last_resort_key_package.to_vec(),
+                        }),
+                    })
+                    .await
             })
-            .await?;
+        )?;
 
         Ok(res.installation_id)
     }
 
     pub async fn upload_key_packages(&self, key_packages: Vec<Vec<u8>>) -> Result<(), ApiError> {
-        self.api_client
-            .upload_key_packages(UploadKeyPackagesRequest {
-                key_packages: key_packages
-                    .into_iter()
-                    .map(|kp| KeyPackageUpload {
-                        key_package_tls_serialized: kp,
+        retry_async!(
+            self.retry_strategy,
+            (|| async {
+                self.api_client
+                    .upload_key_packages(UploadKeyPackagesRequest {
+                        key_packages: key_packages
+                            .clone()
+                            .into_iter()
+                            .map(|kp| KeyPackageUpload {
+                                key_package_tls_serialized: kp,
+                            })
+                            .collect(),
                     })
-                    .collect(),
+                    .await
             })
-            .await?;
+        )?;
 
         Ok(())
     }
@@ -111,12 +130,16 @@ where
         &self,
         installation_ids: Vec<Vec<u8>>,
     ) -> Result<KeyPackageMap, ApiError> {
-        let res = self
-            .api_client
-            .consume_key_packages(ConsumeKeyPackagesRequest {
-                installation_ids: installation_ids.clone(),
+        let res = retry_async!(
+            self.retry_strategy,
+            (|| async {
+                self.api_client
+                    .consume_key_packages(ConsumeKeyPackagesRequest {
+                        installation_ids: installation_ids.clone(),
+                    })
+                    .await
             })
-            .await?;
+        )?;
 
         if res.key_packages.len() != installation_ids.len() {
             println!("mismatched number of results");
@@ -154,11 +177,16 @@ where
             })
             .collect();
 
-        self.api_client
-            .publish_welcomes(PublishWelcomesRequest {
-                welcome_messages: welcome_requests,
+        retry_async!(
+            self.retry_strategy,
+            (|| async {
+                self.api_client
+                    .publish_welcomes(PublishWelcomesRequest {
+                        welcome_messages: welcome_requests.clone(),
+                    })
+                    .await
             })
-            .await?;
+        )?;
 
         Ok(())
     }
@@ -168,13 +196,17 @@ where
         start_time_ns: u64,
         wallet_addresses: Vec<String>,
     ) -> Result<IdentityUpdatesMap, ApiError> {
-        let result = self
-            .api_client
-            .get_identity_updates(GetIdentityUpdatesRequest {
-                start_time_ns,
-                wallet_addresses: wallet_addresses.clone(),
+        let result = retry_async!(
+            self.retry_strategy,
+            (|| async {
+                self.api_client
+                    .get_identity_updates(GetIdentityUpdatesRequest {
+                        start_time_ns,
+                        wallet_addresses: wallet_addresses.clone(),
+                    })
+                    .await
             })
-            .await?;
+        )?;
 
         if result.updates.len() != wallet_addresses.len() {
             println!("mismatched number of results");
@@ -228,9 +260,16 @@ where
             })
             .collect();
 
-        self.api_client
-            .publish_to_group(PublishToGroupRequest { messages: to_send })
-            .await?;
+        retry_async!(
+            self.retry_strategy,
+            (|| async {
+                self.api_client
+                    .publish_to_group(PublishToGroupRequest {
+                        messages: to_send.clone(),
+                    })
+                    .await
+            })
+        )?;
 
         Ok(())
     }
@@ -271,7 +310,9 @@ mod tests {
     use async_trait::async_trait;
     use mockall::mock;
     use xmtp_proto::{
-        api_client::{Error, PagingInfo, XmtpApiClient, XmtpApiSubscription, XmtpMlsClient},
+        api_client::{
+            Error, ErrorKind, PagingInfo, XmtpApiClient, XmtpApiSubscription, XmtpMlsClient,
+        },
         xmtp::message_api::{
             v1::{
                 cursor::Cursor as InnerCursor, BatchQueryRequest, BatchQueryResponse, Cursor,
@@ -292,6 +333,7 @@ mod tests {
     };
 
     use super::ApiClientWrapper;
+    use crate::retry::Retry;
 
     fn build_envelopes(num_envelopes: usize, topic: &str) -> Vec<Envelope> {
         let mut out: Vec<Envelope> = vec![];
@@ -370,7 +412,7 @@ mod tests {
                 installation_id: vec![1, 2, 3],
             })
         });
-        let wrapper = ApiClientWrapper::new(mock_api);
+        let wrapper = ApiClientWrapper::new(mock_api, Retry::default());
         let result = wrapper.register_installation(vec![2, 3, 4]).await.unwrap();
         assert_eq!(result, vec![1, 2, 3]);
     }
@@ -389,7 +431,7 @@ mod tests {
                     .eq(&key_package)
             })
             .returning(move |_| Ok(()));
-        let wrapper = ApiClientWrapper::new(mock_api);
+        let wrapper = ApiClientWrapper::new(mock_api, Retry::default());
         let result = wrapper.upload_key_packages(vec![key_package_clone]).await;
         assert!(result.is_ok());
     }
@@ -410,7 +452,7 @@ mod tests {
                 ],
             })
         });
-        let wrapper = ApiClientWrapper::new(mock_api);
+        let wrapper = ApiClientWrapper::new(mock_api, Retry::default());
         let result = wrapper
             .consume_key_packages(installation_ids.clone())
             .await
@@ -469,7 +511,7 @@ mod tests {
                 })
             });
 
-        let wrapper = ApiClientWrapper::new(mock_api);
+        let wrapper = ApiClientWrapper::new(mock_api, Retry::default());
         let result = wrapper
             .get_identity_updates(start_time_ns, wallet_addresses_clone.clone())
             .await
@@ -520,7 +562,7 @@ mod tests {
             })
         });
 
-        let wrapper = ApiClientWrapper::new(mock_api);
+        let wrapper = ApiClientWrapper::new(mock_api, Retry::default());
 
         let result = wrapper.read_topic(topic, start_time_ns).await.unwrap();
         assert_eq!(result.len(), 10);
@@ -545,7 +587,7 @@ mod tests {
             })
         });
 
-        let wrapper = ApiClientWrapper::new(mock_api);
+        let wrapper = ApiClientWrapper::new(mock_api, Retry::default());
 
         let result = wrapper.read_topic(topic, start_time_ns).await.unwrap();
         assert_eq!(result.len(), 100);
@@ -600,9 +642,42 @@ mod tests {
                 })
             });
 
-        let wrapper = ApiClientWrapper::new(mock_api);
+        let wrapper = ApiClientWrapper::new(mock_api, Retry::default());
 
         let result = wrapper.read_topic(topic, start_time_ns).await.unwrap();
         assert_eq!(result.len(), 200);
+    }
+
+    #[tokio::test]
+    async fn it_retries_twice() {
+        crate::tests::setup();
+
+        let mut mock_api = MockApiClient::new();
+        let topic = "topic";
+        let start_time_ns = 10;
+
+        mock_api
+            .expect_query()
+            .times(1)
+            .returning(move |_| Err(Error::new(ErrorKind::QueryError)));
+        mock_api
+            .expect_query()
+            .times(1)
+            .returning(move |_| Err(Error::new(ErrorKind::QueryError)));
+        mock_api.expect_query().times(1).returning(move |_| {
+            Ok(QueryResponse {
+                paging_info: Some(PagingInfo {
+                    cursor: None,
+                    limit: 100,
+                    direction: 0,
+                }),
+                envelopes: build_envelopes(10, topic),
+            })
+        });
+
+        let wrapper = ApiClientWrapper::new(mock_api, Retry::default());
+
+        let result = wrapper.read_topic(topic, start_time_ns).await.unwrap();
+        assert_eq!(result.len(), 10);
     }
 }

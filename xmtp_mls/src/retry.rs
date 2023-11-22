@@ -32,7 +32,7 @@ pub trait RetryableError: std::error::Error {
 impl<T> RetryableError for &T where T: std::error::Error {}
 
 /// Options to specify how to retry a function
-#[derive(SmartDefault, PartialEq, Eq, Copy, Clone)]
+#[derive(SmartDefault, Debug, PartialEq, Eq, Copy, Clone)]
 pub struct Retry {
     #[default = 3]
     retries: usize,

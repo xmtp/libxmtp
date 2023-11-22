@@ -15,6 +15,7 @@ use crate::{
     api_client_wrapper::{ApiClientWrapper, IdentityUpdate},
     groups::{IntentError, MlsGroup},
     identity::Identity,
+    retry::Retry,
     storage::{
         group::{GroupMembershipState, StoredGroup},
         DbConnection, EncryptedMessageStore, StorageError,
@@ -130,7 +131,7 @@ where
         store: EncryptedMessageStore,
     ) -> Self {
         Self {
-            api_client: ApiClientWrapper::new(api_client),
+            api_client: ApiClientWrapper::new(api_client, Retry::default()),
             _network: network,
             identity,
             store,

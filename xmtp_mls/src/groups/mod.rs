@@ -30,7 +30,7 @@ use crate::{
     identity::Identity,
     retry,
     retry::Retry,
-    retry_async, retryable,
+    retryable,
     storage::{
         group::{GroupMembershipState, StoredGroup},
         group_intent::{IntentKind, IntentState, NewGroupIntent, StoredGroupIntent},
@@ -552,15 +552,10 @@ where
             let (payload, post_commit_data) = result.expect("result already checked");
             let payload_slice = payload.as_slice();
 
-            retry_async!(
-                Retry::default(),
-                (|| async {
-                    self.client
-                        .api_client
-                        .publish_to_group(vec![payload_slice])
-                        .await
-                })
-            )?;
+            self.client
+                .api_client
+                .publish_to_group(vec![payload_slice])
+                .await?;
 
             {
                 EncryptedMessageStore::set_group_intent_published(
