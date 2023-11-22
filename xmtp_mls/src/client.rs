@@ -15,6 +15,7 @@ use crate::{
     api_client_wrapper::{ApiClientWrapper, IdentityUpdate},
     groups::{IntentError, MlsGroup},
     identity::Identity,
+    retry::Retry,
     storage::{
         group::{GroupMembershipState, StoredGroup},
         DbConnection, EncryptedMessageStore, StorageError,
@@ -90,6 +91,15 @@ pub enum MessageProcessingError {
     UnsupportedMessageType(Discriminant<MlsMessageInBody>),
 }
 
+impl crate::retry::RetryableError for MessageProcessingError {
+    fn is_retryable(&self) -> bool {
+        match self {
+            Self::Storage(s) => s.is_retryable(),
+            _ => false,
+        }
+    }
+}
+
 impl From<String> for ClientError {
     fn from(value: String) -> Self {
         Self::Generic(value)
@@ -121,7 +131,7 @@ where
         store: EncryptedMessageStore,
     ) -> Self {
         Self {
-            api_client: ApiClientWrapper::new(api_client),
+            api_client: ApiClientWrapper::new(api_client, Retry::default()),
             _network: network,
             identity,
             store,
@@ -251,8 +261,6 @@ where
     where
         ProcessingFn: FnOnce(XmtpOpenMlsProvider) -> Result<ReturnValue, MessageProcessingError>,
     {
-        // TODO: We can handle errors in the transaction() function to make error handling
-        // cleaner. Retryable errors can possibly be part of their own enum
         XmtpOpenMlsProvider::transaction(&mut self.store.conn()?, |provider| {
             let is_updated = {
                 EncryptedMessageStore::update_last_synced_timestamp_for_topic(

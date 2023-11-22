@@ -48,6 +48,7 @@ toml = "0.7.4"
 xmtp_cryptography = { path = "../xmtp_cryptography" }
 xmtp_proto = { path = "../xmtp_proto", features = ["proto_full"] }
 tls_codec = "0.3.0"
+smart-default = "0.7.1"
 
 [dev-dependencies]
 mockall = "0.11.4"
@@ -55,3 +56,4 @@ rand = "0.8.5"
 tempfile = "3.5.0"
 tracing-subscriber = { version = "0.3.17", features = ["env-filter"] }
 xmtp_api_grpc = { path = "../xmtp_api_grpc" }
+flume = "0.11"

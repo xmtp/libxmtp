@@ -28,6 +28,9 @@ use crate::{
     client::{ClientError, MessageProcessingError},
     configuration::CIPHERSUITE,
     identity::Identity,
+    retry,
+    retry::{Retry, RetryableError},
+    retryable,
     storage::{
         group::{GroupMembershipState, StoredGroup},
         group_intent::{IntentKind, IntentState, NewGroupIntent, StoredGroupIntent},
@@ -65,12 +68,28 @@ pub enum GroupError {
     WelcomeError(#[from] openmls::prelude::WelcomeError<StorageError>),
     #[error("client: {0}")]
     Client(#[from] ClientError),
-    #[error("receive errors: {0:?}")]
-    ReceiveError(Vec<MessageProcessingError>),
+    #[error("receive error: {0}")]
+    ReceiveError(#[from] MessageProcessingError),
+    #[error("Receive errors: {0:?}")]
+    ReceiveErrors(Vec<MessageProcessingError>),
     #[error("generic: {0}")]
     Generic(String),
     #[error("diesel error {0}")]
     Diesel(#[from] diesel::result::Error),
+}
+
+impl RetryableError for GroupError {
+    fn is_retryable(&self) -> bool {
+        match self {
+            Self::ReceiveError(msg) => retryable!(msg),
+            Self::AddMembers(members) => retryable!(members),
+            Self::RemoveMembers(members) => retryable!(members),
+            Self::GroupCreate(group) => retryable!(group),
+            Self::SelfUpdate(update) => retryable!(update),
+            Self::WelcomeError(welcome) => retryable!(welcome),
+            _ => false,
+        }
+    }
 }
 
 pub struct MlsGroup<'c, ApiClient> {
@@ -378,37 +397,53 @@ where
         }
     }
 
-    pub(crate) fn process_messages(&self, envelopes: Vec<Envelope>) -> Result<(), GroupError> {
+    fn consume_message(
+        &self,
+        envelope: &Envelope,
+        openmls_group: &mut OpenMlsGroup,
+    ) -> Result<(), MessageProcessingError> {
+        self.client.process_for_topic(
+            &self.topic(),
+            envelope.timestamp_ns,
+            |provider| -> Result<(), MessageProcessingError> {
+                self.process_message(openmls_group, &provider, envelope)?;
+                openmls_group.save(provider.key_store())?;
+                Ok(())
+            },
+        )?;
+        Ok(())
+    }
+
+    pub fn process_messages(&self, envelopes: Vec<Envelope>) -> Result<(), GroupError> {
         let mut conn = self.client.store.conn()?;
         let provider = self.client.mls_provider(&mut conn);
         let mut openmls_group = self.load_mls_group(&provider)?;
+
         let receive_errors: Vec<MessageProcessingError> = envelopes
             .into_iter()
             .map(|envelope| -> Result<(), MessageProcessingError> {
-                self.client.process_for_topic(
-                    &self.topic(),
-                    envelope.timestamp_ns,
-                    |provider| -> Result<(), MessageProcessingError> {
-                        self.process_message(&mut openmls_group, &provider, &envelope)?;
-                        openmls_group.save(provider.key_store())?;
-                        Ok(())
-                    },
+                retry!(
+                    Retry::default(),
+                    (|| self.consume_message(&envelope, &mut openmls_group))
                 )
             })
-            .filter_map(|result| result.err())
+            .filter_map(Result::err)
             .collect();
 
         if receive_errors.is_empty() {
             Ok(())
         } else {
             debug!("Message processing errors: {:?}", receive_errors);
-            Err(GroupError::ReceiveError(receive_errors))
+            Err(GroupError::ReceiveErrors(receive_errors))
         }
     }
 
     pub async fn receive(&self) -> Result<(), GroupError> {
         let envelopes = self.client.pull_from_topic(&self.topic()).await?;
-        self.process_messages(envelopes)
+
+        self.process_messages(envelopes)?;
+
+        Ok(())
     }
 
     pub async fn send_message(&self, message: &[u8]) -> Result<(), GroupError> {
@@ -521,7 +556,10 @@ where
         };
 
         for intent in intents {
-            let result = self.get_publish_intent_data(&provider, &mut openmls_group, &intent);
+            let result = retry!(
+                Retry::default(),
+                (|| self.get_publish_intent_data(&provider, &mut openmls_group, &intent))
+            );
             if let Err(e) = result {
                 log::error!("error getting publish intent data {:?}", e);
                 // TODO: Figure out which types of errors we should abort completely on and which
