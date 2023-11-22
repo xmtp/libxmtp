@@ -29,7 +29,7 @@ use crate::{
     configuration::CIPHERSUITE,
     identity::Identity,
     retry,
-    retry::Retry,
+    retry::{Retry, RetryableError},
     retryable,
     storage::{
         group::{GroupMembershipState, StoredGroup},
@@ -78,11 +78,15 @@ pub enum GroupError {
     Diesel(#[from] diesel::result::Error),
 }
 
-impl crate::retry::RetryableError for GroupError {
+impl RetryableError for GroupError {
     fn is_retryable(&self) -> bool {
         match self {
-            Self::Diesel(_) => true,
             Self::ReceiveError(msg) => retryable!(msg),
+            Self::AddMembers(members) => retryable!(members),
+            Self::RemoveMembers(members) => retryable!(members),
+            Self::GroupCreate(group) => retryable!(group),
+            Self::SelfUpdate(update) => retryable!(update),
+            Self::WelcomeError(welcome) => retryable!(welcome),
             _ => false,
         }
     }

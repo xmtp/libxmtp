@@ -649,7 +649,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn it_retries_twice() {
+    async fn it_retries_twice_then_succeeds() {
         crate::tests::setup();
 
         let mut mock_api = MockApiClient::new();
