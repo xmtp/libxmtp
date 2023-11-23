@@ -43,6 +43,6 @@ Pod::Spec.new do |spec|
 
   spec.dependency "web3.swift"
   spec.dependency "GzipSwift"
-  spec.dependency "Connect-Swift"
+  spec.dependency "Connect-Swift", "= 0.3.0"
   spec.dependency 'XMTPRust', '= 0.3.6-beta0'
 end
