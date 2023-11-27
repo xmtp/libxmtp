@@ -118,6 +118,15 @@ public enum Conversation: Sendable {
 		}
 	}
 
+	public func decrypt(_ envelope: Envelope) throws -> DecryptedMessage {
+		switch self {
+		case let .v1(conversationV1):
+			return try conversationV1.decrypt(envelope: envelope)
+		case let .v2(conversationV2):
+			return try conversationV2.decrypt(envelope: envelope)
+		}
+	}
+
 	public func encode<Codec: ContentCodec, T>(codec: Codec, content: T) async throws -> Data where Codec.T == T {
 		switch self {
 		case let .v1:

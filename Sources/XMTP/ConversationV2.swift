@@ -137,9 +137,13 @@ public struct ConversationV2 {
 		let envelopes = try await client.apiClient.envelopes(topic: topic.description, pagination: pagination)
 
 		return try envelopes.map { envelope in
-			let message = try Message(serializedData: envelope.message)
-			return try MessageV2.decrypt(generateID(from: envelope), topic, message.v2, keyMaterial: keyMaterial, client: client)
+			try decrypt(envelope: envelope)
 		}
+	}
+
+	func decrypt(envelope: Envelope) throws -> DecryptedMessage {
+		let message = try Message(serializedData: envelope.message)
+		return try MessageV2.decrypt(generateID(from: envelope), topic, message.v2, keyMaterial: keyMaterial, client: client)
 	}
 
 	var ephemeralTopic: String {
