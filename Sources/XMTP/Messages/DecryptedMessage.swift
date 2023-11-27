@@ -8,9 +8,9 @@
 import Foundation
 
 public struct DecryptedMessage {
-	var id: String
-	var encodedContent: EncodedContent
-	var senderAddress: String
-	var sentAt: Date
-	var topic: String = ""
+	public var id: String
+	public var encodedContent: EncodedContent
+	public var senderAddress: String
+	public var sentAt: Date
+	public var topic: String = ""
 }
