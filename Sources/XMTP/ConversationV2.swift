@@ -176,6 +176,18 @@ public struct ConversationV2 {
 		}
 	}
 
+	public func streamDecryptedMessages() -> AsyncThrowingStream<DecryptedMessage, Error> {
+		AsyncThrowingStream { continuation in
+			Task {
+				for try await envelope in client.subscribe(topics: [topic.description]) {
+					let decoded = try decrypt(envelope: envelope)
+
+					continuation.yield(decoded)
+				}
+			}
+		}
+	}
+
 	public var createdAt: Date {
 		Date(timeIntervalSince1970: Double(header.createdNs / 1_000_000) / 1000)
 	}

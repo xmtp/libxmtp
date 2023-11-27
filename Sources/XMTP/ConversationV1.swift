@@ -162,6 +162,17 @@ public struct ConversationV1 {
 		}
 	}
 
+	public func streamDecryptedMessages() -> AsyncThrowingStream<DecryptedMessage, Error> {
+		AsyncThrowingStream { continuation in
+			Task {
+				for try await envelope in client.subscribe(topics: [topic.description]) {
+					let decoded = try decrypt(envelope: envelope)
+					continuation.yield(decoded)
+				}
+			}
+		}
+	}
+
 	var ephemeralTopic: String {
 		topic.description.replacingOccurrences(of: "/xmtp/0/dm-", with: "/xmtp/0/dmE-")
 	}

@@ -220,6 +220,15 @@ public enum Conversation: Sendable {
 		}
 	}
 
+	public func streamDecryptedMessages() -> AsyncThrowingStream<DecryptedMessage, Error> {
+		switch self {
+		case let .v1(conversation):
+			return conversation.streamDecryptedMessages()
+		case let .v2(conversation):
+			return conversation.streamDecryptedMessages()
+		}
+	}
+
 	/// List messages in the conversation
 	public func messages(limit: Int? = nil, before: Date? = nil, after: Date? = nil, direction: PagingInfoSortDirection? = .descending) async throws -> [DecodedMessage] {
 		switch self {
