@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use xmtp_proto::xmtp::message_contents::{ContentTypeId, EncodedContent};
+use xmtp_proto::xmtp::mls::message_contents::{ContentTypeId, EncodedContent};
 
 use super::{CodecError, ContentCodec};
 

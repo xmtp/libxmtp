@@ -1,7 +1,7 @@
 pub mod text;
 
 use thiserror::Error;
-use xmtp_proto::xmtp::message_contents::{ContentTypeId, EncodedContent};
+use xmtp_proto::xmtp::mls::message_contents::{ContentTypeId, EncodedContent};
 
 #[derive(Debug, Error)]
 pub enum CodecError {
