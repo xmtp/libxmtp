@@ -34,6 +34,7 @@
 		A6AE5192297B6270006FDD0F /* Persistence.swift in Sources */ = {isa = PBXBuildFile; fileRef = A65F0703297B5D4E00C3C76E /* Persistence.swift */; };
 		A6AE5194297B62C8006FDD0F /* KeychainAccess in Frameworks */ = {isa = PBXBuildFile; productRef = A6AE5193297B62C8006FDD0F /* KeychainAccess */; };
 		A6D192D0293A7B97006B49F2 /* ConversationListView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A6D192CF293A7B97006B49F2 /* ConversationListView.swift */; };
+		A6E774162B154CF000F01DFF /* XMTP in Frameworks */ = {isa = PBXBuildFile; productRef = A6E774152B154CF000F01DFF /* XMTP */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -78,13 +79,13 @@
 		A687810629679BC700042FAB /* Account.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Account.swift; sourceTree = "<group>"; };
 		A687810B29679BFC00042FAB /* WalletConnection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WalletConnection.swift; sourceTree = "<group>"; };
 		A687810D29679C0D00042FAB /* WalletConnectionMethod.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WalletConnectionMethod.swift; sourceTree = "<group>"; };
-		A69F33C7292DD3A9005A5556 /* xmtp-ios */ = {isa = PBXFileReference; lastKnownFileType = wrapper; name = "xmtp-ios"; path = ..; sourceTree = "<group>"; };
 		A69F33C9292DD557005A5556 /* LoggedInView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LoggedInView.swift; sourceTree = "<group>"; };
 		A69F33CB292DD568005A5556 /* QRCodeSheetView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QRCodeSheetView.swift; sourceTree = "<group>"; };
 		A6AE5180297B61AE006FDD0F /* NotificationService.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = NotificationService.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 		A6AE518B297B61C8006FDD0F /* NotificationService.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = NotificationService.entitlements; sourceTree = "<group>"; };
 		A6AE518C297B6210006FDD0F /* NotificationService.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = NotificationService.swift; sourceTree = "<group>"; };
 		A6D192CF293A7B97006B49F2 /* ConversationListView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConversationListView.swift; sourceTree = "<group>"; };
+		A6E774192B154D1E00F01DFF /* xmtp-ios */ = {isa = PBXFileReference; lastKnownFileType = wrapper; name = "xmtp-ios"; path = ..; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -92,6 +93,7 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				A6E774162B154CF000F01DFF /* XMTP in Frameworks */,
 				A65F0707297B5E7600C3C76E /* WalletConnectSwift in Frameworks */,
 				6AEE396E29F330CD0027B657 /* secp256k1 in Frameworks */,
 				A69F33C6292DC992005A5556 /* XMTP in Frameworks */,
@@ -114,7 +116,7 @@
 		A6281986292DC825004B9117 = {
 			isa = PBXGroup;
 			children = (
-				A69F33C7292DD3A9005A5556 /* xmtp-ios */,
+				A6E774192B154D1E00F01DFF /* xmtp-ios */,
 				A6281991292DC825004B9117 /* XMTPiOSExample */,
 				A6AE5181297B61AE006FDD0F /* NotificationService */,
 				A6281990292DC825004B9117 /* Products */,
@@ -220,6 +222,7 @@
 				A65F0706297B5E7600C3C76E /* WalletConnectSwift */,
 				A65F0709297B5E8600C3C76E /* KeychainAccess */,
 				6AEE396D29F330CD0027B657 /* secp256k1 */,
+				A6E774152B154CF000F01DFF /* XMTP */,
 			);
 			productName = XMTPiOSExample;
 			productReference = A628198F292DC825004B9117 /* XMTPiOSExample.app */;
@@ -685,6 +688,10 @@
 			isa = XCSwiftPackageProductDependency;
 			package = A65F0708297B5E8600C3C76E /* XCRemoteSwiftPackageReference "KeychainAccess" */;
 			productName = KeychainAccess;
+		};
+		A6E774152B154CF000F01DFF /* XMTP */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = XMTP;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};
