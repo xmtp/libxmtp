@@ -449,6 +449,30 @@ class ConversationTest {
     }
 
     @Test
+    fun testListBatchDecryptedMessages() {
+        val bobConversation = aliceClient.conversations.newConversation(bob.walletAddress)
+        val steveConversation =
+            aliceClient.conversations.newConversation(fixtures.steve.walletAddress)
+
+        bobConversation.send(text = "hey alice 1")
+        bobConversation.send(text = "hey alice 2")
+        steveConversation.send(text = "hey alice 3")
+        val messages = aliceClient.conversations.listBatchDecryptedMessages(
+            listOf(
+                Pair(steveConversation.topic, null),
+                Pair(bobConversation.topic, null),
+            ),
+        )
+        val isSteveOrBobConversation = { topic: String ->
+            (topic.equals(steveConversation.topic) || topic.equals(bobConversation.topic))
+        }
+        assertEquals(3, messages.size)
+        assertTrue(isSteveOrBobConversation(messages[0].topic))
+        assertTrue(isSteveOrBobConversation(messages[1].topic))
+        assertTrue(isSteveOrBobConversation(messages[2].topic))
+    }
+
+    @Test
     fun testListBatchMessagesWithPagination() {
         val bobConversation = aliceClient.conversations.newConversation(bob.walletAddress)
         val steveConversation =

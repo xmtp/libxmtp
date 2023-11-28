@@ -1,4 +1,4 @@
-package uniffi.xmtp_dh.org.xmtp.android.library.messages
+package org.xmtp.android.library.messages
 
 import org.xmtp.android.library.codecs.EncodedContent
 import java.util.Date

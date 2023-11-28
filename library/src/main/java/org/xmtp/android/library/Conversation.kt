@@ -10,7 +10,7 @@ import org.xmtp.proto.keystore.api.v1.Keystore.TopicMap.TopicData
 import org.xmtp.proto.message.api.v1.MessageApiOuterClass
 import org.xmtp.proto.message.contents.Invitation
 import org.xmtp.proto.message.contents.Invitation.InvitationV1.Aes256gcmHkdfsha256
-import uniffi.xmtp_dh.org.xmtp.android.library.messages.DecryptedMessage
+import org.xmtp.android.library.messages.DecryptedMessage
 import java.util.Date
 
 sealed class Conversation {
@@ -193,6 +193,15 @@ sealed class Conversation {
         }
     }
 
+    fun decrypt(
+        envelope: Envelope,
+    ): DecryptedMessage {
+        return when (this) {
+            is V1 -> conversationV1.decrypt(envelope)
+            is V2 -> conversationV2.decrypt(envelope)
+        }
+    }
+
     val client: Client
         get() {
             return when (this) {
@@ -205,6 +214,13 @@ sealed class Conversation {
         return when (this) {
             is V1 -> conversationV1.streamMessages()
             is V2 -> conversationV2.streamMessages()
+        }
+    }
+
+    fun streamDecryptedMessages(): Flow<DecryptedMessage> {
+        return when (this) {
+            is V1 -> conversationV1.streamDecryptedMessages()
+            is V2 -> conversationV2.streamDecryptedMessages()
         }
     }
 

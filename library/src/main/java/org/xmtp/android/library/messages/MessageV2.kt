@@ -11,7 +11,6 @@ import org.xmtp.android.library.DecodedMessage
 import org.xmtp.android.library.KeyUtil
 import org.xmtp.android.library.XMTPException
 import org.xmtp.android.library.codecs.EncodedContent
-import uniffi.xmtp_dh.org.xmtp.android.library.messages.DecryptedMessage
 import java.math.BigInteger
 import java.util.Date
 

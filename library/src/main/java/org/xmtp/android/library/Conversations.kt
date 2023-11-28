@@ -31,6 +31,7 @@ import org.xmtp.android.library.messages.walletAddress
 import org.xmtp.proto.keystore.api.v1.Keystore.TopicMap.TopicData
 import org.xmtp.proto.message.contents.Contact
 import org.xmtp.proto.message.contents.Invitation
+import org.xmtp.android.library.messages.DecryptedMessage
 import java.util.Date
 
 data class Conversations(
@@ -307,6 +308,37 @@ data class Conversations(
         return messages
     }
 
+    fun listBatchDecryptedMessages(
+        topics: List<Pair<String, Pagination?>>,
+    ): List<DecryptedMessage> {
+        val requests = topics.map { (topic, page) ->
+            makeQueryRequest(topic = topic, pagination = page)
+        }
+
+        // The maximum number of requests permitted in a single batch call.
+        val maxQueryRequestsPerBatch = 50
+        val messages: MutableList<DecryptedMessage> = mutableListOf()
+        val batches = requests.chunked(maxQueryRequestsPerBatch)
+        for (batch in batches) {
+            runBlocking {
+                messages.addAll(
+                    client.batchQuery(batch).responsesOrBuilderList.flatMap { res ->
+                        res.envelopesList.mapNotNull { envelope ->
+                            val conversation = conversationsByTopic[envelope.contentTopic]
+                            if (conversation == null) {
+                                Log.d(TAG, "discarding message, unknown conversation $envelope")
+                                return@mapNotNull null
+                            }
+                            val msg = conversation.decrypt(envelope)
+                            msg
+                        }
+                    }
+                )
+            }
+        }
+        return messages
+    }
+
     fun sendInvitation(
         recipient: SignedPublicKeyBundle,
         invitation: InvitationV1,
@@ -403,6 +435,61 @@ data class Conversations(
                             conversationsByTopic[conversation.topic] = conversation
                             val decoded = conversation.decode(envelope)
                             emit(decoded)
+                            topics.add(conversation.topic)
+                            subscribeFlow.value = makeSubscribeRequest(topics)
+                        }
+
+                        else -> {}
+                    }
+                }
+            } catch (error: CancellationException) {
+                break
+            } catch (error: StatusException) {
+                if (error.status.code == io.grpc.Status.Code.UNAVAILABLE) {
+                    continue
+                } else {
+                    break
+                }
+            } catch (error: Exception) {
+                continue
+            }
+        }
+    }
+
+    fun streamAllDecryptedMessages(): Flow<DecryptedMessage> = flow {
+        val topics = mutableListOf(
+            Topic.userInvite(client.address).description,
+            Topic.userIntro(client.address).description
+        )
+
+        for (conversation in list()) {
+            topics.add(conversation.topic)
+        }
+
+        val subscribeFlow = MutableStateFlow(makeSubscribeRequest(topics))
+
+        while (true) {
+            try {
+                client.subscribe2(request = subscribeFlow).collect { envelope ->
+                    when {
+                        conversationsByTopic.containsKey(envelope.contentTopic) -> {
+                            val conversation = conversationsByTopic[envelope.contentTopic]
+                            val decrypted = conversation?.decrypt(envelope)
+                            decrypted?.let { emit(it) }
+                        }
+
+                        envelope.contentTopic.startsWith("/xmtp/0/invite-") -> {
+                            val conversation = fromInvite(envelope = envelope)
+                            conversationsByTopic[conversation.topic] = conversation
+                            topics.add(conversation.topic)
+                            subscribeFlow.value = makeSubscribeRequest(topics)
+                        }
+
+                        envelope.contentTopic.startsWith("/xmtp/0/intro-") -> {
+                            val conversation = fromIntro(envelope = envelope)
+                            conversationsByTopic[conversation.topic] = conversation
+                            val decrypted = conversation.decrypt(envelope)
+                            emit(decrypted)
                             topics.add(conversation.topic)
                             subscribeFlow.value = makeSubscribeRequest(topics)
                         }

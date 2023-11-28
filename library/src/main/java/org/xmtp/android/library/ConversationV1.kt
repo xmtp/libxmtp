@@ -22,7 +22,7 @@ import org.xmtp.android.library.messages.sentAt
 import org.xmtp.android.library.messages.toPublicKeyBundle
 import org.xmtp.android.library.messages.walletAddress
 import org.xmtp.proto.message.api.v1.MessageApiOuterClass
-import uniffi.xmtp_dh.org.xmtp.android.library.messages.DecryptedMessage
+import org.xmtp.android.library.messages.DecryptedMessage
 import java.util.Date
 
 data class ConversationV1(
@@ -231,6 +231,12 @@ data class ConversationV1(
     fun streamEphemeral(): Flow<Envelope> = flow {
         client.subscribe(topics = listOf(ephemeralTopic)).collect {
             emit(it)
+        }
+    }
+
+    fun streamDecryptedMessages(): Flow<DecryptedMessage> = flow {
+        client.subscribe(listOf(topic.description)).collect {
+            emit(decrypt(envelope = it))
         }
     }
 }
