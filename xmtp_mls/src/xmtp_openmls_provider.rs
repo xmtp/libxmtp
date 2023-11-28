@@ -1,10 +1,10 @@
-use std::cell::RefCell;
-
 use diesel::Connection;
 use openmls_rust_crypto::RustCrypto;
 use openmls_traits::OpenMlsProvider;
 
-use crate::storage::{sql_key_store::SqlKeyStore, DbConnection};
+use crate::storage::{
+    sql_key_store::SqlKeyStore, xmtp_db_connection::XmtpDbConnection, DbConnection,
+};
 
 #[derive(Debug)]
 pub struct XmtpOpenMlsProvider<'a> {
@@ -13,14 +13,14 @@ pub struct XmtpOpenMlsProvider<'a> {
 }
 
 impl<'a> XmtpOpenMlsProvider<'a> {
-    pub fn new(conn: &'a mut DbConnection) -> Self {
+    pub fn new(conn: &'a XmtpDbConnection) -> Self {
         Self {
             crypto: RustCrypto::default(),
             key_store: SqlKeyStore::new(conn),
         }
     }
 
-    pub(crate) fn conn(&self) -> &RefCell<&'a mut DbConnection> {
+    pub(crate) fn conn(&self) -> &XmtpDbConnection {
         self.key_store.conn()
     }
 
@@ -47,7 +47,8 @@ impl<'a> XmtpOpenMlsProvider<'a> {
         E: From<diesel::result::Error>,
     {
         connection.transaction(|conn| {
-            let provider = XmtpOpenMlsProvider::new(conn);
+            let xmtp_db_connection = XmtpDbConnection::new(conn);
+            let provider = XmtpOpenMlsProvider::new(&xmtp_db_connection);
             fun(provider)
         })
     }

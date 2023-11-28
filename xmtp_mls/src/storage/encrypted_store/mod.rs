@@ -17,6 +17,7 @@ pub mod identity;
 pub mod key_store_entry;
 pub mod schema;
 pub mod topic_refresh_state;
+pub mod xmtp_db_connection;
 
 use std::borrow::Cow;
 
@@ -123,6 +124,7 @@ impl EncryptedMessageStore {
         Ok(())
     }
 
+    // TODO don't make this public, rename conn members
     pub fn conn(
         &self,
     ) -> Result<PooledConnection<ConnectionManager<SqliteConnection>>, StorageError> {

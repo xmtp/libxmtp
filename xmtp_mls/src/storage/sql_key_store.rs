@@ -1,34 +1,28 @@
 use log::{debug, error};
 use openmls_traits::key_store::{MlsEntity, OpenMlsKeyStore};
-use std::{cell::RefCell, fmt};
 
 use super::{
-    encrypted_store::{key_store_entry::StoredKeyStoreEntry, DbConnection},
+    encrypted_store::{
+        key_store_entry::StoredKeyStoreEntry, xmtp_db_connection::XmtpDbConnection, DbConnection,
+    },
     serialization::{db_deserialize, db_serialize},
     EncryptedMessageStore, StorageError,
 };
 use crate::{Delete, Fetch};
 
 /// CRUD Operations for an [`EncryptedMessageStore`]
+#[derive(Debug)]
 pub struct SqlKeyStore<'a> {
-    pub conn: RefCell<&'a mut DbConnection>,
+    conn: &'a XmtpDbConnection<'a>,
 }
 
 impl<'a> SqlKeyStore<'a> {
-    pub fn new(conn: &'a mut DbConnection) -> Self {
-        Self { conn: conn.into() }
+    pub fn new(conn: &'a XmtpDbConnection) -> Self {
+        Self { conn }
     }
 
-    pub fn conn(&self) -> &RefCell<&'a mut DbConnection> {
-        &self.conn
-    }
-}
-
-impl fmt::Debug for SqlKeyStore<'_> {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("SqlKeyStore")
-            .field("conn", &"DbConnection")
-            .finish()
+    pub fn conn(&self) -> &XmtpDbConnection {
+        self.conn
     }
 }
 
@@ -42,7 +36,7 @@ impl OpenMlsKeyStore for SqlKeyStore<'_> {
     /// Returns an error if storing fails.
     fn store<V: MlsEntity>(&self, k: &[u8], v: &V) -> Result<(), Self::Error> {
         EncryptedMessageStore::insert_or_update_key_store_entry(
-            *self.conn.borrow_mut(),
+            *self.conn.wrapped_conn.borrow_mut(), // TODO
             k.to_vec(),
             db_serialize(v)?,
         )?;
@@ -54,7 +48,7 @@ impl OpenMlsKeyStore for SqlKeyStore<'_> {
     ///
     /// Returns [`None`] if no value is stored for `k` or reading fails.
     fn read<V: MlsEntity>(&self, k: &[u8]) -> Option<V> {
-        let fetch_result = (*self.conn.borrow_mut()).fetch(&k.to_vec());
+        let fetch_result = (*self.conn.wrapped_conn.borrow_mut()).fetch(&k.to_vec());
 
         if let Err(e) = fetch_result {
             error!("Failed to fetch key: {:?}", e);
@@ -74,7 +68,7 @@ impl OpenMlsKeyStore for SqlKeyStore<'_> {
     /// Interface is unclear on expected behavior when item is already deleted -
     /// we choose to not surface an error if this is the case.
     fn delete<V: MlsEntity>(&self, k: &[u8]) -> Result<(), Self::Error> {
-        let mut conn = self.conn.borrow_mut();
+        let mut conn = self.conn.wrapped_conn.borrow_mut();
         let conn: &mut dyn Delete<StoredKeyStoreEntry, Key = Vec<u8>> = *conn;
         let num_deleted = conn.delete(k.to_vec())?;
         if num_deleted == 0 {
