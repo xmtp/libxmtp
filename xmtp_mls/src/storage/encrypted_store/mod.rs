@@ -32,6 +32,8 @@ use log::warn;
 use rand::RngCore;
 use xmtp_cryptography::utils as crypto_utils;
 
+use self::xmtp_db_connection::XmtpDbConnection;
+
 use super::StorageError;
 use crate::Store;
 
@@ -136,6 +138,11 @@ impl EncryptedMessageStore {
         Ok(conn)
     }
 
+    pub fn xmtp_conn(&self) -> Result<XmtpDbConnection, StorageError> {
+        let mut conn = self.conn()?;
+        Ok(XmtpDbConnection::new(&mut conn)) // TODO own the connection
+    }
+
     fn set_sqlcipher_key(
         pool: Pool<ConnectionManager<SqliteConnection>>,
         encryption_key: &[u8; 32],
@@ -172,21 +179,27 @@ fn warn_length<T>(list: &Vec<T>, str_id: &str, max_length: usize) {
 #[macro_export]
 macro_rules! impl_fetch {
     ($model:ty, $table:ident) => {
-        impl $crate::Fetch<$model> for $crate::storage::encrypted_store::DbConnection {
+        impl $crate::Fetch<$model>
+            for $crate::storage::encrypted_store::xmtp_db_connection::XmtpDbConnection<'_>
+        {
             type Key = ();
-            fn fetch(&mut self, _key: &Self::Key) -> Result<Option<$model>, $crate::StorageError> {
+            fn fetch(&self, _key: &Self::Key) -> Result<Option<$model>, $crate::StorageError> {
+                let conn = self.borrow_conn();
                 use $crate::storage::encrypted_store::schema::$table::dsl::*;
-                Ok($table.first(self).optional()?)
+                Ok($table.first(conn).optional()?)
             }
         }
     };
 
     ($model:ty, $table:ident, $key:ty) => {
-        impl $crate::Fetch<$model> for $crate::storage::encrypted_store::DbConnection {
+        impl $crate::Fetch<$model>
+            for $crate::storage::encrypted_store::xmtp_db_connection::XmtpDbConnection<'_>
+        {
             type Key = $key;
-            fn fetch(&mut self, key: &Self::Key) -> Result<Option<$model>, $crate::StorageError> {
+            fn fetch(&self, key: &Self::Key) -> Result<Option<$model>, $crate::StorageError> {
+                let conn = self.borrow_conn();
                 use $crate::storage::encrypted_store::schema::$table::dsl::*;
-                Ok($table.find(key).first(self).optional()?)
+                Ok($table.find(key).first(conn).optional()?)
             }
         }
     };
@@ -195,14 +208,19 @@ macro_rules! impl_fetch {
 #[macro_export]
 macro_rules! impl_store {
     ($model:ty, $table:ident) => {
-        impl $crate::Store<$crate::storage::encrypted_store::DbConnection> for $model {
+        impl
+            $crate::Store<
+                $crate::storage::encrypted_store::xmtp_db_connection::XmtpDbConnection<'_>,
+            > for $model
+        {
             fn store(
                 &self,
-                into: &mut $crate::storage::encrypted_store::DbConnection,
+                into: &$crate::storage::encrypted_store::xmtp_db_connection::XmtpDbConnection<'_>,
             ) -> Result<(), $crate::StorageError> {
+                let conn = into.borrow_conn();
                 diesel::insert_into($table::table)
                     .values(self)
-                    .execute(into)
+                    .execute(conn)
                     .map_err(|e| $crate::StorageError::from(e))?;
                 Ok(())
             }
@@ -210,11 +228,11 @@ macro_rules! impl_store {
     };
 }
 
-impl<T> Store<DbConnection> for Vec<T>
+impl<'a, T> Store<XmtpDbConnection<'a>> for Vec<T>
 where
-    T: Store<DbConnection>,
+    T: Store<XmtpDbConnection<'a>>,
 {
-    fn store(&self, into: &mut DbConnection) -> Result<(), StorageError> {
+    fn store(&self, into: &XmtpDbConnection) -> Result<(), StorageError> {
         for item in self {
             item.store(into)?;
         }
@@ -226,7 +244,10 @@ where
 mod tests {
     use std::{boxed::Box, fs};
 
-    use super::{identity::StoredIdentity, EncryptedMessageStore, StorageError, StorageOption};
+    use super::{
+        identity::StoredIdentity, xmtp_db_connection::XmtpDbConnection, EncryptedMessageStore,
+        StorageError, StorageOption,
+    };
     use crate::{
         utils::test::{rand_vec, tmp_path},
         Fetch, Store,
@@ -245,6 +266,21 @@ mod tests {
         .unwrap();
         let conn = store.conn().expect("acquiring a Connection failed");
         fun(conn)
+    }
+
+    /// Test harness that loads an Ephemeral store.
+    pub fn with_connection<F, R>(fun: F) -> R
+    where
+        F: FnOnce(XmtpDbConnection) -> R,
+    {
+        crate::tests::setup();
+        let store = EncryptedMessageStore::new(
+            StorageOption::Ephemeral,
+            EncryptedMessageStore::generate_enc_key(),
+        )
+        .unwrap();
+        let mut conn = store.conn().expect("acquiring a Connection failed");
+        fun(XmtpDbConnection::new(&mut conn))
     }
 
     impl EncryptedMessageStore {

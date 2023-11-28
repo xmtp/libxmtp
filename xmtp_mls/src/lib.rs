@@ -24,19 +24,35 @@ pub trait InboxOwner {
     fn sign(&self, text: &str) -> Result<RecoverableSignature, SignatureError>;
 }
 
+// Problem:
+// We want store/fetch/delete to be implemented on BOTH conn and xmtp conn.
+// We want it on conn because we want to use the same borrowed conn inside db methods
+// rather than returning and reborrowing.
+// Can we have store/fetch reuse the same conn if it is borrowed? That requires us to have a
+// mutable reference to XmtpDbConnection. We can't have a mutable reference to it because it needs
+// to be held by both OpenMLS and our own code.
+// Can our code just get it from OpenMLS when we need it?
+
+// OpenMLS holds mut XmtpDbConnection. Has a method that returns &mut XmtpDbConnection.
+// XmtpDbConnection holds DbConnection.
+
+// Can OpenMLS just hold DbConnection? And we can have a method that returns &mut DbConnection?
+// This is what we have, but we have issues with returning the reference in time. No, that's because we're using a refcell.
+// If we remove the refcell we need to make the provider mut, but the keystore methods take in non-mut self.
+
 // Inserts a model to the underlying data store
 pub trait Store<StorageConnection> {
-    fn store(&self, into: &mut StorageConnection) -> Result<(), StorageError>;
+    fn store(&self, into: &StorageConnection) -> Result<(), StorageError>;
 }
 
 pub trait Fetch<Model> {
     type Key;
-    fn fetch(&mut self, key: &Self::Key) -> Result<Option<Model>, StorageError>;
+    fn fetch(&self, key: &Self::Key) -> Result<Option<Model>, StorageError>;
 }
 
 pub trait Delete<Model> {
     type Key;
-    fn delete(&mut self, key: Self::Key) -> Result<usize, StorageError>;
+    fn delete(&self, key: Self::Key) -> Result<usize, StorageError>;
 }
 
 #[cfg(test)]

@@ -10,10 +10,14 @@ pub struct XmtpDbConnection<'a> {
 }
 
 impl<'a> XmtpDbConnection<'a> {
-    pub fn new(conn: &'a mut DbConnection) -> Self {
+    pub(crate) fn new(conn: &'a mut DbConnection) -> Self {
         Self {
             wrapped_conn: RefCell::new(conn),
         }
+    }
+
+    pub(crate) fn borrow_conn(&self) -> &mut DbConnection {
+        self.borrow_conn()
     }
 }
 
