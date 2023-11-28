@@ -1,3 +1,4 @@
+pub mod membership_change;
 pub mod text;
 
 use thiserror::Error;
