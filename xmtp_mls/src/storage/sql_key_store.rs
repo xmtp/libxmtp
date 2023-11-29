@@ -2,7 +2,7 @@ use log::{debug, error};
 use openmls_traits::key_store::{MlsEntity, OpenMlsKeyStore};
 
 use super::{
-    encrypted_store::{key_store_entry::StoredKeyStoreEntry, xmtp_db_connection::DbConnection},
+    encrypted_store::{db_connection::DbConnection, key_store_entry::StoredKeyStoreEntry},
     serialization::{db_deserialize, db_serialize},
     StorageError,
 };

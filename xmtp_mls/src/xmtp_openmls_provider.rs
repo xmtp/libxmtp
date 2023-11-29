@@ -1,7 +1,7 @@
 use openmls_rust_crypto::RustCrypto;
 use openmls_traits::OpenMlsProvider;
 
-use crate::storage::{sql_key_store::SqlKeyStore, xmtp_db_connection::DbConnection};
+use crate::storage::{db_connection::DbConnection, sql_key_store::SqlKeyStore};
 
 #[derive(Debug)]
 pub struct XmtpOpenMlsProvider<'a> {

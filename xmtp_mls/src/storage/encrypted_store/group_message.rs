@@ -8,7 +8,7 @@ use diesel::{
     sqlite::Sqlite,
 };
 
-use super::{schema::group_messages, xmtp_db_connection::DbConnection};
+use super::{db_connection::DbConnection, schema::group_messages};
 use crate::{impl_fetch, impl_store, StorageError};
 
 #[derive(Insertable, Identifiable, Queryable, Debug, Clone, PartialEq, Eq)]

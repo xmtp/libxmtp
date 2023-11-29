@@ -17,8 +17,8 @@ use crate::{
     identity::Identity,
     retry::Retry,
     storage::{
+        db_connection::DbConnection,
         group::{GroupMembershipState, StoredGroup},
-        xmtp_db_connection::DbConnection,
         EncryptedMessageStore, StorageError,
     },
     types::Address,

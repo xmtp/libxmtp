@@ -10,6 +10,7 @@
 //! table definitions `schema.rs` must also be updated. To generate the correct schemas you can run
 //! `diesel print-schema` or use `cargo run update-schema` which will update the files for you.
 
+pub mod db_connection;
 pub mod group;
 pub mod group_intent;
 pub mod group_message;
@@ -17,7 +18,6 @@ pub mod identity;
 pub mod key_store_entry;
 pub mod schema;
 pub mod topic_refresh_state;
-pub mod xmtp_db_connection;
 
 use std::borrow::Cow;
 
@@ -32,7 +32,7 @@ use log::warn;
 use rand::RngCore;
 use xmtp_cryptography::utils as crypto_utils;
 
-use self::xmtp_db_connection::DbConnection;
+use self::db_connection::DbConnection;
 
 use super::StorageError;
 use crate::{xmtp_openmls_provider::XmtpOpenMlsProvider, Store};
@@ -162,8 +162,8 @@ impl EncryptedMessageStore {
     {
         let mut connection = self.raw_conn()?;
         connection.transaction(|conn| {
-            let xmtp_db_connection = DbConnection::new(conn);
-            let provider = XmtpOpenMlsProvider::new(&xmtp_db_connection);
+            let db_connection = DbConnection::new(conn);
+            let provider = XmtpOpenMlsProvider::new(&db_connection);
             fun(provider)
         })
     }
@@ -205,7 +205,7 @@ fn warn_length<T>(list: &Vec<T>, str_id: &str, max_length: usize) {
 macro_rules! impl_fetch {
     ($model:ty, $table:ident) => {
         impl $crate::Fetch<$model>
-            for $crate::storage::encrypted_store::xmtp_db_connection::DbConnection<'_>
+            for $crate::storage::encrypted_store::db_connection::DbConnection<'_>
         {
             type Key = ();
             fn fetch(&self, _key: &Self::Key) -> Result<Option<$model>, $crate::StorageError> {
@@ -217,7 +217,7 @@ macro_rules! impl_fetch {
 
     ($model:ty, $table:ident, $key:ty) => {
         impl $crate::Fetch<$model>
-            for $crate::storage::encrypted_store::xmtp_db_connection::DbConnection<'_>
+            for $crate::storage::encrypted_store::db_connection::DbConnection<'_>
         {
             type Key = $key;
             fn fetch(&self, key: &Self::Key) -> Result<Option<$model>, $crate::StorageError> {
@@ -231,12 +231,12 @@ macro_rules! impl_fetch {
 #[macro_export]
 macro_rules! impl_store {
     ($model:ty, $table:ident) => {
-        impl $crate::Store<$crate::storage::encrypted_store::xmtp_db_connection::DbConnection<'_>>
+        impl $crate::Store<$crate::storage::encrypted_store::db_connection::DbConnection<'_>>
             for $model
         {
             fn store(
                 &self,
-                into: &$crate::storage::encrypted_store::xmtp_db_connection::DbConnection<'_>,
+                into: &$crate::storage::encrypted_store::db_connection::DbConnection<'_>,
             ) -> Result<(), $crate::StorageError> {
                 into.raw_query(|conn| {
                     diesel::insert_into($table::table)
@@ -266,8 +266,8 @@ mod tests {
     use std::{boxed::Box, fs};
 
     use super::{
-        identity::StoredIdentity, xmtp_db_connection::DbConnection, EncryptedMessageStore,
-        StorageError, StorageOption,
+        db_connection::DbConnection, identity::StoredIdentity, EncryptedMessageStore, StorageError,
+        StorageOption,
     };
     use crate::{
         utils::test::{rand_vec, tmp_path},

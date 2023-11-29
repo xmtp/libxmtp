@@ -11,8 +11,8 @@ use diesel::{
 };
 
 use super::{
+    db_connection::DbConnection,
     schema::{groups, groups::dsl},
-    xmtp_db_connection::DbConnection,
 };
 use crate::{impl_fetch, impl_store, StorageError};
 

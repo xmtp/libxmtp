@@ -1,6 +1,6 @@
 use diesel::prelude::*;
 
-use super::{schema::topic_refresh_state, xmtp_db_connection::DbConnection};
+use super::{db_connection::DbConnection, schema::topic_refresh_state};
 use crate::{impl_fetch, impl_store, storage::StorageError, Fetch, Store};
 
 #[derive(Insertable, Identifiable, Queryable, Debug, Clone)]

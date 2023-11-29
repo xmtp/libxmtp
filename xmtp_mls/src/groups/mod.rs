@@ -32,10 +32,10 @@ use crate::{
     retry::{Retry, RetryableError},
     retryable,
     storage::{
+        db_connection::DbConnection,
         group::{GroupMembershipState, StoredGroup},
         group_intent::{IntentKind, IntentState, NewGroupIntent, StoredGroupIntent},
         group_message::{GroupMessageKind, StoredGroupMessage},
-        xmtp_db_connection::DbConnection,
         StorageError,
     },
     utils::{hash::sha256, id::get_message_id, time::now_ns, topic::get_group_topic},

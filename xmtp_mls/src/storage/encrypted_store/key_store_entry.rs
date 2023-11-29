@@ -1,6 +1,6 @@
 use diesel::prelude::*;
 
-use super::{schema::openmls_key_store, xmtp_db_connection::DbConnection, StorageError};
+use super::{db_connection::DbConnection, schema::openmls_key_store, StorageError};
 use crate::{impl_fetch, impl_store, Delete};
 
 #[derive(Insertable, Queryable, Debug, Clone)]

@@ -9,9 +9,9 @@ use diesel::{
 };
 
 use super::{
+    db_connection::DbConnection,
     group,
     schema::{group_intents, group_intents::dsl},
-    xmtp_db_connection::DbConnection,
 };
 use crate::{impl_fetch, impl_store, storage::StorageError, Delete};
 

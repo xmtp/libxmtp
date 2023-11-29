@@ -7,7 +7,7 @@ enum RefOrValue<'a, T> {
     Value(T),
 }
 
-/// A wrapper for DbConnection that houses all XMTP DB operations.
+/// A wrapper for RawDbConnection that houses all XMTP DB operations.
 /// Uses a RefCell internally for interior mutability, so that the connection
 /// and transaction state can be shared between the OpenMLS Provider and
 /// native XMTP operations
