@@ -114,6 +114,18 @@ class Client() {
                 )
             )
         }
+
+        fun canMessage(peerAddress: String, options: ClientOptions? = null): Boolean {
+            val clientOptions = options ?: ClientOptions()
+            val api = GRPCApiClient(
+                environment = clientOptions.api.env,
+                secure = clientOptions.api.isSecure
+            )
+            return runBlocking {
+                val topics = api.queryTopic(Topic.contact(peerAddress)).envelopesList
+                topics.isNotEmpty()
+            }
+        }
     }
 
     constructor(

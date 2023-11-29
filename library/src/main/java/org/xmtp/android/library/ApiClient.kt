@@ -189,6 +189,7 @@ data class GRPCApiClient(
 
         return client.subscribe(request, headers)
     }
+
     override suspend fun subscribe2(request: Flow<SubscribeRequest>): Flow<Envelope> {
         val headers = Metadata()
 

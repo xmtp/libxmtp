@@ -36,7 +36,7 @@ class ClientTest {
         val client = Client().buildFrom(v1Copy)
         assertEquals(
             wallet.address,
-            client.address
+            client.address,
         )
     }
 
@@ -49,11 +49,11 @@ class ClientTest {
         assertEquals(client.address, clientFromV1Bundle.address)
         assertEquals(
             client.privateKeyBundleV1?.identityKey,
-            clientFromV1Bundle.privateKeyBundleV1?.identityKey
+            clientFromV1Bundle.privateKeyBundleV1?.identityKey,
         )
         assertEquals(
             client.privateKeyBundleV1?.preKeysList,
-            clientFromV1Bundle.privateKeyBundleV1?.preKeysList
+            clientFromV1Bundle.privateKeyBundleV1?.preKeysList,
         )
     }
 
@@ -66,19 +66,35 @@ class ClientTest {
         assertEquals(client.address, clientFromV1Bundle.address)
         assertEquals(
             client.privateKeyBundleV1?.identityKey,
-            clientFromV1Bundle.privateKeyBundleV1?.identityKey
+            clientFromV1Bundle.privateKeyBundleV1?.identityKey,
         )
         assertEquals(
             client.privateKeyBundleV1?.preKeysList,
-            clientFromV1Bundle.privateKeyBundleV1?.preKeysList
+            clientFromV1Bundle.privateKeyBundleV1?.preKeysList,
         )
     }
+
     @Test
     fun testCanMessage() {
         val fixtures = fixtures()
         val notOnNetwork = PrivateKeyBuilder()
         val canMessage = fixtures.aliceClient.canMessage(fixtures.bobClient.address)
         val cannotMessage = fixtures.aliceClient.canMessage(notOnNetwork.address)
+        assert(canMessage)
+        assert(!cannotMessage)
+    }
+
+    @Test
+    fun testPublicCanMessage() {
+        val aliceWallet = PrivateKeyBuilder()
+        val notOnNetwork = PrivateKeyBuilder()
+        val opts = ClientOptions(ClientOptions.Api(XMTPEnvironment.LOCAL, false))
+        val aliceClient = Client().create(aliceWallet, opts)
+        aliceClient.ensureUserContactPublished()
+
+        val canMessage = Client.canMessage(aliceWallet.address, opts)
+        val cannotMessage = Client.canMessage(notOnNetwork.address, opts)
+
         assert(canMessage)
         assert(!cannotMessage)
     }
