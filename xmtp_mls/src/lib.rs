@@ -27,17 +27,17 @@ pub trait InboxOwner {
 
 // Inserts a model to the underlying data store
 pub trait Store<StorageConnection> {
-    fn store(&self, into: &mut StorageConnection) -> Result<(), StorageError>;
+    fn store(&self, into: &StorageConnection) -> Result<(), StorageError>;
 }
 
 pub trait Fetch<Model> {
     type Key;
-    fn fetch(&mut self, key: &Self::Key) -> Result<Option<Model>, StorageError>;
+    fn fetch(&self, key: &Self::Key) -> Result<Option<Model>, StorageError>;
 }
 
 pub trait Delete<Model> {
     type Key;
-    fn delete(&mut self, key: Self::Key) -> Result<usize, StorageError>;
+    fn delete(&self, key: Self::Key) -> Result<usize, StorageError>;
 }
 
 #[cfg(test)]

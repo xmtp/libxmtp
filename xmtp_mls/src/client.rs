@@ -17,8 +17,9 @@ use crate::{
     identity::Identity,
     retry::Retry,
     storage::{
+        db_connection::DbConnection,
         group::{GroupMembershipState, StoredGroup},
-        DbConnection, EncryptedMessageStore, StorageError,
+        EncryptedMessageStore, StorageError,
     },
     types::Address,
     utils::topic::get_welcome_topic,
@@ -147,8 +148,8 @@ where
     }
 
     // TODO: Remove this and figure out the correct lifetimes to allow long lived provider
-    pub(crate) fn mls_provider(&self, conn: &'a mut DbConnection) -> XmtpOpenMlsProvider<'a> {
-        XmtpOpenMlsProvider::new(conn)
+    pub(crate) fn mls_provider(&self, conn: &'a DbConnection<'a>) -> XmtpOpenMlsProvider<'a> {
+        XmtpOpenMlsProvider::<'a>::new(conn)
     }
 
     pub fn create_group(&self) -> Result<MlsGroup<ApiClient>, ClientError> {
@@ -174,24 +175,21 @@ where
         created_before_ns: Option<i64>,
         limit: Option<i64>,
     ) -> Result<Vec<MlsGroup<ApiClient>>, ClientError> {
-        Ok(EncryptedMessageStore::find_groups(
-            &mut self.store.conn()?,
-            allowed_states,
-            created_after_ns,
-            created_before_ns,
-            limit,
-        )?
-        .into_iter()
-        .map(|stored_group| MlsGroup::new(self, stored_group.id, stored_group.created_at_ns))
-        .collect())
+        Ok(self
+            .store
+            .conn()?
+            .find_groups(allowed_states, created_after_ns, created_before_ns, limit)?
+            .into_iter()
+            .map(|stored_group| MlsGroup::new(self, stored_group.id, stored_group.created_at_ns))
+            .collect())
     }
 
     pub async fn register_identity(&self) -> Result<(), ClientError> {
         // TODO: Mark key package as last_resort in creation
-        let mut connection = self.store.conn()?;
+        let connection = self.store.conn()?;
         let last_resort_kp = self
             .identity
-            .new_key_package(&self.mls_provider(&mut connection))?;
+            .new_key_package(&self.mls_provider(&connection))?;
         let last_resort_kp_bytes = last_resort_kp.tls_serialize_detached()?;
 
         self.api_client
@@ -233,9 +231,8 @@ where
     }
 
     pub(crate) async fn pull_from_topic(&self, topic: &str) -> Result<Vec<Envelope>, ClientError> {
-        let mut conn = self.store.conn()?;
-        let last_synced_timestamp_ns =
-            EncryptedMessageStore::get_last_synced_timestamp_for_topic(&mut conn, topic)?;
+        let conn = self.store.conn()?;
+        let last_synced_timestamp_ns = conn.get_last_synced_timestamp_for_topic(topic)?;
 
         let envelopes = self
             .api_client
@@ -261,14 +258,10 @@ where
     where
         ProcessingFn: FnOnce(XmtpOpenMlsProvider) -> Result<ReturnValue, MessageProcessingError>,
     {
-        XmtpOpenMlsProvider::transaction(&mut self.store.conn()?, |provider| {
-            let is_updated = {
-                EncryptedMessageStore::update_last_synced_timestamp_for_topic(
-                    &mut provider.conn().borrow_mut(),
-                    topic,
-                    envelope_timestamp_ns as i64,
-                )?
-            };
+        self.store.transaction(|provider| {
+            let is_updated = provider
+                .conn()
+                .update_last_synced_timestamp_for_topic(topic, envelope_timestamp_ns as i64)?;
             if !is_updated {
                 return Err(MessageProcessingError::AlreadyProcessed(
                     envelope_timestamp_ns,
@@ -302,12 +295,12 @@ where
             .consume_key_packages(installation_ids)
             .await?;
 
-        let mut conn = self.store.conn()?;
+        let conn = self.store.conn()?;
 
         Ok(key_package_results
             .values()
             .map(|bytes| {
-                VerifiedKeyPackage::from_bytes(&self.mls_provider(&mut conn), bytes.as_slice())
+                VerifiedKeyPackage::from_bytes(&self.mls_provider(&conn), bytes.as_slice())
             })
             .collect::<Result<_, _>>()?)
     }

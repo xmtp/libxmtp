@@ -1326,7 +1326,7 @@ impl serde::Serialize for EciesMessage {
         if let Some(v) = self.version.as_ref() {
             match v {
                 ecies_message::Version::V1(v) => {
-                    struct_ser.serialize_field("v1", pbjson::private::base64::encode(&v).as_str())?;
+                    struct_ser.serialize_field("v1", pbjson::private::base64::encode(v).as_str())?;
                 }
             }
         }
