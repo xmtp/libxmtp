@@ -12,7 +12,6 @@ use super::{
     group,
     schema::{group_intents, group_intents::dsl},
     xmtp_db_connection::XmtpDbConnection,
-    DbConnection,
 };
 use crate::{impl_fetch, impl_store, storage::StorageError, Delete};
 
@@ -254,7 +253,7 @@ mod tests {
     use crate::{
         storage::encrypted_store::{
             group::{GroupMembershipState, StoredGroup},
-            tests::{with_connection, with_store},
+            tests::{with_connection},
         },
         utils::test::rand_vec,
         Fetch, Store,

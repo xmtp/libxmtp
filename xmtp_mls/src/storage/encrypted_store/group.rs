@@ -13,7 +13,6 @@ use diesel::{
 use super::{
     schema::{groups, groups::dsl},
     xmtp_db_connection::XmtpDbConnection,
-    DbConnection, EncryptedMessageStore,
 };
 use crate::{impl_fetch, impl_store, StorageError};
 
@@ -136,7 +135,7 @@ pub(crate) mod tests {
         assert_ok,
         storage::encrypted_store::{
             schema::groups::dsl::groups,
-            tests::{with_connection, with_store},
+            tests::{with_connection},
         },
         utils::{test::rand_vec, time::now_ns},
         Fetch, Store,

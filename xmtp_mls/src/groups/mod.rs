@@ -35,8 +35,7 @@ use crate::{
         group::{GroupMembershipState, StoredGroup},
         group_intent::{IntentKind, IntentState, NewGroupIntent, StoredGroupIntent},
         group_message::{GroupMessageKind, StoredGroupMessage},
-        xmtp_db_connection::XmtpDbConnection,
-        DbConnection, EncryptedMessageStore, StorageError,
+        xmtp_db_connection::XmtpDbConnection, StorageError,
     },
     utils::{hash::sha256, id::get_message_id, time::now_ns, topic::get_group_topic},
     xmtp_openmls_provider::XmtpOpenMlsProvider,
@@ -170,7 +169,7 @@ where
         sent_after_ns: Option<i64>,
         limit: Option<i64>,
     ) -> Result<Vec<StoredGroupMessage>, GroupError> {
-        let mut conn = self.client.store.conn()?;
+        let conn = self.client.store.conn()?;
         let messages =
             conn.get_group_messages(&self.group_id, sent_after_ns, sent_before_ns, kind, limit)?;
 
@@ -384,7 +383,7 @@ where
     }
 
     pub fn process_messages(&self, envelopes: Vec<Envelope>) -> Result<(), GroupError> {
-        let mut conn = &self.client.store.conn()?;
+        let conn = &self.client.store.conn()?;
         let provider = self.client.mls_provider(conn);
         let mut openmls_group = self.load_mls_group(&provider)?;
 
@@ -699,7 +698,7 @@ mod tests {
     use xmtp_cryptography::utils::generate_local_wallet;
 
     use crate::{
-        builder::ClientBuilder, storage::group_intent::IntentState, storage::EncryptedMessageStore,
+        builder::ClientBuilder, storage::group_intent::IntentState,
         utils::topic::get_welcome_topic,
     };
 
@@ -899,7 +898,7 @@ mod tests {
             .unwrap();
         assert_eq!(messages.len(), 1);
 
-        let mut conn = &client.store.conn().unwrap();
+        let conn = &client.store.conn().unwrap();
         let provider = super::XmtpOpenMlsProvider::new(conn);
         let mls_group = group.load_mls_group(&provider).unwrap();
         let pending_commit = mls_group.pending_commit();

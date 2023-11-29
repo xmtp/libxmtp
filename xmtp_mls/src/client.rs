@@ -18,8 +18,7 @@ use crate::{
     retry::Retry,
     storage::{
         group::{GroupMembershipState, StoredGroup},
-        xmtp_db_connection::XmtpDbConnection,
-        DbConnection, EncryptedMessageStore, StorageError,
+        xmtp_db_connection::XmtpDbConnection, EncryptedMessageStore, StorageError,
     },
     types::Address,
     utils::topic::get_welcome_topic,

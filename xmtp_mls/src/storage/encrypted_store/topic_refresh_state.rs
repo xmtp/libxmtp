@@ -56,13 +56,13 @@ impl XmtpDbConnection<'_> {
 pub(crate) mod tests {
     use super::*;
     use crate::{
-        storage::encrypted_store::tests::{with_connection, with_store},
+        storage::encrypted_store::tests::{with_connection},
         Fetch, Store,
     };
 
     #[test]
     fn get_timestamp_with_no_existing_state() {
-        with_connection(|mut conn| {
+        with_connection(|conn| {
             let entry: Option<TopicRefreshState> = conn.fetch(&"topic".to_string()).unwrap();
             assert!(entry.is_none());
             assert_eq!(
@@ -81,7 +81,7 @@ pub(crate) mod tests {
                 topic: "topic".to_string(),
                 last_message_timestamp_ns: 123,
             };
-            entry.store(&mut conn).unwrap();
+            entry.store(conn).unwrap();
             assert_eq!(
                 conn.get_last_synced_timestamp_for_topic("topic").unwrap(),
                 123
@@ -96,7 +96,7 @@ pub(crate) mod tests {
                 topic: "topic".to_string(),
                 last_message_timestamp_ns: 123,
             };
-            entry.store(&mut conn).unwrap();
+            entry.store(conn).unwrap();
             assert!(conn
                 .update_last_synced_timestamp_for_topic("topic", 124)
                 .unwrap());
@@ -112,7 +112,7 @@ pub(crate) mod tests {
                 topic: "topic".to_string(),
                 last_message_timestamp_ns: 123,
             };
-            entry.store(&mut conn).unwrap();
+            entry.store(conn).unwrap();
             assert!(!conn
                 .update_last_synced_timestamp_for_topic("topic", 122)
                 .unwrap());

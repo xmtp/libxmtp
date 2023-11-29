@@ -1,4 +1,4 @@
-use crate::storage::{DbConnection, StorageError};
+use crate::storage::{DbConnection};
 use std::{cell::RefCell, fmt};
 
 // Re-implementation of Cow without ToOwned requirement
@@ -32,7 +32,7 @@ impl<'a> XmtpDbConnection<'a> {
         F: FnOnce(&mut DbConnection) -> Result<T, diesel::result::Error>,
     {
         match *self.wrapped_conn.borrow_mut() {
-            RefOrValue::Ref(ref mut conn_ref) => fun(*conn_ref),
+            RefOrValue::Ref(ref mut conn_ref) => fun(conn_ref),
             RefOrValue::Value(ref mut conn) => fun(conn),
         }
     }

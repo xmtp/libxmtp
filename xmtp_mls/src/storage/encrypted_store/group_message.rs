@@ -125,7 +125,7 @@ mod tests {
         assert_err, assert_ok,
         storage::encrypted_store::{
             group::tests::generate_group,
-            tests::{with_connection, with_store},
+            tests::{with_connection},
         },
         utils::test::{rand_time, rand_vec},
         Store,
@@ -151,7 +151,7 @@ mod tests {
     fn it_does_not_error_on_empty_messages() {
         with_connection(|conn| {
             let id = vec![0x0];
-            assert_ok!(conn.get_group_message(&id), None);
+            assert_ok!(conn.get_group_message(id), None);
         })
     }
 
@@ -165,7 +165,7 @@ mod tests {
 
             message.store(conn).unwrap();
 
-            let stored_message = conn.get_group_message(&id);
+            let stored_message = conn.get_group_message(id);
             assert_ok!(stored_message, Some(message));
         })
     }
