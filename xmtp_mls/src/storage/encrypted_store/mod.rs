@@ -32,14 +32,14 @@ use log::warn;
 use rand::RngCore;
 use xmtp_cryptography::utils as crypto_utils;
 
-use self::xmtp_db_connection::XmtpDbConnection;
+use self::xmtp_db_connection::DbConnection;
 
 use super::StorageError;
 use crate::{xmtp_openmls_provider::XmtpOpenMlsProvider, Store};
 
 pub const MIGRATIONS: EmbeddedMigrations = embed_migrations!("./migrations/");
 
-pub type DbConnection = PooledConnection<ConnectionManager<SqliteConnection>>;
+pub type RawDbConnection = PooledConnection<ConnectionManager<SqliteConnection>>;
 
 pub type EncryptionKey = [u8; 32];
 
@@ -137,9 +137,9 @@ impl EncryptedMessageStore {
         Ok(conn)
     }
 
-    pub fn conn(&self) -> Result<XmtpDbConnection, StorageError> {
+    pub fn conn(&self) -> Result<DbConnection, StorageError> {
         let conn = self.raw_conn()?;
-        Ok(XmtpDbConnection::held(conn))
+        Ok(DbConnection::held(conn))
     }
 
     /// Start a new database transaction with the OpenMLS Provider from XMTP
@@ -162,7 +162,7 @@ impl EncryptedMessageStore {
     {
         let mut connection = self.raw_conn()?;
         connection.transaction(|conn| {
-            let xmtp_db_connection = XmtpDbConnection::new(conn);
+            let xmtp_db_connection = DbConnection::new(conn);
             let provider = XmtpOpenMlsProvider::new(&xmtp_db_connection);
             fun(provider)
         })
@@ -205,7 +205,7 @@ fn warn_length<T>(list: &Vec<T>, str_id: &str, max_length: usize) {
 macro_rules! impl_fetch {
     ($model:ty, $table:ident) => {
         impl $crate::Fetch<$model>
-            for $crate::storage::encrypted_store::xmtp_db_connection::XmtpDbConnection<'_>
+            for $crate::storage::encrypted_store::xmtp_db_connection::DbConnection<'_>
         {
             type Key = ();
             fn fetch(&self, _key: &Self::Key) -> Result<Option<$model>, $crate::StorageError> {
@@ -217,7 +217,7 @@ macro_rules! impl_fetch {
 
     ($model:ty, $table:ident, $key:ty) => {
         impl $crate::Fetch<$model>
-            for $crate::storage::encrypted_store::xmtp_db_connection::XmtpDbConnection<'_>
+            for $crate::storage::encrypted_store::xmtp_db_connection::DbConnection<'_>
         {
             type Key = $key;
             fn fetch(&self, key: &Self::Key) -> Result<Option<$model>, $crate::StorageError> {
@@ -231,14 +231,12 @@ macro_rules! impl_fetch {
 #[macro_export]
 macro_rules! impl_store {
     ($model:ty, $table:ident) => {
-        impl
-            $crate::Store<
-                $crate::storage::encrypted_store::xmtp_db_connection::XmtpDbConnection<'_>,
-            > for $model
+        impl $crate::Store<$crate::storage::encrypted_store::xmtp_db_connection::DbConnection<'_>>
+            for $model
         {
             fn store(
                 &self,
-                into: &$crate::storage::encrypted_store::xmtp_db_connection::XmtpDbConnection<'_>,
+                into: &$crate::storage::encrypted_store::xmtp_db_connection::DbConnection<'_>,
             ) -> Result<(), $crate::StorageError> {
                 into.raw_query(|conn| {
                     diesel::insert_into($table::table)
@@ -251,11 +249,11 @@ macro_rules! impl_store {
     };
 }
 
-impl<'a, T> Store<XmtpDbConnection<'a>> for Vec<T>
+impl<'a, T> Store<DbConnection<'a>> for Vec<T>
 where
-    T: Store<XmtpDbConnection<'a>>,
+    T: Store<DbConnection<'a>>,
 {
-    fn store(&self, into: &XmtpDbConnection<'a>) -> Result<(), StorageError> {
+    fn store(&self, into: &DbConnection<'a>) -> Result<(), StorageError> {
         for item in self {
             item.store(into)?;
         }
@@ -268,7 +266,7 @@ mod tests {
     use std::{boxed::Box, fs};
 
     use super::{
-        identity::StoredIdentity, xmtp_db_connection::XmtpDbConnection, EncryptedMessageStore,
+        identity::StoredIdentity, xmtp_db_connection::DbConnection, EncryptedMessageStore,
         StorageError, StorageOption,
     };
     use crate::{
@@ -279,7 +277,7 @@ mod tests {
     /// Test harness that loads an Ephemeral store.
     pub fn with_connection<F, R>(fun: F) -> R
     where
-        F: FnOnce(&XmtpDbConnection) -> R,
+        F: FnOnce(&DbConnection) -> R,
     {
         crate::tests::setup();
         let store = EncryptedMessageStore::new(

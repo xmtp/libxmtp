@@ -1,6 +1,6 @@
 use diesel::prelude::*;
 
-use super::{schema::openmls_key_store, xmtp_db_connection::XmtpDbConnection, StorageError};
+use super::{schema::openmls_key_store, xmtp_db_connection::DbConnection, StorageError};
 use crate::{impl_fetch, impl_store, Delete};
 
 #[derive(Insertable, Queryable, Debug, Clone)]
@@ -14,7 +14,7 @@ pub struct StoredKeyStoreEntry {
 impl_fetch!(StoredKeyStoreEntry, openmls_key_store, Vec<u8>);
 impl_store!(StoredKeyStoreEntry, openmls_key_store);
 
-impl Delete<StoredKeyStoreEntry> for XmtpDbConnection<'_> {
+impl Delete<StoredKeyStoreEntry> for DbConnection<'_> {
     type Key = Vec<u8>;
     fn delete(&self, key: Vec<u8>) -> Result<usize, StorageError> where {
         use super::schema::openmls_key_store::dsl::*;
@@ -24,7 +24,7 @@ impl Delete<StoredKeyStoreEntry> for XmtpDbConnection<'_> {
     }
 }
 
-impl XmtpDbConnection<'_> {
+impl DbConnection<'_> {
     pub fn insert_or_update_key_store_entry(
         &self,
         key: Vec<u8>,

@@ -2,7 +2,7 @@ use log::{debug, error};
 use openmls_traits::key_store::{MlsEntity, OpenMlsKeyStore};
 
 use super::{
-    encrypted_store::{key_store_entry::StoredKeyStoreEntry, xmtp_db_connection::XmtpDbConnection},
+    encrypted_store::{key_store_entry::StoredKeyStoreEntry, xmtp_db_connection::DbConnection},
     serialization::{db_deserialize, db_serialize},
     StorageError,
 };
@@ -11,15 +11,15 @@ use crate::{Delete, Fetch};
 /// CRUD Operations for an [`EncryptedMessageStore`]
 #[derive(Debug)]
 pub struct SqlKeyStore<'a> {
-    conn: &'a XmtpDbConnection<'a>,
+    conn: &'a DbConnection<'a>,
 }
 
 impl<'a> SqlKeyStore<'a> {
-    pub fn new(conn: &'a XmtpDbConnection<'a>) -> Self {
+    pub fn new(conn: &'a DbConnection<'a>) -> Self {
         Self { conn }
     }
 
-    pub fn conn(&self) -> &XmtpDbConnection<'a> {
+    pub fn conn(&self) -> &DbConnection<'a> {
         self.conn
     }
 }

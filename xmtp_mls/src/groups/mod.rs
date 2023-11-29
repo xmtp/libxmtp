@@ -35,7 +35,7 @@ use crate::{
         group::{GroupMembershipState, StoredGroup},
         group_intent::{IntentKind, IntentState, NewGroupIntent, StoredGroupIntent},
         group_message::{GroupMessageKind, StoredGroupMessage},
-        xmtp_db_connection::XmtpDbConnection,
+        xmtp_db_connection::DbConnection,
         StorageError,
     },
     utils::{hash::sha256, id::get_message_id, time::now_ns, topic::get_group_topic},
@@ -501,7 +501,7 @@ where
         self.sync_with_conn(conn).await
     }
 
-    async fn sync_with_conn<'a>(&self, conn: &'a XmtpDbConnection<'a>) -> Result<(), GroupError> {
+    async fn sync_with_conn<'a>(&self, conn: &'a DbConnection<'a>) -> Result<(), GroupError> {
         self.publish_intents(conn).await?;
         if let Err(e) = self.receive().await {
             log::warn!("receive error {:?}", e);
@@ -513,7 +513,7 @@ where
 
     pub(crate) async fn publish_intents<'a>(
         &self,
-        conn: &'a XmtpDbConnection<'a>,
+        conn: &'a DbConnection<'a>,
     ) -> Result<(), GroupError> {
         let provider = self.client.mls_provider(conn);
         let mut openmls_group = self.load_mls_group(&provider)?;
@@ -646,7 +646,7 @@ where
         }
     }
 
-    pub(crate) async fn post_commit(&self, conn: &XmtpDbConnection<'_>) -> Result<(), GroupError> {
+    pub(crate) async fn post_commit(&self, conn: &DbConnection<'_>) -> Result<(), GroupError> {
         let intents = conn.find_group_intents(
             self.group_id.clone(),
             Some(vec![IntentState::Committed]),

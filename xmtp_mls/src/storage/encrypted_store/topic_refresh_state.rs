@@ -1,6 +1,6 @@
 use diesel::prelude::*;
 
-use super::{schema::topic_refresh_state, xmtp_db_connection::XmtpDbConnection};
+use super::{schema::topic_refresh_state, xmtp_db_connection::DbConnection};
 use crate::{impl_fetch, impl_store, storage::StorageError, Fetch, Store};
 
 #[derive(Insertable, Identifiable, Queryable, Debug, Clone)]
@@ -14,7 +14,7 @@ pub struct TopicRefreshState {
 impl_fetch!(TopicRefreshState, topic_refresh_state, String);
 impl_store!(TopicRefreshState, topic_refresh_state);
 
-impl XmtpDbConnection<'_> {
+impl DbConnection<'_> {
     pub fn get_last_synced_timestamp_for_topic(&self, topic: &str) -> Result<i64, StorageError> {
         let state: Option<TopicRefreshState> = self.fetch(&topic.to_string())?;
         match state {

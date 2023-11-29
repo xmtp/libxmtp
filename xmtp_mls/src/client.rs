@@ -18,7 +18,7 @@ use crate::{
     retry::Retry,
     storage::{
         group::{GroupMembershipState, StoredGroup},
-        xmtp_db_connection::XmtpDbConnection,
+        xmtp_db_connection::DbConnection,
         EncryptedMessageStore, StorageError,
     },
     types::Address,
@@ -148,7 +148,7 @@ where
     }
 
     // TODO: Remove this and figure out the correct lifetimes to allow long lived provider
-    pub(crate) fn mls_provider(&self, conn: &'a XmtpDbConnection<'a>) -> XmtpOpenMlsProvider<'a> {
+    pub(crate) fn mls_provider(&self, conn: &'a DbConnection<'a>) -> XmtpOpenMlsProvider<'a> {
         XmtpOpenMlsProvider::<'a>::new(conn)
     }
 

@@ -8,7 +8,7 @@ use diesel::{
     sqlite::Sqlite,
 };
 
-use super::{schema::group_messages, xmtp_db_connection::XmtpDbConnection};
+use super::{schema::group_messages, xmtp_db_connection::DbConnection};
 use crate::{impl_fetch, impl_store, StorageError};
 
 #[derive(Insertable, Identifiable, Queryable, Debug, Clone, PartialEq, Eq)]
@@ -68,7 +68,7 @@ where
 impl_fetch!(StoredGroupMessage, group_messages, Vec<u8>);
 impl_store!(StoredGroupMessage, group_messages);
 
-impl XmtpDbConnection<'_> {
+impl DbConnection<'_> {
     /// Query for group messages
     pub fn get_group_messages<GroupId: AsRef<[u8]>>(
         &self,

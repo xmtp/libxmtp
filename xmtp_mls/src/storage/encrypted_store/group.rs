@@ -12,7 +12,7 @@ use diesel::{
 
 use super::{
     schema::{groups, groups::dsl},
-    xmtp_db_connection::XmtpDbConnection,
+    xmtp_db_connection::DbConnection,
 };
 use crate::{impl_fetch, impl_store, StorageError};
 
@@ -45,7 +45,7 @@ impl StoredGroup {
     }
 }
 
-impl XmtpDbConnection<'_> {
+impl DbConnection<'_> {
     pub fn find_groups(
         &self,
         allowed_states: Option<Vec<GroupMembershipState>>,

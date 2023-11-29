@@ -11,7 +11,7 @@ use diesel::{
 use super::{
     group,
     schema::{group_intents, group_intents::dsl},
-    xmtp_db_connection::XmtpDbConnection,
+    xmtp_db_connection::DbConnection,
 };
 use crate::{impl_fetch, impl_store, storage::StorageError, Delete};
 
@@ -53,7 +53,7 @@ pub struct StoredGroupIntent {
 
 impl_fetch!(StoredGroupIntent, group_intents, ID);
 
-impl Delete<StoredGroupIntent> for XmtpDbConnection<'_> {
+impl Delete<StoredGroupIntent> for DbConnection<'_> {
     type Key = ID;
     fn delete(&self, key: ID) -> Result<usize, StorageError> {
         Ok(self
@@ -83,7 +83,7 @@ impl NewGroupIntent {
     }
 }
 
-impl XmtpDbConnection<'_> {
+impl DbConnection<'_> {
     // Query for group_intents by group_id, optionally filtering by state and kind
     pub fn find_group_intents(
         &self,
@@ -259,7 +259,7 @@ mod tests {
         Fetch, Store,
     };
 
-    fn insert_group(conn: &XmtpDbConnection, group_id: Vec<u8>) {
+    fn insert_group(conn: &DbConnection, group_id: Vec<u8>) {
         let group = StoredGroup::new(group_id, 100, GroupMembershipState::Allowed);
         group.store(conn).unwrap();
     }
@@ -282,7 +282,7 @@ mod tests {
         }
     }
 
-    fn find_first_intent(conn: &XmtpDbConnection, group_id: group::ID) -> StoredGroupIntent {
+    fn find_first_intent(conn: &DbConnection, group_id: group::ID) -> StoredGroupIntent {
         conn.raw_query(|raw_conn| {
             dsl::group_intents
                 .filter(dsl::group_id.eq(group_id))
