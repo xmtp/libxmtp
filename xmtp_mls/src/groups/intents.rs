@@ -3,12 +3,11 @@ use prost::{DecodeError, Message};
 use thiserror::Error;
 use tls_codec::Serialize;
 use xmtp_proto::xmtp::mls::database::{
-    add_members_publish_data::{Version as AddMembersVersion, V1 as AddMembersV1},
+    add_members_data::{Version as AddMembersVersion, V1 as AddMembersV1},
     post_commit_action::{Kind as PostCommitActionKind, SendWelcomes as SendWelcomesProto},
-    remove_members_publish_data::{Version as RemoveMembersVersion, V1 as RemoveMembersV1},
-    send_message_publish_data::{Version as SendMessageVersion, V1 as SendMessageV1},
-    AddMembersPublishData, PostCommitAction as PostCommitActionProto, RemoveMembersPublishData,
-    SendMessagePublishData,
+    remove_members_data::{Version as RemoveMembersVersion, V1 as RemoveMembersV1},
+    send_message_data::{Version as SendMessageVersion, V1 as SendMessageV1},
+    AddMembersData, PostCommitAction as PostCommitActionProto, RemoveMembersData, SendMessageData,
 };
 
 use crate::{
@@ -40,7 +39,7 @@ impl SendMessageIntentData {
 
     pub(crate) fn to_bytes(&self) -> Vec<u8> {
         let mut buf = Vec::new();
-        SendMessagePublishData {
+        SendMessageData {
             version: Some(SendMessageVersion::V1(SendMessageV1 {
                 payload_bytes: self.message.clone(),
             })),
@@ -52,7 +51,7 @@ impl SendMessageIntentData {
     }
 
     pub(crate) fn from_bytes(data: &[u8]) -> Result<Self, IntentError> {
-        let msg = SendMessagePublishData::decode(data)?;
+        let msg = SendMessageData::decode(data)?;
         let payload_bytes = match msg.version {
             Some(SendMessageVersion::V1(v1)) => v1.payload_bytes,
             None => return Err(IntentError::Generic("missing payload".to_string())),
@@ -86,9 +85,9 @@ impl AddMembersIntentData {
             .map(|kp| kp.inner.tls_serialize_detached())
             .collect();
 
-        AddMembersPublishData {
+        AddMembersData {
             version: Some(AddMembersVersion::V1(AddMembersV1 {
-                key_packages_bytes_tls_serialized: key_package_bytes_result?,
+                key_packages_bytes: key_package_bytes_result?,
             })),
         }
         .encode(&mut buf)
@@ -101,9 +100,9 @@ impl AddMembersIntentData {
         data: &[u8],
         provider: &XmtpOpenMlsProvider,
     ) -> Result<Self, IntentError> {
-        let msg = AddMembersPublishData::decode(data)?;
+        let msg = AddMembersData::decode(data)?;
         let key_package_bytes = match msg.version {
-            Some(AddMembersVersion::V1(v1)) => v1.key_packages_bytes_tls_serialized,
+            Some(AddMembersVersion::V1(v1)) => v1.key_packages_bytes,
             None => return Err(IntentError::Generic("missing payload".to_string())),
         };
         let key_packages: Result<Vec<VerifiedKeyPackage>, KeyPackageVerificationError> =
@@ -138,7 +137,7 @@ impl RemoveMembersIntentData {
     pub(crate) fn to_bytes(&self) -> Vec<u8> {
         let mut buf = Vec::new();
 
-        RemoveMembersPublishData {
+        RemoveMembersData {
             version: Some(RemoveMembersVersion::V1(RemoveMembersV1 {
                 installation_ids: self.installation_ids.clone(),
             })),
@@ -150,7 +149,7 @@ impl RemoveMembersIntentData {
     }
 
     pub(crate) fn from_bytes(data: &[u8]) -> Result<Self, IntentError> {
-        let msg = RemoveMembersPublishData::decode(data)?;
+        let msg = RemoveMembersData::decode(data)?;
         let installation_ids = match msg.version {
             Some(RemoveMembersVersion::V1(v1)) => v1.installation_ids,
             None => return Err(IntentError::Generic("missing payload".to_string())),
