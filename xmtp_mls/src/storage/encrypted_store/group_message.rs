@@ -265,7 +265,7 @@ mod tests {
                         );
                         msg.store(conn).unwrap();
                     }
-                    2 | _ => {
+                    _ => {
                         let msg = generate_message(
                             Some(GroupMessageKind::MemberAdded),
                             Some(&group.id),

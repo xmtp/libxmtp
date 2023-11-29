@@ -277,10 +277,7 @@ mod tests {
 
     impl RetryableError for SomeError {
         fn is_retryable(&self) -> bool {
-            match self {
-                Self::ARetryableError => true,
-                _ => false,
-            }
+            matches!(self, Self::ARetryableError)
         }
     }
 
