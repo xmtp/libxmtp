@@ -118,7 +118,7 @@ impl EncryptedMessageStore {
     }
 
     fn init_db(&mut self) -> Result<(), StorageError> {
-        let conn = &mut self.conn()?;
+        let conn = &mut self.raw_conn()?;
 
         conn.run_pending_migrations(MIGRATIONS)
             .map_err(|e| StorageError::DbInit(e.to_string()))?;
@@ -126,8 +126,8 @@ impl EncryptedMessageStore {
         Ok(())
     }
 
-    // TODO don't make this public, rename conn members
-    pub fn conn(
+    // TODO don't make this public
+    pub fn raw_conn(
         &self,
     ) -> Result<PooledConnection<ConnectionManager<SqliteConnection>>, StorageError> {
         let conn = self
@@ -138,9 +138,9 @@ impl EncryptedMessageStore {
         Ok(conn)
     }
 
-    pub fn xmtp_conn(&self) -> Result<XmtpDbConnection, StorageError> {
-        let mut conn = self.conn()?;
-        Ok(XmtpDbConnection::new(&mut conn)) // TODO own the connection
+    pub fn conn(&self) -> Result<XmtpDbConnection, StorageError> {
+        let conn = self.raw_conn()?;
+        Ok(XmtpDbConnection::held(conn))
     }
 
     fn set_sqlcipher_key(
@@ -184,9 +184,8 @@ macro_rules! impl_fetch {
         {
             type Key = ();
             fn fetch(&self, _key: &Self::Key) -> Result<Option<$model>, $crate::StorageError> {
-                let conn = self.borrow_conn();
                 use $crate::storage::encrypted_store::schema::$table::dsl::*;
-                Ok($table.first(conn).optional()?)
+                Ok(self.raw_query(|conn| $table.first(conn).optional())?)
             }
         }
     };
@@ -197,9 +196,8 @@ macro_rules! impl_fetch {
         {
             type Key = $key;
             fn fetch(&self, key: &Self::Key) -> Result<Option<$model>, $crate::StorageError> {
-                let conn = self.borrow_conn();
                 use $crate::storage::encrypted_store::schema::$table::dsl::*;
-                Ok($table.find(key).first(conn).optional()?)
+                Ok(self.raw_query(|conn| $table.find(key).first(conn).optional())?)
             }
         }
     };
@@ -217,11 +215,11 @@ macro_rules! impl_store {
                 &self,
                 into: &$crate::storage::encrypted_store::xmtp_db_connection::XmtpDbConnection<'_>,
             ) -> Result<(), $crate::StorageError> {
-                let conn = into.borrow_conn();
-                diesel::insert_into($table::table)
-                    .values(self)
-                    .execute(conn)
-                    .map_err(|e| $crate::StorageError::from(e))?;
+                into.raw_query(|conn| {
+                    diesel::insert_into($table::table)
+                        .values(self)
+                        .execute(conn)
+                })?;
                 Ok(())
             }
         }
@@ -232,7 +230,7 @@ impl<'a, T> Store<XmtpDbConnection<'a>> for Vec<T>
 where
     T: Store<XmtpDbConnection<'a>>,
 {
-    fn store(&self, into: &XmtpDbConnection) -> Result<(), StorageError> {
+    fn store(&self, into: &XmtpDbConnection<'a>) -> Result<(), StorageError> {
         for item in self {
             item.store(into)?;
         }
@@ -264,14 +262,14 @@ mod tests {
             EncryptedMessageStore::generate_enc_key(),
         )
         .unwrap();
-        let conn = store.conn().expect("acquiring a Connection failed");
+        let conn = store.raw_conn().expect("acquiring a Connection failed");
         fun(conn)
     }
 
     /// Test harness that loads an Ephemeral store.
     pub fn with_connection<F, R>(fun: F) -> R
     where
-        F: FnOnce(XmtpDbConnection) -> R,
+        F: FnOnce(&XmtpDbConnection) -> R,
     {
         crate::tests::setup();
         let store = EncryptedMessageStore::new(
@@ -279,8 +277,8 @@ mod tests {
             EncryptedMessageStore::generate_enc_key(),
         )
         .unwrap();
-        let mut conn = store.conn().expect("acquiring a Connection failed");
-        fun(XmtpDbConnection::new(&mut conn))
+        let mut conn = store.raw_conn().expect("acquiring a Connection failed");
+        fun(&XmtpDbConnection::new(&mut conn))
     }
 
     impl EncryptedMessageStore {
@@ -301,7 +299,7 @@ mod tests {
             EncryptedMessageStore::generate_enc_key(),
         )
         .unwrap();
-        let conn = &mut store.conn().unwrap();
+        let conn = &store.conn().unwrap();
 
         let account_address = "address";
         StoredIdentity::new(account_address.to_string(), rand_vec(), rand_vec())
@@ -321,7 +319,7 @@ mod tests {
                 EncryptedMessageStore::generate_enc_key(),
             )
             .unwrap();
-            let conn = &mut store.conn().unwrap();
+            let conn = &store.conn().unwrap();
 
             let account_address = "address";
             StoredIdentity::new(account_address.to_string(), rand_vec(), rand_vec())
@@ -347,7 +345,7 @@ mod tests {
                     .unwrap();
 
             StoredIdentity::new("dummy_address".to_string(), rand_vec(), rand_vec())
-                .store(&mut store.conn().unwrap())
+                .store(&store.conn().unwrap())
                 .unwrap();
         } // Drop it
 

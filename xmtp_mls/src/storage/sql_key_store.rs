@@ -17,11 +17,11 @@ pub struct SqlKeyStore<'a> {
 }
 
 impl<'a> SqlKeyStore<'a> {
-    pub fn new(conn: &'a XmtpDbConnection) -> Self {
+    pub fn new(conn: &'a XmtpDbConnection<'a>) -> Self {
         Self { conn }
     }
 
-    pub fn conn(&self) -> &XmtpDbConnection {
+    pub fn conn(&self) -> &XmtpDbConnection<'a> {
         self.conn
     }
 }
@@ -35,11 +35,8 @@ impl OpenMlsKeyStore for SqlKeyStore<'_> {
     ///
     /// Returns an error if storing fails.
     fn store<V: MlsEntity>(&self, k: &[u8], v: &V) -> Result<(), Self::Error> {
-        EncryptedMessageStore::insert_or_update_key_store_entry(
-            *self.conn.wrapped_conn.borrow_mut(), // TODO
-            k.to_vec(),
-            db_serialize(v)?,
-        )?;
+        self.conn()
+            .insert_or_update_key_store_entry(k.to_vec(), db_serialize(v)?)?;
         Ok(())
     }
 
@@ -48,7 +45,7 @@ impl OpenMlsKeyStore for SqlKeyStore<'_> {
     ///
     /// Returns [`None`] if no value is stored for `k` or reading fails.
     fn read<V: MlsEntity>(&self, k: &[u8]) -> Option<V> {
-        let fetch_result = (*self.conn.wrapped_conn.borrow_mut()).fetch(&k.to_vec());
+        let fetch_result = self.conn().fetch(&k.to_vec());
 
         if let Err(e) = fetch_result {
             error!("Failed to fetch key: {:?}", e);
@@ -68,8 +65,7 @@ impl OpenMlsKeyStore for SqlKeyStore<'_> {
     /// Interface is unclear on expected behavior when item is already deleted -
     /// we choose to not surface an error if this is the case.
     fn delete<V: MlsEntity>(&self, k: &[u8]) -> Result<(), Self::Error> {
-        let mut conn = self.conn.wrapped_conn.borrow_mut();
-        let conn: &mut dyn Delete<StoredKeyStoreEntry, Key = Vec<u8>> = *conn;
+        let conn: &dyn Delete<StoredKeyStoreEntry, Key = Vec<u8>> = self.conn();
         let num_deleted = conn.delete(k.to_vec())?;
         if num_deleted == 0 {
             debug!("No entry to delete for key {:?}", k);
@@ -98,8 +94,8 @@ mod tests {
             EncryptedMessageStore::generate_enc_key(),
         )
         .unwrap();
-        let mut conn = store.conn().unwrap();
-        let key_store = SqlKeyStore::new(&mut conn);
+        let conn = &store.conn().unwrap();
+        let key_store = SqlKeyStore::new(conn);
         let signature_keys = SignatureKeyPair::new(CIPHERSUITE.signature_algorithm()).unwrap();
         let index = "index".as_bytes();
         assert!(key_store.read::<SignatureKeyPair>(index).is_none());

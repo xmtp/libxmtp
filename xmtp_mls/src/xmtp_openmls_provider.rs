@@ -13,14 +13,14 @@ pub struct XmtpOpenMlsProvider<'a> {
 }
 
 impl<'a> XmtpOpenMlsProvider<'a> {
-    pub fn new(conn: &'a XmtpDbConnection) -> Self {
+    pub fn new(conn: &'a XmtpDbConnection<'a>) -> Self {
         Self {
             crypto: RustCrypto::default(),
             key_store: SqlKeyStore::new(conn),
         }
     }
 
-    pub(crate) fn conn(&self) -> &XmtpDbConnection {
+    pub(crate) fn conn(&self) -> &XmtpDbConnection<'a> {
         self.key_store.conn()
     }
 
