@@ -1,5 +1,5 @@
 // @generated
-impl serde::Serialize for AddMembersPublishData {
+impl serde::Serialize for AddMembersData {
     #[allow(deprecated)]
     fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
     where
@@ -10,10 +10,10 @@ impl serde::Serialize for AddMembersPublishData {
         if self.version.is_some() {
             len += 1;
         }
-        let mut struct_ser = serializer.serialize_struct("xmtp.mls.database.AddMembersPublishData", len)?;
+        let mut struct_ser = serializer.serialize_struct("xmtp.mls.database.AddMembersData", len)?;
         if let Some(v) = self.version.as_ref() {
             match v {
-                add_members_publish_data::Version::V1(v) => {
+                add_members_data::Version::V1(v) => {
                     struct_ser.serialize_field("v1", v)?;
                 }
             }
@@ -21,7 +21,7 @@ impl serde::Serialize for AddMembersPublishData {
         struct_ser.end()
     }
 }
-impl<'de> serde::Deserialize<'de> for AddMembersPublishData {
+impl<'de> serde::Deserialize<'de> for AddMembersData {
     #[allow(deprecated)]
     fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
     where
@@ -65,13 +65,13 @@ impl<'de> serde::Deserialize<'de> for AddMembersPublishData {
         }
         struct GeneratedVisitor;
         impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
-            type Value = AddMembersPublishData;
+            type Value = AddMembersData;
 
             fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-                formatter.write_str("struct xmtp.mls.database.AddMembersPublishData")
+                formatter.write_str("struct xmtp.mls.database.AddMembersData")
             }
 
-            fn visit_map<V>(self, mut map: V) -> std::result::Result<AddMembersPublishData, V::Error>
+            fn visit_map<V>(self, mut map: V) -> std::result::Result<AddMembersData, V::Error>
                 where
                     V: serde::de::MapAccess<'de>,
             {
@@ -82,20 +82,20 @@ impl<'de> serde::Deserialize<'de> for AddMembersPublishData {
                             if version__.is_some() {
                                 return Err(serde::de::Error::duplicate_field("v1"));
                             }
-                            version__ = map.next_value::<::std::option::Option<_>>()?.map(add_members_publish_data::Version::V1)
+                            version__ = map.next_value::<::std::option::Option<_>>()?.map(add_members_data::Version::V1)
 ;
                         }
                     }
                 }
-                Ok(AddMembersPublishData {
+                Ok(AddMembersData {
                     version: version__,
                 })
             }
         }
-        deserializer.deserialize_struct("xmtp.mls.database.AddMembersPublishData", FIELDS, GeneratedVisitor)
+        deserializer.deserialize_struct("xmtp.mls.database.AddMembersData", FIELDS, GeneratedVisitor)
     }
 }
-impl serde::Serialize for add_members_publish_data::V1 {
+impl serde::Serialize for add_members_data::V1 {
     #[allow(deprecated)]
     fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
     where
@@ -103,30 +103,30 @@ impl serde::Serialize for add_members_publish_data::V1 {
     {
         use serde::ser::SerializeStruct;
         let mut len = 0;
-        if !self.key_packages_bytes_tls_serialized.is_empty() {
+        if !self.key_packages_bytes.is_empty() {
             len += 1;
         }
-        let mut struct_ser = serializer.serialize_struct("xmtp.mls.database.AddMembersPublishData.V1", len)?;
-        if !self.key_packages_bytes_tls_serialized.is_empty() {
-            struct_ser.serialize_field("keyPackagesBytesTlsSerialized", &self.key_packages_bytes_tls_serialized.iter().map(pbjson::private::base64::encode).collect::<Vec<_>>())?;
+        let mut struct_ser = serializer.serialize_struct("xmtp.mls.database.AddMembersData.V1", len)?;
+        if !self.key_packages_bytes.is_empty() {
+            struct_ser.serialize_field("keyPackagesBytes", &self.key_packages_bytes.iter().map(pbjson::private::base64::encode).collect::<Vec<_>>())?;
         }
         struct_ser.end()
     }
 }
-impl<'de> serde::Deserialize<'de> for add_members_publish_data::V1 {
+impl<'de> serde::Deserialize<'de> for add_members_data::V1 {
     #[allow(deprecated)]
     fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
     where
         D: serde::Deserializer<'de>,
     {
         const FIELDS: &[&str] = &[
-            "key_packages_bytes_tls_serialized",
-            "keyPackagesBytesTlsSerialized",
+            "key_packages_bytes",
+            "keyPackagesBytes",
         ];
 
         #[allow(clippy::enum_variant_names)]
         enum GeneratedField {
-            KeyPackagesBytesTlsSerialized,
+            KeyPackagesBytes,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
             fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
@@ -148,7 +148,7 @@ impl<'de> serde::Deserialize<'de> for add_members_publish_data::V1 {
                         E: serde::de::Error,
                     {
                         match value {
-                            "keyPackagesBytesTlsSerialized" | "key_packages_bytes_tls_serialized" => Ok(GeneratedField::KeyPackagesBytesTlsSerialized),
+                            "keyPackagesBytes" | "key_packages_bytes" => Ok(GeneratedField::KeyPackagesBytes),
                             _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
                         }
                     }
@@ -158,36 +158,36 @@ impl<'de> serde::Deserialize<'de> for add_members_publish_data::V1 {
         }
         struct GeneratedVisitor;
         impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
-            type Value = add_members_publish_data::V1;
+            type Value = add_members_data::V1;
 
             fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-                formatter.write_str("struct xmtp.mls.database.AddMembersPublishData.V1")
+                formatter.write_str("struct xmtp.mls.database.AddMembersData.V1")
             }
 
-            fn visit_map<V>(self, mut map: V) -> std::result::Result<add_members_publish_data::V1, V::Error>
+            fn visit_map<V>(self, mut map: V) -> std::result::Result<add_members_data::V1, V::Error>
                 where
                     V: serde::de::MapAccess<'de>,
             {
-                let mut key_packages_bytes_tls_serialized__ = None;
+                let mut key_packages_bytes__ = None;
                 while let Some(k) = map.next_key()? {
                     match k {
-                        GeneratedField::KeyPackagesBytesTlsSerialized => {
-                            if key_packages_bytes_tls_serialized__.is_some() {
-                                return Err(serde::de::Error::duplicate_field("keyPackagesBytesTlsSerialized"));
+                        GeneratedField::KeyPackagesBytes => {
+                            if key_packages_bytes__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("keyPackagesBytes"));
                             }
-                            key_packages_bytes_tls_serialized__ = 
+                            key_packages_bytes__ = 
                                 Some(map.next_value::<Vec<::pbjson::private::BytesDeserialize<_>>>()?
                                     .into_iter().map(|x| x.0).collect())
                             ;
                         }
                     }
                 }
-                Ok(add_members_publish_data::V1 {
-                    key_packages_bytes_tls_serialized: key_packages_bytes_tls_serialized__.unwrap_or_default(),
+                Ok(add_members_data::V1 {
+                    key_packages_bytes: key_packages_bytes__.unwrap_or_default(),
                 })
             }
         }
-        deserializer.deserialize_struct("xmtp.mls.database.AddMembersPublishData.V1", FIELDS, GeneratedVisitor)
+        deserializer.deserialize_struct("xmtp.mls.database.AddMembersData.V1", FIELDS, GeneratedVisitor)
     }
 }
 impl serde::Serialize for PostCommitAction {
@@ -402,7 +402,7 @@ impl<'de> serde::Deserialize<'de> for post_commit_action::SendWelcomes {
         deserializer.deserialize_struct("xmtp.mls.database.PostCommitAction.SendWelcomes", FIELDS, GeneratedVisitor)
     }
 }
-impl serde::Serialize for RemoveMembersPublishData {
+impl serde::Serialize for RemoveMembersData {
     #[allow(deprecated)]
     fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
     where
@@ -413,10 +413,10 @@ impl serde::Serialize for RemoveMembersPublishData {
         if self.version.is_some() {
             len += 1;
         }
-        let mut struct_ser = serializer.serialize_struct("xmtp.mls.database.RemoveMembersPublishData", len)?;
+        let mut struct_ser = serializer.serialize_struct("xmtp.mls.database.RemoveMembersData", len)?;
         if let Some(v) = self.version.as_ref() {
             match v {
-                remove_members_publish_data::Version::V1(v) => {
+                remove_members_data::Version::V1(v) => {
                     struct_ser.serialize_field("v1", v)?;
                 }
             }
@@ -424,7 +424,7 @@ impl serde::Serialize for RemoveMembersPublishData {
         struct_ser.end()
     }
 }
-impl<'de> serde::Deserialize<'de> for RemoveMembersPublishData {
+impl<'de> serde::Deserialize<'de> for RemoveMembersData {
     #[allow(deprecated)]
     fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
     where
@@ -468,13 +468,13 @@ impl<'de> serde::Deserialize<'de> for RemoveMembersPublishData {
         }
         struct GeneratedVisitor;
         impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
-            type Value = RemoveMembersPublishData;
+            type Value = RemoveMembersData;
 
             fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-                formatter.write_str("struct xmtp.mls.database.RemoveMembersPublishData")
+                formatter.write_str("struct xmtp.mls.database.RemoveMembersData")
             }
 
-            fn visit_map<V>(self, mut map: V) -> std::result::Result<RemoveMembersPublishData, V::Error>
+            fn visit_map<V>(self, mut map: V) -> std::result::Result<RemoveMembersData, V::Error>
                 where
                     V: serde::de::MapAccess<'de>,
             {
@@ -485,20 +485,20 @@ impl<'de> serde::Deserialize<'de> for RemoveMembersPublishData {
                             if version__.is_some() {
                                 return Err(serde::de::Error::duplicate_field("v1"));
                             }
-                            version__ = map.next_value::<::std::option::Option<_>>()?.map(remove_members_publish_data::Version::V1)
+                            version__ = map.next_value::<::std::option::Option<_>>()?.map(remove_members_data::Version::V1)
 ;
                         }
                     }
                 }
-                Ok(RemoveMembersPublishData {
+                Ok(RemoveMembersData {
                     version: version__,
                 })
             }
         }
-        deserializer.deserialize_struct("xmtp.mls.database.RemoveMembersPublishData", FIELDS, GeneratedVisitor)
+        deserializer.deserialize_struct("xmtp.mls.database.RemoveMembersData", FIELDS, GeneratedVisitor)
     }
 }
-impl serde::Serialize for remove_members_publish_data::V1 {
+impl serde::Serialize for remove_members_data::V1 {
     #[allow(deprecated)]
     fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
     where
@@ -509,14 +509,14 @@ impl serde::Serialize for remove_members_publish_data::V1 {
         if !self.installation_ids.is_empty() {
             len += 1;
         }
-        let mut struct_ser = serializer.serialize_struct("xmtp.mls.database.RemoveMembersPublishData.V1", len)?;
+        let mut struct_ser = serializer.serialize_struct("xmtp.mls.database.RemoveMembersData.V1", len)?;
         if !self.installation_ids.is_empty() {
             struct_ser.serialize_field("installationIds", &self.installation_ids.iter().map(pbjson::private::base64::encode).collect::<Vec<_>>())?;
         }
         struct_ser.end()
     }
 }
-impl<'de> serde::Deserialize<'de> for remove_members_publish_data::V1 {
+impl<'de> serde::Deserialize<'de> for remove_members_data::V1 {
     #[allow(deprecated)]
     fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
     where
@@ -561,13 +561,13 @@ impl<'de> serde::Deserialize<'de> for remove_members_publish_data::V1 {
         }
         struct GeneratedVisitor;
         impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
-            type Value = remove_members_publish_data::V1;
+            type Value = remove_members_data::V1;
 
             fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-                formatter.write_str("struct xmtp.mls.database.RemoveMembersPublishData.V1")
+                formatter.write_str("struct xmtp.mls.database.RemoveMembersData.V1")
             }
 
-            fn visit_map<V>(self, mut map: V) -> std::result::Result<remove_members_publish_data::V1, V::Error>
+            fn visit_map<V>(self, mut map: V) -> std::result::Result<remove_members_data::V1, V::Error>
                 where
                     V: serde::de::MapAccess<'de>,
             {
@@ -585,15 +585,15 @@ impl<'de> serde::Deserialize<'de> for remove_members_publish_data::V1 {
                         }
                     }
                 }
-                Ok(remove_members_publish_data::V1 {
+                Ok(remove_members_data::V1 {
                     installation_ids: installation_ids__.unwrap_or_default(),
                 })
             }
         }
-        deserializer.deserialize_struct("xmtp.mls.database.RemoveMembersPublishData.V1", FIELDS, GeneratedVisitor)
+        deserializer.deserialize_struct("xmtp.mls.database.RemoveMembersData.V1", FIELDS, GeneratedVisitor)
     }
 }
-impl serde::Serialize for SendMessagePublishData {
+impl serde::Serialize for SendMessageData {
     #[allow(deprecated)]
     fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
     where
@@ -604,10 +604,10 @@ impl serde::Serialize for SendMessagePublishData {
         if self.version.is_some() {
             len += 1;
         }
-        let mut struct_ser = serializer.serialize_struct("xmtp.mls.database.SendMessagePublishData", len)?;
+        let mut struct_ser = serializer.serialize_struct("xmtp.mls.database.SendMessageData", len)?;
         if let Some(v) = self.version.as_ref() {
             match v {
-                send_message_publish_data::Version::V1(v) => {
+                send_message_data::Version::V1(v) => {
                     struct_ser.serialize_field("v1", v)?;
                 }
             }
@@ -615,7 +615,7 @@ impl serde::Serialize for SendMessagePublishData {
         struct_ser.end()
     }
 }
-impl<'de> serde::Deserialize<'de> for SendMessagePublishData {
+impl<'de> serde::Deserialize<'de> for SendMessageData {
     #[allow(deprecated)]
     fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
     where
@@ -659,13 +659,13 @@ impl<'de> serde::Deserialize<'de> for SendMessagePublishData {
         }
         struct GeneratedVisitor;
         impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
-            type Value = SendMessagePublishData;
+            type Value = SendMessageData;
 
             fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-                formatter.write_str("struct xmtp.mls.database.SendMessagePublishData")
+                formatter.write_str("struct xmtp.mls.database.SendMessageData")
             }
 
-            fn visit_map<V>(self, mut map: V) -> std::result::Result<SendMessagePublishData, V::Error>
+            fn visit_map<V>(self, mut map: V) -> std::result::Result<SendMessageData, V::Error>
                 where
                     V: serde::de::MapAccess<'de>,
             {
@@ -676,20 +676,20 @@ impl<'de> serde::Deserialize<'de> for SendMessagePublishData {
                             if version__.is_some() {
                                 return Err(serde::de::Error::duplicate_field("v1"));
                             }
-                            version__ = map.next_value::<::std::option::Option<_>>()?.map(send_message_publish_data::Version::V1)
+                            version__ = map.next_value::<::std::option::Option<_>>()?.map(send_message_data::Version::V1)
 ;
                         }
                     }
                 }
-                Ok(SendMessagePublishData {
+                Ok(SendMessageData {
                     version: version__,
                 })
             }
         }
-        deserializer.deserialize_struct("xmtp.mls.database.SendMessagePublishData", FIELDS, GeneratedVisitor)
+        deserializer.deserialize_struct("xmtp.mls.database.SendMessageData", FIELDS, GeneratedVisitor)
     }
 }
-impl serde::Serialize for send_message_publish_data::V1 {
+impl serde::Serialize for send_message_data::V1 {
     #[allow(deprecated)]
     fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
     where
@@ -700,14 +700,14 @@ impl serde::Serialize for send_message_publish_data::V1 {
         if !self.payload_bytes.is_empty() {
             len += 1;
         }
-        let mut struct_ser = serializer.serialize_struct("xmtp.mls.database.SendMessagePublishData.V1", len)?;
+        let mut struct_ser = serializer.serialize_struct("xmtp.mls.database.SendMessageData.V1", len)?;
         if !self.payload_bytes.is_empty() {
             struct_ser.serialize_field("payloadBytes", pbjson::private::base64::encode(&self.payload_bytes).as_str())?;
         }
         struct_ser.end()
     }
 }
-impl<'de> serde::Deserialize<'de> for send_message_publish_data::V1 {
+impl<'de> serde::Deserialize<'de> for send_message_data::V1 {
     #[allow(deprecated)]
     fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
     where
@@ -752,13 +752,13 @@ impl<'de> serde::Deserialize<'de> for send_message_publish_data::V1 {
         }
         struct GeneratedVisitor;
         impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
-            type Value = send_message_publish_data::V1;
+            type Value = send_message_data::V1;
 
             fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-                formatter.write_str("struct xmtp.mls.database.SendMessagePublishData.V1")
+                formatter.write_str("struct xmtp.mls.database.SendMessageData.V1")
             }
 
-            fn visit_map<V>(self, mut map: V) -> std::result::Result<send_message_publish_data::V1, V::Error>
+            fn visit_map<V>(self, mut map: V) -> std::result::Result<send_message_data::V1, V::Error>
                 where
                     V: serde::de::MapAccess<'de>,
             {
@@ -775,11 +775,11 @@ impl<'de> serde::Deserialize<'de> for send_message_publish_data::V1 {
                         }
                     }
                 }
-                Ok(send_message_publish_data::V1 {
+                Ok(send_message_data::V1 {
                     payload_bytes: payload_bytes__.unwrap_or_default(),
                 })
             }
         }
-        deserializer.deserialize_struct("xmtp.mls.database.SendMessagePublishData.V1", FIELDS, GeneratedVisitor)
+        deserializer.deserialize_struct("xmtp.mls.database.SendMessageData.V1", FIELDS, GeneratedVisitor)
     }
 }

@@ -2,6 +2,7 @@ pub mod api_client_wrapper;
 pub mod association;
 pub mod builder;
 pub mod client;
+pub mod codecs;
 mod configuration;
 pub mod groups;
 pub mod identity;
