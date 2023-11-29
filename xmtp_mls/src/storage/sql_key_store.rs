@@ -2,10 +2,9 @@ use log::{debug, error};
 use openmls_traits::key_store::{MlsEntity, OpenMlsKeyStore};
 
 use super::{
-    encrypted_store::{
-        key_store_entry::StoredKeyStoreEntry, xmtp_db_connection::XmtpDbConnection,
-    },
-    serialization::{db_deserialize, db_serialize}, StorageError,
+    encrypted_store::{key_store_entry::StoredKeyStoreEntry, xmtp_db_connection::XmtpDbConnection},
+    serialization::{db_deserialize, db_serialize},
+    StorageError,
 };
 use crate::{Delete, Fetch};
 
