@@ -30,6 +30,20 @@ class ClientTests: XCTestCase {
 		XCTAssertFalse(cannotMessage)
 	}
 
+    func testStaticCanMessage() async throws {
+        try TestConfig.skip(because: "run manually against local")
+        let opts = ClientOptions(api: ClientOptions.Api(env: .local, isSecure: false))
+
+        let aliceWallet = try PrivateKey.generate()
+        let notOnNetwork = try PrivateKey.generate()
+        let alice = try await Client.create(account: aliceWallet, options: opts)
+
+        let canMessage = try await Client.canMessage(alice.address, options: opts)
+        let cannotMessage = try await Client.canMessage(notOnNetwork.address, options: opts)
+        XCTAssertTrue(canMessage)
+        XCTAssertFalse(cannotMessage)
+    }
+
 	func testHasPrivateKeyBundleV1() async throws {
 		let fakeWallet = try PrivateKey.generate()
 		let client = try await Client.create(account: fakeWallet, apiClient: FakeApiClient())

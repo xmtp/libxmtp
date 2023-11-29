@@ -192,6 +192,18 @@ public final class Client: Sendable {
 	public func canMessage(_ peerAddress: String) async throws -> Bool {
 		return try await query(topic: .contact(peerAddress)).envelopes.count > 0
 	}
+  
+    public static func canMessage(_ peerAddress: String, options: ClientOptions? = nil) async throws -> Bool {
+        let options = options ?? ClientOptions()
+
+        let client = try await XMTPRust.create_client(GRPCApiClient.envToUrl(env: options.api.env), options.api.env != .local)
+        let apiClient = try GRPCApiClient(
+          environment: options.api.env,
+          secure: options.api.isSecure,
+          rustClient: client
+        )
+        return try await apiClient.query(topic: .contact(peerAddress)).envelopes.count > 0
+    }
 
 	public func importConversation(from conversationData: Data) throws -> Conversation? {
 		let jsonDecoder = JSONDecoder()
