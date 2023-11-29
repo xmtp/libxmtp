@@ -253,7 +253,7 @@ mod tests {
     use crate::{
         storage::encrypted_store::{
             group::{GroupMembershipState, StoredGroup},
-            tests::{with_connection},
+            tests::with_connection,
         },
         utils::test::rand_vec,
         Fetch, Store,

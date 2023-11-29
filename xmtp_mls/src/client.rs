@@ -258,7 +258,7 @@ where
     where
         ProcessingFn: FnOnce(XmtpOpenMlsProvider) -> Result<ReturnValue, MessageProcessingError>,
     {
-        XmtpOpenMlsProvider::transaction(&mut self.store.raw_conn()?, |provider| {
+        self.store.transaction(|provider| {
             let is_updated = provider
                 .conn()
                 .update_last_synced_timestamp_for_topic(topic, envelope_timestamp_ns as i64)?;

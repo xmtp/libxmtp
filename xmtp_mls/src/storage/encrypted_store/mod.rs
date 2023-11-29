@@ -35,7 +35,7 @@ use xmtp_cryptography::utils as crypto_utils;
 use self::xmtp_db_connection::XmtpDbConnection;
 
 use super::StorageError;
-use crate::Store;
+use crate::{xmtp_openmls_provider::XmtpOpenMlsProvider, Store};
 
 pub const MIGRATIONS: EmbeddedMigrations = embed_migrations!("./migrations/");
 
@@ -126,8 +126,7 @@ impl EncryptedMessageStore {
         Ok(())
     }
 
-    // TODO don't make this public
-    pub fn raw_conn(
+    fn raw_conn(
         &self,
     ) -> Result<PooledConnection<ConnectionManager<SqliteConnection>>, StorageError> {
         let conn = self
@@ -141,6 +140,32 @@ impl EncryptedMessageStore {
     pub fn conn(&self) -> Result<XmtpDbConnection, StorageError> {
         let conn = self.raw_conn()?;
         Ok(XmtpDbConnection::held(conn))
+    }
+
+    /// Start a new database transaction with the OpenMLS Provider from XMTP
+    /// # Arguments
+    /// `fun`: Scoped closure providing a MLSProvider to carry out the transaction
+    ///
+    /// # Examples
+    ///
+    /// ```ignore
+    /// store.transaction(|provider| {
+    ///     // do some operations requiring provider
+    ///     // access the connection with .conn()
+    ///     provider.conn().db_operation()?;
+    /// })
+    /// ```
+    pub fn transaction<T, F, E>(&self, fun: F) -> Result<T, E>
+    where
+        F: FnOnce(XmtpOpenMlsProvider) -> Result<T, E>,
+        E: From<diesel::result::Error> + From<StorageError>,
+    {
+        let mut connection = self.raw_conn()?;
+        connection.transaction(|conn| {
+            let xmtp_db_connection = XmtpDbConnection::new(conn);
+            let provider = XmtpOpenMlsProvider::new(&xmtp_db_connection);
+            fun(provider)
+        })
     }
 
     fn set_sqlcipher_key(
@@ -262,8 +287,8 @@ mod tests {
             EncryptedMessageStore::generate_enc_key(),
         )
         .unwrap();
-        let mut conn = store.raw_conn().expect("acquiring a Connection failed");
-        fun(&XmtpDbConnection::new(&mut conn))
+        let conn = &store.conn().expect("acquiring a Connection failed");
+        fun(conn)
     }
 
     impl EncryptedMessageStore {

@@ -133,10 +133,7 @@ pub(crate) mod tests {
     use super::*;
     use crate::{
         assert_ok,
-        storage::encrypted_store::{
-            schema::groups::dsl::groups,
-            tests::{with_connection},
-        },
+        storage::encrypted_store::{schema::groups::dsl::groups, tests::with_connection},
         utils::{test::rand_vec, time::now_ns},
         Fetch, Store,
     };

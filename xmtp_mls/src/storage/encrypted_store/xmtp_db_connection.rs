@@ -1,4 +1,4 @@
-use crate::storage::{DbConnection};
+use crate::storage::DbConnection;
 use std::{cell::RefCell, fmt};
 
 // Re-implementation of Cow without ToOwned requirement
