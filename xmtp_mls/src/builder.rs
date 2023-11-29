@@ -140,8 +140,8 @@ where
             .store
             .take()
             .ok_or(ClientBuilderError::MissingParameter { parameter: "store" })?;
-        let mut conn = store.conn()?;
-        let provider = XmtpOpenMlsProvider::new(&mut conn);
+        let conn = store.conn()?;
+        let provider = XmtpOpenMlsProvider::new(&conn);
         let identity = self
             .identity_strategy
             .initialize_identity(&store, &provider)?;

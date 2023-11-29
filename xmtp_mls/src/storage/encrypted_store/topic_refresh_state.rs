@@ -55,10 +55,7 @@ impl XmtpDbConnection<'_> {
 #[cfg(test)]
 pub(crate) mod tests {
     use super::*;
-    use crate::{
-        storage::encrypted_store::tests::{with_connection},
-        Fetch, Store,
-    };
+    use crate::{storage::encrypted_store::tests::with_connection, Fetch, Store};
 
     #[test]
     fn get_timestamp_with_no_existing_state() {
@@ -76,7 +73,7 @@ pub(crate) mod tests {
 
     #[test]
     fn get_timestamp_with_existing_state() {
-        with_connection(|mut conn| {
+        with_connection(|conn| {
             let entry = TopicRefreshState {
                 topic: "topic".to_string(),
                 last_message_timestamp_ns: 123,
@@ -91,7 +88,7 @@ pub(crate) mod tests {
 
     #[test]
     fn update_timestamp_when_bigger() {
-        with_connection(|mut conn| {
+        with_connection(|conn| {
             let entry = TopicRefreshState {
                 topic: "topic".to_string(),
                 last_message_timestamp_ns: 123,
@@ -107,7 +104,7 @@ pub(crate) mod tests {
 
     #[test]
     fn dont_update_timestamp_when_smaller() {
-        with_connection(|mut conn| {
+        with_connection(|conn| {
             let entry = TopicRefreshState {
                 topic: "topic".to_string(),
                 last_message_timestamp_ns: 123,

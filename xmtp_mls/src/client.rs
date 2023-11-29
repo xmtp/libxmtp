@@ -18,7 +18,8 @@ use crate::{
     retry::Retry,
     storage::{
         group::{GroupMembershipState, StoredGroup},
-        xmtp_db_connection::XmtpDbConnection, EncryptedMessageStore, StorageError,
+        xmtp_db_connection::XmtpDbConnection,
+        EncryptedMessageStore, StorageError,
     },
     types::Address,
     utils::topic::get_welcome_topic,
@@ -185,10 +186,10 @@ where
 
     pub async fn register_identity(&self) -> Result<(), ClientError> {
         // TODO: Mark key package as last_resort in creation
-        let mut connection = self.store.conn()?;
+        let connection = self.store.conn()?;
         let last_resort_kp = self
             .identity
-            .new_key_package(&self.mls_provider(&mut connection))?;
+            .new_key_package(&self.mls_provider(&connection))?;
         let last_resort_kp_bytes = last_resort_kp.tls_serialize_detached()?;
 
         self.api_client

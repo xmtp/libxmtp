@@ -19,7 +19,7 @@ where
     // Load the member list for the group from the DB, merging together multiple installations into a single entry
     pub fn members(&self) -> Result<Vec<GroupMember>, GroupError> {
         let openmls_group =
-            self.load_mls_group(&self.client.mls_provider(&mut self.client.store.conn()?))?;
+            self.load_mls_group(&self.client.mls_provider(&self.client.store.conn()?))?;
 
         let member_map: HashMap<String, GroupMember> = openmls_group
             .members()

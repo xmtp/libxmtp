@@ -35,7 +35,8 @@ use crate::{
         group::{GroupMembershipState, StoredGroup},
         group_intent::{IntentKind, IntentState, NewGroupIntent, StoredGroupIntent},
         group_message::{GroupMessageKind, StoredGroupMessage},
-        xmtp_db_connection::XmtpDbConnection, StorageError,
+        xmtp_db_connection::XmtpDbConnection,
+        StorageError,
     },
     utils::{hash::sha256, id::get_message_id, time::now_ns, topic::get_group_topic},
     xmtp_openmls_provider::XmtpOpenMlsProvider,
@@ -126,8 +127,8 @@ where
         client: &'c Client<ApiClient>,
         membership_state: GroupMembershipState,
     ) -> Result<Self, GroupError> {
-        let mut conn = client.store.conn()?;
-        let provider = XmtpOpenMlsProvider::new(&mut conn);
+        let conn = client.store.conn()?;
+        let provider = XmtpOpenMlsProvider::new(&conn);
         let mut mls_group = OpenMlsGroup::new(
             &provider,
             &client.identity.installation_keys,
@@ -698,8 +699,7 @@ mod tests {
     use xmtp_cryptography::utils::generate_local_wallet;
 
     use crate::{
-        builder::ClientBuilder, storage::group_intent::IntentState,
-        utils::topic::get_welcome_topic,
+        builder::ClientBuilder, storage::group_intent::IntentState, utils::topic::get_welcome_topic,
     };
 
     #[tokio::test]
