@@ -8,13 +8,13 @@ Amal's account (Ethereum wallet address)
 ├── Converse app (mobile phone)
 │   └── Installation key bundle 1
 │
-├── Coinbase Wallet (mobile phone)
+├── Coinbase Wallet app (mobile phone)
 │   └── Installation key bundle 2
 │
-├── Lenster (tablet)
+├── Lenster app (tablet)
 │   └── Installation key bundle 3
 │
-└── Coinbase Wallet (tablet)
+└── Coinbase Wallet app (tablet)
     └── Installation key bundle 4
 ```
 
@@ -23,6 +23,14 @@ Using per-installation keys provides the following benefits:
 - Installation private keys are never shared across devices or published onto the network.
 - The user may enumerate the installations that have messaging access to their account.
 - The user may revoke keys on a per-installation level.
+
+**Ethereum wallet**
+
+Today, an Ethereum wallet consists of a [secp256k1 keypair](https://ethereum.org/en/developers/docs/accounts/#account-creation), and is identified by a a public address, which is the hex-encoding of the last 20 bytes of the Keccak-256 hash of the public key, prepended by `0x`. The user is expected to have a pre-existing Ethereum wallet prior to onboarding with XMTP.
+
+The owner of a wallet may sign arbitrary text with the wallet. Most wallet software requires explicit [user acceptance](https://docs.metamask.io/wallet/how-to/sign-data/#use-personal_sign) of the signature text. The signature text is formatted according to version `0x45` of [ERC-191](https://eips.ethereum.org/EIPS/eip-191), and is signed via a recoverable ECDSA signature.
+
+There is currently no way to rotate the keys associated with an Ethereum wallet. In the event that a wallet is compromised, the user must create a new wallet.
 
 **Installation provisioning**
 
