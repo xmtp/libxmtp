@@ -70,7 +70,7 @@ mod tests {
         let encoded = GroupMembershipChangeCodec::encode(data).unwrap();
         assert_eq!(
             encoded.clone().r#type.unwrap().type_id,
-            "group_membership_changed"
+            "group_membership_change"
         );
         assert!(encoded.content.len() > 0);
 
