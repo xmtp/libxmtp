@@ -61,7 +61,7 @@ mod tests {
             wallet_address: rand_string(),
         };
         let data = GroupMembershipChange {
-            members_added: vec![new_member],
+            members_added: vec![new_member.clone()],
             members_removed: vec![],
             installations_added: vec![],
             installations_removed: vec![],
