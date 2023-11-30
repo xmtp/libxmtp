@@ -28,7 +28,7 @@ Using per-installation keys provides the following benefits:
 
 ### Ethereum wallet
 
-As of Nov 30 2023, an Ethereum wallet consists of a secp256k1 keypair, and is identified by a public address, which is the hex-encoding of the last 20 bytes of the Keccak-256 hash of the public key, prepended by `0x`. The wallet keys do not expire and are not rotatable - in the event of a compromise, the user must create a new wallet. The user is expected to have a pre-existing Ethereum wallet prior to onboarding with XMTP.
+As of Nov 30 2023, an Ethereum wallet consists of a secp256k1 keypair, and is identified by a public address, which is the hex-encoding of the last 20 bytes of the Keccak-256 hash of the public key, prepended by `0x`. Wallet keys do not expire and are not rotatable - in the event of a compromise, the user must create a new wallet. The user is expected to have a pre-existing Ethereum wallet prior to onboarding with XMTP.
 
 The wallet keys can be used to sign arbitrary text, with most wallet software requiring explicit [user acceptance](https://docs.metamask.io/wallet/how-to/sign-data/#use-personal_sign) of the signature text. The signature text is formatted according to version `0x45` of [EIP-191](https://eips.ethereum.org/EIPS/eip-191), and is signed via a recoverable ECDSA signature.
 
