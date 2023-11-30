@@ -57,8 +57,8 @@ fn merge_members(
     acc.entry(wallet_address.clone())
         .and_modify(|entry| entry.installation_ids.push(signature_key.clone()))
         .or_insert(MemberProto {
-            wallet_address: wallet_address.clone(),
-            installation_ids: vec![signature_key.clone()],
+            wallet_address: wallet_address,
+            installation_ids: vec![signature_key],
         });
     acc
 }
