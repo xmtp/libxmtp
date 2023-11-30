@@ -307,7 +307,7 @@ public actor Conversations {
 		}
 
 		newConversations
-			.filter { $0.peerAddress != client.address }
+			.filter { $0.peerAddress != client.address && Topic.isValidTopic(topic: $0.topic) }
 			.forEach { conversationsByTopic[$0.topic] = $0 }
 
 		// TODO(perf): use DB to persist + sort

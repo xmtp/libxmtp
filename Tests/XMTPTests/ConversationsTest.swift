@@ -78,4 +78,48 @@ class ConversationsTests: XCTestCase {
 
 		await waitForExpectations(timeout: 3)
 	}
+    
+    func testCanValidateTopicsInsideConversation() async throws {
+        let validId = "sdfsadf095b97a9284dcd82b2274856ccac8a21de57bebe34e7f9eeb855fb21126d3b8f"
+        
+        // Creation of all known types of topics
+        let privateStore = Topic.userPrivateStoreKeyBundle(validId).description
+        let contact = Topic.contact(validId).description
+        let userIntro = Topic.userIntro(validId).description
+        let userInvite = Topic.userInvite(validId).description
+        let directMessageV1 = Topic.directMessageV1(validId, "sd").description
+        let directMessageV2 = Topic.directMessageV2(validId).description
+        let preferenceList = Topic.preferenceList(validId).description
+        
+        // check if validation of topics accepts all types
+        XCTAssertTrue(Topic.isValidTopic(topic: privateStore))
+        XCTAssertTrue(Topic.isValidTopic(topic: contact))
+        XCTAssertTrue(Topic.isValidTopic(topic: userIntro))
+        XCTAssertTrue(Topic.isValidTopic(topic: userInvite))
+        XCTAssertTrue(Topic.isValidTopic(topic: directMessageV1))
+        XCTAssertTrue(Topic.isValidTopic(topic: directMessageV2))
+        XCTAssertTrue(Topic.isValidTopic(topic: preferenceList))
+    }
+    
+    func testCannotValidateTopicsInsideConversation() async throws {
+        let invalidId = "��\\u0005�!\\u000b���5\\u00001\\u0007�蛨\\u001f\\u00172��.����K9K`�"
+        
+        // Creation of all known types of topics
+        let privateStore = Topic.userPrivateStoreKeyBundle(invalidId).description
+        let contact = Topic.contact(invalidId).description
+        let userIntro = Topic.userIntro(invalidId).description
+        let userInvite = Topic.userInvite(invalidId).description
+        let directMessageV1 = Topic.directMessageV1(invalidId, "sd").description
+        let directMessageV2 = Topic.directMessageV2(invalidId).description
+        let preferenceList = Topic.preferenceList(invalidId).description
+        
+        // check if validation of topics declines all types
+        XCTAssertFalse(Topic.isValidTopic(topic: privateStore))
+        XCTAssertFalse(Topic.isValidTopic(topic: contact))
+        XCTAssertFalse(Topic.isValidTopic(topic: userIntro))
+        XCTAssertFalse(Topic.isValidTopic(topic: userInvite))
+        XCTAssertFalse(Topic.isValidTopic(topic: directMessageV1))
+        XCTAssertFalse(Topic.isValidTopic(topic: directMessageV2))
+        XCTAssertFalse(Topic.isValidTopic(topic: preferenceList))
+    }
 }

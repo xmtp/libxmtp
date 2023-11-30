@@ -39,4 +39,8 @@ public enum Topic {
 	private func wrap(_ value: String) -> String {
 		"/xmtp/0/\(value)/proto"
 	}
+    
+    static func isValidTopic(topic: String) -> Bool {
+        return topic.allSatisfy(\.isASCII)
+    }
 }
