@@ -1,5 +1,6 @@
 mod intents;
 mod members;
+mod membership_change;
 use intents::SendMessageIntentData;
 #[cfg(not(test))]
 use log::debug;
@@ -261,6 +262,9 @@ where
                     });
                 }
                 debug!("[{}] merging pending commit", self.client.account_address());
+                // let pending_commit = openmls_group.pending_commit().expect("already checked");
+                // let transcript_message =
+                //     self.build_group_membership_change(pending_commit, openmls_group).map_err(|e| MessageProcessingError::G);
                 if let Err(MergePendingCommitError::MlsGroupStateError(err)) =
                     openmls_group.merge_pending_commit(provider)
                 {
@@ -272,6 +276,7 @@ where
                             intent.id,
                         )?;
                     }
+                } else {
                 }
                 // TOOD: Handle writing transcript messages for adding/removing members
             }
@@ -349,7 +354,9 @@ where
                     "[{}] received staged commit. Merging and clearing any pending commits",
                     self.client.account_address()
                 );
-                openmls_group.merge_staged_commit(provider, *staged_commit)?;
+
+                let sc = *staged_commit;
+                openmls_group.merge_staged_commit(provider, sc)?;
             }
         };
 
@@ -509,7 +516,7 @@ where
         let installation_ids = self
             .members()?
             .into_iter()
-            .filter(|member| wallet_addresses.contains(&member.wallet_address))
+            .filter(|member| wallet_addresses.contains(&member.account_address))
             .fold(vec![], |mut acc, member| {
                 acc.extend(member.installation_ids);
                 acc
