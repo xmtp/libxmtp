@@ -72,7 +72,7 @@ mod tests {
             EncryptedMessageStore::generate_enc_key(),
         )
         .unwrap();
-        let conn = &mut store.conn().unwrap();
+        let conn = &store.conn().unwrap();
 
         StoredIdentity::new("".to_string(), rand_vec(), rand_vec())
             .store(conn)

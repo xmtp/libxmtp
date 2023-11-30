@@ -72,7 +72,7 @@ mod tests {
             encoded.clone().r#type.unwrap().type_id,
             "group_membership_change"
         );
-        assert!(encoded.content.len() > 0);
+        assert!(!encoded.content.is_empty());
 
         let decoded = GroupMembershipChangeCodec::decode(encoded).unwrap();
         assert_eq!(decoded.members_added[0], new_member);

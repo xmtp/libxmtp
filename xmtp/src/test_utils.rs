@@ -1,3 +1,4 @@
+#[allow(clippy::module_inception)]
 #[cfg(test)]
 pub mod test_utils {
     use xmtp_proto::api_client::XmtpApiClient;

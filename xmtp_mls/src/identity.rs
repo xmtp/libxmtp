@@ -62,9 +62,7 @@ impl Identity {
         };
 
         identity.new_key_package(provider)?;
-        {
-            StoredIdentity::from(&identity).store(*provider.conn().borrow_mut())?;
-        }
+        StoredIdentity::from(&identity).store(provider.conn())?;
 
         // TODO: upload credential_with_key and last_resort_key_package
 
@@ -152,16 +150,16 @@ mod tests {
     #[test]
     fn does_not_error() {
         let store = EncryptedMessageStore::new_test();
-        let mut conn = store.conn().unwrap();
-        let provider = XmtpOpenMlsProvider::new(&mut conn);
+        let conn = &store.conn().unwrap();
+        let provider = XmtpOpenMlsProvider::new(conn);
         Identity::new(&provider, &generate_local_wallet()).unwrap();
     }
 
     #[test]
     fn test_key_package_extensions() {
         let store = EncryptedMessageStore::new_test();
-        let mut conn = store.conn().unwrap();
-        let provider = XmtpOpenMlsProvider::new(&mut conn);
+        let conn = &store.conn().unwrap();
+        let provider = XmtpOpenMlsProvider::new(conn);
         let identity = Identity::new(&provider, &generate_local_wallet()).unwrap();
 
         let new_key_package = identity.new_key_package(&provider).unwrap();
