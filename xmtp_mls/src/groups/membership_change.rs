@@ -13,9 +13,6 @@ use crate::identity::Identity;
 
 use super::{GroupError, MlsGroup};
 
-// A tuple containing the account address, installation_id, and the proposal creator's account address
-type ProposalInfo = (String, Vec<u8>, String);
-
 // Take a QueuedAddProposal and extract the wallet address and installation_id
 fn extract_identity_from_add(proposal: QueuedAddProposal) -> Option<(String, Vec<u8>)> {
     let leaf_node = proposal.add_proposal().key_package().leaf_node();
