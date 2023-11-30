@@ -75,7 +75,7 @@ XMTP installations consist of a long-lived Ed25519 key-pair (the 'installation k
    ```
 
 4. A last resort KeyPackage (containing the credential and signed by the installation key per the [MLS spec](https://www.rfc-editor.org/rfc/rfc9420.html#name-key-packages)) is generated and stored on the device.
-5. The app publishes the last resort key package to the server. The server will provide all identity updates (registrations and revocations) for a given wallet address to any client that requests it.
+5. The app publishes the last resort key package to the server, which implicitly serves as a registration. The server will provide all identity updates (registrations and revocations) for a given wallet address to any client that requests it.
 
 ### Credential validation
 
@@ -127,9 +127,10 @@ At any time in the course of a conversation, the list of valid installations for
 Clients must perform the following validation prior to publishing each payload on the group:
 
 1. Assemble a list of wallet addresses in the conversation from the leaf nodes.
-1. Fetch all identity updates on those wallet addresses, and construct a list of valid installations.
-1. Remove nodes from the conversation that are not in the list of valid installations.
-1. Add nodes to the conversation that are in the list of valid installations and not already present.
+1. Fetch all identity updates on those wallet addresses.
+1. Validate the credentials and revocations and construct a list of valid installations (registered installations minus revoked installations).
+1. Publish a commit to remove nodes from the conversation that are not in the list of valid installations.
+1. Publish a commit to add nodes to the conversation that are in the list of valid installations and not already present.
 
 XMTP clients may perform performance optimizations, such as caching installation lists with a short TTL.
 
@@ -143,28 +144,23 @@ An open area of investigation is ensuring transcript consistency in the face of 
 
 We currently rely on trust in centralized XMTP servers, which could do the following if malicious.
 
-1. **Selectively omit payloads**. A malicious server could hide registrations (and application messages) from valid installations in order to censor them, or revocations for invalid installations in order to prevent post-compromise recovery.
-   - Decentralization efforts within XMTP aim to produce an immutable log of these events (H1 2024).
+1. **Omit payloads**. A malicious server could hide registrations (and application messages) from valid installations in order to censor them, or revocations for invalid installations in order to prevent post-compromise recovery.
+   - Decentralization efforts within XMTP aim to produce an immutable log of identity updates (H1 2024), with immutability of conversation payloads coming later.
 1. **Reorder payloads**. A malicious server could reorder messages and commits within a conversation.
    - Decentralization efforts within XMTP aim to produce a consensus-driven ordering of commits at minimum (H2+ 2024).
 
-Note, however, that a malicious server is unable to forge payloads due to the use of digital signatures.
+Note, however, that a malicious server is unable to forge registration and revocation payloads without access to the wallet keys used to sign them.
 
-## Synchronizing MLS group membership
+## Account-level membership
 
-At the user level, messages are exchanged between accounts, however at the cryptographic level, messages are exchanged between installations. This poses the question of how MLS group membership can be kept up-to-date as installations are registered and revoked and members are added and removed. This requires two components which will be addressed in reverse order:
+At the user level, messages are exchanged between accounts, however at the cryptographic level, messages are exchanged between installations. Because of this two-layer system, there must exist a mechanism for mapping between accounts and installations in a conversation.
 
-1. How to know which accounts are members of a group
-2. How to know which installations belong to each account
+We use an implicit mapping - an account is considered a participant of a conversation if one or more installations from the account are present in the tree.
 
-**Mapping from accounts to installations**
+- **Listing accounts**. To list accounts, we enumerate unique wallet addresses from the credentials of the leaf nodes in the conversation.
+- **Adding accounts**. To add an account, publish a commit adding one or more installations belonging to the account to the conversation. Note that if we fail to include all valid installations belonging to the account, it will be resolved via the process described in [Installation Synchronization](#installation-synchronization).
+- **Removing accounts**. To remove an account, publish a commit removing _all_ installations belonging to the account from the conversation. It is important that all installations belonging to the account that are present in the tree during the epoch in which the commit is published are removed, and we ensure this is the case by enforcing linear ordering of epochs.
 
-The latter can be addressed using the mechanism described in the earlier section - any participant in a conversation can query for updates on any account in the conversation and construct the current list of valid installations. If the current installation list does not match what is in the group, the participant may add or remove installations in the group to match the latest state, and all other participants may perform the same verification. This can be performed at any frequency (for example before every message send), with various performance optimizations possible.
+### Other approaches
 
-**Mapping from conversations to accounts**
-
-Will add this in next PR.
-
-Clients must perform the following validation when a member is added:
-
-Clients must perform the following validation when a member is removed:
+Account/user trees are another approach for solving this problem, however we assume the complexity of managing key packages and welcome messages in this system is higher than the current system, and have therefore deferred this. We are open to feedback otherwise!
