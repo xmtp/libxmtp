@@ -24,20 +24,31 @@ Using per-installation keys provides the following benefits:
 - The user may enumerate the installations that have messaging access to their account.
 - The user may revoke keys on a per-installation level.
 
-**Ethereum wallet**
+## Ethereum wallet
 
-Today, an Ethereum wallet consists of a [secp256k1 keypair](https://ethereum.org/en/developers/docs/accounts/#account-creation), and is identified by a a public address, which is the hex-encoding of the last 20 bytes of the Keccak-256 hash of the public key, prepended by `0x`. The user is expected to have a pre-existing Ethereum wallet prior to onboarding with XMTP.
+Today, an Ethereum wallet consists of a secp256k1 keypair, and is identified by a a public address, which is the hex-encoding of the last 20 bytes of the Keccak-256 hash of the public key, prepended by `0x`. The user is expected to have a pre-existing Ethereum wallet prior to onboarding with XMTP.
 
-The owner of a wallet may sign arbitrary text with the wallet. Most wallet software requires explicit [user acceptance](https://docs.metamask.io/wallet/how-to/sign-data/#use-personal_sign) of the signature text. The signature text is formatted according to version `0x45` of [EIP-191](https://eips.ethereum.org/EIPS/eip-191), and is signed via a recoverable ECDSA signature.
+The wallet keys can be used to sign arbitrary text, with most wallet software requiring explicit [user acceptance](https://docs.metamask.io/wallet/how-to/sign-data/#use-personal_sign) of the signature text. The signature text is formatted according to version `0x45` of [EIP-191](https://eips.ethereum.org/EIPS/eip-191), and is signed via a recoverable ECDSA signature.
+
+Wallet signature requests originating from XMTP will additionally prepend context to the EIP-191 `message` field to prevent collisions between signatures in different contexts:
+
+```
+XMTP: <Label>\n\n
+```
+
+| Label                   | Described in section                                    |
+| ----------------------- | ------------------------------------------------------- |
+| Grant messaging access  | [Installation provisioning](#installation-provisioning) |
+| Revoke messaging access | [Installation revocation](#installation-revocation)     |
 
 There is currently no way to rotate the keys associated with an Ethereum wallet. In the event that a wallet is compromised, the user must create a new wallet.
 
-**Installation provisioning**
+## Installation provisioning
 
-XMTP installations hold a long-lived Ed25519 key-pair (the 'installation key') that is identified via the Ethereum addressing format. The public installation key is used as the `signature_key` in all MLS leaf nodes, and is associated with the account's wallet via a wallet-signed credential. Every new app installation gains messaging access as follows:
+XMTP installations hold a long-lived Ed25519 key-pair (the 'installation key') and are identified via the Ethereum addressing format. The public installation key is used as the `signature_key` in all MLS leaf nodes, and is associated with the account's wallet via a wallet-signed credential. Every new app installation gains messaging access as follows:
 
 1. The new Ed25519 key pair (installation key) is generated and stored on the device.
-2. The app prompts the user to sign the public key with their Ethereum wallet, establishing an association between the installation's identity and the user’s account. The user is expected to inspect the text and reject the signing request if the data is invalid, for example if the `current time` is incorrect. Text format:
+2. The app prompts the user to sign the public key with their Ethereum wallet. The user is expected to inspect the text and reject the signing request if the data is invalid, for example if the displayed time is incorrect. Association text version 1 format:
 
    ```
    XMTP: Grant Messaging Access
@@ -46,7 +57,7 @@ XMTP installations hold a long-lived Ed25519 key-pair (the 'installation key') t
    Installation ID: <hex(last_20_bytes(keccak256(Ed25519PublicKey)))>
    ```
 
-3. The following data is protobuf-serialized to form the MLS Credential:
+3. The signature and related data is then protobuf-serialized to form the MLS Credential:
 
    ```
    struct {
@@ -64,15 +75,17 @@ XMTP installations hold a long-lived Ed25519 key-pair (the 'installation key') t
    ```
 
 4. A last resort KeyPackage (containing the credential and signed by the installation key per the [MLS spec](https://www.rfc-editor.org/rfc/rfc9420.html#name-key-packages)) is generated and stored on the device.
-5. The app publishes the last resort key package to the server. Other apps may query for this information to understand that the installation is on the network, associated with the account, and how to contact it.
+5. The app publishes the last resort key package to the server. The server will provide all valid last resort key packages for a given wallet address to any client that requests it.
 
-**Installation management**
+## Credential validation
+
+## Installation revocation
 
 At any time, the user may enumerate active installations by querying for all identity updates under the account. The user may identify each installation by the creation time as well as the installation key from the signing text.
 
 In the event of a compromise, malicious app, or no longer used installation, the user may revoke an installation’s messaging access going forward by signing a revocation payload containing the installation’s identity keys using their wallet and publishing it to the server. This will subsequently be surfaced in the identity update list for clients to validate.
 
-**Authentication service**
+## Authentication service
 
 Unlike in other messaging providers, XMTP accounts are key-pairs. This means that the link between an installation and an account can be achieved via a signature that can be programmatically validated on any client device. There is no need for a centralized service to validate credentials, nor for safety numbers to be shown in apps built on top of XMTP. Additionally, apps built on top of XMTP may choose to layer on decentralized name resolution protocols such as ENS in order to display a user-friendly name.
 
