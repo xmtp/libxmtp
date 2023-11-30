@@ -6,12 +6,15 @@ use openmls::{
 };
 use xmtp_proto::{
     api_client::{XmtpApiClient, XmtpMlsClient},
-    xmtp::mls::message_contents::{GroupMembershipChange, Member as MemberProto},
+    xmtp::mls::message_contents::{GroupMembershipChanges, MembershipChange as MemberProto},
 };
 
 use crate::identity::Identity;
 
 use super::{GroupError, MlsGroup};
+
+// A tuple containing the account address, installation_id, and the proposal creator's account address
+type ProposalInfo = (String, Vec<u8>, String);
 
 // Take a QueuedAddProposal and extract the wallet address and installation_id
 fn extract_identity_from_add(proposal: QueuedAddProposal) -> Option<(String, Vec<u8>)> {
@@ -19,7 +22,7 @@ fn extract_identity_from_add(proposal: QueuedAddProposal) -> Option<(String, Vec
     let signature_key = leaf_node.signature_key().as_slice();
     match Identity::get_validated_account_address(leaf_node.credential().identity(), signature_key)
     {
-        Ok(wallet_address) => Some((wallet_address, signature_key.to_vec())),
+        Ok(account_address) => Some((account_address, signature_key.to_vec())),
         Err(err) => {
             log::warn!("error extracting identity {}", err);
             None
@@ -41,7 +44,7 @@ fn extract_identity_from_remove(
     let member = maybe_member.expect("already checked");
     let signature_key = member.signature_key.as_slice();
     match Identity::get_validated_account_address(member.credential.identity(), signature_key) {
-        Ok(wallet_address) => Some((wallet_address, signature_key.to_vec())),
+        Ok(account_address) => Some((account_address, signature_key.to_vec())),
         Err(err) => {
             log::warn!("error extracting identity {}", err);
             None
@@ -52,13 +55,14 @@ fn extract_identity_from_remove(
 // Reducer function for merging members into a map, with all installation_ids collected per member
 fn merge_members(
     mut acc: HashMap<String, MemberProto>,
-    (wallet_address, signature_key): (String, Vec<u8>),
+    (account_address, signature_key): (String, Vec<u8>),
 ) -> HashMap<String, MemberProto> {
-    acc.entry(wallet_address.clone())
+    acc.entry(account_address.clone())
         .and_modify(|entry| entry.installation_ids.push(signature_key.clone()))
         .or_insert(MemberProto {
-            wallet_address,
+            account_address,
             installation_ids: vec![signature_key],
+            initiated_by_account_address: "".to_string(),
         });
     acc
 }
@@ -76,7 +80,7 @@ fn get_new_members(
     // Partition the list. If no existing member found, it is a new member. Otherwise it is just new installations
     new_installations
         .into_values()
-        .partition(|member| !existing_installation_ids.contains_key(&member.wallet_address))
+        .partition(|member| !existing_installation_ids.contains_key(&member.account_address))
 }
 
 // Get a tuple of (removed_members, removed_installations)
@@ -92,7 +96,7 @@ fn get_removed_members(
 
     // Separate the fully removed members (where all installation ids were removed in the commit) from partial removals
     removed_installations.into_values().partition(|member| {
-        match existing_installation_ids.get(&member.wallet_address) {
+        match existing_installation_ids.get(&member.account_address) {
             Some(entry) => entry.len() == member.installation_ids.len(),
             None => true,
         }
@@ -108,7 +112,7 @@ where
         &self,
         staged_commit: &StagedCommit,
         openmls_group: &OpenMlsGroup,
-    ) -> Result<GroupMembershipChange, GroupError> {
+    ) -> Result<GroupMembershipChanges, GroupError> {
         // Existing installation IDs keyed by wallet address
         let existing_installation_ids: HashMap<String, Vec<Vec<u8>>> = self
             .members()?
@@ -124,7 +128,7 @@ where
         let (members_removed, installations_removed) =
             get_removed_members(staged_commit, &existing_installation_ids, openmls_group);
 
-        Ok(GroupMembershipChange {
+        Ok(GroupMembershipChanges {
             members_added,
             members_removed,
             installations_added,
@@ -176,7 +180,7 @@ mod tests {
         assert_eq!(message.installations_added.len(), 0);
         assert_eq!(message.members_added.len(), 1);
         assert_eq!(
-            message.members_added[0].wallet_address,
+            message.members_added[0].account_address,
             bola.account_address()
         );
 

@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use prost::Message;
 use xmtp_proto::xmtp::mls::message_contents::{
-    ContentTypeId, EncodedContent, GroupMembershipChange,
+    ContentTypeId, EncodedContent, GroupMembershipChanges,
 };
 
 use super::{CodecError, ContentCodec};
@@ -14,7 +14,7 @@ impl GroupMembershipChangeCodec {
     const TYPE_ID: &'static str = "group_membership_change";
 }
 
-impl ContentCodec<GroupMembershipChange> for GroupMembershipChangeCodec {
+impl ContentCodec<GroupMembershipChanges> for GroupMembershipChangeCodec {
     fn content_type() -> ContentTypeId {
         ContentTypeId {
             authority_id: GroupMembershipChangeCodec::AUTHORITY_ID.to_string(),
@@ -24,7 +24,7 @@ impl ContentCodec<GroupMembershipChange> for GroupMembershipChangeCodec {
         }
     }
 
-    fn encode(data: GroupMembershipChange) -> Result<EncodedContent, CodecError> {
+    fn encode(data: GroupMembershipChanges) -> Result<EncodedContent, CodecError> {
         let mut buf = Vec::new();
         data.encode(&mut buf)
             .map_err(|e| CodecError::Encode(e.to_string()))?;
@@ -38,8 +38,8 @@ impl ContentCodec<GroupMembershipChange> for GroupMembershipChangeCodec {
         })
     }
 
-    fn decode(content: EncodedContent) -> Result<GroupMembershipChange, CodecError> {
-        let decoded = GroupMembershipChange::decode(content.content.as_slice())
+    fn decode(content: EncodedContent) -> Result<GroupMembershipChanges, CodecError> {
+        let decoded = GroupMembershipChanges::decode(content.content.as_slice())
             .map_err(|e| CodecError::Decode(e.to_string()))?;
 
         Ok(decoded)
@@ -48,7 +48,7 @@ impl ContentCodec<GroupMembershipChange> for GroupMembershipChangeCodec {
 
 #[cfg(test)]
 mod tests {
-    use xmtp_proto::xmtp::mls::message_contents::Member;
+    use xmtp_proto::xmtp::mls::message_contents::MembershipChange;
 
     use crate::utils::test::{rand_string, rand_vec};
 
@@ -56,11 +56,12 @@ mod tests {
 
     #[test]
     fn test_encode_decode() {
-        let new_member = Member {
+        let new_member = MembershipChange {
             installation_ids: vec![rand_vec()],
-            wallet_address: rand_string(),
+            account_address: rand_string(),
+            initiated_by_account_address: "".to_string(),
         };
-        let data = GroupMembershipChange {
+        let data = GroupMembershipChanges {
             members_added: vec![new_member.clone()],
             members_removed: vec![],
             installations_added: vec![],
