@@ -28,39 +28,43 @@ Using per-installation keys provides the following benefits:
 
 Today, an Ethereum wallet consists of a [secp256k1 keypair](https://ethereum.org/en/developers/docs/accounts/#account-creation), and is identified by a a public address, which is the hex-encoding of the last 20 bytes of the Keccak-256 hash of the public key, prepended by `0x`. The user is expected to have a pre-existing Ethereum wallet prior to onboarding with XMTP.
 
-The owner of a wallet may sign arbitrary text with the wallet. Most wallet software requires explicit [user acceptance](https://docs.metamask.io/wallet/how-to/sign-data/#use-personal_sign) of the signature text. The signature text is formatted according to version `0x45` of [ERC-191](https://eips.ethereum.org/EIPS/eip-191), and is signed via a recoverable ECDSA signature.
+The owner of a wallet may sign arbitrary text with the wallet. Most wallet software requires explicit [user acceptance](https://docs.metamask.io/wallet/how-to/sign-data/#use-personal_sign) of the signature text. The signature text is formatted according to version `0x45` of [EIP-191](https://eips.ethereum.org/EIPS/eip-191), and is signed via a recoverable ECDSA signature.
 
 There is currently no way to rotate the keys associated with an Ethereum wallet. In the event that a wallet is compromised, the user must create a new wallet.
 
 **Installation provisioning**
 
-Every new app installation gains messaging access as follows:
+XMTP installations hold a long-lived Ed25519 key-pair (the 'installation key') that is identified via the Ethereum addressing format. The public installation key is used as the `signature_key` in all MLS leaf nodes, and is associated with the account's wallet via a wallet-signed credential. Every new app installation gains messaging access as follows:
 
-1. A new Ed25519 signature key pair is generated and stored on the device, representing the installation's identity.
-2. The app prompts the user to sign the public key with their Ethereum wallet, establishing an association between the installation's identity and the user’s account. Example text:
+1. The new Ed25519 key pair (installation key) is generated and stored on the device.
+2. The app prompts the user to sign the public key with their Ethereum wallet, establishing an association between the installation's identity and the user’s account. The user is expected to inspect the text and reject the signing request if the data is invalid, for example if the `current time` is incorrect. Text format:
 
    ```
    XMTP: Grant Messaging Access
 
-   Current Time: <current time and local timezone>
-   Installation Key: <hex(last_20_bytes(keccak256(Ed25519PublicKey)))>
+   Current Time: <ISO 8601 date and time with local UTC offset>
+   Installation ID: <hex(last_20_bytes(keccak256(Ed25519PublicKey)))>
    ```
 
-3. The following data is protobuf-serialized to form the MLS Credential. The credential can be presented alongside the installation key to prove an association with an account:
+3. The following data is protobuf-serialized to form the MLS Credential:
 
    ```
-   MlsCredential {
-       Eip191Association {
-           association_text_version: i32,
-           signature: bytes,
-           wallet_address: string,
-           creation_time_ns: i64,
-       }
-   }
+   struct {
+        association_text_version: i32,
+        signature: bytes,
+        creation_iso8601_time: string,
+        wallet_address: string,
+   } Eip191Association;
+
+
+   struct {
+       installation_public_key: bytes,
+       eip191_association: Eip191Association
+   } MlsCredential;
    ```
 
-4. A last resort KeyPackage (signed by the installation key per the MLS spec) is generated and stored on the device.
-5. The app publishes the public signing key, credential, and last resort key package to the server, which stores it under the account. Other apps may query for this information to understand that the installation is on the network, associated with the account, and how to contact it.
+4. A last resort KeyPackage (containing the credential and signed by the installation key per the [MLS spec](https://www.rfc-editor.org/rfc/rfc9420.html#name-key-packages)) is generated and stored on the device.
+5. The app publishes the last resort key package to the server. Other apps may query for this information to understand that the installation is on the network, associated with the account, and how to contact it.
 
 **Installation management**
 
