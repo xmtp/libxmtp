@@ -262,9 +262,6 @@ where
                     });
                 }
                 debug!("[{}] merging pending commit", self.client.account_address());
-                // let pending_commit = openmls_group.pending_commit().expect("already checked");
-                // let transcript_message =
-                //     self.build_group_membership_change(pending_commit, openmls_group).map_err(|e| MessageProcessingError::G);
                 if let Err(MergePendingCommitError::MlsGroupStateError(err)) =
                     openmls_group.merge_pending_commit(provider)
                 {
@@ -276,7 +273,6 @@ where
                             intent.id,
                         )?;
                     }
-                } else {
                 }
                 // TOOD: Handle writing transcript messages for adding/removing members
             }
