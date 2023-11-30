@@ -52,7 +52,7 @@ fn extract_identity_from_remove(
 // Reducer function for merging members into a map, with all installation_ids collected per member
 fn merge_members(
     mut acc: HashMap<String, MemberProto>,
-    (wallet_address, signature_key): &(String, Vec<u8>),
+    (wallet_address, signature_key): (String, Vec<u8>),
 ) -> HashMap<String, MemberProto> {
     acc.entry(wallet_address.clone())
         .and_modify(|entry| entry.installation_ids.push(signature_key.clone()))
@@ -71,7 +71,7 @@ fn get_new_members(
     let new_installations: HashMap<String, MemberProto> = staged_commit
         .add_proposals()
         .filter_map(extract_identity_from_add)
-        .fold(HashMap::new(), |acc, curr| merge_members(acc, &curr));
+        .fold(HashMap::new(), merge_members);
 
     // Partition the list. If no existing member found, it is a new member. Otherwise it is just new installations
     new_installations
@@ -85,17 +85,13 @@ fn get_removed_members(
     existing_installation_ids: &HashMap<String, Vec<Vec<u8>>>,
     openmls_group: &OpenMlsGroup,
 ) -> (Vec<MemberProto>, Vec<MemberProto>) {
-    let removed_installations: Vec<(String, Vec<u8>)> = staged_commit
+    let removed_installations: HashMap<String, MemberProto> = staged_commit
         .remove_proposals()
         .filter_map(|proposal| extract_identity_from_remove(proposal, openmls_group))
-        .collect();
-
-    let removed_installation_map: HashMap<String, MemberProto> = removed_installations
-        .iter()
         .fold(HashMap::new(), merge_members);
 
     // Separate the fully removed members (where all installation ids were removed in the commit) from partial removals
-    removed_installation_map.into_values().partition(|member| {
+    removed_installations.into_values().partition(|member| {
         match existing_installation_ids.get(&member.wallet_address) {
             Some(entry) => entry.len() == member.installation_ids.len(),
             None => true,
