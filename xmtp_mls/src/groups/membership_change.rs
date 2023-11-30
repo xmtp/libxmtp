@@ -103,8 +103,8 @@ impl<'c, ApiClient> MlsGroup<'c, ApiClient>
 where
     ApiClient: XmtpApiClient + XmtpMlsClient,
 {
-    // TODO: Make private once I actually call from somewhere
-    pub fn build_group_membership_change(
+    #[allow(dead_code)]
+    pub(crate) fn build_group_membership_change(
         &self,
         staged_commit: &StagedCommit,
         openmls_group: &OpenMlsGroup,
