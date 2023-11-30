@@ -40,7 +40,7 @@ XMTP: <Label>\n\n
 
 | Label                   | Described in section                                    |
 | ----------------------- | ------------------------------------------------------- |
-| Grant messaging access  | [Installation registration](#installation-provisioning) |
+| Grant messaging access  | [Installation registration](#installation-registration) |
 | Revoke messaging access | [Installation revocation](#installation-revocation)     |
 
 ### Installation registration
