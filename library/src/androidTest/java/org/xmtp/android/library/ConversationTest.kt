@@ -824,18 +824,15 @@ class ConversationTest {
         val directMessageV1 = Topic.directMessageV1(validId, "sd").description
         val directMessageV2 = Topic.directMessageV2(validId).description
         val preferenceList = Topic.preferenceList(validId).description
-        val conversations = bobClient.conversations
 
         // check if validation of topics accepts all types
-        assertTrue(
-            conversations.isValidTopic(privateStore) &&
-                conversations.isValidTopic(contact) &&
-                conversations.isValidTopic(userIntro) &&
-                conversations.isValidTopic(userInvite) &&
-                conversations.isValidTopic(directMessageV1) &&
-                conversations.isValidTopic(directMessageV2) &&
-                conversations.isValidTopic(preferenceList),
-        )
+        assertTrue(Topic.isValidTopic(privateStore))
+        assertTrue(Topic.isValidTopic(contact))
+        assertTrue(Topic.isValidTopic(userIntro))
+        assertTrue(Topic.isValidTopic(userInvite))
+        assertTrue(Topic.isValidTopic(directMessageV1))
+        assertTrue(Topic.isValidTopic(directMessageV2))
+        assertTrue(Topic.isValidTopic(preferenceList))
     }
 
     @Test
@@ -852,15 +849,13 @@ class ConversationTest {
         val preferenceList = Topic.preferenceList(invalidId).description
         val conversations = bobClient.conversations
 
-        // check if validation of topics accepts all types
-        assertFalse(
-            conversations.isValidTopic(privateStore) &&
-                conversations.isValidTopic(contact) &&
-                conversations.isValidTopic(userIntro) &&
-                conversations.isValidTopic(userInvite) &&
-                conversations.isValidTopic(directMessageV1) &&
-                conversations.isValidTopic(directMessageV2) &&
-                conversations.isValidTopic(preferenceList),
-        )
+        // check if validation of topics no accept all types with invalid topic
+        assertFalse(Topic.isValidTopic(privateStore))
+        assertFalse(Topic.isValidTopic(contact))
+        assertFalse(Topic.isValidTopic(userIntro))
+        assertFalse(Topic.isValidTopic(userInvite))
+        assertFalse(Topic.isValidTopic(directMessageV1))
+        assertFalse(Topic.isValidTopic(directMessageV2))
+        assertFalse(Topic.isValidTopic(preferenceList))
     }
 }

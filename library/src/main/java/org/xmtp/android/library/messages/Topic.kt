@@ -21,10 +21,23 @@ sealed class Topic {
                     addresses.sort()
                     wrap("dm-${addresses.joinToString(separator = "-")}")
                 }
+
                 is directMessageV2 -> wrap("m-$addresses")
                 is preferenceList -> wrap("pppp-$identifier")
             }
         }
 
     private fun wrap(value: String): String = "/xmtp/0/$value/proto"
+
+    companion object {
+        fun isValidTopic(topic: String): Boolean {
+            val regex = Regex("^[\\x00-\\x7F]+$") // Use this regex to filter non ASCII chars
+            val index = topic.indexOf("0/")
+            if (index != -1) {
+                val unwrappedTopic = topic.substring(index + 2, topic.lastIndexOf("/proto"))
+                return unwrappedTopic.matches(regex)
+            }
+            return false
+        }
+    }
 }

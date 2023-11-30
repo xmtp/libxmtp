@@ -177,21 +177,11 @@ data class Conversations(
         }
 
         conversationsByTopic += newConversations.filter {
-            it.peerAddress != client.address && isValidTopic(it.topic)
+            it.peerAddress != client.address && Topic.isValidTopic(it.topic)
         }.map { Pair(it.topic, it) }
 
         // TODO(perf): use DB to persist + sort
         return conversationsByTopic.values.sortedByDescending { it.createdAt }
-    }
-
-    fun isValidTopic(topic: String): Boolean {
-        val regex = Regex("^[\\x00-\\x7F]+$")
-        val index = topic.indexOf("0/")
-        if (index != -1) {
-            val unwrappedTopic = topic.substring(index + 2, topic.lastIndexOf("/proto"))
-            return unwrappedTopic.matches(regex)
-        }
-        return false
     }
 
     fun importTopicData(data: TopicData): Conversation {
