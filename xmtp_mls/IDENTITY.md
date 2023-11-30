@@ -131,17 +131,24 @@ Clients must perform the following validation prior to publishing each payload o
 1. Remove nodes from the conversation that are not in the list of valid installations.
 1. Add nodes to the conversation that are in the list of valid installations and not already present.
 
-Clients must perform the following validation on receiving each payload in the group:
+XMTP clients may perform performance optimizations, such as caching installation lists with a short TTL.
+
+To support revocations (Q2+ 2024), clients must additionally perform the following validation on receiving each payload in the group:
 
 1. Query the server for identity updates on the sending wallet address and verify that the sending installation has not been revoked.
 
-XMTP clients may perform performance optimizations, such as caching installation lists with a short TTL.
+An open area of investigation is ensuring transcript consistency in the face of revoked clients. If the server can maintain a strict ordering between revocations and payloads in the conversation (especially commits performed by the revoked clients), then all participants can achieve consensus on whether a payload from the revoked client should be applied or not.
 
-An open area of investigation is ensuring transcript consistency in the face of revoked clients. If the server can maintain a strict ordering between revocations and payloads in the conversations (such as commits performed by the revoked clients), then all participants may apply the updates in a consistent way.
+### Server trust
 
-### Delivery service and server trust
+We currently rely on trust in centralized XMTP servers, which could do the following if malicious.
 
-Although registrations and revocations cannot be forged, we currently rely on trust in centralized XMTP servers not to maliciously hide installation registration and revocation payloads from clients that request them. Current decentralization efforts within XMTP will eventually produce a trustless public immutable record of registrations and revocations that does not rely on any single entity.
+1. **Selectively omit payloads**. A malicious server could hide registrations (and application messages) from valid installations in order to censor them, or revocations for invalid installations in order to prevent post-compromise recovery.
+   - Decentralization efforts within XMTP aim to produce an immutable log of these events (H1 2024).
+1. **Reorder payloads**. A malicious server could reorder messages and commits within a conversation.
+   - Decentralization efforts within XMTP aim to produce a consensus-driven ordering of commits at minimum (H2+ 2024).
+
+Note, however, that a malicious server is unable to forge payloads due to the use of digital signatures.
 
 ## Synchronizing MLS group membership
 
