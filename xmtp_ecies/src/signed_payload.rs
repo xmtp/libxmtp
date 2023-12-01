@@ -2,26 +2,24 @@ use libsecp256k1::{
     sign as secp_sign, Error as SecpError, Message, SecretKey, Signature as SecpSignature,
 };
 use prost::Message as ProstMessage;
+use xmtp_crypto::hashes::sha256;
 use xmtp_proto::xmtp::message_contents::{
-    ecies_message::Version as EciesVersion, signature::EcdsaCompact, signature::Union,
-    EciesMessage, Signature, SignedPayload,
+    private_preferences_payload::Version as PrivatePreferencesVersion, signature::EcdsaCompact,
+    signature::Union, Ciphertext, PrivatePreferencesPayload, Signature, SignedPayload,
 };
 
-use crate::{
-    ecies::{decrypt_bytes, encrypt_bytes},
-    hash::sha3_256,
-};
+use crate::encryption::encrypt_to_ciphertext;
 
 pub fn encrypt_message(
-    public_key: &[u8],  // secp256k1 public key
     private_key: &[u8], // secp256k1 private key
     message: &[u8],     // any byte array
 ) -> Result<Vec<u8>, String> {
     let signed_payload = build_signed_payload(private_key, message)?;
     let message_bytes = signed_payload.encode_to_vec();
-    let ciphertext = encrypt_bytes(public_key, &message_bytes)?;
-    let ecies_message = EciesMessage {
-        version: Some(EciesVersion::V1(ciphertext)),
+    // TODO: Figure out if we should include additonal data
+    let ciphertext = encrypt_to_ciphertext(private_key, &message_bytes, None)?;
+    let ecies_message = PrivatePreferencesPayload {
+        version: Some(PrivatePreferencesVersion::V1(ciphertext)),
     };
 
     Ok(ecies_message.encode_to_vec())
@@ -43,7 +41,7 @@ pub fn decrypt_message(
     let public_key = libsecp256k1::PublicKey::parse_slice(public_key, None)
         .map_err(|e| format!("error parsing public key: {:?}", e))?;
 
-    let message_hash = Message::parse_slice(sha3_256(message_bytes.as_slice()).as_slice())
+    let message_hash = Message::parse_slice(sha256(message_bytes.as_slice()).as_slice())
         .map_err(|e| format!("error parsing message: {:?}", e))?;
 
     let message_signature = match signed_payload.signature {
@@ -74,10 +72,11 @@ pub fn decrypt_message(
     Ok(message_bytes)
 }
 
-fn get_ciphertext(message: &[u8]) -> Result<Vec<u8>, String> {
-    let ecies_message = EciesMessage::decode(message).map_err(|e| format!("{:?}", e))?;
+fn get_ciphertext(message: &[u8]) -> Result<Ciphertext, String> {
+    let ecies_message =
+        PrivatePreferencesPayload::decode(message).map_err(|e| format!("{:?}", e))?;
     let ciphertext = match ecies_message.version {
-        Some(EciesVersion::V1(ciphertext)) => ciphertext,
+        Some(PrivatePreferencesVersion::V1(ciphertext)) => ciphertext,
         None => return Err("no ciphertext found".to_string()),
     };
 
@@ -94,7 +93,7 @@ fn build_signed_payload(private_key: &[u8], message: &[u8]) -> Result<SignedPayl
 
 fn sign(private_key: &[u8], message: &[u8]) -> Result<Signature, SecpError> {
     let sec = SecretKey::parse_slice(private_key)?;
-    let hash = sha3_256(message);
+    let hash = sha256(message);
     let msg = Message::parse_slice(hash.as_slice())?;
 
     let (sig, recovery) = secp_sign(&msg, &sec);
