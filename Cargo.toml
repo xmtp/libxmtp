@@ -9,7 +9,7 @@ members = [
   "xmtp_keystore",
   "xmtp_networking",
   "xmtp_proto",
-  "xmtp_ecies",
+  "xmtp_pppp",
 ]
 
 # Exclude since

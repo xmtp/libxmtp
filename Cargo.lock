@@ -5906,20 +5906,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "xmtp_ecies"
-version = "0.1.0"
-dependencies = [
- "base64 0.21.4",
- "hkdf",
- "libsecp256k1",
- "once_cell",
- "prost",
- "sha3 0.10.8",
- "xmtp_crypto",
- "xmtp_proto",
-]
-
-[[package]]
 name = "xmtp_keystore"
 version = "0.1.0"
 dependencies = [
@@ -5955,6 +5941,19 @@ dependencies = [
  "uuid 1.3.3",
  "webpki-roots 0.23.0",
  "xmtp",
+ "xmtp_proto",
+]
+
+[[package]]
+name = "xmtp_pppp"
+version = "0.1.0"
+dependencies = [
+ "base64 0.21.4",
+ "libsecp256k1",
+ "once_cell",
+ "prost",
+ "rand 0.8.5",
+ "xmtp_crypto",
  "xmtp_proto",
 ]
 
