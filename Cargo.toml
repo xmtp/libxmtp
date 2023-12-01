@@ -19,6 +19,6 @@ exclude = [
   "bindings_ffi",
   "bindings_js",
   "bindings_swift",
-  "ecies_bindings_wasm",
+  "pppp_bindings_wasm",
   "xmtp_dh",
 ]
