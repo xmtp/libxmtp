@@ -1,5 +1,5 @@
 [package]
-name = "ecies-bindings-wasm"
+name = "pppp-bindings-wasm"
 version = "0.1.0"
 authors = ["Nicholas Molnar <65710+neekolas@users.noreply.github.com>"]
 edition = "2018"

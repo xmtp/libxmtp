@@ -1,5 +1,5 @@
 {
-  "name": "@xmtp/ecies-bindings-wasm",
+  "name": "@xmtp/pppp-bindings-wasm",
   "collaborators": [
     "XMTP Engineering <eng@xmtp.com>"
   ],
@@ -18,9 +18,9 @@
   "files": [
     "./dist/**/*"
   ],
-  "main": "dist/node/ecies_bindings_wasm.js",
-  "types": "dist/browser/ecies_bindings_wasm.d.ts",
-  "browser": "dist/browser/ecies_bindings_wasm.js",
+  "main": "dist/node/pppp_bindings_wasm.js",
+  "types": "dist/browser/pppp_bindings_wasm.d.ts",
+  "browser": "dist/browser/pppp_bindings_wasm.js",
   "devDependencies": {
     "@changesets/cli": "^2.26.2",
     "wasm-pack": "^0.12.1"
