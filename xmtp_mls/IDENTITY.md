@@ -79,14 +79,17 @@ XMTP installations consist of a long-lived Ed25519 key-pair (the 'installation k
 
 ### Credential validation
 
-In XMTP there is no need for a centralized authentication service to validate credentials, nor for safety numbers to be shown in apps built on top of XMTP, as clients can locally validate that a credential is valid.
+Apps built on XMTP have a reduced need for safety numbers to be shown, as clients can locally validate that a credential is valid.
 
 Credential validation must be performed by clients at the [events described by the MLS spec](https://www.rfc-editor.org/rfc/rfc9420.html#name-credential-validation) as follows:
 
+1. Verify that the referenced `installation_public_key` has not been revoked (see [Installation revocation](#installation-revocation)).
 1. Verify that the referenced `installation_public_key` matches the `signature_key` of the leaf node.
 1. Derive the association text using the `association_text_version`, `creation_iso8601_time`, `installation_public_key`, with a label of `Grant Messaging Access`.
 1. Recover the wallet public key from the recoverable ECDSA `signature` on the association text.
 1. Derive the wallet address from the public key and verify that it matches the `wallet_address` on the association.
+
+Currently, verifying revocations require a degree of server trust, however this is not the long-term goal - see [Server trust](#server-trust).
 
 ### Installation revocation
 
@@ -115,16 +118,19 @@ Users may revoke an installation as follows:
    ```
 
 1. The app publishes the revocation to the server. The server will provide all identity updates (registrations and revocations) for a given wallet address to any client that requests it.
+1. The installation performing the revocation enumerates all known groups that it is a member of, and submits proposals to remove the revoked installation. Additional removals may also occur via the process described in [Installation synchronization](#installation-synchronization).
 
-Validation of revocations is identical to the process described in [Credential Validation](#credential-validation), except that a label of `Revoke Messaging Access` is used.
+Validation of revocation payloads is identical to the process described in [Credential Validation](#credential-validation), except that a label of `Revoke Messaging Access` is used.
 
 Once an installation is revoked, it cannot be re-registered or re-provisioned. The time displayed on the revocation is for informational purposes only.
+
+Revocations may not apply immediately on all groups. In order to ensure transcript consistency, payloads from revoked installations are considered valid if they were published before the installation was removed from the group.
 
 ### Installation synchronization
 
 At any time in the course of a conversation, the list of valid installations for the participating wallet addresses may change via registration or revocation.
 
-Clients must perform the following validation prior to publishing each payload on the group:
+Clients must perform the following validation prior to publishing each payload on the group, as well as periodically:
 
 1. Assemble a list of wallet addresses in the conversation from the leaf nodes.
 1. Fetch all identity updates on those wallet addresses.
@@ -133,10 +139,6 @@ Clients must perform the following validation prior to publishing each payload o
 1. Publish a commit to add nodes to the conversation that are in the list of valid installations and not already present.
 
 XMTP clients may perform performance optimizations, such as caching installation lists with a short TTL.
-
-To support revocations (Q2+ 2024), clients must additionally perform the following validation on receiving each payload in the group:
-
-1. Query the server for identity updates on the sending wallet address and verify that the sending installation has not been revoked.
 
 An open area of investigation is ensuring transcript consistency in the face of revoked clients. If the server can maintain a strict ordering between revocations and payloads in the conversation (especially commits performed by the revoked clients), then all participants can achieve consensus on whether a payload from the revoked client should be applied or not.
 
