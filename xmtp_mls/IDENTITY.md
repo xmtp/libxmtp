@@ -140,8 +140,6 @@ Clients must perform the following validation prior to publishing each payload o
 
 XMTP clients may perform performance optimizations, such as caching installation lists with a short TTL.
 
-An open area of investigation is ensuring transcript consistency in the face of revoked clients. If the server can maintain a strict ordering between revocations and payloads in the conversation (especially commits performed by the revoked clients), then all participants can achieve consensus on whether a payload from the revoked client should be applied or not.
-
 ### Server trust
 
 We currently rely on trust in centralized XMTP servers, which could do the following if malicious.
