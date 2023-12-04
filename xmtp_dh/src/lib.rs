@@ -26,22 +26,22 @@ impl std::fmt::Display for DiffieHellmanError {
 }
 
 #[derive(Debug)]
-pub enum EciesError {
+pub enum PPPPError {
     GenericError(String),
 }
 
-impl std::error::Error for EciesError {
+impl std::error::Error for PPPPError {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         match *self {
-            EciesError::GenericError(_) => None,
+            PPPPError::GenericError(_) => None,
         }
     }
 }
 
-impl std::fmt::Display for EciesError {
+impl std::fmt::Display for PPPPError {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         match *self {
-            EciesError::GenericError(ref message) => write!(f, "{}", message),
+            PPPPError::GenericError(ref message) => write!(f, "{}", message),
         }
     }
 }
@@ -89,17 +89,18 @@ pub fn verify_k256_sha256(
         message.as_slice(),
         signature.as_slice(),
         recovery_id,
-    ).map_err(VerifyError::GenericError)?;
+    )
+    .map_err(VerifyError::GenericError)?;
 
     Ok(result)
 }
 
-pub fn ecies_encrypt_k256_sha3_256(
+pub fn pppp_encrypt(
     public_key_bytes: Vec<u8>,
     private_key_bytes: Vec<u8>,
     message_bytes: Vec<u8>,
 ) -> Result<Vec<u8>, EciesError> {
-    let ciphertext = xmtp_ecies::signed_payload::encrypt_message(
+    let ciphertext = xmtp_pppp::encrypt_message(
         public_key_bytes.as_slice(),
         private_key_bytes.as_slice(),
         message_bytes.as_slice(),
@@ -109,12 +110,12 @@ pub fn ecies_encrypt_k256_sha3_256(
     Ok(ciphertext)
 }
 
-pub fn ecies_decrypt_k256_sha3_256(
+pub fn pppp_decrypt(
     public_key_bytes: Vec<u8>,
     private_key_bytes: Vec<u8>,
     message_bytes: Vec<u8>,
 ) -> Result<Vec<u8>, EciesError> {
-    let ciphertext = xmtp_ecies::signed_payload::decrypt_message(
+    let ciphertext = xmtp_pppp::decrypt_message(
         public_key_bytes.as_slice(),
         private_key_bytes.as_slice(),
         message_bytes.as_slice(),
@@ -127,6 +128,6 @@ pub fn ecies_decrypt_k256_sha3_256(
 pub fn generate_private_preferences_topic_identifier(
     private_key_bytes: Vec<u8>,
 ) -> Result<String, EciesError> {
-    xmtp_ecies::topic::generate_private_preferences_topic_identifier(private_key_bytes.as_slice())
+    xmtp_pppp::topic::generate_private_preferences_topic_identifier(private_key_bytes.as_slice())
         .map_err(|e| EciesError::GenericError(e))
 }
