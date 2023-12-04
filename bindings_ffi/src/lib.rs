@@ -9,8 +9,10 @@ use log::info;
 use logger::FfiLogger;
 use std::error::Error;
 use std::sync::Arc;
+use uniffi::FfiConverter;
 use xmtp_api_grpc::grpc_api_helper::Client as TonicApiClient;
 use xmtp_mls::groups::MlsGroup;
+use xmtp_mls::storage::group_message::{GroupMessageKind, StoredGroupMessage};
 use xmtp_mls::types::Address;
 use xmtp_mls::{
     builder::ClientBuilder,
@@ -33,7 +35,9 @@ pub enum GenericError {
 
 // impl From<String> for GenericError {
 //     fn from(err: String) -> Self {
-//         Self::Generic { err }
+//         Self::Generic {
+//             err: err.to_string(),
+//         }
 //     }
 // }
 //
@@ -43,10 +47,7 @@ pub enum GenericError {
 //     }
 // }
 
-impl<T> From<T> for GenericError
-where
-    T: Error,
-{
+impl<T: Error> From<T> for GenericError {
     fn from(error: T) -> Self {
         Self::Generic {
             err: stringify_error_chain(&error),
@@ -210,7 +211,7 @@ impl FfiGroup {
     ) -> Result<Vec<FfiMessage>, GenericError> {
         let group = MlsGroup::new(
             self.inner_client.as_ref(),
-            self.group_id,
+            self.group_id.clone(),
             self.created_at_ns,
         );
         group.sync().await?;
@@ -227,7 +228,7 @@ impl FfiGroup {
     pub async fn add_members(&self, account_addresses: Vec<String>) -> Result<(), GenericError> {
         let group = MlsGroup::new(
             self.inner_client.as_ref(),
-            self.group_id,
+            self.group_id.clone(),
             self.created_at_ns,
         );
 
@@ -239,7 +240,7 @@ impl FfiGroup {
     pub async fn remove_members(&self, account_addresses: Vec<String>) -> Result<(), GenericError> {
         let group = MlsGroup::new(
             self.inner_client.as_ref(),
-            self.group_id,
+            self.group_id.clone(),
             self.created_at_ns,
         );
 
@@ -258,21 +259,22 @@ impl FfiGroup {
 
 #[derive(uniffi::Record)]
 pub struct FfiMessage {
-    pub id: String,
+    pub id: Vec<u8>,
     pub sent_at_ns: i64,
-    pub convo_id: String,
+    pub convo_id: Vec<u8>,
     pub addr_from: String,
     pub content: Vec<u8>,
+    // TODO pub kind: GroupMessageKind,
 }
 
-impl From<StoredMessage> for FfiMessage {
-    fn from(msg: StoredMessage) -> Self {
+impl From<StoredGroupMessage> for FfiMessage {
+    fn from(msg: StoredGroupMessage) -> Self {
         Self {
-            id: msg.id.to_string(),
+            id: msg.id,
             sent_at_ns: msg.sent_at_ns,
-            convo_id: msg.convo_id,
-            addr_from: msg.addr_from,
-            content: msg.content,
+            convo_id: msg.group_id,
+            addr_from: msg.sender_wallet_address,
+            content: msg.decrypted_message_bytes,
         }
     }
 }
