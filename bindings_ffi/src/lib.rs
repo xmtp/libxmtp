@@ -281,13 +281,16 @@ impl From<StoredGroupMessage> for FfiMessage {
 
 #[cfg(test)]
 mod tests {
-    use std::sync::Arc;
+    use std::{env, sync::Arc};
 
     use crate::{
         create_client, inbox_owner::SigningError, logger::FfiLogger, static_enc_key, FfiInboxOwner,
         FfiListMessagesOptions, FfiXmtpClient,
     };
-    use rand::distributions::{Alphanumeric, DistString};
+    use ethers_core::rand::{
+        self,
+        distributions::{Alphanumeric, DistString},
+    };
     use xmtp_cryptography::{signature::RecoverableSignature, utils::rng};
     use xmtp_mls::InboxOwner;
 
@@ -372,7 +375,7 @@ mod tests {
         .await
         .unwrap();
 
-        let installation_id = client_a.inner_client.installation_id();
+        let installation_pub_key = client_a.inner_client.installation_public_key();
         drop(client_a);
 
         let client_b = create_client(
@@ -380,17 +383,17 @@ mod tests {
             Box::new(ffi_inbox_owner),
             xmtp_api_grpc::LOCALHOST_ADDRESS.to_string(),
             false,
-            Some(path.to_string_lossy().to_string()),
+            Some(path),
             None,
         )
         .await
         .unwrap();
 
-        let other_installation_id = client_b.inner_client.installation_id();
+        let other_installation_pub_key = client_b.inner_client.installation_public_key();
         drop(client_b);
 
         assert!(
-            installation_id == other_installation_id,
+            installation_pub_key == other_installation_pub_key,
             "did not use same installation ID"
         )
     }
@@ -408,7 +411,7 @@ mod tests {
             Box::new(ffi_inbox_owner.clone()),
             xmtp_api_grpc::LOCALHOST_ADDRESS.to_string(),
             false,
-            Some(path.to_string_lossy().to_string()),
+            Some(path),
             Some(key),
         )
         .await
@@ -424,7 +427,7 @@ mod tests {
             Box::new(ffi_inbox_owner),
             xmtp_api_grpc::LOCALHOST_ADDRESS.to_string(),
             false,
-            Some(path.to_string_lossy().to_string()),
+            Some(path),
             Some(other_key.to_vec()),
         )
         .await
