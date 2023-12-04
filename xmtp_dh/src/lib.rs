@@ -99,13 +99,13 @@ pub fn pppp_encrypt(
     public_key_bytes: Vec<u8>,
     private_key_bytes: Vec<u8>,
     message_bytes: Vec<u8>,
-) -> Result<Vec<u8>, EciesError> {
+) -> Result<Vec<u8>, PPPPError> {
     let ciphertext = xmtp_pppp::encrypt_message(
         public_key_bytes.as_slice(),
         private_key_bytes.as_slice(),
         message_bytes.as_slice(),
     )
-    .map_err(|e| EciesError::GenericError(e))?;
+    .map_err(|e| PPPPError::GenericError(e))?;
 
     Ok(ciphertext)
 }
@@ -114,20 +114,20 @@ pub fn pppp_decrypt(
     public_key_bytes: Vec<u8>,
     private_key_bytes: Vec<u8>,
     message_bytes: Vec<u8>,
-) -> Result<Vec<u8>, EciesError> {
+) -> Result<Vec<u8>, PPPPError> {
     let ciphertext = xmtp_pppp::decrypt_message(
         public_key_bytes.as_slice(),
         private_key_bytes.as_slice(),
         message_bytes.as_slice(),
     )
-    .map_err(|e| EciesError::GenericError(e))?;
+    .map_err(|e| PPPPError::GenericError(e))?;
 
     Ok(ciphertext)
 }
 
 pub fn generate_private_preferences_topic_identifier(
     private_key_bytes: Vec<u8>,
-) -> Result<String, EciesError> {
+) -> Result<String, PPPPError> {
     xmtp_pppp::topic::generate_private_preferences_topic_identifier(private_key_bytes.as_slice())
-        .map_err(|e| EciesError::GenericError(e))
+        .map_err(|e| PPPPError::GenericError(e))
 }

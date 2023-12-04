@@ -2382,11 +2382,11 @@ dependencies = [
  "uniffi",
  "uniffi_macros",
  "xmtp_crypto",
- "xmtp_ecies",
+ "xmtp_pppp",
 ]
 
 [[package]]
-name = "xmtp_ecies"
+name = "xmtp_pppp"
 version = "0.1.0"
 dependencies = [
  "base64 0.21.4",
