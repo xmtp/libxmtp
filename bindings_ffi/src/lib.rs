@@ -31,15 +31,26 @@ pub enum GenericError {
     Generic { err: String },
 }
 
-impl From<String> for GenericError {
-    fn from(err: String) -> Self {
-        Self::Generic { err }
-    }
-}
+// impl From<String> for GenericError {
+//     fn from(err: String) -> Self {
+//         Self::Generic { err }
+//     }
+// }
+//
+// impl From<uniffi::UnexpectedUniFFICallbackError> for GenericError {
+//     fn from(e: uniffi::UnexpectedUniFFICallbackError) -> Self {
+//         Self::Generic { err: e.reason }
+//     }
+// }
 
-impl From<uniffi::UnexpectedUniFFICallbackError> for GenericError {
-    fn from(e: uniffi::UnexpectedUniFFICallbackError) -> Self {
-        Self::Generic { err: e.reason }
+impl<T> From<T> for GenericError
+where
+    T: Error,
+{
+    fn from(error: T) -> Self {
+        Self::Generic {
+            err: stringify_error_chain(&error),
+        }
     }
 }
 
@@ -72,9 +83,7 @@ pub async fn create_client(
     init_logger(logger);
 
     let inbox_owner = RustInboxOwner::new(ffi_inbox_owner);
-    let api_client = TonicApiClient::create(host.clone(), is_secure)
-        .await
-        .map_err(|e| stringify_error_chain(&e))?;
+    let api_client = TonicApiClient::create(host.clone(), is_secure).await?;
 
     let key: EncryptionKey = match encryption_key {
         Some(key) => key.try_into().unwrap(),
@@ -91,23 +100,16 @@ pub async fn create_client(
             info!("Using ephemeral store");
             EncryptedMessageStore::new(StorageOption::Ephemeral, key)
         }
-    }
-    .map_err(|e| stringify_error_chain(&e))?;
+    }?;
 
     let mut xmtp_client: RustXmtpClient = ClientBuilder::new(inbox_owner.into())
         .api_client(api_client)
         .store(store)
-        .build()
-        .map_err(|e| stringify_error_chain(&e))?;
-
-    xmtp_client
-        .init()
-        .await
-        .map_err(|e| stringify_error_chain(&e))?;
+        .build()?;
 
     info!(
         "Created XMTP client for address: {}",
-        xmtp_client.wallet_address()
+        xmtp_client.account_address()
     );
     Ok(Arc::new(FfiXmtpClient {
         inner_client: Arc::new(xmtp_client),
@@ -142,25 +144,24 @@ impl FfiConversations {
     pub async fn create_group(
         &self,
         account_address: String,
-    ) -> Result<Arc<FfiConversation>, GenericError> {
+    ) -> Result<Arc<FfiGroup>, GenericError> {
         let convo = self.inner_client.create_group()?;
 
-        let out = Arc::new(FfiConversation {
+        let out = Arc::new(FfiGroup {
             inner_client: self.inner_client.clone(),
-            id: convo.convo_id(),
-            peer_address: convo.peer_address(),
+            group_id: convo.group_id,
+            created_at_ns: convo.created_at_ns,
         });
 
         Ok(out)
     }
 
-    pub async fn list(&self) -> Result<Vec<Arc<FfiConversation>>, GenericError> {
+    pub async fn list(&self) -> Result<Vec<Arc<FfiGroup>>, GenericError> {
         let inner = self.inner_client.as_ref();
-        inner.sync_welcomes().await.map_err(|e| e.to_string())?;
+        inner.sync_welcomes().await?;
 
-        let convo_list: Vec<Arc<FfiConversation>> = inner
-            .find_groups(None, None, None, None)
-            .map_err(|e| e.to_string())?
+        let convo_list: Vec<Arc<FfiGroup>> = inner
+            .find_groups(None, None, None, None)?
             .into_iter()
             .map(|group| {
                 Arc::new(FfiGroup {
@@ -194,14 +195,11 @@ impl FfiGroup {
     pub async fn send(&self, content_bytes: Vec<u8>) -> Result<(), GenericError> {
         let group = MlsGroup::new(
             self.inner_client.as_ref(),
-            self.group_id,
+            self.group_id.clone(),
             self.created_at_ns,
         );
 
-        group
-            .send_message(content_bytes.as_slice())
-            .await
-            .map_err(|e| e.to_string())?;
+        group.send_message(content_bytes.as_slice()).await?;
 
         Ok(())
     }
@@ -215,11 +213,10 @@ impl FfiGroup {
             self.group_id,
             self.created_at_ns,
         );
-        group.sync().await.map_err(|e| e.to_string())?;
+        group.sync().await?;
 
         let messages: Vec<FfiMessage> = group
-            .find_messages(None, opts.sent_before_ns, opts.sent_after_ns, opts.limit)
-            .map_err(|e| e.to_string())?
+            .find_messages(None, opts.sent_before_ns, opts.sent_after_ns, opts.limit)?
             .into_iter()
             .map(|msg| msg.into())
             .collect();
@@ -234,10 +231,7 @@ impl FfiGroup {
             self.created_at_ns,
         );
 
-        group
-            .add_members(account_addresses)
-            .await
-            .map_err(|e| e.to_string())?;
+        group.add_members(account_addresses).await?;
 
         Ok(())
     }
@@ -249,19 +243,16 @@ impl FfiGroup {
             self.created_at_ns,
         );
 
-        group
-            .remove_members(account_addresses)
-            .await
-            .map_err(|e| e.to_string())?;
+        group.remove_members(account_addresses).await?;
 
         Ok(())
     }
 }
 
 #[uniffi::export]
-impl FfiConversation {
-    pub fn id(&self) -> String {
-        self.id.clone()
+impl FfiGroup {
+    pub fn id(&self) -> Vec<u8> {
+        self.group_id.clone()
     }
 }
 
