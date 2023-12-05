@@ -103,12 +103,12 @@ impl serde::Serialize for add_members_data::V1 {
     {
         use serde::ser::SerializeStruct;
         let mut len = 0;
-        if !self.key_packages_bytes.is_empty() {
+        if !self.wallet_addresses.is_empty() {
             len += 1;
         }
         let mut struct_ser = serializer.serialize_struct("xmtp.mls.database.AddMembersData.V1", len)?;
-        if !self.key_packages_bytes.is_empty() {
-            struct_ser.serialize_field("keyPackagesBytes", &self.key_packages_bytes.iter().map(pbjson::private::base64::encode).collect::<Vec<_>>())?;
+        if !self.wallet_addresses.is_empty() {
+            struct_ser.serialize_field("walletAddresses", &self.wallet_addresses.iter().map(pbjson::private::base64::encode).collect::<Vec<_>>())?;
         }
         struct_ser.end()
     }
@@ -120,13 +120,13 @@ impl<'de> serde::Deserialize<'de> for add_members_data::V1 {
         D: serde::Deserializer<'de>,
     {
         const FIELDS: &[&str] = &[
-            "key_packages_bytes",
-            "keyPackagesBytes",
+            "wallet_addresses",
+            "walletAddresses",
         ];
 
         #[allow(clippy::enum_variant_names)]
         enum GeneratedField {
-            KeyPackagesBytes,
+            WalletAddresses,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
             fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
@@ -148,7 +148,7 @@ impl<'de> serde::Deserialize<'de> for add_members_data::V1 {
                         E: serde::de::Error,
                     {
                         match value {
-                            "keyPackagesBytes" | "key_packages_bytes" => Ok(GeneratedField::KeyPackagesBytes),
+                            "walletAddresses" | "wallet_addresses" => Ok(GeneratedField::WalletAddresses),
                             _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
                         }
                     }
@@ -168,14 +168,14 @@ impl<'de> serde::Deserialize<'de> for add_members_data::V1 {
                 where
                     V: serde::de::MapAccess<'de>,
             {
-                let mut key_packages_bytes__ = None;
+                let mut wallet_addresses__ = None;
                 while let Some(k) = map.next_key()? {
                     match k {
-                        GeneratedField::KeyPackagesBytes => {
-                            if key_packages_bytes__.is_some() {
-                                return Err(serde::de::Error::duplicate_field("keyPackagesBytes"));
+                        GeneratedField::WalletAddresses => {
+                            if wallet_addresses__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("walletAddresses"));
                             }
-                            key_packages_bytes__ = 
+                            wallet_addresses__ = 
                                 Some(map.next_value::<Vec<::pbjson::private::BytesDeserialize<_>>>()?
                                     .into_iter().map(|x| x.0).collect())
                             ;
@@ -183,7 +183,7 @@ impl<'de> serde::Deserialize<'de> for add_members_data::V1 {
                     }
                 }
                 Ok(add_members_data::V1 {
-                    key_packages_bytes: key_packages_bytes__.unwrap_or_default(),
+                    wallet_addresses: wallet_addresses__.unwrap_or_default(),
                 })
             }
         }

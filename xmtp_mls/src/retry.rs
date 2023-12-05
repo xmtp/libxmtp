@@ -226,7 +226,7 @@ macro_rules! retry_async {
         let mut attempts = 0;
         loop {
             #[allow(clippy::redundant_closure_call)]
-            match $code().await {
+            match $code.await {
                 Ok(v) => break Ok(v),
                 Err(e) => {
                     if (&e).is_retryable() && attempts < $retry.retries() {
@@ -373,8 +373,33 @@ mod tests {
         for i in 0..3 {
             tx.send(i).unwrap();
         }
-        let test_future = || async { retryable_async_fn(&rx.clone()).await };
-        retry_async!(Retry::default(), test_future).unwrap();
+        retry_async!(
+            Retry::default(),
+            (async { retryable_async_fn(&rx.clone()).await })
+        )
+        .unwrap();
         assert!(rx.is_empty());
+    }
+
+    #[tokio::test]
+    async fn it_works_async_mut() {
+        crate::tests::setup();
+
+        async fn retryable_async_fn(data: &mut usize) -> Result<(), SomeError> {
+            if *data == 2 {
+                return Ok(());
+            }
+            *data += 1;
+            // do some work
+            tokio::time::sleep(std::time::Duration::from_nanos(100)).await;
+            Err(SomeError::ARetryableError)
+        }
+
+        let mut data: usize = 0;
+        retry_async!(
+            Retry::default(),
+            (async { retryable_async_fn(&mut data).await })
+        )
+        .unwrap();
     }
 }

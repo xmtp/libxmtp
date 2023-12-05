@@ -387,7 +387,7 @@ impl<'de> serde::Deserialize<'de> for EncodedContent {
         deserializer.deserialize_struct("xmtp.mls.message_contents.EncodedContent", FIELDS, GeneratedVisitor)
     }
 }
-impl serde::Serialize for GroupMembershipChange {
+impl serde::Serialize for GroupMembershipChanges {
     #[allow(deprecated)]
     fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
     where
@@ -407,7 +407,7 @@ impl serde::Serialize for GroupMembershipChange {
         if !self.installations_removed.is_empty() {
             len += 1;
         }
-        let mut struct_ser = serializer.serialize_struct("xmtp.mls.message_contents.GroupMembershipChange", len)?;
+        let mut struct_ser = serializer.serialize_struct("xmtp.mls.message_contents.GroupMembershipChanges", len)?;
         if !self.members_added.is_empty() {
             struct_ser.serialize_field("membersAdded", &self.members_added)?;
         }
@@ -423,7 +423,7 @@ impl serde::Serialize for GroupMembershipChange {
         struct_ser.end()
     }
 }
-impl<'de> serde::Deserialize<'de> for GroupMembershipChange {
+impl<'de> serde::Deserialize<'de> for GroupMembershipChanges {
     #[allow(deprecated)]
     fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
     where
@@ -480,13 +480,13 @@ impl<'de> serde::Deserialize<'de> for GroupMembershipChange {
         }
         struct GeneratedVisitor;
         impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
-            type Value = GroupMembershipChange;
+            type Value = GroupMembershipChanges;
 
             fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-                formatter.write_str("struct xmtp.mls.message_contents.GroupMembershipChange")
+                formatter.write_str("struct xmtp.mls.message_contents.GroupMembershipChanges")
             }
 
-            fn visit_map<V>(self, mut map: V) -> std::result::Result<GroupMembershipChange, V::Error>
+            fn visit_map<V>(self, mut map: V) -> std::result::Result<GroupMembershipChanges, V::Error>
                 where
                     V: serde::de::MapAccess<'de>,
             {
@@ -522,7 +522,7 @@ impl<'de> serde::Deserialize<'de> for GroupMembershipChange {
                         }
                     }
                 }
-                Ok(GroupMembershipChange {
+                Ok(GroupMembershipChanges {
                     members_added: members_added__.unwrap_or_default(),
                     members_removed: members_removed__.unwrap_or_default(),
                     installations_added: installations_added__.unwrap_or_default(),
@@ -530,7 +530,7 @@ impl<'de> serde::Deserialize<'de> for GroupMembershipChange {
                 })
             }
         }
-        deserializer.deserialize_struct("xmtp.mls.message_contents.GroupMembershipChange", FIELDS, GeneratedVisitor)
+        deserializer.deserialize_struct("xmtp.mls.message_contents.GroupMembershipChanges", FIELDS, GeneratedVisitor)
     }
 }
 impl serde::Serialize for GroupMessage {
@@ -723,7 +723,7 @@ impl<'de> serde::Deserialize<'de> for group_message::V1 {
         deserializer.deserialize_struct("xmtp.mls.message_contents.GroupMessage.V1", FIELDS, GeneratedVisitor)
     }
 }
-impl serde::Serialize for Member {
+impl serde::Serialize for MembershipChange {
     #[allow(deprecated)]
     fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
     where
@@ -734,20 +734,26 @@ impl serde::Serialize for Member {
         if !self.installation_ids.is_empty() {
             len += 1;
         }
-        if !self.wallet_address.is_empty() {
+        if !self.account_address.is_empty() {
             len += 1;
         }
-        let mut struct_ser = serializer.serialize_struct("xmtp.mls.message_contents.Member", len)?;
+        if !self.initiated_by_account_address.is_empty() {
+            len += 1;
+        }
+        let mut struct_ser = serializer.serialize_struct("xmtp.mls.message_contents.MembershipChange", len)?;
         if !self.installation_ids.is_empty() {
             struct_ser.serialize_field("installationIds", &self.installation_ids.iter().map(pbjson::private::base64::encode).collect::<Vec<_>>())?;
         }
-        if !self.wallet_address.is_empty() {
-            struct_ser.serialize_field("walletAddress", &self.wallet_address)?;
+        if !self.account_address.is_empty() {
+            struct_ser.serialize_field("accountAddress", &self.account_address)?;
+        }
+        if !self.initiated_by_account_address.is_empty() {
+            struct_ser.serialize_field("initiatedByAccountAddress", &self.initiated_by_account_address)?;
         }
         struct_ser.end()
     }
 }
-impl<'de> serde::Deserialize<'de> for Member {
+impl<'de> serde::Deserialize<'de> for MembershipChange {
     #[allow(deprecated)]
     fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
     where
@@ -756,14 +762,17 @@ impl<'de> serde::Deserialize<'de> for Member {
         const FIELDS: &[&str] = &[
             "installation_ids",
             "installationIds",
-            "wallet_address",
-            "walletAddress",
+            "account_address",
+            "accountAddress",
+            "initiated_by_account_address",
+            "initiatedByAccountAddress",
         ];
 
         #[allow(clippy::enum_variant_names)]
         enum GeneratedField {
             InstallationIds,
-            WalletAddress,
+            AccountAddress,
+            InitiatedByAccountAddress,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
             fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
@@ -786,7 +795,8 @@ impl<'de> serde::Deserialize<'de> for Member {
                     {
                         match value {
                             "installationIds" | "installation_ids" => Ok(GeneratedField::InstallationIds),
-                            "walletAddress" | "wallet_address" => Ok(GeneratedField::WalletAddress),
+                            "accountAddress" | "account_address" => Ok(GeneratedField::AccountAddress),
+                            "initiatedByAccountAddress" | "initiated_by_account_address" => Ok(GeneratedField::InitiatedByAccountAddress),
                             _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
                         }
                     }
@@ -796,18 +806,19 @@ impl<'de> serde::Deserialize<'de> for Member {
         }
         struct GeneratedVisitor;
         impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
-            type Value = Member;
+            type Value = MembershipChange;
 
             fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-                formatter.write_str("struct xmtp.mls.message_contents.Member")
+                formatter.write_str("struct xmtp.mls.message_contents.MembershipChange")
             }
 
-            fn visit_map<V>(self, mut map: V) -> std::result::Result<Member, V::Error>
+            fn visit_map<V>(self, mut map: V) -> std::result::Result<MembershipChange, V::Error>
                 where
                     V: serde::de::MapAccess<'de>,
             {
                 let mut installation_ids__ = None;
-                let mut wallet_address__ = None;
+                let mut account_address__ = None;
+                let mut initiated_by_account_address__ = None;
                 while let Some(k) = map.next_key()? {
                     match k {
                         GeneratedField::InstallationIds => {
@@ -819,21 +830,28 @@ impl<'de> serde::Deserialize<'de> for Member {
                                     .into_iter().map(|x| x.0).collect())
                             ;
                         }
-                        GeneratedField::WalletAddress => {
-                            if wallet_address__.is_some() {
-                                return Err(serde::de::Error::duplicate_field("walletAddress"));
+                        GeneratedField::AccountAddress => {
+                            if account_address__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("accountAddress"));
                             }
-                            wallet_address__ = Some(map.next_value()?);
+                            account_address__ = Some(map.next_value()?);
+                        }
+                        GeneratedField::InitiatedByAccountAddress => {
+                            if initiated_by_account_address__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("initiatedByAccountAddress"));
+                            }
+                            initiated_by_account_address__ = Some(map.next_value()?);
                         }
                     }
                 }
-                Ok(Member {
+                Ok(MembershipChange {
                     installation_ids: installation_ids__.unwrap_or_default(),
-                    wallet_address: wallet_address__.unwrap_or_default(),
+                    account_address: account_address__.unwrap_or_default(),
+                    initiated_by_account_address: initiated_by_account_address__.unwrap_or_default(),
                 })
             }
         }
-        deserializer.deserialize_struct("xmtp.mls.message_contents.Member", FIELDS, GeneratedVisitor)
+        deserializer.deserialize_struct("xmtp.mls.message_contents.MembershipChange", FIELDS, GeneratedVisitor)
     }
 }
 impl serde::Serialize for WelcomeMessage {

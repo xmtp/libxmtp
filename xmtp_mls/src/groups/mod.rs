@@ -1,7 +1,6 @@
 mod intents;
 mod members;
 use intents::SendMessageIntentData;
-#[cfg(not(test))]
 use log::debug;
 use openmls::{
     framing::ProtocolMessage,
@@ -15,8 +14,6 @@ use openmls::{
 };
 use openmls_traits::OpenMlsProvider;
 use std::mem::discriminant;
-#[cfg(test)]
-use std::println as debug;
 use thiserror::Error;
 use tls_codec::{Deserialize, Serialize};
 use xmtp_proto::api_client::{Envelope, XmtpApiClient, XmtpMlsClient};
@@ -30,7 +27,7 @@ use crate::{
     identity::Identity,
     retry,
     retry::{Retry, RetryableError},
-    retryable,
+    retry_async, retryable,
     storage::{
         db_connection::DbConnection,
         group::{GroupMembershipState, StoredGroup},
@@ -429,11 +426,7 @@ where
 
     pub async fn add_members(&self, wallet_addresses: Vec<String>) -> Result<(), GroupError> {
         let conn = &mut self.client.store.conn()?;
-        let key_packages = self
-            .client
-            .get_key_packages_for_wallet_addresses(wallet_addresses)
-            .await?;
-        let intent_data: Vec<u8> = AddMembersIntentData::new(key_packages).try_into()?;
+        let intent_data: Vec<u8> = AddMembersIntentData::new(wallet_addresses).try_into()?;
         let intent =
             NewGroupIntent::new(IntentKind::AddMembers, self.group_id.clone(), intent_data);
         intent.store(conn)?;
@@ -443,19 +436,10 @@ where
 
     pub async fn add_members_by_installation_id(
         &self,
-        installation_ids: Vec<Vec<u8>>,
+        _installation_ids: Vec<Vec<u8>>,
     ) -> Result<(), GroupError> {
-        let conn = &mut self.client.store.conn()?;
-        let key_packages = self
-            .client
-            .get_key_packages_for_installation_ids(installation_ids)
-            .await?;
-        let intent_data: Vec<u8> = AddMembersIntentData::new(key_packages).try_into()?;
-        let intent =
-            NewGroupIntent::new(IntentKind::AddMembers, self.group_id.clone(), intent_data);
-        intent.store(conn)?;
-
-        self.sync_with_conn(conn).await
+        // remove
+        unimplemented!()
     }
 
     pub(crate) async fn remove_members_by_installation_id(
@@ -525,9 +509,12 @@ where
         )?;
 
         for intent in intents {
-            let result = retry!(
+            let result = retry_async!(
                 Retry::default(),
-                (|| self.get_publish_intent_data(&provider, &mut openmls_group, &intent))
+                (async {
+                    self.get_publish_intent_data(&provider, &mut openmls_group, &intent)
+                        .await
+                })
             );
             if let Err(e) = result {
                 log::error!("error getting publish intent data {:?}", e);
@@ -556,9 +543,9 @@ where
     }
 
     // Takes a StoredGroupIntent and returns the payload and post commit data as a tuple
-    fn get_publish_intent_data(
+    async fn get_publish_intent_data(
         &self,
-        provider: &XmtpOpenMlsProvider,
+        provider: &XmtpOpenMlsProvider<'_>,
         openmls_group: &mut OpenMlsGroup,
         intent: &StoredGroupIntent,
     ) -> Result<(Vec<u8>, Option<Vec<u8>>), GroupError> {
@@ -577,30 +564,30 @@ where
                 Ok((msg_bytes, None))
             }
             IntentKind::AddMembers => {
-                let intent_data =
-                    AddMembersIntentData::from_bytes(intent.data.as_slice(), provider)?;
+                let intent_data = AddMembersIntentData::from_bytes(intent.data.as_slice())?;
 
-                let key_packages: Vec<KeyPackage> = intent_data
-                    .key_packages
-                    .iter()
-                    .map(|kp| kp.inner.clone())
-                    .collect();
+                let key_packages = self
+                    .client
+                    .get_key_packages_for_wallet_addresses(intent_data.wallet_addresses)
+                    .await?;
+
+                log::debug!("KEY PACKAGES: {:?}", key_packages);
+
+                let mls_key_packages: Vec<KeyPackage> =
+                    key_packages.iter().map(|kp| kp.inner.clone()).collect();
 
                 let (commit, welcome, _group_info) = openmls_group.add_members(
                     provider,
                     &self.client.identity.installation_keys,
-                    key_packages.as_slice(),
+                    mls_key_packages.as_slice(),
                 )?;
 
                 let commit_bytes = commit.tls_serialize_detached()?;
 
                 // If somehow another installation has made it into the commit, this will be missing
                 // their installation ID
-                let installation_ids: Vec<Vec<u8>> = intent_data
-                    .key_packages
-                    .iter()
-                    .map(|kp| kp.installation_id())
-                    .collect();
+                let installation_ids: Vec<Vec<u8>> =
+                    key_packages.iter().map(|kp| kp.installation_id()).collect();
 
                 let post_commit_data =
                     Some(PostCommitAction::from_welcome(welcome, installation_ids)?.to_bytes());
@@ -811,16 +798,15 @@ mod tests {
 
     #[tokio::test]
     async fn test_add_members() {
+        crate::tests::setup();
+
         let client = ClientBuilder::new_test_client(generate_local_wallet().into()).await;
         let client_2 = ClientBuilder::new_test_client(generate_local_wallet().into()).await;
         client_2.register_identity().await.unwrap();
         let group = client.create_group().expect("create group");
 
         group
-            .add_members_by_installation_id(vec![client_2
-                .identity
-                .installation_keys
-                .to_public_vec()])
+            .add_members(vec![client_2.account_address()])
             .await
             .unwrap();
 
