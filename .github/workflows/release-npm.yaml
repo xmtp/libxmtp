@@ -36,7 +36,7 @@ jobs:
           node-version: 18.14.0
 
       - name: Install dependencies
-        working-directory: ./ecies_bindings_wasm
+        working-directory: ./user_preferences_bindings_wasm
         run: npm i
 
       - name: Publish
@@ -45,7 +45,7 @@ jobs:
           title: "release: version packages"
           commit: "release: version packages"
           publish: npm publish
-          cwd: ./ecies_bindings_wasm
+          cwd: ./user_preferences_bindings_wasm
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
