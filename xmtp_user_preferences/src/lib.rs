@@ -15,11 +15,11 @@ pub fn encrypt_message(
     message: &[u8],     // any byte array
 ) -> Result<Vec<u8>, String> {
     let ciphertext = encrypt_to_ciphertext(private_key, message, public_key)?;
-    let pppp_message = PrivatePreferencesPayload {
+    let user_preferences_message = PrivatePreferencesPayload {
         version: Some(PrivatePreferencesVersion::V1(ciphertext)),
     };
 
-    Ok(pppp_message.encode_to_vec())
+    Ok(user_preferences_message.encode_to_vec())
 }
 
 pub fn decrypt_message(

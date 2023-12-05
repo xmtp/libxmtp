@@ -1,5 +1,5 @@
 [package]
-name = "pppp-bindings-wasm"
+name = "user_preferences-bindings-wasm"
 version = "0.1.0"
 authors = ["Nicholas Molnar <65710+neekolas@users.noreply.github.com>"]
 edition = "2018"
@@ -18,7 +18,7 @@ wasm-bindgen = { version = "0.2.84", default-features = false }
 # all the `std::fmt` and `std::panicking` infrastructure, so isn't great for
 # code size when deploying.
 console_error_panic_hook = { version = "0.1.7", optional = true }
-xmtp_pppp = { path = "../xmtp_pppp" }
+xmtp_user_preferences = { path = "../xmtp_user_preferences" }
 
 [dev-dependencies]
 wasm-bindgen-test = "0.3.34"

@@ -29,7 +29,7 @@ uniffi = { git = "https://github.com/mozilla/uniffi-rs", rev = "755049ebaa967fdf
 ] }
 uniffi_macros = { git = "https://github.com/mozilla/uniffi-rs", rev = "755049ebaa967fdfbb192d5b9c111353a7fee99f" }
 xmtp_crypto = { path = "../xmtp_crypto" }
-xmtp_pppp = { path = "../xmtp_pppp" }
+xmtp_user_preferences = { path = "../xmtp_user_preferences" }
 
 [build_dependencies]
 uniffi = { git = "https://github.com/mozilla/uniffi-rs", rev = "755049ebaa967fdfbb192d5b9c111353a7fee99f", features = [

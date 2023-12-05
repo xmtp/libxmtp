@@ -1,12 +1,12 @@
 mod utils;
 
 use wasm_bindgen::prelude::*;
-use xmtp_pppp::{
+use xmtp_user_preferences::{
     decrypt_message, encrypt_message, topic::generate_private_preferences_topic_identifier,
 };
 
 #[wasm_bindgen]
-pub fn pppp_encrypt(
+pub fn user_preferences_encrypt(
     private_key: Vec<u8>,
     message: Vec<u8>,
     topic: String,
@@ -17,7 +17,7 @@ pub fn pppp_encrypt(
 }
 
 #[wasm_bindgen]
-pub fn pppp_decrypt(
+pub fn user_preferences_decrypt(
     private_key: Vec<u8>,
     message: Vec<u8>,
     topic: String,

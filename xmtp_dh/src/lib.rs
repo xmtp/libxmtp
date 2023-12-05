@@ -26,22 +26,22 @@ impl std::fmt::Display for DiffieHellmanError {
 }
 
 #[derive(Debug)]
-pub enum PPPPError {
+pub enum UserPreferencesError {
     GenericError(String),
 }
 
-impl std::error::Error for PPPPError {
+impl std::error::Error for UserPreferencesError {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         match *self {
-            PPPPError::GenericError(_) => None,
+            UserPreferencesError::GenericError(_) => None,
         }
     }
 }
 
-impl std::fmt::Display for PPPPError {
+impl std::fmt::Display for UserPreferencesError {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         match *self {
-            PPPPError::GenericError(ref message) => write!(f, "{}", message),
+            UserPreferencesError::GenericError(ref message) => write!(f, "{}", message),
         }
     }
 }
@@ -95,39 +95,39 @@ pub fn verify_k256_sha256(
     Ok(result)
 }
 
-pub fn pppp_encrypt(
+pub fn user_preferences_encrypt(
     public_key_bytes: Vec<u8>,
     private_key_bytes: Vec<u8>,
     message_bytes: Vec<u8>,
-) -> Result<Vec<u8>, PPPPError> {
-    let ciphertext = xmtp_pppp::encrypt_message(
+) -> Result<Vec<u8>, UserPreferencesError> {
+    let ciphertext = xmtp_user_preferences::encrypt_message(
         public_key_bytes.as_slice(),
         private_key_bytes.as_slice(),
         message_bytes.as_slice(),
     )
-    .map_err(|e| PPPPError::GenericError(e))?;
+    .map_err(|e| UserPreferencesError::GenericError(e))?;
 
     Ok(ciphertext)
 }
 
-pub fn pppp_decrypt(
+pub fn user_preferences_decrypt(
     public_key_bytes: Vec<u8>,
     private_key_bytes: Vec<u8>,
     message_bytes: Vec<u8>,
-) -> Result<Vec<u8>, PPPPError> {
-    let ciphertext = xmtp_pppp::decrypt_message(
+) -> Result<Vec<u8>, UserPreferencesError> {
+    let ciphertext = xmtp_user_preferences::decrypt_message(
         public_key_bytes.as_slice(),
         private_key_bytes.as_slice(),
         message_bytes.as_slice(),
     )
-    .map_err(|e| PPPPError::GenericError(e))?;
+    .map_err(|e| UserPreferencesError::GenericError(e))?;
 
     Ok(ciphertext)
 }
 
 pub fn generate_private_preferences_topic_identifier(
     private_key_bytes: Vec<u8>,
-) -> Result<String, PPPPError> {
-    xmtp_pppp::topic::generate_private_preferences_topic_identifier(private_key_bytes.as_slice())
-        .map_err(|e| PPPPError::GenericError(e))
+) -> Result<String, UserPreferencesError> {
+    xmtp_user_preferences::topic::generate_private_preferences_topic_identifier(private_key_bytes.as_slice())
+        .map_err(|e| UserPreferencesError::GenericError(e))
 }

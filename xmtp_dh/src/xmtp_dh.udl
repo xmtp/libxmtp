@@ -4,7 +4,7 @@ enum DiffieHellmanError {
 };
 
 [Error]
-enum PPPPError {
+enum UserPreferencesError {
   "GenericError",
 };
 
@@ -18,11 +18,11 @@ namespace xmtp_dh {
     // is released in uniffi crate
     [Throws=DiffieHellmanError]
     sequence<u8> diffie_hellman_k256(sequence<u8> private_key_bytes, sequence<u8> public_key_bytes);
-    [Throws=PPPPError]
-    sequence<u8> pppp_encrypt(sequence<u8> public_key_bytes, sequence<u8> private_key_bytes, sequence<u8> message_bytes);
-    [Throws=PPPPError]
-    sequence<u8> pppp_decrypt(sequence<u8> public_key_bytes, sequence<u8> private_key_bytes, sequence<u8> message_bytes);
-    [Throws=PPPPError]
+    [Throws=UserPreferencesError]
+    sequence<u8> user_preferences_encrypt(sequence<u8> public_key_bytes, sequence<u8> private_key_bytes, sequence<u8> message_bytes);
+    [Throws=UserPreferencesError]
+    sequence<u8> user_preferences_decrypt(sequence<u8> public_key_bytes, sequence<u8> private_key_bytes, sequence<u8> message_bytes);
+    [Throws=UserPreferencesError]
     string generate_private_preferences_topic_identifier(sequence<u8> private_key_bytes);
     [Throws=VerifyError]
     boolean verify_k256_sha256(sequence<u8> signed_by, sequence<u8> message, sequence<u8> signature, u8 recovery_id);

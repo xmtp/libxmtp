@@ -50,12 +50,12 @@ mod ffi {
             message: Vec<u8>,
             signature: Vec<u8>,
         ) -> Result<Vec<u8>, String>;
-        fn pppp_encrypt(
+        fn user_preferences_encrypt(
             public_key: Vec<u8>,
             private_key: Vec<u8>,
             message: Vec<u8>,
         ) -> Result<Vec<u8>, String>;
-        fn pppp_decrypt(
+        fn user_preferences_decrypt(
             public_key: Vec<u8>,
             private_key: Vec<u8>,
             message: Vec<u8>,
@@ -209,12 +209,12 @@ fn recover_public_key_k256_keccak256(
         .map_err(|e| format!("RecoverError k256_keccak256: {}", e))
 }
 
-fn pppp_encrypt(
+fn user_preferences_encrypt(
     public_key: Vec<u8>,
     private_key: Vec<u8>,
     message: Vec<u8>,
 ) -> Result<Vec<u8>, String> {
-    let ciphertext = xmtp_pppp::encrypt_message(
+    let ciphertext = xmtp_user_preferences::encrypt_message(
         public_key.as_slice(),
         private_key.as_slice(),
         message.as_slice(),
@@ -223,12 +223,12 @@ fn pppp_encrypt(
     Ok(ciphertext)
 }
 
-fn pppp_decrypt(
+fn user_preferences_decrypt(
     public_key: Vec<u8>,
     private_key: Vec<u8>,
     message: Vec<u8>,
 ) -> Result<Vec<u8>, String> {
-    let ciphertext = xmtp_pppp::decrypt_message(
+    let ciphertext = xmtp_user_preferences::decrypt_message(
         public_key.as_slice(),
         private_key.as_slice(),
         message.as_slice(),
@@ -238,7 +238,7 @@ fn pppp_decrypt(
 }
 
 fn generate_private_preferences_topic_identifier(private_key: Vec<u8>) -> Result<String, String> {
-    xmtp_pppp::topic::generate_private_preferences_topic_identifier(private_key.as_slice())
+    xmtp_user_preferences::topic::generate_private_preferences_topic_identifier(private_key.as_slice())
 }
 
 #[cfg(test)]
@@ -380,11 +380,11 @@ mod tests {
     }
 
     #[test]
-    fn test_pppp() {
+    fn test_user_preferences() {
         let (private_key, pub_key) = generate_keypair();
         let message = "hello world".as_bytes().to_vec();
 
-        let encrypted = super::pppp_encrypt(
+        let encrypted = super::user_preferences_encrypt(
             pub_key.serialize().to_vec(),
             private_key.serialize().to_vec(),
             message.clone(),
@@ -393,7 +393,7 @@ mod tests {
 
         assert!(encrypted.len() > 0);
 
-        let decrypted = super::pppp_decrypt(
+        let decrypted = super::user_preferences_decrypt(
             pub_key.serialize().to_vec(),
             private_key.serialize().to_vec(),
             encrypted,

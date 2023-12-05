@@ -1,5 +1,5 @@
 [package]
-name = "xmtp_pppp"
+name = "xmtp_user_preferences"
 version = "0.1.0"
 edition = "2021"
 

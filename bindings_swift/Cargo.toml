@@ -13,7 +13,7 @@ xmtp_proto = { path = "../xmtp_proto" }
 prost = { version = "0.11", features = ["prost-derive"] }
 swift-bridge = { version = "0.1", features = ["async"] }
 uuid = { version = "1.3.1", features = ["v4", "fast-rng"] }
-xmtp_pppp = { path = "../xmtp_pppp" }
+xmtp_user_preferences = { path = "../xmtp_user_preferences" }
 
 [lib]
 name = "xmtp_rust_swift"
