@@ -5945,19 +5945,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "xmtp_pppp"
-version = "0.1.0"
-dependencies = [
- "base64 0.21.4",
- "libsecp256k1",
- "once_cell",
- "prost",
- "rand 0.8.5",
- "xmtp_crypto",
- "xmtp_proto",
-]
-
-[[package]]
 name = "xmtp_proto"
 version = "0.1.0"
 dependencies = [
@@ -5967,6 +5954,19 @@ dependencies = [
  "prost-types",
  "serde",
  "tonic",
+]
+
+[[package]]
+name = "xmtp_user_preferences"
+version = "0.1.0"
+dependencies = [
+ "base64 0.21.4",
+ "libsecp256k1",
+ "once_cell",
+ "prost",
+ "rand 0.8.5",
+ "xmtp_crypto",
+ "xmtp_proto",
 ]
 
 [[package]]
