@@ -1,5 +1,11 @@
 # @xmtp/ecies-bindings-wasm
 
+## 0.2.1
+
+### Patch Changes
+
+- 90e5562: Fix mismatched arguments for encrypt/decrypt
+
 ## 0.2.0
 
 ### Minor Changes
