@@ -19,6 +19,7 @@ struct ContentView: View {
 
 	@State private var isShowingQRCode = false
 	@State private var qrCodeImage: UIImage?
+	@State private var isConnectingWallet = false
 
 	@State private var client: Client?
 
@@ -26,8 +27,21 @@ struct ContentView: View {
 		VStack {
 			switch status {
 			case .unknown:
-				Button("Connect Wallet", action: connectWallet)
-				Button("Generate Wallet", action: generateWallet)
+				Button("Connect Wallet") { isConnectingWallet = true }
+					.sheet(isPresented: $isConnectingWallet) {
+						LoginView(onConnected: { client in
+							do {
+								let keysData = try client.privateKeyBundle.serializedData()
+								Persistence().saveKeys(keysData)
+								self.status = .connected(client)
+							} catch {
+								print("Error setting up client: \(error)")
+							}
+
+							print("Got a client: \(client)")
+						})
+					}
+				Button("Generate Wallet") { generateWallet() }
 			case .connecting:
 				ProgressView("Connecting…")
 			case let .connected(client):
@@ -49,55 +63,6 @@ struct ContentView: View {
 			if let qrCodeImage = qrCodeImage {
 				QRCodeSheetView(image: qrCodeImage)
 			}
-		}
-	}
-
-	func connectWallet() {
-		status = .connecting
-
-		do {
-			switch try accountManager.account.preferredConnectionMethod() {
-			case let .qrCode(image):
-				qrCodeImage = image
-
-				DispatchQueue.main.asyncAfter(deadline: .now() + .seconds(1)) {
-					self.isShowingQRCode = true
-				}
-			case let .redirect(url):
-				UIApplication.shared.open(url)
-			case let .manual(url):
-				print("Open \(url) in mobile safari")
-			}
-
-			Task {
-				do {
-					try await accountManager.account.connect()
-
-					for _ in 0 ... 30 {
-						if accountManager.account.isConnected {
-							let client = try await Client.create(account: accountManager.account)
-
-							let keysData = try client.privateKeyBundle.serializedData()
-							Persistence().saveKeys(keysData)
-
-							self.status = .connected(client)
-							self.isShowingQRCode = false
-							return
-						}
-
-						try await Task.sleep(for: .seconds(1))
-					}
-
-					self.status = .error("Timed out waiting to connect (30 seconds)")
-				} catch {
-					await MainActor.run {
-						self.status = .error("Error connecting: \(error)")
-						self.isShowingQRCode = false
-					}
-				}
-			}
-		} catch {
-			status = .error("No acceptable connection methods found \(error)")
 		}
 	}
 
