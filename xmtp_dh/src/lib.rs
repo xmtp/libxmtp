@@ -26,22 +26,22 @@ impl std::fmt::Display for DiffieHellmanError {
 }
 
 #[derive(Debug)]
-pub enum EciesError {
+pub enum UserPreferencesError {
     GenericError(String),
 }
 
-impl std::error::Error for EciesError {
+impl std::error::Error for UserPreferencesError {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         match *self {
-            EciesError::GenericError(_) => None,
+            UserPreferencesError::GenericError(_) => None,
         }
     }
 }
 
-impl std::fmt::Display for EciesError {
+impl std::fmt::Display for UserPreferencesError {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         match *self {
-            EciesError::GenericError(ref message) => write!(f, "{}", message),
+            UserPreferencesError::GenericError(ref message) => write!(f, "{}", message),
         }
     }
 }
@@ -89,44 +89,45 @@ pub fn verify_k256_sha256(
         message.as_slice(),
         signature.as_slice(),
         recovery_id,
-    ).map_err(VerifyError::GenericError)?;
+    )
+    .map_err(VerifyError::GenericError)?;
 
     Ok(result)
 }
 
-pub fn ecies_encrypt_k256_sha3_256(
+pub fn user_preferences_encrypt(
     public_key_bytes: Vec<u8>,
     private_key_bytes: Vec<u8>,
     message_bytes: Vec<u8>,
-) -> Result<Vec<u8>, EciesError> {
-    let ciphertext = xmtp_ecies::signed_payload::encrypt_message(
+) -> Result<Vec<u8>, UserPreferencesError> {
+    let ciphertext = xmtp_user_preferences::encrypt_message(
         public_key_bytes.as_slice(),
         private_key_bytes.as_slice(),
         message_bytes.as_slice(),
     )
-    .map_err(|e| EciesError::GenericError(e))?;
+    .map_err(|e| UserPreferencesError::GenericError(e))?;
 
     Ok(ciphertext)
 }
 
-pub fn ecies_decrypt_k256_sha3_256(
+pub fn user_preferences_decrypt(
     public_key_bytes: Vec<u8>,
     private_key_bytes: Vec<u8>,
     message_bytes: Vec<u8>,
-) -> Result<Vec<u8>, EciesError> {
-    let ciphertext = xmtp_ecies::signed_payload::decrypt_message(
+) -> Result<Vec<u8>, UserPreferencesError> {
+    let ciphertext = xmtp_user_preferences::decrypt_message(
         public_key_bytes.as_slice(),
         private_key_bytes.as_slice(),
         message_bytes.as_slice(),
     )
-    .map_err(|e| EciesError::GenericError(e))?;
+    .map_err(|e| UserPreferencesError::GenericError(e))?;
 
     Ok(ciphertext)
 }
 
 pub fn generate_private_preferences_topic_identifier(
     private_key_bytes: Vec<u8>,
-) -> Result<String, EciesError> {
-    xmtp_ecies::topic::generate_private_preferences_topic_identifier(private_key_bytes.as_slice())
-        .map_err(|e| EciesError::GenericError(e))
+) -> Result<String, UserPreferencesError> {
+    xmtp_user_preferences::topic::generate_private_preferences_topic_identifier(private_key_bytes.as_slice())
+        .map_err(|e| UserPreferencesError::GenericError(e))
 }

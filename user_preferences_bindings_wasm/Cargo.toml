@@ -1,5 +1,5 @@
 [package]
-name = "ecies-bindings-wasm"
+name = "user-preferences-bindings-wasm"
 version = "0.1.0"
 authors = ["Nicholas Molnar <65710+neekolas@users.noreply.github.com>"]
 edition = "2018"
@@ -11,14 +11,14 @@ crate-type = ["cdylib", "rlib"]
 default = ["console_error_panic_hook"]
 
 [dependencies]
-wasm-bindgen = {version = "0.2.84", default-features = false}
+wasm-bindgen = { version = "0.2.84", default-features = false }
 
 # The `console_error_panic_hook` crate provides better debugging of panics by
 # logging them with `console.error`. This is great for development, but requires
 # all the `std::fmt` and `std::panicking` infrastructure, so isn't great for
 # code size when deploying.
 console_error_panic_hook = { version = "0.1.7", optional = true }
-xmtp_ecies = { path = "../xmtp_ecies" }
+xmtp_user_preferences = { path = "../xmtp_user_preferences" }
 
 [dev-dependencies]
 wasm-bindgen-test = "0.3.34"

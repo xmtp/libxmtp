@@ -1148,24 +1148,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "ecies"
-version = "0.2.6"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "53f43496fc04523aa716c5dd76133cb6d7c81eb213375684d06a8b1683f8bc1e"
-dependencies = [
- "aes-gcm",
- "getrandom 0.2.10",
- "hkdf",
- "libsecp256k1",
- "once_cell",
- "parking_lot",
- "rand_core 0.6.4",
- "sha2 0.10.7",
- "typenum",
- "wasm-bindgen",
-]
-
-[[package]]
 name = "ed25519"
 version = "2.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5924,20 +5906,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "xmtp_ecies"
-version = "0.1.0"
-dependencies = [
- "base64 0.21.4",
- "ecies",
- "hkdf",
- "libsecp256k1",
- "once_cell",
- "prost",
- "sha3 0.10.8",
- "xmtp_proto",
-]
-
-[[package]]
 name = "xmtp_keystore"
 version = "0.1.0"
 dependencies = [
@@ -5986,6 +5954,19 @@ dependencies = [
  "prost-types",
  "serde",
  "tonic",
+]
+
+[[package]]
+name = "xmtp_user_preferences"
+version = "0.1.0"
+dependencies = [
+ "base64 0.21.4",
+ "libsecp256k1",
+ "once_cell",
+ "prost",
+ "rand 0.8.5",
+ "xmtp_crypto",
+ "xmtp_proto",
 ]
 
 [[package]]

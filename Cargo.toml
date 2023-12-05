@@ -9,7 +9,7 @@ members = [
   "xmtp_keystore",
   "xmtp_networking",
   "xmtp_proto",
-  "xmtp_ecies",
+  "xmtp_user_preferences",
 ]
 
 # Exclude since
@@ -19,6 +19,6 @@ exclude = [
   "bindings_ffi",
   "bindings_js",
   "bindings_swift",
-  "ecies_bindings_wasm",
+  "user_preferences_bindings_wasm",
   "xmtp_dh",
 ]

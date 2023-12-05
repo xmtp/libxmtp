@@ -366,9 +366,9 @@ internal interface _UniFFILib : Library {
 
     fun uniffi_xmtp_dh_fn_func_diffie_hellman_k256(`privateKeyBytes`: RustBuffer.ByValue,`publicKeyBytes`: RustBuffer.ByValue,_uniffi_out_err: RustCallStatus, 
     ): RustBuffer.ByValue
-    fun uniffi_xmtp_dh_fn_func_ecies_encrypt_k256_sha3_256(`publicKeyBytes`: RustBuffer.ByValue,`privateKeyBytes`: RustBuffer.ByValue,`messageBytes`: RustBuffer.ByValue,_uniffi_out_err: RustCallStatus, 
+    fun uniffi_xmtp_dh_fn_func_user_preferences_encrypt(`publicKeyBytes`: RustBuffer.ByValue,`privateKeyBytes`: RustBuffer.ByValue,`messageBytes`: RustBuffer.ByValue,_uniffi_out_err: RustCallStatus, 
     ): RustBuffer.ByValue
-    fun uniffi_xmtp_dh_fn_func_ecies_decrypt_k256_sha3_256(`publicKeyBytes`: RustBuffer.ByValue,`privateKeyBytes`: RustBuffer.ByValue,`messageBytes`: RustBuffer.ByValue,_uniffi_out_err: RustCallStatus, 
+    fun uniffi_xmtp_dh_fn_func_user_preferences_decrypt(`publicKeyBytes`: RustBuffer.ByValue,`privateKeyBytes`: RustBuffer.ByValue,`messageBytes`: RustBuffer.ByValue,_uniffi_out_err: RustCallStatus, 
     ): RustBuffer.ByValue
     fun uniffi_xmtp_dh_fn_func_generate_private_preferences_topic_identifier(`privateKeyBytes`: RustBuffer.ByValue,_uniffi_out_err: RustCallStatus, 
     ): RustBuffer.ByValue
@@ -384,9 +384,9 @@ internal interface _UniFFILib : Library {
     ): RustBuffer.ByValue
     fun uniffi_xmtp_dh_checksum_func_diffie_hellman_k256(
     ): Short
-    fun uniffi_xmtp_dh_checksum_func_ecies_encrypt_k256_sha3_256(
+    fun uniffi_xmtp_dh_checksum_func_user_preferences_encrypt(
     ): Short
-    fun uniffi_xmtp_dh_checksum_func_ecies_decrypt_k256_sha3_256(
+    fun uniffi_xmtp_dh_checksum_func_user_preferences_decrypt(
     ): Short
     fun uniffi_xmtp_dh_checksum_func_generate_private_preferences_topic_identifier(
     ): Short
@@ -412,13 +412,13 @@ private fun uniffiCheckApiChecksums(lib: _UniFFILib) {
     if (lib.uniffi_xmtp_dh_checksum_func_diffie_hellman_k256() != 64890.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
-    if (lib.uniffi_xmtp_dh_checksum_func_ecies_encrypt_k256_sha3_256() != 28010.toShort()) {
+    if (lib.uniffi_xmtp_dh_checksum_func_user_preferences_encrypt() != 59502.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
-    if (lib.uniffi_xmtp_dh_checksum_func_ecies_decrypt_k256_sha3_256() != 45037.toShort()) {
+    if (lib.uniffi_xmtp_dh_checksum_func_user_preferences_decrypt() != 60388.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
-    if (lib.uniffi_xmtp_dh_checksum_func_generate_private_preferences_topic_identifier() != 65141.toShort()) {
+    if (lib.uniffi_xmtp_dh_checksum_func_generate_private_preferences_topic_identifier() != 48427.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_xmtp_dh_checksum_func_verify_k256_sha256() != 45969.toShort()) {
@@ -559,34 +559,34 @@ public object FfiConverterTypeDiffieHellmanError : FfiConverterRustBuffer<Diffie
 
 
 
-sealed class EciesException(message: String): Exception(message) {
+sealed class UserPreferencesException(message: String): Exception(message) {
         // Each variant is a nested class
         // Flat enums carries a string error message, so no special implementation is necessary.
-        class GenericException(message: String) : EciesException(message)
+        class GenericException(message: String) : UserPreferencesException(message)
         
 
-    companion object ErrorHandler : CallStatusErrorHandler<EciesException> {
-        override fun lift(error_buf: RustBuffer.ByValue): EciesException = FfiConverterTypeEciesError.lift(error_buf)
+    companion object ErrorHandler : CallStatusErrorHandler<UserPreferencesException> {
+        override fun lift(error_buf: RustBuffer.ByValue): UserPreferencesException = FfiConverterTypeUserPreferencesError.lift(error_buf)
     }
 }
 
-public object FfiConverterTypeEciesError : FfiConverterRustBuffer<EciesException> {
-    override fun read(buf: ByteBuffer): EciesException {
+public object FfiConverterTypeUserPreferencesError : FfiConverterRustBuffer<UserPreferencesException> {
+    override fun read(buf: ByteBuffer): UserPreferencesException {
         
             return when(buf.getInt()) {
-            1 -> EciesException.GenericException(FfiConverterString.read(buf))
+            1 -> UserPreferencesException.GenericException(FfiConverterString.read(buf))
             else -> throw RuntimeException("invalid error enum value, something is very wrong!!")
         }
         
     }
 
-    override fun allocationSize(value: EciesException): Int {
+    override fun allocationSize(value: UserPreferencesException): Int {
         return 4
     }
 
-    override fun write(value: EciesException, buf: ByteBuffer) {
+    override fun write(value: UserPreferencesException, buf: ByteBuffer) {
         when(value) {
-            is EciesException.GenericException -> {
+            is UserPreferencesException.GenericException -> {
                 buf.putInt(1)
                 Unit
             }
@@ -668,29 +668,29 @@ fun `diffieHellmanK256`(`privateKeyBytes`: List<UByte>, `publicKeyBytes`: List<U
 })
 }
 
-@Throws(EciesException::class)
+@Throws(UserPreferencesException::class)
 
-fun `eciesEncryptK256Sha3256`(`publicKeyBytes`: List<UByte>, `privateKeyBytes`: List<UByte>, `messageBytes`: List<UByte>): List<UByte> {
+fun `userPreferencesEncrypt`(`publicKeyBytes`: List<UByte>, `privateKeyBytes`: List<UByte>, `messageBytes`: List<UByte>): List<UByte> {
     return FfiConverterSequenceUByte.lift(
-    rustCallWithError(EciesException) { _status ->
-    _UniFFILib.INSTANCE.uniffi_xmtp_dh_fn_func_ecies_encrypt_k256_sha3_256(FfiConverterSequenceUByte.lower(`publicKeyBytes`),FfiConverterSequenceUByte.lower(`privateKeyBytes`),FfiConverterSequenceUByte.lower(`messageBytes`),_status)
+    rustCallWithError(UserPreferencesException) { _status ->
+    _UniFFILib.INSTANCE.uniffi_xmtp_dh_fn_func_user_preferences_encrypt(FfiConverterSequenceUByte.lower(`publicKeyBytes`),FfiConverterSequenceUByte.lower(`privateKeyBytes`),FfiConverterSequenceUByte.lower(`messageBytes`),_status)
 })
 }
 
-@Throws(EciesException::class)
+@Throws(UserPreferencesException::class)
 
-fun `eciesDecryptK256Sha3256`(`publicKeyBytes`: List<UByte>, `privateKeyBytes`: List<UByte>, `messageBytes`: List<UByte>): List<UByte> {
+fun `userPreferencesDecrypt`(`publicKeyBytes`: List<UByte>, `privateKeyBytes`: List<UByte>, `messageBytes`: List<UByte>): List<UByte> {
     return FfiConverterSequenceUByte.lift(
-    rustCallWithError(EciesException) { _status ->
-    _UniFFILib.INSTANCE.uniffi_xmtp_dh_fn_func_ecies_decrypt_k256_sha3_256(FfiConverterSequenceUByte.lower(`publicKeyBytes`),FfiConverterSequenceUByte.lower(`privateKeyBytes`),FfiConverterSequenceUByte.lower(`messageBytes`),_status)
+    rustCallWithError(UserPreferencesException) { _status ->
+    _UniFFILib.INSTANCE.uniffi_xmtp_dh_fn_func_user_preferences_decrypt(FfiConverterSequenceUByte.lower(`publicKeyBytes`),FfiConverterSequenceUByte.lower(`privateKeyBytes`),FfiConverterSequenceUByte.lower(`messageBytes`),_status)
 })
 }
 
-@Throws(EciesException::class)
+@Throws(UserPreferencesException::class)
 
 fun `generatePrivatePreferencesTopicIdentifier`(`privateKeyBytes`: List<UByte>): String {
     return FfiConverterString.lift(
-    rustCallWithError(EciesException) { _status ->
+    rustCallWithError(UserPreferencesException) { _status ->
     _UniFFILib.INSTANCE.uniffi_xmtp_dh_fn_func_generate_private_preferences_topic_identifier(FfiConverterSequenceUByte.lower(`privateKeyBytes`),_status)
 })
 }
