@@ -566,6 +566,8 @@ where
             IntentKind::AddMembers => {
                 let intent_data = AddMembersIntentData::from_bytes(intent.data.as_slice())?;
 
+                log::debug!("INTENT_DATA: {:?}", intent_data);
+
                 let key_packages = self
                     .client
                     .get_key_packages_for_wallet_addresses(intent_data.wallet_addresses)

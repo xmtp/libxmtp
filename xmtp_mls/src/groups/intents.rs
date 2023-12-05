@@ -102,7 +102,10 @@ impl AddMembersIntentData {
             Some(AddMembersVersion::V1(v1)) => v1.wallet_addresses,
             None => return Err(IntentError::Generic("missing payload".to_string())),
         };
-        let addresses = address_bytes.iter().map(|addr| hex::encode(addr)).collect();
+        let addresses = address_bytes
+            .iter()
+            .map(|addr| format!("0x{}", hex::encode(addr)))
+            .collect();
 
         Ok(Self::new(addresses))
     }
