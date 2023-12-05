@@ -14,7 +14,7 @@ import uniffi.xmtpv3.FfiLogger
 import java.nio.charset.StandardCharsets
 import java.security.SecureRandom
 
-const val EMULATOR_LOCALHOST_ADDRESS = "http://10.0.2.2:5556"
+const val EMULATOR_LOCALHOST_ADDRESS = "https://dev.xmtp.network:5556"
 
 class Web3jInboxOwner(private val credentials: Credentials) : FfiInboxOwner {
     override fun getAddress(): String {
@@ -48,8 +48,8 @@ class MainActivity : AppCompatActivity() {
 
         runBlocking {
             try {
-                val client = uniffi.xmtpv3.createClient(AndroidFfiLogger(), inboxOwner, EMULATOR_LOCALHOST_ADDRESS, false);
-                textView.text = "Client constructed, wallet address: " + client.walletAddress();
+                val client = uniffi.xmtpv3.createClient(AndroidFfiLogger(), inboxOwner, EMULATOR_LOCALHOST_ADDRESS, true, "android_example.db", "encryption_key".toByteArray().asUByteArray().asList());
+                textView.text = "Client constructed, wallet address: " + client.accountAddress();
             } catch (e: Exception) {
                 textView.text = "Failed to construct client: " + e.message;
             }
