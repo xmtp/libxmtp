@@ -9,10 +9,10 @@ use log::info;
 use logger::FfiLogger;
 use std::error::Error;
 use std::sync::Arc;
-use uniffi::FfiConverter;
+
 use xmtp_api_grpc::grpc_api_helper::Client as TonicApiClient;
 use xmtp_mls::groups::MlsGroup;
-use xmtp_mls::storage::group_message::{GroupMessageKind, StoredGroupMessage};
+use xmtp_mls::storage::group_message::StoredGroupMessage;
 use xmtp_mls::types::Address;
 use xmtp_mls::{
     builder::ClientBuilder,
@@ -56,7 +56,7 @@ impl<T: Error> From<T> for GenericError {
 }
 
 // TODO Use non-string errors across Uniffi interface
-fn stringify_error_chain(error: &(dyn Error + 'static)) -> String {
+fn stringify_error_chain<T: Error>(error: &T) -> String {
     let mut result = format!("Error: {}\n", error);
 
     let mut source = error.source();
@@ -103,7 +103,7 @@ pub async fn create_client(
         }
     }?;
 
-    let mut xmtp_client: RustXmtpClient = ClientBuilder::new(inbox_owner.into())
+    let xmtp_client: RustXmtpClient = ClientBuilder::new(inbox_owner.into())
         .api_client(api_client)
         .store(store)
         .build()?;
@@ -144,7 +144,7 @@ pub struct FfiConversations {
 impl FfiConversations {
     pub async fn create_group(
         &self,
-        account_address: String,
+        _account_address: String,
     ) -> Result<Arc<FfiGroup>, GenericError> {
         let convo = self.inner_client.create_group()?;
 
@@ -285,7 +285,7 @@ mod tests {
 
     use crate::{
         create_client, inbox_owner::SigningError, logger::FfiLogger, static_enc_key, FfiInboxOwner,
-        FfiListMessagesOptions, FfiXmtpClient,
+        FfiXmtpClient,
     };
     use ethers_core::rand::{
         self,
@@ -411,7 +411,7 @@ mod tests {
             Box::new(ffi_inbox_owner.clone()),
             xmtp_api_grpc::LOCALHOST_ADDRESS.to_string(),
             false,
-            Some(path),
+            Some(path.clone()),
             Some(key),
         )
         .await

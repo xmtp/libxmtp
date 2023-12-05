@@ -1,4 +1,4 @@
-use crate::{stringify_error_chain, GenericError};
+use crate::GenericError;
 
 #[uniffi::export]
 pub fn recover_address(
@@ -9,7 +9,7 @@ pub fn recover_address(
         xmtp_cryptography::signature::RecoverableSignature::Eip191Signature(signature_bytes);
     let recovered = signature.recover_address(&predigest_message)?;
 
-    return Ok(recovered);
+    Ok(recovered)
 }
 
 #[uniffi::export]
