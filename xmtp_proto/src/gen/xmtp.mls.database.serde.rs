@@ -103,12 +103,12 @@ impl serde::Serialize for add_members_data::V1 {
     {
         use serde::ser::SerializeStruct;
         let mut len = 0;
-        if !self.wallet_addresses.is_empty() {
+        if !self.account_addresses.is_empty() {
             len += 1;
         }
         let mut struct_ser = serializer.serialize_struct("xmtp.mls.database.AddMembersData.V1", len)?;
-        if !self.wallet_addresses.is_empty() {
-            struct_ser.serialize_field("walletAddresses", &self.wallet_addresses.iter().map(pbjson::private::base64::encode).collect::<Vec<_>>())?;
+        if !self.account_addresses.is_empty() {
+            struct_ser.serialize_field("accountAddresses", &self.account_addresses)?;
         }
         struct_ser.end()
     }
@@ -120,13 +120,13 @@ impl<'de> serde::Deserialize<'de> for add_members_data::V1 {
         D: serde::Deserializer<'de>,
     {
         const FIELDS: &[&str] = &[
-            "wallet_addresses",
-            "walletAddresses",
+            "account_addresses",
+            "accountAddresses",
         ];
 
         #[allow(clippy::enum_variant_names)]
         enum GeneratedField {
-            WalletAddresses,
+            AccountAddresses,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
             fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
@@ -148,7 +148,7 @@ impl<'de> serde::Deserialize<'de> for add_members_data::V1 {
                         E: serde::de::Error,
                     {
                         match value {
-                            "walletAddresses" | "wallet_addresses" => Ok(GeneratedField::WalletAddresses),
+                            "accountAddresses" | "account_addresses" => Ok(GeneratedField::AccountAddresses),
                             _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
                         }
                     }
@@ -168,22 +168,19 @@ impl<'de> serde::Deserialize<'de> for add_members_data::V1 {
                 where
                     V: serde::de::MapAccess<'de>,
             {
-                let mut wallet_addresses__ = None;
+                let mut account_addresses__ = None;
                 while let Some(k) = map.next_key()? {
                     match k {
-                        GeneratedField::WalletAddresses => {
-                            if wallet_addresses__.is_some() {
-                                return Err(serde::de::Error::duplicate_field("walletAddresses"));
+                        GeneratedField::AccountAddresses => {
+                            if account_addresses__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("accountAddresses"));
                             }
-                            wallet_addresses__ = 
-                                Some(map.next_value::<Vec<::pbjson::private::BytesDeserialize<_>>>()?
-                                    .into_iter().map(|x| x.0).collect())
-                            ;
+                            account_addresses__ = Some(map.next_value()?);
                         }
                     }
                 }
                 Ok(add_members_data::V1 {
-                    wallet_addresses: wallet_addresses__.unwrap_or_default(),
+                    account_addresses: account_addresses__.unwrap_or_default(),
                 })
             }
         }
@@ -506,12 +503,12 @@ impl serde::Serialize for remove_members_data::V1 {
     {
         use serde::ser::SerializeStruct;
         let mut len = 0;
-        if !self.installation_ids.is_empty() {
+        if !self.account_addresses.is_empty() {
             len += 1;
         }
         let mut struct_ser = serializer.serialize_struct("xmtp.mls.database.RemoveMembersData.V1", len)?;
-        if !self.installation_ids.is_empty() {
-            struct_ser.serialize_field("installationIds", &self.installation_ids.iter().map(pbjson::private::base64::encode).collect::<Vec<_>>())?;
+        if !self.account_addresses.is_empty() {
+            struct_ser.serialize_field("accountAddresses", &self.account_addresses)?;
         }
         struct_ser.end()
     }
@@ -523,13 +520,13 @@ impl<'de> serde::Deserialize<'de> for remove_members_data::V1 {
         D: serde::Deserializer<'de>,
     {
         const FIELDS: &[&str] = &[
-            "installation_ids",
-            "installationIds",
+            "account_addresses",
+            "accountAddresses",
         ];
 
         #[allow(clippy::enum_variant_names)]
         enum GeneratedField {
-            InstallationIds,
+            AccountAddresses,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
             fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
@@ -551,7 +548,7 @@ impl<'de> serde::Deserialize<'de> for remove_members_data::V1 {
                         E: serde::de::Error,
                     {
                         match value {
-                            "installationIds" | "installation_ids" => Ok(GeneratedField::InstallationIds),
+                            "accountAddresses" | "account_addresses" => Ok(GeneratedField::AccountAddresses),
                             _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
                         }
                     }
@@ -571,22 +568,19 @@ impl<'de> serde::Deserialize<'de> for remove_members_data::V1 {
                 where
                     V: serde::de::MapAccess<'de>,
             {
-                let mut installation_ids__ = None;
+                let mut account_addresses__ = None;
                 while let Some(k) = map.next_key()? {
                     match k {
-                        GeneratedField::InstallationIds => {
-                            if installation_ids__.is_some() {
-                                return Err(serde::de::Error::duplicate_field("installationIds"));
+                        GeneratedField::AccountAddresses => {
+                            if account_addresses__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("accountAddresses"));
                             }
-                            installation_ids__ = 
-                                Some(map.next_value::<Vec<::pbjson::private::BytesDeserialize<_>>>()?
-                                    .into_iter().map(|x| x.0).collect())
-                            ;
+                            account_addresses__ = Some(map.next_value()?);
                         }
                     }
                 }
                 Ok(remove_members_data::V1 {
-                    installation_ids: installation_ids__.unwrap_or_default(),
+                    account_addresses: account_addresses__.unwrap_or_default(),
                 })
             }
         }

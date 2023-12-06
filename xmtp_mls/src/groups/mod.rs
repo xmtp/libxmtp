@@ -434,20 +434,9 @@ where
         self.sync_with_conn(conn).await
     }
 
-    pub async fn add_members_by_installation_id(
-        &self,
-        _installation_ids: Vec<Vec<u8>>,
-    ) -> Result<(), GroupError> {
-        // remove
-        unimplemented!()
-    }
-
-    pub(crate) async fn remove_members_by_installation_id(
-        &self,
-        installation_ids: Vec<Vec<u8>>,
-    ) -> Result<(), GroupError> {
+    pub async fn remove_members(&self, wallet_addresses: Vec<String>) -> Result<(), GroupError> {
         let conn = &mut self.client.store.conn()?;
-        let intent_data: Vec<u8> = RemoveMembersIntentData::new(installation_ids).into();
+        let intent_data: Vec<u8> = RemoveMembersIntentData::new(wallet_addresses).into();
         let intent = NewGroupIntent::new(
             IntentKind::RemoveMembers,
             self.group_id.clone(),
@@ -456,20 +445,6 @@ where
         intent.store(conn)?;
 
         self.sync_with_conn(conn).await
-    }
-
-    pub async fn remove_members(&self, wallet_addresses: Vec<String>) -> Result<(), GroupError> {
-        let installation_ids = self
-            .members()?
-            .into_iter()
-            .filter(|member| wallet_addresses.contains(&member.wallet_address))
-            .fold(vec![], |mut acc, member| {
-                acc.extend(member.installation_ids);
-                acc
-            });
-
-        self.remove_members_by_installation_id(installation_ids)
-            .await
     }
 
     pub async fn key_update(&self) -> Result<(), GroupError> {
@@ -566,14 +541,10 @@ where
             IntentKind::AddMembers => {
                 let intent_data = AddMembersIntentData::from_bytes(intent.data.as_slice())?;
 
-                log::debug!("INTENT_DATA: {:?}", intent_data);
-
                 let key_packages = self
                     .client
-                    .get_key_packages_for_wallet_addresses(intent_data.wallet_addresses)
+                    .get_key_packages_for_wallet_addresses(intent_data.account_addresses)
                     .await?;
-
-                log::debug!("KEY PACKAGES: {:?}", key_packages);
 
                 let mls_key_packages: Vec<KeyPackage> =
                     key_packages.iter().map(|kp| kp.inner.clone()).collect();
@@ -598,18 +569,32 @@ where
             }
             IntentKind::RemoveMembers => {
                 let intent_data = RemoveMembersIntentData::from_bytes(intent.data.as_slice())?;
+
+                let installation_ids = self
+                    .members()?
+                    .into_iter()
+                    .filter(|member| {
+                        intent_data
+                            .account_addresses
+                            .contains(&member.wallet_address)
+                    })
+                    .fold(vec![], |mut acc, member| {
+                        acc.extend(member.installation_ids);
+                        acc
+                    });
+
                 let leaf_nodes: Vec<LeafNodeIndex> = openmls_group
                     .members()
-                    .filter(|member| intent_data.installation_ids.contains(&member.signature_key))
+                    .filter(|member| installation_ids.contains(&member.signature_key))
                     .map(|member| member.index)
                     .collect();
 
                 let num_leaf_nodes = leaf_nodes.len();
 
-                if num_leaf_nodes != intent_data.installation_ids.len() {
+                if num_leaf_nodes != installation_ids.len() {
                     return Err(GroupError::Generic(format!(
                         "expected {} leaf nodes, found {}",
-                        intent_data.installation_ids.len(),
+                        installation_ids.len(),
                         num_leaf_nodes
                     )));
                 }
@@ -741,7 +726,7 @@ mod tests {
         let amal_group = amal.create_group().unwrap();
         // Add bola
         amal_group
-            .add_members_by_installation_id(vec![bola.installation_public_key()])
+            .add_members(vec![bola.account_address()])
             .await
             .unwrap();
 
@@ -751,11 +736,11 @@ mod tests {
 
         // Have amal and bola both invite charlie.
         amal_group
-            .add_members_by_installation_id(vec![charlie.installation_public_key()])
+            .add_members(vec![charlie.account_address()])
             .await
             .expect("failed to add charlie");
         bola_group
-            .add_members_by_installation_id(vec![charlie.installation_public_key()])
+            .add_members(vec![charlie.account_address()])
             .await
             .unwrap();
 
@@ -828,9 +813,7 @@ mod tests {
         let client = ClientBuilder::new_test_client(generate_local_wallet().into()).await;
         let group = client.create_group().expect("create group");
 
-        let result = group
-            .add_members_by_installation_id(vec![b"1234".to_vec()])
-            .await;
+        let result = group.add_members(vec!["1234".to_string()]).await;
 
         assert!(result.is_err());
     }
@@ -844,19 +827,13 @@ mod tests {
 
         let group = client_1.create_group().expect("create group");
         group
-            .add_members_by_installation_id(vec![client_2
-                .identity
-                .installation_keys
-                .to_public_vec()])
+            .add_members(vec![client_2.account_address()])
             .await
             .expect("group create failure");
 
         // Try and add another member without merging the pending commit
         group
-            .remove_members_by_installation_id(vec![client_2
-                .identity
-                .installation_keys
-                .to_public_vec()])
+            .remove_members(vec![client_2.account_address()])
             .await
             .expect("group create failure");
 
@@ -901,10 +878,7 @@ mod tests {
         let group = client.create_group().expect("create group");
 
         group
-            .add_members_by_installation_id(vec![client_2
-                .identity
-                .installation_keys
-                .to_public_vec()])
+            .add_members(vec![client_2.account_address()])
             .await
             .unwrap();
 

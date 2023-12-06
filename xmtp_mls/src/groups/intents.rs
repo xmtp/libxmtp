@@ -10,10 +10,7 @@ use xmtp_proto::xmtp::mls::database::{
     AddMembersData, PostCommitAction as PostCommitActionProto, RemoveMembersData, SendMessageData,
 };
 
-use crate::{
-    types::Address, verified_key_package::KeyPackageVerificationError,
-    xmtp_openmls_provider::XmtpOpenMlsProvider,
-};
+use crate::{types::Address, verified_key_package::KeyPackageVerificationError};
 
 #[derive(Debug, Error)]
 pub enum IntentError {
@@ -25,8 +22,6 @@ pub enum IntentError {
     TlsCodec(#[from] tls_codec::Error),
     #[error("generic: {0}")]
     Generic(String),
-    #[error(transparent)]
-    FromHex(#[from] hex::FromHexError),
 }
 
 #[derive(Debug, Clone)]
@@ -71,24 +66,20 @@ impl From<SendMessageIntentData> for Vec<u8> {
 
 #[derive(Debug, Clone)]
 pub struct AddMembersIntentData {
-    pub wallet_addresses: Vec<Address>,
+    pub account_addresses: Vec<Address>,
 }
 
 impl AddMembersIntentData {
-    pub fn new(wallet_addresses: Vec<Address>) -> Self {
-        Self { wallet_addresses }
+    pub fn new(account_addresses: Vec<Address>) -> Self {
+        Self { account_addresses }
     }
 
-    pub(crate) fn to_bytes(&self) -> Result<Vec<u8>, IntentError> {
+    pub(crate) fn to_bytes(self) -> Result<Vec<u8>, IntentError> {
         let mut buf = Vec::new();
-        let wallet_addresses = self
-            .wallet_addresses
-            .iter()
-            .map(|addr| hex::decode(&addr[2..]))
-            .collect::<Result<Vec<_>, _>>()?;
-
         AddMembersData {
-            version: Some(AddMembersVersion::V1(AddMembersV1 { wallet_addresses })),
+            version: Some(AddMembersVersion::V1(AddMembersV1 {
+                account_addresses: self.account_addresses,
+            })),
         }
         .encode(&mut buf)
         .expect("encode error");
@@ -98,14 +89,10 @@ impl AddMembersIntentData {
 
     pub(crate) fn from_bytes(data: &[u8]) -> Result<Self, IntentError> {
         let msg = AddMembersData::decode(data)?;
-        let address_bytes = match msg.version {
-            Some(AddMembersVersion::V1(v1)) => v1.wallet_addresses,
+        let addresses = match msg.version {
+            Some(AddMembersVersion::V1(v1)) => v1.account_addresses,
             None => return Err(IntentError::Generic("missing payload".to_string())),
         };
-        let addresses = address_bytes
-            .iter()
-            .map(|addr| format!("0x{}", hex::encode(addr)))
-            .collect();
 
         Ok(Self::new(addresses))
     }
@@ -121,20 +108,20 @@ impl TryFrom<AddMembersIntentData> for Vec<u8> {
 
 #[derive(Debug, Clone)]
 pub struct RemoveMembersIntentData {
-    pub installation_ids: Vec<Vec<u8>>,
+    pub account_addresses: Vec<String>,
 }
 
 impl RemoveMembersIntentData {
-    pub fn new(installation_ids: Vec<Vec<u8>>) -> Self {
-        Self { installation_ids }
+    pub fn new(account_addresses: Vec<String>) -> Self {
+        Self { account_addresses }
     }
 
-    pub(crate) fn to_bytes(&self) -> Vec<u8> {
+    pub(crate) fn to_bytes(self) -> Vec<u8> {
         let mut buf = Vec::new();
 
         RemoveMembersData {
             version: Some(RemoveMembersVersion::V1(RemoveMembersV1 {
-                installation_ids: self.installation_ids.clone(),
+                account_addresses: self.account_addresses,
             })),
         }
         .encode(&mut buf)
@@ -145,12 +132,12 @@ impl RemoveMembersIntentData {
 
     pub(crate) fn from_bytes(data: &[u8]) -> Result<Self, IntentError> {
         let msg = RemoveMembersData::decode(data)?;
-        let installation_ids = match msg.version {
-            Some(RemoveMembersVersion::V1(v1)) => v1.installation_ids,
+        let account_addresses = match msg.version {
+            Some(RemoveMembersVersion::V1(v1)) => v1.account_addresses,
             None => return Err(IntentError::Generic("missing payload".to_string())),
         };
 
-        Ok(Self::new(installation_ids))
+        Ok(Self::new(account_addresses))
     }
 }
 
