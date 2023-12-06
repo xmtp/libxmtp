@@ -38,5 +38,6 @@ pub fn init_logger(logger: Box<dyn FfiLogger>) {
         log::set_boxed_logger(Box::new(logger))
             .map(|()| log::set_max_level(LevelFilter::Info))
             .expect("Failed to initialize logger");
+        log::info!("Logger initialized");
     });
 }

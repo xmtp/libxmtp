@@ -45,10 +45,12 @@ class MainActivity : AppCompatActivity() {
         val privateKey: ByteArray = SecureRandom().generateSeed(32)
         val credentials: Credentials = Credentials.create(ECKeyPair.create(privateKey))
         val inboxOwner = Web3jInboxOwner(credentials)
+        val dbPath: String = this.getDatabasePath("android_example.db3").path
+        val dbEncryptionKey: List<UByte> = SecureRandom().generateSeed(32).asUByteArray().asList()
 
         runBlocking {
             try {
-                val client = uniffi.xmtpv3.createClient(AndroidFfiLogger(), inboxOwner, EMULATOR_LOCALHOST_ADDRESS, true, "android_example.db", "encryption_key".toByteArray().asUByteArray().asList());
+                val client = uniffi.xmtpv3.createClient(AndroidFfiLogger(), inboxOwner, EMULATOR_LOCALHOST_ADDRESS, true, null, null);
                 textView.text = "Client constructed, wallet address: " + client.accountAddress();
             } catch (e: Exception) {
                 textView.text = "Failed to construct client: " + e.message;

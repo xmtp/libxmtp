@@ -89,6 +89,7 @@ pub struct Client {
 impl Client {
     pub async fn create(host: String, is_secure: bool) -> Result<Self, Error> {
         let host = host.to_string();
+        let app_version = MetadataValue::try_from(&String::from("0.0.0")).unwrap();
         if is_secure {
             let connector = get_tls_connector();
 
@@ -103,7 +104,7 @@ impl Client {
             Ok(Self {
                 client: InnerApiClient::Tls(tls_client),
                 mls_client: InnerMlsClient::Tls(mls_client),
-                app_version: MetadataValue::try_from(&String::from("0.0.0")).unwrap(),
+                app_version,
             })
         } else {
             let channel = Channel::from_shared(host)
@@ -118,7 +119,7 @@ impl Client {
             Ok(Self {
                 client: InnerApiClient::Plain(client),
                 mls_client: InnerMlsClient::Plain(mls_client),
-                app_version: MetadataValue::try_from(&String::from("0.0.0")).unwrap(),
+                app_version,
             })
         }
     }

@@ -33,20 +33,6 @@ pub enum GenericError {
     Generic { err: String },
 }
 
-// impl From<String> for GenericError {
-//     fn from(err: String) -> Self {
-//         Self::Generic {
-//             err: err.to_string(),
-//         }
-//     }
-// }
-//
-// impl From<uniffi::UnexpectedUniFFICallbackError> for GenericError {
-//     fn from(e: uniffi::UnexpectedUniFFICallbackError) -> Self {
-//         Self::Generic { err: e.reason }
-//     }
-// }
-
 impl<T: Error> From<T> for GenericError {
     fn from(error: T) -> Self {
         Self::Generic {
@@ -84,25 +70,31 @@ pub async fn create_client(
     init_logger(logger);
 
     let inbox_owner = RustInboxOwner::new(ffi_inbox_owner);
+    info!(
+        "Creating API client for host: {}, isSecure: {}",
+        host, is_secure
+    );
     let api_client = TonicApiClient::create(host.clone(), is_secure).await?;
 
+    info!(
+        "Creating message store with path: {:?} and encryption key: {}",
+        db,
+        encryption_key.is_some()
+    );
     let key: EncryptionKey = match encryption_key {
-        Some(key) => key.try_into().unwrap(),
+        Some(key) => key.try_into().map_err(|_err| GenericError::Generic {
+            err: "Malformed 32 byte encryption key".to_string(),
+        })?,
         None => static_enc_key(),
     };
 
     let store = match db {
-        Some(path) => {
-            info!("Using persistent storage: {} ", path);
-            EncryptedMessageStore::new(StorageOption::Persistent(path), key)
-        }
+        Some(path) => EncryptedMessageStore::new(StorageOption::Persistent(path), key),
 
-        None => {
-            info!("Using ephemeral store");
-            EncryptedMessageStore::new(StorageOption::Ephemeral, key)
-        }
+        None => EncryptedMessageStore::new(StorageOption::Ephemeral, key),
     }?;
 
+    info!("Creating XMTP client");
     let xmtp_client: RustXmtpClient = ClientBuilder::new(inbox_owner.into())
         .api_client(api_client)
         .store(store)
