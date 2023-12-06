@@ -23,7 +23,7 @@ sealed class Topic {
                 }
 
                 is directMessageV2 -> wrap("m-$addresses")
-                is preferenceList -> wrap("pppp-$identifier")
+                is preferenceList -> wrap("userpreferences-$identifier")
             }
         }
 

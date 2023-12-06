@@ -60,7 +60,7 @@ class ConsentList(val client: Client) {
         val preferences: MutableList<PrivatePreferencesAction> = mutableListOf()
 
         for (envelope in envelopes.envelopesList) {
-            val payload = uniffi.xmtp_dh.eciesDecryptK256Sha3256(
+            val payload = uniffi.xmtp_dh.userPreferencesDecrypt(
                 publicKey.toByteArray().toUByteArray().toList(),
                 privateKey.toByteArray().toUByteArray().toList(),
                 envelope.message.toByteArray().toUByteArray().toList()
@@ -101,7 +101,7 @@ class ConsentList(val client: Client) {
             }
         }.build()
 
-        val message = uniffi.xmtp_dh.eciesEncryptK256Sha3256(
+        val message = uniffi.xmtp_dh.userPreferencesEncrypt(
             publicKey.toByteArray().toUByteArray().toList(),
             privateKey.toByteArray().toUByteArray().toList(),
             payload.toByteArray().toUByteArray().toList()
