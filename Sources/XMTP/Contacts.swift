@@ -37,8 +37,8 @@ public enum ContactError: Error {
     case invalidIdentifier
 }
 
-class ConsentList {
-	var entries: [String: ConsentState] = [:]
+public class ConsentList {
+	public var entries: [String: ConsentState] = [:]
     var publicKey: Data
     var privateKey: Data
     var identifier: String?
@@ -148,7 +148,7 @@ public actor Contacts {
 	// Whether or not we have sent invite/intro to this contact
 	var hasIntroduced: [String: Bool] = [:]
 
-    var consentList: ConsentList
+    public var consentList: ConsentList
 	
     init(client: Client) {
 		self.client = client
