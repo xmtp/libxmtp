@@ -224,7 +224,7 @@ mod tests {
     use xmtp_cryptography::utils::generate_local_wallet;
 
     use super::*;
-    use crate::{builder::ClientBuilder, verified_key_package::VerifiedKeyPackage, InboxOwner};
+    use crate::{builder::ClientBuilder, InboxOwner};
 
     #[test]
     fn test_serialize_send_message() {
@@ -236,32 +236,15 @@ mod tests {
         assert_eq!(restored_intent.message, message);
     }
 
-    /* TODO:INSIPX: FINISH
     #[tokio::test]
     async fn test_serialize_add_members() {
         let wallet = generate_local_wallet();
         let wallet_address = wallet.get_address();
-        let client = ClientBuilder::new_test_client(wallet.into()).await;
-        let conn = client.store.conn().unwrap();
-        let key_package = client
-            .identity
-            .new_key_package(&client.mls_provider(&conn))
-            .unwrap();
-        let verified_key_package = VerifiedKeyPackage::new(key_package, wallet_address.clone());
 
-        let intent = AddMembersIntentData::new(vec![verified_key_package.clone()]);
+        let intent = AddMembersIntentData::new(vec![wallet_address.clone()]);
         let as_bytes: Vec<u8> = intent.clone().try_into().unwrap();
-        let restored_intent =
-            AddMembersIntentData::from_bytes(as_bytes.as_slice(), &client.mls_provider(&conn))
-                .unwrap();
+        let restored_intent = AddMembersIntentData::from_bytes(as_bytes.as_slice()).unwrap();
 
-        assert!(intent.key_packages[0]
-            .inner
-            .eq(&restored_intent.key_packages[0].inner));
-        assert_eq!(
-            intent.key_packages[0].wallet_address,
-            restored_intent.key_packages[0].wallet_address
-        );
+        assert!(intent.account_addresses[0].eq(&restored_intent.account_addresses[0]));
     }
-    */
 }

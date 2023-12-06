@@ -16,6 +16,7 @@ use openmls_traits::OpenMlsProvider;
 use std::mem::discriminant;
 use thiserror::Error;
 use tls_codec::{Deserialize, Serialize};
+use xmtp_cryptography::signature::is_valid_ethereum_address;
 use xmtp_proto::api_client::{Envelope, XmtpApiClient, XmtpMlsClient};
 
 pub use self::intents::IntentError;
@@ -74,6 +75,8 @@ pub enum GroupError {
     Generic(String),
     #[error("diesel error {0}")]
     Diesel(#[from] diesel::result::Error),
+    #[error("The address {0:?} is not a valid ethereum address")]
+    InvalidAddresses(Vec<String>),
 }
 
 impl RetryableError for GroupError {
@@ -425,6 +428,16 @@ where
     }
 
     pub async fn add_members(&self, wallet_addresses: Vec<String>) -> Result<(), GroupError> {
+        let mut invalid = wallet_addresses
+            .iter()
+            .filter(|a| !is_valid_ethereum_address(a))
+            .peekable();
+        if invalid.peek().is_some() {
+            return Err(GroupError::InvalidAddresses(
+                invalid.map(Clone::clone).collect::<Vec<_>>(),
+            ));
+        }
+
         let conn = &mut self.client.store.conn()?;
         let intent_data: Vec<u8> = AddMembersIntentData::new(wallet_addresses).try_into()?;
         let intent =
@@ -810,6 +823,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_add_invalid_member() {
+        crate::tests::setup();
         let client = ClientBuilder::new_test_client(generate_local_wallet().into()).await;
         let group = client.create_group().expect("create group");
 

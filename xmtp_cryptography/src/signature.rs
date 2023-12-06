@@ -111,8 +111,27 @@ pub fn h160addr_to_string(bytes: H160) -> String {
     s
 }
 
+/// Check if an string is a valid ethereum address (valid hex and length 20).
+pub fn is_valid_ethereum_address<S: AsRef<str>>(address: S) -> bool {
+    let address = address.as_ref();
+    let address = address.strip_prefix(&"0x").unwrap_or(&address);
+
+    if address.len() != 40 {
+        return false;
+    }
+
+    for char in address.chars() {
+        if !char.is_digit(16) {
+            return false;
+        }
+    }
+    true
+}
+
 #[cfg(test)]
 pub mod tests {
+    use super::is_valid_ethereum_address;
+
     use ethers::{
         core::rand::thread_rng,
         signers::{LocalWallet, Signer},
@@ -173,5 +192,14 @@ pub mod tests {
         assert!(sig.verify_signature(addr_alt, msg).is_ok());
         assert!(sig.verify_signature(addr_bad, msg).is_err());
         assert!(sig.verify_signature(addr, msg_bad).is_err());
+    }
+
+    #[test]
+    fn test_eth_address() {
+        assert_eq!(
+            is_valid_ethereum_address("0x7e57Aed10441c8879ce08E45805EC01Ee9689c9f"),
+            true
+        );
+        assert_eq!(is_valid_ethereum_address("123"), false);
     }
 }

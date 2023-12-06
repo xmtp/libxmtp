@@ -213,7 +213,7 @@ macro_rules! retry {
 ///     for i in 0..3 {
 ///         tx.send(i).unwrap();
 ///     }
-///     retry_async!(Retry::default(), (|| async {
+///     retry_async!(Retry::default(), (async {
 ///         fallable_fn(&rx.clone()).await
 ///     }))
 /// }
