@@ -68,7 +68,7 @@ class ConsentList {
 		for envelope in envelopes.envelopes {
 
 
-			let payload = try XMTPRust.ecies_decrypt_k256_sha3_256(
+			let payload = try XMTPRust.user_preferences_decrypt(
 				RustVec(publicKey),
 				RustVec(privateKey),
 				RustVec(envelope.message)
@@ -104,7 +104,7 @@ class ConsentList {
             payload.messageType = nil
         }
 
-		let message = try XMTPRust.ecies_encrypt_k256_sha3_256(
+		let message = try XMTPRust.user_preferences_encrypt(
 			RustVec(publicKey),
 			RustVec(privateKey),
             RustVec(payload.serializedData())

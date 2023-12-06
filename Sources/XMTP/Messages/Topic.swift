@@ -32,7 +32,7 @@ public enum Topic {
 		case let .directMessageV2(randomString):
 			return wrap("m-\(randomString)")
 		case let .preferenceList(identifier):
-			return wrap("pppp-\(identifier)")
+			return wrap("userpreferences-\(identifier)")
 		}
 	}
 
