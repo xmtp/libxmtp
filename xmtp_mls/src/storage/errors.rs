@@ -8,9 +8,9 @@ pub enum StorageError {
     DieselConnect(#[from] diesel::ConnectionError),
     #[error("Diesel result error: {0}")]
     DieselResult(#[from] diesel::result::Error),
-    #[error("Pool error {0}")]
+    #[error("Pool error: {0}")]
     Pool(String),
-    #[error("Either incorrect encryptionkey or file is not a db {0}")]
+    #[error("Either incorrect encryptionkey or file is not a db: {0}")]
     DbInit(String),
     #[error("Store Error")]
     Store(String),
