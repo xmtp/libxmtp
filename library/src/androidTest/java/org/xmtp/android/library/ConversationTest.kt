@@ -766,6 +766,7 @@ class ConversationTest {
         bobClient.contacts.refreshConsentList()
 
         val isDenied = bobConversation.consentState() == ConsentState.DENIED
+        assertEquals(bobClient.contacts.consentList.entries.size, 1)
         assertTrue(isDenied)
 
         val aliceConversation = aliceClient.conversations.list()[0]

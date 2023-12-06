@@ -40,7 +40,7 @@ data class ConsentListEntry(
 }
 
 class ConsentList(val client: Client) {
-    private val entries: MutableMap<String, ConsentState> = mutableMapOf()
+    val entries: MutableMap<String, ConsentState> = mutableMapOf()
     private val publicKey =
         client.privateKeyBundleV1.identityKey.publicKey.secp256K1Uncompressed.bytes
     private val privateKey = client.privateKeyBundleV1.identityKey.secp256K1.bytes
