@@ -1,4 +1,96 @@
 // @generated
+impl serde::Serialize for AccountAddresses {
+    #[allow(deprecated)]
+    fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        use serde::ser::SerializeStruct;
+        let mut len = 0;
+        if !self.account_addresses.is_empty() {
+            len += 1;
+        }
+        let mut struct_ser = serializer.serialize_struct("xmtp.mls.database.AccountAddresses", len)?;
+        if !self.account_addresses.is_empty() {
+            struct_ser.serialize_field("accountAddresses", &self.account_addresses)?;
+        }
+        struct_ser.end()
+    }
+}
+impl<'de> serde::Deserialize<'de> for AccountAddresses {
+    #[allow(deprecated)]
+    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        const FIELDS: &[&str] = &[
+            "account_addresses",
+            "accountAddresses",
+        ];
+
+        #[allow(clippy::enum_variant_names)]
+        enum GeneratedField {
+            AccountAddresses,
+        }
+        impl<'de> serde::Deserialize<'de> for GeneratedField {
+            fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
+            where
+                D: serde::Deserializer<'de>,
+            {
+                struct GeneratedVisitor;
+
+                impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+                    type Value = GeneratedField;
+
+                    fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                        write!(formatter, "expected one of: {:?}", &FIELDS)
+                    }
+
+                    #[allow(unused_variables)]
+                    fn visit_str<E>(self, value: &str) -> std::result::Result<GeneratedField, E>
+                    where
+                        E: serde::de::Error,
+                    {
+                        match value {
+                            "accountAddresses" | "account_addresses" => Ok(GeneratedField::AccountAddresses),
+                            _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
+                        }
+                    }
+                }
+                deserializer.deserialize_identifier(GeneratedVisitor)
+            }
+        }
+        struct GeneratedVisitor;
+        impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+            type Value = AccountAddresses;
+
+            fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                formatter.write_str("struct xmtp.mls.database.AccountAddresses")
+            }
+
+            fn visit_map<V>(self, mut map: V) -> std::result::Result<AccountAddresses, V::Error>
+                where
+                    V: serde::de::MapAccess<'de>,
+            {
+                let mut account_addresses__ = None;
+                while let Some(k) = map.next_key()? {
+                    match k {
+                        GeneratedField::AccountAddresses => {
+                            if account_addresses__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("accountAddresses"));
+                            }
+                            account_addresses__ = Some(map.next_value()?);
+                        }
+                    }
+                }
+                Ok(AccountAddresses {
+                    account_addresses: account_addresses__.unwrap_or_default(),
+                })
+            }
+        }
+        deserializer.deserialize_struct("xmtp.mls.database.AccountAddresses", FIELDS, GeneratedVisitor)
+    }
+}
 impl serde::Serialize for AddMembersData {
     #[allow(deprecated)]
     fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
@@ -103,12 +195,12 @@ impl serde::Serialize for add_members_data::V1 {
     {
         use serde::ser::SerializeStruct;
         let mut len = 0;
-        if !self.account_addresses.is_empty() {
+        if self.address_or_installation_id.is_some() {
             len += 1;
         }
         let mut struct_ser = serializer.serialize_struct("xmtp.mls.database.AddMembersData.V1", len)?;
-        if !self.account_addresses.is_empty() {
-            struct_ser.serialize_field("accountAddresses", &self.account_addresses)?;
+        if let Some(v) = self.address_or_installation_id.as_ref() {
+            struct_ser.serialize_field("addressOrInstallationId", v)?;
         }
         struct_ser.end()
     }
@@ -120,13 +212,115 @@ impl<'de> serde::Deserialize<'de> for add_members_data::V1 {
         D: serde::Deserializer<'de>,
     {
         const FIELDS: &[&str] = &[
+            "address_or_installation_id",
+            "addressOrInstallationId",
+        ];
+
+        #[allow(clippy::enum_variant_names)]
+        enum GeneratedField {
+            AddressOrInstallationId,
+        }
+        impl<'de> serde::Deserialize<'de> for GeneratedField {
+            fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
+            where
+                D: serde::Deserializer<'de>,
+            {
+                struct GeneratedVisitor;
+
+                impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+                    type Value = GeneratedField;
+
+                    fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                        write!(formatter, "expected one of: {:?}", &FIELDS)
+                    }
+
+                    #[allow(unused_variables)]
+                    fn visit_str<E>(self, value: &str) -> std::result::Result<GeneratedField, E>
+                    where
+                        E: serde::de::Error,
+                    {
+                        match value {
+                            "addressOrInstallationId" | "address_or_installation_id" => Ok(GeneratedField::AddressOrInstallationId),
+                            _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
+                        }
+                    }
+                }
+                deserializer.deserialize_identifier(GeneratedVisitor)
+            }
+        }
+        struct GeneratedVisitor;
+        impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+            type Value = add_members_data::V1;
+
+            fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                formatter.write_str("struct xmtp.mls.database.AddMembersData.V1")
+            }
+
+            fn visit_map<V>(self, mut map: V) -> std::result::Result<add_members_data::V1, V::Error>
+                where
+                    V: serde::de::MapAccess<'de>,
+            {
+                let mut address_or_installation_id__ = None;
+                while let Some(k) = map.next_key()? {
+                    match k {
+                        GeneratedField::AddressOrInstallationId => {
+                            if address_or_installation_id__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("addressOrInstallationId"));
+                            }
+                            address_or_installation_id__ = map.next_value()?;
+                        }
+                    }
+                }
+                Ok(add_members_data::V1 {
+                    address_or_installation_id: address_or_installation_id__,
+                })
+            }
+        }
+        deserializer.deserialize_struct("xmtp.mls.database.AddMembersData.V1", FIELDS, GeneratedVisitor)
+    }
+}
+impl serde::Serialize for AddressOrInstallationId {
+    #[allow(deprecated)]
+    fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        use serde::ser::SerializeStruct;
+        let mut len = 0;
+        if self.address_or_installation_id.is_some() {
+            len += 1;
+        }
+        let mut struct_ser = serializer.serialize_struct("xmtp.mls.database.AddressOrInstallationId", len)?;
+        if let Some(v) = self.address_or_installation_id.as_ref() {
+            match v {
+                address_or_installation_id::AddressOrInstallationId::AccountAddresses(v) => {
+                    struct_ser.serialize_field("accountAddresses", v)?;
+                }
+                address_or_installation_id::AddressOrInstallationId::InstallationIds(v) => {
+                    struct_ser.serialize_field("installationIds", v)?;
+                }
+            }
+        }
+        struct_ser.end()
+    }
+}
+impl<'de> serde::Deserialize<'de> for AddressOrInstallationId {
+    #[allow(deprecated)]
+    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        const FIELDS: &[&str] = &[
             "account_addresses",
             "accountAddresses",
+            "installation_ids",
+            "installationIds",
         ];
 
         #[allow(clippy::enum_variant_names)]
         enum GeneratedField {
             AccountAddresses,
+            InstallationIds,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
             fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
@@ -149,6 +343,7 @@ impl<'de> serde::Deserialize<'de> for add_members_data::V1 {
                     {
                         match value {
                             "accountAddresses" | "account_addresses" => Ok(GeneratedField::AccountAddresses),
+                            "installationIds" | "installation_ids" => Ok(GeneratedField::InstallationIds),
                             _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
                         }
                     }
@@ -158,33 +353,136 @@ impl<'de> serde::Deserialize<'de> for add_members_data::V1 {
         }
         struct GeneratedVisitor;
         impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
-            type Value = add_members_data::V1;
+            type Value = AddressOrInstallationId;
 
             fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-                formatter.write_str("struct xmtp.mls.database.AddMembersData.V1")
+                formatter.write_str("struct xmtp.mls.database.AddressOrInstallationId")
             }
 
-            fn visit_map<V>(self, mut map: V) -> std::result::Result<add_members_data::V1, V::Error>
+            fn visit_map<V>(self, mut map: V) -> std::result::Result<AddressOrInstallationId, V::Error>
                 where
                     V: serde::de::MapAccess<'de>,
             {
-                let mut account_addresses__ = None;
+                let mut address_or_installation_id__ = None;
                 while let Some(k) = map.next_key()? {
                     match k {
                         GeneratedField::AccountAddresses => {
-                            if account_addresses__.is_some() {
+                            if address_or_installation_id__.is_some() {
                                 return Err(serde::de::Error::duplicate_field("accountAddresses"));
                             }
-                            account_addresses__ = Some(map.next_value()?);
+                            address_or_installation_id__ = map.next_value::<::std::option::Option<_>>()?.map(address_or_installation_id::AddressOrInstallationId::AccountAddresses)
+;
+                        }
+                        GeneratedField::InstallationIds => {
+                            if address_or_installation_id__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("installationIds"));
+                            }
+                            address_or_installation_id__ = map.next_value::<::std::option::Option<_>>()?.map(address_or_installation_id::AddressOrInstallationId::InstallationIds)
+;
                         }
                     }
                 }
-                Ok(add_members_data::V1 {
-                    account_addresses: account_addresses__.unwrap_or_default(),
+                Ok(AddressOrInstallationId {
+                    address_or_installation_id: address_or_installation_id__,
                 })
             }
         }
-        deserializer.deserialize_struct("xmtp.mls.database.AddMembersData.V1", FIELDS, GeneratedVisitor)
+        deserializer.deserialize_struct("xmtp.mls.database.AddressOrInstallationId", FIELDS, GeneratedVisitor)
+    }
+}
+impl serde::Serialize for InstallationIds {
+    #[allow(deprecated)]
+    fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        use serde::ser::SerializeStruct;
+        let mut len = 0;
+        if !self.installation_ids.is_empty() {
+            len += 1;
+        }
+        let mut struct_ser = serializer.serialize_struct("xmtp.mls.database.InstallationIds", len)?;
+        if !self.installation_ids.is_empty() {
+            struct_ser.serialize_field("installationIds", &self.installation_ids.iter().map(pbjson::private::base64::encode).collect::<Vec<_>>())?;
+        }
+        struct_ser.end()
+    }
+}
+impl<'de> serde::Deserialize<'de> for InstallationIds {
+    #[allow(deprecated)]
+    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        const FIELDS: &[&str] = &[
+            "installation_ids",
+            "installationIds",
+        ];
+
+        #[allow(clippy::enum_variant_names)]
+        enum GeneratedField {
+            InstallationIds,
+        }
+        impl<'de> serde::Deserialize<'de> for GeneratedField {
+            fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
+            where
+                D: serde::Deserializer<'de>,
+            {
+                struct GeneratedVisitor;
+
+                impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+                    type Value = GeneratedField;
+
+                    fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                        write!(formatter, "expected one of: {:?}", &FIELDS)
+                    }
+
+                    #[allow(unused_variables)]
+                    fn visit_str<E>(self, value: &str) -> std::result::Result<GeneratedField, E>
+                    where
+                        E: serde::de::Error,
+                    {
+                        match value {
+                            "installationIds" | "installation_ids" => Ok(GeneratedField::InstallationIds),
+                            _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
+                        }
+                    }
+                }
+                deserializer.deserialize_identifier(GeneratedVisitor)
+            }
+        }
+        struct GeneratedVisitor;
+        impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+            type Value = InstallationIds;
+
+            fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                formatter.write_str("struct xmtp.mls.database.InstallationIds")
+            }
+
+            fn visit_map<V>(self, mut map: V) -> std::result::Result<InstallationIds, V::Error>
+                where
+                    V: serde::de::MapAccess<'de>,
+            {
+                let mut installation_ids__ = None;
+                while let Some(k) = map.next_key()? {
+                    match k {
+                        GeneratedField::InstallationIds => {
+                            if installation_ids__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("installationIds"));
+                            }
+                            installation_ids__ = 
+                                Some(map.next_value::<Vec<::pbjson::private::BytesDeserialize<_>>>()?
+                                    .into_iter().map(|x| x.0).collect())
+                            ;
+                        }
+                    }
+                }
+                Ok(InstallationIds {
+                    installation_ids: installation_ids__.unwrap_or_default(),
+                })
+            }
+        }
+        deserializer.deserialize_struct("xmtp.mls.database.InstallationIds", FIELDS, GeneratedVisitor)
     }
 }
 impl serde::Serialize for PostCommitAction {
@@ -503,12 +801,12 @@ impl serde::Serialize for remove_members_data::V1 {
     {
         use serde::ser::SerializeStruct;
         let mut len = 0;
-        if !self.account_addresses.is_empty() {
+        if self.address_or_installation_id.is_some() {
             len += 1;
         }
         let mut struct_ser = serializer.serialize_struct("xmtp.mls.database.RemoveMembersData.V1", len)?;
-        if !self.account_addresses.is_empty() {
-            struct_ser.serialize_field("accountAddresses", &self.account_addresses)?;
+        if let Some(v) = self.address_or_installation_id.as_ref() {
+            struct_ser.serialize_field("addressOrInstallationId", v)?;
         }
         struct_ser.end()
     }
@@ -520,13 +818,13 @@ impl<'de> serde::Deserialize<'de> for remove_members_data::V1 {
         D: serde::Deserializer<'de>,
     {
         const FIELDS: &[&str] = &[
-            "account_addresses",
-            "accountAddresses",
+            "address_or_installation_id",
+            "addressOrInstallationId",
         ];
 
         #[allow(clippy::enum_variant_names)]
         enum GeneratedField {
-            AccountAddresses,
+            AddressOrInstallationId,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
             fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
@@ -548,7 +846,7 @@ impl<'de> serde::Deserialize<'de> for remove_members_data::V1 {
                         E: serde::de::Error,
                     {
                         match value {
-                            "accountAddresses" | "account_addresses" => Ok(GeneratedField::AccountAddresses),
+                            "addressOrInstallationId" | "address_or_installation_id" => Ok(GeneratedField::AddressOrInstallationId),
                             _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
                         }
                     }
@@ -568,19 +866,19 @@ impl<'de> serde::Deserialize<'de> for remove_members_data::V1 {
                 where
                     V: serde::de::MapAccess<'de>,
             {
-                let mut account_addresses__ = None;
+                let mut address_or_installation_id__ = None;
                 while let Some(k) = map.next_key()? {
                     match k {
-                        GeneratedField::AccountAddresses => {
-                            if account_addresses__.is_some() {
-                                return Err(serde::de::Error::duplicate_field("accountAddresses"));
+                        GeneratedField::AddressOrInstallationId => {
+                            if address_or_installation_id__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("addressOrInstallationId"));
                             }
-                            account_addresses__ = Some(map.next_value()?);
+                            address_or_installation_id__ = map.next_value()?;
                         }
                     }
                 }
                 Ok(remove_members_data::V1 {
-                    account_addresses: account_addresses__.unwrap_or_default(),
+                    address_or_installation_id: address_or_installation_id__,
                 })
             }
         }

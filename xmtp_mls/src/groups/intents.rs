@@ -4,10 +4,13 @@ use thiserror::Error;
 use tls_codec::Serialize;
 use xmtp_proto::xmtp::mls::database::{
     add_members_data::{Version as AddMembersVersion, V1 as AddMembersV1},
+    address_or_installation_id::AddressOrInstallationId as AddressOrInstallationIdProto,
     post_commit_action::{Kind as PostCommitActionKind, SendWelcomes as SendWelcomesProto},
     remove_members_data::{Version as RemoveMembersVersion, V1 as RemoveMembersV1},
     send_message_data::{Version as SendMessageVersion, V1 as SendMessageV1},
-    AddMembersData, PostCommitAction as PostCommitActionProto, RemoveMembersData, SendMessageData,
+    AccountAddresses, AddMembersData,
+    AddressOrInstallationId as AddressOrInstallationIdProtoWrapper, InstallationIds,
+    PostCommitAction as PostCommitActionProto, RemoveMembersData, SendMessageData,
 };
 
 use crate::{types::Address, verified_key_package::KeyPackageVerificationError};
@@ -64,21 +67,68 @@ impl From<SendMessageIntentData> for Vec<u8> {
     }
 }
 
+#[derive(Debug, PartialEq, Eq, Clone)]
+pub enum AddressOrInstallationId {
+    AccountAddresses(Vec<String>),
+    InstallationIds(Vec<Vec<u8>>),
+}
+
+impl From<AddressOrInstallationId> for AddressOrInstallationIdProtoWrapper {
+    fn from(address_or_id: AddressOrInstallationId) -> Self {
+        match address_or_id {
+            AddressOrInstallationId::AccountAddresses(account_addresses) => {
+                AddressOrInstallationIdProtoWrapper {
+                    address_or_installation_id: Some(
+                        AddressOrInstallationIdProto::AccountAddresses(AccountAddresses {
+                            account_addresses,
+                        }),
+                    ),
+                }
+            }
+            AddressOrInstallationId::InstallationIds(installation_ids) => {
+                AddressOrInstallationIdProtoWrapper {
+                    address_or_installation_id: Some(
+                        AddressOrInstallationIdProto::InstallationIds(InstallationIds {
+                            installation_ids,
+                        }),
+                    ),
+                }
+            }
+        }
+    }
+}
+
+impl TryFrom<AddressOrInstallationIdProtoWrapper> for AddressOrInstallationId {
+    type Error = IntentError;
+
+    fn try_from(wrapper: AddressOrInstallationIdProtoWrapper) -> Result<Self, Self::Error> {
+        match wrapper.address_or_installation_id {
+            Some(AddressOrInstallationIdProto::AccountAddresses(addrs)) => Ok(
+                AddressOrInstallationId::AccountAddresses(addrs.account_addresses),
+            ),
+            Some(AddressOrInstallationIdProto::InstallationIds(ids)) => Ok(
+                AddressOrInstallationId::InstallationIds(ids.installation_ids),
+            ),
+            _ => Err(IntentError::Generic("missing payload".to_string())),
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct AddMembersIntentData {
-    pub account_addresses: Vec<Address>,
+    pub address_or_id: AddressOrInstallationId,
 }
 
 impl AddMembersIntentData {
-    pub fn new(account_addresses: Vec<Address>) -> Self {
-        Self { account_addresses }
+    pub fn new(address_or_id: AddressOrInstallationId) -> Self {
+        Self { address_or_id }
     }
 
     pub(crate) fn to_bytes(&self) -> Result<Vec<u8>, IntentError> {
         let mut buf = Vec::new();
         AddMembersData {
             version: Some(AddMembersVersion::V1(AddMembersV1 {
-                account_addresses: self.account_addresses.clone(),
+                address_or_installation_id: Some(self.address_or_id.into()),
             })),
         }
         .encode(&mut buf)
@@ -89,12 +139,14 @@ impl AddMembersIntentData {
 
     pub(crate) fn from_bytes(data: &[u8]) -> Result<Self, IntentError> {
         let msg = AddMembersData::decode(data)?;
-        let addresses = match msg.version {
-            Some(AddMembersVersion::V1(v1)) => v1.account_addresses,
+        let address_or_id = match msg.version {
+            Some(AddMembersVersion::V1(v1)) => v1
+                .address_or_installation_id
+                .ok_or(IntentError::Generic("missing payload".to_string()))?,
             None => return Err(IntentError::Generic("missing payload".to_string())),
         };
 
-        Ok(Self::new(addresses))
+        Ok(Self::new(address_or_id.try_into()?))
     }
 }
 
@@ -108,12 +160,12 @@ impl TryFrom<AddMembersIntentData> for Vec<u8> {
 
 #[derive(Debug, Clone)]
 pub struct RemoveMembersIntentData {
-    pub account_addresses: Vec<String>,
+    pub address_or_id: AddressOrInstallationId,
 }
 
 impl RemoveMembersIntentData {
-    pub fn new(account_addresses: Vec<String>) -> Self {
-        Self { account_addresses }
+    pub fn new(address_or_id: AddressOrInstallationId) -> Self {
+        Self { address_or_id }
     }
 
     pub(crate) fn to_bytes(&self) -> Vec<u8> {
@@ -121,7 +173,7 @@ impl RemoveMembersIntentData {
 
         RemoveMembersData {
             version: Some(RemoveMembersVersion::V1(RemoveMembersV1 {
-                account_addresses: self.account_addresses.clone(),
+                address_or_installation_id: Some(self.address_or_id.into()),
             })),
         }
         .encode(&mut buf)
@@ -132,12 +184,14 @@ impl RemoveMembersIntentData {
 
     pub(crate) fn from_bytes(data: &[u8]) -> Result<Self, IntentError> {
         let msg = RemoveMembersData::decode(data)?;
-        let account_addresses = match msg.version {
-            Some(RemoveMembersVersion::V1(v1)) => v1.account_addresses,
+        let address_or_id = match msg.version {
+            Some(RemoveMembersVersion::V1(v1)) => v1
+                .address_or_installation_id
+                .ok_or(IntentError::Generic("missing payload".to_string()))?,
             None => return Err(IntentError::Generic("missing payload".to_string())),
         };
 
-        Ok(Self::new(account_addresses))
+        Ok(Self::new(address_or_id.try_into()?))
     }
 }
 
