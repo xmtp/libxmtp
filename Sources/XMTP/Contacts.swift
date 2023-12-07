@@ -15,8 +15,8 @@ public enum ConsentState: String, Codable {
 	case allowed, denied, unknown
 }
 
-struct ConsentListEntry: Codable, Hashable {
-	enum EntryType: String, Codable {
+public struct ConsentListEntry: Codable, Hashable {
+	public enum EntryType: String, Codable {
 		case address
 	}
 
@@ -24,9 +24,9 @@ struct ConsentListEntry: Codable, Hashable {
 		ConsentListEntry(value: address, entryType: .address, consentType: type)
 	}
 
-	var value: String
-	var entryType: EntryType
-	var consentType: ConsentState
+	public var value: String
+	public var entryType: EntryType
+	public var consentType: ConsentState
 
 	var key: String {
 		"\(entryType)-\(value)"
@@ -38,7 +38,7 @@ public enum ContactError: Error {
 }
 
 public class ConsentList {
-	public var entries: [String: ConsentState] = [:]
+	public var entries: [String: ConsentListEntry] = [:]
     var publicKey: Data
     var privateKey: Data
     var identifier: String?
@@ -120,21 +120,25 @@ public class ConsentList {
 	}
 
 	func allow(address: String) -> ConsentListEntry {
-		entries[ConsentListEntry.address(address).key] = .allowed
+        let entry = ConsentListEntry.address(address, type: ConsentState.allowed)
+		entries[ConsentListEntry.address(address).key] = entry
 
-		return .address(address, type: .allowed)
+		return entry
 	}
 
 	func deny(address: String) -> ConsentListEntry {
-		entries[ConsentListEntry.address(address).key] = .denied
+        let entry = ConsentListEntry.address(address, type: ConsentState.denied)
+		entries[ConsentListEntry.address(address).key] = entry
 
-		return .address(address, type: .denied)
+		return entry
 	}
 
 	func state(address: String) -> ConsentState {
-		let state = entries[ConsentListEntry.address(address).key]
-
-		return state ?? .unknown
+		let entry = entries[ConsentListEntry.address(address).key]
+        
+        // swiftlint:disable no_optional_try
+        return entry?.consentType ?? .unknown
+        // swiftlint:enable no_optional_try
 	}
 }
 
@@ -155,8 +159,9 @@ public actor Contacts {
         self.consentList = ConsentList(client: client)
 	}
 
-	public func refreshConsentList() async throws {
-		self.consentList = try await ConsentList(client: client).load()
+	public func refreshConsentList() async throws -> ConsentList {
+		consentList = try await ConsentList(client: client).load()
+        return consentList
 	}
 
 	public func isAllowed(_ address: String) -> Bool {
