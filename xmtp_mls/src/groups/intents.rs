@@ -74,11 +74,11 @@ impl AddMembersIntentData {
         Self { account_addresses }
     }
 
-    pub(crate) fn to_bytes(self) -> Result<Vec<u8>, IntentError> {
+    pub(crate) fn to_bytes(&self) -> Result<Vec<u8>, IntentError> {
         let mut buf = Vec::new();
         AddMembersData {
             version: Some(AddMembersVersion::V1(AddMembersV1 {
-                account_addresses: self.account_addresses,
+                account_addresses: self.account_addresses.clone(),
             })),
         }
         .encode(&mut buf)
@@ -116,12 +116,12 @@ impl RemoveMembersIntentData {
         Self { account_addresses }
     }
 
-    pub(crate) fn to_bytes(self) -> Vec<u8> {
+    pub(crate) fn to_bytes(&self) -> Vec<u8> {
         let mut buf = Vec::new();
 
         RemoveMembersData {
             version: Some(RemoveMembersVersion::V1(RemoveMembersV1 {
-                account_addresses: self.account_addresses,
+                account_addresses: self.account_addresses.clone(),
             })),
         }
         .encode(&mut buf)

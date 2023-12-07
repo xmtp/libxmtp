@@ -114,14 +114,14 @@ pub fn h160addr_to_string(bytes: H160) -> String {
 /// Check if an string is a valid ethereum address (valid hex and length 20).
 pub fn is_valid_ethereum_address<S: AsRef<str>>(address: S) -> bool {
     let address = address.as_ref();
-    let address = address.strip_prefix(&"0x").unwrap_or(&address);
+    let address = address.strip_prefix("0x").unwrap_or(address);
 
     if address.len() != 40 {
         return false;
     }
 
     for char in address.chars() {
-        if !char.is_digit(16) {
+        if !char.is_ascii_hexdigit() {
             return false;
         }
     }
