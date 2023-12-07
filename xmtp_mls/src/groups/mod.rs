@@ -447,9 +447,39 @@ where
         self.sync_with_conn(conn).await
     }
 
+    pub async fn add_members_by_installation_id(
+        &self,
+        installation_ids: Vec<Vec<u8>>,
+    ) -> Result<(), GroupError> {
+        let conn = &mut self.client.store.conn()?;
+        //FIXME:INSIPX -- VALIDATE installation ID somehow
+        let intent_data: Vec<u8> = AddMembersIntentData::new(installation_ids.into()).try_into()?;
+        let intent =
+            NewGroupIntent::new(IntentKind::AddMembers, self.group_id.clone(), intent_data);
+        intent.store(conn)?;
+
+        self.sync_with_conn(conn).await
+    }
+
     pub async fn remove_members(&self, wallet_addresses: Vec<String>) -> Result<(), GroupError> {
         let conn = &mut self.client.store.conn()?;
         let intent_data: Vec<u8> = RemoveMembersIntentData::new(wallet_addresses.into()).into();
+        let intent = NewGroupIntent::new(
+            IntentKind::RemoveMembers,
+            self.group_id.clone(),
+            intent_data,
+        );
+        intent.store(conn)?;
+
+        self.sync_with_conn(conn).await
+    }
+
+    pub(crate) async fn remove_members_by_installation_id(
+        &self,
+        installation_ids: Vec<Vec<u8>>,
+    ) -> Result<(), GroupError> {
+        let conn = &mut self.client.store.conn()?;
+        let intent_data: Vec<u8> = RemoveMembersIntentData::new(installation_ids.into()).into();
         let intent = NewGroupIntent::new(
             IntentKind::RemoveMembers,
             self.group_id.clone(),
@@ -570,8 +600,6 @@ where
 
                 let commit_bytes = commit.tls_serialize_detached()?;
 
-                // If somehow another installation has made it into the commit, this will be missing
-                // their installation ID
                 let installation_ids: Vec<Vec<u8>> =
                     key_packages.iter().map(|kp| kp.installation_id()).collect();
 
@@ -583,23 +611,14 @@ where
             IntentKind::RemoveMembers => {
                 let intent_data = RemoveMembersIntentData::from_bytes(intent.data.as_slice())?;
 
-                let key_packages = self
-                    .client
-                    .get_key_packages(intent_data.address_or_id)
-                    .await?;
-
-                let installation_ids = self
-                    .members()?
-                    .into_iter()
-                    .filter(|member| {
-                        intent_data
-                            .account_addresses
-                            .contains(&member.wallet_address)
-                    })
-                    .fold(vec![], |mut acc, member| {
-                        acc.extend(member.installation_ids);
-                        acc
-                    });
+                let installation_ids = {
+                    match intent_data.address_or_id {
+                        AddressOrInstallationId::AccountAddresses(addrs) => {
+                            self.client.get_all_active_installation_ids(addrs).await?
+                        }
+                        AddressOrInstallationId::InstallationIds(ids) => ids,
+                    }
+                };
 
                 let leaf_nodes: Vec<LeafNodeIndex> = openmls_group
                     .members()
@@ -744,7 +763,7 @@ mod tests {
         let amal_group = amal.create_group().unwrap();
         // Add bola
         amal_group
-            .add_members(vec![bola.account_address()])
+            .add_members_by_installation_id(vec![bola.installation_public_key()])
             .await
             .unwrap();
 
@@ -754,11 +773,11 @@ mod tests {
 
         // Have amal and bola both invite charlie.
         amal_group
-            .add_members(vec![charlie.account_address()])
+            .add_members_by_installation_id(vec![charlie.installation_public_key()])
             .await
             .expect("failed to add charlie");
         bola_group
-            .add_members(vec![charlie.account_address()])
+            .add_members_by_installation_id(vec![charlie.installation_public_key()])
             .await
             .unwrap();
 
@@ -809,7 +828,7 @@ mod tests {
         let group = client.create_group().expect("create group");
 
         group
-            .add_members(vec![client_2.account_address()])
+            .add_members_by_installation_id(vec![client_2.installation_public_key()])
             .await
             .unwrap();
 
@@ -829,7 +848,9 @@ mod tests {
         let client = ClientBuilder::new_test_client(generate_local_wallet().into()).await;
         let group = client.create_group().expect("create group");
 
-        let result = group.add_members(vec!["1234".to_string()]).await;
+        let result = group
+            .add_members_by_installation_id(vec![b"1234".to_vec()])
+            .await;
 
         assert!(result.is_err());
     }
@@ -843,13 +864,13 @@ mod tests {
 
         let group = client_1.create_group().expect("create group");
         group
-            .add_members(vec![client_2.account_address()])
+            .add_members_by_installation_id(vec![client_2.installation_public_key()])
             .await
             .expect("group create failure");
 
         // Try and add another member without merging the pending commit
         group
-            .remove_members(vec![client_2.account_address()])
+            .remove_members_by_installation_id(vec![client_2.installation_public_key()])
             .await
             .expect("group create failure");
 
@@ -894,7 +915,7 @@ mod tests {
         let group = client.create_group().expect("create group");
 
         group
-            .add_members(vec![client_2.account_address()])
+            .add_members_by_installation_id(vec![client_2.installation_public_key()])
             .await
             .unwrap();
 
@@ -930,5 +951,10 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(group.members().unwrap().len(), 2);
+    }
+
+    #[tokio::test]
+    async fn test_intermittent_installation_id_addition() {
+        todo!()
     }
 }

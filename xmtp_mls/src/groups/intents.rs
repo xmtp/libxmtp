@@ -140,7 +140,7 @@ impl AddMembersIntentData {
         let mut buf = Vec::new();
         AddMembersData {
             version: Some(AddMembersVersion::V1(AddMembersV1 {
-                address_or_installation_id: Some(self.address_or_id.into()),
+                address_or_installation_id: Some(self.address_or_id.clone().into()),
             })),
         }
         .encode(&mut buf)
@@ -185,7 +185,7 @@ impl RemoveMembersIntentData {
 
         RemoveMembersData {
             version: Some(RemoveMembersVersion::V1(RemoveMembersV1 {
-                address_or_installation_id: Some(self.address_or_id.into()),
+                address_or_installation_id: Some(self.address_or_id.clone().into()),
             })),
         }
         .encode(&mut buf)
@@ -307,10 +307,10 @@ mod tests {
         let wallet = generate_local_wallet();
         let wallet_address = wallet.get_address();
 
-        let intent = AddMembersIntentData::new(vec![wallet_address.clone()]);
+        let intent = AddMembersIntentData::new(vec![wallet_address.clone()].into());
         let as_bytes: Vec<u8> = intent.clone().try_into().unwrap();
         let restored_intent = AddMembersIntentData::from_bytes(as_bytes.as_slice()).unwrap();
 
-        assert!(intent.account_addresses[0].eq(&restored_intent.account_addresses[0]));
+        assert_eq!(intent.address_or_id, restored_intent.address_or_id);
     }
 }

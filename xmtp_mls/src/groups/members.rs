@@ -67,7 +67,10 @@ mod tests {
         let group = amal.create_group().unwrap();
         // Add both of Bola's installations to the group
         group
-            .add_members(vec![bola_a.account_address(), bola_b.account_address()])
+            .add_members_by_installation_id(vec![
+                bola_a.installation_public_key(),
+                bola_b.installation_public_key(),
+            ])
             .await
             .unwrap();
 

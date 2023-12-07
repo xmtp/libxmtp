@@ -418,7 +418,7 @@ mod tests {
 
         let alice_bob_group = alice.create_group().unwrap();
         alice_bob_group
-            .add_members(vec![bob.account_address()])
+            .add_members_by_installation_id(vec![bob.installation_public_key()])
             .await
             .unwrap();
 
