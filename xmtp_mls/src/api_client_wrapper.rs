@@ -650,8 +650,6 @@ mod tests {
 
     #[tokio::test]
     async fn it_retries_twice_then_succeeds() {
-        crate::tests::setup();
-
         let mut mock_api = MockApiClient::new();
         let topic = "topic";
         let start_time_ns = 10;

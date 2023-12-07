@@ -292,8 +292,6 @@ mod tests {
 
     #[test]
     fn it_retries_twice_and_succeeds() {
-        crate::tests::setup();
-
         let mut i = 0;
         let mut test_fn = || -> Result<(), SomeError> {
             if i == 2 {
@@ -309,8 +307,6 @@ mod tests {
 
     #[test]
     fn it_works_with_random_args() {
-        crate::tests::setup();
-
         let mut i = 0;
         let list = vec!["String".into(), "Foo".into()];
         let mut test_fn = || -> Result<(), SomeError> {
@@ -326,8 +322,6 @@ mod tests {
 
     #[test]
     fn it_fails_on_three_retries() {
-        crate::tests::setup();
-
         let result: Result<(), SomeError> = retry!(
             Retry::default(),
             (|| -> Result<(), SomeError> {
@@ -341,8 +335,6 @@ mod tests {
 
     #[test]
     fn it_only_runs_non_retryable_once() {
-        crate::tests::setup();
-
         let mut attempts = 0;
         let mut test_fn = || -> Result<(), SomeError> {
             attempts += 1;
@@ -356,8 +348,6 @@ mod tests {
 
     #[tokio::test]
     async fn it_works_async() {
-        crate::tests::setup();
-
         async fn retryable_async_fn(rx: &flume::Receiver<usize>) -> Result<(), SomeError> {
             let val = rx.recv_async().await.unwrap();
             if val == 2 {
@@ -383,8 +373,6 @@ mod tests {
 
     #[tokio::test]
     async fn it_works_async_mut() {
-        crate::tests::setup();
-
         async fn retryable_async_fn(data: &mut usize) -> Result<(), SomeError> {
             if *data == 2 {
                 return Ok(());

@@ -798,8 +798,6 @@ mod tests {
 
     #[tokio::test]
     async fn test_add_members() {
-        crate::tests::setup();
-
         let client = ClientBuilder::new_test_client(generate_local_wallet().into()).await;
         let client_2 = ClientBuilder::new_test_client(generate_local_wallet().into()).await;
         client_2.register_identity().await.unwrap();
@@ -823,7 +821,6 @@ mod tests {
 
     #[tokio::test]
     async fn test_add_invalid_member() {
-        crate::tests::setup();
         let client = ClientBuilder::new_test_client(generate_local_wallet().into()).await;
         let group = client.create_group().expect("create group");
 
