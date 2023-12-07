@@ -40,7 +40,7 @@ data class ConsentListEntry(
 }
 
 class ConsentList(val client: Client) {
-    val entries: MutableMap<String, ConsentState> = mutableMapOf()
+    val entries: MutableMap<String, ConsentListEntry> = mutableMapOf()
     private val publicKey =
         client.privateKeyBundleV1.identityKey.publicKey.secp256K1Uncompressed.bytes
     private val privateKey = client.privateKeyBundleV1.identityKey.secp256K1.bytes
@@ -117,21 +117,23 @@ class ConsentList(val client: Client) {
     }
 
     fun allow(address: String): ConsentListEntry {
-        entries[ConsentListEntry.address(address).key] = ConsentState.ALLOWED
+        val entry = ConsentListEntry.address(address, ConsentState.ALLOWED)
+        entries[ConsentListEntry.address(address).key] = entry
 
-        return ConsentListEntry.address(address, ConsentState.ALLOWED)
+        return entry
     }
 
     fun deny(address: String): ConsentListEntry {
-        entries[ConsentListEntry.address(address).key] = ConsentState.DENIED
+        val entry = ConsentListEntry.address(address, ConsentState.DENIED)
+        entries[ConsentListEntry.address(address).key] = entry
 
-        return ConsentListEntry.address(address, ConsentState.DENIED)
+        return entry
     }
 
     fun state(address: String): ConsentState {
-        val state = entries[ConsentListEntry.address(address).key]
+        val entry = entries[ConsentListEntry.address(address).key]
 
-        return state ?: ConsentState.UNKNOWN
+        return entry?.consentType ?: ConsentState.UNKNOWN
     }
 }
 
@@ -143,10 +145,11 @@ data class Contacts(
 
     var consentList: ConsentList = ConsentList(client)
 
-    fun refreshConsentList() {
+    fun refreshConsentList(): ConsentList {
         runBlocking {
             consentList = ConsentList(client).load()
         }
+        return consentList
     }
 
     fun isAllowed(address: String): Boolean {
