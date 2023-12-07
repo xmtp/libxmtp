@@ -19,8 +19,8 @@ use tls_codec::{Deserialize, Serialize};
 use xmtp_cryptography::signature::is_valid_ethereum_address;
 use xmtp_proto::api_client::{Envelope, XmtpApiClient, XmtpMlsClient};
 
-pub use self::intents::IntentError;
 use self::intents::{AddMembersIntentData, PostCommitAction, RemoveMembersIntentData};
+pub use self::intents::{AddressOrInstallationId, IntentError};
 use crate::{
     api_client_wrapper::WelcomeMessage,
     client::{ClientError, MessageProcessingError},
@@ -439,7 +439,7 @@ where
         }
 
         let conn = &mut self.client.store.conn()?;
-        let intent_data: Vec<u8> = AddMembersIntentData::new(wallet_addresses).try_into()?;
+        let intent_data: Vec<u8> = AddMembersIntentData::new(wallet_addresses.into()).try_into()?;
         let intent =
             NewGroupIntent::new(IntentKind::AddMembers, self.group_id.clone(), intent_data);
         intent.store(conn)?;
@@ -449,7 +449,7 @@ where
 
     pub async fn remove_members(&self, wallet_addresses: Vec<String>) -> Result<(), GroupError> {
         let conn = &mut self.client.store.conn()?;
-        let intent_data: Vec<u8> = RemoveMembersIntentData::new(wallet_addresses).into();
+        let intent_data: Vec<u8> = RemoveMembersIntentData::new(wallet_addresses.into()).into();
         let intent = NewGroupIntent::new(
             IntentKind::RemoveMembers,
             self.group_id.clone(),
@@ -556,7 +556,7 @@ where
 
                 let key_packages = self
                     .client
-                    .get_key_packages_for_wallet_addresses(intent_data.account_addresses)
+                    .get_key_packages(intent_data.address_or_id)
                     .await?;
 
                 let mls_key_packages: Vec<KeyPackage> =
@@ -582,6 +582,11 @@ where
             }
             IntentKind::RemoveMembers => {
                 let intent_data = RemoveMembersIntentData::from_bytes(intent.data.as_slice())?;
+
+                let key_packages = self
+                    .client
+                    .get_key_packages(intent_data.address_or_id)
+                    .await?;
 
                 let installation_ids = self
                     .members()?

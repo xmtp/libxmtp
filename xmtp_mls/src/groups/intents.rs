@@ -114,6 +114,18 @@ impl TryFrom<AddressOrInstallationIdProtoWrapper> for AddressOrInstallationId {
     }
 }
 
+impl From<Vec<Address>> for AddressOrInstallationId {
+    fn from(addrs: Vec<Address>) -> Self {
+        AddressOrInstallationId::AccountAddresses(addrs)
+    }
+}
+
+impl From<Vec<Vec<u8>>> for AddressOrInstallationId {
+    fn from(installation_ids: Vec<Vec<u8>>) -> Self {
+        AddressOrInstallationId::InstallationIds(installation_ids)
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct AddMembersIntentData {
     pub address_or_id: AddressOrInstallationId,

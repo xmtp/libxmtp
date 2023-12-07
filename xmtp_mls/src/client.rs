@@ -13,7 +13,7 @@ use xmtp_proto::api_client::{Envelope, XmtpApiClient, XmtpMlsClient};
 
 use crate::{
     api_client_wrapper::{ApiClientWrapper, IdentityUpdate},
-    groups::{IntentError, MlsGroup},
+    groups::{AddressOrInstallationId, IntentError, MlsGroup},
     identity::Identity,
     retry::Retry,
     storage::{
@@ -269,6 +269,20 @@ where
             }
             process_envelope(provider)
         })
+    }
+
+    pub(crate) async fn get_key_packages(
+        &self,
+        address_or_id: AddressOrInstallationId,
+    ) -> Result<Vec<VerifiedKeyPackage>, ClientError> {
+        match address_or_id {
+            AddressOrInstallationId::AccountAddresses(addrs) => {
+                self.get_key_packages_for_wallet_addresses(addrs).await
+            }
+            AddressOrInstallationId::InstallationIds(ids) => {
+                self.get_key_packages_for_installation_ids(ids).await
+            }
+        }
     }
 
     // Get a flat list of one key package per installation for all the wallet addresses provided.
