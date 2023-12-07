@@ -120,12 +120,7 @@ pub fn is_valid_ethereum_address<S: AsRef<str>>(address: S) -> bool {
         return false;
     }
 
-    for char in address.chars() {
-        if !char.is_ascii_hexdigit() {
-            return false;
-        }
-    }
-    true
+    address.chars().all(|c| c.is_ascii_hexdigit())
 }
 
 #[cfg(test)]
