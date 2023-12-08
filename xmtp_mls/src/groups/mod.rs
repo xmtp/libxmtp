@@ -429,7 +429,7 @@ where
         Ok(())
     }
 
-    fn validate_evm_addresses(wallet_addresses: &Vec<String>) -> Result<(), GroupError> {
+    fn validate_evm_addresses(wallet_addresses: &[String]) -> Result<(), GroupError> {
         let mut invalid = wallet_addresses
             .iter()
             .filter(|a| !is_valid_ethereum_address(a))
@@ -444,7 +444,7 @@ where
         Ok(())
     }
 
-    fn validate_ed25519_keys(keys: &Vec<Vec<u8>>) -> Result<(), GroupError> {
+    fn validate_ed25519_keys(keys: &[Vec<u8>]) -> Result<(), GroupError> {
         let mut invalid = keys
             .iter()
             .filter(|a| !is_valid_ed25519_public_key(a))
@@ -626,6 +626,8 @@ where
 
                 let commit_bytes = commit.tls_serialize_detached()?;
 
+                // If somehow another installation has made it into the commit, this will be missing
+                // their installation ID
                 let installation_ids: Vec<Vec<u8>> =
                     key_packages.iter().map(|kp| kp.installation_id()).collect();
 
@@ -736,7 +738,10 @@ mod tests {
     use xmtp_cryptography::utils::generate_local_wallet;
 
     use crate::{
-        builder::ClientBuilder, storage::group_intent::IntentState, utils::topic::get_welcome_topic,
+        builder::{ClientBuilder, IdentityStrategy},
+        storage::db_connection::DbConnection,
+        storage::group_intent::IntentState,
+        utils::topic::get_welcome_topic,
     };
 
     #[tokio::test]
@@ -978,7 +983,4 @@ mod tests {
             .unwrap();
         assert_eq!(group.members().unwrap().len(), 2);
     }
-
-    #[tokio::test]
-    async fn test_intermittent_installation_id_addition() {}
 }

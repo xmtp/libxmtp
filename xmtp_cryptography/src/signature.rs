@@ -125,7 +125,7 @@ pub fn is_valid_ethereum_address<S: AsRef<str>>(address: S) -> bool {
 }
 
 /// Check if an ed25519 public signature key is valid.
-pub fn is_valid_ed25519_public_key<'a, Bytes: AsRef<[u8]>>(public_key: Bytes) -> bool {
+pub fn is_valid_ed25519_public_key<Bytes: AsRef<[u8]>>(public_key: Bytes) -> bool {
     let public_key = public_key.as_ref();
 
     let compressed = match CompressedEdwardsY::from_slice(public_key) {
