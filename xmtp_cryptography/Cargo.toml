@@ -17,7 +17,6 @@ sha2 = "0.10.7"
 sha3 = "0.10.6"
 thiserror = "1.0.40"
 curve25519-dalek = "4"
-ed25519-dalek = "2"
 log = "0.4"
 
 [features]

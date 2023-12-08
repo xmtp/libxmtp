@@ -6573,7 +6573,6 @@ version = "0.1.0"
 dependencies = [
  "curve25519-dalek",
  "ecdsa 0.15.1",
- "ed25519-dalek",
  "ethers",
  "ethers-core 2.0.10",
  "hex",
