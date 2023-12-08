@@ -1,3 +1,4 @@
+use curve25519_dalek::{edwards::CompressedEdwardsY, traits::IsIdentity};
 use ethers_core::types::{self as ethers_types, H160};
 pub use k256::ecdsa::{RecoveryId, SigningKey, VerifyingKey};
 use k256::Secp256k1;
@@ -121,6 +122,36 @@ pub fn is_valid_ethereum_address<S: AsRef<str>>(address: S) -> bool {
     }
 
     address.chars().all(|c| c.is_ascii_hexdigit())
+}
+
+/// Check if an ed25519 public signature key is valid.
+pub fn is_valid_ed25519_public_key<'a, Bytes: AsRef<[u8]>>(public_key: Bytes) -> bool {
+    let public_key = public_key.as_ref();
+
+    let compressed = match CompressedEdwardsY::from_slice(public_key) {
+        Ok(v) => v,
+        Err(_) => {
+            log::debug!("Invalid ed22519 public key. Does not have length of 32");
+            return false;
+        }
+    };
+
+    match compressed.decompress() {
+        Some(point) => {
+            if point.is_small_order() || point.is_identity() {
+                log::debug!(
+                    "Invalid public key, not a point on the curve or is the identity element."
+                );
+                return false;
+            }
+        }
+        None => {
+            log::debug!("Not a valid ed25519 public key: Decompression failure");
+            return false;
+        }
+    }
+
+    true
 }
 
 #[cfg(test)]

@@ -16,7 +16,7 @@ use openmls_traits::OpenMlsProvider;
 use std::mem::discriminant;
 use thiserror::Error;
 use tls_codec::{Deserialize, Serialize};
-use xmtp_cryptography::signature::is_valid_ethereum_address;
+use xmtp_cryptography::signature::{is_valid_ed25519_public_key, is_valid_ethereum_address};
 use xmtp_proto::api_client::{Envelope, XmtpApiClient, XmtpMlsClient};
 
 use self::intents::{AddMembersIntentData, PostCommitAction, RemoveMembersIntentData};
@@ -77,6 +77,8 @@ pub enum GroupError {
     Diesel(#[from] diesel::result::Error),
     #[error("The address {0:?} is not a valid ethereum address")]
     InvalidAddresses(Vec<String>),
+    #[error("Public Keys {0:?} are not valid ed25519 public keys")]
+    InvalidPublicKeys(Vec<Vec<u8>>),
 }
 
 impl RetryableError for GroupError {
@@ -427,17 +429,38 @@ where
         Ok(())
     }
 
-    pub async fn add_members(&self, wallet_addresses: Vec<String>) -> Result<(), GroupError> {
+    fn validate_evm_addresses(wallet_addresses: &Vec<String>) -> Result<(), GroupError> {
         let mut invalid = wallet_addresses
             .iter()
             .filter(|a| !is_valid_ethereum_address(a))
             .peekable();
+
         if invalid.peek().is_some() {
             return Err(GroupError::InvalidAddresses(
+                invalid.map(ToString::to_string).collect::<Vec<_>>(),
+            ));
+        }
+
+        Ok(())
+    }
+
+    fn validate_ed25519_keys(keys: &Vec<Vec<u8>>) -> Result<(), GroupError> {
+        let mut invalid = keys
+            .iter()
+            .filter(|a| !is_valid_ed25519_public_key(a))
+            .peekable();
+
+        if invalid.peek().is_some() {
+            return Err(GroupError::InvalidPublicKeys(
                 invalid.map(Clone::clone).collect::<Vec<_>>(),
             ));
         }
 
+        Ok(())
+    }
+
+    pub async fn add_members(&self, wallet_addresses: Vec<String>) -> Result<(), GroupError> {
+        Self::validate_evm_addresses(&wallet_addresses)?;
         let conn = &mut self.client.store.conn()?;
         let intent_data: Vec<u8> = AddMembersIntentData::new(wallet_addresses.into()).try_into()?;
         let intent =
@@ -451,8 +474,8 @@ where
         &self,
         installation_ids: Vec<Vec<u8>>,
     ) -> Result<(), GroupError> {
+        Self::validate_ed25519_keys(&installation_ids)?;
         let conn = &mut self.client.store.conn()?;
-        //FIXME:INSIPX -- VALIDATE installation ID somehow
         let intent_data: Vec<u8> = AddMembersIntentData::new(installation_ids.into()).try_into()?;
         let intent =
             NewGroupIntent::new(IntentKind::AddMembers, self.group_id.clone(), intent_data);
@@ -462,6 +485,7 @@ where
     }
 
     pub async fn remove_members(&self, wallet_addresses: Vec<String>) -> Result<(), GroupError> {
+        Self::validate_evm_addresses(&wallet_addresses)?;
         let conn = &mut self.client.store.conn()?;
         let intent_data: Vec<u8> = RemoveMembersIntentData::new(wallet_addresses.into()).into();
         let intent = NewGroupIntent::new(
@@ -474,10 +498,12 @@ where
         self.sync_with_conn(conn).await
     }
 
+    #[allow(dead_code)]
     pub(crate) async fn remove_members_by_installation_id(
         &self,
         installation_ids: Vec<Vec<u8>>,
     ) -> Result<(), GroupError> {
+        Self::validate_ed25519_keys(&installation_ids)?;
         let conn = &mut self.client.store.conn()?;
         let intent_data: Vec<u8> = RemoveMembersIntentData::new(installation_ids.into()).into();
         let intent = NewGroupIntent::new(
@@ -954,7 +980,5 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_intermittent_installation_id_addition() {
-        todo!()
-    }
+    async fn test_intermittent_installation_id_addition() {}
 }
