@@ -290,7 +290,7 @@ mod tests {
     use xmtp_cryptography::utils::generate_local_wallet;
 
     use super::*;
-    use crate::{InboxOwner};
+    use crate::InboxOwner;
 
     #[test]
     fn test_serialize_send_message() {

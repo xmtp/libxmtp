@@ -738,9 +738,7 @@ mod tests {
     use xmtp_cryptography::utils::generate_local_wallet;
 
     use crate::{
-        builder::{ClientBuilder},
-        storage::group_intent::IntentState,
-        utils::topic::get_welcome_topic,
+        builder::ClientBuilder, storage::group_intent::IntentState, utils::topic::get_welcome_topic,
     };
 
     #[tokio::test]
