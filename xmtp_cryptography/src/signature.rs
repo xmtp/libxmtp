@@ -163,7 +163,7 @@ pub mod tests {
         signers::{LocalWallet, Signer},
     };
 
-    use crate::signature::RecoverableSignature;
+    use crate::signature::{is_valid_ed25519_public_key, RecoverableSignature};
 
     pub async fn generate_random_signature(msg: &str) -> (String, Vec<u8>) {
         let wallet = LocalWallet::new(&mut thread_rng());
@@ -222,10 +222,20 @@ pub mod tests {
 
     #[test]
     fn test_eth_address() {
-        assert_eq!(
-            is_valid_ethereum_address("0x7e57Aed10441c8879ce08E45805EC01Ee9689c9f"),
-            true
-        );
+        assert!(is_valid_ethereum_address(
+            "0x7e57Aed10441c8879ce08E45805EC01Ee9689c9f"
+        ));
         assert_eq!(is_valid_ethereum_address("123"), false);
+    }
+
+    #[test]
+    fn test_ed25519_public_key_validation() {
+        let public_key =
+            hex::decode("5E7F70A437963A8B3D0683F949FA0508970ACB87A28139B8BD67D5B01D3B0214")
+                .unwrap();
+        assert!(is_valid_ed25519_public_key(public_key));
+
+        let invalid_key = b"invalid";
+        assert!(!is_valid_ed25519_public_key(invalid_key));
     }
 }
