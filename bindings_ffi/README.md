@@ -38,19 +38,36 @@ You'll need to do the following one-time setup to run Kotlin tests:
 
 If you want to skip the setup, you can also run `cargo test -- --skip kts` to only run Rust unit tests. CI will run all tests regardless.
 
+# Debugging
+
+There is no support for using breakpoints or a debugger with FFI currently. Methods of debugging:
+
+1. Examine any error messages that are returned from libxmtp.
+1. Produce a minimal repro of the issue.
+1. Use platform-native logging:
+   1. Set up an FFI logger for your platform ([example](https://github.com/xmtp/libxmtp/blob/7e7bf7aabe7c758507ae982834d583c1d88c3ce2/bindings_ffi/examples/MainActivity.kt#L33))
+   1. Add logs where you need them ([example](https://github.com/xmtp/libxmtp/assets/696206/bb1be87e-7a9b-47f2-a0f4-e93a92346b18))
+   1. Examine the logs for your platform (for example, on Android emulator this would be logcat in Android Studio)
+1. Examine the database in your app
+   1. Use logs to find the location of the Sqlite database and the database encryption key
+   1. Find the database (for example, on Android emulator use Device File Explorer in Android Studio)
+   1. Copy the database to your local machine and open it on the command line using `sqlite3`
+   1. Decrypt the database if needed [as follows](https://utelle.github.io/SQLite3MultipleCiphers/docs/configuration/config_sql_pragmas/#pragma-key) (or disable database encryption before running the app)
+
 # Releasing new version
 
 Tag the commit you want to release with the appropriate version (e.g. 0.3.0-beta0).
 The Release github workflow will run the following jobs:
 
 - android
-    - downloads the `libxmtp-android.zip` build artifact
-    - make a release tagged the same way with the artifact attached
+
+  - downloads the `libxmtp-android.zip` build artifact
+  - make a release tagged the same way with the artifact attached
 
 - swift
-    - downloads the `libxmtp-swift.zip`` build artifact
-    - checks out `libxmtp-swift` repo and updates it with the contents of the zip file
-    - pushes new commit to the `libxmtp-swift` repo and tags it with the same tag
+  - downloads the `libxmtp-swift.zip`` build artifact
+  - checks out `libxmtp-swift` repo and updates it with the contents of the zip file
+  - pushes new commit to the `libxmtp-swift` repo and tags it with the same tag
 
 NOTES: To allow the workflow to push to another repo the setup follows [this guide](https://docs.github.com/en/apps/creating-github-apps/authenticating-with-a-github-app/making-authenticated-api-requests-with-a-github-app-in-a-github-actions-workflow#authenticating-with-a-github-app). It uses [this app installed on the org](https://github.com/organizations/xmtp/settings/apps/libxmtp-release). The relevant secrets are stored only [in this repo](https://github.com/xmtp/libxmtp/settings/secrets/actions). If additional repos are added to this workflow they MUST be added to [this installation](https://github.com/organizations/xmtp/settings/installations/39118494) of the app.
 

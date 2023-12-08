@@ -5,7 +5,6 @@ mod v2;
 use std::convert::TryInto;
 
 use inbox_owner::FfiInboxOwner;
-use log::info;
 use logger::FfiLogger;
 use std::error::Error;
 use std::sync::Arc;
@@ -70,13 +69,14 @@ pub async fn create_client(
     init_logger(logger);
 
     let inbox_owner = RustInboxOwner::new(ffi_inbox_owner);
-    info!(
+    log::info!(
         "Creating API client for host: {}, isSecure: {}",
-        host, is_secure
+        host,
+        is_secure
     );
     let api_client = TonicApiClient::create(host.clone(), is_secure).await?;
 
-    info!(
+    log::info!(
         "Creating message store with path: {:?} and encryption key: {}",
         db,
         encryption_key.is_some()
@@ -89,18 +89,19 @@ pub async fn create_client(
     };
 
     let store = match db {
-        Some(path) => EncryptedMessageStore::new(StorageOption::Persistent(path), key),
+        // TODO support encryption
+        Some(path) => EncryptedMessageStore::new_unencrypted(StorageOption::Persistent(path)),
 
         None => EncryptedMessageStore::new(StorageOption::Ephemeral, key),
     }?;
 
-    info!("Creating XMTP client");
+    log::info!("Creating XMTP client");
     let xmtp_client: RustXmtpClient = ClientBuilder::new(inbox_owner.into())
         .api_client(api_client)
         .store(store)
         .build()?;
 
-    info!(
+    log::info!(
         "Created XMTP client for address: {}",
         xmtp_client.account_address()
     );

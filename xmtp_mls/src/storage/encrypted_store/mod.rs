@@ -89,6 +89,7 @@ impl EncryptedMessageStore {
         opts: StorageOption,
         enc_key: Option<EncryptionKey>,
     ) -> Result<Self, StorageError> {
+        log::info!("Setting up DB connection pool");
         let pool = match opts {
             StorageOption::Ephemeral => Pool::builder()
                 .max_size(1)
@@ -102,6 +103,7 @@ impl EncryptedMessageStore {
 
         // // Setup SqlCipherKey
         if let Some(key) = enc_key {
+            log::info!("Setting SqlCipher key");
             Self::set_sqlcipher_key(pool.clone(), &key)?;
         }
 
@@ -118,11 +120,13 @@ impl EncryptedMessageStore {
     }
 
     fn init_db(&mut self) -> Result<(), StorageError> {
+        log::info!("Running DB migrations");
         let conn = &mut self.raw_conn()?;
 
         conn.run_pending_migrations(MIGRATIONS)
             .map_err(|e| StorageError::DbInit(e.to_string()))?;
 
+        log::info!("Migrations successful");
         Ok(())
     }
 
