@@ -213,7 +213,7 @@ macro_rules! retry {
 ///     for i in 0..3 {
 ///         tx.send(i).unwrap();
 ///     }
-///     retry_async!(Retry::default(), (|| async {
+///     retry_async!(Retry::default(), (async {
 ///         fallable_fn(&rx.clone()).await
 ///     }))
 /// }
@@ -226,7 +226,7 @@ macro_rules! retry_async {
         let mut attempts = 0;
         loop {
             #[allow(clippy::redundant_closure_call)]
-            match $code().await {
+            match $code.await {
                 Ok(v) => break Ok(v),
                 Err(e) => {
                     if (&e).is_retryable() && attempts < $retry.retries() {
@@ -292,8 +292,6 @@ mod tests {
 
     #[test]
     fn it_retries_twice_and_succeeds() {
-        crate::tests::setup();
-
         let mut i = 0;
         let mut test_fn = || -> Result<(), SomeError> {
             if i == 2 {
@@ -309,8 +307,6 @@ mod tests {
 
     #[test]
     fn it_works_with_random_args() {
-        crate::tests::setup();
-
         let mut i = 0;
         let list = vec!["String".into(), "Foo".into()];
         let mut test_fn = || -> Result<(), SomeError> {
@@ -326,8 +322,6 @@ mod tests {
 
     #[test]
     fn it_fails_on_three_retries() {
-        crate::tests::setup();
-
         let result: Result<(), SomeError> = retry!(
             Retry::default(),
             (|| -> Result<(), SomeError> {
@@ -341,8 +335,6 @@ mod tests {
 
     #[test]
     fn it_only_runs_non_retryable_once() {
-        crate::tests::setup();
-
         let mut attempts = 0;
         let mut test_fn = || -> Result<(), SomeError> {
             attempts += 1;
@@ -356,8 +348,6 @@ mod tests {
 
     #[tokio::test]
     async fn it_works_async() {
-        crate::tests::setup();
-
         async fn retryable_async_fn(rx: &flume::Receiver<usize>) -> Result<(), SomeError> {
             let val = rx.recv_async().await.unwrap();
             if val == 2 {
@@ -373,8 +363,31 @@ mod tests {
         for i in 0..3 {
             tx.send(i).unwrap();
         }
-        let test_future = || async { retryable_async_fn(&rx.clone()).await };
-        retry_async!(Retry::default(), test_future).unwrap();
+        retry_async!(
+            Retry::default(),
+            (async { retryable_async_fn(&rx.clone()).await })
+        )
+        .unwrap();
         assert!(rx.is_empty());
+    }
+
+    #[tokio::test]
+    async fn it_works_async_mut() {
+        async fn retryable_async_fn(data: &mut usize) -> Result<(), SomeError> {
+            if *data == 2 {
+                return Ok(());
+            }
+            *data += 1;
+            // do some work
+            tokio::time::sleep(std::time::Duration::from_nanos(100)).await;
+            Err(SomeError::ARetryableError)
+        }
+
+        let mut data: usize = 0;
+        retry_async!(
+            Retry::default(),
+            (async { retryable_async_fn(&mut data).await })
+        )
+        .unwrap();
     }
 }

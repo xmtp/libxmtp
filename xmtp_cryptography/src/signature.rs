@@ -1,3 +1,4 @@
+use curve25519_dalek::{edwards::CompressedEdwardsY, traits::IsIdentity};
 use ethers_core::types::{self as ethers_types, H160};
 pub use k256::ecdsa::{RecoveryId, SigningKey, VerifyingKey};
 use k256::Secp256k1;
@@ -111,14 +112,58 @@ pub fn h160addr_to_string(bytes: H160) -> String {
     s
 }
 
+/// Check if an string is a valid ethereum address (valid hex and length 20).
+pub fn is_valid_ethereum_address<S: AsRef<str>>(address: S) -> bool {
+    let address = address.as_ref();
+    let address = address.strip_prefix("0x").unwrap_or(address);
+
+    if address.len() != 40 {
+        return false;
+    }
+
+    address.chars().all(|c| c.is_ascii_hexdigit())
+}
+
+/// Check if an ed25519 public signature key is valid.
+pub fn is_valid_ed25519_public_key<Bytes: AsRef<[u8]>>(public_key: Bytes) -> bool {
+    let public_key = public_key.as_ref();
+
+    let compressed = match CompressedEdwardsY::from_slice(public_key) {
+        Ok(v) => v,
+        Err(_) => {
+            log::debug!("Invalid ed22519 public key. Does not have length of 32");
+            return false;
+        }
+    };
+
+    match compressed.decompress() {
+        Some(point) => {
+            if point.is_small_order() || point.is_identity() {
+                log::debug!(
+                    "Invalid public key, not a point on the curve or is the identity element."
+                );
+                return false;
+            }
+        }
+        None => {
+            log::debug!("Not a valid ed25519 public key: Decompression failure");
+            return false;
+        }
+    }
+
+    true
+}
+
 #[cfg(test)]
 pub mod tests {
+    use super::is_valid_ethereum_address;
+
     use ethers::{
         core::rand::thread_rng,
         signers::{LocalWallet, Signer},
     };
 
-    use crate::signature::RecoverableSignature;
+    use crate::signature::{is_valid_ed25519_public_key, RecoverableSignature};
 
     pub async fn generate_random_signature(msg: &str) -> (String, Vec<u8>) {
         let wallet = LocalWallet::new(&mut thread_rng());
@@ -173,5 +218,24 @@ pub mod tests {
         assert!(sig.verify_signature(addr_alt, msg).is_ok());
         assert!(sig.verify_signature(addr_bad, msg).is_err());
         assert!(sig.verify_signature(addr, msg_bad).is_err());
+    }
+
+    #[test]
+    fn test_eth_address() {
+        assert!(is_valid_ethereum_address(
+            "0x7e57Aed10441c8879ce08E45805EC01Ee9689c9f"
+        ));
+        assert_eq!(is_valid_ethereum_address("123"), false);
+    }
+
+    #[test]
+    fn test_ed25519_public_key_validation() {
+        let public_key =
+            hex::decode("5E7F70A437963A8B3D0683F949FA0508970ACB87A28139B8BD67D5B01D3B0214")
+                .unwrap();
+        assert!(is_valid_ed25519_public_key(public_key));
+
+        let invalid_key = b"invalid";
+        assert!(!is_valid_ed25519_public_key(invalid_key));
     }
 }

@@ -279,7 +279,6 @@ mod tests {
     where
         F: FnOnce(&DbConnection) -> R,
     {
-        crate::tests::setup();
         let store = EncryptedMessageStore::new(
             StorageOption::Ephemeral,
             EncryptedMessageStore::generate_enc_key(),

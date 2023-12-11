@@ -2,7 +2,6 @@ mod intents;
 mod members;
 mod membership_change;
 use intents::SendMessageIntentData;
-#[cfg(not(test))]
 use log::debug;
 use openmls::{
     framing::ProtocolMessage,
@@ -16,14 +15,13 @@ use openmls::{
 };
 use openmls_traits::OpenMlsProvider;
 use std::mem::discriminant;
-#[cfg(test)]
-use std::println as debug;
 use thiserror::Error;
 use tls_codec::{Deserialize, Serialize};
+use xmtp_cryptography::signature::{is_valid_ed25519_public_key, is_valid_ethereum_address};
 use xmtp_proto::api_client::{Envelope, XmtpApiClient, XmtpMlsClient};
 
-pub use self::intents::IntentError;
 use self::intents::{AddMembersIntentData, PostCommitAction, RemoveMembersIntentData};
+pub use self::intents::{AddressesOrInstallationIds, IntentError};
 use crate::{
     api_client_wrapper::WelcomeMessage,
     client::{ClientError, MessageProcessingError},
@@ -31,7 +29,7 @@ use crate::{
     identity::Identity,
     retry,
     retry::{Retry, RetryableError},
-    retryable,
+    retry_async, retryable,
     storage::{
         db_connection::DbConnection,
         group::{GroupMembershipState, StoredGroup},
@@ -78,6 +76,10 @@ pub enum GroupError {
     Generic(String),
     #[error("diesel error {0}")]
     Diesel(#[from] diesel::result::Error),
+    #[error("The address {0:?} is not a valid ethereum address")]
+    InvalidAddresses(Vec<String>),
+    #[error("Public Keys {0:?} are not valid ed25519 public keys")]
+    InvalidPublicKeys(Vec<Vec<u8>>),
 }
 
 impl RetryableError for GroupError {
@@ -430,13 +432,40 @@ where
         Ok(())
     }
 
+    fn validate_evm_addresses(wallet_addresses: &[String]) -> Result<(), GroupError> {
+        let mut invalid = wallet_addresses
+            .iter()
+            .filter(|a| !is_valid_ethereum_address(a))
+            .peekable();
+
+        if invalid.peek().is_some() {
+            return Err(GroupError::InvalidAddresses(
+                invalid.map(ToString::to_string).collect::<Vec<_>>(),
+            ));
+        }
+
+        Ok(())
+    }
+
+    fn validate_ed25519_keys(keys: &[Vec<u8>]) -> Result<(), GroupError> {
+        let mut invalid = keys
+            .iter()
+            .filter(|a| !is_valid_ed25519_public_key(a))
+            .peekable();
+
+        if invalid.peek().is_some() {
+            return Err(GroupError::InvalidPublicKeys(
+                invalid.map(Clone::clone).collect::<Vec<_>>(),
+            ));
+        }
+
+        Ok(())
+    }
+
     pub async fn add_members(&self, wallet_addresses: Vec<String>) -> Result<(), GroupError> {
+        Self::validate_evm_addresses(&wallet_addresses)?;
         let conn = &mut self.client.store.conn()?;
-        let key_packages = self
-            .client
-            .get_key_packages_for_wallet_addresses(wallet_addresses)
-            .await?;
-        let intent_data: Vec<u8> = AddMembersIntentData::new(key_packages).try_into()?;
+        let intent_data: Vec<u8> = AddMembersIntentData::new(wallet_addresses.into()).try_into()?;
         let intent =
             NewGroupIntent::new(IntentKind::AddMembers, self.group_id.clone(), intent_data);
         intent.store(conn)?;
@@ -448,12 +477,9 @@ where
         &self,
         installation_ids: Vec<Vec<u8>>,
     ) -> Result<(), GroupError> {
+        Self::validate_ed25519_keys(&installation_ids)?;
         let conn = &mut self.client.store.conn()?;
-        let key_packages = self
-            .client
-            .get_key_packages_for_installation_ids(installation_ids)
-            .await?;
-        let intent_data: Vec<u8> = AddMembersIntentData::new(key_packages).try_into()?;
+        let intent_data: Vec<u8> = AddMembersIntentData::new(installation_ids.into()).try_into()?;
         let intent =
             NewGroupIntent::new(IntentKind::AddMembers, self.group_id.clone(), intent_data);
         intent.store(conn)?;
@@ -461,12 +487,10 @@ where
         self.sync_with_conn(conn).await
     }
 
-    pub(crate) async fn remove_members_by_installation_id(
-        &self,
-        installation_ids: Vec<Vec<u8>>,
-    ) -> Result<(), GroupError> {
+    pub async fn remove_members(&self, wallet_addresses: Vec<String>) -> Result<(), GroupError> {
+        Self::validate_evm_addresses(&wallet_addresses)?;
         let conn = &mut self.client.store.conn()?;
-        let intent_data: Vec<u8> = RemoveMembersIntentData::new(installation_ids).into();
+        let intent_data: Vec<u8> = RemoveMembersIntentData::new(wallet_addresses.into()).into();
         let intent = NewGroupIntent::new(
             IntentKind::RemoveMembers,
             self.group_id.clone(),
@@ -477,18 +501,22 @@ where
         self.sync_with_conn(conn).await
     }
 
-    pub async fn remove_members(&self, wallet_addresses: Vec<String>) -> Result<(), GroupError> {
-        let installation_ids = self
-            .members()?
-            .into_iter()
-            .filter(|member| wallet_addresses.contains(&member.account_address))
-            .fold(vec![], |mut acc, member| {
-                acc.extend(member.installation_ids);
-                acc
-            });
+    #[allow(dead_code)]
+    pub(crate) async fn remove_members_by_installation_id(
+        &self,
+        installation_ids: Vec<Vec<u8>>,
+    ) -> Result<(), GroupError> {
+        Self::validate_ed25519_keys(&installation_ids)?;
+        let conn = &mut self.client.store.conn()?;
+        let intent_data: Vec<u8> = RemoveMembersIntentData::new(installation_ids.into()).into();
+        let intent = NewGroupIntent::new(
+            IntentKind::RemoveMembers,
+            self.group_id.clone(),
+            intent_data,
+        );
+        intent.store(conn)?;
 
-        self.remove_members_by_installation_id(installation_ids)
-            .await
+        self.sync_with_conn(conn).await
     }
 
     pub async fn key_update(&self) -> Result<(), GroupError> {
@@ -528,9 +556,12 @@ where
         )?;
 
         for intent in intents {
-            let result = retry!(
+            let result = retry_async!(
                 Retry::default(),
-                (|| self.get_publish_intent_data(&provider, &mut openmls_group, &intent))
+                (async {
+                    self.get_publish_intent_data(&provider, &mut openmls_group, &intent)
+                        .await
+                })
             );
             if let Err(e) = result {
                 log::error!("error getting publish intent data {:?}", e);
@@ -559,9 +590,9 @@ where
     }
 
     // Takes a StoredGroupIntent and returns the payload and post commit data as a tuple
-    fn get_publish_intent_data(
+    async fn get_publish_intent_data(
         &self,
-        provider: &XmtpOpenMlsProvider,
+        provider: &XmtpOpenMlsProvider<'_>,
         openmls_group: &mut OpenMlsGroup,
         intent: &StoredGroupIntent,
     ) -> Result<(Vec<u8>, Option<Vec<u8>>), GroupError> {
@@ -580,30 +611,28 @@ where
                 Ok((msg_bytes, None))
             }
             IntentKind::AddMembers => {
-                let intent_data =
-                    AddMembersIntentData::from_bytes(intent.data.as_slice(), provider)?;
+                let intent_data = AddMembersIntentData::from_bytes(intent.data.as_slice())?;
 
-                let key_packages: Vec<KeyPackage> = intent_data
-                    .key_packages
-                    .iter()
-                    .map(|kp| kp.inner.clone())
-                    .collect();
+                let key_packages = self
+                    .client
+                    .get_key_packages(intent_data.address_or_id)
+                    .await?;
+
+                let mls_key_packages: Vec<KeyPackage> =
+                    key_packages.iter().map(|kp| kp.inner.clone()).collect();
 
                 let (commit, welcome, _group_info) = openmls_group.add_members(
                     provider,
                     &self.client.identity.installation_keys,
-                    key_packages.as_slice(),
+                    mls_key_packages.as_slice(),
                 )?;
 
                 let commit_bytes = commit.tls_serialize_detached()?;
 
                 // If somehow another installation has made it into the commit, this will be missing
                 // their installation ID
-                let installation_ids: Vec<Vec<u8>> = intent_data
-                    .key_packages
-                    .iter()
-                    .map(|kp| kp.installation_id())
-                    .collect();
+                let installation_ids: Vec<Vec<u8>> =
+                    key_packages.iter().map(|kp| kp.installation_id()).collect();
 
                 let post_commit_data =
                     Some(PostCommitAction::from_welcome(welcome, installation_ids)?.to_bytes());
@@ -612,18 +641,28 @@ where
             }
             IntentKind::RemoveMembers => {
                 let intent_data = RemoveMembersIntentData::from_bytes(intent.data.as_slice())?;
+
+                let installation_ids = {
+                    match intent_data.address_or_id {
+                        AddressesOrInstallationIds::AccountAddresses(addrs) => {
+                            self.client.get_all_active_installation_ids(addrs).await?
+                        }
+                        AddressesOrInstallationIds::InstallationIds(ids) => ids,
+                    }
+                };
+
                 let leaf_nodes: Vec<LeafNodeIndex> = openmls_group
                     .members()
-                    .filter(|member| intent_data.installation_ids.contains(&member.signature_key))
+                    .filter(|member| installation_ids.contains(&member.signature_key))
                     .map(|member| member.index)
                     .collect();
 
                 let num_leaf_nodes = leaf_nodes.len();
 
-                if num_leaf_nodes != intent_data.installation_ids.len() {
+                if num_leaf_nodes != installation_ids.len() {
                     return Err(GroupError::Generic(format!(
                         "expected {} leaf nodes, found {}",
-                        intent_data.installation_ids.len(),
+                        installation_ids.len(),
                         num_leaf_nodes
                     )));
                 }
@@ -820,10 +859,7 @@ mod tests {
         let group = client.create_group().expect("create group");
 
         group
-            .add_members_by_installation_id(vec![client_2
-                .identity
-                .installation_keys
-                .to_public_vec()])
+            .add_members_by_installation_id(vec![client_2.installation_public_key()])
             .await
             .unwrap();
 
@@ -859,19 +895,13 @@ mod tests {
 
         let group = client_1.create_group().expect("create group");
         group
-            .add_members_by_installation_id(vec![client_2
-                .identity
-                .installation_keys
-                .to_public_vec()])
+            .add_members_by_installation_id(vec![client_2.installation_public_key()])
             .await
             .expect("group create failure");
 
         // Try and add another member without merging the pending commit
         group
-            .remove_members_by_installation_id(vec![client_2
-                .identity
-                .installation_keys
-                .to_public_vec()])
+            .remove_members_by_installation_id(vec![client_2.installation_public_key()])
             .await
             .expect("group create failure");
 
@@ -916,10 +946,7 @@ mod tests {
         let group = client.create_group().expect("create group");
 
         group
-            .add_members_by_installation_id(vec![client_2
-                .identity
-                .installation_keys
-                .to_public_vec()])
+            .add_members_by_installation_id(vec![client_2.installation_public_key()])
             .await
             .unwrap();
 

@@ -4,16 +4,16 @@ use thiserror::Error;
 use tls_codec::Serialize;
 use xmtp_proto::xmtp::mls::database::{
     add_members_data::{Version as AddMembersVersion, V1 as AddMembersV1},
+    addresses_or_installation_ids::AddressesOrInstallationIds as AddressesOrInstallationIdsProto,
     post_commit_action::{Kind as PostCommitActionKind, SendWelcomes as SendWelcomesProto},
     remove_members_data::{Version as RemoveMembersVersion, V1 as RemoveMembersV1},
     send_message_data::{Version as SendMessageVersion, V1 as SendMessageV1},
-    AddMembersData, PostCommitAction as PostCommitActionProto, RemoveMembersData, SendMessageData,
+    AccountAddresses, AddMembersData,
+    AddressesOrInstallationIds as AddressesOrInstallationIdsProtoWrapper, InstallationIds,
+    PostCommitAction as PostCommitActionProto, RemoveMembersData, SendMessageData,
 };
 
-use crate::{
-    verified_key_package::{KeyPackageVerificationError, VerifiedKeyPackage},
-    xmtp_openmls_provider::XmtpOpenMlsProvider,
-};
+use crate::{types::Address, verified_key_package::KeyPackageVerificationError};
 
 #[derive(Debug, Error)]
 pub enum IntentError {
@@ -67,27 +67,80 @@ impl From<SendMessageIntentData> for Vec<u8> {
     }
 }
 
+#[derive(Debug, PartialEq, Eq, Clone)]
+pub enum AddressesOrInstallationIds {
+    AccountAddresses(Vec<String>),
+    InstallationIds(Vec<Vec<u8>>),
+}
+
+impl From<AddressesOrInstallationIds> for AddressesOrInstallationIdsProtoWrapper {
+    fn from(address_or_id: AddressesOrInstallationIds) -> Self {
+        match address_or_id {
+            AddressesOrInstallationIds::AccountAddresses(account_addresses) => {
+                AddressesOrInstallationIdsProtoWrapper {
+                    addresses_or_installation_ids: Some(
+                        AddressesOrInstallationIdsProto::AccountAddresses(AccountAddresses {
+                            account_addresses,
+                        }),
+                    ),
+                }
+            }
+            AddressesOrInstallationIds::InstallationIds(installation_ids) => {
+                AddressesOrInstallationIdsProtoWrapper {
+                    addresses_or_installation_ids: Some(
+                        AddressesOrInstallationIdsProto::InstallationIds(InstallationIds {
+                            installation_ids,
+                        }),
+                    ),
+                }
+            }
+        }
+    }
+}
+
+impl TryFrom<AddressesOrInstallationIdsProtoWrapper> for AddressesOrInstallationIds {
+    type Error = IntentError;
+
+    fn try_from(wrapper: AddressesOrInstallationIdsProtoWrapper) -> Result<Self, Self::Error> {
+        match wrapper.addresses_or_installation_ids {
+            Some(AddressesOrInstallationIdsProto::AccountAddresses(addrs)) => Ok(
+                AddressesOrInstallationIds::AccountAddresses(addrs.account_addresses),
+            ),
+            Some(AddressesOrInstallationIdsProto::InstallationIds(ids)) => Ok(
+                AddressesOrInstallationIds::InstallationIds(ids.installation_ids),
+            ),
+            _ => Err(IntentError::Generic("missing payload".to_string())),
+        }
+    }
+}
+
+impl From<Vec<Address>> for AddressesOrInstallationIds {
+    fn from(addrs: Vec<Address>) -> Self {
+        AddressesOrInstallationIds::AccountAddresses(addrs)
+    }
+}
+
+impl From<Vec<Vec<u8>>> for AddressesOrInstallationIds {
+    fn from(installation_ids: Vec<Vec<u8>>) -> Self {
+        AddressesOrInstallationIds::InstallationIds(installation_ids)
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct AddMembersIntentData {
-    pub key_packages: Vec<VerifiedKeyPackage>,
+    pub address_or_id: AddressesOrInstallationIds,
 }
 
 impl AddMembersIntentData {
-    pub fn new(key_packages: Vec<VerifiedKeyPackage>) -> Self {
-        Self { key_packages }
+    pub fn new(address_or_id: AddressesOrInstallationIds) -> Self {
+        Self { address_or_id }
     }
 
     pub(crate) fn to_bytes(&self) -> Result<Vec<u8>, IntentError> {
         let mut buf = Vec::new();
-        let key_package_bytes_result: Result<Vec<Vec<u8>>, tls_codec::Error> = self
-            .key_packages
-            .iter()
-            .map(|kp| kp.inner.tls_serialize_detached())
-            .collect();
-
         AddMembersData {
             version: Some(AddMembersVersion::V1(AddMembersV1 {
-                key_packages_bytes: key_package_bytes_result?,
+                addresses_or_installation_ids: Some(self.address_or_id.clone().into()),
             })),
         }
         .encode(&mut buf)
@@ -96,23 +149,16 @@ impl AddMembersIntentData {
         Ok(buf)
     }
 
-    pub(crate) fn from_bytes(
-        data: &[u8],
-        provider: &XmtpOpenMlsProvider,
-    ) -> Result<Self, IntentError> {
+    pub(crate) fn from_bytes(data: &[u8]) -> Result<Self, IntentError> {
         let msg = AddMembersData::decode(data)?;
-        let key_package_bytes = match msg.version {
-            Some(AddMembersVersion::V1(v1)) => v1.key_packages_bytes,
+        let address_or_id = match msg.version {
+            Some(AddMembersVersion::V1(v1)) => v1
+                .addresses_or_installation_ids
+                .ok_or(IntentError::Generic("missing payload".to_string()))?,
             None => return Err(IntentError::Generic("missing payload".to_string())),
         };
-        let key_packages: Result<Vec<VerifiedKeyPackage>, KeyPackageVerificationError> =
-            key_package_bytes
-                .iter()
-                // TODO: Serialize VerifiedKeyPackages directly, so that we don't have to re-verify
-                .map(|kp| VerifiedKeyPackage::from_bytes(provider, kp))
-                .collect();
 
-        Ok(Self::new(key_packages?))
+        Ok(Self::new(address_or_id.try_into()?))
     }
 }
 
@@ -126,12 +172,12 @@ impl TryFrom<AddMembersIntentData> for Vec<u8> {
 
 #[derive(Debug, Clone)]
 pub struct RemoveMembersIntentData {
-    pub installation_ids: Vec<Vec<u8>>,
+    pub address_or_id: AddressesOrInstallationIds,
 }
 
 impl RemoveMembersIntentData {
-    pub fn new(installation_ids: Vec<Vec<u8>>) -> Self {
-        Self { installation_ids }
+    pub fn new(address_or_id: AddressesOrInstallationIds) -> Self {
+        Self { address_or_id }
     }
 
     pub(crate) fn to_bytes(&self) -> Vec<u8> {
@@ -139,7 +185,7 @@ impl RemoveMembersIntentData {
 
         RemoveMembersData {
             version: Some(RemoveMembersVersion::V1(RemoveMembersV1 {
-                installation_ids: self.installation_ids.clone(),
+                addresses_or_installation_ids: Some(self.address_or_id.clone().into()),
             })),
         }
         .encode(&mut buf)
@@ -150,12 +196,14 @@ impl RemoveMembersIntentData {
 
     pub(crate) fn from_bytes(data: &[u8]) -> Result<Self, IntentError> {
         let msg = RemoveMembersData::decode(data)?;
-        let installation_ids = match msg.version {
-            Some(RemoveMembersVersion::V1(v1)) => v1.installation_ids,
+        let address_or_id = match msg.version {
+            Some(RemoveMembersVersion::V1(v1)) => v1
+                .addresses_or_installation_ids
+                .ok_or(IntentError::Generic("missing payload".to_string()))?,
             None => return Err(IntentError::Generic("missing payload".to_string())),
         };
 
-        Ok(Self::new(installation_ids))
+        Ok(Self::new(address_or_id.try_into()?))
     }
 }
 
@@ -242,7 +290,7 @@ mod tests {
     use xmtp_cryptography::utils::generate_local_wallet;
 
     use super::*;
-    use crate::{builder::ClientBuilder, InboxOwner};
+    use crate::InboxOwner;
 
     #[test]
     fn test_serialize_send_message() {
@@ -258,26 +306,11 @@ mod tests {
     async fn test_serialize_add_members() {
         let wallet = generate_local_wallet();
         let wallet_address = wallet.get_address();
-        let client = ClientBuilder::new_test_client(wallet.into()).await;
-        let conn = client.store.conn().unwrap();
-        let key_package = client
-            .identity
-            .new_key_package(&client.mls_provider(&conn))
-            .unwrap();
-        let verified_key_package = VerifiedKeyPackage::new(key_package, wallet_address.clone());
 
-        let intent = AddMembersIntentData::new(vec![verified_key_package.clone()]);
+        let intent = AddMembersIntentData::new(vec![wallet_address.clone()].into());
         let as_bytes: Vec<u8> = intent.clone().try_into().unwrap();
-        let restored_intent =
-            AddMembersIntentData::from_bytes(as_bytes.as_slice(), &client.mls_provider(&conn))
-                .unwrap();
+        let restored_intent = AddMembersIntentData::from_bytes(as_bytes.as_slice()).unwrap();
 
-        assert!(intent.key_packages[0]
-            .inner
-            .eq(&restored_intent.key_packages[0].inner));
-        assert_eq!(
-            intent.key_packages[0].wallet_address,
-            restored_intent.key_packages[0].wallet_address
-        );
+        assert_eq!(intent.address_or_id, restored_intent.address_or_id);
     }
 }

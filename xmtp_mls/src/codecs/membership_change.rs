@@ -47,6 +47,7 @@ impl ContentCodec<GroupMembershipChanges> for GroupMembershipChangeCodec {
 }
 
 #[cfg(test)]
+
 mod tests {
     use xmtp_proto::xmtp::mls::message_contents::MembershipChange;
 

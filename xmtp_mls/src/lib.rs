@@ -43,10 +43,12 @@ pub trait Delete<Model> {
 #[cfg(test)]
 mod tests {
     use std::sync::Once;
+
     static INIT: Once = Once::new();
 
     /// Setup for tests
-    pub fn setup() {
+    #[ctor::ctor]
+    fn setup() {
         INIT.call_once(|| {
             tracing_subscriber::fmt::init();
         })

@@ -52,7 +52,7 @@ where
         loop {
             let mut result = retry_async!(
                 self.retry_strategy,
-                (|| async {
+                (async {
                     self.api_client
                         .query(QueryRequest {
                             content_topics: vec![topic.to_string()],
@@ -91,7 +91,7 @@ where
     ) -> Result<Vec<u8>, ApiError> {
         let res = retry_async!(
             self.retry_strategy,
-            (|| async {
+            (async {
                 self.api_client
                     .register_installation(RegisterInstallationRequest {
                         last_resort_key_package: Some(KeyPackageUpload {
@@ -108,7 +108,7 @@ where
     pub async fn upload_key_packages(&self, key_packages: Vec<Vec<u8>>) -> Result<(), ApiError> {
         retry_async!(
             self.retry_strategy,
-            (|| async {
+            (async {
                 self.api_client
                     .upload_key_packages(UploadKeyPackagesRequest {
                         key_packages: key_packages
@@ -132,7 +132,7 @@ where
     ) -> Result<KeyPackageMap, ApiError> {
         let res = retry_async!(
             self.retry_strategy,
-            (|| async {
+            (async {
                 self.api_client
                     .consume_key_packages(ConsumeKeyPackagesRequest {
                         installation_ids: installation_ids.clone(),
@@ -179,7 +179,7 @@ where
 
         retry_async!(
             self.retry_strategy,
-            (|| async {
+            (async {
                 self.api_client
                     .publish_welcomes(PublishWelcomesRequest {
                         welcome_messages: welcome_requests.clone(),
@@ -198,7 +198,7 @@ where
     ) -> Result<IdentityUpdatesMap, ApiError> {
         let result = retry_async!(
             self.retry_strategy,
-            (|| async {
+            (async {
                 self.api_client
                     .get_identity_updates(GetIdentityUpdatesRequest {
                         start_time_ns,
@@ -262,7 +262,7 @@ where
 
         retry_async!(
             self.retry_strategy,
-            (|| async {
+            (async {
                 self.api_client
                     .publish_to_group(PublishToGroupRequest {
                         messages: to_send.clone(),
@@ -650,8 +650,6 @@ mod tests {
 
     #[tokio::test]
     async fn it_retries_twice_then_succeeds() {
-        crate::tests::setup();
-
         let mut mock_api = MockApiClient::new();
         let topic = "topic";
         let start_time_ns = 10;
