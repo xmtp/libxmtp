@@ -1,5 +1,6 @@
 mod intents;
 mod members;
+mod membership_change;
 use intents::SendMessageIntentData;
 #[cfg(not(test))]
 use log::debug;
@@ -321,7 +322,9 @@ where
                     "[{}] received staged commit. Merging and clearing any pending commits",
                     self.client.account_address()
                 );
-                openmls_group.merge_staged_commit(provider, *staged_commit)?;
+
+                let sc = *staged_commit;
+                openmls_group.merge_staged_commit(provider, sc)?;
             }
         };
 
@@ -478,7 +481,7 @@ where
         let installation_ids = self
             .members()?
             .into_iter()
-            .filter(|member| wallet_addresses.contains(&member.wallet_address))
+            .filter(|member| wallet_addresses.contains(&member.account_address))
             .fold(vec![], |mut acc, member| {
                 acc.extend(member.installation_ids);
                 acc

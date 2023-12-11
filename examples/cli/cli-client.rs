@@ -180,7 +180,7 @@ async fn main() {
                         .members()
                         .unwrap()
                         .into_iter()
-                        .map(|m| m.wallet_address)
+                        .map(|m| m.account_address)
                         .collect::<Vec<String>>()
                         .join("\n"),
                 );
