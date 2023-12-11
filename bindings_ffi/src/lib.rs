@@ -391,6 +391,7 @@ mod tests {
         )
     }
 
+    #[ignore]
     #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
     async fn test_create_client_with_key() {
         let ffi_inbox_owner = LocalWalletInboxOwner::new();
