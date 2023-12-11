@@ -13,7 +13,7 @@ use xmtp_proto::api_client::{Envelope, XmtpApiClient, XmtpMlsClient};
 
 use crate::{
     api_client_wrapper::{ApiClientWrapper, IdentityUpdate},
-    groups::{AddressOrInstallationId, IntentError, MlsGroup},
+    groups::{AddressesOrInstallationIds, IntentError, MlsGroup},
     identity::Identity,
     retry::Retry,
     storage::{
@@ -273,13 +273,13 @@ where
 
     pub(crate) async fn get_key_packages(
         &self,
-        address_or_id: AddressOrInstallationId,
+        address_or_id: AddressesOrInstallationIds,
     ) -> Result<Vec<VerifiedKeyPackage>, ClientError> {
         match address_or_id {
-            AddressOrInstallationId::AccountAddresses(addrs) => {
+            AddressesOrInstallationIds::AccountAddresses(addrs) => {
                 self.get_key_packages_for_wallet_addresses(addrs).await
             }
-            AddressOrInstallationId::InstallationIds(ids) => {
+            AddressesOrInstallationIds::InstallationIds(ids) => {
                 self.get_key_packages_for_installation_ids(ids).await
             }
         }

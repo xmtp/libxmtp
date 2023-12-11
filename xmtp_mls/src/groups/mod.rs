@@ -20,7 +20,7 @@ use xmtp_cryptography::signature::{is_valid_ed25519_public_key, is_valid_ethereu
 use xmtp_proto::api_client::{Envelope, XmtpApiClient, XmtpMlsClient};
 
 use self::intents::{AddMembersIntentData, PostCommitAction, RemoveMembersIntentData};
-pub use self::intents::{AddressOrInstallationId, IntentError};
+pub use self::intents::{AddressesOrInstallationIds, IntentError};
 use crate::{
     api_client_wrapper::WelcomeMessage,
     client::{ClientError, MessageProcessingError},
@@ -641,10 +641,10 @@ where
 
                 let installation_ids = {
                     match intent_data.address_or_id {
-                        AddressOrInstallationId::AccountAddresses(addrs) => {
+                        AddressesOrInstallationIds::AccountAddresses(addrs) => {
                             self.client.get_all_active_installation_ids(addrs).await?
                         }
-                        AddressOrInstallationId::InstallationIds(ids) => ids,
+                        AddressesOrInstallationIds::InstallationIds(ids) => ids,
                     }
                 };
 
