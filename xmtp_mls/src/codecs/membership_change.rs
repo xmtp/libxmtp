@@ -47,4 +47,36 @@ impl ContentCodec<GroupMembershipChanges> for GroupMembershipChangeCodec {
 }
 
 #[cfg(test)]
-mod tests {}
+
+mod tests {
+    use xmtp_proto::xmtp::mls::message_contents::MembershipChange;
+
+    use crate::utils::test::{rand_string, rand_vec};
+
+    use super::*;
+
+    #[test]
+    fn test_encode_decode() {
+        let new_member = MembershipChange {
+            installation_ids: vec![rand_vec()],
+            account_address: rand_string(),
+            initiated_by_account_address: "".to_string(),
+        };
+        let data = GroupMembershipChanges {
+            members_added: vec![new_member.clone()],
+            members_removed: vec![],
+            installations_added: vec![],
+            installations_removed: vec![],
+        };
+
+        let encoded = GroupMembershipChangeCodec::encode(data).unwrap();
+        assert_eq!(
+            encoded.clone().r#type.unwrap().type_id,
+            "group_membership_change"
+        );
+        assert!(!encoded.content.is_empty());
+
+        let decoded = GroupMembershipChangeCodec::decode(encoded).unwrap();
+        assert_eq!(decoded.members_added[0], new_member);
+    }
+}

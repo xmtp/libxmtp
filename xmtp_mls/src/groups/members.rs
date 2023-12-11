@@ -8,7 +8,7 @@ use super::{GroupError, MlsGroup};
 
 #[derive(Debug, Clone)]
 pub struct GroupMember {
-    pub wallet_address: String,
+    pub account_address: String,
     pub installation_ids: Vec<Vec<u8>>,
 }
 
@@ -33,11 +33,11 @@ where
             })
             .fold(
                 HashMap::new(),
-                |mut acc, (wallet_address, signature_key)| {
-                    acc.entry(wallet_address.clone())
+                |mut acc, (account_address, signature_key)| {
+                    acc.entry(account_address.clone())
                         .and_modify(|e| e.installation_ids.push(signature_key.clone()))
                         .or_insert(GroupMember {
-                            wallet_address,
+                            account_address,
                             installation_ids: vec![signature_key],
                         });
                     acc
@@ -79,10 +79,10 @@ mod tests {
         assert_eq!(members.len(), 2);
 
         for member in members {
-            if member.wallet_address.eq(&amal.account_address()) {
+            if member.account_address.eq(&amal.account_address()) {
                 assert_eq!(member.installation_ids.len(), 1);
             }
-            if member.wallet_address.eq(&bola_a.account_address()) {
+            if member.account_address.eq(&bola_a.account_address()) {
                 assert_eq!(member.installation_ids.len(), 2);
             }
         }

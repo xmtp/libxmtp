@@ -1,5 +1,6 @@
 mod intents;
 mod members;
+mod membership_change;
 use intents::SendMessageIntentData;
 use log::debug;
 use openmls::{
@@ -323,7 +324,9 @@ where
                     "[{}] received staged commit. Merging and clearing any pending commits",
                     self.client.account_address()
                 );
-                openmls_group.merge_staged_commit(provider, *staged_commit)?;
+
+                let sc = *staged_commit;
+                openmls_group.merge_staged_commit(provider, sc)?;
             }
         };
 
