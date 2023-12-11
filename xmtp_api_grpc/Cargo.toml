@@ -6,6 +6,7 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
+log = { version = "0.4", features = ["std"] }
 tonic = "^0.9"
 xmtp_proto = { path = "../xmtp_proto", features = ["proto_full", "grpc"] }
 prost = { version = "^0.11", features = ["prost-derive"] }
@@ -17,7 +18,7 @@ base64 = "0.21.0"
 pbjson = "0.5.1"
 pbjson-types = "0.5.1"
 hyper = "0.14.26"
-hyper-rustls = { version = "0.24.0", features = ["http2"] }
+hyper-rustls = { version = "0.24.2", features = ["http2"] }
 http-body = "0.4.5"
 tower = "0.4.13"
 webpki-roots = "0.23.0"

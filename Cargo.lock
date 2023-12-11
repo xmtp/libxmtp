@@ -6553,6 +6553,7 @@ dependencies = [
  "http-body",
  "hyper",
  "hyper-rustls",
+ "log",
  "pbjson",
  "pbjson-types",
  "prost",

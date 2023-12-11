@@ -1,4 +1,4 @@
-use crate::{stringify_error_chain, GenericError};
+use crate::GenericError;
 
 #[uniffi::export]
 pub fn recover_address(
@@ -7,11 +7,9 @@ pub fn recover_address(
 ) -> Result<String, GenericError> {
     let signature =
         xmtp_cryptography::signature::RecoverableSignature::Eip191Signature(signature_bytes);
-    let recovered = signature
-        .recover_address(&predigest_message)
-        .map_err(|e| stringify_error_chain(&e))?;
+    let recovered = signature.recover_address(&predigest_message)?;
 
-    return Ok(recovered);
+    Ok(recovered)
 }
 
 #[uniffi::export]
@@ -22,7 +20,8 @@ pub fn diffie_hellman_k256(
     let shared_secret = xmtp_v2::k256_helper::diffie_hellman_byte_params(
         private_key_bytes.as_slice(),
         public_key_bytes.as_slice(),
-    )?;
+    )
+    .map_err(|err| GenericError::Generic { err })?;
 
     Ok(shared_secret)
 }
@@ -39,7 +38,8 @@ pub fn verify_k256_sha256(
         message.as_slice(),
         signature.as_slice(),
         recovery_id,
-    )?;
+    )
+    .map_err(|err| GenericError::Generic { err })?;
 
     Ok(result)
 }

@@ -129,6 +129,7 @@ where
     }
 
     pub fn build(mut self) -> Result<Client<ApiClient>, ClientBuilderError> {
+        debug!("Building client");
         let api_client = self
             .api_client
             .take()
@@ -142,6 +143,7 @@ where
             .ok_or(ClientBuilderError::MissingParameter { parameter: "store" })?;
         let conn = store.conn()?;
         let provider = XmtpOpenMlsProvider::new(&conn);
+        debug!("Initializing identity");
         let identity = self
             .identity_strategy
             .initialize_identity(&store, &provider)?;

@@ -11,10 +11,11 @@ import org.web3j.crypto.ECKeyPair
 import org.web3j.crypto.Sign
 import uniffi.xmtpv3.FfiInboxOwner
 import uniffi.xmtpv3.FfiLogger
+import java.io.File
 import java.nio.charset.StandardCharsets
 import java.security.SecureRandom
 
-const val EMULATOR_LOCALHOST_ADDRESS = "http://10.0.2.2:5556"
+const val DEV_NETWORK_ADDRESS = "https://dev.xmtp.network:5556"
 
 class Web3jInboxOwner(private val credentials: Credentials) : FfiInboxOwner {
     override fun getAddress(): String {
@@ -45,14 +46,29 @@ class MainActivity : AppCompatActivity() {
         val privateKey: ByteArray = SecureRandom().generateSeed(32)
         val credentials: Credentials = Credentials.create(ECKeyPair.create(privateKey))
         val inboxOwner = Web3jInboxOwner(credentials)
+        val dbPath: String = this.filesDir.absolutePath + "/android_example.db3"
+        val dbEncryptionKey: List<UByte> = SecureRandom().generateSeed(32).asUByteArray().asList()
+        Log.i(
+            "App",
+            "INFO -\nprivateKey: " + privateKey.asList() + "\nDB path: " + dbPath + "\nDB encryption key: " + dbEncryptionKey
+        )
 
         runBlocking {
             try {
-                val client = uniffi.xmtpv3.createClient(AndroidFfiLogger(), inboxOwner, EMULATOR_LOCALHOST_ADDRESS, false);
-                textView.text = "Client constructed, wallet address: " + client.walletAddress();
+                val client = uniffi.xmtpv3.createClient(
+                    AndroidFfiLogger(),
+                    inboxOwner,
+                    DEV_NETWORK_ADDRESS,
+                    true,
+                    dbPath,
+                    dbEncryptionKey
+                )
+                textView.text = "Client constructed, wallet address: " + client.accountAddress()
             } catch (e: Exception) {
-                textView.text = "Failed to construct client: " + e.message;
+                textView.text = "Failed to construct client: " + e.message
             }
         }
+
+        File(dbPath).delete()
     }
 }
