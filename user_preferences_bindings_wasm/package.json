@@ -4,8 +4,9 @@
     "XMTP Engineering <eng@xmtp.com>"
   ],
   "scripts": {
-    "build": "npm run clean && npm run build:browser && npm run build:node && npm run clean:gitignore",
-    "build:browser": "wasm-pack build --target bundler --no-pack --release --out-dir ./dist/browser",
+    "build": "npm run clean && npm run build:web && npm run build:bundler && npm run build:node && npm run clean:gitignore",
+    "build:web": "wasm-pack build --target web --no-pack --release --out-dir ./dist/web",
+    "build:bundler": "wasm-pack build --target bundler --no-pack --release --out-dir ./dist/bundler",
     "build:node": "wasm-pack build --target nodejs --no-pack --release --out-dir ./dist/node",
     "prepublishOnly": "npm run build",
     "clean": "rm -rf ./dist",
@@ -19,8 +20,24 @@
     "./dist/**/*"
   ],
   "main": "dist/node/user_preferences_bindings_wasm.js",
-  "types": "dist/browser/user_preferences_bindings_wasm.d.ts",
-  "browser": "dist/browser/user_preferences_bindings_wasm.js",
+  "browser": "dist/bundler/user_preferences_bindings_wasm.js",
+  "types": "dist/node/user_preferences_bindings_wasm.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/node/user_preferences_bindings_wasm.d.ts",
+      "browser": "./dist/bundler/user_preferences_bindings_wasm.js",
+      "default": "./dist/node/user_preferences_bindings_wasm.js"
+    },
+    "./bundler": {
+      "types": "./dist/bundler/user_preferences_bindings_wasm.d.ts",
+      "default": "./dist/bundler/user_preferences_bindings_wasm.js"
+    },
+    "./web": {
+      "types": "./dist/web/user_preferences_bindings_wasm.d.ts",
+      "default": "./dist/web/user_preferences_bindings_wasm.js"
+    }
+  },
+  "sideEffects": false,
   "devDependencies": {
     "@changesets/cli": "^2.26.2",
     "wasm-pack": "^0.12.1"
