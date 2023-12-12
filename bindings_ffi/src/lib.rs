@@ -189,6 +189,12 @@ pub struct FfiGroup {
 }
 
 #[derive(uniffi::Record)]
+pub struct FfiGroupMember {
+    pub account_address: String,
+    pub installation_ids: Vec<Vec<u8>>,
+}
+
+#[derive(uniffi::Record)]
 pub struct FfiListMessagesOptions {
     pub sent_before_ns: Option<i64>,
     pub sent_after_ns: Option<i64>,
@@ -209,7 +215,19 @@ impl FfiGroup {
         Ok(())
     }
 
-    pub async fn find_messages(
+    pub async fn sync(&self) -> Result<(), GenericError> {
+        let group = MlsGroup::new(
+            self.inner_client.as_ref(),
+            self.group_id.clone(),
+            self.created_at_ns,
+        );
+
+        group.sync().await?;
+
+        Ok(())
+    }
+
+    pub fn find_messages(
         &self,
         opts: FfiListMessagesOptions,
     ) -> Result<Vec<FfiMessage>, GenericError> {
@@ -218,7 +236,6 @@ impl FfiGroup {
             self.group_id.clone(),
             self.created_at_ns,
         );
-        group.sync().await?;
 
         let messages: Vec<FfiMessage> = group
             .find_messages(None, opts.sent_before_ns, opts.sent_after_ns, opts.limit)?
@@ -227,6 +244,25 @@ impl FfiGroup {
             .collect();
 
         Ok(messages)
+    }
+
+    pub fn list_members(&self) -> Result<Vec<FfiGroupMember>, GenericError> {
+        let group = MlsGroup::new(
+            self.inner_client.as_ref(),
+            self.group_id.clone(),
+            self.created_at_ns,
+        );
+
+        let members: Vec<FfiGroupMember> = group
+            .members()?
+            .into_iter()
+            .map(|member| FfiGroupMember {
+                account_address: member.account_address,
+                installation_ids: member.installation_ids,
+            })
+            .collect();
+
+        Ok(members)
     }
 
     pub async fn add_members(&self, account_addresses: Vec<String>) -> Result<(), GenericError> {
