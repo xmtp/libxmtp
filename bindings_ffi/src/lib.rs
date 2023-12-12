@@ -128,6 +128,15 @@ impl FfiXmtpClient {
     }
 }
 
+#[uniffi::export(async_runtime = "tokio")]
+impl FfiXmtpClient {
+    pub async fn register_identity(&self) -> Result<(), GenericError> {
+        self.inner_client.register_identity().await?;
+
+        Ok(())
+    }
+}
+
 #[derive(uniffi::Object)]
 pub struct FfiConversations {
     inner_client: Arc<RustXmtpClient>,
@@ -139,6 +148,8 @@ impl FfiConversations {
         &self,
         _account_address: String,
     ) -> Result<Arc<FfiGroup>, GenericError> {
+        log::info!("creating group with account address: {}", _account_address);
+
         let convo = self.inner_client.create_group()?;
 
         let out = Arc::new(FfiGroup {
@@ -219,6 +230,8 @@ impl FfiGroup {
     }
 
     pub async fn add_members(&self, account_addresses: Vec<String>) -> Result<(), GenericError> {
+        log::info!("adding members: {}", account_addresses.join(","));
+
         let group = MlsGroup::new(
             self.inner_client.as_ref(),
             self.group_id.clone(),
