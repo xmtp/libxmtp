@@ -1,5 +1,5 @@
 use openmls::{
-    group::{QueuedAddProposal, QueuedRemoveProposal, QueuedUpdateProposal},
+    group::{QueuedAddProposal, QueuedRemoveProposal},
     prelude::{LeafNodeIndex, MlsGroup as OpenMlsGroup, Sender, StagedCommit},
 };
 use std::collections::HashMap;
