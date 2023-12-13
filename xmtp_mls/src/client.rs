@@ -329,9 +329,13 @@ where
         let welcome_topic = get_welcome_topic(&self.installation_public_key());
         let envelopes = self.pull_from_topic(&welcome_topic).await?;
 
+        log::info!("sync_welcomes called, found {} envelopes", envelopes.len());
+
         let groups: Vec<MlsGroup<ApiClient>> = envelopes
             .into_iter()
             .filter_map(|envelope: Envelope| {
+                log::info!("sync_welcomes: {:?}", envelope);
+
                 self.process_for_topic(&welcome_topic, envelope.timestamp_ns, |provider| {
                     let welcome = match extract_welcome(&envelope.message) {
                         Ok(welcome) => welcome,
