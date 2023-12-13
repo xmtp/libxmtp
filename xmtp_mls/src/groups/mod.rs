@@ -20,8 +20,11 @@ use tls_codec::{Deserialize, Serialize};
 use xmtp_cryptography::signature::{is_valid_ed25519_public_key, is_valid_ethereum_address};
 use xmtp_proto::api_client::{Envelope, XmtpApiClient, XmtpMlsClient};
 
-use self::intents::{AddMembersIntentData, PostCommitAction, RemoveMembersIntentData};
 pub use self::intents::{AddressesOrInstallationIds, IntentError};
+use self::{
+    intents::{AddMembersIntentData, PostCommitAction, RemoveMembersIntentData},
+    validated_commit::CommitValidationError,
+};
 use crate::{
     api_client_wrapper::WelcomeMessage,
     client::{ClientError, MessageProcessingError},
@@ -81,6 +84,8 @@ pub enum GroupError {
     InvalidAddresses(Vec<String>),
     #[error("Public Keys {0:?} are not valid ed25519 public keys")]
     InvalidPublicKeys(Vec<Vec<u8>>),
+    #[error("Commit validation error {0}")]
+    CommitValidation(#[from] CommitValidationError),
 }
 
 impl RetryableError for GroupError {
@@ -251,11 +256,7 @@ where
                         group_epoch,
                     });
                 }
-                // Validate the commit, even if it's from yourself
-                ValidatedCommit::from_staged_commit(
-                    maybe_pending_commit.expect("already checked"),
-                    openmls_group,
-                )?;
+
                 debug!("[{}] merging pending commit", self.client.account_address());
                 if let Err(MergePendingCommitError::MlsGroupStateError(err)) =
                     openmls_group.merge_pending_commit(provider)
@@ -636,6 +637,11 @@ where
                     mls_key_packages.as_slice(),
                 )?;
 
+                if let Some(staged_commit) = openmls_group.pending_commit() {
+                    // Validate the commit, even if it's from yourself
+                    ValidatedCommit::from_staged_commit(staged_commit, openmls_group)?;
+                }
+
                 let commit_bytes = commit.tls_serialize_detached()?;
 
                 // If somehow another installation has made it into the commit, this will be missing
@@ -683,6 +689,11 @@ where
                     &self.client.identity.installation_keys,
                     leaf_nodes.as_slice(),
                 )?;
+
+                if let Some(staged_commit) = openmls_group.pending_commit() {
+                    // Validate the commit, even if it's from yourself
+                    ValidatedCommit::from_staged_commit(staged_commit, openmls_group)?;
+                }
 
                 let commit_bytes = commit.tls_serialize_detached()?;
 
