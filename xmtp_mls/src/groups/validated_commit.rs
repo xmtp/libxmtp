@@ -58,7 +58,7 @@ impl ValidatedCommit {
     ) -> Result<Self, CommitValidationError> {
         // We don't allow commits with proposals sent from multiple people right now
         // We also don't allow commits from external members
-        let leaf_index = ensure_single_actor(&staged_commit)?;
+        let leaf_index = ensure_single_actor(staged_commit)?;
         let actor = extract_actor(leaf_index, openmls_group)?;
 
         let existing_installation_ids: HashMap<String, Vec<Vec<u8>>> = existing_members
@@ -69,10 +69,10 @@ impl ValidatedCommit {
             });
 
         let (members_added, installations_added) =
-            get_new_members(&staged_commit, &existing_installation_ids)?;
+            get_new_members(staged_commit, &existing_installation_ids)?;
 
         let (members_removed, installations_removed) =
-            get_removed_members(&staged_commit, &existing_installation_ids, openmls_group)?;
+            get_removed_members(staged_commit, &existing_installation_ids, openmls_group)?;
 
         Ok(Self {
             actor,
@@ -179,8 +179,8 @@ fn ensure_single_actor(
         match proposal.sender() {
             Sender::Member(member_leaf_node_index) => {
                 if leaf_index.is_none() {
-                    leaf_index = Some(&member_leaf_node_index);
-                } else if !leaf_index.unwrap().eq(&member_leaf_node_index) {
+                    leaf_index = Some(member_leaf_node_index);
+                } else if !leaf_index.unwrap().eq(member_leaf_node_index) {
                     return Err(CommitValidationError::MultipleActors);
                 }
             }

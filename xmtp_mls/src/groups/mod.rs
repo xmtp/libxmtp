@@ -18,10 +18,7 @@ use std::mem::discriminant;
 use thiserror::Error;
 use tls_codec::{Deserialize, Serialize};
 use xmtp_cryptography::signature::{is_valid_ed25519_public_key, is_valid_ethereum_address};
-use xmtp_proto::{
-    api_client::{Envelope, XmtpApiClient, XmtpMlsClient},
-    xmtp::message_contents::Message,
-};
+use xmtp_proto::api_client::{Envelope, XmtpApiClient, XmtpMlsClient};
 
 use self::intents::{AddMembersIntentData, PostCommitAction, RemoveMembersIntentData};
 pub use self::intents::{AddressesOrInstallationIds, IntentError};
