@@ -67,6 +67,7 @@ pub fn ignore_unique_violation<T>(
 pub struct EncryptedMessageStore {
     connect_opt: StorageOption,
     pool: Pool<ConnectionManager<SqliteConnection>>,
+    enc_key: Option<EncryptionKey>,
 }
 
 impl<'a> From<&'a EncryptedMessageStore> for Cow<'a, EncryptedMessageStore> {
@@ -101,18 +102,13 @@ impl EncryptedMessageStore {
                 .map_err(|e| StorageError::DbInit(e.to_string()))?,
         };
 
-        // // Setup SqlCipherKey
-        if let Some(key) = enc_key {
-            log::info!("Setting SqlCipher key");
-            Self::set_sqlcipher_key(pool.clone(), &key)?;
-        }
-
         // TODO: Validate that sqlite is correctly configured. Bad EncKey is not detected until the
         // migrations run which returns an unhelpful error.
 
         let mut obj = Self {
             connect_opt: opts,
             pool,
+            enc_key,
         };
 
         obj.init_db()?;
@@ -133,10 +129,14 @@ impl EncryptedMessageStore {
     fn raw_conn(
         &self,
     ) -> Result<PooledConnection<ConnectionManager<SqliteConnection>>, StorageError> {
-        let conn = self
+        let mut conn = self
             .pool
             .get()
             .map_err(|e| StorageError::Pool(e.to_string()))?;
+
+        if let Some(key) = self.enc_key {
+            conn.batch_execute(&format!("PRAGMA key = \"x'{}'\";", hex::encode(key)))?;
+        }
 
         Ok(conn)
     }
@@ -170,19 +170,6 @@ impl EncryptedMessageStore {
             let provider = XmtpOpenMlsProvider::new(&db_connection);
             fun(provider)
         })
-    }
-
-    fn set_sqlcipher_key(
-        pool: Pool<ConnectionManager<SqliteConnection>>,
-        encryption_key: &[u8; 32],
-    ) -> Result<(), StorageError> {
-        let conn = &mut pool.get().map_err(|e| StorageError::Pool(e.to_string()))?;
-
-        conn.batch_execute(&format!(
-            "PRAGMA key = \"x'{}'\";",
-            hex::encode(encryption_key)
-        ))?;
-        Ok(())
     }
 
     pub fn generate_enc_key() -> EncryptionKey {
@@ -368,6 +355,26 @@ mod tests {
             "Expected DbInitError"
         );
         fs::remove_file(db_path).unwrap();
+    }
+
+    #[tokio::test]
+    async fn encrypted_db_with_multiple_connections() {
+        let db_path = tmp_path();
+        let store = EncryptedMessageStore::new(
+            StorageOption::Persistent(db_path.clone()),
+            EncryptedMessageStore::generate_enc_key(),
+        )
+        .unwrap();
+
+        let conn1 = &store.conn().unwrap();
+        let account_address = "address";
+        StoredIdentity::new(account_address.to_string(), rand_vec(), rand_vec())
+            .store(conn1)
+            .unwrap();
+
+        let conn2 = &store.conn().unwrap();
+        let fetched_identity: StoredIdentity = conn2.fetch(&()).unwrap().unwrap();
+        assert_eq!(fetched_identity.account_address, account_address);
     }
 
     #[test]
