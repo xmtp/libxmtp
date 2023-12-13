@@ -16,10 +16,13 @@ use super::members::aggregate_member_list;
 
 #[derive(Debug, Error)]
 pub enum CommitValidationError {
+    // Sender of the proposal has an invalid credential
     #[error("Invalid actor credential")]
     InvalidActorCredential,
+    // Subject of the proposal has an invalid credential
     #[error("Invalid subject credential")]
     InvalidSubjectCredential,
+    // Not used yet, but seems obvious enough to include now
     #[error("Insufficient permissions")]
     InsufficientPermissions,
     // TODO: We will need to relax this once we support external joins
@@ -28,24 +31,26 @@ pub enum CommitValidationError {
     #[error("Subject not a member of the group")]
     SubjectDoesNotExist,
     // TODO: We may need to relax this later
+    // Current behaviour is to error out if a Commit includes proposals from multiple actors
     #[error("Multiple actors in commit")]
     MultipleActors,
     #[error("Failed to get member list {0}")]
     ListMembers(String),
-    #[error("No proposals in")]
-    NoProposals,
 }
 
+// A participant in a commit. Could be the actor or the subject of a proposal
 pub(crate) struct CommitParticipant {
     pub(crate) account_address: Address,
     pub(crate) installation_id: Vec<u8>,
 }
 
+// An aggregation of all the installation_ids for a given membership change
 pub struct AggregatedMembershipChange {
     pub(crate) installation_ids: Vec<Vec<u8>>,
     pub(crate) account_address: Address,
 }
 
+// A parsed and validated commit that we can apply permissions and rules to
 pub struct ValidatedCommit {
     pub(crate) actor: CommitParticipant,
     pub(crate) members_added: Vec<AggregatedMembershipChange>,
@@ -55,14 +60,21 @@ pub struct ValidatedCommit {
 }
 
 impl ValidatedCommit {
+    // Build a ValidatedCommit from a StagedCommit and OpenMlsGroup
     pub fn from_staged_commit(
         staged_commit: &StagedCommit,
         openmls_group: &OpenMlsGroup,
-    ) -> Result<Self, CommitValidationError> {
+    ) -> Result<Option<Self>, CommitValidationError> {
         // We don't allow commits with proposals sent from multiple people right now
         // We also don't allow commits from external members
         let leaf_index = ensure_single_actor(staged_commit)?;
-        let actor = extract_actor(leaf_index, openmls_group)?;
+        if leaf_index.is_none() {
+            // If we can't find a leaf index, it's a self update.
+            // Return None until the issue is resolved
+            return Ok(None);
+        }
+
+        let actor = extract_actor(leaf_index.expect("already checked"), openmls_group)?;
 
         let existing_members = aggregate_member_list(openmls_group)
             .map_err(|e| CommitValidationError::ListMembers(e.to_string()))?;
@@ -80,13 +92,13 @@ impl ValidatedCommit {
         let (members_removed, installations_removed) =
             get_removed_members(staged_commit, &existing_installation_ids, openmls_group)?;
 
-        Ok(Self {
+        Ok(Some(Self {
             actor,
             members_added,
             members_removed,
             installations_added,
             installations_removed,
-        })
+        }))
     }
 }
 
@@ -178,9 +190,8 @@ fn merge_members(
 
 fn ensure_single_actor(
     staged_commit: &StagedCommit,
-) -> Result<LeafNodeIndex, CommitValidationError> {
+) -> Result<Option<LeafNodeIndex>, CommitValidationError> {
     let mut leaf_index: Option<&LeafNodeIndex> = None;
-
     for proposal in staged_commit.queued_proposals() {
         match proposal.sender() {
             Sender::Member(member_leaf_node_index) => {
@@ -194,14 +205,10 @@ fn ensure_single_actor(
         }
     }
 
-    // For some reason, self_updates don't seem to appear here if they are from yourself
-    // Falling back to a default value for now
-    // TODO: Investigate further
-    if leaf_index.is_none() {
-        return Err(CommitValidationError::NoProposals);
-    }
-
-    Ok(*leaf_index.expect("already checked"))
+    // Self updates don't produce any proposals I can see, so it will actually return
+    // None in that case.
+    // TODO: Figure out how to get the leaf index for self updates
+    Ok(leaf_index.map(|i| *i))
 }
 
 // Get a tuple of (new_members, new_installations), each formatted as a Member object with all installation_ids grouped
@@ -325,7 +332,9 @@ mod tests {
 
         let mut staged_commit = mls_group.pending_commit().unwrap();
 
-        let message = ValidatedCommit::from_staged_commit(staged_commit, &mls_group).unwrap();
+        let message = ValidatedCommit::from_staged_commit(staged_commit, &mls_group)
+            .unwrap()
+            .unwrap();
 
         assert_eq!(message.installations_added.len(), 0);
         assert_eq!(message.members_added.len(), 1);
@@ -355,8 +364,9 @@ mod tests {
             .unwrap();
 
         staged_commit = mls_group.pending_commit().unwrap();
-        let remove_message =
-            ValidatedCommit::from_staged_commit(staged_commit, &mls_group).unwrap();
+        let remove_message = ValidatedCommit::from_staged_commit(staged_commit, &mls_group)
+            .unwrap()
+            .unwrap();
 
         assert_eq!(remove_message.members_removed.len(), 1);
         assert_eq!(remove_message.installations_removed.len(), 0);
@@ -390,8 +400,9 @@ mod tests {
 
         let staged_commit = amal_mls_group.pending_commit().unwrap();
 
-        let validated_commit =
-            ValidatedCommit::from_staged_commit(staged_commit, &amal_mls_group).unwrap();
+        let validated_commit = ValidatedCommit::from_staged_commit(staged_commit, &amal_mls_group)
+            .unwrap()
+            .unwrap();
 
         assert_eq!(validated_commit.installations_added.len(), 1);
         assert_eq!(
