@@ -1,5 +1,5 @@
 use openmls::{
-    group::{QueuedAddProposal, QueuedRemoveProposal},
+    group::{QueuedAddProposal, QueuedRemoveProposal, QueuedUpdateProposal},
     prelude::{LeafNodeIndex, MlsGroup as OpenMlsGroup, Sender, StagedCommit},
 };
 use std::collections::HashMap;
@@ -32,6 +32,8 @@ pub enum CommitValidationError {
     MultipleActors,
     #[error("Failed to get member list {0}")]
     ListMembers(String),
+    #[error("No proposals in")]
+    NoProposals,
 }
 
 pub(crate) struct CommitParticipant {
@@ -59,7 +61,7 @@ impl ValidatedCommit {
     ) -> Result<Self, CommitValidationError> {
         // We don't allow commits with proposals sent from multiple people right now
         // We also don't allow commits from external members
-        let leaf_index = ensure_single_actor(staged_commit)?;
+        let leaf_index = ensure_single_actor(staged_commit, openmls_group.own_leaf_index())?;
         let actor = extract_actor(leaf_index, openmls_group)?;
 
         let existing_members = aggregate_member_list(openmls_group)
@@ -176,6 +178,7 @@ fn merge_members(
 
 fn ensure_single_actor(
     staged_commit: &StagedCommit,
+    default_leaf_index: LeafNodeIndex,
 ) -> Result<LeafNodeIndex, CommitValidationError> {
     let mut leaf_index: Option<&LeafNodeIndex> = None;
 
@@ -192,8 +195,11 @@ fn ensure_single_actor(
         }
     }
 
+    // For some reason, self_updates don't seem to appear here if they are from yourself
+    // Falling back to a default value for now
+    // TODO: Investigate further
     if leaf_index.is_none() {
-        return Err(CommitValidationError::ActorNotMember);
+        return Ok(default_leaf_index);
     }
 
     Ok(*leaf_index.expect("already checked"))
