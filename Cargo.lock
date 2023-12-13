@@ -3376,7 +3376,7 @@ dependencies = [
 [[package]]
 name = "openmls"
 version = "0.5.0"
-source = "git+https://github.com/xmtp/openmls?branch=main#d72380028c6c7e5e73f526a75c6f65bdaa93b6b4"
+source = "git+https://github.com/xmtp/openmls?branch=main#5764be718b112819e08893a55dfa38fd6ece5727"
 dependencies = [
  "backtrace",
  "itertools 0.10.5",
@@ -3418,7 +3418,7 @@ dependencies = [
 [[package]]
 name = "openmls_basic_credential"
 version = "0.2.0"
-source = "git+https://github.com/xmtp/openmls?branch=main#d72380028c6c7e5e73f526a75c6f65bdaa93b6b4"
+source = "git+https://github.com/xmtp/openmls?branch=main#5764be718b112819e08893a55dfa38fd6ece5727"
 dependencies = [
  "ed25519-dalek",
  "openmls_traits 0.2.0 (git+https://github.com/xmtp/openmls?branch=main)",
@@ -3444,7 +3444,7 @@ dependencies = [
 [[package]]
 name = "openmls_memory_keystore"
 version = "0.2.0"
-source = "git+https://github.com/xmtp/openmls?branch=main#d72380028c6c7e5e73f526a75c6f65bdaa93b6b4"
+source = "git+https://github.com/xmtp/openmls?branch=main#5764be718b112819e08893a55dfa38fd6ece5727"
 dependencies = [
  "openmls_traits 0.2.0 (git+https://github.com/xmtp/openmls?branch=main)",
  "serde_json",
@@ -3464,7 +3464,7 @@ dependencies = [
 [[package]]
 name = "openmls_rust_crypto"
 version = "0.2.0"
-source = "git+https://github.com/xmtp/openmls?branch=main#d72380028c6c7e5e73f526a75c6f65bdaa93b6b4"
+source = "git+https://github.com/xmtp/openmls?branch=main#5764be718b112819e08893a55dfa38fd6ece5727"
 dependencies = [
  "aes-gcm",
  "chacha20poly1305",
@@ -3512,7 +3512,7 @@ dependencies = [
 [[package]]
 name = "openmls_traits"
 version = "0.2.0"
-source = "git+https://github.com/xmtp/openmls?branch=main#d72380028c6c7e5e73f526a75c6f65bdaa93b6b4"
+source = "git+https://github.com/xmtp/openmls?branch=main#5764be718b112819e08893a55dfa38fd6ece5727"
 dependencies = [
  "serde",
  "tls_codec",

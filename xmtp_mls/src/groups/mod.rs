@@ -1,6 +1,6 @@
 mod intents;
 mod members;
-mod membership_change;
+pub mod validated_commit;
 use intents::SendMessageIntentData;
 use log::debug;
 use openmls::{
@@ -18,7 +18,10 @@ use std::mem::discriminant;
 use thiserror::Error;
 use tls_codec::{Deserialize, Serialize};
 use xmtp_cryptography::signature::{is_valid_ed25519_public_key, is_valid_ethereum_address};
-use xmtp_proto::api_client::{Envelope, XmtpApiClient, XmtpMlsClient};
+use xmtp_proto::{
+    api_client::{Envelope, XmtpApiClient, XmtpMlsClient},
+    xmtp::message_contents::Message,
+};
 
 use self::intents::{AddMembersIntentData, PostCommitAction, RemoveMembersIntentData};
 pub use self::intents::{AddressesOrInstallationIds, IntentError};
@@ -26,6 +29,7 @@ use crate::{
     api_client_wrapper::WelcomeMessage,
     client::{ClientError, MessageProcessingError},
     configuration::CIPHERSUITE,
+    groups::validated_commit::ValidatedCommit,
     identity::Identity,
     retry,
     retry::{Retry, RetryableError},
@@ -326,6 +330,11 @@ where
                 );
 
                 let sc = *staged_commit;
+                let existing_members = self
+                    .members()
+                    .map_err(|e| MessageProcessingError::Generic(e.to_string()))?;
+                // Validate the commit
+                ValidatedCommit::from_staged_commit(&sc, openmls_group, existing_members)?;
                 openmls_group.merge_staged_commit(provider, sc)?;
             }
         };

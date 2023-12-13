@@ -13,7 +13,9 @@ use xmtp_proto::api_client::{Envelope, XmtpApiClient, XmtpMlsClient};
 
 use crate::{
     api_client_wrapper::{ApiClientWrapper, IdentityUpdate},
-    groups::{AddressesOrInstallationIds, IntentError, MlsGroup},
+    groups::{
+        validated_commit::CommitValidationError, AddressesOrInstallationIds, IntentError, MlsGroup,
+    },
     identity::Identity,
     retry::Retry,
     storage::{
@@ -90,6 +92,10 @@ pub enum MessageProcessingError {
     TlsDeserialization(#[from] tls_codec::Error),
     #[error("unsupported message type: {0:?}")]
     UnsupportedMessageType(Discriminant<MlsMessageInBody>),
+    #[error("commit validation")]
+    CommitValidation(#[from] CommitValidationError),
+    #[error("generic {0}")]
+    Generic(String),
 }
 
 impl crate::retry::RetryableError for MessageProcessingError {
