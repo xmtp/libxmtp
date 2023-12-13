@@ -51,11 +51,12 @@ where
 {
     fn initialize_identity(
         self,
-        store: &EncryptedMessageStore,
         provider: &'a XmtpOpenMlsProvider,
     ) -> Result<Identity, ClientBuilderError> {
-        let identity_option: Option<Identity> =
-            store.conn()?.fetch(&())?.map(|i: StoredIdentity| i.into());
+        let identity_option: Option<Identity> = provider
+            .conn()
+            .fetch(&())?
+            .map(|i: StoredIdentity| i.into());
         debug!("Existing identity in store: {:?}", identity_option);
         match self {
             IdentityStrategy::CachedOnly => {
@@ -144,9 +145,7 @@ where
         let conn = store.conn()?;
         let provider = XmtpOpenMlsProvider::new(&conn);
         debug!("Initializing identity");
-        let identity = self
-            .identity_strategy
-            .initialize_identity(&store, &provider)?;
+        let identity = self.identity_strategy.initialize_identity(&provider)?;
         Ok(Client::new(api_client, network, identity, store))
     }
 }
