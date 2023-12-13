@@ -94,8 +94,6 @@ pub enum MessageProcessingError {
     UnsupportedMessageType(Discriminant<MlsMessageInBody>),
     #[error("commit validation")]
     CommitValidation(#[from] CommitValidationError),
-    #[error("generic {0}")]
-    Generic(String),
 }
 
 impl crate::retry::RetryableError for MessageProcessingError {

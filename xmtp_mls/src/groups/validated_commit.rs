@@ -10,9 +10,9 @@ use xmtp_proto::xmtp::mls::message_contents::{
 
 use crate::identity::Identity;
 
-use super::members::GroupMember;
-
 use crate::types::Address;
+
+use super::members::aggregate_member_list;
 
 #[derive(Debug, Error)]
 pub enum CommitValidationError {
@@ -30,6 +30,8 @@ pub enum CommitValidationError {
     // TODO: We may need to relax this later
     #[error("Multiple actors in commit")]
     MultipleActors,
+    #[error("Failed to get member list {0}")]
+    ListMembers(String),
 }
 
 pub(crate) struct CommitParticipant {
@@ -54,12 +56,14 @@ impl ValidatedCommit {
     pub fn from_staged_commit(
         staged_commit: &StagedCommit,
         openmls_group: &OpenMlsGroup,
-        existing_members: Vec<GroupMember>,
     ) -> Result<Self, CommitValidationError> {
         // We don't allow commits with proposals sent from multiple people right now
         // We also don't allow commits from external members
         let leaf_index = ensure_single_actor(staged_commit)?;
         let actor = extract_actor(leaf_index, openmls_group)?;
+
+        let existing_members = aggregate_member_list(openmls_group)
+            .map_err(|e| CommitValidationError::ListMembers(e.to_string()))?;
 
         let existing_installation_ids: HashMap<String, Vec<Vec<u8>>> = existing_members
             .into_iter()
@@ -316,10 +320,7 @@ mod tests {
 
         let mut staged_commit = mls_group.pending_commit().unwrap();
 
-        let mut existing_members = amal_group.members().unwrap();
-        let message =
-            ValidatedCommit::from_staged_commit(staged_commit, &mls_group, existing_members)
-                .unwrap();
+        let message = ValidatedCommit::from_staged_commit(staged_commit, &mls_group).unwrap();
 
         assert_eq!(message.installations_added.len(), 0);
         assert_eq!(message.members_added.len(), 1);
@@ -349,10 +350,8 @@ mod tests {
             .unwrap();
 
         staged_commit = mls_group.pending_commit().unwrap();
-        existing_members = amal_group.members().unwrap();
         let remove_message =
-            ValidatedCommit::from_staged_commit(staged_commit, &mls_group, existing_members)
-                .unwrap();
+            ValidatedCommit::from_staged_commit(staged_commit, &mls_group).unwrap();
 
         assert_eq!(remove_message.members_removed.len(), 1);
         assert_eq!(remove_message.installations_removed.len(), 0);
@@ -385,11 +384,9 @@ mod tests {
             .unwrap();
 
         let staged_commit = amal_mls_group.pending_commit().unwrap();
-        let existing_members = amal_group.members().unwrap();
 
         let validated_commit =
-            ValidatedCommit::from_staged_commit(staged_commit, &amal_mls_group, existing_members)
-                .unwrap();
+            ValidatedCommit::from_staged_commit(staged_commit, &amal_mls_group).unwrap();
 
         assert_eq!(validated_commit.installations_added.len(), 1);
         assert_eq!(
@@ -439,9 +436,7 @@ mod tests {
 
         let staged_commit = amal_mls_group.pending_commit().unwrap();
 
-        let existing_members = amal_group.members().unwrap();
-        let validated_commit =
-            ValidatedCommit::from_staged_commit(staged_commit, &amal_mls_group, existing_members);
+        let validated_commit = ValidatedCommit::from_staged_commit(staged_commit, &amal_mls_group);
 
         assert!(validated_commit.is_err());
     }

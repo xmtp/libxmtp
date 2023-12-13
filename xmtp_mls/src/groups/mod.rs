@@ -235,8 +235,9 @@ where
         let conn = provider.conn();
         match intent.kind {
             IntentKind::AddMembers | IntentKind::RemoveMembers | IntentKind::KeyUpdate => {
+                let maybe_pending_commit = openmls_group.pending_commit();
                 // We don't get errors with merge_pending_commit when there are no commits to merge
-                if openmls_group.pending_commit().is_none() {
+                if maybe_pending_commit.is_none() {
                     let message_epoch = message.epoch();
                     let group_epoch = openmls_group.epoch();
                     debug!(
@@ -250,6 +251,11 @@ where
                         group_epoch,
                     });
                 }
+                // Validate the commit, even if it's from yourself
+                ValidatedCommit::from_staged_commit(
+                    maybe_pending_commit.expect("already checked"),
+                    openmls_group,
+                )?;
                 debug!("[{}] merging pending commit", self.client.account_address());
                 if let Err(MergePendingCommitError::MlsGroupStateError(err)) =
                     openmls_group.merge_pending_commit(provider)
@@ -327,11 +333,8 @@ where
                 );
 
                 let sc = *staged_commit;
-                let existing_members = self
-                    .members()
-                    .map_err(|e| MessageProcessingError::Generic(e.to_string()))?;
                 // Validate the commit
-                ValidatedCommit::from_staged_commit(&sc, openmls_group, existing_members)?;
+                ValidatedCommit::from_staged_commit(&sc, openmls_group)?;
                 openmls_group.merge_staged_commit(provider, sc)?;
             }
         };
