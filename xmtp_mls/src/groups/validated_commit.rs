@@ -208,7 +208,7 @@ fn ensure_single_actor(
     // Self updates don't produce any proposals I can see, so it will actually return
     // None in that case.
     // TODO: Figure out how to get the leaf index for self updates
-    Ok(leaf_index.map(|i| *i))
+    Ok(leaf_index.copied())
 }
 
 // Get a tuple of (new_members, new_installations), each formatted as a Member object with all installation_ids grouped
