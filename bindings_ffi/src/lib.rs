@@ -282,7 +282,7 @@ mod tests {
         distributions::{Alphanumeric, DistString},
     };
     use xmtp_cryptography::{signature::RecoverableSignature, utils::rng};
-    use xmtp_mls::InboxOwner;
+    use xmtp_mls::{storage::EncryptionKey, InboxOwner};
 
     #[derive(Clone)]
     pub struct LocalWalletInboxOwner {
@@ -324,6 +324,10 @@ mod tests {
     pub fn tmp_path() -> String {
         let db_name = rand_string();
         format!("{}/{}.db3", env::temp_dir().to_str().unwrap(), db_name)
+    }
+
+    fn static_enc_key() -> EncryptionKey {
+        [2u8; 32]
     }
 
     async fn new_test_client() -> Arc<FfiXmtpClient> {
