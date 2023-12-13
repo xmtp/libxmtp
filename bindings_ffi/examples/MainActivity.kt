@@ -15,6 +15,7 @@ import java.io.File
 import java.nio.charset.StandardCharsets
 import java.security.SecureRandom
 
+const val EMULATOR_LOCALHOST_ADDRESS = "http://10.0.2.2:5556"
 const val DEV_NETWORK_ADDRESS = "https://dev.xmtp.network:5556"
 
 class Web3jInboxOwner(private val credentials: Credentials) : FfiInboxOwner {
@@ -58,7 +59,7 @@ class MainActivity : AppCompatActivity() {
                 val client = uniffi.xmtpv3.createClient(
                     AndroidFfiLogger(),
                     inboxOwner,
-                    DEV_NETWORK_ADDRESS,
+                    EMULATOR_LOCALHOST_ADDRESS,
                     true,
                     dbPath,
                     dbEncryptionKey
