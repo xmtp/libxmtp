@@ -63,6 +63,7 @@ where
     policies: Vec<PolicyType>,
 }
 
+#[allow(dead_code)]
 impl<PolicyType> AnyCondition<PolicyType>
 where
     PolicyType: Policy,
@@ -91,6 +92,7 @@ where
     policy: PolicyType,
 }
 
+#[allow(dead_code)]
 impl<PolicyType> NotCondition<PolicyType>
 where
     PolicyType: Policy,
