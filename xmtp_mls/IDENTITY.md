@@ -83,13 +83,10 @@ Apps built on XMTP have a reduced need for safety numbers to be shown, as client
 
 Credential validation must be performed by clients at the [events described by the MLS spec](https://www.rfc-editor.org/rfc/rfc9420.html#name-credential-validation) as follows:
 
-1. Verify that the referenced `installation_public_key` has not been revoked (see [Installation revocation](#installation-revocation)).
 1. Verify that the referenced `installation_public_key` matches the `signature_key` of the leaf node.
 1. Derive the association text using the `association_text_version`, `creation_iso8601_time`, `installation_public_key`, with a label of `Grant Messaging Access`.
 1. Recover the wallet public key from the recoverable ECDSA `signature` on the association text.
 1. Derive the wallet address from the public key and verify that it matches the `wallet_address` on the association.
-
-Currently, verifying revocations require a degree of server trust, however this is not the long-term goal - see [Server trust](#server-trust).
 
 ### Installation revocation
 
@@ -130,7 +127,7 @@ Revocations may not apply immediately on all groups. In order to ensure transcri
 
 At any time in the course of a conversation, the list of valid installations for the participating wallet addresses may change via registration or revocation.
 
-Clients must perform the following validation prior to publishing each payload on the group, as well as periodically:
+Clients must perform the following validation prior to publishing each payload on the group, as well as periodically. XMTP clients may perform performance optimizations, such as caching installation lists with a short TTL.
 
 1. Assemble a list of wallet addresses in the conversation from the leaf nodes.
 1. Fetch all identity updates on those wallet addresses.
@@ -138,7 +135,7 @@ Clients must perform the following validation prior to publishing each payload o
 1. Publish a commit to remove nodes from the conversation that are not in the list of valid installations.
 1. Publish a commit to add nodes to the conversation that are in the list of valid installations and not already present.
 
-XMTP clients may perform performance optimizations, such as caching installation lists with a short TTL.
+These commits must include an attached proof (credential or revocation). When validating add/remove commits, clients must verify either that the proposer has permissions to add/remove accounts from the group, or that a proof of installation revocation was attached to the commit.
 
 ### Server trust
 
