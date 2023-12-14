@@ -49,6 +49,7 @@ xmtp_cryptography = { path = "../xmtp_cryptography" }
 xmtp_proto = { path = "../xmtp_proto", features = ["proto_full"] }
 tls_codec = "0.3.0"
 smart-default = "0.7.1"
+chrono = "0.4.31"
 
 [dev-dependencies]
 mockall = "0.11.4"

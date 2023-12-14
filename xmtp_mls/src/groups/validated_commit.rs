@@ -307,7 +307,7 @@ mod tests {
     fn get_key_package(client: &Client<GrpcClient>) -> KeyPackage {
         client
             .identity
-            .new_key_package(&client.mls_provider(&mut client.store.conn().unwrap()))
+            .new_key_package(&client.mls_provider(&client.store.conn().unwrap()))
             .unwrap()
     }
 
@@ -319,7 +319,7 @@ mod tests {
 
         let amal_group = amal.create_group().unwrap();
         let mut amal_conn = amal.store.conn().unwrap();
-        let amal_provider = amal.mls_provider(&mut amal_conn);
+        let amal_provider = amal.mls_provider(&amal_conn);
         let mut mls_group = amal_group.load_mls_group(&amal_provider).unwrap();
         // Create a pending commit to add bola to the group
         mls_group

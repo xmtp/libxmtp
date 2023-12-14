@@ -8,7 +8,6 @@ pub mod groups;
 pub mod identity;
 pub mod mock_xmtp_api_client;
 pub mod owner;
-mod proto_wrapper;
 pub mod retry;
 pub mod storage;
 pub mod types;

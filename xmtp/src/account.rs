@@ -215,12 +215,23 @@ pub(crate) mod tests {
         utils::hex,
     };
     use serde_json::json;
+    use xmtp_cryptography::utils::generate_local_wallet;
 
     use super::{Account, Eip191Association};
-    use crate::association::AssociationError;
+    use crate::association::{AssociationError, AssociationText};
 
     pub fn test_wallet_signer(pub_key: Vec<u8>) -> Result<Eip191Association, AssociationError> {
-        Eip191Association::test(pub_key)
+        let wallet = generate_local_wallet();
+        let addr = wallet.get_address();
+        let assoc_text = AssociationText::new_static(addr, pub_key);
+
+        let signature = wallet.sign(&assoc_text.text())?;
+        Eip191Association::new(
+            pub_key,
+            assoc_text,
+            signature,
+            "2021-01-01T00:00:00Z".to_string(),
+        );
     }
 
     #[test]

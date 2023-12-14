@@ -1,15 +1,12 @@
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
-use xmtp_cryptography::{
-    signature::{RecoverableSignature, SignatureError},
-    utils::generate_local_wallet,
-};
-use xmtp_proto::xmtp::v3::message_contents::{
+use xmtp_cryptography::signature::{RecoverableSignature, SignatureError};
+use xmtp_proto::xmtp::mls::message_contents::{
     Eip191Association as Eip191AssociationProto,
     RecoverableEcdsaSignature as RecoverableEcdsaSignatureProto,
 };
 
-use crate::{types::Address, InboxOwner};
+use crate::types::Address;
 
 #[derive(Debug, Error)]
 pub enum AssociationError {
@@ -50,17 +47,22 @@ impl Eip191Association {
         proto: Eip191AssociationProto,
         expected_wallet_address: String,
     ) -> Result<Self, AssociationError> {
-        let text =
-            AssociationText::new_static(expected_wallet_address, installation_public_key.to_vec());
+        let text = AssociationText::new_static(
+            expected_wallet_address,
+            installation_public_key.to_vec(),
+            proto.iso8601_time,
+        );
         let signature = RecoverableSignature::Eip191Signature(proto.signature.unwrap().bytes);
         Self::new(installation_public_key, text, signature)
     }
 
     fn is_valid(&self, installation_public_key: &[u8]) -> Result<(), AssociationError> {
         let assumed_addr = self.text.get_address();
+        let assumed_time = self.text.get_iso8601_time();
 
         // Ensure the Text properly links the Address and Keybytes
-        self.text.is_valid(&assumed_addr, installation_public_key)?;
+        self.text
+            .is_valid(&assumed_addr, installation_public_key, &assumed_time)?;
 
         let addr = self.signature.recover_address(&self.text.text())?;
 
@@ -79,28 +81,24 @@ impl Eip191Association {
         self.text.get_address()
     }
 
-    pub fn test(pub_key: Vec<u8>) -> Result<Self, AssociationError> {
-        let wallet = generate_local_wallet();
-        let addr = wallet.get_address();
-        let assoc_text = AssociationText::new_static(addr, pub_key);
-
-        let signature = wallet.sign(&assoc_text.text())?;
-        Ok(Self {
-            text: assoc_text,
-            signature,
-        })
+    // The time returned is unverified, call is_valid to ensure the time is correct
+    pub fn iso8601_time(&self) -> String {
+        self.text.get_iso8601_time()
     }
 }
 
 impl From<Eip191Association> for Eip191AssociationProto {
     fn from(assoc: Eip191Association) -> Self {
+        let wallet_address = assoc.address();
+        let iso8601_time = assoc.iso8601_time();
         Self {
-            wallet_address: assoc.address(),
+            wallet_address,
             // Hardcoded version for now
             association_text_version: 1,
             signature: Some(RecoverableEcdsaSignatureProto {
                 bytes: assoc.signature.into(),
             }),
+            iso8601_time,
         }
     }
 }
@@ -114,6 +112,7 @@ pub enum AssociationText {
     Static {
         blockchain_address: Address,
         installation_public_key: Vec<u8>,
+        iso8601_time: String,
     },
 }
 
@@ -126,12 +125,19 @@ impl AssociationText {
         }
     }
 
+    pub fn get_iso8601_time(&self) -> String {
+        match self {
+            Self::Static { iso8601_time, .. } => iso8601_time.clone(),
+        }
+    }
+
     pub fn text(&self) -> String {
         match self {
             Self::Static {
                 blockchain_address,
                 installation_public_key,
-            } => gen_static_text_v1(blockchain_address, installation_public_key),
+                iso8601_time,
+            } => gen_static_text_v1(blockchain_address, installation_public_key, iso8601_time),
         }
     }
 
@@ -139,23 +145,31 @@ impl AssociationText {
         &self,
         blockchain_address: &str,
         installation_public_key: &[u8],
+        iso8601_time: &str,
     ) -> Result<(), AssociationError> {
-        if self.text() == gen_static_text_v1(blockchain_address, installation_public_key) {
+        if self.text()
+            == gen_static_text_v1(blockchain_address, installation_public_key, iso8601_time)
+        {
             return Ok(());
         }
 
         Err(AssociationError::TextMismatch)
     }
 
-    pub fn new_static(blockchain_address: String, installation_public_key: Vec<u8>) -> Self {
+    pub fn new_static(
+        blockchain_address: String,
+        installation_public_key: Vec<u8>,
+        iso8601_time: String,
+    ) -> Self {
         AssociationText::Static {
             blockchain_address,
             installation_public_key,
+            iso8601_time,
         }
     }
 }
 
-fn gen_static_text_v1(addr: &str, key_bytes: &[u8]) -> String {
+fn gen_static_text_v1(addr: &str, key_bytes: &[u8], iso8601_time: &str) -> String {
     format!(
         "AccountAssociation(XMTPv3): {addr} -> keyBytes:{}",
         &hex::encode(key_bytes)
@@ -166,7 +180,7 @@ fn gen_static_text_v1(addr: &str, key_bytes: &[u8]) -> String {
 pub mod tests {
     use ethers::signers::{LocalWallet, Signer};
     use xmtp_cryptography::{signature::h160addr_to_string, utils::rng};
-    use xmtp_proto::xmtp::v3::message_contents::Eip191Association as Eip191AssociationProto;
+    use xmtp_proto::xmtp::mls::message_contents::Eip191Association as Eip191AssociationProto;
 
     use super::{AssociationText, Eip191Association};
 
@@ -181,6 +195,7 @@ pub mod tests {
         let text = AssociationText::Static {
             blockchain_address: addr.clone(),
             installation_public_key: key_bytes.clone(),
+            iso8601_time: "2021-01-01T00:00:00Z".to_string(),
         };
         let sig = wallet.sign_message(text.text()).await.expect("BadSign");
 
@@ -188,14 +203,17 @@ pub mod tests {
         let bad_text1 = AssociationText::Static {
             blockchain_address: addr.clone(),
             installation_public_key: bad_key_bytes.clone(),
+            iso8601_time: "2021-01-01T00:00:00Z".to_string(),
         };
         let bad_text2 = AssociationText::Static {
             blockchain_address: other_addr.clone(),
             installation_public_key: key_bytes.clone(),
+            iso8601_time: "2021-01-01T00:00:00Z".to_string(),
         };
         let other_text = AssociationText::Static {
             blockchain_address: other_addr.clone(),
             installation_public_key: key_bytes.clone(),
+            iso8601_time: "2021-01-01T00:00:00Z".to_string(),
         };
 
         let other_sig = wallet
@@ -218,6 +236,7 @@ pub mod tests {
         let text = AssociationText::Static {
             blockchain_address: addr.clone(),
             installation_public_key: key_bytes.clone(),
+            iso8601_time: "2021-01-01T00:00:00Z".to_string(),
         };
         let sig = wallet.sign_message(text.text()).await.expect("BadSign");
 
