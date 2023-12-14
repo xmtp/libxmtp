@@ -34,6 +34,7 @@ where
     policies: Vec<PolicyType>,
 }
 
+#[allow(dead_code)]
 impl<PolicyType> AndCondition<PolicyType>
 where
     PolicyType: Policy,
