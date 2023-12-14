@@ -6,7 +6,7 @@ on:
   pull_request:
 jobs:
   lint:
-    runs-on: ubuntu-latest
+    runs-on: warp-ubuntu-latest-arm64-4x
     steps:
       - uses: actions/checkout@v1
       - run: rustup component add clippy
