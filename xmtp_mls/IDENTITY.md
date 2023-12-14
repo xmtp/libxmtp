@@ -88,8 +88,6 @@ Credential validation must be performed by clients at the [events described by t
 1. Recover the wallet public key from the recoverable ECDSA `signature` on the association text.
 1. Derive the wallet address from the public key and verify that it matches the `wallet_address` on the association.
 
-Currently, verifying revocations require a degree of server trust, however this is not the long-term goal - see [Server trust](#server-trust).
-
 ### Installation revocation
 
 _Note: Revocation is not scheduled to be built until Q2 2024 or later_
