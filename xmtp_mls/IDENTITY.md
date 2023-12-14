@@ -137,7 +137,7 @@ Clients must perform the following validation prior to publishing each payload o
 1. Publish a commit to remove nodes from the conversation that are not in the list of valid installations.
 1. Publish a commit to add nodes to the conversation that are in the list of valid installations and not already present.
 
-These commits must include an attached proof (credential or revocation). When validating add/remove commits, clients must verify either that the proposer has permissions to add/remove accounts from the group, or that a proof of installation synchronization was attached to the commit.
+These commits must include an attached proof (credential or revocation). When validating add/remove commits, clients must verify either that the proposer has permissions to add/remove accounts from the group, or that a proof of installation revocation was attached to the commit.
 
 ### Server trust
 
