@@ -47,7 +47,9 @@ class MainActivity : AppCompatActivity() {
         val privateKey: ByteArray = SecureRandom().generateSeed(32)
         val credentials: Credentials = Credentials.create(ECKeyPair.create(privateKey))
         val inboxOwner = Web3jInboxOwner(credentials)
-        val dbPath: String = this.filesDir.absolutePath + "/android_example.db3"
+        val dbDir: File = File(this.filesDir.absolutePath, "xmtp_db")
+        dbDir.mkdir()
+        val dbPath: String = dbDir.absolutePath + "/android_example.db3"
         val dbEncryptionKey: List<UByte> = SecureRandom().generateSeed(32).asUByteArray().asList()
         Log.i(
             "App",
@@ -70,6 +72,6 @@ class MainActivity : AppCompatActivity() {
             }
         }
 
-        File(dbPath).delete()
+        dbDir.deleteRecursively()
     }
 }
