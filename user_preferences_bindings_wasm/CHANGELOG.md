@@ -1,5 +1,11 @@
 # @xmtp/ecies-bindings-wasm
 
+## 0.3.0
+
+### Minor Changes
+
+- f6000b7: Added web build, updated exports
+
 ## 0.2.1
 
 ### Patch Changes
