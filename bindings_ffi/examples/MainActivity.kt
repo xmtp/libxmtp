@@ -15,6 +15,7 @@ import java.io.File
 import java.nio.charset.StandardCharsets
 import java.security.SecureRandom
 
+const val EMULATOR_LOCALHOST_ADDRESS = "http://10.0.2.2:5556"
 const val DEV_NETWORK_ADDRESS = "https://dev.xmtp.network:5556"
 
 class Web3jInboxOwner(private val credentials: Credentials) : FfiInboxOwner {
@@ -46,7 +47,9 @@ class MainActivity : AppCompatActivity() {
         val privateKey: ByteArray = SecureRandom().generateSeed(32)
         val credentials: Credentials = Credentials.create(ECKeyPair.create(privateKey))
         val inboxOwner = Web3jInboxOwner(credentials)
-        val dbPath: String = this.filesDir.absolutePath + "/android_example.db3"
+        val dbDir: File = File(this.filesDir.absolutePath, "xmtp_db")
+        dbDir.mkdir()
+        val dbPath: String = dbDir.absolutePath + "/android_example.db3"
         val dbEncryptionKey: List<UByte> = SecureRandom().generateSeed(32).asUByteArray().asList()
         Log.i(
             "App",
@@ -58,7 +61,7 @@ class MainActivity : AppCompatActivity() {
                 val client = uniffi.xmtpv3.createClient(
                     AndroidFfiLogger(),
                     inboxOwner,
-                    DEV_NETWORK_ADDRESS,
+                    EMULATOR_LOCALHOST_ADDRESS,
                     true,
                     dbPath,
                     dbEncryptionKey
@@ -69,6 +72,6 @@ class MainActivity : AppCompatActivity() {
             }
         }
 
-        File(dbPath).delete()
+        dbDir.deleteRecursively()
     }
 }

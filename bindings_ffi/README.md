@@ -53,8 +53,10 @@ There is no support for using breakpoints or a debugger with FFI currently. Meth
 1. Examine the database in your app
    1. Use logs to find the location of the Sqlite database and the database encryption key
    1. Find the database (for example, on Android emulator use Device File Explorer in Android Studio)
-   1. Copy the database to your local machine and open it on the command line using `sqlite3`
+   1. `brew install sqlcipher`
+   1. Copy the database to your local machine and open it on the command line using `sqlcipher <file>.db3`
    1. Decrypt the database if needed [as follows](https://utelle.github.io/SQLite3MultipleCiphers/docs/configuration/config_sql_pragmas/#pragma-key) (or disable database encryption before running the app)
+      1. Note that decryption is buggy if using `sqlite3` - `sqlcipher` is necessary here
 
 # Releasing new version
 

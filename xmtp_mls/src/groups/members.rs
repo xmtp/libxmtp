@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 
+use openmls::group::MlsGroup as OpenMlsGroup;
 use xmtp_proto::api_client::{XmtpApiClient, XmtpMlsClient};
 
 use crate::identity::Identity;
@@ -21,31 +22,35 @@ where
         let openmls_group =
             self.load_mls_group(&self.client.mls_provider(&self.client.store.conn()?))?;
 
-        let member_map: HashMap<String, GroupMember> = openmls_group
-            .members()
-            .filter_map(|member| {
-                Identity::get_validated_account_address(
-                    member.credential.identity(),
-                    &member.signature_key,
-                )
-                .ok()
-                .map(|wallet_address| (wallet_address, member.signature_key.clone()))
-            })
-            .fold(
-                HashMap::new(),
-                |mut acc, (account_address, signature_key)| {
-                    acc.entry(account_address.clone())
-                        .and_modify(|e| e.installation_ids.push(signature_key.clone()))
-                        .or_insert(GroupMember {
-                            account_address,
-                            installation_ids: vec![signature_key],
-                        });
-                    acc
-                },
-            );
-
-        Ok(member_map.into_values().collect())
+        aggregate_member_list(&openmls_group)
     }
+}
+
+pub fn aggregate_member_list(openmls_group: &OpenMlsGroup) -> Result<Vec<GroupMember>, GroupError> {
+    let member_map: HashMap<String, GroupMember> = openmls_group
+        .members()
+        .filter_map(|member| {
+            Identity::get_validated_account_address(
+                member.credential.identity(),
+                &member.signature_key,
+            )
+            .ok()
+            .map(|wallet_address| (wallet_address, member.signature_key.clone()))
+        })
+        .fold(
+            HashMap::new(),
+            |mut acc, (account_address, signature_key)| {
+                acc.entry(account_address.clone())
+                    .and_modify(|e| e.installation_ids.push(signature_key.clone()))
+                    .or_insert(GroupMember {
+                        account_address,
+                        installation_ids: vec![signature_key],
+                    });
+                acc
+            },
+        );
+
+    Ok(member_map.into_values().collect())
 }
 
 #[cfg(test)]

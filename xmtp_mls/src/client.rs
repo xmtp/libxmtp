@@ -13,7 +13,9 @@ use xmtp_proto::api_client::{Envelope, XmtpApiClient, XmtpMlsClient};
 
 use crate::{
     api_client_wrapper::{ApiClientWrapper, IdentityUpdate},
-    groups::{AddressesOrInstallationIds, IntentError, MlsGroup},
+    groups::{
+        validated_commit::CommitValidationError, AddressesOrInstallationIds, IntentError, MlsGroup,
+    },
     identity::Identity,
     retry::Retry,
     storage::{
@@ -90,6 +92,8 @@ pub enum MessageProcessingError {
     TlsDeserialization(#[from] tls_codec::Error),
     #[error("unsupported message type: {0:?}")]
     UnsupportedMessageType(Discriminant<MlsMessageInBody>),
+    #[error("commit validation")]
+    CommitValidation(#[from] CommitValidationError),
 }
 
 impl crate::retry::RetryableError for MessageProcessingError {
@@ -324,7 +328,6 @@ where
 
     // Download all unread welcome messages and convert to groups.
     // Returns any new groups created in the operation
-    #[allow(dead_code)]
     pub async fn sync_welcomes(&self) -> Result<Vec<MlsGroup<ApiClient>>, ClientError> {
         let welcome_topic = get_welcome_topic(&self.installation_public_key());
         let envelopes = self.pull_from_topic(&welcome_topic).await?;

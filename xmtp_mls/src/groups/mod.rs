@@ -1,6 +1,6 @@
 mod intents;
 mod members;
-mod membership_change;
+pub mod validated_commit;
 use intents::SendMessageIntentData;
 use log::debug;
 use openmls::{
@@ -20,12 +20,16 @@ use tls_codec::{Deserialize, Serialize};
 use xmtp_cryptography::signature::{is_valid_ed25519_public_key, is_valid_ethereum_address};
 use xmtp_proto::api_client::{Envelope, XmtpApiClient, XmtpMlsClient};
 
-use self::intents::{AddMembersIntentData, PostCommitAction, RemoveMembersIntentData};
 pub use self::intents::{AddressesOrInstallationIds, IntentError};
+use self::{
+    intents::{AddMembersIntentData, PostCommitAction, RemoveMembersIntentData},
+    validated_commit::CommitValidationError,
+};
 use crate::{
     api_client_wrapper::WelcomeMessage,
     client::{ClientError, MessageProcessingError},
     configuration::CIPHERSUITE,
+    groups::validated_commit::ValidatedCommit,
     identity::Identity,
     retry,
     retry::{Retry, RetryableError},
@@ -80,6 +84,8 @@ pub enum GroupError {
     InvalidAddresses(Vec<String>),
     #[error("Public Keys {0:?} are not valid ed25519 public keys")]
     InvalidPublicKeys(Vec<Vec<u8>>),
+    #[error("Commit validation error {0}")]
+    CommitValidation(#[from] CommitValidationError),
 }
 
 impl RetryableError for GroupError {
@@ -234,8 +240,9 @@ where
         let conn = provider.conn();
         match intent.kind {
             IntentKind::AddMembers | IntentKind::RemoveMembers | IntentKind::KeyUpdate => {
+                let maybe_pending_commit = openmls_group.pending_commit();
                 // We don't get errors with merge_pending_commit when there are no commits to merge
-                if openmls_group.pending_commit().is_none() {
+                if maybe_pending_commit.is_none() {
                     let message_epoch = message.epoch();
                     let group_epoch = openmls_group.epoch();
                     debug!(
@@ -249,6 +256,7 @@ where
                         group_epoch,
                     });
                 }
+
                 debug!("[{}] merging pending commit", self.client.account_address());
                 if let Err(MergePendingCommitError::MlsGroupStateError(err)) =
                     openmls_group.merge_pending_commit(provider)
@@ -326,6 +334,8 @@ where
                 );
 
                 let sc = *staged_commit;
+                // Validate the commit
+                ValidatedCommit::from_staged_commit(&sc, openmls_group)?;
                 openmls_group.merge_staged_commit(provider, sc)?;
             }
         };
@@ -628,6 +638,11 @@ where
                     mls_key_packages.as_slice(),
                 )?;
 
+                if let Some(staged_commit) = openmls_group.pending_commit() {
+                    // Validate the commit, even if it's from yourself
+                    ValidatedCommit::from_staged_commit(staged_commit, openmls_group)?;
+                }
+
                 let commit_bytes = commit.tls_serialize_detached()?;
 
                 // If somehow another installation has made it into the commit, this will be missing
@@ -675,6 +690,11 @@ where
                     &self.client.identity.installation_keys,
                     leaf_nodes.as_slice(),
                 )?;
+
+                if let Some(staged_commit) = openmls_group.pending_commit() {
+                    // Validate the commit, even if it's from yourself
+                    ValidatedCommit::from_staged_commit(staged_commit, openmls_group)?;
+                }
 
                 let commit_bytes = commit.tls_serialize_detached()?;
 
@@ -921,7 +941,14 @@ mod tests {
     #[tokio::test]
     async fn test_key_update() {
         let client = ClientBuilder::new_test_client(generate_local_wallet().into()).await;
+        let bola_client = ClientBuilder::new_test_client(generate_local_wallet().into()).await;
+        bola_client.register_identity().await.unwrap();
+
         let group = client.create_group().expect("create group");
+        group
+            .add_members(vec![bola_client.account_address()])
+            .await
+            .unwrap();
 
         group.key_update().await.unwrap();
 
@@ -930,13 +957,22 @@ mod tests {
             .read_topic(group.topic().as_str(), 0)
             .await
             .unwrap();
-        assert_eq!(messages.len(), 1);
+        assert_eq!(messages.len(), 2);
 
         let conn = &client.store.conn().unwrap();
         let provider = super::XmtpOpenMlsProvider::new(conn);
         let mls_group = group.load_mls_group(&provider).unwrap();
         let pending_commit = mls_group.pending_commit();
         assert!(pending_commit.is_none());
+
+        group.send_message(b"hello").await.expect("send message");
+
+        bola_client.sync_welcomes().await.unwrap();
+        let bola_groups = bola_client.find_groups(None, None, None, None).unwrap();
+        let bola_group = bola_groups.first().unwrap();
+        bola_group.sync().await.unwrap();
+        let bola_messages = bola_group.find_messages(None, None, None, None).unwrap();
+        assert_eq!(bola_messages.len(), 1);
     }
 
     #[tokio::test]

@@ -53,10 +53,6 @@ fn stringify_error_chain<T: Error>(error: &T) -> String {
     result
 }
 
-fn static_enc_key() -> EncryptionKey {
-    [2u8; 32]
-}
-
 #[uniffi::export(async_runtime = "tokio")]
 pub async fn create_client(
     logger: Box<dyn FfiLogger>,
@@ -81,19 +77,21 @@ pub async fn create_client(
         db,
         encryption_key.is_some()
     );
-    let key: EncryptionKey = match encryption_key {
-        Some(key) => key.try_into().map_err(|_err| GenericError::Generic {
-            err: "Malformed 32 byte encryption key".to_string(),
-        })?,
-        None => static_enc_key(),
+
+    let storage_option = match db {
+        Some(path) => StorageOption::Persistent(path),
+        None => StorageOption::Ephemeral,
     };
 
-    let store = match db {
-        // TODO support encryption
-        Some(path) => EncryptedMessageStore::new_unencrypted(StorageOption::Persistent(path)),
-
-        None => EncryptedMessageStore::new(StorageOption::Ephemeral, key),
-    }?;
+    let store = match encryption_key {
+        Some(key) => {
+            let key: EncryptionKey = key.try_into().map_err(|_err| GenericError::Generic {
+                err: "Malformed 32 byte encryption key".to_string(),
+            })?;
+            EncryptedMessageStore::new(storage_option, key)?
+        }
+        None => EncryptedMessageStore::new_unencrypted(storage_option)?,
+    };
 
     log::info!("Creating XMTP client");
     let xmtp_client: RustXmtpClient = ClientBuilder::new(inbox_owner.into())
@@ -326,15 +324,14 @@ mod tests {
     use std::{env, sync::Arc};
 
     use crate::{
-        create_client, inbox_owner::SigningError, logger::FfiLogger, static_enc_key, FfiInboxOwner,
-        FfiXmtpClient,
+        create_client, inbox_owner::SigningError, logger::FfiLogger, FfiInboxOwner, FfiXmtpClient,
     };
     use ethers_core::rand::{
         self,
         distributions::{Alphanumeric, DistString},
     };
     use xmtp_cryptography::{signature::RecoverableSignature, utils::rng};
-    use xmtp_mls::InboxOwner;
+    use xmtp_mls::{storage::EncryptionKey, InboxOwner};
 
     #[derive(Clone)]
     pub struct LocalWalletInboxOwner {
@@ -376,6 +373,10 @@ mod tests {
     pub fn tmp_path() -> String {
         let db_name = rand_string();
         format!("{}/{}.db3", env::temp_dir().to_str().unwrap(), db_name)
+    }
+
+    fn static_enc_key() -> EncryptionKey {
+        [2u8; 32]
     }
 
     async fn new_test_client() -> Arc<FfiXmtpClient> {
@@ -440,7 +441,6 @@ mod tests {
         )
     }
 
-    #[ignore]
     #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
     async fn test_create_client_with_key() {
         let ffi_inbox_owner = LocalWalletInboxOwner::new();
@@ -463,7 +463,7 @@ mod tests {
         drop(client_a);
 
         let mut other_key = static_enc_key();
-        other_key[0] = 1;
+        other_key[31] = 1;
 
         let result_errored = create_client(
             Box::new(MockLogger {}),
