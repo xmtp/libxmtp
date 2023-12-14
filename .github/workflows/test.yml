@@ -53,7 +53,8 @@ jobs:
           command: test
           args: --manifest-path bindings_swift/Cargo.toml
 
-      - name: Run cargo test on FFI bindings
-        run: |
-          export CLASSPATH="${{ env.CLASSPATH }}"
-          cargo test --manifest-path bindings_ffi/Cargo.toml
+      # Not needed on v2
+      # - name: Run cargo test on FFI bindings
+      #   run: |
+      #     export CLASSPATH="${{ env.CLASSPATH }}"
+      #     cargo test --manifest-path bindings_ffi/Cargo.toml
