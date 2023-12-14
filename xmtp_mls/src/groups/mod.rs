@@ -1,4 +1,5 @@
 mod intents;
+mod group_permissions;
 mod members;
 pub mod validated_commit;
 use intents::SendMessageIntentData;
