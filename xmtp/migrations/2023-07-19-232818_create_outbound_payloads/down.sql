@@ -1,1 +1,0 @@
-DROP TABLE outbound_payloads;

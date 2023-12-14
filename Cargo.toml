@@ -3,7 +3,6 @@
 members = [
   "examples/cli",
   "mls_validation_service",
-  "xmtp",
   "xmtp_cryptography",
   "xmtp_api_grpc",
   "xmtp_proto",
