@@ -155,58 +155,36 @@ where
     }
 
     pub fn evaluate_commit(&self, commit: &ValidatedCommit) -> bool {
-        if self.evaluate_add_member(commit) == false {
-            return false;
-        }
-        if self.evaluate_remove_member(commit) == false {
-            return false;
-        }
-        if self.evaluate_add_installation(commit) == false {
-            return false;
-        }
-        if self.evaluate_remove_installation(commit) == false {
-            return false;
-        }
-        return true;
+        self.evaluate_policy(
+            commit.members_added.iter(),
+            &self.add_member_policy,
+            &commit.actor,
+        ) && self.evaluate_policy(
+            commit.members_removed.iter(),
+            &self.remove_member_policy,
+            &commit.actor,
+        ) && self.evaluate_policy(
+            commit.installations_added.iter(),
+            &self.add_installation_policy,
+            &commit.actor,
+        ) && self.evaluate_policy(
+            commit.installations_removed.iter(),
+            &self.remove_installation_policy,
+            &commit.actor,
+        )
     }
 
-    fn evaluate_add_member(&self, commit: &ValidatedCommit) -> bool {
-        for change in commit.members_added.iter() {
-            if !self.add_member_policy.evaluate(&commit.actor, change) {
-                return false;
-            }
-        }
-        return true;
-    }
-
-    fn evaluate_remove_member(&self, commit: &ValidatedCommit) -> bool {
-        for change in commit.members_removed.iter() {
-            if !self.remove_member_policy.evaluate(&commit.actor, change) {
-                return false;
-            }
-        }
-        return true;
-    }
-
-    fn evaluate_add_installation(&self, commit: &ValidatedCommit) -> bool {
-        for change in commit.installations_added.iter() {
-            if !self.add_installation_policy.evaluate(&commit.actor, change) {
-                return false;
-            }
-        }
-        return true;
-    }
-
-    fn evaluate_remove_installation(&self, commit: &ValidatedCommit) -> bool {
-        for change in commit.installations_removed.iter() {
-            if !self
-                .remove_installation_policy
-                .evaluate(&commit.actor, change)
-            {
-                return false;
-            }
-        }
-        return true;
+    fn evaluate_policy<'a, I, P>(
+        &self,
+        mut changes: I,
+        policy: &P,
+        actor: &CommitParticipant,
+    ) -> bool
+    where
+        I: Iterator<Item = &'a AggregatedMembershipChange>,
+        P: Policy,
+    {
+        changes.all(|change| policy.evaluate(actor, change))
     }
 }
 
