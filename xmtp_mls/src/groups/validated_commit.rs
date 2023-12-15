@@ -39,18 +39,21 @@ pub enum CommitValidationError {
 }
 
 // A participant in a commit. Could be the actor or the subject of a proposal
-pub(crate) struct CommitParticipant {
-    pub(crate) account_address: Address,
-    pub(crate) installation_id: Vec<u8>,
+#[derive(Clone, Debug)]
+pub struct CommitParticipant {
+    pub account_address: Address,
+    pub installation_id: Vec<u8>,
 }
 
 // An aggregation of all the installation_ids for a given membership change
+#[derive(Clone, Debug)]
 pub struct AggregatedMembershipChange {
     pub(crate) installation_ids: Vec<Vec<u8>>,
     pub(crate) account_address: Address,
 }
 
 // A parsed and validated commit that we can apply permissions and rules to
+#[derive(Clone, Debug)]
 pub struct ValidatedCommit {
     pub(crate) actor: CommitParticipant,
     pub(crate) members_added: Vec<AggregatedMembershipChange>,
