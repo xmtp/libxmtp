@@ -1,1 +1,0 @@
-DROP TABLE inbound_messages;
