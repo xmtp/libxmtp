@@ -27,6 +27,7 @@ impl Policy for StandardPolicies {
 }
 
 // An AndCondition evaluates to true if all the policies it contains evaluate to true
+#[derive(Clone, Debug)]
 pub struct AndCondition<PolicyType>
 where
     PolicyType: Policy,
@@ -56,6 +57,7 @@ where
 }
 
 // An AnyCondition evaluates to true if any of the contained policies evaluate to true
+#[derive(Clone, Debug)]
 pub struct AnyCondition<PolicyType>
 where
     PolicyType: Policy,
@@ -85,6 +87,7 @@ where
 }
 
 // A NotCondition evaluates to true if the contained policy evaluates to false
+#[derive(Clone, Debug)]
 pub struct NotCondition<PolicyType>
 where
     PolicyType: Policy,
@@ -118,10 +121,10 @@ pub struct GroupPermissions<
     AddInstallationPolicy,
     RemoveInstallationPolicy,
 > where
-    AddMemberPolicy: Policy,
-    RemoveMemberPolicy: Policy,
-    AddInstallationPolicy: Policy,
-    RemoveInstallationPolicy: Policy,
+    AddMemberPolicy: Policy + std::fmt::Debug,
+    RemoveMemberPolicy: Policy + std::fmt::Debug,
+    AddInstallationPolicy: Policy + std::fmt::Debug,
+    RemoveInstallationPolicy: Policy + std::fmt::Debug,
 {
     pub add_member_policy: AddMemberPolicy,
     pub remove_member_policy: RemoveMemberPolicy,
@@ -138,10 +141,10 @@ impl<AddMemberPolicy, RemoveMemberPolicy, AddInstallationPolicy, RemoveInstallat
         RemoveInstallationPolicy,
     >
 where
-    AddMemberPolicy: Policy,
-    RemoveMemberPolicy: Policy,
-    AddInstallationPolicy: Policy,
-    RemoveInstallationPolicy: Policy,
+    AddMemberPolicy: Policy + std::fmt::Debug,
+    RemoveMemberPolicy: Policy + std::fmt::Debug,
+    AddInstallationPolicy: Policy + std::fmt::Debug,
+    RemoveInstallationPolicy: Policy + std::fmt::Debug,
 {
     pub fn new(
         add_member_policy: AddMemberPolicy,
@@ -185,9 +188,20 @@ where
     ) -> bool
     where
         I: Iterator<Item = &'a AggregatedMembershipChange>,
-        P: Policy,
+        P: Policy + std::fmt::Debug,
     {
-        changes.all(|change| policy.evaluate(actor, change))
+        changes.all(|change| {
+            let is_ok = policy.evaluate(actor, change);
+            if !is_ok {
+                log::info!(
+                    "Policy {:?} failed for actor {:?} and change {:?}",
+                    policy,
+                    actor,
+                    change
+                );
+            }
+            is_ok
+        })
     }
 }
 

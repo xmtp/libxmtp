@@ -40,7 +40,7 @@ pub enum CommitValidationError {
 
 // A participant in a commit. Could be the actor or the subject of a proposal
 #[derive(Clone, Debug)]
-pub(crate) struct CommitParticipant {
+pub struct CommitParticipant {
     pub account_address: Address,
     pub installation_id: Vec<u8>,
 }
