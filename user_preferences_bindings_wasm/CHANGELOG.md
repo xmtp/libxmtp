@@ -1,5 +1,11 @@
 # @xmtp/ecies-bindings-wasm
 
+## 0.3.1
+
+### Patch Changes
+
+- 13cd50c: Fix module type and exports
+
 ## 0.3.0
 
 ### Minor Changes
