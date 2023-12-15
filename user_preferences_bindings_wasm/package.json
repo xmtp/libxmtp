@@ -1,5 +1,6 @@
 {
   "name": "@xmtp/user-preferences-bindings-wasm",
+  "type": "module",
   "collaborators": [
     "XMTP Engineering <eng@xmtp.com>"
   ],
@@ -20,21 +21,21 @@
     "./dist/**/*"
   ],
   "main": "dist/node/user_preferences_bindings_wasm.js",
-  "browser": "dist/bundler/user_preferences_bindings_wasm.js",
+  "module": "dist/bundler/user_preferences_bindings_wasm.js",
   "types": "dist/node/user_preferences_bindings_wasm.d.ts",
   "exports": {
     ".": {
-      "types": "./dist/node/user_preferences_bindings_wasm.d.ts",
-      "browser": "./dist/bundler/user_preferences_bindings_wasm.js",
-      "default": "./dist/node/user_preferences_bindings_wasm.js"
+      "types": "./dist/bundler/user_preferences_bindings_wasm.d.ts",
+      "import": "./dist/bundler/user_preferences_bindings_wasm.js",
+      "require": "./dist/node/user_preferences_bindings_wasm.js"
     },
     "./bundler": {
       "types": "./dist/bundler/user_preferences_bindings_wasm.d.ts",
-      "default": "./dist/bundler/user_preferences_bindings_wasm.js"
+      "import": "./dist/bundler/user_preferences_bindings_wasm.js"
     },
     "./web": {
       "types": "./dist/web/user_preferences_bindings_wasm.d.ts",
-      "default": "./dist/web/user_preferences_bindings_wasm.js"
+      "import": "./dist/web/user_preferences_bindings_wasm.js"
     }
   },
   "sideEffects": false,
