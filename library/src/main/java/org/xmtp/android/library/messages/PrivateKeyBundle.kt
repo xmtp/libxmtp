@@ -3,6 +3,7 @@ package org.xmtp.android.library.messages
 import com.google.protobuf.kotlin.toByteString
 import kotlinx.coroutines.runBlocking
 import org.xmtp.android.library.Crypto
+import org.xmtp.android.library.PreEventCallback
 import org.xmtp.android.library.SigningKey
 import org.xmtp.android.library.XMTPException
 import org.xmtp.proto.message.contents.PrivateKeyOuterClass
@@ -20,9 +21,19 @@ class PrivateKeyBundleBuilder {
     }
 }
 
-fun PrivateKeyBundle.encrypted(key: SigningKey): EncryptedPrivateKeyBundle {
+fun PrivateKeyBundle.encrypted(
+    key: SigningKey,
+    preEnableIdentityCallback: PreEventCallback? = null,
+): EncryptedPrivateKeyBundle {
     val bundleBytes = toByteArray()
     val walletPreKey = SecureRandom().generateSeed(32)
+
+    preEnableIdentityCallback?.let {
+        runBlocking {
+            it.invoke()
+        }
+    }
+
     val signature =
         runBlocking {
             key.sign(

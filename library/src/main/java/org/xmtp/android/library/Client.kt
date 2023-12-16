@@ -43,8 +43,13 @@ import java.util.TimeZone
 
 typealias PublishResponse = org.xmtp.proto.message.api.v1.MessageApiOuterClass.PublishResponse
 typealias QueryResponse = org.xmtp.proto.message.api.v1.MessageApiOuterClass.QueryResponse
+typealias PreEventCallback = suspend () -> Unit
 
-data class ClientOptions(val api: Api = Api()) {
+data class ClientOptions(
+    val api: Api = Api(),
+    val preCreateIdentityCallback: PreEventCallback? = null,
+    val preEnableIdentityCallback: PreEventCallback? = null,
+) {
     data class Api(
         val env: XMTPEnvironment = XMTPEnvironment.DEV,
         val isSecure: Boolean = true,
@@ -152,13 +157,13 @@ class Client() {
         val clientOptions = options ?: ClientOptions()
         val apiClient =
             GRPCApiClient(environment = clientOptions.api.env, secure = clientOptions.api.isSecure)
-        return create(account = account, apiClient = apiClient)
+        return create(account = account, apiClient = apiClient, options = options)
     }
 
-    fun create(account: SigningKey, apiClient: ApiClient): Client {
+    fun create(account: SigningKey, apiClient: ApiClient, options: ClientOptions? = null): Client {
         return runBlocking {
             try {
-                val privateKeyBundleV1 = loadOrCreateKeys(account, apiClient)
+                val privateKeyBundleV1 = loadOrCreateKeys(account, apiClient, options)
                 val client = Client(account.address, privateKeyBundleV1, apiClient)
                 client.ensureUserContactPublished()
                 client
@@ -182,14 +187,15 @@ class Client() {
     private suspend fun loadOrCreateKeys(
         account: SigningKey,
         apiClient: ApiClient,
+        options: ClientOptions? = null,
     ): PrivateKeyBundleV1 {
-        val keys = loadPrivateKeys(account, apiClient)
+        val keys = loadPrivateKeys(account, apiClient, options)
         return if (keys != null) {
             keys
         } else {
-            val v1Keys = PrivateKeyBundleV1.newBuilder().build().generate(account)
+            val v1Keys = PrivateKeyBundleV1.newBuilder().build().generate(account, options)
             val keyBundle = PrivateKeyBundleBuilder.buildFromV1Key(v1Keys)
-            val encryptedKeys = keyBundle.encrypted(account)
+            val encryptedKeys = keyBundle.encrypted(account, options?.preEnableIdentityCallback)
             authSave(apiClient, keyBundle.v1, encryptedKeys)
             v1Keys
         }
@@ -198,11 +204,12 @@ class Client() {
     private suspend fun loadPrivateKeys(
         account: SigningKey,
         apiClient: ApiClient,
+        options: ClientOptions? = null,
     ): PrivateKeyBundleV1? {
         val encryptedBundles = authCheck(apiClient, account.address)
         for (encryptedBundle in encryptedBundles) {
             try {
-                val bundle = encryptedBundle.decrypted(account)
+                val bundle = encryptedBundle.decrypted(account, options?.preEnableIdentityCallback)
                 return bundle.v1
             } catch (e: Throwable) {
                 print("Error decoding encrypted private key bundle: $e")
