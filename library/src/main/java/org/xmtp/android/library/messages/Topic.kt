@@ -9,6 +9,11 @@ sealed class Topic {
     data class directMessageV2(val addresses: String?) : Topic()
     data class preferenceList(val identifier: String?) : Topic()
 
+    /**
+     * Getting the [Topic] structured depending if is [userPrivateStoreKeyBundle], [contact],
+     * [userIntro], [userInvite], [directMessageV1], [directMessageV2] and [preferenceList]
+     * with the structured string as /xmtp/0/{id}/proto
+     */
     val description: String
         get() {
             return when (this) {
@@ -30,6 +35,11 @@ sealed class Topic {
     private fun wrap(value: String): String = "/xmtp/0/$value/proto"
 
     companion object {
+        /**
+         * This method allows to know if the [Topic] is valid according to the accepted characters
+         * @param topic String that represents the topic that will be evaluated
+         * @return if the topic is valid
+         */
         fun isValidTopic(topic: String): Boolean {
             val regex = Regex("^[\\x00-\\x7F]+$") // Use this regex to filter non ASCII chars
             val index = topic.indexOf("0/")

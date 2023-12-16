@@ -45,6 +45,9 @@ fun ContactBundle.toSignedPublicKeyBundle(): SignedPublicKeyBundle {
     }
 }
 
+/**
+ * Create a wallet address according to the version
+ */
 val ContactBundle.walletAddress: String?
     get() {
         when (versionCase) {
@@ -54,26 +57,31 @@ val ContactBundle.walletAddress: String?
                     Arrays.copyOfRange(
                         key.secp256K1Uncompressed.bytes.toByteArray(),
                         1,
-                        key.secp256K1Uncompressed.bytes.toByteArray().size
-                    )
+                        key.secp256K1Uncompressed.bytes.toByteArray().size,
+                    ),
                 )
                 return Keys.toChecksumAddress(address.toHex())
             }
+
             Contact.ContactBundle.VersionCase.V2 -> {
                 val key = v2.keyBundle.identityKey.recoverWalletSignerPublicKey()
                 val address = Keys.getAddress(
                     Arrays.copyOfRange(
                         key.secp256K1Uncompressed.bytes.toByteArray(),
                         1,
-                        key.secp256K1Uncompressed.bytes.toByteArray().size
-                    )
+                        key.secp256K1Uncompressed.bytes.toByteArray().size,
+                    ),
                 )
                 return Keys.toChecksumAddress(address.toHex())
             }
+
             else -> return null
         }
     }
 
+/**
+ * This get the identity key that represents the wallet address according to the version
+ */
 val ContactBundle.identityAddress: String?
     get() {
         return when (versionCase) {
@@ -86,6 +94,7 @@ val ContactBundle.identityAddress: String?
                 }
                 publicKey?.walletAddress
             }
+
             else -> null
         }
     }

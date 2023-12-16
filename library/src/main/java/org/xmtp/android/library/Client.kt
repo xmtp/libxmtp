@@ -114,9 +114,9 @@ class Client() {
                     EnvelopeBuilder.buildFromTopic(
                         topic = Topic.userPrivateStoreKeyBundle(v1Key.walletAddress),
                         timestamp = Date(),
-                        message = encryptedKeys.toByteArray()
-                    )
-                )
+                        message = encryptedKeys.toByteArray(),
+                    ),
+                ),
             )
         }
 
@@ -124,7 +124,7 @@ class Client() {
             val clientOptions = options ?: ClientOptions()
             val api = GRPCApiClient(
                 environment = clientOptions.api.env,
-                secure = clientOptions.api.isSecure
+                secure = clientOptions.api.isSecure,
             )
             return runBlocking {
                 val topics = api.queryTopic(Topic.contact(peerAddress)).envelopesList
@@ -184,6 +184,20 @@ class Client() {
         return Client(address = address, privateKeyBundleV1 = v1Bundle, apiClient = apiClient)
     }
 
+    /**
+     * This authenticates using [account] acquired from network storage
+     *  encrypted using the [wallet].
+     *
+     *  e.g. this might be called the first time a user logs in from a new device.
+     *  The next time they launch the app they can [buildFromV1Key].
+     *
+     *  If there are stored keys then this asks the [wallet] to
+     *  [encrypted] so that we can decrypt the stored [keys].
+     *
+     *   If there are no stored keys then this generates a new identityKey
+     *   and asks the [wallet] to both [createIdentity] and enable Identity Saving
+     *   so we can then store it encrypted for the next time.
+     */
     private suspend fun loadOrCreateKeys(
         account: SigningKey,
         apiClient: ApiClient,
@@ -201,6 +215,11 @@ class Client() {
         }
     }
 
+    /**
+     *  This authenticates with [keys] directly received.
+     *  e.g. this might be called on subsequent app launches once we
+     *  have already stored the keys from a previous session.
+     */
     private suspend fun loadPrivateKeys(
         account: SigningKey,
         apiClient: ApiClient,
@@ -291,7 +310,7 @@ class Client() {
         val authorized = AuthorizedIdentity(
             address = address,
             authorized = privateKeyBundleV1.identityKey.publicKey,
-            identity = privateKeyBundleV1.identityKey
+            identity = privateKeyBundleV1.identityKey,
         )
         val authToken = authorized.createAuthToken()
         apiClient.setAuthToken(authToken)
@@ -312,14 +331,14 @@ class Client() {
         val gson = GsonBuilder().create()
         val v2Export = gson.fromJson(
             conversationData.toString(StandardCharsets.UTF_8),
-            ConversationV2Export::class.java
+            ConversationV2Export::class.java,
         )
         return try {
             importV2Conversation(export = v2Export)
         } catch (e: java.lang.Exception) {
             val v1Export = gson.fromJson(
                 conversationData.toString(StandardCharsets.UTF_8),
-                ConversationV1Export::class.java
+                ConversationV1Export::class.java,
             )
             try {
                 importV1Conversation(export = v1Export)
@@ -337,12 +356,12 @@ class Client() {
                 keyMaterial = keyMaterial,
                 context = InvitationV1ContextBuilder.buildFromConversation(
                     conversationId = export.context?.conversationId ?: "",
-                    metadata = export.context?.metadata ?: mapOf()
+                    metadata = export.context?.metadata ?: mapOf(),
                 ),
                 peerAddress = export.peerAddress,
                 client = this,
-                header = SealedInvitationHeaderV1.newBuilder().build()
-            )
+                header = SealedInvitationHeaderV1.newBuilder().build(),
+            ),
         )
     }
 
@@ -358,11 +377,18 @@ class Client() {
             ConversationV1(
                 client = this,
                 peerAddress = export.peerAddress,
-                sentAt = sentAt
-            )
+                sentAt = sentAt,
+            ),
         )
     }
 
+    /**
+     * Whether or not we can send messages to [address].
+     * @param peerAddress is the address of the client that you want to send messages
+     *
+     * @return false when [peerAddress] has never signed up for XMTP
+     * or when the message is addressed to the sender (no self-messaging).
+     */
     fun canMessage(peerAddress: String): Boolean {
         return runBlocking { query(Topic.contact(peerAddress)).envelopesList.size > 0 }
     }

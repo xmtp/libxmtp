@@ -13,15 +13,20 @@ import org.xmtp.proto.message.contents.Invitation.InvitationV1.Aes256gcmHkdfsha2
 import org.xmtp.android.library.messages.DecryptedMessage
 import java.util.Date
 
+/**
+ * This represents an ongoing conversation.
+ * It can be provided to [Client] to [messages] and [send].
+ * The [Client] also allows you to [streamMessages] from this [Conversation].
+ *
+ * It attempts to give uniform shape to v1 and v2 conversations.
+ */
 sealed class Conversation {
     data class V1(val conversationV1: ConversationV1) : Conversation()
     data class V2(val conversationV2: ConversationV2) : Conversation()
 
-    enum class Version {
-        V1,
-        V2
-    }
+    enum class Version { V1, V2 }
 
+    // This indicates whether this a v1 or v2 conversation.
     val version: Version
         get() {
             return when (this) {
@@ -30,6 +35,7 @@ sealed class Conversation {
             }
         }
 
+    // When the conversation was first created.
     val createdAt: Date
         get() {
             return when (this) {
@@ -38,6 +44,7 @@ sealed class Conversation {
             }
         }
 
+    // This is the address of the peer that I am talking to.
     val peerAddress: String
         get() {
             return when (this) {
@@ -46,6 +53,8 @@ sealed class Conversation {
             }
         }
 
+    // This distinctly identifies between two addresses.
+    // Note: this will be empty for older v1 conversations.
     val conversationId: String?
         get() {
             return when (this) {
@@ -70,6 +79,11 @@ sealed class Conversation {
         return client.contacts.consentList.state(address = peerAddress)
     }
 
+    /**
+     * This method is to create a TopicData object
+     * @return [TopicData] that contains all the information about the Topic, the conversation
+     * context and the necessary encryption data for it.
+     */
     fun toTopicData(): TopicData {
         val data = TopicData.newBuilder()
             .setCreatedNs(createdAt.time * 1_000_000)
@@ -82,8 +96,8 @@ sealed class Conversation {
                     .setContext(conversationV2.context)
                     .setAes256GcmHkdfSha256(
                         Aes256gcmHkdfsha256.newBuilder()
-                            .setKeyMaterial(conversationV2.keyMaterial.toByteString())
-                    )
+                            .setKeyMaterial(conversationV2.keyMaterial.toByteString()),
+                    ),
             ).build()
         }
     }
@@ -149,6 +163,7 @@ sealed class Conversation {
             return client.address
         }
 
+    // Is the topic of the conversation depending of the version
     val topic: String
         get() {
             return when (this) {
@@ -157,6 +172,19 @@ sealed class Conversation {
             }
         }
 
+    /**
+     * This lists messages sent to the [Conversation].
+     * @param before initial date to filter
+     * @param after final date to create a range of dates and filter
+     * @param limit is the number of result that will be returned
+     * @param direction is the way of srting the information, by default is descending, you can
+     * know more about it in class [MessageApiOuterClass].
+     * @see MessageApiOuterClass.SortDirection
+     * @return The list of messages sent. If [before] or [after] are specified then this will only list messages
+     * sent at or [after] and at or [before].
+     * If [limit] is specified then results are pulled in pages of that size.
+     * If [direction] is specified then that will control the sort order of te messages.
+     */
     fun messages(
         limit: Int? = null,
         before: Date? = null,
@@ -168,7 +196,7 @@ sealed class Conversation {
                 limit = limit,
                 before = before,
                 after = after,
-                direction = direction
+                direction = direction,
             )
 
             is V2 ->
@@ -176,7 +204,7 @@ sealed class Conversation {
                     limit = limit,
                     before = before,
                     after = after,
-                    direction = direction
+                    direction = direction,
                 )
         }
     }
@@ -202,6 +230,7 @@ sealed class Conversation {
         }
     }
 
+    // Get the client according to the version
     val client: Client
         get() {
             return when (this) {
@@ -210,6 +239,10 @@ sealed class Conversation {
             }
         }
 
+    /**
+     * This exposes a stream of new messages sent to the [Conversation].
+     * @return Stream of messages according to the version
+     */
     fun streamMessages(): Flow<DecodedMessage> {
         return when (this) {
             is V1 -> conversationV1.streamMessages()

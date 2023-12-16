@@ -43,6 +43,12 @@ data class Conversations(
         private const val TAG = "CONVERSATIONS"
     }
 
+    /**
+     * This method creates a new conversation from an invitation.
+     * @param envelope Object that contains the information of the current [Client] such as topic
+     * and timestamp.
+     * @return [Conversation] from an invitation suing the current [Client].
+     */
     fun fromInvite(envelope: Envelope): Conversation {
         val sealedInvitation = Invitation.SealedInvitation.parseFrom(envelope.message)
         val unsealed = sealedInvitation.v1.getInvitation(viewer = client.keys)
@@ -50,11 +56,17 @@ data class Conversations(
             ConversationV2.create(
                 client = client,
                 invitation = unsealed,
-                header = sealedInvitation.v1.header
-            )
+                header = sealedInvitation.v1.header,
+            ),
         )
     }
 
+    /**
+     * This method creates a new conversation from an Intro.
+     * @param envelope Object that contains the information of the current [Client] such as topic
+     * and timestamp.
+     * @return [Conversation] from an Intro suing the current [Client].
+     */
     fun fromIntro(envelope: Envelope): Conversation {
         val messageV1 = MessageV1Builder.buildFromBytes(envelope.message.toByteArray())
         val senderAddress = messageV1.header.sender.walletAddress
@@ -64,11 +76,18 @@ data class Conversations(
             ConversationV1(
                 client = client,
                 peerAddress = peerAddress,
-                sentAt = messageV1.sentAt
-            )
+                sentAt = messageV1.sentAt,
+            ),
         )
     }
 
+    /**
+     * This creates a new [Conversation] using a specified address
+     * @param peerAddress The address of the client that you want to start a new conversation
+     * @param context Context of the invitation.
+     * @return New [Conversation] using the address and according to that address is able to find
+     * the topics if exists for that new conversation.
+     */
     fun newConversation(
         peerAddress: String,
         context: Invitation.InvitationV1.Context? = null,
@@ -93,8 +112,8 @@ data class Conversations(
                     ConversationV1(
                         client = client,
                         peerAddress = peerAddress,
-                        sentAt = peerSeenAt
-                    )
+                        sentAt = peerSeenAt,
+                    ),
                 )
                 conversationsByTopic[conversation.topic] = conversation
                 return conversation
@@ -107,8 +126,8 @@ data class Conversations(
                 ConversationV1(
                     client = client,
                     peerAddress = peerAddress,
-                    sentAt = Date()
-                )
+                    sentAt = Date(),
+                ),
             )
             conversationsByTopic[conversation.topic] = conversation
             return conversation
@@ -127,8 +146,8 @@ data class Conversations(
                         context = invite.context,
                         peerAddress = peerAddress,
                         client = client,
-                        header = sealedInvitation.v1.header
-                    )
+                        header = sealedInvitation.v1.header,
+                    ),
                 )
                 conversationsByTopic[conversation.topic] = conversation
                 return conversation
@@ -143,7 +162,7 @@ data class Conversations(
         val conversationV2 = ConversationV2.create(
             client = client,
             invitation = invitation,
-            header = sealedInvitation.v1.header
+            header = sealedInvitation.v1.header,
         )
         client.contacts.allow(addresses = listOf(peerAddress))
         val conversation = Conversation.V2(conversationV2)
@@ -151,6 +170,10 @@ data class Conversations(
         return conversation
     }
 
+    /**
+     * Get the list of conversations that current user has
+     * @return The list of [Conversation] that the current [Client] has.
+     */
     fun list(): List<Conversation> {
         val newConversations = mutableListOf<Conversation>()
         val mostRecent = conversationsByTopic.values.maxOfOrNull { it.createdAt }
@@ -162,9 +185,9 @@ data class Conversations(
                     ConversationV1(
                         client = client,
                         peerAddress = peerAddress,
-                        sentAt = sentAt
-                    )
-                )
+                        sentAt = sentAt,
+                    ),
+                ),
             )
         }
         val invitations = listInvitations(pagination = pagination)
@@ -192,8 +215,8 @@ data class Conversations(
                 ConversationV1(
                     client,
                     data.peerAddress,
-                    sentAt
-                )
+                    sentAt,
+                ),
             )
         } else {
             conversation = Conversation.V2(
@@ -203,8 +226,8 @@ data class Conversations(
                     context = data.invitation.context,
                     peerAddress = data.peerAddress,
                     client = client,
-                    header = Invitation.SealedInvitationHeaderV1.getDefaultInstance()
-                )
+                    header = Invitation.SealedInvitationHeaderV1.getDefaultInstance(),
+                ),
             )
         }
         conversationsByTopic[conversation.topic] = conversation
@@ -249,6 +272,11 @@ data class Conversations(
         return seenPeers
     }
 
+    /**
+     * Get the list of invitations using the data sent [pagination]
+     * @param pagination Information of the topics, ranges (dates), etc.
+     * @return List of [SealedInvitation] that are inside of the range specified by [pagination]
+     */
     private fun listInvitations(pagination: Pagination? = null): List<SealedInvitation> {
         val envelopes = runBlocking {
             client.apiClient.envelopes(Topic.userInvite(client.address).description, pagination)
@@ -267,6 +295,11 @@ data class Conversations(
         )
     }
 
+    /**
+     *  @return This lists messages sent to the [Conversation].
+     *  This pulls messages from multiple conversations in a single call.
+     *  @see Conversation.messages
+     */
     fun listBatchMessages(
         topics: List<Pair<String, Pagination?>>,
     ): List<DecodedMessage> {
@@ -291,13 +324,18 @@ data class Conversations(
                             val msg = conversation.decodeOrNull(envelope)
                             msg
                         }
-                    }
+                    },
                 )
             }
         }
         return messages
     }
 
+    /**
+     *  @return This lists messages sent to the [Conversation] when the messages are encrypted.
+     *  This pulls messages from multiple conversations in a single call.
+     *  @see listBatchMessages
+     */
     fun listBatchDecryptedMessages(
         topics: List<Pair<String, Pagination?>>,
     ): List<DecryptedMessage> {
@@ -322,13 +360,20 @@ data class Conversations(
                             val msg = conversation.decrypt(envelope)
                             msg
                         }
-                    }
+                    },
                 )
             }
         }
         return messages
     }
 
+    /**
+     * Send an invitation from the current [Client] to the specified recipient (Client)
+     * @param recipient The public key of the client that you want to send the invitation
+     * @param invitation Invitation object that will be send
+     * @param created Specified date creation for this invitation.
+     * @return [SealedInvitation] with the specified information.
+     */
     fun sendInvitation(
         recipient: SignedPublicKeyBundle,
         invitation: InvitationV1,
@@ -339,7 +384,7 @@ data class Conversations(
                 sender = it,
                 recipient = recipient,
                 created = created,
-                invitation = invitation
+                invitation = invitation,
             )
             val peerAddress = recipient.walletAddress
 
@@ -348,29 +393,34 @@ data class Conversations(
                     envelopes = listOf(
                         EnvelopeBuilder.buildFromTopic(
                             topic = Topic.userInvite(
-                                client.address
+                                client.address,
                             ),
                             timestamp = created,
-                            message = sealed.toByteArray()
+                            message = sealed.toByteArray(),
                         ),
                         EnvelopeBuilder.buildFromTopic(
                             topic = Topic.userInvite(
-                                peerAddress
+                                peerAddress,
                             ),
                             timestamp = created,
-                            message = sealed.toByteArray()
-                        )
-                    )
+                            message = sealed.toByteArray(),
+                        ),
+                    ),
                 )
             }
             return sealed
         }
     }
 
+    /**
+     * This subscribes the current [Client] to a topic as userIntro and userInvite and returns a flow
+     * of the information of those conversations according to the topics
+     * @return Stream of data information for the conversations
+     */
     fun stream(): Flow<Conversation> = flow {
         val streamedConversationTopics: MutableSet<String> = mutableSetOf()
         client.subscribeTopic(
-            listOf(Topic.userIntro(client.address), Topic.userInvite(client.address))
+            listOf(Topic.userIntro(client.address), Topic.userInvite(client.address)),
         ).collect { envelope ->
 
             if (envelope.contentTopic == Topic.userIntro(client.address).description) {
@@ -391,10 +441,15 @@ data class Conversations(
         }
     }
 
+    /**
+     * Get the stream of all messages of the current [Client]
+     * @return Flow object of [DecodedMessage] that represents all the messages of the
+     * current [Client] as userInvite and userIntro
+     */
     fun streamAllMessages(): Flow<DecodedMessage> = flow {
         val topics = mutableListOf(
             Topic.userInvite(client.address).description,
-            Topic.userIntro(client.address).description
+            Topic.userIntro(client.address).description,
         )
 
         for (conversation in list()) {
@@ -449,7 +504,7 @@ data class Conversations(
     fun streamAllDecryptedMessages(): Flow<DecryptedMessage> = flow {
         val topics = mutableListOf(
             Topic.userInvite(client.address).description,
-            Topic.userIntro(client.address).description
+            Topic.userIntro(client.address).description,
         )
 
         for (conversation in list()) {

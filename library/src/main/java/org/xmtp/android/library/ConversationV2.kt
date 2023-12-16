@@ -57,6 +57,20 @@ data class ConversationV2(
 
     val createdAt: Date = Date(header.createdNs / 1_000_000)
 
+    /**
+     * This lists messages sent to the [Conversation].
+     * @param before initial date to filter
+     * @param after final date to create a range of dates and filter
+     * @param limit is the number of result that will be returned
+     * @param direction is the way of srting the information, by default is descending, you can
+     * know more about it in class [MessageApiOuterClass].
+     * @see MessageApiOuterClass.SortDirection
+     * @return The list of messages sent. If [before] or [after] are specified then this will only list messages
+     * sent at or [after] and at or [before].
+     * If [limit] is specified then results are pulled in pages of that size.
+     * If [direction] is specified then that will control the sort order of te messages.
+     * @see Conversation.messages
+     */
     fun messages(
         limit: Int? = null,
         before: Date? = null,
@@ -77,6 +91,19 @@ data class ConversationV2(
         }
     }
 
+    /**
+     * This lists decrypted messages sent to the [Conversation].
+     * @param before initial date to filter
+     * @param after final date to create a range of dates and filter
+     * @param limit is the number of result that will be returned
+     * @param direction is the way of srting the information, by default is descending, you can
+     * know more about it in class [MessageApiOuterClass].
+     * @see MessageApiOuterClass.SortDirection
+     * @return The list of messages sent. If [before] or [after] are specified then this will only list messages
+     * sent at or [after] and at or [before].
+     * If [limit] is specified then results are pulled in pages of that size.
+     * If [direction] is specified then that will control the sort order of te messages.
+     */
     fun decryptedMessages(
         limit: Int? = null,
         before: Date? = null,
@@ -92,6 +119,11 @@ data class ConversationV2(
         }
     }
 
+    /**
+     * This decrypts a message
+     * @param envelope Object that contains all the information of the encrypted message
+     * @return [DecryptedMessage] object
+     */
     fun decrypt(envelope: Envelope): DecryptedMessage {
         val message = Message.parseFrom(envelope.message)
         return MessageV2Builder.buildDecrypt(
@@ -109,6 +141,11 @@ data class ConversationV2(
         }
     }
 
+    /**
+     * This encrypts a message
+     * @param envelope Object that contains all the information of the decrypted message
+     * @return [DecodedMessage] object
+     */
     fun decodeEnvelope(envelope: Envelope): DecodedMessage {
         val message = Message.parseFrom(envelope.message)
         return MessageV2Builder.buildDecode(
@@ -120,6 +157,11 @@ data class ConversationV2(
         )
     }
 
+    /**
+     * This encrypts a message
+     * @param envelope Object that contains all the information of the decrypted message
+     * @return [DecodedMessage] object if is not possible will return null
+     */
     private fun decodeEnvelopeOrNull(envelope: Envelope): DecodedMessage? {
         return try {
             decodeEnvelope(envelope)

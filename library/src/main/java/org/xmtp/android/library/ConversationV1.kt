@@ -34,12 +34,32 @@ data class ConversationV1(
     val topic: Topic
         get() = Topic.directMessageV1(client.address, peerAddress)
 
+    /**
+     * Get the stream of all messages of the current [Client]
+     * @return Flow object of [DecodedMessage] that represents all the messages of the
+     * current [Client] as userInvite and userIntro
+     * @see Conversations.streamAllMessages
+     */
     fun streamMessages(): Flow<DecodedMessage> = flow {
         client.subscribe(listOf(topic.description)).collect {
             emit(decode(envelope = it))
         }
     }
 
+    /**
+     * This lists messages sent to the [Conversation].
+     * @param before initial date to filter
+     * @param after final date to create a range of dates and filter
+     * @param limit is the number of result that will be returned
+     * @param direction is the way of srting the information, by default is descending, you can
+     * know more about it in class [MessageApiOuterClass].
+     * @see MessageApiOuterClass.SortDirection
+     * @return The list of messages sent. If [before] or [after] are specified then this will only list messages
+     * sent at or [after] and at or [before].
+     * If [limit] is specified then results are pulled in pages of that size.
+     * If [direction] is specified then that will control the sort order of te messages.
+     * @see Conversation.messages
+     */
     fun messages(
         limit: Int? = null,
         before: Date? = null,
@@ -57,6 +77,19 @@ data class ConversationV1(
         }
     }
 
+    /**
+     * This lists decrypted messages sent to the [Conversation].
+     * @param before initial date to filter
+     * @param after final date to create a range of dates and filter
+     * @param limit is the number of result that will be returned
+     * @param direction is the way of srting the information, by default is descending, you can
+     * know more about it in class [MessageApiOuterClass].
+     * @see MessageApiOuterClass.SortDirection
+     * @return The list of messages sent. If [before] or [after] are specified then this will only list messages
+     * sent at or [after] and at or [before].
+     * If [limit] is specified then results are pulled in pages of that size.
+     * If [direction] is specified then that will control the sort order of te messages.
+     */
     fun decryptedMessages(
         limit: Int? = null,
         before: Date? = null,
@@ -69,13 +102,18 @@ data class ConversationV1(
         val envelopes = runBlocking {
             client.apiClient.envelopes(
                 topic = Topic.directMessageV1(client.address, peerAddress).description,
-                pagination = pagination
+                pagination = pagination,
             )
         }
 
         return envelopes.map { decrypt(it) }
     }
 
+    /**
+     * This decrypts a message
+     * @param envelope Object that contains all the information of the encrypted message
+     * @return [DecryptedMessage] object
+     */
     fun decrypt(envelope: Envelope): DecryptedMessage {
         try {
             val message = Message.parseFrom(envelope.message)
@@ -88,13 +126,18 @@ data class ConversationV1(
                 id = generateId(envelope),
                 encodedContent = encodedMessage,
                 senderAddress = header.sender.walletAddress,
-                sentAt = message.v1.sentAt
+                sentAt = message.v1.sentAt,
             )
         } catch (e: Exception) {
             throw XMTPException("Error decrypting message", e)
         }
     }
 
+    /**
+     * This encrypts a message
+     * @param envelope Object that contains all the information of the decrypted message
+     * @return [DecodedMessage] object
+     */
     fun decode(envelope: Envelope): DecodedMessage {
         try {
             val decryptedMessage = decrypt(envelope)
@@ -105,7 +148,7 @@ data class ConversationV1(
                 topic = envelope.contentTopic,
                 encodedContent = decryptedMessage.encodedContent,
                 senderAddress = decryptedMessage.senderAddress,
-                sent = decryptedMessage.sentAt
+                sent = decryptedMessage.sentAt,
             )
         } catch (e: Exception) {
             throw XMTPException("Error decoding message", e)
@@ -193,7 +236,7 @@ data class ConversationV1(
             sender = client.privateKeyBundleV1,
             recipient = recipient,
             message = encodedContent.toByteArray(),
-            timestamp = date
+            timestamp = date,
         )
 
         val isEphemeral: Boolean = options != null && options.ephemeral
@@ -202,7 +245,7 @@ data class ConversationV1(
             EnvelopeBuilder.buildFromString(
                 topic = if (isEphemeral) ephemeralTopic else topic.description,
                 timestamp = date,
-                message = MessageBuilder.buildFromMessageV1(v1 = message).toByteArray()
+                message = MessageBuilder.buildFromMessageV1(v1 = message).toByteArray(),
             )
 
         val envelopes = mutableListOf(env)
@@ -215,7 +258,7 @@ data class ConversationV1(
                     env.toBuilder().apply {
                         contentTopic = Topic.userIntro(client.address).description
                     }.build(),
-                )
+                ),
             )
             client.contacts.hasIntroduced[peerAddress] = true
         }

@@ -24,6 +24,14 @@ interface SigningKey {
     suspend fun sign(message: String): SignatureOuterClass.Signature?
 }
 
+/**
+ * This prompts the wallet to sign a personal message.
+ * It authorizes the `identity` key to act on behalf of this wallet.
+ * e.g. "XMTP : Create Identity ..."
+ * @param identity key to act on behalf of this wallet
+ * @return AuthorizedIdentity object that contains the `identity` key signed by the wallet,
+ * together with a `publicKey` and `address` signed by the `identity` key.
+ */
 fun SigningKey.createIdentity(
     identity: PrivateKeyOuterClass.PrivateKey,
     preCreateIdentityCallback: PreEventCallback? = null,

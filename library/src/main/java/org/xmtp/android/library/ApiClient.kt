@@ -125,6 +125,11 @@ data class GRPCApiClient(
         return client.query(request, headers = headers)
     }
 
+    /**
+     * This is a helper for paginating through a full query.
+     * It yields all the envelopes in the query using the paging info
+     * from the prior response to fetch the next page.
+     */
     override suspend fun envelopes(topic: String, pagination: Pagination?): List<Envelope> {
         var envelopes: MutableList<Envelope> = mutableListOf()
         var hasNextPage = true
