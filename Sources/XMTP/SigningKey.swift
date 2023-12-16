@@ -29,11 +29,13 @@ public protocol SigningKey {
 }
 
 extension SigningKey {
-	func createIdentity(_ identity: PrivateKey) async throws -> AuthorizedIdentity {
+	func createIdentity(_ identity: PrivateKey, preCreateIdentityCallback: PreEventCallback? = nil) async throws -> AuthorizedIdentity {
 		var slimKey = PublicKey()
 		slimKey.timestamp = UInt64(Date().millisecondsSinceEpoch)
 		slimKey.secp256K1Uncompressed = identity.publicKey.secp256K1Uncompressed
 
+		try await preCreateIdentityCallback?()
+    
 		let signatureText = Signature.createIdentityText(key: try slimKey.serializedData())
 		let signature = try await sign(message: signatureText)
 

@@ -100,4 +100,40 @@ class ClientTests: XCTestCase {
 
 		XCTAssertEqual(recovered, client.keys.identityKey.publicKey.secp256K1Uncompressed.bytes)
 	}
+  
+  func testPreEnableIdentityCallback() async throws {
+    let fakeWallet = try PrivateKey.generate()
+    let expectation = XCTestExpectation(description: "preEnableIdentityCallback is called")
+    
+    let preEnableIdentityCallback: () async throws -> Void = {
+        print("preEnableIdentityCallback called")
+        expectation.fulfill()
+    }
+    
+    let opts = ClientOptions(api: ClientOptions.Api(env: .local, isSecure: false), preEnableIdentityCallback: preEnableIdentityCallback )
+    do {
+      _ = try await Client.create(account: fakeWallet, options: opts)
+      await XCTWaiter().fulfillment(of: [expectation], timeout: 5)
+    } catch {
+      XCTFail("Error: \(error)")
+    }
+  }
+  
+  func testPreCreateIdentityCallback() async throws {
+    let fakeWallet = try PrivateKey.generate()
+    let expectation = XCTestExpectation(description: "preCreateIdentityCallback is called")
+    
+    let preCreateIdentityCallback: () async throws -> Void = {
+        print("preCreateIdentityCallback called")
+        expectation.fulfill()
+    }
+    
+    let opts = ClientOptions(api: ClientOptions.Api(env: .local, isSecure: false), preCreateIdentityCallback: preCreateIdentityCallback )
+    do {
+      _ = try await Client.create(account: fakeWallet, options: opts)
+      await XCTWaiter().fulfillment(of: [expectation], timeout: 5)
+    } catch {
+      XCTFail("Error: \(error)")
+    }
+  }
 }

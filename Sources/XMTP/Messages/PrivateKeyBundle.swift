@@ -20,10 +20,12 @@ extension PrivateKeyBundle {
 		self.v1 = v1
 	}
 
-	func encrypted(with key: SigningKey) async throws -> EncryptedPrivateKeyBundle {
+	func encrypted(with key: SigningKey, preEnableIdentityCallback: PreEventCallback? = nil) async throws -> EncryptedPrivateKeyBundle {
 		let bundleBytes = try serializedData()
 		let walletPreKey = try Crypto.secureRandomBytes(count: 32)
-
+    
+		try await preEnableIdentityCallback?()
+    
 		let signature = try await key.sign(message: Signature.enableIdentityText(key: walletPreKey))
 		let cipherText = try Crypto.encrypt(signature.rawDataWithNormalizedRecovery, bundleBytes)
 

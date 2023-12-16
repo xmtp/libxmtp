@@ -13,9 +13,9 @@ import XMTPRust
 public typealias PrivateKeyBundleV1 = Xmtp_MessageContents_PrivateKeyBundleV1
 
 extension PrivateKeyBundleV1 {
-	static func generate(wallet: SigningKey) async throws -> PrivateKeyBundleV1 {
+	static func generate(wallet: SigningKey, options: ClientOptions? = nil) async throws -> PrivateKeyBundleV1 {
 		let privateKey = try PrivateKey.generate()
-		let authorizedIdentity = try await wallet.createIdentity(privateKey)
+		let authorizedIdentity = try await wallet.createIdentity(privateKey, preCreateIdentityCallback: options?.preCreateIdentityCallback)
 
 		var bundle = try authorizedIdentity.toBundle
 		var preKey = try PrivateKey.generate()
