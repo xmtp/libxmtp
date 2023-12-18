@@ -3531,6 +3531,102 @@ impl<'de> serde::Deserialize<'de> for private_preferences_action::Block {
         deserializer.deserialize_struct("xmtp.message_contents.PrivatePreferencesAction.Block", FIELDS, GeneratedVisitor)
     }
 }
+impl serde::Serialize for PrivatePreferencesPayload {
+    #[allow(deprecated)]
+    fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        use serde::ser::SerializeStruct;
+        let mut len = 0;
+        if self.version.is_some() {
+            len += 1;
+        }
+        let mut struct_ser = serializer.serialize_struct("xmtp.message_contents.PrivatePreferencesPayload", len)?;
+        if let Some(v) = self.version.as_ref() {
+            match v {
+                private_preferences_payload::Version::V1(v) => {
+                    struct_ser.serialize_field("v1", v)?;
+                }
+            }
+        }
+        struct_ser.end()
+    }
+}
+impl<'de> serde::Deserialize<'de> for PrivatePreferencesPayload {
+    #[allow(deprecated)]
+    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        const FIELDS: &[&str] = &[
+            "v1",
+        ];
+
+        #[allow(clippy::enum_variant_names)]
+        enum GeneratedField {
+            V1,
+        }
+        impl<'de> serde::Deserialize<'de> for GeneratedField {
+            fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
+            where
+                D: serde::Deserializer<'de>,
+            {
+                struct GeneratedVisitor;
+
+                impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+                    type Value = GeneratedField;
+
+                    fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                        write!(formatter, "expected one of: {:?}", &FIELDS)
+                    }
+
+                    #[allow(unused_variables)]
+                    fn visit_str<E>(self, value: &str) -> std::result::Result<GeneratedField, E>
+                    where
+                        E: serde::de::Error,
+                    {
+                        match value {
+                            "v1" => Ok(GeneratedField::V1),
+                            _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
+                        }
+                    }
+                }
+                deserializer.deserialize_identifier(GeneratedVisitor)
+            }
+        }
+        struct GeneratedVisitor;
+        impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+            type Value = PrivatePreferencesPayload;
+
+            fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                formatter.write_str("struct xmtp.message_contents.PrivatePreferencesPayload")
+            }
+
+            fn visit_map<V>(self, mut map: V) -> std::result::Result<PrivatePreferencesPayload, V::Error>
+                where
+                    V: serde::de::MapAccess<'de>,
+            {
+                let mut version__ = None;
+                while let Some(k) = map.next_key()? {
+                    match k {
+                        GeneratedField::V1 => {
+                            if version__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("v1"));
+                            }
+                            version__ = map.next_value::<::std::option::Option<_>>()?.map(private_preferences_payload::Version::V1)
+;
+                        }
+                    }
+                }
+                Ok(PrivatePreferencesPayload {
+                    version: version__,
+                })
+            }
+        }
+        deserializer.deserialize_struct("xmtp.message_contents.PrivatePreferencesPayload", FIELDS, GeneratedVisitor)
+    }
+}
 impl serde::Serialize for PublicKey {
     #[allow(deprecated)]
     fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>

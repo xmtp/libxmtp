@@ -170,7 +170,7 @@ impl AssociationText {
                 blockchain_address,
                 installation_public_key,
                 iso8601_time,
-            } => gen_static_text_v1(&blockchain_address, &installation_public_key, &iso8601_time),
+            } => gen_static_text_v1(blockchain_address, installation_public_key, &iso8601_time),
         }
     }
 
@@ -217,7 +217,7 @@ impl AssociationText {
     }
 }
 
-fn gen_static_text_v1(addr: &str, key_bytes: &[u8], iso8601_time: &str) -> String {
+fn gen_static_text_v1(addr: &str, key_bytes: &[u8], _iso8601_time: &str) -> String {
     format!(
         "AccountAssociation(XMTPv3): {addr} -> keyBytes:{}",
         &hex::encode(key_bytes)
