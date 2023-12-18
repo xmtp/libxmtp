@@ -1,4 +1,4 @@
-use chrono::Local;
+use chrono::Utc;
 use openmls::{
     extensions::LastResortExtension,
     prelude::{
@@ -110,7 +110,7 @@ impl Identity {
         owner: &impl InboxOwner,
     ) -> Result<Credential, IdentityError> {
         // Generate association
-        let iso8601_time = format!("{}", Local::now().format("%+"));
+        let iso8601_time = format!("{}", Utc::now().format("%+"));
         let assoc_text = AssociationText::new_static(
             AssociationContext::GrantMessagingAccess,
             owner.get_address(),
