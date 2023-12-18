@@ -54,6 +54,7 @@ XMTP installations consist of a long-lived Ed25519 key-pair (the 'installation k
    XMTP: Grant Messaging Access
 
    Current Time: <ISO 8601 date and time with local UTC offset>
+   Account Address: <ethereum address>
    Installation ID: <hex(last_20_bytes(keccak256(Ed25519PublicKey)))>
    ```
 

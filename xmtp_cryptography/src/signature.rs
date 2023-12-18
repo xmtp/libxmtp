@@ -112,6 +112,15 @@ pub fn h160addr_to_string(bytes: H160) -> String {
     s
 }
 
+// This should ONLY be used for ed25519 keys, not ethereum/secp256k1 keys.
+// See: https://sourcegraph.com/github.com/gakonst/ethers-rs@40cc8cc54f7d36aa24147c937772600e5b119399/-/blob/ethers-core/src/types/signature.rs?L110-111
+pub fn ed25519_public_key_to_address(bytes: &[u8]) -> String {
+    let hash = ethers::utils::keccak256(bytes);
+    let mut s = String::from("x:"); // TODO verify XMTP installation addressing scheme
+    s.push_str(&hex::encode(&hash[12..]));
+    s
+}
+
 /// Check if an string is a valid ethereum address (valid hex and length 20).
 pub fn is_valid_ethereum_address<S: AsRef<str>>(address: S) -> bool {
     let address = address.as_ref();
