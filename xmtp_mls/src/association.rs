@@ -133,7 +133,7 @@ impl AssociationContext {}
 #[derive(Serialize, Deserialize, PartialEq, Debug, Clone)]
 enum AssociationData {
     Static {
-        blockchain_address: Address,
+        account_address: Address,
         installation_public_key: Vec<u8>,
         iso8601_time: String,
     },
@@ -147,8 +147,8 @@ impl AssociationText {
     pub fn get_address(&self) -> Address {
         match &self.data {
             AssociationData::Static {
-                blockchain_address, ..
-            } => blockchain_address.clone(),
+                account_address, ..
+            } => account_address.clone(),
         }
     }
 
@@ -169,10 +169,10 @@ impl AssociationText {
     fn body_text(&self) -> String {
         match &self.data {
             AssociationData::Static {
-                blockchain_address,
+                account_address,
                 installation_public_key,
                 iso8601_time,
-            } => gen_static_text_v1(blockchain_address, installation_public_key, &iso8601_time),
+            } => gen_static_text_v1(account_address, installation_public_key, &iso8601_time),
         }
     }
 
@@ -183,14 +183,14 @@ impl AssociationText {
     pub fn is_valid(
         &self,
         context: AssociationContext,
-        blockchain_address: &str,
+        account_address: &str,
         installation_public_key: &[u8],
         iso8601_time: &str,
     ) -> Result<(), AssociationError> {
         if self.text()
             == AssociationText::new_static(
                 context,
-                blockchain_address.to_string(),
+                account_address.to_string(),
                 installation_public_key.to_vec(),
                 iso8601_time.to_string(),
             )
@@ -204,14 +204,14 @@ impl AssociationText {
 
     pub fn new_static(
         context: AssociationContext,
-        blockchain_address: String,
+        account_address: String,
         installation_public_key: Vec<u8>,
         iso8601_time: String,
     ) -> Self {
         Self {
             context,
             data: AssociationData::Static {
-                blockchain_address,
+                account_address,
                 installation_public_key,
                 iso8601_time,
             },
