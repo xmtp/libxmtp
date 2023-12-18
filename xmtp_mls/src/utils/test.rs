@@ -5,8 +5,14 @@ use rand::{
     Rng,
 };
 
+use crate::types::Address;
+
 pub fn rand_string() -> String {
     Alphanumeric.sample_string(&mut rand::thread_rng(), 24)
+}
+
+pub fn rand_wallet_address() -> Address {
+    Alphanumeric.sample_string(&mut rand::thread_rng(), 42)
 }
 
 pub fn rand_vec() -> Vec<u8> {
