@@ -275,7 +275,7 @@ mod tests {
                     None,
                 )
                 .unwrap();
-            assert_eq!(application_messages.len(), 10);
+            assert_eq!(application_messages.len(), 15);
 
             let member_removed = conn
                 .get_group_messages(
