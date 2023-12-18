@@ -142,12 +142,12 @@ mod tests {
     use openmls_basic_credential::SignatureKeyPair;
     use prost::Message;
     use xmtp_mls::{
-        association::{AssociationText, Eip191Association},
+        association::{AssociationContext, AssociationText, Eip191Association},
         InboxOwner,
     };
     use xmtp_proto::xmtp::{
+        mls::message_contents::Eip191Association as Eip191AssociationProto,
         mls_validation::v1::validate_key_packages_request::KeyPackage as KeyPackageProtoWrapper,
-        v3::message_contents::Eip191Association as Eip191AssociationProto,
     };
 
     use super::*;
@@ -160,8 +160,12 @@ mod tests {
         let signature_key_pair = SignatureKeyPair::new(CIPHERSUITE.signature_algorithm()).unwrap();
         let pub_key = signature_key_pair.public();
         let wallet_address = wallet.get_address();
-        let association_text =
-            AssociationText::new_static(wallet_address.clone(), pub_key.to_vec());
+        let association_text = AssociationText::new_static(
+            AssociationContext::GrantMessagingAccess,
+            wallet_address.clone(),
+            pub_key.to_vec(),
+            "2021-01-01T00:00:00Z".to_string(),
+        );
         let signature = wallet
             .sign(&association_text.text())
             .expect("failed to sign");

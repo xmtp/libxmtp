@@ -1,3 +1,4 @@
+use chrono::Utc;
 use openmls::{
     extensions::LastResortExtension,
     prelude::{
@@ -11,10 +12,10 @@ use openmls_traits::{types::CryptoError, OpenMlsProvider};
 use prost::Message;
 use thiserror::Error;
 use xmtp_cryptography::signature::SignatureError;
-use xmtp_proto::xmtp::v3::message_contents::Eip191Association as Eip191AssociationProto;
+use xmtp_proto::xmtp::mls::message_contents::Eip191Association as Eip191AssociationProto;
 
 use crate::{
-    association::{AssociationError, AssociationText, Eip191Association},
+    association::{AssociationContext, AssociationError, AssociationText, Eip191Association},
     configuration::CIPHERSUITE,
     storage::{identity::StoredIdentity, StorageError},
     types::Address,
@@ -109,10 +110,13 @@ impl Identity {
         owner: &impl InboxOwner,
     ) -> Result<Credential, IdentityError> {
         // Generate association
-        let assoc_text = AssociationText::Static {
-            blockchain_address: owner.get_address(),
-            installation_public_key: installation_keys.to_public_vec(),
-        };
+        let iso8601_time = format!("{}", Utc::now().format("%+"));
+        let assoc_text = AssociationText::new_static(
+            AssociationContext::GrantMessagingAccess,
+            owner.get_address(),
+            installation_keys.to_public_vec(),
+            iso8601_time,
+        );
         let signature = owner.sign(&assoc_text.text())?;
         let association =
             Eip191Association::new(installation_keys.public(), assoc_text, signature)?;
@@ -130,6 +134,7 @@ impl Identity {
         let proto = Eip191AssociationProto::decode(credential)?;
         let expected_wallet_address = proto.wallet_address.clone();
         let association = Eip191Association::from_proto_with_expected_address(
+            AssociationContext::GrantMessagingAccess,
             installation_public_key,
             proto,
             expected_wallet_address,

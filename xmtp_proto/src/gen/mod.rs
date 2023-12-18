@@ -50,12 +50,4 @@ pub mod xmtp {
             // @@protoc_insertion_point(xmtp.mls_validation.v1)
         }
     }
-    pub mod v3 {
-        #[cfg(feature = "xmtp-v3-message_contents")]
-        // @@protoc_insertion_point(attribute:xmtp.v3.message_contents)
-        pub mod message_contents {
-            include!("xmtp.v3.message_contents.rs");
-            // @@protoc_insertion_point(xmtp.v3.message_contents)
-        }
-    }
 }
