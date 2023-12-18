@@ -180,10 +180,6 @@ impl AssociationText {
         format!("{}{}", self.header_text(), self.body_text()).to_string()
     }
 
-    pub fn text(&self) -> String {
-        format!("{}{}", self.header_text(), self.body_text()).to_string()
-    }
-
     pub fn is_valid(
         &self,
         context: AssociationContext,
