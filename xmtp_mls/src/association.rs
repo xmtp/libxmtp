@@ -1,6 +1,8 @@
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
-use xmtp_cryptography::signature::{RecoverableSignature, SignatureError};
+use xmtp_cryptography::signature::{
+    ed25519_public_key_to_address, RecoverableSignature, SignatureError,
+};
 use xmtp_proto::xmtp::mls::message_contents::{
     Eip191Association as Eip191AssociationProto,
     RecoverableEcdsaSignature as RecoverableEcdsaSignatureProto,
@@ -217,10 +219,12 @@ impl AssociationText {
     }
 }
 
-fn gen_static_text_v1(addr: &str, key_bytes: &[u8], _iso8601_time: &str) -> String {
+fn gen_static_text_v1(addr: &str, key_bytes: &[u8], iso8601_time: &str) -> String {
     format!(
-        "AccountAssociation(XMTPv3): {addr} -> keyBytes:{}",
-        &hex::encode(key_bytes)
+        "Current Time: {}\nAccount Address: {}\nInstallation ID: {}",
+        iso8601_time,
+        addr,
+        ed25519_public_key_to_address(key_bytes)
     )
 }
 
