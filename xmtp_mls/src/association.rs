@@ -246,11 +246,13 @@ pub mod tests {
         let other_wallet = LocalWallet::new(&mut rng());
         let addr = h160addr_to_string(wallet.address());
         let other_addr = h160addr_to_string(other_wallet.address());
+        let grant_time = "2021-01-01T00:00:00Z";
+        let bad_grant_time = "2021-01-01T00:00:01Z";
         let text = AssociationText::new_static(
             AssociationContext::GrantMessagingAccess,
             addr.clone(),
             key_bytes.clone(),
-            "2021-01-01T00:00:00Z".to_string(),
+            grant_time.to_string(),
         );
         let sig = wallet.sign_message(text.text()).await.expect("BadSign");
 
@@ -259,19 +261,31 @@ pub mod tests {
             AssociationContext::GrantMessagingAccess,
             addr.clone(),
             bad_key_bytes.clone(),
-            "2021-01-01T00:00:00Z".to_string(),
+            grant_time.to_string(),
         );
         let bad_text2 = AssociationText::new_static(
             AssociationContext::GrantMessagingAccess,
             other_addr.clone(),
             key_bytes.clone(),
-            "2021-01-01T00:00:00Z".to_string(),
+            grant_time.to_string(),
+        );
+        let bad_text3 = AssociationText::new_static(
+            AssociationContext::GrantMessagingAccess,
+            addr.clone(),
+            key_bytes.clone(),
+            bad_grant_time.to_string(),
+        );
+        let bad_text4 = AssociationText::new_static(
+            AssociationContext::RevokeMessagingAccess,
+            addr.clone(),
+            key_bytes.clone(),
+            grant_time.to_string(),
         );
         let other_text = AssociationText::new_static(
             AssociationContext::GrantMessagingAccess,
             other_addr.clone(),
             key_bytes.clone(),
-            "2021-01-01T00:00:00Z".to_string(),
+            grant_time.to_string(),
         );
 
         let other_sig = wallet
@@ -283,6 +297,8 @@ pub mod tests {
         assert!(Eip191Association::new(&bad_key_bytes, text.clone(), sig.into()).is_err());
         assert!(Eip191Association::new(&key_bytes, bad_text1.clone(), sig.into()).is_err());
         assert!(Eip191Association::new(&key_bytes, bad_text2.clone(), sig.into()).is_err());
+        assert!(Eip191Association::new(&key_bytes, bad_text3.clone(), sig.into()).is_err());
+        assert!(Eip191Association::new(&key_bytes, bad_text4.clone(), sig.into()).is_err());
         assert!(Eip191Association::new(&key_bytes, text.clone(), other_sig.into()).is_err());
     }
 
