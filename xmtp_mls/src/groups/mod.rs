@@ -2,6 +2,7 @@ mod group_permissions;
 mod intents;
 mod members;
 pub mod validated_commit;
+use crate::codecs::ContentCodec;
 use intents::SendMessageIntentData;
 use log::debug;
 use openmls::{
@@ -15,11 +16,15 @@ use openmls::{
     prelude_test::KeyPackage,
 };
 use openmls_traits::OpenMlsProvider;
+use prost::Message;
 use std::mem::discriminant;
 use thiserror::Error;
 use tls_codec::{Deserialize, Serialize};
 use xmtp_cryptography::signature::{is_valid_ed25519_public_key, is_valid_ethereum_address};
-use xmtp_proto::api_client::{Envelope, XmtpApiClient, XmtpMlsClient};
+use xmtp_proto::{
+    api_client::{Envelope, XmtpApiClient, XmtpMlsClient},
+    xmtp::mls::message_contents::GroupMembershipChanges,
+};
 
 pub use self::intents::{AddressesOrInstallationIds, IntentError};
 use self::{
@@ -29,6 +34,7 @@ use self::{
 use crate::{
     api_client_wrapper::WelcomeMessage,
     client::{ClientError, MessageProcessingError},
+    codecs::membership_change::GroupMembershipChangeCodec,
     configuration::CIPHERSUITE,
     groups::validated_commit::ValidatedCommit,
     identity::Identity,
@@ -257,6 +263,10 @@ where
                         group_epoch,
                     });
                 }
+                let maybe_validated_commit = ValidatedCommit::from_staged_commit(
+                    maybe_pending_commit.expect("already checked"),
+                    openmls_group,
+                )?;
 
                 debug!("[{}] merging pending commit", self.client.account_address());
                 if let Err(MergePendingCommitError::MlsGroupStateError(err)) =
@@ -265,6 +275,7 @@ where
                     debug!("error merging commit: {}", err);
                     openmls_group.clear_pending_commit();
                     conn.set_group_intent_to_publish(intent.id)?;
+                } else if let Some(validated_commit) = maybe_validated_commit {
                 }
                 // TOOD: Handle writing transcript messages for adding/removing members
             }
@@ -289,6 +300,33 @@ where
         conn.set_group_intent_committed(intent.id)?;
 
         Ok(())
+    }
+
+    fn create_transcript_message(
+        &self,
+        maybe_validated_commit: Option<ValidatedCommit>,
+        timestamp_ns: u64,
+    ) -> Result<Option<StoredGroupMessage>, GroupError> {
+        if let Some(validated_commit) = maybe_validated_commit {
+            let payload: GroupMembershipChanges = validated_commit.into();
+            let encoded_payload = GroupMembershipChangeCodec::encode(payload)?;
+            let mut encoded_payload_bytes = Vec::new();
+            encoded_payload.encode(&mut encoded_payload_bytes)?;
+            let group_id = self.group_id.as_slice();
+            let message_id =
+                get_message_id(encoded_payload_bytes.as_slice(), group_id, timestamp_ns);
+            Ok(Some(StoredGroupMessage {
+                id: message_id,
+                group_id: group_id.to_vec(),
+                decrypted_message_bytes: encoded_payload_bytes.to_vec(),
+                sent_at_ns: timestamp_ns as i64,
+                kind: GroupMessageKind::MemberAdded,
+                sender_installation_id: validated_commit.actor.installation_id,
+                sender_wallet_address: validated_commit.actor.account_address,
+            }))
+        } else {
+            Ok(None)
+        }
     }
 
     fn process_private_message(

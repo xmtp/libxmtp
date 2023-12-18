@@ -2720,6 +2720,7 @@ impl serde::Serialize for JobType {
             Self::Unspecified => "JOB_TYPE_UNSPECIFIED",
             Self::RefreshV1 => "JOB_TYPE_REFRESH_V1",
             Self::RefreshV2 => "JOB_TYPE_REFRESH_V2",
+            Self::RefreshPppp => "JOB_TYPE_REFRESH_PPPP",
         };
         serializer.serialize_str(variant)
     }
@@ -2734,6 +2735,7 @@ impl<'de> serde::Deserialize<'de> for JobType {
             "JOB_TYPE_UNSPECIFIED",
             "JOB_TYPE_REFRESH_V1",
             "JOB_TYPE_REFRESH_V2",
+            "JOB_TYPE_REFRESH_PPPP",
         ];
 
         struct GeneratedVisitor;
@@ -2779,6 +2781,7 @@ impl<'de> serde::Deserialize<'de> for JobType {
                     "JOB_TYPE_UNSPECIFIED" => Ok(JobType::Unspecified),
                     "JOB_TYPE_REFRESH_V1" => Ok(JobType::RefreshV1),
                     "JOB_TYPE_REFRESH_V2" => Ok(JobType::RefreshV2),
+                    "JOB_TYPE_REFRESH_PPPP" => Ok(JobType::RefreshPppp),
                     _ => Err(serde::de::Error::unknown_variant(value, FIELDS)),
                 }
             }
