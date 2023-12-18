@@ -277,7 +277,7 @@ mod tests {
                 .unwrap();
             assert_eq!(application_messages.len(), 15);
 
-            let member_removed = conn
+            let membership_changes = conn
                 .get_group_messages(
                     &group.id,
                     None,
@@ -286,18 +286,7 @@ mod tests {
                     None,
                 )
                 .unwrap();
-            assert_eq!(member_removed.len(), 10);
-
-            let member_added = conn
-                .get_group_messages(
-                    &group.id,
-                    None,
-                    None,
-                    Some(GroupMessageKind::MembershipChange),
-                    None,
-                )
-                .unwrap();
-            assert_eq!(member_added.len(), 10);
+            assert_eq!(membership_changes.len(), 15);
         })
     }
 }
