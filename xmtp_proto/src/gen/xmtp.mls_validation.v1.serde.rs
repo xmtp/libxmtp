@@ -698,7 +698,7 @@ impl serde::Serialize for validate_key_packages_response::ValidationResponse {
         if !self.installation_id.is_empty() {
             len += 1;
         }
-        if !self.wallet_address.is_empty() {
+        if !self.account_address.is_empty() {
             len += 1;
         }
         if !self.credential_identity_bytes.is_empty() {
@@ -714,8 +714,8 @@ impl serde::Serialize for validate_key_packages_response::ValidationResponse {
         if !self.installation_id.is_empty() {
             struct_ser.serialize_field("installationId", pbjson::private::base64::encode(&self.installation_id).as_str())?;
         }
-        if !self.wallet_address.is_empty() {
-            struct_ser.serialize_field("walletAddress", &self.wallet_address)?;
+        if !self.account_address.is_empty() {
+            struct_ser.serialize_field("accountAddress", &self.account_address)?;
         }
         if !self.credential_identity_bytes.is_empty() {
             struct_ser.serialize_field("credentialIdentityBytes", pbjson::private::base64::encode(&self.credential_identity_bytes).as_str())?;
@@ -736,8 +736,8 @@ impl<'de> serde::Deserialize<'de> for validate_key_packages_response::Validation
             "errorMessage",
             "installation_id",
             "installationId",
-            "wallet_address",
-            "walletAddress",
+            "account_address",
+            "accountAddress",
             "credential_identity_bytes",
             "credentialIdentityBytes",
         ];
@@ -747,7 +747,7 @@ impl<'de> serde::Deserialize<'de> for validate_key_packages_response::Validation
             IsOk,
             ErrorMessage,
             InstallationId,
-            WalletAddress,
+            AccountAddress,
             CredentialIdentityBytes,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
@@ -773,7 +773,7 @@ impl<'de> serde::Deserialize<'de> for validate_key_packages_response::Validation
                             "isOk" | "is_ok" => Ok(GeneratedField::IsOk),
                             "errorMessage" | "error_message" => Ok(GeneratedField::ErrorMessage),
                             "installationId" | "installation_id" => Ok(GeneratedField::InstallationId),
-                            "walletAddress" | "wallet_address" => Ok(GeneratedField::WalletAddress),
+                            "accountAddress" | "account_address" => Ok(GeneratedField::AccountAddress),
                             "credentialIdentityBytes" | "credential_identity_bytes" => Ok(GeneratedField::CredentialIdentityBytes),
                             _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
                         }
@@ -797,7 +797,7 @@ impl<'de> serde::Deserialize<'de> for validate_key_packages_response::Validation
                 let mut is_ok__ = None;
                 let mut error_message__ = None;
                 let mut installation_id__ = None;
-                let mut wallet_address__ = None;
+                let mut account_address__ = None;
                 let mut credential_identity_bytes__ = None;
                 while let Some(k) = map.next_key()? {
                     match k {
@@ -821,11 +821,11 @@ impl<'de> serde::Deserialize<'de> for validate_key_packages_response::Validation
                                 Some(map.next_value::<::pbjson::private::BytesDeserialize<_>>()?.0)
                             ;
                         }
-                        GeneratedField::WalletAddress => {
-                            if wallet_address__.is_some() {
-                                return Err(serde::de::Error::duplicate_field("walletAddress"));
+                        GeneratedField::AccountAddress => {
+                            if account_address__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("accountAddress"));
                             }
-                            wallet_address__ = Some(map.next_value()?);
+                            account_address__ = Some(map.next_value()?);
                         }
                         GeneratedField::CredentialIdentityBytes => {
                             if credential_identity_bytes__.is_some() {
@@ -841,7 +841,7 @@ impl<'de> serde::Deserialize<'de> for validate_key_packages_response::Validation
                     is_ok: is_ok__.unwrap_or_default(),
                     error_message: error_message__.unwrap_or_default(),
                     installation_id: installation_id__.unwrap_or_default(),
-                    wallet_address: wallet_address__.unwrap_or_default(),
+                    account_address: account_address__.unwrap_or_default(),
                     credential_identity_bytes: credential_identity_bytes__.unwrap_or_default(),
                 })
             }
