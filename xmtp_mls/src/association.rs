@@ -48,11 +48,11 @@ impl Eip191Association {
         context: AssociationContext,
         installation_public_key: &[u8],
         proto: Eip191AssociationProto,
-        expected_wallet_address: String,
+        expected_account_address: String,
     ) -> Result<Self, AssociationError> {
         let text = AssociationText::new_static(
             context,
-            expected_wallet_address,
+            expected_account_address,
             installation_public_key.to_vec(),
             proto.iso8601_time,
         );
@@ -98,10 +98,10 @@ impl Eip191Association {
 
 impl From<Eip191Association> for Eip191AssociationProto {
     fn from(assoc: Eip191Association) -> Self {
-        let wallet_address = assoc.address();
+        let account_address = assoc.address();
         let iso8601_time = assoc.iso8601_time();
         Self {
-            wallet_address,
+            account_address,
             // Hardcoded version for now
             association_text_version: 1,
             signature: Some(RecoverableEcdsaSignatureProto {

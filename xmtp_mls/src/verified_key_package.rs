@@ -24,14 +24,14 @@ pub enum KeyPackageVerificationError {
 #[derive(Debug, Clone, PartialEq)]
 pub struct VerifiedKeyPackage {
     pub inner: KeyPackage,
-    pub wallet_address: String,
+    pub account_address: String,
 }
 
 impl VerifiedKeyPackage {
-    pub fn new(inner: KeyPackage, wallet_address: String) -> Self {
+    pub fn new(inner: KeyPackage, account_address: String) -> Self {
         Self {
             inner,
-            wallet_address,
+            account_address,
         }
     }
 
@@ -40,9 +40,9 @@ impl VerifiedKeyPackage {
         let leaf_node = kp.leaf_node();
         let identity_bytes = leaf_node.credential().identity();
         let pub_key_bytes = leaf_node.signature_key().as_slice();
-        let wallet_address = identity_to_wallet_address(identity_bytes, pub_key_bytes)?;
+        let account_address = identity_to_account_address(identity_bytes, pub_key_bytes)?;
 
-        Ok(Self::new(kp, wallet_address))
+        Ok(Self::new(kp, account_address))
     }
 
     // Validates starting with a KeyPackageIn as bytes (which is not validated by OpenMLS)
@@ -61,7 +61,7 @@ impl VerifiedKeyPackage {
     }
 }
 
-fn identity_to_wallet_address(
+fn identity_to_account_address(
     credential_bytes: &[u8],
     installation_key_bytes: &[u8],
 ) -> Result<String, KeyPackageVerificationError> {

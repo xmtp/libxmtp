@@ -29,7 +29,7 @@ pub struct StoredGroupMessage {
     /// The ID of the App Installation this message was sent from.
     pub sender_installation_id: Vec<u8>,
     /// Network wallet address of the Sender
-    pub sender_wallet_address: String,
+    pub sender_account_address: String,
 }
 
 #[repr(i32)]
@@ -139,7 +139,7 @@ mod tests {
             decrypted_message_bytes: rand_vec(),
             sent_at_ns: sent_at_ns.unwrap_or(rand_time()),
             sender_installation_id: rand_vec(),
-            sender_wallet_address: "0x0".to_string(),
+            sender_account_address: "0x0".to_string(),
             kind: kind.unwrap_or(GroupMessageKind::Application),
         }
     }

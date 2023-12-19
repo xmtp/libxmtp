@@ -280,7 +280,7 @@ where
                     sent_at_ns: envelope_timestamp_ns as i64,
                     kind: GroupMessageKind::Application,
                     sender_installation_id: self.client.installation_public_key(),
-                    sender_wallet_address: self.client.account_address(),
+                    sender_account_address: self.client.account_address(),
                 }
                 .store(conn)?;
             }
@@ -318,7 +318,7 @@ where
                     sent_at_ns: envelope_timestamp_ns as i64,
                     kind: GroupMessageKind::Application,
                     sender_installation_id,
-                    sender_wallet_address: sender_account_address,
+                    sender_account_address: sender_account_address,
                 };
                 message.store(provider.conn())?;
             }
@@ -443,8 +443,8 @@ where
         Ok(())
     }
 
-    fn validate_evm_addresses(wallet_addresses: &[String]) -> Result<(), GroupError> {
-        let mut invalid = wallet_addresses
+    fn validate_evm_addresses(account_addresses: &[String]) -> Result<(), GroupError> {
+        let mut invalid = account_addresses
             .iter()
             .filter(|a| !is_valid_ethereum_address(a))
             .peekable();
@@ -473,10 +473,11 @@ where
         Ok(())
     }
 
-    pub async fn add_members(&self, wallet_addresses: Vec<String>) -> Result<(), GroupError> {
-        Self::validate_evm_addresses(&wallet_addresses)?;
+    pub async fn add_members(&self, account_addresses: Vec<String>) -> Result<(), GroupError> {
+        Self::validate_evm_addresses(&account_addresses)?;
         let conn = &mut self.client.store.conn()?;
-        let intent_data: Vec<u8> = AddMembersIntentData::new(wallet_addresses.into()).try_into()?;
+        let intent_data: Vec<u8> =
+            AddMembersIntentData::new(account_addresses.into()).try_into()?;
         let intent =
             NewGroupIntent::new(IntentKind::AddMembers, self.group_id.clone(), intent_data);
         intent.store(conn)?;
@@ -498,10 +499,10 @@ where
         self.sync_with_conn(conn).await
     }
 
-    pub async fn remove_members(&self, wallet_addresses: Vec<String>) -> Result<(), GroupError> {
-        Self::validate_evm_addresses(&wallet_addresses)?;
+    pub async fn remove_members(&self, account_addresses: Vec<String>) -> Result<(), GroupError> {
+        Self::validate_evm_addresses(&account_addresses)?;
         let conn = &mut self.client.store.conn()?;
-        let intent_data: Vec<u8> = RemoveMembersIntentData::new(wallet_addresses.into()).into();
+        let intent_data: Vec<u8> = RemoveMembersIntentData::new(account_addresses.into()).into();
         let intent = NewGroupIntent::new(
             IntentKind::RemoveMembers,
             self.group_id.clone(),
@@ -999,7 +1000,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_remove_by_wallet_address() {
+    async fn test_remove_by_account_address() {
         let amal = ClientBuilder::new_test_client(generate_local_wallet().into()).await;
         amal.register_identity().await.unwrap();
         let bola = ClientBuilder::new_test_client(generate_local_wallet().into()).await;

@@ -13,7 +13,7 @@ use xmtp_proto::xmtp::mls_validation::v1::{
     ValidateGroupMessagesResponse, ValidateKeyPackagesRequest, ValidateKeyPackagesResponse,
 };
 
-use crate::validation_helpers::identity_to_wallet_address;
+use crate::validation_helpers::identity_to_account_address;
 
 #[derive(Debug, Default)]
 pub struct ValidationService {}
@@ -33,7 +33,7 @@ impl ValidationApi for ValidationService {
                     Ok(res) => ValidateKeyPackageValidationResponse {
                         installation_id: res.installation_id,
                         credential_identity_bytes: res.credential_identity_bytes,
-                        wallet_address: res.wallet_address,
+                        account_address: res.account_address,
                         error_message: "".to_string(),
                         is_ok: true,
                     },
@@ -42,7 +42,7 @@ impl ValidationApi for ValidationService {
                         error_message: e,
                         credential_identity_bytes: vec![],
                         installation_id: vec![],
-                        wallet_address: "".to_string(),
+                        account_address: "".to_string(),
                     },
                 },
             )
@@ -100,7 +100,7 @@ fn validate_group_message(message: Vec<u8>) -> Result<ValidateGroupMessageResult
 
 struct ValidateKeyPackageResult {
     installation_id: Vec<u8>,
-    wallet_address: String,
+    account_address: String,
     credential_identity_bytes: Vec<u8>,
 }
 
@@ -120,11 +120,11 @@ fn validate_key_package(key_package_bytes: Vec<u8>) -> Result<ValidateKeyPackage
     let leaf_node = kp.leaf_node();
     let identity_bytes = leaf_node.credential().identity();
     let pub_key_bytes = leaf_node.signature_key().as_slice();
-    let wallet_address = identity_to_wallet_address(identity_bytes, pub_key_bytes)?;
+    let account_address = identity_to_account_address(identity_bytes, pub_key_bytes)?;
 
     Ok(ValidateKeyPackageResult {
         installation_id: pub_key_bytes.to_vec(),
-        wallet_address,
+        account_address,
         credential_identity_bytes: identity_bytes.to_vec(),
     })
 }
@@ -159,10 +159,10 @@ mod tests {
         let wallet = LocalWallet::new(rng);
         let signature_key_pair = SignatureKeyPair::new(CIPHERSUITE.signature_algorithm()).unwrap();
         let pub_key = signature_key_pair.public();
-        let wallet_address = wallet.get_address();
+        let account_address = wallet.get_address();
         let association_text = AssociationText::new_static(
             AssociationContext::GrantMessagingAccess,
-            wallet_address.clone(),
+            account_address.clone(),
             pub_key.to_vec(),
             "2021-01-01T00:00:00Z".to_string(),
         );
@@ -178,7 +178,7 @@ mod tests {
             .encode(&mut buf)
             .expect("failed to serialize");
 
-        (buf, signature_key_pair, wallet_address)
+        (buf, signature_key_pair, account_address)
     }
 
     fn build_key_package_bytes(
@@ -202,7 +202,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_validate_key_packages_happy_path() {
-        let (identity, keypair, wallet_address) = generate_identity();
+        let (identity, keypair, account_address) = generate_identity();
 
         let credential = OpenMlsCredential::new(identity, CredentialType::Basic).unwrap();
         let credential_with_key = CredentialWithKey {
@@ -224,7 +224,7 @@ mod tests {
 
         let first_response = &res.into_inner().responses[0];
         assert_eq!(first_response.installation_id, keypair.public());
-        assert_eq!(first_response.wallet_address, wallet_address);
+        assert_eq!(first_response.account_address, account_address);
         assert!(!first_response.credential_identity_bytes.is_empty());
     }
 
@@ -256,6 +256,6 @@ mod tests {
         let first_response = &res.into_inner().responses[0];
 
         assert!(!first_response.is_ok);
-        assert_eq!(first_response.wallet_address, "".to_string());
+        assert_eq!(first_response.account_address, "".to_string());
     }
 }
