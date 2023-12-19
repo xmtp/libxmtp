@@ -322,7 +322,7 @@ where
                 return Ok(());
             }
             let sender_installation_id = validated_commit.actor_installation_id();
-            let sender_wallet_address = validated_commit.actor_account_address();
+            let sender_account_address = validated_commit.actor_account_address();
             let payload: GroupMembershipChanges = validated_commit.into();
             let encoded_payload = GroupMembershipChangeCodec::encode(payload)?;
             let mut encoded_payload_bytes = Vec::new();
@@ -337,7 +337,7 @@ where
                 sent_at_ns: timestamp_ns as i64,
                 kind: GroupMessageKind::MembershipChange,
                 sender_installation_id,
-                sender_wallet_address,
+                sender_account_address,
             }
             .store(conn)?;
         }
