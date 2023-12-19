@@ -202,7 +202,7 @@ where
                 self.api_client
                     .get_identity_updates(GetIdentityUpdatesRequest {
                         start_time_ns,
-                        wallet_addresses: account_addresses.clone(),
+                        account_addresses: account_addresses.clone(),
                     })
                     .await
             })
@@ -478,7 +478,7 @@ mod tests {
         mock_api
             .expect_get_identity_updates()
             .withf(move |req| {
-                req.start_time_ns.eq(&start_time_ns) && req.wallet_addresses.eq(&account_addresses)
+                req.start_time_ns.eq(&start_time_ns) && req.account_addresses.eq(&account_addresses)
             })
             .returning(move |_| {
                 Ok(GetIdentityUpdatesResponse {

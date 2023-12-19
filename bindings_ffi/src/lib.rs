@@ -457,7 +457,7 @@ mod tests {
 
     //     let alice_to_bob = alice
     //         .conversations()
-    //         .new_conversation(bob.wallet_address())
+    //         .new_conversation(bob.account_address())
     //         .await
     //         .unwrap();
 

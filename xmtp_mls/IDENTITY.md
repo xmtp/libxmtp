@@ -65,7 +65,7 @@ XMTP installations consist of a long-lived Ed25519 key-pair (the 'installation k
         association_text_version: i32,
         signature: bytes,
         iso8601_time: string,
-        wallet_address: string,
+        account_address: string,
    } Eip191Association;
 
 
@@ -87,7 +87,7 @@ Credential validation must be performed by clients at the [events described by t
 1. Verify that the referenced `installation_public_key` matches the `signature_key` of the leaf node.
 1. Derive the association text using the `association_text_version`, `creation_iso8601_time`, `installation_public_key`, with a label of `Grant Messaging Access`.
 1. Recover the wallet public key from the recoverable ECDSA `signature` on the association text.
-1. Derive the wallet address from the public key and verify that it matches the `wallet_address` on the association.
+1. Derive the wallet address from the public key and verify that it matches the `account_address` on the association.
 
 ### Installation revocation
 

@@ -33,7 +33,7 @@ impl ValidationApi for ValidationService {
                     Ok(res) => ValidateKeyPackageValidationResponse {
                         installation_id: res.installation_id,
                         credential_identity_bytes: res.credential_identity_bytes,
-                        wallet_address: res.account_address,
+                        account_address: res.account_address,
                         error_message: "".to_string(),
                         is_ok: true,
                     },
@@ -42,7 +42,7 @@ impl ValidationApi for ValidationService {
                         error_message: e,
                         credential_identity_bytes: vec![],
                         installation_id: vec![],
-                        wallet_address: "".to_string(),
+                        account_address: "".to_string(),
                     },
                 },
             )
@@ -224,7 +224,7 @@ mod tests {
 
         let first_response = &res.into_inner().responses[0];
         assert_eq!(first_response.installation_id, keypair.public());
-        assert_eq!(first_response.wallet_address, account_address);
+        assert_eq!(first_response.account_address, account_address);
         assert!(!first_response.credential_identity_bytes.is_empty());
     }
 
@@ -256,6 +256,6 @@ mod tests {
         let first_response = &res.into_inner().responses[0];
 
         assert!(!first_response.is_ok);
-        assert_eq!(first_response.wallet_address, "".to_string());
+        assert_eq!(first_response.account_address, "".to_string());
     }
 }

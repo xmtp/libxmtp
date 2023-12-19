@@ -8,7 +8,7 @@ pub fn identity_to_account_address(identity: &[u8], pub_key: &[u8]) -> Result<St
         AssociationContext::GrantMessagingAccess,
         pub_key,
         proto_value.clone(),
-        proto_value.wallet_address,
+        proto_value.account_address,
     )
     .map_err(|e| format!("{:?}", e))?;
 

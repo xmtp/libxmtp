@@ -132,7 +132,7 @@ impl Identity {
         installation_public_key: &[u8],
     ) -> Result<String, IdentityError> {
         let proto = Eip191AssociationProto::decode(credential)?;
-        let expected_account_address = proto.wallet_address.clone();
+        let expected_account_address = proto.account_address.clone();
         let association = Eip191Association::from_proto_with_expected_address(
             AssociationContext::GrantMessagingAccess,
             installation_public_key,

@@ -101,7 +101,7 @@ impl From<Eip191Association> for Eip191AssociationProto {
         let account_address = assoc.address();
         let iso8601_time = assoc.iso8601_time();
         Self {
-            wallet_address: account_address,
+            account_address,
             // Hardcoded version for now
             association_text_version: 1,
             signature: Some(RecoverableEcdsaSignatureProto {
