@@ -4,7 +4,7 @@
 
 ### Patch Changes
 
-- f2f7604: Change CJS module extenstion to .cjs
+- f2f7604: Change CJS module extension to .cjs
 
 ## 0.3.2
 
