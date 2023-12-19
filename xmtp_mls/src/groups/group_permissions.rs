@@ -207,7 +207,7 @@ where
 
 #[cfg(test)]
 mod tests {
-    use crate::utils::test::{rand_vec, rand_wallet_address};
+    use crate::utils::test::{rand_account_address, rand_vec};
 
     use super::*;
 
@@ -216,7 +216,7 @@ mod tests {
         installation_id: Option<Vec<u8>>,
     ) -> AggregatedMembershipChange {
         AggregatedMembershipChange {
-            account_address: account_address.unwrap_or_else(|| rand_wallet_address()),
+            account_address: account_address.unwrap_or_else(|| rand_account_address()),
             installation_ids: vec![installation_id.unwrap_or_else(|| rand_vec())],
         }
     }
@@ -226,7 +226,7 @@ mod tests {
         installation_id: Option<Vec<u8>>,
     ) -> CommitParticipant {
         CommitParticipant {
-            account_address: account_address.unwrap_or_else(|| rand_wallet_address()),
+            account_address: account_address.unwrap_or_else(|| rand_account_address()),
             installation_id: installation_id.unwrap_or_else(|| rand_vec()),
         }
     }

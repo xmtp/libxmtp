@@ -35,7 +35,7 @@ pub fn aggregate_member_list(openmls_group: &OpenMlsGroup) -> Result<Vec<GroupMe
                 &member.signature_key,
             )
             .ok()
-            .map(|wallet_address| (wallet_address, member.signature_key.clone()))
+            .map(|account_address| (account_address, member.signature_key.clone()))
         })
         .fold(
             HashMap::new(),

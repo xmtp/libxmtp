@@ -205,11 +205,11 @@ where
 
     pub async fn get_all_active_installation_ids(
         &self,
-        wallet_addresses: Vec<String>,
+        account_addresses: Vec<String>,
     ) -> Result<Vec<Vec<u8>>, ClientError> {
         let update_mapping = self
             .api_client
-            .get_identity_updates(0, wallet_addresses)
+            .get_identity_updates(0, account_addresses)
             .await?;
 
         let mut installation_ids: Vec<Vec<u8>> = vec![];
@@ -281,7 +281,7 @@ where
     ) -> Result<Vec<VerifiedKeyPackage>, ClientError> {
         match address_or_id {
             AddressesOrInstallationIds::AccountAddresses(addrs) => {
-                self.get_key_packages_for_wallet_addresses(addrs).await
+                self.get_key_packages_for_account_addresses(addrs).await
             }
             AddressesOrInstallationIds::InstallationIds(ids) => {
                 self.get_key_packages_for_installation_ids(ids).await
@@ -292,12 +292,12 @@ where
     // Get a flat list of one key package per installation for all the wallet addresses provided.
     // Revoked installations will be omitted from the list
     #[allow(dead_code)]
-    pub(crate) async fn get_key_packages_for_wallet_addresses(
+    pub(crate) async fn get_key_packages_for_account_addresses(
         &self,
-        wallet_addresses: Vec<String>,
+        account_addresses: Vec<String>,
     ) -> Result<Vec<VerifiedKeyPackage>, ClientError> {
         let installation_ids = self
-            .get_all_active_installation_ids(wallet_addresses)
+            .get_all_active_installation_ids(account_addresses)
             .await?;
 
         self.get_key_packages_for_installation_ids(installation_ids)

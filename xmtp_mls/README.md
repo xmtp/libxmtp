@@ -34,7 +34,7 @@ CREATE TABLE group_messages (
     "kind" INT NOT NULL,
     -- Could remove this if we added a table mapping installation_ids to wallet addresses
     "sender_installation_id" BLOB NOT NULL,
-    "sender_wallet_address" TEXT NOT NULL,
+    "sender_account_address" TEXT NOT NULL,
     FOREIGN KEY (group_id) REFERENCES groups(id)
 );
 

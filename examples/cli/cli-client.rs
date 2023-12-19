@@ -67,13 +67,13 @@ enum Commands {
         #[arg(value_name = "Group ID")]
         group_id: String,
         #[arg(value_name = "Wallet Address")]
-        wallet_address: String,
+        account_address: String,
     },
     RemoveGroupMember {
         #[arg(value_name = "Group ID")]
         group_id: String,
         #[arg(value_name = "Wallet Address")]
-        wallet_address: String,
+        account_address: String,
     },
     /// Information about the account that owns the DB
     Info {},
@@ -217,7 +217,7 @@ async fn main() {
         }
         Commands::AddGroupMember {
             group_id,
-            wallet_address,
+            account_address,
         } => {
             let client = create_client(&cli, IdentityStrategy::CachedOnly)
                 .await
@@ -228,18 +228,18 @@ async fn main() {
                 .expect("failed to get group");
 
             group
-                .add_members(vec![wallet_address.clone()])
+                .add_members(vec![account_address.clone()])
                 .await
                 .expect("failed to add member");
 
             info!(
                 "Successfully added {} to group {}",
-                wallet_address, group_id
+                account_address, group_id
             );
         }
         Commands::RemoveGroupMember {
             group_id,
-            wallet_address,
+            account_address,
         } => {
             let client = create_client(&cli, IdentityStrategy::CachedOnly)
                 .await
@@ -250,13 +250,13 @@ async fn main() {
                 .expect("failed to get group");
 
             group
-                .remove_members(vec![wallet_address.clone()])
+                .remove_members(vec![account_address.clone()])
                 .await
                 .expect("failed to add member");
 
             info!(
                 "Successfully removed {} from group {}",
-                wallet_address, group_id
+                account_address, group_id
             );
         }
         Commands::CreateGroup {} => {
@@ -341,16 +341,16 @@ async fn send(group: MlsGroup<'_, ApiClient>, msg: String) -> Result<(), CliErro
 
 fn format_messages<A: XmtpApiClient + XmtpMlsClient>(
     convo: &MlsGroup<'_, A>,
-    my_wallet_address: String,
+    my_account_address: String,
 ) -> Result<String, CliError> {
     let mut output: Vec<String> = vec![];
 
     for msg in convo.find_messages(None, None, None, None).unwrap() {
         let contents = msg.decrypted_message_bytes;
-        let sender = if msg.sender_wallet_address == my_wallet_address {
+        let sender = if msg.sender_account_address == my_account_address {
             "Me".to_string()
         } else {
-            msg.sender_wallet_address
+            msg.sender_account_address
         };
 
         let msg_line = format!(

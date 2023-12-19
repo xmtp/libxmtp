@@ -194,7 +194,7 @@ where
     pub async fn get_identity_updates(
         &self,
         start_time_ns: u64,
-        wallet_addresses: Vec<String>,
+        account_addresses: Vec<String>,
     ) -> Result<IdentityUpdatesMap, ApiError> {
         let result = retry_async!(
             self.retry_strategy,
@@ -202,13 +202,13 @@ where
                 self.api_client
                     .get_identity_updates(GetIdentityUpdatesRequest {
                         start_time_ns,
-                        wallet_addresses: wallet_addresses.clone(),
+                        wallet_addresses: account_addresses.clone(),
                     })
                     .await
             })
         )?;
 
-        if result.updates.len() != wallet_addresses.len() {
+        if result.updates.len() != account_addresses.len() {
             println!("mismatched number of results");
             return Err(ApiError::new(ErrorKind::MlsError));
         }
@@ -216,10 +216,10 @@ where
         let mapping: IdentityUpdatesMap = result
             .updates
             .into_iter()
-            .zip(wallet_addresses.into_iter())
-            .map(|(update, wallet_address)| {
+            .zip(account_addresses.into_iter())
+            .map(|(update, account_address)| {
                 (
-                    wallet_address,
+                    account_address,
                     update
                         .updates
                         .into_iter()
@@ -472,13 +472,13 @@ mod tests {
     async fn test_get_identity_updates() {
         let mut mock_api = MockApiClient::new();
         let start_time_ns = 12;
-        let wallet_addresses = vec!["wallet1".to_string(), "wallet2".to_string()];
-        // wallet_addresses gets moved below but needs to be used for assertions later
-        let wallet_addresses_clone = wallet_addresses.clone();
+        let account_addresses = vec!["wallet1".to_string(), "wallet2".to_string()];
+        // account_addresses gets moved below but needs to be used for assertions later
+        let account_addresses_clone = account_addresses.clone();
         mock_api
             .expect_get_identity_updates()
             .withf(move |req| {
-                req.start_time_ns.eq(&start_time_ns) && req.wallet_addresses.eq(&wallet_addresses)
+                req.start_time_ns.eq(&start_time_ns) && req.wallet_addresses.eq(&account_addresses)
             })
             .returning(move |_| {
                 Ok(GetIdentityUpdatesResponse {
@@ -513,13 +513,13 @@ mod tests {
 
         let wrapper = ApiClientWrapper::new(mock_api, Retry::default());
         let result = wrapper
-            .get_identity_updates(start_time_ns, wallet_addresses_clone.clone())
+            .get_identity_updates(start_time_ns, account_addresses_clone.clone())
             .await
             .unwrap();
         assert_eq!(result.len(), 2);
 
         for (k, v) in result {
-            if k.eq(&wallet_addresses_clone[0]) {
+            if k.eq(&account_addresses_clone[0]) {
                 assert_eq!(v.len(), 1);
                 assert_eq!(
                     v[0],
