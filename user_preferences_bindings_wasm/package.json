@@ -8,7 +8,7 @@
     "build": "npm run clean && npm run build:web && npm run build:bundler && npm run build:node && npm run clean:gitignore",
     "build:web": "wasm-pack build --target web --no-pack --release --out-dir ./dist/web",
     "build:bundler": "wasm-pack build --target bundler --no-pack --release --out-dir ./dist/bundler",
-    "build:node": "wasm-pack build --target nodejs --no-pack --release --out-dir ./dist/node",
+    "build:node": "wasm-pack build --target nodejs --no-pack --release --out-dir ./dist/node && node ./scripts/targetESM.js",
     "prepublishOnly": "npm run build",
     "clean": "rm -rf ./dist",
     "clean:gitignore": "rm -f ./dist/**/.gitignore"
@@ -21,12 +21,12 @@
     "./dist/**/*"
   ],
   "main": "dist/node/user_preferences_bindings_wasm.js",
-  "module": "dist/bundler/user_preferences_bindings_wasm.js",
+  "module": "dist/node/user_preferences_bindings_wasm.mjs",
   "types": "dist/node/user_preferences_bindings_wasm.d.ts",
   "exports": {
     ".": {
-      "types": "./dist/bundler/user_preferences_bindings_wasm.d.ts",
-      "import": "./dist/bundler/user_preferences_bindings_wasm.js",
+      "types": "./dist/node/user_preferences_bindings_wasm.d.ts",
+      "import": "./dist/node/user_preferences_bindings_wasm.mjs",
       "require": "./dist/node/user_preferences_bindings_wasm.js"
     },
     "./bundler": {
