@@ -1,5 +1,11 @@
 # @xmtp/ecies-bindings-wasm
 
+## 0.3.3
+
+### Patch Changes
+
+- f2f7604: Change CJS module extenstion to .cjs
+
 ## 0.3.2
 
 ### Patch Changes
