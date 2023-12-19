@@ -979,11 +979,17 @@ mod tests {
             .await
             .expect("group create failure");
 
+        let messages_with_add = group.find_messages(None, None, None, None).unwrap();
+        assert_eq!(messages_with_add.len(), 1);
+
         // Try and add another member without merging the pending commit
         group
             .remove_members_by_installation_id(vec![client_2.installation_public_key()])
             .await
             .expect("group create failure");
+
+        let messages_with_remove = group.find_messages(None, None, None, None).unwrap();
+        assert_eq!(messages_with_remove.len(), 2);
 
         // We are expecting 1 message on the group topic, not 2, because the second one should have
         // failed
