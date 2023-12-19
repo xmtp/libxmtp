@@ -264,7 +264,7 @@ impl From<StoredGroupMessage> for FfiMessage {
             id: msg.id,
             sent_at_ns: msg.sent_at_ns,
             convo_id: msg.group_id,
-            addr_from: msg.sender_wallet_address,
+            addr_from: msg.sender_account_address,
             content: msg.decrypted_message_bytes,
         }
     }
@@ -457,7 +457,7 @@ mod tests {
 
     //     let alice_to_bob = alice
     //         .conversations()
-    //         .new_conversation(bob.wallet_address())
+    //         .new_conversation(bob.account_address())
     //         .await
     //         .unwrap();
 

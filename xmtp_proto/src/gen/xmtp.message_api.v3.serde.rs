@@ -288,15 +288,15 @@ impl serde::Serialize for GetIdentityUpdatesRequest {
     {
         use serde::ser::SerializeStruct;
         let mut len = 0;
-        if !self.wallet_addresses.is_empty() {
+        if !self.account_addresses.is_empty() {
             len += 1;
         }
         if self.start_time_ns != 0 {
             len += 1;
         }
         let mut struct_ser = serializer.serialize_struct("xmtp.message_api.v3.GetIdentityUpdatesRequest", len)?;
-        if !self.wallet_addresses.is_empty() {
-            struct_ser.serialize_field("walletAddresses", &self.wallet_addresses)?;
+        if !self.account_addresses.is_empty() {
+            struct_ser.serialize_field("accountAddresses", &self.account_addresses)?;
         }
         if self.start_time_ns != 0 {
             struct_ser.serialize_field("startTimeNs", ToString::to_string(&self.start_time_ns).as_str())?;
@@ -311,15 +311,15 @@ impl<'de> serde::Deserialize<'de> for GetIdentityUpdatesRequest {
         D: serde::Deserializer<'de>,
     {
         const FIELDS: &[&str] = &[
-            "wallet_addresses",
-            "walletAddresses",
+            "account_addresses",
+            "accountAddresses",
             "start_time_ns",
             "startTimeNs",
         ];
 
         #[allow(clippy::enum_variant_names)]
         enum GeneratedField {
-            WalletAddresses,
+            AccountAddresses,
             StartTimeNs,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
@@ -342,7 +342,7 @@ impl<'de> serde::Deserialize<'de> for GetIdentityUpdatesRequest {
                         E: serde::de::Error,
                     {
                         match value {
-                            "walletAddresses" | "wallet_addresses" => Ok(GeneratedField::WalletAddresses),
+                            "accountAddresses" | "account_addresses" => Ok(GeneratedField::AccountAddresses),
                             "startTimeNs" | "start_time_ns" => Ok(GeneratedField::StartTimeNs),
                             _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
                         }
@@ -363,15 +363,15 @@ impl<'de> serde::Deserialize<'de> for GetIdentityUpdatesRequest {
                 where
                     V: serde::de::MapAccess<'de>,
             {
-                let mut wallet_addresses__ = None;
+                let mut account_addresses__ = None;
                 let mut start_time_ns__ = None;
                 while let Some(k) = map.next_key()? {
                     match k {
-                        GeneratedField::WalletAddresses => {
-                            if wallet_addresses__.is_some() {
-                                return Err(serde::de::Error::duplicate_field("walletAddresses"));
+                        GeneratedField::AccountAddresses => {
+                            if account_addresses__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("accountAddresses"));
                             }
-                            wallet_addresses__ = Some(map.next_value()?);
+                            account_addresses__ = Some(map.next_value()?);
                         }
                         GeneratedField::StartTimeNs => {
                             if start_time_ns__.is_some() {
@@ -384,7 +384,7 @@ impl<'de> serde::Deserialize<'de> for GetIdentityUpdatesRequest {
                     }
                 }
                 Ok(GetIdentityUpdatesRequest {
-                    wallet_addresses: wallet_addresses__.unwrap_or_default(),
+                    account_addresses: account_addresses__.unwrap_or_default(),
                     start_time_ns: start_time_ns__.unwrap_or_default(),
                 })
             }

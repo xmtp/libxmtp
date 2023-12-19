@@ -40,10 +40,11 @@ Use the CLI to send a [double ratchet message](https://github.com/xmtp/libxmtp/b
 6. Add user 2 to the group
 
    ```bash
-   ./xli.sh --db user1.db3 add-group-member $GROUP_ID $USER_2_WALLET_ADDRESS
+   ./xli.sh --db user1.db3 add-group-member $GROUP_ID $USER_2_ACCOUNT_ADDRESS
    ```
 
 7. Send a message
+
    ```bash
    ./xli.sh --db user1.db3 send $GROUP_ID "hello world"
    ```
