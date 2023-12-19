@@ -1,5 +1,11 @@
 # @xmtp/ecies-bindings-wasm
 
+## 0.3.2
+
+### Patch Changes
+
+- 78e5b9f: Add ESM export for Node
+
 ## 0.3.1
 
 ### Patch Changes
