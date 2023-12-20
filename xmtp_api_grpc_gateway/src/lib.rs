@@ -26,7 +26,8 @@ impl XmtpGrpcGatewayClient {
     }
 }
 
-#[async_trait(?Send)]
+#[cfg_attr(not(target_arch = "wasm32"), async_trait)]
+#[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
 impl XmtpApiClient for XmtpGrpcGatewayClient {
     type Subscription = XmtpGrpcGatewaySubscription;
     type MutableSubscription = XmtpGrpcGatewayMutableSubscription;
@@ -115,7 +116,8 @@ impl XmtpApiSubscription for XmtpGrpcGatewaySubscription {
 
 pub struct XmtpGrpcGatewayMutableSubscription {}
 
-#[async_trait(?Send)]
+#[cfg_attr(not(target_arch = "wasm32"), async_trait)]
+#[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
 impl MutableApiSubscription for XmtpGrpcGatewayMutableSubscription {
     async fn update(&mut self, _req: SubscribeRequest) -> Result<(), Error> {
         // TODO
