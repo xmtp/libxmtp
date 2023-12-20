@@ -1,9 +1,12 @@
+use std::pin::Pin;
 use std::sync::{Arc, Mutex}; // TODO switch to async mutexes
 use std::{
     str::FromStr,
     sync::atomic::{AtomicBool, Ordering},
 };
 
+use futures::stream::{AbortHandle, Abortable};
+use futures::{SinkExt, Stream, StreamExt, TryStreamExt};
 use http_body::combinators::UnsyncBoxBody;
 use hyper::{client::HttpConnector, Uri};
 use hyper_rustls::HttpsConnector;
@@ -11,7 +14,9 @@ use tokio::sync::oneshot;
 use tokio_rustls::rustls::{ClientConfig, OwnedTrustAnchor, RootCertStore};
 use tonic::{async_trait, metadata::MetadataValue, transport::Channel, Request, Status, Streaming};
 use xmtp_proto::{
-    api_client::{Error, ErrorKind, XmtpApiClient, XmtpApiSubscription, XmtpMlsClient},
+    api_client::{
+        Error, ErrorKind, MutableApiSubscription, XmtpApiClient, XmtpApiSubscription, XmtpMlsClient,
+    },
     xmtp::message_api::{
         v1::{
             message_api_client::MessageApiClient, BatchQueryRequest, BatchQueryResponse, Envelope,
@@ -128,6 +133,7 @@ impl Client {
 #[async_trait]
 impl XmtpApiClient for Client {
     type Subscription = Subscription;
+    type MutableSubscription = GrpcMutableSubscription;
 
     fn set_app_version(&mut self, version: String) {
         self.app_version = MetadataValue::try_from(&version).unwrap();
@@ -187,6 +193,49 @@ impl XmtpApiClient for Client {
         };
 
         Ok(Subscription::start(stream).await)
+    }
+
+    async fn subscribe2(
+        &self,
+        request: SubscribeRequest,
+    ) -> Result<GrpcMutableSubscription, Error> {
+        let (sender, mut receiver) = futures::channel::mpsc::unbounded::<SubscribeRequest>();
+
+        let input_stream = async_stream::stream! {
+            yield request;
+            // Wait for the receiver to send a new request.
+            // This happens in the update method of the Subscription
+            while let Some(result) = receiver.next().await {
+                yield result;
+            }
+
+            println!("stream closed")
+        };
+
+        let mut tonic_request = Request::new(input_stream);
+
+        tonic_request
+            .metadata_mut()
+            .insert("x-app-version", self.app_version.clone());
+
+        let stream = match &self.client {
+            InnerApiClient::Plain(c) => c
+                .clone()
+                .subscribe2(tonic_request)
+                .await
+                .map_err(|e| Error::new(ErrorKind::SubscribeError).with(e))?
+                .into_inner(),
+            InnerApiClient::Tls(c) => c
+                .clone()
+                .subscribe2(tonic_request)
+                .await
+                .map_err(|e| Error::new(ErrorKind::SubscribeError).with(e))?
+                .into_inner(),
+        };
+        Ok(GrpcMutableSubscription::new(
+            Box::pin(stream.map_err(|e| Error::new(ErrorKind::SubscribeError).with(e))),
+            sender,
+        ))
     }
 
     async fn query(&self, request: QueryRequest) -> Result<QueryResponse, Error> {
@@ -285,6 +334,56 @@ impl XmtpApiSubscription for Subscription {
         if let Some(close_tx) = self.close_sender.take() {
             let _ = close_tx.send(());
         }
+    }
+}
+
+type EnvelopeStream = Pin<Box<dyn Stream<Item = Result<Envelope, Error>> + Send>>;
+
+pub struct GrpcMutableSubscription {
+    inner: Abortable<EnvelopeStream>,
+    channel: futures::channel::mpsc::UnboundedSender<SubscribeRequest>,
+    abort_handle: AbortHandle,
+}
+
+impl GrpcMutableSubscription {
+    fn new(
+        inner: EnvelopeStream,
+        channel: futures::channel::mpsc::UnboundedSender<SubscribeRequest>,
+    ) -> Self {
+        let (abort_handle, abort_registration) = AbortHandle::new_pair();
+        Self {
+            inner: Abortable::new(inner, abort_registration),
+            channel,
+            abort_handle,
+        }
+    }
+}
+
+impl Stream for GrpcMutableSubscription {
+    type Item = Result<Envelope, Error>;
+
+    fn poll_next(
+        mut self: Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<Option<Self::Item>> {
+        self.inner.poll_next_unpin(cx)
+    }
+}
+
+#[async_trait]
+impl MutableApiSubscription for GrpcMutableSubscription {
+    async fn update(&mut self, req: SubscribeRequest) -> Result<(), Error> {
+        self.channel
+            .send(req)
+            .await
+            .map_err(|_| Error::new(ErrorKind::SubscriptionUpdateError))?;
+
+        Ok(())
+    }
+
+    fn close(&self) {
+        self.abort_handle.abort();
+        self.channel.close_channel();
     }
 }
 

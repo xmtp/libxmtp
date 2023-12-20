@@ -13,6 +13,7 @@ tonic = { version = "^0.9", optional = true }
 serde = "1.0.160"
 pbjson = "0.5.1"
 pbjson-types = "0.5.1"
+futures = "0.3.29"
 
 [features]
 default = []

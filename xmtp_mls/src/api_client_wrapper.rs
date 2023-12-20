@@ -308,10 +308,12 @@ type IdentityUpdatesMap = HashMap<String, Vec<IdentityUpdate>>;
 #[cfg(test)]
 mod tests {
     use async_trait::async_trait;
+    use futures::Stream;
     use mockall::mock;
     use xmtp_proto::{
         api_client::{
-            Error, ErrorKind, PagingInfo, XmtpApiClient, XmtpApiSubscription, XmtpMlsClient,
+            Error, ErrorKind, MutableApiSubscription, PagingInfo, XmtpApiClient,
+            XmtpApiSubscription, XmtpMlsClient,
         },
         xmtp::message_api::{
             v1::{
@@ -357,6 +359,25 @@ mod tests {
         }
     }
 
+    mock! {
+        pub MutableSubscription {}
+
+        #[async_trait]
+        impl MutableApiSubscription for MutableSubscription {
+            async fn update(&mut self, req: SubscribeRequest) -> Result<(), Error>;
+            fn close(&self);
+        }
+
+        impl Stream for MutableSubscription {
+            type Item = Result<Envelope, Error>;
+
+            fn poll_next<'a>(
+                self: std::pin::Pin<&mut Self>,
+                _cx: &mut std::task::Context<'a>,
+            ) -> std::task::Poll<Option<<Self as Stream>::Item>>;
+        }
+    }
+
     // Create a mock XmtpClient for testing the client wrapper
     mock! {
         pub ApiClient {}
@@ -385,6 +406,7 @@ mod tests {
             // Need to set an associated type and don't currently need streaming
             // Can figure out a mocked stream type later
             type Subscription = MockSubscription;
+            type MutableSubscription = MockMutableSubscription;
 
             fn set_app_version(&mut self, version: String);
 
@@ -395,6 +417,8 @@ mod tests {
             ) -> Result<PublishResponse, Error>;
 
             async fn subscribe(&self, request: SubscribeRequest) -> Result<<Self as XmtpApiClient>::Subscription, Error>;
+
+            async fn subscribe2(&self, request: SubscribeRequest) -> Result<<Self as XmtpApiClient>::MutableSubscription, Error>;
 
             async fn query(&self, request: QueryRequest) -> Result<QueryResponse, Error>;
 

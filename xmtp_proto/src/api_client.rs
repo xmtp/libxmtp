@@ -1,6 +1,7 @@
 use std::{error::Error as StdError, fmt};
 
 use async_trait::async_trait;
+use futures::Stream;
 
 pub use super::xmtp::message_api::v1::{
     BatchQueryRequest, BatchQueryResponse, Envelope, PagingInfo, PublishRequest, PublishResponse,
@@ -20,6 +21,7 @@ pub enum ErrorKind {
     SubscribeError,
     BatchQueryError,
     MlsError,
+    SubscriptionUpdateError,
 }
 
 type ErrorSource = Box<dyn StdError + Send + Sync + 'static>;
@@ -63,6 +65,7 @@ impl fmt::Display for Error {
             ErrorKind::SubscribeError => "subscribe error",
             ErrorKind::BatchQueryError => "batch query error",
             ErrorKind::MlsError => "mls error",
+            ErrorKind::SubscriptionUpdateError => "subscription update error",
         })?;
         if self.source().is_some() {
             f.write_str(": ")?;
@@ -86,11 +89,19 @@ pub trait XmtpApiSubscription {
     fn close_stream(&mut self);
 }
 
+#[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
+#[cfg_attr(not(target_arch = "wasm32"), async_trait)]
+pub trait MutableApiSubscription {
+    async fn update(&mut self, req: SubscribeRequest) -> Result<(), Error>;
+    fn close(&self);
+}
+
 // Wasm futures don't have `Send` or `Sync` bounds.
 #[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
 #[cfg_attr(not(target_arch = "wasm32"), async_trait)]
 pub trait XmtpApiClient {
     type Subscription: XmtpApiSubscription;
+    type MutableSubscription: MutableApiSubscription + Stream<Item = Result<Envelope, Error>>;
 
     fn set_app_version(&mut self, version: String);
 
@@ -101,6 +112,11 @@ pub trait XmtpApiClient {
     ) -> Result<PublishResponse, Error>;
 
     async fn subscribe(&self, request: SubscribeRequest) -> Result<Self::Subscription, Error>;
+
+    async fn subscribe2(
+        &self,
+        request: SubscribeRequest,
+    ) -> Result<Self::MutableSubscription, Error>;
 
     async fn query(&self, request: QueryRequest) -> Result<QueryResponse, Error>;
 
