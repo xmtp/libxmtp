@@ -1,5 +1,11 @@
 # @xmtp/ecies-bindings-wasm
 
+## 0.3.4
+
+### Patch Changes
+
+- 43cbc4c: Use sync methods for reading/writing files
+
 ## 0.3.3
 
 ### Patch Changes
