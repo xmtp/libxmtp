@@ -37,8 +37,7 @@ pub struct StoredGroupMessage {
 #[diesel(sql_type = Integer)]
 pub enum GroupMessageKind {
     Application = 1,
-    MemberAdded = 2,
-    MemberRemoved = 3,
+    MembershipChange = 2,
 }
 
 impl ToSql<Integer, Sqlite> for GroupMessageKind
@@ -58,8 +57,7 @@ where
     fn from_sql(bytes: <Sqlite as Backend>::RawValue<'_>) -> deserialize::Result<Self> {
         match i32::from_sql(bytes)? {
             1 => Ok(GroupMessageKind::Application),
-            2 => Ok(GroupMessageKind::MemberAdded),
-            3 => Ok(GroupMessageKind::MemberRemoved),
+            2 => Ok(GroupMessageKind::MembershipChange),
             x => Err(format!("Unrecognized variant {}", x).into()),
         }
     }
@@ -248,7 +246,7 @@ mod tests {
 
             // just a bunch of random messages so we have something to filter through
             for i in 0..30 {
-                match i % 3 {
+                match i % 2 {
                     0 => {
                         let msg = generate_message(
                             Some(GroupMessageKind::Application),
@@ -257,17 +255,9 @@ mod tests {
                         );
                         msg.store(conn).unwrap();
                     }
-                    1 => {
-                        let msg = generate_message(
-                            Some(GroupMessageKind::MemberRemoved),
-                            Some(&group.id),
-                            None,
-                        );
-                        msg.store(conn).unwrap();
-                    }
                     _ => {
                         let msg = generate_message(
-                            Some(GroupMessageKind::MemberAdded),
+                            Some(GroupMessageKind::MembershipChange),
                             Some(&group.id),
                             None,
                         );
@@ -285,29 +275,18 @@ mod tests {
                     None,
                 )
                 .unwrap();
-            assert_eq!(application_messages.len(), 10);
+            assert_eq!(application_messages.len(), 15);
 
-            let member_removed = conn
+            let membership_changes = conn
                 .get_group_messages(
                     &group.id,
                     None,
                     None,
-                    Some(GroupMessageKind::MemberAdded),
+                    Some(GroupMessageKind::MembershipChange),
                     None,
                 )
                 .unwrap();
-            assert_eq!(member_removed.len(), 10);
-
-            let member_added = conn
-                .get_group_messages(
-                    &group.id,
-                    None,
-                    None,
-                    Some(GroupMessageKind::MemberRemoved),
-                    None,
-                )
-                .unwrap();
-            assert_eq!(member_added.len(), 10);
+            assert_eq!(membership_changes.len(), 15);
         })
     }
 }

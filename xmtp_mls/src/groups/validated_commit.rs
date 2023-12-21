@@ -103,6 +103,14 @@ impl ValidatedCommit {
             installations_removed,
         }))
     }
+
+    pub fn actor_account_address(&self) -> Address {
+        self.actor.account_address.clone()
+    }
+
+    pub fn actor_installation_id(&self) -> Vec<u8> {
+        self.actor.installation_id.clone()
+    }
 }
 
 impl AggregatedMembershipChange {

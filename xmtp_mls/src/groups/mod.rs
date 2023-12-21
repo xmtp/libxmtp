@@ -2,6 +2,7 @@ mod group_permissions;
 mod intents;
 mod members;
 pub mod validated_commit;
+use crate::codecs::ContentCodec;
 use intents::SendMessageIntentData;
 use log::debug;
 use openmls::{
@@ -15,11 +16,15 @@ use openmls::{
     prelude_test::KeyPackage,
 };
 use openmls_traits::OpenMlsProvider;
+use prost::Message;
 use std::mem::discriminant;
 use thiserror::Error;
 use tls_codec::{Deserialize, Serialize};
 use xmtp_cryptography::signature::{is_valid_ed25519_public_key, is_valid_ethereum_address};
-use xmtp_proto::api_client::{Envelope, XmtpApiClient, XmtpMlsClient};
+use xmtp_proto::{
+    api_client::{Envelope, XmtpApiClient, XmtpMlsClient},
+    xmtp::mls::message_contents::GroupMembershipChanges,
+};
 
 pub use self::intents::{AddressesOrInstallationIds, IntentError};
 use self::{
@@ -29,6 +34,7 @@ use self::{
 use crate::{
     api_client_wrapper::WelcomeMessage,
     client::{ClientError, MessageProcessingError},
+    codecs::membership_change::GroupMembershipChangeCodec,
     configuration::CIPHERSUITE,
     groups::validated_commit::ValidatedCommit,
     identity::Identity,
@@ -257,6 +263,10 @@ where
                         group_epoch,
                     });
                 }
+                let maybe_validated_commit = ValidatedCommit::from_staged_commit(
+                    maybe_pending_commit.expect("already checked"),
+                    openmls_group,
+                )?;
 
                 debug!("[{}] merging pending commit", self.client.account_address());
                 if let Err(MergePendingCommitError::MlsGroupStateError(err)) =
@@ -265,6 +275,13 @@ where
                     debug!("error merging commit: {}", err);
                     openmls_group.clear_pending_commit();
                     conn.set_group_intent_to_publish(intent.id)?;
+                } else {
+                    // If no error committing the change, write a transcript message
+                    self.save_transcript_message(
+                        conn,
+                        maybe_validated_commit,
+                        envelope_timestamp_ns,
+                    )?;
                 }
                 // TOOD: Handle writing transcript messages for adding/removing members
             }
@@ -287,6 +304,43 @@ where
         };
 
         conn.set_group_intent_committed(intent.id)?;
+
+        Ok(())
+    }
+
+    fn save_transcript_message(
+        &self,
+        conn: &DbConnection,
+        maybe_validated_commit: Option<ValidatedCommit>,
+        timestamp_ns: u64,
+    ) -> Result<(), MessageProcessingError> {
+        if let Some(validated_commit) = maybe_validated_commit {
+            // If there are no members added or removed, don't write a transcript message
+            if validated_commit.members_added.is_empty()
+                && validated_commit.members_removed.is_empty()
+            {
+                return Ok(());
+            }
+            let sender_installation_id = validated_commit.actor_installation_id();
+            let sender_account_address = validated_commit.actor_account_address();
+            let payload: GroupMembershipChanges = validated_commit.into();
+            let encoded_payload = GroupMembershipChangeCodec::encode(payload)?;
+            let mut encoded_payload_bytes = Vec::new();
+            encoded_payload.encode(&mut encoded_payload_bytes)?;
+            let group_id = self.group_id.as_slice();
+            let message_id =
+                get_message_id(encoded_payload_bytes.as_slice(), group_id, timestamp_ns);
+            StoredGroupMessage {
+                id: message_id,
+                group_id: group_id.to_vec(),
+                decrypted_message_bytes: encoded_payload_bytes.to_vec(),
+                sent_at_ns: timestamp_ns as i64,
+                kind: GroupMessageKind::MembershipChange,
+                sender_installation_id,
+                sender_account_address,
+            }
+            .store(conn)?;
+        }
 
         Ok(())
     }
@@ -336,8 +390,13 @@ where
 
                 let sc = *staged_commit;
                 // Validate the commit
-                ValidatedCommit::from_staged_commit(&sc, openmls_group)?;
+                let validated_commit = ValidatedCommit::from_staged_commit(&sc, openmls_group)?;
                 openmls_group.merge_staged_commit(provider, sc)?;
+                self.save_transcript_message(
+                    provider.conn(),
+                    validated_commit,
+                    envelope_timestamp_ns,
+                )?;
             }
         };
 
@@ -921,11 +980,17 @@ mod tests {
             .await
             .expect("group create failure");
 
+        let messages_with_add = group.find_messages(None, None, None, None).unwrap();
+        assert_eq!(messages_with_add.len(), 1);
+
         // Try and add another member without merging the pending commit
         group
             .remove_members_by_installation_id(vec![client_2.installation_public_key()])
             .await
             .expect("group create failure");
+
+        let messages_with_remove = group.find_messages(None, None, None, None).unwrap();
+        assert_eq!(messages_with_remove.len(), 2);
 
         // We are expecting 1 message on the group topic, not 2, because the second one should have
         // failed

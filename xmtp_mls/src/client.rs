@@ -7,6 +7,7 @@ use openmls::{
     messages::Welcome,
     prelude::TlsSerializeTrait,
 };
+use prost::EncodeError;
 use thiserror::Error;
 use tls_codec::{Deserialize, Error as TlsSerializationError};
 use xmtp_proto::api_client::{Envelope, XmtpApiClient, XmtpMlsClient};
@@ -94,6 +95,10 @@ pub enum MessageProcessingError {
     UnsupportedMessageType(Discriminant<MlsMessageInBody>),
     #[error("commit validation")]
     CommitValidation(#[from] CommitValidationError),
+    #[error("codec")]
+    Codec(#[from] crate::codecs::CodecError),
+    #[error("encode proto: {0}")]
+    EncodeProto(#[from] EncodeError),
 }
 
 impl crate::retry::RetryableError for MessageProcessingError {
