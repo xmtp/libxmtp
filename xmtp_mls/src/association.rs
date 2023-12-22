@@ -1,14 +1,16 @@
+use crate::{types::Address, InboxOwner};
+use chrono::Utc;
+use openmls_basic_credential::SignatureKeyPair;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 use xmtp_cryptography::signature::{
     ed25519_public_key_to_address, RecoverableSignature, SignatureError,
 };
 use xmtp_proto::xmtp::mls::message_contents::{
-    Eip191Association as Eip191AssociationProto,
+    mls_credential::Association as AssociationProto, Eip191Association as Eip191AssociationProto,
+    MlsCredential as MlsCredentialProto,
     RecoverableEcdsaSignature as RecoverableEcdsaSignatureProto,
 };
-
-use crate::types::Address;
 
 #[derive(Debug, Error)]
 pub enum AssociationError {
@@ -16,6 +18,8 @@ pub enum AssociationError {
     BadSignature(#[from] SignatureError),
     #[error("Association text mismatch")]
     TextMismatch,
+    #[error("Installation public key mismatch")]
+    InstallationPublicKeyMismatch,
     #[error(
         "Address mismatch in Association: Provided:{provided_addr:?} != signed:{signing_addr:?}"
     )]
@@ -25,51 +29,138 @@ pub enum AssociationError {
     },
 }
 
+enum Association {
+    Eip191(Eip191Association),
+}
+
+pub struct Credential {
+    association: Association,
+}
+
+impl Credential {
+    pub fn create_eip191(
+        installation_keys: &SignatureKeyPair,
+        owner: &impl InboxOwner,
+    ) -> Result<Self, AssociationError> {
+        // Generate association
+        let iso8601_time = format!("{}", Utc::now().format("%+"));
+        let assoc_text = AssociationText::new_static(
+            AssociationContext::GrantMessagingAccess,
+            owner.get_address(),
+            installation_keys.to_public_vec(),
+            iso8601_time,
+        );
+        let signature = owner.sign(&assoc_text.text())?;
+        let association = Eip191Association::new_validated(assoc_text, signature)?;
+        Ok(Self {
+            association: Association::Eip191(association),
+        })
+    }
+
+    pub fn from_proto_validated(
+        proto: MlsCredentialProto,
+        expected_account_address: Option<&str>, // Must validate when fetching identity updates
+        expected_installation_public_key: Option<&[u8]>, // Must cross-reference against leaf node when relevant
+    ) -> Result<Self, AssociationError> {
+        let association = match proto.association.unwrap() {
+            AssociationProto::Eip191(assoc) => Eip191Association::from_proto_validated(
+                assoc,
+                AssociationContext::GrantMessagingAccess,
+                &proto.installation_public_key,
+            )
+            .map(Association::Eip191),
+        }?;
+        let credential = Self { association };
+        if let Some(address) = expected_account_address {
+            if credential.address() != address {
+                return Err(AssociationError::AddressMismatch {
+                    provided_addr: address.to_string(),
+                    signing_addr: credential.address(),
+                });
+            }
+        }
+        if let Some(public_key) = expected_installation_public_key {
+            if credential.installation_public_key() != public_key {
+                return Err(AssociationError::InstallationPublicKeyMismatch);
+            }
+        }
+        Ok(credential)
+    }
+
+    pub fn address(&self) -> String {
+        match &self.association {
+            Association::Eip191(assoc) => assoc.address(),
+        }
+    }
+
+    pub fn installation_public_key(&self) -> Vec<u8> {
+        match &self.association {
+            Association::Eip191(assoc) => assoc.installation_public_key(),
+        }
+    }
+
+    pub fn iso8601_time(&self) -> String {
+        match &self.association {
+            Association::Eip191(assoc) => assoc.iso8601_time(),
+        }
+    }
+}
+
+impl From<Credential> for MlsCredentialProto {
+    fn from(credential: Credential) -> Self {
+        Self {
+            installation_public_key: credential.installation_public_key(),
+            association: match credential.association {
+                Association::Eip191(assoc) => Some(AssociationProto::Eip191(assoc.into())),
+            },
+        }
+    }
+}
+
 /// An Association is link between a blockchain account and an xmtp installation for the purposes of
 /// authentication.
 #[derive(Serialize, Deserialize, PartialEq, Debug, Clone)]
-pub struct Eip191Association {
+struct Eip191Association {
     text: AssociationText,
     signature: RecoverableSignature,
 }
 
 impl Eip191Association {
-    pub fn new(
-        installation_public_key: &[u8],
+    pub fn new_validated(
         text: AssociationText,
         signature: RecoverableSignature,
     ) -> Result<Self, AssociationError> {
         let this = Self { text, signature };
-        this.is_valid(installation_public_key)?;
+        this.is_valid()?;
         Ok(this)
     }
 
-    pub fn from_proto_with_expected_address(
-        context: AssociationContext,
-        installation_public_key: &[u8],
+    pub fn from_proto_validated(
         proto: Eip191AssociationProto,
-        expected_account_address: String,
+        expected_context: AssociationContext,
+        expected_installation_public_key: &[u8],
     ) -> Result<Self, AssociationError> {
         let text = AssociationText::new_static(
-            context,
-            expected_account_address,
-            installation_public_key.to_vec(),
+            expected_context,
+            proto.account_address,
+            expected_installation_public_key.to_vec(),
             proto.iso8601_time,
         );
         let signature = RecoverableSignature::Eip191Signature(proto.signature.unwrap().bytes);
-        Self::new(installation_public_key, text, signature)
+        Self::new_validated(text, signature)
     }
 
-    fn is_valid(&self, installation_public_key: &[u8]) -> Result<(), AssociationError> {
+    fn is_valid(&self) -> Result<(), AssociationError> {
         let assumed_context = self.text.get_context();
         let assumed_addr = self.text.get_address();
+        let assumed_installation_public_key = self.text.get_installation_public_key();
         let assumed_time = self.text.get_iso8601_time();
 
         // Ensure the Text properly links the Address and Keybytes
         self.text.is_valid(
             assumed_context,
             &assumed_addr,
-            installation_public_key,
+            &assumed_installation_public_key,
             &assumed_time,
         )?;
 
@@ -85,12 +176,14 @@ impl Eip191Association {
         }
     }
 
-    // The address returned is unverified, call is_valid to ensure the address is correct
     pub fn address(&self) -> String {
         self.text.get_address()
     }
 
-    // The time returned is unverified, call is_valid to ensure the time is correct
+    pub fn installation_public_key(&self) -> Vec<u8> {
+        self.text.get_installation_public_key()
+    }
+
     pub fn iso8601_time(&self) -> String {
         self.text.get_iso8601_time()
     }
@@ -117,7 +210,7 @@ impl From<Eip191Association> for Eip191AssociationProto {
 /// the XMTP installation public key. Different standards may choose how this information is
 /// encoded, as well as adding extra requirements for increased security.
 #[derive(Serialize, Deserialize, PartialEq, Debug, Clone)]
-pub struct AssociationText {
+struct AssociationText {
     context: AssociationContext,
     data: AssociationData,
 }
@@ -149,6 +242,15 @@ impl AssociationText {
             AssociationData::Static {
                 account_address, ..
             } => account_address.clone(),
+        }
+    }
+
+    pub fn get_installation_public_key(&self) -> Vec<u8> {
+        match &self.data {
+            AssociationData::Static {
+                installation_public_key,
+                ..
+            } => installation_public_key.clone(),
         }
     }
 
@@ -293,13 +395,12 @@ pub mod tests {
             .await
             .expect("BadSign");
 
-        assert!(Eip191Association::new(&key_bytes, text.clone(), sig.into()).is_ok());
-        assert!(Eip191Association::new(&bad_key_bytes, text.clone(), sig.into()).is_err());
-        assert!(Eip191Association::new(&key_bytes, bad_text1.clone(), sig.into()).is_err());
-        assert!(Eip191Association::new(&key_bytes, bad_text2.clone(), sig.into()).is_err());
-        assert!(Eip191Association::new(&key_bytes, bad_text3.clone(), sig.into()).is_err());
-        assert!(Eip191Association::new(&key_bytes, bad_text4.clone(), sig.into()).is_err());
-        assert!(Eip191Association::new(&key_bytes, text.clone(), other_sig.into()).is_err());
+        assert!(Eip191Association::new_validated(text.clone(), sig.into()).is_ok());
+        assert!(Eip191Association::new_validated(bad_text1.clone(), sig.into()).is_err());
+        assert!(Eip191Association::new_validated(bad_text2.clone(), sig.into()).is_err());
+        assert!(Eip191Association::new_validated(bad_text3.clone(), sig.into()).is_err());
+        assert!(Eip191Association::new_validated(bad_text4.clone(), sig.into()).is_err());
+        assert!(Eip191Association::new_validated(text.clone(), other_sig.into()).is_err());
     }
 
     #[tokio::test]
@@ -315,7 +416,7 @@ pub mod tests {
         );
         let sig = wallet.sign_message(text.text()).await.expect("BadSign");
 
-        let assoc = Eip191Association::new(&key_bytes, text.clone(), sig.into()).unwrap();
+        let assoc = Eip191Association::new_validated(text.clone(), sig.into()).unwrap();
         let proto_signature: Eip191AssociationProto = assoc.into();
 
         assert_eq!(proto_signature.association_text_version, 1);

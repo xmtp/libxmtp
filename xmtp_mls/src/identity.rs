@@ -2,8 +2,8 @@ use chrono::Utc;
 use openmls::{
     extensions::LastResortExtension,
     prelude::{
-        Capabilities, Credential, CredentialType, CredentialWithKey, CryptoConfig, Extension,
-        ExtensionType, Extensions, KeyPackage, KeyPackageNewError,
+        Capabilities, Credential as OpenMlsCredential, CredentialType, CredentialWithKey,
+        CryptoConfig, Extension, ExtensionType, Extensions, KeyPackage, KeyPackageNewError,
     },
     versions::ProtocolVersion,
 };
@@ -12,10 +12,10 @@ use openmls_traits::{types::CryptoError, OpenMlsProvider};
 use prost::Message;
 use thiserror::Error;
 use xmtp_cryptography::signature::SignatureError;
-use xmtp_proto::xmtp::mls::message_contents::Eip191Association as Eip191AssociationProto;
+use xmtp_proto::xmtp::mls::message_contents::MlsCredential as CredentialProto;
 
 use crate::{
-    association::{AssociationContext, AssociationError, AssociationText, Eip191Association},
+    association::{AssociationContext, AssociationError, Credential},
     configuration::CIPHERSUITE,
     storage::{identity::StoredIdentity, StorageError},
     types::Address,
@@ -43,7 +43,7 @@ pub enum IdentityError {
 pub struct Identity {
     pub(crate) account_address: Address,
     pub(crate) installation_keys: SignatureKeyPair,
-    pub(crate) credential: Credential,
+    pub(crate) credential: OpenMlsCredential,
 }
 
 impl Identity {
@@ -108,39 +108,27 @@ impl Identity {
     fn create_credential(
         installation_keys: &SignatureKeyPair,
         owner: &impl InboxOwner,
-    ) -> Result<Credential, IdentityError> {
-        // Generate association
-        let iso8601_time = format!("{}", Utc::now().format("%+"));
-        let assoc_text = AssociationText::new_static(
-            AssociationContext::GrantMessagingAccess,
-            owner.get_address(),
-            installation_keys.to_public_vec(),
-            iso8601_time,
-        );
-        let signature = owner.sign(&assoc_text.text())?;
-        let association =
-            Eip191Association::new(installation_keys.public(), assoc_text, signature)?;
-        // TODO wrap in a Credential proto to allow flexibility for different association types
-        let association_proto: Eip191AssociationProto = association.into();
-
-        // Serialize into credential
-        Ok(Credential::new(association_proto.encode_to_vec(), CredentialType::Basic).unwrap())
+    ) -> Result<OpenMlsCredential, IdentityError> {
+        let credential = Credential::create_eip191(installation_keys, owner)?;
+        let credential_proto: CredentialProto = credential.into();
+        Ok(
+            OpenMlsCredential::new(credential_proto.encode_to_vec(), CredentialType::Basic)
+                .unwrap(),
+        )
     }
 
     pub(crate) fn get_validated_account_address(
         credential: &[u8],
         installation_public_key: &[u8],
     ) -> Result<String, IdentityError> {
-        let proto = Eip191AssociationProto::decode(credential)?;
-        let expected_account_address = proto.account_address.clone();
-        let association = Eip191Association::from_proto_with_expected_address(
-            AssociationContext::GrantMessagingAccess,
-            installation_public_key,
+        let proto = CredentialProto::decode(credential)?;
+        let credential = Credential::from_proto_validated(
             proto,
-            expected_account_address,
+            None, // expected_account_address
+            Some(installation_public_key),
         )?;
 
-        Ok(association.address())
+        Ok(credential.address())
     }
 }
 
