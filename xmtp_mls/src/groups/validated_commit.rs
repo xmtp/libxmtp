@@ -329,7 +329,7 @@ mod tests {
         let bola_key_package = get_key_package(&bola);
 
         let amal_group = amal.create_group().unwrap();
-        let mut amal_conn = amal.store.conn().unwrap();
+        let amal_conn = amal.store.conn().unwrap();
         let amal_provider = amal.mls_provider(&amal_conn);
         let mut mls_group = amal_group.load_mls_group(&amal_provider).unwrap();
         // Create a pending commit to add bola to the group

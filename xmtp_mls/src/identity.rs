@@ -1,4 +1,3 @@
-use chrono::Utc;
 use openmls::{
     extensions::LastResortExtension,
     prelude::{
@@ -15,7 +14,7 @@ use xmtp_cryptography::signature::SignatureError;
 use xmtp_proto::xmtp::mls::message_contents::MlsCredential as CredentialProto;
 
 use crate::{
-    association::{AssociationContext, AssociationError, Credential},
+    association::{AssociationError, Credential},
     configuration::CIPHERSUITE,
     storage::{identity::StoredIdentity, StorageError},
     types::Address,

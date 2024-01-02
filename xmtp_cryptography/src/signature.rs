@@ -234,7 +234,7 @@ pub mod tests {
         assert!(is_valid_ethereum_address(
             "0x7e57Aed10441c8879ce08E45805EC01Ee9689c9f"
         ));
-        assert_eq!(is_valid_ethereum_address("123"), false);
+        assert!(!is_valid_ethereum_address("123"));
     }
 
     #[test]

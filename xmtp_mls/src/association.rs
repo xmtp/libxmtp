@@ -279,7 +279,7 @@ impl AssociationText {
                 account_address,
                 installation_public_key,
                 iso8601_time,
-            } => gen_static_text_v1(account_address, installation_public_key, &iso8601_time),
+            } => gen_static_text_v1(account_address, installation_public_key, iso8601_time),
         }
     }
 

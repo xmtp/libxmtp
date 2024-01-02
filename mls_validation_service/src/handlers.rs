@@ -141,10 +141,7 @@ mod tests {
     };
     use openmls_basic_credential::SignatureKeyPair;
     use prost::Message;
-    use xmtp_mls::{
-        association::{AssociationContext, Credential},
-        InboxOwner,
-    };
+    use xmtp_mls::{association::Credential, InboxOwner};
     use xmtp_proto::xmtp::{
         mls::message_contents::MlsCredential as CredentialProto,
         mls_validation::v1::validate_key_packages_request::KeyPackage as KeyPackageProtoWrapper,
@@ -158,7 +155,7 @@ mod tests {
         let rng = &mut rand::thread_rng();
         let wallet = LocalWallet::new(rng);
         let signature_key_pair = SignatureKeyPair::new(CIPHERSUITE.signature_algorithm()).unwrap();
-        let pub_key = signature_key_pair.public();
+        let _pub_key = signature_key_pair.public();
         let account_address = wallet.get_address();
 
         let credential = Credential::create_eip191(&signature_key_pair, &wallet)

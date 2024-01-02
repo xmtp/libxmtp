@@ -216,8 +216,8 @@ mod tests {
         installation_id: Option<Vec<u8>>,
     ) -> AggregatedMembershipChange {
         AggregatedMembershipChange {
-            account_address: account_address.unwrap_or_else(|| rand_account_address()),
-            installation_ids: vec![installation_id.unwrap_or_else(|| rand_vec())],
+            account_address: account_address.unwrap_or_else(rand_account_address),
+            installation_ids: vec![installation_id.unwrap_or_else(rand_vec)],
         }
     }
 
@@ -226,8 +226,8 @@ mod tests {
         installation_id: Option<Vec<u8>>,
     ) -> CommitParticipant {
         CommitParticipant {
-            account_address: account_address.unwrap_or_else(|| rand_account_address()),
-            installation_id: installation_id.unwrap_or_else(|| rand_vec()),
+            account_address: account_address.unwrap_or_else(rand_account_address),
+            installation_id: installation_id.unwrap_or_else(rand_vec),
         }
     }
 
@@ -248,16 +248,18 @@ mod tests {
         };
         ValidatedCommit {
             actor: actor.clone(),
-            members_added: member_added.map(build_membership_change).unwrap_or(vec![]),
+            members_added: member_added
+                .map(build_membership_change)
+                .unwrap_or_default(),
             members_removed: member_removed
                 .map(build_membership_change)
-                .unwrap_or_else(|| vec![]),
+                .unwrap_or_else(std::vec::Vec::new),
             installations_added: installation_added
                 .map(build_membership_change)
-                .unwrap_or_else(|| vec![]),
+                .unwrap_or_else(std::vec::Vec::new),
             installations_removed: installation_removed
                 .map(build_membership_change)
-                .unwrap_or_else(|| vec![]),
+                .unwrap_or_else(std::vec::Vec::new),
         }
     }
 
@@ -283,16 +285,16 @@ mod tests {
         );
 
         let member_added_commit = build_validated_commit(Some(false), None, None, None);
-        assert!(permissions.evaluate_commit(&member_added_commit) == false);
+        assert!(!permissions.evaluate_commit(&member_added_commit));
 
         let member_removed_commit = build_validated_commit(None, Some(false), None, None);
-        assert!(permissions.evaluate_commit(&member_removed_commit) == false);
+        assert!(!permissions.evaluate_commit(&member_removed_commit));
 
         let installation_added_commit = build_validated_commit(None, None, Some(false), None);
-        assert!(permissions.evaluate_commit(&installation_added_commit) == false);
+        assert!(!permissions.evaluate_commit(&installation_added_commit));
 
         let installation_removed_commit = build_validated_commit(None, None, None, Some(false));
-        assert!(permissions.evaluate_commit(&installation_removed_commit) == false);
+        assert!(!permissions.evaluate_commit(&installation_removed_commit));
     }
 
     #[test]
@@ -308,7 +310,7 @@ mod tests {
         assert!(permissions.evaluate_commit(&commit_with_same_member));
 
         let commit_with_different_member = build_validated_commit(Some(false), None, None, None);
-        assert!(permissions.evaluate_commit(&commit_with_different_member) == false);
+        assert!(!permissions.evaluate_commit(&commit_with_different_member));
     }
 
     #[test]
@@ -321,7 +323,7 @@ mod tests {
         );
 
         let member_added_commit = build_validated_commit(Some(true), None, None, None);
-        assert!(permissions.evaluate_commit(&member_added_commit) == false);
+        assert!(!permissions.evaluate_commit(&member_added_commit));
     }
 
     #[test]
@@ -348,6 +350,6 @@ mod tests {
 
         let member_added_commit = build_validated_commit(Some(true), None, None, None);
 
-        assert!(permissions.evaluate_commit(&member_added_commit) == false);
+        assert!(!permissions.evaluate_commit(&member_added_commit));
     }
 }
