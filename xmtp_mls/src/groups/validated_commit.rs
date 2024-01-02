@@ -79,6 +79,8 @@ impl ValidatedCommit {
 
         let actor = extract_actor(leaf_index.expect("already checked"), openmls_group)?;
 
+        ensure_updated_credentials_are_consistent(staged_commit, &actor)?;
+
         let existing_members = aggregate_member_list(openmls_group)
             .map_err(|e| CommitValidationError::ListMembers(e.to_string()))?;
 
@@ -220,6 +222,13 @@ fn ensure_single_actor(
     // None in that case.
     // TODO: Figure out how to get the leaf index for self updates
     Ok(leaf_index.copied())
+}
+
+fn ensure_updated_credentials_are_consistent(
+    staged_commit: &StagedCommit,
+    actor: &CommitParticipant,
+) -> Result<(), CommitValidationError> {
+    Ok(())
 }
 
 // Get a tuple of (new_members, new_installations), each formatted as a Member object with all installation_ids grouped

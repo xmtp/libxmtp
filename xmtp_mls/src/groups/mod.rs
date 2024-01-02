@@ -692,6 +692,8 @@ where
                 let mls_key_packages: Vec<KeyPackage> =
                     key_packages.iter().map(|kp| kp.inner.clone()).collect();
 
+                // TODO validate key packages
+
                 let (commit, welcome, _group_info) = openmls_group.add_members(
                     provider,
                     &self.client.identity.installation_keys,

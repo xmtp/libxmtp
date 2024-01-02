@@ -346,6 +346,8 @@ where
                         }
                     };
 
+                    // Validate credentials here!
+
                     // TODO: Abort if error is retryable
                     match MlsGroup::create_from_welcome(self, &provider, welcome) {
                         Ok(mls_group) => Ok(Some(mls_group)),
