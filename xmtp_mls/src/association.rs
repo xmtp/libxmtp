@@ -27,6 +27,8 @@ pub enum AssociationError {
         provided_addr: Address,
         signing_addr: Address,
     },
+    #[error("Malformed association")]
+    MalformedAssociation,
 }
 
 enum Association {
@@ -62,7 +64,10 @@ impl Credential {
         expected_account_address: Option<&str>, // Must validate when fetching identity updates
         expected_installation_public_key: Option<&[u8]>, // Must cross-reference against leaf node when relevant
     ) -> Result<Self, AssociationError> {
-        let association = match proto.association.unwrap() {
+        let association = match proto
+            .association
+            .ok_or(AssociationError::MalformedAssociation)?
+        {
             AssociationProto::Eip191(assoc) => Eip191Association::from_proto_validated(
                 assoc,
                 AssociationContext::GrantMessagingAccess,
