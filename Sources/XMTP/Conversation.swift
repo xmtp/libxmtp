@@ -135,6 +135,15 @@ public enum Conversation: Sendable {
 			return try await conversationV2.encode(codec: codec, content: content)
 		}
 	}
+    
+    public func prepareMessage(encodedContent: EncodedContent, options: SendOptions? = nil) async throws -> PreparedMessage {
+        switch self {
+        case let .v1(conversationV1):
+            return try await conversationV1.prepareMessage(encodedContent: encodedContent, options: options)
+        case let .v2(conversationV2):
+            return try await conversationV2.prepareMessage(encodedContent: encodedContent, options: options)
+        }
+    }
 
 	public func prepareMessage<T>(content: T, options: SendOptions? = nil) async throws -> PreparedMessage {
 		switch self {
