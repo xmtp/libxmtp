@@ -1,6 +1,7 @@
 {
   "rust-analyzer.linkedProjects": [
     "bindings_ffi/Cargo.toml",
-    "examples/cli/Cargo.toml"
+    "examples/cli/Cargo.toml",
+    "xmtp_api_grpc_gateway/Cargo.toml"
   ]
 }

@@ -8,6 +8,7 @@ crate-type = ["cdylib", "rlib"]
 
 [dependencies]
 async-trait = "0.1.68"
+futures = "0.3.29"
 getrandom = { version = "0.2", features = ["js"] }
 hex = "0.4"
 js-sys = "0.3"
