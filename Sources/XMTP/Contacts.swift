@@ -59,14 +59,13 @@ public class ConsentList {
             throw ContactError.invalidIdentifier
         }        
         
-        let envelopes = try await client.query(topic: .preferenceList(identifier), pagination: Pagination(direction: .ascending))
+        let envelopes = try await client.apiClient.envelopes(topic: Topic.preferenceList(identifier).description, pagination: Pagination(direction: .ascending))
 
 		let consentList = ConsentList(client: client)
         
         var preferences: [PrivatePreferencesAction] = []
 
-		for envelope in envelopes.envelopes {
-
+		for envelope in envelopes {
 
 			let payload = try XMTPRust.user_preferences_decrypt(
 				RustVec(publicKey),
