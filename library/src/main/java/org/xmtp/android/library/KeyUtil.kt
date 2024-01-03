@@ -14,6 +14,10 @@ object KeyUtil {
             val newPublicKey = ByteArray(64)
             System.arraycopy(publicKey, publicKey.size - 64, newPublicKey, 0, 64)
             byteArrayOf(0x4.toByte()) + newPublicKey
+        } else if (publicKey.size < 64) {
+            val newPublicKey = ByteArray(64)
+            System.arraycopy(publicKey, 0, newPublicKey, 64 - publicKey.size, publicKey.size)
+            byteArrayOf(0x4.toByte()) + newPublicKey
         } else {
             byteArrayOf(0x4.toByte()) + publicKey
         }
