@@ -384,6 +384,7 @@ mod tests {
 
         #[async_trait]
         impl XmtpMlsClient for ApiClient {
+            type Subscription = MockMutableSubscription;
             async fn register_installation(
                 &self,
                 request: RegisterInstallationRequest,

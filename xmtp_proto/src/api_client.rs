@@ -91,7 +91,7 @@ pub trait XmtpApiSubscription {
 
 #[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
 #[cfg_attr(not(target_arch = "wasm32"), async_trait)]
-pub trait MutableApiSubscription {
+pub trait MutableApiSubscription: Stream<Item = Result<Envelope, Error>> {
     async fn update(&mut self, req: SubscribeRequest) -> Result<(), Error>;
     fn close(&self);
 }
@@ -101,7 +101,7 @@ pub trait MutableApiSubscription {
 #[cfg_attr(not(target_arch = "wasm32"), async_trait)]
 pub trait XmtpApiClient {
     type Subscription: XmtpApiSubscription;
-    type MutableSubscription: MutableApiSubscription + Stream<Item = Result<Envelope, Error>>;
+    type MutableSubscription: MutableApiSubscription;
 
     fn set_app_version(&mut self, version: String);
 
@@ -127,6 +127,8 @@ pub trait XmtpApiClient {
 #[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
 #[cfg_attr(not(target_arch = "wasm32"), async_trait)]
 pub trait XmtpMlsClient {
+    type Subscription: MutableApiSubscription;
+
     async fn register_installation(
         &self,
         request: RegisterInstallationRequest,

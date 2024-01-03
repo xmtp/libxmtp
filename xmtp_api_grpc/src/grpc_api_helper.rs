@@ -389,6 +389,8 @@ impl MutableApiSubscription for GrpcMutableSubscription {
 
 #[async_trait]
 impl XmtpMlsClient for Client {
+    type Subscription = GrpcMutableSubscription;
+
     async fn register_installation(
         &self,
         req: RegisterInstallationRequest,
