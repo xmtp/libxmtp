@@ -2,7 +2,7 @@ name: Deploy docs content to GitHub Pages
 
 on:
   push:
-    branches: ["main", "docs", "docs_build_v1"]
+    branches: ["main", "docs", "update_swift_rust"]
   workflow_dispatch:
 
 permissions:
@@ -15,7 +15,20 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  update-package:
+    runs-on: macos-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v2
+
+      - name: Update specific Swift package
+        run: |
+          swift package update
+          swift package reset
+          swift package resolve
   deploy:
+    needs: update-package
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
