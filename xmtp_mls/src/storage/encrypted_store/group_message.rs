@@ -114,6 +114,21 @@ impl DbConnection<'_> {
                 .optional()
         })?)
     }
+
+    pub fn get_group_message_by_timestamp<GroupId: AsRef<[u8]>>(
+        &self,
+        group_id: GroupId,
+        timestamp: i64,
+    ) -> Result<Option<StoredGroupMessage>, StorageError> {
+        use super::schema::group_messages::dsl;
+        Ok(self.raw_query(|conn| {
+            dsl::group_messages
+                .filter(dsl::group_id.eq(group_id.as_ref()))
+                .filter(dsl::sent_at_ns.eq(timestamp))
+                .first(conn)
+                .optional()
+        })?)
+    }
 }
 
 #[cfg(test)]

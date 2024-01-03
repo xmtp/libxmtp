@@ -187,7 +187,9 @@ mod tests {
             })
             .await
             .unwrap();
-
+        
+        // Sleep 100ms to ensure subscription is updated
+        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
         // Publish an envelope to the new topic
         let env_2 = test_envelope(topic_2.to_string());
         client

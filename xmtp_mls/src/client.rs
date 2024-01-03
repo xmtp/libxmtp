@@ -99,6 +99,8 @@ pub enum MessageProcessingError {
     Codec(#[from] crate::codecs::CodecError),
     #[error("encode proto: {0}")]
     EncodeProto(#[from] EncodeError),
+    #[error("epoch increment not allowed")]
+    EpochIncrementNotAllowed,
 }
 
 impl crate::retry::RetryableError for MessageProcessingError {
