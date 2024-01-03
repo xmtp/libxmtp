@@ -340,20 +340,20 @@ impl XmtpApiSubscription for Subscription {
 type EnvelopeStream = Pin<Box<dyn Stream<Item = Result<Envelope, Error>> + Send>>;
 
 pub struct GrpcMutableSubscription {
-    inner: Abortable<EnvelopeStream>,
-    channel: futures::channel::mpsc::UnboundedSender<SubscribeRequest>,
+    envelope_stream: Abortable<EnvelopeStream>,
+    update_channel: futures::channel::mpsc::UnboundedSender<SubscribeRequest>,
     abort_handle: AbortHandle,
 }
 
 impl GrpcMutableSubscription {
     fn new(
-        inner: EnvelopeStream,
-        channel: futures::channel::mpsc::UnboundedSender<SubscribeRequest>,
+        envelope_stream: EnvelopeStream,
+        update_channel: futures::channel::mpsc::UnboundedSender<SubscribeRequest>,
     ) -> Self {
         let (abort_handle, abort_registration) = AbortHandle::new_pair();
         Self {
-            inner: Abortable::new(inner, abort_registration),
-            channel,
+            envelope_stream: Abortable::new(envelope_stream, abort_registration),
+            update_channel,
             abort_handle,
         }
     }
@@ -366,14 +366,14 @@ impl Stream for GrpcMutableSubscription {
         mut self: Pin<&mut Self>,
         cx: &mut std::task::Context<'_>,
     ) -> std::task::Poll<Option<Self::Item>> {
-        self.inner.poll_next_unpin(cx)
+        self.envelope_stream.poll_next_unpin(cx)
     }
 }
 
 #[async_trait]
 impl MutableApiSubscription for GrpcMutableSubscription {
     async fn update(&mut self, req: SubscribeRequest) -> Result<(), Error> {
-        self.channel
+        self.update_channel
             .send(req)
             .await
             .map_err(|_| Error::new(ErrorKind::SubscriptionUpdateError))?;
@@ -383,7 +383,7 @@ impl MutableApiSubscription for GrpcMutableSubscription {
 
     fn close(&self) {
         self.abort_handle.abort();
-        self.channel.close_channel();
+        self.update_channel.close_channel();
     }
 }
 
