@@ -141,12 +141,9 @@ mod tests {
     };
     use openmls_basic_credential::SignatureKeyPair;
     use prost::Message;
-    use xmtp_mls::{
-        association::{AssociationContext, AssociationText, Eip191Association},
-        InboxOwner,
-    };
+    use xmtp_mls::{association::Credential, InboxOwner};
     use xmtp_proto::xmtp::{
-        mls::message_contents::Eip191Association as Eip191AssociationProto,
+        mls::message_contents::MlsCredential as CredentialProto,
         mls_validation::v1::validate_key_packages_request::KeyPackage as KeyPackageProtoWrapper,
     };
 
@@ -158,27 +155,18 @@ mod tests {
         let rng = &mut rand::thread_rng();
         let wallet = LocalWallet::new(rng);
         let signature_key_pair = SignatureKeyPair::new(CIPHERSUITE.signature_algorithm()).unwrap();
-        let pub_key = signature_key_pair.public();
+        let _pub_key = signature_key_pair.public();
         let account_address = wallet.get_address();
-        let association_text = AssociationText::new_static(
-            AssociationContext::GrantMessagingAccess,
-            account_address.clone(),
-            pub_key.to_vec(),
-            "2021-01-01T00:00:00Z".to_string(),
-        );
-        let signature = wallet
-            .sign(&association_text.text())
-            .expect("failed to sign");
 
-        let association =
-            Eip191Association::new(pub_key, association_text, signature).expect("bad signature");
-        let association_proto: Eip191AssociationProto = association.into();
-        let mut buf = Vec::new();
-        association_proto
-            .encode(&mut buf)
-            .expect("failed to serialize");
+        let credential = Credential::create_eip191(&signature_key_pair, &wallet)
+            .expect("failed to create credential");
+        let credential_proto: CredentialProto = credential.into();
 
-        (buf, signature_key_pair, account_address)
+        (
+            credential_proto.encode_to_vec(),
+            signature_key_pair,
+            account_address,
+        )
     }
 
     fn build_key_package_bytes(

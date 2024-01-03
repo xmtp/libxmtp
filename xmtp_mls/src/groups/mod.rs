@@ -372,7 +372,7 @@ where
                     sent_at_ns: envelope_timestamp_ns as i64,
                     kind: GroupMessageKind::Application,
                     sender_installation_id,
-                    sender_account_address: sender_account_address,
+                    sender_account_address,
                 };
                 message.store(provider.conn())?;
             }
