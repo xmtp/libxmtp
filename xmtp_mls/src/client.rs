@@ -1,5 +1,6 @@
-use std::{collections::HashSet, mem::Discriminant};
+use std::{collections::HashSet, mem::Discriminant, pin::Pin};
 
+use futures::{Stream, StreamExt};
 use log::debug;
 use openmls::{
     framing::{MlsMessageIn, MlsMessageInBody},
@@ -363,6 +364,40 @@ where
             .collect();
 
         Ok(groups)
+    }
+
+    async fn process_streamed_welcome(
+        &self,
+        envelope: Envelope,
+    ) -> Result<MlsGroup<ApiClient>, ClientError> {
+        let welcome = extract_welcome(&envelope.message)?;
+        let conn = self.store.conn()?;
+        let provider = self.mls_provider(&conn);
+        Ok(MlsGroup::create_from_welcome(&self, &provider, welcome)
+            .map_err(|e| ClientError::Generic(e.to_string()))?)
+    }
+
+    pub async fn stream_conversations(
+        &'a self,
+    ) -> Result<Pin<Box<dyn Stream<Item = MlsGroup<ApiClient>> + 'a>>, ClientError> {
+        let welcome_topic = get_welcome_topic(&self.installation_public_key());
+        let subscription = self.api_client.subscribe(vec![welcome_topic]).await?;
+        let stream = subscription
+            .map(|envelope_result| async {
+                let envelope = envelope_result?;
+                self.process_streamed_welcome(envelope).await
+            })
+            .filter_map(move |res| async {
+                match res.await {
+                    Ok(group) => Some(group),
+                    Err(err) => {
+                        log::error!("Error processing stream entry: {:?}", err);
+                        None
+                    }
+                }
+            });
+
+        Ok(Box::pin(stream))
     }
 }
 
