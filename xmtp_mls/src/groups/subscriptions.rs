@@ -20,7 +20,7 @@ where
             // Attempt processing immediately, but fail if the message is not an Application Message
             // Returning an error should roll back the DB tx
             self.process_message(&mut openmls_group, &provider, &envelope, false)
-                .map_err(|err| GroupError::ReceiveError(err))
+                .map_err(GroupError::ReceiveError)
         });
 
         if let Some(GroupError::ReceiveError(_)) = process_result.err() {
