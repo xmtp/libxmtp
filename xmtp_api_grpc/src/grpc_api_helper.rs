@@ -208,8 +208,6 @@ impl XmtpApiClient for Client {
             while let Some(result) = receiver.next().await {
                 yield result;
             }
-
-            println!("stream closed")
         };
 
         let mut tonic_request = Request::new(input_stream);
