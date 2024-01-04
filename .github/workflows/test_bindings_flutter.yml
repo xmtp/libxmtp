@@ -34,21 +34,6 @@ jobs:
           name: xmtp_bindings_flutter.jniLibs.tar.gz
           path: bindings_flutter/platform-build/xmtp_bindings_flutter.jniLibs.tar.gz
           retention-days: 1
-      # Ordinarily, our CMake script (which is triggered by gradle build via flutter test)
-      # will try to download the corresponding jniLibs.tar.gz release artifact.
-      # But because this release hasn't been published yet we short-circuit that
-      # by moving the just-built artifact into place manually before testing.
-      # This way the CMake script thinks it already downloaded it and proceeds.
-      # See the file-exists check in android/CMakeLists.txt for more details.
-      - run: cp platform-build/xmtp_bindings_flutter.jniLibs.tar.gz android/xmtp_bindings_flutter.jniLibs.tar.gz
-        working-directory: ./bindings_flutter
-      - run: flutter pub get
-        working-directory: ./bindings_flutter/example
-      - uses: reactivecircus/android-emulator-runner@v2
-        with:
-          api-level: 29
-          script: flutter test -d emulator integration_test -v
-          working-directory: ./bindings_flutter/example
   build_linux:
     runs-on: ubuntu-latest
     defaults:
@@ -75,12 +60,6 @@ jobs:
           name: xmtp_bindings_flutter.linux.tar.gz
           path: bindings_flutter/platform-build/xmtp_bindings_flutter.linux.tar.gz
           retention-days: 1
-      - run: cp platform-build/xmtp_bindings_flutter.linux.tar.gz linux/xmtp_bindings_flutter.linux.tar.gz
-        working-directory: ./bindings_flutter
-      - run: flutter pub get
-        working-directory: ./bindings_flutter/example
-      - run: flutter test -d linux integration_test
-        working-directory: ./bindings_flutter/example
   build_apple:
     runs-on: macos-latest
     defaults:

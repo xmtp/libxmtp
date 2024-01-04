@@ -17,6 +17,22 @@ abstract class XmtpBindingsFlutter {
 
   FlutterRustBridgeTaskConstMeta
       get kGeneratePrivatePreferencesTopicIdentifierConstMeta;
+
+  Future<Uint8List> userPreferencesEncrypt(
+      {required Uint8List publicKey,
+      required Uint8List privateKey,
+      required Uint8List message,
+      dynamic hint});
+
+  FlutterRustBridgeTaskConstMeta get kUserPreferencesEncryptConstMeta;
+
+  Future<Uint8List> userPreferencesDecrypt(
+      {required Uint8List publicKey,
+      required Uint8List privateKey,
+      required Uint8List encryptedMessage,
+      dynamic hint});
+
+  FlutterRustBridgeTaskConstMeta get kUserPreferencesDecryptConstMeta;
 }
 
 @freezed

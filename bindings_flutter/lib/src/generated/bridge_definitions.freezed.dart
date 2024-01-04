@@ -136,7 +136,7 @@ class _$XmtpError_GenericErrorImpl implements XmtpError_GenericError {
   }
 
   @override
-  bool operator ==(dynamic other) {
+  bool operator ==(Object other) {
     return identical(this, other) ||
         (other.runtimeType == runtimeType &&
             other is _$XmtpError_GenericErrorImpl &&

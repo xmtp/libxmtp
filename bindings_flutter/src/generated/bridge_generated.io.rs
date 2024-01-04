@@ -9,6 +9,26 @@ pub extern "C" fn wire_generate_private_preferences_topic_identifier(
     wire_generate_private_preferences_topic_identifier_impl(port_, private_key_bytes)
 }
 
+#[no_mangle]
+pub extern "C" fn wire_user_preferences_encrypt(
+    port_: i64,
+    public_key: *mut wire_uint_8_list,
+    private_key: *mut wire_uint_8_list,
+    message: *mut wire_uint_8_list,
+) {
+    wire_user_preferences_encrypt_impl(port_, public_key, private_key, message)
+}
+
+#[no_mangle]
+pub extern "C" fn wire_user_preferences_decrypt(
+    port_: i64,
+    public_key: *mut wire_uint_8_list,
+    private_key: *mut wire_uint_8_list,
+    encrypted_message: *mut wire_uint_8_list,
+) {
+    wire_user_preferences_decrypt_impl(port_, public_key, private_key, encrypted_message)
+}
+
 // Section: allocate functions
 
 #[no_mangle]

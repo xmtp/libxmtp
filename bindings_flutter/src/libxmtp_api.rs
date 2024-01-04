@@ -17,3 +17,29 @@ pub fn generate_private_preferences_topic_identifier(
     )
     .map_err(|e| XmtpError::GenericError(e))
 }
+
+pub fn user_preferences_encrypt(
+    public_key: Vec<u8>,
+    private_key: Vec<u8>,
+    message: Vec<u8>,
+) -> Result<Vec<u8>, XmtpError> {
+    xmtp_user_preferences::encrypt_message(
+        public_key.as_slice(),
+        private_key.as_slice(),
+        message.as_slice(),
+    )
+    .map_err(|e| XmtpError::GenericError(e))
+}
+
+pub fn user_preferences_decrypt(
+    public_key: Vec<u8>,
+    private_key: Vec<u8>,
+    encrypted_message: Vec<u8>,
+) -> Result<Vec<u8>, XmtpError> {
+    xmtp_user_preferences::decrypt_message(
+        public_key.as_slice(),
+        private_key.as_slice(),
+        encrypted_message.as_slice(),
+    )
+    .map_err(|e| XmtpError::GenericError(e))
+}

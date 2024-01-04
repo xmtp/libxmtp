@@ -40,6 +40,50 @@ fn wire_generate_private_preferences_topic_identifier_impl(
         },
     )
 }
+fn wire_user_preferences_encrypt_impl(
+    port_: MessagePort,
+    public_key: impl Wire2Api<Vec<u8>> + UnwindSafe,
+    private_key: impl Wire2Api<Vec<u8>> + UnwindSafe,
+    message: impl Wire2Api<Vec<u8>> + UnwindSafe,
+) {
+    FLUTTER_RUST_BRIDGE_HANDLER.wrap::<_, _, _, Vec<u8>, _>(
+        WrapInfo {
+            debug_name: "user_preferences_encrypt",
+            port: Some(port_),
+            mode: FfiCallMode::Normal,
+        },
+        move || {
+            let api_public_key = public_key.wire2api();
+            let api_private_key = private_key.wire2api();
+            let api_message = message.wire2api();
+            move |task_callback| {
+                user_preferences_encrypt(api_public_key, api_private_key, api_message)
+            }
+        },
+    )
+}
+fn wire_user_preferences_decrypt_impl(
+    port_: MessagePort,
+    public_key: impl Wire2Api<Vec<u8>> + UnwindSafe,
+    private_key: impl Wire2Api<Vec<u8>> + UnwindSafe,
+    encrypted_message: impl Wire2Api<Vec<u8>> + UnwindSafe,
+) {
+    FLUTTER_RUST_BRIDGE_HANDLER.wrap::<_, _, _, Vec<u8>, _>(
+        WrapInfo {
+            debug_name: "user_preferences_decrypt",
+            port: Some(port_),
+            mode: FfiCallMode::Normal,
+        },
+        move || {
+            let api_public_key = public_key.wire2api();
+            let api_private_key = private_key.wire2api();
+            let api_encrypted_message = encrypted_message.wire2api();
+            move |task_callback| {
+                user_preferences_decrypt(api_public_key, api_private_key, api_encrypted_message)
+            }
+        },
+    )
+}
 // Section: wrapper structs
 
 // Section: static checks

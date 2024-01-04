@@ -1,3 +1,6 @@
+## 0.0.1-development.3
+- expose `user_preferences_encrypt()` and `user_preferences_decrypt()`
+
 ## 0.0.1-development.2
 - introduce setup script for artifacts during install
 

@@ -29,6 +29,16 @@ intptr_t init_frb_dart_api_dl(void *obj);
 void wire_generate_private_preferences_topic_identifier(int64_t port_,
                                                         struct wire_uint_8_list *private_key_bytes);
 
+void wire_user_preferences_encrypt(int64_t port_,
+                                   struct wire_uint_8_list *public_key,
+                                   struct wire_uint_8_list *private_key,
+                                   struct wire_uint_8_list *message);
+
+void wire_user_preferences_decrypt(int64_t port_,
+                                   struct wire_uint_8_list *public_key,
+                                   struct wire_uint_8_list *private_key,
+                                   struct wire_uint_8_list *encrypted_message);
+
 struct wire_uint_8_list *new_uint_8_list_0(int32_t len);
 
 void free_WireSyncReturn(WireSyncReturn ptr);
@@ -36,6 +46,8 @@ void free_WireSyncReturn(WireSyncReturn ptr);
 static int64_t dummy_method_to_enforce_bundling(void) {
     int64_t dummy_var = 0;
     dummy_var ^= ((int64_t) (void*) wire_generate_private_preferences_topic_identifier);
+    dummy_var ^= ((int64_t) (void*) wire_user_preferences_encrypt);
+    dummy_var ^= ((int64_t) (void*) wire_user_preferences_decrypt);
     dummy_var ^= ((int64_t) (void*) new_uint_8_list_0);
     dummy_var ^= ((int64_t) (void*) free_WireSyncReturn);
     dummy_var ^= ((int64_t) (void*) store_dart_post_cobject);

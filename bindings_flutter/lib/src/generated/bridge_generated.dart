@@ -47,6 +47,56 @@ class XmtpBindingsFlutterImpl implements XmtpBindingsFlutter {
             argNames: ["privateKeyBytes"],
           );
 
+  Future<Uint8List> userPreferencesEncrypt(
+      {required Uint8List publicKey,
+      required Uint8List privateKey,
+      required Uint8List message,
+      dynamic hint}) {
+    var arg0 = _platform.api2wire_uint_8_list(publicKey);
+    var arg1 = _platform.api2wire_uint_8_list(privateKey);
+    var arg2 = _platform.api2wire_uint_8_list(message);
+    return _platform.executeNormal(FlutterRustBridgeTask(
+      callFfi: (port_) => _platform.inner
+          .wire_user_preferences_encrypt(port_, arg0, arg1, arg2),
+      parseSuccessData: _wire2api_uint_8_list,
+      parseErrorData: _wire2api_xmtp_error,
+      constMeta: kUserPreferencesEncryptConstMeta,
+      argValues: [publicKey, privateKey, message],
+      hint: hint,
+    ));
+  }
+
+  FlutterRustBridgeTaskConstMeta get kUserPreferencesEncryptConstMeta =>
+      const FlutterRustBridgeTaskConstMeta(
+        debugName: "user_preferences_encrypt",
+        argNames: ["publicKey", "privateKey", "message"],
+      );
+
+  Future<Uint8List> userPreferencesDecrypt(
+      {required Uint8List publicKey,
+      required Uint8List privateKey,
+      required Uint8List encryptedMessage,
+      dynamic hint}) {
+    var arg0 = _platform.api2wire_uint_8_list(publicKey);
+    var arg1 = _platform.api2wire_uint_8_list(privateKey);
+    var arg2 = _platform.api2wire_uint_8_list(encryptedMessage);
+    return _platform.executeNormal(FlutterRustBridgeTask(
+      callFfi: (port_) => _platform.inner
+          .wire_user_preferences_decrypt(port_, arg0, arg1, arg2),
+      parseSuccessData: _wire2api_uint_8_list,
+      parseErrorData: _wire2api_xmtp_error,
+      constMeta: kUserPreferencesDecryptConstMeta,
+      argValues: [publicKey, privateKey, encryptedMessage],
+      hint: hint,
+    ));
+  }
+
+  FlutterRustBridgeTaskConstMeta get kUserPreferencesDecryptConstMeta =>
+      const FlutterRustBridgeTaskConstMeta(
+        debugName: "user_preferences_decrypt",
+        argNames: ["publicKey", "privateKey", "encryptedMessage"],
+      );
+
   void dispose() {
     _platform.dispose();
   }
@@ -216,6 +266,58 @@ class XmtpBindingsFlutterWire implements FlutterRustBridgeWireBase {
   late final _wire_generate_private_preferences_topic_identifier =
       _wire_generate_private_preferences_topic_identifierPtr
           .asFunction<void Function(int, ffi.Pointer<wire_uint_8_list>)>();
+
+  void wire_user_preferences_encrypt(
+    int port_,
+    ffi.Pointer<wire_uint_8_list> public_key,
+    ffi.Pointer<wire_uint_8_list> private_key,
+    ffi.Pointer<wire_uint_8_list> message,
+  ) {
+    return _wire_user_preferences_encrypt(
+      port_,
+      public_key,
+      private_key,
+      message,
+    );
+  }
+
+  late final _wire_user_preferences_encryptPtr = _lookup<
+      ffi.NativeFunction<
+          ffi.Void Function(
+              ffi.Int64,
+              ffi.Pointer<wire_uint_8_list>,
+              ffi.Pointer<wire_uint_8_list>,
+              ffi.Pointer<wire_uint_8_list>)>>('wire_user_preferences_encrypt');
+  late final _wire_user_preferences_encrypt =
+      _wire_user_preferences_encryptPtr.asFunction<
+          void Function(int, ffi.Pointer<wire_uint_8_list>,
+              ffi.Pointer<wire_uint_8_list>, ffi.Pointer<wire_uint_8_list>)>();
+
+  void wire_user_preferences_decrypt(
+    int port_,
+    ffi.Pointer<wire_uint_8_list> public_key,
+    ffi.Pointer<wire_uint_8_list> private_key,
+    ffi.Pointer<wire_uint_8_list> encrypted_message,
+  ) {
+    return _wire_user_preferences_decrypt(
+      port_,
+      public_key,
+      private_key,
+      encrypted_message,
+    );
+  }
+
+  late final _wire_user_preferences_decryptPtr = _lookup<
+      ffi.NativeFunction<
+          ffi.Void Function(
+              ffi.Int64,
+              ffi.Pointer<wire_uint_8_list>,
+              ffi.Pointer<wire_uint_8_list>,
+              ffi.Pointer<wire_uint_8_list>)>>('wire_user_preferences_decrypt');
+  late final _wire_user_preferences_decrypt =
+      _wire_user_preferences_decryptPtr.asFunction<
+          void Function(int, ffi.Pointer<wire_uint_8_list>,
+              ffi.Pointer<wire_uint_8_list>, ffi.Pointer<wire_uint_8_list>)>();
 
   ffi.Pointer<wire_uint_8_list> new_uint_8_list_0(
     int len,
