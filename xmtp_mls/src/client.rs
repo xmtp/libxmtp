@@ -366,7 +366,7 @@ where
         Ok(groups)
     }
 
-    async fn process_streamed_welcome(
+    fn process_streamed_welcome(
         &self,
         envelope: Envelope,
     ) -> Result<MlsGroup<ApiClient>, ClientError> {
@@ -385,9 +385,9 @@ where
         let stream = subscription
             .map(|envelope_result| async {
                 let envelope = envelope_result?;
-                self.process_streamed_welcome(envelope).await
+                self.process_streamed_welcome(envelope)
             })
-            .filter_map(move |res| async {
+            .filter_map(|res| async {
                 match res.await {
                     Ok(group) => Some(group),
                     Err(err) => {
@@ -417,6 +417,7 @@ mod tests {
     use xmtp_cryptography::utils::generate_local_wallet;
 
     use crate::{builder::ClientBuilder, InboxOwner};
+    use futures::StreamExt;
 
     #[tokio::test]
     async fn test_mls_error() {
@@ -476,5 +477,22 @@ mod tests {
 
         let duplicate_received_groups = bob.sync_welcomes().await.unwrap();
         assert_eq!(duplicate_received_groups.len(), 0);
+    }
+
+    #[tokio::test]
+    async fn test_stream_welcomes() {
+        let alice = ClientBuilder::new_test_client(generate_local_wallet().into()).await;
+        let bob = ClientBuilder::new_test_client(generate_local_wallet().into()).await;
+        bob.register_identity().await.unwrap();
+
+        let alice_bob_group = alice.create_group().unwrap();
+
+        let mut bob_stream = bob.stream_conversations().await.unwrap();
+        alice_bob_group
+            .add_members_by_installation_id(vec![bob.installation_public_key()])
+            .await
+            .unwrap();
+        let bob_received_groups = bob_stream.next().await.unwrap();
+        assert_eq!(bob_received_groups.group_id, alice_bob_group.group_id);
     }
 }
