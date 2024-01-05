@@ -528,16 +528,18 @@ mod tests {
             .unwrap();
 
         let message_callback = RustMessageCallback::new();
-        let close_fn = group
+        let stream_closer = group
             .stream(Box::new(message_callback.clone()))
             .await
             .unwrap();
-        group.send("hello".as_bytes().to_vec()).await.unwrap();
-        tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
-        assert_eq!(message_callback.message_count(), 1);
 
-        close_fn.close();
+        group.send("hello".as_bytes().to_vec()).await.unwrap();
+        group.send("goodbye".as_bytes().to_vec()).await.unwrap();
+        tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+        assert_eq!(message_callback.message_count(), 2);
+
+        stream_closer.close();
         // Make sure nothing panics calling `close` twice
-        close_fn.close();
+        stream_closer.close();
     }
 }
