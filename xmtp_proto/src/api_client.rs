@@ -91,7 +91,7 @@ pub trait XmtpApiSubscription {
 
 #[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
 #[cfg_attr(not(target_arch = "wasm32"), async_trait)]
-pub trait MutableApiSubscription: Stream<Item = Result<Envelope, Error>> {
+pub trait MutableApiSubscription: Stream<Item = Result<Envelope, Error>> + Send {
     async fn update(&mut self, req: SubscribeRequest) -> Result<(), Error>;
     fn close(&self);
 }
@@ -99,7 +99,7 @@ pub trait MutableApiSubscription: Stream<Item = Result<Envelope, Error>> {
 // Wasm futures don't have `Send` or `Sync` bounds.
 #[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
 #[cfg_attr(not(target_arch = "wasm32"), async_trait)]
-pub trait XmtpApiClient {
+pub trait XmtpApiClient: Send + Sync {
     type Subscription: XmtpApiSubscription;
     type MutableSubscription: MutableApiSubscription;
 
@@ -126,7 +126,7 @@ pub trait XmtpApiClient {
 // Wasm futures don't have `Send` or `Sync` bounds.
 #[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
 #[cfg_attr(not(target_arch = "wasm32"), async_trait)]
-pub trait XmtpMlsClient {
+pub trait XmtpMlsClient: Send + Sync {
     type Subscription: MutableApiSubscription;
 
     async fn register_installation(
