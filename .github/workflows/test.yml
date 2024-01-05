@@ -12,6 +12,9 @@ jobs:
       - name: Checkout sources
         uses: actions/checkout@v2
 
+      - name: Install toolchain from rust-toolchain.toml
+        uses: actions-rs/toolchain@v1
+
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: |
@@ -33,13 +36,6 @@ jobs:
       - uses: bufbuild/buf-setup-action@v1.17.0
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Install stable toolchain
-        uses: actions-rs/toolchain@v1
-        with:
-          profile: minimal
-          toolchain: stable
-          override: true
 
       - name: Run cargo test on main workspace
         uses: actions-rs/cargo@v1
