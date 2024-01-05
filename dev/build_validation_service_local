@@ -1,5 +1,5 @@
 #!/usr/bin/env sh
-set -euo pipefail
+set -eu
 
 # Check if x86_64-linux-gnu-gcc is installed AND that the user is on a mac
 if [ -x "$(command -v x86_64-linux-gnu-gcc)" ] && [ "$(uname)" = "Darwin" ]; then
