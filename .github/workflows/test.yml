@@ -12,6 +12,12 @@ jobs:
       - name: Checkout sources
         uses: actions/checkout@v2
 
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            . -> root
+            bindings_ffi -> bindings
+
       - name: Start Docker containers
         run: dev/up
 
@@ -34,12 +40,6 @@ jobs:
           profile: minimal
           toolchain: stable
           override: true
-
-      - uses: Swatinem/rust-cache@v2
-        with:
-          workspaces: |
-            . -> root
-            bindings_ffi -> bindings
 
       - name: Run cargo test on main workspace
         uses: actions-rs/cargo@v1
