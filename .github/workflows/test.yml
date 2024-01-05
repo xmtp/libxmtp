@@ -33,10 +33,6 @@ jobs:
           make install-jar
           echo "$(make echo-jar | tail -n 1 | sed -e 's/\.*export //')" >> "$GITHUB_ENV"
 
-      - uses: bufbuild/buf-setup-action@v1.17.0
-        with:
-          github_token: ${{ secrets.GITHUB_TOKEN }}
-
       - name: Run cargo test on main workspace
         uses: actions-rs/cargo@v1
         with:
