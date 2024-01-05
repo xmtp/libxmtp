@@ -534,6 +534,7 @@ mod tests {
             .unwrap();
 
         group.send("hello".as_bytes().to_vec()).await.unwrap();
+        tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
         group.send("goodbye".as_bytes().to_vec()).await.unwrap();
         tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
         assert_eq!(message_callback.message_count(), 2);
