@@ -534,12 +534,12 @@ mod tests {
             .unwrap();
 
         group.send("hello".as_bytes().to_vec()).await.unwrap();
-        group.send("goodbye".as_bytes().to_vec()).await.unwrap();
         tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+        group.send("goodbye".as_bytes().to_vec()).await.unwrap();
         // Because of the event loop, I need to make the test give control
         // back to the stream before it can process each message.
         // I think this will work fine in practice
-        tokio::time::sleep(tokio::time::Duration::from_millis(1)).await;
+        tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
         assert_eq!(message_callback.message_count(), 2);
 
         stream_closer.close();
