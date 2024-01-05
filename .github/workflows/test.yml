@@ -24,6 +24,11 @@ jobs:
       - name: Start Docker containers
         run: dev/up
 
+      - name: Run cargo test on main workspace
+        uses: actions-rs/cargo@v1
+        with:
+          command: test
+
       - name: Setup Kotlin
         run: |
           sudo apt update -q
@@ -32,11 +37,6 @@ jobs:
           cd bindings_ffi
           make install-jar
           echo "$(make echo-jar | tail -n 1 | sed -e 's/\.*export //')" >> "$GITHUB_ENV"
-
-      - name: Run cargo test on main workspace
-        uses: actions-rs/cargo@v1
-        with:
-          command: test
 
       - name: Run cargo test on FFI bindings
         run: |
