@@ -18,8 +18,8 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: |
-            . -> root
-            bindings_ffi -> bindings
+            .
+            bindings_ffi
 
       - name: Start Docker containers
         run: dev/up
