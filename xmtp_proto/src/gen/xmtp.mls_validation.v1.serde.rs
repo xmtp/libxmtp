@@ -704,6 +704,9 @@ impl serde::Serialize for validate_key_packages_response::ValidationResponse {
         if !self.credential_identity_bytes.is_empty() {
             len += 1;
         }
+        if self.expiration != 0 {
+            len += 1;
+        }
         let mut struct_ser = serializer.serialize_struct("xmtp.mls_validation.v1.ValidateKeyPackagesResponse.ValidationResponse", len)?;
         if self.is_ok {
             struct_ser.serialize_field("isOk", &self.is_ok)?;
@@ -719,6 +722,9 @@ impl serde::Serialize for validate_key_packages_response::ValidationResponse {
         }
         if !self.credential_identity_bytes.is_empty() {
             struct_ser.serialize_field("credentialIdentityBytes", pbjson::private::base64::encode(&self.credential_identity_bytes).as_str())?;
+        }
+        if self.expiration != 0 {
+            struct_ser.serialize_field("expiration", ToString::to_string(&self.expiration).as_str())?;
         }
         struct_ser.end()
     }
@@ -740,6 +746,7 @@ impl<'de> serde::Deserialize<'de> for validate_key_packages_response::Validation
             "accountAddress",
             "credential_identity_bytes",
             "credentialIdentityBytes",
+            "expiration",
         ];
 
         #[allow(clippy::enum_variant_names)]
@@ -749,6 +756,7 @@ impl<'de> serde::Deserialize<'de> for validate_key_packages_response::Validation
             InstallationId,
             AccountAddress,
             CredentialIdentityBytes,
+            Expiration,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
             fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
@@ -775,6 +783,7 @@ impl<'de> serde::Deserialize<'de> for validate_key_packages_response::Validation
                             "installationId" | "installation_id" => Ok(GeneratedField::InstallationId),
                             "accountAddress" | "account_address" => Ok(GeneratedField::AccountAddress),
                             "credentialIdentityBytes" | "credential_identity_bytes" => Ok(GeneratedField::CredentialIdentityBytes),
+                            "expiration" => Ok(GeneratedField::Expiration),
                             _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
                         }
                     }
@@ -799,6 +808,7 @@ impl<'de> serde::Deserialize<'de> for validate_key_packages_response::Validation
                 let mut installation_id__ = None;
                 let mut account_address__ = None;
                 let mut credential_identity_bytes__ = None;
+                let mut expiration__ = None;
                 while let Some(k) = map.next_key()? {
                     match k {
                         GeneratedField::IsOk => {
@@ -835,6 +845,14 @@ impl<'de> serde::Deserialize<'de> for validate_key_packages_response::Validation
                                 Some(map.next_value::<::pbjson::private::BytesDeserialize<_>>()?.0)
                             ;
                         }
+                        GeneratedField::Expiration => {
+                            if expiration__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("expiration"));
+                            }
+                            expiration__ = 
+                                Some(map.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
+                            ;
+                        }
                     }
                 }
                 Ok(validate_key_packages_response::ValidationResponse {
@@ -843,6 +861,7 @@ impl<'de> serde::Deserialize<'de> for validate_key_packages_response::Validation
                     installation_id: installation_id__.unwrap_or_default(),
                     account_address: account_address__.unwrap_or_default(),
                     credential_identity_bytes: credential_identity_bytes__.unwrap_or_default(),
+                    expiration: expiration__.unwrap_or_default(),
                 })
             }
         }

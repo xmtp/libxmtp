@@ -121,7 +121,7 @@ For the first version of MLS in XMTP, all members commit their own proposals imm
 Simplified high level flow for adding members to a group:
 
 1. Create a `group_intent` for adding the members
-1. Consume Key Packages for all new members
+1. Fetch Key Packages for all new members
 1. Convert the intent into concrete commit and welcome messages for the current epoch
    1. Write the welcome messages to the `post_commit_data` field for later
 1. Publish commit message

@@ -5,7 +5,9 @@ if ! cargo install --list | grep "protoc-gen-prost-crate" > /dev/null; then
         exit 1
     fi
 fi
-if ! buf generate https://github.com/xmtp/proto.git#branch=main,subdir=proto; then
+
+# Please always specify the exact commit to use for generation!
+if ! buf generate https://github.com/Bren2010/proto.git#branch=brendan/last-resort,ref=f50c3c99cd1,subdir=proto; then
     echo "Failed to generate protobuf definitions"
     exit 1
 fi

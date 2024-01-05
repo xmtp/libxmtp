@@ -158,9 +158,9 @@ pub mod mls_api_client {
                 );
             self.inner.unary(req, path, codec).await
         }
-        pub async fn upload_key_packages(
+        pub async fn upload_key_package(
             &mut self,
-            request: impl tonic::IntoRequest<super::UploadKeyPackagesRequest>,
+            request: impl tonic::IntoRequest<super::UploadKeyPackageRequest>,
         ) -> std::result::Result<tonic::Response<::pbjson_types::Empty>, tonic::Status> {
             self.inner
                 .ready()
@@ -173,20 +173,20 @@ pub mod mls_api_client {
                 })?;
             let codec = tonic::codec::ProstCodec::default();
             let path = http::uri::PathAndQuery::from_static(
-                "/xmtp.message_api.v3.MlsApi/UploadKeyPackages",
+                "/xmtp.message_api.v3.MlsApi/UploadKeyPackage",
             );
             let mut req = request.into_request();
             req.extensions_mut()
                 .insert(
-                    GrpcMethod::new("xmtp.message_api.v3.MlsApi", "UploadKeyPackages"),
+                    GrpcMethod::new("xmtp.message_api.v3.MlsApi", "UploadKeyPackage"),
                 );
             self.inner.unary(req, path, codec).await
         }
-        pub async fn consume_key_packages(
+        pub async fn fetch_key_packages(
             &mut self,
-            request: impl tonic::IntoRequest<super::ConsumeKeyPackagesRequest>,
+            request: impl tonic::IntoRequest<super::FetchKeyPackagesRequest>,
         ) -> std::result::Result<
-            tonic::Response<super::ConsumeKeyPackagesResponse>,
+            tonic::Response<super::FetchKeyPackagesResponse>,
             tonic::Status,
         > {
             self.inner
@@ -200,12 +200,12 @@ pub mod mls_api_client {
                 })?;
             let codec = tonic::codec::ProstCodec::default();
             let path = http::uri::PathAndQuery::from_static(
-                "/xmtp.message_api.v3.MlsApi/ConsumeKeyPackages",
+                "/xmtp.message_api.v3.MlsApi/FetchKeyPackages",
             );
             let mut req = request.into_request();
             req.extensions_mut()
                 .insert(
-                    GrpcMethod::new("xmtp.message_api.v3.MlsApi", "ConsumeKeyPackages"),
+                    GrpcMethod::new("xmtp.message_api.v3.MlsApi", "FetchKeyPackages"),
                 );
             self.inner.unary(req, path, codec).await
         }
@@ -285,15 +285,15 @@ pub mod mls_api_server {
             tonic::Response<super::RegisterInstallationResponse>,
             tonic::Status,
         >;
-        async fn upload_key_packages(
+        async fn upload_key_package(
             &self,
-            request: tonic::Request<super::UploadKeyPackagesRequest>,
+            request: tonic::Request<super::UploadKeyPackageRequest>,
         ) -> std::result::Result<tonic::Response<::pbjson_types::Empty>, tonic::Status>;
-        async fn consume_key_packages(
+        async fn fetch_key_packages(
             &self,
-            request: tonic::Request<super::ConsumeKeyPackagesRequest>,
+            request: tonic::Request<super::FetchKeyPackagesRequest>,
         ) -> std::result::Result<
-            tonic::Response<super::ConsumeKeyPackagesResponse>,
+            tonic::Response<super::FetchKeyPackagesResponse>,
             tonic::Status,
         >;
         async fn revoke_installation(
@@ -525,13 +525,13 @@ pub mod mls_api_server {
                     };
                     Box::pin(fut)
                 }
-                "/xmtp.message_api.v3.MlsApi/UploadKeyPackages" => {
+                "/xmtp.message_api.v3.MlsApi/UploadKeyPackage" => {
                     #[allow(non_camel_case_types)]
-                    struct UploadKeyPackagesSvc<T: MlsApi>(pub Arc<T>);
+                    struct UploadKeyPackageSvc<T: MlsApi>(pub Arc<T>);
                     impl<
                         T: MlsApi,
-                    > tonic::server::UnaryService<super::UploadKeyPackagesRequest>
-                    for UploadKeyPackagesSvc<T> {
+                    > tonic::server::UnaryService<super::UploadKeyPackageRequest>
+                    for UploadKeyPackageSvc<T> {
                         type Response = ::pbjson_types::Empty;
                         type Future = BoxFuture<
                             tonic::Response<Self::Response>,
@@ -539,11 +539,11 @@ pub mod mls_api_server {
                         >;
                         fn call(
                             &mut self,
-                            request: tonic::Request<super::UploadKeyPackagesRequest>,
+                            request: tonic::Request<super::UploadKeyPackageRequest>,
                         ) -> Self::Future {
                             let inner = Arc::clone(&self.0);
                             let fut = async move {
-                                (*inner).upload_key_packages(request).await
+                                (*inner).upload_key_package(request).await
                             };
                             Box::pin(fut)
                         }
@@ -555,7 +555,7 @@ pub mod mls_api_server {
                     let inner = self.inner.clone();
                     let fut = async move {
                         let inner = inner.0;
-                        let method = UploadKeyPackagesSvc(inner);
+                        let method = UploadKeyPackageSvc(inner);
                         let codec = tonic::codec::ProstCodec::default();
                         let mut grpc = tonic::server::Grpc::new(codec)
                             .apply_compression_config(
@@ -571,25 +571,25 @@ pub mod mls_api_server {
                     };
                     Box::pin(fut)
                 }
-                "/xmtp.message_api.v3.MlsApi/ConsumeKeyPackages" => {
+                "/xmtp.message_api.v3.MlsApi/FetchKeyPackages" => {
                     #[allow(non_camel_case_types)]
-                    struct ConsumeKeyPackagesSvc<T: MlsApi>(pub Arc<T>);
+                    struct FetchKeyPackagesSvc<T: MlsApi>(pub Arc<T>);
                     impl<
                         T: MlsApi,
-                    > tonic::server::UnaryService<super::ConsumeKeyPackagesRequest>
-                    for ConsumeKeyPackagesSvc<T> {
-                        type Response = super::ConsumeKeyPackagesResponse;
+                    > tonic::server::UnaryService<super::FetchKeyPackagesRequest>
+                    for FetchKeyPackagesSvc<T> {
+                        type Response = super::FetchKeyPackagesResponse;
                         type Future = BoxFuture<
                             tonic::Response<Self::Response>,
                             tonic::Status,
                         >;
                         fn call(
                             &mut self,
-                            request: tonic::Request<super::ConsumeKeyPackagesRequest>,
+                            request: tonic::Request<super::FetchKeyPackagesRequest>,
                         ) -> Self::Future {
                             let inner = Arc::clone(&self.0);
                             let fut = async move {
-                                (*inner).consume_key_packages(request).await
+                                (*inner).fetch_key_packages(request).await
                             };
                             Box::pin(fut)
                         }
@@ -601,7 +601,7 @@ pub mod mls_api_server {
                     let inner = self.inner.clone();
                     let fut = async move {
                         let inner = inner.0;
-                        let method = ConsumeKeyPackagesSvc(inner);
+                        let method = FetchKeyPackagesSvc(inner);
                         let codec = tonic::codec::ProstCodec::default();
                         let mut grpc = tonic::server::Grpc::new(codec)
                             .apply_compression_config(
