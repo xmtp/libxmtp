@@ -537,5 +537,7 @@ mod tests {
         assert_eq!(message_callback.message_count(), 1);
 
         close_fn.close();
+        // Make sure nothing panics calling `close` twice
+        close_fn.close();
     }
 }
