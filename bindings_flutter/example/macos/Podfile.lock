@@ -1,0 +1,21 @@
+PODS:
+  - FlutterMacOS (1.0.0)
+  - xmtp_bindings_flutter (0.0.1-development.2)
+
+DEPENDENCIES:
+  - FlutterMacOS (from `Flutter/ephemeral`)
+  - xmtp_bindings_flutter (from `Flutter/ephemeral/.symlinks/plugins/xmtp_bindings_flutter/macos`)
+
+EXTERNAL SOURCES:
+  FlutterMacOS:
+    :path: Flutter/ephemeral
+  xmtp_bindings_flutter:
+    :path: Flutter/ephemeral/.symlinks/plugins/xmtp_bindings_flutter/macos
+
+SPEC CHECKSUMS:
+  FlutterMacOS: 8f6f14fa908a6fb3fba0cd85dbd81ec4b251fb24
+  xmtp_bindings_flutter: b943df981fbfa9d28d422bfb1ae15b5686a53d10
+
+PODFILE CHECKSUM: 236401fc2c932af29a9fcf0e97baeeb2d750d367
+
+COCOAPODS: 1.12.1

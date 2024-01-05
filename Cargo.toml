@@ -17,6 +17,7 @@ members = [
 # 2) moreover, bindings_swift and xmtp_dh need their own size-optimized profile
 exclude = [
   "bindings_ffi",
+  "bindings_flutter",
   "bindings_js",
   "bindings_swift",
   "user_preferences_bindings_wasm",
