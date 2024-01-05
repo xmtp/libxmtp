@@ -10,6 +10,11 @@ jobs:
     steps:
       - uses: actions/checkout@v1
       - run: rustup update
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            .
+            bindings_ffi
       - uses: actions-rs/clippy-check@v1
         name: Lint main workspace
         with:
