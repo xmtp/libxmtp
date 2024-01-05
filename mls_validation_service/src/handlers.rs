@@ -1,19 +1,13 @@
-use openmls::{
-    prelude::{KeyPackageIn, MlsMessageIn, ProtocolMessage, TlsDeserializeTrait},
-    versions::ProtocolVersion,
-};
-use openmls_rust_crypto::OpenMlsRustCrypto;
-use openmls_traits::OpenMlsProvider;
+use openmls::prelude::{MlsMessageIn, ProtocolMessage, TlsDeserializeTrait};
+use openmls_rust_crypto::RustCrypto;
 use tonic::{Request, Response, Status};
-use xmtp_mls::utils::id::serialize_group_id;
+use xmtp_mls::{utils::id::serialize_group_id, verified_key_package::VerifiedKeyPackage};
 use xmtp_proto::xmtp::mls_validation::v1::{
     validate_group_messages_response::ValidationResponse as ValidateGroupMessageValidationResponse,
     validate_key_packages_response::ValidationResponse as ValidateKeyPackageValidationResponse,
     validation_api_server::ValidationApi, ValidateGroupMessagesRequest,
     ValidateGroupMessagesResponse, ValidateKeyPackagesRequest, ValidateKeyPackagesResponse,
 };
-
-use crate::validation_helpers::identity_to_account_address;
 
 #[derive(Debug, Default)]
 pub struct ValidationService {}
@@ -105,27 +99,20 @@ struct ValidateKeyPackageResult {
 }
 
 fn validate_key_package(key_package_bytes: Vec<u8>) -> Result<ValidateKeyPackageResult, String> {
-    let deserialize_result = KeyPackageIn::tls_deserialize_bytes(key_package_bytes.as_slice())
-        .map_err(|e| format!("deserialization error: {}", e))?;
-    let rust_crypto = OpenMlsRustCrypto::default();
-    let crypto = rust_crypto.crypto();
-
-    // Validate the key package and check all signatures
-    let kp = deserialize_result
-        .clone()
-        .validate(crypto, ProtocolVersion::Mls10)
-        .map_err(|e| format!("validation failed: {}", e))?;
-
-    // Get the credential so we can
-    let leaf_node = kp.leaf_node();
-    let identity_bytes = leaf_node.credential().identity();
-    let pub_key_bytes = leaf_node.signature_key().as_slice();
-    let account_address = identity_to_account_address(identity_bytes, pub_key_bytes)?;
+    let rust_crypto = RustCrypto::default();
+    let verified_key_package =
+        VerifiedKeyPackage::from_bytes(&rust_crypto, key_package_bytes.as_slice())
+            .map_err(|e| e.to_string())?;
 
     Ok(ValidateKeyPackageResult {
-        installation_id: pub_key_bytes.to_vec(),
-        account_address,
-        credential_identity_bytes: identity_bytes.to_vec(),
+        installation_id: verified_key_package.installation_id(),
+        account_address: verified_key_package.account_address,
+        credential_identity_bytes: verified_key_package
+            .inner
+            .leaf_node()
+            .credential()
+            .identity()
+            .to_vec(),
     })
 }
 
@@ -138,8 +125,10 @@ mod tests {
             CryptoConfig, TlsSerializeTrait,
         },
         prelude_test::KeyPackage,
+        versions::ProtocolVersion,
     };
     use openmls_basic_credential::SignatureKeyPair;
+    use openmls_rust_crypto::OpenMlsRustCrypto;
     use prost::Message;
     use xmtp_mls::{association::Credential, InboxOwner};
     use xmtp_proto::xmtp::{

@@ -1,6 +1,7 @@
 use openmls::{
     group::{QueuedAddProposal, QueuedRemoveProposal},
     prelude::{LeafNodeIndex, MlsGroup as OpenMlsGroup, Sender, StagedCommit},
+    treesync::LeafNode,
 };
 use std::collections::HashMap;
 use thiserror::Error;
@@ -36,6 +37,8 @@ pub enum CommitValidationError {
     MultipleActors,
     #[error("Failed to get member list {0}")]
     ListMembers(String),
+    #[error("invalid application id")]
+    InvalidApplicationId,
 }
 
 // A participant in a commit. Could be the actor or the subject of a proposal
@@ -152,6 +155,10 @@ fn extract_identity_from_add(
     let account_address =
         Identity::get_validated_account_address(leaf_node.credential().identity(), signature_key)
             .map_err(|_| CommitValidationError::InvalidSubjectCredential)?;
+    let application_id = extract_application_id_from_leaf_node(leaf_node)?;
+    if !account_address.eq(&application_id) {
+        return Err(CommitValidationError::InvalidSubjectCredential);
+    }
 
     Ok(CommitParticipant {
         account_address,
@@ -299,6 +306,19 @@ impl From<ValidatedCommit> for GroupMembershipChanges {
                 .collect(),
         }
     }
+}
+
+fn extract_application_id_from_leaf_node(
+    leaf_node: &LeafNode,
+) -> Result<Address, CommitValidationError> {
+    let application_id_bytes = leaf_node
+        .extensions()
+        .application_id()
+        .ok_or_else(|| CommitValidationError::InvalidApplicationId)?
+        .as_slice()
+        .to_vec();
+
+    String::from_utf8(application_id_bytes).map_err(|_| CommitValidationError::InvalidApplicationId)
 }
 
 #[cfg(test)]

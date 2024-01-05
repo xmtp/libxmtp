@@ -1,5 +1,5 @@
 use openmls::{
-    extensions::LastResortExtension,
+    extensions::{errors::InvalidExtensionError, ApplicationIdExtension, LastResortExtension},
     prelude::{
         Capabilities, Credential as OpenMlsCredential, CredentialType, CredentialWithKey,
         CryptoConfig, Extension, ExtensionType, Extensions, KeyPackage, KeyPackageNewError,
@@ -36,6 +36,8 @@ pub enum IdentityError {
     KeyPackageGenerationError(#[from] KeyPackageNewError<StorageError>),
     #[error("deserialization")]
     Deserialization(#[from] prost::DecodeError),
+    #[error("invalid extension")]
+    InvalidExtension(#[from] InvalidExtensionError),
 }
 
 #[derive(Debug)]
@@ -76,11 +78,13 @@ impl Identity {
         provider: &XmtpOpenMlsProvider,
     ) -> Result<KeyPackage, IdentityError> {
         let last_resort = Extension::LastResort(LastResortExtension::default());
-        let extensions = Extensions::single(last_resort);
+        let application_id =
+            Extension::ApplicationId(ApplicationIdExtension::new(self.account_address.as_bytes()));
+        let extensions = Extensions::from_vec(vec![last_resort, application_id])?;
         let capabilities = Capabilities::new(
             None,
             Some(&[CIPHERSUITE]),
-            Some(&[ExtensionType::LastResort]),
+            Some(&[ExtensionType::LastResort, ExtensionType::ApplicationId]),
             None,
             None,
         );
