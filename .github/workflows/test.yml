@@ -12,6 +12,9 @@ jobs:
       - name: Checkout sources
         uses: actions/checkout@v2
 
+      - name: Update rust toolchain from rust-toolchain file
+        run: rustup update
+
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: |
