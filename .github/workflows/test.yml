@@ -35,11 +35,11 @@ jobs:
           toolchain: stable
           override: true
 
-      # - uses: Swatinem/rust-cache@v2
-      #   with:
-      #     workspaces: |
-      #       .
-      #       bindings_ffi
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            . -> root
+            bindings_ffi -> bindings
 
       - name: Run cargo test on main workspace
         uses: actions-rs/cargo@v1
