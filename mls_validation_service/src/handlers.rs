@@ -169,7 +169,7 @@ mod tests {
             Extension::ApplicationId(ApplicationIdExtension::new(account_address.as_bytes()));
 
         let kp = KeyPackage::builder()
-            .key_package_extensions(Extensions::single(application_id))
+            .leaf_node_extensions(Extensions::single(application_id))
             .build(
                 CryptoConfig {
                     ciphersuite: CIPHERSUITE,
