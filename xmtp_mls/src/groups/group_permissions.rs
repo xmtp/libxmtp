@@ -1,11 +1,29 @@
 use super::validated_commit::{AggregatedMembershipChange, CommitParticipant, ValidatedCommit};
+use thiserror::Error;
+use xmtp_proto::xmtp::mls::message_contents::{
+    membership_policy::{
+        AndCondition as AndConditionProto, AnyCondition as AnyConditionProto,
+        BasePolicy as BasePolicyProto, Kind as PolicyKindProto, NotCondition as NotConditionProto,
+    },
+    MembershipPolicy as MembershipPolicyProto, PolicySet as PolicySetProto,
+};
 
-pub trait Policy {
+pub trait MembershipPolicy: std::fmt::Debug {
     fn evaluate(&self, actor: &CommitParticipant, change: &AggregatedMembershipChange) -> bool;
+    fn to_proto(&self) -> MembershipPolicyProto;
 }
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Debug, Error)]
+pub enum PolicyError {
+    #[error("deserialization {0}")]
+    Deserialization(#[from] prost::DecodeError),
+    #[error("invalid policy")]
+    InvalidPolicy,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
 #[allow(dead_code)]
+#[repr(u8)]
 pub enum StandardPolicies {
     Allow,
     Deny,
@@ -16,7 +34,7 @@ pub enum StandardPolicies {
     // AllowIfSubjectRevoked, TODO: Enable this once we have revocation and have context on who is revoked
 }
 
-impl Policy for StandardPolicies {
+impl MembershipPolicy for StandardPolicies {
     fn evaluate(&self, actor: &CommitParticipant, change: &AggregatedMembershipChange) -> bool {
         match self {
             StandardPolicies::Allow => true,
@@ -24,133 +42,233 @@ impl Policy for StandardPolicies {
             StandardPolicies::AllowSameMember => change.account_address == actor.account_address,
         }
     }
+
+    fn to_proto(&self) -> MembershipPolicyProto {
+        let inner = match self {
+            StandardPolicies::Allow => BasePolicyProto::Allow as i32,
+            StandardPolicies::Deny => BasePolicyProto::Deny as i32,
+            StandardPolicies::AllowSameMember => BasePolicyProto::AllowSameMember as i32,
+        };
+
+        MembershipPolicyProto {
+            kind: Some(PolicyKindProto::Base(inner)),
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
+#[allow(dead_code)]
+pub enum MembershipPolicies {
+    Standard(StandardPolicies),
+    AndCondition(AndCondition),
+    AnyCondition(AnyCondition),
+    NotCondition(Box<NotCondition>),
+}
+
+impl MembershipPolicies {
+    pub fn allow() -> Self {
+        MembershipPolicies::Standard(StandardPolicies::Allow)
+    }
+
+    pub fn deny() -> Self {
+        MembershipPolicies::Standard(StandardPolicies::Deny)
+    }
+
+    pub fn allow_same_member() -> Self {
+        MembershipPolicies::Standard(StandardPolicies::AllowSameMember)
+    }
+
+    pub fn and(policies: Vec<MembershipPolicies>) -> Self {
+        MembershipPolicies::AndCondition(AndCondition::new(policies))
+    }
+
+    pub fn any(policies: Vec<MembershipPolicies>) -> Self {
+        MembershipPolicies::AnyCondition(AnyCondition::new(policies))
+    }
+
+    pub fn not(policy: MembershipPolicies) -> Self {
+        MembershipPolicies::NotCondition(Box::new(NotCondition::new(policy)))
+    }
+}
+
+impl TryFrom<MembershipPolicyProto> for MembershipPolicies {
+    type Error = PolicyError;
+
+    fn try_from(proto: MembershipPolicyProto) -> Result<Self, Self::Error> {
+        match proto.kind {
+            Some(PolicyKindProto::Base(inner)) => match inner {
+                1 => Ok(MembershipPolicies::allow()),
+                2 => Ok(MembershipPolicies::deny()),
+                3 => Ok(MembershipPolicies::allow_same_member()),
+                _ => return Err(PolicyError::InvalidPolicy),
+            },
+            Some(PolicyKindProto::AndCondition(inner)) => {
+                if inner.policies.is_empty() {
+                    return Err(PolicyError::InvalidPolicy);
+                }
+                let policies = inner
+                    .policies
+                    .into_iter()
+                    .map(|policy| policy.try_into())
+                    .collect::<Result<Vec<MembershipPolicies>, _>>()?;
+
+                Ok(MembershipPolicies::and(policies))
+            }
+            Some(PolicyKindProto::AnyCondition(inner)) => {
+                if inner.policies.is_empty() {
+                    return Err(PolicyError::InvalidPolicy);
+                }
+
+                let policies = inner
+                    .policies
+                    .into_iter()
+                    .map(|policy| policy.try_into())
+                    .collect::<Result<Vec<MembershipPolicies>, _>>()?;
+
+                Ok(MembershipPolicies::any(policies))
+            }
+            Some(PolicyKindProto::NotCondition(inner)) => {
+                if inner.policy.is_none() {
+                    return Err(PolicyError::InvalidPolicy);
+                }
+
+                let policy: MembershipPolicies =
+                    MembershipPolicies::try_from(*inner.policy.expect("already checked"))?;
+                Ok(MembershipPolicies::not(policy))
+            }
+            None => Err(PolicyError::InvalidPolicy),
+        }
+    }
+}
+
+impl MembershipPolicy for MembershipPolicies {
+    fn evaluate(&self, actor: &CommitParticipant, change: &AggregatedMembershipChange) -> bool {
+        match self {
+            MembershipPolicies::Standard(policy) => policy.evaluate(actor, change),
+            MembershipPolicies::AndCondition(policy) => policy.evaluate(actor, change),
+            MembershipPolicies::AnyCondition(policy) => policy.evaluate(actor, change),
+            MembershipPolicies::NotCondition(policy) => policy.evaluate(actor, change),
+        }
+    }
+
+    fn to_proto(&self) -> MembershipPolicyProto {
+        match self {
+            MembershipPolicies::Standard(policy) => policy.to_proto(),
+            MembershipPolicies::AndCondition(policy) => policy.to_proto(),
+            MembershipPolicies::AnyCondition(policy) => policy.to_proto(),
+            MembershipPolicies::NotCondition(policy) => policy.to_proto(),
+        }
+    }
 }
 
 // An AndCondition evaluates to true if all the policies it contains evaluate to true
-#[derive(Clone, Debug)]
-pub struct AndCondition<PolicyType>
-where
-    PolicyType: Policy,
-{
-    policies: Vec<PolicyType>,
+#[derive(Clone, Debug, PartialEq)]
+pub struct AndCondition {
+    policies: Vec<MembershipPolicies>,
 }
 
-#[allow(dead_code)]
-impl<PolicyType> AndCondition<PolicyType>
-where
-    PolicyType: Policy,
-{
-    pub fn new(policies: Vec<PolicyType>) -> Self {
+impl AndCondition {
+    pub(super) fn new(policies: Vec<MembershipPolicies>) -> Self {
         Self { policies }
     }
 }
 
-impl<PolicyType> Policy for AndCondition<PolicyType>
-where
-    PolicyType: Policy,
-{
+impl MembershipPolicy for AndCondition {
     fn evaluate(&self, actor: &CommitParticipant, change: &AggregatedMembershipChange) -> bool {
         self.policies
             .iter()
             .all(|policy| policy.evaluate(actor, change))
     }
+
+    fn to_proto(&self) -> MembershipPolicyProto {
+        MembershipPolicyProto {
+            kind: Some(PolicyKindProto::AndCondition(AndConditionProto {
+                policies: self
+                    .policies
+                    .iter()
+                    .map(|policy| policy.to_proto())
+                    .collect(),
+            })),
+        }
+    }
 }
 
 // An AnyCondition evaluates to true if any of the contained policies evaluate to true
-#[derive(Clone, Debug)]
-pub struct AnyCondition<PolicyType>
-where
-    PolicyType: Policy,
-{
-    policies: Vec<PolicyType>,
+#[derive(Clone, Debug, PartialEq)]
+pub struct AnyCondition {
+    policies: Vec<MembershipPolicies>,
 }
 
 #[allow(dead_code)]
-impl<PolicyType> AnyCondition<PolicyType>
-where
-    PolicyType: Policy,
-{
-    pub fn new(policies: Vec<PolicyType>) -> Self {
+impl AnyCondition {
+    pub(super) fn new(policies: Vec<MembershipPolicies>) -> Self {
         Self { policies }
     }
 }
 
-impl<PolicyType> Policy for AnyCondition<PolicyType>
-where
-    PolicyType: Policy,
-{
+impl MembershipPolicy for AnyCondition {
     fn evaluate(&self, actor: &CommitParticipant, change: &AggregatedMembershipChange) -> bool {
         self.policies
             .iter()
             .any(|policy| policy.evaluate(actor, change))
     }
+
+    fn to_proto(&self) -> MembershipPolicyProto {
+        MembershipPolicyProto {
+            kind: Some(PolicyKindProto::AnyCondition(AnyConditionProto {
+                policies: self
+                    .policies
+                    .iter()
+                    .map(|policy| policy.to_proto())
+                    .collect(),
+            })),
+        }
+    }
 }
 
 // A NotCondition evaluates to true if the contained policy evaluates to false
-#[derive(Clone, Debug)]
-pub struct NotCondition<PolicyType>
-where
-    PolicyType: Policy,
-{
-    policy: PolicyType,
+#[derive(Clone, Debug, PartialEq)]
+pub struct NotCondition {
+    policy: MembershipPolicies,
 }
 
 #[allow(dead_code)]
-impl<PolicyType> NotCondition<PolicyType>
-where
-    PolicyType: Policy,
-{
-    pub fn new(policy: PolicyType) -> Self {
+impl NotCondition {
+    pub(super) fn new(policy: MembershipPolicies) -> Self {
         Self { policy }
     }
 }
 
-impl<PolicyType> Policy for NotCondition<PolicyType>
-where
-    PolicyType: Policy,
-{
+impl MembershipPolicy for NotCondition {
     fn evaluate(&self, actor: &CommitParticipant, change: &AggregatedMembershipChange) -> bool {
         !self.policy.evaluate(actor, change)
     }
+
+    fn to_proto(&self) -> MembershipPolicyProto {
+        MembershipPolicyProto {
+            kind: Some(PolicyKindProto::NotCondition(Box::new(NotConditionProto {
+                policy: Some(Box::new(self.policy.to_proto())),
+            }))),
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
+#[allow(dead_code)]
+pub struct PolicySet {
+    pub add_member_policy: MembershipPolicies,
+    pub remove_member_policy: MembershipPolicies,
+    pub add_installation_policy: MembershipPolicies,
+    pub remove_installation_policy: MembershipPolicies,
 }
 
 #[allow(dead_code)]
-pub struct GroupPermissions<
-    AddMemberPolicy,
-    RemoveMemberPolicy,
-    AddInstallationPolicy,
-    RemoveInstallationPolicy,
-> where
-    AddMemberPolicy: Policy + std::fmt::Debug,
-    RemoveMemberPolicy: Policy + std::fmt::Debug,
-    AddInstallationPolicy: Policy + std::fmt::Debug,
-    RemoveInstallationPolicy: Policy + std::fmt::Debug,
-{
-    pub add_member_policy: AddMemberPolicy,
-    pub remove_member_policy: RemoveMemberPolicy,
-    pub add_installation_policy: AddInstallationPolicy,
-    pub remove_installation_policy: RemoveInstallationPolicy,
-}
-
-#[allow(dead_code)]
-impl<AddMemberPolicy, RemoveMemberPolicy, AddInstallationPolicy, RemoveInstallationPolicy>
-    GroupPermissions<
-        AddMemberPolicy,
-        RemoveMemberPolicy,
-        AddInstallationPolicy,
-        RemoveInstallationPolicy,
-    >
-where
-    AddMemberPolicy: Policy + std::fmt::Debug,
-    RemoveMemberPolicy: Policy + std::fmt::Debug,
-    AddInstallationPolicy: Policy + std::fmt::Debug,
-    RemoveInstallationPolicy: Policy + std::fmt::Debug,
-{
+impl PolicySet {
     pub fn new(
-        add_member_policy: AddMemberPolicy,
-        remove_member_policy: RemoveMemberPolicy,
-        add_installation_policy: AddInstallationPolicy,
-        remove_installation_policy: RemoveInstallationPolicy,
+        add_member_policy: MembershipPolicies,
+        remove_member_policy: MembershipPolicies,
+        add_installation_policy: MembershipPolicies,
+        remove_installation_policy: MembershipPolicies,
     ) -> Self {
         Self {
             add_member_policy,
@@ -188,7 +306,7 @@ where
     ) -> bool
     where
         I: Iterator<Item = &'a AggregatedMembershipChange>,
-        P: Policy + std::fmt::Debug,
+        P: MembershipPolicy + std::fmt::Debug,
     {
         changes.all(|change| {
             let is_ok = policy.evaluate(actor, change);
@@ -202,6 +320,38 @@ where
             }
             is_ok
         })
+    }
+
+    fn to_proto(&self) -> PolicySetProto {
+        PolicySetProto {
+            add_member_policy: Some(self.add_member_policy.to_proto()),
+            remove_member_policy: Some(self.remove_member_policy.to_proto()),
+            add_installation_policy: Some(self.add_installation_policy.to_proto()),
+            remove_installation_policy: Some(self.remove_installation_policy.to_proto()),
+        }
+    }
+
+    fn from_proto(proto: PolicySetProto) -> Result<Self, PolicyError> {
+        Ok(Self::new(
+            MembershipPolicies::try_from(
+                proto.add_member_policy.ok_or(PolicyError::InvalidPolicy)?,
+            )?,
+            MembershipPolicies::try_from(
+                proto
+                    .remove_member_policy
+                    .ok_or(PolicyError::InvalidPolicy)?,
+            )?,
+            MembershipPolicies::try_from(
+                proto
+                    .add_installation_policy
+                    .ok_or(PolicyError::InvalidPolicy)?,
+            )?,
+            MembershipPolicies::try_from(
+                proto
+                    .remove_installation_policy
+                    .ok_or(PolicyError::InvalidPolicy)?,
+            )?,
+        ))
     }
 }
 
@@ -265,23 +415,24 @@ mod tests {
 
     #[test]
     fn test_allow_all() {
-        let permissions = GroupPermissions::new(
-            StandardPolicies::Allow,
-            StandardPolicies::Allow,
-            StandardPolicies::Allow,
-            StandardPolicies::Allow,
+        let permissions = PolicySet::new(
+            MembershipPolicies::allow(),
+            MembershipPolicies::allow(),
+            MembershipPolicies::allow(),
+            MembershipPolicies::allow(),
         );
+
         let commit = build_validated_commit(Some(true), Some(true), Some(true), Some(true));
         assert!(permissions.evaluate_commit(&commit));
     }
 
     #[test]
     fn test_deny() {
-        let permissions = GroupPermissions::new(
-            StandardPolicies::Deny,
-            StandardPolicies::Deny,
-            StandardPolicies::Deny,
-            StandardPolicies::Deny,
+        let permissions = PolicySet::new(
+            MembershipPolicies::deny(),
+            MembershipPolicies::deny(),
+            MembershipPolicies::deny(),
+            MembershipPolicies::deny(),
         );
 
         let member_added_commit = build_validated_commit(Some(false), None, None, None);
@@ -299,11 +450,11 @@ mod tests {
 
     #[test]
     fn test_allow_same_member() {
-        let permissions = GroupPermissions::new(
-            StandardPolicies::AllowSameMember,
-            StandardPolicies::Deny,
-            StandardPolicies::Deny,
-            StandardPolicies::Deny,
+        let permissions = PolicySet::new(
+            MembershipPolicies::allow_same_member(),
+            MembershipPolicies::deny(),
+            MembershipPolicies::deny(),
+            MembershipPolicies::deny(),
         );
 
         let commit_with_same_member = build_validated_commit(Some(true), None, None, None);
@@ -315,11 +466,14 @@ mod tests {
 
     #[test]
     fn test_and_condition() {
-        let permissions = GroupPermissions::new(
-            AndCondition::new(vec![StandardPolicies::Deny, StandardPolicies::Allow]),
-            StandardPolicies::Allow,
-            StandardPolicies::Allow,
-            StandardPolicies::Allow,
+        let permissions = PolicySet::new(
+            MembershipPolicies::and(vec![
+                MembershipPolicies::Standard(StandardPolicies::Deny),
+                MembershipPolicies::Standard(StandardPolicies::Allow),
+            ]),
+            MembershipPolicies::allow(),
+            MembershipPolicies::allow(),
+            MembershipPolicies::allow(),
         );
 
         let member_added_commit = build_validated_commit(Some(true), None, None, None);
@@ -328,11 +482,14 @@ mod tests {
 
     #[test]
     fn test_any_condition() {
-        let permissions = GroupPermissions::new(
-            AnyCondition::new(vec![StandardPolicies::Deny, StandardPolicies::Allow]),
-            StandardPolicies::Allow,
-            StandardPolicies::Allow,
-            StandardPolicies::Allow,
+        let permissions = PolicySet::new(
+            MembershipPolicies::any(vec![
+                MembershipPolicies::deny(),
+                MembershipPolicies::allow(),
+            ]),
+            MembershipPolicies::allow(),
+            MembershipPolicies::allow(),
+            MembershipPolicies::allow(),
         );
 
         let member_added_commit = build_validated_commit(Some(true), None, None, None);
@@ -341,15 +498,37 @@ mod tests {
 
     #[test]
     fn test_not_condition() {
-        let permissions = GroupPermissions::new(
-            NotCondition::new(StandardPolicies::Allow),
-            StandardPolicies::Allow,
-            StandardPolicies::Allow,
-            StandardPolicies::Allow,
+        let permissions = PolicySet::new(
+            MembershipPolicies::not(MembershipPolicies::allow()),
+            MembershipPolicies::allow(),
+            MembershipPolicies::allow(),
+            MembershipPolicies::allow(),
         );
 
         let member_added_commit = build_validated_commit(Some(true), None, None, None);
 
         assert!(!permissions.evaluate_commit(&member_added_commit));
+    }
+
+    #[test]
+    fn test_serialize() {
+        let permissions = PolicySet::new(
+            MembershipPolicies::deny(),
+            MembershipPolicies::and(vec![
+                MembershipPolicies::allow_same_member(),
+                MembershipPolicies::deny(),
+            ]),
+            MembershipPolicies::not(MembershipPolicies::allow()),
+            MembershipPolicies::any(vec![
+                MembershipPolicies::allow(),
+                MembershipPolicies::allow(),
+            ]),
+        );
+
+        let proto = permissions.to_proto();
+        assert!(proto.add_member_policy.is_some());
+
+        let restored = PolicySet::from_proto(proto).expect("proto conversion failed");
+        assert!(permissions.eq(&restored))
     }
 }

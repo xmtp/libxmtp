@@ -295,6 +295,82 @@ impl<'de> serde::Deserialize<'de> for ContentTypeId {
         deserializer.deserialize_struct("xmtp.mls.message_contents.ContentTypeId", FIELDS, GeneratedVisitor)
     }
 }
+impl serde::Serialize for ConversationType {
+    #[allow(deprecated)]
+    fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        let variant = match self {
+            Self::Unspecified => "CONVERSATION_TYPE_UNSPECIFIED",
+            Self::Group => "CONVERSATION_TYPE_GROUP",
+            Self::Dm => "CONVERSATION_TYPE_DM",
+        };
+        serializer.serialize_str(variant)
+    }
+}
+impl<'de> serde::Deserialize<'de> for ConversationType {
+    #[allow(deprecated)]
+    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        const FIELDS: &[&str] = &[
+            "CONVERSATION_TYPE_UNSPECIFIED",
+            "CONVERSATION_TYPE_GROUP",
+            "CONVERSATION_TYPE_DM",
+        ];
+
+        struct GeneratedVisitor;
+
+        impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+            type Value = ConversationType;
+
+            fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                write!(formatter, "expected one of: {:?}", &FIELDS)
+            }
+
+            fn visit_i64<E>(self, v: i64) -> std::result::Result<Self::Value, E>
+            where
+                E: serde::de::Error,
+            {
+                use std::convert::TryFrom;
+                i32::try_from(v)
+                    .ok()
+                    .and_then(ConversationType::from_i32)
+                    .ok_or_else(|| {
+                        serde::de::Error::invalid_value(serde::de::Unexpected::Signed(v), &self)
+                    })
+            }
+
+            fn visit_u64<E>(self, v: u64) -> std::result::Result<Self::Value, E>
+            where
+                E: serde::de::Error,
+            {
+                use std::convert::TryFrom;
+                i32::try_from(v)
+                    .ok()
+                    .and_then(ConversationType::from_i32)
+                    .ok_or_else(|| {
+                        serde::de::Error::invalid_value(serde::de::Unexpected::Unsigned(v), &self)
+                    })
+            }
+
+            fn visit_str<E>(self, value: &str) -> std::result::Result<Self::Value, E>
+            where
+                E: serde::de::Error,
+            {
+                match value {
+                    "CONVERSATION_TYPE_UNSPECIFIED" => Ok(ConversationType::Unspecified),
+                    "CONVERSATION_TYPE_GROUP" => Ok(ConversationType::Group),
+                    "CONVERSATION_TYPE_DM" => Ok(ConversationType::Dm),
+                    _ => Err(serde::de::Error::unknown_variant(value, FIELDS)),
+                }
+            }
+        }
+        deserializer.deserialize_any(GeneratedVisitor)
+    }
+}
 impl serde::Serialize for CredentialRevocation {
     #[allow(deprecated)]
     fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
@@ -1153,6 +1229,135 @@ impl<'de> serde::Deserialize<'de> for group_message::V1 {
         deserializer.deserialize_struct("xmtp.mls.message_contents.GroupMessage.V1", FIELDS, GeneratedVisitor)
     }
 }
+impl serde::Serialize for GroupMetadataV1 {
+    #[allow(deprecated)]
+    fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        use serde::ser::SerializeStruct;
+        let mut len = 0;
+        if self.conversation_type != 0 {
+            len += 1;
+        }
+        if !self.creator_account_address.is_empty() {
+            len += 1;
+        }
+        if self.policies.is_some() {
+            len += 1;
+        }
+        let mut struct_ser = serializer.serialize_struct("xmtp.mls.message_contents.GroupMetadataV1", len)?;
+        if self.conversation_type != 0 {
+            let v = ConversationType::from_i32(self.conversation_type)
+                .ok_or_else(|| serde::ser::Error::custom(format!("Invalid variant {}", self.conversation_type)))?;
+            struct_ser.serialize_field("conversationType", &v)?;
+        }
+        if !self.creator_account_address.is_empty() {
+            struct_ser.serialize_field("creatorAccountAddress", &self.creator_account_address)?;
+        }
+        if let Some(v) = self.policies.as_ref() {
+            struct_ser.serialize_field("policies", v)?;
+        }
+        struct_ser.end()
+    }
+}
+impl<'de> serde::Deserialize<'de> for GroupMetadataV1 {
+    #[allow(deprecated)]
+    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        const FIELDS: &[&str] = &[
+            "conversation_type",
+            "conversationType",
+            "creator_account_address",
+            "creatorAccountAddress",
+            "policies",
+        ];
+
+        #[allow(clippy::enum_variant_names)]
+        enum GeneratedField {
+            ConversationType,
+            CreatorAccountAddress,
+            Policies,
+        }
+        impl<'de> serde::Deserialize<'de> for GeneratedField {
+            fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
+            where
+                D: serde::Deserializer<'de>,
+            {
+                struct GeneratedVisitor;
+
+                impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+                    type Value = GeneratedField;
+
+                    fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                        write!(formatter, "expected one of: {:?}", &FIELDS)
+                    }
+
+                    #[allow(unused_variables)]
+                    fn visit_str<E>(self, value: &str) -> std::result::Result<GeneratedField, E>
+                    where
+                        E: serde::de::Error,
+                    {
+                        match value {
+                            "conversationType" | "conversation_type" => Ok(GeneratedField::ConversationType),
+                            "creatorAccountAddress" | "creator_account_address" => Ok(GeneratedField::CreatorAccountAddress),
+                            "policies" => Ok(GeneratedField::Policies),
+                            _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
+                        }
+                    }
+                }
+                deserializer.deserialize_identifier(GeneratedVisitor)
+            }
+        }
+        struct GeneratedVisitor;
+        impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+            type Value = GroupMetadataV1;
+
+            fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                formatter.write_str("struct xmtp.mls.message_contents.GroupMetadataV1")
+            }
+
+            fn visit_map<V>(self, mut map: V) -> std::result::Result<GroupMetadataV1, V::Error>
+                where
+                    V: serde::de::MapAccess<'de>,
+            {
+                let mut conversation_type__ = None;
+                let mut creator_account_address__ = None;
+                let mut policies__ = None;
+                while let Some(k) = map.next_key()? {
+                    match k {
+                        GeneratedField::ConversationType => {
+                            if conversation_type__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("conversationType"));
+                            }
+                            conversation_type__ = Some(map.next_value::<ConversationType>()? as i32);
+                        }
+                        GeneratedField::CreatorAccountAddress => {
+                            if creator_account_address__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("creatorAccountAddress"));
+                            }
+                            creator_account_address__ = Some(map.next_value()?);
+                        }
+                        GeneratedField::Policies => {
+                            if policies__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("policies"));
+                            }
+                            policies__ = map.next_value()?;
+                        }
+                    }
+                }
+                Ok(GroupMetadataV1 {
+                    conversation_type: conversation_type__.unwrap_or_default(),
+                    creator_account_address: creator_account_address__.unwrap_or_default(),
+                    policies: policies__,
+                })
+            }
+        }
+        deserializer.deserialize_struct("xmtp.mls.message_contents.GroupMetadataV1", FIELDS, GeneratedVisitor)
+    }
+}
 impl serde::Serialize for MembershipChange {
     #[allow(deprecated)]
     fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
@@ -1284,6 +1489,497 @@ impl<'de> serde::Deserialize<'de> for MembershipChange {
         deserializer.deserialize_struct("xmtp.mls.message_contents.MembershipChange", FIELDS, GeneratedVisitor)
     }
 }
+impl serde::Serialize for MembershipPolicy {
+    #[allow(deprecated)]
+    fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        use serde::ser::SerializeStruct;
+        let mut len = 0;
+        if self.kind.is_some() {
+            len += 1;
+        }
+        let mut struct_ser = serializer.serialize_struct("xmtp.mls.message_contents.MembershipPolicy", len)?;
+        if let Some(v) = self.kind.as_ref() {
+            match v {
+                membership_policy::Kind::Base(v) => {
+                    let v = membership_policy::BasePolicy::from_i32(*v)
+                        .ok_or_else(|| serde::ser::Error::custom(format!("Invalid variant {}", *v)))?;
+                    struct_ser.serialize_field("base", &v)?;
+                }
+                membership_policy::Kind::AndCondition(v) => {
+                    struct_ser.serialize_field("andCondition", v)?;
+                }
+                membership_policy::Kind::AnyCondition(v) => {
+                    struct_ser.serialize_field("anyCondition", v)?;
+                }
+                membership_policy::Kind::NotCondition(v) => {
+                    struct_ser.serialize_field("notCondition", v)?;
+                }
+            }
+        }
+        struct_ser.end()
+    }
+}
+impl<'de> serde::Deserialize<'de> for MembershipPolicy {
+    #[allow(deprecated)]
+    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        const FIELDS: &[&str] = &[
+            "base",
+            "and_condition",
+            "andCondition",
+            "any_condition",
+            "anyCondition",
+            "not_condition",
+            "notCondition",
+        ];
+
+        #[allow(clippy::enum_variant_names)]
+        enum GeneratedField {
+            Base,
+            AndCondition,
+            AnyCondition,
+            NotCondition,
+        }
+        impl<'de> serde::Deserialize<'de> for GeneratedField {
+            fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
+            where
+                D: serde::Deserializer<'de>,
+            {
+                struct GeneratedVisitor;
+
+                impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+                    type Value = GeneratedField;
+
+                    fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                        write!(formatter, "expected one of: {:?}", &FIELDS)
+                    }
+
+                    #[allow(unused_variables)]
+                    fn visit_str<E>(self, value: &str) -> std::result::Result<GeneratedField, E>
+                    where
+                        E: serde::de::Error,
+                    {
+                        match value {
+                            "base" => Ok(GeneratedField::Base),
+                            "andCondition" | "and_condition" => Ok(GeneratedField::AndCondition),
+                            "anyCondition" | "any_condition" => Ok(GeneratedField::AnyCondition),
+                            "notCondition" | "not_condition" => Ok(GeneratedField::NotCondition),
+                            _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
+                        }
+                    }
+                }
+                deserializer.deserialize_identifier(GeneratedVisitor)
+            }
+        }
+        struct GeneratedVisitor;
+        impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+            type Value = MembershipPolicy;
+
+            fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                formatter.write_str("struct xmtp.mls.message_contents.MembershipPolicy")
+            }
+
+            fn visit_map<V>(self, mut map: V) -> std::result::Result<MembershipPolicy, V::Error>
+                where
+                    V: serde::de::MapAccess<'de>,
+            {
+                let mut kind__ = None;
+                while let Some(k) = map.next_key()? {
+                    match k {
+                        GeneratedField::Base => {
+                            if kind__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("base"));
+                            }
+                            kind__ = map.next_value::<::std::option::Option<membership_policy::BasePolicy>>()?.map(|x| membership_policy::Kind::Base(x as i32));
+                        }
+                        GeneratedField::AndCondition => {
+                            if kind__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("andCondition"));
+                            }
+                            kind__ = map.next_value::<::std::option::Option<_>>()?.map(membership_policy::Kind::AndCondition)
+;
+                        }
+                        GeneratedField::AnyCondition => {
+                            if kind__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("anyCondition"));
+                            }
+                            kind__ = map.next_value::<::std::option::Option<_>>()?.map(membership_policy::Kind::AnyCondition)
+;
+                        }
+                        GeneratedField::NotCondition => {
+                            if kind__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("notCondition"));
+                            }
+                            kind__ = map.next_value::<::std::option::Option<_>>()?.map(membership_policy::Kind::NotCondition)
+;
+                        }
+                    }
+                }
+                Ok(MembershipPolicy {
+                    kind: kind__,
+                })
+            }
+        }
+        deserializer.deserialize_struct("xmtp.mls.message_contents.MembershipPolicy", FIELDS, GeneratedVisitor)
+    }
+}
+impl serde::Serialize for membership_policy::AndCondition {
+    #[allow(deprecated)]
+    fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        use serde::ser::SerializeStruct;
+        let mut len = 0;
+        if !self.policies.is_empty() {
+            len += 1;
+        }
+        let mut struct_ser = serializer.serialize_struct("xmtp.mls.message_contents.MembershipPolicy.AndCondition", len)?;
+        if !self.policies.is_empty() {
+            struct_ser.serialize_field("policies", &self.policies)?;
+        }
+        struct_ser.end()
+    }
+}
+impl<'de> serde::Deserialize<'de> for membership_policy::AndCondition {
+    #[allow(deprecated)]
+    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        const FIELDS: &[&str] = &[
+            "policies",
+        ];
+
+        #[allow(clippy::enum_variant_names)]
+        enum GeneratedField {
+            Policies,
+        }
+        impl<'de> serde::Deserialize<'de> for GeneratedField {
+            fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
+            where
+                D: serde::Deserializer<'de>,
+            {
+                struct GeneratedVisitor;
+
+                impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+                    type Value = GeneratedField;
+
+                    fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                        write!(formatter, "expected one of: {:?}", &FIELDS)
+                    }
+
+                    #[allow(unused_variables)]
+                    fn visit_str<E>(self, value: &str) -> std::result::Result<GeneratedField, E>
+                    where
+                        E: serde::de::Error,
+                    {
+                        match value {
+                            "policies" => Ok(GeneratedField::Policies),
+                            _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
+                        }
+                    }
+                }
+                deserializer.deserialize_identifier(GeneratedVisitor)
+            }
+        }
+        struct GeneratedVisitor;
+        impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+            type Value = membership_policy::AndCondition;
+
+            fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                formatter.write_str("struct xmtp.mls.message_contents.MembershipPolicy.AndCondition")
+            }
+
+            fn visit_map<V>(self, mut map: V) -> std::result::Result<membership_policy::AndCondition, V::Error>
+                where
+                    V: serde::de::MapAccess<'de>,
+            {
+                let mut policies__ = None;
+                while let Some(k) = map.next_key()? {
+                    match k {
+                        GeneratedField::Policies => {
+                            if policies__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("policies"));
+                            }
+                            policies__ = Some(map.next_value()?);
+                        }
+                    }
+                }
+                Ok(membership_policy::AndCondition {
+                    policies: policies__.unwrap_or_default(),
+                })
+            }
+        }
+        deserializer.deserialize_struct("xmtp.mls.message_contents.MembershipPolicy.AndCondition", FIELDS, GeneratedVisitor)
+    }
+}
+impl serde::Serialize for membership_policy::AnyCondition {
+    #[allow(deprecated)]
+    fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        use serde::ser::SerializeStruct;
+        let mut len = 0;
+        if !self.policies.is_empty() {
+            len += 1;
+        }
+        let mut struct_ser = serializer.serialize_struct("xmtp.mls.message_contents.MembershipPolicy.AnyCondition", len)?;
+        if !self.policies.is_empty() {
+            struct_ser.serialize_field("policies", &self.policies)?;
+        }
+        struct_ser.end()
+    }
+}
+impl<'de> serde::Deserialize<'de> for membership_policy::AnyCondition {
+    #[allow(deprecated)]
+    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        const FIELDS: &[&str] = &[
+            "policies",
+        ];
+
+        #[allow(clippy::enum_variant_names)]
+        enum GeneratedField {
+            Policies,
+        }
+        impl<'de> serde::Deserialize<'de> for GeneratedField {
+            fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
+            where
+                D: serde::Deserializer<'de>,
+            {
+                struct GeneratedVisitor;
+
+                impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+                    type Value = GeneratedField;
+
+                    fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                        write!(formatter, "expected one of: {:?}", &FIELDS)
+                    }
+
+                    #[allow(unused_variables)]
+                    fn visit_str<E>(self, value: &str) -> std::result::Result<GeneratedField, E>
+                    where
+                        E: serde::de::Error,
+                    {
+                        match value {
+                            "policies" => Ok(GeneratedField::Policies),
+                            _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
+                        }
+                    }
+                }
+                deserializer.deserialize_identifier(GeneratedVisitor)
+            }
+        }
+        struct GeneratedVisitor;
+        impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+            type Value = membership_policy::AnyCondition;
+
+            fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                formatter.write_str("struct xmtp.mls.message_contents.MembershipPolicy.AnyCondition")
+            }
+
+            fn visit_map<V>(self, mut map: V) -> std::result::Result<membership_policy::AnyCondition, V::Error>
+                where
+                    V: serde::de::MapAccess<'de>,
+            {
+                let mut policies__ = None;
+                while let Some(k) = map.next_key()? {
+                    match k {
+                        GeneratedField::Policies => {
+                            if policies__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("policies"));
+                            }
+                            policies__ = Some(map.next_value()?);
+                        }
+                    }
+                }
+                Ok(membership_policy::AnyCondition {
+                    policies: policies__.unwrap_or_default(),
+                })
+            }
+        }
+        deserializer.deserialize_struct("xmtp.mls.message_contents.MembershipPolicy.AnyCondition", FIELDS, GeneratedVisitor)
+    }
+}
+impl serde::Serialize for membership_policy::BasePolicy {
+    #[allow(deprecated)]
+    fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        let variant = match self {
+            Self::Unspecified => "BASE_POLICY_UNSPECIFIED",
+            Self::Allow => "BASE_POLICY_ALLOW",
+            Self::Deny => "BASE_POLICY_DENY",
+            Self::AllowSameMember => "BASE_POLICY_ALLOW_SAME_MEMBER",
+        };
+        serializer.serialize_str(variant)
+    }
+}
+impl<'de> serde::Deserialize<'de> for membership_policy::BasePolicy {
+    #[allow(deprecated)]
+    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        const FIELDS: &[&str] = &[
+            "BASE_POLICY_UNSPECIFIED",
+            "BASE_POLICY_ALLOW",
+            "BASE_POLICY_DENY",
+            "BASE_POLICY_ALLOW_SAME_MEMBER",
+        ];
+
+        struct GeneratedVisitor;
+
+        impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+            type Value = membership_policy::BasePolicy;
+
+            fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                write!(formatter, "expected one of: {:?}", &FIELDS)
+            }
+
+            fn visit_i64<E>(self, v: i64) -> std::result::Result<Self::Value, E>
+            where
+                E: serde::de::Error,
+            {
+                use std::convert::TryFrom;
+                i32::try_from(v)
+                    .ok()
+                    .and_then(membership_policy::BasePolicy::from_i32)
+                    .ok_or_else(|| {
+                        serde::de::Error::invalid_value(serde::de::Unexpected::Signed(v), &self)
+                    })
+            }
+
+            fn visit_u64<E>(self, v: u64) -> std::result::Result<Self::Value, E>
+            where
+                E: serde::de::Error,
+            {
+                use std::convert::TryFrom;
+                i32::try_from(v)
+                    .ok()
+                    .and_then(membership_policy::BasePolicy::from_i32)
+                    .ok_or_else(|| {
+                        serde::de::Error::invalid_value(serde::de::Unexpected::Unsigned(v), &self)
+                    })
+            }
+
+            fn visit_str<E>(self, value: &str) -> std::result::Result<Self::Value, E>
+            where
+                E: serde::de::Error,
+            {
+                match value {
+                    "BASE_POLICY_UNSPECIFIED" => Ok(membership_policy::BasePolicy::Unspecified),
+                    "BASE_POLICY_ALLOW" => Ok(membership_policy::BasePolicy::Allow),
+                    "BASE_POLICY_DENY" => Ok(membership_policy::BasePolicy::Deny),
+                    "BASE_POLICY_ALLOW_SAME_MEMBER" => Ok(membership_policy::BasePolicy::AllowSameMember),
+                    _ => Err(serde::de::Error::unknown_variant(value, FIELDS)),
+                }
+            }
+        }
+        deserializer.deserialize_any(GeneratedVisitor)
+    }
+}
+impl serde::Serialize for membership_policy::NotCondition {
+    #[allow(deprecated)]
+    fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        use serde::ser::SerializeStruct;
+        let mut len = 0;
+        if self.policy.is_some() {
+            len += 1;
+        }
+        let mut struct_ser = serializer.serialize_struct("xmtp.mls.message_contents.MembershipPolicy.NotCondition", len)?;
+        if let Some(v) = self.policy.as_ref() {
+            struct_ser.serialize_field("policy", v)?;
+        }
+        struct_ser.end()
+    }
+}
+impl<'de> serde::Deserialize<'de> for membership_policy::NotCondition {
+    #[allow(deprecated)]
+    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        const FIELDS: &[&str] = &[
+            "policy",
+        ];
+
+        #[allow(clippy::enum_variant_names)]
+        enum GeneratedField {
+            Policy,
+        }
+        impl<'de> serde::Deserialize<'de> for GeneratedField {
+            fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
+            where
+                D: serde::Deserializer<'de>,
+            {
+                struct GeneratedVisitor;
+
+                impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+                    type Value = GeneratedField;
+
+                    fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                        write!(formatter, "expected one of: {:?}", &FIELDS)
+                    }
+
+                    #[allow(unused_variables)]
+                    fn visit_str<E>(self, value: &str) -> std::result::Result<GeneratedField, E>
+                    where
+                        E: serde::de::Error,
+                    {
+                        match value {
+                            "policy" => Ok(GeneratedField::Policy),
+                            _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
+                        }
+                    }
+                }
+                deserializer.deserialize_identifier(GeneratedVisitor)
+            }
+        }
+        struct GeneratedVisitor;
+        impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+            type Value = membership_policy::NotCondition;
+
+            fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                formatter.write_str("struct xmtp.mls.message_contents.MembershipPolicy.NotCondition")
+            }
+
+            fn visit_map<V>(self, mut map: V) -> std::result::Result<membership_policy::NotCondition, V::Error>
+                where
+                    V: serde::de::MapAccess<'de>,
+            {
+                let mut policy__ = None;
+                while let Some(k) = map.next_key()? {
+                    match k {
+                        GeneratedField::Policy => {
+                            if policy__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("policy"));
+                            }
+                            policy__ = map.next_value()?;
+                        }
+                    }
+                }
+                Ok(membership_policy::NotCondition {
+                    policy: policy__,
+                })
+            }
+        }
+        deserializer.deserialize_struct("xmtp.mls.message_contents.MembershipPolicy.NotCondition", FIELDS, GeneratedVisitor)
+    }
+}
 impl serde::Serialize for MlsCredential {
     #[allow(deprecated)]
     fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
@@ -1399,6 +2095,152 @@ impl<'de> serde::Deserialize<'de> for MlsCredential {
             }
         }
         deserializer.deserialize_struct("xmtp.mls.message_contents.MlsCredential", FIELDS, GeneratedVisitor)
+    }
+}
+impl serde::Serialize for PolicySet {
+    #[allow(deprecated)]
+    fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        use serde::ser::SerializeStruct;
+        let mut len = 0;
+        if self.add_member_policy.is_some() {
+            len += 1;
+        }
+        if self.remove_member_policy.is_some() {
+            len += 1;
+        }
+        if self.add_installation_policy.is_some() {
+            len += 1;
+        }
+        if self.remove_installation_policy.is_some() {
+            len += 1;
+        }
+        let mut struct_ser = serializer.serialize_struct("xmtp.mls.message_contents.PolicySet", len)?;
+        if let Some(v) = self.add_member_policy.as_ref() {
+            struct_ser.serialize_field("addMemberPolicy", v)?;
+        }
+        if let Some(v) = self.remove_member_policy.as_ref() {
+            struct_ser.serialize_field("removeMemberPolicy", v)?;
+        }
+        if let Some(v) = self.add_installation_policy.as_ref() {
+            struct_ser.serialize_field("addInstallationPolicy", v)?;
+        }
+        if let Some(v) = self.remove_installation_policy.as_ref() {
+            struct_ser.serialize_field("removeInstallationPolicy", v)?;
+        }
+        struct_ser.end()
+    }
+}
+impl<'de> serde::Deserialize<'de> for PolicySet {
+    #[allow(deprecated)]
+    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        const FIELDS: &[&str] = &[
+            "add_member_policy",
+            "addMemberPolicy",
+            "remove_member_policy",
+            "removeMemberPolicy",
+            "add_installation_policy",
+            "addInstallationPolicy",
+            "remove_installation_policy",
+            "removeInstallationPolicy",
+        ];
+
+        #[allow(clippy::enum_variant_names)]
+        enum GeneratedField {
+            AddMemberPolicy,
+            RemoveMemberPolicy,
+            AddInstallationPolicy,
+            RemoveInstallationPolicy,
+        }
+        impl<'de> serde::Deserialize<'de> for GeneratedField {
+            fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
+            where
+                D: serde::Deserializer<'de>,
+            {
+                struct GeneratedVisitor;
+
+                impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+                    type Value = GeneratedField;
+
+                    fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                        write!(formatter, "expected one of: {:?}", &FIELDS)
+                    }
+
+                    #[allow(unused_variables)]
+                    fn visit_str<E>(self, value: &str) -> std::result::Result<GeneratedField, E>
+                    where
+                        E: serde::de::Error,
+                    {
+                        match value {
+                            "addMemberPolicy" | "add_member_policy" => Ok(GeneratedField::AddMemberPolicy),
+                            "removeMemberPolicy" | "remove_member_policy" => Ok(GeneratedField::RemoveMemberPolicy),
+                            "addInstallationPolicy" | "add_installation_policy" => Ok(GeneratedField::AddInstallationPolicy),
+                            "removeInstallationPolicy" | "remove_installation_policy" => Ok(GeneratedField::RemoveInstallationPolicy),
+                            _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
+                        }
+                    }
+                }
+                deserializer.deserialize_identifier(GeneratedVisitor)
+            }
+        }
+        struct GeneratedVisitor;
+        impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+            type Value = PolicySet;
+
+            fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                formatter.write_str("struct xmtp.mls.message_contents.PolicySet")
+            }
+
+            fn visit_map<V>(self, mut map: V) -> std::result::Result<PolicySet, V::Error>
+                where
+                    V: serde::de::MapAccess<'de>,
+            {
+                let mut add_member_policy__ = None;
+                let mut remove_member_policy__ = None;
+                let mut add_installation_policy__ = None;
+                let mut remove_installation_policy__ = None;
+                while let Some(k) = map.next_key()? {
+                    match k {
+                        GeneratedField::AddMemberPolicy => {
+                            if add_member_policy__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("addMemberPolicy"));
+                            }
+                            add_member_policy__ = map.next_value()?;
+                        }
+                        GeneratedField::RemoveMemberPolicy => {
+                            if remove_member_policy__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("removeMemberPolicy"));
+                            }
+                            remove_member_policy__ = map.next_value()?;
+                        }
+                        GeneratedField::AddInstallationPolicy => {
+                            if add_installation_policy__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("addInstallationPolicy"));
+                            }
+                            add_installation_policy__ = map.next_value()?;
+                        }
+                        GeneratedField::RemoveInstallationPolicy => {
+                            if remove_installation_policy__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("removeInstallationPolicy"));
+                            }
+                            remove_installation_policy__ = map.next_value()?;
+                        }
+                    }
+                }
+                Ok(PolicySet {
+                    add_member_policy: add_member_policy__,
+                    remove_member_policy: remove_member_policy__,
+                    add_installation_policy: add_installation_policy__,
+                    remove_installation_policy: remove_installation_policy__,
+                })
+            }
+        }
+        deserializer.deserialize_struct("xmtp.mls.message_contents.PolicySet", FIELDS, GeneratedVisitor)
     }
 }
 impl serde::Serialize for RecoverableEcdsaSignature {
