@@ -1,4 +1,5 @@
 use super::validated_commit::{AggregatedMembershipChange, CommitParticipant, ValidatedCommit};
+use prost::Message;
 use thiserror::Error;
 use xmtp_proto::xmtp::mls::message_contents::{
     membership_policy::{
@@ -16,6 +17,8 @@ pub trait MembershipPolicy: std::fmt::Debug {
 
 #[derive(Debug, Error)]
 pub enum PolicyError {
+    #[error("serialization {0}")]
+    Serialization(#[from] prost::EncodeError),
     #[error("deserialization {0}")]
     Deserialization(#[from] prost::DecodeError),
     #[error("invalid policy")]
@@ -354,6 +357,18 @@ impl PolicySet {
             )?,
         ))
     }
+
+    pub fn to_bytes(&self) -> Result<Vec<u8>, PolicyError> {
+        let proto = self.to_proto();
+        let mut buf = Vec::new();
+        proto.encode(&mut buf)?;
+        Ok(buf)
+    }
+
+    pub fn from_bytes(bytes: &[u8]) -> Result<Self, PolicyError> {
+        let proto = PolicySetProto::decode(bytes)?;
+        Self::from_proto(proto)
+    }
 }
 
 #[cfg(test)]
@@ -528,6 +543,9 @@ mod tests {
 
         let proto = permissions.to_proto();
         assert!(proto.add_member_policy.is_some());
+        assert!(proto.remove_member_policy.is_some());
+        assert!(proto.add_installation_policy.is_some());
+        assert!(proto.remove_installation_policy.is_some());
 
         let restored = PolicySet::from_proto(proto).expect("proto conversion failed");
         assert!(permissions.eq(&restored))
