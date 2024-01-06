@@ -1,7 +1,6 @@
 use openmls::{
     group::{QueuedAddProposal, QueuedRemoveProposal},
     prelude::{LeafNodeIndex, MlsGroup as OpenMlsGroup, Sender, StagedCommit},
-    treesync::LeafNode,
 };
 use std::collections::HashMap;
 use thiserror::Error;
@@ -9,7 +8,10 @@ use xmtp_proto::xmtp::mls::message_contents::{
     GroupMembershipChanges, MembershipChange as MembershipChangeProto,
 };
 
-use crate::identity::Identity;
+use crate::{
+    identity::Identity,
+    verified_key_package::{KeyPackageVerificationError, VerifiedKeyPackage},
+};
 
 use crate::types::Address;
 
@@ -150,19 +152,18 @@ fn extract_actor(
 fn extract_identity_from_add(
     proposal: QueuedAddProposal,
 ) -> Result<CommitParticipant, CommitValidationError> {
-    let leaf_node = proposal.add_proposal().key_package().leaf_node();
-    let signature_key = leaf_node.signature_key().as_slice();
-    let account_address =
-        Identity::get_validated_account_address(leaf_node.credential().identity(), signature_key)
-            .map_err(|_| CommitValidationError::InvalidSubjectCredential)?;
-    let application_id = extract_application_id_from_leaf_node(leaf_node)?;
-    if !account_address.eq(&application_id) {
-        return Err(CommitValidationError::InvalidSubjectCredential);
-    }
+    let key_package = proposal.add_proposal().key_package().to_owned();
+    let verified_key_package =
+        VerifiedKeyPackage::from_key_package(key_package).map_err(|e| match e {
+            KeyPackageVerificationError::InvalidApplicationId => {
+                CommitValidationError::InvalidApplicationId
+            }
+            _ => CommitValidationError::InvalidSubjectCredential,
+        })?;
 
     Ok(CommitParticipant {
-        account_address,
-        installation_id: signature_key.to_vec(),
+        account_address: verified_key_package.account_address.clone(),
+        installation_id: verified_key_package.installation_id(),
     })
 }
 
@@ -306,19 +307,6 @@ impl From<ValidatedCommit> for GroupMembershipChanges {
                 .collect(),
         }
     }
-}
-
-fn extract_application_id_from_leaf_node(
-    leaf_node: &LeafNode,
-) -> Result<Address, CommitValidationError> {
-    let application_id_bytes = leaf_node
-        .extensions()
-        .application_id()
-        .ok_or_else(|| CommitValidationError::InvalidApplicationId)?
-        .as_slice()
-        .to_vec();
-
-    String::from_utf8(application_id_bytes).map_err(|_| CommitValidationError::InvalidApplicationId)
 }
 
 #[cfg(test)]
