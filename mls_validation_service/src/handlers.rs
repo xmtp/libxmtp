@@ -120,6 +120,7 @@ fn validate_key_package(key_package_bytes: Vec<u8>) -> Result<ValidateKeyPackage
 mod tests {
     use ethers::signers::LocalWallet;
     use openmls::{
+        extensions::{ApplicationIdExtension, Extension, Extensions},
         prelude::{
             Ciphersuite, Credential as OpenMlsCredential, CredentialType, CredentialWithKey,
             CryptoConfig, TlsSerializeTrait,
@@ -161,9 +162,14 @@ mod tests {
     fn build_key_package_bytes(
         keypair: &SignatureKeyPair,
         credential_with_key: &CredentialWithKey,
+        account_address: String,
     ) -> Vec<u8> {
         let rust_crypto = OpenMlsRustCrypto::default();
+        let application_id =
+            Extension::ApplicationId(ApplicationIdExtension::new(account_address.as_bytes()));
+
         let kp = KeyPackage::builder()
+            .key_package_extensions(Extensions::single(application_id))
             .build(
                 CryptoConfig {
                     ciphersuite: CIPHERSUITE,
@@ -187,7 +193,8 @@ mod tests {
             signature_key: keypair.to_public_vec().into(),
         };
 
-        let key_package_bytes = build_key_package_bytes(&keypair, &credential_with_key);
+        let key_package_bytes =
+            build_key_package_bytes(&keypair, &credential_with_key, account_address.clone());
         let request = ValidateKeyPackagesRequest {
             key_packages: vec![KeyPackageProtoWrapper {
                 key_package_bytes_tls_serialized: key_package_bytes,
@@ -207,7 +214,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_validate_key_packages_fail() {
-        let (identity, keypair, _) = generate_identity();
+        let (identity, keypair, account_address) = generate_identity();
         let (_, other_keypair, _) = generate_identity();
 
         let credential = OpenMlsCredential::new(identity, CredentialType::Basic).unwrap();
@@ -217,7 +224,8 @@ mod tests {
             signature_key: other_keypair.to_public_vec().into(),
         };
 
-        let key_package_bytes = build_key_package_bytes(&keypair, &credential_with_key);
+        let key_package_bytes =
+            build_key_package_bytes(&keypair, &credential_with_key, account_address);
 
         let request = ValidateKeyPackagesRequest {
             key_packages: vec![KeyPackageProtoWrapper {
