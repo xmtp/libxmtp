@@ -8,6 +8,7 @@ use xmtp_proto::xmtp::mls::message_contents::{
     MembershipPolicy as MembershipPolicyProto, PolicySet as PolicySetProto,
 };
 
+// A trait for policies that can add/remove members and installations for the group
 pub trait MembershipPolicy: std::fmt::Debug {
     fn evaluate(&self, actor: &CommitParticipant, change: &AggregatedMembershipChange) -> bool;
     fn to_proto(&self) -> MembershipPolicyProto;
@@ -24,7 +25,7 @@ pub enum PolicyError {
 #[derive(Clone, Copy, Debug, PartialEq)]
 #[allow(dead_code)]
 #[repr(u8)]
-pub enum StandardPolicies {
+pub enum BasePolicies {
     Allow,
     Deny,
     // Allow if the change only applies to subject installations with the same account address as the actor
@@ -34,20 +35,20 @@ pub enum StandardPolicies {
     // AllowIfSubjectRevoked, TODO: Enable this once we have revocation and have context on who is revoked
 }
 
-impl MembershipPolicy for StandardPolicies {
+impl MembershipPolicy for BasePolicies {
     fn evaluate(&self, actor: &CommitParticipant, change: &AggregatedMembershipChange) -> bool {
         match self {
-            StandardPolicies::Allow => true,
-            StandardPolicies::Deny => false,
-            StandardPolicies::AllowSameMember => change.account_address == actor.account_address,
+            BasePolicies::Allow => true,
+            BasePolicies::Deny => false,
+            BasePolicies::AllowSameMember => change.account_address == actor.account_address,
         }
     }
 
     fn to_proto(&self) -> MembershipPolicyProto {
         let inner = match self {
-            StandardPolicies::Allow => BasePolicyProto::Allow as i32,
-            StandardPolicies::Deny => BasePolicyProto::Deny as i32,
-            StandardPolicies::AllowSameMember => BasePolicyProto::AllowSameMember as i32,
+            BasePolicies::Allow => BasePolicyProto::Allow as i32,
+            BasePolicies::Deny => BasePolicyProto::Deny as i32,
+            BasePolicies::AllowSameMember => BasePolicyProto::AllowSameMember as i32,
         };
 
         MembershipPolicyProto {
@@ -59,7 +60,7 @@ impl MembershipPolicy for StandardPolicies {
 #[derive(Debug, Clone, PartialEq)]
 #[allow(dead_code)]
 pub enum MembershipPolicies {
-    Standard(StandardPolicies),
+    Standard(BasePolicies),
     AndCondition(AndCondition),
     AnyCondition(AnyCondition),
     NotCondition(Box<NotCondition>),
@@ -67,15 +68,15 @@ pub enum MembershipPolicies {
 
 impl MembershipPolicies {
     pub fn allow() -> Self {
-        MembershipPolicies::Standard(StandardPolicies::Allow)
+        MembershipPolicies::Standard(BasePolicies::Allow)
     }
 
     pub fn deny() -> Self {
-        MembershipPolicies::Standard(StandardPolicies::Deny)
+        MembershipPolicies::Standard(BasePolicies::Deny)
     }
 
     pub fn allow_same_member() -> Self {
-        MembershipPolicies::Standard(StandardPolicies::AllowSameMember)
+        MembershipPolicies::Standard(BasePolicies::AllowSameMember)
     }
 
     pub fn and(policies: Vec<MembershipPolicies>) -> Self {
@@ -468,8 +469,8 @@ mod tests {
     fn test_and_condition() {
         let permissions = PolicySet::new(
             MembershipPolicies::and(vec![
-                MembershipPolicies::Standard(StandardPolicies::Deny),
-                MembershipPolicies::Standard(StandardPolicies::Allow),
+                MembershipPolicies::Standard(BasePolicies::Deny),
+                MembershipPolicies::Standard(BasePolicies::Allow),
             ]),
             MembershipPolicies::allow(),
             MembershipPolicies::allow(),
