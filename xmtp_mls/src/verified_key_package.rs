@@ -85,6 +85,7 @@ fn identity_to_account_address(
 
 fn extract_application_id(kp: &KeyPackage) -> Result<Address, KeyPackageVerificationError> {
     let application_id_bytes = kp
+        .leaf_node()
         .extensions()
         .application_id()
         .ok_or_else(|| KeyPackageVerificationError::InvalidApplicationId)?
@@ -127,7 +128,7 @@ mod tests {
         let invalid_application_id = "invalid application id".as_bytes();
         let application_id =
             Extension::ApplicationId(ApplicationIdExtension::new(invalid_application_id));
-        let extensions = Extensions::from_vec(vec![last_resort, application_id]).unwrap();
+        let leaf_node_extensions = Extensions::single(application_id);
         let capabilities = Capabilities::new(
             None,
             Some(&[CIPHERSUITE]),
@@ -138,7 +139,8 @@ mod tests {
         // TODO: Set expiration
         let kp = KeyPackage::builder()
             .leaf_node_capabilities(capabilities)
-            .key_package_extensions(extensions)
+            .key_package_extensions(Extensions::single(last_resort))
+            .leaf_node_extensions(leaf_node_extensions)
             .build(
                 CryptoConfig {
                     ciphersuite: CIPHERSUITE,

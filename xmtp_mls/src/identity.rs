@@ -78,9 +78,12 @@ impl Identity {
         provider: &XmtpOpenMlsProvider,
     ) -> Result<KeyPackage, IdentityError> {
         let last_resort = Extension::LastResort(LastResortExtension::default());
+        let key_package_extensions = Extensions::single(last_resort);
+
         let application_id =
             Extension::ApplicationId(ApplicationIdExtension::new(self.account_address.as_bytes()));
-        let extensions = Extensions::from_vec(vec![last_resort, application_id.clone()])?;
+        let leaf_node_extensions = Extensions::single(application_id);
+
         let capabilities = Capabilities::new(
             None,
             Some(&[CIPHERSUITE]),
@@ -91,8 +94,8 @@ impl Identity {
         // TODO: Set expiration
         let kp = KeyPackage::builder()
             .leaf_node_capabilities(capabilities)
-            .leaf_node_extensions(Extensions::single(application_id))
-            .key_package_extensions(extensions)
+            .leaf_node_extensions(leaf_node_extensions)
+            .key_package_extensions(key_package_extensions)
             .build(
                 CryptoConfig {
                     ciphersuite: CIPHERSUITE,
