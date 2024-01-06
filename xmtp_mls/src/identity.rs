@@ -80,7 +80,7 @@ impl Identity {
         let last_resort = Extension::LastResort(LastResortExtension::default());
         let application_id =
             Extension::ApplicationId(ApplicationIdExtension::new(self.account_address.as_bytes()));
-        let extensions = Extensions::from_vec(vec![last_resort, application_id])?;
+        let extensions = Extensions::from_vec(vec![last_resort, application_id.clone()])?;
         let capabilities = Capabilities::new(
             None,
             Some(&[CIPHERSUITE]),
@@ -91,6 +91,7 @@ impl Identity {
         // TODO: Set expiration
         let kp = KeyPackage::builder()
             .leaf_node_capabilities(capabilities)
+            .leaf_node_extensions(Extensions::single(application_id))
             .key_package_extensions(extensions)
             .build(
                 CryptoConfig {
