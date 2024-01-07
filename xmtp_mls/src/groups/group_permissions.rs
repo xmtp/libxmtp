@@ -114,7 +114,7 @@ impl TryFrom<MembershipPolicyProto> for MembershipPolicies {
                     .policies
                     .into_iter()
                     .map(|policy| policy.try_into())
-                    .collect::<Result<Vec<MembershipPolicies>, _>>()?;
+                    .collect::<Result<Vec<MembershipPolicies>, PolicyError>>()?;
 
                 Ok(MembershipPolicies::and(policies))
             }
@@ -127,7 +127,7 @@ impl TryFrom<MembershipPolicyProto> for MembershipPolicies {
                     .policies
                     .into_iter()
                     .map(|policy| policy.try_into())
-                    .collect::<Result<Vec<MembershipPolicies>, _>>()?;
+                    .collect::<Result<Vec<MembershipPolicies>, PolicyError>>()?;
 
                 Ok(MembershipPolicies::any(policies))
             }
@@ -547,7 +547,9 @@ mod tests {
         assert!(proto.add_installation_policy.is_some());
         assert!(proto.remove_installation_policy.is_some());
 
-        let restored = PolicySet::from_proto(proto).expect("proto conversion failed");
+        let as_bytes = permissions.to_bytes().expect("serialization failed");
+        let restored = PolicySet::from_bytes(as_bytes.as_slice()).expect("proto conversion failed");
+        // All fields implement PartialEq so this should test equality all the way down
         assert!(permissions.eq(&restored))
     }
 }
