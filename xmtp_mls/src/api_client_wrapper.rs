@@ -3,8 +3,8 @@ use std::collections::HashMap;
 use crate::{retry::Retry, retry_async};
 use xmtp_proto::{
     api_client::{
-        Envelope, Error as ApiError, ErrorKind, PagingInfo, QueryRequest, XmtpApiClient,
-        XmtpMlsClient,
+        Envelope, Error as ApiError, ErrorKind, PagingInfo, QueryRequest, SubscribeRequest,
+        XmtpApiClient, XmtpMlsClient,
     },
     xmtp::{
         message_api::{
@@ -272,6 +272,15 @@ where
         )?;
 
         Ok(())
+    }
+
+    pub async fn subscribe(
+        &self,
+        content_topics: Vec<String>,
+    ) -> Result<ApiClient::MutableSubscription, ApiError> {
+        self.api_client
+            .subscribe2(SubscribeRequest { content_topics })
+            .await
     }
 }
 
