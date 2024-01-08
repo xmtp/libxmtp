@@ -1821,6 +1821,7 @@ impl serde::Serialize for membership_policy::BasePolicy {
             Self::Allow => "BASE_POLICY_ALLOW",
             Self::Deny => "BASE_POLICY_DENY",
             Self::AllowSameMember => "BASE_POLICY_ALLOW_SAME_MEMBER",
+            Self::AllowIfActorCreator => "BASE_POLICY_ALLOW_IF_ACTOR_CREATOR",
         };
         serializer.serialize_str(variant)
     }
@@ -1836,6 +1837,7 @@ impl<'de> serde::Deserialize<'de> for membership_policy::BasePolicy {
             "BASE_POLICY_ALLOW",
             "BASE_POLICY_DENY",
             "BASE_POLICY_ALLOW_SAME_MEMBER",
+            "BASE_POLICY_ALLOW_IF_ACTOR_CREATOR",
         ];
 
         struct GeneratedVisitor;
@@ -1882,6 +1884,7 @@ impl<'de> serde::Deserialize<'de> for membership_policy::BasePolicy {
                     "BASE_POLICY_ALLOW" => Ok(membership_policy::BasePolicy::Allow),
                     "BASE_POLICY_DENY" => Ok(membership_policy::BasePolicy::Deny),
                     "BASE_POLICY_ALLOW_SAME_MEMBER" => Ok(membership_policy::BasePolicy::AllowSameMember),
+                    "BASE_POLICY_ALLOW_IF_ACTOR_CREATOR" => Ok(membership_policy::BasePolicy::AllowIfActorCreator),
                     _ => Err(serde::de::Error::unknown_variant(value, FIELDS)),
                 }
             }

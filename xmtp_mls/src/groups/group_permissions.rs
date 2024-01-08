@@ -33,8 +33,9 @@ pub enum BasePolicies {
     Deny,
     // Allow if the change only applies to subject installations with the same account address as the actor
     AllowSameMember,
+    // Allow the change if the actor is the creator of the group
+    AllowIfActorCreator,
     // AllowIfActorAdmin, TODO: Enable this once we have admin roles
-    // AllowIfActorCreator, TODO: Enable this once we know who the creator is
     // AllowIfSubjectRevoked, TODO: Enable this once we have revocation and have context on who is revoked
 }
 
@@ -44,6 +45,7 @@ impl MembershipPolicy for BasePolicies {
             BasePolicies::Allow => true,
             BasePolicies::Deny => false,
             BasePolicies::AllowSameMember => change.account_address == actor.account_address,
+            BasePolicies::AllowIfActorCreator => true, // TODO: Enable proper check once we can tell who the creator is
         }
     }
 
@@ -52,6 +54,7 @@ impl MembershipPolicy for BasePolicies {
             BasePolicies::Allow => BasePolicyProto::Allow as i32,
             BasePolicies::Deny => BasePolicyProto::Deny as i32,
             BasePolicies::AllowSameMember => BasePolicyProto::AllowSameMember as i32,
+            BasePolicies::AllowIfActorCreator => BasePolicyProto::AllowIfActorCreator as i32,
         };
 
         MembershipPolicyProto {
@@ -80,6 +83,10 @@ impl MembershipPolicies {
 
     pub fn allow_same_member() -> Self {
         MembershipPolicies::Standard(BasePolicies::AllowSameMember)
+    }
+
+    pub fn allow_if_actor_creator() -> Self {
+        MembershipPolicies::Standard(BasePolicies::AllowIfActorCreator)
     }
 
     pub fn and(policies: Vec<MembershipPolicies>) -> Self {
