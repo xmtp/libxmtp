@@ -15,6 +15,11 @@ set(ArchiveUrl "https://github.com/xmtp/libxmtp/releases/download/${ReleaseTag}/
 set(ArchivePath "${CMAKE_CURRENT_SOURCE_DIR}/${ArchiveFileName}")
 set(LibRoot "${CMAKE_CURRENT_SOURCE_DIR}/src/main/jniLibs")
 
+# NOTE: For now, we short-circuit the download by copying from bundled artifacts/
+# TODO: actually download the published release at first-build instead
+# See also setup-apple-artifacts.sh (which does the same thing for iOS/macOS)
+file(COPY "../artifacts/android/${ArchiveFileName}" DESTINATION "${CMAKE_CURRENT_SOURCE_DIR}")
+
 if(NOT EXISTS ${ArchivePath})
   message(STATUS "Downloading ${ArchiveUrl} to ${ArchivePath}")
   file(DOWNLOAD

@@ -2,7 +2,7 @@ cmake_minimum_required(VERSION 3.10)
 
 # TODO: set this externally as part of invoking linux build
 set(LibraryName "xmtp_bindings_flutter")
-set(ReleaseVersion "0.0.1-development.3")
+set(ReleaseVersion "0.0.1-development.4")
 
 # Download the binaries if they are not already present.
 project("${LibraryName}")
