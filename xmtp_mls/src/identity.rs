@@ -1,5 +1,5 @@
 use openmls::{
-    extensions::LastResortExtension,
+    extensions::{errors::InvalidExtensionError, ApplicationIdExtension, LastResortExtension},
     prelude::{
         Capabilities, Credential as OpenMlsCredential, CredentialType, CredentialWithKey,
         CryptoConfig, Extension, ExtensionType, Extensions, KeyPackage, KeyPackageNewError,
@@ -36,6 +36,8 @@ pub enum IdentityError {
     KeyPackageGenerationError(#[from] KeyPackageNewError<StorageError>),
     #[error("deserialization")]
     Deserialization(#[from] prost::DecodeError),
+    #[error("invalid extension")]
+    InvalidExtension(#[from] InvalidExtensionError),
 }
 
 #[derive(Debug)]
@@ -76,18 +78,24 @@ impl Identity {
         provider: &XmtpOpenMlsProvider,
     ) -> Result<KeyPackage, IdentityError> {
         let last_resort = Extension::LastResort(LastResortExtension::default());
-        let extensions = Extensions::single(last_resort);
+        let key_package_extensions = Extensions::single(last_resort);
+
+        let application_id =
+            Extension::ApplicationId(ApplicationIdExtension::new(self.account_address.as_bytes()));
+        let leaf_node_extensions = Extensions::single(application_id);
+
         let capabilities = Capabilities::new(
             None,
             Some(&[CIPHERSUITE]),
-            Some(&[ExtensionType::LastResort]),
+            Some(&[ExtensionType::LastResort, ExtensionType::ApplicationId]),
             None,
             None,
         );
         // TODO: Set expiration
         let kp = KeyPackage::builder()
             .leaf_node_capabilities(capabilities)
-            .key_package_extensions(extensions)
+            .leaf_node_extensions(leaf_node_extensions)
+            .key_package_extensions(key_package_extensions)
             .build(
                 CryptoConfig {
                     ciphersuite: CIPHERSUITE,

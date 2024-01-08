@@ -8,7 +8,10 @@ use xmtp_proto::xmtp::mls::message_contents::{
     GroupMembershipChanges, MembershipChange as MembershipChangeProto,
 };
 
-use crate::identity::Identity;
+use crate::{
+    identity::Identity,
+    verified_key_package::{KeyPackageVerificationError, VerifiedKeyPackage},
+};
 
 use crate::types::Address;
 
@@ -36,6 +39,8 @@ pub enum CommitValidationError {
     MultipleActors,
     #[error("Failed to get member list {0}")]
     ListMembers(String),
+    #[error("invalid application id")]
+    InvalidApplicationId,
 }
 
 // A participant in a commit. Could be the actor or the subject of a proposal
@@ -147,15 +152,18 @@ fn extract_actor(
 fn extract_identity_from_add(
     proposal: QueuedAddProposal,
 ) -> Result<CommitParticipant, CommitValidationError> {
-    let leaf_node = proposal.add_proposal().key_package().leaf_node();
-    let signature_key = leaf_node.signature_key().as_slice();
-    let account_address =
-        Identity::get_validated_account_address(leaf_node.credential().identity(), signature_key)
-            .map_err(|_| CommitValidationError::InvalidSubjectCredential)?;
+    let key_package = proposal.add_proposal().key_package().to_owned();
+    let verified_key_package =
+        VerifiedKeyPackage::from_key_package(key_package).map_err(|e| match e {
+            KeyPackageVerificationError::InvalidApplicationId => {
+                CommitValidationError::InvalidApplicationId
+            }
+            _ => CommitValidationError::InvalidSubjectCredential,
+        })?;
 
     Ok(CommitParticipant {
-        account_address,
-        installation_id: signature_key.to_vec(),
+        account_address: verified_key_package.account_address.clone(),
+        installation_id: verified_key_package.installation_id(),
     })
 }
 
