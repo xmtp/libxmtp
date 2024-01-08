@@ -22,9 +22,10 @@ services:
 
   validation:
     image: xmtp/mls-validation-service:latest
+    platform: linux/amd64
     build:
       context: ../..
-      dockerfile: ./dev/validation_service/Dockerfile
+      dockerfile: ./dev/validation_service/local.Dockerfile
 
   db:
     image: postgres:13
