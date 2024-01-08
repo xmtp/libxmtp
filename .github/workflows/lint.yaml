@@ -9,10 +9,12 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v1
-      - run: rustup component add clippy
-      - uses: bufbuild/buf-setup-action@v1.17.0
+      - run: rustup update
+      - uses: Swatinem/rust-cache@v2
         with:
-          github_token: ${{ secrets.GITHUB_TOKEN }}
+          workspaces: |
+            .
+            bindings_ffi
       - uses: actions-rs/clippy-check@v1
         name: Lint main workspace
         with:

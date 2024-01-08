@@ -373,7 +373,7 @@ where
         let welcome = extract_welcome(&envelope.message)?;
         let conn = self.store.conn()?;
         let provider = self.mls_provider(&conn);
-        Ok(MlsGroup::create_from_welcome(&self, &provider, welcome)
+        Ok(MlsGroup::create_from_welcome(self, &provider, welcome)
             .map_err(|e| ClientError::Generic(e.to_string()))?)
     }
 
