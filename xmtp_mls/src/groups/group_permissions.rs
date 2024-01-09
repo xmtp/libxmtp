@@ -4,7 +4,7 @@ use thiserror::Error;
 use xmtp_proto::xmtp::mls::message_contents::{
     membership_policy::{
         AndCondition as AndConditionProto, AnyCondition as AnyConditionProto,
-        BasePolicy as BasePolicyProto, Kind as PolicyKindProto, NotCondition as NotConditionProto,
+        BasePolicy as BasePolicyProto, Kind as PolicyKindProto,
     },
     MembershipPolicy as MembershipPolicyProto, PolicySet as PolicySetProto,
 };
@@ -69,7 +69,6 @@ pub enum MembershipPolicies {
     Standard(BasePolicies),
     AndCondition(AndCondition),
     AnyCondition(AnyCondition),
-    NotCondition(Box<NotCondition>),
 }
 
 impl MembershipPolicies {
@@ -85,6 +84,7 @@ impl MembershipPolicies {
         MembershipPolicies::Standard(BasePolicies::AllowSameMember)
     }
 
+    #[allow(dead_code)]
     pub fn allow_if_actor_creator() -> Self {
         MembershipPolicies::Standard(BasePolicies::AllowIfActorCreator)
     }
@@ -95,10 +95,6 @@ impl MembershipPolicies {
 
     pub fn any(policies: Vec<MembershipPolicies>) -> Self {
         MembershipPolicies::AnyCondition(AnyCondition::new(policies))
-    }
-
-    pub fn not(policy: MembershipPolicies) -> Self {
-        MembershipPolicies::NotCondition(Box::new(NotCondition::new(policy)))
     }
 }
 
@@ -138,15 +134,6 @@ impl TryFrom<MembershipPolicyProto> for MembershipPolicies {
 
                 Ok(MembershipPolicies::any(policies))
             }
-            Some(PolicyKindProto::NotCondition(inner)) => {
-                if inner.policy.is_none() {
-                    return Err(PolicyError::InvalidPolicy);
-                }
-
-                let policy: MembershipPolicies =
-                    MembershipPolicies::try_from(*inner.policy.expect("already checked"))?;
-                Ok(MembershipPolicies::not(policy))
-            }
             None => Err(PolicyError::InvalidPolicy),
         }
     }
@@ -158,7 +145,6 @@ impl MembershipPolicy for MembershipPolicies {
             MembershipPolicies::Standard(policy) => policy.evaluate(actor, change),
             MembershipPolicies::AndCondition(policy) => policy.evaluate(actor, change),
             MembershipPolicies::AnyCondition(policy) => policy.evaluate(actor, change),
-            MembershipPolicies::NotCondition(policy) => policy.evaluate(actor, change),
         }
     }
 
@@ -167,7 +153,6 @@ impl MembershipPolicy for MembershipPolicies {
             MembershipPolicies::Standard(policy) => policy.to_proto(),
             MembershipPolicies::AndCondition(policy) => policy.to_proto(),
             MembershipPolicies::AnyCondition(policy) => policy.to_proto(),
-            MembershipPolicies::NotCondition(policy) => policy.to_proto(),
         }
     }
 }
@@ -233,33 +218,6 @@ impl MembershipPolicy for AnyCondition {
                     .map(|policy| policy.to_proto())
                     .collect(),
             })),
-        }
-    }
-}
-
-// A NotCondition evaluates to true if the contained policy evaluates to false
-#[derive(Clone, Debug, PartialEq)]
-pub struct NotCondition {
-    policy: MembershipPolicies,
-}
-
-#[allow(dead_code)]
-impl NotCondition {
-    pub(super) fn new(policy: MembershipPolicies) -> Self {
-        Self { policy }
-    }
-}
-
-impl MembershipPolicy for NotCondition {
-    fn evaluate(&self, actor: &CommitParticipant, change: &AggregatedMembershipChange) -> bool {
-        !self.policy.evaluate(actor, change)
-    }
-
-    fn to_proto(&self) -> MembershipPolicyProto {
-        MembershipPolicyProto {
-            kind: Some(PolicyKindProto::NotCondition(Box::new(NotConditionProto {
-                policy: Some(Box::new(self.policy.to_proto())),
-            }))),
         }
     }
 }
@@ -520,20 +478,6 @@ mod tests {
     }
 
     #[test]
-    fn test_not_condition() {
-        let permissions = PolicySet::new(
-            MembershipPolicies::not(MembershipPolicies::allow()),
-            MembershipPolicies::allow(),
-            MembershipPolicies::allow(),
-            MembershipPolicies::allow(),
-        );
-
-        let member_added_commit = build_validated_commit(Some(true), None, None, None);
-
-        assert!(!permissions.evaluate_commit(&member_added_commit));
-    }
-
-    #[test]
     fn test_serialize() {
         let permissions = PolicySet::new(
             MembershipPolicies::deny(),
@@ -541,7 +485,7 @@ mod tests {
                 MembershipPolicies::allow_same_member(),
                 MembershipPolicies::deny(),
             ]),
-            MembershipPolicies::not(MembershipPolicies::allow()),
+            MembershipPolicies::and(vec![MembershipPolicies::allow()]),
             MembershipPolicies::any(vec![
                 MembershipPolicies::allow(),
                 MembershipPolicies::allow(),
