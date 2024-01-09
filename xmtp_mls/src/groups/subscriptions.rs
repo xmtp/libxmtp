@@ -92,7 +92,7 @@ mod tests {
         let mut stream = bola_group.stream().await.unwrap();
         tokio::time::sleep(std::time::Duration::from_millis(50)).await;
         amal_group.send_message("hello".as_bytes()).await.unwrap();
-
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
         let first_val = stream.next().await.unwrap();
         assert_eq!(first_val.decrypted_message_bytes, "hello".as_bytes());
 
@@ -118,6 +118,7 @@ mod tests {
             .add_members_by_installation_id(vec![bola.installation_public_key()])
             .await
             .unwrap();
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
 
         let first_val = stream.next().await.unwrap();
         assert_eq!(first_val.kind, GroupMessageKind::MembershipChange);
