@@ -47,7 +47,7 @@ tracing = "0.1.37"
 toml = "0.7.4"
 xmtp_cryptography = { path = "../xmtp_cryptography" }
 xmtp_proto = { path = "../xmtp_proto", features = ["proto_full"] }
-tls_codec = "0.3.0"
+tls_codec = "0.4.0"
 smart-default = "0.7.1"
 chrono = "0.4.31"
 
