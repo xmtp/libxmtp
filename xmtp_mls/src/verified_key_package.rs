@@ -1,12 +1,12 @@
 use openmls::prelude::{KeyPackage, KeyPackageIn, KeyPackageVerifyError};
-use openmls_traits::OpenMlsProvider;
+use openmls_rust_crypto::RustCrypto;
 use thiserror::Error;
 use tls_codec::{Deserialize, Error as TlsSerializationError};
 
 use crate::{
     configuration::MLS_PROTOCOL_VERSION,
     identity::{Identity, IdentityError},
-    xmtp_openmls_provider::XmtpOpenMlsProvider,
+    types::Address,
 };
 
 #[derive(Debug, Error)]
@@ -17,6 +17,10 @@ pub enum KeyPackageVerificationError {
     MlsValidation(#[from] KeyPackageVerifyError),
     #[error("identity: {0}")]
     Identity(#[from] IdentityError),
+    #[error("invalid application id")]
+    InvalidApplicationId,
+    #[error("application id ({0}) does not match the credential address ({1}).")]
+    ApplicationIdCredentialMismatch(String, String),
     #[error("generic: {0}")]
     Generic(String),
 }
@@ -41,17 +45,25 @@ impl VerifiedKeyPackage {
         let identity_bytes = leaf_node.credential().identity();
         let pub_key_bytes = leaf_node.signature_key().as_slice();
         let account_address = identity_to_account_address(identity_bytes, pub_key_bytes)?;
-
+        let application_id = extract_application_id(&kp)?;
+        if !account_address.eq(&application_id) {
+            return Err(
+                KeyPackageVerificationError::ApplicationIdCredentialMismatch(
+                    application_id,
+                    account_address,
+                ),
+            );
+        }
         Ok(Self::new(kp, account_address))
     }
 
     // Validates starting with a KeyPackageIn as bytes (which is not validated by OpenMLS)
     pub fn from_bytes(
-        mls_provider: &XmtpOpenMlsProvider,
+        crypto_provider: &RustCrypto,
         data: &[u8],
     ) -> Result<VerifiedKeyPackage, KeyPackageVerificationError> {
         let kp_in: KeyPackageIn = KeyPackageIn::tls_deserialize_bytes(data)?;
-        let kp = kp_in.validate(mls_provider.crypto(), MLS_PROTOCOL_VERSION)?;
+        let kp = kp_in.validate(crypto_provider, MLS_PROTOCOL_VERSION)?;
 
         Self::from_key_package(kp)
     }
@@ -69,4 +81,89 @@ fn identity_to_account_address(
         credential_bytes,
         installation_key_bytes,
     )?)
+}
+
+fn extract_application_id(kp: &KeyPackage) -> Result<Address, KeyPackageVerificationError> {
+    let application_id_bytes = kp
+        .leaf_node()
+        .extensions()
+        .application_id()
+        .ok_or_else(|| KeyPackageVerificationError::InvalidApplicationId)?
+        .as_slice()
+        .to_vec();
+
+    String::from_utf8(application_id_bytes)
+        .map_err(|_| KeyPackageVerificationError::InvalidApplicationId)
+}
+
+#[cfg(test)]
+mod tests {
+    use openmls::{
+        credentials::CredentialWithKey,
+        extensions::{
+            ApplicationIdExtension, Extension, ExtensionType, Extensions, LastResortExtension,
+        },
+        group::config::CryptoConfig,
+        prelude::Capabilities,
+        prelude_test::KeyPackage,
+        versions::ProtocolVersion,
+    };
+    use xmtp_cryptography::utils::generate_local_wallet;
+
+    use crate::{
+        builder::ClientBuilder,
+        configuration::CIPHERSUITE,
+        verified_key_package::{KeyPackageVerificationError, VerifiedKeyPackage},
+    };
+
+    #[tokio::test]
+    async fn test_invalid_application_id() {
+        let client = ClientBuilder::new_test_client(generate_local_wallet().into()).await;
+        let conn = client.store.conn().unwrap();
+        let provider = client.mls_provider(&conn);
+
+        // Build a key package
+        let last_resort = Extension::LastResort(LastResortExtension::default());
+        // Make sure the application id doesn't match the account address
+        let invalid_application_id = "invalid application id".as_bytes();
+        let application_id =
+            Extension::ApplicationId(ApplicationIdExtension::new(invalid_application_id));
+        let leaf_node_extensions = Extensions::single(application_id);
+        let capabilities = Capabilities::new(
+            None,
+            Some(&[CIPHERSUITE]),
+            Some(&[ExtensionType::LastResort, ExtensionType::ApplicationId]),
+            None,
+            None,
+        );
+        // TODO: Set expiration
+        let kp = KeyPackage::builder()
+            .leaf_node_capabilities(capabilities)
+            .key_package_extensions(Extensions::single(last_resort))
+            .leaf_node_extensions(leaf_node_extensions)
+            .build(
+                CryptoConfig {
+                    ciphersuite: CIPHERSUITE,
+                    version: ProtocolVersion::default(),
+                },
+                &provider,
+                &client.identity.installation_keys,
+                CredentialWithKey {
+                    credential: client.identity.credential.clone(),
+                    signature_key: client.identity.installation_keys.to_public_vec().into(),
+                },
+            )
+            .unwrap();
+
+        let verified_kp_result = VerifiedKeyPackage::from_key_package(kp);
+        assert!(verified_kp_result.is_err());
+        assert_eq!(
+            KeyPackageVerificationError::ApplicationIdCredentialMismatch(
+                String::from_utf8(invalid_application_id.to_vec()).unwrap(),
+                client.account_address()
+            )
+            .to_string(),
+            verified_kp_result.err().unwrap().to_string()
+        );
+    }
 }

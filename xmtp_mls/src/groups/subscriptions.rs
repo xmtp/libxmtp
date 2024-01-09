@@ -40,7 +40,7 @@ where
 
     pub async fn stream(
         &'c self,
-    ) -> Result<Pin<Box<dyn Stream<Item = StoredGroupMessage> + 'c>>, GroupError> {
+    ) -> Result<Pin<Box<dyn Stream<Item = StoredGroupMessage> + 'c + Send>>, GroupError> {
         let subscription = self.client.api_client.subscribe(vec![self.topic()]).await?;
         let stream = subscription
             .map(|res| async {

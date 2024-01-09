@@ -8,6 +8,7 @@ use openmls::{
     messages::Welcome,
     prelude::TlsSerializeTrait,
 };
+use openmls_traits::OpenMlsProvider;
 use prost::EncodeError;
 use thiserror::Error;
 use tls_codec::{Deserialize, Error as TlsSerializationError};
@@ -326,7 +327,7 @@ where
         Ok(key_package_results
             .values()
             .map(|bytes| {
-                VerifiedKeyPackage::from_bytes(&self.mls_provider(&conn), bytes.as_slice())
+                VerifiedKeyPackage::from_bytes(self.mls_provider(&conn).crypto(), bytes.as_slice())
             })
             .collect::<Result<_, _>>()?)
     }
