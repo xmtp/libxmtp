@@ -3,6 +3,7 @@ use openmls::{
     prelude::{
         Capabilities, Credential as OpenMlsCredential, CredentialType, CredentialWithKey,
         CryptoConfig, Extension, ExtensionType, Extensions, KeyPackage, KeyPackageNewError,
+        Lifetime,
     },
     versions::ProtocolVersion,
 };
@@ -63,16 +64,12 @@ impl Identity {
             credential,
         };
 
-        identity.new_key_package(provider)?;
         StoredIdentity::from(&identity).store(provider.conn())?;
-
-        // TODO: upload credential_with_key and last_resort_key_package
 
         Ok(identity)
     }
 
     // ONLY CREATES LAST RESORT KEY PACKAGES
-    // TODO: Implement key package rotation https://github.com/xmtp/libxmtp/issues/293
     pub(crate) fn new_key_package(
         &self,
         provider: &XmtpOpenMlsProvider,
@@ -91,11 +88,11 @@ impl Identity {
             None,
             None,
         );
-        // TODO: Set expiration
         let kp = KeyPackage::builder()
             .leaf_node_capabilities(capabilities)
             .leaf_node_extensions(leaf_node_extensions)
             .key_package_extensions(key_package_extensions)
+            .key_package_lifetime(Lifetime::new(6 * 30 * 86400))
             .build(
                 CryptoConfig {
                     ciphersuite: CIPHERSUITE,

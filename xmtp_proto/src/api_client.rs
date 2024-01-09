@@ -8,9 +8,9 @@ pub use super::xmtp::message_api::v1::{
     QueryRequest, QueryResponse, SubscribeRequest,
 };
 use crate::xmtp::message_api::v3::{
-    ConsumeKeyPackagesRequest, ConsumeKeyPackagesResponse, GetIdentityUpdatesRequest,
+    FetchKeyPackagesRequest, FetchKeyPackagesResponse, GetIdentityUpdatesRequest,
     GetIdentityUpdatesResponse, PublishToGroupRequest, PublishWelcomesRequest,
-    RegisterInstallationRequest, RegisterInstallationResponse, UploadKeyPackagesRequest,
+    RegisterInstallationRequest, RegisterInstallationResponse, UploadKeyPackageRequest,
 };
 
 #[derive(Debug)]
@@ -133,11 +133,11 @@ pub trait XmtpMlsClient: Send + Sync {
         &self,
         request: RegisterInstallationRequest,
     ) -> Result<RegisterInstallationResponse, Error>;
-    async fn upload_key_packages(&self, request: UploadKeyPackagesRequest) -> Result<(), Error>;
-    async fn consume_key_packages(
+    async fn upload_key_package(&self, request: UploadKeyPackageRequest) -> Result<(), Error>;
+    async fn fetch_key_packages(
         &self,
-        request: ConsumeKeyPackagesRequest,
-    ) -> Result<ConsumeKeyPackagesResponse, Error>;
+        request: FetchKeyPackagesRequest,
+    ) -> Result<FetchKeyPackagesResponse, Error>;
     async fn publish_to_group(&self, request: PublishToGroupRequest) -> Result<(), Error>;
     async fn publish_welcomes(&self, request: PublishWelcomesRequest) -> Result<(), Error>;
     async fn get_identity_updates(

@@ -21,6 +21,8 @@ pub enum KeyPackageVerificationError {
     InvalidApplicationId,
     #[error("application id ({0}) does not match the credential address ({1}).")]
     ApplicationIdCredentialMismatch(String, String),
+    #[error("invalid lifetime")]
+    InvalidLifetime,
     #[error("generic: {0}")]
     Generic(String),
 }
@@ -54,6 +56,10 @@ impl VerifiedKeyPackage {
                 ),
             );
         }
+        if !kp.life_time().is_valid() {
+            return Err(KeyPackageVerificationError::InvalidLifetime);
+        }
+
         Ok(Self::new(kp, account_address))
     }
 
