@@ -64,10 +64,7 @@ impl Identity {
             credential,
         };
 
-        // identity.new_key_package(provider)?; -- Does this have a purpose?
         StoredIdentity::from(&identity).store(provider.conn())?;
-
-        // TODO: upload credential_with_key and last_resort_key_package
 
         Ok(identity)
     }
@@ -95,7 +92,7 @@ impl Identity {
             .leaf_node_capabilities(capabilities)
             .leaf_node_extensions(leaf_node_extensions)
             .key_package_extensions(key_package_extensions)
-            .key_package_lifetime(Lifetime::new(30 * 86400))
+            .key_package_lifetime(Lifetime::new(6 * 30 * 86400))
             .build(
                 CryptoConfig {
                     ciphersuite: CIPHERSUITE,
