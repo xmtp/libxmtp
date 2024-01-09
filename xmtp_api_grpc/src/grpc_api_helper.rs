@@ -23,10 +23,10 @@ use xmtp_proto::{
             PublishRequest, PublishResponse, QueryRequest, QueryResponse, SubscribeRequest,
         },
         v3::{
-            mls_api_client::MlsApiClient as ProtoMlsApiClient, ConsumeKeyPackagesRequest,
-            ConsumeKeyPackagesResponse, GetIdentityUpdatesRequest, GetIdentityUpdatesResponse,
+            mls_api_client::MlsApiClient as ProtoMlsApiClient, FetchKeyPackagesRequest,
+            FetchKeyPackagesResponse, GetIdentityUpdatesRequest, GetIdentityUpdatesResponse,
             PublishToGroupRequest, PublishWelcomesRequest, RegisterInstallationRequest,
-            RegisterInstallationResponse, UploadKeyPackagesRequest,
+            RegisterInstallationResponse, UploadKeyPackageRequest,
         },
     },
 };
@@ -208,8 +208,6 @@ impl XmtpApiClient for Client {
             while let Some(result) = receiver.next().await {
                 yield result;
             }
-
-            println!("stream closed")
         };
 
         let mut tonic_request = Request::new(input_stream);
@@ -405,10 +403,10 @@ impl XmtpMlsClient for Client {
         }
     }
 
-    async fn upload_key_packages(&self, req: UploadKeyPackagesRequest) -> Result<(), Error> {
+    async fn upload_key_package(&self, req: UploadKeyPackageRequest) -> Result<(), Error> {
         let res = match &self.mls_client {
-            InnerMlsClient::Plain(c) => c.clone().upload_key_packages(req).await,
-            InnerMlsClient::Tls(c) => c.clone().upload_key_packages(req).await,
+            InnerMlsClient::Plain(c) => c.clone().upload_key_package(req).await,
+            InnerMlsClient::Tls(c) => c.clone().upload_key_package(req).await,
         };
         match res {
             Ok(_) => Ok(()),
@@ -416,13 +414,13 @@ impl XmtpMlsClient for Client {
         }
     }
 
-    async fn consume_key_packages(
+    async fn fetch_key_packages(
         &self,
-        req: ConsumeKeyPackagesRequest,
-    ) -> Result<ConsumeKeyPackagesResponse, Error> {
+        req: FetchKeyPackagesRequest,
+    ) -> Result<FetchKeyPackagesResponse, Error> {
         let res = match &self.mls_client {
-            InnerMlsClient::Plain(c) => c.clone().consume_key_packages(req).await,
-            InnerMlsClient::Tls(c) => c.clone().consume_key_packages(req).await,
+            InnerMlsClient::Plain(c) => c.clone().fetch_key_packages(req).await,
+            InnerMlsClient::Tls(c) => c.clone().fetch_key_packages(req).await,
         };
 
         match res {

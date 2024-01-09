@@ -1,6 +1,7 @@
 mod group_permissions;
 mod intents;
 mod members;
+mod subscriptions;
 pub mod validated_commit;
 use crate::codecs::ContentCodec;
 use intents::SendMessageIntentData;
@@ -233,6 +234,7 @@ where
         provider: &XmtpOpenMlsProvider,
         message: ProtocolMessage,
         envelope_timestamp_ns: u64,
+        allow_epoch_increment: bool,
     ) -> Result<(), MessageProcessingError> {
         if intent.state == IntentState::Committed {
             return Ok(());
@@ -247,6 +249,9 @@ where
         let conn = provider.conn();
         match intent.kind {
             IntentKind::AddMembers | IntentKind::RemoveMembers | IntentKind::KeyUpdate => {
+                if !allow_epoch_increment {
+                    return Err(MessageProcessingError::EpochIncrementNotAllowed);
+                }
                 let maybe_pending_commit = openmls_group.pending_commit();
                 // We don't get errors with merge_pending_commit when there are no commits to merge
                 if maybe_pending_commit.is_none() {
@@ -289,7 +294,6 @@ where
                 let intent_data = SendMessageIntentData::from_bytes(intent.data.as_slice())?;
                 let group_id = openmls_group.group_id().as_slice();
                 let decrypted_message_data = intent_data.message.as_slice();
-
                 StoredGroupMessage {
                     id: get_message_id(decrypted_message_data, group_id, envelope_timestamp_ns),
                     group_id: group_id.to_vec(),
@@ -313,13 +317,14 @@ where
         conn: &DbConnection,
         maybe_validated_commit: Option<ValidatedCommit>,
         timestamp_ns: u64,
-    ) -> Result<(), MessageProcessingError> {
+    ) -> Result<Option<StoredGroupMessage>, MessageProcessingError> {
+        let mut transcript_message = None;
         if let Some(validated_commit) = maybe_validated_commit {
             // If there are no members added or removed, don't write a transcript message
             if validated_commit.members_added.is_empty()
                 && validated_commit.members_removed.is_empty()
             {
-                return Ok(());
+                return Ok(None);
             }
             let sender_installation_id = validated_commit.actor_installation_id();
             let sender_account_address = validated_commit.actor_account_address();
@@ -330,7 +335,7 @@ where
             let group_id = self.group_id.as_slice();
             let message_id =
                 get_message_id(encoded_payload_bytes.as_slice(), group_id, timestamp_ns);
-            StoredGroupMessage {
+            let msg = StoredGroupMessage {
                 id: message_id,
                 group_id: group_id.to_vec(),
                 decrypted_message_bytes: encoded_payload_bytes.to_vec(),
@@ -338,11 +343,13 @@ where
                 kind: GroupMessageKind::MembershipChange,
                 sender_installation_id,
                 sender_account_address,
-            }
-            .store(conn)?;
+            };
+
+            msg.store(conn)?;
+            transcript_message = Some(msg);
         }
 
-        Ok(())
+        Ok(transcript_message)
     }
 
     fn process_private_message(
@@ -351,6 +358,7 @@ where
         provider: &XmtpOpenMlsProvider,
         message: PrivateMessageIn,
         envelope_timestamp_ns: u64,
+        allow_epoch_increment: bool,
     ) -> Result<(), MessageProcessingError> {
         debug!(
             "[{}] processing private message",
@@ -365,7 +373,7 @@ where
                 let message_bytes = application_message.into_bytes();
                 let message_id =
                     get_message_id(&message_bytes, &self.group_id, envelope_timestamp_ns);
-                let message = StoredGroupMessage {
+                StoredGroupMessage {
                     id: message_id,
                     group_id: self.group_id.clone(),
                     decrypted_message_bytes: message_bytes,
@@ -373,8 +381,8 @@ where
                     kind: GroupMessageKind::Application,
                     sender_installation_id,
                     sender_account_address,
-                };
-                message.store(provider.conn())?;
+                }
+                .store(provider.conn())?;
             }
             ProcessedMessageContent::ProposalMessage(_proposal_ptr) => {
                 // intentionally left blank.
@@ -383,6 +391,9 @@ where
                 // intentionally left blank.
             }
             ProcessedMessageContent::StagedCommitMessage(staged_commit) => {
+                if !allow_epoch_increment {
+                    return Err(MessageProcessingError::EpochIncrementNotAllowed);
+                }
                 debug!(
                     "[{}] received staged commit. Merging and clearing any pending commits",
                     self.client.account_address()
@@ -408,6 +419,7 @@ where
         openmls_group: &mut OpenMlsGroup,
         provider: &XmtpOpenMlsProvider,
         envelope: &Envelope,
+        allow_epoch_increment: bool,
     ) -> Result<(), MessageProcessingError> {
         let mls_message_in = MlsMessageIn::tls_deserialize_exact(&envelope.message)?;
 
@@ -429,6 +441,7 @@ where
                 provider,
                 message.into(),
                 envelope.timestamp_ns,
+                allow_epoch_increment,
             ),
             Err(err) => Err(MessageProcessingError::Storage(err)),
             // No matching intent found
@@ -437,6 +450,7 @@ where
                 provider,
                 message,
                 envelope.timestamp_ns,
+                allow_epoch_increment,
             ),
         }
     }
@@ -450,7 +464,7 @@ where
             &self.topic(),
             envelope.timestamp_ns,
             |provider| -> Result<(), MessageProcessingError> {
-                self.process_message(openmls_group, &provider, envelope)?;
+                self.process_message(openmls_group, &provider, envelope, true)?;
                 openmls_group.save(provider.key_store())?;
                 Ok(())
             },

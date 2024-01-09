@@ -20,6 +20,8 @@ xmtp_mls = { path = "../xmtp_mls", features = ["grpc", "native"] }
 xmtp_cryptography = { path = "../xmtp_cryptography" }
 xmtp_api_grpc = { path = "../xmtp_api_grpc" }
 xmtp_v2 = { path = "../xmtp_v2" }
+futures = "0.3.28"
+tokio = { version = "1.28.1", features = ["macros"] }
 
 [build_dependencies]
 uniffi = { git = "https://github.com/mozilla/uniffi-rs", rev = "cae8edc45ba5b56bfcbf35b60c1ab6a97d1bf9da", features = [
@@ -33,7 +35,7 @@ path = "src/bin.rs"
 [dev-dependencies]
 ethers = "2.0.4"
 ethers-core = "2.0.4"
-tokio = { version = "1.0", features = ["full"] }
+tokio = { version = "1.28.1", features = ["full"] }
 tempfile = "3.5.0"
 uniffi = { git = "https://github.com/mozilla/uniffi-rs", rev = "cae8edc45ba5b56bfcbf35b60c1ab6a97d1bf9da", features = [
   "bindgen-tests",

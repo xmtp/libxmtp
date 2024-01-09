@@ -12,8 +12,22 @@ jobs:
       - name: Checkout sources
         uses: actions/checkout@v2
 
+      - name: Update rust toolchain from rust-toolchain file
+        run: rustup update
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            .
+            bindings_ffi
+
       - name: Start Docker containers
         run: dev/up
+
+      - name: Run cargo test on main workspace
+        uses: actions-rs/cargo@v1
+        with:
+          command: test
 
       - name: Setup Kotlin
         run: |
@@ -23,28 +37,6 @@ jobs:
           cd bindings_ffi
           make install-jar
           echo "$(make echo-jar | tail -n 1 | sed -e 's/\.*export //')" >> "$GITHUB_ENV"
-
-      - uses: bufbuild/buf-setup-action@v1.17.0
-        with:
-          github_token: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Install stable toolchain
-        uses: actions-rs/toolchain@v1
-        with:
-          profile: minimal
-          toolchain: stable
-          override: true
-
-      # - uses: Swatinem/rust-cache@v2
-      #   with:
-      #     workspaces: |
-      #       .
-      #       bindings_ffi
-
-      - name: Run cargo test on main workspace
-        uses: actions-rs/cargo@v1
-        with:
-          command: test
 
       - name: Run cargo test on FFI bindings
         run: |

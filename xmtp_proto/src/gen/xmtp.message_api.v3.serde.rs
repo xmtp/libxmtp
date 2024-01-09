@@ -1,5 +1,5 @@
 // @generated
-impl serde::Serialize for ConsumeKeyPackagesRequest {
+impl serde::Serialize for FetchKeyPackagesRequest {
     #[allow(deprecated)]
     fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
     where
@@ -10,14 +10,14 @@ impl serde::Serialize for ConsumeKeyPackagesRequest {
         if !self.installation_ids.is_empty() {
             len += 1;
         }
-        let mut struct_ser = serializer.serialize_struct("xmtp.message_api.v3.ConsumeKeyPackagesRequest", len)?;
+        let mut struct_ser = serializer.serialize_struct("xmtp.message_api.v3.FetchKeyPackagesRequest", len)?;
         if !self.installation_ids.is_empty() {
             struct_ser.serialize_field("installationIds", &self.installation_ids.iter().map(pbjson::private::base64::encode).collect::<Vec<_>>())?;
         }
         struct_ser.end()
     }
 }
-impl<'de> serde::Deserialize<'de> for ConsumeKeyPackagesRequest {
+impl<'de> serde::Deserialize<'de> for FetchKeyPackagesRequest {
     #[allow(deprecated)]
     fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
     where
@@ -62,13 +62,13 @@ impl<'de> serde::Deserialize<'de> for ConsumeKeyPackagesRequest {
         }
         struct GeneratedVisitor;
         impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
-            type Value = ConsumeKeyPackagesRequest;
+            type Value = FetchKeyPackagesRequest;
 
             fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-                formatter.write_str("struct xmtp.message_api.v3.ConsumeKeyPackagesRequest")
+                formatter.write_str("struct xmtp.message_api.v3.FetchKeyPackagesRequest")
             }
 
-            fn visit_map<V>(self, mut map: V) -> std::result::Result<ConsumeKeyPackagesRequest, V::Error>
+            fn visit_map<V>(self, mut map: V) -> std::result::Result<FetchKeyPackagesRequest, V::Error>
                 where
                     V: serde::de::MapAccess<'de>,
             {
@@ -86,15 +86,15 @@ impl<'de> serde::Deserialize<'de> for ConsumeKeyPackagesRequest {
                         }
                     }
                 }
-                Ok(ConsumeKeyPackagesRequest {
+                Ok(FetchKeyPackagesRequest {
                     installation_ids: installation_ids__.unwrap_or_default(),
                 })
             }
         }
-        deserializer.deserialize_struct("xmtp.message_api.v3.ConsumeKeyPackagesRequest", FIELDS, GeneratedVisitor)
+        deserializer.deserialize_struct("xmtp.message_api.v3.FetchKeyPackagesRequest", FIELDS, GeneratedVisitor)
     }
 }
-impl serde::Serialize for ConsumeKeyPackagesResponse {
+impl serde::Serialize for FetchKeyPackagesResponse {
     #[allow(deprecated)]
     fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
     where
@@ -105,14 +105,14 @@ impl serde::Serialize for ConsumeKeyPackagesResponse {
         if !self.key_packages.is_empty() {
             len += 1;
         }
-        let mut struct_ser = serializer.serialize_struct("xmtp.message_api.v3.ConsumeKeyPackagesResponse", len)?;
+        let mut struct_ser = serializer.serialize_struct("xmtp.message_api.v3.FetchKeyPackagesResponse", len)?;
         if !self.key_packages.is_empty() {
             struct_ser.serialize_field("keyPackages", &self.key_packages)?;
         }
         struct_ser.end()
     }
 }
-impl<'de> serde::Deserialize<'de> for ConsumeKeyPackagesResponse {
+impl<'de> serde::Deserialize<'de> for FetchKeyPackagesResponse {
     #[allow(deprecated)]
     fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
     where
@@ -157,13 +157,13 @@ impl<'de> serde::Deserialize<'de> for ConsumeKeyPackagesResponse {
         }
         struct GeneratedVisitor;
         impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
-            type Value = ConsumeKeyPackagesResponse;
+            type Value = FetchKeyPackagesResponse;
 
             fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-                formatter.write_str("struct xmtp.message_api.v3.ConsumeKeyPackagesResponse")
+                formatter.write_str("struct xmtp.message_api.v3.FetchKeyPackagesResponse")
             }
 
-            fn visit_map<V>(self, mut map: V) -> std::result::Result<ConsumeKeyPackagesResponse, V::Error>
+            fn visit_map<V>(self, mut map: V) -> std::result::Result<FetchKeyPackagesResponse, V::Error>
                 where
                     V: serde::de::MapAccess<'de>,
             {
@@ -178,15 +178,15 @@ impl<'de> serde::Deserialize<'de> for ConsumeKeyPackagesResponse {
                         }
                     }
                 }
-                Ok(ConsumeKeyPackagesResponse {
+                Ok(FetchKeyPackagesResponse {
                     key_packages: key_packages__.unwrap_or_default(),
                 })
             }
         }
-        deserializer.deserialize_struct("xmtp.message_api.v3.ConsumeKeyPackagesResponse", FIELDS, GeneratedVisitor)
+        deserializer.deserialize_struct("xmtp.message_api.v3.FetchKeyPackagesResponse", FIELDS, GeneratedVisitor)
     }
 }
-impl serde::Serialize for consume_key_packages_response::KeyPackage {
+impl serde::Serialize for fetch_key_packages_response::KeyPackage {
     #[allow(deprecated)]
     fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
     where
@@ -197,14 +197,14 @@ impl serde::Serialize for consume_key_packages_response::KeyPackage {
         if !self.key_package_tls_serialized.is_empty() {
             len += 1;
         }
-        let mut struct_ser = serializer.serialize_struct("xmtp.message_api.v3.ConsumeKeyPackagesResponse.KeyPackage", len)?;
+        let mut struct_ser = serializer.serialize_struct("xmtp.message_api.v3.FetchKeyPackagesResponse.KeyPackage", len)?;
         if !self.key_package_tls_serialized.is_empty() {
             struct_ser.serialize_field("keyPackageTlsSerialized", pbjson::private::base64::encode(&self.key_package_tls_serialized).as_str())?;
         }
         struct_ser.end()
     }
 }
-impl<'de> serde::Deserialize<'de> for consume_key_packages_response::KeyPackage {
+impl<'de> serde::Deserialize<'de> for fetch_key_packages_response::KeyPackage {
     #[allow(deprecated)]
     fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
     where
@@ -249,13 +249,13 @@ impl<'de> serde::Deserialize<'de> for consume_key_packages_response::KeyPackage 
         }
         struct GeneratedVisitor;
         impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
-            type Value = consume_key_packages_response::KeyPackage;
+            type Value = fetch_key_packages_response::KeyPackage;
 
             fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-                formatter.write_str("struct xmtp.message_api.v3.ConsumeKeyPackagesResponse.KeyPackage")
+                formatter.write_str("struct xmtp.message_api.v3.FetchKeyPackagesResponse.KeyPackage")
             }
 
-            fn visit_map<V>(self, mut map: V) -> std::result::Result<consume_key_packages_response::KeyPackage, V::Error>
+            fn visit_map<V>(self, mut map: V) -> std::result::Result<fetch_key_packages_response::KeyPackage, V::Error>
                 where
                     V: serde::de::MapAccess<'de>,
             {
@@ -272,12 +272,12 @@ impl<'de> serde::Deserialize<'de> for consume_key_packages_response::KeyPackage 
                         }
                     }
                 }
-                Ok(consume_key_packages_response::KeyPackage {
+                Ok(fetch_key_packages_response::KeyPackage {
                     key_package_tls_serialized: key_package_tls_serialized__.unwrap_or_default(),
                 })
             }
         }
-        deserializer.deserialize_struct("xmtp.message_api.v3.ConsumeKeyPackagesResponse.KeyPackage", FIELDS, GeneratedVisitor)
+        deserializer.deserialize_struct("xmtp.message_api.v3.FetchKeyPackagesResponse.KeyPackage", FIELDS, GeneratedVisitor)
     }
 }
 impl serde::Serialize for GetIdentityUpdatesRequest {
@@ -1310,12 +1310,12 @@ impl serde::Serialize for RegisterInstallationRequest {
     {
         use serde::ser::SerializeStruct;
         let mut len = 0;
-        if self.last_resort_key_package.is_some() {
+        if self.key_package.is_some() {
             len += 1;
         }
         let mut struct_ser = serializer.serialize_struct("xmtp.message_api.v3.RegisterInstallationRequest", len)?;
-        if let Some(v) = self.last_resort_key_package.as_ref() {
-            struct_ser.serialize_field("lastResortKeyPackage", v)?;
+        if let Some(v) = self.key_package.as_ref() {
+            struct_ser.serialize_field("keyPackage", v)?;
         }
         struct_ser.end()
     }
@@ -1327,13 +1327,13 @@ impl<'de> serde::Deserialize<'de> for RegisterInstallationRequest {
         D: serde::Deserializer<'de>,
     {
         const FIELDS: &[&str] = &[
-            "last_resort_key_package",
-            "lastResortKeyPackage",
+            "key_package",
+            "keyPackage",
         ];
 
         #[allow(clippy::enum_variant_names)]
         enum GeneratedField {
-            LastResortKeyPackage,
+            KeyPackage,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
             fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
@@ -1355,7 +1355,7 @@ impl<'de> serde::Deserialize<'de> for RegisterInstallationRequest {
                         E: serde::de::Error,
                     {
                         match value {
-                            "lastResortKeyPackage" | "last_resort_key_package" => Ok(GeneratedField::LastResortKeyPackage),
+                            "keyPackage" | "key_package" => Ok(GeneratedField::KeyPackage),
                             _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
                         }
                     }
@@ -1375,19 +1375,19 @@ impl<'de> serde::Deserialize<'de> for RegisterInstallationRequest {
                 where
                     V: serde::de::MapAccess<'de>,
             {
-                let mut last_resort_key_package__ = None;
+                let mut key_package__ = None;
                 while let Some(k) = map.next_key()? {
                     match k {
-                        GeneratedField::LastResortKeyPackage => {
-                            if last_resort_key_package__.is_some() {
-                                return Err(serde::de::Error::duplicate_field("lastResortKeyPackage"));
+                        GeneratedField::KeyPackage => {
+                            if key_package__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("keyPackage"));
                             }
-                            last_resort_key_package__ = map.next_value()?;
+                            key_package__ = map.next_value()?;
                         }
                     }
                 }
                 Ok(RegisterInstallationRequest {
-                    last_resort_key_package: last_resort_key_package__,
+                    key_package: key_package__,
                 })
             }
         }
@@ -1600,7 +1600,7 @@ impl<'de> serde::Deserialize<'de> for RevokeInstallationRequest {
         deserializer.deserialize_struct("xmtp.message_api.v3.RevokeInstallationRequest", FIELDS, GeneratedVisitor)
     }
 }
-impl serde::Serialize for UploadKeyPackagesRequest {
+impl serde::Serialize for UploadKeyPackageRequest {
     #[allow(deprecated)]
     fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
     where
@@ -1608,30 +1608,30 @@ impl serde::Serialize for UploadKeyPackagesRequest {
     {
         use serde::ser::SerializeStruct;
         let mut len = 0;
-        if !self.key_packages.is_empty() {
+        if self.key_package.is_some() {
             len += 1;
         }
-        let mut struct_ser = serializer.serialize_struct("xmtp.message_api.v3.UploadKeyPackagesRequest", len)?;
-        if !self.key_packages.is_empty() {
-            struct_ser.serialize_field("keyPackages", &self.key_packages)?;
+        let mut struct_ser = serializer.serialize_struct("xmtp.message_api.v3.UploadKeyPackageRequest", len)?;
+        if let Some(v) = self.key_package.as_ref() {
+            struct_ser.serialize_field("keyPackage", v)?;
         }
         struct_ser.end()
     }
 }
-impl<'de> serde::Deserialize<'de> for UploadKeyPackagesRequest {
+impl<'de> serde::Deserialize<'de> for UploadKeyPackageRequest {
     #[allow(deprecated)]
     fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
     where
         D: serde::Deserializer<'de>,
     {
         const FIELDS: &[&str] = &[
-            "key_packages",
-            "keyPackages",
+            "key_package",
+            "keyPackage",
         ];
 
         #[allow(clippy::enum_variant_names)]
         enum GeneratedField {
-            KeyPackages,
+            KeyPackage,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
             fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
@@ -1653,7 +1653,7 @@ impl<'de> serde::Deserialize<'de> for UploadKeyPackagesRequest {
                         E: serde::de::Error,
                     {
                         match value {
-                            "keyPackages" | "key_packages" => Ok(GeneratedField::KeyPackages),
+                            "keyPackage" | "key_package" => Ok(GeneratedField::KeyPackage),
                             _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
                         }
                     }
@@ -1663,32 +1663,32 @@ impl<'de> serde::Deserialize<'de> for UploadKeyPackagesRequest {
         }
         struct GeneratedVisitor;
         impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
-            type Value = UploadKeyPackagesRequest;
+            type Value = UploadKeyPackageRequest;
 
             fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-                formatter.write_str("struct xmtp.message_api.v3.UploadKeyPackagesRequest")
+                formatter.write_str("struct xmtp.message_api.v3.UploadKeyPackageRequest")
             }
 
-            fn visit_map<V>(self, mut map: V) -> std::result::Result<UploadKeyPackagesRequest, V::Error>
+            fn visit_map<V>(self, mut map: V) -> std::result::Result<UploadKeyPackageRequest, V::Error>
                 where
                     V: serde::de::MapAccess<'de>,
             {
-                let mut key_packages__ = None;
+                let mut key_package__ = None;
                 while let Some(k) = map.next_key()? {
                     match k {
-                        GeneratedField::KeyPackages => {
-                            if key_packages__.is_some() {
-                                return Err(serde::de::Error::duplicate_field("keyPackages"));
+                        GeneratedField::KeyPackage => {
+                            if key_package__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("keyPackage"));
                             }
-                            key_packages__ = Some(map.next_value()?);
+                            key_package__ = map.next_value()?;
                         }
                     }
                 }
-                Ok(UploadKeyPackagesRequest {
-                    key_packages: key_packages__.unwrap_or_default(),
+                Ok(UploadKeyPackageRequest {
+                    key_package: key_package__,
                 })
             }
         }
-        deserializer.deserialize_struct("xmtp.message_api.v3.UploadKeyPackagesRequest", FIELDS, GeneratedVisitor)
+        deserializer.deserialize_struct("xmtp.message_api.v3.UploadKeyPackageRequest", FIELDS, GeneratedVisitor)
     }
 }

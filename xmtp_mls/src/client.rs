@@ -1,5 +1,6 @@
-use std::{collections::HashSet, mem::Discriminant};
+use std::{collections::HashSet, mem::Discriminant, pin::Pin};
 
+use futures::{Stream, StreamExt};
 use log::debug;
 use openmls::{
     framing::{MlsMessageIn, MlsMessageInBody},
@@ -7,6 +8,7 @@ use openmls::{
     messages::Welcome,
     prelude::TlsSerializeTrait,
 };
+use openmls_traits::OpenMlsProvider;
 use prost::EncodeError;
 use thiserror::Error;
 use tls_codec::{Deserialize, Error as TlsSerializationError};
@@ -99,6 +101,8 @@ pub enum MessageProcessingError {
     Codec(#[from] crate::codecs::CodecError),
     #[error("encode proto: {0}")]
     EncodeProto(#[from] EncodeError),
+    #[error("epoch increment not allowed")]
+    EpochIncrementNotAllowed,
 }
 
 impl crate::retry::RetryableError for MessageProcessingError {
@@ -194,16 +198,25 @@ where
     }
 
     pub async fn register_identity(&self) -> Result<(), ClientError> {
-        // TODO: Mark key package as last_resort in creation
         let connection = self.store.conn()?;
-        let last_resort_kp = self
+        let kp = self
             .identity
             .new_key_package(&self.mls_provider(&connection))?;
-        let last_resort_kp_bytes = last_resort_kp.tls_serialize_detached()?;
+        let kp_bytes = kp.tls_serialize_detached()?;
 
-        self.api_client
-            .register_installation(last_resort_kp_bytes)
-            .await?;
+        self.api_client.register_installation(kp_bytes).await?;
+
+        Ok(())
+    }
+
+    pub async fn rotate_key_package(&self) -> Result<(), ClientError> {
+        let connection = self.store.conn()?;
+        let kp = self
+            .identity
+            .new_key_package(&self.mls_provider(&connection))?;
+        let kp_bytes = kp.tls_serialize_detached()?;
+
+        self.api_client.upload_key_package(kp_bytes).await?;
 
         Ok(())
     }
@@ -313,17 +326,14 @@ where
         &self,
         installation_ids: Vec<Vec<u8>>,
     ) -> Result<Vec<VerifiedKeyPackage>, ClientError> {
-        let key_package_results = self
-            .api_client
-            .consume_key_packages(installation_ids)
-            .await?;
+        let key_package_results = self.api_client.fetch_key_packages(installation_ids).await?;
 
         let conn = self.store.conn()?;
 
         Ok(key_package_results
             .values()
             .map(|bytes| {
-                VerifiedKeyPackage::from_bytes(&self.mls_provider(&conn), bytes.as_slice())
+                VerifiedKeyPackage::from_bytes(self.mls_provider(&conn).crypto(), bytes.as_slice())
             })
             .collect::<Result<_, _>>()?)
     }
@@ -362,6 +372,40 @@ where
 
         Ok(groups)
     }
+
+    fn process_streamed_welcome(
+        &self,
+        envelope: Envelope,
+    ) -> Result<MlsGroup<ApiClient>, ClientError> {
+        let welcome = extract_welcome(&envelope.message)?;
+        let conn = self.store.conn()?;
+        let provider = self.mls_provider(&conn);
+        Ok(MlsGroup::create_from_welcome(self, &provider, welcome)
+            .map_err(|e| ClientError::Generic(e.to_string()))?)
+    }
+
+    pub async fn stream_conversations(
+        &'a self,
+    ) -> Result<Pin<Box<dyn Stream<Item = MlsGroup<ApiClient>> + 'a>>, ClientError> {
+        let welcome_topic = get_welcome_topic(&self.installation_public_key());
+        let subscription = self.api_client.subscribe(vec![welcome_topic]).await?;
+        let stream = subscription
+            .map(|envelope_result| async {
+                let envelope = envelope_result?;
+                self.process_streamed_welcome(envelope)
+            })
+            .filter_map(|res| async {
+                match res.await {
+                    Ok(group) => Some(group),
+                    Err(err) => {
+                        log::error!("Error processing stream entry: {:?}", err);
+                        None
+                    }
+                }
+            });
+
+        Ok(Box::pin(stream))
+    }
 }
 
 fn extract_welcome(welcome_bytes: &Vec<u8>) -> Result<Welcome, ClientError> {
@@ -380,6 +424,7 @@ mod tests {
     use xmtp_cryptography::utils::generate_local_wallet;
 
     use crate::{builder::ClientBuilder, InboxOwner};
+    use futures::StreamExt;
 
     #[tokio::test]
     async fn test_mls_error() {
@@ -403,6 +448,33 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(installation_ids.len(), 1);
+    }
+
+    #[tokio::test]
+    async fn test_rotate_key_package() {
+        let wallet = generate_local_wallet();
+        let client = ClientBuilder::new_test_client(wallet.clone().into()).await;
+        client.register_identity().await.unwrap();
+
+        // Get original KeyPackage.
+        let kp1 = client
+            .get_key_packages_for_installation_ids(vec![client.installation_public_key()])
+            .await
+            .unwrap();
+        assert_eq!(kp1.len(), 1);
+        let init1 = kp1[0].inner.hpke_init_key();
+
+        // Rotate and fetch again.
+        client.rotate_key_package().await.unwrap();
+
+        let kp2 = client
+            .get_key_packages_for_installation_ids(vec![client.installation_public_key()])
+            .await
+            .unwrap();
+        assert_eq!(kp2.len(), 1);
+        let init2 = kp2[0].inner.hpke_init_key();
+
+        assert_ne!(init1, init2);
     }
 
     #[tokio::test]
@@ -439,5 +511,22 @@ mod tests {
 
         let duplicate_received_groups = bob.sync_welcomes().await.unwrap();
         assert_eq!(duplicate_received_groups.len(), 0);
+    }
+
+    #[tokio::test]
+    async fn test_stream_welcomes() {
+        let alice = ClientBuilder::new_test_client(generate_local_wallet().into()).await;
+        let bob = ClientBuilder::new_test_client(generate_local_wallet().into()).await;
+        bob.register_identity().await.unwrap();
+
+        let alice_bob_group = alice.create_group().unwrap();
+
+        let mut bob_stream = bob.stream_conversations().await.unwrap();
+        alice_bob_group
+            .add_members_by_installation_id(vec![bob.installation_public_key()])
+            .await
+            .unwrap();
+        let bob_received_groups = bob_stream.next().await.unwrap();
+        assert_eq!(bob_received_groups.group_id, alice_bob_group.group_id);
     }
 }
