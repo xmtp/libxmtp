@@ -5390,18 +5390,7 @@ dependencies = [
 name = "tinyvec_macros"
 version = "0.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1f3ccbac311fea05f86f61904b462b55fb3df8837a366dfc601a0161d0532f20"
-
-[[package]]
-name = "tls_codec"
-version = "0.3.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "aee1e621cbf57f36f5b51ebf366b57ba153be7fed133182a9513e443ecdf506e"
-dependencies = [
- "serde",
- "tls_codec_derive 0.3.0",
- "zeroize",
-]
+checksum = "1f3ccbac311fea05f86f61904b462b55fb3df8837a366dfc601a0161d0532f20
 
 [[package]]
 name = "tls_codec"
@@ -5412,17 +5401,6 @@ dependencies = [
  "serde",
  "tls_codec_derive 0.4.0",
  "zeroize",
-]
-
-[[package]]
-name = "tls_codec_derive"
-version = "0.3.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3226440488120aabe7e7cc80292634a68e541c407d97b66eceaae787454dae25"
-dependencies = [
- "proc-macro2",
- "quote",
- "syn 2.0.48",
 ]
 
 [[package]]
