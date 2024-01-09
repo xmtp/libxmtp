@@ -90,7 +90,7 @@ mod tests {
         let bola_group = bola_groups.first().unwrap();
 
         let mut stream = bola_group.stream().await.unwrap();
-
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
         amal_group.send_message("hello".as_bytes()).await.unwrap();
 
         let first_val = stream.next().await.unwrap();
@@ -112,6 +112,7 @@ mod tests {
         let amal_group = amal.create_group().unwrap();
 
         let mut stream = amal_group.stream().await.unwrap();
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
 
         amal_group
             .add_members_by_installation_id(vec![bola.installation_public_key()])
