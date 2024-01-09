@@ -25,18 +25,20 @@ impl ValidationApi for ValidationService {
             .map(
                 |kp| match validate_key_package(kp.key_package_bytes_tls_serialized) {
                     Ok(res) => ValidateKeyPackageValidationResponse {
-                        installation_id: res.installation_id,
-                        credential_identity_bytes: res.credential_identity_bytes,
-                        account_address: res.account_address,
-                        error_message: "".to_string(),
                         is_ok: true,
+                        error_message: "".to_string(),
+                        installation_id: res.installation_id,
+                        account_address: res.account_address,
+                        credential_identity_bytes: res.credential_identity_bytes,
+                        expiration: res.expiration,
                     },
                     Err(e) => ValidateKeyPackageValidationResponse {
                         is_ok: false,
                         error_message: e,
-                        credential_identity_bytes: vec![],
                         installation_id: vec![],
                         account_address: "".to_string(),
+                        credential_identity_bytes: vec![],
+                        expiration: 0,
                     },
                 },
             )
@@ -85,10 +87,10 @@ fn validate_group_message(message: Vec<u8>) -> Result<ValidateGroupMessageResult
     let msg_result = MlsMessageIn::tls_deserialize(&mut message.as_slice())
         .map_err(|_| "failed to decode".to_string())?;
 
-    let private_message: ProtocolMessage = msg_result.into();
+    let protocol_message: ProtocolMessage = msg_result.into();
 
     Ok(ValidateGroupMessageResult {
-        group_id: serialize_group_id(private_message.group_id().as_slice()),
+        group_id: serialize_group_id(protocol_message.group_id().as_slice()),
     })
 }
 
@@ -96,6 +98,7 @@ struct ValidateKeyPackageResult {
     installation_id: Vec<u8>,
     account_address: String,
     credential_identity_bytes: Vec<u8>,
+    expiration: u64,
 }
 
 fn validate_key_package(key_package_bytes: Vec<u8>) -> Result<ValidateKeyPackageResult, String> {
@@ -113,6 +116,7 @@ fn validate_key_package(key_package_bytes: Vec<u8>) -> Result<ValidateKeyPackage
             .credential()
             .identity()
             .to_vec(),
+        expiration: verified_key_package.inner.life_time().not_after(),
     })
 }
 

@@ -198,16 +198,25 @@ where
     }
 
     pub async fn register_identity(&self) -> Result<(), ClientError> {
-        // TODO: Mark key package as last_resort in creation
         let connection = self.store.conn()?;
-        let last_resort_kp = self
+        let kp = self
             .identity
             .new_key_package(&self.mls_provider(&connection))?;
-        let last_resort_kp_bytes = last_resort_kp.tls_serialize_detached()?;
+        let kp_bytes = kp.tls_serialize_detached()?;
 
-        self.api_client
-            .register_installation(last_resort_kp_bytes)
-            .await?;
+        self.api_client.register_installation(kp_bytes).await?;
+
+        Ok(())
+    }
+
+    pub async fn rotate_key_package(&self) -> Result<(), ClientError> {
+        let connection = self.store.conn()?;
+        let kp = self
+            .identity
+            .new_key_package(&self.mls_provider(&connection))?;
+        let kp_bytes = kp.tls_serialize_detached()?;
+
+        self.api_client.upload_key_package(kp_bytes).await?;
 
         Ok(())
     }
@@ -317,10 +326,7 @@ where
         &self,
         installation_ids: Vec<Vec<u8>>,
     ) -> Result<Vec<VerifiedKeyPackage>, ClientError> {
-        let key_package_results = self
-            .api_client
-            .consume_key_packages(installation_ids)
-            .await?;
+        let key_package_results = self.api_client.fetch_key_packages(installation_ids).await?;
 
         let conn = self.store.conn()?;
 
@@ -442,6 +448,33 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(installation_ids.len(), 1);
+    }
+
+    #[tokio::test]
+    async fn test_rotate_key_package() {
+        let wallet = generate_local_wallet();
+        let client = ClientBuilder::new_test_client(wallet.clone().into()).await;
+        client.register_identity().await.unwrap();
+
+        // Get original KeyPackage.
+        let kp1 = client
+            .get_key_packages_for_installation_ids(vec![client.installation_public_key()])
+            .await
+            .unwrap();
+        assert_eq!(kp1.len(), 1);
+        let init1 = kp1[0].inner.hpke_init_key();
+
+        // Rotate and fetch again.
+        client.rotate_key_package().await.unwrap();
+
+        let kp2 = client
+            .get_key_packages_for_installation_ids(vec![client.installation_public_key()])
+            .await
+            .unwrap();
+        assert_eq!(kp2.len(), 1);
+        let init2 = kp2[0].inner.hpke_init_key();
+
+        assert_ne!(init1, init2);
     }
 
     #[tokio::test]
