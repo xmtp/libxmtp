@@ -107,7 +107,7 @@ impl TryFrom<MembershipPolicyProto> for MembershipPolicies {
                 1 => Ok(MembershipPolicies::allow()),
                 2 => Ok(MembershipPolicies::deny()),
                 3 => Ok(MembershipPolicies::allow_same_member()),
-                _ => return Err(PolicyError::InvalidPolicy),
+                _ => Err(PolicyError::InvalidPolicy),
             },
             Some(PolicyKindProto::AndCondition(inner)) => {
                 if inner.policies.is_empty() {
