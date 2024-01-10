@@ -1,5 +1,8 @@
 use async_trait::async_trait;
-use xmtp_proto::api_client::{Error, ErrorKind, XmtpApiClient, XmtpApiSubscription};
+use futures::Stream;
+use xmtp_proto::api_client::{
+    Error, ErrorKind, MutableApiSubscription, XmtpApiClient, XmtpApiSubscription,
+};
 use xmtp_proto::xmtp::message_api::v1::{
     BatchQueryRequest, BatchQueryResponse, Envelope, PublishRequest, PublishResponse, QueryRequest,
     QueryResponse, SubscribeRequest,
@@ -23,9 +26,11 @@ impl XmtpGrpcGatewayClient {
     }
 }
 
-#[async_trait(?Send)]
+#[cfg_attr(not(target_arch = "wasm32"), async_trait)]
+#[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
 impl XmtpApiClient for XmtpGrpcGatewayClient {
     type Subscription = XmtpGrpcGatewaySubscription;
+    type MutableSubscription = XmtpGrpcGatewayMutableSubscription;
 
     fn set_app_version(&mut self, _version: String) {
         // TODO
@@ -54,6 +59,14 @@ impl XmtpApiClient for XmtpGrpcGatewayClient {
         &self,
         _request: SubscribeRequest,
     ) -> Result<XmtpGrpcGatewaySubscription, Error> {
+        // TODO
+        Err(Error::new(ErrorKind::SubscribeError))
+    }
+
+    async fn subscribe2(
+        &self,
+        _request: SubscribeRequest,
+    ) -> Result<Self::MutableSubscription, Error> {
         // TODO
         Err(Error::new(ErrorKind::SubscribeError))
     }
@@ -99,4 +112,30 @@ impl XmtpApiSubscription for XmtpGrpcGatewaySubscription {
     }
 
     fn close_stream(&mut self) {}
+}
+
+pub struct XmtpGrpcGatewayMutableSubscription {}
+
+#[cfg_attr(not(target_arch = "wasm32"), async_trait)]
+#[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
+impl MutableApiSubscription for XmtpGrpcGatewayMutableSubscription {
+    async fn update(&mut self, _req: SubscribeRequest) -> Result<(), Error> {
+        // TODO
+        Err(Error::new(ErrorKind::SubscriptionUpdateError))
+    }
+
+    fn close(&self) {
+        // TODO
+    }
+}
+
+impl Stream for XmtpGrpcGatewayMutableSubscription {
+    type Item = Result<Envelope, Error>;
+
+    fn poll_next(
+        self: std::pin::Pin<&mut Self>,
+        _cx: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<Option<Self::Item>> {
+        std::task::Poll::Ready(None)
+    }
 }

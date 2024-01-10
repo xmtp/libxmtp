@@ -1,6 +1,9 @@
+mod group_permissions;
 mod intents;
 mod members;
+mod subscriptions;
 pub mod validated_commit;
+use crate::codecs::ContentCodec;
 use intents::SendMessageIntentData;
 use log::debug;
 use openmls::{
@@ -14,11 +17,15 @@ use openmls::{
     prelude_test::KeyPackage,
 };
 use openmls_traits::OpenMlsProvider;
+use prost::Message;
 use std::mem::discriminant;
 use thiserror::Error;
 use tls_codec::{Deserialize, Serialize};
 use xmtp_cryptography::signature::{is_valid_ed25519_public_key, is_valid_ethereum_address};
-use xmtp_proto::api_client::{Envelope, XmtpApiClient, XmtpMlsClient};
+use xmtp_proto::{
+    api_client::{Envelope, XmtpApiClient, XmtpMlsClient},
+    xmtp::mls::message_contents::GroupMembershipChanges,
+};
 
 pub use self::intents::{AddressesOrInstallationIds, IntentError};
 use self::{
@@ -28,6 +35,7 @@ use self::{
 use crate::{
     api_client_wrapper::WelcomeMessage,
     client::{ClientError, MessageProcessingError},
+    codecs::membership_change::GroupMembershipChangeCodec,
     configuration::CIPHERSUITE,
     groups::validated_commit::ValidatedCommit,
     identity::Identity,
@@ -226,6 +234,7 @@ where
         provider: &XmtpOpenMlsProvider,
         message: ProtocolMessage,
         envelope_timestamp_ns: u64,
+        allow_epoch_increment: bool,
     ) -> Result<(), MessageProcessingError> {
         if intent.state == IntentState::Committed {
             return Ok(());
@@ -240,6 +249,9 @@ where
         let conn = provider.conn();
         match intent.kind {
             IntentKind::AddMembers | IntentKind::RemoveMembers | IntentKind::KeyUpdate => {
+                if !allow_epoch_increment {
+                    return Err(MessageProcessingError::EpochIncrementNotAllowed);
+                }
                 let maybe_pending_commit = openmls_group.pending_commit();
                 // We don't get errors with merge_pending_commit when there are no commits to merge
                 if maybe_pending_commit.is_none() {
@@ -256,6 +268,10 @@ where
                         group_epoch,
                     });
                 }
+                let maybe_validated_commit = ValidatedCommit::from_staged_commit(
+                    maybe_pending_commit.expect("already checked"),
+                    openmls_group,
+                )?;
 
                 debug!("[{}] merging pending commit", self.client.account_address());
                 if let Err(MergePendingCommitError::MlsGroupStateError(err)) =
@@ -264,6 +280,13 @@ where
                     debug!("error merging commit: {}", err);
                     openmls_group.clear_pending_commit();
                     conn.set_group_intent_to_publish(intent.id)?;
+                } else {
+                    // If no error committing the change, write a transcript message
+                    self.save_transcript_message(
+                        conn,
+                        maybe_validated_commit,
+                        envelope_timestamp_ns,
+                    )?;
                 }
                 // TOOD: Handle writing transcript messages for adding/removing members
             }
@@ -271,7 +294,6 @@ where
                 let intent_data = SendMessageIntentData::from_bytes(intent.data.as_slice())?;
                 let group_id = openmls_group.group_id().as_slice();
                 let decrypted_message_data = intent_data.message.as_slice();
-
                 StoredGroupMessage {
                     id: get_message_id(decrypted_message_data, group_id, envelope_timestamp_ns),
                     group_id: group_id.to_vec(),
@@ -279,7 +301,7 @@ where
                     sent_at_ns: envelope_timestamp_ns as i64,
                     kind: GroupMessageKind::Application,
                     sender_installation_id: self.client.installation_public_key(),
-                    sender_wallet_address: self.client.account_address(),
+                    sender_account_address: self.client.account_address(),
                 }
                 .store(conn)?;
             }
@@ -290,12 +312,53 @@ where
         Ok(())
     }
 
+    fn save_transcript_message(
+        &self,
+        conn: &DbConnection,
+        maybe_validated_commit: Option<ValidatedCommit>,
+        timestamp_ns: u64,
+    ) -> Result<Option<StoredGroupMessage>, MessageProcessingError> {
+        let mut transcript_message = None;
+        if let Some(validated_commit) = maybe_validated_commit {
+            // If there are no members added or removed, don't write a transcript message
+            if validated_commit.members_added.is_empty()
+                && validated_commit.members_removed.is_empty()
+            {
+                return Ok(None);
+            }
+            let sender_installation_id = validated_commit.actor_installation_id();
+            let sender_account_address = validated_commit.actor_account_address();
+            let payload: GroupMembershipChanges = validated_commit.into();
+            let encoded_payload = GroupMembershipChangeCodec::encode(payload)?;
+            let mut encoded_payload_bytes = Vec::new();
+            encoded_payload.encode(&mut encoded_payload_bytes)?;
+            let group_id = self.group_id.as_slice();
+            let message_id =
+                get_message_id(encoded_payload_bytes.as_slice(), group_id, timestamp_ns);
+            let msg = StoredGroupMessage {
+                id: message_id,
+                group_id: group_id.to_vec(),
+                decrypted_message_bytes: encoded_payload_bytes.to_vec(),
+                sent_at_ns: timestamp_ns as i64,
+                kind: GroupMessageKind::MembershipChange,
+                sender_installation_id,
+                sender_account_address,
+            };
+
+            msg.store(conn)?;
+            transcript_message = Some(msg);
+        }
+
+        Ok(transcript_message)
+    }
+
     fn process_private_message(
         &self,
         openmls_group: &mut OpenMlsGroup,
         provider: &XmtpOpenMlsProvider,
         message: PrivateMessageIn,
         envelope_timestamp_ns: u64,
+        allow_epoch_increment: bool,
     ) -> Result<(), MessageProcessingError> {
         debug!(
             "[{}] processing private message",
@@ -310,16 +373,16 @@ where
                 let message_bytes = application_message.into_bytes();
                 let message_id =
                     get_message_id(&message_bytes, &self.group_id, envelope_timestamp_ns);
-                let message = StoredGroupMessage {
+                StoredGroupMessage {
                     id: message_id,
                     group_id: self.group_id.clone(),
                     decrypted_message_bytes: message_bytes,
                     sent_at_ns: envelope_timestamp_ns as i64,
                     kind: GroupMessageKind::Application,
                     sender_installation_id,
-                    sender_wallet_address: sender_account_address,
-                };
-                message.store(provider.conn())?;
+                    sender_account_address,
+                }
+                .store(provider.conn())?;
             }
             ProcessedMessageContent::ProposalMessage(_proposal_ptr) => {
                 // intentionally left blank.
@@ -328,6 +391,9 @@ where
                 // intentionally left blank.
             }
             ProcessedMessageContent::StagedCommitMessage(staged_commit) => {
+                if !allow_epoch_increment {
+                    return Err(MessageProcessingError::EpochIncrementNotAllowed);
+                }
                 debug!(
                     "[{}] received staged commit. Merging and clearing any pending commits",
                     self.client.account_address()
@@ -335,8 +401,13 @@ where
 
                 let sc = *staged_commit;
                 // Validate the commit
-                ValidatedCommit::from_staged_commit(&sc, openmls_group)?;
+                let validated_commit = ValidatedCommit::from_staged_commit(&sc, openmls_group)?;
                 openmls_group.merge_staged_commit(provider, sc)?;
+                self.save_transcript_message(
+                    provider.conn(),
+                    validated_commit,
+                    envelope_timestamp_ns,
+                )?;
             }
         };
 
@@ -348,6 +419,7 @@ where
         openmls_group: &mut OpenMlsGroup,
         provider: &XmtpOpenMlsProvider,
         envelope: &Envelope,
+        allow_epoch_increment: bool,
     ) -> Result<(), MessageProcessingError> {
         let mls_message_in = MlsMessageIn::tls_deserialize_exact(&envelope.message)?;
 
@@ -369,6 +441,7 @@ where
                 provider,
                 message.into(),
                 envelope.timestamp_ns,
+                allow_epoch_increment,
             ),
             Err(err) => Err(MessageProcessingError::Storage(err)),
             // No matching intent found
@@ -377,6 +450,7 @@ where
                 provider,
                 message,
                 envelope.timestamp_ns,
+                allow_epoch_increment,
             ),
         }
     }
@@ -390,7 +464,7 @@ where
             &self.topic(),
             envelope.timestamp_ns,
             |provider| -> Result<(), MessageProcessingError> {
-                self.process_message(openmls_group, &provider, envelope)?;
+                self.process_message(openmls_group, &provider, envelope, true)?;
                 openmls_group.save(provider.key_store())?;
                 Ok(())
             },
@@ -442,8 +516,8 @@ where
         Ok(())
     }
 
-    fn validate_evm_addresses(wallet_addresses: &[String]) -> Result<(), GroupError> {
-        let mut invalid = wallet_addresses
+    fn validate_evm_addresses(account_addresses: &[String]) -> Result<(), GroupError> {
+        let mut invalid = account_addresses
             .iter()
             .filter(|a| !is_valid_ethereum_address(a))
             .peekable();
@@ -472,10 +546,11 @@ where
         Ok(())
     }
 
-    pub async fn add_members(&self, wallet_addresses: Vec<String>) -> Result<(), GroupError> {
-        Self::validate_evm_addresses(&wallet_addresses)?;
+    pub async fn add_members(&self, account_addresses: Vec<String>) -> Result<(), GroupError> {
+        Self::validate_evm_addresses(&account_addresses)?;
         let conn = &mut self.client.store.conn()?;
-        let intent_data: Vec<u8> = AddMembersIntentData::new(wallet_addresses.into()).try_into()?;
+        let intent_data: Vec<u8> =
+            AddMembersIntentData::new(account_addresses.into()).try_into()?;
         let intent =
             NewGroupIntent::new(IntentKind::AddMembers, self.group_id.clone(), intent_data);
 
@@ -498,10 +573,10 @@ where
         self.sync_with_conn(conn).await
     }
 
-    pub async fn remove_members(&self, wallet_addresses: Vec<String>) -> Result<(), GroupError> {
-        Self::validate_evm_addresses(&wallet_addresses)?;
+    pub async fn remove_members(&self, account_addresses: Vec<String>) -> Result<(), GroupError> {
+        Self::validate_evm_addresses(&account_addresses)?;
         let conn = &mut self.client.store.conn()?;
-        let intent_data: Vec<u8> = RemoveMembersIntentData::new(wallet_addresses.into()).into();
+        let intent_data: Vec<u8> = RemoveMembersIntentData::new(account_addresses.into()).into();
         let intent = NewGroupIntent::new(
             IntentKind::RemoveMembers,
             self.group_id.clone(),
@@ -920,11 +995,17 @@ mod tests {
             .await
             .expect("group create failure");
 
+        let messages_with_add = group.find_messages(None, None, None, None).unwrap();
+        assert_eq!(messages_with_add.len(), 1);
+
         // Try and add another member without merging the pending commit
         group
             .remove_members_by_installation_id(vec![client_2.installation_public_key()])
             .await
             .expect("group create failure");
+
+        let messages_with_remove = group.find_messages(None, None, None, None).unwrap();
+        assert_eq!(messages_with_remove.len(), 2);
 
         // We are expecting 1 message on the group topic, not 2, because the second one should have
         // failed
@@ -999,7 +1080,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_remove_by_wallet_address() {
+    async fn test_remove_by_account_address() {
         let amal = ClientBuilder::new_test_client(generate_local_wallet().into()).await;
         amal.register_identity().await.unwrap();
         let bola = ClientBuilder::new_test_client(generate_local_wallet().into()).await;

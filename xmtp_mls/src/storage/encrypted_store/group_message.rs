@@ -29,7 +29,7 @@ pub struct StoredGroupMessage {
     /// The ID of the App Installation this message was sent from.
     pub sender_installation_id: Vec<u8>,
     /// Network wallet address of the Sender
-    pub sender_wallet_address: String,
+    pub sender_account_address: String,
 }
 
 #[repr(i32)]
@@ -37,8 +37,7 @@ pub struct StoredGroupMessage {
 #[diesel(sql_type = Integer)]
 pub enum GroupMessageKind {
     Application = 1,
-    MemberAdded = 2,
-    MemberRemoved = 3,
+    MembershipChange = 2,
 }
 
 impl ToSql<Integer, Sqlite> for GroupMessageKind
@@ -58,8 +57,7 @@ where
     fn from_sql(bytes: <Sqlite as Backend>::RawValue<'_>) -> deserialize::Result<Self> {
         match i32::from_sql(bytes)? {
             1 => Ok(GroupMessageKind::Application),
-            2 => Ok(GroupMessageKind::MemberAdded),
-            3 => Ok(GroupMessageKind::MemberRemoved),
+            2 => Ok(GroupMessageKind::MembershipChange),
             x => Err(format!("Unrecognized variant {}", x).into()),
         }
     }
@@ -116,6 +114,21 @@ impl DbConnection<'_> {
                 .optional()
         })?)
     }
+
+    pub fn get_group_message_by_timestamp<GroupId: AsRef<[u8]>>(
+        &self,
+        group_id: GroupId,
+        timestamp: i64,
+    ) -> Result<Option<StoredGroupMessage>, StorageError> {
+        use super::schema::group_messages::dsl;
+        Ok(self.raw_query(|conn| {
+            dsl::group_messages
+                .filter(dsl::group_id.eq(group_id.as_ref()))
+                .filter(dsl::sent_at_ns.eq(timestamp))
+                .first(conn)
+                .optional()
+        })?)
+    }
 }
 
 #[cfg(test)]
@@ -139,7 +152,7 @@ mod tests {
             decrypted_message_bytes: rand_vec(),
             sent_at_ns: sent_at_ns.unwrap_or(rand_time()),
             sender_installation_id: rand_vec(),
-            sender_wallet_address: "0x0".to_string(),
+            sender_account_address: "0x0".to_string(),
             kind: kind.unwrap_or(GroupMessageKind::Application),
         }
     }
@@ -248,7 +261,7 @@ mod tests {
 
             // just a bunch of random messages so we have something to filter through
             for i in 0..30 {
-                match i % 3 {
+                match i % 2 {
                     0 => {
                         let msg = generate_message(
                             Some(GroupMessageKind::Application),
@@ -257,17 +270,9 @@ mod tests {
                         );
                         msg.store(conn).unwrap();
                     }
-                    1 => {
-                        let msg = generate_message(
-                            Some(GroupMessageKind::MemberRemoved),
-                            Some(&group.id),
-                            None,
-                        );
-                        msg.store(conn).unwrap();
-                    }
                     _ => {
                         let msg = generate_message(
-                            Some(GroupMessageKind::MemberAdded),
+                            Some(GroupMessageKind::MembershipChange),
                             Some(&group.id),
                             None,
                         );
@@ -285,29 +290,18 @@ mod tests {
                     None,
                 )
                 .unwrap();
-            assert_eq!(application_messages.len(), 10);
+            assert_eq!(application_messages.len(), 15);
 
-            let member_removed = conn
+            let membership_changes = conn
                 .get_group_messages(
                     &group.id,
                     None,
                     None,
-                    Some(GroupMessageKind::MemberAdded),
+                    Some(GroupMessageKind::MembershipChange),
                     None,
                 )
                 .unwrap();
-            assert_eq!(member_removed.len(), 10);
-
-            let member_added = conn
-                .get_group_messages(
-                    &group.id,
-                    None,
-                    None,
-                    Some(GroupMessageKind::MemberRemoved),
-                    None,
-                )
-                .unwrap();
-            assert_eq!(member_added.len(), 10);
+            assert_eq!(membership_changes.len(), 15);
         })
     }
 }

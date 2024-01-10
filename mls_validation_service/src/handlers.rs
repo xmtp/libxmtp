@@ -1,19 +1,13 @@
-use openmls::{
-    prelude::{KeyPackageIn, MlsMessageIn, ProtocolMessage, TlsDeserializeTrait},
-    versions::ProtocolVersion,
-};
-use openmls_rust_crypto::OpenMlsRustCrypto;
-use openmls_traits::OpenMlsProvider;
+use openmls::prelude::{MlsMessageIn, ProtocolMessage, TlsDeserializeTrait};
+use openmls_rust_crypto::RustCrypto;
 use tonic::{Request, Response, Status};
-use xmtp_mls::utils::id::serialize_group_id;
+use xmtp_mls::{utils::id::serialize_group_id, verified_key_package::VerifiedKeyPackage};
 use xmtp_proto::xmtp::mls_validation::v1::{
     validate_group_messages_response::ValidationResponse as ValidateGroupMessageValidationResponse,
     validate_key_packages_response::ValidationResponse as ValidateKeyPackageValidationResponse,
     validation_api_server::ValidationApi, ValidateGroupMessagesRequest,
     ValidateGroupMessagesResponse, ValidateKeyPackagesRequest, ValidateKeyPackagesResponse,
 };
-
-use crate::validation_helpers::identity_to_wallet_address;
 
 #[derive(Debug, Default)]
 pub struct ValidationService {}
@@ -31,18 +25,20 @@ impl ValidationApi for ValidationService {
             .map(
                 |kp| match validate_key_package(kp.key_package_bytes_tls_serialized) {
                     Ok(res) => ValidateKeyPackageValidationResponse {
-                        installation_id: res.installation_id,
-                        credential_identity_bytes: res.credential_identity_bytes,
-                        wallet_address: res.wallet_address,
-                        error_message: "".to_string(),
                         is_ok: true,
+                        error_message: "".to_string(),
+                        installation_id: res.installation_id,
+                        account_address: res.account_address,
+                        credential_identity_bytes: res.credential_identity_bytes,
+                        expiration: res.expiration,
                     },
                     Err(e) => ValidateKeyPackageValidationResponse {
                         is_ok: false,
                         error_message: e,
-                        credential_identity_bytes: vec![],
                         installation_id: vec![],
-                        wallet_address: "".to_string(),
+                        account_address: "".to_string(),
+                        credential_identity_bytes: vec![],
+                        expiration: 0,
                     },
                 },
             )
@@ -91,41 +87,36 @@ fn validate_group_message(message: Vec<u8>) -> Result<ValidateGroupMessageResult
     let msg_result = MlsMessageIn::tls_deserialize(&mut message.as_slice())
         .map_err(|_| "failed to decode".to_string())?;
 
-    let private_message: ProtocolMessage = msg_result.into();
+    let protocol_message: ProtocolMessage = msg_result.into();
 
     Ok(ValidateGroupMessageResult {
-        group_id: serialize_group_id(private_message.group_id().as_slice()),
+        group_id: serialize_group_id(protocol_message.group_id().as_slice()),
     })
 }
 
 struct ValidateKeyPackageResult {
     installation_id: Vec<u8>,
-    wallet_address: String,
+    account_address: String,
     credential_identity_bytes: Vec<u8>,
+    expiration: u64,
 }
 
 fn validate_key_package(key_package_bytes: Vec<u8>) -> Result<ValidateKeyPackageResult, String> {
-    let deserialize_result = KeyPackageIn::tls_deserialize_bytes(key_package_bytes.as_slice())
-        .map_err(|e| format!("deserialization error: {}", e))?;
-    let rust_crypto = OpenMlsRustCrypto::default();
-    let crypto = rust_crypto.crypto();
-
-    // Validate the key package and check all signatures
-    let kp = deserialize_result
-        .clone()
-        .validate(crypto, ProtocolVersion::Mls10)
-        .map_err(|e| format!("validation failed: {}", e))?;
-
-    // Get the credential so we can
-    let leaf_node = kp.leaf_node();
-    let identity_bytes = leaf_node.credential().identity();
-    let pub_key_bytes = leaf_node.signature_key().as_slice();
-    let wallet_address = identity_to_wallet_address(identity_bytes, pub_key_bytes)?;
+    let rust_crypto = RustCrypto::default();
+    let verified_key_package =
+        VerifiedKeyPackage::from_bytes(&rust_crypto, key_package_bytes.as_slice())
+            .map_err(|e| e.to_string())?;
 
     Ok(ValidateKeyPackageResult {
-        installation_id: pub_key_bytes.to_vec(),
-        wallet_address,
-        credential_identity_bytes: identity_bytes.to_vec(),
+        installation_id: verified_key_package.installation_id(),
+        account_address: verified_key_package.account_address,
+        credential_identity_bytes: verified_key_package
+            .inner
+            .leaf_node()
+            .credential()
+            .identity()
+            .to_vec(),
+        expiration: verified_key_package.inner.life_time().not_after(),
     })
 }
 
@@ -133,21 +124,21 @@ fn validate_key_package(key_package_bytes: Vec<u8>) -> Result<ValidateKeyPackage
 mod tests {
     use ethers::signers::LocalWallet;
     use openmls::{
+        extensions::{ApplicationIdExtension, Extension, Extensions},
         prelude::{
             Ciphersuite, Credential as OpenMlsCredential, CredentialType, CredentialWithKey,
             CryptoConfig, TlsSerializeTrait,
         },
         prelude_test::KeyPackage,
+        versions::ProtocolVersion,
     };
     use openmls_basic_credential::SignatureKeyPair;
+    use openmls_rust_crypto::OpenMlsRustCrypto;
     use prost::Message;
-    use xmtp_mls::{
-        association::{AssociationText, Eip191Association},
-        InboxOwner,
-    };
+    use xmtp_mls::{association::Credential, InboxOwner};
     use xmtp_proto::xmtp::{
+        mls::message_contents::MlsCredential as CredentialProto,
         mls_validation::v1::validate_key_packages_request::KeyPackage as KeyPackageProtoWrapper,
-        v3::message_contents::Eip191Association as Eip191AssociationProto,
     };
 
     use super::*;
@@ -158,31 +149,31 @@ mod tests {
         let rng = &mut rand::thread_rng();
         let wallet = LocalWallet::new(rng);
         let signature_key_pair = SignatureKeyPair::new(CIPHERSUITE.signature_algorithm()).unwrap();
-        let pub_key = signature_key_pair.public();
-        let wallet_address = wallet.get_address();
-        let association_text =
-            AssociationText::new_static(wallet_address.clone(), pub_key.to_vec());
-        let signature = wallet
-            .sign(&association_text.text())
-            .expect("failed to sign");
+        let _pub_key = signature_key_pair.public();
+        let account_address = wallet.get_address();
 
-        let association =
-            Eip191Association::new(pub_key, association_text, signature).expect("bad signature");
-        let association_proto: Eip191AssociationProto = association.into();
-        let mut buf = Vec::new();
-        association_proto
-            .encode(&mut buf)
-            .expect("failed to serialize");
+        let credential = Credential::create_eip191(&signature_key_pair, &wallet)
+            .expect("failed to create credential");
+        let credential_proto: CredentialProto = credential.into();
 
-        (buf, signature_key_pair, wallet_address)
+        (
+            credential_proto.encode_to_vec(),
+            signature_key_pair,
+            account_address,
+        )
     }
 
     fn build_key_package_bytes(
         keypair: &SignatureKeyPair,
         credential_with_key: &CredentialWithKey,
+        account_address: String,
     ) -> Vec<u8> {
         let rust_crypto = OpenMlsRustCrypto::default();
+        let application_id =
+            Extension::ApplicationId(ApplicationIdExtension::new(account_address.as_bytes()));
+
         let kp = KeyPackage::builder()
+            .leaf_node_extensions(Extensions::single(application_id))
             .build(
                 CryptoConfig {
                     ciphersuite: CIPHERSUITE,
@@ -198,7 +189,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_validate_key_packages_happy_path() {
-        let (identity, keypair, wallet_address) = generate_identity();
+        let (identity, keypair, account_address) = generate_identity();
 
         let credential = OpenMlsCredential::new(identity, CredentialType::Basic).unwrap();
         let credential_with_key = CredentialWithKey {
@@ -206,7 +197,8 @@ mod tests {
             signature_key: keypair.to_public_vec().into(),
         };
 
-        let key_package_bytes = build_key_package_bytes(&keypair, &credential_with_key);
+        let key_package_bytes =
+            build_key_package_bytes(&keypair, &credential_with_key, account_address.clone());
         let request = ValidateKeyPackagesRequest {
             key_packages: vec![KeyPackageProtoWrapper {
                 key_package_bytes_tls_serialized: key_package_bytes,
@@ -220,13 +212,13 @@ mod tests {
 
         let first_response = &res.into_inner().responses[0];
         assert_eq!(first_response.installation_id, keypair.public());
-        assert_eq!(first_response.wallet_address, wallet_address);
+        assert_eq!(first_response.account_address, account_address);
         assert!(!first_response.credential_identity_bytes.is_empty());
     }
 
     #[tokio::test]
     async fn test_validate_key_packages_fail() {
-        let (identity, keypair, _) = generate_identity();
+        let (identity, keypair, account_address) = generate_identity();
         let (_, other_keypair, _) = generate_identity();
 
         let credential = OpenMlsCredential::new(identity, CredentialType::Basic).unwrap();
@@ -236,7 +228,8 @@ mod tests {
             signature_key: other_keypair.to_public_vec().into(),
         };
 
-        let key_package_bytes = build_key_package_bytes(&keypair, &credential_with_key);
+        let key_package_bytes =
+            build_key_package_bytes(&keypair, &credential_with_key, account_address);
 
         let request = ValidateKeyPackagesRequest {
             key_packages: vec![KeyPackageProtoWrapper {
@@ -252,6 +245,6 @@ mod tests {
         let first_response = &res.into_inner().responses[0];
 
         assert!(!first_response.is_ok);
-        assert_eq!(first_response.wallet_address, "".to_string());
+        assert_eq!(first_response.account_address, "".to_string());
     }
 }

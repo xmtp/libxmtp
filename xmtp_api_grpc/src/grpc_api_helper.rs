@@ -1,9 +1,12 @@
+use std::pin::Pin;
 use std::sync::{Arc, Mutex}; // TODO switch to async mutexes
 use std::{
     str::FromStr,
     sync::atomic::{AtomicBool, Ordering},
 };
 
+use futures::stream::{AbortHandle, Abortable};
+use futures::{SinkExt, Stream, StreamExt, TryStreamExt};
 use http_body::combinators::UnsyncBoxBody;
 use hyper::{client::HttpConnector, Uri};
 use hyper_rustls::HttpsConnector;
@@ -11,17 +14,19 @@ use tokio::sync::oneshot;
 use tokio_rustls::rustls::{ClientConfig, OwnedTrustAnchor, RootCertStore};
 use tonic::{async_trait, metadata::MetadataValue, transport::Channel, Request, Status, Streaming};
 use xmtp_proto::{
-    api_client::{Error, ErrorKind, XmtpApiClient, XmtpApiSubscription, XmtpMlsClient},
+    api_client::{
+        Error, ErrorKind, MutableApiSubscription, XmtpApiClient, XmtpApiSubscription, XmtpMlsClient,
+    },
     xmtp::message_api::{
         v1::{
             message_api_client::MessageApiClient, BatchQueryRequest, BatchQueryResponse, Envelope,
             PublishRequest, PublishResponse, QueryRequest, QueryResponse, SubscribeRequest,
         },
         v3::{
-            mls_api_client::MlsApiClient as ProtoMlsApiClient, ConsumeKeyPackagesRequest,
-            ConsumeKeyPackagesResponse, GetIdentityUpdatesRequest, GetIdentityUpdatesResponse,
+            mls_api_client::MlsApiClient as ProtoMlsApiClient, FetchKeyPackagesRequest,
+            FetchKeyPackagesResponse, GetIdentityUpdatesRequest, GetIdentityUpdatesResponse,
             PublishToGroupRequest, PublishWelcomesRequest, RegisterInstallationRequest,
-            RegisterInstallationResponse, UploadKeyPackagesRequest,
+            RegisterInstallationResponse, UploadKeyPackageRequest,
         },
     },
 };
@@ -128,6 +133,7 @@ impl Client {
 #[async_trait]
 impl XmtpApiClient for Client {
     type Subscription = Subscription;
+    type MutableSubscription = GrpcMutableSubscription;
 
     fn set_app_version(&mut self, version: String) {
         self.app_version = MetadataValue::try_from(&version).unwrap();
@@ -187,6 +193,47 @@ impl XmtpApiClient for Client {
         };
 
         Ok(Subscription::start(stream).await)
+    }
+
+    async fn subscribe2(
+        &self,
+        request: SubscribeRequest,
+    ) -> Result<GrpcMutableSubscription, Error> {
+        let (sender, mut receiver) = futures::channel::mpsc::unbounded::<SubscribeRequest>();
+
+        let input_stream = async_stream::stream! {
+            yield request;
+            // Wait for the receiver to send a new request.
+            // This happens in the update method of the Subscription
+            while let Some(result) = receiver.next().await {
+                yield result;
+            }
+        };
+
+        let mut tonic_request = Request::new(input_stream);
+
+        tonic_request
+            .metadata_mut()
+            .insert("x-app-version", self.app_version.clone());
+
+        let stream = match &self.client {
+            InnerApiClient::Plain(c) => c
+                .clone()
+                .subscribe2(tonic_request)
+                .await
+                .map_err(|e| Error::new(ErrorKind::SubscribeError).with(e))?
+                .into_inner(),
+            InnerApiClient::Tls(c) => c
+                .clone()
+                .subscribe2(tonic_request)
+                .await
+                .map_err(|e| Error::new(ErrorKind::SubscribeError).with(e))?
+                .into_inner(),
+        };
+        Ok(GrpcMutableSubscription::new(
+            Box::pin(stream.map_err(|e| Error::new(ErrorKind::SubscribeError).with(e))),
+            sender,
+        ))
     }
 
     async fn query(&self, request: QueryRequest) -> Result<QueryResponse, Error> {
@@ -288,8 +335,60 @@ impl XmtpApiSubscription for Subscription {
     }
 }
 
+type EnvelopeStream = Pin<Box<dyn Stream<Item = Result<Envelope, Error>> + Send>>;
+
+pub struct GrpcMutableSubscription {
+    envelope_stream: Abortable<EnvelopeStream>,
+    update_channel: futures::channel::mpsc::UnboundedSender<SubscribeRequest>,
+    abort_handle: AbortHandle,
+}
+
+impl GrpcMutableSubscription {
+    fn new(
+        envelope_stream: EnvelopeStream,
+        update_channel: futures::channel::mpsc::UnboundedSender<SubscribeRequest>,
+    ) -> Self {
+        let (abort_handle, abort_registration) = AbortHandle::new_pair();
+        Self {
+            envelope_stream: Abortable::new(envelope_stream, abort_registration),
+            update_channel,
+            abort_handle,
+        }
+    }
+}
+
+impl Stream for GrpcMutableSubscription {
+    type Item = Result<Envelope, Error>;
+
+    fn poll_next(
+        mut self: Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<Option<Self::Item>> {
+        self.envelope_stream.poll_next_unpin(cx)
+    }
+}
+
+#[async_trait]
+impl MutableApiSubscription for GrpcMutableSubscription {
+    async fn update(&mut self, req: SubscribeRequest) -> Result<(), Error> {
+        self.update_channel
+            .send(req)
+            .await
+            .map_err(|_| Error::new(ErrorKind::SubscriptionUpdateError))?;
+
+        Ok(())
+    }
+
+    fn close(&self) {
+        self.abort_handle.abort();
+        self.update_channel.close_channel();
+    }
+}
+
 #[async_trait]
 impl XmtpMlsClient for Client {
+    type Subscription = GrpcMutableSubscription;
+
     async fn register_installation(
         &self,
         req: RegisterInstallationRequest,
@@ -304,10 +403,10 @@ impl XmtpMlsClient for Client {
         }
     }
 
-    async fn upload_key_packages(&self, req: UploadKeyPackagesRequest) -> Result<(), Error> {
+    async fn upload_key_package(&self, req: UploadKeyPackageRequest) -> Result<(), Error> {
         let res = match &self.mls_client {
-            InnerMlsClient::Plain(c) => c.clone().upload_key_packages(req).await,
-            InnerMlsClient::Tls(c) => c.clone().upload_key_packages(req).await,
+            InnerMlsClient::Plain(c) => c.clone().upload_key_package(req).await,
+            InnerMlsClient::Tls(c) => c.clone().upload_key_package(req).await,
         };
         match res {
             Ok(_) => Ok(()),
@@ -315,13 +414,13 @@ impl XmtpMlsClient for Client {
         }
     }
 
-    async fn consume_key_packages(
+    async fn fetch_key_packages(
         &self,
-        req: ConsumeKeyPackagesRequest,
-    ) -> Result<ConsumeKeyPackagesResponse, Error> {
+        req: FetchKeyPackagesRequest,
+    ) -> Result<FetchKeyPackagesResponse, Error> {
         let res = match &self.mls_client {
-            InnerMlsClient::Plain(c) => c.clone().consume_key_packages(req).await,
-            InnerMlsClient::Tls(c) => c.clone().consume_key_packages(req).await,
+            InnerMlsClient::Plain(c) => c.clone().fetch_key_packages(req).await,
+            InnerMlsClient::Tls(c) => c.clone().fetch_key_packages(req).await,
         };
 
         match res {

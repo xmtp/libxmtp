@@ -305,9 +305,9 @@ mod tests {
     #[tokio::test]
     async fn test_serialize_add_members() {
         let wallet = generate_local_wallet();
-        let wallet_address = wallet.get_address();
+        let account_address = wallet.get_address();
 
-        let intent = AddMembersIntentData::new(vec![wallet_address.clone()].into());
+        let intent = AddMembersIntentData::new(vec![account_address.clone()].into());
         let as_bytes: Vec<u8> = intent.clone().try_into().unwrap();
         let restored_intent = AddMembersIntentData::from_bytes(as_bytes.as_slice()).unwrap();
 

@@ -20,7 +20,7 @@ diesel::table! {
         sent_at_ns -> BigInt,
         kind -> Integer,
         sender_installation_id -> Binary,
-        sender_wallet_address -> Text,
+        sender_account_address -> Text,
     }
 }
 

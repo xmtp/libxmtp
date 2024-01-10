@@ -9,14 +9,14 @@ pub use grpc_api_helper::Client;
 mod tests {
     use std::time::{SystemTime, UNIX_EPOCH};
 
+    use super::*;
+    use futures::StreamExt;
     use xmtp_proto::{
-        api_client::{XmtpApiClient, XmtpApiSubscription},
+        api_client::{MutableApiSubscription, XmtpApiClient, XmtpApiSubscription},
         xmtp::message_api::v1::{
             BatchQueryRequest, Envelope, PublishRequest, QueryRequest, SubscribeRequest,
         },
     };
-
-    use super::*;
 
     // Return the json serialization of an Envelope with bytes
     pub fn test_envelope(topic: String) -> Envelope {
@@ -148,5 +148,61 @@ mod tests {
             .unwrap();
 
         assert_eq!(result.envelopes.len(), 0);
+    }
+
+    #[tokio::test]
+    async fn bidrectional_streaming_test() {
+        let client = Client::create(LOCALHOST_ADDRESS.to_string(), false)
+            .await
+            .unwrap();
+
+        let topic = uuid::Uuid::new_v4();
+        let mut stream = client
+            .subscribe2(SubscribeRequest {
+                content_topics: vec![topic.to_string()],
+            })
+            .await
+            .unwrap();
+
+        // Publish an envelope to the topic of the stream
+        let env = test_envelope(topic.to_string());
+        client
+            .publish(
+                "".to_string(),
+                PublishRequest {
+                    envelopes: vec![env],
+                },
+            )
+            .await
+            .unwrap();
+
+        let value = stream.next().await.unwrap().unwrap();
+        assert_eq!(value.content_topic, topic.to_string());
+
+        // Change the topic of the stream to something else
+        let topic_2 = uuid::Uuid::new_v4();
+        stream
+            .update(SubscribeRequest {
+                content_topics: vec![topic_2.to_string()],
+            })
+            .await
+            .unwrap();
+
+        // Sleep 100ms to ensure subscription is updated
+        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+        // Publish an envelope to the new topic
+        let env_2 = test_envelope(topic_2.to_string());
+        client
+            .publish(
+                "".to_string(),
+                PublishRequest {
+                    envelopes: vec![env_2],
+                },
+            )
+            .await
+            .unwrap();
+
+        let value_2 = stream.next().await.unwrap().unwrap();
+        assert_eq!(value_2.content_topic, topic_2.to_string());
     }
 }

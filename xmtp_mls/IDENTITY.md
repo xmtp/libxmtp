@@ -48,12 +48,13 @@ XMTP: <Label>\n\n
 XMTP installations consist of a long-lived Ed25519 key-pair (the 'installation key') and are identified via the Ethereum addressing format. The public installation key is used as the `signature_key` in all MLS leaf nodes and nowhere else, and is associated with the account's wallet via a wallet-signed credential. Every new app installation gains messaging access as follows:
 
 1. The new Ed25519 key pair (installation key) is generated and stored on the device.
-2. The app prompts the user to sign the public key with their Ethereum wallet. The user is expected to inspect the text and reject the signing request if the data is invalid, for example if the displayed time is incorrect. The format for version 1 of the association text is as follows:
+2. The app prompts the user to sign the public key with their Ethereum wallet. The user is expected to inspect the text and reject the signing request if the data is invalid, for example if the account address is not the one they intended. The format for version 1 of the association text is as follows:
 
    ```
    XMTP: Grant Messaging Access
 
-   Current Time: <ISO 8601 date and time with local UTC offset>
+   Current Time: <ISO 8601 date and time in UTC>
+   Account Address: <ethereum address>
    Installation ID: <hex(last_20_bytes(keccak256(Ed25519PublicKey)))>
    ```
 
@@ -64,7 +65,7 @@ XMTP installations consist of a long-lived Ed25519 key-pair (the 'installation k
         association_text_version: i32,
         signature: bytes,
         iso8601_time: string,
-        wallet_address: string,
+        account_address: string,
    } Eip191Association;
 
 
@@ -83,13 +84,10 @@ Apps built on XMTP have a reduced need for safety numbers to be shown, as client
 
 Credential validation must be performed by clients at the [events described by the MLS spec](https://www.rfc-editor.org/rfc/rfc9420.html#name-credential-validation) as follows:
 
-1. Verify that the referenced `installation_public_key` has not been revoked (see [Installation revocation](#installation-revocation)).
 1. Verify that the referenced `installation_public_key` matches the `signature_key` of the leaf node.
 1. Derive the association text using the `association_text_version`, `creation_iso8601_time`, `installation_public_key`, with a label of `Grant Messaging Access`.
 1. Recover the wallet public key from the recoverable ECDSA `signature` on the association text.
-1. Derive the wallet address from the public key and verify that it matches the `wallet_address` on the association.
-
-Currently, verifying revocations require a degree of server trust, however this is not the long-term goal - see [Server trust](#server-trust).
+1. Derive the wallet address from the public key and verify that it matches the `account_address` on the association.
 
 ### Installation revocation
 
@@ -99,12 +97,13 @@ Users may revoke an installation as follows:
 
 1. Enumerate active installations by querying for all identity updates under the account. The user may identify each installation by the creation time as well as the installation public key of the credential.
 1. Select the installation to revoke.
-1. The app prompts the user to sign the revocation with their Ethereum wallet. The user is expected to inspect the text and reject the signing request if the data is invalid, for example if the displayed time is incorrect. The format for version 1 of the association text is as follows:
+1. The app prompts the user to sign the revocation with their Ethereum wallet. The user is expected to inspect the text and reject the signing request if the data is invalid, for example if the account address is not the one they intended. The format for version 1 of the association text is as follows:
 
    ```
    XMTP: Revoke Messaging Access
 
-   Current Time: <ISO 8601 date and time with local UTC offset>
+   Current Time: <ISO 8601 date and time in UTC>
+   Account Address: <ethereum address>
    Installation ID: <hex(last_20_bytes(keccak256(Ed25519PublicKey)))>
    ```
 
@@ -130,7 +129,7 @@ Revocations may not apply immediately on all groups. In order to ensure transcri
 
 At any time in the course of a conversation, the list of valid installations for the participating wallet addresses may change via registration or revocation.
 
-Clients must perform the following validation prior to publishing each payload on the group, as well as periodically:
+Clients must perform the following validation prior to publishing each payload on the group, as well as periodically. XMTP clients may perform performance optimizations, such as caching installation lists with a short TTL.
 
 1. Assemble a list of wallet addresses in the conversation from the leaf nodes.
 1. Fetch all identity updates on those wallet addresses.
@@ -138,7 +137,7 @@ Clients must perform the following validation prior to publishing each payload o
 1. Publish a commit to remove nodes from the conversation that are not in the list of valid installations.
 1. Publish a commit to add nodes to the conversation that are in the list of valid installations and not already present.
 
-XMTP clients may perform performance optimizations, such as caching installation lists with a short TTL.
+These commits must include an attached proof (credential or revocation). When validating add/remove commits, clients must verify either that the proposer has permissions to add/remove accounts from the group, or that a proof of installation revocation was attached to the commit.
 
 ### Server trust
 

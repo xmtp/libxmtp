@@ -1,6 +1,5 @@
 mod config;
 mod handlers;
-mod validation_helpers;
 
 use clap::Parser;
 use config::Args;

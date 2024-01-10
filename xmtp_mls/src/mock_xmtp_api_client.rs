@@ -4,6 +4,7 @@ use std::{
 };
 
 use async_trait::async_trait;
+use futures::Stream;
 use xmtp_proto::api_client::*;
 
 pub struct MockXmtpApiSubscription {}
@@ -18,6 +19,27 @@ impl XmtpApiSubscription for MockXmtpApiSubscription {
     }
 
     fn close_stream(&mut self) {}
+}
+
+pub struct MockMutableApiSubscription {}
+
+#[async_trait]
+impl MutableApiSubscription for MockMutableApiSubscription {
+    async fn update(&mut self, _req: SubscribeRequest) -> Result<(), Error> {
+        Err(Error::new(ErrorKind::SubscriptionUpdateError))
+    }
+    fn close(&self) {}
+}
+
+impl Stream for MockMutableApiSubscription {
+    type Item = Result<Envelope, Error>;
+
+    fn poll_next(
+        self: std::pin::Pin<&mut Self>,
+        _cx: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<Option<Self::Item>> {
+        std::task::Poll::Ready(None)
+    }
 }
 
 #[derive(Debug)]
@@ -60,6 +82,7 @@ impl Clone for MockXmtpApiClient {
 #[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
 impl XmtpApiClient for MockXmtpApiClient {
     type Subscription = MockXmtpApiSubscription;
+    type MutableSubscription = MockMutableApiSubscription;
 
     fn set_app_version(&mut self, version: String) {
         let mut inner = self.inner_client.lock().unwrap();
@@ -82,6 +105,13 @@ impl XmtpApiClient for MockXmtpApiClient {
             inner.messages.insert(topic, existing);
         }
         Ok(PublishResponse {})
+    }
+
+    async fn subscribe2(
+        &self,
+        _request: SubscribeRequest,
+    ) -> Result<Self::MutableSubscription, Error> {
+        Err(Error::new(ErrorKind::SubscribeError))
     }
 
     async fn query(&self, request: QueryRequest) -> Result<QueryResponse, Error> {

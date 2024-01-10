@@ -3,17 +3,17 @@ use std::collections::HashMap;
 use crate::{retry::Retry, retry_async};
 use xmtp_proto::{
     api_client::{
-        Envelope, Error as ApiError, ErrorKind, PagingInfo, QueryRequest, XmtpApiClient,
-        XmtpMlsClient,
+        Envelope, Error as ApiError, ErrorKind, PagingInfo, QueryRequest, SubscribeRequest,
+        XmtpApiClient, XmtpMlsClient,
     },
     xmtp::{
         message_api::{
             v1::{Cursor, SortDirection},
             v3::{
                 get_identity_updates_response::update::Kind as UpdateKind,
-                publish_welcomes_request::WelcomeMessageRequest, ConsumeKeyPackagesRequest,
+                publish_welcomes_request::WelcomeMessageRequest, FetchKeyPackagesRequest,
                 GetIdentityUpdatesRequest, KeyPackageUpload, PublishToGroupRequest,
-                PublishWelcomesRequest, RegisterInstallationRequest, UploadKeyPackagesRequest,
+                PublishWelcomesRequest, RegisterInstallationRequest, UploadKeyPackageRequest,
             },
         },
         mls::message_contents::{
@@ -85,17 +85,14 @@ where
         Ok(out)
     }
 
-    pub async fn register_installation(
-        &self,
-        last_resort_key_package: Vec<u8>,
-    ) -> Result<Vec<u8>, ApiError> {
+    pub async fn register_installation(&self, key_package: Vec<u8>) -> Result<Vec<u8>, ApiError> {
         let res = retry_async!(
             self.retry_strategy,
             (async {
                 self.api_client
                     .register_installation(RegisterInstallationRequest {
-                        last_resort_key_package: Some(KeyPackageUpload {
-                            key_package_tls_serialized: last_resort_key_package.to_vec(),
+                        key_package: Some(KeyPackageUpload {
+                            key_package_tls_serialized: key_package.to_vec(),
                         }),
                     })
                     .await
@@ -105,19 +102,15 @@ where
         Ok(res.installation_id)
     }
 
-    pub async fn upload_key_packages(&self, key_packages: Vec<Vec<u8>>) -> Result<(), ApiError> {
+    pub async fn upload_key_package(&self, key_package: Vec<u8>) -> Result<(), ApiError> {
         retry_async!(
             self.retry_strategy,
             (async {
                 self.api_client
-                    .upload_key_packages(UploadKeyPackagesRequest {
-                        key_packages: key_packages
-                            .clone()
-                            .into_iter()
-                            .map(|kp| KeyPackageUpload {
-                                key_package_tls_serialized: kp,
-                            })
-                            .collect(),
+                    .upload_key_package(UploadKeyPackageRequest {
+                        key_package: Some(KeyPackageUpload {
+                            key_package_tls_serialized: key_package.clone(),
+                        }),
                     })
                     .await
             })
@@ -126,7 +119,7 @@ where
         Ok(())
     }
 
-    pub async fn consume_key_packages(
+    pub async fn fetch_key_packages(
         &self,
         installation_ids: Vec<Vec<u8>>,
     ) -> Result<KeyPackageMap, ApiError> {
@@ -134,7 +127,7 @@ where
             self.retry_strategy,
             (async {
                 self.api_client
-                    .consume_key_packages(ConsumeKeyPackagesRequest {
+                    .fetch_key_packages(FetchKeyPackagesRequest {
                         installation_ids: installation_ids.clone(),
                     })
                     .await
@@ -194,7 +187,7 @@ where
     pub async fn get_identity_updates(
         &self,
         start_time_ns: u64,
-        wallet_addresses: Vec<String>,
+        account_addresses: Vec<String>,
     ) -> Result<IdentityUpdatesMap, ApiError> {
         let result = retry_async!(
             self.retry_strategy,
@@ -202,13 +195,13 @@ where
                 self.api_client
                     .get_identity_updates(GetIdentityUpdatesRequest {
                         start_time_ns,
-                        wallet_addresses: wallet_addresses.clone(),
+                        account_addresses: account_addresses.clone(),
                     })
                     .await
             })
         )?;
 
-        if result.updates.len() != wallet_addresses.len() {
+        if result.updates.len() != account_addresses.len() {
             println!("mismatched number of results");
             return Err(ApiError::new(ErrorKind::MlsError));
         }
@@ -216,10 +209,10 @@ where
         let mapping: IdentityUpdatesMap = result
             .updates
             .into_iter()
-            .zip(wallet_addresses.into_iter())
-            .map(|(update, wallet_address)| {
+            .zip(account_addresses.into_iter())
+            .map(|(update, account_address)| {
                 (
-                    wallet_address,
+                    account_address,
                     update
                         .updates
                         .into_iter()
@@ -273,6 +266,15 @@ where
 
         Ok(())
     }
+
+    pub async fn subscribe(
+        &self,
+        content_topics: Vec<String>,
+    ) -> Result<ApiClient::MutableSubscription, ApiError> {
+        self.api_client
+            .subscribe2(SubscribeRequest { content_topics })
+            .await
+    }
 }
 
 #[derive(Debug, PartialEq)]
@@ -308,10 +310,12 @@ type IdentityUpdatesMap = HashMap<String, Vec<IdentityUpdate>>;
 #[cfg(test)]
 mod tests {
     use async_trait::async_trait;
+    use futures::Stream;
     use mockall::mock;
     use xmtp_proto::{
         api_client::{
-            Error, ErrorKind, PagingInfo, XmtpApiClient, XmtpApiSubscription, XmtpMlsClient,
+            Error, ErrorKind, MutableApiSubscription, PagingInfo, XmtpApiClient,
+            XmtpApiSubscription, XmtpMlsClient,
         },
         xmtp::message_api::{
             v1::{
@@ -320,14 +324,13 @@ mod tests {
                 QueryResponse, SubscribeRequest,
             },
             v3::{
-                consume_key_packages_response::KeyPackage,
+                fetch_key_packages_response::KeyPackage,
                 get_identity_updates_response::{
                     update::Kind as UpdateKind, NewInstallationUpdate, Update, WalletUpdates,
                 },
-                ConsumeKeyPackagesRequest, ConsumeKeyPackagesResponse, GetIdentityUpdatesRequest,
+                FetchKeyPackagesRequest, FetchKeyPackagesResponse, GetIdentityUpdatesRequest,
                 GetIdentityUpdatesResponse, PublishToGroupRequest, PublishWelcomesRequest,
-                RegisterInstallationRequest, RegisterInstallationResponse,
-                UploadKeyPackagesRequest,
+                RegisterInstallationRequest, RegisterInstallationResponse, UploadKeyPackageRequest,
             },
         },
     };
@@ -357,21 +360,41 @@ mod tests {
         }
     }
 
+    mock! {
+        pub MutableSubscription {}
+
+        #[async_trait]
+        impl MutableApiSubscription for MutableSubscription {
+            async fn update(&mut self, req: SubscribeRequest) -> Result<(), Error>;
+            fn close(&self);
+        }
+
+        impl Stream for MutableSubscription {
+            type Item = Result<Envelope, Error>;
+
+            fn poll_next<'a>(
+                self: std::pin::Pin<&mut Self>,
+                _cx: &mut std::task::Context<'a>,
+            ) -> std::task::Poll<Option<<Self as Stream>::Item>>;
+        }
+    }
+
     // Create a mock XmtpClient for testing the client wrapper
     mock! {
         pub ApiClient {}
 
         #[async_trait]
         impl XmtpMlsClient for ApiClient {
+            type Subscription = MockMutableSubscription;
             async fn register_installation(
                 &self,
                 request: RegisterInstallationRequest,
             ) -> Result<RegisterInstallationResponse, Error>;
-            async fn upload_key_packages(&self, request: UploadKeyPackagesRequest) -> Result<(), Error>;
-            async fn consume_key_packages(
+            async fn upload_key_package(&self, request: UploadKeyPackageRequest) -> Result<(), Error>;
+            async fn fetch_key_packages(
                 &self,
-                request: ConsumeKeyPackagesRequest,
-            ) -> Result<ConsumeKeyPackagesResponse, Error>;
+                request: FetchKeyPackagesRequest,
+            ) -> Result<FetchKeyPackagesResponse, Error>;
             async fn publish_to_group(&self, request: PublishToGroupRequest) -> Result<(), Error>;
             async fn publish_welcomes(&self, request: PublishWelcomesRequest) -> Result<(), Error>;
             async fn get_identity_updates(
@@ -385,6 +408,7 @@ mod tests {
             // Need to set an associated type and don't currently need streaming
             // Can figure out a mocked stream type later
             type Subscription = MockSubscription;
+            type MutableSubscription = MockMutableSubscription;
 
             fn set_app_version(&mut self, version: String);
 
@@ -395,6 +419,8 @@ mod tests {
             ) -> Result<PublishResponse, Error>;
 
             async fn subscribe(&self, request: SubscribeRequest) -> Result<<Self as XmtpApiClient>::Subscription, Error>;
+
+            async fn subscribe2(&self, request: SubscribeRequest) -> Result<<Self as XmtpApiClient>::MutableSubscription, Error>;
 
             async fn query(&self, request: QueryRequest) -> Result<QueryResponse, Error>;
 
@@ -418,30 +444,32 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_upload_key_packages() {
+    async fn test_upload_key_package() {
         let mut mock_api = MockApiClient::new();
         let key_package = vec![1, 2, 3];
         // key_package gets moved below but needs to be used for assertions later
         let key_package_clone = key_package.clone();
         mock_api
-            .expect_upload_key_packages()
+            .expect_upload_key_package()
             .withf(move |req| {
-                req.key_packages[0]
+                req.key_package
+                    .as_ref()
+                    .unwrap()
                     .key_package_tls_serialized
                     .eq(&key_package)
             })
             .returning(move |_| Ok(()));
         let wrapper = ApiClientWrapper::new(mock_api, Retry::default());
-        let result = wrapper.upload_key_packages(vec![key_package_clone]).await;
+        let result = wrapper.upload_key_package(key_package_clone).await;
         assert!(result.is_ok());
     }
 
     #[tokio::test]
-    async fn test_consume_key_packages() {
+    async fn test_fetch_key_packages() {
         let mut mock_api = MockApiClient::new();
         let installation_ids: Vec<Vec<u8>> = vec![vec![1, 2, 3], vec![4, 5, 6]];
-        mock_api.expect_consume_key_packages().returning(move |_| {
-            Ok(ConsumeKeyPackagesResponse {
+        mock_api.expect_fetch_key_packages().returning(move |_| {
+            Ok(FetchKeyPackagesResponse {
                 key_packages: vec![
                     KeyPackage {
                         key_package_tls_serialized: vec![7, 8, 9],
@@ -454,7 +482,7 @@ mod tests {
         });
         let wrapper = ApiClientWrapper::new(mock_api, Retry::default());
         let result = wrapper
-            .consume_key_packages(installation_ids.clone())
+            .fetch_key_packages(installation_ids.clone())
             .await
             .unwrap();
         assert_eq!(result.len(), 2);
@@ -472,13 +500,13 @@ mod tests {
     async fn test_get_identity_updates() {
         let mut mock_api = MockApiClient::new();
         let start_time_ns = 12;
-        let wallet_addresses = vec!["wallet1".to_string(), "wallet2".to_string()];
-        // wallet_addresses gets moved below but needs to be used for assertions later
-        let wallet_addresses_clone = wallet_addresses.clone();
+        let account_addresses = vec!["wallet1".to_string(), "wallet2".to_string()];
+        // account_addresses gets moved below but needs to be used for assertions later
+        let account_addresses_clone = account_addresses.clone();
         mock_api
             .expect_get_identity_updates()
             .withf(move |req| {
-                req.start_time_ns.eq(&start_time_ns) && req.wallet_addresses.eq(&wallet_addresses)
+                req.start_time_ns.eq(&start_time_ns) && req.account_addresses.eq(&account_addresses)
             })
             .returning(move |_| {
                 Ok(GetIdentityUpdatesResponse {
@@ -513,13 +541,13 @@ mod tests {
 
         let wrapper = ApiClientWrapper::new(mock_api, Retry::default());
         let result = wrapper
-            .get_identity_updates(start_time_ns, wallet_addresses_clone.clone())
+            .get_identity_updates(start_time_ns, account_addresses_clone.clone())
             .await
             .unwrap();
         assert_eq!(result.len(), 2);
 
         for (k, v) in result {
-            if k.eq(&wallet_addresses_clone[0]) {
+            if k.eq(&account_addresses_clone[0]) {
                 assert_eq!(v.len(), 1);
                 assert_eq!(
                     v[0],

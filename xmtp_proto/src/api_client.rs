@@ -1,15 +1,16 @@
 use std::{error::Error as StdError, fmt};
 
 use async_trait::async_trait;
+use futures::Stream;
 
 pub use super::xmtp::message_api::v1::{
     BatchQueryRequest, BatchQueryResponse, Envelope, PagingInfo, PublishRequest, PublishResponse,
     QueryRequest, QueryResponse, SubscribeRequest,
 };
 use crate::xmtp::message_api::v3::{
-    ConsumeKeyPackagesRequest, ConsumeKeyPackagesResponse, GetIdentityUpdatesRequest,
+    FetchKeyPackagesRequest, FetchKeyPackagesResponse, GetIdentityUpdatesRequest,
     GetIdentityUpdatesResponse, PublishToGroupRequest, PublishWelcomesRequest,
-    RegisterInstallationRequest, RegisterInstallationResponse, UploadKeyPackagesRequest,
+    RegisterInstallationRequest, RegisterInstallationResponse, UploadKeyPackageRequest,
 };
 
 #[derive(Debug)]
@@ -20,6 +21,7 @@ pub enum ErrorKind {
     SubscribeError,
     BatchQueryError,
     MlsError,
+    SubscriptionUpdateError,
 }
 
 type ErrorSource = Box<dyn StdError + Send + Sync + 'static>;
@@ -63,6 +65,7 @@ impl fmt::Display for Error {
             ErrorKind::SubscribeError => "subscribe error",
             ErrorKind::BatchQueryError => "batch query error",
             ErrorKind::MlsError => "mls error",
+            ErrorKind::SubscriptionUpdateError => "subscription update error",
         })?;
         if self.source().is_some() {
             f.write_str(": ")?;
@@ -86,11 +89,19 @@ pub trait XmtpApiSubscription {
     fn close_stream(&mut self);
 }
 
+#[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
+#[cfg_attr(not(target_arch = "wasm32"), async_trait)]
+pub trait MutableApiSubscription: Stream<Item = Result<Envelope, Error>> + Send {
+    async fn update(&mut self, req: SubscribeRequest) -> Result<(), Error>;
+    fn close(&self);
+}
+
 // Wasm futures don't have `Send` or `Sync` bounds.
 #[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
 #[cfg_attr(not(target_arch = "wasm32"), async_trait)]
-pub trait XmtpApiClient {
+pub trait XmtpApiClient: Send + Sync {
     type Subscription: XmtpApiSubscription;
+    type MutableSubscription: MutableApiSubscription;
 
     fn set_app_version(&mut self, version: String);
 
@@ -102,6 +113,11 @@ pub trait XmtpApiClient {
 
     async fn subscribe(&self, request: SubscribeRequest) -> Result<Self::Subscription, Error>;
 
+    async fn subscribe2(
+        &self,
+        request: SubscribeRequest,
+    ) -> Result<Self::MutableSubscription, Error>;
+
     async fn query(&self, request: QueryRequest) -> Result<QueryResponse, Error>;
 
     async fn batch_query(&self, request: BatchQueryRequest) -> Result<BatchQueryResponse, Error>;
@@ -110,16 +126,18 @@ pub trait XmtpApiClient {
 // Wasm futures don't have `Send` or `Sync` bounds.
 #[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
 #[cfg_attr(not(target_arch = "wasm32"), async_trait)]
-pub trait XmtpMlsClient {
+pub trait XmtpMlsClient: Send + Sync {
+    type Subscription: MutableApiSubscription;
+
     async fn register_installation(
         &self,
         request: RegisterInstallationRequest,
     ) -> Result<RegisterInstallationResponse, Error>;
-    async fn upload_key_packages(&self, request: UploadKeyPackagesRequest) -> Result<(), Error>;
-    async fn consume_key_packages(
+    async fn upload_key_package(&self, request: UploadKeyPackageRequest) -> Result<(), Error>;
+    async fn fetch_key_packages(
         &self,
-        request: ConsumeKeyPackagesRequest,
-    ) -> Result<ConsumeKeyPackagesResponse, Error>;
+        request: FetchKeyPackagesRequest,
+    ) -> Result<FetchKeyPackagesResponse, Error>;
     async fn publish_to_group(&self, request: PublishToGroupRequest) -> Result<(), Error>;
     async fn publish_welcomes(&self, request: PublishWelcomesRequest) -> Result<(), Error>;
     async fn get_identity_updates(

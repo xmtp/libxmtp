@@ -8,7 +8,10 @@ use xmtp_proto::xmtp::mls::message_contents::{
     GroupMembershipChanges, MembershipChange as MembershipChangeProto,
 };
 
-use crate::identity::Identity;
+use crate::{
+    identity::Identity,
+    verified_key_package::{KeyPackageVerificationError, VerifiedKeyPackage},
+};
 
 use crate::types::Address;
 
@@ -36,21 +39,26 @@ pub enum CommitValidationError {
     MultipleActors,
     #[error("Failed to get member list {0}")]
     ListMembers(String),
+    #[error("invalid application id")]
+    InvalidApplicationId,
 }
 
 // A participant in a commit. Could be the actor or the subject of a proposal
-pub(crate) struct CommitParticipant {
-    pub(crate) account_address: Address,
-    pub(crate) installation_id: Vec<u8>,
+#[derive(Clone, Debug)]
+pub struct CommitParticipant {
+    pub account_address: Address,
+    pub installation_id: Vec<u8>,
 }
 
 // An aggregation of all the installation_ids for a given membership change
+#[derive(Clone, Debug)]
 pub struct AggregatedMembershipChange {
     pub(crate) installation_ids: Vec<Vec<u8>>,
     pub(crate) account_address: Address,
 }
 
 // A parsed and validated commit that we can apply permissions and rules to
+#[derive(Clone, Debug)]
 pub struct ValidatedCommit {
     pub(crate) actor: CommitParticipant,
     pub(crate) members_added: Vec<AggregatedMembershipChange>,
@@ -100,6 +108,14 @@ impl ValidatedCommit {
             installations_removed,
         }))
     }
+
+    pub fn actor_account_address(&self) -> Address {
+        self.actor.account_address.clone()
+    }
+
+    pub fn actor_installation_id(&self) -> Vec<u8> {
+        self.actor.installation_id.clone()
+    }
 }
 
 impl AggregatedMembershipChange {
@@ -136,15 +152,18 @@ fn extract_actor(
 fn extract_identity_from_add(
     proposal: QueuedAddProposal,
 ) -> Result<CommitParticipant, CommitValidationError> {
-    let leaf_node = proposal.add_proposal().key_package().leaf_node();
-    let signature_key = leaf_node.signature_key().as_slice();
-    let account_address =
-        Identity::get_validated_account_address(leaf_node.credential().identity(), signature_key)
-            .map_err(|_| CommitValidationError::InvalidSubjectCredential)?;
+    let key_package = proposal.add_proposal().key_package().to_owned();
+    let verified_key_package =
+        VerifiedKeyPackage::from_key_package(key_package).map_err(|e| match e {
+            KeyPackageVerificationError::InvalidApplicationId => {
+                CommitValidationError::InvalidApplicationId
+            }
+            _ => CommitValidationError::InvalidSubjectCredential,
+        })?;
 
     Ok(CommitParticipant {
-        account_address,
-        installation_id: signature_key.to_vec(),
+        account_address: verified_key_package.account_address.clone(),
+        installation_id: verified_key_package.installation_id(),
     })
 }
 
@@ -307,7 +326,7 @@ mod tests {
     fn get_key_package(client: &Client<GrpcClient>) -> KeyPackage {
         client
             .identity
-            .new_key_package(&client.mls_provider(&mut client.store.conn().unwrap()))
+            .new_key_package(&client.mls_provider(&client.store.conn().unwrap()))
             .unwrap()
     }
 
@@ -318,8 +337,8 @@ mod tests {
         let bola_key_package = get_key_package(&bola);
 
         let amal_group = amal.create_group().unwrap();
-        let mut amal_conn = amal.store.conn().unwrap();
-        let amal_provider = amal.mls_provider(&mut amal_conn);
+        let amal_conn = amal.store.conn().unwrap();
+        let amal_provider = amal.mls_provider(&amal_conn);
         let mut mls_group = amal_group.load_mls_group(&amal_provider).unwrap();
         // Create a pending commit to add bola to the group
         mls_group
