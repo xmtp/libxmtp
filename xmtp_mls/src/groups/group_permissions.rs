@@ -236,14 +236,12 @@ impl PolicySet {
     pub fn new(
         add_member_policy: MembershipPolicies,
         remove_member_policy: MembershipPolicies,
-        add_installation_policy: MembershipPolicies,
-        remove_installation_policy: MembershipPolicies,
     ) -> Self {
         Self {
             add_member_policy,
             remove_member_policy,
-            add_installation_policy,
-            remove_installation_policy,
+            add_installation_policy: default_add_installation_policy(),
+            remove_installation_policy: default_remove_installation_policy(),
         }
     }
 
@@ -295,8 +293,6 @@ impl PolicySet {
         PolicySetProto {
             add_member_policy: Some(self.add_member_policy.to_proto()),
             remove_member_policy: Some(self.remove_member_policy.to_proto()),
-            add_installation_policy: Some(self.add_installation_policy.to_proto()),
-            remove_installation_policy: Some(self.remove_installation_policy.to_proto()),
         }
     }
 
@@ -308,16 +304,6 @@ impl PolicySet {
             MembershipPolicies::try_from(
                 proto
                     .remove_member_policy
-                    .ok_or(PolicyError::InvalidPolicy)?,
-            )?,
-            MembershipPolicies::try_from(
-                proto
-                    .add_installation_policy
-                    .ok_or(PolicyError::InvalidPolicy)?,
-            )?,
-            MembershipPolicies::try_from(
-                proto
-                    .remove_installation_policy
                     .ok_or(PolicyError::InvalidPolicy)?,
             )?,
         ))
@@ -334,6 +320,14 @@ impl PolicySet {
         let proto = PolicySetProto::decode(bytes)?;
         Self::from_proto(proto)
     }
+}
+
+fn default_add_installation_policy() -> MembershipPolicies {
+    MembershipPolicies::allow()
+}
+
+fn default_remove_installation_policy() -> MembershipPolicies {
+    MembershipPolicies::deny()
 }
 
 #[cfg(test)]
@@ -396,25 +390,15 @@ mod tests {
 
     #[test]
     fn test_allow_all() {
-        let permissions = PolicySet::new(
-            MembershipPolicies::allow(),
-            MembershipPolicies::allow(),
-            MembershipPolicies::allow(),
-            MembershipPolicies::allow(),
-        );
+        let permissions = PolicySet::new(MembershipPolicies::allow(), MembershipPolicies::allow());
 
-        let commit = build_validated_commit(Some(true), Some(true), Some(true), Some(true));
+        let commit = build_validated_commit(Some(true), Some(true), None, None);
         assert!(permissions.evaluate_commit(&commit));
     }
 
     #[test]
     fn test_deny() {
-        let permissions = PolicySet::new(
-            MembershipPolicies::deny(),
-            MembershipPolicies::deny(),
-            MembershipPolicies::deny(),
-            MembershipPolicies::deny(),
-        );
+        let permissions = PolicySet::new(MembershipPolicies::deny(), MembershipPolicies::deny());
 
         let member_added_commit = build_validated_commit(Some(false), None, None, None);
         assert!(!permissions.evaluate_commit(&member_added_commit));
@@ -423,8 +407,10 @@ mod tests {
         assert!(!permissions.evaluate_commit(&member_removed_commit));
 
         let installation_added_commit = build_validated_commit(None, None, Some(false), None);
-        assert!(!permissions.evaluate_commit(&installation_added_commit));
+        // Installation added is always allowed
+        assert!(permissions.evaluate_commit(&installation_added_commit));
 
+        // Installation removed is always denied
         let installation_removed_commit = build_validated_commit(None, None, None, Some(false));
         assert!(!permissions.evaluate_commit(&installation_removed_commit));
     }
@@ -433,8 +419,6 @@ mod tests {
     fn test_allow_same_member() {
         let permissions = PolicySet::new(
             MembershipPolicies::allow_same_member(),
-            MembershipPolicies::deny(),
-            MembershipPolicies::deny(),
             MembershipPolicies::deny(),
         );
 
@@ -453,8 +437,6 @@ mod tests {
                 MembershipPolicies::Standard(BasePolicies::Allow),
             ]),
             MembershipPolicies::allow(),
-            MembershipPolicies::allow(),
-            MembershipPolicies::allow(),
         );
 
         let member_added_commit = build_validated_commit(Some(true), None, None, None);
@@ -469,8 +451,6 @@ mod tests {
                 MembershipPolicies::allow(),
             ]),
             MembershipPolicies::allow(),
-            MembershipPolicies::allow(),
-            MembershipPolicies::allow(),
         );
 
         let member_added_commit = build_validated_commit(Some(true), None, None, None);
@@ -480,23 +460,19 @@ mod tests {
     #[test]
     fn test_serialize() {
         let permissions = PolicySet::new(
-            MembershipPolicies::deny(),
+            MembershipPolicies::any(vec![
+                MembershipPolicies::allow(),
+                MembershipPolicies::deny(),
+            ]),
             MembershipPolicies::and(vec![
                 MembershipPolicies::allow_same_member(),
                 MembershipPolicies::deny(),
-            ]),
-            MembershipPolicies::and(vec![MembershipPolicies::allow()]),
-            MembershipPolicies::any(vec![
-                MembershipPolicies::allow(),
-                MembershipPolicies::allow(),
             ]),
         );
 
         let proto = permissions.to_proto();
         assert!(proto.add_member_policy.is_some());
         assert!(proto.remove_member_policy.is_some());
-        assert!(proto.add_installation_policy.is_some());
-        assert!(proto.remove_installation_policy.is_some());
 
         let as_bytes = permissions.to_bytes().expect("serialization failed");
         let restored = PolicySet::from_bytes(as_bytes.as_slice()).expect("proto conversion failed");

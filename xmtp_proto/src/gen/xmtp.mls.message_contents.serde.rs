@@ -2009,24 +2009,12 @@ impl serde::Serialize for PolicySet {
         if self.remove_member_policy.is_some() {
             len += 1;
         }
-        if self.add_installation_policy.is_some() {
-            len += 1;
-        }
-        if self.remove_installation_policy.is_some() {
-            len += 1;
-        }
         let mut struct_ser = serializer.serialize_struct("xmtp.mls.message_contents.PolicySet", len)?;
         if let Some(v) = self.add_member_policy.as_ref() {
             struct_ser.serialize_field("addMemberPolicy", v)?;
         }
         if let Some(v) = self.remove_member_policy.as_ref() {
             struct_ser.serialize_field("removeMemberPolicy", v)?;
-        }
-        if let Some(v) = self.add_installation_policy.as_ref() {
-            struct_ser.serialize_field("addInstallationPolicy", v)?;
-        }
-        if let Some(v) = self.remove_installation_policy.as_ref() {
-            struct_ser.serialize_field("removeInstallationPolicy", v)?;
         }
         struct_ser.end()
     }
@@ -2042,18 +2030,12 @@ impl<'de> serde::Deserialize<'de> for PolicySet {
             "addMemberPolicy",
             "remove_member_policy",
             "removeMemberPolicy",
-            "add_installation_policy",
-            "addInstallationPolicy",
-            "remove_installation_policy",
-            "removeInstallationPolicy",
         ];
 
         #[allow(clippy::enum_variant_names)]
         enum GeneratedField {
             AddMemberPolicy,
             RemoveMemberPolicy,
-            AddInstallationPolicy,
-            RemoveInstallationPolicy,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
             fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
@@ -2077,8 +2059,6 @@ impl<'de> serde::Deserialize<'de> for PolicySet {
                         match value {
                             "addMemberPolicy" | "add_member_policy" => Ok(GeneratedField::AddMemberPolicy),
                             "removeMemberPolicy" | "remove_member_policy" => Ok(GeneratedField::RemoveMemberPolicy),
-                            "addInstallationPolicy" | "add_installation_policy" => Ok(GeneratedField::AddInstallationPolicy),
-                            "removeInstallationPolicy" | "remove_installation_policy" => Ok(GeneratedField::RemoveInstallationPolicy),
                             _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
                         }
                     }
@@ -2100,8 +2080,6 @@ impl<'de> serde::Deserialize<'de> for PolicySet {
             {
                 let mut add_member_policy__ = None;
                 let mut remove_member_policy__ = None;
-                let mut add_installation_policy__ = None;
-                let mut remove_installation_policy__ = None;
                 while let Some(k) = map.next_key()? {
                     match k {
                         GeneratedField::AddMemberPolicy => {
@@ -2116,25 +2094,11 @@ impl<'de> serde::Deserialize<'de> for PolicySet {
                             }
                             remove_member_policy__ = map.next_value()?;
                         }
-                        GeneratedField::AddInstallationPolicy => {
-                            if add_installation_policy__.is_some() {
-                                return Err(serde::de::Error::duplicate_field("addInstallationPolicy"));
-                            }
-                            add_installation_policy__ = map.next_value()?;
-                        }
-                        GeneratedField::RemoveInstallationPolicy => {
-                            if remove_installation_policy__.is_some() {
-                                return Err(serde::de::Error::duplicate_field("removeInstallationPolicy"));
-                            }
-                            remove_installation_policy__ = map.next_value()?;
-                        }
                     }
                 }
                 Ok(PolicySet {
                     add_member_policy: add_member_policy__,
                     remove_member_policy: remove_member_policy__,
-                    add_installation_policy: add_installation_policy__,
-                    remove_installation_policy: remove_installation_policy__,
                 })
             }
         }
