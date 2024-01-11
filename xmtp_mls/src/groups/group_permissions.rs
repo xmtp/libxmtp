@@ -80,6 +80,7 @@ impl MembershipPolicies {
         MembershipPolicies::Standard(BasePolicies::Deny)
     }
 
+    #[allow(dead_code)]
     pub fn allow_same_member() -> Self {
         MembershipPolicies::Standard(BasePolicies::AllowSameMember)
     }
@@ -183,7 +184,7 @@ impl MembershipPolicy for AndCondition {
                     .policies
                     .iter()
                     .map(|policy| policy.to_proto())
-                    .collect()?,
+                    .collect::<Result<Vec<MembershipPolicyProto>, PolicyError>>()?,
             })),
         })
     }
@@ -209,16 +210,16 @@ impl MembershipPolicy for AnyCondition {
             .any(|policy| policy.evaluate(actor, change))
     }
 
-    fn to_proto(&self) -> MembershipPolicyProto {
-        MembershipPolicyProto {
+    fn to_proto(&self) -> Result<MembershipPolicyProto, PolicyError> {
+        Ok(MembershipPolicyProto {
             kind: Some(PolicyKindProto::AnyCondition(AnyConditionProto {
                 policies: self
                     .policies
                     .iter()
                     .map(|policy| policy.to_proto())
-                    .collect(),
+                    .collect::<Result<Vec<MembershipPolicyProto>, PolicyError>>()?,
             })),
-        }
+        })
     }
 }
 
