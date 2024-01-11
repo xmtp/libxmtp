@@ -10,7 +10,7 @@ impl serde::Serialize for FetchKeyPackagesRequest {
         if !self.installation_ids.is_empty() {
             len += 1;
         }
-        let mut struct_ser = serializer.serialize_struct("xmtp.message_api.v3.FetchKeyPackagesRequest", len)?;
+        let mut struct_ser = serializer.serialize_struct("xmtp.mls.api.v1.FetchKeyPackagesRequest", len)?;
         if !self.installation_ids.is_empty() {
             struct_ser.serialize_field("installationIds", &self.installation_ids.iter().map(pbjson::private::base64::encode).collect::<Vec<_>>())?;
         }
@@ -65,7 +65,7 @@ impl<'de> serde::Deserialize<'de> for FetchKeyPackagesRequest {
             type Value = FetchKeyPackagesRequest;
 
             fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-                formatter.write_str("struct xmtp.message_api.v3.FetchKeyPackagesRequest")
+                formatter.write_str("struct xmtp.mls.api.v1.FetchKeyPackagesRequest")
             }
 
             fn visit_map<V>(self, mut map: V) -> std::result::Result<FetchKeyPackagesRequest, V::Error>
@@ -91,7 +91,7 @@ impl<'de> serde::Deserialize<'de> for FetchKeyPackagesRequest {
                 })
             }
         }
-        deserializer.deserialize_struct("xmtp.message_api.v3.FetchKeyPackagesRequest", FIELDS, GeneratedVisitor)
+        deserializer.deserialize_struct("xmtp.mls.api.v1.FetchKeyPackagesRequest", FIELDS, GeneratedVisitor)
     }
 }
 impl serde::Serialize for FetchKeyPackagesResponse {
@@ -105,7 +105,7 @@ impl serde::Serialize for FetchKeyPackagesResponse {
         if !self.key_packages.is_empty() {
             len += 1;
         }
-        let mut struct_ser = serializer.serialize_struct("xmtp.message_api.v3.FetchKeyPackagesResponse", len)?;
+        let mut struct_ser = serializer.serialize_struct("xmtp.mls.api.v1.FetchKeyPackagesResponse", len)?;
         if !self.key_packages.is_empty() {
             struct_ser.serialize_field("keyPackages", &self.key_packages)?;
         }
@@ -160,7 +160,7 @@ impl<'de> serde::Deserialize<'de> for FetchKeyPackagesResponse {
             type Value = FetchKeyPackagesResponse;
 
             fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-                formatter.write_str("struct xmtp.message_api.v3.FetchKeyPackagesResponse")
+                formatter.write_str("struct xmtp.mls.api.v1.FetchKeyPackagesResponse")
             }
 
             fn visit_map<V>(self, mut map: V) -> std::result::Result<FetchKeyPackagesResponse, V::Error>
@@ -183,7 +183,7 @@ impl<'de> serde::Deserialize<'de> for FetchKeyPackagesResponse {
                 })
             }
         }
-        deserializer.deserialize_struct("xmtp.message_api.v3.FetchKeyPackagesResponse", FIELDS, GeneratedVisitor)
+        deserializer.deserialize_struct("xmtp.mls.api.v1.FetchKeyPackagesResponse", FIELDS, GeneratedVisitor)
     }
 }
 impl serde::Serialize for fetch_key_packages_response::KeyPackage {
@@ -197,7 +197,7 @@ impl serde::Serialize for fetch_key_packages_response::KeyPackage {
         if !self.key_package_tls_serialized.is_empty() {
             len += 1;
         }
-        let mut struct_ser = serializer.serialize_struct("xmtp.message_api.v3.FetchKeyPackagesResponse.KeyPackage", len)?;
+        let mut struct_ser = serializer.serialize_struct("xmtp.mls.api.v1.FetchKeyPackagesResponse.KeyPackage", len)?;
         if !self.key_package_tls_serialized.is_empty() {
             struct_ser.serialize_field("keyPackageTlsSerialized", pbjson::private::base64::encode(&self.key_package_tls_serialized).as_str())?;
         }
@@ -252,7 +252,7 @@ impl<'de> serde::Deserialize<'de> for fetch_key_packages_response::KeyPackage {
             type Value = fetch_key_packages_response::KeyPackage;
 
             fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-                formatter.write_str("struct xmtp.message_api.v3.FetchKeyPackagesResponse.KeyPackage")
+                formatter.write_str("struct xmtp.mls.api.v1.FetchKeyPackagesResponse.KeyPackage")
             }
 
             fn visit_map<V>(self, mut map: V) -> std::result::Result<fetch_key_packages_response::KeyPackage, V::Error>
@@ -277,7 +277,7 @@ impl<'de> serde::Deserialize<'de> for fetch_key_packages_response::KeyPackage {
                 })
             }
         }
-        deserializer.deserialize_struct("xmtp.message_api.v3.FetchKeyPackagesResponse.KeyPackage", FIELDS, GeneratedVisitor)
+        deserializer.deserialize_struct("xmtp.mls.api.v1.FetchKeyPackagesResponse.KeyPackage", FIELDS, GeneratedVisitor)
     }
 }
 impl serde::Serialize for GetIdentityUpdatesRequest {
@@ -294,7 +294,7 @@ impl serde::Serialize for GetIdentityUpdatesRequest {
         if self.start_time_ns != 0 {
             len += 1;
         }
-        let mut struct_ser = serializer.serialize_struct("xmtp.message_api.v3.GetIdentityUpdatesRequest", len)?;
+        let mut struct_ser = serializer.serialize_struct("xmtp.mls.api.v1.GetIdentityUpdatesRequest", len)?;
         if !self.account_addresses.is_empty() {
             struct_ser.serialize_field("accountAddresses", &self.account_addresses)?;
         }
@@ -356,7 +356,7 @@ impl<'de> serde::Deserialize<'de> for GetIdentityUpdatesRequest {
             type Value = GetIdentityUpdatesRequest;
 
             fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-                formatter.write_str("struct xmtp.message_api.v3.GetIdentityUpdatesRequest")
+                formatter.write_str("struct xmtp.mls.api.v1.GetIdentityUpdatesRequest")
             }
 
             fn visit_map<V>(self, mut map: V) -> std::result::Result<GetIdentityUpdatesRequest, V::Error>
@@ -389,7 +389,7 @@ impl<'de> serde::Deserialize<'de> for GetIdentityUpdatesRequest {
                 })
             }
         }
-        deserializer.deserialize_struct("xmtp.message_api.v3.GetIdentityUpdatesRequest", FIELDS, GeneratedVisitor)
+        deserializer.deserialize_struct("xmtp.mls.api.v1.GetIdentityUpdatesRequest", FIELDS, GeneratedVisitor)
     }
 }
 impl serde::Serialize for GetIdentityUpdatesResponse {
@@ -403,7 +403,7 @@ impl serde::Serialize for GetIdentityUpdatesResponse {
         if !self.updates.is_empty() {
             len += 1;
         }
-        let mut struct_ser = serializer.serialize_struct("xmtp.message_api.v3.GetIdentityUpdatesResponse", len)?;
+        let mut struct_ser = serializer.serialize_struct("xmtp.mls.api.v1.GetIdentityUpdatesResponse", len)?;
         if !self.updates.is_empty() {
             struct_ser.serialize_field("updates", &self.updates)?;
         }
@@ -457,7 +457,7 @@ impl<'de> serde::Deserialize<'de> for GetIdentityUpdatesResponse {
             type Value = GetIdentityUpdatesResponse;
 
             fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-                formatter.write_str("struct xmtp.message_api.v3.GetIdentityUpdatesResponse")
+                formatter.write_str("struct xmtp.mls.api.v1.GetIdentityUpdatesResponse")
             }
 
             fn visit_map<V>(self, mut map: V) -> std::result::Result<GetIdentityUpdatesResponse, V::Error>
@@ -480,7 +480,7 @@ impl<'de> serde::Deserialize<'de> for GetIdentityUpdatesResponse {
                 })
             }
         }
-        deserializer.deserialize_struct("xmtp.message_api.v3.GetIdentityUpdatesResponse", FIELDS, GeneratedVisitor)
+        deserializer.deserialize_struct("xmtp.mls.api.v1.GetIdentityUpdatesResponse", FIELDS, GeneratedVisitor)
     }
 }
 impl serde::Serialize for get_identity_updates_response::NewInstallationUpdate {
@@ -497,7 +497,7 @@ impl serde::Serialize for get_identity_updates_response::NewInstallationUpdate {
         if !self.credential_identity.is_empty() {
             len += 1;
         }
-        let mut struct_ser = serializer.serialize_struct("xmtp.message_api.v3.GetIdentityUpdatesResponse.NewInstallationUpdate", len)?;
+        let mut struct_ser = serializer.serialize_struct("xmtp.mls.api.v1.GetIdentityUpdatesResponse.NewInstallationUpdate", len)?;
         if !self.installation_id.is_empty() {
             struct_ser.serialize_field("installationId", pbjson::private::base64::encode(&self.installation_id).as_str())?;
         }
@@ -559,7 +559,7 @@ impl<'de> serde::Deserialize<'de> for get_identity_updates_response::NewInstalla
             type Value = get_identity_updates_response::NewInstallationUpdate;
 
             fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-                formatter.write_str("struct xmtp.message_api.v3.GetIdentityUpdatesResponse.NewInstallationUpdate")
+                formatter.write_str("struct xmtp.mls.api.v1.GetIdentityUpdatesResponse.NewInstallationUpdate")
             }
 
             fn visit_map<V>(self, mut map: V) -> std::result::Result<get_identity_updates_response::NewInstallationUpdate, V::Error>
@@ -594,7 +594,7 @@ impl<'de> serde::Deserialize<'de> for get_identity_updates_response::NewInstalla
                 })
             }
         }
-        deserializer.deserialize_struct("xmtp.message_api.v3.GetIdentityUpdatesResponse.NewInstallationUpdate", FIELDS, GeneratedVisitor)
+        deserializer.deserialize_struct("xmtp.mls.api.v1.GetIdentityUpdatesResponse.NewInstallationUpdate", FIELDS, GeneratedVisitor)
     }
 }
 impl serde::Serialize for get_identity_updates_response::RevokedInstallationUpdate {
@@ -608,7 +608,7 @@ impl serde::Serialize for get_identity_updates_response::RevokedInstallationUpda
         if !self.installation_id.is_empty() {
             len += 1;
         }
-        let mut struct_ser = serializer.serialize_struct("xmtp.message_api.v3.GetIdentityUpdatesResponse.RevokedInstallationUpdate", len)?;
+        let mut struct_ser = serializer.serialize_struct("xmtp.mls.api.v1.GetIdentityUpdatesResponse.RevokedInstallationUpdate", len)?;
         if !self.installation_id.is_empty() {
             struct_ser.serialize_field("installationId", pbjson::private::base64::encode(&self.installation_id).as_str())?;
         }
@@ -663,7 +663,7 @@ impl<'de> serde::Deserialize<'de> for get_identity_updates_response::RevokedInst
             type Value = get_identity_updates_response::RevokedInstallationUpdate;
 
             fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-                formatter.write_str("struct xmtp.message_api.v3.GetIdentityUpdatesResponse.RevokedInstallationUpdate")
+                formatter.write_str("struct xmtp.mls.api.v1.GetIdentityUpdatesResponse.RevokedInstallationUpdate")
             }
 
             fn visit_map<V>(self, mut map: V) -> std::result::Result<get_identity_updates_response::RevokedInstallationUpdate, V::Error>
@@ -688,7 +688,7 @@ impl<'de> serde::Deserialize<'de> for get_identity_updates_response::RevokedInst
                 })
             }
         }
-        deserializer.deserialize_struct("xmtp.message_api.v3.GetIdentityUpdatesResponse.RevokedInstallationUpdate", FIELDS, GeneratedVisitor)
+        deserializer.deserialize_struct("xmtp.mls.api.v1.GetIdentityUpdatesResponse.RevokedInstallationUpdate", FIELDS, GeneratedVisitor)
     }
 }
 impl serde::Serialize for get_identity_updates_response::Update {
@@ -705,7 +705,7 @@ impl serde::Serialize for get_identity_updates_response::Update {
         if self.kind.is_some() {
             len += 1;
         }
-        let mut struct_ser = serializer.serialize_struct("xmtp.message_api.v3.GetIdentityUpdatesResponse.Update", len)?;
+        let mut struct_ser = serializer.serialize_struct("xmtp.mls.api.v1.GetIdentityUpdatesResponse.Update", len)?;
         if self.timestamp_ns != 0 {
             struct_ser.serialize_field("timestampNs", ToString::to_string(&self.timestamp_ns).as_str())?;
         }
@@ -778,7 +778,7 @@ impl<'de> serde::Deserialize<'de> for get_identity_updates_response::Update {
             type Value = get_identity_updates_response::Update;
 
             fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-                formatter.write_str("struct xmtp.message_api.v3.GetIdentityUpdatesResponse.Update")
+                formatter.write_str("struct xmtp.mls.api.v1.GetIdentityUpdatesResponse.Update")
             }
 
             fn visit_map<V>(self, mut map: V) -> std::result::Result<get_identity_updates_response::Update, V::Error>
@@ -819,7 +819,7 @@ impl<'de> serde::Deserialize<'de> for get_identity_updates_response::Update {
                 })
             }
         }
-        deserializer.deserialize_struct("xmtp.message_api.v3.GetIdentityUpdatesResponse.Update", FIELDS, GeneratedVisitor)
+        deserializer.deserialize_struct("xmtp.mls.api.v1.GetIdentityUpdatesResponse.Update", FIELDS, GeneratedVisitor)
     }
 }
 impl serde::Serialize for get_identity_updates_response::WalletUpdates {
@@ -833,7 +833,7 @@ impl serde::Serialize for get_identity_updates_response::WalletUpdates {
         if !self.updates.is_empty() {
             len += 1;
         }
-        let mut struct_ser = serializer.serialize_struct("xmtp.message_api.v3.GetIdentityUpdatesResponse.WalletUpdates", len)?;
+        let mut struct_ser = serializer.serialize_struct("xmtp.mls.api.v1.GetIdentityUpdatesResponse.WalletUpdates", len)?;
         if !self.updates.is_empty() {
             struct_ser.serialize_field("updates", &self.updates)?;
         }
@@ -887,7 +887,7 @@ impl<'de> serde::Deserialize<'de> for get_identity_updates_response::WalletUpdat
             type Value = get_identity_updates_response::WalletUpdates;
 
             fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-                formatter.write_str("struct xmtp.message_api.v3.GetIdentityUpdatesResponse.WalletUpdates")
+                formatter.write_str("struct xmtp.mls.api.v1.GetIdentityUpdatesResponse.WalletUpdates")
             }
 
             fn visit_map<V>(self, mut map: V) -> std::result::Result<get_identity_updates_response::WalletUpdates, V::Error>
@@ -910,7 +910,7 @@ impl<'de> serde::Deserialize<'de> for get_identity_updates_response::WalletUpdat
                 })
             }
         }
-        deserializer.deserialize_struct("xmtp.message_api.v3.GetIdentityUpdatesResponse.WalletUpdates", FIELDS, GeneratedVisitor)
+        deserializer.deserialize_struct("xmtp.mls.api.v1.GetIdentityUpdatesResponse.WalletUpdates", FIELDS, GeneratedVisitor)
     }
 }
 impl serde::Serialize for KeyPackageUpload {
@@ -924,7 +924,7 @@ impl serde::Serialize for KeyPackageUpload {
         if !self.key_package_tls_serialized.is_empty() {
             len += 1;
         }
-        let mut struct_ser = serializer.serialize_struct("xmtp.message_api.v3.KeyPackageUpload", len)?;
+        let mut struct_ser = serializer.serialize_struct("xmtp.mls.api.v1.KeyPackageUpload", len)?;
         if !self.key_package_tls_serialized.is_empty() {
             struct_ser.serialize_field("keyPackageTlsSerialized", pbjson::private::base64::encode(&self.key_package_tls_serialized).as_str())?;
         }
@@ -979,7 +979,7 @@ impl<'de> serde::Deserialize<'de> for KeyPackageUpload {
             type Value = KeyPackageUpload;
 
             fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-                formatter.write_str("struct xmtp.message_api.v3.KeyPackageUpload")
+                formatter.write_str("struct xmtp.mls.api.v1.KeyPackageUpload")
             }
 
             fn visit_map<V>(self, mut map: V) -> std::result::Result<KeyPackageUpload, V::Error>
@@ -1004,7 +1004,7 @@ impl<'de> serde::Deserialize<'de> for KeyPackageUpload {
                 })
             }
         }
-        deserializer.deserialize_struct("xmtp.message_api.v3.KeyPackageUpload", FIELDS, GeneratedVisitor)
+        deserializer.deserialize_struct("xmtp.mls.api.v1.KeyPackageUpload", FIELDS, GeneratedVisitor)
     }
 }
 impl serde::Serialize for PublishToGroupRequest {
@@ -1018,7 +1018,7 @@ impl serde::Serialize for PublishToGroupRequest {
         if !self.messages.is_empty() {
             len += 1;
         }
-        let mut struct_ser = serializer.serialize_struct("xmtp.message_api.v3.PublishToGroupRequest", len)?;
+        let mut struct_ser = serializer.serialize_struct("xmtp.mls.api.v1.PublishToGroupRequest", len)?;
         if !self.messages.is_empty() {
             struct_ser.serialize_field("messages", &self.messages)?;
         }
@@ -1072,7 +1072,7 @@ impl<'de> serde::Deserialize<'de> for PublishToGroupRequest {
             type Value = PublishToGroupRequest;
 
             fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-                formatter.write_str("struct xmtp.message_api.v3.PublishToGroupRequest")
+                formatter.write_str("struct xmtp.mls.api.v1.PublishToGroupRequest")
             }
 
             fn visit_map<V>(self, mut map: V) -> std::result::Result<PublishToGroupRequest, V::Error>
@@ -1095,7 +1095,7 @@ impl<'de> serde::Deserialize<'de> for PublishToGroupRequest {
                 })
             }
         }
-        deserializer.deserialize_struct("xmtp.message_api.v3.PublishToGroupRequest", FIELDS, GeneratedVisitor)
+        deserializer.deserialize_struct("xmtp.mls.api.v1.PublishToGroupRequest", FIELDS, GeneratedVisitor)
     }
 }
 impl serde::Serialize for PublishWelcomesRequest {
@@ -1109,7 +1109,7 @@ impl serde::Serialize for PublishWelcomesRequest {
         if !self.welcome_messages.is_empty() {
             len += 1;
         }
-        let mut struct_ser = serializer.serialize_struct("xmtp.message_api.v3.PublishWelcomesRequest", len)?;
+        let mut struct_ser = serializer.serialize_struct("xmtp.mls.api.v1.PublishWelcomesRequest", len)?;
         if !self.welcome_messages.is_empty() {
             struct_ser.serialize_field("welcomeMessages", &self.welcome_messages)?;
         }
@@ -1164,7 +1164,7 @@ impl<'de> serde::Deserialize<'de> for PublishWelcomesRequest {
             type Value = PublishWelcomesRequest;
 
             fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-                formatter.write_str("struct xmtp.message_api.v3.PublishWelcomesRequest")
+                formatter.write_str("struct xmtp.mls.api.v1.PublishWelcomesRequest")
             }
 
             fn visit_map<V>(self, mut map: V) -> std::result::Result<PublishWelcomesRequest, V::Error>
@@ -1187,7 +1187,7 @@ impl<'de> serde::Deserialize<'de> for PublishWelcomesRequest {
                 })
             }
         }
-        deserializer.deserialize_struct("xmtp.message_api.v3.PublishWelcomesRequest", FIELDS, GeneratedVisitor)
+        deserializer.deserialize_struct("xmtp.mls.api.v1.PublishWelcomesRequest", FIELDS, GeneratedVisitor)
     }
 }
 impl serde::Serialize for publish_welcomes_request::WelcomeMessageRequest {
@@ -1204,7 +1204,7 @@ impl serde::Serialize for publish_welcomes_request::WelcomeMessageRequest {
         if self.welcome_message.is_some() {
             len += 1;
         }
-        let mut struct_ser = serializer.serialize_struct("xmtp.message_api.v3.PublishWelcomesRequest.WelcomeMessageRequest", len)?;
+        let mut struct_ser = serializer.serialize_struct("xmtp.mls.api.v1.PublishWelcomesRequest.WelcomeMessageRequest", len)?;
         if !self.installation_id.is_empty() {
             struct_ser.serialize_field("installationId", pbjson::private::base64::encode(&self.installation_id).as_str())?;
         }
@@ -1266,7 +1266,7 @@ impl<'de> serde::Deserialize<'de> for publish_welcomes_request::WelcomeMessageRe
             type Value = publish_welcomes_request::WelcomeMessageRequest;
 
             fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-                formatter.write_str("struct xmtp.message_api.v3.PublishWelcomesRequest.WelcomeMessageRequest")
+                formatter.write_str("struct xmtp.mls.api.v1.PublishWelcomesRequest.WelcomeMessageRequest")
             }
 
             fn visit_map<V>(self, mut map: V) -> std::result::Result<publish_welcomes_request::WelcomeMessageRequest, V::Error>
@@ -1299,7 +1299,7 @@ impl<'de> serde::Deserialize<'de> for publish_welcomes_request::WelcomeMessageRe
                 })
             }
         }
-        deserializer.deserialize_struct("xmtp.message_api.v3.PublishWelcomesRequest.WelcomeMessageRequest", FIELDS, GeneratedVisitor)
+        deserializer.deserialize_struct("xmtp.mls.api.v1.PublishWelcomesRequest.WelcomeMessageRequest", FIELDS, GeneratedVisitor)
     }
 }
 impl serde::Serialize for RegisterInstallationRequest {
@@ -1313,7 +1313,7 @@ impl serde::Serialize for RegisterInstallationRequest {
         if self.key_package.is_some() {
             len += 1;
         }
-        let mut struct_ser = serializer.serialize_struct("xmtp.message_api.v3.RegisterInstallationRequest", len)?;
+        let mut struct_ser = serializer.serialize_struct("xmtp.mls.api.v1.RegisterInstallationRequest", len)?;
         if let Some(v) = self.key_package.as_ref() {
             struct_ser.serialize_field("keyPackage", v)?;
         }
@@ -1368,7 +1368,7 @@ impl<'de> serde::Deserialize<'de> for RegisterInstallationRequest {
             type Value = RegisterInstallationRequest;
 
             fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-                formatter.write_str("struct xmtp.message_api.v3.RegisterInstallationRequest")
+                formatter.write_str("struct xmtp.mls.api.v1.RegisterInstallationRequest")
             }
 
             fn visit_map<V>(self, mut map: V) -> std::result::Result<RegisterInstallationRequest, V::Error>
@@ -1391,7 +1391,7 @@ impl<'de> serde::Deserialize<'de> for RegisterInstallationRequest {
                 })
             }
         }
-        deserializer.deserialize_struct("xmtp.message_api.v3.RegisterInstallationRequest", FIELDS, GeneratedVisitor)
+        deserializer.deserialize_struct("xmtp.mls.api.v1.RegisterInstallationRequest", FIELDS, GeneratedVisitor)
     }
 }
 impl serde::Serialize for RegisterInstallationResponse {
@@ -1405,7 +1405,7 @@ impl serde::Serialize for RegisterInstallationResponse {
         if !self.installation_id.is_empty() {
             len += 1;
         }
-        let mut struct_ser = serializer.serialize_struct("xmtp.message_api.v3.RegisterInstallationResponse", len)?;
+        let mut struct_ser = serializer.serialize_struct("xmtp.mls.api.v1.RegisterInstallationResponse", len)?;
         if !self.installation_id.is_empty() {
             struct_ser.serialize_field("installationId", pbjson::private::base64::encode(&self.installation_id).as_str())?;
         }
@@ -1460,7 +1460,7 @@ impl<'de> serde::Deserialize<'de> for RegisterInstallationResponse {
             type Value = RegisterInstallationResponse;
 
             fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-                formatter.write_str("struct xmtp.message_api.v3.RegisterInstallationResponse")
+                formatter.write_str("struct xmtp.mls.api.v1.RegisterInstallationResponse")
             }
 
             fn visit_map<V>(self, mut map: V) -> std::result::Result<RegisterInstallationResponse, V::Error>
@@ -1485,7 +1485,7 @@ impl<'de> serde::Deserialize<'de> for RegisterInstallationResponse {
                 })
             }
         }
-        deserializer.deserialize_struct("xmtp.message_api.v3.RegisterInstallationResponse", FIELDS, GeneratedVisitor)
+        deserializer.deserialize_struct("xmtp.mls.api.v1.RegisterInstallationResponse", FIELDS, GeneratedVisitor)
     }
 }
 impl serde::Serialize for RevokeInstallationRequest {
@@ -1502,7 +1502,7 @@ impl serde::Serialize for RevokeInstallationRequest {
         if self.wallet_signature.is_some() {
             len += 1;
         }
-        let mut struct_ser = serializer.serialize_struct("xmtp.message_api.v3.RevokeInstallationRequest", len)?;
+        let mut struct_ser = serializer.serialize_struct("xmtp.mls.api.v1.RevokeInstallationRequest", len)?;
         if !self.installation_id.is_empty() {
             struct_ser.serialize_field("installationId", pbjson::private::base64::encode(&self.installation_id).as_str())?;
         }
@@ -1564,7 +1564,7 @@ impl<'de> serde::Deserialize<'de> for RevokeInstallationRequest {
             type Value = RevokeInstallationRequest;
 
             fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-                formatter.write_str("struct xmtp.message_api.v3.RevokeInstallationRequest")
+                formatter.write_str("struct xmtp.mls.api.v1.RevokeInstallationRequest")
             }
 
             fn visit_map<V>(self, mut map: V) -> std::result::Result<RevokeInstallationRequest, V::Error>
@@ -1597,7 +1597,7 @@ impl<'de> serde::Deserialize<'de> for RevokeInstallationRequest {
                 })
             }
         }
-        deserializer.deserialize_struct("xmtp.message_api.v3.RevokeInstallationRequest", FIELDS, GeneratedVisitor)
+        deserializer.deserialize_struct("xmtp.mls.api.v1.RevokeInstallationRequest", FIELDS, GeneratedVisitor)
     }
 }
 impl serde::Serialize for UploadKeyPackageRequest {
@@ -1611,7 +1611,7 @@ impl serde::Serialize for UploadKeyPackageRequest {
         if self.key_package.is_some() {
             len += 1;
         }
-        let mut struct_ser = serializer.serialize_struct("xmtp.message_api.v3.UploadKeyPackageRequest", len)?;
+        let mut struct_ser = serializer.serialize_struct("xmtp.mls.api.v1.UploadKeyPackageRequest", len)?;
         if let Some(v) = self.key_package.as_ref() {
             struct_ser.serialize_field("keyPackage", v)?;
         }
@@ -1666,7 +1666,7 @@ impl<'de> serde::Deserialize<'de> for UploadKeyPackageRequest {
             type Value = UploadKeyPackageRequest;
 
             fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-                formatter.write_str("struct xmtp.message_api.v3.UploadKeyPackageRequest")
+                formatter.write_str("struct xmtp.mls.api.v1.UploadKeyPackageRequest")
             }
 
             fn visit_map<V>(self, mut map: V) -> std::result::Result<UploadKeyPackageRequest, V::Error>
@@ -1689,6 +1689,6 @@ impl<'de> serde::Deserialize<'de> for UploadKeyPackageRequest {
                 })
             }
         }
-        deserializer.deserialize_struct("xmtp.message_api.v3.UploadKeyPackageRequest", FIELDS, GeneratedVisitor)
+        deserializer.deserialize_struct("xmtp.mls.api.v1.UploadKeyPackageRequest", FIELDS, GeneratedVisitor)
     }
 }

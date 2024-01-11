@@ -100,11 +100,11 @@ pub mod mls_api_client {
                 })?;
             let codec = tonic::codec::ProstCodec::default();
             let path = http::uri::PathAndQuery::from_static(
-                "/xmtp.message_api.v3.MlsApi/PublishToGroup",
+                "/xmtp.mls.api.v1.MlsApi/PublishToGroup",
             );
             let mut req = request.into_request();
             req.extensions_mut()
-                .insert(GrpcMethod::new("xmtp.message_api.v3.MlsApi", "PublishToGroup"));
+                .insert(GrpcMethod::new("xmtp.mls.api.v1.MlsApi", "PublishToGroup"));
             self.inner.unary(req, path, codec).await
         }
         pub async fn publish_welcomes(
@@ -122,13 +122,11 @@ pub mod mls_api_client {
                 })?;
             let codec = tonic::codec::ProstCodec::default();
             let path = http::uri::PathAndQuery::from_static(
-                "/xmtp.message_api.v3.MlsApi/PublishWelcomes",
+                "/xmtp.mls.api.v1.MlsApi/PublishWelcomes",
             );
             let mut req = request.into_request();
             req.extensions_mut()
-                .insert(
-                    GrpcMethod::new("xmtp.message_api.v3.MlsApi", "PublishWelcomes"),
-                );
+                .insert(GrpcMethod::new("xmtp.mls.api.v1.MlsApi", "PublishWelcomes"));
             self.inner.unary(req, path, codec).await
         }
         pub async fn register_installation(
@@ -149,12 +147,12 @@ pub mod mls_api_client {
                 })?;
             let codec = tonic::codec::ProstCodec::default();
             let path = http::uri::PathAndQuery::from_static(
-                "/xmtp.message_api.v3.MlsApi/RegisterInstallation",
+                "/xmtp.mls.api.v1.MlsApi/RegisterInstallation",
             );
             let mut req = request.into_request();
             req.extensions_mut()
                 .insert(
-                    GrpcMethod::new("xmtp.message_api.v3.MlsApi", "RegisterInstallation"),
+                    GrpcMethod::new("xmtp.mls.api.v1.MlsApi", "RegisterInstallation"),
                 );
             self.inner.unary(req, path, codec).await
         }
@@ -173,13 +171,11 @@ pub mod mls_api_client {
                 })?;
             let codec = tonic::codec::ProstCodec::default();
             let path = http::uri::PathAndQuery::from_static(
-                "/xmtp.message_api.v3.MlsApi/UploadKeyPackage",
+                "/xmtp.mls.api.v1.MlsApi/UploadKeyPackage",
             );
             let mut req = request.into_request();
             req.extensions_mut()
-                .insert(
-                    GrpcMethod::new("xmtp.message_api.v3.MlsApi", "UploadKeyPackage"),
-                );
+                .insert(GrpcMethod::new("xmtp.mls.api.v1.MlsApi", "UploadKeyPackage"));
             self.inner.unary(req, path, codec).await
         }
         pub async fn fetch_key_packages(
@@ -200,13 +196,11 @@ pub mod mls_api_client {
                 })?;
             let codec = tonic::codec::ProstCodec::default();
             let path = http::uri::PathAndQuery::from_static(
-                "/xmtp.message_api.v3.MlsApi/FetchKeyPackages",
+                "/xmtp.mls.api.v1.MlsApi/FetchKeyPackages",
             );
             let mut req = request.into_request();
             req.extensions_mut()
-                .insert(
-                    GrpcMethod::new("xmtp.message_api.v3.MlsApi", "FetchKeyPackages"),
-                );
+                .insert(GrpcMethod::new("xmtp.mls.api.v1.MlsApi", "FetchKeyPackages"));
             self.inner.unary(req, path, codec).await
         }
         pub async fn revoke_installation(
@@ -224,13 +218,11 @@ pub mod mls_api_client {
                 })?;
             let codec = tonic::codec::ProstCodec::default();
             let path = http::uri::PathAndQuery::from_static(
-                "/xmtp.message_api.v3.MlsApi/RevokeInstallation",
+                "/xmtp.mls.api.v1.MlsApi/RevokeInstallation",
             );
             let mut req = request.into_request();
             req.extensions_mut()
-                .insert(
-                    GrpcMethod::new("xmtp.message_api.v3.MlsApi", "RevokeInstallation"),
-                );
+                .insert(GrpcMethod::new("xmtp.mls.api.v1.MlsApi", "RevokeInstallation"));
             self.inner.unary(req, path, codec).await
         }
         pub async fn get_identity_updates(
@@ -251,13 +243,11 @@ pub mod mls_api_client {
                 })?;
             let codec = tonic::codec::ProstCodec::default();
             let path = http::uri::PathAndQuery::from_static(
-                "/xmtp.message_api.v3.MlsApi/GetIdentityUpdates",
+                "/xmtp.mls.api.v1.MlsApi/GetIdentityUpdates",
             );
             let mut req = request.into_request();
             req.extensions_mut()
-                .insert(
-                    GrpcMethod::new("xmtp.message_api.v3.MlsApi", "GetIdentityUpdates"),
-                );
+                .insert(GrpcMethod::new("xmtp.mls.api.v1.MlsApi", "GetIdentityUpdates"));
             self.inner.unary(req, path, codec).await
         }
     }
@@ -387,7 +377,7 @@ pub mod mls_api_server {
         fn call(&mut self, req: http::Request<B>) -> Self::Future {
             let inner = self.inner.clone();
             match req.uri().path() {
-                "/xmtp.message_api.v3.MlsApi/PublishToGroup" => {
+                "/xmtp.mls.api.v1.MlsApi/PublishToGroup" => {
                     #[allow(non_camel_case_types)]
                     struct PublishToGroupSvc<T: MlsApi>(pub Arc<T>);
                     impl<
@@ -433,7 +423,7 @@ pub mod mls_api_server {
                     };
                     Box::pin(fut)
                 }
-                "/xmtp.message_api.v3.MlsApi/PublishWelcomes" => {
+                "/xmtp.mls.api.v1.MlsApi/PublishWelcomes" => {
                     #[allow(non_camel_case_types)]
                     struct PublishWelcomesSvc<T: MlsApi>(pub Arc<T>);
                     impl<
@@ -479,7 +469,7 @@ pub mod mls_api_server {
                     };
                     Box::pin(fut)
                 }
-                "/xmtp.message_api.v3.MlsApi/RegisterInstallation" => {
+                "/xmtp.mls.api.v1.MlsApi/RegisterInstallation" => {
                     #[allow(non_camel_case_types)]
                     struct RegisterInstallationSvc<T: MlsApi>(pub Arc<T>);
                     impl<
@@ -525,7 +515,7 @@ pub mod mls_api_server {
                     };
                     Box::pin(fut)
                 }
-                "/xmtp.message_api.v3.MlsApi/UploadKeyPackage" => {
+                "/xmtp.mls.api.v1.MlsApi/UploadKeyPackage" => {
                     #[allow(non_camel_case_types)]
                     struct UploadKeyPackageSvc<T: MlsApi>(pub Arc<T>);
                     impl<
@@ -571,7 +561,7 @@ pub mod mls_api_server {
                     };
                     Box::pin(fut)
                 }
-                "/xmtp.message_api.v3.MlsApi/FetchKeyPackages" => {
+                "/xmtp.mls.api.v1.MlsApi/FetchKeyPackages" => {
                     #[allow(non_camel_case_types)]
                     struct FetchKeyPackagesSvc<T: MlsApi>(pub Arc<T>);
                     impl<
@@ -617,7 +607,7 @@ pub mod mls_api_server {
                     };
                     Box::pin(fut)
                 }
-                "/xmtp.message_api.v3.MlsApi/RevokeInstallation" => {
+                "/xmtp.mls.api.v1.MlsApi/RevokeInstallation" => {
                     #[allow(non_camel_case_types)]
                     struct RevokeInstallationSvc<T: MlsApi>(pub Arc<T>);
                     impl<
@@ -663,7 +653,7 @@ pub mod mls_api_server {
                     };
                     Box::pin(fut)
                 }
-                "/xmtp.message_api.v3.MlsApi/GetIdentityUpdates" => {
+                "/xmtp.mls.api.v1.MlsApi/GetIdentityUpdates" => {
                     #[allow(non_camel_case_types)]
                     struct GetIdentityUpdatesSvc<T: MlsApi>(pub Arc<T>);
                     impl<
@@ -747,6 +737,6 @@ pub mod mls_api_server {
         }
     }
     impl<T: MlsApi> tonic::server::NamedService for MlsApiServer<T> {
-        const NAME: &'static str = "xmtp.message_api.v3.MlsApi";
+        const NAME: &'static str = "xmtp.mls.api.v1.MlsApi";
     }
 }
