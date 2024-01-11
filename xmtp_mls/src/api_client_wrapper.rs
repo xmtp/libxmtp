@@ -316,9 +316,9 @@ mod tests {
             XmtpApiSubscription, XmtpMlsClient,
         },
         xmtp::message_api::v1::{
-            cursor::Cursor as InnerCursor, BatchQueryRequest, BatchQueryResponse, Cursor,
-            Envelope, IndexCursor, PublishRequest, PublishResponse, QueryRequest,
-            QueryResponse, SubscribeRequest,
+            cursor::Cursor as InnerCursor, BatchQueryRequest, BatchQueryResponse, Cursor, Envelope,
+            IndexCursor, PublishRequest, PublishResponse, QueryRequest, QueryResponse,
+            SubscribeRequest,
         },
         xmtp::mls::api::v1::{
             fetch_key_packages_response::KeyPackage,
