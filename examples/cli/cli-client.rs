@@ -17,7 +17,7 @@ use xmtp_cryptography::{
     utils::{rng, seeded_rng, LocalWallet},
 };
 use xmtp_mls::{
-    builder::{ClientBuilderError, IdentityStrategy},
+    builder::{ClientBuilderError, IdentityStrategy, LegacyIdentitySource},
     client::ClientError,
     groups::MlsGroup,
     storage::{EncryptedMessageStore, EncryptionKey, StorageError, StorageOption},
@@ -294,7 +294,7 @@ async fn create_client(cli: &Cli, account: IdentityStrategy<Wallet>) -> Result<C
         );
     }
 
-    builder.build().map_err(CliError::ClientBuilder)
+    builder.build().await.map_err(CliError::ClientBuilder)
 }
 
 async fn register(cli: &Cli, wallet_seed: &u64) -> Result<(), CliError> {
@@ -304,7 +304,11 @@ async fn register(cli: &Cli, wallet_seed: &u64) -> Result<(), CliError> {
         Wallet::LocalWallet(LocalWallet::new(&mut seeded_rng(*wallet_seed)))
     };
 
-    let client = create_client(cli, IdentityStrategy::CreateIfNotFound(w)).await?;
+    let client = create_client(
+        cli,
+        IdentityStrategy::CreateIfNotFound(w, LegacyIdentitySource::None),
+    )
+    .await?;
     info!("Address is: {}", client.account_address());
 
     if let Err(e) = client.register_identity().await {

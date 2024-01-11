@@ -7,8 +7,10 @@ use thiserror::Error;
 use xmtp_proto::api_client::XmtpMlsClient;
 
 use crate::{
+    api_client_wrapper::ApiClientWrapper,
     client::{Client, Network},
     identity::{Identity, IdentityError},
+    retry::Retry,
     storage::{identity::StoredIdentity, EncryptedMessageStore},
     utils::address::sanitize_evm_addresses,
     xmtp_openmls_provider::XmtpOpenMlsProvider,
@@ -42,9 +44,25 @@ pub enum ClientBuilderError {
     StorageError(#[from] StorageError),
 }
 
+/// XMTP SDK's may embed libxmtp (v3) alongside existing v2 protocol logic
+/// for backwards-compatibility purposes. In this case, the client may already
+/// have a wallet-signed v2 key. Depending on the source of this key,
+/// libxmtp may choose to bootstrap v3 installation keys using the existing
+/// legacy key.
+pub enum LegacyIdentitySource {
+    // A client with no support for v2 messages
+    None,
+    // A cached v2 key was provided on client initialization
+    Static(Vec<u8>),
+    // A private bundle exists on the network from which the v2 key will be fetched
+    Network,
+    // A new v2 key was generated on client initialization
+    KeyGenerator(Vec<u8>),
+}
+
 pub enum IdentityStrategy<Owner> {
-    CreateIfNotFound(Owner),
-    CreateUnsignedIfNotFound(String),
+    CreateIfNotFound(Owner, LegacyIdentitySource),
+    CreateUnsignedIfNotFound(String, LegacyIdentitySource),
     CachedOnly,
     #[cfg(test)]
     ExternalIdentity(Identity),
@@ -54,10 +72,13 @@ impl<'a, Owner> IdentityStrategy<Owner>
 where
     Owner: InboxOwner,
 {
-    fn initialize_identity(
+    async fn initialize_identity<ApiClient: XmtpApiClient + XmtpMlsClient>(
         self,
-        provider: &'a XmtpOpenMlsProvider,
+        api_client: &ApiClientWrapper<ApiClient>,
+        store: &EncryptedMessageStore,
     ) -> Result<Identity, ClientBuilderError> {
+        let conn = store.conn()?;
+        let provider = XmtpOpenMlsProvider::new(&conn);
         let identity_option: Option<Identity> = provider
             .conn()
             .fetch(&())?
@@ -67,14 +88,21 @@ where
             IdentityStrategy::CachedOnly => {
                 identity_option.ok_or(ClientBuilderError::RequiredIdentityNotFound)
             }
-            IdentityStrategy::CreateIfNotFound(owner) => match identity_option {
-                Some(identity) => {
-                    if identity.account_address != owner.get_address() {
-                        return Err(ClientBuilderError::StoredIdentityMismatch);
+            IdentityStrategy::CreateIfNotFound(owner, legacy_identity_source) => {
+                match identity_option {
+                    Some(identity) => {
+                        if identity.account_address != owner.get_address() {
+                            return Err(ClientBuilderError::StoredIdentityMismatch);
+                        }
+                        Ok(identity)
                     }
-                    Ok(identity)
+                    None => {
+                        Ok(
+                            Identity::new(api_client, &provider, &owner, legacy_identity_source)
+                                .await?,
+                        )
+                    }
                 }
-                None => Ok(Identity::new(&owner)?),
             },
             IdentityStrategy::CreateUnsignedIfNotFound(account_address) => {
                 let account_address = sanitize_evm_addresses(vec![account_address])?[0].clone();
@@ -87,7 +115,7 @@ where
                     }
                     None => Ok(Identity::new_unsigned(account_address)?),
                 }
-            }
+            },
             #[cfg(test)]
             IdentityStrategy::ExternalIdentity(identity) => Ok(identity),
         }
@@ -99,7 +127,7 @@ where
     Owner: InboxOwner,
 {
     fn from(value: Owner) -> Self {
-        IdentityStrategy::CreateIfNotFound(value)
+        IdentityStrategy::CreateIfNotFound(value, LegacyIdentitySource::None)
     }
 }
 
@@ -152,7 +180,7 @@ where
         self
     }
 
-    pub fn build(mut self) -> Result<Client<ApiClient>, ClientBuilderError> {
+    pub async fn build(mut self) -> Result<Client<ApiClient>, ClientBuilderError> {
         debug!("Building client");
         let api_client = self
             .api_client
@@ -160,16 +188,18 @@ where
             .ok_or(ClientBuilderError::MissingParameter {
                 parameter: "api_client",
             })?;
+        let api_client_wrapper = ApiClientWrapper::new(api_client, Retry::default());
         let network = self.network;
         let store = self
             .store
             .take()
             .ok_or(ClientBuilderError::MissingParameter { parameter: "store" })?;
-        let conn = store.conn()?;
-        let provider = XmtpOpenMlsProvider::new(&conn);
         debug!("Initializing identity");
-        let identity = self.identity_strategy.initialize_identity(&provider)?;
-        Ok(Client::new(api_client, network, identity, store))
+        let identity = self
+            .identity_strategy
+            .initialize_identity(&api_client_wrapper, &store)
+            .await?;
+        Ok(Client::new(api_client_wrapper, network, identity, store))
     }
 }
 

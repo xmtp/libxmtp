@@ -155,13 +155,13 @@ where
     /// It is expected that most users will use the [`ClientBuilder`](crate::builder::ClientBuilder) instead of instantiating
     /// a client directly.
     pub fn new(
-        api_client: ApiClient,
+        api_client: ApiClientWrapper<ApiClient>,
         network: Network,
         identity: Identity,
         store: EncryptedMessageStore,
     ) -> Self {
         Self {
-            api_client: ApiClientWrapper::new(api_client, Retry::default()),
+            api_client,
             _network: network,
             identity,
             store,

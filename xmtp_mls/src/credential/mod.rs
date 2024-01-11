@@ -78,12 +78,12 @@ impl Credential {
     }
 
     pub fn create_legacy(
+        installation_keys: &SignatureKeyPair,
         legacy_signed_private_key: Vec<u8>,
-        installation_public_key: Vec<u8>,
     ) -> Result<Self, AssociationError> {
         let association = LegacyCreateIdentityAssociation::create(
             legacy_signed_private_key,
-            installation_public_key,
+            installation_keys.to_public_vec(),
         )?;
         Ok(Self::LegacyCreateIdentity(association))
     }

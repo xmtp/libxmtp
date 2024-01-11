@@ -17,11 +17,13 @@ use thiserror::Error;
 use tls_codec::Serialize;
 use xmtp_cryptography::signature::SignatureError;
 use xmtp_proto::{
-    api_client::XmtpMlsClient, xmtp::mls::message_contents::MlsCredential as CredentialProto,
+    api_client::{XmtpApiClient, XmtpMlsClient},
+    xmtp::mls::message_contents::MlsCredential as CredentialProto,
 };
 
 use crate::{
-    api_client_wrapper::ApiClientWrapper,
+    api_client_wrapper::{ApiClientWrapper, IdentityUpdate},
+    builder::LegacyIdentitySource,
     configuration::CIPHERSUITE,
     credential::{AssociationError, Credential, UnsignedGrantMessagingAccessData},
     storage::{identity::StoredIdentity, StorageError},
@@ -57,6 +59,8 @@ pub enum IdentityError {
     ApiError(#[from] xmtp_proto::api_client::Error),
     #[error("OpenMLS credential error: {0}")]
     OpenMlsCredentialError(#[from] CredentialError),
+    #[error("network error")]
+    Network(#[from] xmtp_proto::api_client::Error),
 }
 
 #[derive(Debug)]
@@ -68,14 +72,35 @@ pub struct Identity {
 }
 
 impl Identity {
-    pub(crate) fn new(owner: &impl InboxOwner) -> Result<Self, IdentityError> {
+    pub(crate) async fn new<ApiClient: XmtpApiClient + XmtpMlsClient>(
+        api_client: &ApiClientWrapper<ApiClient>,
+        owner: &impl InboxOwner,
+        legacy_identity_source: LegacyIdentitySource,
+    ) -> Result<Self, IdentityError> {
         let signature_keys = SignatureKeyPair::new(CIPHERSUITE.signature_algorithm())?;
-        let credential = Identity::create_credential(&signature_keys, owner)?;
+
+        let credential = match legacy_identity_source {
+            LegacyIdentitySource::None | LegacyIdentitySource::Network => {
+                Credential::create(&signature_keys, owner)?
+            }
+            LegacyIdentitySource::Static(v2_signed_private_key)
+            | LegacyIdentitySource::KeyGenerator(v2_signed_private_key) => {
+                if Self::has_existing_legacy_credential(api_client, &owner.get_address()).await? {
+                    Credential::create(&signature_keys, owner)?
+                } else {
+                    // Save a signature
+                    Credential::create_legacy(&signature_keys, v2_signed_private_key)?
+                }
+            }
+        };
+        let credential_proto: CredentialProto = credential.into();
+        let mls_credential =
+            OpenMlsCredential::new(credential_proto.encode_to_vec(), CredentialType::Basic)?;
 
         let identity = Self {
             account_address: owner.get_address(),
             installation_keys: signature_keys,
-            credential: RwLock::new(Some(credential)),
+            credential: RwLock::new(Some(mls_credential)),
             unsigned_association_data: None,
         };
 
@@ -207,18 +232,6 @@ impl Identity {
         Ok(kp)
     }
 
-    fn create_credential(
-        installation_keys: &SignatureKeyPair,
-        owner: &impl InboxOwner,
-    ) -> Result<OpenMlsCredential, IdentityError> {
-        let credential = Credential::create(installation_keys, owner)?;
-        let credential_proto: CredentialProto = credential.into();
-        Ok(OpenMlsCredential::new(
-            credential_proto.encode_to_vec(),
-            CredentialType::Basic,
-        )?)
-    }
-
     pub(crate) fn get_validated_account_address(
         credential: &[u8],
         installation_public_key: &[u8],
@@ -235,6 +248,37 @@ impl Identity {
 
     pub fn application_id(&self) -> Vec<u8> {
         self.account_address.as_bytes().to_vec()
+    }
+
+    async fn has_existing_legacy_credential<ApiClient: XmtpApiClient + XmtpMlsClient>(
+        api_client: &ApiClientWrapper<ApiClient>,
+        account_address: &str,
+    ) -> Result<bool, IdentityError> {
+        let identity_updates = api_client
+            .get_identity_updates(0 /*start_time_ns*/, vec![account_address.to_string()])
+            .await?;
+        if let Some(updates) = identity_updates.get(account_address) {
+            for update in updates {
+                let IdentityUpdate::NewInstallation(registration) = update else {
+                    continue;
+                };
+                let Ok(proto) = CredentialProto::decode(registration.credential_bytes.as_slice())
+                else {
+                    continue;
+                };
+                let Ok(credential) = Credential::from_proto_validated(
+                    proto,
+                    Some(&account_address), // expected_account_address
+                    None,                   // expected_installation_public_key
+                ) else {
+                    continue;
+                };
+                if let Credential::LegacyCreateIdentity(_) = credential {
+                    return Ok(true);
+                }
+            }
+        }
+        Ok(false)
     }
 }
 
