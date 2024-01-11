@@ -15,6 +15,7 @@ use xmtp_cryptography::signature::SignatureError;
 use xmtp_proto::xmtp::mls::message_contents::MlsCredential as CredentialProto;
 
 use crate::{
+    builder::LegacyIdentitySource,
     configuration::CIPHERSUITE,
     credential::{AssociationError, Credential},
     storage::{identity::StoredIdentity, StorageError},
@@ -52,11 +53,17 @@ impl Identity {
     pub(crate) fn new(
         provider: &XmtpOpenMlsProvider,
         owner: &impl InboxOwner,
+        legacy_identity_source: LegacyIdentitySource,
     ) -> Result<Self, IdentityError> {
         let signature_keys = SignatureKeyPair::new(CIPHERSUITE.signature_algorithm())?;
         signature_keys.store(provider.key_store())?;
 
-        let credential = Identity::create_credential(&signature_keys, owner)?;
+        let credential = match legacy_identity_source {
+            LegacyIdentitySource::None | LegacyIdentitySource::Network => {
+                Identity::create_credential(&signature_keys, owner)?
+            }
+            LegacyIdentitySource::Static(_) | LegacyIdentitySource::KeyGenerator(_) => todo!(),
+        };
 
         let identity = Self {
             account_address: owner.get_address(),

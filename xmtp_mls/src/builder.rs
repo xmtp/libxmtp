@@ -38,8 +38,24 @@ pub enum ClientBuilderError {
     StorageError(#[from] StorageError),
 }
 
+/// XMTP SDK's may embed libxmtp (v3) alongside existing v2 protocol logic
+/// for backwards-compatibility purposes. In this case, the client may already
+/// have a wallet-signed v2 key. Depending on the source of this key,
+/// libxmtp may choose to bootstrap v3 installation keys using the existing
+/// legacy key.
+pub enum LegacyIdentitySource {
+    // A client with no support for v2 messages
+    None,
+    // A cached v2 key was provided on client initialization
+    Static(Vec<u8>),
+    // A private bundle exists on the network from which the v2 key will be fetched
+    Network,
+    // A new v2 key was generated on client initialization
+    KeyGenerator(Vec<u8>),
+}
+
 pub enum IdentityStrategy<Owner> {
-    CreateIfNotFound(Owner),
+    CreateIfNotFound(Owner, LegacyIdentitySource),
     CachedOnly,
     #[cfg(test)]
     ExternalIdentity(Identity),
@@ -62,15 +78,17 @@ where
             IdentityStrategy::CachedOnly => {
                 identity_option.ok_or(ClientBuilderError::RequiredIdentityNotFound)
             }
-            IdentityStrategy::CreateIfNotFound(owner) => match identity_option {
-                Some(identity) => {
-                    if identity.account_address != owner.get_address() {
-                        return Err(ClientBuilderError::StoredIdentityMismatch);
+            IdentityStrategy::CreateIfNotFound(owner, legacy_identity_source) => {
+                match identity_option {
+                    Some(identity) => {
+                        if identity.account_address != owner.get_address() {
+                            return Err(ClientBuilderError::StoredIdentityMismatch);
+                        }
+                        Ok(identity)
                     }
-                    Ok(identity)
+                    None => Ok(Identity::new(provider, &owner, legacy_identity_source)?),
                 }
-                None => Ok(Identity::new(provider, &owner)?),
-            },
+            }
             #[cfg(test)]
             IdentityStrategy::ExternalIdentity(identity) => Ok(identity),
         }
@@ -82,7 +100,7 @@ where
     Owner: InboxOwner,
 {
     fn from(value: Owner) -> Self {
-        IdentityStrategy::CreateIfNotFound(value)
+        IdentityStrategy::CreateIfNotFound(value, LegacyIdentitySource::None)
     }
 }
 
