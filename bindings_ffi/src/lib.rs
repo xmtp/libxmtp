@@ -142,7 +142,17 @@ impl FfiXmtpClient {
 
 #[derive(uniffi::Record)]
 pub struct FfiV2QueryRequest {
-  inner_request: Arc<QueryRequest>,  
+    content_topics: Vec<String>,
+    // ... the rest of the fields go here
+}
+
+impl From<FfiV2QueryRequest> for QueryRequest {
+    fn from(req: FfiV2QueryRequest) -> Self {
+        Self {
+            content_topics: req.content_topics,
+            ..Default::default()
+        }
+    }
 }
 
 #[derive(uniffi::Object)]
@@ -153,6 +163,11 @@ pub struct FfiV2Client {
 #[uniffi::export(async_runtime = "tokio")]
 impl FfiV2Client {
     pub async fn batch_query(&self) -> Result<String, GenericError> {
+        // let query_req = FfiV2QueryRequest {
+        //     content_topics: vec!["test".to_string()],
+        // };
+
+        // let actual_query_request: QueryRequest = query_req.into();
         Ok("hi".into())
     }
 
@@ -160,7 +175,7 @@ impl FfiV2Client {
         log::info!("Needs implementation")
     }
 
-    pub async fn query()
+    pub async fn query(&self) {}
 }
 
 #[derive(uniffi::Object)]
