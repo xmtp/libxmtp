@@ -12,7 +12,7 @@ use xmtp_proto::xmtp::mls::message_contents::{
 // A trait for policies that can add/remove members and installations for the group
 pub trait MembershipPolicy: std::fmt::Debug {
     fn evaluate(&self, actor: &CommitParticipant, change: &AggregatedMembershipChange) -> bool;
-    fn to_proto(&self) -> MembershipPolicyProto;
+    fn to_proto(&self) -> Result<MembershipPolicyProto, PolicyError>;
 }
 
 #[derive(Debug, Error)]
@@ -49,17 +49,17 @@ impl MembershipPolicy for BasePolicies {
         }
     }
 
-    fn to_proto(&self) -> MembershipPolicyProto {
+    fn to_proto(&self) -> Result<MembershipPolicyProto, PolicyError> {
         let inner = match self {
             BasePolicies::Allow => BasePolicyProto::Allow as i32,
             BasePolicies::Deny => BasePolicyProto::Deny as i32,
-            BasePolicies::AllowSameMember => BasePolicyProto::AllowSameMember as i32,
+            BasePolicies::AllowSameMember => return Err(PolicyError::InvalidPolicy), // AllowSameMember is not needed on any of the wire format protos
             BasePolicies::AllowIfActorCreator => BasePolicyProto::AllowIfActorCreator as i32,
         };
 
-        MembershipPolicyProto {
+        Ok(MembershipPolicyProto {
             kind: Some(PolicyKindProto::Base(inner)),
-        }
+        })
     }
 }
 
@@ -106,7 +106,7 @@ impl TryFrom<MembershipPolicyProto> for MembershipPolicies {
             Some(PolicyKindProto::Base(inner)) => match inner {
                 1 => Ok(MembershipPolicies::allow()),
                 2 => Ok(MembershipPolicies::deny()),
-                3 => Ok(MembershipPolicies::allow_same_member()),
+                3 => Ok(MembershipPolicies::allow_if_actor_creator()),
                 _ => Err(PolicyError::InvalidPolicy),
             },
             Some(PolicyKindProto::AndCondition(inner)) => {
@@ -148,12 +148,12 @@ impl MembershipPolicy for MembershipPolicies {
         }
     }
 
-    fn to_proto(&self) -> MembershipPolicyProto {
-        match self {
-            MembershipPolicies::Standard(policy) => policy.to_proto(),
-            MembershipPolicies::AndCondition(policy) => policy.to_proto(),
-            MembershipPolicies::AnyCondition(policy) => policy.to_proto(),
-        }
+    fn to_proto(&self) -> Result<MembershipPolicyProto, PolicyError> {
+        Ok(match self {
+            MembershipPolicies::Standard(policy) => policy.to_proto()?,
+            MembershipPolicies::AndCondition(policy) => policy.to_proto()?,
+            MembershipPolicies::AnyCondition(policy) => policy.to_proto()?,
+        })
     }
 }
 
@@ -176,16 +176,16 @@ impl MembershipPolicy for AndCondition {
             .all(|policy| policy.evaluate(actor, change))
     }
 
-    fn to_proto(&self) -> MembershipPolicyProto {
-        MembershipPolicyProto {
+    fn to_proto(&self) -> Result<MembershipPolicyProto, PolicyError> {
+        Ok(MembershipPolicyProto {
             kind: Some(PolicyKindProto::AndCondition(AndConditionProto {
                 policies: self
                     .policies
                     .iter()
                     .map(|policy| policy.to_proto())
-                    .collect(),
+                    .collect()?,
             })),
-        }
+        })
     }
 }
 
@@ -289,11 +289,11 @@ impl PolicySet {
         })
     }
 
-    fn to_proto(&self) -> PolicySetProto {
-        PolicySetProto {
-            add_member_policy: Some(self.add_member_policy.to_proto()),
-            remove_member_policy: Some(self.remove_member_policy.to_proto()),
-        }
+    fn to_proto(&self) -> Result<PolicySetProto, PolicyError> {
+        Ok(PolicySetProto {
+            add_member_policy: Some(self.add_member_policy.to_proto()?),
+            remove_member_policy: Some(self.remove_member_policy.to_proto()?),
+        })
     }
 
     fn from_proto(proto: PolicySetProto) -> Result<Self, PolicyError> {
@@ -310,7 +310,7 @@ impl PolicySet {
     }
 
     pub fn to_bytes(&self) -> Result<Vec<u8>, PolicyError> {
-        let proto = self.to_proto();
+        let proto = self.to_proto()?;
         let mut buf = Vec::new();
         proto.encode(&mut buf)?;
         Ok(buf)
@@ -465,12 +465,12 @@ mod tests {
                 MembershipPolicies::deny(),
             ]),
             MembershipPolicies::and(vec![
-                MembershipPolicies::allow_same_member(),
+                MembershipPolicies::allow_if_actor_creator(),
                 MembershipPolicies::deny(),
             ]),
         );
 
-        let proto = permissions.to_proto();
+        let proto = permissions.to_proto().unwrap();
         assert!(proto.add_member_policy.is_some());
         assert!(proto.remove_member_policy.is_some());
 
@@ -478,5 +478,16 @@ mod tests {
         let restored = PolicySet::from_bytes(as_bytes.as_slice()).expect("proto conversion failed");
         // All fields implement PartialEq so this should test equality all the way down
         assert!(permissions.eq(&restored))
+    }
+
+    #[test]
+    fn test_disallow_serialize_allow_same_member() {
+        let permissions = PolicySet::new(
+            MembershipPolicies::allow_same_member(),
+            MembershipPolicies::deny(),
+        );
+
+        let proto_result = permissions.to_proto();
+        assert!(proto_result.is_err());
     }
 }

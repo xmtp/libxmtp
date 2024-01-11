@@ -15,12 +15,6 @@ pub mod xmtp {
             include!("xmtp.message_api.v1.rs");
             // @@protoc_insertion_point(xmtp.message_api.v1)
         }
-        #[cfg(feature = "xmtp-message_api-v3")]
-        // @@protoc_insertion_point(attribute:xmtp.message_api.v3)
-        pub mod v3 {
-            include!("xmtp.message_api.v3.rs");
-            // @@protoc_insertion_point(xmtp.message_api.v3)
-        }
     }
     #[cfg(feature = "xmtp-message_contents")]
     // @@protoc_insertion_point(attribute:xmtp.message_contents)
@@ -29,6 +23,14 @@ pub mod xmtp {
         // @@protoc_insertion_point(xmtp.message_contents)
     }
     pub mod mls {
+        pub mod api {
+            #[cfg(feature = "xmtp-mls-api-v1")]
+            // @@protoc_insertion_point(attribute:xmtp.mls.api.v1)
+            pub mod v1 {
+                include!("xmtp.mls.api.v1.rs");
+                // @@protoc_insertion_point(xmtp.mls.api.v1)
+            }
+        }
         #[cfg(feature = "xmtp-mls-database")]
         // @@protoc_insertion_point(attribute:xmtp.mls.database)
         pub mod database {
