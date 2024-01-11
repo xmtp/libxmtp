@@ -20,6 +20,9 @@ use xmtp_mls::{
     client::Client as MlsClient,
     storage::{EncryptedMessageStore, EncryptionKey, StorageOption},
 };
+use xmtp_proto::xmtp::message_api::v1::{
+    BatchQueryRequest, Envelope, PublishRequest, QueryRequest,
+};
 
 use crate::inbox_owner::RustInboxOwner;
 pub use crate::inbox_owner::SigningError;
@@ -135,6 +138,29 @@ impl FfiXmtpClient {
 
         Ok(())
     }
+}
+
+#[derive(uniffi::Record)]
+pub struct FfiV2QueryRequest {
+  inner_request: Arc<QueryRequest>,  
+}
+
+#[derive(uniffi::Object)]
+pub struct FfiV2Client {
+    inner_client: Arc<RustXmtpClient>,
+}
+
+#[uniffi::export(async_runtime = "tokio")]
+impl FfiV2Client {
+    pub async fn batch_query(&self) -> Result<String, GenericError> {
+        Ok("hi".into())
+    }
+
+    pub fn set_app_version(&self, _version: String) {
+        log::info!("Needs implementation")
+    }
+
+    pub async fn query()
 }
 
 #[derive(uniffi::Object)]
