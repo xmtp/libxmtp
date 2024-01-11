@@ -7,7 +7,7 @@ if ! cargo install --list | grep "protoc-gen-prost-crate" > /dev/null; then
 fi
 
 # Please always specify the exact commit to use for generation!
-if ! buf generate https://github.com/xmtp/proto.git#branch=snor/move-msgv3-mlsv1,ref=4e1d2b1,subdir=proto; then
+if ! buf generate https://github.com/xmtp/proto.git#branch=main,ref=665f2f1,subdir=proto; then
     echo "Failed to generate protobuf definitions"
     exit 1
 fi
