@@ -17,17 +17,15 @@ use xmtp_proto::{
     api_client::{
         Error, ErrorKind, MutableApiSubscription, XmtpApiClient, XmtpApiSubscription, XmtpMlsClient,
     },
-    xmtp::message_api::{
-        v1::{
-            message_api_client::MessageApiClient, BatchQueryRequest, BatchQueryResponse, Envelope,
-            PublishRequest, PublishResponse, QueryRequest, QueryResponse, SubscribeRequest,
-        },
-        v3::{
-            mls_api_client::MlsApiClient as ProtoMlsApiClient, FetchKeyPackagesRequest,
-            FetchKeyPackagesResponse, GetIdentityUpdatesRequest, GetIdentityUpdatesResponse,
-            PublishToGroupRequest, PublishWelcomesRequest, RegisterInstallationRequest,
-            RegisterInstallationResponse, UploadKeyPackageRequest,
-        },
+    xmtp::message_api::v1::{
+        message_api_client::MessageApiClient, BatchQueryRequest, BatchQueryResponse, Envelope,
+        PublishRequest, PublishResponse, QueryRequest, QueryResponse, SubscribeRequest,
+    },
+    xmtp::mls::api::v1::{
+        mls_api_client::MlsApiClient as ProtoMlsApiClient, FetchKeyPackagesRequest,
+        FetchKeyPackagesResponse, GetIdentityUpdatesRequest, GetIdentityUpdatesResponse,
+        PublishToGroupRequest, PublishWelcomesRequest, RegisterInstallationRequest,
+        RegisterInstallationResponse, UploadKeyPackageRequest,
     },
 };
 

@@ -7,14 +7,12 @@ use xmtp_proto::{
         XmtpApiClient, XmtpMlsClient,
     },
     xmtp::{
-        message_api::{
-            v1::{Cursor, SortDirection},
-            v3::{
-                get_identity_updates_response::update::Kind as UpdateKind,
-                publish_welcomes_request::WelcomeMessageRequest, FetchKeyPackagesRequest,
-                GetIdentityUpdatesRequest, KeyPackageUpload, PublishToGroupRequest,
-                PublishWelcomesRequest, RegisterInstallationRequest, UploadKeyPackageRequest,
-            },
+        message_api::v1::{Cursor, SortDirection},
+        mls::api::v1::{
+            get_identity_updates_response::update::Kind as UpdateKind,
+            publish_welcomes_request::WelcomeMessageRequest, FetchKeyPackagesRequest,
+            GetIdentityUpdatesRequest, KeyPackageUpload, PublishToGroupRequest,
+            PublishWelcomesRequest, RegisterInstallationRequest, UploadKeyPackageRequest,
         },
         mls::message_contents::{
             group_message::{Version as GroupMessageVersion, V1 as GroupMessageV1},
@@ -317,21 +315,19 @@ mod tests {
             Error, ErrorKind, MutableApiSubscription, PagingInfo, XmtpApiClient,
             XmtpApiSubscription, XmtpMlsClient,
         },
-        xmtp::message_api::{
-            v1::{
-                cursor::Cursor as InnerCursor, BatchQueryRequest, BatchQueryResponse, Cursor,
-                Envelope, IndexCursor, PublishRequest, PublishResponse, QueryRequest,
-                QueryResponse, SubscribeRequest,
+        xmtp::message_api::v1::{
+            cursor::Cursor as InnerCursor, BatchQueryRequest, BatchQueryResponse, Cursor, Envelope,
+            IndexCursor, PublishRequest, PublishResponse, QueryRequest, QueryResponse,
+            SubscribeRequest,
+        },
+        xmtp::mls::api::v1::{
+            fetch_key_packages_response::KeyPackage,
+            get_identity_updates_response::{
+                update::Kind as UpdateKind, NewInstallationUpdate, Update, WalletUpdates,
             },
-            v3::{
-                fetch_key_packages_response::KeyPackage,
-                get_identity_updates_response::{
-                    update::Kind as UpdateKind, NewInstallationUpdate, Update, WalletUpdates,
-                },
-                FetchKeyPackagesRequest, FetchKeyPackagesResponse, GetIdentityUpdatesRequest,
-                GetIdentityUpdatesResponse, PublishToGroupRequest, PublishWelcomesRequest,
-                RegisterInstallationRequest, RegisterInstallationResponse, UploadKeyPackageRequest,
-            },
+            FetchKeyPackagesRequest, FetchKeyPackagesResponse, GetIdentityUpdatesRequest,
+            GetIdentityUpdatesResponse, PublishToGroupRequest, PublishWelcomesRequest,
+            RegisterInstallationRequest, RegisterInstallationResponse, UploadKeyPackageRequest,
         },
     };
 

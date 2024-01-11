@@ -1,5 +1,6 @@
 // @generated
 /// Generated client implementations.
+#[cfg(feature = "tonic")]
 pub mod mls_api_client {
     #![allow(unused_variables, dead_code, missing_docs, clippy::let_unit_value)]
     use tonic::codegen::*;
@@ -252,6 +253,7 @@ pub mod mls_api_client {
     }
 }
 /// Generated server implementations.
+#[cfg(feature = "tonic")]
 pub mod mls_api_server {
     #![allow(unused_variables, dead_code, missing_docs, clippy::let_unit_value)]
     use tonic::codegen::*;
