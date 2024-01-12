@@ -16,10 +16,10 @@ xmtp_proto = { path = "../xmtp_proto", features = [
     "grpc",
     "tonic",
 ] }
-openmls = { git = "https://github.com/xmtp/openmls", features = ["test-utils"], branch = "main" }
-openmls_traits = { git = "https://github.com/xmtp/openmls", branch = "main" }
-openmls_basic_credential = { git = "https://github.com/xmtp/openmls", branch = "main" }
-openmls_rust_crypto = { git = "https://github.com/xmtp/openmls", branch = "main" }
+openmls = { workspace = true }
+openmls_traits = { workspace = true }
+openmls_basic_credential = { workspace = true }
+openmls_rust_crypto = { workspace = true }
 xmtp_mls = { path = "../xmtp_mls" }
 serde = "1.0.189"
 hex = "0.4.3"
