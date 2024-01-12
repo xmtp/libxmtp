@@ -10,14 +10,10 @@ use xmtp_proto::{
         message_api::v1::{Cursor, SortDirection},
         mls::api::v1::{
             get_identity_updates_response::update::Kind as UpdateKind,
-            publish_welcomes_request::WelcomeMessageRequest, FetchKeyPackagesRequest,
-            GetIdentityUpdatesRequest, KeyPackageUpload, PublishToGroupRequest,
-            PublishWelcomesRequest, RegisterInstallationRequest, UploadKeyPackageRequest,
-        },
-        mls::message_contents::{
-            group_message::{Version as GroupMessageVersion, V1 as GroupMessageV1},
-            welcome_message::{Version as WelcomeMessageVersion, V1 as WelcomeMessageV1},
-            GroupMessage, WelcomeMessage as WelcomeMessageProto,
+            group_message_input::{Version as GroupMessageInputVersion, V1 as GroupMessageInputV1},
+            FetchKeyPackagesRequest, GetIdentityUpdatesRequest, GroupMessageInput,
+            KeyPackageUpload, RegisterInstallationRequest, SendGroupMessagesRequest,
+            SendWelcomeMessagesRequest, UploadKeyPackageRequest, WelcomeMessageInput,
         },
     },
 };
@@ -97,7 +93,7 @@ where
             })
         )?;
 
-        Ok(res.installation_id)
+        Ok(res.installation_key)
     }
 
     pub async fn upload_key_package(&self, key_package: Vec<u8>) -> Result<(), ApiError> {
@@ -119,20 +115,20 @@ where
 
     pub async fn fetch_key_packages(
         &self,
-        installation_ids: Vec<Vec<u8>>,
+        installation_keys: Vec<Vec<u8>>,
     ) -> Result<KeyPackageMap, ApiError> {
         let res = retry_async!(
             self.retry_strategy,
             (async {
                 self.api_client
                     .fetch_key_packages(FetchKeyPackagesRequest {
-                        installation_ids: installation_ids.clone(),
+                        installation_keys: installation_keys.clone(),
                     })
                     .await
             })
         )?;
 
-        if res.key_packages.len() != installation_ids.len() {
+        if res.key_packages.len() != installation_keys.len() {
             println!("mismatched number of results");
             return Err(ApiError::new(ErrorKind::MlsError));
         }
@@ -143,7 +139,7 @@ where
             .enumerate()
             .map(|(idx, key_package)| {
                 (
-                    installation_ids[idx].to_vec(),
+                    installation_keys[idx].to_vec(),
                     key_package.key_package_tls_serialized,
                 )
             })
@@ -152,28 +148,16 @@ where
         Ok(mapping)
     }
 
-    pub async fn publish_welcomes(
+    pub async fn send_welcome_messages(
         &self,
-        welcome_messages: Vec<WelcomeMessage>,
+        messages: Vec<WelcomeMessageInput>,
     ) -> Result<(), ApiError> {
-        let welcome_requests: Vec<WelcomeMessageRequest> = welcome_messages
-            .into_iter()
-            .map(|msg| WelcomeMessageRequest {
-                installation_id: msg.installation_id,
-                welcome_message: Some(WelcomeMessageProto {
-                    version: Some(WelcomeMessageVersion::V1(WelcomeMessageV1 {
-                        welcome_message_tls_serialized: msg.ciphertext,
-                    })),
-                }),
-            })
-            .collect();
-
         retry_async!(
             self.retry_strategy,
             (async {
                 self.api_client
-                    .publish_welcomes(PublishWelcomesRequest {
-                        welcome_messages: welcome_requests.clone(),
+                    .send_welcome_messages(SendWelcomeMessagesRequest {
+                        messages: messages.clone(),
                     })
                     .await
             })
@@ -218,14 +202,14 @@ where
                             Some(UpdateKind::NewInstallation(new_installation)) => {
                                 IdentityUpdate::NewInstallation(NewInstallation {
                                     timestamp_ns: update.timestamp_ns,
-                                    installation_id: new_installation.installation_id,
+                                    installation_key: new_installation.installation_key,
                                     credential_bytes: new_installation.credential_identity,
                                 })
                             }
                             Some(UpdateKind::RevokedInstallation(revoke_installation)) => {
                                 IdentityUpdate::RevokeInstallation(RevokeInstallation {
                                     timestamp_ns: update.timestamp_ns,
-                                    installation_id: revoke_installation.installation_id,
+                                    installation_key: revoke_installation.installation_key,
                                 })
                             }
                             None => {
@@ -241,12 +225,12 @@ where
         Ok(mapping)
     }
 
-    pub async fn publish_to_group(&self, group_messages: Vec<&[u8]>) -> Result<(), ApiError> {
-        let to_send: Vec<GroupMessage> = group_messages
+    pub async fn send_group_messages(&self, group_messages: Vec<&[u8]>) -> Result<(), ApiError> {
+        let to_send: Vec<GroupMessageInput> = group_messages
             .iter()
-            .map(|msg| GroupMessage {
-                version: Some(GroupMessageVersion::V1(GroupMessageV1 {
-                    mls_message_tls_serialized: msg.to_vec(),
+            .map(|msg| GroupMessageInput {
+                version: Some(GroupMessageInputVersion::V1(GroupMessageInputV1 {
+                    data: msg.to_vec(),
                 })),
             })
             .collect();
@@ -255,7 +239,7 @@ where
             self.retry_strategy,
             (async {
                 self.api_client
-                    .publish_to_group(PublishToGroupRequest {
+                    .send_group_messages(SendGroupMessagesRequest {
                         messages: to_send.clone(),
                     })
                     .await
@@ -276,21 +260,15 @@ where
 }
 
 #[derive(Debug, PartialEq)]
-pub struct WelcomeMessage {
-    pub(crate) ciphertext: Vec<u8>,
-    pub(crate) installation_id: Vec<u8>,
-}
-
-#[derive(Debug, PartialEq)]
 pub struct NewInstallation {
-    pub installation_id: Vec<u8>,
+    pub installation_key: Vec<u8>,
     pub credential_bytes: Vec<u8>,
     pub timestamp_ns: u64,
 }
 
 #[derive(Debug, PartialEq)]
 pub struct RevokeInstallation {
-    pub installation_id: Vec<u8>, // TODO: Add proof of revocation
+    pub installation_key: Vec<u8>, // TODO: Add proof of revocation
     pub timestamp_ns: u64,
 }
 
@@ -326,8 +304,8 @@ mod tests {
                 update::Kind as UpdateKind, NewInstallationUpdate, Update, WalletUpdates,
             },
             FetchKeyPackagesRequest, FetchKeyPackagesResponse, GetIdentityUpdatesRequest,
-            GetIdentityUpdatesResponse, PublishToGroupRequest, PublishWelcomesRequest,
-            RegisterInstallationRequest, RegisterInstallationResponse, UploadKeyPackageRequest,
+            GetIdentityUpdatesResponse, RegisterInstallationRequest, RegisterInstallationResponse,
+            SendGroupMessagesRequest, SendWelcomeMessagesRequest, UploadKeyPackageRequest,
         },
     };
 
@@ -391,8 +369,8 @@ mod tests {
                 &self,
                 request: FetchKeyPackagesRequest,
             ) -> Result<FetchKeyPackagesResponse, Error>;
-            async fn publish_to_group(&self, request: PublishToGroupRequest) -> Result<(), Error>;
-            async fn publish_welcomes(&self, request: PublishWelcomesRequest) -> Result<(), Error>;
+            async fn send_group_messages(&self, request: SendGroupMessagesRequest) -> Result<(), Error>;
+            async fn send_welcome_messages(&self, request: SendWelcomeMessagesRequest) -> Result<(), Error>;
             async fn get_identity_updates(
                 &self,
                 request: GetIdentityUpdatesRequest,
@@ -431,7 +409,7 @@ mod tests {
         let mut mock_api = MockApiClient::new();
         mock_api.expect_register_installation().returning(move |_| {
             Ok(RegisterInstallationResponse {
-                installation_id: vec![1, 2, 3],
+                installation_key: vec![1, 2, 3],
             })
         });
         let wrapper = ApiClientWrapper::new(mock_api, Retry::default());
@@ -463,7 +441,7 @@ mod tests {
     #[tokio::test]
     async fn test_fetch_key_packages() {
         let mut mock_api = MockApiClient::new();
-        let installation_ids: Vec<Vec<u8>> = vec![vec![1, 2, 3], vec![4, 5, 6]];
+        let installation_keys: Vec<Vec<u8>> = vec![vec![1, 2, 3], vec![4, 5, 6]];
         mock_api.expect_fetch_key_packages().returning(move |_| {
             Ok(FetchKeyPackagesResponse {
                 key_packages: vec![
@@ -478,13 +456,13 @@ mod tests {
         });
         let wrapper = ApiClientWrapper::new(mock_api, Retry::default());
         let result = wrapper
-            .fetch_key_packages(installation_ids.clone())
+            .fetch_key_packages(installation_keys.clone())
             .await
             .unwrap();
         assert_eq!(result.len(), 2);
 
         for (k, v) in result {
-            if k.eq(&installation_ids[0]) {
+            if k.eq(&installation_keys[0]) {
                 assert_eq!(v, vec![7, 8, 9]);
             } else {
                 assert_eq!(v, vec![10, 11, 12]);
@@ -513,7 +491,7 @@ mod tests {
                                     timestamp_ns: 1,
                                     kind: Some(UpdateKind::NewInstallation(
                                         NewInstallationUpdate {
-                                            installation_id: vec![1, 2, 3],
+                                            installation_key: vec![1, 2, 3],
                                             credential_identity: vec![4, 5, 6],
                                         },
                                     )),
@@ -524,7 +502,7 @@ mod tests {
                                     timestamp_ns: 2,
                                     kind: Some(UpdateKind::NewInstallation(
                                         NewInstallationUpdate {
-                                            installation_id: vec![7, 8, 9],
+                                            installation_key: vec![7, 8, 9],
                                             credential_identity: vec![10, 11, 12],
                                         },
                                     )),
@@ -548,7 +526,7 @@ mod tests {
                 assert_eq!(
                     v[0],
                     super::IdentityUpdate::NewInstallation(super::NewInstallation {
-                        installation_id: vec![1, 2, 3],
+                        installation_key: vec![1, 2, 3],
                         credential_bytes: vec![4, 5, 6],
                         timestamp_ns: 1,
                     })
@@ -558,7 +536,7 @@ mod tests {
                 assert_eq!(
                     v[0],
                     super::IdentityUpdate::NewInstallation(super::NewInstallation {
-                        installation_id: vec![7, 8, 9],
+                        installation_key: vec![7, 8, 9],
                         credential_bytes: vec![10, 11, 12],
                         timestamp_ns: 2,
                     })

@@ -24,6 +24,12 @@ use tls_codec::{Deserialize, Serialize};
 use xmtp_cryptography::signature::{is_valid_ed25519_public_key, is_valid_ethereum_address};
 use xmtp_proto::{
     api_client::{Envelope, XmtpApiClient, XmtpMlsClient},
+    xmtp::mls::api::v1::{
+        welcome_message_input::{
+            Version as WelcomeMessageInputVersion, V1 as WelcomeMessageInputV1,
+        },
+        WelcomeMessageInput,
+    },
     xmtp::mls::message_contents::GroupMembershipChanges,
 };
 
@@ -33,7 +39,6 @@ use self::{
     validated_commit::CommitValidationError,
 };
 use crate::{
-    api_client_wrapper::WelcomeMessage,
     client::{ClientError, MessageProcessingError},
     codecs::membership_change::GroupMembershipChangeCodec,
     configuration::CIPHERSUITE,
@@ -660,7 +665,7 @@ where
 
             self.client
                 .api_client
-                .publish_to_group(vec![payload_slice])
+                .send_group_messages(vec![payload_slice])
                 .await?;
 
             provider.conn().set_group_intent_published(
@@ -796,16 +801,23 @@ where
                 let post_commit_action = PostCommitAction::from_bytes(post_commit_data.as_slice())?;
                 match post_commit_action {
                     PostCommitAction::SendWelcomes(action) => {
-                        let welcomes: Vec<WelcomeMessage> = action
+                        let welcomes: Vec<WelcomeMessageInput> = action
                             .installation_ids
                             .into_iter()
-                            .map(|installation_id| WelcomeMessage {
-                                installation_id,
-                                ciphertext: action.welcome_message.clone(),
+                            .map(|installation_key| WelcomeMessageInput {
+                                version: Some(WelcomeMessageInputVersion::V1(
+                                    WelcomeMessageInputV1 {
+                                        installation_key,
+                                        data: action.welcome_message.clone(),
+                                    },
+                                )),
                             })
                             .collect();
                         debug!("Sending {} welcomes", welcomes.len());
-                        self.client.api_client.publish_welcomes(welcomes).await?;
+                        self.client
+                            .api_client
+                            .send_welcome_messages(welcomes)
+                            .await?;
                     }
                 }
             }

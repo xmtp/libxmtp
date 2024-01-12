@@ -24,8 +24,8 @@ use xmtp_proto::{
     xmtp::mls::api::v1::{
         mls_api_client::MlsApiClient as ProtoMlsApiClient, FetchKeyPackagesRequest,
         FetchKeyPackagesResponse, GetIdentityUpdatesRequest, GetIdentityUpdatesResponse,
-        PublishToGroupRequest, PublishWelcomesRequest, RegisterInstallationRequest,
-        RegisterInstallationResponse, UploadKeyPackageRequest,
+        RegisterInstallationRequest, RegisterInstallationResponse, SendGroupMessagesRequest,
+        SendWelcomeMessagesRequest, UploadKeyPackageRequest,
     },
 };
 
@@ -427,10 +427,10 @@ impl XmtpMlsClient for Client {
         }
     }
 
-    async fn publish_to_group(&self, req: PublishToGroupRequest) -> Result<(), Error> {
+    async fn send_group_messages(&self, req: SendGroupMessagesRequest) -> Result<(), Error> {
         let res = match &self.mls_client {
-            InnerMlsClient::Plain(c) => c.clone().publish_to_group(req).await,
-            InnerMlsClient::Tls(c) => c.clone().publish_to_group(req).await,
+            InnerMlsClient::Plain(c) => c.clone().send_group_messages(req).await,
+            InnerMlsClient::Tls(c) => c.clone().send_group_messages(req).await,
         };
         match res {
             Ok(_) => Ok(()),
@@ -438,10 +438,10 @@ impl XmtpMlsClient for Client {
         }
     }
 
-    async fn publish_welcomes(&self, req: PublishWelcomesRequest) -> Result<(), Error> {
+    async fn send_welcome_messages(&self, req: SendWelcomeMessagesRequest) -> Result<(), Error> {
         let res = match &self.mls_client {
-            InnerMlsClient::Plain(c) => c.clone().publish_welcomes(req).await,
-            InnerMlsClient::Tls(c) => c.clone().publish_welcomes(req).await,
+            InnerMlsClient::Plain(c) => c.clone().send_welcome_messages(req).await,
+            InnerMlsClient::Tls(c) => c.clone().send_welcome_messages(req).await,
         };
         match res {
             Ok(_) => Ok(()),

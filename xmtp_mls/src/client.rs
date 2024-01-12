@@ -239,10 +239,10 @@ where
                     IdentityUpdate::Invalid => {}
                     IdentityUpdate::NewInstallation(new_installation) => {
                         // TODO: Validate credential
-                        tmp.insert(new_installation.installation_id);
+                        tmp.insert(new_installation.installation_key);
                     }
                     IdentityUpdate::RevokeInstallation(revoke_installation) => {
-                        tmp.remove(&revoke_installation.installation_id);
+                        tmp.remove(&revoke_installation.installation_key);
                     }
                 }
             }
