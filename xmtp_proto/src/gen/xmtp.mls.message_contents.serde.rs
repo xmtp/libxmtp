@@ -379,22 +379,15 @@ impl serde::Serialize for CredentialRevocation {
     {
         use serde::ser::SerializeStruct;
         let mut len = 0;
-        if self.public_key.is_some() {
+        if !self.installation_public_key.is_empty() {
             len += 1;
         }
         if self.association.is_some() {
             len += 1;
         }
         let mut struct_ser = serializer.serialize_struct("xmtp.mls.message_contents.CredentialRevocation", len)?;
-        if let Some(v) = self.public_key.as_ref() {
-            match v {
-                credential_revocation::PublicKey::InstallationKey(v) => {
-                    struct_ser.serialize_field("installationKey", pbjson::private::base64::encode(&v).as_str())?;
-                }
-                credential_revocation::PublicKey::UnsignedLegacyCreateIdentityKey(v) => {
-                    struct_ser.serialize_field("unsignedLegacyCreateIdentityKey", pbjson::private::base64::encode(&v).as_str())?;
-                }
-            }
+        if !self.installation_public_key.is_empty() {
+            struct_ser.serialize_field("installationPublicKey", pbjson::private::base64::encode(&self.installation_public_key).as_str())?;
         }
         if let Some(v) = self.association.as_ref() {
             match v {
@@ -413,18 +406,15 @@ impl<'de> serde::Deserialize<'de> for CredentialRevocation {
         D: serde::Deserializer<'de>,
     {
         const FIELDS: &[&str] = &[
-            "installation_key",
-            "installationKey",
-            "unsigned_legacy_create_identity_key",
-            "unsignedLegacyCreateIdentityKey",
+            "installation_public_key",
+            "installationPublicKey",
             "eip_191",
             "eip191",
         ];
 
         #[allow(clippy::enum_variant_names)]
         enum GeneratedField {
-            InstallationKey,
-            UnsignedLegacyCreateIdentityKey,
+            InstallationPublicKey,
             Eip191,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
@@ -447,8 +437,7 @@ impl<'de> serde::Deserialize<'de> for CredentialRevocation {
                         E: serde::de::Error,
                     {
                         match value {
-                            "installationKey" | "installation_key" => Ok(GeneratedField::InstallationKey),
-                            "unsignedLegacyCreateIdentityKey" | "unsigned_legacy_create_identity_key" => Ok(GeneratedField::UnsignedLegacyCreateIdentityKey),
+                            "installationPublicKey" | "installation_public_key" => Ok(GeneratedField::InstallationPublicKey),
                             "eip191" | "eip_191" => Ok(GeneratedField::Eip191),
                             _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
                         }
@@ -469,21 +458,17 @@ impl<'de> serde::Deserialize<'de> for CredentialRevocation {
                 where
                     V: serde::de::MapAccess<'de>,
             {
-                let mut public_key__ = None;
+                let mut installation_public_key__ = None;
                 let mut association__ = None;
                 while let Some(k) = map.next_key()? {
                     match k {
-                        GeneratedField::InstallationKey => {
-                            if public_key__.is_some() {
-                                return Err(serde::de::Error::duplicate_field("installationKey"));
+                        GeneratedField::InstallationPublicKey => {
+                            if installation_public_key__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("installationPublicKey"));
                             }
-                            public_key__ = map.next_value::<::std::option::Option<::pbjson::private::BytesDeserialize<_>>>()?.map(|x| credential_revocation::PublicKey::InstallationKey(x.0));
-                        }
-                        GeneratedField::UnsignedLegacyCreateIdentityKey => {
-                            if public_key__.is_some() {
-                                return Err(serde::de::Error::duplicate_field("unsignedLegacyCreateIdentityKey"));
-                            }
-                            public_key__ = map.next_value::<::std::option::Option<::pbjson::private::BytesDeserialize<_>>>()?.map(|x| credential_revocation::PublicKey::UnsignedLegacyCreateIdentityKey(x.0));
+                            installation_public_key__ = 
+                                Some(map.next_value::<::pbjson::private::BytesDeserialize<_>>()?.0)
+                            ;
                         }
                         GeneratedField::Eip191 => {
                             if association__.is_some() {
@@ -495,7 +480,7 @@ impl<'de> serde::Deserialize<'de> for CredentialRevocation {
                     }
                 }
                 Ok(CredentialRevocation {
-                    public_key: public_key__,
+                    installation_public_key: installation_public_key__.unwrap_or_default(),
                     association: association__,
                 })
             }
@@ -1183,115 +1168,6 @@ impl<'de> serde::Deserialize<'de> for GroupMetadataV1 {
         deserializer.deserialize_struct("xmtp.mls.message_contents.GroupMetadataV1", FIELDS, GeneratedVisitor)
     }
 }
-impl serde::Serialize for LegacyCreateIdentityAssociation {
-    #[allow(deprecated)]
-    fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
-    where
-        S: serde::Serializer,
-    {
-        use serde::ser::SerializeStruct;
-        let mut len = 0;
-        if self.signature.is_some() {
-            len += 1;
-        }
-        if self.signed_legacy_create_identity_key.is_some() {
-            len += 1;
-        }
-        let mut struct_ser = serializer.serialize_struct("xmtp.mls.message_contents.LegacyCreateIdentityAssociation", len)?;
-        if let Some(v) = self.signature.as_ref() {
-            struct_ser.serialize_field("signature", v)?;
-        }
-        if let Some(v) = self.signed_legacy_create_identity_key.as_ref() {
-            struct_ser.serialize_field("signedLegacyCreateIdentityKey", v)?;
-        }
-        struct_ser.end()
-    }
-}
-impl<'de> serde::Deserialize<'de> for LegacyCreateIdentityAssociation {
-    #[allow(deprecated)]
-    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
-    where
-        D: serde::Deserializer<'de>,
-    {
-        const FIELDS: &[&str] = &[
-            "signature",
-            "signed_legacy_create_identity_key",
-            "signedLegacyCreateIdentityKey",
-        ];
-
-        #[allow(clippy::enum_variant_names)]
-        enum GeneratedField {
-            Signature,
-            SignedLegacyCreateIdentityKey,
-        }
-        impl<'de> serde::Deserialize<'de> for GeneratedField {
-            fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
-            where
-                D: serde::Deserializer<'de>,
-            {
-                struct GeneratedVisitor;
-
-                impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
-                    type Value = GeneratedField;
-
-                    fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-                        write!(formatter, "expected one of: {:?}", &FIELDS)
-                    }
-
-                    #[allow(unused_variables)]
-                    fn visit_str<E>(self, value: &str) -> std::result::Result<GeneratedField, E>
-                    where
-                        E: serde::de::Error,
-                    {
-                        match value {
-                            "signature" => Ok(GeneratedField::Signature),
-                            "signedLegacyCreateIdentityKey" | "signed_legacy_create_identity_key" => Ok(GeneratedField::SignedLegacyCreateIdentityKey),
-                            _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
-                        }
-                    }
-                }
-                deserializer.deserialize_identifier(GeneratedVisitor)
-            }
-        }
-        struct GeneratedVisitor;
-        impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
-            type Value = LegacyCreateIdentityAssociation;
-
-            fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-                formatter.write_str("struct xmtp.mls.message_contents.LegacyCreateIdentityAssociation")
-            }
-
-            fn visit_map<V>(self, mut map: V) -> std::result::Result<LegacyCreateIdentityAssociation, V::Error>
-                where
-                    V: serde::de::MapAccess<'de>,
-            {
-                let mut signature__ = None;
-                let mut signed_legacy_create_identity_key__ = None;
-                while let Some(k) = map.next_key()? {
-                    match k {
-                        GeneratedField::Signature => {
-                            if signature__.is_some() {
-                                return Err(serde::de::Error::duplicate_field("signature"));
-                            }
-                            signature__ = map.next_value()?;
-                        }
-                        GeneratedField::SignedLegacyCreateIdentityKey => {
-                            if signed_legacy_create_identity_key__.is_some() {
-                                return Err(serde::de::Error::duplicate_field("signedLegacyCreateIdentityKey"));
-                            }
-                            signed_legacy_create_identity_key__ = map.next_value()?;
-                        }
-                    }
-                }
-                Ok(LegacyCreateIdentityAssociation {
-                    signature: signature__,
-                    signed_legacy_create_identity_key: signed_legacy_create_identity_key__,
-                })
-            }
-        }
-        deserializer.deserialize_struct("xmtp.mls.message_contents.LegacyCreateIdentityAssociation", FIELDS, GeneratedVisitor)
-    }
-}
 impl serde::Serialize for MembershipChange {
     #[allow(deprecated)]
     fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
@@ -1832,9 +1708,6 @@ impl serde::Serialize for MlsCredential {
                 mls_credential::Association::Eip191(v) => {
                     struct_ser.serialize_field("eip191", v)?;
                 }
-                mls_credential::Association::LegacyCreateIdentity(v) => {
-                    struct_ser.serialize_field("legacyCreateIdentity", v)?;
-                }
             }
         }
         struct_ser.end()
@@ -1851,15 +1724,12 @@ impl<'de> serde::Deserialize<'de> for MlsCredential {
             "installationPublicKey",
             "eip_191",
             "eip191",
-            "legacy_create_identity",
-            "legacyCreateIdentity",
         ];
 
         #[allow(clippy::enum_variant_names)]
         enum GeneratedField {
             InstallationPublicKey,
             Eip191,
-            LegacyCreateIdentity,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
             fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
@@ -1883,7 +1753,6 @@ impl<'de> serde::Deserialize<'de> for MlsCredential {
                         match value {
                             "installationPublicKey" | "installation_public_key" => Ok(GeneratedField::InstallationPublicKey),
                             "eip191" | "eip_191" => Ok(GeneratedField::Eip191),
-                            "legacyCreateIdentity" | "legacy_create_identity" => Ok(GeneratedField::LegacyCreateIdentity),
                             _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
                         }
                     }
@@ -1920,13 +1789,6 @@ impl<'de> serde::Deserialize<'de> for MlsCredential {
                                 return Err(serde::de::Error::duplicate_field("eip191"));
                             }
                             association__ = map.next_value::<::std::option::Option<_>>()?.map(mls_credential::Association::Eip191)
-;
-                        }
-                        GeneratedField::LegacyCreateIdentity => {
-                            if association__.is_some() {
-                                return Err(serde::de::Error::duplicate_field("legacyCreateIdentity"));
-                            }
-                            association__ = map.next_value::<::std::option::Option<_>>()?.map(mls_credential::Association::LegacyCreateIdentity)
 ;
                         }
                     }

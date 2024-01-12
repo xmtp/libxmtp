@@ -2583,7 +2583,6 @@ impl serde::Serialize for SubscribeFilterType {
         let variant = match self {
             Self::Unspecified => "SUBSCRIBE_FILTER_TYPE_UNSPECIFIED",
             Self::Latest => "SUBSCRIBE_FILTER_TYPE_LATEST",
-            Self::Earliest => "SUBSCRIBE_FILTER_TYPE_EARLIEST",
             Self::Cursor => "SUBSCRIBE_FILTER_TYPE_CURSOR",
         };
         serializer.serialize_str(variant)
@@ -2598,7 +2597,6 @@ impl<'de> serde::Deserialize<'de> for SubscribeFilterType {
         const FIELDS: &[&str] = &[
             "SUBSCRIBE_FILTER_TYPE_UNSPECIFIED",
             "SUBSCRIBE_FILTER_TYPE_LATEST",
-            "SUBSCRIBE_FILTER_TYPE_EARLIEST",
             "SUBSCRIBE_FILTER_TYPE_CURSOR",
         ];
 
@@ -2644,7 +2642,6 @@ impl<'de> serde::Deserialize<'de> for SubscribeFilterType {
                 match value {
                     "SUBSCRIBE_FILTER_TYPE_UNSPECIFIED" => Ok(SubscribeFilterType::Unspecified),
                     "SUBSCRIBE_FILTER_TYPE_LATEST" => Ok(SubscribeFilterType::Latest),
-                    "SUBSCRIBE_FILTER_TYPE_EARLIEST" => Ok(SubscribeFilterType::Earliest),
                     "SUBSCRIBE_FILTER_TYPE_CURSOR" => Ok(SubscribeFilterType::Cursor),
                     _ => Err(serde::de::Error::unknown_variant(value, FIELDS)),
                 }
