@@ -22,3 +22,17 @@ openmls_traits = { git = "https://github.com/xmtp/openmls", branch = "nm/merge-u
 openmls_basic_credential = { git = "https://github.com/xmtp/openmls", branch = "nm/merge-upstream" }
 openmls_rust_crypto = { git = "https://github.com/xmtp/openmls", branch = "nm/merge-upstream" }
 tls_codec = "0.4.0"
+tokio = { version = "1.35.1", features = ["macros"] }
+thiserror = "1.0.56"
+rand = "0.8.5"
+ethers = "2.0.11"
+ethers-core = "2.0.4"
+prost = "0.11"
+prost-types = " 0.11"
+tonic = "^0.9"
+serde = "1.0.195"
+futures = "0.3.30"
+futures-core = "0.3.30"
+log = "0.4.20"
+hex = "0.4.3"
+async-trait = "0.1.77"
