@@ -45,7 +45,7 @@ impl MembershipPolicy for BasePolicies {
             BasePolicies::Allow => true,
             BasePolicies::Deny => false,
             BasePolicies::AllowSameMember => change.account_address == actor.account_address,
-            BasePolicies::AllowIfActorCreator => true, // TODO: Enable proper check once we can tell who the creator is
+            BasePolicies::AllowIfActorCreator => actor.is_creator, // TODO: Enable proper check once we can tell who the creator is
         }
     }
 
@@ -290,14 +290,14 @@ impl PolicySet {
         })
     }
 
-    fn to_proto(&self) -> Result<PolicySetProto, PolicyError> {
+    pub(crate) fn to_proto(&self) -> Result<PolicySetProto, PolicyError> {
         Ok(PolicySetProto {
             add_member_policy: Some(self.add_member_policy.to_proto()?),
             remove_member_policy: Some(self.remove_member_policy.to_proto()?),
         })
     }
 
-    fn from_proto(proto: PolicySetProto) -> Result<Self, PolicyError> {
+    pub(crate) fn from_proto(proto: PolicySetProto) -> Result<Self, PolicyError> {
         Ok(Self::new(
             MembershipPolicies::try_from(
                 proto.add_member_policy.ok_or(PolicyError::InvalidPolicy)?,
@@ -331,6 +331,12 @@ fn default_remove_installation_policy() -> MembershipPolicies {
     MembershipPolicies::deny()
 }
 
+// The default policy set for a group
+// Currently set to allow everyone to do everything
+pub(crate) fn default_group_policy() -> PolicySet {
+    PolicySet::new(MembershipPolicies::allow(), MembershipPolicies::allow())
+}
+
 #[cfg(test)]
 mod tests {
     use crate::utils::test::{rand_account_address, rand_vec};
@@ -340,20 +346,24 @@ mod tests {
     fn build_change(
         account_address: Option<String>,
         installation_id: Option<Vec<u8>>,
+        is_creator: bool,
     ) -> AggregatedMembershipChange {
         AggregatedMembershipChange {
             account_address: account_address.unwrap_or_else(rand_account_address),
             installation_ids: vec![installation_id.unwrap_or_else(rand_vec)],
+            is_creator: is_creator,
         }
     }
 
     fn build_actor(
         account_address: Option<String>,
         installation_id: Option<Vec<u8>>,
+        is_creator: bool,
     ) -> CommitParticipant {
         CommitParticipant {
             account_address: account_address.unwrap_or_else(rand_account_address),
             installation_id: installation_id.unwrap_or_else(rand_vec),
+            is_creator,
         }
     }
 
@@ -363,13 +373,18 @@ mod tests {
         member_removed: Option<bool>,
         installation_added: Option<bool>,
         installation_removed: Option<bool>,
+        actor_is_creator: bool,
     ) -> ValidatedCommit {
-        let actor = build_actor(None, None);
+        let actor = build_actor(None, None, actor_is_creator);
         let build_membership_change = |same_address_as_actor| {
             if same_address_as_actor {
-                vec![build_change(Some(actor.account_address.clone()), None)]
+                vec![build_change(
+                    Some(actor.account_address.clone()),
+                    None,
+                    false,
+                )]
             } else {
-                vec![build_change(None, None)]
+                vec![build_change(None, None, false)]
             }
         };
         ValidatedCommit {
@@ -393,7 +408,7 @@ mod tests {
     fn test_allow_all() {
         let permissions = PolicySet::new(MembershipPolicies::allow(), MembershipPolicies::allow());
 
-        let commit = build_validated_commit(Some(true), Some(true), None, None);
+        let commit = build_validated_commit(Some(true), Some(true), None, None, false);
         assert!(permissions.evaluate_commit(&commit));
     }
 
@@ -401,19 +416,35 @@ mod tests {
     fn test_deny() {
         let permissions = PolicySet::new(MembershipPolicies::deny(), MembershipPolicies::deny());
 
-        let member_added_commit = build_validated_commit(Some(false), None, None, None);
+        let member_added_commit = build_validated_commit(Some(false), None, None, None, false);
         assert!(!permissions.evaluate_commit(&member_added_commit));
 
-        let member_removed_commit = build_validated_commit(None, Some(false), None, None);
+        let member_removed_commit = build_validated_commit(None, Some(false), None, None, false);
         assert!(!permissions.evaluate_commit(&member_removed_commit));
 
-        let installation_added_commit = build_validated_commit(None, None, Some(false), None);
+        let installation_added_commit =
+            build_validated_commit(None, None, Some(false), None, false);
         // Installation added is always allowed
         assert!(permissions.evaluate_commit(&installation_added_commit));
 
         // Installation removed is always denied
-        let installation_removed_commit = build_validated_commit(None, None, None, Some(false));
+        let installation_removed_commit =
+            build_validated_commit(None, None, None, Some(false), false);
         assert!(!permissions.evaluate_commit(&installation_removed_commit));
+    }
+
+    #[test]
+    fn test_actor_is_creator() {
+        let permissions = PolicySet::new(
+            MembershipPolicies::allow_if_actor_creator(),
+            MembershipPolicies::allow_if_actor_creator(),
+        );
+
+        let commit_with_creator = build_validated_commit(Some(true), Some(true), None, None, true);
+        assert!(permissions.evaluate_commit(&commit_with_creator));
+
+        let commit_without_creator = build_validated_commit(Some(true), Some(true), None, None, false);
+        assert!(!permissions.evaluate_commit(&commit_without_creator));
     }
 
     #[test]
@@ -423,10 +454,11 @@ mod tests {
             MembershipPolicies::deny(),
         );
 
-        let commit_with_same_member = build_validated_commit(Some(true), None, None, None);
+        let commit_with_same_member = build_validated_commit(Some(true), None, None, None, false);
         assert!(permissions.evaluate_commit(&commit_with_same_member));
 
-        let commit_with_different_member = build_validated_commit(Some(false), None, None, None);
+        let commit_with_different_member =
+            build_validated_commit(Some(false), None, None, None, false);
         assert!(!permissions.evaluate_commit(&commit_with_different_member));
     }
 
@@ -440,7 +472,7 @@ mod tests {
             MembershipPolicies::allow(),
         );
 
-        let member_added_commit = build_validated_commit(Some(true), None, None, None);
+        let member_added_commit = build_validated_commit(Some(true), None, None, None, false);
         assert!(!permissions.evaluate_commit(&member_added_commit));
     }
 
@@ -454,7 +486,7 @@ mod tests {
             MembershipPolicies::allow(),
         );
 
-        let member_added_commit = build_validated_commit(Some(true), None, None, None);
+        let member_added_commit = build_validated_commit(Some(true), None, None, None, false);
         assert!(permissions.evaluate_commit(&member_added_commit));
     }
 
