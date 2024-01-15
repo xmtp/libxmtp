@@ -443,7 +443,8 @@ mod tests {
         let commit_with_creator = build_validated_commit(Some(true), Some(true), None, None, true);
         assert!(permissions.evaluate_commit(&commit_with_creator));
 
-        let commit_without_creator = build_validated_commit(Some(true), Some(true), None, None, false);
+        let commit_without_creator =
+            build_validated_commit(Some(true), Some(true), None, None, false);
         assert!(!permissions.evaluate_commit(&commit_without_creator));
     }
 
