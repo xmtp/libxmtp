@@ -8,9 +8,7 @@ use crate::codecs::ContentCodec;
 use intents::SendMessageIntentData;
 use log::debug;
 use openmls::{
-    extensions::{
-        Extension, ExtensionType, Extensions, ProtectedMetadata, RequiredCapabilitiesExtension,
-    },
+    extensions::{Extension, Extensions, ProtectedMetadata},
     framing::ProtocolMessage,
     group::{MergePendingCommitError, MlsGroupJoinConfig},
     prelude::{
@@ -861,12 +859,9 @@ fn build_group_config(
     protected_metadata_extension: Extension,
 ) -> Result<MlsGroupCreateConfig, GroupError> {
     let extensions = Extensions::single(protected_metadata_extension);
-    let required_capabilities =
-        RequiredCapabilitiesExtension::new(&[ExtensionType::ProtectedMetadata], &[], &[]);
 
     Ok(MlsGroupCreateConfig::builder()
         .with_group_context_extensions(extensions)?
-        .required_capabilities(required_capabilities)
         .crypto_config(CryptoConfig::with_default_version(CIPHERSUITE))
         .wire_format_policy(WireFormatPolicy::default())
         .max_past_epochs(3) // Trying with 3 max past epochs for now
