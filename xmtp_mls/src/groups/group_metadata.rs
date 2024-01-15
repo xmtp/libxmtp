@@ -129,5 +129,5 @@ pub fn extract_group_metadata(group: &OpenMlsGroup) -> Result<GroupMetadata, Gro
         .protected_metadata()
         .ok_or(GroupMetadataError::MissingExtension)?;
 
-    Ok(extension.metadata().try_into()?)
+    extension.metadata().try_into()
 }
