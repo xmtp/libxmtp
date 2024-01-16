@@ -71,7 +71,7 @@ mod tests {
     use crate::{builder::ClientBuilder, storage::group_message::GroupMessageKind};
     use futures::StreamExt;
 
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 10)]
     async fn test_subscribe_messages() {
         let amal = ClientBuilder::new_test_client(generate_local_wallet().into()).await;
         amal.register_identity().await.unwrap();
@@ -102,7 +102,7 @@ mod tests {
         assert_eq!(second_val.decrypted_message_bytes, "goodbye".as_bytes());
     }
 
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 10)]
     async fn test_subscribe_membership_changes() {
         let amal = ClientBuilder::new_test_client(generate_local_wallet().into()).await;
         amal.register_identity().await.unwrap();

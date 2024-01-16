@@ -1,3 +1,4 @@
+mod group_metadata;
 mod group_permissions;
 mod intents;
 mod members;
@@ -7,6 +8,7 @@ use crate::codecs::ContentCodec;
 use intents::SendMessageIntentData;
 use log::debug;
 use openmls::{
+    extensions::{Extension, Extensions, ProtectedMetadata},
     framing::ProtocolMessage,
     group::{MergePendingCommitError, MlsGroupJoinConfig},
     prelude::{
@@ -29,6 +31,8 @@ use xmtp_proto::{
 
 pub use self::intents::{AddressesOrInstallationIds, IntentError};
 use self::{
+    group_metadata::{ConversationType, GroupMetadata, GroupMetadataError},
+    group_permissions::{default_group_policy, PolicySet},
     intents::{AddMembersIntentData, PostCommitAction, RemoveMembersIntentData},
     validated_commit::CommitValidationError,
 };
@@ -78,6 +82,10 @@ pub enum GroupError {
     SelfUpdate(#[from] openmls::group::SelfUpdateError<StorageError>),
     #[error("welcome error: {0}")]
     WelcomeError(#[from] openmls::prelude::WelcomeError<StorageError>),
+    #[error("Invalid extension {0}")]
+    InvalidExtension(#[from] openmls::prelude::InvalidExtensionError),
+    #[error("Invalid signature: {0}")]
+    Signature(#[from] openmls::prelude::SignatureError),
     #[error("client: {0}")]
     Client(#[from] ClientError),
     #[error("receive error: {0}")]
@@ -94,6 +102,8 @@ pub enum GroupError {
     InvalidPublicKeys(Vec<Vec<u8>>),
     #[error("Commit validation error {0}")]
     CommitValidation(#[from] CommitValidationError),
+    #[error("Metadata error {0}")]
+    GroupMetadata(#[from] GroupMetadataError),
 }
 
 impl RetryableError for GroupError {
@@ -146,10 +156,14 @@ where
     ) -> Result<Self, GroupError> {
         let conn = client.store.conn()?;
         let provider = XmtpOpenMlsProvider::new(&conn);
+        let protected_metadata =
+            build_protected_metadata_extension(&client.identity, default_group_policy())?;
+        let group_config = build_group_config(protected_metadata)?;
+
         let mut mls_group = OpenMlsGroup::new(
             &provider,
             &client.identity.installation_keys,
-            &build_group_config(),
+            &group_config,
             CredentialWithKey {
                 credential: client.identity.credential.clone(),
                 signature_key: client.identity.installation_keys.to_public_vec().into(),
@@ -821,13 +835,38 @@ where
     }
 }
 
-fn build_group_config() -> MlsGroupCreateConfig {
-    MlsGroupCreateConfig::builder()
+fn build_protected_metadata_extension(
+    identity: &Identity,
+    policies: PolicySet,
+) -> Result<Extension, GroupError> {
+    let metadata = GroupMetadata::new(
+        ConversationType::Group,
+        identity.account_address.clone(),
+        policies,
+    );
+    let protected_metadata = ProtectedMetadata::new(
+        &identity.installation_keys,
+        identity.application_id(),
+        identity.credential.clone(),
+        identity.installation_keys.to_public_vec(),
+        metadata.try_into()?,
+    )?;
+
+    Ok(Extension::ProtectedMetadata(protected_metadata))
+}
+
+fn build_group_config(
+    protected_metadata_extension: Extension,
+) -> Result<MlsGroupCreateConfig, GroupError> {
+    let extensions = Extensions::single(protected_metadata_extension);
+
+    Ok(MlsGroupCreateConfig::builder()
+        .with_group_context_extensions(extensions)?
         .crypto_config(CryptoConfig::with_default_version(CIPHERSUITE))
         .wire_format_policy(WireFormatPolicy::default())
         .max_past_epochs(3) // Trying with 3 max past epochs for now
         .use_ratchet_tree_extension(true)
-        .build()
+        .build())
 }
 
 fn build_group_join_config() -> MlsGroupJoinConfig {
