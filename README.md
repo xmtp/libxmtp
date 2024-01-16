@@ -46,13 +46,26 @@ $ docker build . -t libxmtp:1
 
 ## Structure
 
-- [`xmtp`](https://github.com/xmtp/libxmtp/tree/main/xmtp): Pure Rust implementation of XMTP APIs, agnostic to any per-language or per-platform binding
-- [`xmtp_cryptography`](https://github.com/xmtp/libxmtp/tree/main/xmtp_cryptography): Cryptographic operations
-- [`xmtp_api_grpc`](https://github.com/xmtp/libxmtp/tree/main/xmtp_api_grpc): API client for XMTP's gRPC API, using code from `xmtp_proto`
-- [`xmtp_api_grpc_gateway`](https://github.com/xmtp/libxmtp/tree/main/xmtp_api_grpc_gateway): API client for XMTP's gRPC Gateway API, using code from `xmtp_proto` (in progress)
-- [`xmtp_proto`](https://github.com/xmtp/libxmtp/tree/main/xmtp_proto): Generated code for handling XMTP protocol buffers
-- [`examples/cli`](https://github.com/xmtp/libxmtp/tree/main/examples/cli): Example XMTP console client. Use the CLI to try out sending double ratchet messages on the XMTP `dev` network.
-- [`examples/android/xmtpv3_example`](https://github.com/xmtp/libxmtp/tree/main/examples/android/xmtpv3_example): Example Android app (in progress)
-- [`bindings_ffi`](https://github.com/xmtp/libxmtp/tree/main/bindings_ffi): FFI bindings for Android and iOS (in progress)
-- [`bindings_js`](https://github.com/xmtp/libxmtp/tree/main/bindings_js): JS bindings (in progress)
-- [`bindings_wasm`](https://github.com/xmtp/libxmtp/tree/main/bindings_wasm): Wasm bindings (in progress)
+libxmtp/
+
+├ [`bindings_ffi`](./bindings_ffi): FFI bindings for Android and iOS (in progress)
+
+├ [`bindings_wasm`](./bindings_wasm): Wasm bindings (in progress)
+
+├ examples/
+
+   ├ [`android/xmtpv3_example`](./examples/android/xmtpv3_example): Example Android app (in progress)
+
+   └ [`cli`](./examples/cli): Example XMTP console client. Use the CLI to try out sending double ratchet messages on the XMTP `dev` network.
+
+├ [`xmtp_api_grpc`](./xmtp_api_grpc): API client for XMTP's gRPC API, using code from `xmtp_proto`
+
+├ [`xmtp_api_grpc_gateway`](./xmtp_api_grpc_gateway): API client for XMTP's gRPC Gateway API, using code from `xmtp_proto` (in progress)
+
+├ [`xmtp_cryptography`](./xmtp_cryptography): Cryptographic operations
+
+├ [`xmtp_mls`](./xmtp_mls): Version 3 of XMTP which implements [Messaging Layer Security](https://messaginglayersecurity.rocks/).
+
+├ [`xmtp_proto`](./xmtp_proto): Generated code for handling XMTP protocol buffers
+
+└ [`xmtp_v2`](./xmtp_v2): Version 2 of XMTP which uses a [user key bundle](https://xmtp.org/docs/concepts/key-generation-and-usage) to encrypt and exchange messages. 
