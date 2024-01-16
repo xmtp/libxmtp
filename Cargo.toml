@@ -6,6 +6,7 @@ members = [
   "xmtp_cryptography",
   "xmtp_api_grpc",
   "xmtp_proto",
+  "xmtp_user_preferences",
   "xmtp_v2",
   "xmtp_mls",
 ]
