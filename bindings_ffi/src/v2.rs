@@ -1,4 +1,5 @@
 use crate::GenericError;
+use xmtp_v2::{hashes, k256_helper};
 
 #[uniffi::export]
 pub fn recover_address(
@@ -13,11 +14,81 @@ pub fn recover_address(
 }
 
 #[uniffi::export]
+pub fn sha256(input: Vec<u8>) -> Vec<u8> {
+    hashes::sha256(input.as_slice()).to_vec()
+}
+
+#[uniffi::export]
+pub fn keccak256(input: Vec<u8>) -> Vec<u8> {
+    hashes::keccak256(input.as_slice()).to_vec()
+}
+
+#[uniffi::export]
+pub fn public_key_from_private_key_k256(
+    private_key_bytes: Vec<u8>,
+) -> Result<Vec<u8>, GenericError> {
+    k256_helper::get_public_key(private_key_bytes.as_slice())
+        .map_err(|err| GenericError::Generic { err })
+}
+
+#[uniffi::export]
+pub fn recover_public_key_k256_sha256(
+    message: Vec<u8>,
+    signature: Vec<u8>,
+) -> Result<Vec<u8>, GenericError> {
+    k256_helper::recover_public_key_predigest_sha256(message.as_slice(), signature.as_slice())
+        .map_err(|err| GenericError::Generic { err })
+}
+
+#[uniffi::export]
+fn recover_public_key_k256_keccak256(
+    message: Vec<u8>,
+    signature: Vec<u8>,
+) -> Result<Vec<u8>, GenericError> {
+    k256_helper::recover_public_key_predigest_keccak256(message.as_slice(), signature.as_slice())
+        .map_err(|err| GenericError::Generic { err })
+}
+
+// Need to move xmtp_user_preferences into main
+// #[uniffi::export]
+// fn user_preferences_encrypt(
+//     public_key: Vec<u8>,
+//     private_key: Vec<u8>,
+//     message: Vec<u8>,
+// ) -> Result<Vec<u8>, GenericError> {
+//     let ciphertext = xmtp_user_preferences::encrypt_message(
+//         public_key.as_slice(),
+//         private_key.as_slice(),
+//         message.as_slice(),
+//     ).map_err(|err| GenericError::Generic { err: })?;
+
+//     Ok(ciphertext)
+// }
+
+// fn user_preferences_decrypt(
+//     public_key: Vec<u8>,
+//     private_key: Vec<u8>,
+//     message: Vec<u8>,
+// ) -> Result<Vec<u8>, String> {
+//     let ciphertext = xmtp_user_preferences::decrypt_message(
+//         public_key.as_slice(),
+//         private_key.as_slice(),
+//         message.as_slice(),
+//     )?;
+
+//     Ok(ciphertext)
+// }
+
+// fn generate_private_preferences_topic_identifier(private_key: Vec<u8>) -> Result<String, String> {
+//     xmtp_user_preferences::topic::generate_private_preferences_topic_identifier(private_key.as_slice())
+// }
+
+#[uniffi::export]
 pub fn diffie_hellman_k256(
     private_key_bytes: Vec<u8>,
     public_key_bytes: Vec<u8>,
 ) -> Result<Vec<u8>, GenericError> {
-    let shared_secret = xmtp_v2::k256_helper::diffie_hellman_byte_params(
+    let shared_secret = k256_helper::diffie_hellman_byte_params(
         private_key_bytes.as_slice(),
         public_key_bytes.as_slice(),
     )
