@@ -138,14 +138,14 @@ impl<'a, ApiClient> Client<ApiClient>
 where
     ApiClient: XmtpMlsClient + XmtpApiClient,
 {
-    pub fn new(
-        api_client: ApiClient,
+    pub(crate) fn new(
+        api_client: ApiClientWrapper<ApiClient>,
         network: Network,
         identity: Identity,
         store: EncryptedMessageStore,
     ) -> Self {
         Self {
-            api_client: ApiClientWrapper::new(api_client, Retry::default()),
+            api_client,
             _network: network,
             identity,
             store,

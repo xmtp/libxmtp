@@ -12,9 +12,13 @@ use openmls_traits::{types::CryptoError, OpenMlsProvider};
 use prost::Message;
 use thiserror::Error;
 use xmtp_cryptography::signature::SignatureError;
-use xmtp_proto::xmtp::mls::message_contents::MlsCredential as CredentialProto;
+use xmtp_proto::{
+    api_client::{XmtpApiClient, XmtpMlsClient},
+    xmtp::mls::message_contents::MlsCredential as CredentialProto,
+};
 
 use crate::{
+    api_client_wrapper::ApiClientWrapper,
     association::{AssociationError, Credential},
     builder::LegacyIdentitySource,
     configuration::CIPHERSUITE,
@@ -50,7 +54,8 @@ pub struct Identity {
 }
 
 impl Identity {
-    pub(crate) fn new(
+    pub(crate) fn new<ApiClient: XmtpApiClient + XmtpMlsClient>(
+        api_client: &ApiClientWrapper<ApiClient>,
         provider: &XmtpOpenMlsProvider,
         owner: &impl InboxOwner,
         legacy_identity_source: LegacyIdentitySource,
@@ -62,7 +67,13 @@ impl Identity {
             LegacyIdentitySource::None | LegacyIdentitySource::Network => {
                 Identity::create_credential(&signature_keys, owner)?
             }
-            LegacyIdentitySource::Static(_) | LegacyIdentitySource::KeyGenerator(_) => todo!(),
+            LegacyIdentitySource::Static(v2_signed_private_key)
+            | LegacyIdentitySource::KeyGenerator(v2_signed_private_key) => {
+                // Check if a v2-signed key already exists
+                // - we need an API client. where is this being uploaded?
+                // If so, use it to create a new credential
+                todo!()
+            }
         };
 
         let identity = Self {

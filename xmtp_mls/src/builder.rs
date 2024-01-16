@@ -7,8 +7,10 @@ use thiserror::Error;
 use xmtp_proto::api_client::{XmtpApiClient, XmtpMlsClient};
 
 use crate::{
+    api_client_wrapper::ApiClientWrapper,
     client::{Client, Network},
     identity::{Identity, IdentityError},
+    retry::Retry,
     storage::{identity::StoredIdentity, EncryptedMessageStore},
     xmtp_openmls_provider::XmtpOpenMlsProvider,
     Fetch, InboxOwner, StorageError,
@@ -65,8 +67,9 @@ impl<'a, Owner> IdentityStrategy<Owner>
 where
     Owner: InboxOwner,
 {
-    fn initialize_identity(
+    fn initialize_identity<ApiClient: XmtpApiClient + XmtpMlsClient>(
         self,
+        api_client: &ApiClientWrapper<ApiClient>,
         provider: &'a XmtpOpenMlsProvider,
     ) -> Result<Identity, ClientBuilderError> {
         let identity_option: Option<Identity> = provider
@@ -86,7 +89,12 @@ where
                         }
                         Ok(identity)
                     }
-                    None => Ok(Identity::new(provider, &owner, legacy_identity_source)?),
+                    None => Ok(Identity::new(
+                        api_client,
+                        &provider,
+                        &owner,
+                        legacy_identity_source,
+                    )?),
                 }
             }
             #[cfg(test)]
@@ -155,6 +163,7 @@ where
             .ok_or(ClientBuilderError::MissingParameter {
                 parameter: "api_client",
             })?;
+        let api_client_wrapper = ApiClientWrapper::new(api_client, Retry::default());
         let network = self.network;
         let store = self
             .store
@@ -163,8 +172,10 @@ where
         let conn = store.conn()?;
         let provider = XmtpOpenMlsProvider::new(&conn);
         debug!("Initializing identity");
-        let identity = self.identity_strategy.initialize_identity(&provider)?;
-        Ok(Client::new(api_client, network, identity, store))
+        let identity = self
+            .identity_strategy
+            .initialize_identity(&api_client_wrapper, &provider)?;
+        Ok(Client::new(api_client_wrapper, network, identity, store))
     }
 }
 
