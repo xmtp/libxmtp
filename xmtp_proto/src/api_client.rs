@@ -7,7 +7,7 @@ pub use super::xmtp::message_api::v1::{
     BatchQueryRequest, BatchQueryResponse, Envelope, PagingInfo, PublishRequest, PublishResponse,
     QueryRequest, QueryResponse, SubscribeRequest,
 };
-use crate::xmtp::message_api::v3::{
+use crate::xmtp::mls::api::v1::{
     FetchKeyPackagesRequest, FetchKeyPackagesResponse, GetIdentityUpdatesRequest,
     GetIdentityUpdatesResponse, PublishToGroupRequest, PublishWelcomesRequest,
     RegisterInstallationRequest, RegisterInstallationResponse, UploadKeyPackageRequest,
