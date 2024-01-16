@@ -1,21 +1,29 @@
 use crate::{types::Address, InboxOwner};
 use chrono::Utc;
 use openmls_basic_credential::SignatureKeyPair;
+use prost::Message;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 use xmtp_cryptography::signature::{
     ed25519_public_key_to_address, RecoverableSignature, SignatureError,
 };
+use xmtp_proto::xmtp::message_contents::{
+    unsigned_public_key, UnsignedPublicKey as V2UnsignedPublicKeyProto,
+};
 use xmtp_proto::xmtp::mls::message_contents::{
     mls_credential::Association as AssociationProto, Eip191Association as Eip191AssociationProto,
+    LegacyCreateIdentityAssociation as LegacyCreateIdentityAssociationProto,
     MlsCredential as MlsCredentialProto,
     RecoverableEcdsaSignature as RecoverableEcdsaSignatureProto,
 };
+use xmtp_v2::k256_helper;
 
 #[derive(Debug, Error)]
 pub enum AssociationError {
     #[error("bad signature")]
     BadSignature(#[from] SignatureError),
+    #[error("bad legacy signature: {0}")]
+    BadLegacySignature(String),
     #[error("Association text mismatch")]
     TextMismatch,
     #[error("Installation public key mismatch")]
@@ -74,6 +82,7 @@ impl Credential {
                 &proto.installation_public_key,
             )
             .map(Association::Eip191),
+            AssociationProto::LegacyCreateIdentity(assoc) => todo!(),
         }?;
         let credential = Self { association };
         if let Some(address) = expected_account_address {
@@ -210,6 +219,59 @@ impl From<Eip191Association> for Eip191AssociationProto {
     }
 }
 
+struct LegacyCreateIdentityAssociation {}
+
+impl LegacyCreateIdentityAssociation {
+    pub fn from_proto_validated(
+        proto: LegacyCreateIdentityAssociationProto,
+        expected_installation_public_key: &[u8],
+    ) -> Result<Self, AssociationError> {
+        // Validate legacy key signs installation key
+        let v2_signature = proto
+            .signature
+            .ok_or(AssociationError::MalformedAssociation)?
+            .bytes;
+        let v2_public_key_proto = V2UnsignedPublicKeyProto::decode(
+            proto
+                .signed_legacy_create_identity_key
+                .ok_or(AssociationError::MalformedAssociation)?
+                .key_bytes
+                .as_slice(),
+        )
+        .or(Err(AssociationError::MalformedAssociation))?;
+        let v2_public_key_bytes = match v2_public_key_proto
+            .union
+            .ok_or(AssociationError::MalformedAssociation)?
+        {
+            unsigned_public_key::Union::Secp256k1Uncompressed(secp256k1_uncompressed) => {
+                secp256k1_uncompressed.bytes
+            }
+            _ => return Err(AssociationError::MalformedAssociation),
+        };
+        if v2_public_key_bytes.len() != 65 {
+            return Err(AssociationError::MalformedAssociation);
+        }
+        assert!(k256_helper::verify_sha256(
+            &v2_public_key_bytes,             // signed_by
+            expected_installation_public_key, // message
+            &v2_signature[0..64],             // signature
+            v2_signature[64],                 // recovery_id
+        )
+        .map_err(|err| AssociationError::BadLegacySignature(err))?); // always returns true if no error
+
+        // Validate wallet signs legacy key
+        todo!()
+        // let text = AssociationText::new_static(
+        //     expected_context,
+        //     proto.account_address,
+        //     expected_installation_public_key.to_vec(),
+        //     proto.iso8601_time,
+        // );
+        // let signature = RecoverableSignature::Eip191Signature(proto.signature.unwrap().bytes);
+        // Self::new_validated(text, signature)
+    }
+}
+
 /// AssociationText represents the string which was signed by the authorizing blockchain account. A
 /// valid AssociationText must contain the address of the blockchain account and a representation of
 /// the XMTP installation public key. Different standards may choose how this information is
@@ -224,6 +286,7 @@ struct AssociationText {
 pub enum AssociationContext {
     GrantMessagingAccess,
     RevokeMessagingAccess,
+    LegacyCreateIdentity,
 }
 
 impl AssociationContext {}
@@ -269,6 +332,7 @@ impl AssociationText {
         let label = match &self.context {
             AssociationContext::GrantMessagingAccess => "Grant messaging access".to_string(),
             AssociationContext::RevokeMessagingAccess => "Revoke messaging access".to_string(),
+            AssociationContext::LegacyCreateIdentity => todo!(),
         };
         format!("XMTP: {}\n\n", label)
     }

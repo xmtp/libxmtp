@@ -6489,6 +6489,7 @@ dependencies = [
  "xmtp_api_grpc",
  "xmtp_cryptography",
  "xmtp_proto",
+ "xmtp_v2",
 ]
 
 [[package]]
