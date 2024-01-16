@@ -399,13 +399,17 @@ impl FfiV2Client {
         log::info!("Needs implementation")
     }
 
-    pub async fn publish(&self, request: FfiPublishRequest) -> Result<(), GenericError> {
+    pub async fn publish(
+        &self,
+        request: FfiPublishRequest,
+    ) -> Result<FfiV2PublishResponse, GenericError> {
         let actual_publish_request: PublishRequest = request.into();
-        self.inner_client
+        let result = self
+            .inner_client
             .publish(self.auth_token.to_string(), actual_publish_request)
             .await?;
 
-        Ok(())
+        Ok(result.into())
     }
 
     pub async fn query(
