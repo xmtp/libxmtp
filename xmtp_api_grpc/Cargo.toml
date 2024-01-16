@@ -7,10 +7,10 @@ edition = "2021"
 
 [dependencies]
 log = { version = "0.4", features = ["std"] }
-tonic = "^0.9"
+tonic = { workspace = true }
 xmtp_proto = { path = "../xmtp_proto", features = ["proto_full", "grpc"] }
-prost = { version = "^0.11", features = ["prost-derive"] }
-tokio = { version = "1.24", features = ["macros", "rt-multi-thread", "time"] }
+prost = { workspace = true, features = ["prost-derive"] }
+tokio = { workspace = true, features = ["macros", "rt-multi-thread", "time"] }
 tokio-rustls = "0.24.1"
 serde = { version = "1.0.160", features = ["derive"] }
 serde_json = "1.0"

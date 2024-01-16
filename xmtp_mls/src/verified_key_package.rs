@@ -68,7 +68,7 @@ impl VerifiedKeyPackage {
         crypto_provider: &RustCrypto,
         data: &[u8],
     ) -> Result<VerifiedKeyPackage, KeyPackageVerificationError> {
-        let kp_in: KeyPackageIn = KeyPackageIn::tls_deserialize_bytes(data)?;
+        let kp_in: KeyPackageIn = KeyPackageIn::tls_deserialize_exact(data)?;
         let kp = kp_in.validate(crypto_provider, MLS_PROTOCOL_VERSION)?;
 
         Self::from_key_package(kp)
