@@ -4,7 +4,6 @@ mod v2;
 
 use std::convert::TryInto;
 
-use ethers::etherscan::account::Sort;
 use futures::StreamExt;
 use inbox_owner::FfiInboxOwner;
 use logger::FfiLogger;
