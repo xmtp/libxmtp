@@ -36,7 +36,6 @@ pub enum BasePolicies {
     // Allow the change if the actor is the creator of the group
     AllowIfActorCreator,
     // AllowIfActorAdmin, TODO: Enable this once we have admin roles
-    // AllowIfSubjectRevoked, TODO: Enable this once we have revocation and have context on who is revoked
 }
 
 impl MembershipPolicy for BasePolicies {
@@ -45,7 +44,7 @@ impl MembershipPolicy for BasePolicies {
             BasePolicies::Allow => true,
             BasePolicies::Deny => false,
             BasePolicies::AllowSameMember => change.account_address == actor.account_address,
-            BasePolicies::AllowIfActorCreator => actor.is_creator, // TODO: Enable proper check once we can tell who the creator is
+            BasePolicies::AllowIfActorCreator => actor.is_creator,
         }
     }
 
