@@ -44,6 +44,8 @@ pub enum IdentityError {
     Deserialization(#[from] prost::DecodeError),
     #[error("invalid extension")]
     InvalidExtension(#[from] InvalidExtensionError),
+    #[error("network error")]
+    Network(#[from] xmtp_proto::api_client::Error),
 }
 
 #[derive(Debug)]
@@ -54,9 +56,9 @@ pub struct Identity {
 }
 
 impl Identity {
-    pub(crate) fn new<ApiClient: XmtpApiClient + XmtpMlsClient>(
+    pub(crate) async fn new<ApiClient: XmtpApiClient + XmtpMlsClient>(
         api_client: &ApiClientWrapper<ApiClient>,
-        provider: &XmtpOpenMlsProvider,
+        provider: &XmtpOpenMlsProvider<'_>,
         owner: &impl InboxOwner,
         legacy_identity_source: LegacyIdentitySource,
     ) -> Result<Self, IdentityError> {
@@ -70,6 +72,9 @@ impl Identity {
             LegacyIdentitySource::Static(v2_signed_private_key)
             | LegacyIdentitySource::KeyGenerator(v2_signed_private_key) => {
                 // Check if a v2-signed key already exists
+                let identity_updates = api_client
+                    .get_identity_updates(0 /*start_time_ns*/, vec![owner.get_address()])
+                    .await?;
                 // - we need an API client. where is this being uploaded?
                 // If so, use it to create a new credential
                 todo!()

@@ -197,7 +197,7 @@ where
             .collect())
     }
 
-    pub async fn register_identity(&self) -> Result<(), ClientError> {
+    pub(crate) async fn register_identity(&self) -> Result<(), ClientError> {
         let connection = self.store.conn()?;
         let kp = self
             .identity

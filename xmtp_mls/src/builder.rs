@@ -67,11 +67,13 @@ impl<'a, Owner> IdentityStrategy<Owner>
 where
     Owner: InboxOwner,
 {
-    fn initialize_identity<ApiClient: XmtpApiClient + XmtpMlsClient>(
+    async fn initialize_identity<ApiClient: XmtpApiClient + XmtpMlsClient>(
         self,
         api_client: &ApiClientWrapper<ApiClient>,
-        provider: &'a XmtpOpenMlsProvider,
+        store: &EncryptedMessageStore,
     ) -> Result<Identity, ClientBuilderError> {
+        let conn = store.conn()?;
+        let provider = XmtpOpenMlsProvider::new(&conn);
         let identity_option: Option<Identity> = provider
             .conn()
             .fetch(&())?
@@ -89,12 +91,12 @@ where
                         }
                         Ok(identity)
                     }
-                    None => Ok(Identity::new(
-                        api_client,
-                        &provider,
-                        &owner,
-                        legacy_identity_source,
-                    )?),
+                    None => {
+                        Ok(
+                            Identity::new(api_client, &provider, &owner, legacy_identity_source)
+                                .await?,
+                        )
+                    }
                 }
             }
             #[cfg(test)]
@@ -155,7 +157,7 @@ where
         self
     }
 
-    pub fn build(mut self) -> Result<Client<ApiClient>, ClientBuilderError> {
+    pub async fn build(mut self) -> Result<Client<ApiClient>, ClientBuilderError> {
         debug!("Building client");
         let api_client = self
             .api_client
@@ -169,12 +171,11 @@ where
             .store
             .take()
             .ok_or(ClientBuilderError::MissingParameter { parameter: "store" })?;
-        let conn = store.conn()?;
-        let provider = XmtpOpenMlsProvider::new(&conn);
         debug!("Initializing identity");
         let identity = self
             .identity_strategy
-            .initialize_identity(&api_client_wrapper, &provider)?;
+            .initialize_identity(&api_client_wrapper, &store)
+            .await?;
         Ok(Client::new(api_client_wrapper, network, identity, store))
     }
 }

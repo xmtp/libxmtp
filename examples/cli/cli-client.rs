@@ -294,7 +294,7 @@ async fn create_client(cli: &Cli, account: IdentityStrategy<Wallet>) -> Result<C
         );
     }
 
-    builder.build().map_err(CliError::ClientBuilder)
+    builder.build().await.map_err(CliError::ClientBuilder)
 }
 
 async fn register(cli: &Cli, wallet_seed: &u64) -> Result<(), CliError> {
@@ -310,11 +310,6 @@ async fn register(cli: &Cli, wallet_seed: &u64) -> Result<(), CliError> {
     )
     .await?;
     info!("Address is: {}", client.account_address());
-
-    if let Err(e) = client.register_identity().await {
-        error!("Initialization Failed: {}", e.to_string());
-        panic!("Could not init");
-    };
 
     Ok(())
 }
