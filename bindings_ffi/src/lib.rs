@@ -4,12 +4,14 @@ mod v2;
 
 use std::convert::TryInto;
 
+use ethers::etherscan::account::Sort;
 use futures::StreamExt;
 use inbox_owner::FfiInboxOwner;
 use logger::FfiLogger;
 use std::error::Error;
 use std::sync::{Arc, Mutex};
 use tokio::sync::{oneshot, oneshot::Sender};
+use xmtp_proto::api_client::{BatchQueryResponse, PagingInfo, QueryResponse, XmtpApiClient};
 
 use xmtp_api_grpc::grpc_api_helper::Client as TonicApiClient;
 use xmtp_mls::groups::MlsGroup;
@@ -21,7 +23,7 @@ use xmtp_mls::{
     storage::{EncryptedMessageStore, EncryptionKey, StorageOption},
 };
 use xmtp_proto::xmtp::message_api::v1::{
-    BatchQueryRequest, Envelope, PublishRequest, QueryRequest,
+    BatchQueryRequest, Cursor, Envelope, PublishRequest, QueryRequest, SortDirection,
 };
 
 use crate::inbox_owner::RustInboxOwner;
@@ -140,42 +142,263 @@ impl FfiXmtpClient {
     }
 }
 
+#[derive(uniffi::Enum)]
+pub enum FfiSortDirection {
+    Unspecified = 0,
+    Ascending = 1,
+    Descending = 2,
+}
+
+impl FfiSortDirection {
+    pub fn from_i32(val: i32) -> Self {
+        match val {
+            0 => FfiSortDirection::Unspecified,
+            1 => FfiSortDirection::Ascending,
+            2 => FfiSortDirection::Descending,
+            _ => panic!("Invalid sort direction"),
+        }
+    }
+}
+
+#[derive(uniffi::Record)]
+pub struct FfiPagingInfo {
+    limit: u32,
+    cursor: Option<FfiCursor>,
+    direction: FfiSortDirection,
+}
+
+#[derive(uniffi::Enum)]
+pub enum FfiCursor {
+    Digest { digest: Vec<u8> },
+    SenderTimeNs { sender_time_ns: u64 },
+}
+
 #[derive(uniffi::Record)]
 pub struct FfiV2QueryRequest {
     content_topics: Vec<String>,
+    start_time_ns: u64,
+    end_time_ns: u64,
+    paging_info: Option<FfiPagingInfo>,
+}
+
+#[derive(uniffi::Record)]
+pub struct FfiEnvelope {
+    content_topic: String,
+    timestamp_ns: u64,
+    message: Vec<u8>,
+}
+
+#[derive(uniffi::Record)]
+pub struct FfiPublishRequest {
+    envelopes: Vec<FfiEnvelope>,
     // ... the rest of the fields go here
+}
+
+impl From<FfiEnvelope> for Envelope {
+    fn from(env: FfiEnvelope) -> Self {
+        Self {
+            content_topic: env.content_topic,
+            timestamp_ns: env.timestamp_ns,
+            message: env.message,
+        }
+    }
+}
+
+impl From<Envelope> for FfiEnvelope {
+    fn from(env: Envelope) -> Self {
+        Self {
+            content_topic: env.content_topic,
+            timestamp_ns: env.timestamp_ns,
+            message: env.message,
+        }
+    }
+}
+
+impl From<PublishRequest> for FfiPublishRequest {
+    fn from(req: PublishRequest) -> Self {
+        Self {
+            envelopes: req.envelopes.into_iter().map(|env| env.into()).collect(),
+        }
+    }
+}
+
+impl From<FfiPublishRequest> for PublishRequest {
+    fn from(req: FfiPublishRequest) -> Self {
+        Self {
+            envelopes: req.envelopes.into_iter().map(|env| env.into()).collect(),
+        }
+    }
+}
+
+impl From<SortDirection> for FfiSortDirection {
+    fn from(dir: SortDirection) -> Self {
+        match dir {
+            SortDirection::Unspecified => FfiSortDirection::Unspecified,
+            SortDirection::Ascending => FfiSortDirection::Ascending,
+            SortDirection::Descending => FfiSortDirection::Descending,
+        }
+    }
+}
+
+impl From<FfiSortDirection> for SortDirection {
+    fn from(dir: FfiSortDirection) -> Self {
+        match dir {
+            FfiSortDirection::Unspecified => SortDirection::Unspecified,
+            FfiSortDirection::Ascending => SortDirection::Ascending,
+            FfiSortDirection::Descending => SortDirection::Descending,
+        }
+    }
 }
 
 impl From<FfiV2QueryRequest> for QueryRequest {
     fn from(req: FfiV2QueryRequest) -> Self {
         Self {
             content_topics: req.content_topics,
-            ..Default::default()
+            start_time_ns: req.start_time_ns,
+            end_time_ns: req.end_time_ns,
+            paging_info: req.paging_info.map(|paging_info| {
+                return PagingInfo {
+                    limit: paging_info.limit,
+                    direction: paging_info.direction as i32,
+                    cursor: None, // TODO: fix me
+                };
+            }),
+        }
+    }
+}
+
+impl From<QueryRequest> for FfiV2QueryRequest {
+    fn from(req: QueryRequest) -> Self {
+        Self {
+            content_topics: req.content_topics,
+            start_time_ns: req.start_time_ns,
+            end_time_ns: req.end_time_ns,
+            paging_info: req.paging_info.map(|paging_info| {
+                return FfiPagingInfo {
+                    limit: paging_info.limit,
+                    direction: FfiSortDirection::from_i32(paging_info.direction),
+                    cursor: None,
+                };
+            }),
+        }
+    }
+}
+
+#[derive(uniffi::Record)]
+pub struct FfiV2QueryResponse {
+    envelopes: Vec<FfiEnvelope>,
+    paging_info: Option<FfiPagingInfo>,
+}
+
+impl From<QueryResponse> for FfiV2QueryResponse {
+    fn from(resp: QueryResponse) -> Self {
+        Self {
+            envelopes: resp.envelopes.into_iter().map(|env| env.into()).collect(),
+            paging_info: resp.paging_info.map(|paging_info| {
+                return FfiPagingInfo {
+                    limit: paging_info.limit,
+                    direction: FfiSortDirection::from_i32(paging_info.direction),
+                    cursor: None,
+                };
+            }),
+        }
+    }
+}
+
+impl From<FfiV2QueryResponse> for QueryResponse {
+    fn from(resp: FfiV2QueryResponse) -> Self {
+        Self {
+            envelopes: resp.envelopes.into_iter().map(|env| env.into()).collect(),
+            paging_info: resp.paging_info.map(|paging_info| {
+                return PagingInfo {
+                    limit: paging_info.limit,
+                    direction: paging_info.direction as i32,
+                    cursor: None, // TODO: fix me
+                };
+            }),
+        }
+    }
+}
+
+#[derive(uniffi::Record)]
+pub struct FfiV2BatchQueryRequest {
+    requests: Vec<FfiV2QueryRequest>,
+}
+
+#[derive(uniffi::Record)]
+pub struct FfiV2BatchQueryResponse {
+    responses: Vec<FfiV2QueryResponse>,
+}
+
+impl From<BatchQueryRequest> for FfiV2BatchQueryRequest {
+    fn from(req: BatchQueryRequest) -> Self {
+        Self {
+            requests: req.requests.into_iter().map(|req| req.into()).collect(),
+        }
+    }
+}
+
+impl From<FfiV2BatchQueryRequest> for BatchQueryRequest {
+    fn from(req: FfiV2BatchQueryRequest) -> Self {
+        Self {
+            requests: req.requests.into_iter().map(|req| req.into()).collect(),
+        }
+    }
+}
+
+impl From<BatchQueryResponse> for FfiV2BatchQueryResponse {
+    fn from(resp: BatchQueryResponse) -> Self {
+        Self {
+            responses: resp.responses.into_iter().map(|resp| resp.into()).collect(),
+        }
+    }
+}
+
+impl From<FfiV2BatchQueryResponse> for BatchQueryResponse {
+    fn from(resp: FfiV2BatchQueryResponse) -> Self {
+        Self {
+            responses: resp.responses.into_iter().map(|resp| resp.into()).collect(),
         }
     }
 }
 
 #[derive(uniffi::Object)]
 pub struct FfiV2Client {
-    inner_client: Arc<RustXmtpClient>,
+    auth_token: Arc<String>,
+    inner_client: Arc<xmtp_api_grpc::grpc_api_helper::Client>,
 }
 
 #[uniffi::export(async_runtime = "tokio")]
 impl FfiV2Client {
-    pub async fn batch_query(&self) -> Result<String, GenericError> {
-        // let query_req = FfiV2QueryRequest {
-        //     content_topics: vec!["test".to_string()],
-        // };
-
-        // let actual_query_request: QueryRequest = query_req.into();
-        Ok("hi".into())
+    pub async fn batch_query(
+        &self,
+        req: FfiV2BatchQueryRequest,
+    ) -> Result<FfiV2BatchQueryResponse, GenericError> {
+        let actual_req: BatchQueryRequest = req.into();
+        let result = self.inner_client.batch_query(actual_req).await?;
+        Ok(result.into())
     }
 
     pub fn set_app_version(&self, _version: String) {
         log::info!("Needs implementation")
     }
 
-    pub async fn query(&self) {}
+    pub async fn publish(&self, request: FfiPublishRequest) -> Result<(), GenericError> {
+        let actual_publish_request: PublishRequest = request.into();
+        self.inner_client
+            .publish(self.auth_token.to_string(), actual_publish_request)
+            .await?;
+
+        Ok(())
+    }
+
+    pub async fn query(
+        &self,
+        request: FfiV2QueryRequest,
+    ) -> Result<FfiV2QueryResponse, GenericError> {
+        let result = self.inner_client.query(request.into()).await?;
+        Ok(result.into())
+    }
 }
 
 #[derive(uniffi::Object)]
