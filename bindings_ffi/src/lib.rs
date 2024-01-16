@@ -10,7 +10,9 @@ use logger::FfiLogger;
 use std::error::Error;
 use std::sync::{Arc, Mutex};
 use tokio::sync::{oneshot, oneshot::Sender};
-use xmtp_proto::api_client::{BatchQueryResponse, PagingInfo, QueryResponse, XmtpApiClient};
+use xmtp_proto::api_client::{
+    BatchQueryResponse, PagingInfo, PublishResponse, QueryResponse, XmtpApiClient,
+};
 
 use xmtp_api_grpc::grpc_api_helper::Client as TonicApiClient;
 use xmtp_mls::groups::MlsGroup;
@@ -226,6 +228,21 @@ impl From<FfiPublishRequest> for PublishRequest {
         Self {
             envelopes: req.envelopes.into_iter().map(|env| env.into()).collect(),
         }
+    }
+}
+
+#[derive(uniffi::Record)]
+pub struct FfiV2PublishResponse {}
+
+impl From<FfiV2PublishResponse> for xmtp_proto::xmtp::message_api::v1::PublishResponse {
+    fn from(_resp: FfiV2PublishResponse) -> Self {
+        Self {}
+    }
+}
+
+impl From<PublishResponse> for FfiV2PublishResponse {
+    fn from(_resp: PublishResponse) -> Self {
+        Self {}
     }
 }
 
