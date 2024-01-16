@@ -380,7 +380,7 @@ mod tests {
                 vec![build_change(
                     Some(actor.account_address.clone()),
                     None,
-                    false,
+                    actor_is_creator,
                 )]
             } else {
                 vec![build_change(None, None, false)]
