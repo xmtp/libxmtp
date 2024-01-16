@@ -8,10 +8,10 @@ use intents::SendMessageIntentData;
 use log::debug;
 use openmls::{
     framing::ProtocolMessage,
-    group::MergePendingCommitError,
+    group::{MergePendingCommitError, MlsGroupJoinConfig},
     prelude::{
         CredentialWithKey, CryptoConfig, GroupId, LeafNodeIndex, MlsGroup as OpenMlsGroup,
-        MlsGroupConfig, MlsMessageIn, MlsMessageInBody, PrivateMessageIn, ProcessedMessage,
+        MlsGroupCreateConfig, MlsMessageIn, MlsMessageInBody, PrivateMessageIn, ProcessedMessage,
         ProcessedMessageContent, Sender, Welcome as MlsWelcome, WireFormatPolicy,
     },
     prelude_test::KeyPackage,
@@ -169,7 +169,7 @@ where
         welcome: MlsWelcome,
     ) -> Result<Self, GroupError> {
         let mut mls_group =
-            OpenMlsGroup::new_from_welcome(provider, &build_group_config(), welcome, None)?;
+            OpenMlsGroup::new_from_welcome(provider, &build_group_join_config(), welcome, None)?;
         mls_group.save(provider.key_store())?;
 
         let group_id = mls_group.group_id().to_vec();
@@ -421,7 +421,7 @@ where
         envelope: &Envelope,
         allow_epoch_increment: bool,
     ) -> Result<(), MessageProcessingError> {
-        let mls_message_in = MlsMessageIn::tls_deserialize_exact(&envelope.message)?;
+        let mls_message_in = MlsMessageIn::tls_deserialize_exact(envelope.message.as_slice())?;
 
         let message = match mls_message_in.extract() {
             MlsMessageInBody::PrivateMessage(message) => Ok(message),
@@ -821,9 +821,17 @@ where
     }
 }
 
-fn build_group_config() -> MlsGroupConfig {
-    MlsGroupConfig::builder()
+fn build_group_config() -> MlsGroupCreateConfig {
+    MlsGroupCreateConfig::builder()
         .crypto_config(CryptoConfig::with_default_version(CIPHERSUITE))
+        .wire_format_policy(WireFormatPolicy::default())
+        .max_past_epochs(3) // Trying with 3 max past epochs for now
+        .use_ratchet_tree_extension(true)
+        .build()
+}
+
+fn build_group_join_config() -> MlsGroupJoinConfig {
+    MlsGroupJoinConfig::builder()
         .wire_format_policy(WireFormatPolicy::default())
         .max_past_epochs(3) // Trying with 3 max past epochs for now
         .use_ratchet_tree_extension(true)

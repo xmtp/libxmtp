@@ -9,22 +9,22 @@ path = "src/main.rs"
 
 [dependencies]
 prost = { version = "0.11", features = ["prost-derive"] }
-tokio = { version = "1.33.0", features = ["macros", "rt-multi-thread", "full"] }
-tonic = "^0.9"
+tokio = { workspace = true, features = ["full"] }
+tonic = { workspace = true }
 xmtp_proto = { path = "../xmtp_proto", features = [
     "proto_full",
     "grpc",
     "tonic",
 ] }
-openmls = { git = "https://github.com/xmtp/openmls", features = ["test-utils"], branch = "main" }
-openmls_traits = { git = "https://github.com/xmtp/openmls", branch = "main" }
-openmls_basic_credential = { git = "https://github.com/xmtp/openmls", branch = "main" }
-openmls_rust_crypto = { git = "https://github.com/xmtp/openmls", branch = "main" }
+openmls = { workspace = true }
+openmls_traits = { workspace = true }
+openmls_basic_credential = { workspace = true }
+openmls_rust_crypto = { workspace = true }
 xmtp_mls = { path = "../xmtp_mls" }
-serde = "1.0.189"
-hex = "0.4.3"
+serde = { workspace = true }
+hex = { workspace = true }
 clap = { version = "4.4.6", features = ["derive"] }
-log = "0.4.20"
+log = { workspace = true }
 env_logger = "0.10.0"
 
 [dev-dependencies]
