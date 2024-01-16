@@ -877,6 +877,14 @@ fn build_group_join_config() -> MlsGroupJoinConfig {
         .build()
 }
 
+fn build_group_join_config() -> MlsGroupJoinConfig {
+    MlsGroupJoinConfig::builder()
+        .wire_format_policy(WireFormatPolicy::default())
+        .max_past_epochs(3) // Trying with 3 max past epochs for now
+        .use_ratchet_tree_extension(true)
+        .build()
+}
+
 #[cfg(test)]
 mod tests {
     use openmls::prelude::Member;
