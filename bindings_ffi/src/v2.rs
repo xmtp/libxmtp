@@ -50,38 +50,47 @@ fn recover_public_key_k256_keccak256(
 }
 
 // Need to move xmtp_user_preferences into main
-// #[uniffi::export]
-// fn user_preferences_encrypt(
-//     public_key: Vec<u8>,
-//     private_key: Vec<u8>,
-//     message: Vec<u8>,
-// ) -> Result<Vec<u8>, GenericError> {
-//     let ciphertext = xmtp_user_preferences::encrypt_message(
-//         public_key.as_slice(),
-//         private_key.as_slice(),
-//         message.as_slice(),
-//     ).map_err(|err| GenericError::Generic { err: })?;
+#[uniffi::export]
+fn user_preferences_encrypt(
+    public_key: Vec<u8>,
+    private_key: Vec<u8>,
+    message: Vec<u8>,
+) -> Result<Vec<u8>, GenericError> {
+    let ciphertext = xmtp_user_preferences::encrypt_message(
+        public_key.as_slice(),
+        private_key.as_slice(),
+        message.as_slice(),
+    )
+    .map_err(|err| GenericError::Generic { err })?;
 
-//     Ok(ciphertext)
-// }
+    Ok(ciphertext)
+}
 
-// fn user_preferences_decrypt(
-//     public_key: Vec<u8>,
-//     private_key: Vec<u8>,
-//     message: Vec<u8>,
-// ) -> Result<Vec<u8>, String> {
-//     let ciphertext = xmtp_user_preferences::decrypt_message(
-//         public_key.as_slice(),
-//         private_key.as_slice(),
-//         message.as_slice(),
-//     )?;
+#[uniffi::export]
+fn user_preferences_decrypt(
+    public_key: Vec<u8>,
+    private_key: Vec<u8>,
+    message: Vec<u8>,
+) -> Result<Vec<u8>, GenericError> {
+    let ciphertext = xmtp_user_preferences::decrypt_message(
+        public_key.as_slice(),
+        private_key.as_slice(),
+        message.as_slice(),
+    )
+    .map_err(|err| GenericError::Generic { err })?;
 
-//     Ok(ciphertext)
-// }
+    Ok(ciphertext)
+}
 
-// fn generate_private_preferences_topic_identifier(private_key: Vec<u8>) -> Result<String, String> {
-//     xmtp_user_preferences::topic::generate_private_preferences_topic_identifier(private_key.as_slice())
-// }
+#[uniffi::export]
+fn generate_private_preferences_topic_identifier(
+    private_key: Vec<u8>,
+) -> Result<String, GenericError> {
+    xmtp_user_preferences::topic::generate_private_preferences_topic_identifier(
+        private_key.as_slice(),
+    )
+    .map_err(|err| GenericError::Generic { err })
+}
 
 #[uniffi::export]
 pub fn diffie_hellman_k256(
