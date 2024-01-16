@@ -18,7 +18,7 @@ use xmtp_proto::{
 };
 
 use crate::{
-    api_client_wrapper::ApiClientWrapper,
+    api_client_wrapper::{ApiClientWrapper, IdentityUpdate},
     association::{AssociationError, Credential},
     builder::LegacyIdentitySource,
     configuration::CIPHERSUITE,
@@ -75,7 +75,20 @@ impl Identity {
                 let identity_updates = api_client
                     .get_identity_updates(0 /*start_time_ns*/, vec![owner.get_address()])
                     .await?;
-                // - we need an API client. where is this being uploaded?
+                let mut has_v2_signed_key = false;
+                if let Some(updates) = identity_updates.get(&owner.get_address()) {
+                    for update in updates {
+                        if let IdentityUpdate::NewInstallation(registration) = update {
+                            if let Ok(proto) =
+                                CredentialProto::decode(registration.credential_bytes)
+                            {
+                                if let Some(association) = proto.association {
+                                    // if let Association::
+                                }
+                            }
+                        }
+                    }
+                }
                 // If so, use it to create a new credential
                 todo!()
             }
