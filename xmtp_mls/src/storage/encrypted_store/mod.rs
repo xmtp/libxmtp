@@ -10,6 +10,7 @@
 //! table definitions `schema.rs` must also be updated. To generate the correct schemas you can run
 //! `diesel print-schema` or use `cargo run update-schema` which will update the files for you.
 
+mod connection_customizer;
 pub mod db_connection;
 pub mod group;
 pub mod group_intent;
@@ -22,7 +23,6 @@ pub mod topic_refresh_state;
 use std::borrow::Cow;
 
 use diesel::{
-    connection::SimpleConnection,
     prelude::*,
     r2d2::{ConnectionManager, Pool, PooledConnection},
     result::{DatabaseErrorKind, Error},
@@ -35,7 +35,10 @@ use xmtp_cryptography::utils as crypto_utils;
 use self::db_connection::DbConnection;
 
 use super::StorageError;
-use crate::{xmtp_openmls_provider::XmtpOpenMlsProvider, Store};
+use crate::{
+    storage::encrypted_store::connection_customizer::ConnectionCustomizer,
+    xmtp_openmls_provider::XmtpOpenMlsProvider, Store,
+};
 
 pub const MIGRATIONS: EmbeddedMigrations = embed_migrations!("./migrations/");
 
@@ -91,13 +94,16 @@ impl EncryptedMessageStore {
         enc_key: Option<EncryptionKey>,
     ) -> Result<Self, StorageError> {
         log::info!("Setting up DB connection pool");
+        let connection_customizer = ConnectionCustomizer::new(enc_key.clone());
         let pool = match opts {
             StorageOption::Ephemeral => Pool::builder()
                 .max_size(1)
+                .connection_customizer(Box::new(connection_customizer))
                 .build(ConnectionManager::<SqliteConnection>::new(":memory:"))
                 .map_err(|e| StorageError::DbInit(e.to_string()))?,
             StorageOption::Persistent(ref path) => Pool::builder()
                 .max_size(10)
+                .connection_customizer(Box::new(connection_customizer))
                 .build(ConnectionManager::<SqliteConnection>::new(path))
                 .map_err(|e| StorageError::DbInit(e.to_string()))?,
         };
@@ -117,8 +123,6 @@ impl EncryptedMessageStore {
 
     fn init_db(&mut self) -> Result<(), StorageError> {
         let conn = &mut self.raw_conn()?;
-        conn.batch_execute("PRAGMA journal_mode = WAL;")
-            .map_err(|e| StorageError::DbInit(e.to_string()))?;
 
         log::info!("Running DB migrations");
         conn.run_pending_migrations(MIGRATIONS)
@@ -131,14 +135,10 @@ impl EncryptedMessageStore {
     fn raw_conn(
         &self,
     ) -> Result<PooledConnection<ConnectionManager<SqliteConnection>>, StorageError> {
-        let mut conn = self
+        let conn = self
             .pool
             .get()
             .map_err(|e| StorageError::Pool(e.to_string()))?;
-
-        if let Some(key) = self.enc_key {
-            conn.batch_execute(&format!("PRAGMA key = \"x'{}'\";", hex::encode(key)))?;
-        }
 
         Ok(conn)
     }
