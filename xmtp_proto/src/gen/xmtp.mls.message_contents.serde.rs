@@ -398,8 +398,8 @@ impl serde::Serialize for CredentialRevocation {
         }
         if let Some(v) = self.association.as_ref() {
             match v {
-                credential_revocation::Association::Eip191(v) => {
-                    struct_ser.serialize_field("eip191", v)?;
+                credential_revocation::Association::MessagingAccess(v) => {
+                    struct_ser.serialize_field("messagingAccess", v)?;
                 }
             }
         }
@@ -417,15 +417,15 @@ impl<'de> serde::Deserialize<'de> for CredentialRevocation {
             "installationKey",
             "unsigned_legacy_create_identity_key",
             "unsignedLegacyCreateIdentityKey",
-            "eip_191",
-            "eip191",
+            "messaging_access",
+            "messagingAccess",
         ];
 
         #[allow(clippy::enum_variant_names)]
         enum GeneratedField {
             InstallationKey,
             UnsignedLegacyCreateIdentityKey,
-            Eip191,
+            MessagingAccess,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
             fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
@@ -449,7 +449,7 @@ impl<'de> serde::Deserialize<'de> for CredentialRevocation {
                         match value {
                             "installationKey" | "installation_key" => Ok(GeneratedField::InstallationKey),
                             "unsignedLegacyCreateIdentityKey" | "unsigned_legacy_create_identity_key" => Ok(GeneratedField::UnsignedLegacyCreateIdentityKey),
-                            "eip191" | "eip_191" => Ok(GeneratedField::Eip191),
+                            "messagingAccess" | "messaging_access" => Ok(GeneratedField::MessagingAccess),
                             _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
                         }
                     }
@@ -485,11 +485,11 @@ impl<'de> serde::Deserialize<'de> for CredentialRevocation {
                             }
                             public_key__ = map.next_value::<::std::option::Option<::pbjson::private::BytesDeserialize<_>>>()?.map(|x| credential_revocation::PublicKey::UnsignedLegacyCreateIdentityKey(x.0));
                         }
-                        GeneratedField::Eip191 => {
+                        GeneratedField::MessagingAccess => {
                             if association__.is_some() {
-                                return Err(serde::de::Error::duplicate_field("eip191"));
+                                return Err(serde::de::Error::duplicate_field("messagingAccess"));
                             }
-                            association__ = map.next_value::<::std::option::Option<_>>()?.map(credential_revocation::Association::Eip191)
+                            association__ = map.next_value::<::std::option::Option<_>>()?.map(credential_revocation::Association::MessagingAccess)
 ;
                         }
                     }
@@ -594,153 +594,6 @@ impl<'de> serde::Deserialize<'de> for EdDsaSignature {
             }
         }
         deserializer.deserialize_struct("xmtp.mls.message_contents.EdDsaSignature", FIELDS, GeneratedVisitor)
-    }
-}
-impl serde::Serialize for Eip191Association {
-    #[allow(deprecated)]
-    fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
-    where
-        S: serde::Serializer,
-    {
-        use serde::ser::SerializeStruct;
-        let mut len = 0;
-        if self.association_text_version != 0 {
-            len += 1;
-        }
-        if self.signature.is_some() {
-            len += 1;
-        }
-        if !self.account_address.is_empty() {
-            len += 1;
-        }
-        if !self.iso8601_time.is_empty() {
-            len += 1;
-        }
-        let mut struct_ser = serializer.serialize_struct("xmtp.mls.message_contents.Eip191Association", len)?;
-        if self.association_text_version != 0 {
-            let v = AssociationTextVersion::from_i32(self.association_text_version)
-                .ok_or_else(|| serde::ser::Error::custom(format!("Invalid variant {}", self.association_text_version)))?;
-            struct_ser.serialize_field("associationTextVersion", &v)?;
-        }
-        if let Some(v) = self.signature.as_ref() {
-            struct_ser.serialize_field("signature", v)?;
-        }
-        if !self.account_address.is_empty() {
-            struct_ser.serialize_field("accountAddress", &self.account_address)?;
-        }
-        if !self.iso8601_time.is_empty() {
-            struct_ser.serialize_field("iso8601Time", &self.iso8601_time)?;
-        }
-        struct_ser.end()
-    }
-}
-impl<'de> serde::Deserialize<'de> for Eip191Association {
-    #[allow(deprecated)]
-    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
-    where
-        D: serde::Deserializer<'de>,
-    {
-        const FIELDS: &[&str] = &[
-            "association_text_version",
-            "associationTextVersion",
-            "signature",
-            "account_address",
-            "accountAddress",
-            "iso8601_time",
-            "iso8601Time",
-        ];
-
-        #[allow(clippy::enum_variant_names)]
-        enum GeneratedField {
-            AssociationTextVersion,
-            Signature,
-            AccountAddress,
-            Iso8601Time,
-        }
-        impl<'de> serde::Deserialize<'de> for GeneratedField {
-            fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
-            where
-                D: serde::Deserializer<'de>,
-            {
-                struct GeneratedVisitor;
-
-                impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
-                    type Value = GeneratedField;
-
-                    fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-                        write!(formatter, "expected one of: {:?}", &FIELDS)
-                    }
-
-                    #[allow(unused_variables)]
-                    fn visit_str<E>(self, value: &str) -> std::result::Result<GeneratedField, E>
-                    where
-                        E: serde::de::Error,
-                    {
-                        match value {
-                            "associationTextVersion" | "association_text_version" => Ok(GeneratedField::AssociationTextVersion),
-                            "signature" => Ok(GeneratedField::Signature),
-                            "accountAddress" | "account_address" => Ok(GeneratedField::AccountAddress),
-                            "iso8601Time" | "iso8601_time" => Ok(GeneratedField::Iso8601Time),
-                            _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
-                        }
-                    }
-                }
-                deserializer.deserialize_identifier(GeneratedVisitor)
-            }
-        }
-        struct GeneratedVisitor;
-        impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
-            type Value = Eip191Association;
-
-            fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-                formatter.write_str("struct xmtp.mls.message_contents.Eip191Association")
-            }
-
-            fn visit_map<V>(self, mut map: V) -> std::result::Result<Eip191Association, V::Error>
-                where
-                    V: serde::de::MapAccess<'de>,
-            {
-                let mut association_text_version__ = None;
-                let mut signature__ = None;
-                let mut account_address__ = None;
-                let mut iso8601_time__ = None;
-                while let Some(k) = map.next_key()? {
-                    match k {
-                        GeneratedField::AssociationTextVersion => {
-                            if association_text_version__.is_some() {
-                                return Err(serde::de::Error::duplicate_field("associationTextVersion"));
-                            }
-                            association_text_version__ = Some(map.next_value::<AssociationTextVersion>()? as i32);
-                        }
-                        GeneratedField::Signature => {
-                            if signature__.is_some() {
-                                return Err(serde::de::Error::duplicate_field("signature"));
-                            }
-                            signature__ = map.next_value()?;
-                        }
-                        GeneratedField::AccountAddress => {
-                            if account_address__.is_some() {
-                                return Err(serde::de::Error::duplicate_field("accountAddress"));
-                            }
-                            account_address__ = Some(map.next_value()?);
-                        }
-                        GeneratedField::Iso8601Time => {
-                            if iso8601_time__.is_some() {
-                                return Err(serde::de::Error::duplicate_field("iso8601Time"));
-                            }
-                            iso8601_time__ = Some(map.next_value()?);
-                        }
-                    }
-                }
-                Ok(Eip191Association {
-                    association_text_version: association_text_version__.unwrap_or_default(),
-                    signature: signature__,
-                    account_address: account_address__.unwrap_or_default(),
-                    iso8601_time: iso8601_time__.unwrap_or_default(),
-                })
-            }
-        }
-        deserializer.deserialize_struct("xmtp.mls.message_contents.Eip191Association", FIELDS, GeneratedVisitor)
     }
 }
 impl serde::Serialize for EncodedContent {
@@ -1999,6 +1852,153 @@ impl<'de> serde::Deserialize<'de> for membership_policy::BasePolicy {
         deserializer.deserialize_any(GeneratedVisitor)
     }
 }
+impl serde::Serialize for MessagingAccessAssociation {
+    #[allow(deprecated)]
+    fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        use serde::ser::SerializeStruct;
+        let mut len = 0;
+        if self.association_text_version != 0 {
+            len += 1;
+        }
+        if self.signature.is_some() {
+            len += 1;
+        }
+        if !self.account_address.is_empty() {
+            len += 1;
+        }
+        if !self.iso8601_time.is_empty() {
+            len += 1;
+        }
+        let mut struct_ser = serializer.serialize_struct("xmtp.mls.message_contents.MessagingAccessAssociation", len)?;
+        if self.association_text_version != 0 {
+            let v = AssociationTextVersion::from_i32(self.association_text_version)
+                .ok_or_else(|| serde::ser::Error::custom(format!("Invalid variant {}", self.association_text_version)))?;
+            struct_ser.serialize_field("associationTextVersion", &v)?;
+        }
+        if let Some(v) = self.signature.as_ref() {
+            struct_ser.serialize_field("signature", v)?;
+        }
+        if !self.account_address.is_empty() {
+            struct_ser.serialize_field("accountAddress", &self.account_address)?;
+        }
+        if !self.iso8601_time.is_empty() {
+            struct_ser.serialize_field("iso8601Time", &self.iso8601_time)?;
+        }
+        struct_ser.end()
+    }
+}
+impl<'de> serde::Deserialize<'de> for MessagingAccessAssociation {
+    #[allow(deprecated)]
+    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        const FIELDS: &[&str] = &[
+            "association_text_version",
+            "associationTextVersion",
+            "signature",
+            "account_address",
+            "accountAddress",
+            "iso8601_time",
+            "iso8601Time",
+        ];
+
+        #[allow(clippy::enum_variant_names)]
+        enum GeneratedField {
+            AssociationTextVersion,
+            Signature,
+            AccountAddress,
+            Iso8601Time,
+        }
+        impl<'de> serde::Deserialize<'de> for GeneratedField {
+            fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
+            where
+                D: serde::Deserializer<'de>,
+            {
+                struct GeneratedVisitor;
+
+                impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+                    type Value = GeneratedField;
+
+                    fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                        write!(formatter, "expected one of: {:?}", &FIELDS)
+                    }
+
+                    #[allow(unused_variables)]
+                    fn visit_str<E>(self, value: &str) -> std::result::Result<GeneratedField, E>
+                    where
+                        E: serde::de::Error,
+                    {
+                        match value {
+                            "associationTextVersion" | "association_text_version" => Ok(GeneratedField::AssociationTextVersion),
+                            "signature" => Ok(GeneratedField::Signature),
+                            "accountAddress" | "account_address" => Ok(GeneratedField::AccountAddress),
+                            "iso8601Time" | "iso8601_time" => Ok(GeneratedField::Iso8601Time),
+                            _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
+                        }
+                    }
+                }
+                deserializer.deserialize_identifier(GeneratedVisitor)
+            }
+        }
+        struct GeneratedVisitor;
+        impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+            type Value = MessagingAccessAssociation;
+
+            fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                formatter.write_str("struct xmtp.mls.message_contents.MessagingAccessAssociation")
+            }
+
+            fn visit_map<V>(self, mut map: V) -> std::result::Result<MessagingAccessAssociation, V::Error>
+                where
+                    V: serde::de::MapAccess<'de>,
+            {
+                let mut association_text_version__ = None;
+                let mut signature__ = None;
+                let mut account_address__ = None;
+                let mut iso8601_time__ = None;
+                while let Some(k) = map.next_key()? {
+                    match k {
+                        GeneratedField::AssociationTextVersion => {
+                            if association_text_version__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("associationTextVersion"));
+                            }
+                            association_text_version__ = Some(map.next_value::<AssociationTextVersion>()? as i32);
+                        }
+                        GeneratedField::Signature => {
+                            if signature__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("signature"));
+                            }
+                            signature__ = map.next_value()?;
+                        }
+                        GeneratedField::AccountAddress => {
+                            if account_address__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("accountAddress"));
+                            }
+                            account_address__ = Some(map.next_value()?);
+                        }
+                        GeneratedField::Iso8601Time => {
+                            if iso8601_time__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("iso8601Time"));
+                            }
+                            iso8601_time__ = Some(map.next_value()?);
+                        }
+                    }
+                }
+                Ok(MessagingAccessAssociation {
+                    association_text_version: association_text_version__.unwrap_or_default(),
+                    signature: signature__,
+                    account_address: account_address__.unwrap_or_default(),
+                    iso8601_time: iso8601_time__.unwrap_or_default(),
+                })
+            }
+        }
+        deserializer.deserialize_struct("xmtp.mls.message_contents.MessagingAccessAssociation", FIELDS, GeneratedVisitor)
+    }
+}
 impl serde::Serialize for MlsCredential {
     #[allow(deprecated)]
     fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
@@ -2019,8 +2019,8 @@ impl serde::Serialize for MlsCredential {
         }
         if let Some(v) = self.association.as_ref() {
             match v {
-                mls_credential::Association::Eip191(v) => {
-                    struct_ser.serialize_field("eip191", v)?;
+                mls_credential::Association::MessagingAccess(v) => {
+                    struct_ser.serialize_field("messagingAccess", v)?;
                 }
                 mls_credential::Association::LegacyCreateIdentity(v) => {
                     struct_ser.serialize_field("legacyCreateIdentity", v)?;
@@ -2039,8 +2039,8 @@ impl<'de> serde::Deserialize<'de> for MlsCredential {
         const FIELDS: &[&str] = &[
             "installation_public_key",
             "installationPublicKey",
-            "eip_191",
-            "eip191",
+            "messaging_access",
+            "messagingAccess",
             "legacy_create_identity",
             "legacyCreateIdentity",
         ];
@@ -2048,7 +2048,7 @@ impl<'de> serde::Deserialize<'de> for MlsCredential {
         #[allow(clippy::enum_variant_names)]
         enum GeneratedField {
             InstallationPublicKey,
-            Eip191,
+            MessagingAccess,
             LegacyCreateIdentity,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
@@ -2072,7 +2072,7 @@ impl<'de> serde::Deserialize<'de> for MlsCredential {
                     {
                         match value {
                             "installationPublicKey" | "installation_public_key" => Ok(GeneratedField::InstallationPublicKey),
-                            "eip191" | "eip_191" => Ok(GeneratedField::Eip191),
+                            "messagingAccess" | "messaging_access" => Ok(GeneratedField::MessagingAccess),
                             "legacyCreateIdentity" | "legacy_create_identity" => Ok(GeneratedField::LegacyCreateIdentity),
                             _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
                         }
@@ -2105,11 +2105,11 @@ impl<'de> serde::Deserialize<'de> for MlsCredential {
                                 Some(map.next_value::<::pbjson::private::BytesDeserialize<_>>()?.0)
                             ;
                         }
-                        GeneratedField::Eip191 => {
+                        GeneratedField::MessagingAccess => {
                             if association__.is_some() {
-                                return Err(serde::de::Error::duplicate_field("eip191"));
+                                return Err(serde::de::Error::duplicate_field("messagingAccess"));
                             }
-                            association__ = map.next_value::<::std::option::Option<_>>()?.map(mls_credential::Association::Eip191)
+                            association__ = map.next_value::<::std::option::Option<_>>()?.map(mls_credential::Association::MessagingAccess)
 ;
                         }
                         GeneratedField::LegacyCreateIdentity => {
