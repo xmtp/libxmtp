@@ -2,19 +2,16 @@ use std::collections::HashMap;
 
 use crate::{retry::Retry, retry_async};
 use xmtp_proto::{
-    api_client::{
-        Envelope, Error as ApiError, ErrorKind, PagingInfo, QueryRequest, SubscribeRequest,
-        XmtpApiClient, XmtpMlsClient,
-    },
-    xmtp::{
-        message_api::v1::{Cursor, SortDirection},
-        mls::api::v1::{
-            get_identity_updates_response::update::Kind as UpdateKind,
-            group_message_input::{Version as GroupMessageInputVersion, V1 as GroupMessageInputV1},
-            FetchKeyPackagesRequest, GetIdentityUpdatesRequest, GroupMessageInput,
-            KeyPackageUpload, RegisterInstallationRequest, SendGroupMessagesRequest,
-            SendWelcomeMessagesRequest, UploadKeyPackageRequest, WelcomeMessageInput,
-        },
+    api_client::{Error as ApiError, ErrorKind, SubscribeRequest, XmtpApiClient, XmtpMlsClient},
+    xmtp::mls::api::v1::{
+        get_identity_updates_response::update::Kind as UpdateKind,
+        group_message_input::{Version as GroupMessageInputVersion, V1 as GroupMessageInputV1},
+        FetchKeyPackagesRequest, GetIdentityUpdatesRequest, GroupMessage, GroupMessageInput,
+        KeyPackageUpload, PagingInfo, QueryGroupMessagesRequest, QueryGroupMessagesResponse,
+        QueryWelcomeMessagesRequest, QueryWelcomeMessagesResponse, RegisterInstallationRequest,
+        SendGroupMessagesRequest, SendWelcomeMessagesRequest, SortDirection,
+        SubscribeGroupMessagesRequest, SubscribeWelcomeMessagesRequest, UploadKeyPackageRequest,
+        WelcomeMessage, WelcomeMessageInput,
     },
 };
 
@@ -35,25 +32,23 @@ where
         }
     }
 
-    pub async fn read_topic(
+    pub async fn query_group_messages(
         &self,
-        topic: &str,
-        start_time_ns: u64,
-    ) -> Result<Vec<Envelope>, ApiError> {
-        let mut cursor: Option<Cursor> = None;
-        let mut out: Vec<Envelope> = vec![];
+        group_id: Vec<u8>,
+        id_cursor: Option<u64>,
+    ) -> Result<Vec<GroupMessage>, ApiError> {
+        let mut out: Vec<GroupMessage> = vec![];
         let page_size = 100;
+        let mut id_cursor = id_cursor;
         loop {
             let mut result = retry_async!(
                 self.retry_strategy,
                 (async {
                     self.api_client
-                        .query(QueryRequest {
-                            content_topics: vec![topic.to_string()],
-                            start_time_ns,
-                            end_time_ns: 0,
+                        .query_group_messages(QueryGroupMessagesRequest {
+                            group_id: group_id.clone(),
                             paging_info: Some(PagingInfo {
-                                cursor: cursor.clone(),
+                                id_cursor: id_cursor.unwrap_or(0),
                                 limit: page_size,
                                 direction: SortDirection::Ascending as i32,
                             }),
@@ -62,16 +57,16 @@ where
                 })
             )?;
 
-            let num_envelopes = result.envelopes.len();
-            out.append(&mut result.envelopes);
+            let num_messages = result.messages.len();
+            out.append(&mut result.messages);
 
-            if num_envelopes < page_size as usize || result.paging_info.is_none() {
+            if num_messages < page_size as usize || result.paging_info.is_none() {
                 break;
             }
 
-            cursor = result.paging_info.expect("Empty paging info").cursor;
+            id_cursor = Some(result.paging_info.expect("Empty paging info").id_cursor);
 
-            if cursor.is_none() {
+            if id_cursor.is_none() {
                 break;
             }
         }

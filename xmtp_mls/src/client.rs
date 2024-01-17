@@ -27,7 +27,6 @@ use crate::{
         EncryptedMessageStore, StorageError,
     },
     types::Address,
-    utils::topic::get_welcome_topic,
     verified_key_package::{KeyPackageVerificationError, VerifiedKeyPackage},
     xmtp_openmls_provider::XmtpOpenMlsProvider,
     Fetch,
@@ -252,46 +251,46 @@ where
         Ok(installation_ids)
     }
 
-    pub(crate) async fn pull_from_topic(&self, topic: &str) -> Result<Vec<Envelope>, ClientError> {
-        let conn = self.store.conn()?;
-        let last_synced_timestamp_ns = conn.get_last_synced_timestamp_for_topic(topic)?;
+    // pub(crate) async fn pull_from_topic(&self, topic: &str) -> Result<Vec<Envelope>, ClientError> {
+    //     let conn = self.store.conn()?;
+    //     let last_synced_timestamp_ns = conn.get_last_synced_timestamp_for_topic(topic)?;
 
-        let envelopes = self
-            .api_client
-            .read_topic(topic, last_synced_timestamp_ns as u64 + 1)
-            .await?;
+    //     let envelopes = self
+    //         .api_client
+    //         .read_topic(topic, last_synced_timestamp_ns as u64 + 1)
+    //         .await?;
 
-        debug!(
-            "Pulled {} envelopes from topic {} starting at timestamp {}",
-            envelopes.len(),
-            topic,
-            last_synced_timestamp_ns
-        );
+    //     debug!(
+    //         "Pulled {} envelopes from topic {} starting at timestamp {}",
+    //         envelopes.len(),
+    //         topic,
+    //         last_synced_timestamp_ns
+    //     );
 
-        Ok(envelopes)
-    }
+    //     Ok(envelopes)
+    // }
 
-    pub(crate) fn process_for_topic<ProcessingFn, ReturnValue>(
-        &self,
-        topic: &str,
-        envelope_timestamp_ns: u64,
-        process_envelope: ProcessingFn,
-    ) -> Result<ReturnValue, MessageProcessingError>
-    where
-        ProcessingFn: FnOnce(XmtpOpenMlsProvider) -> Result<ReturnValue, MessageProcessingError>,
-    {
-        self.store.transaction(|provider| {
-            let is_updated = provider
-                .conn()
-                .update_last_synced_timestamp_for_topic(topic, envelope_timestamp_ns as i64)?;
-            if !is_updated {
-                return Err(MessageProcessingError::AlreadyProcessed(
-                    envelope_timestamp_ns,
-                ));
-            }
-            process_envelope(provider)
-        })
-    }
+    // pub(crate) fn process_for_topic<ProcessingFn, ReturnValue>(
+    //     &self,
+    //     topic: &str,
+    //     envelope_timestamp_ns: u64,
+    //     process_envelope: ProcessingFn,
+    // ) -> Result<ReturnValue, MessageProcessingError>
+    // where
+    //     ProcessingFn: FnOnce(XmtpOpenMlsProvider) -> Result<ReturnValue, MessageProcessingError>,
+    // {
+    //     self.store.transaction(|provider| {
+    //         let is_updated = provider
+    //             .conn()
+    //             .update_last_synced_timestamp_for_topic(topic, envelope_timestamp_ns as i64)?;
+    //         if !is_updated {
+    //             return Err(MessageProcessingError::AlreadyProcessed(
+    //                 envelope_timestamp_ns,
+    //             ));
+    //         }
+    //         process_envelope(provider)
+    //     })
+    // }
 
     pub(crate) async fn get_key_packages(
         &self,
@@ -341,8 +340,7 @@ where
     // Download all unread welcome messages and convert to groups.
     // Returns any new groups created in the operation
     pub async fn sync_welcomes(&self) -> Result<Vec<MlsGroup<ApiClient>>, ClientError> {
-        let welcome_topic = get_welcome_topic(&self.installation_public_key());
-        let envelopes = self.pull_from_topic(&welcome_topic).await?;
+        let envelopes = self.query_welcome_messages(&self.installation_public_key()).await?;
 
         let groups: Vec<MlsGroup<ApiClient>> = envelopes
             .into_iter()

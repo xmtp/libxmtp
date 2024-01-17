@@ -23,12 +23,15 @@ use thiserror::Error;
 use tls_codec::{Deserialize, Serialize};
 use xmtp_cryptography::signature::{is_valid_ed25519_public_key, is_valid_ethereum_address};
 use xmtp_proto::{
-    api_client::{Envelope, XmtpApiClient, XmtpMlsClient},
+    api_client::{XmtpApiClient, XmtpMlsClient},
     xmtp::mls::api::v1::{
         welcome_message_input::{
             Version as WelcomeMessageInputVersion, V1 as WelcomeMessageInputV1,
         },
-        WelcomeMessageInput,
+        group_message::{
+            Version as GroupMessageVersion, V1 as GroupMessageV1,
+        },
+        WelcomeMessageInput, GroupMessage, GroupMessageInput,
     },
     xmtp::mls::message_contents::GroupMembershipChanges,
 };
@@ -54,7 +57,7 @@ use crate::{
         group_message::{GroupMessageKind, StoredGroupMessage},
         StorageError,
     },
-    utils::{hash::sha256, id::get_message_id, time::now_ns, topic::get_group_topic},
+    utils::{hash::sha256, id::get_message_id, time::now_ns},
     xmtp_openmls_provider::XmtpOpenMlsProvider,
     Client, Delete, Store,
 };
@@ -203,7 +206,7 @@ where
         &self,
         openmls_group: &mut OpenMlsGroup,
         decrypted_message: &ProcessedMessage,
-        envelope_timestamp_ns: u64,
+        message_created_ns: u64,
     ) -> Result<(String, Vec<u8>), MessageProcessingError> {
         let mut sender_account_address = None;
         let mut sender_installation_id = None;
@@ -222,7 +225,7 @@ where
 
         if sender_account_address.is_none() {
             return Err(MessageProcessingError::InvalidSender {
-                message_time_ns: envelope_timestamp_ns,
+                message_time_ns: message_created_ns,
                 credential: decrypted_message.credential().identity().to_vec(),
             });
         }
@@ -423,10 +426,13 @@ where
         &self,
         openmls_group: &mut OpenMlsGroup,
         provider: &XmtpOpenMlsProvider,
-        envelope: &Envelope,
+        envelope: &GroupMessage,
         allow_epoch_increment: bool,
     ) -> Result<(), MessageProcessingError> {
-        let mls_message_in = MlsMessageIn::tls_deserialize_exact(&envelope.message)?;
+        let envelope = match envelope.version {
+            Some(GroupMessageVersion::V1(value)) => {value}
+        };
+        let mls_message_in = MlsMessageIn::tls_deserialize_exact(&envelope.data)?;
 
         let message = match mls_message_in.extract() {
             MlsMessageInBody::PrivateMessage(message) => Ok(message),
@@ -437,7 +443,7 @@ where
 
         let intent = provider
             .conn()
-            .find_group_intent_by_payload_hash(sha256(envelope.message.as_slice()));
+            .find_group_intent_by_payload_hash(sha256(envelope.data.as_slice()));
         match intent {
             // Intent with the payload hash matches
             Ok(Some(intent)) => self.process_own_message(
@@ -445,7 +451,7 @@ where
                 openmls_group,
                 provider,
                 message.into(),
-                envelope.timestamp_ns,
+                envelope.created_ns,
                 allow_epoch_increment,
             ),
             Err(err) => Err(MessageProcessingError::Storage(err)),
@@ -454,7 +460,7 @@ where
                 openmls_group,
                 provider,
                 message,
-                envelope.timestamp_ns,
+                envelope.created_ns,
                 allow_epoch_increment,
             ),
         }
@@ -462,12 +468,15 @@ where
 
     fn consume_message(
         &self,
-        envelope: &Envelope,
+        envelope: &GroupMessage,
         openmls_group: &mut OpenMlsGroup,
     ) -> Result<(), MessageProcessingError> {
+        let msgv1 = match envelope.version {
+            Some(GroupMessageVersion::V1(value)) => {value}
+        };
         self.client.process_for_topic(
             &self.topic(),
-            envelope.timestamp_ns,
+            msgv1.created_ns,
             |provider| -> Result<(), MessageProcessingError> {
                 self.process_message(openmls_group, &provider, envelope, true)?;
                 openmls_group.save(provider.key_store())?;
@@ -477,12 +486,12 @@ where
         Ok(())
     }
 
-    pub fn process_messages(&self, envelopes: Vec<Envelope>) -> Result<(), GroupError> {
+    pub fn process_messages(&self, messages: Vec<GroupMessage>) -> Result<(), GroupError> {
         let conn = &self.client.store.conn()?;
         let provider = self.client.mls_provider(conn);
         let mut openmls_group = self.load_mls_group(&provider)?;
 
-        let receive_errors: Vec<MessageProcessingError> = envelopes
+        let receive_errors: Vec<MessageProcessingError> = messages
             .into_iter()
             .map(|envelope| -> Result<(), MessageProcessingError> {
                 retry!(
@@ -502,9 +511,9 @@ where
     }
 
     pub async fn receive(&self) -> Result<(), GroupError> {
-        let envelopes = self.client.pull_from_topic(&self.topic()).await?;
+        let messages = self.client.query_group_messages(&self.group_id).await?;
 
-        self.process_messages(envelopes)?;
+        self.process_messages(messages)?;
 
         Ok(())
     }
@@ -827,10 +836,6 @@ where
 
         Ok(())
     }
-
-    fn topic(&self) -> String {
-        get_group_topic(&self.group_id)
-    }
 }
 
 fn build_group_config() -> MlsGroupConfig {
@@ -847,9 +852,7 @@ mod tests {
     use openmls::prelude::Member;
     use xmtp_cryptography::utils::generate_local_wallet;
 
-    use crate::{
-        builder::ClientBuilder, storage::group_intent::IntentState, utils::topic::get_welcome_topic,
-    };
+    use crate::{builder::ClientBuilder, storage::group_intent::IntentState};
 
     #[tokio::test]
     async fn test_send_message() {
@@ -857,8 +860,6 @@ mod tests {
         let client = ClientBuilder::new_test_client(wallet.into()).await;
         let group = client.create_group().expect("create group");
         group.send_message(b"hello").await.expect("send message");
-
-        let topic = group.topic();
 
         let messages = client
             .api_client
@@ -879,7 +880,10 @@ mod tests {
 
         group.receive().await.unwrap();
         // Check for messages
+        // println!("HERE: {:#?}", messages);
+        println!("HERE: {:#?}", msg);
         let messages = group.find_messages(None, None, None, None).unwrap();
+        println!("HERE: {:#?}", messages);
         assert_eq!(messages.len(), 1);
         assert_eq!(messages.first().unwrap().decrypted_message_bytes, msg);
     }

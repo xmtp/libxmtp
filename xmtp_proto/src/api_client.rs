@@ -9,8 +9,10 @@ pub use super::xmtp::message_api::v1::{
 };
 use crate::xmtp::mls::api::v1::{
     FetchKeyPackagesRequest, FetchKeyPackagesResponse, GetIdentityUpdatesRequest,
-    GetIdentityUpdatesResponse, RegisterInstallationRequest, RegisterInstallationResponse,
-    SendGroupMessagesRequest, SendWelcomeMessagesRequest, UploadKeyPackageRequest,
+    GetIdentityUpdatesResponse, QueryGroupMessagesRequest, QueryGroupMessagesResponse,
+    QueryWelcomeMessagesRequest, QueryWelcomeMessagesResponse, RegisterInstallationRequest,
+    RegisterInstallationResponse, SendGroupMessagesRequest, SendWelcomeMessagesRequest,
+    UploadKeyPackageRequest,
 };
 
 #[derive(Debug)]
@@ -145,4 +147,14 @@ pub trait XmtpMlsClient: Send + Sync {
         &self,
         request: GetIdentityUpdatesRequest,
     ) -> Result<GetIdentityUpdatesResponse, Error>;
+    async fn query_group_messages(
+        &self,
+        request: QueryGroupMessagesRequest,
+    ) -> Result<QueryGroupMessagesResponse, Error>;
+    async fn query_welcome_messages(
+        &self,
+        request: QueryWelcomeMessagesRequest,
+    ) -> Result<QueryWelcomeMessagesResponse, Error>;
+
+    // TODO(snormore): Add Subscribe{Group,Welcome}Messages{Request,Response}
 }
