@@ -13,6 +13,7 @@ use tokio::sync::{oneshot, oneshot::Sender};
 use xmtp_proto::api_client::{
     BatchQueryResponse, PagingInfo, PublishResponse, QueryResponse, XmtpApiClient,
 };
+use xmtp_proto::xmtp::message_api::v1::IndexCursor;
 
 use xmtp_api_grpc::grpc_api_helper::Client as TonicApiClient;
 use xmtp_mls::groups::MlsGroup;
@@ -24,7 +25,8 @@ use xmtp_mls::{
     storage::{EncryptedMessageStore, EncryptionKey, StorageOption},
 };
 use xmtp_proto::xmtp::message_api::v1::{
-    BatchQueryRequest, Cursor, Envelope, PublishRequest, QueryRequest, SortDirection,
+    cursor::Cursor as InnerCursor, BatchQueryRequest, Cursor, Envelope, PublishRequest,
+    QueryRequest, SortDirection,
 };
 
 use crate::inbox_owner::RustInboxOwner;
@@ -168,10 +170,10 @@ pub struct FfiPagingInfo {
     direction: FfiSortDirection,
 }
 
-#[derive(uniffi::Enum)]
-pub enum FfiCursor {
-    Digest { digest: Vec<u8> },
-    SenderTimeNs { sender_time_ns: u64 },
+#[derive(uniffi::Record)]
+pub struct FfiCursor {
+    pub digest: Vec<u8>,
+    pub sender_time_ns: u64,
 }
 
 #[derive(uniffi::Record)]
@@ -266,6 +268,30 @@ impl From<FfiSortDirection> for SortDirection {
     }
 }
 
+impl From<FfiCursor> for Cursor {
+    fn from(cursor: FfiCursor) -> Self {
+        Self {
+            cursor: Some(InnerCursor::Index(IndexCursor {
+                digest: cursor.digest,
+                sender_time_ns: cursor.sender_time_ns,
+            })),
+        }
+    }
+}
+
+fn proto_cursor_to_ffi(cursor: Option<Cursor>) -> Option<FfiCursor> {
+    match cursor {
+        Some(proto_cursor) => match proto_cursor.cursor {
+            Some(InnerCursor::Index(index_cursor)) => Some(FfiCursor {
+                digest: index_cursor.digest,
+                sender_time_ns: index_cursor.sender_time_ns,
+            }),
+            _ => None,
+        },
+        _ => None,
+    }
+}
+
 impl From<FfiV2QueryRequest> for QueryRequest {
     fn from(req: FfiV2QueryRequest) -> Self {
         Self {
@@ -276,7 +302,7 @@ impl From<FfiV2QueryRequest> for QueryRequest {
                 return PagingInfo {
                     limit: paging_info.limit,
                     direction: paging_info.direction as i32,
-                    cursor: None, // TODO: fix me
+                    cursor: paging_info.cursor.map(|c| c.into()), // TODO: fix me
                 };
             }),
         }
@@ -293,7 +319,7 @@ impl From<QueryRequest> for FfiV2QueryRequest {
                 return FfiPagingInfo {
                     limit: paging_info.limit,
                     direction: FfiSortDirection::from_i32(paging_info.direction),
-                    cursor: None,
+                    cursor: proto_cursor_to_ffi(paging_info.cursor),
                 };
             }),
         }
