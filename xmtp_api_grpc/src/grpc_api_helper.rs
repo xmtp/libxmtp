@@ -24,8 +24,9 @@ use xmtp_proto::{
     xmtp::mls::api::v1::{
         mls_api_client::MlsApiClient as ProtoMlsApiClient, FetchKeyPackagesRequest,
         FetchKeyPackagesResponse, GetIdentityUpdatesRequest, GetIdentityUpdatesResponse,
-        RegisterInstallationRequest, RegisterInstallationResponse, SendGroupMessagesRequest,
-        SendWelcomeMessagesRequest, UploadKeyPackageRequest,
+        QueryGroupMessagesRequest, QueryGroupMessagesResponse, QueryWelcomeMessagesRequest,
+        QueryWelcomeMessagesResponse, RegisterInstallationRequest, RegisterInstallationResponse,
+        SendGroupMessagesRequest, SendWelcomeMessagesRequest, UploadKeyPackageRequest,
     },
 };
 
@@ -421,10 +422,8 @@ impl XmtpMlsClient for Client {
             InnerMlsClient::Tls(c) => c.clone().fetch_key_packages(req).await,
         };
 
-        match res {
-            Ok(response) => Ok(response.into_inner()),
-            Err(e) => Err(Error::new(ErrorKind::MlsError).with(e)),
-        }
+        res.map(|r| r.into_inner())
+            .map_err(|e| Error::new(ErrorKind::MlsError).with(e))
     }
 
     async fn send_group_messages(&self, req: SendGroupMessagesRequest) -> Result<(), Error> {
@@ -449,6 +448,32 @@ impl XmtpMlsClient for Client {
         }
     }
 
+    async fn query_group_messages(
+        &self,
+        req: QueryGroupMessagesRequest,
+    ) -> Result<QueryGroupMessagesResponse, Error> {
+        let res = match &self.mls_client {
+            InnerMlsClient::Plain(c) => c.clone().query_group_messages(req).await,
+            InnerMlsClient::Tls(c) => c.clone().query_group_messages(req).await,
+        };
+
+        res.map(|r| r.into_inner())
+            .map_err(|e| Error::new(ErrorKind::MlsError).with(e))
+    }
+
+    async fn query_welcome_messages(
+        &self,
+        req: QueryWelcomeMessagesRequest,
+    ) -> Result<QueryWelcomeMessagesResponse, Error> {
+        let res = match &self.mls_client {
+            InnerMlsClient::Plain(c) => c.clone().query_welcome_messages(req).await,
+            InnerMlsClient::Tls(c) => c.clone().query_welcome_messages(req).await,
+        };
+
+        res.map(|r| r.into_inner())
+            .map_err(|e| Error::new(ErrorKind::MlsError).with(e))
+    }
+
     async fn get_identity_updates(
         &self,
         req: GetIdentityUpdatesRequest,
@@ -457,9 +482,8 @@ impl XmtpMlsClient for Client {
             InnerMlsClient::Plain(c) => c.clone().get_identity_updates(req).await,
             InnerMlsClient::Tls(c) => c.clone().get_identity_updates(req).await,
         };
-        match res {
-            Ok(response) => Ok(response.into_inner()),
-            Err(e) => Err(Error::new(ErrorKind::MlsError).with(e)),
-        }
+
+        res.map(|r| r.into_inner())
+            .map_err(|e| Error::new(ErrorKind::MlsError).with(e))
     }
 }
