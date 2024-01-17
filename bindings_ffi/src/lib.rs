@@ -15,6 +15,8 @@ use xmtp_proto::api_client::{
 };
 use xmtp_proto::xmtp::message_api::v1::IndexCursor;
 
+use xmtp_api_grpc::grpc_api_helper::Client as GrpcClient;
+
 use xmtp_api_grpc::grpc_api_helper::Client as TonicApiClient;
 use xmtp_mls::groups::MlsGroup;
 use xmtp_mls::storage::group_message::StoredGroupMessage;
@@ -61,6 +63,20 @@ fn stringify_error_chain<T: Error>(error: &T) -> String {
     }
 
     result
+}
+
+#[uniffi::export(async_runtime = "tokio")]
+pub async fn create_v2_client(
+    host: String,
+    is_secure: bool,
+) -> Result<Arc<FfiV2Client>, GenericError> {
+    let client = GrpcClient::create(host, is_secure).await?;
+
+    let client = FfiV2Client {
+        inner_client: Arc::new(client),
+    };
+
+    Ok(client.into())
 }
 
 #[uniffi::export(async_runtime = "tokio")]
@@ -406,7 +422,6 @@ impl From<FfiV2BatchQueryResponse> for BatchQueryResponse {
 
 #[derive(uniffi::Object)]
 pub struct FfiV2Client {
-    auth_token: Arc<String>,
     inner_client: Arc<xmtp_api_grpc::grpc_api_helper::Client>,
 }
 
@@ -428,11 +443,12 @@ impl FfiV2Client {
     pub async fn publish(
         &self,
         request: FfiPublishRequest,
+        auth_token: String,
     ) -> Result<FfiV2PublishResponse, GenericError> {
         let actual_publish_request: PublishRequest = request.into();
         let result = self
             .inner_client
-            .publish(self.auth_token.to_string(), actual_publish_request)
+            .publish(auth_token, actual_publish_request)
             .await?;
 
         Ok(result.into())
