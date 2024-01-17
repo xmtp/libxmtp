@@ -113,7 +113,7 @@ impl Identity {
         installation_keys: &SignatureKeyPair,
         owner: &impl InboxOwner,
     ) -> Result<OpenMlsCredential, IdentityError> {
-        let credential = Credential::create_eip191(installation_keys, owner)?;
+        let credential = Credential::create(installation_keys, owner)?;
         let credential_proto: CredentialProto = credential.into();
         Ok(
             OpenMlsCredential::new(credential_proto.encode_to_vec(), CredentialType::Basic)

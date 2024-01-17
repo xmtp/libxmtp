@@ -152,8 +152,8 @@ mod tests {
         let _pub_key = signature_key_pair.public();
         let account_address = wallet.get_address();
 
-        let credential = Credential::create_eip191(&signature_key_pair, &wallet)
-            .expect("failed to create credential");
+        let credential =
+            Credential::create(&signature_key_pair, &wallet).expect("failed to create credential");
         let credential_proto: CredentialProto = credential.into();
 
         (
