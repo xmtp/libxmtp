@@ -226,6 +226,7 @@ data class Conversations(
                     context = data.invitation.context,
                     peerAddress = data.peerAddress,
                     client = client,
+                    createdAtNs = data.createdNs,
                     header = Invitation.SealedInvitationHeaderV1.getDefaultInstance(),
                 ),
             )
