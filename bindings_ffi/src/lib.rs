@@ -540,7 +540,7 @@ mod tests {
         // Because of the event loop, I need to make the test give control
         // back to the stream before it can process each message. Using sleep to do that.
         // I think this will work fine in practice
-        tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+        tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
         assert_eq!(message_callback.message_count(), 2);
 
         stream_closer.close();
