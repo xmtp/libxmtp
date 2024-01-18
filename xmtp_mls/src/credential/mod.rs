@@ -6,6 +6,7 @@ use chrono::Utc;
 
 use openmls_basic_credential::SignatureKeyPair;
 
+use prost::DecodeError;
 use thiserror::Error;
 use xmtp_cryptography::signature::SignatureError;
 
@@ -20,6 +21,10 @@ use self::legacy_create_identity::LegacyCreateIdentityAssociation;
 pub enum AssociationError {
     #[error("bad signature")]
     BadSignature(#[from] SignatureError),
+    #[error("decode error")]
+    DecodeError(#[from] DecodeError),
+    #[error("legacy key")]
+    MalformedLegacyKey,
     #[error("bad legacy signature: {0}")]
     BadLegacySignature(String),
     #[error("Association text mismatch")]
@@ -76,7 +81,13 @@ impl Credential {
                 )
                 .map(Credential::GrantMessagingAccess)
             }
-            AssociationProto::LegacyCreateIdentity(assoc) => todo!(),
+            AssociationProto::LegacyCreateIdentity(assoc) => {
+                LegacyCreateIdentityAssociation::from_proto_validated(
+                    assoc,
+                    &proto.installation_public_key,
+                )
+                .map(Credential::LegacyCreateIdentity)
+            }
         }?;
         if let Some(address) = expected_account_address {
             if credential.address() != address {
