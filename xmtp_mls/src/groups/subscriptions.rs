@@ -44,7 +44,7 @@ where
 
     pub async fn stream(
         &'c self,
-    ) -> Result<Pin<Box<dyn Stream<Item = StoredGroupMessage> + 'c>>, GroupError> {
+    ) -> Result<Pin<Box<dyn Stream<Item = StoredGroupMessage> + 'c + Send>>, GroupError> {
         let last_cursor = self
             .client
             .store
