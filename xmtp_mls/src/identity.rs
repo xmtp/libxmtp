@@ -134,6 +134,10 @@ impl Identity {
 
         Ok(credential.address())
     }
+
+    pub fn application_id(&self) -> Vec<u8> {
+        self.account_address.as_bytes().to_vec()
+    }
 }
 
 #[cfg(test)]
