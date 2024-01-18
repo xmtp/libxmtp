@@ -269,7 +269,7 @@ impl FfiGroup {
                     }
                 }
             }
-            log::debug!("closing stream");
+            println!("closing stream");
         });
 
         Ok(Arc::new(FfiMessageStreamCloser {
@@ -533,7 +533,7 @@ mod tests {
             .await
             .unwrap();
 
-        tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+        tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
         group.send("hello".as_bytes().to_vec()).await.unwrap();
         tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
         group.send("goodbye".as_bytes().to_vec()).await.unwrap();
