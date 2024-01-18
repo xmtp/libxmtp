@@ -32,9 +32,9 @@ CREATE TABLE group_messages (
 CREATE INDEX group_messages_group_id_sort_idx ON group_messages(group_id, sent_at_ns);
 
 -- Used to keep track of the last seen message timestamp in a topic
-CREATE TABLE topic_refresh_state (
-    "topic" TEXT PRIMARY KEY NOT NULL,
-    "last_message_timestamp_ns" BIGINT NOT NULL
+CREATE TABLE refresh_state (
+    "id" BLOB PRIMARY KEY NOT NULL,
+    "cursor" BIGINT NOT NULL
 );
 
 -- This table is required to retry messages that do not send successfully due to epoch conflicts

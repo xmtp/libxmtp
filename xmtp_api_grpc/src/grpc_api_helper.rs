@@ -469,7 +469,6 @@ impl XmtpMlsClient for Client {
             InnerMlsClient::Plain(c) => c.clone().query_welcome_messages(req).await,
             InnerMlsClient::Tls(c) => c.clone().query_welcome_messages(req).await,
         };
-
         res.map(|r| r.into_inner())
             .map_err(|e| Error::new(ErrorKind::MlsError).with(e))
     }

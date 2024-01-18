@@ -1,7 +1,6 @@
-use std::{collections::HashSet, mem::Discriminant, pin::Pin};
+use std::{collections::HashSet, mem::Discriminant};
 
-use futures::{Stream, StreamExt};
-use log::debug;
+// use futures::{Stream, StreamExt};
 use openmls::{
     framing::{MlsMessageIn, MlsMessageInBody},
     group::GroupEpoch,
@@ -12,7 +11,13 @@ use openmls_traits::OpenMlsProvider;
 use prost::EncodeError;
 use thiserror::Error;
 use tls_codec::{Deserialize, Error as TlsSerializationError};
-use xmtp_proto::api_client::{Envelope, XmtpApiClient, XmtpMlsClient};
+use xmtp_proto::{
+    api_client::{XmtpApiClient, XmtpMlsClient},
+    xmtp::mls::api::v1::{
+        welcome_message::{Version as WelcomeMessageVersion, V1 as WelcomeMessageV1},
+        GroupMessage, WelcomeMessage,
+    },
+};
 
 use crate::{
     api_client_wrapper::{ApiClientWrapper, IdentityUpdate},
@@ -73,6 +78,8 @@ pub enum MessageProcessingError {
         message_time_ns: u64,
         credential: Vec<u8>,
     },
+    #[error("invalid payload")]
+    InvalidPayload,
     #[error("openmls process message error: {0}")]
     OpenMlsProcessMessage(#[from] openmls::prelude::ProcessMessageError),
     #[error("merge pending commit: {0}")]
@@ -251,46 +258,51 @@ where
         Ok(installation_ids)
     }
 
-    // pub(crate) async fn pull_from_topic(&self, topic: &str) -> Result<Vec<Envelope>, ClientError> {
-    //     let conn = self.store.conn()?;
-    //     let last_synced_timestamp_ns = conn.get_last_synced_timestamp_for_topic(topic)?;
+    pub(crate) async fn query_group_messages(
+        &self,
+        group_id: &Vec<u8>,
+    ) -> Result<Vec<GroupMessage>, ClientError> {
+        let conn = self.store.conn()?;
+        let id_cursor = conn.get_last_cursor_for_id(group_id)?;
 
-    //     let envelopes = self
-    //         .api_client
-    //         .read_topic(topic, last_synced_timestamp_ns as u64 + 1)
-    //         .await?;
+        let welcomes = self
+            .api_client
+            .query_group_messages(group_id.clone(), Some(id_cursor as u64))
+            .await?;
 
-    //     debug!(
-    //         "Pulled {} envelopes from topic {} starting at timestamp {}",
-    //         envelopes.len(),
-    //         topic,
-    //         last_synced_timestamp_ns
-    //     );
+        Ok(welcomes)
+    }
 
-    //     Ok(envelopes)
-    // }
+    pub(crate) async fn query_welcome_messages(&self) -> Result<Vec<WelcomeMessage>, ClientError> {
+        let conn = self.store.conn()?;
+        let installation_id = self.installation_public_key();
+        let id_cursor = conn.get_last_cursor_for_id(&installation_id)?;
 
-    // pub(crate) fn process_for_topic<ProcessingFn, ReturnValue>(
-    //     &self,
-    //     topic: &str,
-    //     envelope_timestamp_ns: u64,
-    //     process_envelope: ProcessingFn,
-    // ) -> Result<ReturnValue, MessageProcessingError>
-    // where
-    //     ProcessingFn: FnOnce(XmtpOpenMlsProvider) -> Result<ReturnValue, MessageProcessingError>,
-    // {
-    //     self.store.transaction(|provider| {
-    //         let is_updated = provider
-    //             .conn()
-    //             .update_last_synced_timestamp_for_topic(topic, envelope_timestamp_ns as i64)?;
-    //         if !is_updated {
-    //             return Err(MessageProcessingError::AlreadyProcessed(
-    //                 envelope_timestamp_ns,
-    //             ));
-    //         }
-    //         process_envelope(provider)
-    //     })
-    // }
+        let welcomes = self
+            .api_client
+            .query_welcome_messages(installation_id, Some(id_cursor as u64))
+            .await?;
+
+        Ok(welcomes)
+    }
+
+    pub(crate) fn process_for_id<ProcessingFn, ReturnValue>(
+        &self,
+        entity_id: &Vec<u8>,
+        cursor: u64,
+        process_envelope: ProcessingFn,
+    ) -> Result<ReturnValue, MessageProcessingError>
+    where
+        ProcessingFn: FnOnce(XmtpOpenMlsProvider) -> Result<ReturnValue, MessageProcessingError>,
+    {
+        self.store.transaction(|provider| {
+            let is_updated = provider.conn().update_cursor(entity_id, cursor as i64)?;
+            if !is_updated {
+                return Err(MessageProcessingError::AlreadyProcessed(cursor));
+            }
+            process_envelope(provider)
+        })
+    }
 
     pub(crate) async fn get_key_packages(
         &self,
@@ -340,13 +352,21 @@ where
     // Download all unread welcome messages and convert to groups.
     // Returns any new groups created in the operation
     pub async fn sync_welcomes(&self) -> Result<Vec<MlsGroup<ApiClient>>, ClientError> {
-        let envelopes = self.query_welcome_messages(&self.installation_public_key()).await?;
-
+        let envelopes = self.query_welcome_messages().await?;
+        let id = self.installation_public_key();
         let groups: Vec<MlsGroup<ApiClient>> = envelopes
             .into_iter()
-            .filter_map(|envelope: Envelope| {
-                self.process_for_topic(&welcome_topic, envelope.timestamp_ns, |provider| {
-                    let welcome = match extract_welcome(&envelope.message) {
+            .filter_map(|envelope: WelcomeMessage| {
+                let welcome_v1 = match extract_welcome_message(envelope) {
+                    Ok(inner) => inner,
+                    Err(err) => {
+                        log::error!("failed to extract welcome message: {}", err);
+                        return None;
+                    }
+                };
+
+                self.process_for_id(&id, welcome_v1.id, |provider| {
+                    let welcome = match deserialize_welcome(&welcome_v1.data) {
                         Ok(welcome) => welcome,
                         Err(err) => {
                             log::error!("failed to extract welcome: {}", err);
@@ -371,42 +391,51 @@ where
         Ok(groups)
     }
 
-    fn process_streamed_welcome(
-        &self,
-        envelope: Envelope,
-    ) -> Result<MlsGroup<ApiClient>, ClientError> {
-        let welcome = extract_welcome(&envelope.message)?;
-        let conn = self.store.conn()?;
-        let provider = self.mls_provider(&conn);
-        Ok(MlsGroup::create_from_welcome(self, &provider, welcome)
-            .map_err(|e| ClientError::Generic(e.to_string()))?)
-    }
+    // fn process_streamed_welcome(
+    //     &self,
+    //     envelope: Envelope,
+    // ) -> Result<MlsGroup<ApiClient>, ClientError> {
+    //     let welcome = extract_welcome(&envelope.message)?;
+    //     let conn = self.store.conn()?;
+    //     let provider = self.mls_provider(&conn);
+    //     Ok(MlsGroup::create_from_welcome(self, &provider, welcome)
+    //         .map_err(|e| ClientError::Generic(e.to_string()))?)
+    // }
 
-    pub async fn stream_conversations(
-        &'a self,
-    ) -> Result<Pin<Box<dyn Stream<Item = MlsGroup<ApiClient>> + 'a>>, ClientError> {
-        let welcome_topic = get_welcome_topic(&self.installation_public_key());
-        let subscription = self.api_client.subscribe(vec![welcome_topic]).await?;
-        let stream = subscription
-            .map(|envelope_result| async {
-                let envelope = envelope_result?;
-                self.process_streamed_welcome(envelope)
-            })
-            .filter_map(|res| async {
-                match res.await {
-                    Ok(group) => Some(group),
-                    Err(err) => {
-                        log::error!("Error processing stream entry: {:?}", err);
-                        None
-                    }
-                }
-            });
+    // pub async fn stream_conversations(
+    //     &'a self,
+    // ) -> Result<Pin<Box<dyn Stream<Item = MlsGroup<ApiClient>> + 'a>>, ClientError> {
+    //     let welcome_topic = get_welcome_topic(&self.installation_public_key());
+    //     let subscription = self.api_client.subscribe(vec![welcome_topic]).await?;
+    //     let stream = subscription
+    //         .map(|envelope_result| async {
+    //             let envelope = envelope_result?;
+    //             self.process_streamed_welcome(envelope)
+    //         })
+    //         .filter_map(|res| async {
+    //             match res.await {
+    //                 Ok(group) => Some(group),
+    //                 Err(err) => {
+    //                     log::error!("Error processing stream entry: {:?}", err);
+    //                     None
+    //                 }
+    //             }
+    //         });
 
-        Ok(Box::pin(stream))
+    //     Ok(Box::pin(stream))
+    // }
+}
+
+fn extract_welcome_message(welcome: WelcomeMessage) -> Result<WelcomeMessageV1, ClientError> {
+    match welcome.version {
+        Some(WelcomeMessageVersion::V1(welcome)) => Ok(welcome),
+        _ => Err(ClientError::Generic(
+            "unexpected message type in welcome".to_string(),
+        )),
     }
 }
 
-fn extract_welcome(welcome_bytes: &Vec<u8>) -> Result<Welcome, ClientError> {
+fn deserialize_welcome(welcome_bytes: &Vec<u8>) -> Result<Welcome, ClientError> {
     // let welcome_proto = WelcomeMessageProto::decode(&mut welcome_bytes.as_slice())?;
     let welcome = MlsMessageIn::tls_deserialize(&mut welcome_bytes.as_slice())?;
     match welcome.extract() {
@@ -511,20 +540,20 @@ mod tests {
         assert_eq!(duplicate_received_groups.len(), 0);
     }
 
-    #[tokio::test]
-    async fn test_stream_welcomes() {
-        let alice = ClientBuilder::new_test_client(generate_local_wallet().into()).await;
-        let bob = ClientBuilder::new_test_client(generate_local_wallet().into()).await;
-        bob.register_identity().await.unwrap();
+    // #[tokio::test]
+    // async fn test_stream_welcomes() {
+    //     let alice = ClientBuilder::new_test_client(generate_local_wallet().into()).await;
+    //     let bob = ClientBuilder::new_test_client(generate_local_wallet().into()).await;
+    //     bob.register_identity().await.unwrap();
 
-        let alice_bob_group = alice.create_group().unwrap();
+    //     let alice_bob_group = alice.create_group().unwrap();
 
-        let mut bob_stream = bob.stream_conversations().await.unwrap();
-        alice_bob_group
-            .add_members_by_installation_id(vec![bob.installation_public_key()])
-            .await
-            .unwrap();
-        let bob_received_groups = bob_stream.next().await.unwrap();
-        assert_eq!(bob_received_groups.group_id, alice_bob_group.group_id);
-    }
+    //     let mut bob_stream = bob.stream_conversations().await.unwrap();
+    //     alice_bob_group
+    //         .add_members_by_installation_id(vec![bob.installation_public_key()])
+    //         .await
+    //         .unwrap();
+    //     let bob_received_groups = bob_stream.next().await.unwrap();
+    //     assert_eq!(bob_received_groups.group_id, alice_bob_group.group_id);
+    // }
 }

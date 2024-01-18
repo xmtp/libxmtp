@@ -31,7 +31,7 @@ use xmtp_proto::{
         welcome_message_input::{
             Version as WelcomeMessageInputVersion, V1 as WelcomeMessageInputV1,
         },
-        GroupMessage, GroupMessageInput, WelcomeMessageInput,
+        GroupMessage, WelcomeMessageInput,
     },
     xmtp::mls::message_contents::GroupMembershipChanges,
 };
@@ -438,12 +438,9 @@ where
         &self,
         openmls_group: &mut OpenMlsGroup,
         provider: &XmtpOpenMlsProvider,
-        envelope: &GroupMessage,
+        envelope: &GroupMessageV1,
         allow_epoch_increment: bool,
     ) -> Result<(), MessageProcessingError> {
-        let envelope = match envelope.version {
-            Some(GroupMessageVersion::V1(value)) => value,
-        };
         let mls_message_in = MlsMessageIn::tls_deserialize_exact(&envelope.data)?;
 
         let message = match mls_message_in.extract() {
@@ -483,14 +480,16 @@ where
         envelope: &GroupMessage,
         openmls_group: &mut OpenMlsGroup,
     ) -> Result<(), MessageProcessingError> {
-        let msgv1 = match envelope.version {
+        let msgv1 = match &envelope.version {
             Some(GroupMessageVersion::V1(value)) => value,
+            _ => return Err(MessageProcessingError::InvalidPayload),
         };
-        self.client.process_for_topic(
-            &self.topic(),
-            msgv1.created_ns,
+
+        self.client.process_for_id(
+            &msgv1.group_id,
+            msgv1.id,
             |provider| -> Result<(), MessageProcessingError> {
-                self.process_message(openmls_group, &provider, envelope, true)?;
+                self.process_message(openmls_group, &provider, &msgv1, true)?;
                 openmls_group.save(provider.key_store())?;
                 Ok(())
             },
@@ -908,7 +907,7 @@ mod tests {
 
         let messages = client
             .api_client
-            .read_topic(topic.as_str(), 0)
+            .query_group_messages(group.group_id, None)
             .await
             .expect("read topic");
 
@@ -1019,11 +1018,11 @@ mod tests {
             .await
             .unwrap();
 
-        let topic = group.topic();
+        let group_id = group.group_id;
 
         let messages = client
             .api_client
-            .read_topic(topic.as_str(), 0)
+            .query_group_messages(group_id, None)
             .await
             .unwrap();
 
@@ -1069,10 +1068,10 @@ mod tests {
 
         // We are expecting 1 message on the group topic, not 2, because the second one should have
         // failed
-        let topic = group.topic();
+        let group_id = group.group_id;
         let messages = client_1
             .api_client
-            .read_topic(topic.as_str(), 0)
+            .query_group_messages(group_id, None)
             .await
             .expect("read topic");
 
@@ -1095,7 +1094,7 @@ mod tests {
 
         let messages = client
             .api_client
-            .read_topic(group.topic().as_str(), 0)
+            .query_group_messages(group.group_id.clone(), None)
             .await
             .unwrap();
         assert_eq!(messages.len(), 2);
@@ -1129,10 +1128,9 @@ mod tests {
             .unwrap();
 
         // Check if the welcome was actually sent
-        let welcome_topic = get_welcome_topic(&client_2.identity.installation_keys.to_public_vec());
         let welcome_messages = client
             .api_client
-            .read_topic(welcome_topic.as_str(), 0)
+            .query_group_messages(client_2.installation_public_key(), None)
             .await
             .unwrap();
 

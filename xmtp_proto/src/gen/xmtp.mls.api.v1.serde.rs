@@ -2574,82 +2574,6 @@ impl<'de> serde::Deserialize<'de> for SortDirection {
         deserializer.deserialize_any(GeneratedVisitor)
     }
 }
-impl serde::Serialize for SubscribeFilterType {
-    #[allow(deprecated)]
-    fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
-    where
-        S: serde::Serializer,
-    {
-        let variant = match self {
-            Self::Unspecified => "SUBSCRIBE_FILTER_TYPE_UNSPECIFIED",
-            Self::Latest => "SUBSCRIBE_FILTER_TYPE_LATEST",
-            Self::Cursor => "SUBSCRIBE_FILTER_TYPE_CURSOR",
-        };
-        serializer.serialize_str(variant)
-    }
-}
-impl<'de> serde::Deserialize<'de> for SubscribeFilterType {
-    #[allow(deprecated)]
-    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
-    where
-        D: serde::Deserializer<'de>,
-    {
-        const FIELDS: &[&str] = &[
-            "SUBSCRIBE_FILTER_TYPE_UNSPECIFIED",
-            "SUBSCRIBE_FILTER_TYPE_LATEST",
-            "SUBSCRIBE_FILTER_TYPE_CURSOR",
-        ];
-
-        struct GeneratedVisitor;
-
-        impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
-            type Value = SubscribeFilterType;
-
-            fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-                write!(formatter, "expected one of: {:?}", &FIELDS)
-            }
-
-            fn visit_i64<E>(self, v: i64) -> std::result::Result<Self::Value, E>
-            where
-                E: serde::de::Error,
-            {
-                use std::convert::TryFrom;
-                i32::try_from(v)
-                    .ok()
-                    .and_then(SubscribeFilterType::from_i32)
-                    .ok_or_else(|| {
-                        serde::de::Error::invalid_value(serde::de::Unexpected::Signed(v), &self)
-                    })
-            }
-
-            fn visit_u64<E>(self, v: u64) -> std::result::Result<Self::Value, E>
-            where
-                E: serde::de::Error,
-            {
-                use std::convert::TryFrom;
-                i32::try_from(v)
-                    .ok()
-                    .and_then(SubscribeFilterType::from_i32)
-                    .ok_or_else(|| {
-                        serde::de::Error::invalid_value(serde::de::Unexpected::Unsigned(v), &self)
-                    })
-            }
-
-            fn visit_str<E>(self, value: &str) -> std::result::Result<Self::Value, E>
-            where
-                E: serde::de::Error,
-            {
-                match value {
-                    "SUBSCRIBE_FILTER_TYPE_UNSPECIFIED" => Ok(SubscribeFilterType::Unspecified),
-                    "SUBSCRIBE_FILTER_TYPE_LATEST" => Ok(SubscribeFilterType::Latest),
-                    "SUBSCRIBE_FILTER_TYPE_CURSOR" => Ok(SubscribeFilterType::Cursor),
-                    _ => Err(serde::de::Error::unknown_variant(value, FIELDS)),
-                }
-            }
-        }
-        deserializer.deserialize_any(GeneratedVisitor)
-    }
-}
 impl serde::Serialize for SubscribeGroupMessagesRequest {
     #[allow(deprecated)]
     fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
@@ -2752,20 +2676,12 @@ impl serde::Serialize for subscribe_group_messages_request::Filter {
         if !self.group_id.is_empty() {
             len += 1;
         }
-        if self.r#type != 0 {
-            len += 1;
-        }
         if self.id_cursor != 0 {
             len += 1;
         }
         let mut struct_ser = serializer.serialize_struct("xmtp.mls.api.v1.SubscribeGroupMessagesRequest.Filter", len)?;
         if !self.group_id.is_empty() {
             struct_ser.serialize_field("groupId", pbjson::private::base64::encode(&self.group_id).as_str())?;
-        }
-        if self.r#type != 0 {
-            let v = SubscribeFilterType::from_i32(self.r#type)
-                .ok_or_else(|| serde::ser::Error::custom(format!("Invalid variant {}", self.r#type)))?;
-            struct_ser.serialize_field("type", &v)?;
         }
         if self.id_cursor != 0 {
             struct_ser.serialize_field("idCursor", ToString::to_string(&self.id_cursor).as_str())?;
@@ -2782,7 +2698,6 @@ impl<'de> serde::Deserialize<'de> for subscribe_group_messages_request::Filter {
         const FIELDS: &[&str] = &[
             "group_id",
             "groupId",
-            "type",
             "id_cursor",
             "idCursor",
         ];
@@ -2790,7 +2705,6 @@ impl<'de> serde::Deserialize<'de> for subscribe_group_messages_request::Filter {
         #[allow(clippy::enum_variant_names)]
         enum GeneratedField {
             GroupId,
-            Type,
             IdCursor,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
@@ -2814,7 +2728,6 @@ impl<'de> serde::Deserialize<'de> for subscribe_group_messages_request::Filter {
                     {
                         match value {
                             "groupId" | "group_id" => Ok(GeneratedField::GroupId),
-                            "type" => Ok(GeneratedField::Type),
                             "idCursor" | "id_cursor" => Ok(GeneratedField::IdCursor),
                             _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
                         }
@@ -2836,7 +2749,6 @@ impl<'de> serde::Deserialize<'de> for subscribe_group_messages_request::Filter {
                     V: serde::de::MapAccess<'de>,
             {
                 let mut group_id__ = None;
-                let mut r#type__ = None;
                 let mut id_cursor__ = None;
                 while let Some(k) = map.next_key()? {
                     match k {
@@ -2847,12 +2759,6 @@ impl<'de> serde::Deserialize<'de> for subscribe_group_messages_request::Filter {
                             group_id__ = 
                                 Some(map.next_value::<::pbjson::private::BytesDeserialize<_>>()?.0)
                             ;
-                        }
-                        GeneratedField::Type => {
-                            if r#type__.is_some() {
-                                return Err(serde::de::Error::duplicate_field("type"));
-                            }
-                            r#type__ = Some(map.next_value::<SubscribeFilterType>()? as i32);
                         }
                         GeneratedField::IdCursor => {
                             if id_cursor__.is_some() {
@@ -2866,7 +2772,6 @@ impl<'de> serde::Deserialize<'de> for subscribe_group_messages_request::Filter {
                 }
                 Ok(subscribe_group_messages_request::Filter {
                     group_id: group_id__.unwrap_or_default(),
-                    r#type: r#type__.unwrap_or_default(),
                     id_cursor: id_cursor__.unwrap_or_default(),
                 })
             }
@@ -2976,20 +2881,12 @@ impl serde::Serialize for subscribe_welcome_messages_request::Filter {
         if !self.installation_key.is_empty() {
             len += 1;
         }
-        if self.r#type != 0 {
-            len += 1;
-        }
         if self.id_cursor != 0 {
             len += 1;
         }
         let mut struct_ser = serializer.serialize_struct("xmtp.mls.api.v1.SubscribeWelcomeMessagesRequest.Filter", len)?;
         if !self.installation_key.is_empty() {
             struct_ser.serialize_field("installationKey", pbjson::private::base64::encode(&self.installation_key).as_str())?;
-        }
-        if self.r#type != 0 {
-            let v = SubscribeFilterType::from_i32(self.r#type)
-                .ok_or_else(|| serde::ser::Error::custom(format!("Invalid variant {}", self.r#type)))?;
-            struct_ser.serialize_field("type", &v)?;
         }
         if self.id_cursor != 0 {
             struct_ser.serialize_field("idCursor", ToString::to_string(&self.id_cursor).as_str())?;
@@ -3006,7 +2903,6 @@ impl<'de> serde::Deserialize<'de> for subscribe_welcome_messages_request::Filter
         const FIELDS: &[&str] = &[
             "installation_key",
             "installationKey",
-            "type",
             "id_cursor",
             "idCursor",
         ];
@@ -3014,7 +2910,6 @@ impl<'de> serde::Deserialize<'de> for subscribe_welcome_messages_request::Filter
         #[allow(clippy::enum_variant_names)]
         enum GeneratedField {
             InstallationKey,
-            Type,
             IdCursor,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
@@ -3038,7 +2933,6 @@ impl<'de> serde::Deserialize<'de> for subscribe_welcome_messages_request::Filter
                     {
                         match value {
                             "installationKey" | "installation_key" => Ok(GeneratedField::InstallationKey),
-                            "type" => Ok(GeneratedField::Type),
                             "idCursor" | "id_cursor" => Ok(GeneratedField::IdCursor),
                             _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
                         }
@@ -3060,7 +2954,6 @@ impl<'de> serde::Deserialize<'de> for subscribe_welcome_messages_request::Filter
                     V: serde::de::MapAccess<'de>,
             {
                 let mut installation_key__ = None;
-                let mut r#type__ = None;
                 let mut id_cursor__ = None;
                 while let Some(k) = map.next_key()? {
                     match k {
@@ -3071,12 +2964,6 @@ impl<'de> serde::Deserialize<'de> for subscribe_welcome_messages_request::Filter
                             installation_key__ = 
                                 Some(map.next_value::<::pbjson::private::BytesDeserialize<_>>()?.0)
                             ;
-                        }
-                        GeneratedField::Type => {
-                            if r#type__.is_some() {
-                                return Err(serde::de::Error::duplicate_field("type"));
-                            }
-                            r#type__ = Some(map.next_value::<SubscribeFilterType>()? as i32);
                         }
                         GeneratedField::IdCursor => {
                             if id_cursor__.is_some() {
@@ -3090,7 +2977,6 @@ impl<'de> serde::Deserialize<'de> for subscribe_welcome_messages_request::Filter
                 }
                 Ok(subscribe_welcome_messages_request::Filter {
                     installation_key: installation_key__.unwrap_or_default(),
-                    r#type: r#type__.unwrap_or_default(),
                     id_cursor: id_cursor__.unwrap_or_default(),
                 })
             }
