@@ -538,7 +538,9 @@ where
         intent.store(conn)?;
 
         // Skipping a full sync here and instead just firing and forgetting
-        self.publish_intents(conn).await?;
+        if let Err(err) = self.publish_intents(conn).await {
+            println!("error publishing intents: {:?}", err);
+        }
         Ok(())
     }
 
@@ -933,9 +935,7 @@ mod tests {
         group.receive().await.unwrap();
         // Check for messages
         // println!("HERE: {:#?}", messages);
-        println!("HERE: {:#?}", msg);
         let messages = group.find_messages(None, None, None, None).unwrap();
-        println!("HERE: {:#?}", messages);
         assert_eq!(messages.len(), 1);
         assert_eq!(messages.first().unwrap().decrypted_message_bytes, msg);
     }
