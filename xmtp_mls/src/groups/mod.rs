@@ -1138,7 +1138,7 @@ mod tests {
         // Check if the welcome was actually sent
         let welcome_messages = client
             .api_client
-            .query_group_messages(client_2.installation_public_key(), None)
+            .query_welcome_messages(client_2.installation_public_key(), None)
             .await
             .unwrap();
 
