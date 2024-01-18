@@ -147,3 +147,98 @@ impl From<GrantMessagingAccessAssociation> for GrantMessagingAccessAssociationPr
         }
     }
 }
+
+#[cfg(test)]
+pub mod tests {
+    use ethers::signers::{LocalWallet, Signer};
+    use xmtp_cryptography::{signature::h160addr_to_string, utils::rng};
+    use xmtp_proto::xmtp::mls::message_contents::GrantMessagingAccessAssociation as GrantMessagingAccessAssociationProto;
+
+    use crate::credential::grant_messaging_access::GrantMessagingAccessAssociation;
+
+    #[tokio::test]
+    async fn assoc_gen() {
+        let key_bytes = vec![22, 33, 44, 55];
+
+        let wallet = LocalWallet::new(&mut rng());
+        let other_wallet = LocalWallet::new(&mut rng());
+        let addr = h160addr_to_string(wallet.address());
+        let other_addr = h160addr_to_string(other_wallet.address());
+        let grant_time = "2021-01-01T00:00:00Z";
+        let bad_grant_time = "2021-01-01T00:00:01Z";
+
+        let text = GrantMessagingAccessAssociation::text(&addr, &key_bytes, &grant_time);
+        let sig = wallet.sign_message(text).await.expect("BadSign");
+
+        let other_text =
+            GrantMessagingAccessAssociation::text(&other_addr, &key_bytes, &grant_time);
+        let other_sig = wallet.sign_message(other_text).await.expect("BadSign");
+
+        let bad_key_bytes = vec![11, 22, 33];
+
+        assert!(GrantMessagingAccessAssociation::new_validated(
+            addr.clone(),
+            key_bytes.clone(),
+            grant_time.to_string(),
+            sig.into()
+        )
+        .is_ok());
+        assert!(GrantMessagingAccessAssociation::new_validated(
+            addr.clone(),
+            bad_key_bytes.clone(),
+            grant_time.to_string(),
+            sig.into()
+        )
+        .is_err());
+        assert!(GrantMessagingAccessAssociation::new_validated(
+            other_addr.clone(),
+            key_bytes.clone(),
+            grant_time.to_string(),
+            sig.into()
+        )
+        .is_err());
+        assert!(GrantMessagingAccessAssociation::new_validated(
+            addr.clone(),
+            key_bytes.clone(),
+            bad_grant_time.to_string(),
+            sig.into()
+        )
+        .is_err());
+        assert!(GrantMessagingAccessAssociation::new_validated(
+            addr.clone(),
+            key_bytes.clone(),
+            grant_time.to_string(),
+            sig.into()
+        )
+        .is_err());
+        assert!(GrantMessagingAccessAssociation::new_validated(
+            addr.clone(),
+            key_bytes.clone(),
+            grant_time.to_string(),
+            other_sig.into()
+        )
+        .is_err());
+    }
+
+    #[tokio::test]
+    async fn to_proto() {
+        let key_bytes = vec![22, 33, 44, 55];
+        let wallet = LocalWallet::new(&mut rng());
+        let addr = h160addr_to_string(wallet.address());
+        let iso8601_time = "2021-01-01T00:00:00Z";
+        let text = GrantMessagingAccessAssociation::text(&addr, &key_bytes, &iso8601_time);
+        let sig = wallet.sign_message(text).await.expect("BadSign");
+
+        let assoc = GrantMessagingAccessAssociation::new_validated(
+            addr.clone(),
+            key_bytes.clone(),
+            iso8601_time.to_string(),
+            sig.into(),
+        )
+        .unwrap();
+        let proto_signature: GrantMessagingAccessAssociationProto = assoc.into();
+
+        assert_eq!(proto_signature.association_text_version, 1);
+        assert_eq!(proto_signature.signature.unwrap().bytes, sig.to_vec());
+    }
+}

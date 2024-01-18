@@ -42,23 +42,6 @@ impl LegacyCreateIdentityAssociation {
         Ok(this)
     }
 
-    pub(crate) fn create(
-        legacy_key: Vec<u8>,
-        installation_public_key: Vec<u8>,
-        iso8601_time: String,
-    ) -> Result<Self, AssociationError> {
-        todo!()
-        // let account_address = owner.get_address();
-        // let text = Self::text(&account_address, &installation_public_key, &iso8601_time);
-        // let signature = owner.sign(&text)?;
-        // Self::new_validated(
-        //     account_address,
-        //     installation_public_key,
-        //     iso8601_time,
-        //     signature,
-        // )
-    }
-
     pub(crate) fn from_proto_validated(
         proto: LegacyCreateIdentityAssociationProto,
         expected_installation_public_key: &[u8],
