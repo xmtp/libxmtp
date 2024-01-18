@@ -1,30 +1,86 @@
-use diesel::prelude::*;
+use diesel::{
+    backend::Backend,
+    deserialize::{self, FromSql, FromSqlRow},
+    expression::AsExpression,
+    prelude::*,
+    serialize::{self, IsNull, Output, ToSql},
+    sql_types::Integer,
+    sqlite::Sqlite,
+};
 
 use super::{db_connection::DbConnection, schema::refresh_state};
-use crate::{impl_fetch, impl_store, storage::StorageError, Fetch, Store};
+use crate::{impl_store, storage::StorageError, Store};
+
+#[repr(i32)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, AsExpression, Hash, FromSqlRow)]
+#[diesel(sql_type = Integer)]
+pub enum EntityKind {
+    Welcome = 1,
+    Group = 2,
+}
+
+impl ToSql<Integer, Sqlite> for EntityKind
+where
+    i32: ToSql<Integer, Sqlite>,
+{
+    fn to_sql<'b>(&'b self, out: &mut Output<'b, '_, Sqlite>) -> serialize::Result {
+        out.set_value(*self as i32);
+        Ok(IsNull::No)
+    }
+}
+
+impl FromSql<Integer, Sqlite> for EntityKind
+where
+    i32: FromSql<Integer, Sqlite>,
+{
+    fn from_sql(bytes: <Sqlite as Backend>::RawValue<'_>) -> deserialize::Result<Self> {
+        match i32::from_sql(bytes)? {
+            1 => Ok(EntityKind::Welcome),
+            2 => Ok(EntityKind::Group),
+            x => Err(format!("Unrecognized variant {}", x).into()),
+        }
+    }
+}
 
 #[derive(Insertable, Identifiable, Queryable, Debug, Clone)]
 #[diesel(table_name = refresh_state)]
-#[diesel(primary_key(id))]
+#[diesel(primary_key(entity_id, entity_kind))]
 pub struct RefreshState {
-    pub id: Vec<u8>,
+    pub entity_id: Vec<u8>,
+    pub entity_kind: EntityKind,
     pub cursor: i64,
 }
 
-impl_fetch!(RefreshState, refresh_state, Vec<u8>);
 impl_store!(RefreshState, refresh_state);
 
 impl DbConnection<'_> {
+    pub fn get_refresh_state<EntityId: AsRef<Vec<u8>>>(
+        &self,
+        entity_id: EntityId,
+        entity_kind: EntityKind,
+    ) -> Result<Option<RefreshState>, StorageError> {
+        use super::schema::refresh_state::dsl;
+        let res = self.raw_query(|conn| {
+            dsl::refresh_state
+                .find((entity_id.as_ref(), entity_kind))
+                .first(conn)
+                .optional()
+        })?;
+
+        Ok(res)
+    }
     pub fn get_last_cursor_for_id<IdType: AsRef<Vec<u8>>>(
         &self,
         id: IdType,
+        entity_kind: EntityKind,
     ) -> Result<i64, StorageError> {
-        let state: Option<RefreshState> = self.fetch(id.as_ref())?;
+        let state: Option<RefreshState> = self.get_refresh_state(&id, entity_kind)?;
         match state {
             Some(state) => Ok(state.cursor),
             None => {
                 let new_state = RefreshState {
-                    id: id.as_ref().clone(),
+                    entity_id: id.as_ref().clone(),
+                    entity_kind,
                     cursor: 0,
                 };
                 new_state.store(self)?;
@@ -35,10 +91,11 @@ impl DbConnection<'_> {
 
     pub fn update_cursor<IdType: AsRef<Vec<u8>>>(
         &self,
-        id: IdType,
+        entity_id: IdType,
+        entity_kind: EntityKind,
         cursor: i64,
     ) -> Result<bool, StorageError> {
-        let state: Option<RefreshState> = self.fetch(id.as_ref())?;
+        let state: Option<RefreshState> = self.get_refresh_state(entity_id, entity_kind)?;
         match state {
             Some(state) => {
                 use super::schema::refresh_state::dsl;
@@ -58,16 +115,17 @@ impl DbConnection<'_> {
 #[cfg(test)]
 pub(crate) mod tests {
     use super::*;
-    use crate::{storage::encrypted_store::tests::with_connection, Fetch, Store};
+    use crate::{storage::encrypted_store::tests::with_connection, Store};
 
     #[test]
     fn get_cursor_with_no_existing_state() {
         with_connection(|conn| {
             let id = vec![1, 2, 3];
-            let entry: Option<RefreshState> = conn.fetch(&id).unwrap();
+            let kind = EntityKind::Group;
+            let entry: Option<RefreshState> = conn.get_refresh_state(&id, kind).unwrap();
             assert!(entry.is_none());
-            assert_eq!(conn.get_last_cursor_for_id(&id).unwrap(), 0);
-            let entry: Option<RefreshState> = conn.fetch(&id).unwrap();
+            assert_eq!(conn.get_last_cursor_for_id(&id, kind).unwrap(), 0);
+            let entry: Option<RefreshState> = conn.get_refresh_state(&id, kind).unwrap();
             assert!(entry.is_some());
         })
     }
@@ -76,12 +134,14 @@ pub(crate) mod tests {
     fn get_timestamp_with_existing_state() {
         with_connection(|conn| {
             let id = vec![1, 2, 3];
+            let entity_kind = EntityKind::Welcome;
             let entry = RefreshState {
-                id: id.clone(),
+                entity_id: id.clone(),
+                entity_kind,
                 cursor: 123,
             };
             entry.store(conn).unwrap();
-            assert_eq!(conn.get_last_cursor_for_id(&id).unwrap(), 123);
+            assert_eq!(conn.get_last_cursor_for_id(&id, entity_kind).unwrap(), 123);
         })
     }
 
@@ -89,13 +149,15 @@ pub(crate) mod tests {
     fn update_timestamp_when_bigger() {
         with_connection(|conn| {
             let id = vec![1, 2, 3];
+            let entity_kind = EntityKind::Group;
             let entry = RefreshState {
-                id: id.clone(),
+                entity_id: id.clone(),
+                entity_kind: entity_kind,
                 cursor: 123,
             };
             entry.store(conn).unwrap();
-            assert!(conn.update_cursor(&id, 124).unwrap());
-            let entry: Option<RefreshState> = conn.fetch(&id).unwrap();
+            assert!(conn.update_cursor(&id, entity_kind, 124).unwrap());
+            let entry: Option<RefreshState> = conn.get_refresh_state(&id, entity_kind).unwrap();
             assert_eq!(entry.unwrap().cursor, 124);
         })
     }
@@ -103,15 +165,51 @@ pub(crate) mod tests {
     #[test]
     fn dont_update_timestamp_when_smaller() {
         with_connection(|conn| {
-            let id = vec![1, 2, 3];
+            let entity_id = vec![1, 2, 3];
+            let entity_kind = EntityKind::Welcome;
+
             let entry = RefreshState {
-                id: id.clone(),
+                entity_id: entity_id.clone(),
+                entity_kind,
                 cursor: 123,
             };
             entry.store(conn).unwrap();
-            assert!(!conn.update_cursor(&id, 122).unwrap());
-            let entry: Option<RefreshState> = conn.fetch(&id).unwrap();
+            assert!(!conn.update_cursor(&entity_id, entity_kind, 122).unwrap());
+            let entry: Option<RefreshState> =
+                conn.get_refresh_state(&entity_id, entity_kind).unwrap();
             assert_eq!(entry.unwrap().cursor, 123);
+        })
+    }
+
+    #[test]
+    fn allow_installation_and_welcome_same_id() {
+        with_connection(|conn| {
+            let entity_id = vec![1, 2, 3];
+            let welcome_state = RefreshState {
+                entity_id: entity_id.clone(),
+                entity_kind: EntityKind::Welcome,
+                cursor: 123,
+            };
+            welcome_state.store(conn).unwrap();
+
+            let group_state = RefreshState {
+                entity_id: entity_id.clone(),
+                entity_kind: EntityKind::Group,
+                cursor: 456,
+            };
+            group_state.store(conn).unwrap();
+
+            let welcome_state_retrieved = conn
+                .get_refresh_state(&entity_id, EntityKind::Welcome)
+                .unwrap()
+                .unwrap();
+            assert_eq!(welcome_state_retrieved.cursor, 123);
+
+            let group_state_retrieved = conn
+                .get_refresh_state(&entity_id, EntityKind::Group)
+                .unwrap()
+                .unwrap();
+            assert_eq!(group_state_retrieved.cursor, 456);
         })
     }
 }

@@ -4,7 +4,7 @@ mod intents;
 mod members;
 mod subscriptions;
 pub mod validated_commit;
-use crate::codecs::ContentCodec;
+use crate::{codecs::ContentCodec, storage::refresh_state::EntityKind};
 use intents::SendMessageIntentData;
 use log::debug;
 use openmls::{
@@ -487,6 +487,7 @@ where
 
         self.client.process_for_id(
             &msgv1.group_id,
+            EntityKind::Group,
             msgv1.id,
             |provider| -> Result<(), MessageProcessingError> {
                 self.process_message(openmls_group, &provider, &msgv1, true)?;

@@ -49,8 +49,9 @@ diesel::table! {
 }
 
 diesel::table! {
-    refresh_state (id) {
-        id -> Binary,
+    refresh_state (entity_id, entity_kind) {
+        entity_id -> Binary,
+        entity_kind -> Integer,
         cursor -> BigInt,
     }
 }

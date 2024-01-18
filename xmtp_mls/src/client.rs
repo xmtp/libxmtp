@@ -29,6 +29,7 @@ use crate::{
     storage::{
         db_connection::DbConnection,
         group::{GroupMembershipState, StoredGroup},
+        refresh_state::EntityKind,
         EncryptedMessageStore, StorageError,
     },
     types::Address,
@@ -263,7 +264,7 @@ where
         group_id: &Vec<u8>,
     ) -> Result<Vec<GroupMessage>, ClientError> {
         let conn = self.store.conn()?;
-        let id_cursor = conn.get_last_cursor_for_id(group_id)?;
+        let id_cursor = conn.get_last_cursor_for_id(group_id, EntityKind::Group)?;
 
         let welcomes = self
             .api_client
@@ -276,7 +277,7 @@ where
     pub(crate) async fn query_welcome_messages(&self) -> Result<Vec<WelcomeMessage>, ClientError> {
         let conn = self.store.conn()?;
         let installation_id = self.installation_public_key();
-        let id_cursor = conn.get_last_cursor_for_id(&installation_id)?;
+        let id_cursor = conn.get_last_cursor_for_id(&installation_id, EntityKind::Welcome)?;
 
         let welcomes = self
             .api_client
@@ -289,6 +290,7 @@ where
     pub(crate) fn process_for_id<ProcessingFn, ReturnValue>(
         &self,
         entity_id: &Vec<u8>,
+        entity_kind: EntityKind,
         cursor: u64,
         process_envelope: ProcessingFn,
     ) -> Result<ReturnValue, MessageProcessingError>
@@ -296,7 +298,10 @@ where
         ProcessingFn: FnOnce(XmtpOpenMlsProvider) -> Result<ReturnValue, MessageProcessingError>,
     {
         self.store.transaction(|provider| {
-            let is_updated = provider.conn().update_cursor(entity_id, cursor as i64)?;
+            let is_updated =
+                provider
+                    .conn()
+                    .update_cursor(entity_id, entity_kind, cursor as i64)?;
             if !is_updated {
                 return Err(MessageProcessingError::AlreadyProcessed(cursor));
             }
@@ -365,7 +370,7 @@ where
                     }
                 };
 
-                self.process_for_id(&id, welcome_v1.id, |provider| {
+                self.process_for_id(&id, EntityKind::Welcome, welcome_v1.id, |provider| {
                     let welcome = match deserialize_welcome(&welcome_v1.data) {
                         Ok(welcome) => welcome,
                         Err(err) => {
