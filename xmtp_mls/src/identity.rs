@@ -15,8 +15,8 @@ use xmtp_cryptography::signature::SignatureError;
 use xmtp_proto::xmtp::mls::message_contents::MlsCredential as CredentialProto;
 
 use crate::{
-    association::{AssociationError, Credential},
     configuration::CIPHERSUITE,
+    credential::{AssociationError, Credential},
     storage::{identity::StoredIdentity, StorageError},
     types::Address,
     xmtp_openmls_provider::XmtpOpenMlsProvider,

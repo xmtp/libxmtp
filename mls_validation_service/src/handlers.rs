@@ -135,7 +135,7 @@ mod tests {
     use openmls_basic_credential::SignatureKeyPair;
     use openmls_rust_crypto::OpenMlsRustCrypto;
     use prost::Message;
-    use xmtp_mls::{association::Credential, InboxOwner};
+    use xmtp_mls::{credential::Credential, InboxOwner};
     use xmtp_proto::xmtp::{
         mls::message_contents::MlsCredential as CredentialProto,
         mls_validation::v1::validate_key_packages_request::KeyPackage as KeyPackageProtoWrapper,
