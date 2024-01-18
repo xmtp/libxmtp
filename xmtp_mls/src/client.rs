@@ -12,7 +12,7 @@ use prost::EncodeError;
 use thiserror::Error;
 use tls_codec::{Deserialize, Error as TlsSerializationError};
 use xmtp_proto::{
-    api_client::{XmtpApiClient, XmtpMlsClient},
+    api_client::XmtpMlsClient,
     xmtp::mls::api::v1::{
         welcome_message::{Version as WelcomeMessageVersion, V1 as WelcomeMessageV1},
         GroupMessage, WelcomeMessage,
@@ -143,7 +143,7 @@ pub struct Client<ApiClient> {
 
 impl<'a, ApiClient> Client<ApiClient>
 where
-    ApiClient: XmtpMlsClient + XmtpApiClient,
+    ApiClient: XmtpMlsClient,
 {
     pub fn new(
         api_client: ApiClient,
@@ -456,7 +456,6 @@ mod tests {
     use xmtp_cryptography::utils::generate_local_wallet;
 
     use crate::{builder::ClientBuilder, InboxOwner};
-    use futures::StreamExt;
 
     #[tokio::test]
     async fn test_mls_error() {

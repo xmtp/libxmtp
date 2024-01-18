@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
 use openmls::group::MlsGroup as OpenMlsGroup;
-use xmtp_proto::api_client::{XmtpApiClient, XmtpMlsClient};
+use xmtp_proto::api_client::XmtpMlsClient;
 
 use crate::identity::Identity;
 
@@ -15,7 +15,7 @@ pub struct GroupMember {
 
 impl<'c, ApiClient> MlsGroup<'c, ApiClient>
 where
-    ApiClient: XmtpApiClient + XmtpMlsClient,
+    ApiClient: XmtpMlsClient,
 {
     // Load the member list for the group from the DB, merging together multiple installations into a single entry
     pub fn members(&self) -> Result<Vec<GroupMember>, GroupError> {

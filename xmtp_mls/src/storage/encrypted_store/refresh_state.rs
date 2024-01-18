@@ -180,7 +180,7 @@ pub(crate) mod tests {
             assert_eq!(entry.unwrap().cursor, 123);
         })
     }
-
+    
     #[test]
     fn allow_installation_and_welcome_same_id() {
         with_connection(|conn| {

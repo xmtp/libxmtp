@@ -25,7 +25,7 @@ use thiserror::Error;
 use tls_codec::{Deserialize, Serialize};
 use xmtp_cryptography::signature::{is_valid_ed25519_public_key, is_valid_ethereum_address};
 use xmtp_proto::{
-    api_client::{XmtpApiClient, XmtpMlsClient},
+    api_client::XmtpMlsClient,
     xmtp::mls::api::v1::{
         group_message::{Version as GroupMessageVersion, V1 as GroupMessageV1},
         welcome_message_input::{
@@ -134,7 +134,7 @@ pub struct MlsGroup<'c, ApiClient> {
 
 impl<'c, ApiClient> MlsGroup<'c, ApiClient>
 where
-    ApiClient: XmtpApiClient + XmtpMlsClient,
+    ApiClient: XmtpMlsClient,
 {
     // Creates a new group instance. Does not validate that the group exists in the DB
     pub fn new(client: &'c Client<ApiClient>, group_id: Vec<u8>, created_at_ns: i64) -> Self {
@@ -847,6 +847,13 @@ where
         }
 
         Ok(())
+    }
+}
+
+fn extract_message_v1(message: GroupMessage) -> Result<GroupMessageV1, MessageProcessingError> {
+    match message.version {
+        Some(GroupMessageVersion::V1(value)) => Ok(value),
+        _ => Err(MessageProcessingError::InvalidPayload),
     }
 }
 

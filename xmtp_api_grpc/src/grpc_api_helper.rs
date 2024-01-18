@@ -13,6 +13,10 @@ use hyper_rustls::HttpsConnector;
 use tokio::sync::oneshot;
 use tokio_rustls::rustls::{ClientConfig, OwnedTrustAnchor, RootCertStore};
 use tonic::{async_trait, metadata::MetadataValue, transport::Channel, Request, Status, Streaming};
+use xmtp_proto::api_client::{GroupMessageStream, WelcomeMessageStream};
+use xmtp_proto::xmtp::mls::api::v1::{
+    SubscribeGroupMessagesRequest, SubscribeWelcomeMessagesRequest,
+};
 use xmtp_proto::{
     api_client::{
         Error, ErrorKind, MutableApiSubscription, XmtpApiClient, XmtpApiSubscription, XmtpMlsClient,
@@ -386,8 +390,6 @@ impl MutableApiSubscription for GrpcMutableSubscription {
 
 #[async_trait]
 impl XmtpMlsClient for Client {
-    type Subscription = GrpcMutableSubscription;
-
     async fn register_installation(
         &self,
         req: RegisterInstallationRequest,
@@ -469,7 +471,7 @@ impl XmtpMlsClient for Client {
             InnerMlsClient::Plain(c) => c.clone().query_welcome_messages(req).await,
             InnerMlsClient::Tls(c) => c.clone().query_welcome_messages(req).await,
         };
-        
+
         res.map(|r| r.into_inner())
             .map_err(|e| Error::new(ErrorKind::MlsError).with(e))
     }
@@ -485,5 +487,39 @@ impl XmtpMlsClient for Client {
 
         res.map(|r| r.into_inner())
             .map_err(|e| Error::new(ErrorKind::MlsError).with(e))
+    }
+
+    async fn subscribe_group_messages(
+        &self,
+        req: SubscribeGroupMessagesRequest,
+    ) -> Result<GroupMessageStream, Error> {
+        let res = match &self.mls_client {
+            InnerMlsClient::Plain(c) => c.clone().subscribe_group_messages(req).await,
+            InnerMlsClient::Tls(c) => c.clone().subscribe_group_messages(req).await,
+        }
+        .map_err(|e| Error::new(ErrorKind::MlsError).with(e))?;
+
+        let stream = res.into_inner();
+
+        let new_stream = stream.map_err(|e| Error::new(ErrorKind::SubscribeError).with(e));
+
+        Ok(Box::pin(new_stream))
+    }
+
+    async fn subscribe_welcome_messages(
+        &self,
+        req: SubscribeWelcomeMessagesRequest,
+    ) -> Result<WelcomeMessageStream, Error> {
+        let res = match &self.mls_client {
+            InnerMlsClient::Plain(c) => c.clone().subscribe_welcome_messages(req).await,
+            InnerMlsClient::Tls(c) => c.clone().subscribe_welcome_messages(req).await,
+        }
+        .map_err(|e| Error::new(ErrorKind::MlsError).with(e))?;
+
+        let stream = res.into_inner();
+
+        let new_stream = stream.map_err(|e| Error::new(ErrorKind::SubscribeError).with(e));
+
+        Ok(Box::pin(new_stream))
     }
 }
