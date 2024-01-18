@@ -3,28 +3,28 @@
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct WelcomeMessage {
-    #[prost(oneof = "welcome_message::Version", tags = "1")]
+    #[prost(oneof="welcome_message::Version", tags="1")]
     pub version: ::core::option::Option<welcome_message::Version>,
 }
 /// Nested message and enum types in `WelcomeMessage`.
 pub mod welcome_message {
     /// Version 1 of the WelcomeMessage format
     #[allow(clippy::derive_partial_eq_without_eq)]
-    #[derive(Clone, PartialEq, ::prost::Message)]
+#[derive(Clone, PartialEq, ::prost::Message)]
     pub struct V1 {
-        #[prost(uint64, tag = "1")]
+        #[prost(uint64, tag="1")]
         pub id: u64,
-        #[prost(uint64, tag = "2")]
+        #[prost(uint64, tag="2")]
         pub created_ns: u64,
-        #[prost(bytes = "vec", tag = "3")]
+        #[prost(bytes="vec", tag="3")]
         pub installation_key: ::prost::alloc::vec::Vec<u8>,
-        #[prost(bytes = "vec", tag = "4")]
+        #[prost(bytes="vec", tag="4")]
         pub data: ::prost::alloc::vec::Vec<u8>,
     }
     #[allow(clippy::derive_partial_eq_without_eq)]
-    #[derive(Clone, PartialEq, ::prost::Oneof)]
+#[derive(Clone, PartialEq, ::prost::Oneof)]
     pub enum Version {
-        #[prost(message, tag = "1")]
+        #[prost(message, tag="1")]
         V1(V1),
     }
 }
@@ -32,24 +32,24 @@ pub mod welcome_message {
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct WelcomeMessageInput {
-    #[prost(oneof = "welcome_message_input::Version", tags = "1")]
+    #[prost(oneof="welcome_message_input::Version", tags="1")]
     pub version: ::core::option::Option<welcome_message_input::Version>,
 }
 /// Nested message and enum types in `WelcomeMessageInput`.
 pub mod welcome_message_input {
     /// Version 1 of the WelcomeMessageInput format
     #[allow(clippy::derive_partial_eq_without_eq)]
-    #[derive(Clone, PartialEq, ::prost::Message)]
+#[derive(Clone, PartialEq, ::prost::Message)]
     pub struct V1 {
-        #[prost(bytes = "vec", tag = "1")]
+        #[prost(bytes="vec", tag="1")]
         pub installation_key: ::prost::alloc::vec::Vec<u8>,
-        #[prost(bytes = "vec", tag = "2")]
+        #[prost(bytes="vec", tag="2")]
         pub data: ::prost::alloc::vec::Vec<u8>,
     }
     #[allow(clippy::derive_partial_eq_without_eq)]
-    #[derive(Clone, PartialEq, ::prost::Oneof)]
+#[derive(Clone, PartialEq, ::prost::Oneof)]
     pub enum Version {
-        #[prost(message, tag = "1")]
+        #[prost(message, tag="1")]
         V1(V1),
     }
 }
@@ -57,28 +57,28 @@ pub mod welcome_message_input {
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct GroupMessage {
-    #[prost(oneof = "group_message::Version", tags = "1")]
+    #[prost(oneof="group_message::Version", tags="1")]
     pub version: ::core::option::Option<group_message::Version>,
 }
 /// Nested message and enum types in `GroupMessage`.
 pub mod group_message {
     /// Version 1 of the GroupMessage format
     #[allow(clippy::derive_partial_eq_without_eq)]
-    #[derive(Clone, PartialEq, ::prost::Message)]
+#[derive(Clone, PartialEq, ::prost::Message)]
     pub struct V1 {
-        #[prost(uint64, tag = "1")]
+        #[prost(uint64, tag="1")]
         pub id: u64,
-        #[prost(uint64, tag = "2")]
+        #[prost(uint64, tag="2")]
         pub created_ns: u64,
-        #[prost(bytes = "vec", tag = "3")]
+        #[prost(bytes="vec", tag="3")]
         pub group_id: ::prost::alloc::vec::Vec<u8>,
-        #[prost(bytes = "vec", tag = "4")]
+        #[prost(bytes="vec", tag="4")]
         pub data: ::prost::alloc::vec::Vec<u8>,
     }
     #[allow(clippy::derive_partial_eq_without_eq)]
-    #[derive(Clone, PartialEq, ::prost::Oneof)]
+#[derive(Clone, PartialEq, ::prost::Oneof)]
     pub enum Version {
-        #[prost(message, tag = "1")]
+        #[prost(message, tag="1")]
         V1(V1),
     }
 }
@@ -86,22 +86,22 @@ pub mod group_message {
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct GroupMessageInput {
-    #[prost(oneof = "group_message_input::Version", tags = "1")]
+    #[prost(oneof="group_message_input::Version", tags="1")]
     pub version: ::core::option::Option<group_message_input::Version>,
 }
 /// Nested message and enum types in `GroupMessageInput`.
 pub mod group_message_input {
     /// Version 1 of the GroupMessageInput payload format
     #[allow(clippy::derive_partial_eq_without_eq)]
-    #[derive(Clone, PartialEq, ::prost::Message)]
+#[derive(Clone, PartialEq, ::prost::Message)]
     pub struct V1 {
-        #[prost(bytes = "vec", tag = "1")]
+        #[prost(bytes="vec", tag="1")]
         pub data: ::prost::alloc::vec::Vec<u8>,
     }
     #[allow(clippy::derive_partial_eq_without_eq)]
-    #[derive(Clone, PartialEq, ::prost::Oneof)]
+#[derive(Clone, PartialEq, ::prost::Oneof)]
     pub enum Version {
-        #[prost(message, tag = "1")]
+        #[prost(message, tag="1")]
         V1(V1),
     }
 }
@@ -109,14 +109,14 @@ pub mod group_message_input {
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct SendGroupMessagesRequest {
-    #[prost(message, repeated, tag = "1")]
+    #[prost(message, repeated, tag="1")]
     pub messages: ::prost::alloc::vec::Vec<GroupMessageInput>,
 }
 /// Send a batch of welcome messages
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct SendWelcomeMessagesRequest {
-    #[prost(message, repeated, tag = "1")]
+    #[prost(message, repeated, tag="1")]
     pub messages: ::prost::alloc::vec::Vec<WelcomeMessageInput>,
 }
 /// A wrapper around the Key Package bytes
@@ -128,7 +128,7 @@ pub struct SendWelcomeMessagesRequest {
 pub struct KeyPackageUpload {
     /// The owner's wallet address would be extracted from the identity
     /// credential in the key package, and all signatures would be validated.
-    #[prost(bytes = "vec", tag = "1")]
+    #[prost(bytes="vec", tag="1")]
     pub key_package_tls_serialized: ::prost::alloc::vec::Vec<u8>,
 }
 /// Register a new installation
@@ -136,14 +136,14 @@ pub struct KeyPackageUpload {
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct RegisterInstallationRequest {
     /// The Key Package contains all information needed to register an installation
-    #[prost(message, optional, tag = "1")]
+    #[prost(message, optional, tag="1")]
     pub key_package: ::core::option::Option<KeyPackageUpload>,
 }
 /// The response to a RegisterInstallationRequest
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct RegisterInstallationResponse {
-    #[prost(bytes = "vec", tag = "1")]
+    #[prost(bytes="vec", tag="1")]
     pub installation_key: ::prost::alloc::vec::Vec<u8>,
 }
 /// Upload a new key packages
@@ -151,7 +151,7 @@ pub struct RegisterInstallationResponse {
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct UploadKeyPackageRequest {
     /// An individual key package upload request
-    #[prost(message, optional, tag = "1")]
+    #[prost(message, optional, tag="1")]
     pub key_package: ::core::option::Option<KeyPackageUpload>,
 }
 /// Fetch one or more key packages
@@ -161,7 +161,7 @@ pub struct FetchKeyPackagesRequest {
     /// The caller can provide an array of installation keys, and the API
     /// will return one key package for each installation associated with each
     /// installation key
-    #[prost(bytes = "vec", repeated, tag = "1")]
+    #[prost(bytes="vec", repeated, tag="1")]
     pub installation_keys: ::prost::alloc::vec::Vec<::prost::alloc::vec::Vec<u8>>,
 }
 /// The response to a FetchKeyPackagesRequest
@@ -171,16 +171,16 @@ pub struct FetchKeyPackagesResponse {
     /// Returns one key package per installation in the original order of the
     /// request. If any installations are missing key packages, an empty entry is
     /// left in their respective spots in the array.
-    #[prost(message, repeated, tag = "1")]
+    #[prost(message, repeated, tag="1")]
     pub key_packages: ::prost::alloc::vec::Vec<fetch_key_packages_response::KeyPackage>,
 }
 /// Nested message and enum types in `FetchKeyPackagesResponse`.
 pub mod fetch_key_packages_response {
     /// An individual key package
     #[allow(clippy::derive_partial_eq_without_eq)]
-    #[derive(Clone, PartialEq, ::prost::Message)]
+#[derive(Clone, PartialEq, ::prost::Message)]
     pub struct KeyPackage {
-        #[prost(bytes = "vec", tag = "1")]
+        #[prost(bytes="vec", tag="1")]
         pub key_package_tls_serialized: ::prost::alloc::vec::Vec<u8>,
     }
 }
@@ -188,20 +188,20 @@ pub mod fetch_key_packages_response {
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct RevokeInstallationRequest {
-    #[prost(bytes = "vec", tag = "1")]
+    #[prost(bytes="vec", tag="1")]
     pub installation_key: ::prost::alloc::vec::Vec<u8>,
     /// All revocations must be validated with a wallet signature over the
     /// installation_id being revoked (and some sort of standard prologue)
-    #[prost(message, optional, tag = "2")]
+    #[prost(message, optional, tag="2")]
     pub wallet_signature: ::core::option::Option<super::super::super::message_contents::Signature>,
 }
 /// Get all updates for an identity since the specified time
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct GetIdentityUpdatesRequest {
-    #[prost(string, repeated, tag = "1")]
+    #[prost(string, repeated, tag="1")]
     pub account_addresses: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
-    #[prost(uint64, tag = "2")]
+    #[prost(uint64, tag="2")]
     pub start_time_ns: u64,
 }
 /// Used to get any new or revoked installations for a list of wallet addresses
@@ -210,52 +210,52 @@ pub struct GetIdentityUpdatesRequest {
 pub struct GetIdentityUpdatesResponse {
     /// A list of updates (or empty objects if no changes) in the original order
     /// of the request
-    #[prost(message, repeated, tag = "1")]
+    #[prost(message, repeated, tag="1")]
     pub updates: ::prost::alloc::vec::Vec<get_identity_updates_response::WalletUpdates>,
 }
 /// Nested message and enum types in `GetIdentityUpdatesResponse`.
 pub mod get_identity_updates_response {
     /// A new installation key was seen for the first time by the nodes
     #[allow(clippy::derive_partial_eq_without_eq)]
-    #[derive(Clone, PartialEq, ::prost::Message)]
+#[derive(Clone, PartialEq, ::prost::Message)]
     pub struct NewInstallationUpdate {
-        #[prost(bytes = "vec", tag = "1")]
+        #[prost(bytes="vec", tag="1")]
         pub installation_key: ::prost::alloc::vec::Vec<u8>,
-        #[prost(bytes = "vec", tag = "2")]
+        #[prost(bytes="vec", tag="2")]
         pub credential_identity: ::prost::alloc::vec::Vec<u8>,
     }
     /// An installation was revoked
     #[allow(clippy::derive_partial_eq_without_eq)]
-    #[derive(Clone, PartialEq, ::prost::Message)]
+#[derive(Clone, PartialEq, ::prost::Message)]
     pub struct RevokedInstallationUpdate {
-        #[prost(bytes = "vec", tag = "1")]
+        #[prost(bytes="vec", tag="1")]
         pub installation_key: ::prost::alloc::vec::Vec<u8>,
     }
     /// A wrapper for any update to the wallet
     #[allow(clippy::derive_partial_eq_without_eq)]
-    #[derive(Clone, PartialEq, ::prost::Message)]
+#[derive(Clone, PartialEq, ::prost::Message)]
     pub struct Update {
-        #[prost(uint64, tag = "1")]
+        #[prost(uint64, tag="1")]
         pub timestamp_ns: u64,
-        #[prost(oneof = "update::Kind", tags = "2, 3")]
+        #[prost(oneof="update::Kind", tags="2, 3")]
         pub kind: ::core::option::Option<update::Kind>,
     }
     /// Nested message and enum types in `Update`.
     pub mod update {
         #[allow(clippy::derive_partial_eq_without_eq)]
-        #[derive(Clone, PartialEq, ::prost::Oneof)]
+#[derive(Clone, PartialEq, ::prost::Oneof)]
         pub enum Kind {
-            #[prost(message, tag = "2")]
+            #[prost(message, tag="2")]
             NewInstallation(super::NewInstallationUpdate),
-            #[prost(message, tag = "3")]
+            #[prost(message, tag="3")]
             RevokedInstallation(super::RevokedInstallationUpdate),
         }
     }
     /// A wrapper for the updates for a single wallet
     #[allow(clippy::derive_partial_eq_without_eq)]
-    #[derive(Clone, PartialEq, ::prost::Message)]
+#[derive(Clone, PartialEq, ::prost::Message)]
     pub struct WalletUpdates {
-        #[prost(message, repeated, tag = "1")]
+        #[prost(message, repeated, tag="1")]
         pub updates: ::prost::alloc::vec::Vec<Update>,
     }
 }
@@ -263,65 +263,65 @@ pub mod get_identity_updates_response {
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct PagingInfo {
-    #[prost(enumeration = "SortDirection", tag = "1")]
+    #[prost(enumeration="SortDirection", tag="1")]
     pub direction: i32,
-    #[prost(uint32, tag = "2")]
+    #[prost(uint32, tag="2")]
     pub limit: u32,
-    #[prost(uint64, tag = "3")]
+    #[prost(uint64, tag="3")]
     pub id_cursor: u64,
 }
 /// Request for group message queries
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct QueryGroupMessagesRequest {
-    #[prost(bytes = "vec", tag = "1")]
+    #[prost(bytes="vec", tag="1")]
     pub group_id: ::prost::alloc::vec::Vec<u8>,
-    #[prost(message, optional, tag = "2")]
+    #[prost(message, optional, tag="2")]
     pub paging_info: ::core::option::Option<PagingInfo>,
 }
 /// Response for group message queries
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct QueryGroupMessagesResponse {
-    #[prost(message, repeated, tag = "1")]
+    #[prost(message, repeated, tag="1")]
     pub messages: ::prost::alloc::vec::Vec<GroupMessage>,
-    #[prost(message, optional, tag = "2")]
+    #[prost(message, optional, tag="2")]
     pub paging_info: ::core::option::Option<PagingInfo>,
 }
 /// Request for welcome message queries
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct QueryWelcomeMessagesRequest {
-    #[prost(bytes = "vec", tag = "1")]
+    #[prost(bytes="vec", tag="1")]
     pub installation_key: ::prost::alloc::vec::Vec<u8>,
-    #[prost(message, optional, tag = "2")]
+    #[prost(message, optional, tag="2")]
     pub paging_info: ::core::option::Option<PagingInfo>,
 }
 /// Response for welcome message queries
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct QueryWelcomeMessagesResponse {
-    #[prost(message, repeated, tag = "1")]
+    #[prost(message, repeated, tag="1")]
     pub messages: ::prost::alloc::vec::Vec<WelcomeMessage>,
-    #[prost(message, optional, tag = "2")]
+    #[prost(message, optional, tag="2")]
     pub paging_info: ::core::option::Option<PagingInfo>,
 }
 /// Request for subscribing to group messages
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct SubscribeGroupMessagesRequest {
-    #[prost(message, repeated, tag = "1")]
+    #[prost(message, repeated, tag="1")]
     pub filters: ::prost::alloc::vec::Vec<subscribe_group_messages_request::Filter>,
 }
 /// Nested message and enum types in `SubscribeGroupMessagesRequest`.
 pub mod subscribe_group_messages_request {
     /// Subscription filter
     #[allow(clippy::derive_partial_eq_without_eq)]
-    #[derive(Clone, PartialEq, ::prost::Message)]
+#[derive(Clone, PartialEq, ::prost::Message)]
     pub struct Filter {
-        #[prost(bytes = "vec", tag = "1")]
+        #[prost(bytes="vec", tag="1")]
         pub group_id: ::prost::alloc::vec::Vec<u8>,
-        #[prost(uint64, tag = "2")]
+        #[prost(uint64, tag="2")]
         pub id_cursor: u64,
     }
 }
@@ -329,18 +329,18 @@ pub mod subscribe_group_messages_request {
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct SubscribeWelcomeMessagesRequest {
-    #[prost(message, repeated, tag = "1")]
+    #[prost(message, repeated, tag="1")]
     pub filters: ::prost::alloc::vec::Vec<subscribe_welcome_messages_request::Filter>,
 }
 /// Nested message and enum types in `SubscribeWelcomeMessagesRequest`.
 pub mod subscribe_welcome_messages_request {
     /// Subscription filter
     #[allow(clippy::derive_partial_eq_without_eq)]
-    #[derive(Clone, PartialEq, ::prost::Message)]
+#[derive(Clone, PartialEq, ::prost::Message)]
     pub struct Filter {
-        #[prost(bytes = "vec", tag = "1")]
+        #[prost(bytes="vec", tag="1")]
         pub installation_key: ::prost::alloc::vec::Vec<u8>,
-        #[prost(uint64, tag = "2")]
+        #[prost(uint64, tag="2")]
         pub id_cursor: u64,
     }
 }
