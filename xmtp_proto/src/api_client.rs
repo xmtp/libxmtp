@@ -161,10 +161,8 @@ pub trait XmtpMlsClient: Send + Sync {
         &self,
         request: SubscribeGroupMessagesRequest,
     ) -> Result<GroupMessageStream, Error>;
-
     async fn subscribe_welcome_messages(
         &self,
         request: SubscribeWelcomeMessagesRequest,
     ) -> Result<WelcomeMessageStream, Error>;
-    // TODO(snormore): Add Subscribe{Group,Welcome}Messages{Request,Response}
 }
