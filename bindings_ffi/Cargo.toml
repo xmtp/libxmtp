@@ -22,7 +22,7 @@ xmtp_api_grpc = { path = "../xmtp_api_grpc" }
 xmtp_v2 = { path = "../xmtp_v2" }
 futures = "0.3.28"
 tokio = { version = "1.28.1", features = ["macros"] }
-xmtp_proto = { path = "../xmtp_proto", features = ["proto_full"] }
+xmtp_proto = { path = "../xmtp_proto", features = ["xmtp-message_api-v1"] }
 xmtp_user_preferences = { path = "../xmtp_user_preferences" }
 
 [build_dependencies]

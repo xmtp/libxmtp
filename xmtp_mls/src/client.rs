@@ -201,7 +201,6 @@ where
 
     pub async fn register_identity(&self) -> Result<(), ClientError> {
         log::info!("registering identity");
-        // TODO: Mark key package as last_resort in creation
         let connection = self.store.conn()?;
         let kp = self
             .identity
