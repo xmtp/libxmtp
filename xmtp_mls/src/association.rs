@@ -1,5 +1,8 @@
+use std::mem::Discriminant;
+
 use crate::{types::Address, InboxOwner};
 use chrono::Utc;
+use ethers::etherscan::account;
 use openmls_basic_credential::SignatureKeyPair;
 use prost::Message;
 use serde::{Deserialize, Serialize};
@@ -7,15 +10,17 @@ use thiserror::Error;
 use xmtp_cryptography::signature::{
     ed25519_public_key_to_address, RecoverableSignature, SignatureError,
 };
+use xmtp_proto::xmtp::message_contents::signature::Union;
 use xmtp_proto::xmtp::message_contents::{
     unsigned_public_key, UnsignedPublicKey as V2UnsignedPublicKeyProto,
 };
 use xmtp_proto::xmtp::mls::message_contents::{
     mls_credential::Association as AssociationProto,
+    GrantMessagingAccessAssociation as GrantMessagingAccessAssociationProto,
     LegacyCreateIdentityAssociation as LegacyCreateIdentityAssociationProto,
-    MessagingAccessAssociation as MessagingAccessAssociationProto,
     MlsCredential as MlsCredentialProto,
     RecoverableEcdsaSignature as RecoverableEcdsaSignatureProto,
+    RevokeMessagingAccessAssociation as RevokeMessagingAccessAssociationProto,
 };
 use xmtp_v2::k256_helper;
 
@@ -41,7 +46,7 @@ pub enum AssociationError {
 }
 
 pub enum Credential {
-    MessagingAccess(Eip191Association),
+    GrantMessagingAccess(GrantMessagingAccessAssociation),
     LegacyCreateIdentity(LegacyCreateIdentityAssociation),
 }
 
@@ -50,17 +55,13 @@ impl Credential {
         installation_keys: &SignatureKeyPair,
         owner: &impl InboxOwner,
     ) -> Result<Self, AssociationError> {
-        // Generate association
         let iso8601_time = format!("{}", Utc::now().format("%+"));
-        let assoc_text = AssociationText::new_static(
-            AssociationContext::GrantMessagingAccess,
-            owner.get_address(),
+        let association = GrantMessagingAccessAssociation::create(
+            owner,
             installation_keys.to_public_vec(),
             iso8601_time,
-        );
-        let signature = owner.sign(&assoc_text.text())?;
-        let association = Eip191Association::new_validated(assoc_text, signature)?;
-        Ok(Credential::MessagingAccess(association))
+        )?;
+        Ok(Self::GrantMessagingAccess(association))
     }
 
     pub fn create_legacy() -> Result<Self, AssociationError> {
@@ -76,12 +77,13 @@ impl Credential {
             .association
             .ok_or(AssociationError::MalformedAssociation)?
         {
-            AssociationProto::MessagingAccess(assoc) => Eip191Association::from_proto_validated(
-                assoc,
-                AssociationContext::GrantMessagingAccess,
-                &proto.installation_public_key,
-            )
-            .map(Credential::MessagingAccess),
+            AssociationProto::MessagingAccess(assoc) => {
+                GrantMessagingAccessAssociation::from_proto_validated(
+                    assoc,
+                    &proto.installation_public_key,
+                )
+                .map(Credential::GrantMessagingAccess)
+            }
             AssociationProto::LegacyCreateIdentity(assoc) => todo!(),
         }?;
         if let Some(address) = expected_account_address {
@@ -102,21 +104,21 @@ impl Credential {
 
     pub fn address(&self) -> String {
         match &self {
-            Credential::MessagingAccess(assoc) => assoc.address(),
+            Credential::GrantMessagingAccess(assoc) => assoc.address(),
             Credential::LegacyCreateIdentity(assoc) => todo!(),
         }
     }
 
     pub fn installation_public_key(&self) -> Vec<u8> {
         match &self {
-            Credential::MessagingAccess(assoc) => assoc.installation_public_key(),
+            Credential::GrantMessagingAccess(assoc) => assoc.installation_public_key(),
             Credential::LegacyCreateIdentity(assoc) => todo!(),
         }
     }
 
     pub fn iso8601_time(&self) -> String {
         match &self {
-            Credential::MessagingAccess(assoc) => assoc.iso8601_time(),
+            Credential::GrantMessagingAccess(assoc) => assoc.iso8601_time(),
             Credential::LegacyCreateIdentity(assoc) => todo!(),
         }
     }
@@ -127,7 +129,7 @@ impl From<Credential> for MlsCredentialProto {
         Self {
             installation_public_key: credential.installation_public_key(),
             association: match credential {
-                Credential::MessagingAccess(assoc) => {
+                Credential::GrantMessagingAccess(assoc) => {
                     Some(AssociationProto::MessagingAccess(assoc.into()))
                 }
                 Credential::LegacyCreateIdentity(assoc) => todo!(),
@@ -139,52 +141,67 @@ impl From<Credential> for MlsCredentialProto {
 /// An Association is link between a blockchain account and an xmtp installation for the purposes of
 /// authentication.
 #[derive(Serialize, Deserialize, PartialEq, Debug, Clone)]
-struct Eip191Association {
-    text: AssociationText,
+struct GrantMessagingAccessAssociation {
+    account_address: Address,
+    installation_public_key: Vec<u8>,
+    iso8601_time: String,
     signature: RecoverableSignature,
 }
 
-impl Eip191Association {
-    pub fn new_validated(
-        text: AssociationText,
+impl GrantMessagingAccessAssociation {
+    pub(crate) fn new_validated(
+        account_address: Address,
+        installation_public_key: Vec<u8>,
+        iso8601_time: String,
         signature: RecoverableSignature,
     ) -> Result<Self, AssociationError> {
-        let this = Self { text, signature };
+        let this = Self {
+            account_address,
+            installation_public_key,
+            iso8601_time,
+            signature,
+        };
         this.is_valid()?;
         Ok(this)
     }
 
-    pub fn from_proto_validated(
-        proto: MessagingAccessAssociationProto,
-        expected_context: AssociationContext,
+    pub(crate) fn create(
+        owner: &impl InboxOwner,
+        installation_public_key: Vec<u8>,
+        iso8601_time: String,
+    ) -> Result<Self, AssociationError> {
+        let account_address = owner.get_address();
+        let text = Self::text(&account_address, &installation_public_key, &iso8601_time);
+        let signature = owner.sign(&text)?;
+        Self::new_validated(
+            account_address,
+            installation_public_key,
+            iso8601_time,
+            signature,
+        )
+    }
+
+    pub(crate) fn from_proto_validated(
+        proto: GrantMessagingAccessAssociationProto,
         expected_installation_public_key: &[u8],
     ) -> Result<Self, AssociationError> {
-        let text = AssociationText::new_static(
-            expected_context,
+        let signature = RecoverableSignature::Eip191Signature(proto.signature.unwrap().bytes);
+        Self::new_validated(
             proto.account_address,
             expected_installation_public_key.to_vec(),
             proto.iso8601_time,
-        );
-        let signature = RecoverableSignature::Eip191Signature(proto.signature.unwrap().bytes);
-        Self::new_validated(text, signature)
+            signature,
+        )
     }
 
     fn is_valid(&self) -> Result<(), AssociationError> {
-        let assumed_context = self.text.get_context();
-        let assumed_addr = self.text.get_address();
-        let assumed_installation_public_key = self.text.get_installation_public_key();
-        let assumed_time = self.text.get_iso8601_time();
+        let assumed_addr = self.account_address.clone();
 
-        // Ensure the Text properly links the Address and Keybytes
-        self.text.is_valid(
-            assumed_context,
-            &assumed_addr,
-            &assumed_installation_public_key,
-            &assumed_time,
-        )?;
-
-        let addr = self.signature.recover_address(&self.text.text())?;
-
+        let addr = self.signature.recover_address(&Self::text(
+            &self.account_address,
+            &self.installation_public_key,
+            &self.iso8601_time,
+        ))?;
         if assumed_addr != addr {
             Err(AssociationError::AddressMismatch {
                 provided_addr: assumed_addr,
@@ -195,29 +212,57 @@ impl Eip191Association {
         }
     }
 
-    pub fn context(&self) -> AssociationContext {
-        self.text.get_context()
-    }
-
     pub fn address(&self) -> String {
-        self.text.get_address()
+        self.account_address.clone()
     }
 
     pub fn installation_public_key(&self) -> Vec<u8> {
-        self.text.get_installation_public_key()
+        self.installation_public_key.clone()
     }
 
     pub fn iso8601_time(&self) -> String {
-        self.text.get_iso8601_time()
+        self.iso8601_time.clone()
+    }
+
+    fn header_text() -> String {
+        let label = "Grant Messaging Access".to_string();
+        format!("XMTP : {}", label)
+    }
+
+    fn body_text(
+        account_address: &Address,
+        installation_public_key: &[u8],
+        iso8601_time: &str,
+    ) -> String {
+        format!(
+            "\nCurrent Time: {}\nAccount Address: {}\nInstallation ID: {}",
+            iso8601_time,
+            account_address,
+            ed25519_public_key_to_address(installation_public_key)
+        )
+    }
+
+    fn footer_text() -> String {
+        "For more info: https://xmtp.org/signatures/".to_string()
+    }
+
+    fn text(
+        account_address: &Address,
+        installation_public_key: &[u8],
+        iso8601_time: &str,
+    ) -> String {
+        format!(
+            "{}\n{}\n\n{}",
+            Self::header_text(),
+            Self::body_text(account_address, installation_public_key, iso8601_time),
+            Self::footer_text()
+        )
+        .to_string()
     }
 }
 
-impl From<Eip191Association> for MessagingAccessAssociationProto {
-    fn from(assoc: Eip191Association) -> Self {
-        assert!(
-            assoc.context() == AssociationContext::GrantMessagingAccess
-                || assoc.context() == AssociationContext::RevokeMessagingAccess
-        );
+impl From<GrantMessagingAccessAssociation> for GrantMessagingAccessAssociationProto {
+    fn from(assoc: GrantMessagingAccessAssociation) -> Self {
         let account_address = assoc.address();
         let iso8601_time = assoc.iso8601_time();
         Self {
@@ -233,29 +278,69 @@ impl From<Eip191Association> for MessagingAccessAssociationProto {
 }
 
 struct LegacyCreateIdentityAssociation {
+    account_address: Address,
+    installation_public_key: Vec<u8>,
     delegating_signature: Vec<u8>,
-    wallet_association: Eip191Association,
+    serialized_legacy_key: Vec<u8>,
+    wallet_signature: RecoverableSignature,
 }
 
 impl LegacyCreateIdentityAssociation {
+    pub fn new_validated(
+        installation_public_key: Vec<u8>,
+        delegating_signature: Vec<u8>,
+        serialized_legacy_key: Vec<u8>,
+        wallet_signature: RecoverableSignature,
+    ) -> Result<Self, AssociationError> {
+        let account_address =
+            wallet_signature.recover_address(&Self::text(&serialized_legacy_key))?;
+        let this = Self {
+            account_address,
+            installation_public_key,
+            delegating_signature,
+            serialized_legacy_key,
+            wallet_signature,
+        };
+        this.is_valid()?;
+        Ok(this)
+    }
+
     pub fn from_proto_validated(
         proto: LegacyCreateIdentityAssociationProto,
         expected_installation_public_key: &[u8],
     ) -> Result<Self, AssociationError> {
-        // Validate legacy key signs installation key
-        let v2_signature = proto
+        let delegating_signature = proto
             .signature
             .ok_or(AssociationError::MalformedAssociation)?
             .bytes;
-        let v2_public_key_proto = V2UnsignedPublicKeyProto::decode(
-            proto
-                .signed_legacy_create_identity_key
-                .ok_or(AssociationError::MalformedAssociation)?
-                .key_bytes
-                .as_slice(),
+        let legacy_signed_public_key_proto = proto
+            .signed_legacy_create_identity_key
+            .ok_or(AssociationError::MalformedAssociation)?;
+        let serialized_legacy_key = legacy_signed_public_key_proto.key_bytes;
+        let Union::WalletEcdsaCompact(wallet_ecdsa_compact) = legacy_signed_public_key_proto
+            .signature
+            .ok_or(AssociationError::MalformedAssociation)?
+            .union
+            .ok_or(AssociationError::MalformedAssociation)?
+        else {
+            return Err(AssociationError::MalformedAssociation);
+        };
+        let mut wallet_signature = wallet_ecdsa_compact.bytes.clone();
+        wallet_signature.push(wallet_ecdsa_compact.recovery as u8); // TODO: normalize recovery ID if necessary
+        Self::new_validated(
+            expected_installation_public_key.to_vec(),
+            delegating_signature,
+            serialized_legacy_key,
+            RecoverableSignature::Eip191Signature(wallet_signature),
         )
-        .or(Err(AssociationError::MalformedAssociation))?;
-        let v2_public_key_bytes = match v2_public_key_proto
+    }
+
+    fn is_valid(&self) -> Result<(), AssociationError> {
+        // Validate legacy key signs installation key
+        let legacy_unsigned_public_key_proto =
+            V2UnsignedPublicKeyProto::decode(self.serialized_legacy_key.as_slice())
+                .or(Err(AssociationError::MalformedAssociation))?;
+        let legacy_public_key_bytes = match legacy_unsigned_public_key_proto
             .union
             .ok_or(AssociationError::MalformedAssociation)?
         {
@@ -264,159 +349,227 @@ impl LegacyCreateIdentityAssociation {
             }
             _ => return Err(AssociationError::MalformedAssociation),
         };
-        if v2_public_key_bytes.len() != 65 {
+        if self.delegating_signature.len() != 65 {
             return Err(AssociationError::MalformedAssociation);
         }
         assert!(k256_helper::verify_sha256(
-            &v2_public_key_bytes,             // signed_by
-            expected_installation_public_key, // message
-            &v2_signature[0..64],             // signature
-            v2_signature[64],                 // recovery_id
+            &legacy_public_key_bytes,          // signed_by
+            &self.installation_public_key,     // message
+            &self.delegating_signature[0..64], // signature
+            self.delegating_signature[64],     // recovery_id
         )
         .map_err(|err| AssociationError::BadLegacySignature(err))?); // always returns true if no error
 
         // Validate wallet signs legacy key
+        let account_address = self
+            .wallet_signature
+            .recover_address(&Self::text(&self.serialized_legacy_key))?;
+        if self.account_address != account_address {
+            Err(AssociationError::AddressMismatch {
+                provided_addr: self.account_address.clone(),
+                signing_addr: account_address,
+            })
+        } else {
+            Ok(())
+        }
+    }
+
+    pub fn address(&self) -> String {
         todo!()
-        // let text = AssociationText::new_static(
-        //     expected_context,
-        //     proto.account_address,
-        //     expected_installation_public_key.to_vec(),
-        //     proto.iso8601_time,
-        // );
-        // let signature = RecoverableSignature::MessagingAccessSignature(proto.signature.unwrap().bytes);
-        // Self::new_validated(text, signature)
+    }
+
+    pub fn installation_public_key(&self) -> Vec<u8> {
+        todo!()
+    }
+
+    pub fn iso8601_time(&self) -> String {
+        todo!()
+    }
+
+    fn header_text() -> String {
+        let label = "Create Identity".to_string();
+        format!("XMTP : {}", label)
+    }
+
+    fn body_text(serialized_legacy_key: &[u8]) -> String {
+        hex::encode(serialized_legacy_key)
+    }
+
+    fn footer_text() -> String {
+        "For more info: https://xmtp.org/signatures/".to_string()
+    }
+
+    fn text(serialized_legacy_key: &[u8]) -> String {
+        format!(
+            "{}\n{}\n\n{}",
+            Self::header_text(),
+            Self::body_text(serialized_legacy_key),
+            Self::footer_text()
+        )
+        .to_string()
     }
 }
 
-/// AssociationText represents the string which was signed by the authorizing blockchain account. A
-/// valid AssociationText must contain the address of the blockchain account and a representation of
+/// AssociationData represents the string which was signed by the authorizing blockchain account. A
+/// valid AssociationData must contain the address of the blockchain account and a representation of
 /// the XMTP installation public key. Different standards may choose how this information is
 /// encoded, as well as adding extra requirements for increased security.
-#[derive(Serialize, Deserialize, PartialEq, Debug, Clone)]
-struct AssociationText {
-    context: AssociationContext,
-    data: AssociationData,
-}
-
-#[derive(Serialize, Deserialize, PartialEq, Debug, Clone)]
-pub enum AssociationContext {
-    GrantMessagingAccess,
-    RevokeMessagingAccess,
-    LegacyCreateIdentity,
-}
-
-impl AssociationContext {}
-
-#[derive(Serialize, Deserialize, PartialEq, Debug, Clone)]
-enum AssociationData {
-    MessagingAccess {
-        account_address: Address,
-        installation_public_key: Vec<u8>,
-        iso8601_time: String,
-    },
-    LegacyCreateIdentity {
-        serialized_data: Vec<u8>,
-    },
-}
-
-impl AssociationText {
-    pub fn get_context(&self) -> AssociationContext {
-        self.context.clone()
-    }
-
-    pub fn get_address(&self) -> Address {
-        match &self.data {
-            AssociationData::MessagingAccess {
-                account_address, ..
-            } => account_address.clone(),
-            AssociationData::LegacyCreateIdentity { serialized_data } => todo!(),
-        }
-    }
-
-    pub fn get_installation_public_key(&self) -> Vec<u8> {
-        match &self.data {
-            AssociationData::MessagingAccess {
-                installation_public_key,
-                ..
-            } => installation_public_key.clone(),
-            AssociationData::LegacyCreateIdentity { serialized_data } => todo!(),
-        }
-    }
-
-    pub fn get_iso8601_time(&self) -> String {
-        match &self.data {
-            AssociationData::MessagingAccess { iso8601_time, .. } => iso8601_time.clone(),
-            AssociationData::LegacyCreateIdentity { serialized_data } => todo!(),
-        }
-    }
-
-    fn header_text(&self) -> String {
-        let label = match &self.context {
-            AssociationContext::GrantMessagingAccess => "Grant Messaging Access".to_string(),
-            AssociationContext::RevokeMessagingAccess => "Revoke Messaging Access".to_string(),
-            AssociationContext::LegacyCreateIdentity => "Create Identity".to_string(),
-        };
-        format!("XMTP : {}\n", label)
-    }
-
-    fn body_text(&self) -> String {
-        match &self.data {
-            AssociationData::MessagingAccess {
-                account_address,
-                installation_public_key,
-                iso8601_time,
-            } => format!(
-                "\nCurrent Time: {}\nAccount Address: {}\nInstallation ID: {}",
-                iso8601_time,
-                account_address,
-                ed25519_public_key_to_address(installation_public_key)
-            ),
-            AssociationData::LegacyCreateIdentity { serialized_data } => todo!(),
-        }
-    }
-
-    pub fn text(&self) -> String {
-        format!("{}{}", self.header_text(), self.body_text()).to_string()
-    }
-
-    pub fn is_valid(
-        &self,
-        context: AssociationContext,
-        account_address: &str,
-        installation_public_key: &[u8],
-        iso8601_time: &str,
-    ) -> Result<(), AssociationError> {
-        if self.text()
-            == AssociationText::new_static(
-                context,
-                account_address.to_string(),
-                installation_public_key.to_vec(),
-                iso8601_time.to_string(),
-            )
-            .text()
-        {
-            return Ok(());
-        }
-
-        Err(AssociationError::TextMismatch)
-    }
-
-    pub fn new_static(
-        context: AssociationContext,
-        account_address: String,
-        installation_public_key: Vec<u8>,
-        iso8601_time: String,
-    ) -> Self {
-        Self {
-            context,
-            data: AssociationData::MessagingAccess {
-                account_address,
-                installation_public_key,
-                iso8601_time,
-            },
-        }
-    }
-}
+// #[derive(Serialize, Deserialize, PartialEq, Debug, Clone)]
+// pub enum AssociationData {
+//     GrantMessagingAccess {
+//         account_address: Address,
+//         installation_public_key: Vec<u8>,
+//         iso8601_time: String,
+//     },
+//     RevokeMessagingAccess {
+//         account_address: Address,
+//         installation_public_key: Vec<u8>,
+//         iso8601_time: String,
+//     },
+//     LegacyCreateIdentity {
+//         serialized_data: Vec<u8>, // Serialized UnsignedPublicKey proto
+//     },
+// }
+//
+// impl AssociationData {
+//     pub fn get_address(&self) -> Address {
+//         match &self {
+//             AssociationData::GrantMessagingAccess {
+//                 account_address, ..
+//             } => account_address.clone(),
+//             AssociationData::RevokeMessagingAccess {
+//                 account_address, ..
+//             } => account_address.clone(),
+//             AssociationData::LegacyCreateIdentity { serialized_data } => todo!(),
+//         }
+//     }
+//
+//     pub fn get_installation_public_key(&self) -> Vec<u8> {
+//         match &self {
+//             AssociationData::GrantMessagingAccess {
+//                 installation_public_key,
+//                 ..
+//             } => installation_public_key.clone(),
+//             AssociationData::RevokeMessagingAccess {
+//                 installation_public_key,
+//                 ..
+//             } => installation_public_key.clone(),
+//             AssociationData::LegacyCreateIdentity { serialized_data } => todo!(),
+//         }
+//     }
+//
+//     pub fn get_iso8601_time(&self) -> String {
+//         match &self {
+//             AssociationData::GrantMessagingAccess { iso8601_time, .. } => iso8601_time.clone(),
+//             AssociationData::RevokeMessagingAccess { iso8601_time, .. } => iso8601_time.clone(),
+//             AssociationData::LegacyCreateIdentity { serialized_data } => todo!(),
+//         }
+//     }
+//
+//     fn header_text(&self) -> String {
+//         let label = match &self {
+//             AssociationData::GrantMessagingAccess { .. } => "Grant Messaging Access".to_string(),
+//             AssociationData::RevokeMessagingAccess { .. } => "Revoke Messaging Access".to_string(),
+//             AssociationData::LegacyCreateIdentity { .. } => "Create Identity".to_string(),
+//         };
+//         format!("XMTP : {}", label)
+//     }
+//
+//     fn body_text(&self) -> String {
+//         match &self {
+//             AssociationData::GrantMessagingAccess {
+//                 account_address,
+//                 installation_public_key,
+//                 iso8601_time,
+//             } => format!(
+//                 "\nCurrent Time: {}\nAccount Address: {}\nInstallation ID: {}",
+//                 iso8601_time,
+//                 account_address,
+//                 ed25519_public_key_to_address(installation_public_key)
+//             ),
+//             AssociationData::RevokeMessagingAccess {
+//                 account_address,
+//                 installation_public_key,
+//                 iso8601_time,
+//             } => format!(
+//                 "\nCurrent Time: {}\nAccount Address: {}\nInstallation ID: {}",
+//                 iso8601_time,
+//                 account_address,
+//                 ed25519_public_key_to_address(installation_public_key)
+//             ),
+//             AssociationData::LegacyCreateIdentity { serialized_data } => {
+//                 hex::encode(serialized_data)
+//             }
+//         }
+//     }
+//
+//     fn footer_text(&self) -> String {
+//         "For more info: https://xmtp.org/signatures/".to_string()
+//     }
+//
+//     pub fn text(&self) -> String {
+//         format!(
+//             "{}\n{}\n\n{}",
+//             self.header_text(),
+//             self.body_text(),
+//             self.footer_text()
+//         )
+//         .to_string()
+//     }
+//
+//     pub fn is_valid_messaging_grant(
+//         &self,
+//         account_address: &str,
+//         installation_public_key: &[u8],
+//         iso8601_time: &str,
+//     ) -> Result<(), AssociationError> {
+//         match self {
+//             AssociationData::GrantMessagingAccess {
+//                 account_address: addr,
+//                 installation_public_key: key,
+//                 iso8601_time: time,
+//             } => {
+//                 if self.text()
+//                     == AssociationData::new_grant_messaging_access(
+//                         account_address.to_string(),
+//                         installation_public_key.to_vec(),
+//                         iso8601_time.to_string(),
+//                     )
+//                     .text()
+//                 {
+//                     return Ok(());
+//                 }
+//             }
+//             AssociationData::LegacyCreateIdentity { serialized_data } => {
+//                 todo!()
+//             }
+//             _ => {}
+//         }
+//
+//         Err(AssociationError::TextMismatch)
+//     }
+//
+//     pub fn is_valid_revocation(
+//         &self,
+//         account_address: &str,
+//         installation_public_key: &[u8],
+//         iso8601_time: &str,
+//     ) -> Result<(), AssociationError> {
+//         todo!()
+//     }
+//
+//     pub fn new_grant_messaging_access(
+//         account_address: String,
+//         installation_public_key: Vec<u8>,
+//         iso8601_time: String,
+//     ) -> Self {
+//         AssociationData::GrantMessagingAccess {
+//             account_address,
+//             installation_public_key,
+//             iso8601_time,
+//         }
+//     }
+// }
 
 #[cfg(test)]
 pub mod tests {
@@ -426,7 +579,7 @@ pub mod tests {
 
     use crate::association::AssociationContext;
 
-    use super::{AssociationText, Eip191Association};
+    use super::{AssociationData, Eip191Association};
 
     #[tokio::test]
     async fn assoc_gen() {
@@ -438,8 +591,7 @@ pub mod tests {
         let other_addr = h160addr_to_string(other_wallet.address());
         let grant_time = "2021-01-01T00:00:00Z";
         let bad_grant_time = "2021-01-01T00:00:01Z";
-        let text = AssociationText::new_static(
-            AssociationContext::GrantMessagingAccess,
+        let text = AssociationData::new_grant_messaging_access(
             addr.clone(),
             key_bytes.clone(),
             grant_time.to_string(),
@@ -447,32 +599,27 @@ pub mod tests {
         let sig = wallet.sign_message(text.text()).await.expect("BadSign");
 
         let bad_key_bytes = vec![11, 22, 33];
-        let bad_text1 = AssociationText::new_static(
-            AssociationContext::GrantMessagingAccess,
+        let bad_text1 = AssociationData::new_grant_messaging_access(
             addr.clone(),
             bad_key_bytes.clone(),
             grant_time.to_string(),
         );
-        let bad_text2 = AssociationText::new_static(
-            AssociationContext::GrantMessagingAccess,
+        let bad_text2 = AssociationData::new_grant_messaging_access(
             other_addr.clone(),
             key_bytes.clone(),
             grant_time.to_string(),
         );
-        let bad_text3 = AssociationText::new_static(
-            AssociationContext::GrantMessagingAccess,
+        let bad_text3 = AssociationData::new_grant_messaging_access(
             addr.clone(),
             key_bytes.clone(),
             bad_grant_time.to_string(),
         );
-        let bad_text4 = AssociationText::new_static(
-            AssociationContext::RevokeMessagingAccess,
+        let bad_text4 = AssociationData::new_grant_messaging_access(
             addr.clone(),
             key_bytes.clone(),
             grant_time.to_string(),
         );
-        let other_text = AssociationText::new_static(
-            AssociationContext::GrantMessagingAccess,
+        let other_text = AssociationData::new_grant_messaging_access(
             other_addr.clone(),
             key_bytes.clone(),
             grant_time.to_string(),
@@ -496,8 +643,7 @@ pub mod tests {
         let key_bytes = vec![22, 33, 44, 55];
         let wallet = LocalWallet::new(&mut rng());
         let addr = h160addr_to_string(wallet.address());
-        let text = AssociationText::new_static(
-            AssociationContext::GrantMessagingAccess,
+        let text = AssociationData::new_grant_messaging_access(
             addr.clone(),
             key_bytes.clone(),
             "2021-01-01T00:00:00Z".to_string(),
