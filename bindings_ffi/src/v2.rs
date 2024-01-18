@@ -1,8 +1,6 @@
 use crate::GenericError;
 use std::sync::Arc;
-use xmtp_proto::api_client::{
-    BatchQueryResponse, PagingInfo, PublishResponse, QueryResponse, XmtpApiClient,
-};
+use xmtp_proto::api_client::{BatchQueryResponse, PagingInfo, QueryResponse, XmtpApiClient};
 use xmtp_proto::xmtp::message_api::v1::IndexCursor;
 use xmtp_v2::{hashes, k256_helper};
 
@@ -16,10 +14,10 @@ use xmtp_proto::xmtp::message_api::v1::{
 pub async fn create_v2_client(
     host: String,
     is_secure: bool,
-) -> Result<Arc<FfiV2Client>, GenericError> {
+) -> Result<Arc<FfiV2ApiClient>, GenericError> {
     let client = GrpcClient::create(host, is_secure).await?;
 
-    let client = FfiV2Client {
+    let client = FfiV2ApiClient {
         inner_client: Arc::new(client),
     };
 
@@ -111,21 +109,6 @@ impl From<FfiPublishRequest> for PublishRequest {
         Self {
             envelopes: req.envelopes.into_iter().map(|env| env.into()).collect(),
         }
-    }
-}
-
-#[derive(uniffi::Record)]
-pub struct FfiV2PublishResponse {}
-
-impl From<FfiV2PublishResponse> for xmtp_proto::xmtp::message_api::v1::PublishResponse {
-    fn from(_resp: FfiV2PublishResponse) -> Self {
-        Self {}
-    }
-}
-
-impl From<PublishResponse> for FfiV2PublishResponse {
-    fn from(_resp: PublishResponse) -> Self {
-        Self {}
     }
 }
 
@@ -286,12 +269,12 @@ impl From<FfiV2BatchQueryResponse> for BatchQueryResponse {
 }
 
 #[derive(uniffi::Object)]
-pub struct FfiV2Client {
+pub struct FfiV2ApiClient {
     inner_client: Arc<xmtp_api_grpc::grpc_api_helper::Client>,
 }
 
 #[uniffi::export(async_runtime = "tokio")]
-impl FfiV2Client {
+impl FfiV2ApiClient {
     pub async fn batch_query(
         &self,
         req: FfiV2BatchQueryRequest,
@@ -309,14 +292,13 @@ impl FfiV2Client {
         &self,
         request: FfiPublishRequest,
         auth_token: String,
-    ) -> Result<FfiV2PublishResponse, GenericError> {
+    ) -> Result<(), GenericError> {
         let actual_publish_request: PublishRequest = request.into();
-        let result = self
-            .inner_client
+        self.inner_client
             .publish(auth_token, actual_publish_request)
             .await?;
 
-        Ok(result.into())
+        Ok(())
     }
 
     pub async fn query(
