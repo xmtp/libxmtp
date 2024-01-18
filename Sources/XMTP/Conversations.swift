@@ -26,7 +26,8 @@ public actor Conversations {
 				keyMaterial: data.invitation.aes256GcmHkdfSha256.keyMaterial,
 				context: data.invitation.context,
 				peerAddress: data.peerAddress,
-				client: client
+				client: client,
+				createdAtNs: data.createdNs
 			))
 		}
 		conversationsByTopic[conversation.topic] = conversation
