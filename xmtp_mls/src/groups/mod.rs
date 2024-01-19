@@ -581,6 +581,7 @@ where
             AddMembersIntentData::new(account_addresses.into()).try_into()?;
         let intent =
             NewGroupIntent::new(IntentKind::AddMembers, self.group_id.clone(), intent_data);
+
         intent.store(conn)?;
 
         self.sync_with_conn(conn).await
