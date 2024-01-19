@@ -173,6 +173,8 @@ where
     }
 
     pub fn create_group(&self) -> Result<MlsGroup<ApiClient>, ClientError> {
+        log::info!("creating group");
+
         let group = MlsGroup::create_and_insert(self, GroupMembershipState::Allowed)
             .map_err(|e| ClientError::Generic(format!("group create error {}", e)))?;
 
@@ -205,6 +207,7 @@ where
     }
 
     pub async fn register_identity(&self) -> Result<(), ClientError> {
+        log::info!("registering identity");
         let connection = self.store.conn()?;
         let kp = self
             .identity
