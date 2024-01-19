@@ -120,6 +120,33 @@ mod tests {
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 10)]
+    async fn test_subscribe_multiple() {
+        let amal = ClientBuilder::new_test_client(generate_local_wallet().into()).await;
+        let group = amal.create_group().unwrap();
+
+        let stream = group.stream().await.unwrap();
+
+        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+
+        for i in 0..10 {
+            group
+                .send_message(format!("hello {}", i).as_bytes())
+                .await
+                .unwrap();
+        }
+
+        // Limit the stream so that it closes after 10 messages
+        let limited_stream = stream.take(10);
+        let values = limited_stream.collect::<Vec<_>>().await;
+        assert_eq!(values.len(), 10);
+        for value in values {
+            assert!(value
+                .decrypted_message_bytes
+                .starts_with("hello".as_bytes()));
+        }
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 10)]
     async fn test_subscribe_membership_changes() {
         let amal = ClientBuilder::new_test_client(generate_local_wallet().into()).await;
         amal.register_identity().await.unwrap();
