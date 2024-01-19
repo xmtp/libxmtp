@@ -30,25 +30,25 @@ ethers-core = "2.0.4"
 futures = "0.3.28"
 hex = "0.4.3"
 libsqlite3-sys = { version = "0.26.0", optional = true }
-openmls = { git = "https://github.com/xmtp/openmls", branch = "main", features = [
+openmls = { workspace = true, features = [
     "test-utils",
 ] }
-openmls_traits = { git = "https://github.com/xmtp/openmls", branch = "main" }
-openmls_basic_credential = { git = "https://github.com/xmtp/openmls", branch = "main" }
-openmls_rust_crypto = { git = "https://github.com/xmtp/openmls", branch = "main" }
+openmls_traits = { workspace = true }
+openmls_basic_credential = { workspace = true }
+openmls_rust_crypto = { workspace = true }
 prost = { version = "0.11", features = ["prost-derive"] }
-rand = "0.8.5"
+rand = { workspace = true }
 serde = "1.0.160"
 serde_json = "1.0.96"
-thiserror = "1.0.40"
-tokio = { version = "1.28.1", features = ["macros"] }
+thiserror = { workspace = true }
+tokio = { workspace = true }
 log = "0.4.17"
 tracing = "0.1.37"
 toml = "0.7.4"
 xmtp_cryptography = { path = "../xmtp_cryptography" }
 xmtp_proto = { path = "../xmtp_proto", features = ["proto_full"] }
 xmtp_v2 = { path = "../xmtp_v2" }
-tls_codec = "0.3.0"
+tls_codec = { workspace = true }
 smart-default = "0.7.1"
 chrono = "0.4.31"
 
