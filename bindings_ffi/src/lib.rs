@@ -28,17 +28,28 @@ use crate::logger::init_logger;
 pub type RustXmtpClient = MlsClient<TonicApiClient>;
 uniffi::include_scaffolding!("xmtpv3");
 
-#[derive(uniffi::Error, Debug)]
-#[uniffi(handle_unknown_callback_error)]
+#[derive(uniffi::Error, thiserror::Error, Debug)]
+#[uniffi(flat_error)]
 pub enum GenericError {
+    #[error("Client error: {0}")]
+    Client(#[from] xmtp_mls::client::ClientError),
+    #[error("Client builder error: {0}")]
+    ClientBuilder(#[from] xmtp_mls::builder::ClientBuilderError),
+    #[error("Storage error: {0}")]
+    Storage(#[from] xmtp_mls::storage::StorageError),
+    #[error("API error: {0}")]
+    ApiError(#[from] xmtp_proto::api_client::Error),
+    #[error("Group error: {0}")]
+    GroupError(#[from] xmtp_mls::groups::GroupError),
+    #[error("Signature: {0}")]
+    Signature(#[from] xmtp_cryptography::signature::SignatureError),
+    #[error("Generic {err}")]
     Generic { err: String },
 }
 
-impl<T: Error> From<T> for GenericError {
-    fn from(error: T) -> Self {
-        Self::Generic {
-            err: stringify_error_chain(&error),
-        }
+impl From<String> for GenericError {
+    fn from(err: String) -> Self {
+        Self::Generic { err }
     }
 }
 
@@ -87,9 +98,9 @@ pub async fn create_client(
 
     let store = match encryption_key {
         Some(key) => {
-            let key: EncryptionKey = key.try_into().map_err(|_err| GenericError::Generic {
-                err: "Malformed 32 byte encryption key".to_string(),
-            })?;
+            let key: EncryptionKey = key
+                .try_into()
+                .map_err(|_| "Malformed 32 byte encryption key".to_string())?;
             EncryptedMessageStore::new(storage_option, key)?
         }
         None => EncryptedMessageStore::new_unencrypted(storage_option)?,
