@@ -1,9 +1,6 @@
 use prost::Message;
 use xmtp_proto::xmtp::{
-    message_contents::{
-        signed_private_key,
-        SignedPrivateKey as LegacySignedPrivateKeyProto,
-    },
+    message_contents::{signed_private_key, SignedPrivateKey as LegacySignedPrivateKeyProto},
     mls::message_contents::LegacyCreateIdentityAssociation as LegacyCreateIdentityAssociationProto,
 };
 use xmtp_v2::k256_helper;
@@ -111,11 +108,6 @@ impl LegacyCreateIdentityAssociation {
 
 #[cfg(test)]
 pub mod tests {
-    
-    
-    
-
-    
 
     #[tokio::test]
     async fn assoc_gen() {}
