@@ -5,7 +5,7 @@ on:
       - main
 jobs:
   build:
-    runs-on: warp-ubuntu-latest-x64-4x
+    runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
