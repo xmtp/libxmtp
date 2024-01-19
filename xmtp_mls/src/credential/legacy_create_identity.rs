@@ -137,7 +137,12 @@ impl LegacyCreateIdentityAssociation {
             .ok_or(AssociationError::MalformedLegacyKey)?;
         let legacy_private_key = secp256k1.bytes;
         // TODO: Sign installation key using legacy private key
-        let delegating_signature: Vec<u8> = vec![];
+        let (mut delegating_signature, recovery_id) = k256_helper::sign_sha256(
+            &legacy_private_key,      // secret_key
+            &installation_public_key, // message
+        )
+        .map_err(AssociationError::LegacySignature)?;
+        delegating_signature.push(recovery_id); // TODO: normalize recovery ID if necessary
 
         let legacy_signed_public_key_proto = legacy_signed_private_key_proto
             .public_key
@@ -179,7 +184,7 @@ impl LegacyCreateIdentityAssociation {
             &self.delegating_signature[0..64],          // signature
             self.delegating_signature[64],              // recovery_id
         )
-        .map_err(AssociationError::BadLegacySignature)?); // always returns true if no error
+        .map_err(AssociationError::LegacySignature)?); // always returns true if no error
 
         // Wallet signature of legacy key is internally validated by ValidatedLegacySignedPublicKey
         Ok(())

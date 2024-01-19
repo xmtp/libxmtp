@@ -1,5 +1,5 @@
 use k256::{
-    ecdsa::{signature::Verifier, RecoveryId, Signature, VerifyingKey},
+    ecdsa::{signature::Verifier, RecoveryId, Signature, SigningKey, VerifyingKey},
     elliptic_curve::sec1::ToEncodedPoint,
     PublicKey, SecretKey,
 };
@@ -28,6 +28,17 @@ pub fn diffie_hellman_byte_params(secret_key: &[u8], public_key: &[u8]) -> Resul
     let secret_key = SecretKey::from_be_bytes(secret_key).map_err(|e| e.to_string())?;
     let public_key = PublicKey::from_sec1_bytes(public_key).map_err(|e| e.to_string())?;
     diffie_hellman(&secret_key, &public_key)
+}
+
+/// Produce a recoverable signature for a SHA256 digest of the given message using the secret key
+/// Returns signature and recovery_id
+pub fn sign_sha256(secret_key: &[u8], message: &[u8]) -> Result<(Vec<u8>, u8), String> {
+    let signing_key = SigningKey::from_bytes(secret_key).map_err(|e| e.to_string())?;
+    let sha256 = Sha256::new().chain(message);
+    let (signature, recovery_id) = signing_key
+        .sign_digest_recoverable(sha256)
+        .map_err(|e| e.to_string())?;
+    Ok((signature.to_vec(), recovery_id.to_byte()))
 }
 
 /// Verify given a compact signature, recovery_id, digest, and public key in uncompressed format

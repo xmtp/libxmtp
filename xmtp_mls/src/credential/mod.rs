@@ -25,8 +25,8 @@ pub enum AssociationError {
     DecodeError(#[from] DecodeError),
     #[error("legacy key")]
     MalformedLegacyKey,
-    #[error("bad legacy signature: {0}")]
-    BadLegacySignature(String),
+    #[error("legacy signature: {0}")]
+    LegacySignature(String),
     #[error("Association text mismatch")]
     TextMismatch,
     #[error("Installation public key mismatch")]
