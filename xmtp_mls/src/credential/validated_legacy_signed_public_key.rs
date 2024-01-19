@@ -141,7 +141,6 @@ pub mod tests {
         ];
         let mut proto = LegacySignedPublicKeyProto::decode(proto_bytes.as_slice()).unwrap();
         proto.key_bytes[0] += 1; // Corrupt the serialized key data
-        ValidatedLegacySignedPublicKey::try_from(proto).unwrap();
         assert_err!(
             ValidatedLegacySignedPublicKey::try_from(proto),
             AssociationError::MalformedAssociation
