@@ -26,6 +26,7 @@ jobs:
 
       - name: Run cargo test on main workspace
         uses: actions-rs/cargo@v1
+        timeout-minutes: 20
         with:
           command: test
 

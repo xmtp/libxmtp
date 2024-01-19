@@ -49,9 +49,10 @@ diesel::table! {
 }
 
 diesel::table! {
-    topic_refresh_state (topic) {
-        topic -> Text,
-        last_message_timestamp_ns -> BigInt,
+    refresh_state (entity_id, entity_kind) {
+        entity_id -> Binary,
+        entity_kind -> Integer,
+        cursor -> BigInt,
     }
 }
 
@@ -64,5 +65,5 @@ diesel::allow_tables_to_appear_in_same_query!(
     groups,
     identity,
     openmls_key_store,
-    topic_refresh_state,
+    refresh_state,
 );

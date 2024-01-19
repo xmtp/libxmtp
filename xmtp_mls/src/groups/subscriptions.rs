@@ -1,25 +1,29 @@
 use std::pin::Pin;
 
+use crate::api_client_wrapper::GroupFilter;
 use crate::storage::group_message::StoredGroupMessage;
+use crate::storage::refresh_state::EntityKind;
 use futures::{Stream, StreamExt};
-use xmtp_proto::api_client::{XmtpApiClient, XmtpMlsClient};
-use xmtp_proto::xmtp::message_api::v1::Envelope;
+use xmtp_proto::api_client::XmtpMlsClient;
+use xmtp_proto::xmtp::mls::api::v1::GroupMessage;
 
-use super::{GroupError, MlsGroup};
+use super::{extract_message_v1, GroupError, MlsGroup};
 
 impl<'c, ApiClient> MlsGroup<'c, ApiClient>
 where
-    ApiClient: XmtpApiClient + XmtpMlsClient,
+    ApiClient: XmtpMlsClient,
 {
     async fn process_stream_entry(
         &self,
-        envelope: Envelope,
+        envelope: GroupMessage,
     ) -> Result<Option<StoredGroupMessage>, GroupError> {
+        let msgv1 = extract_message_v1(envelope)?;
+
         let process_result = self.client.store.transaction(|provider| {
             let mut openmls_group = self.load_mls_group(&provider)?;
             // Attempt processing immediately, but fail if the message is not an Application Message
             // Returning an error should roll back the DB tx
-            self.process_message(&mut openmls_group, &provider, &envelope, false)
+            self.process_message(&mut openmls_group, &provider, &msgv1, false)
                 .map_err(GroupError::ReceiveError)
         });
 
@@ -33,7 +37,7 @@ where
             .client
             .store
             .conn()?
-            .get_group_message_by_timestamp(&self.group_id, envelope.timestamp_ns as i64)?;
+            .get_group_message_by_timestamp(&self.group_id, msgv1.created_ns as i64)?;
 
         Ok(new_message)
     }
@@ -41,7 +45,20 @@ where
     pub async fn stream(
         &'c self,
     ) -> Result<Pin<Box<dyn Stream<Item = StoredGroupMessage> + 'c + Send>>, GroupError> {
-        let subscription = self.client.api_client.subscribe(vec![self.topic()]).await?;
+        let last_cursor = self
+            .client
+            .store
+            .conn()?
+            .get_last_cursor_for_id(self.group_id.clone(), EntityKind::Group)?;
+
+        let subscription = self
+            .client
+            .api_client
+            .subscribe_group_messages(vec![GroupFilter::new(
+                self.group_id.clone(),
+                Some(last_cursor as u64),
+            )])
+            .await?;
         let stream = subscription
             .map(|res| async {
                 match res {
@@ -100,6 +117,33 @@ mod tests {
 
         let second_val = stream.next().await.unwrap();
         assert_eq!(second_val.decrypted_message_bytes, "goodbye".as_bytes());
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 10)]
+    async fn test_subscribe_multiple() {
+        let amal = ClientBuilder::new_test_client(generate_local_wallet().into()).await;
+        let group = amal.create_group().unwrap();
+
+        let stream = group.stream().await.unwrap();
+
+        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+
+        for i in 0..10 {
+            group
+                .send_message(format!("hello {}", i).as_bytes())
+                .await
+                .unwrap();
+        }
+
+        // Limit the stream so that it closes after 10 messages
+        let limited_stream = stream.take(10);
+        let values = limited_stream.collect::<Vec<_>>().await;
+        assert_eq!(values.len(), 10);
+        for value in values {
+            assert!(value
+                .decrypted_message_bytes
+                .starts_with("hello".as_bytes()));
+        }
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 10)]
