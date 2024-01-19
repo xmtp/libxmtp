@@ -13,6 +13,10 @@ use hyper_rustls::HttpsConnector;
 use tokio::sync::oneshot;
 use tokio_rustls::rustls::{ClientConfig, OwnedTrustAnchor, RootCertStore};
 use tonic::{async_trait, metadata::MetadataValue, transport::Channel, Request, Status, Streaming};
+use xmtp_proto::api_client::{GroupMessageStream, WelcomeMessageStream};
+use xmtp_proto::xmtp::mls::api::v1::{
+    SubscribeGroupMessagesRequest, SubscribeWelcomeMessagesRequest,
+};
 use xmtp_proto::{
     api_client::{
         Error, ErrorKind, MutableApiSubscription, XmtpApiClient, XmtpApiSubscription, XmtpMlsClient,
@@ -24,8 +28,9 @@ use xmtp_proto::{
     xmtp::mls::api::v1::{
         mls_api_client::MlsApiClient as ProtoMlsApiClient, FetchKeyPackagesRequest,
         FetchKeyPackagesResponse, GetIdentityUpdatesRequest, GetIdentityUpdatesResponse,
-        PublishToGroupRequest, PublishWelcomesRequest, RegisterInstallationRequest,
-        RegisterInstallationResponse, UploadKeyPackageRequest,
+        QueryGroupMessagesRequest, QueryGroupMessagesResponse, QueryWelcomeMessagesRequest,
+        QueryWelcomeMessagesResponse, RegisterInstallationRequest, RegisterInstallationResponse,
+        SendGroupMessagesRequest, SendWelcomeMessagesRequest, UploadKeyPackageRequest,
     },
 };
 
@@ -385,8 +390,6 @@ impl MutableApiSubscription for GrpcMutableSubscription {
 
 #[async_trait]
 impl XmtpMlsClient for Client {
-    type Subscription = GrpcMutableSubscription;
-
     async fn register_installation(
         &self,
         req: RegisterInstallationRequest,
@@ -421,16 +424,14 @@ impl XmtpMlsClient for Client {
             InnerMlsClient::Tls(c) => c.clone().fetch_key_packages(req).await,
         };
 
-        match res {
-            Ok(response) => Ok(response.into_inner()),
-            Err(e) => Err(Error::new(ErrorKind::MlsError).with(e)),
-        }
+        res.map(|r| r.into_inner())
+            .map_err(|e| Error::new(ErrorKind::MlsError).with(e))
     }
 
-    async fn publish_to_group(&self, req: PublishToGroupRequest) -> Result<(), Error> {
+    async fn send_group_messages(&self, req: SendGroupMessagesRequest) -> Result<(), Error> {
         let res = match &self.mls_client {
-            InnerMlsClient::Plain(c) => c.clone().publish_to_group(req).await,
-            InnerMlsClient::Tls(c) => c.clone().publish_to_group(req).await,
+            InnerMlsClient::Plain(c) => c.clone().send_group_messages(req).await,
+            InnerMlsClient::Tls(c) => c.clone().send_group_messages(req).await,
         };
         match res {
             Ok(_) => Ok(()),
@@ -438,15 +439,41 @@ impl XmtpMlsClient for Client {
         }
     }
 
-    async fn publish_welcomes(&self, req: PublishWelcomesRequest) -> Result<(), Error> {
+    async fn send_welcome_messages(&self, req: SendWelcomeMessagesRequest) -> Result<(), Error> {
         let res = match &self.mls_client {
-            InnerMlsClient::Plain(c) => c.clone().publish_welcomes(req).await,
-            InnerMlsClient::Tls(c) => c.clone().publish_welcomes(req).await,
+            InnerMlsClient::Plain(c) => c.clone().send_welcome_messages(req).await,
+            InnerMlsClient::Tls(c) => c.clone().send_welcome_messages(req).await,
         };
         match res {
             Ok(_) => Ok(()),
             Err(e) => Err(Error::new(ErrorKind::MlsError).with(e)),
         }
+    }
+
+    async fn query_group_messages(
+        &self,
+        req: QueryGroupMessagesRequest,
+    ) -> Result<QueryGroupMessagesResponse, Error> {
+        let res = match &self.mls_client {
+            InnerMlsClient::Plain(c) => c.clone().query_group_messages(req).await,
+            InnerMlsClient::Tls(c) => c.clone().query_group_messages(req).await,
+        };
+
+        res.map(|r| r.into_inner())
+            .map_err(|e| Error::new(ErrorKind::MlsError).with(e))
+    }
+
+    async fn query_welcome_messages(
+        &self,
+        req: QueryWelcomeMessagesRequest,
+    ) -> Result<QueryWelcomeMessagesResponse, Error> {
+        let res = match &self.mls_client {
+            InnerMlsClient::Plain(c) => c.clone().query_welcome_messages(req).await,
+            InnerMlsClient::Tls(c) => c.clone().query_welcome_messages(req).await,
+        };
+
+        res.map(|r| r.into_inner())
+            .map_err(|e| Error::new(ErrorKind::MlsError).with(e))
     }
 
     async fn get_identity_updates(
@@ -457,9 +484,42 @@ impl XmtpMlsClient for Client {
             InnerMlsClient::Plain(c) => c.clone().get_identity_updates(req).await,
             InnerMlsClient::Tls(c) => c.clone().get_identity_updates(req).await,
         };
-        match res {
-            Ok(response) => Ok(response.into_inner()),
-            Err(e) => Err(Error::new(ErrorKind::MlsError).with(e)),
+
+        res.map(|r| r.into_inner())
+            .map_err(|e| Error::new(ErrorKind::MlsError).with(e))
+    }
+
+    async fn subscribe_group_messages(
+        &self,
+        req: SubscribeGroupMessagesRequest,
+    ) -> Result<GroupMessageStream, Error> {
+        let res = match &self.mls_client {
+            InnerMlsClient::Plain(c) => c.clone().subscribe_group_messages(req).await,
+            InnerMlsClient::Tls(c) => c.clone().subscribe_group_messages(req).await,
         }
+        .map_err(|e| Error::new(ErrorKind::MlsError).with(e))?;
+
+        let stream = res.into_inner();
+
+        let new_stream = stream.map_err(|e| Error::new(ErrorKind::SubscribeError).with(e));
+
+        Ok(Box::pin(new_stream))
+    }
+
+    async fn subscribe_welcome_messages(
+        &self,
+        req: SubscribeWelcomeMessagesRequest,
+    ) -> Result<WelcomeMessageStream, Error> {
+        let res = match &self.mls_client {
+            InnerMlsClient::Plain(c) => c.clone().subscribe_welcome_messages(req).await,
+            InnerMlsClient::Tls(c) => c.clone().subscribe_welcome_messages(req).await,
+        }
+        .map_err(|e| Error::new(ErrorKind::MlsError).with(e))?;
+
+        let stream = res.into_inner();
+
+        let new_stream = stream.map_err(|e| Error::new(ErrorKind::SubscribeError).with(e));
+
+        Ok(Box::pin(new_stream))
     }
 }

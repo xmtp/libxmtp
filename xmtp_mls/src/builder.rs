@@ -4,7 +4,7 @@ use std::println as debug;
 #[cfg(not(test))]
 use log::debug;
 use thiserror::Error;
-use xmtp_proto::api_client::{XmtpApiClient, XmtpMlsClient};
+use xmtp_proto::api_client::XmtpMlsClient;
 
 use crate::{
     client::{Client, Network},
@@ -96,7 +96,7 @@ pub struct ClientBuilder<ApiClient, Owner> {
 
 impl<ApiClient, Owner> ClientBuilder<ApiClient, Owner>
 where
-    ApiClient: XmtpApiClient + XmtpMlsClient,
+    ApiClient: XmtpMlsClient,
     Owner: InboxOwner,
 {
     pub fn new(strat: IdentityStrategy<Owner>) -> Self {
