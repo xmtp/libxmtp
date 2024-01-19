@@ -81,7 +81,7 @@ pub struct FfiXmtpClient {
     inner_client: Arc<RustXmtpClient>,
 }
 
-#[uniffi::export]
+#[uniffi::export(async_runtime = "tokio")]
 impl FfiXmtpClient {
     pub fn account_address(&self) -> Address {
         self.inner_client.account_address()
@@ -91,6 +91,17 @@ impl FfiXmtpClient {
         Arc::new(FfiConversations {
             inner_client: self.inner_client.clone(),
         })
+    }
+
+    pub async fn can_message(
+        &self,
+        account_addresses: Vec<String>,
+    ) -> Result<Vec<bool>, GenericError> {
+        let inner = self.inner_client.as_ref();
+
+        let results: Vec<bool> = inner.can_message(account_addresses).await?;
+
+        Ok(results)
     }
 }
 
@@ -290,6 +301,10 @@ impl FfiGroup {
         Ok(Arc::new(FfiMessageStreamCloser {
             close_fn: Arc::new(Mutex::new(Some(close_sender))),
         }))
+    }
+
+    pub fn created_at_ns(&self) -> i64 {
+        self.created_at_ns
     }
 }
 
