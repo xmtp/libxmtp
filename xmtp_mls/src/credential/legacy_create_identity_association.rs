@@ -105,10 +105,3 @@ impl LegacyCreateIdentityAssociation {
         self.legacy_signed_public_key.created_ns()
     }
 }
-
-#[cfg(test)]
-pub mod tests {
-
-    #[tokio::test]
-    async fn assoc_gen() {}
-}
