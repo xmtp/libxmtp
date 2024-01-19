@@ -160,7 +160,7 @@ pub mod tests {
     use xmtp_cryptography::{signature::h160addr_to_string, utils::rng};
     use xmtp_proto::xmtp::mls::message_contents::GrantMessagingAccessAssociation as GrantMessagingAccessAssociationProto;
 
-    use crate::credential::grant_messaging_access::GrantMessagingAccessAssociation;
+    use crate::credential::grant_messaging_access_association::GrantMessagingAccessAssociation;
 
     #[tokio::test]
     async fn assoc_gen() {

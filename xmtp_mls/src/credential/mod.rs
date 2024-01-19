@@ -1,5 +1,6 @@
-mod grant_messaging_access;
-mod legacy_create_identity;
+mod grant_messaging_access_association;
+mod legacy_create_identity_association;
+mod validated_legacy_signed_public_key;
 
 use crate::utils::time::now_ns;
 use crate::{types::Address, InboxOwner};
@@ -14,8 +15,8 @@ use xmtp_proto::xmtp::mls::message_contents::{
     mls_credential::Association as AssociationProto, MlsCredential as MlsCredentialProto,
 };
 
-use self::grant_messaging_access::GrantMessagingAccessAssociation;
-use self::legacy_create_identity::LegacyCreateIdentityAssociation;
+use self::grant_messaging_access_association::GrantMessagingAccessAssociation;
+use self::legacy_create_identity_association::LegacyCreateIdentityAssociation;
 
 #[derive(Debug, Error)]
 pub enum AssociationError {
@@ -142,7 +143,7 @@ impl From<Credential> for MlsCredentialProto {
                 Credential::GrantMessagingAccess(assoc) => {
                     Some(AssociationProto::MessagingAccess(assoc.into()))
                 }
-                Credential::LegacyCreateIdentity(assoc) => todo!(),
+                Credential::LegacyCreateIdentity(_assoc) => todo!(),
             },
         }
     }
