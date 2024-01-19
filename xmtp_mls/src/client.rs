@@ -399,6 +399,26 @@ where
         Ok(groups)
     }
 
+    pub async fn can_message(
+        &self,
+        account_addresses: Vec<String>,
+    ) -> Result<Vec<bool>, ClientError> {
+        let identity_updates = self
+            .api_client
+            .get_identity_updates(0, account_addresses.clone())
+            .await?;
+
+        Ok(account_addresses
+            .iter()
+            .map(|address| {
+                identity_updates
+                    .get(address)
+                    .map(has_active_installation)
+                    .unwrap_or(false)
+            })
+            .collect())
+    }
+
     // fn process_streamed_welcome(
     //     &self,
     //     envelope: Envelope,
@@ -452,6 +472,19 @@ fn deserialize_welcome(welcome_bytes: &Vec<u8>) -> Result<Welcome, ClientError> 
             "unexpected message type in welcome".to_string(),
         )),
     }
+}
+
+fn has_active_installation(updates: &Vec<IdentityUpdate>) -> bool {
+    let mut active_count = 0;
+    for update in updates {
+        match update {
+            IdentityUpdate::Invalid => {}
+            IdentityUpdate::NewInstallation(_) => active_count += 1,
+            IdentityUpdate::RevokeInstallation(_) => active_count -= 1,
+        }
+    }
+
+    active_count > 0
 }
 
 #[cfg(test)]
@@ -545,6 +578,24 @@ mod tests {
 
         let duplicate_received_groups = bob.sync_welcomes().await.unwrap();
         assert_eq!(duplicate_received_groups.len(), 0);
+    }
+
+    #[tokio::test]
+    async fn test_can_message() {
+        let amal = ClientBuilder::new_test_client(generate_local_wallet().into()).await;
+        let bola = ClientBuilder::new_test_client(generate_local_wallet().into()).await;
+        futures::try_join!(amal.register_identity(), bola.register_identity()).unwrap();
+        let charlie_address = generate_local_wallet().get_address();
+
+        let can_message_result = amal
+            .can_message(vec![
+                amal.account_address(),
+                bola.account_address(),
+                charlie_address,
+            ])
+            .await
+            .unwrap();
+        assert_eq!(can_message_result, vec![true, true, false]);
     }
 
     // #[tokio::test]
