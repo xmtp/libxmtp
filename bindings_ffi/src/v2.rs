@@ -322,7 +322,7 @@ impl FfiV2Subscription {
         Ok(())
     }
 
-    pub async fn close(&self) {
+    pub async fn close(&self) -> () {
         let sub = self.inner_subscription.lock().await;
         sub.close();
     }
