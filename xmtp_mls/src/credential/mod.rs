@@ -1,8 +1,8 @@
 mod grant_messaging_access;
 mod legacy_create_identity;
 
+use crate::utils::time::now_ns;
 use crate::{types::Address, InboxOwner};
-use chrono::Utc;
 
 use openmls_basic_credential::SignatureKeyPair;
 
@@ -52,17 +52,24 @@ impl Credential {
         installation_keys: &SignatureKeyPair,
         owner: &impl InboxOwner,
     ) -> Result<Self, AssociationError> {
-        let iso8601_time = format!("{}", Utc::now().format("%+"));
+        let created_ns = now_ns() as u64;
         let association = GrantMessagingAccessAssociation::create(
             owner,
             installation_keys.to_public_vec(),
-            iso8601_time,
+            created_ns,
         )?;
         Ok(Self::GrantMessagingAccess(association))
     }
 
-    pub fn create_legacy() -> Result<Self, AssociationError> {
-        todo!()
+    pub fn create_legacy(
+        legacy_signed_private_key: Vec<u8>,
+        installation_public_key: Vec<u8>,
+    ) -> Result<Self, AssociationError> {
+        let association = LegacyCreateIdentityAssociation::create(
+            legacy_signed_private_key,
+            installation_public_key,
+        )?;
+        Ok(Self::LegacyCreateIdentity(association))
     }
 
     pub fn from_proto_validated(
@@ -119,10 +126,10 @@ impl Credential {
         }
     }
 
-    pub fn iso8601_time(&self) -> String {
+    pub fn created_ns(&self) -> u64 {
         match &self {
-            Credential::GrantMessagingAccess(assoc) => assoc.iso8601_time(),
-            Credential::LegacyCreateIdentity(assoc) => assoc.iso8601_time(),
+            Credential::GrantMessagingAccess(assoc) => assoc.created_ns(),
+            Credential::LegacyCreateIdentity(assoc) => assoc.created_ns(),
         }
     }
 }

@@ -105,7 +105,7 @@ impl TryFrom<LegacySignedPublicKeyProto> for ValidatedLegacySignedPublicKey {
 
 /// An Association is link between a blockchain account and an xmtp installation for the purposes of
 /// authentication.
-pub(super) struct LegacyCreateIdentityAssociation {
+pub struct LegacyCreateIdentityAssociation {
     installation_public_key: Vec<u8>,
     delegating_signature: Vec<u8>,
     legacy_signed_public_key: ValidatedLegacySignedPublicKey,
@@ -198,9 +198,8 @@ impl LegacyCreateIdentityAssociation {
         self.installation_public_key.clone()
     }
 
-    pub fn iso8601_time(&self) -> String {
-        let _created_ns = self.legacy_signed_public_key.created_ns();
-        todo!()
+    pub fn created_ns(&self) -> u64 {
+        self.legacy_signed_public_key.created_ns()
     }
 }
 

@@ -778,7 +778,7 @@ impl serde::Serialize for GrantMessagingAccessAssociation {
         if !self.account_address.is_empty() {
             len += 1;
         }
-        if !self.iso8601_time.is_empty() {
+        if self.created_ns != 0 {
             len += 1;
         }
         let mut struct_ser = serializer.serialize_struct("xmtp.mls.message_contents.GrantMessagingAccessAssociation", len)?;
@@ -793,8 +793,8 @@ impl serde::Serialize for GrantMessagingAccessAssociation {
         if !self.account_address.is_empty() {
             struct_ser.serialize_field("accountAddress", &self.account_address)?;
         }
-        if !self.iso8601_time.is_empty() {
-            struct_ser.serialize_field("iso8601Time", &self.iso8601_time)?;
+        if self.created_ns != 0 {
+            struct_ser.serialize_field("createdNs", ToString::to_string(&self.created_ns).as_str())?;
         }
         struct_ser.end()
     }
@@ -811,8 +811,8 @@ impl<'de> serde::Deserialize<'de> for GrantMessagingAccessAssociation {
             "signature",
             "account_address",
             "accountAddress",
-            "iso8601_time",
-            "iso8601Time",
+            "created_ns",
+            "createdNs",
         ];
 
         #[allow(clippy::enum_variant_names)]
@@ -820,7 +820,7 @@ impl<'de> serde::Deserialize<'de> for GrantMessagingAccessAssociation {
             AssociationTextVersion,
             Signature,
             AccountAddress,
-            Iso8601Time,
+            CreatedNs,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
             fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
@@ -845,7 +845,7 @@ impl<'de> serde::Deserialize<'de> for GrantMessagingAccessAssociation {
                             "associationTextVersion" | "association_text_version" => Ok(GeneratedField::AssociationTextVersion),
                             "signature" => Ok(GeneratedField::Signature),
                             "accountAddress" | "account_address" => Ok(GeneratedField::AccountAddress),
-                            "iso8601Time" | "iso8601_time" => Ok(GeneratedField::Iso8601Time),
+                            "createdNs" | "created_ns" => Ok(GeneratedField::CreatedNs),
                             _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
                         }
                     }
@@ -868,7 +868,7 @@ impl<'de> serde::Deserialize<'de> for GrantMessagingAccessAssociation {
                 let mut association_text_version__ = None;
                 let mut signature__ = None;
                 let mut account_address__ = None;
-                let mut iso8601_time__ = None;
+                let mut created_ns__ = None;
                 while let Some(k) = map.next_key()? {
                     match k {
                         GeneratedField::AssociationTextVersion => {
@@ -889,11 +889,13 @@ impl<'de> serde::Deserialize<'de> for GrantMessagingAccessAssociation {
                             }
                             account_address__ = Some(map.next_value()?);
                         }
-                        GeneratedField::Iso8601Time => {
-                            if iso8601_time__.is_some() {
-                                return Err(serde::de::Error::duplicate_field("iso8601Time"));
+                        GeneratedField::CreatedNs => {
+                            if created_ns__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("createdNs"));
                             }
-                            iso8601_time__ = Some(map.next_value()?);
+                            created_ns__ = 
+                                Some(map.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
+                            ;
                         }
                     }
                 }
@@ -901,7 +903,7 @@ impl<'de> serde::Deserialize<'de> for GrantMessagingAccessAssociation {
                     association_text_version: association_text_version__.unwrap_or_default(),
                     signature: signature__,
                     account_address: account_address__.unwrap_or_default(),
-                    iso8601_time: iso8601_time__.unwrap_or_default(),
+                    created_ns: created_ns__.unwrap_or_default(),
                 })
             }
         }
@@ -2350,7 +2352,7 @@ impl serde::Serialize for RevokeMessagingAccessAssociation {
         if !self.account_address.is_empty() {
             len += 1;
         }
-        if !self.iso8601_time.is_empty() {
+        if self.created_ns != 0 {
             len += 1;
         }
         let mut struct_ser = serializer.serialize_struct("xmtp.mls.message_contents.RevokeMessagingAccessAssociation", len)?;
@@ -2365,8 +2367,8 @@ impl serde::Serialize for RevokeMessagingAccessAssociation {
         if !self.account_address.is_empty() {
             struct_ser.serialize_field("accountAddress", &self.account_address)?;
         }
-        if !self.iso8601_time.is_empty() {
-            struct_ser.serialize_field("iso8601Time", &self.iso8601_time)?;
+        if self.created_ns != 0 {
+            struct_ser.serialize_field("createdNs", ToString::to_string(&self.created_ns).as_str())?;
         }
         struct_ser.end()
     }
@@ -2383,8 +2385,8 @@ impl<'de> serde::Deserialize<'de> for RevokeMessagingAccessAssociation {
             "signature",
             "account_address",
             "accountAddress",
-            "iso8601_time",
-            "iso8601Time",
+            "created_ns",
+            "createdNs",
         ];
 
         #[allow(clippy::enum_variant_names)]
@@ -2392,7 +2394,7 @@ impl<'de> serde::Deserialize<'de> for RevokeMessagingAccessAssociation {
             AssociationTextVersion,
             Signature,
             AccountAddress,
-            Iso8601Time,
+            CreatedNs,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
             fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
@@ -2417,7 +2419,7 @@ impl<'de> serde::Deserialize<'de> for RevokeMessagingAccessAssociation {
                             "associationTextVersion" | "association_text_version" => Ok(GeneratedField::AssociationTextVersion),
                             "signature" => Ok(GeneratedField::Signature),
                             "accountAddress" | "account_address" => Ok(GeneratedField::AccountAddress),
-                            "iso8601Time" | "iso8601_time" => Ok(GeneratedField::Iso8601Time),
+                            "createdNs" | "created_ns" => Ok(GeneratedField::CreatedNs),
                             _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
                         }
                     }
@@ -2440,7 +2442,7 @@ impl<'de> serde::Deserialize<'de> for RevokeMessagingAccessAssociation {
                 let mut association_text_version__ = None;
                 let mut signature__ = None;
                 let mut account_address__ = None;
-                let mut iso8601_time__ = None;
+                let mut created_ns__ = None;
                 while let Some(k) = map.next_key()? {
                     match k {
                         GeneratedField::AssociationTextVersion => {
@@ -2461,11 +2463,13 @@ impl<'de> serde::Deserialize<'de> for RevokeMessagingAccessAssociation {
                             }
                             account_address__ = Some(map.next_value()?);
                         }
-                        GeneratedField::Iso8601Time => {
-                            if iso8601_time__.is_some() {
-                                return Err(serde::de::Error::duplicate_field("iso8601Time"));
+                        GeneratedField::CreatedNs => {
+                            if created_ns__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("createdNs"));
                             }
-                            iso8601_time__ = Some(map.next_value()?);
+                            created_ns__ = 
+                                Some(map.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
+                            ;
                         }
                     }
                 }
@@ -2473,7 +2477,7 @@ impl<'de> serde::Deserialize<'de> for RevokeMessagingAccessAssociation {
                     association_text_version: association_text_version__.unwrap_or_default(),
                     signature: signature__,
                     account_address: account_address__.unwrap_or_default(),
-                    iso8601_time: iso8601_time__.unwrap_or_default(),
+                    created_ns: created_ns__.unwrap_or_default(),
                 })
             }
         }

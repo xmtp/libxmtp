@@ -66,14 +66,14 @@ XMTP installations consist of a long-lived Ed25519 key-pair (the 'installation k
    struct {
         association_text_version: i32,
         signature: bytes,
-        iso8601_time: string,
+        created_ns: u64,
         account_address: string,
-   } Eip191Association;
+   } GrantMessagingAccessAssociation;
 
 
    struct {
        installation_public_key: bytes,
-       eip191_association: Eip191Association
+       association: GrantMessagingAccessAssociation
    } MlsCredential;
    ```
 
@@ -115,8 +115,15 @@ Users may revoke an installation as follows:
 
    ```
    struct {
+        association_text_version: i32,
+        signature: bytes,
+        created_ns: u64,
+        account_address: string,
+   } RevokeMessagingAccessAssociation;
+
+   struct {
        installation_public_key: bytes,
-       eip191_association: Eip191Association
+       association: RevokeMessagingAccessAssociation
    } InstallationRevocation;
    ```
 
