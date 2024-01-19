@@ -31,8 +31,8 @@ where
             self.sync().await?;
         }
 
-        // Load the message from the DB to handle cases where it may have been
-        // already processed in another thread
+        // Load the message from the DB to handle cases where it may have been already processed in
+        // another thread
         let new_message = self
             .client
             .store

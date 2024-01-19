@@ -4,25 +4,23 @@ version = "0.1.0"
 edition = "2021"
 rust-version = "1.64"
 
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
-
 [dependencies]
-rand = { workspace = true }
-hkdf = "0.12.3"
-sha2 = "0.10.6"
-k256 = { version = "0.12.0", features = ["ecdh"] }
-ecdsa = "0.15.1"
-sha3 = "0.10.6"
-hex = { workspace = true }
-rlp = "0.5.2"
 aes-gcm = "0.10.1"
+chrono = "0.4.23"
+ecdsa = "0.15.1"
+ethers-core = { workspace = true }
 generic-array = "0.14.6"
 getrandom = { version = "0.2.8", features = ["js"] }
-chrono = "0.4.23"
-ethers-core = { workspace = true }
-thiserror = { workspace = true }
+hex = { workspace = true }
+hkdf = "0.12.3"
+k256 = { version = "0.12.0", features = ["ecdh"] }
+rand = { workspace = true }
 rand_chacha = "0.3.1"
+rlp = "0.5.2"
 serde = { workspace = true }
+sha2 = "0.10.6"
+sha3 = "0.10.6"
+thiserror = { workspace = true }
 
 [dev-dependencies]
 ethers = { workspace = true }

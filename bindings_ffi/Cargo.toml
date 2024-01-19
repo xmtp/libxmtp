@@ -23,7 +23,7 @@ xmtp_v2 = { path = "../xmtp_v2" }
 xmtp_proto = { path = "../xmtp_proto", features = ["proto_full", "grpc"]}
 futures = "0.3.28"
 tokio = { version = "1.28.1", features = ["macros"] }
-anyhow = "1.0.79"
+xmtp_user_preferences = { path = "../xmtp_user_preferences" }
 
 [build-dependencies]
 uniffi = { version = "0.25.3", features = [
