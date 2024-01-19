@@ -322,7 +322,7 @@ impl FfiV2Subscription {
         Ok(())
     }
 
-    pub async fn close(&self) -> bool {
+    pub async fn end(&self) {
         let sub = self.inner_subscription.lock().await;
         sub.close();
 
@@ -581,7 +581,7 @@ mod tests {
         assert_eq!(first.content_topic, "test1");
 
         // Close the subscription
-        let _ = stream_handler.close().await;
+        stream_handler.end().await;
         let second = stream_handler.next().await;
         assert!(second.is_err());
     }
