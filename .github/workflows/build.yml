@@ -58,7 +58,7 @@ jobs:
           retention-days: 1
 
   build-macos:
-    runs-on: macos-latest
+    runs-on: warp-ubuntu-latest-x64-4x
     strategy:
       fail-fast: false
       matrix:
@@ -105,7 +105,7 @@ jobs:
           retention-days: 1
 
   kotlin:
-    runs-on: macos-latest
+    runs-on: warp-ubuntu-latest-x64-4x
     steps:
       - name: Checkout
         uses: actions/checkout@v1
@@ -137,7 +137,7 @@ jobs:
           retention-days: 1
 
   swift:
-    runs-on: macos-latest
+    runs-on: warp-ubuntu-latest-x64-4x
     steps:
       - name: Checkout
         uses: actions/checkout@v1
@@ -171,7 +171,7 @@ jobs:
 
   package-android:
     needs: [build, kotlin]
-    runs-on: ubuntu-latest
+    runs-on: warp-ubuntu-latest-x64-4x
     steps:
       - name: Download artifacts
         uses: actions/download-artifact@v3
@@ -196,7 +196,7 @@ jobs:
 
   package-swift:
     needs: [build-macos, swift]
-    runs-on: macos-latest
+    runs-on: warp-ubuntu-latest-x64-4x
     steps:
       - name: Checkout
         uses: actions/checkout@v1

@@ -16,8 +16,8 @@ pub mod group_intent;
 pub mod group_message;
 pub mod identity;
 pub mod key_store_entry;
+pub mod refresh_state;
 pub mod schema;
-pub mod topic_refresh_state;
 
 use std::borrow::Cow;
 

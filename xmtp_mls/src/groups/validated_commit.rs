@@ -1,4 +1,5 @@
 use openmls::{
+    credentials::CredentialType,
     group::{QueuedAddProposal, QueuedRemoveProposal},
     prelude::{LeafNodeIndex, MlsGroup as OpenMlsGroup, Sender, StagedCommit},
 };
@@ -15,7 +16,10 @@ use crate::{
 
 use crate::types::Address;
 
-use super::members::aggregate_member_list;
+use super::{
+    group_metadata::{extract_group_metadata, GroupMetadata, GroupMetadataError},
+    members::aggregate_member_list,
+};
 
 #[derive(Debug, Error)]
 pub enum CommitValidationError {
@@ -39,6 +43,8 @@ pub enum CommitValidationError {
     MultipleActors,
     #[error("Failed to get member list {0}")]
     ListMembers(String),
+    #[error("Failed to parse group metadata: {0}")]
+    GroupMetadata(#[from] GroupMetadataError),
     #[error("invalid application id")]
     InvalidApplicationId,
 }
@@ -48,6 +54,7 @@ pub enum CommitValidationError {
 pub struct CommitParticipant {
     pub account_address: Address,
     pub installation_id: Vec<u8>,
+    pub is_creator: bool,
 }
 
 // An aggregation of all the installation_ids for a given membership change
@@ -55,6 +62,8 @@ pub struct CommitParticipant {
 pub struct AggregatedMembershipChange {
     pub(crate) installation_ids: Vec<Vec<u8>>,
     pub(crate) account_address: Address,
+    #[allow(dead_code)]
+    pub(crate) is_creator: bool,
 }
 
 // A parsed and validated commit that we can apply permissions and rules to
@@ -73,6 +82,12 @@ impl ValidatedCommit {
         staged_commit: &StagedCommit,
         openmls_group: &OpenMlsGroup,
     ) -> Result<Option<Self>, CommitValidationError> {
+        for cred in staged_commit.credentials_to_verify() {
+            if cred.credential_type() != CredentialType::Basic {
+                return Err(CommitValidationError::InvalidActorCredential);
+            }
+            // TODO: Validate the credential
+        }
         // We don't allow commits with proposals sent from multiple people right now
         // We also don't allow commits from external members
         let leaf_index = ensure_single_actor(staged_commit)?;
@@ -81,8 +96,12 @@ impl ValidatedCommit {
             // Return None until the issue is resolved
             return Ok(None);
         }
-
-        let actor = extract_actor(leaf_index.expect("already checked"), openmls_group)?;
+        let group_metadata = extract_group_metadata(openmls_group)?;
+        let actor = extract_actor(
+            leaf_index.expect("already checked"),
+            openmls_group,
+            &group_metadata,
+        )?;
 
         let existing_members = aggregate_member_list(openmls_group)
             .map_err(|e| CommitValidationError::ListMembers(e.to_string()))?;
@@ -95,10 +114,14 @@ impl ValidatedCommit {
             });
 
         let (members_added, installations_added) =
-            get_new_members(staged_commit, &existing_installation_ids)?;
+            get_new_members(staged_commit, &existing_installation_ids, &group_metadata)?;
 
-        let (members_removed, installations_removed) =
-            get_removed_members(staged_commit, &existing_installation_ids, openmls_group)?;
+        let (members_removed, installations_removed) = get_removed_members(
+            staged_commit,
+            &existing_installation_ids,
+            openmls_group,
+            &group_metadata,
+        )?;
 
         Ok(Some(Self {
             actor,
@@ -131,6 +154,7 @@ impl AggregatedMembershipChange {
 fn extract_actor(
     leaf_index: LeafNodeIndex,
     group: &OpenMlsGroup,
+    group_metadata: &GroupMetadata,
 ) -> Result<CommitParticipant, CommitValidationError> {
     if let Some(leaf_node) = group.member_at(leaf_index) {
         let signature_key = leaf_node.signature_key.as_slice();
@@ -138,9 +162,12 @@ fn extract_actor(
             Identity::get_validated_account_address(leaf_node.credential.identity(), signature_key)
                 .map_err(|_| CommitValidationError::InvalidActorCredential)?;
 
+        let is_creator = account_address.eq(&group_metadata.creator_account_address);
+
         Ok(CommitParticipant {
             account_address,
             installation_id: signature_key.to_vec(),
+            is_creator,
         })
     } else {
         // TODO: Handle external joins/commits
@@ -151,6 +178,7 @@ fn extract_actor(
 // Take a QueuedAddProposal and extract the wallet address and installation_id
 fn extract_identity_from_add(
     proposal: QueuedAddProposal,
+    group_metadata: &GroupMetadata,
 ) -> Result<CommitParticipant, CommitValidationError> {
     let key_package = proposal.add_proposal().key_package().to_owned();
     let verified_key_package =
@@ -161,9 +189,13 @@ fn extract_identity_from_add(
             _ => CommitValidationError::InvalidSubjectCredential,
         })?;
 
+    let account_address = verified_key_package.account_address.clone();
+    let is_creator = account_address.eq(&group_metadata.creator_account_address);
+
     Ok(CommitParticipant {
-        account_address: verified_key_package.account_address.clone(),
+        account_address,
         installation_id: verified_key_package.installation_id(),
+        is_creator,
     })
 }
 
@@ -171,6 +203,7 @@ fn extract_identity_from_add(
 fn extract_identity_from_remove(
     proposal: QueuedRemoveProposal,
     group: &OpenMlsGroup,
+    group_metadata: &GroupMetadata,
 ) -> Result<CommitParticipant, CommitValidationError> {
     let leaf_index = proposal.remove_proposal().removed();
 
@@ -179,10 +212,12 @@ fn extract_identity_from_remove(
         let account_address =
             Identity::get_validated_account_address(member.credential.identity(), signature_key)
                 .map_err(|_| CommitValidationError::InvalidSubjectCredential)?;
+        let is_creator = account_address.eq(&group_metadata.creator_account_address);
 
         Ok(CommitParticipant {
             account_address,
             installation_id: signature_key.to_vec(),
+            is_creator,
         })
     } else {
         Err(CommitValidationError::SubjectDoesNotExist)
@@ -203,6 +238,7 @@ fn merge_members(
         .or_insert(AggregatedMembershipChange {
             account_address: participant.account_address,
             installation_ids: vec![participant.installation_id],
+            is_creator: participant.is_creator,
         });
     acc
 }
@@ -234,6 +270,7 @@ fn ensure_single_actor(
 fn get_new_members(
     staged_commit: &StagedCommit,
     existing_installation_ids: &HashMap<String, Vec<Vec<u8>>>,
+    group_metadata: &GroupMetadata,
 ) -> Result<
     (
         Vec<AggregatedMembershipChange>,
@@ -243,7 +280,7 @@ fn get_new_members(
 > {
     let extracted_installs: Vec<CommitParticipant> = staged_commit
         .add_proposals()
-        .map(extract_identity_from_add)
+        .map(|proposal| extract_identity_from_add(proposal, group_metadata))
         .collect::<Result<Vec<CommitParticipant>, CommitValidationError>>()?;
 
     let new_installations = extracted_installs
@@ -261,6 +298,7 @@ fn get_removed_members(
     staged_commit: &StagedCommit,
     existing_installation_ids: &HashMap<String, Vec<Vec<u8>>>,
     openmls_group: &OpenMlsGroup,
+    group_metadata: &GroupMetadata,
 ) -> Result<
     (
         Vec<AggregatedMembershipChange>,
@@ -270,7 +308,7 @@ fn get_removed_members(
 > {
     let extracted_installs = staged_commit
         .remove_proposals()
-        .map(|proposal| extract_identity_from_remove(proposal, openmls_group))
+        .map(|proposal| extract_identity_from_remove(proposal, openmls_group, group_metadata))
         .collect::<Result<Vec<CommitParticipant>, CommitValidationError>>()?;
 
     let removed_installations = extracted_installs
@@ -361,6 +399,10 @@ mod tests {
             message.members_added[0].account_address,
             bola.account_address()
         );
+        // Amal is the creator of the group and the actor
+        assert!(message.actor.is_creator);
+        // Bola is not the creator of the group
+        assert!(!message.members_added[0].is_creator);
 
         // Merge the commit adding bola
         mls_group.merge_pending_commit(&amal_provider).unwrap();
