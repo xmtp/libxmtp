@@ -7,7 +7,7 @@ on:
 jobs:
   test:
     name: Test
-    runs-on: ubuntu-latest
+    runs-on: warp-ubuntu-latest-x64-16x
     steps:
       - name: Checkout sources
         uses: actions/checkout@v2
@@ -26,6 +26,7 @@ jobs:
 
       - name: Run cargo test on main workspace
         uses: actions-rs/cargo@v1
+        timeout-minutes: 20
         with:
           command: test
 
