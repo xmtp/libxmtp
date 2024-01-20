@@ -1,6 +1,10 @@
 use crate::GenericError;
+use futures::StreamExt;
 use std::sync::Arc;
-use xmtp_proto::api_client::{BatchQueryResponse, PagingInfo, QueryResponse, XmtpApiClient};
+use xmtp_proto::api_client::{
+    BatchQueryResponse, MutableApiSubscription, PagingInfo, QueryResponse, SubscribeRequest,
+    XmtpApiClient,
+};
 use xmtp_proto::xmtp::message_api::v1::IndexCursor;
 use xmtp_v2::{hashes, k256_helper};
 
@@ -268,6 +272,62 @@ impl From<FfiV2BatchQueryResponse> for BatchQueryResponse {
     }
 }
 
+#[derive(uniffi::Record)]
+pub struct FfiV2SubscribeRequest {
+    pub content_topics: Vec<String>,
+}
+
+impl From<FfiV2SubscribeRequest> for SubscribeRequest {
+    fn from(req: FfiV2SubscribeRequest) -> Self {
+        Self {
+            content_topics: req.content_topics,
+        }
+    }
+}
+
+#[derive(uniffi::Object)]
+pub struct FfiV2Subscription {
+    inner_subscription:
+        Arc<futures::lock::Mutex<xmtp_api_grpc::grpc_api_helper::GrpcMutableSubscription>>,
+}
+
+impl From<xmtp_api_grpc::grpc_api_helper::GrpcMutableSubscription> for FfiV2Subscription {
+    fn from(subscription: xmtp_api_grpc::grpc_api_helper::GrpcMutableSubscription) -> Self {
+        Self {
+            inner_subscription: Arc::new(futures::lock::Mutex::new(subscription)),
+        }
+    }
+}
+
+#[uniffi::export(async_runtime = "tokio")]
+impl FfiV2Subscription {
+    pub async fn next(&self) -> Result<FfiEnvelope, GenericError> {
+        let mut sub = self.inner_subscription.lock().await;
+
+        let result = sub.next().await;
+        match result {
+            Some(Ok(envelope)) => Ok(envelope.into()),
+            Some(Err(err)) => Err(GenericError::Generic {
+                err: err.to_string(),
+            }),
+            None => Err(GenericError::Generic {
+                err: "stream closed".to_string(),
+            }),
+        }
+    }
+
+    pub async fn update(&self, req: FfiV2SubscribeRequest) -> Result<(), GenericError> {
+        let mut sub = self.inner_subscription.lock().await;
+        sub.update(req.into()).await?;
+        Ok(())
+    }
+
+    pub async fn end(&self) {
+        let sub = self.inner_subscription.lock().await;
+        sub.close();
+    }
+}
+
 #[derive(uniffi::Object)]
 pub struct FfiV2ApiClient {
     inner_client: Arc<xmtp_api_grpc::grpc_api_helper::Client>,
@@ -307,6 +367,14 @@ impl FfiV2ApiClient {
     ) -> Result<FfiV2QueryResponse, GenericError> {
         let result = self.inner_client.query(request.into()).await?;
         Ok(result.into())
+    }
+
+    pub async fn subscribe(
+        &self,
+        request: FfiV2SubscribeRequest,
+    ) -> Result<Arc<FfiV2Subscription>, GenericError> {
+        let result = self.inner_client.subscribe2(request.into()).await?;
+        Ok(Arc::new(result.into()))
     }
 }
 
@@ -435,6 +503,13 @@ pub fn verify_k256_sha256(
 
 #[cfg(test)]
 mod tests {
+    use std::sync::Arc;
+
+    use futures::stream;
+    use xmtp_proto::api_client::{Envelope, Error as ApiError};
+
+    use crate::v2::FfiV2Subscription;
+
     // Try a query on a test topic, and make sure we get a response
     #[tokio::test]
     async fn test_recover_public_key_keccak256() {
@@ -446,5 +521,66 @@ mod tests {
         let sig_bytes = ethers_core::utils::hex::decode(sig_hash).unwrap();
         let recovered_addr = crate::v2::recover_address(sig_bytes, msg.to_string()).unwrap();
         assert_eq!(recovered_addr, addr.to_lowercase());
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn test_subscribe() {
+        let items: Vec<Result<Envelope, ApiError>> = vec![
+            Ok(Envelope {
+                content_topic: "test1".to_string(),
+                timestamp_ns: 0,
+                message: vec![],
+            }),
+            Ok(Envelope {
+                content_topic: "test2".to_string(),
+                timestamp_ns: 0,
+                message: vec![],
+            }),
+        ];
+        let stream = stream::iter(items);
+        let (tx, _) = futures::channel::mpsc::unbounded();
+        let stream_handler = FfiV2Subscription {
+            inner_subscription: Arc::new(futures::lock::Mutex::new(
+                xmtp_api_grpc::grpc_api_helper::GrpcMutableSubscription::new(Box::pin(stream), tx),
+            )),
+        };
+
+        let first = stream_handler.next().await.unwrap();
+        assert_eq!(first.content_topic, "test1");
+        let second = stream_handler.next().await.unwrap();
+        assert_eq!(second.content_topic, "test2");
+        let third = stream_handler.next().await;
+        assert!(third.is_err());
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn test_subscription_close() {
+        let items: Vec<Result<Envelope, ApiError>> = vec![
+            Ok(Envelope {
+                content_topic: "test1".to_string(),
+                timestamp_ns: 0,
+                message: vec![],
+            }),
+            Ok(Envelope {
+                content_topic: "test2".to_string(),
+                timestamp_ns: 0,
+                message: vec![],
+            }),
+        ];
+        let stream = stream::iter(items);
+        let (tx, _) = futures::channel::mpsc::unbounded();
+        let stream_handler = FfiV2Subscription {
+            inner_subscription: Arc::new(futures::lock::Mutex::new(
+                xmtp_api_grpc::grpc_api_helper::GrpcMutableSubscription::new(Box::pin(stream), tx),
+            )),
+        };
+
+        let first = stream_handler.next().await.unwrap();
+        assert_eq!(first.content_topic, "test1");
+
+        // Close the subscription
+        stream_handler.end().await;
+        let second = stream_handler.next().await;
+        assert!(second.is_err());
     }
 }
