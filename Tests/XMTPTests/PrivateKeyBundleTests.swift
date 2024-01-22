@@ -7,7 +7,7 @@
 
 import secp256k1
 import XCTest
-@testable import XMTP
+@testable import XMTPiOS
 
 class PrivateKeyBundleTests: XCTestCase {
 	func testConversion() async throws {

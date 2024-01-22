@@ -8,8 +8,8 @@
 #if canImport(XCTest)
 import Combine
 import XCTest
-@testable import XMTP
-import XMTPRust
+@testable import XMTPiOS
+import LibXMTP
 
 public struct TestConfig {
     static let TEST_SERVER_ENABLED = _env("TEST_SERVER_ENABLED") == "true"
@@ -50,12 +50,12 @@ public struct FakeWallet: SigningKey {
 		key.walletAddress
 	}
 
-	public func sign(_ data: Data) async throws -> XMTP.Signature {
+	public func sign(_ data: Data) async throws -> XMTPiOS.Signature {
 		let signature = try await key.sign(data)
 		return signature
 	}
 
-	public func sign(message: String) async throws -> XMTP.Signature {
+	public func sign(message: String) async throws -> XMTPiOS.Signature {
 		let signature = try await key.sign(message: message)
 		return signature
 	}
@@ -72,25 +72,25 @@ enum FakeApiClientError: String, Error {
 }
 
 class FakeStreamHolder: ObservableObject {
-	@Published var envelope: XMTP.Envelope?
+	@Published var envelope: XMTPiOS.Envelope?
 
-	func send(envelope: XMTP.Envelope) {
+	func send(envelope: XMTPiOS.Envelope) {
 		self.envelope = envelope
 	}
 }
 
 @available(iOS 15, *)
 public class FakeApiClient: ApiClient {
-	public func envelopes(topic: String, pagination: XMTP.Pagination?) async throws -> [XMTP.Envelope] {
+	public func envelopes(topic: String, pagination: XMTPiOS.Pagination?) async throws -> [XMTPiOS.Envelope] {
 		try await query(topic: topic, pagination: pagination).envelopes
 	}
 
 	public var environment: XMTPEnvironment
 	public var authToken: String = ""
     public var appVersion: String
-	private var responses: [String: [XMTP.Envelope]] = [:]
+	private var responses: [String: [XMTPiOS.Envelope]] = [:]
 	private var stream = FakeStreamHolder()
-	public var published: [XMTP.Envelope] = []
+	public var published: [XMTPiOS.Envelope] = []
 	var cancellable: AnyCancellable?
 	var forbiddingQueries = false
 
@@ -112,7 +112,7 @@ public class FakeApiClient: ApiClient {
 		forbiddingQueries = false
 	}
 
-	public func register(message: [XMTP.Envelope], for topic: Topic) {
+	public func register(message: [XMTPiOS.Envelope], for topic: Topic) {
 		var responsesForTopic = responses[topic.description] ?? []
 		responsesForTopic.append(contentsOf: message)
 		responses[topic.description] = responsesForTopic
@@ -123,26 +123,26 @@ public class FakeApiClient: ApiClient {
         appVersion = "test/0.0.0"
 	}
 
-	public func send(envelope: XMTP.Envelope) {
+	public func send(envelope: XMTPiOS.Envelope) {
 		stream.send(envelope: envelope)
 	}
 
-	public func findPublishedEnvelope(_ topic: Topic) -> XMTP.Envelope? {
+	public func findPublishedEnvelope(_ topic: Topic) -> XMTPiOS.Envelope? {
 		return findPublishedEnvelope(topic.description)
 	}
 
-	public func findPublishedEnvelope(_ topic: String) -> XMTP.Envelope? {
+	public func findPublishedEnvelope(_ topic: String) -> XMTPiOS.Envelope? {
 		return published.reversed().first { $0.contentTopic == topic.description }
 	}
 
 	// MARK: ApiClient conformance
 
-	public required init(environment: XMTP.XMTPEnvironment, secure _: Bool, rustClient _: XMTPRust.RustClient, appVersion: String?) throws {
+	public required init(environment: XMTPiOS.XMTPEnvironment, secure _: Bool, rustClient _: LibXMTP.FfiV2ApiClient, appVersion: String?) throws {
 		self.environment = environment
         self.appVersion = appVersion ?? "0.0.0"
 	}
 
-	public func subscribe(topics: [String]) -> AsyncThrowingStream<XMTP.Envelope, Error> {
+	public func subscribe(topics: [String]) -> AsyncThrowingStream<XMTPiOS.Envelope, Error> {
 		AsyncThrowingStream { continuation in
 			self.cancellable = stream.$envelope.sink(receiveValue: { env in
 				if let env, topics.contains(env.contentTopic) {
@@ -156,13 +156,13 @@ public class FakeApiClient: ApiClient {
 		authToken = token
 	}
 
-	public func query(topic: String, pagination: Pagination? = nil, cursor _: Xmtp_MessageApi_V1_Cursor? = nil) async throws -> XMTP.QueryResponse {
+	public func query(topic: String, pagination: Pagination? = nil, cursor _: Xmtp_MessageApi_V1_Cursor? = nil) async throws -> XMTPiOS.QueryResponse {
 		if forbiddingQueries {
 			XCTFail("Attempted to query \(topic)")
 			throw FakeApiClientError.queryAssertionFailure
 		}
 
-		var result: [XMTP.Envelope] = []
+		var result: [XMTPiOS.Envelope] = []
 
 		if let response = responses.removeValue(forKey: topic) {
 			result.append(contentsOf: response)
@@ -213,21 +213,19 @@ public class FakeApiClient: ApiClient {
 		return queryResponse
 	}
 
-	public func query(topic: XMTP.Topic, pagination: Pagination? = nil) async throws -> XMTP.QueryResponse {
+	public func query(topic: XMTPiOS.Topic, pagination: Pagination? = nil) async throws -> XMTPiOS.QueryResponse {
 		return try await query(topic: topic.description, pagination: pagination, cursor: nil)
 	}
 
-	public func publish(envelopes: [XMTP.Envelope]) async throws -> XMTP.PublishResponse {
+	public func publish(envelopes: [XMTPiOS.Envelope]) async throws {
 		for envelope in envelopes {
 			send(envelope: envelope)
 		}
 
 		published.append(contentsOf: envelopes)
-
-		return PublishResponse()
 	}
 
-    public func batchQuery(request: XMTP.BatchQueryRequest) async throws -> XMTP.BatchQueryResponse {
+	public func batchQuery(request: XMTPiOS.BatchQueryRequest) async throws -> XMTPiOS.BatchQueryResponse {
         let responses = try await withThrowingTaskGroup(of: QueryResponse.self) { group in
             for r in request.requests {
                 group.addTask {
@@ -243,17 +241,17 @@ public class FakeApiClient: ApiClient {
           return results
         }
 
-        var queryResponse = XMTP.BatchQueryResponse()
+		var queryResponse = XMTPiOS.BatchQueryResponse()
         queryResponse.responses = responses
         return queryResponse
      
     }
 
-    public func query(request: XMTP.QueryRequest) async throws -> XMTP.QueryResponse {
+	public func query(request: XMTPiOS.QueryRequest) async throws -> XMTPiOS.QueryResponse {
         abort() // Not supported on Fake
     }
 
-    public func publish(request: XMTP.PublishRequest) async throws -> XMTP.PublishResponse {
+	public func publish(request: XMTPiOS.PublishRequest) async throws {
         abort() // Not supported on Fake
     }
 

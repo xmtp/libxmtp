@@ -6,7 +6,7 @@
 //
 
 import SwiftUI
-import XMTP
+import XMTPiOS
 
 struct ContentView: View {
 	enum Status {

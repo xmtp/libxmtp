@@ -9,7 +9,7 @@ import Foundation
 import UIKit
 import WalletConnectSwift
 import web3
-import XMTP
+import XMTPiOS
 import UIKit
 
 extension WCURL {

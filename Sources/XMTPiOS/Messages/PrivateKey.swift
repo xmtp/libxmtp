@@ -6,7 +6,7 @@
 //
 
 import Foundation
-import XMTPRust
+import LibXMTP
 import CryptoKit
 
 /// Represents a secp256k1 private key.  ``PrivateKey`` conforms to ``SigningKey`` so you can use it

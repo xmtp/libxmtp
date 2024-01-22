@@ -6,13 +6,13 @@
 //
 
 import Foundation
+import LibXMTP
 import web3
-import XMTPRust
 
 public typealias PreEventCallback = () async throws -> Void
 
 public enum ClientError: Error {
-    case creationError(String)
+	case creationError(String)
 }
 
 /// Specify configuration options for creating a ``Client``.
@@ -24,26 +24,26 @@ public struct ClientOptions {
 
 		/// Optional: Specify self-reported version e.g. XMTPInbox/v1.0.0.
 		public var isSecure: Bool = true
-        
-        /// Specify whether the API client should use TLS security. In general this should only be false when using the `.local` environment.
-        public var appVersion: String? = nil
 
-        public init(env: XMTPEnvironment = .dev, isSecure: Bool = true, appVersion: String? = nil) {
+		/// Specify whether the API client should use TLS security. In general this should only be false when using the `.local` environment.
+		public var appVersion: String?
+
+		public init(env: XMTPEnvironment = .dev, isSecure: Bool = true, appVersion: String? = nil) {
 			self.env = env
 			self.isSecure = isSecure
-            self.appVersion = appVersion
+			self.appVersion = appVersion
 		}
 	}
 
 	public var api = Api()
 	public var codecs: [any ContentCodec] = []
-  
+
 	/// `preEnableIdentityCallback` will be called immediately before an Enable Identity wallet signature is requested from the user.
-	public var preEnableIdentityCallback: PreEventCallback? = nil
-	  
+	public var preEnableIdentityCallback: PreEventCallback?
+
 	/// `preCreateIdentityCallback` will be called immediately before a Create Identity wallet signature is requested from the user.
-	public var preCreateIdentityCallback: PreEventCallback? = nil
-  
+	public var preCreateIdentityCallback: PreEventCallback?
+
 	public init(api: Api = Api(), codecs: [any ContentCodec] = [], preEnableIdentityCallback: PreEventCallback? = nil, preCreateIdentityCallback: PreEventCallback? = nil) {
 		self.api = api
 		self.codecs = codecs
@@ -86,17 +86,17 @@ public final class Client: Sendable {
 	/// Creates a client.
 	public static func create(account: SigningKey, options: ClientOptions? = nil) async throws -> Client {
 		let options = options ?? ClientOptions()
-        do {
-		let client = try await XMTPRust.create_client(GRPCApiClient.envToUrl(env: options.api.env), options.api.env != .local)
-		let apiClient = try GRPCApiClient(
-			environment: options.api.env,
-			secure: options.api.isSecure,
-			rustClient: client
-		)
-		return try await create(account: account, apiClient: apiClient, options: options)
-        } catch let error as RustString {
-            throw ClientError.creationError(error.toString())
-        }
+		do {
+			let client = try await LibXMTP.createV2Client(host: GRPCApiClient.envToUrl(env: options.api.env), isSecure: options.api.env != .local)
+			let apiClient = try GRPCApiClient(
+				environment: options.api.env,
+				secure: options.api.isSecure,
+				rustClient: client
+			)
+			return try await create(account: account, apiClient: apiClient, options: options)
+		} catch {
+			throw ClientError.creationError(error.localizedDescription)
+		}
 	}
 
 	static func create(account: SigningKey, apiClient: ApiClient, options: ClientOptions? = nil) async throws -> Client {
@@ -112,7 +112,7 @@ public final class Client: Sendable {
 		// swiftlint:disable no_optional_try
 		if let keys = try await loadPrivateKeys(for: account, apiClient: apiClient, options: options) {
 			// swiftlint:enable no_optional_try
-            print("loading existing private keys.")
+			print("loading existing private keys.")
 			#if DEBUG
 				print("Loaded existing private keys.")
 			#endif
@@ -130,7 +130,7 @@ public final class Client: Sendable {
 			let apiClient = apiClient
 			apiClient.setAuthToken(authToken)
 			_ = try await apiClient.publish(envelopes: [
-				Envelope(topic: .userPrivateStoreKeyBundle(account.address), timestamp: Date(), message: try encryptedKeys.serializedData()),
+				Envelope(topic: .userPrivateStoreKeyBundle(account.address), timestamp: Date(), message: encryptedKeys.serializedData()),
 			])
 
 			return keys
@@ -145,11 +145,11 @@ public final class Client: Sendable {
 
 		for envelope in res.envelopes {
 			let encryptedBundle = try EncryptedPrivateKeyBundle(serializedData: envelope.message)
-			let bundle = try await encryptedBundle.decrypted(with: account, preEnableIdentityCallback: options?.preEnableIdentityCallback )
-            if case .v1 = bundle.version {
-                return bundle.v1
-            }
-            print("discarding unsupported stored key bundle")
+			let bundle = try await encryptedBundle.decrypted(with: account, preEnableIdentityCallback: options?.preEnableIdentityCallback)
+			if case .v1 = bundle.version {
+				return bundle.v1
+			}
+			print("discarding unsupported stored key bundle")
 		}
 
 		return nil
@@ -165,7 +165,7 @@ public final class Client: Sendable {
 
 		let options = options ?? ClientOptions()
 
-		let client = try await XMTPRust.create_client(GRPCApiClient.envToUrl(env: options.api.env), options.api.env != .local)
+		let client = try await LibXMTP.createV2Client(host: GRPCApiClient.envToUrl(env: options.api.env), isSecure: options.api.env != .local)
 		let apiClient = try GRPCApiClient(
 			environment: options.api.env,
 			secure: options.api.isSecure,
@@ -200,18 +200,18 @@ public final class Client: Sendable {
 	public func canMessage(_ peerAddress: String) async throws -> Bool {
 		return try await query(topic: .contact(peerAddress)).envelopes.count > 0
 	}
-  
-    public static func canMessage(_ peerAddress: String, options: ClientOptions? = nil) async throws -> Bool {
-        let options = options ?? ClientOptions()
 
-        let client = try await XMTPRust.create_client(GRPCApiClient.envToUrl(env: options.api.env), options.api.env != .local)
-        let apiClient = try GRPCApiClient(
-          environment: options.api.env,
-          secure: options.api.isSecure,
-          rustClient: client
-        )
-        return try await apiClient.query(topic: .contact(peerAddress)).envelopes.count > 0
-    }
+	public static func canMessage(_ peerAddress: String, options: ClientOptions? = nil) async throws -> Bool {
+		let options = options ?? ClientOptions()
+
+		let client = try await LibXMTP.createV2Client(host: GRPCApiClient.envToUrl(env: options.api.env), isSecure: options.api.env != .local)
+		let apiClient = try GRPCApiClient(
+			environment: options.api.env,
+			secure: options.api.isSecure,
+			rustClient: client
+		)
+		return try await apiClient.query(topic: Topic.contact(peerAddress)).envelopes.count > 0
+	}
 
 	public func importConversation(from conversationData: Data) throws -> Conversation? {
 		let jsonDecoder = JSONDecoder()
@@ -308,17 +308,17 @@ public final class Client: Sendable {
 		)
 	}
 
-    public func batchQuery(request: BatchQueryRequest) async throws -> BatchQueryResponse {
-        return try await apiClient.batchQuery(request: request)
-    }
+	public func batchQuery(request: BatchQueryRequest) async throws -> BatchQueryResponse {
+		return try await apiClient.batchQuery(request: request)
+	}
 
-	@discardableResult public func publish(envelopes: [Envelope]) async throws -> PublishResponse {
+	public func publish(envelopes: [Envelope]) async throws {
 		let authorized = AuthorizedIdentity(address: address, authorized: privateKeyBundleV1.identityKey.publicKey, identity: privateKeyBundleV1.identityKey)
 		let authToken = try await authorized.createAuthToken()
 
 		apiClient.setAuthToken(authToken)
 
-		return try await apiClient.publish(envelopes: envelopes)
+		try await apiClient.publish(envelopes: envelopes)
 	}
 
 	public func subscribe(topics: [String]) -> AsyncThrowingStream<Envelope, Error> {

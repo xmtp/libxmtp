@@ -6,7 +6,7 @@
 //
 
 import UserNotifications
-import XMTP
+import XMTPiOS
 
 class NotificationService: UNNotificationServiceExtension {
 	var contentHandler: ((UNNotificationContent) -> Void)?

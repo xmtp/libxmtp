@@ -5,7 +5,7 @@
 //  Created by Pat Nakajima on 11/22/22.
 //
 import Foundation
-import XMTP
+import XMTPiOS
 
 /// Wrapper around a WalletConnect V1 wallet connection. Account conforms to ``SigningKey`` so
 /// you can use it to create a ``Client``.

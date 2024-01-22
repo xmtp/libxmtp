@@ -36,7 +36,7 @@ Use Xcode to add to the project (**File** > **Add Packages…**) or add this to 
 The XMTP message API revolves around a message API client (client) that allows retrieving and sending messages to other XMTP network participants. A client must connect to a wallet app on startup. If this is the very first time the client is created, the client will generate a key bundle that is used to encrypt and authenticate messages. The key bundle persists encrypted in the network using an account signature. The public side of the key bundle is also regularly advertised on the network to allow parties to establish shared encryption keys. All of this happens transparently, without requiring any additional code.
 
 ```swift
-import XMTP
+import XMTPiOS
 
 // You'll want to replace this with a wallet from your application.
 let account = try PrivateKey.generate()
@@ -69,7 +69,7 @@ A client is created with `Client.create(account: SigningKey) async throws -> Cli
 > The client connects to the XMTP `dev` environment by default. [Use `ClientOptions`](#configure-the-client) to change this and other parameters of the network connection.
 
 ```swift
-import XMTP
+import XMTPiOS
 
 // Create the client with a `SigningKey` from your app
 let client = try await Client.create(account: account, options: .init(api: .init(env: .production)))
@@ -129,7 +129,7 @@ To learn more about using `AttachmentCodec` and `RemoteAttachmentCodec`, see [Ha
 Most of the time, when interacting with the network, you'll want to do it through `conversations`. Conversations are between two accounts.
 
 ```swift
-import XMTP
+import XMTPiOS
 // Create the client with a wallet from your app
 let client = try await Client.create(account: account)
 let conversations = try await client.conversations.list()

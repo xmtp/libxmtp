@@ -8,7 +8,7 @@
 import Foundation
 
 import XCTest
-@testable import XMTP
+@testable import XMTPiOS
 
 final class AuthenticationTests: XCTestCase {
 	func testCreateToken() async throws {

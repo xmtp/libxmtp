@@ -7,7 +7,7 @@
 
 import CryptoKit
 import Foundation
-import XMTPRust
+import LibXMTP
 
 
 public typealias PrivateKeyBundleV1 = Xmtp_MessageContents_PrivateKeyBundleV1

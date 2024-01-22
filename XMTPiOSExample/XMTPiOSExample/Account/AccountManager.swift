@@ -6,7 +6,7 @@
 //
 
 import Foundation
-import XMTP
+import XMTPiOS
 
 class AccountManager: ObservableObject {
 	var account: Account

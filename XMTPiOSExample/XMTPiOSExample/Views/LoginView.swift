@@ -7,7 +7,7 @@
 
 import SwiftUI
 import WebKit
-import XMTP
+import XMTPiOS
 import WalletConnectRelay
 import Combine
 import SwiftUI

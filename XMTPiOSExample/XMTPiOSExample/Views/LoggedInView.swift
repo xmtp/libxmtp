@@ -6,7 +6,7 @@
 //
 
 import SwiftUI
-import XMTP
+import XMTPiOS
 
 class EnvironmentCoordinator: ObservableObject {
 	@Published var path = NavigationPath()

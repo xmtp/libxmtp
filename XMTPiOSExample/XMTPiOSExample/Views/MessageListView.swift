@@ -6,7 +6,7 @@
 //
 
 import SwiftUI
-import XMTP
+import XMTPiOS
 
 struct MessageListView: View {
 	var myAddress: String

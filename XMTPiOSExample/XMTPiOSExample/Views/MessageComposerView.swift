@@ -6,7 +6,7 @@
 //
 
 import SwiftUI
-import XMTP
+import XMTPiOS
 
 struct MessageComposerView: View {
 	@State private var text: String = ""

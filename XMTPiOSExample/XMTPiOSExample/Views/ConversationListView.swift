@@ -6,7 +6,7 @@
 //
 
 import SwiftUI
-import XMTP
+import XMTPiOS
 
 struct ConversationListView: View {
 	var client: XMTP.Client

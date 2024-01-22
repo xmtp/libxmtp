@@ -7,7 +7,7 @@
 import Foundation
 
 import XCTest
-@testable import XMTP
+@testable import XMTPiOS
 
 // Fakes HTTPS urls
 struct TestFetcher: RemoteContentFetcher {

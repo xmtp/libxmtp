@@ -7,7 +7,7 @@
 
 import CryptoKit
 import XCTest
-@testable import XMTP
+@testable import XMTPiOS
 
 class SignatureTests: XCTestCase {
 	func testVerify() async throws {

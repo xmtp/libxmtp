@@ -4,13 +4,13 @@
 import PackageDescription
 
 let package = Package(
-	name: "XMTP",
+	name: "XMTPiOS",
 	platforms: [.iOS(.v14), .macOS(.v11)],
 	products: [
 		// Products define the executables and libraries a package produces, and make them visible to other packages.
 		.library(
-			name: "XMTP",
-			targets: ["XMTP"]
+			name: "XMTPiOS",
+			targets: ["XMTPiOS"]
 		),
 		.library(
 			name: "XMTPTestHelpers",
@@ -26,28 +26,29 @@ let package = Package(
 		.package(url: "https://github.com/1024jp/GzipSwift", from: "5.2.0"),
 		.package(url: "https://github.com/bufbuild/connect-swift", exact: "0.3.0"),
 		.package(url: "https://github.com/apple/swift-docc-plugin.git", from: "1.0.0"),
-		.package(url: "https://github.com/xmtp/xmtp-rust-swift", branch: "main"),
+		.package(url: "https://github.com/xmtp/libxmtp-swift", revision: "60b99d0"),
+//		.package(path: "../libxmtp-swift")
 	],
 	targets: [
 		// Targets are the basic building blocks of a package. A target can define a module or a test suite.
 		// Targets can depend on other targets in this package, and on products in packages this package depends on.
 		.target(
-			name: "XMTP",
+			name: "XMTPiOS",
 			dependencies: [
 				.product(name: "secp256k1", package: "secp256k1.swift"),
 				"web3.swift",
 				.product(name: "Gzip", package: "GzipSwift"),
 				.product(name: "Connect", package: "connect-swift"),
-				.product(name: "XMTPRust", package: "xmtp-rust-swift"),
+				.product(name: "LibXMTP", package: "libxmtp-swift"),
 			]
 		),
 		.target(
 			name: "XMTPTestHelpers",
-			dependencies: ["XMTP"]
+			dependencies: ["XMTPiOS"]
 		),
 		.testTarget(
 			name: "XMTPTests",
-			dependencies: ["XMTP", "XMTPTestHelpers"]
+			dependencies: ["XMTPiOS", "XMTPTestHelpers"]
 		),
 	]
 )

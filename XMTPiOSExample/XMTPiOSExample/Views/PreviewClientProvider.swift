@@ -7,7 +7,7 @@
 
 import Foundation
 import SwiftUI
-import XMTP
+import XMTPiOS
 
 struct PreviewClientProvider<Content: View>: View {
 	@State private var client: Client?

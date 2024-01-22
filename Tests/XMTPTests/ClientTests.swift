@@ -8,8 +8,8 @@
 import Foundation
 
 import XCTest
-@testable import XMTP
-import XMTPRust
+@testable import XMTPiOS
+import LibXMTP
 import XMTPTestHelpers
 
 @available(iOS 15, *)

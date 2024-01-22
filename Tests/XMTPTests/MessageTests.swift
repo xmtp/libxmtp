@@ -7,8 +7,8 @@
 
 import CryptoKit
 import XCTest
-import XMTPRust
-@testable import XMTP
+import LibXMTP
+@testable import XMTPiOS
 import XMTPTestHelpers
 
 @available(iOS 16.0, *)

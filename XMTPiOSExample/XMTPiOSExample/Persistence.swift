@@ -7,7 +7,7 @@
 
 import Foundation
 import KeychainAccess
-import XMTP
+import XMTPiOS
 
 struct Persistence {
 	var keychain: Keychain

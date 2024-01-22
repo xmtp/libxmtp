@@ -7,7 +7,7 @@
 
 import secp256k1
 import XCTest
-@testable import XMTP
+@testable import XMTPiOS
 
 final class CryptoTests: XCTestCase {
 	func testCodec() throws {

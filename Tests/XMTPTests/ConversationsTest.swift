@@ -7,7 +7,7 @@
 
 import Foundation
 import XCTest
-@testable import XMTP
+@testable import XMTPiOS
 
 @available(macOS 13.0, *)
 @available(iOS 15, *)

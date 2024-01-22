@@ -6,7 +6,7 @@
 //
 
 import XCTest
-@testable import XMTP
+@testable import XMTPiOS
 import XMTPTestHelpers
 
 @available(iOS 15, *)

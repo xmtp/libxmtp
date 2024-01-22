@@ -6,7 +6,7 @@
 //
 
 import XCTest
-@testable import XMTP
+@testable import XMTPiOS
 
 class ContactTests: XCTestCase {
 	func testParsingV2Bundle() throws {

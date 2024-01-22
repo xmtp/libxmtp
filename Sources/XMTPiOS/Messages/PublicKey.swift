@@ -7,7 +7,7 @@
 
 import Foundation
 
-import XMTPRust
+import LibXMTP
 import web3
 import CryptoKit
 

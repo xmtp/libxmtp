@@ -6,8 +6,7 @@
 //
 
 import Foundation
-import XMTPRust
-
+import LibXMTP
 
 public typealias PrivatePreferencesAction = Xmtp_MessageContents_PrivatePreferencesAction
 
@@ -34,79 +33,75 @@ public struct ConsentListEntry: Codable, Hashable {
 }
 
 public enum ContactError: Error {
-    case invalidIdentifier
+	case invalidIdentifier
 }
 
 public class ConsentList {
 	public var entries: [String: ConsentListEntry] = [:]
-    var publicKey: Data
-    var privateKey: Data
-    var identifier: String?
-    
-    var client: Client
+	var publicKey: Data
+	var privateKey: Data
+	var identifier: String?
 
-    init(client: Client) {
-        self.client = client
-        self.privateKey = client.privateKeyBundleV1.identityKey.secp256K1.bytes
-        self.publicKey = client.privateKeyBundleV1.identityKey.publicKey.secp256K1Uncompressed.bytes
-        // swiftlint:disable no_optional_try
-        self.identifier = try? XMTPRust.generate_private_preferences_topic_identifier(RustVec(privateKey)).toString()
-        // swiftlint:enable no_optional_try
-    }
+	var client: Client
 
-    func load() async throws -> ConsentList {
-        guard let identifier = identifier else {
-            throw ContactError.invalidIdentifier
-        }        
-        
-        let envelopes = try await client.apiClient.envelopes(topic: Topic.preferenceList(identifier).description, pagination: Pagination(direction: .ascending))
+	init(client: Client) {
+		self.client = client
+		privateKey = client.privateKeyBundleV1.identityKey.secp256K1.bytes
+		publicKey = client.privateKeyBundleV1.identityKey.publicKey.secp256K1Uncompressed.bytes
+		// swiftlint:disable no_optional_try
+		identifier = try? LibXMTP.generatePrivatePreferencesTopicIdentifier(privateKey: privateKey.bytes)
+		// swiftlint:enable no_optional_try
+	}
 
+	func load() async throws -> ConsentList {
+		guard let identifier = identifier else {
+			throw ContactError.invalidIdentifier
+		}
+
+
+		let envelopes = try await client.apiClient.envelopes(topic: Topic.preferenceList(identifier).description, pagination: Pagination(direction: .ascending))
 		let consentList = ConsentList(client: client)
-        
-        var preferences: [PrivatePreferencesAction] = []
+
+		var preferences: [PrivatePreferencesAction] = []
 
 		for envelope in envelopes {
+			let payload = try LibXMTP.userPreferencesDecrypt(publicKey: publicKey.bytes, privateKey: privateKey.bytes, message: envelope.message.bytes)
 
-			let payload = try XMTPRust.user_preferences_decrypt(
-				RustVec(publicKey),
-				RustVec(privateKey),
-				RustVec(envelope.message)
-			)
-
-            preferences.append(try PrivatePreferencesAction(serializedData: Data(payload)))
+			try preferences.append(PrivatePreferencesAction(serializedData: Data(payload)))
 		}
-        
-        preferences.forEach { preference in
-            preference.allow.walletAddresses.forEach { address in
-                consentList.allow(address: address)
-            }
-            preference.block.walletAddresses.forEach { address in
-                consentList.deny(address: address)
-            }
-        }
+
+		for preference in preferences {
+			for address in preference.allow.walletAddresses {
+				_ = consentList.allow(address: address)
+			}
+
+			for address in preference.block.walletAddresses {
+				_ = consentList.deny(address: address)
+			}
+		}
 
 		return consentList
 	}
 
 	func publish(entry: ConsentListEntry) async throws {
-        guard let identifier = identifier else {
-            throw ContactError.invalidIdentifier
-        }
+		guard let identifier = identifier else {
+			throw ContactError.invalidIdentifier
+		}
 
-        var payload = PrivatePreferencesAction()
-        switch entry.consentType {
-        case .allowed:
-            payload.allow.walletAddresses = [entry.value]
-        case .denied:
-            payload.block.walletAddresses = [entry.value]
-        case .unknown:
-            payload.messageType = nil
-        }
+		var payload = PrivatePreferencesAction()
+		switch entry.consentType {
+		case .allowed:
+			payload.allow.walletAddresses = [entry.value]
+		case .denied:
+			payload.block.walletAddresses = [entry.value]
+		case .unknown:
+			payload.messageType = nil
+		}
 
-		let message = try XMTPRust.user_preferences_encrypt(
-			RustVec(publicKey),
-			RustVec(privateKey),
-            RustVec(payload.serializedData())
+		let message = try LibXMTP.userPreferencesEncrypt(
+			publicKey: publicKey.bytes,
+			privateKey: privateKey.bytes,
+			message: payload.serializedData().bytes
 		)
 
 		let envelope = Envelope(
@@ -119,14 +114,14 @@ public class ConsentList {
 	}
 
 	func allow(address: String) -> ConsentListEntry {
-        let entry = ConsentListEntry.address(address, type: ConsentState.allowed)
+		let entry = ConsentListEntry.address(address, type: ConsentState.allowed)
 		entries[ConsentListEntry.address(address).key] = entry
 
 		return entry
 	}
 
 	func deny(address: String) -> ConsentListEntry {
-        let entry = ConsentListEntry.address(address, type: ConsentState.denied)
+		let entry = ConsentListEntry.address(address, type: ConsentState.denied)
 		entries[ConsentListEntry.address(address).key] = entry
 
 		return entry
@@ -134,10 +129,10 @@ public class ConsentList {
 
 	func state(address: String) -> ConsentState {
 		let entry = entries[ConsentListEntry.address(address).key]
-        
-        // swiftlint:disable no_optional_try
-        return entry?.consentType ?? .unknown
-        // swiftlint:enable no_optional_try
+
+		// swiftlint:disable no_optional_try
+		return entry?.consentType ?? .unknown
+		// swiftlint:enable no_optional_try
 	}
 }
 
@@ -151,16 +146,16 @@ public actor Contacts {
 	// Whether or not we have sent invite/intro to this contact
 	var hasIntroduced: [String: Bool] = [:]
 
-    public var consentList: ConsentList
-	
-    init(client: Client) {
+	public var consentList: ConsentList
+
+	init(client: Client) {
 		self.client = client
-        self.consentList = ConsentList(client: client)
+		consentList = ConsentList(client: client)
 	}
 
 	public func refreshConsentList() async throws -> ConsentList {
 		consentList = try await ConsentList(client: client).load()
-        return consentList
+		return consentList
 	}
 
 	public func isAllowed(_ address: String) -> Bool {

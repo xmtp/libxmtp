@@ -6,7 +6,7 @@
 //
 
 import Foundation
-import XMTPRust
+import LibXMTP
 
 public typealias PrivateKeyBundleV2 = Xmtp_MessageContents_PrivateKeyBundleV2
 
@@ -34,7 +34,7 @@ extension PrivateKeyBundleV2 {
 	}
 
 	func sharedSecret(private privateData: Data, public publicData: Data) throws -> Data {
-		return Data(try XMTPRust.diffie_hellman_k256(RustVec<UInt8>(privateData), RustVec<UInt8>(publicData)))
+		return Data(try LibXMTP.diffieHellmanK256(privateKeyBytes: [UInt8](privateData), publicKeyBytes: [UInt8](publicData)))
 	}
 
 	func findPreKey(_ myPreKey: SignedPublicKey) throws -> SignedPrivateKey {
