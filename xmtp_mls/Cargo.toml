@@ -33,9 +33,9 @@ log = "0.4.17"
 openmls = { workspace = true, features = [
     "test-utils",
 ] }
-openmls_traits = { workspace = true }
 openmls_basic_credential = { workspace = true }
 openmls_rust_crypto = { workspace = true }
+openmls_traits = { workspace = true }
 prost = { version = "0.11", features = ["prost-derive"] }
 rand = { workspace = true }
 serde = "1.0.160"
