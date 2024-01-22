@@ -347,7 +347,7 @@ pub struct GrpcMutableSubscription {
 }
 
 impl GrpcMutableSubscription {
-    fn new(
+    pub fn new(
         envelope_stream: EnvelopeStream,
         update_channel: futures::channel::mpsc::UnboundedSender<SubscribeRequest>,
     ) -> Self {
