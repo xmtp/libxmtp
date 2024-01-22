@@ -21,16 +21,16 @@ enum KeyUtilError: Error {
 // Copied from web3.swift since its version is `internal`
 enum KeyUtilx {
 	static func generatePublicKey(from data: Data) throws -> Data {
-		let vec = try LibXMTP.publicKeyFromPrivateKeyK256(privateKeyBytes: data.bytes)
+		let vec = try LibXMTP.publicKeyFromPrivateKeyK256(privateKeyBytes: data)
 		return Data(vec)
 	}
 
 	static func recoverPublicKeySHA256(from data: Data, message: Data) throws -> Data {
-		return try Data(LibXMTP.recoverPublicKeyK256Sha256(message: message.bytes, signature: data.bytes))
+		return try Data(LibXMTP.recoverPublicKeyK256Sha256(message: message, signature: data))
 	}
 
 	static func recoverPublicKeyKeccak256(from data: Data, message: Data) throws -> Data {
-		return Data(try LibXMTP.recoverPublicKeyK256Keccak256(message: message.bytes, signature: data.bytes))
+		return Data(try LibXMTP.recoverPublicKeyK256Keccak256(message: message, signature: data))
 	}
 
 	static func sign(message: Data, with privateKey: Data, hashing: Bool) throws -> Data {

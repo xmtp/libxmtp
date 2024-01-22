@@ -49,7 +49,7 @@ public class ConsentList {
 		privateKey = client.privateKeyBundleV1.identityKey.secp256K1.bytes
 		publicKey = client.privateKeyBundleV1.identityKey.publicKey.secp256K1Uncompressed.bytes
 		// swiftlint:disable no_optional_try
-		identifier = try? LibXMTP.generatePrivatePreferencesTopicIdentifier(privateKey: privateKey.bytes)
+		identifier = try? LibXMTP.generatePrivatePreferencesTopicIdentifier(privateKey: privateKey)
 		// swiftlint:enable no_optional_try
 	}
 
@@ -65,7 +65,7 @@ public class ConsentList {
 		var preferences: [PrivatePreferencesAction] = []
 
 		for envelope in envelopes {
-			let payload = try LibXMTP.userPreferencesDecrypt(publicKey: publicKey.bytes, privateKey: privateKey.bytes, message: envelope.message.bytes)
+			let payload = try LibXMTP.userPreferencesDecrypt(publicKey: publicKey, privateKey: privateKey, message: envelope.message)
 
 			try preferences.append(PrivatePreferencesAction(serializedData: Data(payload)))
 		}
@@ -99,9 +99,9 @@ public class ConsentList {
 		}
 
 		let message = try LibXMTP.userPreferencesEncrypt(
-			publicKey: publicKey.bytes,
-			privateKey: privateKey.bytes,
-			message: payload.serializedData().bytes
+			publicKey: publicKey,
+			privateKey: privateKey,
+			message: payload.serializedData()
 		)
 
 		let envelope = Envelope(

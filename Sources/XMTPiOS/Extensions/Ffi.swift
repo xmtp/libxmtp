@@ -32,7 +32,7 @@ extension FfiPagingInfo {
 
 extension Cursor {
 	var toFFI: FfiCursor {
-		FfiCursor(digest: [UInt8](self.index.digest), senderTimeNs: self.index.senderTimeNs)
+		FfiCursor(digest: self.index.digest, senderTimeNs: self.index.senderTimeNs)
 	}
 }
 
@@ -148,7 +148,7 @@ extension FfiV2BatchQueryResponse {
 
 extension Envelope {
 	var toFFI: FfiEnvelope {
-		FfiEnvelope(contentTopic: contentTopic, timestampNs: timestampNs, message: [UInt8](message))
+		FfiEnvelope(contentTopic: contentTopic, timestampNs: timestampNs, message: message)
 	}
 }
 

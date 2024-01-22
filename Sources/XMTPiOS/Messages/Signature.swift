@@ -104,9 +104,9 @@ extension Signature {
 	func verify(signedBy: PublicKey, digest: Data) throws -> Bool {
 		do {
 			_ = try LibXMTP.verifyK256Sha256(
-				signedBy: signedBy.secp256K1Uncompressed.bytes.bytes,
-				message: digest.bytes,
-				signature: ecdsaCompact.bytes.bytes,
+				signedBy: signedBy.secp256K1Uncompressed.bytes,
+				message: digest,
+				signature: ecdsaCompact.bytes,
 				recoveryId: UInt8(ecdsaCompact.recovery)
 			)
 		} catch {

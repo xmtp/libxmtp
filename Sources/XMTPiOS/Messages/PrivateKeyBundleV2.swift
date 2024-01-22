@@ -34,7 +34,7 @@ extension PrivateKeyBundleV2 {
 	}
 
 	func sharedSecret(private privateData: Data, public publicData: Data) throws -> Data {
-		return Data(try LibXMTP.diffieHellmanK256(privateKeyBytes: [UInt8](privateData), publicKeyBytes: [UInt8](publicData)))
+		return Data(try LibXMTP.diffieHellmanK256(privateKeyBytes: privateData, publicKeyBytes: publicData))
 	}
 
 	func findPreKey(_ myPreKey: SignedPublicKey) throws -> SignedPrivateKey {

@@ -494,7 +494,7 @@ final class IntegrationTests: XCTestCase {
 
 		var key = PrivateKey()
 		key.secp256K1.bytes = Data(keyBytes)
-		key.publicKey.secp256K1Uncompressed.bytes = Data(try LibXMTP.publicKeyFromPrivateKeyK256(privateKeyBytes: keyBytes.bytes))
+		key.publicKey.secp256K1Uncompressed.bytes = Data(try LibXMTP.publicKeyFromPrivateKeyK256(privateKeyBytes: keyBytes))
 
 		let client = try await XMTPiOS.Client.create(account: key)
 		XCTAssertEqual(client.apiClient.environment, .dev)
@@ -564,7 +564,7 @@ final class IntegrationTests: XCTestCase {
 
 		var key = PrivateKey()
 		key.secp256K1.bytes = Data(keyBytes)
-		key.publicKey.secp256K1Uncompressed.bytes = Data(try LibXMTP.publicKeyFromPrivateKeyK256(privateKeyBytes: keyBytes.bytes))
+		key.publicKey.secp256K1Uncompressed.bytes = Data(try LibXMTP.publicKeyFromPrivateKeyK256(privateKeyBytes: keyBytes))
 
 		let client = try await XMTPiOS.Client.create(account: key)
 		XCTAssertEqual(client.apiClient.environment, .dev)
@@ -587,7 +587,7 @@ final class IntegrationTests: XCTestCase {
 
 		var key = PrivateKey()
 		key.secp256K1.bytes = Data(keyBytes)
-		key.publicKey.secp256K1Uncompressed.bytes = Data(try LibXMTP.publicKeyFromPrivateKeyK256(privateKeyBytes: keyBytes.bytes))
+		key.publicKey.secp256K1Uncompressed.bytes = Data(try LibXMTP.publicKeyFromPrivateKeyK256(privateKeyBytes: keyBytes))
 
 		let client = try await XMTPiOS.Client.create(account: key)
 		XCTAssertEqual(client.apiClient.environment, .dev)
@@ -616,7 +616,7 @@ final class IntegrationTests: XCTestCase {
 
 		var key = PrivateKey()
 		key.secp256K1.bytes = Data(keyBytes)
-		key.publicKey.secp256K1Uncompressed.bytes = Data(try LibXMTP.publicKeyFromPrivateKeyK256(privateKeyBytes: keyBytes.bytes))
+		key.publicKey.secp256K1Uncompressed.bytes = Data(try LibXMTP.publicKeyFromPrivateKeyK256(privateKeyBytes: keyBytes))
 
 
 		let client = try await XMTPiOS.Client.create(account: key)
