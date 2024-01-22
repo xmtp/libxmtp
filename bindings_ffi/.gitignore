@@ -9,7 +9,6 @@ tags
 *.a
 LibXMTPRust.xcframework
 /target
-/Cargo.lock
 /build
 
 # Ignore any swift files in include/Generated
