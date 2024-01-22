@@ -13,7 +13,7 @@ class EnvironmentCoordinator: ObservableObject {
 }
 
 struct LoggedInView: View {
-	var client: XMTP.Client
+	var client: XMTPiOS.Client
 
 	@StateObject var environmentCoordinator = EnvironmentCoordinator()
 

@@ -55,6 +55,15 @@
       }
     },
     {
+      "identity" : "libxmtp-swift",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/xmtp/libxmtp-swift",
+      "state" : {
+        "branch" : "60b99d0",
+        "revision" : "60b99d04f642a7e2b15156d818dabc4aab65b1c0"
+      }
+    },
+    {
       "identity" : "qrcode",
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/WalletConnect/QRCode",
@@ -241,15 +250,6 @@
       "state" : {
         "revision" : "53fe0639a98903858d0196b699720decb42aee7b",
         "version" : "2.14.0"
-      }
-    },
-    {
-      "identity" : "xmtp-rust-swift",
-      "kind" : "remoteSourceControl",
-      "location" : "https://github.com/xmtp/xmtp-rust-swift",
-      "state" : {
-        "branch" : "main",
-        "revision" : "e08af6942841054ae02a6fe01d90d18e76d5f248"
       }
     }
   ],

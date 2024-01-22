@@ -20,17 +20,17 @@
 		A65F0704297B5D4E00C3C76E /* Persistence.swift in Sources */ = {isa = PBXBuildFile; fileRef = A65F0703297B5D4E00C3C76E /* Persistence.swift */; };
 		A65F0707297B5E7600C3C76E /* WalletConnectSwift in Frameworks */ = {isa = PBXBuildFile; productRef = A65F0706297B5E7600C3C76E /* WalletConnectSwift */; };
 		A65F070A297B5E8600C3C76E /* KeychainAccess in Frameworks */ = {isa = PBXBuildFile; productRef = A65F0709297B5E8600C3C76E /* KeychainAccess */; };
+		A6606A182B5EE7F000E2ED4D /* XMTPiOS in Frameworks */ = {isa = PBXBuildFile; productRef = A6606A172B5EE7F000E2ED4D /* XMTPiOS */; };
+		A6606A1A2B5EE80000E2ED4D /* XMTPiOS in Frameworks */ = {isa = PBXBuildFile; productRef = A6606A192B5EE80000E2ED4D /* XMTPiOS */; };
 		A67CCEC129355B4B00131F5C /* AccountManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = A67CCEC029355B4B00131F5C /* AccountManager.swift */; };
 		A683860C293EA862006336FF /* MessageListView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A683860B293EA862006336FF /* MessageListView.swift */; };
 		A687810729679BC700042FAB /* Account.swift in Sources */ = {isa = PBXBuildFile; fileRef = A687810629679BC700042FAB /* Account.swift */; };
 		A687810C29679BFC00042FAB /* WalletConnection.swift in Sources */ = {isa = PBXBuildFile; fileRef = A687810B29679BFC00042FAB /* WalletConnection.swift */; };
 		A687810E29679C0D00042FAB /* WalletConnectionMethod.swift in Sources */ = {isa = PBXBuildFile; fileRef = A687810D29679C0D00042FAB /* WalletConnectionMethod.swift */; };
-		A69F33C6292DC992005A5556 /* XMTP in Frameworks */ = {isa = PBXBuildFile; productRef = A69F33C5292DC992005A5556 /* XMTP */; };
 		A69F33CA292DD557005A5556 /* LoggedInView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A69F33C9292DD557005A5556 /* LoggedInView.swift */; };
 		A69F33CC292DD568005A5556 /* QRCodeSheetView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A69F33CB292DD568005A5556 /* QRCodeSheetView.swift */; };
 		A6AE5187297B61AE006FDD0F /* NotificationService.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = A6AE5180297B61AE006FDD0F /* NotificationService.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 		A6AE518E297B6210006FDD0F /* NotificationService.swift in Sources */ = {isa = PBXBuildFile; fileRef = A6AE518C297B6210006FDD0F /* NotificationService.swift */; };
-		A6AE5191297B625F006FDD0F /* XMTP in Frameworks */ = {isa = PBXBuildFile; productRef = A6AE5190297B625F006FDD0F /* XMTP */; };
 		A6AE5192297B6270006FDD0F /* Persistence.swift in Sources */ = {isa = PBXBuildFile; fileRef = A65F0703297B5D4E00C3C76E /* Persistence.swift */; };
 		A6AE5194297B62C8006FDD0F /* KeychainAccess in Frameworks */ = {isa = PBXBuildFile; productRef = A6AE5193297B62C8006FDD0F /* KeychainAccess */; };
 		A6C0F37B2AC1E321008C6AA7 /* Starscream in Frameworks */ = {isa = PBXBuildFile; productRef = A6C0F37A2AC1E321008C6AA7 /* Starscream */; };
@@ -40,7 +40,6 @@
 		A6C0F3842AC1E4B5008C6AA7 /* LoginView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A6C0F3832AC1E4B5008C6AA7 /* LoginView.swift */; };
 		A6C0F3862AC1E549008C6AA7 /* Data.swift in Sources */ = {isa = PBXBuildFile; fileRef = A6C0F3852AC1E549008C6AA7 /* Data.swift */; };
 		A6D192D0293A7B97006B49F2 /* ConversationListView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A6D192CF293A7B97006B49F2 /* ConversationListView.swift */; };
-		A6E774162B154CF000F01DFF /* XMTP in Frameworks */ = {isa = PBXBuildFile; productRef = A6E774152B154CF000F01DFF /* XMTP */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -101,13 +100,12 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				A6E774162B154CF000F01DFF /* XMTP in Frameworks */,
 				A65F0707297B5E7600C3C76E /* WalletConnectSwift in Frameworks */,
 				A6C0F3802AC1E34F008C6AA7 /* WalletConnectModal in Frameworks */,
+				A6606A1A2B5EE80000E2ED4D /* XMTPiOS in Frameworks */,
 				6AEE396E29F330CD0027B657 /* secp256k1 in Frameworks */,
 				A6C0F37E2AC1E34F008C6AA7 /* WalletConnect in Frameworks */,
 				A6C0F3822AC1E34F008C6AA7 /* Web3Wallet in Frameworks */,
-				A69F33C6292DC992005A5556 /* XMTP in Frameworks */,
 				A6C0F37B2AC1E321008C6AA7 /* Starscream in Frameworks */,
 				A65F070A297B5E8600C3C76E /* KeychainAccess in Frameworks */,
 			);
@@ -118,7 +116,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				A6AE5194297B62C8006FDD0F /* KeychainAccess in Frameworks */,
-				A6AE5191297B625F006FDD0F /* XMTP in Frameworks */,
+				A6606A182B5EE7F000E2ED4D /* XMTPiOS in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -240,7 +238,6 @@
 			);
 			name = XMTPiOSExample;
 			packageProductDependencies = (
-				A69F33C5292DC992005A5556 /* XMTP */,
 				A65F0706297B5E7600C3C76E /* WalletConnectSwift */,
 				A65F0709297B5E8600C3C76E /* KeychainAccess */,
 				6AEE396D29F330CD0027B657 /* secp256k1 */,
@@ -248,7 +245,7 @@
 				A6C0F37D2AC1E34F008C6AA7 /* WalletConnect */,
 				A6C0F37F2AC1E34F008C6AA7 /* WalletConnectModal */,
 				A6C0F3812AC1E34F008C6AA7 /* Web3Wallet */,
-				A6E774152B154CF000F01DFF /* XMTP */,
+				A6606A192B5EE80000E2ED4D /* XMTPiOS */,
 			);
 			productName = XMTPiOSExample;
 			productReference = A628198F292DC825004B9117 /* XMTPiOSExample.app */;
@@ -268,8 +265,8 @@
 			);
 			name = NotificationService;
 			packageProductDependencies = (
-				A6AE5190297B625F006FDD0F /* XMTP */,
 				A6AE5193297B62C8006FDD0F /* KeychainAccess */,
+				A6606A172B5EE7F000E2ED4D /* XMTPiOS */,
 			);
 			productName = NotificationService;
 			productReference = A6AE5180297B61AE006FDD0F /* NotificationService.appex */;
@@ -722,13 +719,13 @@
 			package = A65F0708297B5E8600C3C76E /* XCRemoteSwiftPackageReference "KeychainAccess" */;
 			productName = KeychainAccess;
 		};
-		A69F33C5292DC992005A5556 /* XMTP */ = {
+		A6606A172B5EE7F000E2ED4D /* XMTPiOS */ = {
 			isa = XCSwiftPackageProductDependency;
-			productName = XMTP;
+			productName = XMTPiOS;
 		};
-		A6AE5190297B625F006FDD0F /* XMTP */ = {
+		A6606A192B5EE80000E2ED4D /* XMTPiOS */ = {
 			isa = XCSwiftPackageProductDependency;
-			productName = XMTP;
+			productName = XMTPiOS;
 		};
 		A6AE5193297B62C8006FDD0F /* KeychainAccess */ = {
 			isa = XCSwiftPackageProductDependency;
@@ -754,10 +751,6 @@
 			isa = XCSwiftPackageProductDependency;
 			package = A6C0F37C2AC1E34F008C6AA7 /* XCRemoteSwiftPackageReference "WalletConnectSwiftV2" */;
 			productName = Web3Wallet;
-		};
-		A6E774152B154CF000F01DFF /* XMTP */ = {
-			isa = XCSwiftPackageProductDependency;
-			productName = XMTP;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};

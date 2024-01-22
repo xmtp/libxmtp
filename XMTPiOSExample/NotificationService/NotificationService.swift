@@ -40,7 +40,7 @@ class NotificationService: UNNotificationServiceExtension {
 				let client = try await Client.from(bundle: keys)
 				let conversation = conversationContainer.decode(with: client)
 
-				let envelope = XMTP.Envelope.with { envelope in
+				let envelope = XMTPiOS.Envelope.with { envelope in
 					envelope.message = encryptedMessageData
 					envelope.contentTopic = topic
 				}

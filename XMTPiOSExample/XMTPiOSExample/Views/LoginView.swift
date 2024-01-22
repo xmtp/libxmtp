@@ -71,9 +71,9 @@ class Signer: SigningKey {
 	}
 
 	var cancellable: AnyCancellable?
-	var continuation: CheckedContinuation<XMTP.Signature, Never>?
+	var continuation: CheckedContinuation<Signature, Never>?
 
-	func sign(_ data: Data) async throws -> XMTP.Signature {
+	func sign(_ data: Data) async throws -> Signature {
 		let address = account.address
 		let topic = session.topic
 		let blockchain = account.blockchain
@@ -101,7 +101,7 @@ class Signer: SigningKey {
 		}
 	}
 
-	func sign(message: String) async throws -> XMTP.Signature {
+	func sign(message: String) async throws -> Signature {
 		try await sign(Data(message.utf8))
 	}
 }

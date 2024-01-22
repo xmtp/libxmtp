@@ -9,10 +9,10 @@ import SwiftUI
 import XMTPiOS
 
 struct ConversationListView: View {
-	var client: XMTP.Client
+	var client: XMTPiOS.Client
 
 	@EnvironmentObject var coordinator: EnvironmentCoordinator
-	@State private var conversations: [XMTP.Conversation] = []
+	@State private var conversations: [XMTPiOS.Conversation] = []
 	@State private var isShowingNewConversation = false
 
 	var body: some View {
