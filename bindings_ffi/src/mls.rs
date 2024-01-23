@@ -114,6 +114,13 @@ impl FfiXmtpClient {
     }
 }
 
+#[derive(uniffi::Record)]
+pub struct FfiListConversationsOptions {
+    pub created_after_ns: Option<i64>,
+    pub created_before_ns: Option<i64>,
+    pub limit: Option<i64>,
+}
+
 #[derive(uniffi::Object)]
 pub struct FfiConversations {
     inner_client: Arc<RustXmtpClient>,
@@ -138,12 +145,24 @@ impl FfiConversations {
         Ok(out)
     }
 
-    pub async fn list(&self) -> Result<Vec<Arc<FfiGroup>>, GenericError> {
+    pub async fn sync(&self) -> Result<(), GenericError> {
         let inner = self.inner_client.as_ref();
         inner.sync_welcomes().await?;
+        Ok(())
+    }
 
+    pub async fn list(
+        &self,
+        opts: FfiListConversationsOptions,
+    ) -> Result<Vec<Arc<FfiGroup>>, GenericError> {
+        let inner = self.inner_client.as_ref();
         let convo_list: Vec<Arc<FfiGroup>> = inner
-            .find_groups(None, None, None, None)?
+            .find_groups(
+                None,
+                opts.created_after_ns,
+                opts.created_before_ns,
+                opts.limit,
+            )?
             .into_iter()
             .map(|group| {
                 Arc::new(FfiGroup {
