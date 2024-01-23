@@ -226,14 +226,14 @@ pub enum PostCommitAction {
 
 #[derive(Debug, Clone)]
 pub struct Installation {
-    pub(crate) installation_id: Vec<u8>,
+    pub(crate) installation_key: Vec<u8>,
     pub(crate) hpke_public_key: Vec<u8>,
 }
 
 impl Installation {
     pub fn from_verified_key_package(key_package: &VerifiedKeyPackage) -> Self {
         Self {
-            installation_id: key_package.installation_id(),
+            installation_key: key_package.installation_id(),
             hpke_public_key: key_package.hpke_init_key(),
         }
     }
@@ -242,7 +242,7 @@ impl Installation {
 impl From<Installation> for InstallationProto {
     fn from(installation: Installation) -> Self {
         Self {
-            installation_id: installation.installation_id,
+            installation_key: installation.installation_key,
             hpke_public_key: installation.hpke_public_key,
         }
     }
@@ -251,7 +251,7 @@ impl From<Installation> for InstallationProto {
 impl From<InstallationProto> for Installation {
     fn from(installation: InstallationProto) -> Self {
         Self {
-            installation_id: installation.installation_id,
+            installation_key: installation.installation_key,
             hpke_public_key: installation.hpke_public_key,
         }
     }

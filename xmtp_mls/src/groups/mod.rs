@@ -877,7 +877,7 @@ where
             .installations
             .into_iter()
             .map(|installation| -> Result<WelcomeMessageInput, HpkeError> {
-                let installation_key = installation.installation_id;
+                let installation_key = installation.installation_key;
                 let encrypted = encrypt_welcome(
                     action.welcome_message.as_slice(),
                     installation.hpke_public_key.as_slice(),
