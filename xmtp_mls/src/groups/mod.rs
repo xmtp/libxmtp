@@ -858,21 +858,21 @@ where
     // If no changes, returns empty Vec
     // If new installation on network that is not already in group, returns Vec with new installation IDs
     // If new installation on network that is already in group, returns empty Vec
-
+    // If revocation or invalid update, returns empty Vec
     #[allow(dead_code)]
     async fn get_missing_members(
         &self,
         provider: &XmtpOpenMlsProvider<'_>,
     ) -> Result<(Vec<Vec<u8>>, Vec<Vec<u8>>), GroupError> {
         let current_members = self.members_with_provider(provider)?;
-        let current_member_map: HashMap<String, GroupMember> = current_members
-            .iter()
-            .map(|m| (m.account_address.clone(), m.clone()))
-            .collect();
-
         let account_addresses = current_members
             .iter()
             .map(|m| m.account_address.clone())
+            .collect();
+
+        let current_member_map: HashMap<String, GroupMember> = current_members
+            .into_iter()
+            .map(|m| (m.account_address.clone(), m))
             .collect();
 
         let change_list = self
