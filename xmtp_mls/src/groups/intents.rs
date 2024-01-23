@@ -5,7 +5,10 @@ use tls_codec::Serialize;
 use xmtp_proto::xmtp::mls::database::{
     add_members_data::{Version as AddMembersVersion, V1 as AddMembersV1},
     addresses_or_installation_ids::AddressesOrInstallationIds as AddressesOrInstallationIdsProto,
-    post_commit_action::{Kind as PostCommitActionKind, SendWelcomes as SendWelcomesProto},
+    post_commit_action::{
+        Installation as InstallationProto, Kind as PostCommitActionKind,
+        SendWelcomes as SendWelcomesProto,
+    },
     remove_members_data::{Version as RemoveMembersVersion, V1 as RemoveMembersV1},
     send_message_data::{Version as SendMessageVersion, V1 as SendMessageV1},
     AccountAddresses, AddMembersData,
@@ -13,7 +16,10 @@ use xmtp_proto::xmtp::mls::database::{
     PostCommitAction as PostCommitActionProto, RemoveMembersData, SendMessageData,
 };
 
-use crate::{types::Address, verified_key_package::KeyPackageVerificationError};
+use crate::{
+    types::Address,
+    verified_key_package::{KeyPackageVerificationError, VerifiedKeyPackage},
+};
 
 #[derive(Debug, Error)]
 pub enum IntentError {
@@ -219,15 +225,48 @@ pub enum PostCommitAction {
 }
 
 #[derive(Debug, Clone)]
+pub struct Installation {
+    pub(crate) installation_id: Vec<u8>,
+    pub(crate) hpke_public_key: Vec<u8>,
+}
+
+impl Installation {
+    pub fn from_verified_key_package(key_package: &VerifiedKeyPackage) -> Self {
+        Self {
+            installation_id: key_package.installation_id(),
+            hpke_public_key: key_package.hpke_init_key(),
+        }
+    }
+}
+
+impl From<Installation> for InstallationProto {
+    fn from(installation: Installation) -> Self {
+        Self {
+            installation_id: installation.installation_id,
+            hpke_public_key: installation.hpke_public_key,
+        }
+    }
+}
+
+impl From<InstallationProto> for Installation {
+    fn from(installation: InstallationProto) -> Self {
+        Self {
+            installation_id: installation.installation_id,
+            hpke_public_key: installation.hpke_public_key,
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
 pub struct SendWelcomesAction {
-    pub installation_ids: Vec<Vec<u8>>,
+    pub installations: Vec<Installation>,
     pub welcome_message: Vec<u8>,
 }
 
 impl SendWelcomesAction {
-    pub fn new(installation_ids: Vec<Vec<u8>>, welcome_message: Vec<u8>) -> Self {
+    pub fn new(installations: Vec<Installation>, welcome_message: Vec<u8>) -> Self {
         Self {
-            installation_ids,
+            installations,
             welcome_message,
         }
     }
@@ -236,7 +275,12 @@ impl SendWelcomesAction {
         let mut buf = Vec::new();
         PostCommitActionProto {
             kind: Some(PostCommitActionKind::SendWelcomes(SendWelcomesProto {
-                installation_ids: self.installation_ids.clone(),
+                installations: self
+                    .installations
+                    .clone()
+                    .into_iter()
+                    .map(|i| i.into())
+                    .collect(),
                 welcome_message: self.welcome_message.clone(),
             })),
         }
@@ -257,9 +301,12 @@ impl PostCommitAction {
     pub(crate) fn from_bytes(data: &[u8]) -> Result<Self, IntentError> {
         let decoded = PostCommitActionProto::decode(data)?;
         match decoded.kind {
-            Some(PostCommitActionKind::SendWelcomes(proto)) => Ok(Self::SendWelcomes(
-                SendWelcomesAction::new(proto.installation_ids, proto.welcome_message),
-            )),
+            Some(PostCommitActionKind::SendWelcomes(proto)) => {
+                Ok(Self::SendWelcomes(SendWelcomesAction::new(
+                    proto.installations.into_iter().map(|i| i.into()).collect(),
+                    proto.welcome_message,
+                )))
+            }
             None => Err(IntentError::Generic(
                 "missing post commit action".to_string(),
             )),
@@ -268,12 +315,12 @@ impl PostCommitAction {
 
     pub(crate) fn from_welcome(
         welcome: MlsMessageOut,
-        installation_ids: Vec<Vec<u8>>,
+        installations: Vec<Installation>,
     ) -> Result<Self, IntentError> {
         let welcome_bytes = welcome.tls_serialize_detached()?;
 
         Ok(Self::SendWelcomes(SendWelcomesAction::new(
-            installation_ids,
+            installations,
             welcome_bytes,
         )))
     }
