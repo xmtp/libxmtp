@@ -374,16 +374,13 @@ where
                 };
 
                 self.process_for_id(&id, EntityKind::Welcome, welcome_v1.id, |provider| {
-                    let welcome = match deserialize_welcome(&welcome_v1.data) {
-                        Ok(welcome) => welcome,
-                        Err(err) => {
-                            log::error!("failed to extract welcome: {}", err);
-                            return Ok(None);
-                        }
-                    };
-
                     // TODO: Abort if error is retryable
-                    match MlsGroup::create_from_welcome(self, &provider, welcome) {
+                    match MlsGroup::create_from_encrypted_welcome(
+                        self,
+                        &provider,
+                        welcome_v1.hpke_public_key.as_slice(),
+                        welcome_v1.data,
+                    ) {
                         Ok(mls_group) => Ok(Some(mls_group)),
                         Err(err) => {
                             log::error!("failed to create group from welcome: {}", err);
@@ -463,7 +460,7 @@ fn extract_welcome_message(welcome: WelcomeMessage) -> Result<WelcomeMessageV1, 
     }
 }
 
-fn deserialize_welcome(welcome_bytes: &Vec<u8>) -> Result<Welcome, ClientError> {
+pub fn deserialize_welcome(welcome_bytes: &Vec<u8>) -> Result<Welcome, ClientError> {
     // let welcome_proto = WelcomeMessageProto::decode(&mut welcome_bytes.as_slice())?;
     let welcome = MlsMessageIn::tls_deserialize(&mut welcome_bytes.as_slice())?;
     match welcome.extract() {
@@ -491,7 +488,11 @@ fn has_active_installation(updates: &Vec<IdentityUpdate>) -> bool {
 mod tests {
     use xmtp_cryptography::utils::generate_local_wallet;
 
-    use crate::{builder::ClientBuilder, InboxOwner};
+    use crate::{
+        builder::ClientBuilder,
+        hpke::{decrypt_welcome, encrypt_welcome},
+        InboxOwner,
+    };
 
     #[tokio::test]
     async fn test_mls_error() {
@@ -596,6 +597,24 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(can_message_result, vec![true, true, false]);
+    }
+
+    #[tokio::test]
+    async fn test_welcome_encryption() {
+        let client = ClientBuilder::new_test_client(generate_local_wallet().into()).await;
+        let conn = client.store.conn().unwrap();
+        let provider = client.mls_provider(&conn);
+
+        let kp = client.identity.new_key_package(&provider).unwrap();
+        let hpke_public_key = kp.hpke_init_key().as_slice();
+        let to_encrypt = vec![1, 2, 3];
+
+        // Encryption doesn't require any details about the sender, so we can test using one client
+        let encrypted = encrypt_welcome(to_encrypt.as_slice(), hpke_public_key).unwrap();
+
+        let decrypted = decrypt_welcome(&provider, hpke_public_key, encrypted.as_slice()).unwrap();
+
+        assert_eq!(decrypted, to_encrypt);
     }
 
     // #[tokio::test]
