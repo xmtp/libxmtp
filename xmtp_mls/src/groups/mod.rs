@@ -855,6 +855,10 @@ where
         Ok(())
     }
 
+    // If no changes, returns empty Vec
+    // If new installation on network that is not already in group, returns Vec with new installation IDs
+    // If new installation on network that is already in group, returns empty Vec
+
     #[allow(dead_code)]
     async fn get_missing_members(
         &self,
@@ -884,7 +888,7 @@ where
                 let member_changes: Vec<Vec<u8>> = updates
                     .into_iter()
                     .filter_map(|change| match change {
-                        IdentityUpdate::NewInstallation(add_member) => {
+                        IdentityUpdate::NewInstallation(new_member) => {
                             let current_member = current_member_map.get(&account_address);
                             if current_member.is_none() {
                                 return None;
@@ -892,25 +896,27 @@ where
                             if current_member
                                 .expect("already checked")
                                 .installation_ids
-                                .contains(&add_member.installation_key)
+                                .contains(&new_member.installation_key)
                             {
                                 return None;
                             }
 
-                            return Some(add_member.installation_key);
+                            Some(new_member.installation_key)
                         }
                         IdentityUpdate::RevokeInstallation(_) => {
                             log::warn!("Revocation found. Not handled");
-                            return None;
+
+                            None
                         }
                         IdentityUpdate::Invalid => {
                             log::warn!("Invalid identity update found");
-                            return None;
+
+                            None
                         }
                     })
                     .collect();
 
-                if member_changes.len() > 0 {
+                if !member_changes.is_empty() {
                     return Some(member_changes);
                 }
                 return None;
