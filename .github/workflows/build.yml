@@ -3,6 +3,7 @@ on:
   push:
     branches:
       - main
+      - nm/warp-macos-runners
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -58,7 +59,7 @@ jobs:
           retention-days: 1
 
   build-macos:
-    runs-on: macos-latest
+    runs-on: warp-macos-13-arm64-6x
     strategy:
       fail-fast: false
       matrix:
@@ -105,7 +106,7 @@ jobs:
           retention-days: 1
 
   kotlin:
-    runs-on: macos-latest
+    runs-on: warp-macos-13-arm64-6x
     steps:
       - name: Checkout
         uses: actions/checkout@v1
@@ -137,7 +138,7 @@ jobs:
           retention-days: 1
 
   swift:
-    runs-on: macos-latest
+    runs-on: warp-macos-13-arm64-6x
     steps:
       - name: Checkout
         uses: actions/checkout@v1
@@ -196,7 +197,7 @@ jobs:
 
   package-swift:
     needs: [build-macos, swift]
-    runs-on: macos-latest
+    runs-on: warp-macos-13-arm64-6x
     steps:
       - name: Checkout
         uses: actions/checkout@v1
