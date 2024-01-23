@@ -590,15 +590,15 @@ impl serde::Serialize for post_commit_action::Installation {
     {
         use serde::ser::SerializeStruct;
         let mut len = 0;
-        if !self.installation_id.is_empty() {
+        if !self.installation_key.is_empty() {
             len += 1;
         }
         if !self.hpke_public_key.is_empty() {
             len += 1;
         }
         let mut struct_ser = serializer.serialize_struct("xmtp.mls.database.PostCommitAction.Installation", len)?;
-        if !self.installation_id.is_empty() {
-            struct_ser.serialize_field("installationId", pbjson::private::base64::encode(&self.installation_id).as_str())?;
+        if !self.installation_key.is_empty() {
+            struct_ser.serialize_field("installationKey", pbjson::private::base64::encode(&self.installation_key).as_str())?;
         }
         if !self.hpke_public_key.is_empty() {
             struct_ser.serialize_field("hpkePublicKey", pbjson::private::base64::encode(&self.hpke_public_key).as_str())?;
@@ -613,15 +613,15 @@ impl<'de> serde::Deserialize<'de> for post_commit_action::Installation {
         D: serde::Deserializer<'de>,
     {
         const FIELDS: &[&str] = &[
-            "installation_id",
-            "installationId",
+            "installation_key",
+            "installationKey",
             "hpke_public_key",
             "hpkePublicKey",
         ];
 
         #[allow(clippy::enum_variant_names)]
         enum GeneratedField {
-            InstallationId,
+            InstallationKey,
             HpkePublicKey,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
@@ -644,7 +644,7 @@ impl<'de> serde::Deserialize<'de> for post_commit_action::Installation {
                         E: serde::de::Error,
                     {
                         match value {
-                            "installationId" | "installation_id" => Ok(GeneratedField::InstallationId),
+                            "installationKey" | "installation_key" => Ok(GeneratedField::InstallationKey),
                             "hpkePublicKey" | "hpke_public_key" => Ok(GeneratedField::HpkePublicKey),
                             _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
                         }
@@ -665,15 +665,15 @@ impl<'de> serde::Deserialize<'de> for post_commit_action::Installation {
                 where
                     V: serde::de::MapAccess<'de>,
             {
-                let mut installation_id__ = None;
+                let mut installation_key__ = None;
                 let mut hpke_public_key__ = None;
                 while let Some(k) = map.next_key()? {
                     match k {
-                        GeneratedField::InstallationId => {
-                            if installation_id__.is_some() {
-                                return Err(serde::de::Error::duplicate_field("installationId"));
+                        GeneratedField::InstallationKey => {
+                            if installation_key__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("installationKey"));
                             }
-                            installation_id__ = 
+                            installation_key__ = 
                                 Some(map.next_value::<::pbjson::private::BytesDeserialize<_>>()?.0)
                             ;
                         }
@@ -688,7 +688,7 @@ impl<'de> serde::Deserialize<'de> for post_commit_action::Installation {
                     }
                 }
                 Ok(post_commit_action::Installation {
-                    installation_id: installation_id__.unwrap_or_default(),
+                    installation_key: installation_key__.unwrap_or_default(),
                     hpke_public_key: hpke_public_key__.unwrap_or_default(),
                 })
             }
