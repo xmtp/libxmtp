@@ -3,7 +3,10 @@ use std::collections::HashMap;
 use openmls::group::MlsGroup as OpenMlsGroup;
 use xmtp_proto::api_client::XmtpMlsClient;
 
-use crate::identity::Identity;
+use crate::{
+    identity::Identity, storage::db_connection::DbConnection,
+    xmtp_openmls_provider::XmtpOpenMlsProvider,
+};
 
 use super::{GroupError, MlsGroup};
 
@@ -18,11 +21,19 @@ where
     ApiClient: XmtpMlsClient,
 {
     // Load the member list for the group from the DB, merging together multiple installations into a single entry
-    pub fn members(&self) -> Result<Vec<GroupMember>, GroupError> {
-        let openmls_group =
-            self.load_mls_group(&self.client.mls_provider(&self.client.store.conn()?))?;
+    pub fn members_with_provider(
+        &self,
+        provider: &XmtpOpenMlsProvider,
+    ) -> Result<Vec<GroupMember>, GroupError> {
+        let openmls_group = self.load_mls_group(provider)?;
 
         aggregate_member_list(&openmls_group)
+    }
+
+    pub fn members(&self) -> Result<Vec<GroupMember>, GroupError> {
+        let conn = self.client.store.conn()?;
+        let provider = self.client.mls_provider(&conn);
+        self.members_with_provider(&provider)
     }
 }
 

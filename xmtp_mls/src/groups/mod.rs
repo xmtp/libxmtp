@@ -4,7 +4,9 @@ mod intents;
 mod members;
 mod subscriptions;
 pub mod validated_commit;
-use crate::{codecs::ContentCodec, storage::refresh_state::EntityKind};
+use crate::{
+    api_client_wrapper::IdentityUpdate, codecs::ContentCodec, storage::refresh_state::EntityKind,
+};
 use intents::SendMessageIntentData;
 use log::debug;
 use openmls::{
@@ -20,7 +22,7 @@ use openmls::{
 };
 use openmls_traits::OpenMlsProvider;
 use prost::Message;
-use std::mem::discriminant;
+use std::{collections::HashMap, mem::discriminant};
 use thiserror::Error;
 use tls_codec::{Deserialize, Serialize};
 use xmtp_cryptography::signature::{is_valid_ed25519_public_key, is_valid_ethereum_address};
@@ -41,6 +43,7 @@ use self::{
     group_metadata::{ConversationType, GroupMetadata, GroupMetadataError},
     group_permissions::{default_group_policy, PolicySet},
     intents::{AddMembersIntentData, PostCommitAction, RemoveMembersIntentData},
+    members::GroupMember,
     validated_commit::CommitValidationError,
 };
 use crate::{
@@ -850,6 +853,72 @@ where
         }
 
         Ok(())
+    }
+
+    #[allow(dead_code)]
+    async fn get_missing_members(
+        &self,
+        provider: &XmtpOpenMlsProvider<'_>,
+    ) -> Result<(Vec<Vec<u8>>, Vec<Vec<u8>>), GroupError> {
+        let current_members = self.members_with_provider(provider)?;
+        let current_member_map: HashMap<String, GroupMember> = current_members
+            .iter()
+            .map(|m| (m.account_address.clone(), m.clone()))
+            .collect();
+
+        let account_addresses = current_members
+            .iter()
+            .map(|m| m.account_address.clone())
+            .collect();
+
+        let change_list = self
+            .client
+            .api_client
+            // TODO: Get a real start time from the database
+            .get_identity_updates(0, account_addresses)
+            .await?;
+
+        let to_add: Vec<Vec<u8>> = change_list
+            .into_iter()
+            .filter_map(|(account_address, updates)| {
+                let member_changes: Vec<Vec<u8>> = updates
+                    .into_iter()
+                    .filter_map(|change| match change {
+                        IdentityUpdate::NewInstallation(add_member) => {
+                            let current_member = current_member_map.get(&account_address);
+                            if current_member.is_none() {
+                                return None;
+                            }
+                            if current_member
+                                .expect("already checked")
+                                .installation_ids
+                                .contains(&add_member.installation_key)
+                            {
+                                return None;
+                            }
+
+                            return Some(add_member.installation_key);
+                        }
+                        IdentityUpdate::RevokeInstallation(_) => {
+                            log::warn!("Revocation found. Not handled");
+                            return None;
+                        }
+                        IdentityUpdate::Invalid => {
+                            log::warn!("Invalid identity update found");
+                            return None;
+                        }
+                    })
+                    .collect();
+
+                if member_changes.len() > 0 {
+                    return Some(member_changes);
+                }
+                return None;
+            })
+            .flatten()
+            .collect();
+
+        Ok((to_add, vec![]))
     }
 }
 
