@@ -23,6 +23,7 @@ jobs:
         uses: ncipollo/release-action@v1
         with:
           artifacts: "bindings_ffi/libxmtp-android.zip"
+          allowUpdates: "true"
 
   swift:
     runs-on: warp-ubuntu-latest-x64-4x
