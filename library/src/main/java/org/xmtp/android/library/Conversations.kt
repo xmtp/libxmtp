@@ -358,8 +358,13 @@ data class Conversations(
                                 Log.d(TAG, "discarding message, unknown conversation $envelope")
                                 return@mapNotNull null
                             }
-                            val msg = conversation.decrypt(envelope)
-                            msg
+                            try {
+                                val msg = conversation.decrypt(envelope)
+                                msg
+                            } catch (e: Exception) {
+                                Log.e(TAG, "Error decrypting message: $envelope", e)
+                                null
+                            }
                         }
                     },
                 )
