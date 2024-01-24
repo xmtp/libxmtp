@@ -130,11 +130,17 @@ pub struct FfiConversations {
 impl FfiConversations {
     pub async fn create_group(
         &self,
-        _account_address: String,
+        account_addresses: Vec<String>,
     ) -> Result<Arc<FfiGroup>, GenericError> {
-        log::info!("creating group with account address: {}", _account_address);
+        log::info!(
+            "creating group with account addresses: {}",
+            account_addresses.join(", ")
+        );
 
         let convo = self.inner_client.create_group()?;
+        if !account_addresses.is_empty() {
+            convo.add_members(account_addresses).await?;
+        }
 
         let out = Arc::new(FfiGroup {
             inner_client: self.inner_client.clone(),
@@ -561,6 +567,22 @@ mod tests {
         .is_err();
 
         assert!(result_errored, "did not error on wrong encryption key")
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+    async fn test_create_group_with_members() {
+        let amal = new_test_client().await;
+        let bola = new_test_client().await;
+        bola.register_identity().await.unwrap();
+
+        let group = amal
+            .conversations()
+            .create_group(vec![bola.account_address()])
+            .await
+            .unwrap();
+
+        let members = group.list_members().unwrap();
+        assert_eq!(members.len(), 2);
     }
 
     // Disabling this flakey test until it's reliable
