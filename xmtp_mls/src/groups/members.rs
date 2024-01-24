@@ -4,7 +4,7 @@ use openmls::group::MlsGroup as OpenMlsGroup;
 use xmtp_proto::api_client::XmtpMlsClient;
 
 use crate::{
-    identity::Identity, storage::db_connection::DbConnection,
+    identity::Identity,
     xmtp_openmls_provider::XmtpOpenMlsProvider,
 };
 
@@ -21,19 +21,18 @@ where
     ApiClient: XmtpMlsClient,
 {
     // Load the member list for the group from the DB, merging together multiple installations into a single entry
+    pub fn members(&self) -> Result<Vec<GroupMember>, GroupError> {
+        let conn = self.client.store.conn()?;
+        let provider = self.client.mls_provider(&conn);
+        self.members_with_provider(&provider)
+    }
+    
     pub fn members_with_provider(
         &self,
         provider: &XmtpOpenMlsProvider,
     ) -> Result<Vec<GroupMember>, GroupError> {
         let openmls_group = self.load_mls_group(provider)?;
-
         aggregate_member_list(&openmls_group)
-    }
-
-    pub fn members(&self) -> Result<Vec<GroupMember>, GroupError> {
-        let conn = self.client.store.conn()?;
-        let provider = self.client.mls_provider(&conn);
-        self.members_with_provider(&provider)
     }
 }
 
