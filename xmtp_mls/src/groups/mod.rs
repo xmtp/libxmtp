@@ -9,7 +9,6 @@ use crate::{
     codecs::ContentCodec,
     hpke::{decrypt_welcome, encrypt_welcome, HpkeError},
     storage::refresh_state::EntityKind,
-    Fetch,
 };
 use intents::SendMessageIntentData;
 use log::debug;
@@ -202,25 +201,16 @@ where
         let mut mls_group =
             OpenMlsGroup::new_from_welcome(provider, &build_group_join_config(), welcome, None)?;
         mls_group.save(provider.key_store())?;
-
         let group_id = mls_group.group_id().to_vec();
-        let mut stored_group =
-            StoredGroup::new(group_id.clone(), now_ns(), GroupMembershipState::Pending);
-        let conn = provider.conn();
 
-        match stored_group.store(&conn) {
-            Ok(_) => {}
-            Err(StorageError::DieselResult(diesel::result::Error::DatabaseError(
-                diesel::result::DatabaseErrorKind::UniqueViolation,
-                _,
-            ))) => {
-                // If the group already exists, just use that
-                stored_group = conn.fetch(&group_id)?.ok_or(GroupError::GroupNotFound)?;
-            }
-            Err(err) => return Err(GroupError::Storage(err)),
-        }
+        let to_store = StoredGroup::new(group_id, now_ns(), GroupMembershipState::Pending);
+        let stored_group = provider.conn().insert_or_ignore_group(to_store)?;
 
-        Ok(Self::new(client, group_id, stored_group.created_at_ns))
+        Ok(Self::new(
+            client,
+            stored_group.id,
+            stored_group.created_at_ns,
+        ))
     }
 
     pub fn create_from_encrypted_welcome(
