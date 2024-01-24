@@ -57,7 +57,12 @@ impl GrantMessagingAccessAssociation {
         proto: GrantMessagingAccessAssociationProto,
         expected_installation_public_key: &[u8],
     ) -> Result<Self, AssociationError> {
-        let signature = RecoverableSignature::Eip191Signature(proto.signature.unwrap().bytes);
+        let signature = RecoverableSignature::Eip191Signature(
+            proto
+                .signature
+                .ok_or(AssociationError::MalformedAssociation)?
+                .bytes,
+        );
         Self::new_validated(
             proto.account_address,
             expected_installation_public_key.to_vec(),
