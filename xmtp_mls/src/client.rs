@@ -620,7 +620,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_add_remove() {
+    async fn test_add_remove_then_add_again() {
         let amal = ClientBuilder::new_test_client(generate_local_wallet().into()).await;
         let bola = ClientBuilder::new_test_client(generate_local_wallet().into()).await;
         bola.register_identity().await.unwrap();
