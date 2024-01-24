@@ -1243,4 +1243,47 @@ mod tests {
             .unwrap();
         assert_eq!(group.members().unwrap().len(), 2);
     }
+
+    #[tokio::test]
+    async fn test_get_missing_members() {
+        // Setup for test
+        let amal_wallet = generate_local_wallet();
+        let amal = ClientBuilder::new_test_client(amal_wallet.clone().into()).await;
+        amal.register_identity().await.unwrap();
+
+        let bola = ClientBuilder::new_test_client(generate_local_wallet().into()).await;
+        bola.register_identity().await.unwrap();
+
+        let group = amal.create_group().unwrap();
+        group
+            .add_members(vec![bola.account_address()])
+            .await
+            .unwrap();
+        assert_eq!(group.members().unwrap().len(), 2);
+
+        let conn = &amal.store.conn().unwrap();
+        let provider = super::XmtpOpenMlsProvider::new(conn);
+        // Finished with setup
+
+        let (noone_to_add, _placeholder) = group.get_missing_members(&provider).await.unwrap();
+        assert_eq!(noone_to_add.len(), 0);
+        assert_eq!(_placeholder.len(), 0);
+
+        // add a second installation for amal using the same wallet
+        let amal_2nd = ClientBuilder::new_test_client(amal_wallet.into()).await;
+        amal_2nd.register_identity().await.unwrap();
+
+        let (missing_members, _placeholder) = group.get_missing_members(&provider).await.unwrap();
+        assert_eq!(missing_members.len(), 1);
+        assert_eq!(_placeholder.len(), 0);
+
+        let new_installation = &missing_members[0];
+        let _result = group
+            .add_members_by_installation_id(vec![new_installation.clone()])
+            .await;
+
+        let (already_added, _placeholder) = group.get_missing_members(&provider).await.unwrap();
+        assert_eq!(already_added.len(), 0);
+        assert_eq!(_placeholder.len(), 0);
+    }
 }
