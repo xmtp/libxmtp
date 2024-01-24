@@ -8,24 +8,24 @@ name = "mls-validation-service"
 path = "src/main.rs"
 
 [dependencies]
+clap = { version = "4.4.6", features = ["derive"] }
+env_logger = "0.10.0"
+hex = { workspace = true }
+log = { workspace = true }
+openmls = { workspace = true }
+openmls_basic_credential = { workspace = true }
+openmls_rust_crypto = { workspace = true }
+openmls_traits = { workspace = true }
 prost = { version = "0.11", features = ["prost-derive"] }
+serde = { workspace = true }
 tokio = { workspace = true, features = ["full"] }
 tonic = { workspace = true }
+xmtp_mls = { path = "../xmtp_mls" }
 xmtp_proto = { path = "../xmtp_proto", features = [
     "proto_full",
     "grpc",
     "tonic",
 ] }
-openmls = { workspace = true }
-openmls_traits = { workspace = true }
-openmls_basic_credential = { workspace = true }
-openmls_rust_crypto = { workspace = true }
-xmtp_mls = { path = "../xmtp_mls" }
-serde = { workspace = true }
-hex = { workspace = true }
-clap = { version = "4.4.6", features = ["derive"] }
-log = { workspace = true }
-env_logger = "0.10.0"
 
 [dev-dependencies]
 ethers = "2.0.10"

@@ -13,13 +13,13 @@ use xmtp_mls::storage::{EncryptedMessageStore, StorageOption};
 
 const DIESEL_TOML: &str = "./diesel.toml";
 
-/// This binary is used to to generate the schema files from a sqlite database instance
-/// and update the appropriate file. The desitation is read from the `diesel.toml`
-/// print_schema configuration.
+/// This binary is used to to generate the schema files from a sqlite database instance and update
+/// the appropriate file. The destination is read from the `diesel.toml` print_schema
+/// configuration.
 ///
-/// Since the migrations are embedded it can be difficult to have an instance available
-/// to run diesel cli on. This binary creates a temporary sqlite instance and generates
-/// the schema definitions from there.
+/// Since the migrations are embedded it can be difficult to have an instance available to run
+/// diesel cli on. This binary creates a temporary sqlite instance and generates the schema
+/// definitions from there.
 ///
 /// To run the binary: `cargo run update-schema`
 ///

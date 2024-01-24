@@ -7,7 +7,7 @@ on:
 
 jobs:
   android:
-    runs-on: ubuntu-latest
+    runs-on: warp-ubuntu-latest-x64-4x
     permissions:
       contents: write # for the release action
     steps:
@@ -23,9 +23,10 @@ jobs:
         uses: ncipollo/release-action@v1
         with:
           artifacts: "bindings_ffi/libxmtp-android.zip"
+          allowUpdates: "true"
 
   swift:
-    runs-on: macos-12
+    runs-on: warp-ubuntu-latest-x64-4x
     permissions:
       contents: write
     env:

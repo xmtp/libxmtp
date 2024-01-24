@@ -3,28 +3,28 @@ name = "xmtpv3"
 version = "0.1.0"
 edition = "2021"
 
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
-
 [lib]
 crate-type = ["lib", "cdylib"]
 
 [dependencies]
+futures = "0.3.28"
 log = { version = "0.4", features = ["std"] }
-thiserror = "1.0.40"
-uniffi = { git = "https://github.com/mozilla/uniffi-rs", rev = "cae8edc45ba5b56bfcbf35b60c1ab6a97d1bf9da", features = [
+thiserror = "1.0.56"
+tokio = { version = "1.28.1", features = ["macros"] }
+uniffi = { version = "0.25.3", features = [
   "tokio",
   "cli",
 ] }
-uniffi_macros = { git = "https://github.com/mozilla/uniffi-rs", rev = "cae8edc45ba5b56bfcbf35b60c1ab6a97d1bf9da" }
-xmtp_mls = { path = "../xmtp_mls", features = ["grpc", "native"] }
-xmtp_cryptography = { path = "../xmtp_cryptography" }
+uniffi_macros = "0.25.3"
 xmtp_api_grpc = { path = "../xmtp_api_grpc" }
+xmtp_cryptography = { path = "../xmtp_cryptography" }
+xmtp_mls = { path = "../xmtp_mls", features = ["grpc", "native"] }
+xmtp_proto = { path = "../xmtp_proto", features = ["proto_full", "grpc"]}
+xmtp_user_preferences = { path = "../xmtp_user_preferences" }
 xmtp_v2 = { path = "../xmtp_v2" }
-futures = "0.3.28"
-tokio = { version = "1.28.1", features = ["macros"] }
 
-[build_dependencies]
-uniffi = { git = "https://github.com/mozilla/uniffi-rs", rev = "cae8edc45ba5b56bfcbf35b60c1ab6a97d1bf9da", features = [
+[build-dependencies]
+uniffi = { version = "0.25.3", features = [
   "build",
 ] }
 
@@ -35,13 +35,13 @@ path = "src/bin.rs"
 [dev-dependencies]
 ethers = "2.0.4"
 ethers-core = "2.0.4"
-tokio = { version = "1.28.1", features = ["full"] }
 tempfile = "3.5.0"
-uniffi = { git = "https://github.com/mozilla/uniffi-rs", rev = "cae8edc45ba5b56bfcbf35b60c1ab6a97d1bf9da", features = [
+tokio = { version = "1.28.1", features = ["full"] }
+uniffi = { version = "0.25.3", features = [
   "bindgen-tests",
 ] }
 
-# NOTE: Thei release profile reduce bundle size from 230M to 41M - may have performance impliciations
+# NOTE: The release profile reduces bundle size from 230M to 41M - may have performance impliciations
 # https://stackoverflow.com/a/54842093
 [profile.release]
 opt-level = 'z'   # Optimize for size

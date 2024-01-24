@@ -1,4 +1,4 @@
-use std::{error::Error as StdError, fmt};
+use std::{error::Error as StdError, fmt, pin::Pin};
 
 use async_trait::async_trait;
 use futures::Stream;
@@ -9,8 +9,11 @@ pub use super::xmtp::message_api::v1::{
 };
 use crate::xmtp::mls::api::v1::{
     FetchKeyPackagesRequest, FetchKeyPackagesResponse, GetIdentityUpdatesRequest,
-    GetIdentityUpdatesResponse, PublishToGroupRequest, PublishWelcomesRequest,
-    RegisterInstallationRequest, RegisterInstallationResponse, UploadKeyPackageRequest,
+    GetIdentityUpdatesResponse, GroupMessage, QueryGroupMessagesRequest,
+    QueryGroupMessagesResponse, QueryWelcomeMessagesRequest, QueryWelcomeMessagesResponse,
+    RegisterInstallationRequest, RegisterInstallationResponse, SendGroupMessagesRequest,
+    SendWelcomeMessagesRequest, SubscribeGroupMessagesRequest, SubscribeWelcomeMessagesRequest,
+    UploadKeyPackageRequest, WelcomeMessage,
 };
 
 #[derive(Debug)]
@@ -123,12 +126,13 @@ pub trait XmtpApiClient: Send + Sync {
     async fn batch_query(&self, request: BatchQueryRequest) -> Result<BatchQueryResponse, Error>;
 }
 
+pub type GroupMessageStream = Pin<Box<dyn Stream<Item = Result<GroupMessage, Error>> + Send>>;
+pub type WelcomeMessageStream = Pin<Box<dyn Stream<Item = Result<WelcomeMessage, Error>> + Send>>;
+
 // Wasm futures don't have `Send` or `Sync` bounds.
 #[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
 #[cfg_attr(not(target_arch = "wasm32"), async_trait)]
 pub trait XmtpMlsClient: Send + Sync {
-    type Subscription: MutableApiSubscription;
-
     async fn register_installation(
         &self,
         request: RegisterInstallationRequest,
@@ -138,10 +142,27 @@ pub trait XmtpMlsClient: Send + Sync {
         &self,
         request: FetchKeyPackagesRequest,
     ) -> Result<FetchKeyPackagesResponse, Error>;
-    async fn publish_to_group(&self, request: PublishToGroupRequest) -> Result<(), Error>;
-    async fn publish_welcomes(&self, request: PublishWelcomesRequest) -> Result<(), Error>;
+    async fn send_group_messages(&self, request: SendGroupMessagesRequest) -> Result<(), Error>;
+    async fn send_welcome_messages(&self, request: SendWelcomeMessagesRequest)
+        -> Result<(), Error>;
     async fn get_identity_updates(
         &self,
         request: GetIdentityUpdatesRequest,
     ) -> Result<GetIdentityUpdatesResponse, Error>;
+    async fn query_group_messages(
+        &self,
+        request: QueryGroupMessagesRequest,
+    ) -> Result<QueryGroupMessagesResponse, Error>;
+    async fn query_welcome_messages(
+        &self,
+        request: QueryWelcomeMessagesRequest,
+    ) -> Result<QueryWelcomeMessagesResponse, Error>;
+    async fn subscribe_group_messages(
+        &self,
+        request: SubscribeGroupMessagesRequest,
+    ) -> Result<GroupMessageStream, Error>;
+    async fn subscribe_welcome_messages(
+        &self,
+        request: SubscribeWelcomeMessagesRequest,
+    ) -> Result<WelcomeMessageStream, Error>;
 }

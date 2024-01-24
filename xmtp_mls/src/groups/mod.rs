@@ -4,7 +4,12 @@ mod intents;
 mod members;
 mod subscriptions;
 pub mod validated_commit;
-use crate::codecs::ContentCodec;
+use crate::{
+    client::deserialize_welcome,
+    codecs::ContentCodec,
+    hpke::{decrypt_welcome, encrypt_welcome, HpkeError},
+    storage::refresh_state::EntityKind,
+};
 use intents::SendMessageIntentData;
 use log::debug;
 use openmls::{
@@ -25,7 +30,14 @@ use thiserror::Error;
 use tls_codec::{Deserialize, Serialize};
 use xmtp_cryptography::signature::{is_valid_ed25519_public_key, is_valid_ethereum_address};
 use xmtp_proto::{
-    api_client::{Envelope, XmtpApiClient, XmtpMlsClient},
+    api_client::XmtpMlsClient,
+    xmtp::mls::api::v1::{
+        group_message::{Version as GroupMessageVersion, V1 as GroupMessageV1},
+        welcome_message_input::{
+            Version as WelcomeMessageInputVersion, V1 as WelcomeMessageInputV1,
+        },
+        GroupMessage, WelcomeMessageInput,
+    },
     xmtp::mls::message_contents::GroupMembershipChanges,
 };
 
@@ -33,11 +45,13 @@ pub use self::intents::{AddressesOrInstallationIds, IntentError};
 use self::{
     group_metadata::{ConversationType, GroupMetadata, GroupMetadataError},
     group_permissions::{default_group_policy, PolicySet},
-    intents::{AddMembersIntentData, PostCommitAction, RemoveMembersIntentData},
+    intents::{
+        AddMembersIntentData, Installation, PostCommitAction, RemoveMembersIntentData,
+        SendWelcomesAction,
+    },
     validated_commit::CommitValidationError,
 };
 use crate::{
-    api_client_wrapper::WelcomeMessage,
     client::{ClientError, MessageProcessingError},
     codecs::membership_change::GroupMembershipChangeCodec,
     configuration::CIPHERSUITE,
@@ -53,7 +67,7 @@ use crate::{
         group_message::{GroupMessageKind, StoredGroupMessage},
         StorageError,
     },
-    utils::{hash::sha256, id::get_message_id, time::now_ns, topic::get_group_topic},
+    utils::{hash::sha256, id::get_message_id, time::now_ns},
     xmtp_openmls_provider::XmtpOpenMlsProvider,
     Client, Delete, Store,
 };
@@ -104,6 +118,8 @@ pub enum GroupError {
     CommitValidation(#[from] CommitValidationError),
     #[error("Metadata error {0}")]
     GroupMetadata(#[from] GroupMetadataError),
+    #[error("Hpke error: {0}")]
+    Hpke(#[from] HpkeError),
 }
 
 impl RetryableError for GroupError {
@@ -128,7 +144,7 @@ pub struct MlsGroup<'c, ApiClient> {
 
 impl<'c, ApiClient> MlsGroup<'c, ApiClient>
 where
-    ApiClient: XmtpApiClient + XmtpMlsClient,
+    ApiClient: XmtpMlsClient,
 {
     // Creates a new group instance. Does not validate that the group exists in the DB
     pub fn new(client: &'c Client<ApiClient>, group_id: Vec<u8>, created_at_ns: i64) -> Self {
@@ -194,6 +210,19 @@ where
         Ok(Self::new(client, group_id, stored_group.created_at_ns))
     }
 
+    pub fn create_from_encrypted_welcome(
+        client: &'c Client<ApiClient>,
+        provider: &XmtpOpenMlsProvider,
+        hpke_public_key: &[u8],
+        encrypted_welcome_bytes: Vec<u8>,
+    ) -> Result<Self, GroupError> {
+        let welcome_bytes = decrypt_welcome(provider, hpke_public_key, &encrypted_welcome_bytes)?;
+
+        let welcome = deserialize_welcome(&welcome_bytes)?;
+
+        Self::create_from_welcome(client, provider, welcome)
+    }
+
     pub fn find_messages(
         &self,
         kind: Option<GroupMessageKind>,
@@ -212,7 +241,7 @@ where
         &self,
         openmls_group: &mut OpenMlsGroup,
         decrypted_message: &ProcessedMessage,
-        envelope_timestamp_ns: u64,
+        message_created_ns: u64,
     ) -> Result<(String, Vec<u8>), MessageProcessingError> {
         let mut sender_account_address = None;
         let mut sender_installation_id = None;
@@ -231,7 +260,7 @@ where
 
         if sender_account_address.is_none() {
             return Err(MessageProcessingError::InvalidSender {
-                message_time_ns: envelope_timestamp_ns,
+                message_time_ns: message_created_ns,
                 credential: decrypted_message.credential().identity().to_vec(),
             });
         }
@@ -432,10 +461,10 @@ where
         &self,
         openmls_group: &mut OpenMlsGroup,
         provider: &XmtpOpenMlsProvider,
-        envelope: &Envelope,
+        envelope: &GroupMessageV1,
         allow_epoch_increment: bool,
     ) -> Result<(), MessageProcessingError> {
-        let mls_message_in = MlsMessageIn::tls_deserialize_exact(envelope.message.as_slice())?;
+        let mls_message_in = MlsMessageIn::tls_deserialize_exact(&envelope.data)?;
 
         let message = match mls_message_in.extract() {
             MlsMessageInBody::PrivateMessage(message) => Ok(message),
@@ -446,7 +475,7 @@ where
 
         let intent = provider
             .conn()
-            .find_group_intent_by_payload_hash(sha256(envelope.message.as_slice()));
+            .find_group_intent_by_payload_hash(sha256(envelope.data.as_slice()));
         match intent {
             // Intent with the payload hash matches
             Ok(Some(intent)) => self.process_own_message(
@@ -454,7 +483,7 @@ where
                 openmls_group,
                 provider,
                 message.into(),
-                envelope.timestamp_ns,
+                envelope.created_ns,
                 allow_epoch_increment,
             ),
             Err(err) => Err(MessageProcessingError::Storage(err)),
@@ -463,7 +492,7 @@ where
                 openmls_group,
                 provider,
                 message,
-                envelope.timestamp_ns,
+                envelope.created_ns,
                 allow_epoch_increment,
             ),
         }
@@ -471,14 +500,20 @@ where
 
     fn consume_message(
         &self,
-        envelope: &Envelope,
+        envelope: &GroupMessage,
         openmls_group: &mut OpenMlsGroup,
     ) -> Result<(), MessageProcessingError> {
-        self.client.process_for_topic(
-            &self.topic(),
-            envelope.timestamp_ns,
+        let msgv1 = match &envelope.version {
+            Some(GroupMessageVersion::V1(value)) => value,
+            _ => return Err(MessageProcessingError::InvalidPayload),
+        };
+
+        self.client.process_for_id(
+            &msgv1.group_id,
+            EntityKind::Group,
+            msgv1.id,
             |provider| -> Result<(), MessageProcessingError> {
-                self.process_message(openmls_group, &provider, envelope, true)?;
+                self.process_message(openmls_group, &provider, msgv1, true)?;
                 openmls_group.save(provider.key_store())?;
                 Ok(())
             },
@@ -486,12 +521,12 @@ where
         Ok(())
     }
 
-    pub fn process_messages(&self, envelopes: Vec<Envelope>) -> Result<(), GroupError> {
+    pub fn process_messages(&self, messages: Vec<GroupMessage>) -> Result<(), GroupError> {
         let conn = &self.client.store.conn()?;
         let provider = self.client.mls_provider(conn);
         let mut openmls_group = self.load_mls_group(&provider)?;
 
-        let receive_errors: Vec<MessageProcessingError> = envelopes
+        let receive_errors: Vec<MessageProcessingError> = messages
             .into_iter()
             .map(|envelope| -> Result<(), MessageProcessingError> {
                 retry!(
@@ -511,9 +546,9 @@ where
     }
 
     pub async fn receive(&self) -> Result<(), GroupError> {
-        let envelopes = self.client.pull_from_topic(&self.topic()).await?;
+        let messages = self.client.query_group_messages(&self.group_id).await?;
 
-        self.process_messages(envelopes)?;
+        self.process_messages(messages)?;
 
         Ok(())
     }
@@ -526,7 +561,9 @@ where
         intent.store(conn)?;
 
         // Skipping a full sync here and instead just firing and forgetting
-        self.publish_intents(conn).await?;
+        if let Err(err) = self.publish_intents(conn).await {
+            println!("error publishing intents: {:?}", err);
+        }
         Ok(())
     }
 
@@ -567,6 +604,7 @@ where
             AddMembersIntentData::new(account_addresses.into()).try_into()?;
         let intent =
             NewGroupIntent::new(IntentKind::AddMembers, self.group_id.clone(), intent_data);
+
         intent.store(conn)?;
 
         self.sync_with_conn(conn).await
@@ -674,7 +712,7 @@ where
 
             self.client
                 .api_client
-                .publish_to_group(vec![payload_slice])
+                .send_group_messages(vec![payload_slice])
                 .await?;
 
             provider.conn().set_group_intent_published(
@@ -733,13 +771,13 @@ where
 
                 let commit_bytes = commit.tls_serialize_detached()?;
 
-                // If somehow another installation has made it into the commit, this will be missing
-                // their installation ID
-                let installation_ids: Vec<Vec<u8>> =
-                    key_packages.iter().map(|kp| kp.installation_id()).collect();
+                let installations = key_packages
+                    .iter()
+                    .map(Installation::from_verified_key_package)
+                    .collect();
 
                 let post_commit_data =
-                    Some(PostCommitAction::from_welcome(welcome, installation_ids)?.to_bytes());
+                    Some(PostCommitAction::from_welcome(welcome, installations)?.to_bytes());
 
                 Ok((commit_bytes, post_commit_data))
             }
@@ -810,16 +848,7 @@ where
                 let post_commit_action = PostCommitAction::from_bytes(post_commit_data.as_slice())?;
                 match post_commit_action {
                     PostCommitAction::SendWelcomes(action) => {
-                        let welcomes: Vec<WelcomeMessage> = action
-                            .installation_ids
-                            .into_iter()
-                            .map(|installation_id| WelcomeMessage {
-                                installation_id,
-                                ciphertext: action.welcome_message.clone(),
-                            })
-                            .collect();
-                        debug!("Sending {} welcomes", welcomes.len());
-                        self.client.api_client.publish_welcomes(welcomes).await?;
+                        self.send_welcomes(action).await?;
                     }
                 }
             }
@@ -830,8 +859,40 @@ where
         Ok(())
     }
 
-    fn topic(&self) -> String {
-        get_group_topic(&self.group_id)
+    async fn send_welcomes(&self, action: SendWelcomesAction) -> Result<(), GroupError> {
+        let welcomes = action
+            .installations
+            .into_iter()
+            .map(|installation| -> Result<WelcomeMessageInput, HpkeError> {
+                let installation_key = installation.installation_key;
+                let encrypted = encrypt_welcome(
+                    action.welcome_message.as_slice(),
+                    installation.hpke_public_key.as_slice(),
+                )?;
+
+                Ok(WelcomeMessageInput {
+                    version: Some(WelcomeMessageInputVersion::V1(WelcomeMessageInputV1 {
+                        installation_key,
+                        data: encrypted,
+                        hpke_public_key: installation.hpke_public_key,
+                    })),
+                })
+            })
+            .collect::<Result<Vec<WelcomeMessageInput>, HpkeError>>()?;
+
+        self.client
+            .api_client
+            .send_welcome_messages(welcomes)
+            .await?;
+
+        Ok(())
+    }
+}
+
+fn extract_message_v1(message: GroupMessage) -> Result<GroupMessageV1, MessageProcessingError> {
+    match message.version {
+        Some(GroupMessageVersion::V1(value)) => Ok(value),
+        _ => Err(MessageProcessingError::InvalidPayload),
     }
 }
 
@@ -882,9 +943,7 @@ mod tests {
     use openmls::prelude::Member;
     use xmtp_cryptography::utils::generate_local_wallet;
 
-    use crate::{
-        builder::ClientBuilder, storage::group_intent::IntentState, utils::topic::get_welcome_topic,
-    };
+    use crate::{builder::ClientBuilder, storage::group_intent::IntentState};
 
     #[tokio::test]
     async fn test_send_message() {
@@ -893,11 +952,9 @@ mod tests {
         let group = client.create_group().expect("create group");
         group.send_message(b"hello").await.expect("send message");
 
-        let topic = group.topic();
-
         let messages = client
             .api_client
-            .read_topic(topic.as_str(), 0)
+            .query_group_messages(group.group_id, None)
             .await
             .expect("read topic");
 
@@ -914,6 +971,7 @@ mod tests {
 
         group.receive().await.unwrap();
         // Check for messages
+        // println!("HERE: {:#?}", messages);
         let messages = group.find_messages(None, None, None, None).unwrap();
         assert_eq!(messages.len(), 1);
         assert_eq!(messages.first().unwrap().decrypted_message_bytes, msg);
@@ -1005,11 +1063,11 @@ mod tests {
             .await
             .unwrap();
 
-        let topic = group.topic();
+        let group_id = group.group_id;
 
         let messages = client
             .api_client
-            .read_topic(topic.as_str(), 0)
+            .query_group_messages(group_id, None)
             .await
             .unwrap();
 
@@ -1055,10 +1113,10 @@ mod tests {
 
         // We are expecting 1 message on the group topic, not 2, because the second one should have
         // failed
-        let topic = group.topic();
+        let group_id = group.group_id;
         let messages = client_1
             .api_client
-            .read_topic(topic.as_str(), 0)
+            .query_group_messages(group_id, None)
             .await
             .expect("read topic");
 
@@ -1081,7 +1139,7 @@ mod tests {
 
         let messages = client
             .api_client
-            .read_topic(group.topic().as_str(), 0)
+            .query_group_messages(group.group_id.clone(), None)
             .await
             .unwrap();
         assert_eq!(messages.len(), 2);
@@ -1115,10 +1173,9 @@ mod tests {
             .unwrap();
 
         // Check if the welcome was actually sent
-        let welcome_topic = get_welcome_topic(&client_2.identity.installation_keys.to_public_vec());
         let welcome_messages = client
             .api_client
-            .read_topic(welcome_topic.as_str(), 0)
+            .query_welcome_messages(client_2.installation_public_key(), None)
             .await
             .unwrap();
 
