@@ -924,8 +924,6 @@ where
             .flatten()
             .collect();
 
-        println!("to_add={:#?}", to_add);
-
         Ok((to_add, vec![]))
     }
 
