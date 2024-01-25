@@ -22,6 +22,62 @@ use xmtp_mls::{
 pub type RustXmtpClient = MlsClient<TonicApiClient>;
 
 #[uniffi::export(async_runtime = "tokio")]
+pub async fn create_libxmtp_client(
+    logger: Box<dyn FfiLogger>,
+    host: String,
+    is_secure: bool,
+    db: Option<String>,
+    encryption_key: Option<Vec<u8>>,
+    account_address: String,
+    legacy_identity_source: String,
+) -> Result<Arc<FfiXmtpClient>, GenericError> {
+    init_logger(logger);
+
+    let inbox_owner = RustInboxOwner::new(ffi_inbox_owner);
+    log::info!(
+        "Creating API client for host: {}, isSecure: {}",
+        host,
+        is_secure
+    );
+    let api_client = TonicApiClient::create(host.clone(), is_secure).await?;
+
+    log::info!(
+        "Creating message store with path: {:?} and encryption key: {}",
+        db,
+        encryption_key.is_some()
+    );
+
+    let storage_option = match db {
+        Some(path) => StorageOption::Persistent(path),
+        None => StorageOption::Ephemeral,
+    };
+
+    let store = match encryption_key {
+        Some(key) => {
+            let key: EncryptionKey = key
+                .try_into()
+                .map_err(|_| "Malformed 32 byte encryption key".to_string())?;
+            EncryptedMessageStore::new(storage_option, key)?
+        }
+        None => EncryptedMessageStore::new_unencrypted(storage_option)?,
+    };
+
+    log::info!("Creating XMTP client");
+    let xmtp_client: RustXmtpClient = ClientBuilder::new(account_address.into())
+        .api_client(api_client)
+        .store(store)
+        .build()?;
+
+    log::info!(
+        "Created XMTP client for address: {}",
+        xmtp_client.account_address()
+    );
+    Ok(Arc::new(FfiXmtpClient {
+        inner_client: Arc::new(xmtp_client),
+    }))
+}
+
+#[uniffi::export(async_runtime = "tokio")]
 pub async fn create_client(
     logger: Box<dyn FfiLogger>,
     ffi_inbox_owner: Box<dyn FfiInboxOwner>,

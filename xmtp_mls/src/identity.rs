@@ -39,13 +39,15 @@ pub enum IdentityError {
     Deserialization(#[from] prost::DecodeError),
     #[error("invalid extension")]
     InvalidExtension(#[from] InvalidExtensionError),
+    #[error("uninitialized identity")]
+    UninitializedIdentity,
 }
 
 #[derive(Debug)]
 pub struct Identity {
     pub(crate) account_address: Address,
     pub(crate) installation_keys: SignatureKeyPair,
-    pub(crate) credential: OpenMlsCredential,
+    pub(crate) credential: Option<OpenMlsCredential>,
 }
 
 impl Identity {
@@ -61,12 +63,36 @@ impl Identity {
         let identity = Self {
             account_address: owner.get_address(),
             installation_keys: signature_keys,
-            credential,
+            credential: Some(credential),
         };
 
         StoredIdentity::from(&identity).store(provider.conn())?;
 
         Ok(identity)
+    }
+
+    pub(crate) fn new_unsigned(
+        provider: &XmtpOpenMlsProvider,
+        account_address: String,
+    ) -> Result<Self, IdentityError> {
+        let signature_keys = SignatureKeyPair::new(CIPHERSUITE.signature_algorithm())?;
+        signature_keys.store(provider.key_store())?;
+
+        let identity = Self {
+            account_address,
+            installation_keys: signature_keys,
+            credential: None,
+        };
+
+        StoredIdentity::from(&identity).store(provider.conn())?;
+
+        Ok(identity)
+    }
+
+    pub(crate) fn credential(&self) -> Result<OpenMlsCredential, IdentityError> {
+        self.credential
+            .clone()
+            .ok_or(IdentityError::UninitializedIdentity)
     }
 
     // ONLY CREATES LAST RESORT KEY PACKAGES
@@ -101,7 +127,7 @@ impl Identity {
                 provider,
                 &self.installation_keys,
                 CredentialWithKey {
-                    credential: self.credential.clone(),
+                    credential: self.credential()?,
                     signature_key: self.installation_keys.to_public_vec().into(),
                 },
             )?;
