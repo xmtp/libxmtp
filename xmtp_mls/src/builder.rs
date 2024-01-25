@@ -70,7 +70,7 @@ where
                     }
                     Ok(identity)
                 }
-                None => Ok(Identity::new(provider, &owner)?),
+                None => Ok(Identity::new(&owner)?),
             },
             IdentityStrategy::CreateUnsignedIfNotFound(account_address) => match identity_option {
                 Some(identity) => {
@@ -79,7 +79,7 @@ where
                     }
                     Ok(identity)
                 }
-                None => Ok(Identity::new_unsigned(provider, account_address)?),
+                None => Ok(Identity::new_unsigned(account_address)?),
             },
             #[cfg(test)]
             IdentityStrategy::ExternalIdentity(identity) => Ok(identity),
@@ -236,6 +236,7 @@ mod tests {
             .store(store_a)
             .build()
             .unwrap();
+        client_a.register_identity().await.unwrap(); // Persists the identity on registration
         let keybytes_a = client_a.installation_public_key();
         drop(client_a);
 

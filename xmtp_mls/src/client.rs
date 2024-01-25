@@ -213,13 +213,10 @@ where
     pub async fn register_identity(&self) -> Result<(), ClientError> {
         log::info!("registering identity");
         let connection = self.store.conn()?;
-        let kp = self
-            .identity
-            .new_key_package(&self.mls_provider(&connection))?;
-        let kp_bytes = kp.tls_serialize_detached()?;
-
-        self.api_client.register_installation(kp_bytes).await?;
-
+        let provider = self.mls_provider(&connection);
+        self.identity
+            .register(&provider, &self.api_client, None)
+            .await?;
         Ok(())
     }
 

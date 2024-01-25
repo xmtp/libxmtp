@@ -1,4 +1,4 @@
-use std::sync::Mutex;
+use std::sync::{Mutex, RwLock};
 
 use diesel::prelude::*;
 
@@ -46,7 +46,7 @@ impl From<&Identity> for StoredIdentity {
             credential_bytes: db_serialize(
                 &identity
                     .credential()
-                    .expect("Only persisted from register_identity() method"),
+                    .expect("Only persisted after registration"),
             )
             .unwrap(),
             rowid: None,
@@ -59,7 +59,7 @@ impl From<StoredIdentity> for Identity {
         Identity {
             account_address: identity.account_address,
             installation_keys: db_deserialize(&identity.installation_keys).unwrap(),
-            credential: Mutex::new(Some(db_deserialize(&identity.credential_bytes).unwrap())),
+            credential: RwLock::new(Some(db_deserialize(&identity.credential_bytes).unwrap())),
         }
     }
 }
