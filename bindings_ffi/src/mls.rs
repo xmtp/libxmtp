@@ -22,6 +22,23 @@ use xmtp_mls::{
 
 pub type RustXmtpClient = MlsClient<TonicApiClient>;
 
+/// XMTP SDK's may embed libxmtp (v3) alongside existing v2 protocol logic
+/// for backwards-compatibility purposes. In this case, the client may already
+/// have a wallet-signed v2 key. Depending on the source of this key,
+/// libxmtp may choose to bootstrap v3 installation keys using the existing
+/// legacy key.
+#[derive(uniffi::Enum)]
+pub enum LegacyIdentitySource {
+    // A client with no support for v2 messages
+    None,
+    // A cached v2 key was provided on client initialization
+    Static,
+    // A private bundle exists on the network from which the v2 key was fetched
+    Network,
+    // A new v2 key was generated on client initialization
+    KeyGenerator,
+}
+
 #[uniffi::export(async_runtime = "tokio")]
 pub async fn create_libxmtp_client(
     logger: Box<dyn FfiLogger>,
@@ -30,7 +47,8 @@ pub async fn create_libxmtp_client(
     db: Option<String>,
     encryption_key: Option<Vec<u8>>,
     account_address: String,
-    legacy_identity_source: String,
+    legacy_identity_source: LegacyIdentitySource,
+    legacy_signed_private_key_proto: Option<Vec<u8>>,
 ) -> Result<Arc<FfiXmtpClient>, GenericError> {
     init_logger(logger);
 
