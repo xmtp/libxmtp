@@ -1273,6 +1273,7 @@ mod tests {
         let amal_2nd = ClientBuilder::new_test_client(amal_wallet.into()).await;
         amal_2nd.register_identity().await.unwrap();
 
+        // here we should find a new installation
         let (missing_members, _placeholder) = group.get_missing_members(&provider).await.unwrap();
         assert_eq!(missing_members.len(), 1);
         assert_eq!(_placeholder.len(), 0);
@@ -1282,8 +1283,9 @@ mod tests {
             .add_members_by_installation_id(vec![new_installation.clone()])
             .await;
 
-        let (already_added, _placeholder) = group.get_missing_members(&provider).await.unwrap();
-        assert_eq!(already_added.len(), 0);
+        // after we added the new installation the list should again be empty
+        let (missing_members, _placeholder) = group.get_missing_members(&provider).await.unwrap();
+        assert_eq!(missing_members.len(), 0);
         assert_eq!(_placeholder.len(), 0);
     }
 }
