@@ -2,6 +2,7 @@ use std::sync::RwLock;
 
 use chrono::Utc;
 use openmls::{
+    credentials::errors::CredentialError,
     extensions::{errors::InvalidExtensionError, ApplicationIdExtension, LastResortExtension},
     prelude::{
         Capabilities, Credential as OpenMlsCredential, CredentialType, CredentialWithKey,
@@ -27,7 +28,7 @@ use crate::{
     storage::{identity::StoredIdentity, StorageError},
     types::Address,
     xmtp_openmls_provider::XmtpOpenMlsProvider,
-    InboxOwner, Store,
+    Fetch, InboxOwner, Store,
 };
 
 #[derive(Debug, Error)]
@@ -54,6 +55,8 @@ pub enum IdentityError {
     TlsSerialization(#[from] tls_codec::Error),
     #[error("api error: {0}")]
     ApiError(#[from] xmtp_proto::api_client::Error),
+    #[error("OpenMLS credential error: {0}")]
+    OpenMlsCredentialError(#[from] CredentialError),
 }
 
 #[derive(Debug)]
@@ -61,6 +64,7 @@ pub struct Identity {
     pub(crate) account_address: Address,
     pub(crate) installation_keys: SignatureKeyPair,
     pub(crate) credential: RwLock<Option<OpenMlsCredential>>,
+    pub(crate) unsigned_association_data: Option<AssociationText>,
 }
 
 impl Identity {
@@ -72,6 +76,7 @@ impl Identity {
             account_address: owner.get_address(),
             installation_keys: signature_keys,
             credential: RwLock::new(Some(credential)),
+            unsigned_association_data: None,
         };
 
         Ok(identity)
@@ -79,11 +84,18 @@ impl Identity {
 
     pub(crate) fn new_unsigned(account_address: String) -> Result<Self, IdentityError> {
         let signature_keys = SignatureKeyPair::new(CIPHERSUITE.signature_algorithm())?;
-
+        let iso8601_time = format!("{}", Utc::now().format("%+"));
+        let unsigned_association_data = AssociationText::new_static(
+            AssociationContext::GrantMessagingAccess,
+            account_address.clone(),
+            signature_keys.to_public_vec(),
+            iso8601_time,
+        );
         let identity = Self {
             account_address,
             installation_keys: signature_keys,
             credential: RwLock::new(None),
+            unsigned_association_data: Some(unsigned_association_data),
         };
 
         Ok(identity)
@@ -95,25 +107,38 @@ impl Identity {
         api_client: &ApiClientWrapper<ApiClient>,
         signature: Option<Vec<u8>>,
     ) -> Result<(), IdentityError> {
-        let credential_opt = self
-            .credential
-            .read()
-            .unwrap_or_else(|err| err.into_inner());
-        if credential_opt.is_none() {
+        // Do not re-register if already registered
+        let stored_identity: Option<StoredIdentity> = provider.conn().fetch(&())?;
+        if stored_identity.is_some() {
+            return Ok(());
+        }
+
+        // If we do not have a signed credential, apply the provided signature
+        if self.credential().is_err() {
             if signature.is_none() {
                 return Err(IdentityError::WalletSignatureRequired);
             }
 
-            return Err(IdentityError::UninitializedIdentity);
+            let credential_proto: CredentialProto = Credential::from_external_signer(
+                self.unsigned_association_data
+                    .clone()
+                    .expect("Unsigned identity is always created with unsigned_association_data"),
+                signature.unwrap(),
+            )?
+            .into();
+            let credential =
+                OpenMlsCredential::new(credential_proto.encode_to_vec(), CredentialType::Basic)?;
+            self.set_credential(credential)?;
         }
 
-        self.installation_keys.store(provider.key_store())?;
-        StoredIdentity::from(self).store(provider.conn())?;
-
+        // Register the installation with the server
         let kp = self.new_key_package(&provider)?;
         let kp_bytes = kp.tls_serialize_detached()?;
-
         api_client.register_installation(kp_bytes).await?;
+
+        // Only persist the installation keys if the registration was successful
+        self.installation_keys.store(provider.key_store())?;
+        StoredIdentity::from(self).store(provider.conn())?;
 
         Ok(())
     }
@@ -126,21 +151,22 @@ impl Identity {
             .ok_or(IdentityError::UninitializedIdentity)
     }
 
+    fn set_credential(&self, credential: OpenMlsCredential) -> Result<(), IdentityError> {
+        let mut credential_opt = self
+            .credential
+            .write()
+            .unwrap_or_else(|err| err.into_inner());
+        *credential_opt = Some(credential);
+        Ok(())
+    }
+
     pub(crate) fn text_to_sign(&self) -> Option<String> {
         if self.credential().is_ok() {
             return None;
         }
-
-        let iso8601_time = format!("{}", Utc::now().format("%+"));
-        return Some(
-            AssociationText::new_static(
-                AssociationContext::GrantMessagingAccess,
-                self.account_address.clone(),
-                self.installation_keys.to_public_vec(),
-                iso8601_time,
-            )
-            .text(),
-        );
+        self.unsigned_association_data
+            .clone()
+            .map(|data| data.text())
     }
 
     // ONLY CREATES LAST RESORT KEY PACKAGES
@@ -189,10 +215,10 @@ impl Identity {
     ) -> Result<OpenMlsCredential, IdentityError> {
         let credential = Credential::create_eip191(installation_keys, owner)?;
         let credential_proto: CredentialProto = credential.into();
-        Ok(
-            OpenMlsCredential::new(credential_proto.encode_to_vec(), CredentialType::Basic)
-                .unwrap(),
-        )
+        Ok(OpenMlsCredential::new(
+            credential_proto.encode_to_vec(),
+            CredentialType::Basic,
+        )?)
     }
 
     pub(crate) fn get_validated_account_address(
@@ -262,6 +288,22 @@ mod tests {
             .extensions()
             .contains(ExtensionType::LastResort));
         assert!(new_key_package.last_resort())
+    }
+
+    #[tokio::test]
+    async fn test_duplicate_registration() {
+        let (store, api_client) = get_test_resources().await;
+        let conn = store.conn().unwrap();
+        let provider = XmtpOpenMlsProvider::new(&conn);
+        let identity = Identity::new(&generate_local_wallet()).unwrap();
+        identity
+            .register(&provider, &api_client, None)
+            .await
+            .unwrap();
+        identity
+            .register(&provider, &api_client, None)
+            .await
+            .unwrap();
     }
 
     #[tokio::test]

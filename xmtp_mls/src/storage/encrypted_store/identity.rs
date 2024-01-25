@@ -60,6 +60,7 @@ impl From<StoredIdentity> for Identity {
             account_address: identity.account_address,
             installation_keys: db_deserialize(&identity.installation_keys).unwrap(),
             credential: RwLock::new(Some(db_deserialize(&identity.credential_bytes).unwrap())),
+            unsigned_association_data: None,
         }
     }
 }

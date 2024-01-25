@@ -211,11 +211,19 @@ where
     }
 
     pub async fn register_identity(&self) -> Result<(), ClientError> {
+        self.register_identity_with_external_signature(None).await?;
+        Ok(())
+    }
+
+    pub async fn register_identity_with_external_signature(
+        &self,
+        wallet_signature: Option<Vec<u8>>,
+    ) -> Result<(), ClientError> {
         log::info!("registering identity");
         let connection = self.store.conn()?;
         let provider = self.mls_provider(&connection);
         self.identity
-            .register(&provider, &self.api_client, None)
+            .register(&provider, &self.api_client, wallet_signature)
             .await?;
         Ok(())
     }

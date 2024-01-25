@@ -9,6 +9,7 @@ use std::convert::TryInto;
 use std::sync::{Arc, Mutex};
 use tokio::sync::{oneshot, oneshot::Sender};
 use xmtp_api_grpc::grpc_api_helper::Client as TonicApiClient;
+use xmtp_mls::builder::IdentityStrategy;
 use xmtp_mls::{
     builder::ClientBuilder,
     client::Client as MlsClient,
@@ -33,7 +34,6 @@ pub async fn create_libxmtp_client(
 ) -> Result<Arc<FfiXmtpClient>, GenericError> {
     init_logger(logger);
 
-    let inbox_owner = RustInboxOwner::new(ffi_inbox_owner);
     log::info!(
         "Creating API client for host: {}, isSecure: {}",
         host,
@@ -63,7 +63,8 @@ pub async fn create_libxmtp_client(
     };
 
     log::info!("Creating XMTP client");
-    let xmtp_client: RustXmtpClient = ClientBuilder::new(account_address.into())
+    let identity_strategy: IdentityStrategy<RustInboxOwner> = account_address.into();
+    let xmtp_client: RustXmtpClient = ClientBuilder::new(identity_strategy)
         .api_client(api_client)
         .store(store)
         .build()?;
@@ -167,8 +168,13 @@ impl FfiXmtpClient {
 
 #[uniffi::export(async_runtime = "tokio")]
 impl FfiXmtpClient {
-    pub async fn register_identity(&self) -> Result<(), GenericError> {
-        self.inner_client.register_identity().await?;
+    pub async fn register_identity(
+        &self,
+        wallet_signature: Option<Vec<u8>>,
+    ) -> Result<(), GenericError> {
+        self.inner_client
+            .register_identity_with_external_signature(wallet_signature)
+            .await?;
 
         Ok(())
     }
