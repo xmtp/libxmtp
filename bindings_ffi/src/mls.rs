@@ -39,6 +39,7 @@ pub enum LegacyIdentitySource {
     KeyGenerator,
 }
 
+#[allow(unused)]
 #[uniffi::export(async_runtime = "tokio")]
 pub async fn create_libxmtp_client(
     logger: Box<dyn FfiLogger>,
@@ -470,7 +471,10 @@ pub trait FfiMessageCallback: Send + Sync {
 
 #[cfg(test)]
 mod tests {
-    use crate::{inbox_owner::SigningError, logger::FfiLogger, FfiInboxOwner};
+    use crate::{
+        create_libxmtp_client, inbox_owner::SigningError, logger::FfiLogger, FfiInboxOwner,
+        LegacyIdentitySource,
+    };
     use std::{
         env,
         sync::{Arc, Mutex},
@@ -591,6 +595,7 @@ mod tests {
         )
         .await
         .unwrap();
+        client_a.register_identity(None).await.unwrap();
 
         let installation_pub_key = client_a.inner_client.installation_public_key();
         drop(client_a);
@@ -657,7 +662,7 @@ mod tests {
     async fn test_create_group_with_members() {
         let amal = new_test_client().await;
         let bola = new_test_client().await;
-        bola.register_identity().await.unwrap();
+        bola.register_identity(None).await.unwrap();
 
         let group = amal
             .conversations()
@@ -667,6 +672,30 @@ mod tests {
 
         let members = group.list_members().unwrap();
         assert_eq!(members.len(), 2);
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+    async fn test_external_signing() {
+        let inbox_owner = LocalWalletInboxOwner::new();
+        let path = tmp_path();
+
+        let client = create_libxmtp_client(
+            Box::new(MockLogger {}),
+            xmtp_api_grpc::LOCALHOST_ADDRESS.to_string(),
+            false,
+            Some(path.clone()),
+            None, // encryption_key
+            inbox_owner.get_address(),
+            LegacyIdentitySource::None,
+            None, // v2_signed_private_key_proto
+        )
+        .await
+        .unwrap();
+
+        let text_to_sign = client.text_to_sign().unwrap();
+        let signature = inbox_owner.sign(text_to_sign).unwrap();
+
+        client.register_identity(Some(signature)).await.unwrap();
     }
 
     // Disabling this flakey test until it's reliable
