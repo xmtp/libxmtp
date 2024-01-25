@@ -899,9 +899,8 @@ where
                     .filter_map(|change| match change {
                         IdentityUpdate::NewInstallation(new_member) => {
                             let current_member = current_member_map.get(&account_address);
-                            if current_member.is_none() {
-                                return None;
-                            }
+                            current_member?;
+                            
                             if current_member
                                 .expect("already checked")
                                 .installation_ids
@@ -928,7 +927,7 @@ where
                 if !member_changes.is_empty() {
                     return Some(member_changes);
                 }
-                return None;
+                None
             })
             .flatten()
             .collect();
@@ -941,8 +940,8 @@ where
         &self,
         provider: &XmtpOpenMlsProvider<'_>,
     ) -> Result<usize, GroupError> {
-        let (missing_members, _placeholder) = self.get_missing_members(&provider).await?;
-        if missing_members.len() == 0 {
+        let (missing_members, _placeholder) = self.get_missing_members(provider).await?;
+        if missing_members.is_empty() {
             return Ok(0);
         }
         let new_member_installations_count = missing_members.len();
