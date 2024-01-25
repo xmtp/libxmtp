@@ -3,10 +3,7 @@ use std::collections::HashMap;
 use openmls::group::MlsGroup as OpenMlsGroup;
 use xmtp_proto::api_client::XmtpMlsClient;
 
-use crate::{
-    identity::Identity,
-    xmtp_openmls_provider::XmtpOpenMlsProvider,
-};
+use crate::{identity::Identity, xmtp_openmls_provider::XmtpOpenMlsProvider};
 
 use super::{GroupError, MlsGroup};
 
@@ -26,7 +23,7 @@ where
         let provider = self.client.mls_provider(&conn);
         self.members_with_provider(&provider)
     }
-    
+
     pub fn members_with_provider(
         &self,
         provider: &XmtpOpenMlsProvider,
