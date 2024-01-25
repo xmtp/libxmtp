@@ -84,6 +84,17 @@ impl NewGroupIntent {
 }
 
 impl DbConnection<'_> {
+    pub fn insert_group_intent(
+        &self,
+        to_save: NewGroupIntent,
+    ) -> Result<StoredGroupIntent, StorageError> {
+        Ok(self.raw_query(|conn| {
+            diesel::insert_into(dsl::group_intents)
+                .values(to_save)
+                .get_result(conn)
+        })?)
+    }
+
     // Query for group_intents by group_id, optionally filtering by state and kind
     pub fn find_group_intents(
         &self,

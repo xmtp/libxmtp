@@ -267,8 +267,8 @@ where
     pub(crate) async fn query_group_messages(
         &self,
         group_id: &Vec<u8>,
+        conn: &'a DbConnection<'a>,
     ) -> Result<Vec<GroupMessage>, ClientError> {
-        let conn = self.store.conn()?;
         let id_cursor = conn.get_last_cursor_for_id(group_id, EntityKind::Group)?;
 
         let welcomes = self
@@ -279,8 +279,10 @@ where
         Ok(welcomes)
     }
 
-    pub(crate) async fn query_welcome_messages(&self) -> Result<Vec<WelcomeMessage>, ClientError> {
-        let conn = self.store.conn()?;
+    pub(crate) async fn query_welcome_messages(
+        &self,
+        conn: &'a DbConnection<'a>,
+    ) -> Result<Vec<WelcomeMessage>, ClientError> {
         let installation_id = self.installation_public_key();
         let id_cursor = conn.get_last_cursor_for_id(&installation_id, EntityKind::Welcome)?;
 
@@ -362,7 +364,7 @@ where
     // Download all unread welcome messages and convert to groups.
     // Returns any new groups created in the operation
     pub async fn sync_welcomes(&self) -> Result<Vec<MlsGroup<ApiClient>>, ClientError> {
-        let envelopes = self.query_welcome_messages().await?;
+        let envelopes = self.query_welcome_messages(&self.store.conn()?).await?;
         let id = self.installation_public_key();
         let groups: Vec<MlsGroup<ApiClient>> = envelopes
             .into_iter()

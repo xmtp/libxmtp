@@ -8,7 +8,8 @@ use crate::{
     client::deserialize_welcome,
     codecs::ContentCodec,
     hpke::{decrypt_welcome, encrypt_welcome, HpkeError},
-    storage::refresh_state::EntityKind,
+    storage::{group_intent::ID, refresh_state::EntityKind},
+    Fetch,
 };
 use intents::SendMessageIntentData;
 use log::debug;
@@ -155,6 +156,7 @@ where
         }
     }
 
+    // Load the stored MLS group from the OpenMLS provider's keystore
     pub fn load_mls_group(
         &self,
         provider: &XmtpOpenMlsProvider,
@@ -166,6 +168,7 @@ where
         Ok(mls_group)
     }
 
+    // Create a new group and save it to the DB
     pub fn create_and_insert(
         client: &'c Client<ApiClient>,
         membership_state: GroupMembershipState,
@@ -185,15 +188,17 @@ where
                 signature_key: client.identity.installation_keys.to_public_vec().into(),
             },
         )?;
-
         mls_group.save(provider.key_store())?;
+
         let group_id = mls_group.group_id().to_vec();
         let stored_group = StoredGroup::new(group_id.clone(), now_ns(), membership_state);
         stored_group.store(provider.conn())?;
         Ok(Self::new(client, group_id, stored_group.created_at_ns))
     }
 
-    pub fn create_from_welcome(
+    // Create a group from a decrypted and decoded welcome message
+    // If the group already exists in the store, overwrite the MLS state and do not update the group entry
+    fn create_from_welcome(
         client: &'c Client<ApiClient>,
         provider: &XmtpOpenMlsProvider,
         welcome: MlsWelcome,
@@ -213,6 +218,7 @@ where
         ))
     }
 
+    // Decrypt a welcome message using HPKE and then create and save a group from the stored message
     pub fn create_from_encrypted_welcome(
         client: &'c Client<ApiClient>,
         provider: &XmtpOpenMlsProvider,
@@ -226,6 +232,21 @@ where
         Self::create_from_welcome(client, provider, welcome)
     }
 
+    pub async fn send_message(&self, message: &[u8]) -> Result<(), GroupError> {
+        let conn = &mut self.client.store.conn()?;
+        let intent_data: Vec<u8> = SendMessageIntentData::new(message.to_vec()).into();
+        let intent =
+            NewGroupIntent::new(IntentKind::SendMessage, self.group_id.clone(), intent_data);
+        intent.store(conn)?;
+
+        // Skipping a full sync here and instead just firing and forgetting
+        if let Err(err) = self.publish_intents(conn).await {
+            println!("error publishing intents: {:?}", err);
+        }
+        Ok(())
+    }
+
+    // Query the database for stored messages. Optionally filtered by time, kind, and limit
     pub fn find_messages(
         &self,
         kind: Option<GroupMessageKind>,
@@ -238,39 +259,6 @@ where
             conn.get_group_messages(&self.group_id, sent_after_ns, sent_before_ns, kind, limit)?;
 
         Ok(messages)
-    }
-
-    fn validate_message_sender(
-        &self,
-        openmls_group: &mut OpenMlsGroup,
-        decrypted_message: &ProcessedMessage,
-        message_created_ns: u64,
-    ) -> Result<(String, Vec<u8>), MessageProcessingError> {
-        let mut sender_account_address = None;
-        let mut sender_installation_id = None;
-        if let Sender::Member(leaf_node_index) = decrypted_message.sender() {
-            if let Some(member) = openmls_group.member_at(*leaf_node_index) {
-                if member.credential.eq(decrypted_message.credential()) {
-                    sender_account_address = Identity::get_validated_account_address(
-                        member.credential.identity(),
-                        &member.signature_key,
-                    )
-                    .ok();
-                    sender_installation_id = Some(member.signature_key);
-                }
-            }
-        }
-
-        if sender_account_address.is_none() {
-            return Err(MessageProcessingError::InvalidSender {
-                message_time_ns: message_created_ns,
-                credential: decrypted_message.credential().identity().to_vec(),
-            });
-        }
-        Ok((
-            sender_account_address.unwrap(),
-            sender_installation_id.unwrap(),
-        ))
     }
 
     fn process_own_message(
@@ -412,7 +400,7 @@ where
         );
         let decrypted_message = openmls_group.process_message(provider, message)?;
         let (sender_account_address, sender_installation_id) =
-            self.validate_message_sender(openmls_group, &decrypted_message, envelope_timestamp_ns)?;
+            validate_message_sender(openmls_group, &decrypted_message, envelope_timestamp_ns)?;
 
         match decrypted_message.into_content() {
             ProcessedMessageContent::ApplicationMessage(application_message) => {
@@ -548,97 +536,58 @@ where
         }
     }
 
-    pub async fn receive(&self) -> Result<(), GroupError> {
-        let messages = self.client.query_group_messages(&self.group_id).await?;
+    async fn receive<'a>(&self, conn: &'a DbConnection<'a>) -> Result<(), GroupError> {
+        let messages = self
+            .client
+            .query_group_messages(&self.group_id, conn)
+            .await?;
 
         self.process_messages(messages)?;
 
         Ok(())
     }
 
-    pub async fn send_message(&self, message: &[u8]) -> Result<(), GroupError> {
-        let conn = &mut self.client.store.conn()?;
-        let intent_data: Vec<u8> = SendMessageIntentData::new(message.to_vec()).into();
-        let intent =
-            NewGroupIntent::new(IntentKind::SendMessage, self.group_id.clone(), intent_data);
-        intent.store(conn)?;
-
-        // Skipping a full sync here and instead just firing and forgetting
-        if let Err(err) = self.publish_intents(conn).await {
-            println!("error publishing intents: {:?}", err);
-        }
-        Ok(())
-    }
-
-    fn validate_evm_addresses(account_addresses: &[String]) -> Result<(), GroupError> {
-        let mut invalid = account_addresses
-            .iter()
-            .filter(|a| !is_valid_ethereum_address(a))
-            .peekable();
-
-        if invalid.peek().is_some() {
-            return Err(GroupError::InvalidAddresses(
-                invalid.map(ToString::to_string).collect::<Vec<_>>(),
-            ));
-        }
-
-        Ok(())
-    }
-
-    fn validate_ed25519_keys(keys: &[Vec<u8>]) -> Result<(), GroupError> {
-        let mut invalid = keys
-            .iter()
-            .filter(|a| !is_valid_ed25519_public_key(a))
-            .peekable();
-
-        if invalid.peek().is_some() {
-            return Err(GroupError::InvalidPublicKeys(
-                invalid.map(Clone::clone).collect::<Vec<_>>(),
-            ));
-        }
-
-        Ok(())
-    }
-
     pub async fn add_members(&self, account_addresses: Vec<String>) -> Result<(), GroupError> {
-        Self::validate_evm_addresses(&account_addresses)?;
+        validate_evm_addresses(&account_addresses)?;
         let conn = &mut self.client.store.conn()?;
         let intent_data: Vec<u8> =
             AddMembersIntentData::new(account_addresses.into()).try_into()?;
-        let intent =
-            NewGroupIntent::new(IntentKind::AddMembers, self.group_id.clone(), intent_data);
+        let intent = conn.insert_group_intent(NewGroupIntent::new(
+            IntentKind::AddMembers,
+            self.group_id.clone(),
+            intent_data,
+        ))?;
 
-        intent.store(conn)?;
-
-        self.sync_with_conn(conn).await
+        self.sync_and_wait(conn, intent.id).await
     }
 
     pub async fn add_members_by_installation_id(
         &self,
         installation_ids: Vec<Vec<u8>>,
     ) -> Result<(), GroupError> {
-        Self::validate_ed25519_keys(&installation_ids)?;
+        validate_ed25519_keys(&installation_ids)?;
         let conn = &mut self.client.store.conn()?;
         let intent_data: Vec<u8> = AddMembersIntentData::new(installation_ids.into()).try_into()?;
-        let intent =
-            NewGroupIntent::new(IntentKind::AddMembers, self.group_id.clone(), intent_data);
-        intent.store(conn)?;
+        let intent = conn.insert_group_intent(NewGroupIntent::new(
+            IntentKind::AddMembers,
+            self.group_id.clone(),
+            intent_data,
+        ))?;
 
-        self.sync_with_conn(conn).await
+        self.sync_and_wait(conn, intent.id).await
     }
 
     pub async fn remove_members(&self, account_addresses: Vec<String>) -> Result<(), GroupError> {
-        Self::validate_evm_addresses(&account_addresses)?;
+        validate_evm_addresses(&account_addresses)?;
         let conn = &mut self.client.store.conn()?;
         let intent_data: Vec<u8> = RemoveMembersIntentData::new(account_addresses.into()).into();
-        let intent = NewGroupIntent::new(
+        let intent = conn.insert_group_intent(NewGroupIntent::new(
             IntentKind::RemoveMembers,
             self.group_id.clone(),
             intent_data,
-        );
-        intent.store(conn)?;
+        ))?;
 
-        self.sync_with_conn(conn).await
+        self.sync_and_wait(conn, intent.id).await
     }
 
     #[allow(dead_code)]
@@ -646,19 +595,19 @@ where
         &self,
         installation_ids: Vec<Vec<u8>>,
     ) -> Result<(), GroupError> {
-        Self::validate_ed25519_keys(&installation_ids)?;
+        validate_ed25519_keys(&installation_ids)?;
         let conn = &mut self.client.store.conn()?;
         let intent_data: Vec<u8> = RemoveMembersIntentData::new(installation_ids.into()).into();
-        let intent = NewGroupIntent::new(
+        let intent = conn.insert_group_intent(NewGroupIntent::new(
             IntentKind::RemoveMembers,
             self.group_id.clone(),
             intent_data,
-        );
-        intent.store(conn)?;
+        ))?;
 
-        self.sync_with_conn(conn).await
+        self.sync_and_wait(conn, intent.id).await
     }
 
+    // Update this installation's leaf key in the group by creating a key update commit
     pub async fn key_update(&self) -> Result<(), GroupError> {
         let conn = &mut self.client.store.conn()?;
         let intent = NewGroupIntent::new(IntentKind::KeyUpdate, self.group_id.clone(), vec![]);
@@ -674,12 +623,38 @@ where
 
     async fn sync_with_conn<'a>(&self, conn: &'a DbConnection<'a>) -> Result<(), GroupError> {
         self.publish_intents(conn).await?;
-        if let Err(e) = self.receive().await {
+        if let Err(e) = self.receive(conn).await {
             log::warn!("receive error {:?}", e);
         }
         self.post_commit(conn).await?;
 
         Ok(())
+    }
+
+    async fn sync_and_wait<'a>(
+        &self,
+        conn: &'a DbConnection<'a>,
+        intent_id: ID,
+    ) -> Result<(), GroupError> {
+        let mut num_attempts = 0;
+        let max_attempts = 3;
+        while num_attempts < max_attempts {
+            // Sync with conn will swollow errors on the receive side,
+            // but we should pay attention to errors on the publish side
+            self.sync_with_conn(conn).await?;
+            let intent: Option<StoredGroupIntent> = conn.fetch(&intent_id)?;
+            match intent {
+                None => {
+                    // This is expected. The intent gets deleted on success
+                    return Ok(());
+                }
+                _ => {
+                    num_attempts += 1;
+                }
+            }
+        }
+
+        Err(GroupError::Generic("failed to wait for intent".to_string()))
     }
 
     pub(crate) async fn publish_intents<'a>(
@@ -899,6 +874,68 @@ fn extract_message_v1(message: GroupMessage) -> Result<GroupMessageV1, MessagePr
     }
 }
 
+fn validate_ed25519_keys(keys: &[Vec<u8>]) -> Result<(), GroupError> {
+    let mut invalid = keys
+        .iter()
+        .filter(|a| !is_valid_ed25519_public_key(a))
+        .peekable();
+
+    if invalid.peek().is_some() {
+        return Err(GroupError::InvalidPublicKeys(
+            invalid.map(Clone::clone).collect::<Vec<_>>(),
+        ));
+    }
+
+    Ok(())
+}
+
+fn validate_evm_addresses(account_addresses: &[String]) -> Result<(), GroupError> {
+    let mut invalid = account_addresses
+        .iter()
+        .filter(|a| !is_valid_ethereum_address(a))
+        .peekable();
+
+    if invalid.peek().is_some() {
+        return Err(GroupError::InvalidAddresses(
+            invalid.map(ToString::to_string).collect::<Vec<_>>(),
+        ));
+    }
+
+    Ok(())
+}
+
+fn validate_message_sender(
+    openmls_group: &mut OpenMlsGroup,
+    decrypted_message: &ProcessedMessage,
+    message_created_ns: u64,
+) -> Result<(String, Vec<u8>), MessageProcessingError> {
+    let mut sender_account_address = None;
+    let mut sender_installation_id = None;
+    if let Sender::Member(leaf_node_index) = decrypted_message.sender() {
+        if let Some(member) = openmls_group.member_at(*leaf_node_index) {
+            if member.credential.eq(decrypted_message.credential()) {
+                sender_account_address = Identity::get_validated_account_address(
+                    member.credential.identity(),
+                    &member.signature_key,
+                )
+                .ok();
+                sender_installation_id = Some(member.signature_key);
+            }
+        }
+    }
+
+    if sender_account_address.is_none() {
+        return Err(MessageProcessingError::InvalidSender {
+            message_time_ns: message_created_ns,
+            credential: decrypted_message.credential().identity().to_vec(),
+        });
+    }
+    Ok((
+        sender_account_address.unwrap(),
+        sender_installation_id.unwrap(),
+    ))
+}
+
 fn build_protected_metadata_extension(
     identity: &Identity,
     policies: PolicySet,
@@ -1013,10 +1050,9 @@ mod tests {
         bola_group
             .add_members_by_installation_id(vec![charlie.installation_public_key()])
             .await
-            .unwrap();
+            .expect_err("expected err");
 
         amal_group.receive().await.expect_err("expected error");
-        bola_group.receive().await.expect_err("expected error");
 
         // Check Amal's MLS group state.
         let amal_db = amal.store.conn().unwrap();
