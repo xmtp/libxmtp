@@ -864,10 +864,6 @@ where
         Ok(())
     }
 
-    // If no changes, returns empty Vec
-    // If new installation on network that is not already in group, returns Vec with new installation IDs
-    // If new installation on network that is already in group, returns empty Vec
-    // If revocation or invalid update, returns empty Vec
     #[allow(dead_code)]
     async fn get_missing_members(
         &self,
