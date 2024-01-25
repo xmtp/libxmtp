@@ -105,7 +105,7 @@ impl Identity {
         &self,
         provider: &XmtpOpenMlsProvider<'_>,
         api_client: &ApiClientWrapper<ApiClient>,
-        signature: Option<Vec<u8>>,
+        recoverable_wallet_signature: Option<Vec<u8>>,
     ) -> Result<(), IdentityError> {
         // Do not re-register if already registered
         let stored_identity: Option<StoredIdentity> = provider.conn().fetch(&())?;
@@ -115,7 +115,7 @@ impl Identity {
 
         // If we do not have a signed credential, apply the provided signature
         if self.credential().is_err() {
-            if signature.is_none() {
+            if recoverable_wallet_signature.is_none() {
                 return Err(IdentityError::WalletSignatureRequired);
             }
 
@@ -123,7 +123,7 @@ impl Identity {
                 self.unsigned_association_data
                     .clone()
                     .expect("Unsigned identity is always created with unsigned_association_data"),
-                signature.unwrap(),
+                recoverable_wallet_signature.unwrap(),
             )?
             .into();
             let credential =
@@ -242,6 +242,7 @@ impl Identity {
 
 #[cfg(test)]
 mod tests {
+    use ethers::signers::Signer;
     use openmls::prelude::ExtensionType;
     use xmtp_api_grpc::grpc_api_helper::Client as GrpcClient;
     use xmtp_cryptography::utils::generate_local_wallet;
@@ -307,14 +308,33 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn identity_registration() {
+    async fn test_valid_external_signature() {
         let (store, api_client) = get_test_resources().await;
         let conn = store.conn().unwrap();
         let provider = XmtpOpenMlsProvider::new(&conn);
-        let identity = Identity::new_unsigned(generate_local_wallet().get_address()).unwrap();
-        // identity
-        //     .register(&provider, &api_client, None)
-        //     .await
-        //     .unwrap();
+        let wallet = generate_local_wallet();
+        let identity = Identity::new_unsigned(wallet.get_address()).unwrap();
+        let text_to_sign = identity.text_to_sign().unwrap();
+        let signature = wallet.sign_message(text_to_sign).await.unwrap().to_vec();
+        identity
+            .register(&provider, &api_client, Some(signature))
+            .await
+            .unwrap();
+    }
+
+    #[tokio::test]
+    async fn test_invalid_external_signature() {
+        let (store, api_client) = get_test_resources().await;
+        let conn = store.conn().unwrap();
+        let provider = XmtpOpenMlsProvider::new(&conn);
+        let wallet = generate_local_wallet();
+        let identity = Identity::new_unsigned(wallet.get_address()).unwrap();
+        let text_to_sign = identity.text_to_sign().unwrap();
+        let mut signature = wallet.sign_message(text_to_sign).await.unwrap().to_vec();
+        signature[0] ^= 1; // Tamper with signature
+        assert!(identity
+            .register(&provider, &api_client, Some(signature))
+            .await
+            .is_err());
     }
 }

@@ -217,13 +217,13 @@ where
 
     pub async fn register_identity_with_external_signature(
         &self,
-        wallet_signature: Option<Vec<u8>>,
+        recoverable_wallet_signature: Option<Vec<u8>>,
     ) -> Result<(), ClientError> {
         log::info!("registering identity");
         let connection = self.store.conn()?;
         let provider = self.mls_provider(&connection);
         self.identity
-            .register(&provider, &self.api_client, wallet_signature)
+            .register(&provider, &self.api_client, recoverable_wallet_signature)
             .await?;
         Ok(())
     }

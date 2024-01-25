@@ -144,10 +144,6 @@ impl FfiXmtpClient {
         self.inner_client.account_address()
     }
 
-    pub fn text_to_sign(&self) -> Option<String> {
-        self.inner_client.text_to_sign()
-    }
-
     pub fn conversations(&self) -> Arc<FfiConversations> {
         Arc::new(FfiConversations {
             inner_client: self.inner_client.clone(),
@@ -168,12 +164,16 @@ impl FfiXmtpClient {
 
 #[uniffi::export(async_runtime = "tokio")]
 impl FfiXmtpClient {
+    pub fn text_to_sign(&self) -> Option<String> {
+        self.inner_client.text_to_sign()
+    }
+
     pub async fn register_identity(
         &self,
-        wallet_signature: Option<Vec<u8>>,
+        recoverable_wallet_signature: Option<Vec<u8>>,
     ) -> Result<(), GenericError> {
         self.inner_client
-            .register_identity_with_external_signature(wallet_signature)
+            .register_identity_with_external_signature(recoverable_wallet_signature)
             .await?;
 
         Ok(())
