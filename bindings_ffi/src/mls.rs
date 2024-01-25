@@ -1,4 +1,3 @@
-use crate::inbox_owner::FfiInboxOwner;
 use crate::inbox_owner::RustInboxOwner;
 pub use crate::inbox_owner::SigningError;
 use crate::logger::init_logger;
@@ -9,6 +8,7 @@ use std::convert::TryInto;
 use std::sync::{Arc, Mutex};
 use tokio::sync::{oneshot, oneshot::Sender};
 use xmtp_api_grpc::grpc_api_helper::Client as TonicApiClient;
+use xmtp_mls::builder::IdentityStrategy;
 use xmtp_mls::{
     builder::ClientBuilder,
     client::Client as MlsClient,
@@ -21,18 +21,37 @@ use xmtp_mls::{
 
 pub type RustXmtpClient = MlsClient<TonicApiClient>;
 
+/// XMTP SDK's may embed libxmtp (v3) alongside existing v2 protocol logic
+/// for backwards-compatibility purposes. In this case, the client may already
+/// have a wallet-signed v2 key. Depending on the source of this key,
+/// libxmtp may choose to bootstrap v3 installation keys using the existing
+/// legacy key.
+#[derive(uniffi::Enum)]
+pub enum LegacyIdentitySource {
+    // A client with no support for v2 messages
+    None,
+    // A cached v2 key was provided on client initialization
+    Static,
+    // A private bundle exists on the network from which the v2 key was fetched
+    Network,
+    // A new v2 key was generated on client initialization
+    KeyGenerator,
+}
+
+#[allow(unused)]
 #[uniffi::export(async_runtime = "tokio")]
 pub async fn create_client(
     logger: Box<dyn FfiLogger>,
-    ffi_inbox_owner: Box<dyn FfiInboxOwner>,
     host: String,
     is_secure: bool,
     db: Option<String>,
     encryption_key: Option<Vec<u8>>,
+    account_address: String,
+    legacy_identity_source: LegacyIdentitySource,
+    legacy_signed_private_key_proto: Option<Vec<u8>>,
 ) -> Result<Arc<FfiXmtpClient>, GenericError> {
     init_logger(logger);
 
-    let inbox_owner = RustInboxOwner::new(ffi_inbox_owner);
     log::info!(
         "Creating API client for host: {}, isSecure: {}",
         host,
@@ -62,7 +81,8 @@ pub async fn create_client(
     };
 
     log::info!("Creating XMTP client");
-    let xmtp_client: RustXmtpClient = ClientBuilder::new(inbox_owner.into())
+    let identity_strategy: IdentityStrategy<RustInboxOwner> = account_address.into();
+    let xmtp_client: RustXmtpClient = ClientBuilder::new(identity_strategy)
         .api_client(api_client)
         .store(store)
         .build()?;
@@ -107,8 +127,17 @@ impl FfiXmtpClient {
 
 #[uniffi::export(async_runtime = "tokio")]
 impl FfiXmtpClient {
-    pub async fn register_identity(&self) -> Result<(), GenericError> {
-        self.inner_client.register_identity().await?;
+    pub fn text_to_sign(&self) -> Option<String> {
+        self.inner_client.text_to_sign()
+    }
+
+    pub async fn register_identity(
+        &self,
+        recoverable_wallet_signature: Option<Vec<u8>>,
+    ) -> Result<(), GenericError> {
+        self.inner_client
+            .register_identity_with_external_signature(recoverable_wallet_signature)
+            .await?;
 
         Ok(())
     }
@@ -386,7 +415,9 @@ pub trait FfiMessageCallback: Send + Sync {
 
 #[cfg(test)]
 mod tests {
-    use crate::{inbox_owner::SigningError, logger::FfiLogger, FfiInboxOwner};
+    use crate::{
+        inbox_owner::SigningError, logger::FfiLogger, FfiInboxOwner, LegacyIdentitySource,
+    };
     use std::{
         env,
         sync::{Arc, Mutex},
@@ -472,16 +503,24 @@ mod tests {
     async fn new_test_client() -> Arc<FfiXmtpClient> {
         let ffi_inbox_owner = LocalWalletInboxOwner::new();
 
-        create_client(
+        let client = create_client(
             Box::new(MockLogger {}),
-            Box::new(ffi_inbox_owner),
             xmtp_api_grpc::LOCALHOST_ADDRESS.to_string(),
             false,
             Some(tmp_path()),
             None,
+            ffi_inbox_owner.get_address(),
+            LegacyIdentitySource::None,
+            None,
         )
         .await
-        .unwrap()
+        .unwrap();
+
+        let text_to_sign = client.text_to_sign().unwrap();
+        let signature = ffi_inbox_owner.sign(text_to_sign).unwrap();
+
+        client.register_identity(Some(signature)).await.unwrap();
+        return client;
     }
 
     // Try a query on a test topic, and make sure we get a response
@@ -499,24 +538,31 @@ mod tests {
 
         let client_a = create_client(
             Box::new(MockLogger {}),
-            Box::new(ffi_inbox_owner.clone()),
             xmtp_api_grpc::LOCALHOST_ADDRESS.to_string(),
             false,
             Some(path.clone()),
             None,
+            ffi_inbox_owner.get_address(),
+            LegacyIdentitySource::None,
+            None,
         )
         .await
         .unwrap();
+        let text_to_sign = client_a.text_to_sign().unwrap();
+        let signature = ffi_inbox_owner.sign(text_to_sign).unwrap();
+        client_a.register_identity(Some(signature)).await.unwrap();
 
         let installation_pub_key = client_a.inner_client.installation_public_key();
         drop(client_a);
 
         let client_b = create_client(
             Box::new(MockLogger {}),
-            Box::new(ffi_inbox_owner),
             xmtp_api_grpc::LOCALHOST_ADDRESS.to_string(),
             false,
             Some(path),
+            None,
+            ffi_inbox_owner.get_address(),
+            LegacyIdentitySource::None,
             None,
         )
         .await
@@ -541,11 +587,13 @@ mod tests {
 
         let client_a = create_client(
             Box::new(MockLogger {}),
-            Box::new(ffi_inbox_owner.clone()),
             xmtp_api_grpc::LOCALHOST_ADDRESS.to_string(),
             false,
             Some(path.clone()),
             Some(key),
+            ffi_inbox_owner.get_address(),
+            LegacyIdentitySource::None,
+            None,
         )
         .await
         .unwrap();
@@ -557,11 +605,13 @@ mod tests {
 
         let result_errored = create_client(
             Box::new(MockLogger {}),
-            Box::new(ffi_inbox_owner),
             xmtp_api_grpc::LOCALHOST_ADDRESS.to_string(),
             false,
             Some(path),
             Some(other_key.to_vec()),
+            ffi_inbox_owner.get_address(),
+            LegacyIdentitySource::None,
+            None,
         )
         .await
         .is_err();
@@ -573,7 +623,7 @@ mod tests {
     async fn test_create_group_with_members() {
         let amal = new_test_client().await;
         let bola = new_test_client().await;
-        bola.register_identity().await.unwrap();
+        bola.register_identity(None).await.unwrap();
 
         let group = amal
             .conversations()
@@ -583,6 +633,31 @@ mod tests {
 
         let members = group.list_members().unwrap();
         assert_eq!(members.len(), 2);
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+    async fn test_invalid_external_signature() {
+        let inbox_owner = LocalWalletInboxOwner::new();
+        let path = tmp_path();
+
+        let client = create_client(
+            Box::new(MockLogger {}),
+            xmtp_api_grpc::LOCALHOST_ADDRESS.to_string(),
+            false,
+            Some(path.clone()),
+            None, // encryption_key
+            inbox_owner.get_address(),
+            LegacyIdentitySource::None,
+            None, // v2_signed_private_key_proto
+        )
+        .await
+        .unwrap();
+
+        let text_to_sign = client.text_to_sign().unwrap();
+        let mut signature = inbox_owner.sign(text_to_sign).unwrap();
+        signature[0] ^= 1;
+
+        assert!(client.register_identity(Some(signature)).await.is_err());
     }
 
     // Disabling this flakey test until it's reliable

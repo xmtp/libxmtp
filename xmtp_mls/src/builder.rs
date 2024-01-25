@@ -40,6 +40,7 @@ pub enum ClientBuilderError {
 
 pub enum IdentityStrategy<Owner> {
     CreateIfNotFound(Owner),
+    CreateUnsignedIfNotFound(String),
     CachedOnly,
     #[cfg(test)]
     ExternalIdentity(Identity),
@@ -69,7 +70,16 @@ where
                     }
                     Ok(identity)
                 }
-                None => Ok(Identity::new(provider, &owner)?),
+                None => Ok(Identity::new(&owner)?),
+            },
+            IdentityStrategy::CreateUnsignedIfNotFound(account_address) => match identity_option {
+                Some(identity) => {
+                    if identity.account_address != account_address {
+                        return Err(ClientBuilderError::StoredIdentityMismatch);
+                    }
+                    Ok(identity)
+                }
+                None => Ok(Identity::new_unsigned(account_address)?),
             },
             #[cfg(test)]
             IdentityStrategy::ExternalIdentity(identity) => Ok(identity),
@@ -83,6 +93,12 @@ where
 {
     fn from(value: Owner) -> Self {
         IdentityStrategy::CreateIfNotFound(value)
+    }
+}
+
+impl<Owner> From<String> for IdentityStrategy<Owner> {
+    fn from(account_address: String) -> Self {
+        IdentityStrategy::CreateUnsignedIfNotFound(account_address)
     }
 }
 
@@ -220,6 +236,7 @@ mod tests {
             .store(store_a)
             .build()
             .unwrap();
+        client_a.register_identity().await.unwrap(); // Persists the identity on registration
         let keybytes_a = client_a.installation_public_key();
         drop(client_a);
 

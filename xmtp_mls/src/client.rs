@@ -169,6 +169,10 @@ where
         self.identity.installation_keys.to_public_vec()
     }
 
+    pub fn text_to_sign(&self) -> Option<String> {
+        self.identity.text_to_sign()
+    }
+
     // TODO: Remove this and figure out the correct lifetimes to allow long lived provider
     pub(crate) fn mls_provider(&self, conn: &'a DbConnection<'a>) -> XmtpOpenMlsProvider<'a> {
         XmtpOpenMlsProvider::<'a>::new(conn)
@@ -209,15 +213,20 @@ where
     }
 
     pub async fn register_identity(&self) -> Result<(), ClientError> {
+        self.register_identity_with_external_signature(None).await?;
+        Ok(())
+    }
+
+    pub async fn register_identity_with_external_signature(
+        &self,
+        recoverable_wallet_signature: Option<Vec<u8>>,
+    ) -> Result<(), ClientError> {
         log::info!("registering identity");
         let connection = self.store.conn()?;
-        let kp = self
-            .identity
-            .new_key_package(&self.mls_provider(&connection))?;
-        let kp_bytes = kp.tls_serialize_detached()?;
-
-        self.api_client.register_installation(kp_bytes).await?;
-
+        let provider = self.mls_provider(&connection);
+        self.identity
+            .register(&provider, &self.api_client, recoverable_wallet_signature)
+            .await?;
         Ok(())
     }
 

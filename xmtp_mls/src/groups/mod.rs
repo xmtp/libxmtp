@@ -8,6 +8,7 @@ use crate::{
     client::deserialize_welcome,
     codecs::ContentCodec,
     hpke::{decrypt_welcome, encrypt_welcome, HpkeError},
+    identity::IdentityError,
     storage::refresh_state::EntityKind,
 };
 use intents::SendMessageIntentData;
@@ -120,6 +121,8 @@ pub enum GroupError {
     GroupMetadata(#[from] GroupMetadataError),
     #[error("Hpke error: {0}")]
     Hpke(#[from] HpkeError),
+    #[error("identity error: {0}")]
+    Identity(#[from] IdentityError),
 }
 
 impl RetryableError for GroupError {
@@ -181,7 +184,7 @@ where
             &client.identity.installation_keys,
             &group_config,
             CredentialWithKey {
-                credential: client.identity.credential.clone(),
+                credential: client.identity.credential()?,
                 signature_key: client.identity.installation_keys.to_public_vec().into(),
             },
         )?;
@@ -911,7 +914,7 @@ fn build_protected_metadata_extension(
     let protected_metadata = ProtectedMetadata::new(
         &identity.installation_keys,
         identity.application_id(),
-        identity.credential.clone(),
+        identity.credential()?,
         identity.installation_keys.to_public_vec(),
         metadata.try_into()?,
     )?;
