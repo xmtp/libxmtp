@@ -900,7 +900,6 @@ where
                         IdentityUpdate::NewInstallation(new_member) => {
                             let current_member = current_member_map.get(&account_address);
                             current_member?;
-
                             if current_member
                                 .expect("already checked")
                                 .installation_ids
