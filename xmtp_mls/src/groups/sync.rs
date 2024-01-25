@@ -2,6 +2,7 @@ use super::{intents::SendMessageIntentData, members::GroupMember, GroupError, Ml
 use crate::{
     api_client_wrapper::IdentityUpdate,
     codecs::ContentCodec,
+    configuration::MAX_INTENT_PUBLISH_ATTEMPTS,
     hpke::{encrypt_welcome, HpkeError},
     retry_async,
     storage::{
@@ -450,14 +451,6 @@ where
         let num_intents = intents.len();
 
         for intent in intents {
-            if intent.publish_attempts >= (crate::configuration::MAX_INTENT_PUBLISH_ATTEMPTS as i32)
-            {
-                log::error!("intent {} has reached max publish attempts", intent.id);
-                // TODO: Eventually clean up errored attempts
-                conn.set_group_intent_error(intent.id)?;
-                continue;
-            }
-
             let result = retry_async!(
                 Retry::default(),
                 (async {
@@ -468,7 +461,14 @@ where
 
             if let Err(err) = result {
                 log::error!("error getting publish intent data {:?}", err);
-                conn.increment_intent_publish_attempt_count(intent.id)?;
+                if (intent.publish_attempts + 1) as usize >= MAX_INTENT_PUBLISH_ATTEMPTS {
+                    log::error!("intent {} has reached max publish attempts", intent.id);
+                    // TODO: Eventually clean up errored attempts
+                    conn.set_group_intent_error(intent.id)?;
+                } else {
+                    conn.increment_intent_publish_attempt_count(intent.id)?;
+                }
+
                 return Err(err);
             }
 
