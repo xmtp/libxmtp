@@ -293,6 +293,7 @@ where
             .map(|msg| GroupMessageInput {
                 version: Some(GroupMessageInputVersion::V1(GroupMessageInputV1 {
                     data: msg.to_vec(),
+                    sender_hmac: vec![],
                 })),
             })
             .collect();
@@ -380,6 +381,7 @@ mod tests {
                     created_ns: i as u64,
                     group_id: group_id.clone(),
                     data: vec![i as u8],
+                    sender_hmac: vec![],
                 })),
             })
         }

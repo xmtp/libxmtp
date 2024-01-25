@@ -1029,6 +1029,9 @@ impl serde::Serialize for group_message::V1 {
         if !self.data.is_empty() {
             len += 1;
         }
+        if !self.sender_hmac.is_empty() {
+            len += 1;
+        }
         let mut struct_ser = serializer.serialize_struct("xmtp.mls.api.v1.GroupMessage.V1", len)?;
         if self.id != 0 {
             struct_ser.serialize_field("id", ToString::to_string(&self.id).as_str())?;
@@ -1041,6 +1044,9 @@ impl serde::Serialize for group_message::V1 {
         }
         if !self.data.is_empty() {
             struct_ser.serialize_field("data", pbjson::private::base64::encode(&self.data).as_str())?;
+        }
+        if !self.sender_hmac.is_empty() {
+            struct_ser.serialize_field("senderHmac", pbjson::private::base64::encode(&self.sender_hmac).as_str())?;
         }
         struct_ser.end()
     }
@@ -1058,6 +1064,8 @@ impl<'de> serde::Deserialize<'de> for group_message::V1 {
             "group_id",
             "groupId",
             "data",
+            "sender_hmac",
+            "senderHmac",
         ];
 
         #[allow(clippy::enum_variant_names)]
@@ -1066,6 +1074,7 @@ impl<'de> serde::Deserialize<'de> for group_message::V1 {
             CreatedNs,
             GroupId,
             Data,
+            SenderHmac,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
             fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
@@ -1091,6 +1100,7 @@ impl<'de> serde::Deserialize<'de> for group_message::V1 {
                             "createdNs" | "created_ns" => Ok(GeneratedField::CreatedNs),
                             "groupId" | "group_id" => Ok(GeneratedField::GroupId),
                             "data" => Ok(GeneratedField::Data),
+                            "senderHmac" | "sender_hmac" => Ok(GeneratedField::SenderHmac),
                             _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
                         }
                     }
@@ -1114,6 +1124,7 @@ impl<'de> serde::Deserialize<'de> for group_message::V1 {
                 let mut created_ns__ = None;
                 let mut group_id__ = None;
                 let mut data__ = None;
+                let mut sender_hmac__ = None;
                 while let Some(k) = map.next_key()? {
                     match k {
                         GeneratedField::Id => {
@@ -1148,6 +1159,14 @@ impl<'de> serde::Deserialize<'de> for group_message::V1 {
                                 Some(map.next_value::<::pbjson::private::BytesDeserialize<_>>()?.0)
                             ;
                         }
+                        GeneratedField::SenderHmac => {
+                            if sender_hmac__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("senderHmac"));
+                            }
+                            sender_hmac__ = 
+                                Some(map.next_value::<::pbjson::private::BytesDeserialize<_>>()?.0)
+                            ;
+                        }
                     }
                 }
                 Ok(group_message::V1 {
@@ -1155,6 +1174,7 @@ impl<'de> serde::Deserialize<'de> for group_message::V1 {
                     created_ns: created_ns__.unwrap_or_default(),
                     group_id: group_id__.unwrap_or_default(),
                     data: data__.unwrap_or_default(),
+                    sender_hmac: sender_hmac__.unwrap_or_default(),
                 })
             }
         }
@@ -1268,9 +1288,15 @@ impl serde::Serialize for group_message_input::V1 {
         if !self.data.is_empty() {
             len += 1;
         }
+        if !self.sender_hmac.is_empty() {
+            len += 1;
+        }
         let mut struct_ser = serializer.serialize_struct("xmtp.mls.api.v1.GroupMessageInput.V1", len)?;
         if !self.data.is_empty() {
             struct_ser.serialize_field("data", pbjson::private::base64::encode(&self.data).as_str())?;
+        }
+        if !self.sender_hmac.is_empty() {
+            struct_ser.serialize_field("senderHmac", pbjson::private::base64::encode(&self.sender_hmac).as_str())?;
         }
         struct_ser.end()
     }
@@ -1283,11 +1309,14 @@ impl<'de> serde::Deserialize<'de> for group_message_input::V1 {
     {
         const FIELDS: &[&str] = &[
             "data",
+            "sender_hmac",
+            "senderHmac",
         ];
 
         #[allow(clippy::enum_variant_names)]
         enum GeneratedField {
             Data,
+            SenderHmac,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
             fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
@@ -1310,6 +1339,7 @@ impl<'de> serde::Deserialize<'de> for group_message_input::V1 {
                     {
                         match value {
                             "data" => Ok(GeneratedField::Data),
+                            "senderHmac" | "sender_hmac" => Ok(GeneratedField::SenderHmac),
                             _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
                         }
                     }
@@ -1330,6 +1360,7 @@ impl<'de> serde::Deserialize<'de> for group_message_input::V1 {
                     V: serde::de::MapAccess<'de>,
             {
                 let mut data__ = None;
+                let mut sender_hmac__ = None;
                 while let Some(k) = map.next_key()? {
                     match k {
                         GeneratedField::Data => {
@@ -1340,10 +1371,19 @@ impl<'de> serde::Deserialize<'de> for group_message_input::V1 {
                                 Some(map.next_value::<::pbjson::private::BytesDeserialize<_>>()?.0)
                             ;
                         }
+                        GeneratedField::SenderHmac => {
+                            if sender_hmac__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("senderHmac"));
+                            }
+                            sender_hmac__ = 
+                                Some(map.next_value::<::pbjson::private::BytesDeserialize<_>>()?.0)
+                            ;
+                        }
                     }
                 }
                 Ok(group_message_input::V1 {
                     data: data__.unwrap_or_default(),
+                    sender_hmac: sender_hmac__.unwrap_or_default(),
                 })
             }
         }
@@ -3192,6 +3232,9 @@ impl serde::Serialize for welcome_message::V1 {
         if !self.data.is_empty() {
             len += 1;
         }
+        if !self.hpke_public_key.is_empty() {
+            len += 1;
+        }
         let mut struct_ser = serializer.serialize_struct("xmtp.mls.api.v1.WelcomeMessage.V1", len)?;
         if self.id != 0 {
             struct_ser.serialize_field("id", ToString::to_string(&self.id).as_str())?;
@@ -3204,6 +3247,9 @@ impl serde::Serialize for welcome_message::V1 {
         }
         if !self.data.is_empty() {
             struct_ser.serialize_field("data", pbjson::private::base64::encode(&self.data).as_str())?;
+        }
+        if !self.hpke_public_key.is_empty() {
+            struct_ser.serialize_field("hpkePublicKey", pbjson::private::base64::encode(&self.hpke_public_key).as_str())?;
         }
         struct_ser.end()
     }
@@ -3221,6 +3267,8 @@ impl<'de> serde::Deserialize<'de> for welcome_message::V1 {
             "installation_key",
             "installationKey",
             "data",
+            "hpke_public_key",
+            "hpkePublicKey",
         ];
 
         #[allow(clippy::enum_variant_names)]
@@ -3229,6 +3277,7 @@ impl<'de> serde::Deserialize<'de> for welcome_message::V1 {
             CreatedNs,
             InstallationKey,
             Data,
+            HpkePublicKey,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
             fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
@@ -3254,6 +3303,7 @@ impl<'de> serde::Deserialize<'de> for welcome_message::V1 {
                             "createdNs" | "created_ns" => Ok(GeneratedField::CreatedNs),
                             "installationKey" | "installation_key" => Ok(GeneratedField::InstallationKey),
                             "data" => Ok(GeneratedField::Data),
+                            "hpkePublicKey" | "hpke_public_key" => Ok(GeneratedField::HpkePublicKey),
                             _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
                         }
                     }
@@ -3277,6 +3327,7 @@ impl<'de> serde::Deserialize<'de> for welcome_message::V1 {
                 let mut created_ns__ = None;
                 let mut installation_key__ = None;
                 let mut data__ = None;
+                let mut hpke_public_key__ = None;
                 while let Some(k) = map.next_key()? {
                     match k {
                         GeneratedField::Id => {
@@ -3311,6 +3362,14 @@ impl<'de> serde::Deserialize<'de> for welcome_message::V1 {
                                 Some(map.next_value::<::pbjson::private::BytesDeserialize<_>>()?.0)
                             ;
                         }
+                        GeneratedField::HpkePublicKey => {
+                            if hpke_public_key__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("hpkePublicKey"));
+                            }
+                            hpke_public_key__ = 
+                                Some(map.next_value::<::pbjson::private::BytesDeserialize<_>>()?.0)
+                            ;
+                        }
                     }
                 }
                 Ok(welcome_message::V1 {
@@ -3318,6 +3377,7 @@ impl<'de> serde::Deserialize<'de> for welcome_message::V1 {
                     created_ns: created_ns__.unwrap_or_default(),
                     installation_key: installation_key__.unwrap_or_default(),
                     data: data__.unwrap_or_default(),
+                    hpke_public_key: hpke_public_key__.unwrap_or_default(),
                 })
             }
         }
@@ -3434,12 +3494,18 @@ impl serde::Serialize for welcome_message_input::V1 {
         if !self.data.is_empty() {
             len += 1;
         }
+        if !self.hpke_public_key.is_empty() {
+            len += 1;
+        }
         let mut struct_ser = serializer.serialize_struct("xmtp.mls.api.v1.WelcomeMessageInput.V1", len)?;
         if !self.installation_key.is_empty() {
             struct_ser.serialize_field("installationKey", pbjson::private::base64::encode(&self.installation_key).as_str())?;
         }
         if !self.data.is_empty() {
             struct_ser.serialize_field("data", pbjson::private::base64::encode(&self.data).as_str())?;
+        }
+        if !self.hpke_public_key.is_empty() {
+            struct_ser.serialize_field("hpkePublicKey", pbjson::private::base64::encode(&self.hpke_public_key).as_str())?;
         }
         struct_ser.end()
     }
@@ -3454,12 +3520,15 @@ impl<'de> serde::Deserialize<'de> for welcome_message_input::V1 {
             "installation_key",
             "installationKey",
             "data",
+            "hpke_public_key",
+            "hpkePublicKey",
         ];
 
         #[allow(clippy::enum_variant_names)]
         enum GeneratedField {
             InstallationKey,
             Data,
+            HpkePublicKey,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
             fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
@@ -3483,6 +3552,7 @@ impl<'de> serde::Deserialize<'de> for welcome_message_input::V1 {
                         match value {
                             "installationKey" | "installation_key" => Ok(GeneratedField::InstallationKey),
                             "data" => Ok(GeneratedField::Data),
+                            "hpkePublicKey" | "hpke_public_key" => Ok(GeneratedField::HpkePublicKey),
                             _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
                         }
                     }
@@ -3504,6 +3574,7 @@ impl<'de> serde::Deserialize<'de> for welcome_message_input::V1 {
             {
                 let mut installation_key__ = None;
                 let mut data__ = None;
+                let mut hpke_public_key__ = None;
                 while let Some(k) = map.next_key()? {
                     match k {
                         GeneratedField::InstallationKey => {
@@ -3522,11 +3593,20 @@ impl<'de> serde::Deserialize<'de> for welcome_message_input::V1 {
                                 Some(map.next_value::<::pbjson::private::BytesDeserialize<_>>()?.0)
                             ;
                         }
+                        GeneratedField::HpkePublicKey => {
+                            if hpke_public_key__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("hpkePublicKey"));
+                            }
+                            hpke_public_key__ = 
+                                Some(map.next_value::<::pbjson::private::BytesDeserialize<_>>()?.0)
+                            ;
+                        }
                     }
                 }
                 Ok(welcome_message_input::V1 {
                     installation_key: installation_key__.unwrap_or_default(),
                     data: data__.unwrap_or_default(),
+                    hpke_public_key: hpke_public_key__.unwrap_or_default(),
                 })
             }
         }

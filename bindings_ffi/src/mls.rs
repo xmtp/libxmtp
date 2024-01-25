@@ -114,6 +114,13 @@ impl FfiXmtpClient {
     }
 }
 
+#[derive(uniffi::Record)]
+pub struct FfiListConversationsOptions {
+    pub created_after_ns: Option<i64>,
+    pub created_before_ns: Option<i64>,
+    pub limit: Option<i64>,
+}
+
 #[derive(uniffi::Object)]
 pub struct FfiConversations {
     inner_client: Arc<RustXmtpClient>,
@@ -123,11 +130,17 @@ pub struct FfiConversations {
 impl FfiConversations {
     pub async fn create_group(
         &self,
-        _account_address: String,
+        account_addresses: Vec<String>,
     ) -> Result<Arc<FfiGroup>, GenericError> {
-        log::info!("creating group with account address: {}", _account_address);
+        log::info!(
+            "creating group with account addresses: {}",
+            account_addresses.join(", ")
+        );
 
         let convo = self.inner_client.create_group()?;
+        if !account_addresses.is_empty() {
+            convo.add_members(account_addresses).await?;
+        }
 
         let out = Arc::new(FfiGroup {
             inner_client: self.inner_client.clone(),
@@ -138,12 +151,24 @@ impl FfiConversations {
         Ok(out)
     }
 
-    pub async fn list(&self) -> Result<Vec<Arc<FfiGroup>>, GenericError> {
+    pub async fn sync(&self) -> Result<(), GenericError> {
         let inner = self.inner_client.as_ref();
         inner.sync_welcomes().await?;
+        Ok(())
+    }
 
+    pub async fn list(
+        &self,
+        opts: FfiListConversationsOptions,
+    ) -> Result<Vec<Arc<FfiGroup>>, GenericError> {
+        let inner = self.inner_client.as_ref();
         let convo_list: Vec<Arc<FfiGroup>> = inner
-            .find_groups(None, None, None, None)?
+            .find_groups(
+                None,
+                opts.created_after_ns,
+                opts.created_before_ns,
+                opts.limit,
+            )?
             .into_iter()
             .map(|group| {
                 Arc::new(FfiGroup {
@@ -542,6 +567,22 @@ mod tests {
         .is_err();
 
         assert!(result_errored, "did not error on wrong encryption key")
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+    async fn test_create_group_with_members() {
+        let amal = new_test_client().await;
+        let bola = new_test_client().await;
+        bola.register_identity().await.unwrap();
+
+        let group = amal
+            .conversations()
+            .create_group(vec![bola.account_address()])
+            .await
+            .unwrap();
+
+        let members = group.list_members().unwrap();
+        assert_eq!(members.len(), 2);
     }
 
     // Disabling this flakey test until it's reliable

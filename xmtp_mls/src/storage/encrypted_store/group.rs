@@ -88,6 +88,23 @@ impl DbConnection<'_> {
 
         Ok(())
     }
+
+    pub fn insert_or_ignore_group(&self, group: StoredGroup) -> Result<StoredGroup, StorageError> {
+        let stored_group = self.raw_query(|conn| {
+            let maybe_inserted_group: Option<StoredGroup> = diesel::insert_into(dsl::groups)
+                .values(&group)
+                .on_conflict_do_nothing()
+                .get_result(conn)
+                .optional()?;
+
+            match maybe_inserted_group {
+                Some(group) => Ok(group),
+                None => dsl::groups.find(group.id).first(conn),
+            }
+        })?;
+
+        Ok(stored_group)
+    }
 }
 
 #[repr(i32)]

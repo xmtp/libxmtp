@@ -5,7 +5,11 @@ mod members;
 mod subscriptions;
 pub mod validated_commit;
 use crate::{
-    api_client_wrapper::IdentityUpdate, codecs::ContentCodec, storage::refresh_state::EntityKind,
+    api_client_wrapper::IdentityUpdate,
+    client::deserialize_welcome,
+    codecs::ContentCodec,
+    hpke::{decrypt_welcome, encrypt_welcome, HpkeError},
+    storage::refresh_state::EntityKind,
 };
 use intents::SendMessageIntentData;
 use log::debug;
@@ -42,7 +46,10 @@ pub use self::intents::{AddressesOrInstallationIds, IntentError};
 use self::{
     group_metadata::{ConversationType, GroupMetadata, GroupMetadataError},
     group_permissions::{default_group_policy, PolicySet},
-    intents::{AddMembersIntentData, PostCommitAction, RemoveMembersIntentData},
+    intents::{
+        AddMembersIntentData, Installation, PostCommitAction, RemoveMembersIntentData,
+        SendWelcomesAction,
+    },
     members::GroupMember,
     validated_commit::CommitValidationError,
 };
@@ -113,6 +120,8 @@ pub enum GroupError {
     CommitValidation(#[from] CommitValidationError),
     #[error("Metadata error {0}")]
     GroupMetadata(#[from] GroupMetadataError),
+    #[error("Hpke error: {0}")]
+    Hpke(#[from] HpkeError),
 }
 
 impl RetryableError for GroupError {
@@ -194,13 +203,29 @@ where
         let mut mls_group =
             OpenMlsGroup::new_from_welcome(provider, &build_group_join_config(), welcome, None)?;
         mls_group.save(provider.key_store())?;
-
         let group_id = mls_group.group_id().to_vec();
-        let stored_group =
-            StoredGroup::new(group_id.clone(), now_ns(), GroupMembershipState::Pending);
-        stored_group.store(provider.conn())?;
 
-        Ok(Self::new(client, group_id, stored_group.created_at_ns))
+        let to_store = StoredGroup::new(group_id, now_ns(), GroupMembershipState::Pending);
+        let stored_group = provider.conn().insert_or_ignore_group(to_store)?;
+
+        Ok(Self::new(
+            client,
+            stored_group.id,
+            stored_group.created_at_ns,
+        ))
+    }
+
+    pub fn create_from_encrypted_welcome(
+        client: &'c Client<ApiClient>,
+        provider: &XmtpOpenMlsProvider,
+        hpke_public_key: &[u8],
+        encrypted_welcome_bytes: Vec<u8>,
+    ) -> Result<Self, GroupError> {
+        let welcome_bytes = decrypt_welcome(provider, hpke_public_key, &encrypted_welcome_bytes)?;
+
+        let welcome = deserialize_welcome(&welcome_bytes)?;
+
+        Self::create_from_welcome(client, provider, welcome)
     }
 
     pub fn find_messages(
@@ -751,13 +776,13 @@ where
 
                 let commit_bytes = commit.tls_serialize_detached()?;
 
-                // If somehow another installation has made it into the commit, this will be missing
-                // their installation ID
-                let installation_ids: Vec<Vec<u8>> =
-                    key_packages.iter().map(|kp| kp.installation_id()).collect();
+                let installations = key_packages
+                    .iter()
+                    .map(Installation::from_verified_key_package)
+                    .collect();
 
                 let post_commit_data =
-                    Some(PostCommitAction::from_welcome(welcome, installation_ids)?.to_bytes());
+                    Some(PostCommitAction::from_welcome(welcome, installations)?.to_bytes());
 
                 Ok((commit_bytes, post_commit_data))
             }
@@ -828,23 +853,7 @@ where
                 let post_commit_action = PostCommitAction::from_bytes(post_commit_data.as_slice())?;
                 match post_commit_action {
                     PostCommitAction::SendWelcomes(action) => {
-                        let welcomes: Vec<WelcomeMessageInput> = action
-                            .installation_ids
-                            .into_iter()
-                            .map(|installation_key| WelcomeMessageInput {
-                                version: Some(WelcomeMessageInputVersion::V1(
-                                    WelcomeMessageInputV1 {
-                                        installation_key,
-                                        data: action.welcome_message.clone(),
-                                    },
-                                )),
-                            })
-                            .collect();
-                        debug!("Sending {} welcomes", welcomes.len());
-                        self.client
-                            .api_client
-                            .send_welcome_messages(welcomes)
-                            .await?;
+                        self.send_welcomes(action).await?;
                     }
                 }
             }
@@ -940,6 +949,35 @@ where
         self.add_members_by_installation_id(missing_members).await?;
 
         Ok(new_member_installations_count)
+    }
+
+    async fn send_welcomes(&self, action: SendWelcomesAction) -> Result<(), GroupError> {
+        let welcomes = action
+            .installations
+            .into_iter()
+            .map(|installation| -> Result<WelcomeMessageInput, HpkeError> {
+                let installation_key = installation.installation_key;
+                let encrypted = encrypt_welcome(
+                    action.welcome_message.as_slice(),
+                    installation.hpke_public_key.as_slice(),
+                )?;
+
+                Ok(WelcomeMessageInput {
+                    version: Some(WelcomeMessageInputVersion::V1(WelcomeMessageInputV1 {
+                        installation_key,
+                        data: encrypted,
+                        hpke_public_key: installation.hpke_public_key,
+                    })),
+                })
+            })
+            .collect::<Result<Vec<WelcomeMessageInput>, HpkeError>>()?;
+
+        self.client
+            .api_client
+            .send_welcome_messages(welcomes)
+            .await?;
+
+        Ok(())
     }
 }
 
