@@ -110,6 +110,8 @@ pub enum MessageProcessingError {
     EncodeProto(#[from] EncodeError),
     #[error("epoch increment not allowed")]
     EpochIncrementNotAllowed,
+    #[error("Welcome processing error: {0}")]
+    WelcomeProcessing(String),
 }
 
 impl crate::retry::RetryableError for MessageProcessingError {
@@ -393,7 +395,7 @@ where
                         Ok(mls_group) => Ok(Some(mls_group)),
                         Err(err) => {
                             log::error!("failed to create group from welcome: {}", err);
-                            Ok(None)
+                            Err(MessageProcessingError::WelcomeProcessing(err.to_string()))
                         }
                     }
                 })
@@ -624,6 +626,63 @@ mod tests {
         let decrypted = decrypt_welcome(&provider, hpke_public_key, encrypted.as_slice()).unwrap();
 
         assert_eq!(decrypted, to_encrypt);
+    }
+
+    #[tokio::test]
+    async fn test_add_remove_then_add_again() {
+        let amal = ClientBuilder::new_test_client(generate_local_wallet().into()).await;
+        let bola = ClientBuilder::new_test_client(generate_local_wallet().into()).await;
+        bola.register_identity().await.unwrap();
+
+        // Create a group and invite bola
+        let amal_group = amal.create_group().unwrap();
+        amal_group
+            .add_members_by_installation_id(vec![bola.installation_public_key()])
+            .await
+            .unwrap();
+        assert_eq!(amal_group.members().unwrap().len(), 2);
+
+        // Now remove bola
+        amal_group
+            .remove_members_by_installation_id(vec![bola.installation_public_key()])
+            .await
+            .unwrap();
+        assert_eq!(amal_group.members().unwrap().len(), 1);
+
+        // See if Bola can see that they were added to the group
+        bola.sync_welcomes().await.unwrap();
+        let bola_groups = bola.find_groups(None, None, None, None).unwrap();
+        assert_eq!(bola_groups.len(), 1);
+        let bola_group = bola_groups.get(0).unwrap();
+        bola_group.sync().await.unwrap();
+
+        // Bola should have one readable message (them being added to the group)
+        let mut bola_messages = bola_group.find_messages(None, None, None, None).unwrap();
+        assert_eq!(bola_messages.len(), 1);
+
+        // Add Bola back to the group
+        amal_group
+            .add_members_by_installation_id(vec![bola.installation_public_key()])
+            .await
+            .unwrap();
+        bola.sync_welcomes().await.unwrap();
+
+        // Send a message from Amal, now that Bola is back in the group
+        amal_group
+            .send_message(vec![1, 2, 3].as_slice())
+            .await
+            .unwrap();
+
+        // Sync Bola's state to get the latest
+        bola_group.sync().await.unwrap();
+        // Find Bola's updated list of messages
+        bola_messages = bola_group.find_messages(None, None, None, None).unwrap();
+        // Bola should have been able to decrypt the last message
+        assert_eq!(bola_messages.len(), 2);
+        assert_eq!(
+            bola_messages.get(1).unwrap().decrypted_message_bytes,
+            vec![1, 2, 3]
+        )
     }
 
     // #[tokio::test]
