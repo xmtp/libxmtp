@@ -6,9 +6,9 @@ mod subscriptions;
 mod sync;
 pub mod validated_commit;
 use crate::{
-    api_client_wrapper::IdentityUpdate,
     client::deserialize_welcome,
     hpke::{decrypt_welcome, HpkeError},
+    identity::IdentityError,
     utils::address::AddressValidationError,
 };
 use intents::SendMessageIntentData;
@@ -320,116 +320,6 @@ where
 
         self.sync_with_conn(conn).await
     }
-
-    #[allow(dead_code)]
-    async fn get_missing_members(
-        &self,
-        provider: &XmtpOpenMlsProvider<'_>,
-    ) -> Result<(Vec<Vec<u8>>, Vec<Vec<u8>>), GroupError> {
-        let current_members = self.members_with_provider(provider)?;
-        let account_addresses = current_members
-            .iter()
-            .map(|m| m.account_address.clone())
-            .collect();
-
-        let current_member_map: HashMap<String, GroupMember> = current_members
-            .into_iter()
-            .map(|m| (m.account_address.clone(), m))
-            .collect();
-
-        let change_list = self
-            .client
-            .api_client
-            // TODO: Get a real start time from the database
-            .get_identity_updates(0, account_addresses)
-            .await?;
-
-        let to_add: Vec<Vec<u8>> = change_list
-            .into_iter()
-            .filter_map(|(account_address, updates)| {
-                let member_changes: Vec<Vec<u8>> = updates
-                    .into_iter()
-                    .filter_map(|change| match change {
-                        IdentityUpdate::NewInstallation(new_member) => {
-                            let current_member = current_member_map.get(&account_address);
-                            current_member?;
-                            if current_member
-                                .expect("already checked")
-                                .installation_ids
-                                .contains(&new_member.installation_key)
-                            {
-                                return None;
-                            }
-
-                            Some(new_member.installation_key)
-                        }
-                        IdentityUpdate::RevokeInstallation(_) => {
-                            log::warn!("Revocation found. Not handled");
-
-                            None
-                        }
-                        IdentityUpdate::Invalid => {
-                            log::warn!("Invalid identity update found");
-
-                            None
-                        }
-                    })
-                    .collect();
-
-                if !member_changes.is_empty() {
-                    return Some(member_changes);
-                }
-                None
-            })
-            .flatten()
-            .collect();
-
-        Ok((to_add, vec![]))
-    }
-
-    #[allow(dead_code)]
-    async fn add_missing_installations(
-        &self,
-        provider: &XmtpOpenMlsProvider<'_>,
-    ) -> Result<usize, GroupError> {
-        let (missing_members, _placeholder) = self.get_missing_members(provider).await?;
-        if missing_members.is_empty() {
-            return Ok(0);
-        }
-        let new_member_installations_count = missing_members.len();
-        self.add_members_by_installation_id(missing_members).await?;
-
-        Ok(new_member_installations_count)
-    }
-
-    async fn send_welcomes(&self, action: SendWelcomesAction) -> Result<(), GroupError> {
-        let welcomes = action
-            .installations
-            .into_iter()
-            .map(|installation| -> Result<WelcomeMessageInput, HpkeError> {
-                let installation_key = installation.installation_key;
-                let encrypted = encrypt_welcome(
-                    action.welcome_message.as_slice(),
-                    installation.hpke_public_key.as_slice(),
-                )?;
-
-                Ok(WelcomeMessageInput {
-                    version: Some(WelcomeMessageInputVersion::V1(WelcomeMessageInputV1 {
-                        installation_key,
-                        data: encrypted,
-                        hpke_public_key: installation.hpke_public_key,
-                    })),
-                })
-            })
-            .collect::<Result<Vec<WelcomeMessageInput>, HpkeError>>()?;
-
-        self.client
-            .api_client
-            .send_welcome_messages(welcomes)
-            .await?;
-
-        Ok(())
-    }
 }
 
 fn extract_message_v1(message: GroupMessage) -> Result<GroupMessageV1, MessageProcessingError> {
@@ -501,7 +391,7 @@ mod tests {
     use openmls::prelude::Member;
     use xmtp_cryptography::utils::generate_local_wallet;
 
-    use crate::{builder::ClientBuilder, storage::group_intent::IntentState};
+    use crate::{builder::ClientBuilder, storage::group_intent::IntentState, InboxOwner};
 
     #[tokio::test]
     async fn test_send_message() {
@@ -642,6 +532,16 @@ mod tests {
         let result = group
             .add_members_by_installation_id(vec![b"1234".to_vec()])
             .await;
+
+        assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_add_unregistered_member() {
+        let amal = ClientBuilder::new_test_client(generate_local_wallet().into()).await;
+        let unconnected_wallet_address = generate_local_wallet().get_address();
+        let group = amal.create_group().unwrap();
+        let result = group.add_members(vec![unconnected_wallet_address]).await;
 
         assert!(result.is_err());
     }
