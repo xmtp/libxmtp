@@ -5,6 +5,7 @@ mod members;
 mod subscriptions;
 pub mod validated_commit;
 use crate::{
+    api_client_wrapper::IdentityUpdate,
     client::deserialize_welcome,
     codecs::ContentCodec,
     hpke::{decrypt_welcome, encrypt_welcome, HpkeError},
@@ -26,7 +27,7 @@ use openmls::{
 };
 use openmls_traits::OpenMlsProvider;
 use prost::Message;
-use std::mem::discriminant;
+use std::{collections::HashMap, mem::discriminant};
 use thiserror::Error;
 use tls_codec::{Deserialize, Serialize};
 use xmtp_cryptography::signature::{is_valid_ed25519_public_key, is_valid_ethereum_address};
@@ -50,6 +51,7 @@ use self::{
         AddMembersIntentData, Installation, PostCommitAction, RemoveMembersIntentData,
         SendWelcomesAction,
     },
+    members::GroupMember,
     validated_commit::CommitValidationError,
 };
 use crate::{
@@ -865,6 +867,87 @@ where
         Ok(())
     }
 
+    #[allow(dead_code)]
+    async fn get_missing_members(
+        &self,
+        provider: &XmtpOpenMlsProvider<'_>,
+    ) -> Result<(Vec<Vec<u8>>, Vec<Vec<u8>>), GroupError> {
+        let current_members = self.members_with_provider(provider)?;
+        let account_addresses = current_members
+            .iter()
+            .map(|m| m.account_address.clone())
+            .collect();
+
+        let current_member_map: HashMap<String, GroupMember> = current_members
+            .into_iter()
+            .map(|m| (m.account_address.clone(), m))
+            .collect();
+
+        let change_list = self
+            .client
+            .api_client
+            // TODO: Get a real start time from the database
+            .get_identity_updates(0, account_addresses)
+            .await?;
+
+        let to_add: Vec<Vec<u8>> = change_list
+            .into_iter()
+            .filter_map(|(account_address, updates)| {
+                let member_changes: Vec<Vec<u8>> = updates
+                    .into_iter()
+                    .filter_map(|change| match change {
+                        IdentityUpdate::NewInstallation(new_member) => {
+                            let current_member = current_member_map.get(&account_address);
+                            current_member?;
+                            if current_member
+                                .expect("already checked")
+                                .installation_ids
+                                .contains(&new_member.installation_key)
+                            {
+                                return None;
+                            }
+
+                            Some(new_member.installation_key)
+                        }
+                        IdentityUpdate::RevokeInstallation(_) => {
+                            log::warn!("Revocation found. Not handled");
+
+                            None
+                        }
+                        IdentityUpdate::Invalid => {
+                            log::warn!("Invalid identity update found");
+
+                            None
+                        }
+                    })
+                    .collect();
+
+                if !member_changes.is_empty() {
+                    return Some(member_changes);
+                }
+                None
+            })
+            .flatten()
+            .collect();
+
+        Ok((to_add, vec![]))
+    }
+
+    #[allow(dead_code)]
+    async fn add_missing_installations(
+        &self,
+        provider: &XmtpOpenMlsProvider<'_>,
+    ) -> Result<usize, GroupError> {
+        let (missing_members, _placeholder) = self.get_missing_members(provider).await?;
+        if missing_members.is_empty() {
+            return Ok(0);
+        }
+        let new_member_installations_count = missing_members.len();
+        self.add_members_by_installation_id(missing_members).await?;
+
+        Ok(new_member_installations_count)
+    }
+
     async fn send_welcomes(&self, action: SendWelcomesAction) -> Result<(), GroupError> {
         let welcomes = action
             .installations
@@ -1209,5 +1292,77 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(group.members().unwrap().len(), 2);
+    }
+
+    #[tokio::test]
+    async fn test_get_missing_members() {
+        // Setup for test
+        let amal_wallet = generate_local_wallet();
+        let amal = ClientBuilder::new_test_client(amal_wallet.clone().into()).await;
+        amal.register_identity().await.unwrap();
+
+        let bola = ClientBuilder::new_test_client(generate_local_wallet().into()).await;
+        bola.register_identity().await.unwrap();
+
+        let group = amal.create_group().unwrap();
+        group
+            .add_members(vec![bola.account_address()])
+            .await
+            .unwrap();
+        assert_eq!(group.members().unwrap().len(), 2);
+
+        let conn = &amal.store.conn().unwrap();
+        let provider = super::XmtpOpenMlsProvider::new(conn);
+        // Finished with setup
+
+        let (noone_to_add, _placeholder) = group.get_missing_members(&provider).await.unwrap();
+        assert_eq!(noone_to_add.len(), 0);
+        assert_eq!(_placeholder.len(), 0);
+
+        // Add a second installation for amal using the same wallet
+        let amal_2nd = ClientBuilder::new_test_client(amal_wallet.into()).await;
+        amal_2nd.register_identity().await.unwrap();
+
+        // Here we should find a new installation
+        let (missing_members, _placeholder) = group.get_missing_members(&provider).await.unwrap();
+        assert_eq!(missing_members.len(), 1);
+        assert_eq!(_placeholder.len(), 0);
+
+        let _result = group.add_members_by_installation_id(missing_members).await;
+
+        // After we added the new installation the list should again be empty
+        let (missing_members, _placeholder) = group.get_missing_members(&provider).await.unwrap();
+        assert_eq!(missing_members.len(), 0);
+        assert_eq!(_placeholder.len(), 0);
+    }
+
+    #[tokio::test]
+    async fn test_add_missing_installations() {
+        // Setup for test
+        let amal_wallet = generate_local_wallet();
+        let amal = ClientBuilder::new_test_client(amal_wallet.clone().into()).await;
+        amal.register_identity().await.unwrap();
+
+        let bola = ClientBuilder::new_test_client(generate_local_wallet().into()).await;
+        bola.register_identity().await.unwrap();
+
+        let group = amal.create_group().unwrap();
+        group
+            .add_members(vec![bola.account_address()])
+            .await
+            .unwrap();
+        assert_eq!(group.members().unwrap().len(), 2);
+
+        let conn = &amal.store.conn().unwrap();
+        let provider = super::XmtpOpenMlsProvider::new(conn);
+        // Finished with setup
+
+        // add a second installation for amal using the same wallet
+        let amal_2nd = ClientBuilder::new_test_client(amal_wallet.into()).await;
+        amal_2nd.register_identity().await.unwrap();
+
+        // test that adding the new installation(s), worked
+        let new_installations_count = group.add_missing_installations(&provider).await.unwrap();
+        assert_eq!(new_installations_count, 1);
     }
 }
