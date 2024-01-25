@@ -36,6 +36,7 @@ pub enum IntentState {
     ToPublish = 1,
     Published = 2,
     Committed = 3,
+    Error = 4,
 }
 
 #[derive(Queryable, Identifiable, Debug, PartialEq, Clone)]
@@ -49,6 +50,7 @@ pub struct StoredGroupIntent {
     pub state: IntentState,
     pub payload_hash: Option<Vec<u8>>,
     pub post_commit_data: Option<Vec<u8>>,
+    pub publish_attempts: i32,
 }
 
 impl_fetch!(StoredGroupIntent, group_intents, ID);
@@ -192,6 +194,24 @@ impl DbConnection<'_> {
         }
     }
 
+    // Set the intent with the given ID to `Committed`
+    pub fn set_group_intent_error(&self, intent_id: ID) -> Result<(), StorageError> {
+        let res = self.raw_query(|conn| {
+            diesel::update(dsl::group_intents)
+                .filter(dsl::id.eq(intent_id))
+                // State machine requires that the only valid state transition to Committed is from
+                // Published
+                .set(dsl::state.eq(IntentState::Error))
+                .execute(conn)
+        })?;
+
+        match res {
+            // If nothing matched the query, return an error. Either ID or state was wrong
+            0 => Err(StorageError::NotFound),
+            _ => Ok(()),
+        }
+    }
+
     // Simple lookup of intents by payload hash, meant to be used when processing messages off the
     // network
     pub fn find_group_intent_by_payload_hash(
@@ -206,6 +226,20 @@ impl DbConnection<'_> {
         })?;
 
         Ok(result)
+    }
+
+    pub fn increment_intent_publish_attempt_count(
+        &self,
+        intent_id: ID,
+    ) -> Result<(), StorageError> {
+        self.raw_query(|conn| {
+            diesel::update(dsl::group_intents)
+                .filter(dsl::id.eq(intent_id))
+                .set(dsl::publish_attempts.eq(dsl::publish_attempts + 1))
+                .execute(conn)
+        })?;
+
+        Ok(())
     }
 }
 
@@ -546,6 +580,28 @@ mod tests {
             let to_publish_result = conn.set_group_intent_to_publish(intent.id);
             assert!(to_publish_result.is_err());
             assert_eq!(to_publish_result.err().unwrap(), StorageError::NotFound);
+        })
+    }
+
+    #[test]
+    fn test_increment_publish_attempts() {
+        let group_id = rand_vec();
+        with_connection(|conn| {
+            insert_group(conn, group_id.clone());
+            NewGroupIntent::new(IntentKind::AddMembers, group_id.clone(), rand_vec())
+                .store(conn)
+                .unwrap();
+
+            let mut intent = find_first_intent(conn, group_id.clone());
+            assert_eq!(intent.publish_attempts, 0);
+            conn.increment_intent_publish_attempt_count(intent.id)
+                .unwrap();
+            intent = find_first_intent(conn, group_id.clone());
+            assert_eq!(intent.publish_attempts, 1);
+            conn.increment_intent_publish_attempt_count(intent.id)
+                .unwrap();
+            intent = find_first_intent(conn, group_id.clone());
+            assert_eq!(intent.publish_attempts, 2);
         })
     }
 }

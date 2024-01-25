@@ -3,74 +3,55 @@ mod group_permissions;
 mod intents;
 mod members;
 mod subscriptions;
+mod sync;
 pub mod validated_commit;
 use crate::{
     client::deserialize_welcome,
-    codecs::ContentCodec,
-    hpke::{decrypt_welcome, encrypt_welcome, HpkeError},
-    storage::{group_intent::ID, refresh_state::EntityKind},
-    Fetch,
+    hpke::{decrypt_welcome, HpkeError},
+    utils::address::AddressValidationError,
 };
 use intents::SendMessageIntentData;
-use log::debug;
 use openmls::{
     extensions::{Extension, Extensions, ProtectedMetadata},
-    framing::ProtocolMessage,
-    group::{MergePendingCommitError, MlsGroupJoinConfig},
+    group::{MlsGroupCreateConfig, MlsGroupJoinConfig},
     prelude::{
-        CredentialWithKey, CryptoConfig, GroupId, LeafNodeIndex, MlsGroup as OpenMlsGroup,
-        MlsGroupCreateConfig, MlsMessageIn, MlsMessageInBody, PrivateMessageIn, ProcessedMessage,
-        ProcessedMessageContent, Sender, Welcome as MlsWelcome, WireFormatPolicy,
+        CredentialWithKey, CryptoConfig, GroupId, MlsGroup as OpenMlsGroup, Welcome as MlsWelcome,
+        WireFormatPolicy,
     },
-    prelude_test::KeyPackage,
 };
 use openmls_traits::OpenMlsProvider;
-use prost::Message;
-use std::mem::discriminant;
 use thiserror::Error;
-use tls_codec::{Deserialize, Serialize};
-use xmtp_cryptography::signature::{is_valid_ed25519_public_key, is_valid_ethereum_address};
+use xmtp_cryptography::signature::is_valid_ed25519_public_key;
 use xmtp_proto::{
     api_client::XmtpMlsClient,
     xmtp::mls::api::v1::{
         group_message::{Version as GroupMessageVersion, V1 as GroupMessageV1},
-        welcome_message_input::{
-            Version as WelcomeMessageInputVersion, V1 as WelcomeMessageInputV1,
-        },
-        GroupMessage, WelcomeMessageInput,
+        GroupMessage,
     },
-    xmtp::mls::message_contents::GroupMembershipChanges,
 };
 
 pub use self::intents::{AddressesOrInstallationIds, IntentError};
 use self::{
     group_metadata::{ConversationType, GroupMetadata, GroupMetadataError},
     group_permissions::{default_group_policy, PolicySet},
-    intents::{
-        AddMembersIntentData, Installation, PostCommitAction, RemoveMembersIntentData,
-        SendWelcomesAction,
-    },
+    intents::{AddMembersIntentData, RemoveMembersIntentData},
     validated_commit::CommitValidationError,
 };
 use crate::{
     client::{ClientError, MessageProcessingError},
-    codecs::membership_change::GroupMembershipChangeCodec,
     configuration::CIPHERSUITE,
-    groups::validated_commit::ValidatedCommit,
     identity::Identity,
-    retry,
-    retry::{Retry, RetryableError},
-    retry_async, retryable,
+    retry::RetryableError,
+    retryable,
     storage::{
-        db_connection::DbConnection,
         group::{GroupMembershipState, StoredGroup},
-        group_intent::{IntentKind, IntentState, NewGroupIntent, StoredGroupIntent},
+        group_intent::{IntentKind, NewGroupIntent},
         group_message::{GroupMessageKind, StoredGroupMessage},
         StorageError,
     },
-    utils::{hash::sha256, id::get_message_id, time::now_ns},
+    utils::{address::sanitize_evm_addresses, time::now_ns},
     xmtp_openmls_provider::XmtpOpenMlsProvider,
-    Client, Delete, Store,
+    Client, Store,
 };
 
 #[derive(Debug, Error)]
@@ -112,13 +93,15 @@ pub enum GroupError {
     #[error("diesel error {0}")]
     Diesel(#[from] diesel::result::Error),
     #[error("The address {0:?} is not a valid ethereum address")]
-    InvalidAddresses(Vec<String>),
+    AddressValidation(#[from] AddressValidationError),
     #[error("Public Keys {0:?} are not valid ed25519 public keys")]
     InvalidPublicKeys(Vec<Vec<u8>>),
     #[error("Commit validation error {0}")]
     CommitValidation(#[from] CommitValidationError),
     #[error("Metadata error {0}")]
     GroupMetadata(#[from] GroupMetadataError),
+    #[error("Errors occurred during sync {0:?}")]
+    Sync(Vec<GroupError>),
     #[error("Hpke error: {0}")]
     Hpke(#[from] HpkeError),
 }
@@ -126,6 +109,8 @@ pub enum GroupError {
 impl RetryableError for GroupError {
     fn is_retryable(&self) -> bool {
         match self {
+            Self::Diesel(diesel) => retryable!(diesel),
+            Self::Storage(storage) => retryable!(storage),
             Self::ReceiveError(msg) => retryable!(msg),
             Self::AddMembers(members) => retryable!(members),
             Self::RemoveMembers(members) => retryable!(members),
@@ -157,10 +142,7 @@ where
     }
 
     // Load the stored MLS group from the OpenMLS provider's keystore
-    pub fn load_mls_group(
-        &self,
-        provider: &XmtpOpenMlsProvider,
-    ) -> Result<OpenMlsGroup, GroupError> {
+    fn load_mls_group(&self, provider: &XmtpOpenMlsProvider) -> Result<OpenMlsGroup, GroupError> {
         let mls_group =
             OpenMlsGroup::load(&GroupId::from_slice(&self.group_id), provider.key_store())
                 .ok_or(GroupError::GroupNotFound)?;
@@ -261,294 +243,11 @@ where
         Ok(messages)
     }
 
-    fn process_own_message(
+    pub async fn add_members(
         &self,
-        intent: StoredGroupIntent,
-        openmls_group: &mut OpenMlsGroup,
-        provider: &XmtpOpenMlsProvider,
-        message: ProtocolMessage,
-        envelope_timestamp_ns: u64,
-        allow_epoch_increment: bool,
-    ) -> Result<(), MessageProcessingError> {
-        if intent.state == IntentState::Committed {
-            return Ok(());
-        }
-        debug!(
-            "[{}] processing own message for intent {} / {:?}",
-            self.client.account_address(),
-            intent.id,
-            intent.kind
-        );
-
-        let conn = provider.conn();
-        match intent.kind {
-            IntentKind::AddMembers | IntentKind::RemoveMembers | IntentKind::KeyUpdate => {
-                if !allow_epoch_increment {
-                    return Err(MessageProcessingError::EpochIncrementNotAllowed);
-                }
-                let maybe_pending_commit = openmls_group.pending_commit();
-                // We don't get errors with merge_pending_commit when there are no commits to merge
-                if maybe_pending_commit.is_none() {
-                    let message_epoch = message.epoch();
-                    let group_epoch = openmls_group.epoch();
-                    debug!(
-                        "no pending commit to merge. Group epoch: {}. Message epoch: {}",
-                        group_epoch, message_epoch
-                    );
-                    conn.set_group_intent_to_publish(intent.id)?;
-
-                    return Err(MessageProcessingError::NoPendingCommit {
-                        message_epoch,
-                        group_epoch,
-                    });
-                }
-                let maybe_validated_commit = ValidatedCommit::from_staged_commit(
-                    maybe_pending_commit.expect("already checked"),
-                    openmls_group,
-                )?;
-
-                debug!("[{}] merging pending commit", self.client.account_address());
-                if let Err(MergePendingCommitError::MlsGroupStateError(err)) =
-                    openmls_group.merge_pending_commit(provider)
-                {
-                    debug!("error merging commit: {}", err);
-                    openmls_group.clear_pending_commit();
-                    conn.set_group_intent_to_publish(intent.id)?;
-                } else {
-                    // If no error committing the change, write a transcript message
-                    self.save_transcript_message(
-                        conn,
-                        maybe_validated_commit,
-                        envelope_timestamp_ns,
-                    )?;
-                }
-                // TOOD: Handle writing transcript messages for adding/removing members
-            }
-            IntentKind::SendMessage => {
-                let intent_data = SendMessageIntentData::from_bytes(intent.data.as_slice())?;
-                let group_id = openmls_group.group_id().as_slice();
-                let decrypted_message_data = intent_data.message.as_slice();
-                StoredGroupMessage {
-                    id: get_message_id(decrypted_message_data, group_id, envelope_timestamp_ns),
-                    group_id: group_id.to_vec(),
-                    decrypted_message_bytes: intent_data.message,
-                    sent_at_ns: envelope_timestamp_ns as i64,
-                    kind: GroupMessageKind::Application,
-                    sender_installation_id: self.client.installation_public_key(),
-                    sender_account_address: self.client.account_address(),
-                }
-                .store(conn)?;
-            }
-        };
-
-        conn.set_group_intent_committed(intent.id)?;
-
-        Ok(())
-    }
-
-    fn save_transcript_message(
-        &self,
-        conn: &DbConnection,
-        maybe_validated_commit: Option<ValidatedCommit>,
-        timestamp_ns: u64,
-    ) -> Result<Option<StoredGroupMessage>, MessageProcessingError> {
-        let mut transcript_message = None;
-        if let Some(validated_commit) = maybe_validated_commit {
-            // If there are no members added or removed, don't write a transcript message
-            if validated_commit.members_added.is_empty()
-                && validated_commit.members_removed.is_empty()
-            {
-                return Ok(None);
-            }
-            let sender_installation_id = validated_commit.actor_installation_id();
-            let sender_account_address = validated_commit.actor_account_address();
-            let payload: GroupMembershipChanges = validated_commit.into();
-            let encoded_payload = GroupMembershipChangeCodec::encode(payload)?;
-            let mut encoded_payload_bytes = Vec::new();
-            encoded_payload.encode(&mut encoded_payload_bytes)?;
-            let group_id = self.group_id.as_slice();
-            let message_id =
-                get_message_id(encoded_payload_bytes.as_slice(), group_id, timestamp_ns);
-            let msg = StoredGroupMessage {
-                id: message_id,
-                group_id: group_id.to_vec(),
-                decrypted_message_bytes: encoded_payload_bytes.to_vec(),
-                sent_at_ns: timestamp_ns as i64,
-                kind: GroupMessageKind::MembershipChange,
-                sender_installation_id,
-                sender_account_address,
-            };
-
-            msg.store(conn)?;
-            transcript_message = Some(msg);
-        }
-
-        Ok(transcript_message)
-    }
-
-    fn process_private_message(
-        &self,
-        openmls_group: &mut OpenMlsGroup,
-        provider: &XmtpOpenMlsProvider,
-        message: PrivateMessageIn,
-        envelope_timestamp_ns: u64,
-        allow_epoch_increment: bool,
-    ) -> Result<(), MessageProcessingError> {
-        debug!(
-            "[{}] processing private message",
-            self.client.account_address()
-        );
-        let decrypted_message = openmls_group.process_message(provider, message)?;
-        let (sender_account_address, sender_installation_id) =
-            validate_message_sender(openmls_group, &decrypted_message, envelope_timestamp_ns)?;
-
-        match decrypted_message.into_content() {
-            ProcessedMessageContent::ApplicationMessage(application_message) => {
-                let message_bytes = application_message.into_bytes();
-                let message_id =
-                    get_message_id(&message_bytes, &self.group_id, envelope_timestamp_ns);
-                StoredGroupMessage {
-                    id: message_id,
-                    group_id: self.group_id.clone(),
-                    decrypted_message_bytes: message_bytes,
-                    sent_at_ns: envelope_timestamp_ns as i64,
-                    kind: GroupMessageKind::Application,
-                    sender_installation_id,
-                    sender_account_address,
-                }
-                .store(provider.conn())?;
-            }
-            ProcessedMessageContent::ProposalMessage(_proposal_ptr) => {
-                // intentionally left blank.
-            }
-            ProcessedMessageContent::ExternalJoinProposalMessage(_external_proposal_ptr) => {
-                // intentionally left blank.
-            }
-            ProcessedMessageContent::StagedCommitMessage(staged_commit) => {
-                if !allow_epoch_increment {
-                    return Err(MessageProcessingError::EpochIncrementNotAllowed);
-                }
-                debug!(
-                    "[{}] received staged commit. Merging and clearing any pending commits",
-                    self.client.account_address()
-                );
-
-                let sc = *staged_commit;
-                // Validate the commit
-                let validated_commit = ValidatedCommit::from_staged_commit(&sc, openmls_group)?;
-                openmls_group.merge_staged_commit(provider, sc)?;
-                self.save_transcript_message(
-                    provider.conn(),
-                    validated_commit,
-                    envelope_timestamp_ns,
-                )?;
-            }
-        };
-
-        Ok(())
-    }
-
-    fn process_message(
-        &self,
-        openmls_group: &mut OpenMlsGroup,
-        provider: &XmtpOpenMlsProvider,
-        envelope: &GroupMessageV1,
-        allow_epoch_increment: bool,
-    ) -> Result<(), MessageProcessingError> {
-        let mls_message_in = MlsMessageIn::tls_deserialize_exact(&envelope.data)?;
-
-        let message = match mls_message_in.extract() {
-            MlsMessageInBody::PrivateMessage(message) => Ok(message),
-            other => Err(MessageProcessingError::UnsupportedMessageType(
-                discriminant(&other),
-            )),
-        }?;
-
-        let intent = provider
-            .conn()
-            .find_group_intent_by_payload_hash(sha256(envelope.data.as_slice()));
-        match intent {
-            // Intent with the payload hash matches
-            Ok(Some(intent)) => self.process_own_message(
-                intent,
-                openmls_group,
-                provider,
-                message.into(),
-                envelope.created_ns,
-                allow_epoch_increment,
-            ),
-            Err(err) => Err(MessageProcessingError::Storage(err)),
-            // No matching intent found
-            Ok(None) => self.process_private_message(
-                openmls_group,
-                provider,
-                message,
-                envelope.created_ns,
-                allow_epoch_increment,
-            ),
-        }
-    }
-
-    fn consume_message(
-        &self,
-        envelope: &GroupMessage,
-        openmls_group: &mut OpenMlsGroup,
-    ) -> Result<(), MessageProcessingError> {
-        let msgv1 = match &envelope.version {
-            Some(GroupMessageVersion::V1(value)) => value,
-            _ => return Err(MessageProcessingError::InvalidPayload),
-        };
-
-        self.client.process_for_id(
-            &msgv1.group_id,
-            EntityKind::Group,
-            msgv1.id,
-            |provider| -> Result<(), MessageProcessingError> {
-                self.process_message(openmls_group, &provider, msgv1, true)?;
-                openmls_group.save(provider.key_store())?;
-                Ok(())
-            },
-        )?;
-        Ok(())
-    }
-
-    pub fn process_messages(&self, messages: Vec<GroupMessage>) -> Result<(), GroupError> {
-        let conn = &self.client.store.conn()?;
-        let provider = self.client.mls_provider(conn);
-        let mut openmls_group = self.load_mls_group(&provider)?;
-
-        let receive_errors: Vec<MessageProcessingError> = messages
-            .into_iter()
-            .map(|envelope| -> Result<(), MessageProcessingError> {
-                retry!(
-                    Retry::default(),
-                    (|| self.consume_message(&envelope, &mut openmls_group))
-                )
-            })
-            .filter_map(Result::err)
-            .collect();
-
-        if receive_errors.is_empty() {
-            Ok(())
-        } else {
-            debug!("Message processing errors: {:?}", receive_errors);
-            Err(GroupError::ReceiveErrors(receive_errors))
-        }
-    }
-
-    async fn receive<'a>(&self, conn: &'a DbConnection<'a>) -> Result<(), GroupError> {
-        let messages = self
-            .client
-            .query_group_messages(&self.group_id, conn)
-            .await?;
-
-        self.process_messages(messages)?;
-
-        Ok(())
-    }
-
-    pub async fn add_members(&self, account_addresses: Vec<String>) -> Result<(), GroupError> {
-        validate_evm_addresses(&account_addresses)?;
+        account_addresses_to_add: Vec<String>,
+    ) -> Result<(), GroupError> {
+        let account_addresses = sanitize_evm_addresses(account_addresses_to_add)?;
         let conn = &mut self.client.store.conn()?;
         let intent_data: Vec<u8> =
             AddMembersIntentData::new(account_addresses.into()).try_into()?;
@@ -558,7 +257,7 @@ where
             intent_data,
         ))?;
 
-        self.sync_and_wait(conn, intent.id).await
+        self.sync_until_intent_resolved(conn, intent.id).await
     }
 
     pub async fn add_members_by_installation_id(
@@ -574,11 +273,14 @@ where
             intent_data,
         ))?;
 
-        self.sync_and_wait(conn, intent.id).await
+        self.sync_until_intent_resolved(conn, intent.id).await
     }
 
-    pub async fn remove_members(&self, account_addresses: Vec<String>) -> Result<(), GroupError> {
-        validate_evm_addresses(&account_addresses)?;
+    pub async fn remove_members(
+        &self,
+        account_addresses_to_remove: Vec<String>,
+    ) -> Result<(), GroupError> {
+        let account_addresses = sanitize_evm_addresses(account_addresses_to_remove)?;
         let conn = &mut self.client.store.conn()?;
         let intent_data: Vec<u8> = RemoveMembersIntentData::new(account_addresses.into()).into();
         let intent = conn.insert_group_intent(NewGroupIntent::new(
@@ -587,7 +289,7 @@ where
             intent_data,
         ))?;
 
-        self.sync_and_wait(conn, intent.id).await
+        self.sync_until_intent_resolved(conn, intent.id).await
     }
 
     #[allow(dead_code)]
@@ -604,7 +306,7 @@ where
             intent_data,
         ))?;
 
-        self.sync_and_wait(conn, intent.id).await
+        self.sync_until_intent_resolved(conn, intent.id).await
     }
 
     // Update this installation's leaf key in the group by creating a key update commit
@@ -614,256 +316,6 @@ where
         intent.store(conn)?;
 
         self.sync_with_conn(conn).await
-    }
-
-    pub async fn sync(&self) -> Result<(), GroupError> {
-        let conn = &mut self.client.store.conn()?;
-        self.sync_with_conn(conn).await
-    }
-
-    async fn sync_with_conn<'a>(&self, conn: &'a DbConnection<'a>) -> Result<(), GroupError> {
-        self.publish_intents(conn).await?;
-        if let Err(e) = self.receive(conn).await {
-            log::warn!("receive error {:?}", e);
-        }
-        self.post_commit(conn).await?;
-
-        Ok(())
-    }
-
-    async fn sync_and_wait<'a>(
-        &self,
-        conn: &'a DbConnection<'a>,
-        intent_id: ID,
-    ) -> Result<(), GroupError> {
-        let mut num_attempts = 0;
-        let max_attempts = 3;
-        while num_attempts < max_attempts {
-            // Sync with conn will swollow errors on the receive side,
-            // but we should pay attention to errors on the publish side
-            self.sync_with_conn(conn).await?;
-            let intent: Option<StoredGroupIntent> = conn.fetch(&intent_id)?;
-            match intent {
-                None => {
-                    // This is expected. The intent gets deleted on success
-                    return Ok(());
-                }
-                _ => {
-                    num_attempts += 1;
-                }
-            }
-        }
-
-        Err(GroupError::Generic("failed to wait for intent".to_string()))
-    }
-
-    pub(crate) async fn publish_intents<'a>(
-        &self,
-        conn: &'a DbConnection<'a>,
-    ) -> Result<(), GroupError> {
-        let provider = self.client.mls_provider(conn);
-        let mut openmls_group = self.load_mls_group(&provider)?;
-
-        let intents = provider.conn().find_group_intents(
-            self.group_id.clone(),
-            Some(vec![IntentState::ToPublish]),
-            None,
-        )?;
-
-        for intent in intents {
-            let result = retry_async!(
-                Retry::default(),
-                (async {
-                    self.get_publish_intent_data(&provider, &mut openmls_group, &intent)
-                        .await
-                })
-            );
-            if let Err(e) = result {
-                log::error!("error getting publish intent data {:?}", e);
-                // TODO: Figure out which types of errors we should abort completely on and which
-                // ones are safe to continue with
-                continue;
-            }
-
-            let (payload, post_commit_data) = result.expect("result already checked");
-            let payload_slice = payload.as_slice();
-
-            self.client
-                .api_client
-                .send_group_messages(vec![payload_slice])
-                .await?;
-
-            provider.conn().set_group_intent_published(
-                intent.id,
-                sha256(payload_slice),
-                post_commit_data,
-            )?;
-        }
-        openmls_group.save(provider.key_store())?;
-
-        Ok(())
-    }
-
-    // Takes a StoredGroupIntent and returns the payload and post commit data as a tuple
-    async fn get_publish_intent_data(
-        &self,
-        provider: &XmtpOpenMlsProvider<'_>,
-        openmls_group: &mut OpenMlsGroup,
-        intent: &StoredGroupIntent,
-    ) -> Result<(Vec<u8>, Option<Vec<u8>>), GroupError> {
-        match intent.kind {
-            IntentKind::SendMessage => {
-                // We can safely assume all SendMessage intents have data
-                let intent_data = SendMessageIntentData::from_bytes(intent.data.as_slice())?;
-                // TODO: Handle pending_proposal errors and UseAfterEviction errors
-                let msg = openmls_group.create_message(
-                    provider,
-                    &self.client.identity.installation_keys,
-                    intent_data.message.as_slice(),
-                )?;
-
-                let msg_bytes = msg.tls_serialize_detached()?;
-                Ok((msg_bytes, None))
-            }
-            IntentKind::AddMembers => {
-                let intent_data = AddMembersIntentData::from_bytes(intent.data.as_slice())?;
-
-                let key_packages = self
-                    .client
-                    .get_key_packages(intent_data.address_or_id)
-                    .await?;
-
-                let mls_key_packages: Vec<KeyPackage> =
-                    key_packages.iter().map(|kp| kp.inner.clone()).collect();
-
-                let (commit, welcome, _group_info) = openmls_group.add_members(
-                    provider,
-                    &self.client.identity.installation_keys,
-                    mls_key_packages.as_slice(),
-                )?;
-
-                if let Some(staged_commit) = openmls_group.pending_commit() {
-                    // Validate the commit, even if it's from yourself
-                    ValidatedCommit::from_staged_commit(staged_commit, openmls_group)?;
-                }
-
-                let commit_bytes = commit.tls_serialize_detached()?;
-
-                let installations = key_packages
-                    .iter()
-                    .map(Installation::from_verified_key_package)
-                    .collect();
-
-                let post_commit_data =
-                    Some(PostCommitAction::from_welcome(welcome, installations)?.to_bytes());
-
-                Ok((commit_bytes, post_commit_data))
-            }
-            IntentKind::RemoveMembers => {
-                let intent_data = RemoveMembersIntentData::from_bytes(intent.data.as_slice())?;
-
-                let installation_ids = {
-                    match intent_data.address_or_id {
-                        AddressesOrInstallationIds::AccountAddresses(addrs) => {
-                            self.client.get_all_active_installation_ids(addrs).await?
-                        }
-                        AddressesOrInstallationIds::InstallationIds(ids) => ids,
-                    }
-                };
-
-                let leaf_nodes: Vec<LeafNodeIndex> = openmls_group
-                    .members()
-                    .filter(|member| installation_ids.contains(&member.signature_key))
-                    .map(|member| member.index)
-                    .collect();
-
-                let num_leaf_nodes = leaf_nodes.len();
-
-                if num_leaf_nodes != installation_ids.len() {
-                    return Err(GroupError::Generic(format!(
-                        "expected {} leaf nodes, found {}",
-                        installation_ids.len(),
-                        num_leaf_nodes
-                    )));
-                }
-
-                // The second return value is a Welcome, which is only possible if there
-                // are pending proposals. Ignoring for now
-                let (commit, _, _) = openmls_group.remove_members(
-                    provider,
-                    &self.client.identity.installation_keys,
-                    leaf_nodes.as_slice(),
-                )?;
-
-                if let Some(staged_commit) = openmls_group.pending_commit() {
-                    // Validate the commit, even if it's from yourself
-                    ValidatedCommit::from_staged_commit(staged_commit, openmls_group)?;
-                }
-
-                let commit_bytes = commit.tls_serialize_detached()?;
-
-                Ok((commit_bytes, None))
-            }
-            IntentKind::KeyUpdate => {
-                let (commit, _, _) =
-                    openmls_group.self_update(provider, &self.client.identity.installation_keys)?;
-
-                Ok((commit.tls_serialize_detached()?, None))
-            }
-        }
-    }
-
-    pub(crate) async fn post_commit(&self, conn: &DbConnection<'_>) -> Result<(), GroupError> {
-        let intents = conn.find_group_intents(
-            self.group_id.clone(),
-            Some(vec![IntentState::Committed]),
-            None,
-        )?;
-
-        for intent in intents {
-            if intent.post_commit_data.is_some() {
-                let post_commit_data = intent.post_commit_data.unwrap();
-                let post_commit_action = PostCommitAction::from_bytes(post_commit_data.as_slice())?;
-                match post_commit_action {
-                    PostCommitAction::SendWelcomes(action) => {
-                        self.send_welcomes(action).await?;
-                    }
-                }
-            }
-            let deleter: &dyn Delete<StoredGroupIntent, Key = i32> = conn;
-            deleter.delete(intent.id)?;
-        }
-
-        Ok(())
-    }
-
-    async fn send_welcomes(&self, action: SendWelcomesAction) -> Result<(), GroupError> {
-        let welcomes = action
-            .installations
-            .into_iter()
-            .map(|installation| -> Result<WelcomeMessageInput, HpkeError> {
-                let installation_key = installation.installation_key;
-                let encrypted = encrypt_welcome(
-                    action.welcome_message.as_slice(),
-                    installation.hpke_public_key.as_slice(),
-                )?;
-
-                Ok(WelcomeMessageInput {
-                    version: Some(WelcomeMessageInputVersion::V1(WelcomeMessageInputV1 {
-                        installation_key,
-                        data: encrypted,
-                        hpke_public_key: installation.hpke_public_key,
-                    })),
-                })
-            })
-            .collect::<Result<Vec<WelcomeMessageInput>, HpkeError>>()?;
-
-        self.client
-            .api_client
-            .send_welcome_messages(welcomes)
-            .await?;
-
-        Ok(())
     }
 }
 
@@ -887,53 +339,6 @@ fn validate_ed25519_keys(keys: &[Vec<u8>]) -> Result<(), GroupError> {
     }
 
     Ok(())
-}
-
-fn validate_evm_addresses(account_addresses: &[String]) -> Result<(), GroupError> {
-    let mut invalid = account_addresses
-        .iter()
-        .filter(|a| !is_valid_ethereum_address(a))
-        .peekable();
-
-    if invalid.peek().is_some() {
-        return Err(GroupError::InvalidAddresses(
-            invalid.map(ToString::to_string).collect::<Vec<_>>(),
-        ));
-    }
-
-    Ok(())
-}
-
-fn validate_message_sender(
-    openmls_group: &mut OpenMlsGroup,
-    decrypted_message: &ProcessedMessage,
-    message_created_ns: u64,
-) -> Result<(String, Vec<u8>), MessageProcessingError> {
-    let mut sender_account_address = None;
-    let mut sender_installation_id = None;
-    if let Sender::Member(leaf_node_index) = decrypted_message.sender() {
-        if let Some(member) = openmls_group.member_at(*leaf_node_index) {
-            if member.credential.eq(decrypted_message.credential()) {
-                sender_account_address = Identity::get_validated_account_address(
-                    member.credential.identity(),
-                    &member.signature_key,
-                )
-                .ok();
-                sender_installation_id = Some(member.signature_key);
-            }
-        }
-    }
-
-    if sender_account_address.is_none() {
-        return Err(MessageProcessingError::InvalidSender {
-            message_time_ns: message_created_ns,
-            credential: decrypted_message.credential().identity().to_vec(),
-        });
-    }
-    Ok((
-        sender_account_address.unwrap(),
-        sender_installation_id.unwrap(),
-    ))
 }
 
 fn build_protected_metadata_extension(
@@ -1009,7 +414,7 @@ mod tests {
         let msg = b"hello";
         group.send_message(msg).await.expect("send message");
 
-        group.receive().await.unwrap();
+        group.receive(&client.store.conn().unwrap()).await.unwrap();
         // Check for messages
         // println!("HERE: {:#?}", messages);
         let messages = group.find_messages(None, None, None, None).unwrap();
@@ -1052,7 +457,10 @@ mod tests {
             .await
             .expect_err("expected err");
 
-        amal_group.receive().await.expect_err("expected error");
+        amal_group
+            .receive(&amal.store.conn().unwrap())
+            .await
+            .expect_err("expected error");
 
         // Check Amal's MLS group state.
         let amal_db = amal.store.conn().unwrap();

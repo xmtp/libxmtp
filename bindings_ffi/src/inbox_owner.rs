@@ -27,16 +27,6 @@ impl RustInboxOwner {
     }
 }
 
-#[derive(uniffi::Object)]
-pub struct SignerCallback {}
-
-#[uniffi::export]
-impl SignerCallback {
-    fn on_signature(&self, result: Result<Vec<u8>, SigningError>) {
-        
-    }
-}
-
 impl xmtp_mls::InboxOwner for RustInboxOwner {
     fn get_address(&self) -> String {
         self.ffi_inbox_owner.get_address().to_lowercase()

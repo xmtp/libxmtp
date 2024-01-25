@@ -9,6 +9,7 @@ diesel::table! {
         state -> Integer,
         payload_hash -> Nullable<Binary>,
         post_commit_data -> Nullable<Binary>,
+        publish_attempts -> Integer,
     }
 }
 
