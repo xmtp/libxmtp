@@ -1,3 +1,6 @@
+use std::{cell::RefCell, sync::Mutex};
+
+use chrono::Utc;
 use openmls::{
     extensions::{errors::InvalidExtensionError, ApplicationIdExtension, LastResortExtension},
     prelude::{
@@ -15,7 +18,7 @@ use xmtp_cryptography::signature::SignatureError;
 use xmtp_proto::xmtp::mls::message_contents::MlsCredential as CredentialProto;
 
 use crate::{
-    association::{AssociationError, Credential},
+    association::{AssociationContext, AssociationError, AssociationText, Credential},
     configuration::CIPHERSUITE,
     storage::{identity::StoredIdentity, StorageError},
     types::Address,
@@ -47,7 +50,7 @@ pub enum IdentityError {
 pub struct Identity {
     pub(crate) account_address: Address,
     pub(crate) installation_keys: SignatureKeyPair,
-    pub(crate) credential: Option<OpenMlsCredential>,
+    pub(crate) credential: Mutex<Option<OpenMlsCredential>>,
 }
 
 impl Identity {
@@ -63,7 +66,7 @@ impl Identity {
         let identity = Self {
             account_address: owner.get_address(),
             installation_keys: signature_keys,
-            credential: Some(credential),
+            credential: Mutex::new(Some(credential)),
         };
 
         StoredIdentity::from(&identity).store(provider.conn())?;
@@ -81,7 +84,7 @@ impl Identity {
         let identity = Self {
             account_address,
             installation_keys: signature_keys,
-            credential: None,
+            credential: Mutex::new(None),
         };
 
         StoredIdentity::from(&identity).store(provider.conn())?;
@@ -89,10 +92,46 @@ impl Identity {
         Ok(identity)
     }
 
+    // pub(crate) fn register_identity(
+    //     &self,
+    //     provider: &XmtpOpenMlsProvider,
+    // ) -> Result<Self, IdentityError> {
+    //     *self.credential.borrow_mut() = Identity::create_credential(&self.installation_keys, self)?;
+
+    //     let identity = Self {
+    //         account_address: self.account_address.clone(),
+    //         installation_keys: self.installation_keys.clone(),
+    //         credential: RefCell::new(Some(credential)),
+    //     };
+
+    //     StoredIdentity::from(&identity).store(provider.conn())?;
+
+    //     Ok(identity)
+    // }
+
     pub(crate) fn credential(&self) -> Result<OpenMlsCredential, IdentityError> {
         self.credential
+            .lock()
+            .unwrap_or_else(|err| err.into_inner())
             .clone()
             .ok_or(IdentityError::UninitializedIdentity)
+    }
+
+    pub(crate) fn text_to_sign(&self) -> Option<String> {
+        if self.credential().is_ok() {
+            return None;
+        }
+
+        let iso8601_time = format!("{}", Utc::now().format("%+"));
+        return Some(
+            AssociationText::new_static(
+                AssociationContext::GrantMessagingAccess,
+                self.account_address.clone(),
+                self.installation_keys.to_public_vec(),
+                iso8601_time,
+            )
+            .text(),
+        );
     }
 
     // ONLY CREATES LAST RESORT KEY PACKAGES

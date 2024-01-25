@@ -143,6 +143,10 @@ impl FfiXmtpClient {
         self.inner_client.account_address()
     }
 
+    pub fn text_to_sign(&self) -> Option<String> {
+        self.inner_client.text_to_sign()
+    }
+
     pub fn conversations(&self) -> Arc<FfiConversations> {
         Arc::new(FfiConversations {
             inner_client: self.inner_client.clone(),

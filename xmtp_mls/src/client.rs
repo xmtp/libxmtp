@@ -167,6 +167,10 @@ where
         self.identity.installation_keys.to_public_vec()
     }
 
+    pub fn text_to_sign(&self) -> Option<String> {
+        self.identity.text_to_sign()
+    }
+
     // TODO: Remove this and figure out the correct lifetimes to allow long lived provider
     pub(crate) fn mls_provider(&self, conn: &'a DbConnection<'a>) -> XmtpOpenMlsProvider<'a> {
         XmtpOpenMlsProvider::<'a>::new(conn)

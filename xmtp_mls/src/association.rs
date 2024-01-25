@@ -215,7 +215,7 @@ impl From<Eip191Association> for Eip191AssociationProto {
 /// the XMTP installation public key. Different standards may choose how this information is
 /// encoded, as well as adding extra requirements for increased security.
 #[derive(Serialize, Deserialize, PartialEq, Debug, Clone)]
-struct AssociationText {
+pub(crate) struct AssociationText {
     context: AssociationContext,
     data: AssociationData,
 }
