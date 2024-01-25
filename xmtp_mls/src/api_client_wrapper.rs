@@ -349,9 +349,10 @@ type KeyPackageMap = HashMap<Vec<u8>, Vec<u8>>;
 type IdentityUpdatesMap = HashMap<String, Vec<IdentityUpdate>>;
 
 #[cfg(test)]
-mod tests {
+pub mod tests {
     use async_trait::async_trait;
     use mockall::mock;
+    use xmtp_api_grpc::grpc_api_helper::Client as GrpcClient;
     use xmtp_proto::{
         api_client::{Error, ErrorKind, GroupMessageStream, WelcomeMessageStream, XmtpMlsClient},
         xmtp::mls::api::v1::{
@@ -371,6 +372,15 @@ mod tests {
 
     use super::ApiClientWrapper;
     use crate::retry::Retry;
+
+    pub async fn get_test_api_client() -> ApiClientWrapper<GrpcClient> {
+        ApiClientWrapper::new(
+            GrpcClient::create("http://localhost:5556".to_string(), false)
+                .await
+                .unwrap(),
+            Retry::default(),
+        )
+    }
 
     fn build_group_messages(num_messages: usize, group_id: Vec<u8>) -> Vec<GroupMessage> {
         let mut out: Vec<GroupMessage> = vec![];

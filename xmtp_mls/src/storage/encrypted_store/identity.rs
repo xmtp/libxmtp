@@ -1,3 +1,5 @@
+use std::sync::RwLock;
+
 use diesel::prelude::*;
 
 use super::schema::identity;
@@ -41,7 +43,12 @@ impl From<&Identity> for StoredIdentity {
         StoredIdentity {
             account_address: identity.account_address.clone(),
             installation_keys: db_serialize(&identity.installation_keys).unwrap(),
-            credential_bytes: db_serialize(&identity.credential).unwrap(),
+            credential_bytes: db_serialize(
+                &identity
+                    .credential()
+                    .expect("Only persisted after registration"),
+            )
+            .unwrap(),
             rowid: None,
         }
     }
@@ -52,7 +59,8 @@ impl From<StoredIdentity> for Identity {
         Identity {
             account_address: identity.account_address,
             installation_keys: db_deserialize(&identity.installation_keys).unwrap(),
-            credential: db_deserialize(&identity.credential_bytes).unwrap(),
+            credential: RwLock::new(Some(db_deserialize(&identity.credential_bytes).unwrap())),
+            unsigned_association_data: None,
         }
     }
 }
