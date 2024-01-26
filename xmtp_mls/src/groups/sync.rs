@@ -183,10 +183,8 @@ where
                     );
                     conn.set_group_intent_to_publish(intent.id)?;
 
-                    return Err(MessageProcessingError::NoPendingCommit {
-                        message_epoch,
-                        group_epoch,
-                    });
+                    // Return OK here, because an error will roll back the transaction
+                    return Ok(());
                 }
                 let maybe_validated_commit = ValidatedCommit::from_staged_commit(
                     maybe_pending_commit.expect("already checked"),
@@ -197,7 +195,7 @@ where
                 if let Err(MergePendingCommitError::MlsGroupStateError(err)) =
                     openmls_group.merge_pending_commit(provider)
                 {
-                    debug!("error merging commit: {}", err);
+                    log::error!("error merging commit: {}", err);
                     openmls_group.clear_pending_commit();
                     conn.set_group_intent_to_publish(intent.id)?;
                 } else {

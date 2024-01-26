@@ -389,9 +389,34 @@ fn build_group_join_config() -> MlsGroupJoinConfig {
 #[cfg(test)]
 mod tests {
     use openmls::prelude::Member;
+    use xmtp_api_grpc::grpc_api_helper::Client as GrpcClient;
     use xmtp_cryptography::utils::generate_local_wallet;
+    use xmtp_proto::api_client::XmtpMlsClient;
 
-    use crate::{builder::ClientBuilder, storage::group_intent::IntentState, InboxOwner};
+    use crate::{
+        builder::ClientBuilder,
+        storage::{group_intent::IntentState, group_message::StoredGroupMessage},
+        Client, InboxOwner,
+    };
+
+    use super::MlsGroup;
+
+    async fn receive_group_invite<ApiClient>(client: &Client<ApiClient>) -> MlsGroup<ApiClient>
+    where
+        ApiClient: XmtpMlsClient,
+    {
+        client.sync_welcomes().await.unwrap();
+        let mut groups = client.find_groups(None, None, None, None).unwrap();
+
+        groups.remove(0)
+    }
+
+    async fn get_latest_message<'c>(group: &MlsGroup<'c, GrpcClient>) -> StoredGroupMessage {
+        group.sync().await.unwrap();
+        let mut messages = group.find_messages(None, None, None, None).unwrap();
+
+        messages.pop().unwrap()
+    }
 
     #[tokio::test]
     async fn test_send_message() {
@@ -735,5 +760,58 @@ mod tests {
         // test that adding the new installation(s), worked
         let new_installations_count = group.add_missing_installations(&provider).await.unwrap();
         assert_eq!(new_installations_count, 1);
+    }
+
+    #[tokio::test]
+    async fn test_self_resolve_epoch_mismatch() {
+        let amal = ClientBuilder::new_test_client(generate_local_wallet().into()).await;
+        let bola = ClientBuilder::new_test_client(generate_local_wallet().into()).await;
+        let charlie = ClientBuilder::new_test_client(generate_local_wallet().into()).await;
+        let dave = ClientBuilder::new_test_client(generate_local_wallet().into()).await;
+        let (_, _, _, _) = tokio::join!(
+            amal.register_identity(),
+            bola.register_identity(),
+            charlie.register_identity(),
+            dave.register_identity(),
+        );
+        let amal_group = amal.create_group().unwrap();
+        // Add bola to the group
+        amal_group
+            .add_members(vec![bola.account_address()])
+            .await
+            .unwrap();
+
+        let bola_group = receive_group_invite(&bola).await;
+        bola_group.sync().await.unwrap();
+        // Both Amal and Bola are up to date on the group state. Now each of them want to add someone else
+        amal_group
+            .add_members(vec![charlie.account_address()])
+            .await
+            .unwrap();
+
+        bola_group
+            .add_members(vec![dave.account_address()])
+            .await
+            .unwrap();
+
+        // Send a message to the group, now that everyone is invited
+        amal_group.sync().await.unwrap();
+        amal_group.send_message(b"hello").await.unwrap();
+
+        let charlie_group = receive_group_invite(&charlie).await;
+        let dave_group = receive_group_invite(&dave).await;
+
+        let (amal_latest_message, bola_latest_message, charlie_latest_message, dave_latest_message) = tokio::join!(
+            get_latest_message(&amal_group),
+            get_latest_message(&bola_group),
+            get_latest_message(&charlie_group),
+            get_latest_message(&dave_group)
+        );
+
+        let expected_latest_message = b"hello".to_vec();
+        assert!(expected_latest_message.eq(&amal_latest_message.decrypted_message_bytes));
+        assert!(expected_latest_message.eq(&bola_latest_message.decrypted_message_bytes));
+        assert!(expected_latest_message.eq(&charlie_latest_message.decrypted_message_bytes));
+        assert!(expected_latest_message.eq(&dave_latest_message.decrypted_message_bytes));
     }
 }
