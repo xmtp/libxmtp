@@ -55,6 +55,9 @@ CREATE TABLE group_intents (
     "payload_hash" BLOB UNIQUE,
     -- (Optional) data needed for the post-commit flow. For example, welcome messages
     "post_commit_data" BLOB,
+    -- The number of publish attempts
+    "publish_attempts" INT NOT NULL DEFAULT 0,
+    
     FOREIGN KEY (group_id) REFERENCES groups(id)
 );
 
