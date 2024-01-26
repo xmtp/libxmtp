@@ -38,14 +38,7 @@ jobs:
           override: true
 
       - name: Invoke cargo doc
-        run: |
-          rm -rf ./_site
-          cargo doc --workspace --no-deps
-          rm -f target/doc/.lock
-          cp -r target/doc _site
-          echo "generating site index"
-          echo "<meta http-equiv=\"refresh\" content=\"0; url=xmtp_mls/index.html\">" > site/index.html
-          chmod -R +rX _site
+        run: ./dev/docs
         id: docgen
 
       - name: Upload artifact
