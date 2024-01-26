@@ -1,24 +1,3 @@
-use std::{collections::HashSet, mem::Discriminant};
-
-// use futures::{Stream, StreamExt};
-use openmls::{
-    framing::{MlsMessageIn, MlsMessageInBody},
-    group::GroupEpoch,
-    messages::Welcome,
-    prelude::TlsSerializeTrait,
-};
-use openmls_traits::OpenMlsProvider;
-use prost::EncodeError;
-use thiserror::Error;
-use tls_codec::{Deserialize, Error as TlsSerializationError};
-use xmtp_proto::{
-    api_client::XmtpMlsClient,
-    xmtp::mls::api::v1::{
-        welcome_message::{Version as WelcomeMessageVersion, V1 as WelcomeMessageV1},
-        GroupMessage, WelcomeMessage,
-    },
-};
-
 use crate::{
     api_client_wrapper::{ApiClientWrapper, IdentityUpdate},
     groups::{
@@ -37,7 +16,26 @@ use crate::{
     xmtp_openmls_provider::XmtpOpenMlsProvider,
     Fetch,
 };
+use openmls::{
+    framing::{MlsMessageIn, MlsMessageInBody},
+    group::GroupEpoch,
+    messages::Welcome,
+    prelude::TlsSerializeTrait,
+};
+use openmls_traits::OpenMlsProvider;
+use prost::EncodeError;
+use std::{collections::HashSet, mem::Discriminant};
+use thiserror::Error;
+use tls_codec::{Deserialize, Error as TlsSerializationError};
+use xmtp_proto::{
+    api_client::XmtpMlsClient,
+    xmtp::mls::api::v1::{
+        welcome_message::{Version as WelcomeMessageVersion, V1 as WelcomeMessageV1},
+        GroupMessage, WelcomeMessage,
+    },
+};
 
+/// Which network the Client is connected to
 #[derive(Clone, Copy, Default, Debug)]
 pub enum Network {
     Local(&'static str),
@@ -68,6 +66,7 @@ pub enum ClientError {
     Generic(String),
 }
 
+/// An enum of errors that can occur when reading and processing a message off the network
 #[derive(Debug, Error)]
 pub enum MessageProcessingError {
     #[error("[{0}] already processed")]
@@ -135,6 +134,7 @@ impl From<&str> for ClientError {
     }
 }
 
+/// Clients manage access to the network, identity, and data store
 #[derive(Debug)]
 pub struct Client<ApiClient> {
     pub(crate) api_client: ApiClientWrapper<ApiClient>,
@@ -147,6 +147,9 @@ impl<'a, ApiClient> Client<ApiClient>
 where
     ApiClient: XmtpMlsClient,
 {
+    /// Create a new client with the given network, identity, and store.
+    /// It is expected that most users will use the [`ClientBuilder`](crate::builder::ClientBuilder) instead of instantiating
+    /// a client directly.
     pub fn new(
         api_client: ApiClient,
         network: Network,
@@ -161,23 +164,28 @@ where
         }
     }
 
+    /// Get the account address of the blockchain account associated with this client
     pub fn account_address(&self) -> Address {
         self.identity.account_address.clone()
     }
 
+    /// The installation public key is the primary identifier for an installation
     pub fn installation_public_key(&self) -> Vec<u8> {
         self.identity.installation_keys.to_public_vec()
     }
 
+    /// In some cases, the client may need a signature from the wallet to call [`register_identity`](Self::register_identity).
+    /// Integrators should always check the `text_to_sign` return value of this function before calling [`register_identity_with_external_signature`](Self::register_identity_with_external_signature).
+    /// If `text_to_sign` returns `None`, then the wallet signature is not required and [`register_identity_with_external_signature`](Self::register_identity_with_external_signature) can be called with None as an argument.
     pub fn text_to_sign(&self) -> Option<String> {
         self.identity.text_to_sign()
     }
 
-    // TODO: Remove this and figure out the correct lifetimes to allow long lived provider
     pub(crate) fn mls_provider(&self, conn: &'a DbConnection<'a>) -> XmtpOpenMlsProvider<'a> {
         XmtpOpenMlsProvider::<'a>::new(conn)
     }
 
+    /// Create a new group with the default settings
     pub fn create_group(&self) -> Result<MlsGroup<ApiClient>, ClientError> {
         log::info!("creating group");
 
@@ -187,6 +195,8 @@ where
         Ok(group)
     }
 
+    /// Look up a group by its ID
+    /// Returns a [`MlsGroup`](crate::groups::MlsGroup) if the group exists, or an error if it does not
     pub fn group(&self, group_id: Vec<u8>) -> Result<MlsGroup<ApiClient>, ClientError> {
         let conn = &mut self.store.conn()?;
         let stored_group: Option<StoredGroup> = conn.fetch(&group_id)?;
@@ -196,6 +206,13 @@ where
         }
     }
 
+    /// Query for groups with optional filters
+    ///
+    /// Filters:
+    /// - allowed_states: only return groups with the given membership states
+    /// - created_after_ns: only return groups created after the given timestamp (in nanoseconds)
+    /// - created_before_ns: only return groups created before the given timestamp (in nanoseconds)
+    /// - limit: only return the first `limit` groups
     pub fn find_groups(
         &self,
         allowed_states: Option<Vec<GroupMembershipState>>,
@@ -212,11 +229,18 @@ where
             .collect())
     }
 
+    /// Deprecated
     pub async fn register_identity(&self) -> Result<(), ClientError> {
         self.register_identity_with_external_signature(None).await?;
         Ok(())
     }
 
+    /// Register the identity with the network
+    /// Callers should always call [`text_to_sign`](Self::text_to_sign) before calling this function.
+    ///
+    /// If `text_to_sign` returns `None`, then the wallet signature is not required and this function can be called with `None`.
+    ///
+    /// If `text_to_sign` returns `Some`, then the caller should sign the text with their wallet and pass the signature to this function.
     pub async fn register_identity_with_external_signature(
         &self,
         recoverable_wallet_signature: Option<Vec<u8>>,
@@ -230,6 +254,8 @@ where
         Ok(())
     }
 
+    /// Upload a new key package to the network replacing an existing key package
+    /// This is expected to be run any time the client receives new Welcome messages
     pub async fn rotate_key_package(&self) -> Result<(), ClientError> {
         let connection = self.store.conn()?;
         let kp = self
@@ -242,6 +268,8 @@ where
         Ok(())
     }
 
+    /// Get a list of `installation_id`s associated with the given `account_addresses`
+    /// One `account_address` may have multiple `installation_id`s if the account has multiple applications or devices on the network
     pub async fn get_all_active_installation_ids(
         &self,
         account_addresses: Vec<String>,
@@ -370,8 +398,8 @@ where
             .collect::<Result<_, _>>()?)
     }
 
-    // Download all unread welcome messages and convert to groups.
-    // Returns any new groups created in the operation
+    /// Download all unread welcome messages and convert to groups.
+    /// Returns any new groups created in the operation
     pub async fn sync_welcomes(&self) -> Result<Vec<MlsGroup<ApiClient>>, ClientError> {
         let envelopes = self.query_welcome_messages(&self.store.conn()?).await?;
         let id = self.installation_public_key();
@@ -409,6 +437,13 @@ where
         Ok(groups)
     }
 
+    /// Check whether an account_address has a key package registered on the network
+    ///
+    /// Arguments:
+    /// - account_addresses: a list of account addresses to check
+    ///
+    /// Returns:
+    /// A Vec of booleans indicating whether each account address has a key package registered on the network
     pub async fn can_message(
         &self,
         account_addresses: Vec<String>,
