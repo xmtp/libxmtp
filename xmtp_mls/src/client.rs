@@ -473,13 +473,13 @@ where
         let conn = self.store.conn()?;
         let provider = self.mls_provider(&conn);
 
-        Ok(MlsGroup::create_from_encrypted_welcome(
+        MlsGroup::create_from_encrypted_welcome(
             self,
             &provider,
             welcome_v1.hpke_public_key.as_slice(),
             welcome_v1.data,
         )
-        .map_err(|e| ClientError::Generic(e.to_string()))?)
+        .map_err(|e| ClientError::Generic(e.to_string()))
     }
 
     pub async fn stream_conversations(
