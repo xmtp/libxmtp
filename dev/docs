@@ -1,0 +1,4 @@
+#!/bin/bash
+set -eou pipefail
+
+cargo doc --no-deps --workspace --document-private-items --open 
