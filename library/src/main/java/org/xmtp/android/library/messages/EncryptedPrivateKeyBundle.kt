@@ -19,7 +19,7 @@ fun EncryptedPrivateKeyBundle.decrypted(
     }
 
     val signature = runBlocking {
-        key.sign(
+        key.signLegacy(
             message = Signature.newBuilder().build()
                 .enableIdentityText(key = v1.walletPreKey.toByteArray()),
         )

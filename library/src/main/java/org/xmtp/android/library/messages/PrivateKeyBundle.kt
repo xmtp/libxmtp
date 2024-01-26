@@ -36,7 +36,7 @@ fun PrivateKeyBundle.encrypted(
 
     val signature =
         runBlocking {
-            key.sign(
+            key.signLegacy(
                 message = Signature.newBuilder().build().enableIdentityText(key = walletPreKey)
             )
         } ?: throw XMTPException("Illegal signature")

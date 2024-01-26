@@ -68,10 +68,10 @@ val Signature.rawDataWithNormalizedRecovery: ByteArray
 @OptIn(ExperimentalUnsignedTypes::class)
 fun Signature.verify(signedBy: PublicKey, digest: ByteArray): Boolean {
     return try {
-        uniffi.xmtp_dh.verifyK256Sha256(
-            signedBy.secp256K1Uncompressed.bytes.toByteArray().toUByteArray().toList(),
-            digest.toUByteArray().toList(),
-            ecdsaCompact.bytes.toByteArray().toUByteArray().toList(),
+        uniffi.xmtpv3.verifyK256Sha256(
+            signedBy.secp256K1Uncompressed.bytes.toByteArray(),
+            digest,
+            ecdsaCompact.bytes.toByteArray(),
             ecdsaCompact.recovery.toUByte()
         )
     } catch (e: Exception) {
@@ -90,6 +90,7 @@ fun Signature.ensureWalletSignature(): Signature {
                 it.walletEcdsaCompact = walletEcdsa
             }.build()
         }
+
         else -> this
     }
 }

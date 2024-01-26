@@ -14,7 +14,7 @@ dokkaGfmPartial {
 
 ktlint {
     filter {
-        exclude { it.file.path.contains("xmtp_dh") }
+        exclude { it.file.path.contains("xmtpv3") }
     }
 }
 
@@ -23,7 +23,7 @@ android {
     compileSdk 33
 
     defaultConfig {
-        minSdk 22
+        minSdk 23
         targetSdk 33
 
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"

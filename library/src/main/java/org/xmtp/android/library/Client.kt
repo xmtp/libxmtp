@@ -1,15 +1,21 @@
 package org.xmtp.android.library
 
+import android.content.Context
 import android.os.Build
+import android.security.keystore.KeyGenParameterSpec
+import android.security.keystore.KeyProperties
 import android.util.Log
 import com.google.crypto.tink.subtle.Base64
 import com.google.gson.GsonBuilder
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withContext
 import org.web3j.crypto.Keys
 import org.web3j.crypto.Keys.toChecksumAddress
 import org.xmtp.android.library.codecs.ContentCodec
 import org.xmtp.android.library.codecs.TextCodec
+import org.xmtp.android.library.libxmtp.XMTPLogger
 import org.xmtp.android.library.messages.ContactBundle
 import org.xmtp.android.library.messages.EncryptedPrivateKeyBundle
 import org.xmtp.android.library.messages.Envelope
@@ -34,12 +40,19 @@ import org.xmtp.android.library.messages.walletAddress
 import org.xmtp.proto.message.api.v1.MessageApiOuterClass
 import org.xmtp.proto.message.api.v1.MessageApiOuterClass.BatchQueryResponse
 import org.xmtp.proto.message.api.v1.MessageApiOuterClass.QueryRequest
+import uniffi.xmtpv3.FfiXmtpClient
+import uniffi.xmtpv3.LegacyIdentitySource
+import uniffi.xmtpv3.createClient
+import java.io.File
 import java.nio.charset.StandardCharsets
+import java.security.KeyStore
 import java.text.SimpleDateFormat
 import java.time.Instant
 import java.util.Date
 import java.util.Locale
 import java.util.TimeZone
+import javax.crypto.KeyGenerator
+import javax.crypto.SecretKey
 
 typealias PublishResponse = org.xmtp.proto.message.api.v1.MessageApiOuterClass.PublishResponse
 typealias QueryResponse = org.xmtp.proto.message.api.v1.MessageApiOuterClass.QueryResponse
@@ -49,6 +62,8 @@ data class ClientOptions(
     val api: Api = Api(),
     val preCreateIdentityCallback: PreEventCallback? = null,
     val preEnableIdentityCallback: PreEventCallback? = null,
+    val appContext: Context? = null,
+    val enableAlphaMls: Boolean = false,
 ) {
     data class Api(
         val env: XMTPEnvironment = XMTPEnvironment.DEV,
@@ -63,6 +78,8 @@ class Client() {
     lateinit var apiClient: ApiClient
     lateinit var contacts: Contacts
     lateinit var conversations: Conversations
+    var logger: XMTPLogger = XMTPLogger()
+    var libXMTPClient: FfiXmtpClient? = null
 
     companion object {
         private const val TAG = "Client"
@@ -137,34 +154,82 @@ class Client() {
         address: String,
         privateKeyBundleV1: PrivateKeyBundleV1,
         apiClient: ApiClient,
+        libXMTPClient: FfiXmtpClient? = null,
     ) : this() {
         this.address = address
         this.privateKeyBundleV1 = privateKeyBundleV1
         this.apiClient = apiClient
         this.contacts = Contacts(client = this)
+        this.libXMTPClient = libXMTPClient
         this.conversations = Conversations(client = this)
     }
 
-    fun buildFrom(bundle: PrivateKeyBundleV1, options: ClientOptions? = null): Client {
+    fun buildFrom(
+        bundle: PrivateKeyBundleV1,
+        options: ClientOptions? = null,
+        account: SigningKey? = null,
+    ): Client {
         val address = bundle.identityKey.publicKey.recoverWalletSignerPublicKey().walletAddress
         val clientOptions = options ?: ClientOptions()
         val apiClient =
             GRPCApiClient(environment = clientOptions.api.env, secure = clientOptions.api.isSecure)
-        return Client(address = address, privateKeyBundleV1 = bundle, apiClient = apiClient)
+        val v3Client: FfiXmtpClient? = if (isAlphaMlsEnabled(options)) {
+            if (account == null) throw XMTPException("Signing Key required to use groups.")
+            runBlocking {
+                ffiXmtpClient(
+                    options,
+                    account,
+                    options?.appContext,
+                    bundle,
+                    LegacyIdentitySource.STATIC
+                )
+            }
+        } else null
+
+        return Client(
+            address = address,
+            privateKeyBundleV1 = bundle,
+            apiClient = apiClient,
+            libXMTPClient = v3Client
+        )
     }
 
-    fun create(account: SigningKey, options: ClientOptions? = null): Client {
+    fun create(
+        account: SigningKey,
+        options: ClientOptions? = null,
+    ): Client {
         val clientOptions = options ?: ClientOptions()
         val apiClient =
             GRPCApiClient(environment = clientOptions.api.env, secure = clientOptions.api.isSecure)
-        return create(account = account, apiClient = apiClient, options = options)
+        return create(
+            account = account,
+            apiClient = apiClient,
+            options = options,
+        )
     }
 
-    fun create(account: SigningKey, apiClient: ApiClient, options: ClientOptions? = null): Client {
+    fun create(
+        account: SigningKey,
+        apiClient: ApiClient,
+        options: ClientOptions? = null,
+    ): Client {
         return runBlocking {
             try {
-                val privateKeyBundleV1 = loadOrCreateKeys(account, apiClient, options)
-                val client = Client(account.address, privateKeyBundleV1, apiClient)
+                val (privateKeyBundleV1, legacyIdentityKey) = loadOrCreateKeys(
+                    account,
+                    apiClient,
+                    options
+                )
+                val libXMTPClient: FfiXmtpClient? =
+                    ffiXmtpClient(
+                        options,
+                        account,
+                        options?.appContext,
+                        privateKeyBundleV1,
+                        legacyIdentityKey
+                    )
+                val client =
+                    Client(account.address, privateKeyBundleV1, apiClient, libXMTPClient)
                 client.ensureUserContactPublished()
                 client
             } catch (e: java.lang.Exception) {
@@ -173,15 +238,109 @@ class Client() {
         }
     }
 
-    fun buildFromBundle(bundle: PrivateKeyBundle, options: ClientOptions? = null): Client =
-        buildFromV1Bundle(v1Bundle = bundle.v1, options = options)
+    fun buildFromBundle(
+        bundle: PrivateKeyBundle,
+        options: ClientOptions? = null,
+        account: SigningKey? = null,
+    ): Client =
+        buildFromV1Bundle(v1Bundle = bundle.v1, account = account, options = options)
 
-    fun buildFromV1Bundle(v1Bundle: PrivateKeyBundleV1, options: ClientOptions? = null): Client {
+    fun buildFromV1Bundle(
+        v1Bundle: PrivateKeyBundleV1,
+        options: ClientOptions? = null,
+        account: SigningKey? = null,
+    ): Client {
         val address = v1Bundle.identityKey.publicKey.recoverWalletSignerPublicKey().walletAddress
         val newOptions = options ?: ClientOptions()
         val apiClient =
             GRPCApiClient(environment = newOptions.api.env, secure = newOptions.api.isSecure)
-        return Client(address = address, privateKeyBundleV1 = v1Bundle, apiClient = apiClient)
+        val v3Client: FfiXmtpClient? = if (isAlphaMlsEnabled(options)) {
+            if (account == null) throw XMTPException("Signing Key required to use groups.")
+            runBlocking {
+                ffiXmtpClient(
+                    options,
+                    account,
+                    options?.appContext,
+                    v1Bundle,
+                    LegacyIdentitySource.STATIC
+                )
+            }
+        } else null
+
+        return Client(
+            address = address,
+            privateKeyBundleV1 = v1Bundle,
+            apiClient = apiClient,
+            libXMTPClient = v3Client
+        )
+    }
+
+    private fun isAlphaMlsEnabled(options: ClientOptions?): Boolean {
+        return (options != null && options.enableAlphaMls && options.api.env == XMTPEnvironment.LOCAL && options.appContext != null)
+    }
+
+    private suspend fun ffiXmtpClient(
+        options: ClientOptions?,
+        account: SigningKey,
+        appContext: Context?,
+        privateKeyBundleV1: PrivateKeyBundleV1,
+        legacyIdentitySource: LegacyIdentitySource,
+    ): FfiXmtpClient? {
+        val v3Client: FfiXmtpClient? =
+            if (isAlphaMlsEnabled(options)) {
+                val alias = "xmtp-${options!!.api.env}-${account.address.lowercase()}"
+
+                val dbDir = File(appContext?.filesDir?.absolutePath, "xmtp_db")
+                dbDir.mkdir()
+                val dbPath: String = dbDir.absolutePath + "/$alias.db3"
+
+                val keyStore = KeyStore.getInstance("AndroidKeyStore")
+                withContext(Dispatchers.IO) {
+                    keyStore.load(null)
+                }
+
+                val entry = keyStore.getEntry(alias, null)
+
+                val retrievedKey: SecretKey = if (entry is KeyStore.SecretKeyEntry) {
+                    entry.secretKey
+                } else {
+                    val keyGenerator =
+                        KeyGenerator.getInstance(KeyProperties.KEY_ALGORITHM_AES, "AndroidKeyStore")
+                    val keyGenParameterSpec = KeyGenParameterSpec.Builder(
+                        alias,
+                        KeyProperties.PURPOSE_ENCRYPT or KeyProperties.PURPOSE_DECRYPT
+                    ).setBlockModes(KeyProperties.BLOCK_MODE_GCM)
+                        .setEncryptionPaddings(KeyProperties.ENCRYPTION_PADDING_NONE)
+                        .setKeySize(256)
+                        .build()
+
+                    keyGenerator.init(keyGenParameterSpec)
+                    keyGenerator.generateKey()
+                }
+
+                createClient(
+                    logger = logger,
+                    host = "http://10.0.2.2:5556",
+                    isSecure = false,
+                    db = dbPath,
+                    encryptionKey = retrievedKey.encoded,
+                    accountAddress = account.address.lowercase(),
+                    legacyIdentitySource = legacyIdentitySource,
+                    legacySignedPrivateKeyProto = privateKeyBundleV1.toV2().identityKey.toByteArray()
+                )
+            } else {
+                null
+            }
+
+        if (v3Client?.textToSign() == null) {
+            v3Client?.registerIdentity(null)
+        } else {
+            v3Client.textToSign()?.let {
+                v3Client.registerIdentity(account.sign(it))
+            }
+        }
+
+        return v3Client
     }
 
     /**
@@ -202,16 +361,16 @@ class Client() {
         account: SigningKey,
         apiClient: ApiClient,
         options: ClientOptions? = null,
-    ): PrivateKeyBundleV1 {
+    ): Pair<PrivateKeyBundleV1, LegacyIdentitySource> {
         val keys = loadPrivateKeys(account, apiClient, options)
         return if (keys != null) {
-            keys
+            Pair(keys, LegacyIdentitySource.NETWORK)
         } else {
             val v1Keys = PrivateKeyBundleV1.newBuilder().build().generate(account, options)
             val keyBundle = PrivateKeyBundleBuilder.buildFromV1Key(v1Keys)
             val encryptedKeys = keyBundle.encrypted(account, options?.preEnableIdentityCallback)
             authSave(apiClient, keyBundle.v1, encryptedKeys)
-            v1Keys
+            Pair(v1Keys, LegacyIdentitySource.KEY_GENERATOR)
         }
     }
 

@@ -1,7 +1,9 @@
 package org.xmtp.android.library
 
 import androidx.test.ext.junit.runners.AndroidJUnit4
+import androidx.test.platform.app.InstrumentationRegistry
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNull
 import org.junit.Assert.fail
 import org.junit.Ignore
 import org.junit.Test
@@ -76,6 +78,60 @@ class ClientTest {
             client.privateKeyBundleV1?.preKeysList,
             clientFromV1Bundle.privateKeyBundleV1?.preKeysList,
         )
+    }
+
+    @Test
+    fun testV3CanBeCreatedWithBundle() {
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        val fakeWallet = PrivateKeyBuilder()
+        val options = ClientOptions(
+            ClientOptions.Api(XMTPEnvironment.LOCAL, false),
+            enableAlphaMls = true,
+            appContext = context
+        )
+        val client =
+            Client().create(account = fakeWallet, options = options)
+        assertEquals(
+            client.address.lowercase(),
+            client.libXMTPClient?.accountAddress()?.lowercase()
+        )
+
+        val bundle = client.privateKeyBundle
+        val clientFromV1Bundle = Client().buildFromBundle(bundle, account = fakeWallet, options = options)
+        assertEquals(client.address, clientFromV1Bundle.address)
+        assertEquals(
+            client.privateKeyBundleV1.identityKey,
+            clientFromV1Bundle.privateKeyBundleV1.identityKey,
+        )
+        assertEquals(
+            client.libXMTPClient?.accountAddress(),
+            clientFromV1Bundle.libXMTPClient?.accountAddress()
+        )
+    }
+
+    @Test
+    fun testCreatesAV3Client() {
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        val fakeWallet = PrivateKeyBuilder()
+        val client =
+            Client().create(
+                account = fakeWallet,
+                options = ClientOptions(
+                    ClientOptions.Api(XMTPEnvironment.LOCAL, false),
+                    enableAlphaMls = true,
+                    appContext = context
+                )
+            )
+        val v3Client = client.libXMTPClient
+        assertEquals(client.address.lowercase(), v3Client?.accountAddress()?.lowercase())
+    }
+
+    @Test
+    fun testDoesNotCreateAV3Client() {
+        val fakeWallet = PrivateKeyBuilder()
+        val client = Client().create(account = fakeWallet)
+        val v3Client = client.libXMTPClient
+        assertNull(v3Client)
     }
 
     @Test

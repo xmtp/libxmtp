@@ -7,7 +7,7 @@ typealias PrivateKeyBundleV2 = org.xmtp.proto.message.contents.PrivateKeyOuterCl
 fun PrivateKeyBundleV2.sharedSecret(
     peer: SignedPublicKeyBundle,
     myPreKey: SignedPublicKey,
-    isRecipient: Boolean
+    isRecipient: Boolean,
 ): ByteArray {
     val dh1: ByteArray
     val dh2: ByteArray
@@ -42,10 +42,7 @@ fun PrivateKeyBundleV2.sharedSecret(
 
 @OptIn(ExperimentalUnsignedTypes::class)
 fun PrivateKeyBundleV2.sharedSecret(privateData: ByteArray, publicData: ByteArray): ByteArray {
-    return uniffi.xmtp_dh.diffieHellmanK256(
-        privateData.toUByteArray().toList(),
-        publicData.toUByteArray().toList()
-    ).toUByteArray().toByteArray()
+    return uniffi.xmtpv3.diffieHellmanK256(privateData, publicData).toUByteArray().toByteArray()
 }
 
 fun PrivateKeyBundleV2.findPreKey(myPreKey: SignedPublicKey): SignedPrivateKey {

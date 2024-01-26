@@ -45,9 +45,8 @@ class ConsentList(val client: Client) {
         client.privateKeyBundleV1.identityKey.publicKey.secp256K1Uncompressed.bytes
     private val privateKey = client.privateKeyBundleV1.identityKey.secp256K1.bytes
 
-    @OptIn(ExperimentalUnsignedTypes::class)
-    private val identifier: String = uniffi.xmtp_dh.generatePrivatePreferencesTopicIdentifier(
-        privateKey.toByteArray().toUByteArray().toList()
+    private val identifier: String = uniffi.xmtpv3.generatePrivatePreferencesTopicIdentifier(
+        privateKey.toByteArray()
     )
 
     @OptIn(ExperimentalUnsignedTypes::class)
@@ -59,10 +58,10 @@ class ConsentList(val client: Client) {
         val consentList = ConsentList(client)
         val preferences: MutableList<PrivatePreferencesAction> = mutableListOf()
         for (envelope in envelopes) {
-            val payload = uniffi.xmtp_dh.userPreferencesDecrypt(
-                publicKey.toByteArray().toUByteArray().toList(),
-                privateKey.toByteArray().toUByteArray().toList(),
-                envelope.message.toByteArray().toUByteArray().toList()
+            val payload = uniffi.xmtpv3.userPreferencesDecrypt(
+                publicKey.toByteArray(),
+                privateKey.toByteArray(),
+                envelope.message.toByteArray()
             )
 
             preferences.add(
@@ -84,7 +83,6 @@ class ConsentList(val client: Client) {
         return consentList
     }
 
-    @OptIn(ExperimentalUnsignedTypes::class)
     fun publish(entry: ConsentListEntry) {
         val payload = PrivatePreferencesAction.newBuilder().also {
             when (entry.consentType) {
@@ -100,10 +98,10 @@ class ConsentList(val client: Client) {
             }
         }.build()
 
-        val message = uniffi.xmtp_dh.userPreferencesEncrypt(
-            publicKey.toByteArray().toUByteArray().toList(),
-            privateKey.toByteArray().toUByteArray().toList(),
-            payload.toByteArray().toUByteArray().toList()
+        val message = uniffi.xmtpv3.userPreferencesEncrypt(
+            publicKey.toByteArray(),
+            privateKey.toByteArray(),
+            payload.toByteArray()
         )
 
         val envelope = EnvelopeBuilder.buildFromTopic(
