@@ -11,6 +11,7 @@ import org.web3j.crypto.ECKeyPair
 import org.web3j.crypto.Sign
 import uniffi.xmtpv3.FfiInboxOwner
 import uniffi.xmtpv3.FfiLogger
+import uniffi.xmtpv3.LegacyIdentitySource
 import java.io.File
 import java.nio.charset.StandardCharsets
 import java.security.SecureRandom
@@ -50,7 +51,7 @@ class MainActivity : AppCompatActivity() {
         val dbDir: File = File(this.filesDir.absolutePath, "xmtp_db")
         dbDir.mkdir()
         val dbPath: String = dbDir.absolutePath + "/android_example.db3"
-        val dbEncryptionKey: List<UByte> = SecureRandom().generateSeed(32).asUByteArray().asList()
+        val dbEncryptionKey = SecureRandom().generateSeed(32)
         Log.i(
             "App",
             "INFO -\nprivateKey: " + privateKey.asList() + "\nDB path: " + dbPath + "\nDB encryption key: " + dbEncryptionKey
@@ -60,12 +61,20 @@ class MainActivity : AppCompatActivity() {
             try {
                 val client = uniffi.xmtpv3.createClient(
                     AndroidFfiLogger(),
-                    inboxOwner,
                     EMULATOR_LOCALHOST_ADDRESS,
-                    true,
+                    false,
                     dbPath,
-                    dbEncryptionKey
+                    dbEncryptionKey,
+                    inboxOwner.getAddress(),
+                    LegacyIdentitySource.NONE,
+                    null,
                 )
+                var walletSignature: ByteArray? = null;
+                val textToSign = client.textToSign();
+                if (textToSign != null) {
+                    walletSignature = inboxOwner.sign(textToSign)
+                }
+                client.registerIdentity(walletSignature);
                 textView.text = "Client constructed, wallet address: " + client.accountAddress()
             } catch (e: Exception) {
                 textView.text = "Failed to construct client: " + e.message
