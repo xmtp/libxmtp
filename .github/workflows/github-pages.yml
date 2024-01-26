@@ -37,13 +37,6 @@ jobs:
           profile: minimal
           override: true
 
-      - name: Run tests
-        env:
-          CARGO_INCREMENTAL: 0
-        run: |
-          cargo test
-        id: test
-
       - name: Invoke cargo doc
         run: |
           rm -rf ./_site
