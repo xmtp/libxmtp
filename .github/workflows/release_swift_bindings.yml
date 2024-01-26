@@ -2,10 +2,12 @@ name: Release Swift Bindings
 
 on:
   push:
-    tags:
-      - 'swift-bindings-*'
-jobs:
+    branches:
+      - main
+      - nm/staticlib
+      - cv/release-swift-bindings
 
+jobs:
   build-macos:
     runs-on: macos-latest
     strategy:
@@ -52,7 +54,6 @@ jobs:
           name: ${{ matrix.target }}
           path: bindings_ffi/target/${{ matrix.target }}/release/libxmtpv3.a
           retention-days: 1
-
 
   swift:
     runs-on: macos-latest
@@ -107,6 +108,10 @@ jobs:
           make framework
           zip -r LibXMTPSwiftFFI.zip Sources LibXMTPRust.xcframework
 
+      - name: Get short SHA
+        id: slug
+        run: echo "::set-output name=sha7::$(echo ${GITHUB_SHA} | cut -c1-7)"
+
       - name: Create Release
         id: create_release
         uses: actions/create-release@v1
@@ -114,9 +119,9 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           tag_name: ${{ github.ref }}
-          release_name: ${{ github.ref_name }}
+          release_name: Release-Swift-Bindings-${{ steps.slug.outputs.sha7 }}
           draft: false
-          prerelease: false
+          prerelease: true
 
       - name: Upload Release Asset
         uses: actions/upload-release-asset@v1
