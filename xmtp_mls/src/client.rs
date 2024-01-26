@@ -16,6 +16,7 @@ use crate::{
     xmtp_openmls_provider::XmtpOpenMlsProvider,
     Fetch,
 };
+use futures::{Stream, StreamExt};
 use openmls::{
     framing::{MlsMessageIn, MlsMessageInBody},
     group::GroupEpoch,
@@ -24,7 +25,7 @@ use openmls::{
 };
 use openmls_traits::OpenMlsProvider;
 use prost::EncodeError;
-use std::{collections::HashSet, mem::Discriminant};
+use std::{collections::HashSet, mem::Discriminant, pin::Pin};
 use thiserror::Error;
 use tls_codec::{Deserialize, Error as TlsSerializationError};
 use xmtp_proto::{
@@ -464,39 +465,54 @@ where
             .collect())
     }
 
-    // fn process_streamed_welcome(
-    //     &self,
-    //     envelope: Envelope,
-    // ) -> Result<MlsGroup<ApiClient>, ClientError> {
-    //     let welcome = extract_welcome(&envelope.message)?;
-    //     let conn = self.store.conn()?;
-    //     let provider = self.mls_provider(&conn);
-    //     Ok(MlsGroup::create_from_welcome(self, &provider, welcome)
-    //         .map_err(|e| ClientError::Generic(e.to_string()))?)
-    // }
+    fn process_streamed_welcome(
+        &self,
+        welcome: WelcomeMessage,
+    ) -> Result<MlsGroup<ApiClient>, ClientError> {
+        let welcome_v1 = extract_welcome_message(welcome)?;
+        let conn = self.store.conn()?;
+        let provider = self.mls_provider(&conn);
 
-    // pub async fn stream_conversations(
-    //     &'a self,
-    // ) -> Result<Pin<Box<dyn Stream<Item = MlsGroup<ApiClient>> + 'a>>, ClientError> {
-    //     let welcome_topic = get_welcome_topic(&self.installation_public_key());
-    //     let subscription = self.api_client.subscribe(vec![welcome_topic]).await?;
-    //     let stream = subscription
-    //         .map(|envelope_result| async {
-    //             let envelope = envelope_result?;
-    //             self.process_streamed_welcome(envelope)
-    //         })
-    //         .filter_map(|res| async {
-    //             match res.await {
-    //                 Ok(group) => Some(group),
-    //                 Err(err) => {
-    //                     log::error!("Error processing stream entry: {:?}", err);
-    //                     None
-    //                 }
-    //             }
-    //         });
+        Ok(MlsGroup::create_from_encrypted_welcome(
+            self,
+            &provider,
+            welcome_v1.hpke_public_key.as_slice(),
+            welcome_v1.data,
+        )
+        .map_err(|e| ClientError::Generic(e.to_string()))?)
+    }
 
-    //     Ok(Box::pin(stream))
-    // }
+    pub async fn stream_conversations(
+        &'a self,
+    ) -> Result<Pin<Box<dyn Stream<Item = MlsGroup<ApiClient>> + Send + 'a>>, ClientError> {
+        let installation_key = self.installation_public_key();
+        let id_cursor = self
+            .store
+            .conn()?
+            .get_last_cursor_for_id(&installation_key, EntityKind::Welcome)?;
+
+        let subscription = self
+            .api_client
+            .subscribe_welcome_messages(installation_key, Some(id_cursor as u64))
+            .await?;
+
+        let stream = subscription
+            .map(|welcome_result| async {
+                let welcome = welcome_result?;
+                self.process_streamed_welcome(welcome)
+            })
+            .filter_map(|res| async {
+                match res.await {
+                    Ok(group) => Some(group),
+                    Err(err) => {
+                        log::error!("Error processing stream entry: {:?}", err);
+                        None
+                    }
+                }
+            });
+
+        Ok(Box::pin(stream))
+    }
 }
 
 fn extract_welcome_message(welcome: WelcomeMessage) -> Result<WelcomeMessageV1, ClientError> {
@@ -534,6 +550,7 @@ fn has_active_installation(updates: &Vec<IdentityUpdate>) -> bool {
 
 #[cfg(test)]
 mod tests {
+    use futures::StreamExt;
     use xmtp_cryptography::utils::generate_local_wallet;
 
     use crate::{
@@ -722,20 +739,21 @@ mod tests {
         )
     }
 
-    // #[tokio::test]
-    // async fn test_stream_welcomes() {
-    //     let alice = ClientBuilder::new_test_client(generate_local_wallet().into()).await;
-    //     let bob = ClientBuilder::new_test_client(generate_local_wallet().into()).await;
-    //     bob.register_identity().await.unwrap();
+    #[tokio::test]
+    async fn test_stream_welcomes() {
+        let alice = ClientBuilder::new_test_client(generate_local_wallet().into()).await;
+        let bob = ClientBuilder::new_test_client(generate_local_wallet().into()).await;
+        bob.register_identity().await.unwrap();
 
-    //     let alice_bob_group = alice.create_group().unwrap();
+        let alice_bob_group = alice.create_group().unwrap();
 
-    //     let mut bob_stream = bob.stream_conversations().await.unwrap();
-    //     alice_bob_group
-    //         .add_members_by_installation_id(vec![bob.installation_public_key()])
-    //         .await
-    //         .unwrap();
-    //     let bob_received_groups = bob_stream.next().await.unwrap();
-    //     assert_eq!(bob_received_groups.group_id, alice_bob_group.group_id);
-    // }
+        let mut bob_stream = bob.stream_conversations().await.unwrap();
+        alice_bob_group
+            .add_members(vec![bob.account_address()])
+            .await
+            .unwrap();
+
+        let bob_received_groups = bob_stream.next().await.unwrap();
+        assert_eq!(bob_received_groups.group_id, alice_bob_group.group_id);
+    }
 }
