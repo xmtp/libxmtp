@@ -236,7 +236,7 @@ where
     }
 
     /// Register the identity with the network
-    /// Callers should always call [`text_to_sign`](Self::text_to_sign) before calling this function.
+    /// Callers should always check the result of [`text_to_sign`](Self::text_to_sign) before invoking this function.
     ///
     /// If `text_to_sign` returns `None`, then the wallet signature is not required and this function can be called with `None`.
     ///
