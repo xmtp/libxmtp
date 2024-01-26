@@ -196,7 +196,7 @@ where
     }
 
     /// Look up a group by its ID
-    /// Returns a [`MlsGroup`](crate::groups::MlsGroup) if the group exists, or an error if it does not
+    /// Returns a [`MlsGroup`] if the group exists, or an error if it does not
     pub fn group(&self, group_id: Vec<u8>) -> Result<MlsGroup<ApiClient>, ClientError> {
         let conn = &mut self.store.conn()?;
         let stored_group: Option<StoredGroup> = conn.fetch(&group_id)?;
