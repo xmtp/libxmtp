@@ -8,7 +8,7 @@ use super::{
 };
 use crate::{Delete, Fetch};
 
-/// CRUD Operations for an [`EncryptedMessageStore`]
+/// CRUD Operations for an [`OpenMlsKeyStore`]
 #[derive(Debug)]
 pub struct SqlKeyStore<'a> {
     conn: &'a DbConnection<'a>,
@@ -28,7 +28,7 @@ impl OpenMlsKeyStore for SqlKeyStore<'_> {
     /// The error type returned by the [`OpenMlsKeyStore`].
     type Error = StorageError;
 
-    /// Store a value `v` that implements the [`ToKeyStoreValue`] trait for
+    /// Store a value `v` that implements the [`MlsEntity`] trait for
     /// serialization for ID `k`.
     ///
     /// Returns an error if storing fails.
@@ -39,7 +39,7 @@ impl OpenMlsKeyStore for SqlKeyStore<'_> {
     }
 
     /// Read and return a value stored for ID `k` that implements the
-    /// [`FromKeyStoreValue`] trait for deserialization.
+    /// [`MlsEntity`] trait for deserialization.
     ///
     /// Returns [`None`] if no value is stored for `k` or reading fails.
     fn read<V: MlsEntity>(&self, k: &[u8]) -> Option<V> {
