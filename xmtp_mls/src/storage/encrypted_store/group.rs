@@ -26,10 +26,12 @@ pub type ID = Vec<u8>;
 pub struct StoredGroup {
     /// Randomly generated ID by group creator
     pub id: Vec<u8>,
-    /// based on timestamp of this welcome message
+    /// Based on timestamp of this welcome message
     pub created_at_ns: i64,
-    /// enum, [`GroupMembershipState`] representing access to the group.
+    /// Enum, [`GroupMembershipState`] representing access to the group
     pub membership_state: GroupMembershipState,
+    /// Track when the latest, most recent installation list was checked
+    pub installation_list_last_checked: Option<i64>,
 }
 
 impl_fetch!(StoredGroup, groups, Vec<u8>);
@@ -41,6 +43,7 @@ impl StoredGroup {
             id,
             created_at_ns,
             membership_state,
+            installation_list_last_checked: None,
         }
     }
 }
@@ -87,6 +90,21 @@ impl DbConnection<'_> {
         })?;
 
         Ok(())
+    }
+
+    // TODO: use GroupId instead?  don't need whole group.
+    pub fn update_installation_list_time_checked(
+        &self,
+        group: StoredGroup,
+    ) -> Result<i64, StorageError> {
+        let now = crate::utils::time::now_ns();
+        self.raw_query(|conn| {
+            diesel::update(dsl::groups.find(&group.id))
+                .set(dsl::installation_list_last_checked.eq(Some(now)))
+                .execute(conn)
+        })?;
+
+        Ok(now)
     }
 
     pub fn insert_or_ignore_group(&self, group: StoredGroup) -> Result<StoredGroup, StorageError> {
@@ -161,6 +179,7 @@ pub(crate) mod tests {
             id: rand_vec(),
             created_at_ns: now_ns(),
             membership_state: state.unwrap_or(GroupMembershipState::Allowed),
+            installation_list_last_checked: None,
         }
     }
 

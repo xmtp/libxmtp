@@ -706,6 +706,16 @@ where
         Ok(new_member_installations_count)
     }
 
+     #[allow(dead_code)]
+    pub(super) async fn update_latest_installation_list_timestamp(&self,
+        conn: &DbConnection<'_>
+        ) -> Result<(), GroupError> {
+        let updated_at = conn.update_installation_list_time_checked(self)?;
+        
+        Ok(())
+    }
+   
+
     async fn send_welcomes(&self, action: SendWelcomesAction) -> Result<(), GroupError> {
         let welcomes = action
             .installations
