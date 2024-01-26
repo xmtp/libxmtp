@@ -397,7 +397,7 @@ pub struct FfiMessageStreamCloser {
 
 #[uniffi::export]
 impl FfiMessageStreamCloser {
-    pub fn close(&self) {
+    pub fn end(&self) {
         match self.close_fn.lock() {
             Ok(mut close_fn_option) => {
                 let _ = close_fn_option.take().map(|close_fn| close_fn.send(()));
