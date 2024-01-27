@@ -62,6 +62,19 @@ impl Credential {
         Ok(Self::GrantMessagingAccess(association))
     }
 
+    pub fn create_from_external_signer(
+        association_data: AssociationText,
+        signature: Vec<u8>,
+    ) -> Result<Self, AssociationError> {
+        let association = Eip191Association::new_validated(
+            association_data,
+            RecoverableSignature::Eip191Signature(signature),
+        )?;
+        Ok(Self {
+            association: Association::Eip191(association),
+        })
+    }
+
     pub fn create_legacy(
         legacy_signed_private_key: Vec<u8>,
         installation_public_key: Vec<u8>,

@@ -8,3 +8,7 @@ pub const CIPHERSUITE: Ciphersuite =
 pub const MLS_PROTOCOL_VERSION: ProtocolVersion = ProtocolVersion::Mls10;
 
 pub const WELCOME_HPKE_LABEL: &str = "MLS_WELCOME";
+
+pub const MAX_GROUP_SYNC_RETRIES: usize = 3;
+
+pub const MAX_INTENT_PUBLISH_ATTEMPTS: usize = 3;

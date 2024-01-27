@@ -159,7 +159,7 @@ mod tests {
                 &provider,
                 &client.identity.installation_keys,
                 CredentialWithKey {
-                    credential: client.identity.credential.clone(),
+                    credential: client.identity.credential().unwrap(),
                     signature_key: client.identity.installation_keys.to_public_vec().into(),
                 },
             )

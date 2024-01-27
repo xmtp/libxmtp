@@ -1,4 +1,8 @@
+use std::sync::RwLock;
+
+use chrono::Utc;
 use openmls::{
+    credentials::errors::CredentialError,
     extensions::{errors::InvalidExtensionError, ApplicationIdExtension, LastResortExtension},
     prelude::{
         Capabilities, Credential as OpenMlsCredential, CredentialType, CredentialWithKey,
@@ -11,8 +15,11 @@ use openmls_basic_credential::SignatureKeyPair;
 use openmls_traits::{types::CryptoError, OpenMlsProvider};
 use prost::Message;
 use thiserror::Error;
+use tls_codec::Serialize;
 use xmtp_cryptography::signature::SignatureError;
-use xmtp_proto::xmtp::mls::message_contents::MlsCredential as CredentialProto;
+use xmtp_proto::{
+    api_client::XmtpMlsClient, xmtp::mls::message_contents::MlsCredential as CredentialProto,
+};
 
 use crate::{
     configuration::CIPHERSUITE,
@@ -20,7 +27,7 @@ use crate::{
     storage::{identity::StoredIdentity, StorageError},
     types::Address,
     xmtp_openmls_provider::XmtpOpenMlsProvider,
-    InboxOwner, Store,
+    Fetch, InboxOwner, Store,
 };
 
 #[derive(Debug, Error)]
@@ -39,34 +46,126 @@ pub enum IdentityError {
     Deserialization(#[from] prost::DecodeError),
     #[error("invalid extension")]
     InvalidExtension(#[from] InvalidExtensionError),
+    #[error("uninitialized identity")]
+    UninitializedIdentity,
+    #[error("wallet signature required - please sign the text produced by text_to_sign()")]
+    WalletSignatureRequired,
+    #[error("tls serialization: {0}")]
+    TlsSerialization(#[from] tls_codec::Error),
+    #[error("api error: {0}")]
+    ApiError(#[from] xmtp_proto::api_client::Error),
+    #[error("OpenMLS credential error: {0}")]
+    OpenMlsCredentialError(#[from] CredentialError),
 }
 
 #[derive(Debug)]
 pub struct Identity {
     pub(crate) account_address: Address,
     pub(crate) installation_keys: SignatureKeyPair,
-    pub(crate) credential: OpenMlsCredential,
+    pub(crate) credential: RwLock<Option<OpenMlsCredential>>,
+    pub(crate) unsigned_association_data: Option<AssociationText>,
 }
 
 impl Identity {
-    pub(crate) fn new(
-        provider: &XmtpOpenMlsProvider,
-        owner: &impl InboxOwner,
-    ) -> Result<Self, IdentityError> {
+    pub(crate) fn new(owner: &impl InboxOwner) -> Result<Self, IdentityError> {
         let signature_keys = SignatureKeyPair::new(CIPHERSUITE.signature_algorithm())?;
-        signature_keys.store(provider.key_store())?;
-
         let credential = Identity::create_credential(&signature_keys, owner)?;
 
         let identity = Self {
             account_address: owner.get_address(),
             installation_keys: signature_keys,
-            credential,
+            credential: RwLock::new(Some(credential)),
+            unsigned_association_data: None,
         };
 
-        StoredIdentity::from(&identity).store(provider.conn())?;
+        Ok(identity)
+    }
+
+    pub(crate) fn new_unsigned(account_address: String) -> Result<Self, IdentityError> {
+        let signature_keys = SignatureKeyPair::new(CIPHERSUITE.signature_algorithm())?;
+        let iso8601_time = format!("{}", Utc::now().format("%+"));
+        let unsigned_association_data = AssociationText::new_static(
+            AssociationContext::GrantMessagingAccess,
+            account_address.clone(),
+            signature_keys.to_public_vec(),
+            iso8601_time,
+        );
+        let identity = Self {
+            account_address,
+            installation_keys: signature_keys,
+            credential: RwLock::new(None),
+            unsigned_association_data: Some(unsigned_association_data),
+        };
 
         Ok(identity)
+    }
+
+    pub(crate) async fn register<ApiClient: XmtpMlsClient>(
+        &self,
+        provider: &XmtpOpenMlsProvider<'_>,
+        api_client: &ApiClientWrapper<ApiClient>,
+        recoverable_wallet_signature: Option<Vec<u8>>,
+    ) -> Result<(), IdentityError> {
+        // Do not re-register if already registered
+        let stored_identity: Option<StoredIdentity> = provider.conn().fetch(&())?;
+        if stored_identity.is_some() {
+            return Ok(());
+        }
+
+        // If we do not have a signed credential, apply the provided signature
+        if self.credential().is_err() {
+            if recoverable_wallet_signature.is_none() {
+                return Err(IdentityError::WalletSignatureRequired);
+            }
+
+            let credential_proto: CredentialProto = Credential::create_from_external_signer(
+                self.unsigned_association_data
+                    .clone()
+                    .expect("Unsigned identity is always created with unsigned_association_data"),
+                recoverable_wallet_signature.unwrap(),
+            )?
+            .into();
+            let credential =
+                OpenMlsCredential::new(credential_proto.encode_to_vec(), CredentialType::Basic)?;
+            self.set_credential(credential)?;
+        }
+
+        // Register the installation with the server
+        let kp = self.new_key_package(provider)?;
+        let kp_bytes = kp.tls_serialize_detached()?;
+        api_client.register_installation(kp_bytes).await?;
+
+        // Only persist the installation keys if the registration was successful
+        self.installation_keys.store(provider.key_store())?;
+        StoredIdentity::from(self).store(provider.conn())?;
+
+        Ok(())
+    }
+
+    pub(crate) fn credential(&self) -> Result<OpenMlsCredential, IdentityError> {
+        self.credential
+            .read()
+            .unwrap_or_else(|err| err.into_inner())
+            .clone()
+            .ok_or(IdentityError::UninitializedIdentity)
+    }
+
+    fn set_credential(&self, credential: OpenMlsCredential) -> Result<(), IdentityError> {
+        let mut credential_opt = self
+            .credential
+            .write()
+            .unwrap_or_else(|err| err.into_inner());
+        *credential_opt = Some(credential);
+        Ok(())
+    }
+
+    pub(crate) fn text_to_sign(&self) -> Option<String> {
+        if self.credential().is_ok() {
+            return None;
+        }
+        self.unsigned_association_data
+            .clone()
+            .map(|data| data.text())
     }
 
     // ONLY CREATES LAST RESORT KEY PACKAGES
@@ -101,7 +200,7 @@ impl Identity {
                 provider,
                 &self.installation_keys,
                 CredentialWithKey {
-                    credential: self.credential.clone(),
+                    credential: self.credential()?,
                     signature_key: self.installation_keys.to_public_vec().into(),
                 },
             )?;
@@ -115,10 +214,10 @@ impl Identity {
     ) -> Result<OpenMlsCredential, IdentityError> {
         let credential = Credential::create(installation_keys, owner)?;
         let credential_proto: CredentialProto = credential.into();
-        Ok(
-            OpenMlsCredential::new(credential_proto.encode_to_vec(), CredentialType::Basic)
-                .unwrap(),
-        )
+        Ok(OpenMlsCredential::new(
+            credential_proto.encode_to_vec(),
+            CredentialType::Basic,
+        )?)
     }
 
     pub(crate) fn get_validated_account_address(
@@ -142,31 +241,99 @@ impl Identity {
 
 #[cfg(test)]
 mod tests {
+    use ethers::signers::Signer;
     use openmls::prelude::ExtensionType;
+    use xmtp_api_grpc::grpc_api_helper::Client as GrpcClient;
     use xmtp_cryptography::utils::generate_local_wallet;
 
     use super::Identity;
-    use crate::{storage::EncryptedMessageStore, xmtp_openmls_provider::XmtpOpenMlsProvider};
+    use crate::{
+        api_client_wrapper::{tests::get_test_api_client, ApiClientWrapper},
+        storage::EncryptedMessageStore,
+        xmtp_openmls_provider::XmtpOpenMlsProvider,
+        InboxOwner,
+    };
 
-    #[test]
-    fn does_not_error() {
+    async fn get_test_resources() -> (EncryptedMessageStore, ApiClientWrapper<GrpcClient>) {
         let store = EncryptedMessageStore::new_test();
-        let conn = &store.conn().unwrap();
-        let provider = XmtpOpenMlsProvider::new(conn);
-        Identity::new(&provider, &generate_local_wallet()).unwrap();
+        let api_client = get_test_api_client().await;
+        (store, api_client)
     }
 
-    #[test]
-    fn test_key_package_extensions() {
-        let store = EncryptedMessageStore::new_test();
-        let conn = &store.conn().unwrap();
-        let provider = XmtpOpenMlsProvider::new(conn);
-        let identity = Identity::new(&provider, &generate_local_wallet()).unwrap();
+    #[tokio::test]
+    async fn does_not_error() {
+        let (store, api_client) = get_test_resources().await;
+        let conn = store.conn().unwrap();
+        let provider = XmtpOpenMlsProvider::new(&conn);
+        let identity = Identity::new(&generate_local_wallet()).unwrap();
+        identity
+            .register(&provider, &api_client, None)
+            .await
+            .unwrap();
+    }
+
+    #[tokio::test]
+    async fn test_key_package_extensions() {
+        let (store, api_client) = get_test_resources().await;
+        let conn = store.conn().unwrap();
+        let provider = XmtpOpenMlsProvider::new(&conn);
+        let identity = Identity::new(&generate_local_wallet()).unwrap();
+        identity
+            .register(&provider, &api_client, None)
+            .await
+            .unwrap();
 
         let new_key_package = identity.new_key_package(&provider).unwrap();
         assert!(new_key_package
             .extensions()
             .contains(ExtensionType::LastResort));
         assert!(new_key_package.last_resort())
+    }
+
+    #[tokio::test]
+    async fn test_duplicate_registration() {
+        let (store, api_client) = get_test_resources().await;
+        let conn = store.conn().unwrap();
+        let provider = XmtpOpenMlsProvider::new(&conn);
+        let identity = Identity::new(&generate_local_wallet()).unwrap();
+        identity
+            .register(&provider, &api_client, None)
+            .await
+            .unwrap();
+        identity
+            .register(&provider, &api_client, None)
+            .await
+            .unwrap();
+    }
+
+    #[tokio::test]
+    async fn test_valid_external_signature() {
+        let (store, api_client) = get_test_resources().await;
+        let conn = store.conn().unwrap();
+        let provider = XmtpOpenMlsProvider::new(&conn);
+        let wallet = generate_local_wallet();
+        let identity = Identity::new_unsigned(wallet.get_address()).unwrap();
+        let text_to_sign = identity.text_to_sign().unwrap();
+        let signature = wallet.sign_message(text_to_sign).await.unwrap().to_vec();
+        identity
+            .register(&provider, &api_client, Some(signature))
+            .await
+            .unwrap();
+    }
+
+    #[tokio::test]
+    async fn test_invalid_external_signature() {
+        let (store, api_client) = get_test_resources().await;
+        let conn = store.conn().unwrap();
+        let provider = XmtpOpenMlsProvider::new(&conn);
+        let wallet = generate_local_wallet();
+        let identity = Identity::new_unsigned(wallet.get_address()).unwrap();
+        let text_to_sign = identity.text_to_sign().unwrap();
+        let mut signature = wallet.sign_message(text_to_sign).await.unwrap().to_vec();
+        signature[0] ^= 1; // Tamper with signature
+        assert!(identity
+            .register(&provider, &api_client, Some(signature))
+            .await
+            .is_err());
     }
 }
