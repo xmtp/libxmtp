@@ -108,6 +108,12 @@ jobs:
           make framework
           zip -r LibXMTPSwiftFFI.zip Sources LibXMTPRust.xcframework ../LICENSE
 
+      - name: Calculate checksum
+        id: checksum
+        working-directory: bindings_ffi
+        run: |
+          echo "::set-output name=checksum::$(swift package compute-checksum LibXMTPSwiftFFI.zip)"
+
       - name: Get short SHA
         id: slug
         run: echo "::set-output name=sha7::$(echo ${GITHUB_SHA} | cut -c1-7)"
@@ -120,6 +126,7 @@ jobs:
         with:
           tag_name: test-swift-bindings-${{ steps.slug.outputs.sha7 }}
           release_name: Test-Swift-Bindings-${{ steps.slug.outputs.sha7 }}
+          body: "Checksum of LibXMTPSwiftFFI.zip: ${{ steps.checksum.outputs.checksum }}"
           draft: false
           prerelease: true
 
