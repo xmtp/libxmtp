@@ -106,7 +106,7 @@ jobs:
           mkdir -p Sources/LibXMTP
           mv build/swift/xmtpv3.swift Sources/LibXMTP/
           make framework
-          zip -r LibXMTPSwiftFFI.zip Sources LibXMTPRust.xcframework
+          zip -r LibXMTPSwiftFFI.zip Sources LibXMTPRust.xcframework ../LICENSE
 
       - name: Get short SHA
         id: slug
@@ -118,7 +118,7 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
-          tag_name: test-swift-bindings-${{ github.ref }}
+          tag_name: test-swift-bindings-${{ steps.slug.outputs.sha7 }}
           release_name: Test-Swift-Bindings-${{ steps.slug.outputs.sha7 }}
           draft: false
           prerelease: true
