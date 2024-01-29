@@ -1,11 +1,7 @@
 name: Release Swift Bindings
 
 on:
-  push:
-    branches:
-      - main
-      - nm/staticlib
-      - cv/release-swift-bindings
+  workflow_dispatch:
 
 jobs:
   build-macos:
@@ -106,7 +102,6 @@ jobs:
           mkdir -p Sources/LibXMTP
           mv build/swift/xmtpv3.swift Sources/LibXMTP/
           make framework
-          ls -la ../
           cp ../LICENSE ./LICENSE
           zip -r LibXMTPSwiftFFI.zip Sources LibXMTPRust.xcframework LICENSE
 
@@ -126,8 +121,8 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
-          tag_name: test-swift-bindings-${{ steps.slug.outputs.sha7 }}
-          release_name: Test-Swift-Bindings-${{ steps.slug.outputs.sha7 }}
+          tag_name: swift-bindings-${{ steps.slug.outputs.sha7 }}
+          release_name: Swift-Bindings-${{ steps.slug.outputs.sha7 }}
           body: "Checksum of LibXMTPSwiftFFI.zip: ${{ steps.checksum.outputs.checksum }}"
           draft: false
           prerelease: true
