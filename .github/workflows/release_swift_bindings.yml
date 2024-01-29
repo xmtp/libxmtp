@@ -106,13 +106,15 @@ jobs:
           mkdir -p Sources/LibXMTP
           mv build/swift/xmtpv3.swift Sources/LibXMTP/
           make framework
-          zip -r LibXMTPSwiftFFI.zip Sources LibXMTPRust.xcframework ../LICENSE
+          ls -la ../
+          cp ../LICENSE ./LICENSE
+          zip -r LibXMTPSwiftFFI.zip Sources LibXMTPRust.xcframework LICENSE
 
       - name: Calculate checksum
         id: checksum
         working-directory: bindings_ffi
         run: |
-          echo "::set-output name=checksum::$(swift package compute-checksum LibXMTPSwiftFFI.zip)"
+          echo "::set-output name=checksum::$(shasum -a 256 LibXMTPSwiftFFI.zip | awk '{ print $1 }')"
 
       - name: Get short SHA
         id: slug
