@@ -11,7 +11,12 @@ members = [
   "xmtp_mls",
 ]
 
-exclude = ["bindings_ffi", "bindings_wasm", "xmtp_api_grpc_gateway"]
+exclude = [
+  "bindings_ffi",
+  "bindings_flutter",
+  "bindings_wasm",
+  "xmtp_api_grpc_gateway",
+]
 
 # Make the feature resolver explicit.
 # See https://doc.rust-lang.org/edition-guide/rust-2021/default-cargo-resolver.html#details
