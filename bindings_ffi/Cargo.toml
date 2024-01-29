@@ -4,7 +4,7 @@ name = "xmtpv3"
 version = "0.1.0"
 
 [lib]
-crate-type = ["lib", "cdylib"]
+crate-type = ["lib", "cdylib", "staticlib"]
 
 [dependencies]
 futures = "0.3.28"

@@ -1,0 +1,138 @@
+name: Release Swift Bindings
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build-macos:
+    runs-on: macos-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        target: [aarch64-apple-darwin, aarch64-apple-ios, aarch64-apple-ios-sim]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v1
+
+      - name: "Cache"
+        uses: actions/cache@v3
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            ./target/${{ matrix.target }}
+          key: ${{ matrix.target }}-${{ hashFiles('**/Cargo.toml','**/Cargo.lock') }}
+
+      - name: Install rust
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+          profile: minimal
+          override: true
+          target: ${{ matrix.target }}
+
+      # Install latest cross to mitigate unwind linking issue on android builds.
+      # See https://github.com/cross-rs/cross/issues/1222
+      - name: Install rust cross
+        run: |
+          cargo install cross --git https://github.com/cross-rs/cross
+
+      - name: Build target
+        uses: actions-rs/cargo@v1
+        with:
+          use-cross: true
+          command: build
+          args: --release --target ${{ matrix.target }} --manifest-path bindings_ffi/Cargo.toml --target-dir bindings_ffi/target
+
+      - name: Upload binary
+        uses: actions/upload-artifact@v3
+        with:
+          name: ${{ matrix.target }}
+          path: bindings_ffi/target/${{ matrix.target }}/release/libxmtpv3.a
+          retention-days: 1
+
+  swift:
+    runs-on: macos-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v1
+      - name: Cache
+        uses: actions/cache@v3
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            ./target/release
+          key: ${{ hashFiles('**/Cargo.toml','**/Cargo.lock') }}
+      - name: Install rust
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+          profile: minimal
+          override: true
+          target: x86_64-apple-darwin
+      - name: Install swift
+        run: brew install swiftformat
+      - name: Generate bindings
+        working-directory: bindings_ffi
+        run: |
+          make swift
+      - name: Upload artifact
+        uses: actions/upload-artifact@v3
+        with:
+          name: swift
+          path: bindings_ffi/build/swift/
+          retention-days: 1
+
+  package-swift:
+    needs: [build-macos, swift]
+    runs-on: macos-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v1
+
+      - name: Download artifacts
+        uses: actions/download-artifact@v3
+        with:
+          path: bindings_ffi/build
+
+      - name: Build archive
+        working-directory: bindings_ffi
+        run: |
+          mkdir -p Sources/LibXMTP
+          mv build/swift/xmtpv3.swift Sources/LibXMTP/
+          make framework
+          cp ../LICENSE ./LICENSE
+          zip -r LibXMTPSwiftFFI.zip Sources LibXMTPRust.xcframework LICENSE
+
+      - name: Calculate checksum
+        id: checksum
+        working-directory: bindings_ffi
+        run: |
+          echo "::set-output name=checksum::$(shasum -a 256 LibXMTPSwiftFFI.zip | awk '{ print $1 }')"
+
+      - name: Get short SHA
+        id: slug
+        run: echo "::set-output name=sha7::$(echo ${GITHUB_SHA} | cut -c1-7)"
+
+      - name: Create Release
+        id: create_release
+        uses: actions/create-release@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tag_name: swift-bindings-${{ steps.slug.outputs.sha7 }}
+          release_name: Swift-Bindings-${{ steps.slug.outputs.sha7 }}
+          body: "Checksum of LibXMTPSwiftFFI.zip: ${{ steps.checksum.outputs.checksum }}"
+          draft: false
+          prerelease: true
+
+      - name: Upload Release Asset
+        uses: actions/upload-release-asset@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: ${{ steps.create_release.outputs.upload_url }}
+          asset_path: ./bindings_ffi/LibXMTPSwiftFFI.zip
+          asset_name: LibXMTPSwiftFFI.zip
+          asset_content_type: application/zip
