@@ -77,6 +77,10 @@ impl VerifiedKeyPackage {
     pub fn installation_id(&self) -> Vec<u8> {
         self.inner.leaf_node().signature_key().as_slice().to_vec()
     }
+
+    pub fn hpke_init_key(&self) -> Vec<u8> {
+        self.inner.hpke_init_key().as_slice().to_vec()
+    }
 }
 
 fn identity_to_account_address(
@@ -155,7 +159,7 @@ mod tests {
                 &provider,
                 &client.identity.installation_keys,
                 CredentialWithKey {
-                    credential: client.identity.credential.clone(),
+                    credential: client.identity.credential().unwrap(),
                     signature_key: client.identity.installation_keys.to_public_vec().into(),
                 },
             )

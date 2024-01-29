@@ -59,6 +59,19 @@ impl Credential {
         })
     }
 
+    pub fn from_external_signer(
+        association_data: AssociationText,
+        signature: Vec<u8>,
+    ) -> Result<Self, AssociationError> {
+        let association = Eip191Association::new_validated(
+            association_data,
+            RecoverableSignature::Eip191Signature(signature),
+        )?;
+        Ok(Self {
+            association: Association::Eip191(association),
+        })
+    }
+
     pub fn from_proto_validated(
         proto: MlsCredentialProto,
         expected_account_address: Option<&str>, // Must validate when fetching identity updates
@@ -215,7 +228,7 @@ impl From<Eip191Association> for Eip191AssociationProto {
 /// the XMTP installation public key. Different standards may choose how this information is
 /// encoded, as well as adding extra requirements for increased security.
 #[derive(Serialize, Deserialize, PartialEq, Debug, Clone)]
-struct AssociationText {
+pub struct AssociationText {
     context: AssociationContext,
     data: AssociationData,
 }

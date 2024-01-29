@@ -1,0 +1,10 @@
+#!/usr/bin/env bash
+set -eou pipefail
+
+rm -rf ./_site
+cargo doc --workspace --no-deps
+rm -f target/doc/.lock
+cp -r target/doc _site
+echo "generating site index"
+echo "<meta http-equiv=\"refresh\" content=\"0; url=xmtp_mls/index.html\">" > _site/index.html
+chmod -R +rX _site

@@ -2,16 +2,19 @@ use std::collections::HashMap;
 
 use crate::{retry::Retry, retry_async};
 use xmtp_proto::{
-    api_client::{Error as ApiError, ErrorKind, GroupMessageStream, XmtpMlsClient},
+    api_client::{
+        Error as ApiError, ErrorKind, GroupMessageStream, WelcomeMessageStream, XmtpMlsClient,
+    },
     xmtp::mls::api::v1::{
         get_identity_updates_response::update::Kind as UpdateKind,
         group_message_input::{Version as GroupMessageInputVersion, V1 as GroupMessageInputV1},
         subscribe_group_messages_request::Filter as GroupFilterProto,
+        subscribe_welcome_messages_request::Filter as WelcomeFilterProto,
         FetchKeyPackagesRequest, GetIdentityUpdatesRequest, GroupMessage, GroupMessageInput,
         KeyPackageUpload, PagingInfo, QueryGroupMessagesRequest, QueryWelcomeMessagesRequest,
         RegisterInstallationRequest, SendGroupMessagesRequest, SendWelcomeMessagesRequest,
-        SortDirection, SubscribeGroupMessagesRequest, UploadKeyPackageRequest, WelcomeMessage,
-        WelcomeMessageInput,
+        SortDirection, SubscribeGroupMessagesRequest, SubscribeWelcomeMessagesRequest,
+        UploadKeyPackageRequest, WelcomeMessage, WelcomeMessageInput,
     },
 };
 
@@ -293,6 +296,7 @@ where
             .map(|msg| GroupMessageInput {
                 version: Some(GroupMessageInputVersion::V1(GroupMessageInputV1 {
                     data: msg.to_vec(),
+                    sender_hmac: vec![],
                 })),
             })
             .collect();
@@ -318,6 +322,21 @@ where
         self.api_client
             .subscribe_group_messages(SubscribeGroupMessagesRequest {
                 filters: filters.into_iter().map(|f| f.into()).collect(),
+            })
+            .await
+    }
+
+    pub async fn subscribe_welcome_messages(
+        &self,
+        installation_key: Vec<u8>,
+        id_cursor: Option<u64>,
+    ) -> Result<WelcomeMessageStream, ApiError> {
+        self.api_client
+            .subscribe_welcome_messages(SubscribeWelcomeMessagesRequest {
+                filters: vec![WelcomeFilterProto {
+                    installation_key,
+                    id_cursor: id_cursor.unwrap_or(0),
+                }],
             })
             .await
     }
@@ -348,9 +367,10 @@ type KeyPackageMap = HashMap<Vec<u8>, Vec<u8>>;
 type IdentityUpdatesMap = HashMap<String, Vec<IdentityUpdate>>;
 
 #[cfg(test)]
-mod tests {
+pub mod tests {
     use async_trait::async_trait;
     use mockall::mock;
+    use xmtp_api_grpc::grpc_api_helper::Client as GrpcClient;
     use xmtp_proto::{
         api_client::{Error, ErrorKind, GroupMessageStream, WelcomeMessageStream, XmtpMlsClient},
         xmtp::mls::api::v1::{
@@ -371,6 +391,15 @@ mod tests {
     use super::ApiClientWrapper;
     use crate::retry::Retry;
 
+    pub async fn get_test_api_client() -> ApiClientWrapper<GrpcClient> {
+        ApiClientWrapper::new(
+            GrpcClient::create("http://localhost:5556".to_string(), false)
+                .await
+                .unwrap(),
+            Retry::default(),
+        )
+    }
+
     fn build_group_messages(num_messages: usize, group_id: Vec<u8>) -> Vec<GroupMessage> {
         let mut out: Vec<GroupMessage> = vec![];
         for i in 0..num_messages {
@@ -380,6 +409,7 @@ mod tests {
                     created_ns: i as u64,
                     group_id: group_id.clone(),
                     data: vec![i as u8],
+                    sender_hmac: vec![],
                 })),
             })
         }

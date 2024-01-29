@@ -1,24 +1,24 @@
 [package]
 edition = "2021"
-name    = "xmtpv3"
+name = "xmtpv3"
 version = "0.1.0"
 
 [lib]
 crate-type = ["lib", "cdylib", "staticlib"]
 
 [dependencies]
-futures               = "0.3.28"
-log                   = { version = "0.4", features = ["std"] }
-thiserror             = "1.0.56"
-tokio                 = { version = "1.28.1", features = ["macros"] }
-uniffi                = { version = "0.25.3", features = ["tokio", "cli"] }
-uniffi_macros         = "0.25.3"
-xmtp_api_grpc         = { path = "../xmtp_api_grpc" }
-xmtp_cryptography     = { path = "../xmtp_cryptography" }
-xmtp_mls              = { path = "../xmtp_mls", features = ["grpc", "native"] }
-xmtp_proto            = { path = "../xmtp_proto", features = ["proto_full", "grpc"] }
+futures = "0.3.28"
+log = { version = "0.4", features = ["std"] }
+thiserror = "1.0.56"
+tokio = { version = "1.28.1", features = ["macros"] }
+uniffi = { version = "0.25.3", features = ["tokio", "cli"] }
+uniffi_macros = "0.25.3"
+xmtp_api_grpc = { path = "../xmtp_api_grpc" }
+xmtp_cryptography = { path = "../xmtp_cryptography" }
+xmtp_mls = { path = "../xmtp_mls", features = ["grpc", "native"] }
+xmtp_proto = { path = "../xmtp_proto", features = ["proto_full", "grpc"] }
 xmtp_user_preferences = { path = "../xmtp_user_preferences" }
-xmtp_v2               = { path = "../xmtp_v2" }
+xmtp_v2 = { path = "../xmtp_v2" }
 
 [build-dependencies]
 uniffi = { version = "0.25.3", features = ["build"] }
@@ -28,17 +28,17 @@ name = "ffi-uniffi-bindgen"
 path = "src/bin.rs"
 
 [dev-dependencies]
-ethers      = "2.0.4"
+ethers = "2.0.4"
 ethers-core = "2.0.4"
-tempfile    = "3.5.0"
-tokio       = { version = "1.28.1", features = ["full"] }
-uniffi      = { version = "0.25.3", features = ["bindgen-tests"] }
+tempfile = "3.5.0"
+tokio = { version = "1.28.1", features = ["full"] }
+uniffi = { version = "0.25.3", features = ["bindgen-tests"] }
 
 # NOTE: The release profile reduces bundle size from 230M to 41M - may have performance impliciations
 # https://stackoverflow.com/a/54842093
 [profile.release]
-codegen-units = 1       # Reduce number of codegen units to increase optimizations
-lto           = true    # Enable link-time optimization
-opt-level     = 'z'     # Optimize for size
-panic         = 'abort' # Abort on panic
-strip         = true    # Strip symbols from binary*
+codegen-units = 1 # Reduce number of codegen units to increase optimizations
+lto = true        # Enable link-time optimization
+opt-level = 'z'   # Optimize for size
+panic = 'abort'   # Abort on panic
+strip = true      # Strip symbols from binary*
