@@ -104,26 +104,12 @@ jobs:
         with:
           path: bindings_ffi/build
 
-      - name: Install rust
-        uses: actions-rs/toolchain@v1
-        with:
-          toolchain: stable
-          profile: minimal
-          override: true
-          target: ${{ matrix.target }}
-  
-        # Install latest cross to mitigate unwind linking issue on android builds.
-        # See https://github.com/cross-rs/cross/issues/1222
-      - name: Install rust cross
-        run: |
-          cargo install cross --git https://github.com/cross-rs/cross
-
       - name: Build archive
         working-directory: bindings_ffi
         run: |
           mkdir -p Sources/LibXMTP
           mv build/swift/xmtpv3.swift Sources/LibXMTP/
-          make swiftaction
+          make framework
           cp ../LICENSE ./LICENSE
           zip -r LibXMTPSwiftFFI.zip Sources LibXMTPRust.xcframework LICENSE
 
