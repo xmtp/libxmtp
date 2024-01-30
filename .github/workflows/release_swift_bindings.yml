@@ -1,6 +1,9 @@
 name: Release Swift Bindings
 
 on:
+  push:
+    branches:
+      - cv/fix-gh-action-arch-targets-swift-bindings
   workflow_dispatch:
 
 jobs:
@@ -101,7 +104,7 @@ jobs:
         run: |
           mkdir -p Sources/LibXMTP
           mv build/swift/xmtpv3.swift Sources/LibXMTP/
-          make framework
+          make swiftaction
           cp ../LICENSE ./LICENSE
           zip -r LibXMTPSwiftFFI.zip Sources LibXMTPRust.xcframework LICENSE
 
