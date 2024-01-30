@@ -78,6 +78,4 @@ swift:
 
 swiftlocal: libxmtpv3.a swift framework 
 
-swiftaction: libxmtpv3.a framework 
-
 .PHONY: $(ARCHS_IOS) $(ARCHS_MAC) framework all aarch64-apple-ios install-jar echo-jar download-toolchains swift lipo
