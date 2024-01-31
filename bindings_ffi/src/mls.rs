@@ -9,6 +9,7 @@ use std::sync::{Arc, Mutex};
 use tokio::sync::{oneshot, oneshot::Sender};
 use xmtp_api_grpc::grpc_api_helper::Client as TonicApiClient;
 use xmtp_mls::builder::IdentityStrategy;
+use xmtp_mls::utils::address::sanitize_evm_addresses;
 use xmtp_mls::{
     builder::ClientBuilder,
     client::Client as MlsClient,
@@ -118,8 +119,9 @@ impl FfiXmtpClient {
         account_addresses: Vec<String>,
     ) -> Result<Vec<bool>, GenericError> {
         let inner = self.inner_client.as_ref();
+        let sanitized_addresses = sanitize_evm_addresses(account_addresses)?;
 
-        let results: Vec<bool> = inner.can_message(account_addresses).await?;
+        let results: Vec<bool> = inner.can_message(sanitized_addresses).await?;
 
         Ok(results)
     }
@@ -709,6 +711,57 @@ mod tests {
         signature[0] ^= 1;
 
         assert!(client.register_identity(Some(signature)).await.is_err());
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+    async fn test_can_message() {
+        let amal = LocalWalletInboxOwner::new();
+        let bola = LocalWalletInboxOwner::new();
+        let path = tmp_path();
+
+        let client_amal = create_client(
+            Box::new(MockLogger {}),
+            xmtp_api_grpc::LOCALHOST_ADDRESS.to_string(),
+            false,
+            Some(path.clone()),
+            None,
+            amal.get_address(),
+            LegacyIdentitySource::None,
+            None,
+        )
+        .await
+        .unwrap();
+        assert!(
+            !client_amal
+                .can_message(vec![bola.get_address()])
+                .await
+                .unwrap()[0]
+        );
+
+        let client_bola = create_client(
+            Box::new(MockLogger {}),
+            xmtp_api_grpc::LOCALHOST_ADDRESS.to_string(),
+            false,
+            Some(path.clone()),
+            None,
+            bola.get_address(),
+            LegacyIdentitySource::None,
+            None,
+        )
+        .await
+        .unwrap();
+        let text_to_sign = client_bola.text_to_sign().unwrap();
+        let signature = bola.sign(text_to_sign).unwrap();
+        client_bola
+            .register_identity(Some(signature))
+            .await
+            .unwrap();
+        assert!(
+            client_amal
+                .can_message(vec![bola.get_address()])
+                .await
+                .unwrap()[0]
+        );
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 5)]

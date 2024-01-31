@@ -26,6 +26,8 @@ pub enum GenericError {
     GroupError(#[from] xmtp_mls::groups::GroupError),
     #[error("Signature: {0}")]
     Signature(#[from] xmtp_cryptography::signature::SignatureError),
+    #[error("Address validation: {0}")]
+    AddressValidation(#[from] xmtp_mls::utils::address::AddressValidationError),
     #[error("Generic {err}")]
     Generic { err: String },
 }
