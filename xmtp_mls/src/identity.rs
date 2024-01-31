@@ -90,7 +90,7 @@ impl Identity {
             account_address.clone(),
             signature_keys.to_public_vec(),
             iso8601_time,
-        );
+        )?;
         let identity = Self {
             account_address,
             installation_keys: signature_keys,
