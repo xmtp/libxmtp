@@ -1,3 +1,5 @@
+use crate::utils::address::sanitize_evm_addresses;
+use crate::utils::address::AddressValidationError;
 use crate::{types::Address, InboxOwner};
 use chrono::Utc;
 use openmls_basic_credential::SignatureKeyPair;
@@ -14,7 +16,7 @@ use xmtp_proto::xmtp::mls::message_contents::{
 
 #[derive(Debug, Error)]
 pub enum AssociationError {
-    #[error("bad signature")]
+    #[error("Bad signature")]
     BadSignature(#[from] SignatureError),
     #[error("Association text mismatch")]
     TextMismatch,
@@ -27,6 +29,8 @@ pub enum AssociationError {
         provided_addr: Address,
         signing_addr: Address,
     },
+    #[error("Bad address")]
+    BadAddress(#[from] AddressValidationError),
     #[error("Malformed association")]
     MalformedAssociation,
 }
@@ -51,7 +55,7 @@ impl Credential {
             owner.get_address(),
             installation_keys.to_public_vec(),
             iso8601_time,
-        );
+        )?;
         let signature = owner.sign(&assoc_text.text())?;
         let association = Eip191Association::new_validated(assoc_text, signature)?;
         Ok(Self {
@@ -163,7 +167,7 @@ impl Eip191Association {
             proto.account_address,
             expected_installation_public_key.to_vec(),
             proto.iso8601_time,
-        );
+        )?;
         let signature = RecoverableSignature::Eip191Signature(proto.signature.unwrap().bytes);
         Self::new_validated(text, signature)
     }
@@ -184,10 +188,11 @@ impl Eip191Association {
 
         let addr = self.signature.recover_address(&self.text.text())?;
 
-        if assumed_addr != addr {
+        let sanitized_addresses = sanitize_evm_addresses(vec![assumed_addr, addr])?;
+        if sanitized_addresses[0] != sanitized_addresses[1] {
             Err(AssociationError::AddressMismatch {
-                provided_addr: assumed_addr,
-                signing_addr: addr,
+                provided_addr: sanitized_addresses[0].clone(),
+                signing_addr: sanitized_addresses[1].clone(),
             })
         } else {
             Ok(())
@@ -313,7 +318,7 @@ impl AssociationText {
                 account_address.to_string(),
                 installation_public_key.to_vec(),
                 iso8601_time.to_string(),
-            )
+            )?
             .text()
         {
             return Ok(());
@@ -327,15 +332,16 @@ impl AssociationText {
         account_address: String,
         installation_public_key: Vec<u8>,
         iso8601_time: String,
-    ) -> Self {
-        Self {
+    ) -> Result<Self, AssociationError> {
+        let account_address = sanitize_evm_addresses(vec![account_address])?[0].clone();
+        Ok(Self {
             context,
             data: AssociationData::Static {
                 account_address,
                 installation_public_key,
                 iso8601_time,
             },
-        }
+        })
     }
 }
 
@@ -373,7 +379,8 @@ pub mod tests {
             addr.clone(),
             key_bytes.clone(),
             grant_time.to_string(),
-        );
+        )
+        .unwrap();
         let sig = wallet.sign_message(text.text()).await.expect("BadSign");
 
         let bad_key_bytes = vec![11, 22, 33];
@@ -382,31 +389,36 @@ pub mod tests {
             addr.clone(),
             bad_key_bytes.clone(),
             grant_time.to_string(),
-        );
+        )
+        .unwrap();
         let bad_text2 = AssociationText::new_static(
             AssociationContext::GrantMessagingAccess,
             other_addr.clone(),
             key_bytes.clone(),
             grant_time.to_string(),
-        );
+        )
+        .unwrap();
         let bad_text3 = AssociationText::new_static(
             AssociationContext::GrantMessagingAccess,
             addr.clone(),
             key_bytes.clone(),
             bad_grant_time.to_string(),
-        );
+        )
+        .unwrap();
         let bad_text4 = AssociationText::new_static(
             AssociationContext::RevokeMessagingAccess,
             addr.clone(),
             key_bytes.clone(),
             grant_time.to_string(),
-        );
+        )
+        .unwrap();
         let other_text = AssociationText::new_static(
             AssociationContext::GrantMessagingAccess,
             other_addr.clone(),
             key_bytes.clone(),
             grant_time.to_string(),
-        );
+        )
+        .unwrap();
 
         let other_sig = wallet
             .sign_message(other_text.text())
@@ -431,7 +443,8 @@ pub mod tests {
             addr.clone(),
             key_bytes.clone(),
             "2021-01-01T00:00:00Z".to_string(),
-        );
+        )
+        .unwrap();
         let sig = wallet.sign_message(text.text()).await.expect("BadSign");
 
         let assoc = Eip191Association::new_validated(text.clone(), sig.into()).unwrap();
