@@ -711,6 +711,57 @@ mod tests {
         assert!(client.register_identity(Some(signature)).await.is_err());
     }
 
+    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+    async fn test_can_message() {
+        let amal = LocalWalletInboxOwner::new();
+        let bola = LocalWalletInboxOwner::new();
+        let path = tmp_path();
+
+        let client_amal = create_client(
+            Box::new(MockLogger {}),
+            xmtp_api_grpc::LOCALHOST_ADDRESS.to_string(),
+            false,
+            Some(path.clone()),
+            None,
+            amal.get_address(),
+            LegacyIdentitySource::None,
+            None,
+        )
+        .await
+        .unwrap();
+        assert!(
+            !client_amal
+                .can_message(vec![bola.get_address()])
+                .await
+                .unwrap()[0]
+        );
+
+        let client_bola = create_client(
+            Box::new(MockLogger {}),
+            xmtp_api_grpc::LOCALHOST_ADDRESS.to_string(),
+            false,
+            Some(path.clone()),
+            None,
+            bola.get_address(),
+            LegacyIdentitySource::None,
+            None,
+        )
+        .await
+        .unwrap();
+        let text_to_sign = client_bola.text_to_sign().unwrap();
+        let signature = bola.sign(text_to_sign).unwrap();
+        client_bola
+            .register_identity(Some(signature))
+            .await
+            .unwrap();
+        assert!(
+            client_amal
+                .can_message(vec![bola.get_address()])
+                .await
+                .unwrap()[0]
+        );
+    }
+
     #[tokio::test(flavor = "multi_thread", worker_threads = 5)]
     async fn test_conversation_streaming() {
         let amal = new_test_client().await;
