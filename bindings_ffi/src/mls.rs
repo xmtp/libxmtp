@@ -9,7 +9,6 @@ use std::sync::{Arc, Mutex};
 use tokio::sync::{oneshot, oneshot::Sender};
 use xmtp_api_grpc::grpc_api_helper::Client as TonicApiClient;
 use xmtp_mls::builder::IdentityStrategy;
-use xmtp_mls::utils::address::sanitize_evm_addresses;
 use xmtp_mls::{
     builder::ClientBuilder,
     client::Client as MlsClient,
@@ -119,9 +118,8 @@ impl FfiXmtpClient {
         account_addresses: Vec<String>,
     ) -> Result<Vec<bool>, GenericError> {
         let inner = self.inner_client.as_ref();
-        let sanitized_addresses = sanitize_evm_addresses(account_addresses)?;
 
-        let results: Vec<bool> = inner.can_message(sanitized_addresses).await?;
+        let results: Vec<bool> = inner.can_message(account_addresses).await?;
 
         Ok(results)
     }
