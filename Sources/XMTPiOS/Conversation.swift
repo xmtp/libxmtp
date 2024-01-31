@@ -78,6 +78,15 @@ public enum Conversation: Sendable {
 			return conversationV2.peerAddress
 		}
 	}
+	
+	public var keyMaterial: Data? {
+		switch self {
+		case let .v1(conversationV1):
+			return nil
+		case let .v2(conversationV2):
+			return conversationV2.keyMaterial
+		}
+	}
 
 	/// An optional string that can specify a different context for a conversation with another account address.
 	///
