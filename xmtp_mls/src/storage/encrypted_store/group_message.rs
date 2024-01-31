@@ -79,6 +79,7 @@ impl DbConnection<'_> {
         use super::schema::group_messages::dsl;
 
         let mut query = dsl::group_messages
+            .order(dsl::sent_at_ns.asc())
             .filter(dsl::group_id.eq(group_id.as_ref()))
             .into_boxed();
 
@@ -201,8 +202,8 @@ mod tests {
             let group = generate_group(None);
             group.store(conn).unwrap();
 
-            for _ in 0..50 {
-                let msg = generate_message(None, Some(&group.id), None);
+            for idx in 0..50 {
+                let msg = generate_message(None, Some(&group.id), Some(idx));
                 assert_ok!(msg.store(conn));
             }
 
@@ -218,7 +219,12 @@ mod tests {
             let messages = conn
                 .get_group_messages(&group.id, None, None, None, None)
                 .unwrap();
+
             assert_eq!(messages.len(), 50);
+            messages.iter().fold(0, |acc, msg| {
+                assert!(msg.sent_at_ns >= acc);
+                msg.sent_at_ns
+            });
         })
     }
 
@@ -230,8 +236,8 @@ mod tests {
 
             let messages = vec![
                 generate_message(None, Some(&group.id), Some(1_000)),
-                generate_message(None, Some(&group.id), Some(10_000)),
                 generate_message(None, Some(&group.id), Some(100_000)),
+                generate_message(None, Some(&group.id), Some(10_000)),
                 generate_message(None, Some(&group.id), Some(1_000_000)),
             ];
             assert_ok!(messages.store(conn));
