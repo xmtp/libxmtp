@@ -1,6 +1,10 @@
 name: Release Swift Bindings
 
 on:
+  push:
+    branches:
+      - main
+      - cv/release-swift-bindings
   workflow_dispatch:
 
 jobs:
