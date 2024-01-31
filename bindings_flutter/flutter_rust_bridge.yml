@@ -1,0 +1,9 @@
+rust_input: src/libxmtp_api.rs
+dart_output: lib/src/generated
+rust_output: src/generated/bridge_generated.rs
+#c_output: ios/Classes/bridge_generated.h
+#duplicated_c_output:
+#  - macos/Classes/bridge_generated.h
+dart_format_line_length: 80
+add_mod_to_lib: false
+web: false
