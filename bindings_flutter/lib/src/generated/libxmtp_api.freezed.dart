@@ -365,6 +365,7 @@ mixin _$XmtpError {
     required TResult Function(ApiError field0) apiError,
     required TResult Function(ClientBuilderError field0) clientBuilderError,
     required TResult Function(XmtpMlsClientClientError field0) clientError,
+    required TResult Function(XmtpMlsGroupsGroupError field0) groupError,
     required TResult Function(StorageError field0) storageError,
     required TResult Function(AnyhowError field0) generic,
   }) =>
@@ -374,6 +375,7 @@ mixin _$XmtpError {
     TResult? Function(ApiError field0)? apiError,
     TResult? Function(ClientBuilderError field0)? clientBuilderError,
     TResult? Function(XmtpMlsClientClientError field0)? clientError,
+    TResult? Function(XmtpMlsGroupsGroupError field0)? groupError,
     TResult? Function(StorageError field0)? storageError,
     TResult? Function(AnyhowError field0)? generic,
   }) =>
@@ -383,6 +385,7 @@ mixin _$XmtpError {
     TResult Function(ApiError field0)? apiError,
     TResult Function(ClientBuilderError field0)? clientBuilderError,
     TResult Function(XmtpMlsClientClientError field0)? clientError,
+    TResult Function(XmtpMlsGroupsGroupError field0)? groupError,
     TResult Function(StorageError field0)? storageError,
     TResult Function(AnyhowError field0)? generic,
     required TResult orElse(),
@@ -394,6 +397,7 @@ mixin _$XmtpError {
     required TResult Function(XmtpError_ClientBuilderError value)
         clientBuilderError,
     required TResult Function(XmtpError_ClientError value) clientError,
+    required TResult Function(XmtpError_GroupError value) groupError,
     required TResult Function(XmtpError_StorageError value) storageError,
     required TResult Function(XmtpError_Generic value) generic,
   }) =>
@@ -403,6 +407,7 @@ mixin _$XmtpError {
     TResult? Function(XmtpError_ApiError value)? apiError,
     TResult? Function(XmtpError_ClientBuilderError value)? clientBuilderError,
     TResult? Function(XmtpError_ClientError value)? clientError,
+    TResult? Function(XmtpError_GroupError value)? groupError,
     TResult? Function(XmtpError_StorageError value)? storageError,
     TResult? Function(XmtpError_Generic value)? generic,
   }) =>
@@ -412,6 +417,7 @@ mixin _$XmtpError {
     TResult Function(XmtpError_ApiError value)? apiError,
     TResult Function(XmtpError_ClientBuilderError value)? clientBuilderError,
     TResult Function(XmtpError_ClientError value)? clientError,
+    TResult Function(XmtpError_GroupError value)? groupError,
     TResult Function(XmtpError_StorageError value)? storageError,
     TResult Function(XmtpError_Generic value)? generic,
     required TResult orElse(),
@@ -504,6 +510,7 @@ class _$XmtpError_ApiErrorImpl implements XmtpError_ApiError {
     required TResult Function(ApiError field0) apiError,
     required TResult Function(ClientBuilderError field0) clientBuilderError,
     required TResult Function(XmtpMlsClientClientError field0) clientError,
+    required TResult Function(XmtpMlsGroupsGroupError field0) groupError,
     required TResult Function(StorageError field0) storageError,
     required TResult Function(AnyhowError field0) generic,
   }) {
@@ -516,6 +523,7 @@ class _$XmtpError_ApiErrorImpl implements XmtpError_ApiError {
     TResult? Function(ApiError field0)? apiError,
     TResult? Function(ClientBuilderError field0)? clientBuilderError,
     TResult? Function(XmtpMlsClientClientError field0)? clientError,
+    TResult? Function(XmtpMlsGroupsGroupError field0)? groupError,
     TResult? Function(StorageError field0)? storageError,
     TResult? Function(AnyhowError field0)? generic,
   }) {
@@ -528,6 +536,7 @@ class _$XmtpError_ApiErrorImpl implements XmtpError_ApiError {
     TResult Function(ApiError field0)? apiError,
     TResult Function(ClientBuilderError field0)? clientBuilderError,
     TResult Function(XmtpMlsClientClientError field0)? clientError,
+    TResult Function(XmtpMlsGroupsGroupError field0)? groupError,
     TResult Function(StorageError field0)? storageError,
     TResult Function(AnyhowError field0)? generic,
     required TResult orElse(),
@@ -545,6 +554,7 @@ class _$XmtpError_ApiErrorImpl implements XmtpError_ApiError {
     required TResult Function(XmtpError_ClientBuilderError value)
         clientBuilderError,
     required TResult Function(XmtpError_ClientError value) clientError,
+    required TResult Function(XmtpError_GroupError value) groupError,
     required TResult Function(XmtpError_StorageError value) storageError,
     required TResult Function(XmtpError_Generic value) generic,
   }) {
@@ -557,6 +567,7 @@ class _$XmtpError_ApiErrorImpl implements XmtpError_ApiError {
     TResult? Function(XmtpError_ApiError value)? apiError,
     TResult? Function(XmtpError_ClientBuilderError value)? clientBuilderError,
     TResult? Function(XmtpError_ClientError value)? clientError,
+    TResult? Function(XmtpError_GroupError value)? groupError,
     TResult? Function(XmtpError_StorageError value)? storageError,
     TResult? Function(XmtpError_Generic value)? generic,
   }) {
@@ -569,6 +580,7 @@ class _$XmtpError_ApiErrorImpl implements XmtpError_ApiError {
     TResult Function(XmtpError_ApiError value)? apiError,
     TResult Function(XmtpError_ClientBuilderError value)? clientBuilderError,
     TResult Function(XmtpError_ClientError value)? clientError,
+    TResult Function(XmtpError_GroupError value)? groupError,
     TResult Function(XmtpError_StorageError value)? storageError,
     TResult Function(XmtpError_Generic value)? generic,
     required TResult orElse(),
@@ -663,6 +675,7 @@ class _$XmtpError_ClientBuilderErrorImpl
     required TResult Function(ApiError field0) apiError,
     required TResult Function(ClientBuilderError field0) clientBuilderError,
     required TResult Function(XmtpMlsClientClientError field0) clientError,
+    required TResult Function(XmtpMlsGroupsGroupError field0) groupError,
     required TResult Function(StorageError field0) storageError,
     required TResult Function(AnyhowError field0) generic,
   }) {
@@ -675,6 +688,7 @@ class _$XmtpError_ClientBuilderErrorImpl
     TResult? Function(ApiError field0)? apiError,
     TResult? Function(ClientBuilderError field0)? clientBuilderError,
     TResult? Function(XmtpMlsClientClientError field0)? clientError,
+    TResult? Function(XmtpMlsGroupsGroupError field0)? groupError,
     TResult? Function(StorageError field0)? storageError,
     TResult? Function(AnyhowError field0)? generic,
   }) {
@@ -687,6 +701,7 @@ class _$XmtpError_ClientBuilderErrorImpl
     TResult Function(ApiError field0)? apiError,
     TResult Function(ClientBuilderError field0)? clientBuilderError,
     TResult Function(XmtpMlsClientClientError field0)? clientError,
+    TResult Function(XmtpMlsGroupsGroupError field0)? groupError,
     TResult Function(StorageError field0)? storageError,
     TResult Function(AnyhowError field0)? generic,
     required TResult orElse(),
@@ -704,6 +719,7 @@ class _$XmtpError_ClientBuilderErrorImpl
     required TResult Function(XmtpError_ClientBuilderError value)
         clientBuilderError,
     required TResult Function(XmtpError_ClientError value) clientError,
+    required TResult Function(XmtpError_GroupError value) groupError,
     required TResult Function(XmtpError_StorageError value) storageError,
     required TResult Function(XmtpError_Generic value) generic,
   }) {
@@ -716,6 +732,7 @@ class _$XmtpError_ClientBuilderErrorImpl
     TResult? Function(XmtpError_ApiError value)? apiError,
     TResult? Function(XmtpError_ClientBuilderError value)? clientBuilderError,
     TResult? Function(XmtpError_ClientError value)? clientError,
+    TResult? Function(XmtpError_GroupError value)? groupError,
     TResult? Function(XmtpError_StorageError value)? storageError,
     TResult? Function(XmtpError_Generic value)? generic,
   }) {
@@ -728,6 +745,7 @@ class _$XmtpError_ClientBuilderErrorImpl
     TResult Function(XmtpError_ApiError value)? apiError,
     TResult Function(XmtpError_ClientBuilderError value)? clientBuilderError,
     TResult Function(XmtpError_ClientError value)? clientError,
+    TResult Function(XmtpError_GroupError value)? groupError,
     TResult Function(XmtpError_StorageError value)? storageError,
     TResult Function(XmtpError_Generic value)? generic,
     required TResult orElse(),
@@ -820,6 +838,7 @@ class _$XmtpError_ClientErrorImpl implements XmtpError_ClientError {
     required TResult Function(ApiError field0) apiError,
     required TResult Function(ClientBuilderError field0) clientBuilderError,
     required TResult Function(XmtpMlsClientClientError field0) clientError,
+    required TResult Function(XmtpMlsGroupsGroupError field0) groupError,
     required TResult Function(StorageError field0) storageError,
     required TResult Function(AnyhowError field0) generic,
   }) {
@@ -832,6 +851,7 @@ class _$XmtpError_ClientErrorImpl implements XmtpError_ClientError {
     TResult? Function(ApiError field0)? apiError,
     TResult? Function(ClientBuilderError field0)? clientBuilderError,
     TResult? Function(XmtpMlsClientClientError field0)? clientError,
+    TResult? Function(XmtpMlsGroupsGroupError field0)? groupError,
     TResult? Function(StorageError field0)? storageError,
     TResult? Function(AnyhowError field0)? generic,
   }) {
@@ -844,6 +864,7 @@ class _$XmtpError_ClientErrorImpl implements XmtpError_ClientError {
     TResult Function(ApiError field0)? apiError,
     TResult Function(ClientBuilderError field0)? clientBuilderError,
     TResult Function(XmtpMlsClientClientError field0)? clientError,
+    TResult Function(XmtpMlsGroupsGroupError field0)? groupError,
     TResult Function(StorageError field0)? storageError,
     TResult Function(AnyhowError field0)? generic,
     required TResult orElse(),
@@ -861,6 +882,7 @@ class _$XmtpError_ClientErrorImpl implements XmtpError_ClientError {
     required TResult Function(XmtpError_ClientBuilderError value)
         clientBuilderError,
     required TResult Function(XmtpError_ClientError value) clientError,
+    required TResult Function(XmtpError_GroupError value) groupError,
     required TResult Function(XmtpError_StorageError value) storageError,
     required TResult Function(XmtpError_Generic value) generic,
   }) {
@@ -873,6 +895,7 @@ class _$XmtpError_ClientErrorImpl implements XmtpError_ClientError {
     TResult? Function(XmtpError_ApiError value)? apiError,
     TResult? Function(XmtpError_ClientBuilderError value)? clientBuilderError,
     TResult? Function(XmtpError_ClientError value)? clientError,
+    TResult? Function(XmtpError_GroupError value)? groupError,
     TResult? Function(XmtpError_StorageError value)? storageError,
     TResult? Function(XmtpError_Generic value)? generic,
   }) {
@@ -885,6 +908,7 @@ class _$XmtpError_ClientErrorImpl implements XmtpError_ClientError {
     TResult Function(XmtpError_ApiError value)? apiError,
     TResult Function(XmtpError_ClientBuilderError value)? clientBuilderError,
     TResult Function(XmtpError_ClientError value)? clientError,
+    TResult Function(XmtpError_GroupError value)? groupError,
     TResult Function(XmtpError_StorageError value)? storageError,
     TResult Function(XmtpError_Generic value)? generic,
     required TResult orElse(),
@@ -904,6 +928,168 @@ abstract class XmtpError_ClientError implements XmtpError {
   XmtpMlsClientClientError get field0;
   @JsonKey(ignore: true)
   _$$XmtpError_ClientErrorImplCopyWith<_$XmtpError_ClientErrorImpl>
+      get copyWith => throw _privateConstructorUsedError;
+}
+
+/// @nodoc
+abstract class _$$XmtpError_GroupErrorImplCopyWith<$Res> {
+  factory _$$XmtpError_GroupErrorImplCopyWith(_$XmtpError_GroupErrorImpl value,
+          $Res Function(_$XmtpError_GroupErrorImpl) then) =
+      __$$XmtpError_GroupErrorImplCopyWithImpl<$Res>;
+  @useResult
+  $Res call({XmtpMlsGroupsGroupError field0});
+}
+
+/// @nodoc
+class __$$XmtpError_GroupErrorImplCopyWithImpl<$Res>
+    extends _$XmtpErrorCopyWithImpl<$Res, _$XmtpError_GroupErrorImpl>
+    implements _$$XmtpError_GroupErrorImplCopyWith<$Res> {
+  __$$XmtpError_GroupErrorImplCopyWithImpl(_$XmtpError_GroupErrorImpl _value,
+      $Res Function(_$XmtpError_GroupErrorImpl) _then)
+      : super(_value, _then);
+
+  @pragma('vm:prefer-inline')
+  @override
+  $Res call({
+    Object? field0 = null,
+  }) {
+    return _then(_$XmtpError_GroupErrorImpl(
+      null == field0
+          ? _value.field0
+          : field0 // ignore: cast_nullable_to_non_nullable
+              as XmtpMlsGroupsGroupError,
+    ));
+  }
+}
+
+/// @nodoc
+
+class _$XmtpError_GroupErrorImpl implements XmtpError_GroupError {
+  const _$XmtpError_GroupErrorImpl(this.field0);
+
+  @override
+  final XmtpMlsGroupsGroupError field0;
+
+  @override
+  String toString() {
+    return 'XmtpError.groupError(field0: $field0)';
+  }
+
+  @override
+  bool operator ==(Object other) {
+    return identical(this, other) ||
+        (other.runtimeType == runtimeType &&
+            other is _$XmtpError_GroupErrorImpl &&
+            (identical(other.field0, field0) || other.field0 == field0));
+  }
+
+  @override
+  int get hashCode => Object.hash(runtimeType, field0);
+
+  @JsonKey(ignore: true)
+  @override
+  @pragma('vm:prefer-inline')
+  _$$XmtpError_GroupErrorImplCopyWith<_$XmtpError_GroupErrorImpl>
+      get copyWith =>
+          __$$XmtpError_GroupErrorImplCopyWithImpl<_$XmtpError_GroupErrorImpl>(
+              this, _$identity);
+
+  @override
+  @optionalTypeArgs
+  TResult when<TResult extends Object?>({
+    required TResult Function(ApiError field0) apiError,
+    required TResult Function(ClientBuilderError field0) clientBuilderError,
+    required TResult Function(XmtpMlsClientClientError field0) clientError,
+    required TResult Function(XmtpMlsGroupsGroupError field0) groupError,
+    required TResult Function(StorageError field0) storageError,
+    required TResult Function(AnyhowError field0) generic,
+  }) {
+    return groupError(field0);
+  }
+
+  @override
+  @optionalTypeArgs
+  TResult? whenOrNull<TResult extends Object?>({
+    TResult? Function(ApiError field0)? apiError,
+    TResult? Function(ClientBuilderError field0)? clientBuilderError,
+    TResult? Function(XmtpMlsClientClientError field0)? clientError,
+    TResult? Function(XmtpMlsGroupsGroupError field0)? groupError,
+    TResult? Function(StorageError field0)? storageError,
+    TResult? Function(AnyhowError field0)? generic,
+  }) {
+    return groupError?.call(field0);
+  }
+
+  @override
+  @optionalTypeArgs
+  TResult maybeWhen<TResult extends Object?>({
+    TResult Function(ApiError field0)? apiError,
+    TResult Function(ClientBuilderError field0)? clientBuilderError,
+    TResult Function(XmtpMlsClientClientError field0)? clientError,
+    TResult Function(XmtpMlsGroupsGroupError field0)? groupError,
+    TResult Function(StorageError field0)? storageError,
+    TResult Function(AnyhowError field0)? generic,
+    required TResult orElse(),
+  }) {
+    if (groupError != null) {
+      return groupError(field0);
+    }
+    return orElse();
+  }
+
+  @override
+  @optionalTypeArgs
+  TResult map<TResult extends Object?>({
+    required TResult Function(XmtpError_ApiError value) apiError,
+    required TResult Function(XmtpError_ClientBuilderError value)
+        clientBuilderError,
+    required TResult Function(XmtpError_ClientError value) clientError,
+    required TResult Function(XmtpError_GroupError value) groupError,
+    required TResult Function(XmtpError_StorageError value) storageError,
+    required TResult Function(XmtpError_Generic value) generic,
+  }) {
+    return groupError(this);
+  }
+
+  @override
+  @optionalTypeArgs
+  TResult? mapOrNull<TResult extends Object?>({
+    TResult? Function(XmtpError_ApiError value)? apiError,
+    TResult? Function(XmtpError_ClientBuilderError value)? clientBuilderError,
+    TResult? Function(XmtpError_ClientError value)? clientError,
+    TResult? Function(XmtpError_GroupError value)? groupError,
+    TResult? Function(XmtpError_StorageError value)? storageError,
+    TResult? Function(XmtpError_Generic value)? generic,
+  }) {
+    return groupError?.call(this);
+  }
+
+  @override
+  @optionalTypeArgs
+  TResult maybeMap<TResult extends Object?>({
+    TResult Function(XmtpError_ApiError value)? apiError,
+    TResult Function(XmtpError_ClientBuilderError value)? clientBuilderError,
+    TResult Function(XmtpError_ClientError value)? clientError,
+    TResult Function(XmtpError_GroupError value)? groupError,
+    TResult Function(XmtpError_StorageError value)? storageError,
+    TResult Function(XmtpError_Generic value)? generic,
+    required TResult orElse(),
+  }) {
+    if (groupError != null) {
+      return groupError(this);
+    }
+    return orElse();
+  }
+}
+
+abstract class XmtpError_GroupError implements XmtpError {
+  const factory XmtpError_GroupError(final XmtpMlsGroupsGroupError field0) =
+      _$XmtpError_GroupErrorImpl;
+
+  @override
+  XmtpMlsGroupsGroupError get field0;
+  @JsonKey(ignore: true)
+  _$$XmtpError_GroupErrorImplCopyWith<_$XmtpError_GroupErrorImpl>
       get copyWith => throw _privateConstructorUsedError;
 }
 
@@ -977,6 +1163,7 @@ class _$XmtpError_StorageErrorImpl implements XmtpError_StorageError {
     required TResult Function(ApiError field0) apiError,
     required TResult Function(ClientBuilderError field0) clientBuilderError,
     required TResult Function(XmtpMlsClientClientError field0) clientError,
+    required TResult Function(XmtpMlsGroupsGroupError field0) groupError,
     required TResult Function(StorageError field0) storageError,
     required TResult Function(AnyhowError field0) generic,
   }) {
@@ -989,6 +1176,7 @@ class _$XmtpError_StorageErrorImpl implements XmtpError_StorageError {
     TResult? Function(ApiError field0)? apiError,
     TResult? Function(ClientBuilderError field0)? clientBuilderError,
     TResult? Function(XmtpMlsClientClientError field0)? clientError,
+    TResult? Function(XmtpMlsGroupsGroupError field0)? groupError,
     TResult? Function(StorageError field0)? storageError,
     TResult? Function(AnyhowError field0)? generic,
   }) {
@@ -1001,6 +1189,7 @@ class _$XmtpError_StorageErrorImpl implements XmtpError_StorageError {
     TResult Function(ApiError field0)? apiError,
     TResult Function(ClientBuilderError field0)? clientBuilderError,
     TResult Function(XmtpMlsClientClientError field0)? clientError,
+    TResult Function(XmtpMlsGroupsGroupError field0)? groupError,
     TResult Function(StorageError field0)? storageError,
     TResult Function(AnyhowError field0)? generic,
     required TResult orElse(),
@@ -1018,6 +1207,7 @@ class _$XmtpError_StorageErrorImpl implements XmtpError_StorageError {
     required TResult Function(XmtpError_ClientBuilderError value)
         clientBuilderError,
     required TResult Function(XmtpError_ClientError value) clientError,
+    required TResult Function(XmtpError_GroupError value) groupError,
     required TResult Function(XmtpError_StorageError value) storageError,
     required TResult Function(XmtpError_Generic value) generic,
   }) {
@@ -1030,6 +1220,7 @@ class _$XmtpError_StorageErrorImpl implements XmtpError_StorageError {
     TResult? Function(XmtpError_ApiError value)? apiError,
     TResult? Function(XmtpError_ClientBuilderError value)? clientBuilderError,
     TResult? Function(XmtpError_ClientError value)? clientError,
+    TResult? Function(XmtpError_GroupError value)? groupError,
     TResult? Function(XmtpError_StorageError value)? storageError,
     TResult? Function(XmtpError_Generic value)? generic,
   }) {
@@ -1042,6 +1233,7 @@ class _$XmtpError_StorageErrorImpl implements XmtpError_StorageError {
     TResult Function(XmtpError_ApiError value)? apiError,
     TResult Function(XmtpError_ClientBuilderError value)? clientBuilderError,
     TResult Function(XmtpError_ClientError value)? clientError,
+    TResult Function(XmtpError_GroupError value)? groupError,
     TResult Function(XmtpError_StorageError value)? storageError,
     TResult Function(XmtpError_Generic value)? generic,
     required TResult orElse(),
@@ -1132,6 +1324,7 @@ class _$XmtpError_GenericImpl implements XmtpError_Generic {
     required TResult Function(ApiError field0) apiError,
     required TResult Function(ClientBuilderError field0) clientBuilderError,
     required TResult Function(XmtpMlsClientClientError field0) clientError,
+    required TResult Function(XmtpMlsGroupsGroupError field0) groupError,
     required TResult Function(StorageError field0) storageError,
     required TResult Function(AnyhowError field0) generic,
   }) {
@@ -1144,6 +1337,7 @@ class _$XmtpError_GenericImpl implements XmtpError_Generic {
     TResult? Function(ApiError field0)? apiError,
     TResult? Function(ClientBuilderError field0)? clientBuilderError,
     TResult? Function(XmtpMlsClientClientError field0)? clientError,
+    TResult? Function(XmtpMlsGroupsGroupError field0)? groupError,
     TResult? Function(StorageError field0)? storageError,
     TResult? Function(AnyhowError field0)? generic,
   }) {
@@ -1156,6 +1350,7 @@ class _$XmtpError_GenericImpl implements XmtpError_Generic {
     TResult Function(ApiError field0)? apiError,
     TResult Function(ClientBuilderError field0)? clientBuilderError,
     TResult Function(XmtpMlsClientClientError field0)? clientError,
+    TResult Function(XmtpMlsGroupsGroupError field0)? groupError,
     TResult Function(StorageError field0)? storageError,
     TResult Function(AnyhowError field0)? generic,
     required TResult orElse(),
@@ -1173,6 +1368,7 @@ class _$XmtpError_GenericImpl implements XmtpError_Generic {
     required TResult Function(XmtpError_ClientBuilderError value)
         clientBuilderError,
     required TResult Function(XmtpError_ClientError value) clientError,
+    required TResult Function(XmtpError_GroupError value) groupError,
     required TResult Function(XmtpError_StorageError value) storageError,
     required TResult Function(XmtpError_Generic value) generic,
   }) {
@@ -1185,6 +1381,7 @@ class _$XmtpError_GenericImpl implements XmtpError_Generic {
     TResult? Function(XmtpError_ApiError value)? apiError,
     TResult? Function(XmtpError_ClientBuilderError value)? clientBuilderError,
     TResult? Function(XmtpError_ClientError value)? clientError,
+    TResult? Function(XmtpError_GroupError value)? groupError,
     TResult? Function(XmtpError_StorageError value)? storageError,
     TResult? Function(XmtpError_Generic value)? generic,
   }) {
@@ -1197,6 +1394,7 @@ class _$XmtpError_GenericImpl implements XmtpError_Generic {
     TResult Function(XmtpError_ApiError value)? apiError,
     TResult Function(XmtpError_ClientBuilderError value)? clientBuilderError,
     TResult Function(XmtpError_ClientError value)? clientError,
+    TResult Function(XmtpError_GroupError value)? groupError,
     TResult Function(XmtpError_StorageError value)? storageError,
     TResult Function(XmtpError_Generic value)? generic,
     required TResult orElse(),

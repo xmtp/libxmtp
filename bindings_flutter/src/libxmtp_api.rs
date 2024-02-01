@@ -19,6 +19,8 @@ pub enum XmtpError {
     ClientBuilderError(#[from] ClientBuilderError),
     #[error("ClientError: {0}")]
     ClientError(#[from] xmtp_mls::client::ClientError),
+    #[error("GroupError: {0}")]
+    GroupError(#[from] xmtp_mls::groups::GroupError),
     #[error("StorageError: {0}")]
     StorageError(#[from] StorageError),
     #[error("GenericError: {0}")]
@@ -60,9 +62,15 @@ pub fn user_preferences_decrypt(
     .map_err(|e| XmtpError::Generic(anyhow::Error::msg(e)))
 }
 
+#[frb(opaque)]
 pub struct Client {
     // We use this second wrapper to keep the inner client opaque.
     pub inner: Arc<InnerClient>,
+}
+
+pub struct Group {
+    pub group_id: Vec<u8>,
+    pub created_at_ns: i64,
 }
 
 #[frb(opaque)]
@@ -70,9 +78,56 @@ pub struct InnerClient {
     pub client: MlsClient<ApiClient>,
 }
 
+pub struct ListGroupsOptions {
+    pub created_after_ns: Option<i64>,
+    pub created_before_ns: Option<i64>,
+    pub limit: Option<i64>,
+}
+
 impl Client {
     pub fn installation_public_key(&self) -> Vec<u8> {
         self.inner.client.installation_public_key()
+    }
+
+    pub async fn list_groups(
+        &self,
+        options: Option<ListGroupsOptions>,
+    ) -> Result<Vec<Group>, XmtpError> {
+        self.inner.client.sync_welcomes().await?;
+        let opts = options.unwrap_or(ListGroupsOptions {
+            created_after_ns: None,
+            created_before_ns: None,
+            limit: None,
+        });
+        let groups: Vec<Group> = self
+            .inner
+            .client
+            .find_groups(
+                None,
+                opts.created_after_ns,
+                opts.created_before_ns,
+                opts.limit,
+            )?
+            .into_iter()
+            .map(|group| Group {
+                group_id: group.group_id,
+                created_at_ns: group.created_at_ns,
+            })
+            .collect();
+        return Ok(groups);
+    }
+
+    pub async fn create_group(&self, account_addresses: Vec<String>) -> Result<Group, XmtpError> {
+        let group = self.inner.client.create_group()?;
+        // TODO: consider filtering self address from the list
+        if !account_addresses.is_empty() {
+            group.add_members(account_addresses).await?;
+        }
+        self.inner.client.sync_welcomes().await?;
+        return Ok(Group {
+            group_id: group.group_id,
+            created_at_ns: group.created_at_ns,
+        });
     }
 }
 
@@ -190,5 +245,63 @@ mod tests {
             client_b.installation_public_key(),
             "both created clients should have the same installation key"
         );
+    }
+
+    #[tokio::test]
+    async fn test_listing_groups() {
+        let wallet_a = LocalWallet::new(&mut xmtp_cryptography::utils::rng());
+        let wallet_b = LocalWallet::new(&mut xmtp_cryptography::utils::rng());
+        let wallet_c = LocalWallet::new(&mut xmtp_cryptography::utils::rng());
+        let client_a = create_client_for_wallet(&wallet_a).await;
+        let client_b = create_client_for_wallet(&wallet_b).await;
+        let client_c = create_client_for_wallet(&wallet_c).await;
+        for client in vec![&client_a, &client_b, &client_c] {
+            assert_eq!(client.list_groups(None).await.unwrap().len(), 0);
+        }
+
+        // When user A creates a group with B and C
+        let group = client_a
+            .create_group(vec![wallet_b.get_address(), wallet_c.get_address()])
+            .await
+            .unwrap();
+
+        // Wait a minute for the group to propagate
+        tokio::time::sleep(tokio::time::Duration::from_millis(300)).await;
+
+        // Now users A, B and C should all see the group
+        for client in vec![&client_a, &client_b, &client_c] {
+            let groups = client.list_groups(None).await.unwrap();
+            assert_eq!(groups.len(), 1);
+            assert_eq!(groups.first().unwrap().group_id, group.group_id);
+        }
+    }
+
+    // Helpers
+
+    async fn create_client_for_wallet(wallet: &LocalWallet) -> Client {
+        let db_path = format!(
+            "{}/{}.db3",
+            std::env::temp_dir().to_str().unwrap(),
+            wallet.get_address()
+        );
+        let account_address = wallet.get_address();
+
+        // When we first create the client it should require a signature.
+        let created = create_client(
+            "http://localhost:5556".to_string(),
+            false,
+            db_path.clone(),
+            [2u8; 32],
+            account_address.clone(),
+        )
+        .await
+        .unwrap();
+        let req = match created {
+            CreatedClient::RequiresSignature(req) => req,
+            _ => panic!("it should require a signature"),
+        };
+        let sig = wallet.sign(req.text_to_sign.as_str()).unwrap();
+        let RecoverableSignature::Eip191Signature(sig_bytes) = sig;
+        return req.sign(sig_bytes).await.unwrap();
     }
 }

@@ -88,6 +88,42 @@ class ArcInnerClient extends RustOpaque {
   );
 }
 
+// Rust type: RustOpaqueMoi<flutter_rust_bridge::for_generated::rust_async::RwLock<Client>>
+@sealed
+class Client extends RustOpaque {
+  Client.dcoDecode(List<dynamic> wire) : super.dcoDecode(wire, _kStaticData);
+
+  Client.sseDecode(int ptr, int externalSizeOnNative)
+      : super.sseDecode(ptr, externalSizeOnNative, _kStaticData);
+
+  static final _kStaticData = RustArcStaticData(
+    rustArcIncrementStrongCount:
+        RustLib.instance.api.rust_arc_increment_strong_count_Client,
+    rustArcDecrementStrongCount:
+        RustLib.instance.api.rust_arc_decrement_strong_count_Client,
+    rustArcDecrementStrongCountPtr:
+        RustLib.instance.api.rust_arc_decrement_strong_count_ClientPtr,
+  );
+
+  Future<Group> createGroup(
+          {required List<String> accountAddresses, dynamic hint}) =>
+      RustLib.instance.api.clientCreateGroup(
+        that: this,
+        accountAddresses: accountAddresses,
+      );
+
+  Future<Uint8List> installationPublicKey({dynamic hint}) =>
+      RustLib.instance.api.clientInstallationPublicKey(
+        that: this,
+      );
+
+  Future<List<Group>> listGroups({ListGroupsOptions? options, dynamic hint}) =>
+      RustLib.instance.api.clientListGroups(
+        that: this,
+        options: options,
+      );
+}
+
 // Rust type: RustOpaqueMoi<flutter_rust_bridge::for_generated::rust_async::RwLock<ClientBuilderError>>
 @sealed
 class ClientBuilderError extends RustOpaque {
@@ -164,27 +200,23 @@ class XmtpMlsClientClientError extends RustOpaque {
   );
 }
 
-class Client {
-  final ArcInnerClient inner;
+// Rust type: RustOpaqueMoi<flutter_rust_bridge::for_generated::rust_async::RwLock<xmtp_mls :: groups :: GroupError>>
+@sealed
+class XmtpMlsGroupsGroupError extends RustOpaque {
+  XmtpMlsGroupsGroupError.dcoDecode(List<dynamic> wire)
+      : super.dcoDecode(wire, _kStaticData);
 
-  const Client({
-    required this.inner,
-  });
+  XmtpMlsGroupsGroupError.sseDecode(int ptr, int externalSizeOnNative)
+      : super.sseDecode(ptr, externalSizeOnNative, _kStaticData);
 
-  Future<Uint8List> installationPublicKey({dynamic hint}) =>
-      RustLib.instance.api.clientInstallationPublicKey(
-        that: this,
-      );
-
-  @override
-  int get hashCode => inner.hashCode;
-
-  @override
-  bool operator ==(Object other) =>
-      identical(this, other) ||
-      other is Client &&
-          runtimeType == other.runtimeType &&
-          inner == other.inner;
+  static final _kStaticData = RustArcStaticData(
+    rustArcIncrementStrongCount: RustLib
+        .instance.api.rust_arc_increment_strong_count_XmtpMlsGroupsGroupError,
+    rustArcDecrementStrongCount: RustLib
+        .instance.api.rust_arc_decrement_strong_count_XmtpMlsGroupsGroupError,
+    rustArcDecrementStrongCountPtr: RustLib.instance.api
+        .rust_arc_decrement_strong_count_XmtpMlsGroupsGroupErrorPtr,
+  );
 }
 
 @freezed
@@ -195,6 +227,52 @@ sealed class CreatedClient with _$CreatedClient {
   const factory CreatedClient.requiresSignature(
     SignatureRequiredClient field0,
   ) = CreatedClient_RequiresSignature;
+}
+
+class Group {
+  final Uint8List groupId;
+  final int createdAtNs;
+
+  const Group({
+    required this.groupId,
+    required this.createdAtNs,
+  });
+
+  @override
+  int get hashCode => groupId.hashCode ^ createdAtNs.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is Group &&
+          runtimeType == other.runtimeType &&
+          groupId == other.groupId &&
+          createdAtNs == other.createdAtNs;
+}
+
+class ListGroupsOptions {
+  final int? createdAfterNs;
+  final int? createdBeforeNs;
+  final int? limit;
+
+  const ListGroupsOptions({
+    this.createdAfterNs,
+    this.createdBeforeNs,
+    this.limit,
+  });
+
+  @override
+  int get hashCode =>
+      createdAfterNs.hashCode ^ createdBeforeNs.hashCode ^ limit.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is ListGroupsOptions &&
+          runtimeType == other.runtimeType &&
+          createdAfterNs == other.createdAfterNs &&
+          createdBeforeNs == other.createdBeforeNs &&
+          limit == other.limit;
 }
 
 class SignatureRequiredClient {
@@ -249,6 +327,9 @@ sealed class XmtpError with _$XmtpError implements FrbException {
   const factory XmtpError.clientError(
     XmtpMlsClientClientError field0,
   ) = XmtpError_ClientError;
+  const factory XmtpError.groupError(
+    XmtpMlsGroupsGroupError field0,
+  ) = XmtpError_GroupError;
   const factory XmtpError.storageError(
     StorageError field0,
   ) = XmtpError_StorageError;
