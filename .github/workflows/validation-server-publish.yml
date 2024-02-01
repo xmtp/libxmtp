@@ -4,7 +4,6 @@ on:
   push:
     branches:
       - main
-      - nm/validation-service-publish
 
 jobs:
   push_to_registry:
