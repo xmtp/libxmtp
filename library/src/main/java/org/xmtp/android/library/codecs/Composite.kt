@@ -1,10 +1,7 @@
 package org.xmtp.android.library.codecs
 
-import org.xmtp.proto.message.contents.CompositeKt.part
 import org.xmtp.proto.message.contents.CompositeOuterClass
 import org.xmtp.proto.message.contents.CompositeOuterClass.Composite.Part
-import org.xmtp.proto.message.contents.composite
-import org.xmtp.proto.message.contents.encodedContent
 
 typealias Composite = org.xmtp.proto.message.contents.CompositeOuterClass.Composite
 
@@ -31,6 +28,9 @@ class CompositePartBuilder {
     }
 }
 
+@Deprecated(
+    message = "This content type will be removed in future versions (see here for more info -> https://community.xmtp.org/t/xip-19-deprecate-the-composite-codec/525). Consider using a custom content type (https://github.com/xmtp/xmtp-android?tab=readme-ov-file#handle-custom-content-types) instead"
+)
 class CompositeCodec : ContentCodec<DecodedComposite> {
     override val contentType: ContentTypeId
         get() = ContentTypeComposite
@@ -86,9 +86,11 @@ class CompositeCodec : ContentCodec<DecodedComposite> {
             Part.ElementCase.PART -> {
                 DecodedComposite(emptyList(), part.part)
             }
+
             Part.ElementCase.COMPOSITE -> {
                 DecodedComposite(part.composite.partsList.map { fromCompositePart(it) })
             }
+
             else -> DecodedComposite()
         }
     }
