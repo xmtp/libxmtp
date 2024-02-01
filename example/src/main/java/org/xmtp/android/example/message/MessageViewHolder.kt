@@ -1,5 +1,6 @@
 package org.xmtp.android.example.message
 
+import android.annotation.SuppressLint
 import android.graphics.Color
 import androidx.constraintlayout.widget.ConstraintLayout
 import androidx.constraintlayout.widget.ConstraintLayout.LayoutParams.PARENT_ID
@@ -10,9 +11,11 @@ import org.xmtp.android.example.R
 import org.xmtp.android.example.conversation.ConversationDetailViewModel
 import org.xmtp.android.example.databinding.ListItemMessageBinding
 import org.xmtp.android.example.extension.margins
+import org.xmtp.proto.mls.message.contents.TranscriptMessages
+import uniffi.xmtpv3.org.xmtp.android.library.codecs.GroupMembershipChanges
 
 class MessageViewHolder(
-    private val binding: ListItemMessageBinding
+    private val binding: ListItemMessageBinding,
 ) : RecyclerView.ViewHolder(binding.root) {
 
     private val marginLarge = binding.root.resources.getDimensionPixelSize(R.dimen.message_margin)
@@ -21,8 +24,10 @@ class MessageViewHolder(
     private val backgroundPeer =
         binding.root.resources.getColor(R.color.teal_700, binding.root.context.theme)
 
+    @SuppressLint("SetTextI18n")
     fun bind(item: ConversationDetailViewModel.MessageListItem.Message) {
-        val isFromMe = ClientManager.client.address == item.message.senderAddress
+        val isFromMe =
+            ClientManager.client.address.lowercase() == item.message.senderAddress.lowercase()
         val params = binding.messageContainer.layoutParams as ConstraintLayout.LayoutParams
         if (isFromMe) {
             params.rightToRight = PARENT_ID
@@ -38,6 +43,14 @@ class MessageViewHolder(
             binding.messageBody.setTextColor(Color.WHITE)
         }
         binding.messageContainer.layoutParams = params
-        binding.messageBody.text = item.message.body
+        if (item.message.content<Any>() is String) {
+            binding.messageBody.text = item.message.body
+        } else if (item.message.content<Any>() is GroupMembershipChanges) {
+            val changes = item.message.content() as? GroupMembershipChanges
+            binding.messageBody.text =
+                "Membership Changed ${
+                    changes?.membersAddedList?.mapNotNull { it.accountAddress }.toString()
+                }"
+        }
     }
 }

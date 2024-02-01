@@ -28,6 +28,19 @@ class NewConversationViewModel : ViewModel() {
         }
     }
 
+    @UiThread
+    fun createGroup(addresses: List<String>) {
+        _uiState.value = UiState.Loading
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                val group = ClientManager.client.conversations.newGroup(addresses)
+                _uiState.value = UiState.Success(Conversation.Group(group))
+            } catch (e: Exception) {
+                _uiState.value = UiState.Error(e.localizedMessage.orEmpty())
+            }
+        }
+    }
+
     sealed class UiState {
         object Unknown : UiState()
         object Loading : UiState()

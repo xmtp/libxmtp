@@ -42,7 +42,7 @@ class MainViewModel : ViewModel() {
         viewModelScope.launch(Dispatchers.IO) {
             val listItems = mutableListOf<MainListItem>()
             try {
-                val conversations = ClientManager.client.conversations.list()
+                val conversations = ClientManager.client.conversations.list(includeGroups = true)
                 PushNotificationTokenManager.xmtpPush.subscribe(conversations.map { it.topic })
                 listItems.addAll(
                     conversations.map { conversation ->

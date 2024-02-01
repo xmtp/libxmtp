@@ -161,7 +161,8 @@ class Client() {
         this.apiClient = apiClient
         this.contacts = Contacts(client = this)
         this.libXMTPClient = libXMTPClient
-        this.conversations = Conversations(client = this)
+        this.conversations =
+            Conversations(client = this, libXMTPConversations = libXMTPClient?.conversations())
     }
 
     fun buildFrom(
@@ -174,14 +175,14 @@ class Client() {
         val apiClient =
             GRPCApiClient(environment = clientOptions.api.env, secure = clientOptions.api.isSecure)
         val v3Client: FfiXmtpClient? = if (isAlphaMlsEnabled(options)) {
-            if (account == null) throw XMTPException("Signing Key required to use groups.")
             runBlocking {
                 ffiXmtpClient(
                     options,
                     account,
                     options?.appContext,
                     bundle,
-                    LegacyIdentitySource.STATIC
+                    LegacyIdentitySource.STATIC,
+                    address
                 )
             }
         } else null
@@ -226,14 +227,15 @@ class Client() {
                         account,
                         options?.appContext,
                         privateKeyBundleV1,
-                        legacyIdentityKey
+                        legacyIdentityKey,
+                        account.address
                     )
                 val client =
                     Client(account.address, privateKeyBundleV1, apiClient, libXMTPClient)
                 client.ensureUserContactPublished()
                 client
             } catch (e: java.lang.Exception) {
-                throw XMTPException("Error creating client", e)
+                throw XMTPException("Error creating client ${e.message}", e)
             }
         }
     }
@@ -255,14 +257,14 @@ class Client() {
         val apiClient =
             GRPCApiClient(environment = newOptions.api.env, secure = newOptions.api.isSecure)
         val v3Client: FfiXmtpClient? = if (isAlphaMlsEnabled(options)) {
-            if (account == null) throw XMTPException("Signing Key required to use groups.")
             runBlocking {
                 ffiXmtpClient(
                     options,
                     account,
                     options?.appContext,
                     v1Bundle,
-                    LegacyIdentitySource.STATIC
+                    LegacyIdentitySource.STATIC,
+                    address
                 )
             }
         } else null
@@ -281,14 +283,15 @@ class Client() {
 
     private suspend fun ffiXmtpClient(
         options: ClientOptions?,
-        account: SigningKey,
+        account: SigningKey?,
         appContext: Context?,
         privateKeyBundleV1: PrivateKeyBundleV1,
         legacyIdentitySource: LegacyIdentitySource,
+        accountAddress: String,
     ): FfiXmtpClient? {
         val v3Client: FfiXmtpClient? =
             if (isAlphaMlsEnabled(options)) {
-                val alias = "xmtp-${options!!.api.env}-${account.address.lowercase()}"
+                val alias = "xmtp-${options!!.api.env}-${accountAddress.lowercase()}"
 
                 val dbDir = File(appContext?.filesDir?.absolutePath, "xmtp_db")
                 dbDir.mkdir()
@@ -324,7 +327,7 @@ class Client() {
                     isSecure = false,
                     db = dbPath,
                     encryptionKey = retrievedKey.encoded,
-                    accountAddress = account.address.lowercase(),
+                    accountAddress = accountAddress,
                     legacyIdentitySource = legacyIdentitySource,
                     legacySignedPrivateKeyProto = privateKeyBundleV1.toV2().identityKey.toByteArray()
                 )
@@ -334,10 +337,12 @@ class Client() {
 
         if (v3Client?.textToSign() == null) {
             v3Client?.registerIdentity(null)
-        } else {
+        } else if (account != null) {
             v3Client.textToSign()?.let {
                 v3Client.registerIdentity(account.sign(it))
             }
+        } else {
+            Log.i(TAG, "No signer passed but signer was required.")
         }
 
         return v3Client
@@ -460,9 +465,11 @@ class Client() {
         return subscribe(topics.map { it.description })
     }
 
-    fun fetchConversation(topic: String?): Conversation? {
+    fun fetchConversation(topic: String?, includeGroups: Boolean = false): Conversation? {
         if (topic.isNullOrBlank()) return null
-        return conversations.list().firstOrNull { it.topic == topic }
+        return conversations.list(includeGroups = includeGroups).firstOrNull {
+            it.topic == topic
+        }
     }
 
     fun publish(envelopes: List<Envelope>): PublishResponse {
@@ -550,6 +557,13 @@ class Client() {
      */
     fun canMessage(peerAddress: String): Boolean {
         return runBlocking { query(Topic.contact(peerAddress)).envelopesList.size > 0 }
+    }
+
+    fun canMessage(addresses: List<String>): Boolean {
+        return runBlocking {
+            libXMTPClient != null && !libXMTPClient!!.canMessage(addresses.map { it })
+                .contains(false)
+        }
     }
 
     val privateKeyBundle: PrivateKeyBundle

@@ -1,8 +1,9 @@
 package org.xmtp.android.example.connect
 
+import android.app.Application
 import android.net.Uri
 import androidx.annotation.UiThread
-import androidx.lifecycle.ViewModel
+import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.walletconnect.wcmodal.client.Modal
 import kotlinx.coroutines.Dispatchers
@@ -20,8 +21,9 @@ import org.xmtp.android.library.Client
 import org.xmtp.android.library.XMTPException
 import org.xmtp.android.library.messages.PrivateKeyBuilder
 import org.xmtp.android.library.messages.PrivateKeyBundleV1Builder
+import uniffi.xmtpv3.org.xmtp.android.library.codecs.GroupMembershipChangeCodec
 
-class ConnectWalletViewModel : ViewModel() {
+class ConnectWalletViewModel(application: Application) : AndroidViewModel(application) {
 
     private val chains: List<ChainSelectionUi> =
         Chains.values().map { it.toChainUiState() }
@@ -84,7 +86,8 @@ class ConnectWalletViewModel : ViewModel() {
             _uiState.value = ConnectUiState.Loading
             try {
                 val wallet = PrivateKeyBuilder()
-                val client = Client().create(wallet, ClientManager.CLIENT_OPTIONS)
+                val client = Client().create(wallet, ClientManager.clientOptions(getApplication()))
+                Client.register(codec = GroupMembershipChangeCodec())
                 _uiState.value = ConnectUiState.Success(
                     wallet.address,
                     PrivateKeyBundleV1Builder.encodeData(client.privateKeyBundleV1)
@@ -108,7 +111,8 @@ class ConnectWalletViewModel : ViewModel() {
                         it.copy(showWallet = true, uri = uri)
                     }
                 }
-                val client = Client().create(wallet, ClientManager.CLIENT_OPTIONS)
+                val client = Client().create(wallet, ClientManager.clientOptions(getApplication()))
+                Client.register(codec = GroupMembershipChangeCodec())
                 _uiState.value = ConnectUiState.Success(
                     wallet.address,
                     PrivateKeyBundleV1Builder.encodeData(client.privateKeyBundleV1)

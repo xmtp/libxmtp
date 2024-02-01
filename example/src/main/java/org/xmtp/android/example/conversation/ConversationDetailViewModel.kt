@@ -20,6 +20,7 @@ import org.xmtp.android.example.extension.flowWhileShared
 import org.xmtp.android.example.extension.stateFlow
 import org.xmtp.android.library.Conversation
 import org.xmtp.android.library.DecodedMessage
+import org.xmtp.android.library.Group
 
 class ConversationDetailViewModel(private val savedStateHandle: SavedStateHandle) : ViewModel() {
 
@@ -49,9 +50,15 @@ class ConversationDetailViewModel(private val savedStateHandle: SavedStateHandle
             val listItems = mutableListOf<MessageListItem>()
             try {
                 if (conversation == null) {
-                    conversation = ClientManager.client.fetchConversation(conversationTopic)
+                    conversation = ClientManager.client.fetchConversation(
+                        conversationTopic,
+                        includeGroups = true
+                    )
                 }
                 conversation?.let {
+                    if (conversation is Conversation.Group) {
+                        (conversation as Conversation.Group).group.sync()
+                    }
                     listItems.addAll(
                         it.messages().map { message ->
                             MessageListItem.Message(message.id, message)
@@ -69,7 +76,8 @@ class ConversationDetailViewModel(private val savedStateHandle: SavedStateHandle
     val streamMessages: StateFlow<MessageListItem?> =
         stateFlow(viewModelScope, null) { subscriptionCount ->
             if (conversation == null) {
-                conversation = ClientManager.client.fetchConversation(conversationTopic)
+                conversation =
+                    ClientManager.client.fetchConversation(conversationTopic, includeGroups = false)
             }
             if (conversation != null) {
                 conversation!!.streamMessages()

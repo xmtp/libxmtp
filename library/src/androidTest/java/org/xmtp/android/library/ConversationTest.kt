@@ -428,7 +428,7 @@ class ConversationTest {
     fun testListBatchMessages() {
         val bobConversation = aliceClient.conversations.newConversation(bob.walletAddress)
         val steveConversation =
-            aliceClient.conversations.newConversation(fixtures.steve.walletAddress)
+            aliceClient.conversations.newConversation(fixtures.caro.walletAddress)
 
         bobConversation.send(text = "hey alice 1")
         bobConversation.send(text = "hey alice 2")
@@ -452,7 +452,7 @@ class ConversationTest {
     fun testListBatchDecryptedMessages() {
         val bobConversation = aliceClient.conversations.newConversation(bob.walletAddress)
         val steveConversation =
-            aliceClient.conversations.newConversation(fixtures.steve.walletAddress)
+            aliceClient.conversations.newConversation(fixtures.caro.walletAddress)
 
         bobConversation.send(text = "hey alice 1")
         bobConversation.send(text = "hey alice 2")
@@ -476,7 +476,7 @@ class ConversationTest {
     fun testListBatchMessagesWithPagination() {
         val bobConversation = aliceClient.conversations.newConversation(bob.walletAddress)
         val steveConversation =
-            aliceClient.conversations.newConversation(fixtures.steve.walletAddress)
+            aliceClient.conversations.newConversation(fixtures.caro.walletAddress)
 
         bobConversation.send(text = "hey alice 1 bob")
         steveConversation.send(text = "hey alice 1 steve")

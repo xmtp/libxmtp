@@ -188,7 +188,7 @@ data class Contacts(
             val contactBundle = ContactBundleBuilder.buildFromEnvelope(envelope)
             knownBundles[peerAddress] = contactBundle
             val address = contactBundle.walletAddress
-            if (address == peerAddress) {
+            if (address?.lowercase() == peerAddress.lowercase()) {
                 return contactBundle
             }
         }

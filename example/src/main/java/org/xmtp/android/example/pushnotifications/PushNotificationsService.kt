@@ -1,8 +1,11 @@
 package org.xmtp.android.example.pushnotifications
 
+import android.Manifest
 import android.app.PendingIntent
+import android.content.pm.PackageManager
 import android.util.Base64
 import android.util.Log
+import androidx.core.app.ActivityCompat
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
 import androidx.core.content.ContextCompat
@@ -51,9 +54,9 @@ class PushNotificationsService : FirebaseMessagingService() {
         }
 
         GlobalScope.launch(Dispatchers.Main) {
-            ClientManager.createClient(keysData)
+            ClientManager.createClient(keysData, applicationContext)
         }
-        val conversation = ClientManager.client.fetchConversation(topic)
+        val conversation = ClientManager.client.fetchConversation(topic, includeGroups = true)
         if (conversation == null) {
             Log.e(TAG, "No keys or conversation persisted")
             return
@@ -88,6 +91,20 @@ class PushNotificationsService : FirebaseMessagingService() {
 
         // Use the URL as the ID for now until one is passed back from the server.
         NotificationManagerCompat.from(this).apply {
+            if (ActivityCompat.checkSelfPermission(
+                    applicationContext,
+                    Manifest.permission.POST_NOTIFICATIONS
+                ) != PackageManager.PERMISSION_GRANTED
+            ) {
+                // TODO: Consider calling
+                //    ActivityCompat#requestPermissions
+                // here to request the missing permissions, and then overriding
+                //   public void onRequestPermissionsResult(int requestCode, String[] permissions,
+                //                                          int[] grantResults)
+                // to handle the case where the user grants the permission. See the documentation
+                // for ActivityCompat#requestPermissions for more details.
+                return
+            }
             notify(topic.hashCode(), builder.build())
         }
     }

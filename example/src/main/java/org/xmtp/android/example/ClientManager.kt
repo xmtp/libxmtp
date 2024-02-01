@@ -1,5 +1,6 @@
 package org.xmtp.android.example
 
+import android.content.Context
 import androidx.annotation.UiThread
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.GlobalScope
@@ -10,10 +11,21 @@ import org.xmtp.android.library.Client
 import org.xmtp.android.library.ClientOptions
 import org.xmtp.android.library.XMTPEnvironment
 import org.xmtp.android.library.messages.PrivateKeyBundleV1Builder
+import uniffi.xmtpv3.org.xmtp.android.library.codecs.GroupMembershipChangeCodec
 
 object ClientManager {
 
-    val CLIENT_OPTIONS = ClientOptions(api = ClientOptions.Api(XMTPEnvironment.DEV, appVersion = "XMTPAndroidExample/v1.0.0"))
+    fun clientOptions(appContext: Context?): ClientOptions {
+        return ClientOptions(
+            api = ClientOptions.Api(
+                XMTPEnvironment.LOCAL,
+                appVersion = "XMTPAndroidExample/v1.0.0",
+                isSecure = false
+            ),
+            enableAlphaMls = true,
+            appContext = appContext
+        )
+    }
 
     private val _clientState = MutableStateFlow<ClientState>(ClientState.Unknown)
     val clientState: StateFlow<ClientState> = _clientState
@@ -28,13 +40,14 @@ object ClientManager {
         }
 
     @UiThread
-    fun createClient(encodedPrivateKeyData: String) {
+    fun createClient(encodedPrivateKeyData: String, appContext: Context) {
         if (clientState.value is ClientState.Ready) return
         GlobalScope.launch(Dispatchers.IO) {
             try {
                 val v1Bundle =
                     PrivateKeyBundleV1Builder.fromEncodedData(data = encodedPrivateKeyData)
-                _client = Client().buildFrom(v1Bundle, CLIENT_OPTIONS)
+                _client = Client().buildFrom(v1Bundle, clientOptions(appContext))
+                Client.register(codec = GroupMembershipChangeCodec())
                 _clientState.value = ClientState.Ready
             } catch (e: Exception) {
                 _clientState.value = ClientState.Error(e.localizedMessage.orEmpty())

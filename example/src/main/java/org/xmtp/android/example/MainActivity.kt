@@ -22,6 +22,7 @@ import org.xmtp.android.example.conversation.ConversationDetailActivity
 import org.xmtp.android.example.conversation.ConversationsAdapter
 import org.xmtp.android.example.conversation.ConversationsClickListener
 import org.xmtp.android.example.conversation.NewConversationBottomSheet
+import org.xmtp.android.example.conversation.NewGroupBottomSheet
 import org.xmtp.android.example.databinding.ActivityMainBinding
 import org.xmtp.android.example.pushnotifications.PushNotificationTokenManager
 import org.xmtp.android.example.utils.KeyUtil
@@ -35,6 +36,7 @@ class MainActivity : AppCompatActivity(),
     private lateinit var accountManager: AccountManager
     private lateinit var adapter: ConversationsAdapter
     private var bottomSheet: NewConversationBottomSheet? = null
+    private var groupBottomSheet: NewGroupBottomSheet? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -48,7 +50,7 @@ class MainActivity : AppCompatActivity(),
             return
         }
 
-        ClientManager.createClient(keys)
+        ClientManager.createClient(keys, this)
 
         binding = ActivityMainBinding.inflate(layoutInflater)
         setContentView(binding.root)
@@ -65,6 +67,10 @@ class MainActivity : AppCompatActivity(),
 
         binding.fab.setOnClickListener {
             openConversationDetail()
+        }
+
+        binding.groupFab.setOnClickListener {
+            openGroupDetail()
         }
 
         lifecycleScope.launch {
@@ -86,6 +92,7 @@ class MainActivity : AppCompatActivity(),
 
     override fun onDestroy() {
         bottomSheet?.dismiss()
+        groupBottomSheet?.dismiss()
         super.onDestroy()
     }
 
@@ -127,6 +134,7 @@ class MainActivity : AppCompatActivity(),
             is ClientManager.ClientState.Ready -> {
                 viewModel.fetchConversations()
                 binding.fab.visibility = View.VISIBLE
+                binding.groupFab.visibility = View.VISIBLE
             }
             is ClientManager.ClientState.Error -> showError(clientState.message)
             is ClientManager.ClientState.Unknown -> Unit
@@ -191,6 +199,13 @@ class MainActivity : AppCompatActivity(),
         bottomSheet?.show(
             supportFragmentManager,
             NewConversationBottomSheet.TAG
+        )
+    }
+    private fun openGroupDetail() {
+        groupBottomSheet = NewGroupBottomSheet.newInstance()
+        groupBottomSheet?.show(
+            supportFragmentManager,
+            NewGroupBottomSheet.TAG
         )
     }
 }

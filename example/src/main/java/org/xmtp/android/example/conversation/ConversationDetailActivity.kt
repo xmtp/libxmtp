@@ -54,7 +54,14 @@ class ConversationDetailActivity : AppCompatActivity() {
         setContentView(binding.root)
         setSupportActionBar(binding.toolbar)
         supportActionBar?.setDisplayHomeAsUpEnabled(true)
-        supportActionBar?.subtitle = peerAddress?.truncatedAddress()
+        supportActionBar?.subtitle = if (peerAddress != null && peerAddress!!.contains(",")) {
+            val addresses = peerAddress?.split(",")?.toMutableList()
+            addresses?.joinToString(" & ") {
+                it.truncatedAddress()
+            }
+        } else {
+            peerAddress?.truncatedAddress()
+        }
 
         adapter = MessageAdapter()
         binding.list.layoutManager =
@@ -106,10 +113,12 @@ class ConversationDetailActivity : AppCompatActivity() {
                 finish()
                 true
             }
+
             R.id.copy_address -> {
                 copyWalletAddress()
                 true
             }
+
             else -> super.onOptionsItemSelected(item)
         }
     }
@@ -130,10 +139,12 @@ class ConversationDetailActivity : AppCompatActivity() {
                     adapter.setData(uiState.listItems)
                 }
             }
+
             is ConversationDetailViewModel.UiState.Success -> {
                 binding.refresh.isRefreshing = false
                 adapter.setData(uiState.listItems)
             }
+
             is ConversationDetailViewModel.UiState.Error -> {
                 binding.refresh.isRefreshing = false
                 showError(uiState.message)
@@ -146,10 +157,12 @@ class ConversationDetailActivity : AppCompatActivity() {
             is ConversationDetailViewModel.SendMessageState.Error -> {
                 showError(sendState.message)
             }
+
             ConversationDetailViewModel.SendMessageState.Loading -> {
                 binding.sendButton.isEnabled = false
                 binding.messageEditText.isEnabled = false
             }
+
             ConversationDetailViewModel.SendMessageState.Success -> {
                 binding.messageEditText.text.clear()
                 binding.messageEditText.isEnabled = true

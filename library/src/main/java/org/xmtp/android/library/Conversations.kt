@@ -9,6 +9,7 @@ import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.runBlocking
 import org.xmtp.android.library.GRPCApiClient.Companion.makeQueryRequest
 import org.xmtp.android.library.GRPCApiClient.Companion.makeSubscribeRequest
+import org.xmtp.android.library.messages.DecryptedMessage
 import org.xmtp.android.library.messages.Envelope
 import org.xmtp.android.library.messages.EnvelopeBuilder
 import org.xmtp.android.library.messages.InvitationV1
@@ -31,12 +32,16 @@ import org.xmtp.android.library.messages.walletAddress
 import org.xmtp.proto.keystore.api.v1.Keystore.TopicMap.TopicData
 import org.xmtp.proto.message.contents.Contact
 import org.xmtp.proto.message.contents.Invitation
-import org.xmtp.android.library.messages.DecryptedMessage
+import uniffi.xmtpv3.FfiConversations
+import uniffi.xmtpv3.FfiListConversationsOptions
 import java.util.Date
+import kotlin.time.Duration.Companion.nanoseconds
+import kotlin.time.DurationUnit
 
 data class Conversations(
     var client: Client,
     var conversationsByTopic: MutableMap<String, Conversation> = mutableMapOf(),
+    private val libXMTPConversations: FfiConversations? = null,
 ) {
 
     companion object {
@@ -79,6 +84,44 @@ data class Conversations(
                 sentAt = messageV1.sentAt,
             ),
         )
+    }
+
+    fun newGroup(accountAddresses: List<String>): Group {
+        if (accountAddresses.isEmpty()) {
+            throw XMTPException("Cannot start an empty group chat.")
+        }
+        if (accountAddresses.size == 1 &&
+            accountAddresses.first().lowercase() == client.address.lowercase()
+        ) {
+            throw XMTPException("Recipient is sender")
+        }
+        if (!client.canMessage(accountAddresses)) {
+            throw XMTPException("Recipient not on network")
+        }
+
+        val group = runBlocking {
+            libXMTPConversations?.createGroup(accountAddresses)
+                ?: throw XMTPException("Client does not support Groups")
+        }
+        return Group(client, group)
+    }
+
+    suspend fun syncGroups() {
+        libXMTPConversations?.sync()
+    }
+
+    fun listGroups(after: Date? = null, before: Date? = null, limit: Int? = null): List<Group> {
+        return runBlocking {
+            libXMTPConversations?.list(
+                opts = FfiListConversationsOptions(
+                    after?.time?.nanoseconds?.toLong(DurationUnit.NANOSECONDS),
+                    before?.time?.nanoseconds?.toLong(DurationUnit.NANOSECONDS),
+                    limit?.toLong()
+                )
+            )?.map {
+                Group(client, it)
+            }
+        } ?: emptyList()
     }
 
     /**
@@ -174,7 +217,7 @@ data class Conversations(
      * Get the list of conversations that current user has
      * @return The list of [Conversation] that the current [Client] has.
      */
-    fun list(): List<Conversation> {
+    fun list(includeGroups: Boolean = false): List<Conversation> {
         val newConversations = mutableListOf<Conversation>()
         val mostRecent = conversationsByTopic.values.maxOfOrNull { it.createdAt }
         val pagination = Pagination(after = mostRecent)
@@ -203,7 +246,13 @@ data class Conversations(
             it.peerAddress != client.address && Topic.isValidTopic(it.topic)
         }.map { Pair(it.topic, it) }
 
-        // TODO(perf): use DB to persist + sort
+        if (includeGroups) {
+            val groups = runBlocking {
+                syncGroups()
+                listGroups()
+            }
+            conversationsByTopic += groups.map { Pair(it.id.toString(), Conversation.Group(it)) }
+        }
         return conversationsByTopic.values.sortedByDescending { it.createdAt }
     }
 

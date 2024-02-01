@@ -384,6 +384,7 @@ internal interface _UniFFILib : Library {
                 .also { lib: _UniFFILib ->
                     uniffiCheckContractApiVersion(lib)
                     uniffiCheckApiChecksums(lib)
+                    FfiConverterTypeFfiConversationCallback.register(lib)
                     FfiConverterTypeFfiInboxOwner.register(lib)
                     FfiConverterTypeFfiLogger.register(lib)
                     FfiConverterTypeFfiMessageCallback.register(lib)
@@ -397,6 +398,8 @@ internal interface _UniFFILib : Library {
     fun uniffi_xmtpv3_fn_method_fficonversations_create_group(`ptr`: Pointer,`accountAddresses`: RustBuffer.ByValue,
     ): Pointer
     fun uniffi_xmtpv3_fn_method_fficonversations_list(`ptr`: Pointer,`opts`: RustBuffer.ByValue,
+    ): Pointer
+    fun uniffi_xmtpv3_fn_method_fficonversations_stream(`ptr`: Pointer,`callback`: Long,
     ): Pointer
     fun uniffi_xmtpv3_fn_method_fficonversations_sync(`ptr`: Pointer,
     ): Pointer
@@ -420,9 +423,9 @@ internal interface _UniFFILib : Library {
     ): Pointer
     fun uniffi_xmtpv3_fn_method_ffigroup_sync(`ptr`: Pointer,
     ): Pointer
-    fun uniffi_xmtpv3_fn_free_ffimessagestreamcloser(`ptr`: Pointer,_uniffi_out_err: RustCallStatus,
+    fun uniffi_xmtpv3_fn_free_ffistreamcloser(`ptr`: Pointer,_uniffi_out_err: RustCallStatus,
     ): Unit
-    fun uniffi_xmtpv3_fn_method_ffimessagestreamcloser_close(`ptr`: Pointer,_uniffi_out_err: RustCallStatus,
+    fun uniffi_xmtpv3_fn_method_ffistreamcloser_end(`ptr`: Pointer,_uniffi_out_err: RustCallStatus,
     ): Unit
     fun uniffi_xmtpv3_fn_free_ffiv2apiclient(`ptr`: Pointer,_uniffi_out_err: RustCallStatus,
     ): Unit
@@ -459,6 +462,8 @@ internal interface _UniFFILib : Library {
     fun uniffi_xmtpv3_fn_init_callback_ffiinboxowner(`callbackStub`: ForeignCallback,_uniffi_out_err: RustCallStatus,
     ): Unit
     fun uniffi_xmtpv3_fn_init_callback_ffilogger(`callbackStub`: ForeignCallback,_uniffi_out_err: RustCallStatus,
+    ): Unit
+    fun uniffi_xmtpv3_fn_init_callback_fficonversationcallback(`callbackStub`: ForeignCallback,_uniffi_out_err: RustCallStatus,
     ): Unit
     fun uniffi_xmtpv3_fn_init_callback_ffimessagecallback(`callbackStub`: ForeignCallback,_uniffi_out_err: RustCallStatus,
     ): Unit
@@ -632,6 +637,8 @@ internal interface _UniFFILib : Library {
     ): Short
     fun uniffi_xmtpv3_checksum_method_fficonversations_list(
     ): Short
+    fun uniffi_xmtpv3_checksum_method_fficonversations_stream(
+    ): Short
     fun uniffi_xmtpv3_checksum_method_fficonversations_sync(
     ): Short
     fun uniffi_xmtpv3_checksum_method_ffigroup_add_members(
@@ -652,7 +659,7 @@ internal interface _UniFFILib : Library {
     ): Short
     fun uniffi_xmtpv3_checksum_method_ffigroup_sync(
     ): Short
-    fun uniffi_xmtpv3_checksum_method_ffimessagestreamcloser_close(
+    fun uniffi_xmtpv3_checksum_method_ffistreamcloser_end(
     ): Short
     fun uniffi_xmtpv3_checksum_method_ffiv2apiclient_batch_query(
     ): Short
@@ -685,6 +692,8 @@ internal interface _UniFFILib : Library {
     fun uniffi_xmtpv3_checksum_method_ffiinboxowner_sign(
     ): Short
     fun uniffi_xmtpv3_checksum_method_ffilogger_log(
+    ): Short
+    fun uniffi_xmtpv3_checksum_method_fficonversationcallback_on_conversation(
     ): Short
     fun uniffi_xmtpv3_checksum_method_ffimessagecallback_on_message(
     ): Short
@@ -750,6 +759,9 @@ private fun uniffiCheckApiChecksums(lib: _UniFFILib) {
     if (lib.uniffi_xmtpv3_checksum_method_fficonversations_list() != 44067.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
+    if (lib.uniffi_xmtpv3_checksum_method_fficonversations_stream() != 60583.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
     if (lib.uniffi_xmtpv3_checksum_method_fficonversations_sync() != 62598.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
@@ -774,13 +786,13 @@ private fun uniffiCheckApiChecksums(lib: _UniFFILib) {
     if (lib.uniffi_xmtpv3_checksum_method_ffigroup_send() != 55957.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
-    if (lib.uniffi_xmtpv3_checksum_method_ffigroup_stream() != 10513.toShort()) {
+    if (lib.uniffi_xmtpv3_checksum_method_ffigroup_stream() != 7482.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_xmtpv3_checksum_method_ffigroup_sync() != 9422.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
-    if (lib.uniffi_xmtpv3_checksum_method_ffimessagestreamcloser_close() != 46827.toShort()) {
+    if (lib.uniffi_xmtpv3_checksum_method_ffistreamcloser_end() != 47211.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_xmtpv3_checksum_method_ffiv2apiclient_batch_query() != 10812.toShort()) {
@@ -831,7 +843,10 @@ private fun uniffiCheckApiChecksums(lib: _UniFFILib) {
     if (lib.uniffi_xmtpv3_checksum_method_ffilogger_log() != 56011.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
-    if (lib.uniffi_xmtpv3_checksum_method_ffimessagecallback_on_message() != 59170.toShort()) {
+    if (lib.uniffi_xmtpv3_checksum_method_fficonversationcallback_on_conversation() != 1220.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_xmtpv3_checksum_method_ffimessagecallback_on_message() != 13573.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
 }
@@ -1222,6 +1237,7 @@ public interface FfiConversationsInterface {
     @Throws(GenericException::class)
     suspend fun `createGroup`(`accountAddresses`: List<String>): FfiGroup@Throws(GenericException::class)
     suspend fun `list`(`opts`: FfiListConversationsOptions): List<FfiGroup>@Throws(GenericException::class)
+    suspend fun `stream`(`callback`: FfiConversationCallback): FfiStreamCloser@Throws(GenericException::class)
     suspend fun `sync`()
     companion object
 }
@@ -1280,6 +1296,26 @@ class FfiConversations(
             { future -> _UniFFILib.INSTANCE.ffi_xmtpv3_rust_future_free_rust_buffer(future) },
             // lift function
             { FfiConverterSequenceTypeFfiGroup.lift(it) },
+            // Error FFI converter
+            GenericException.ErrorHandler,
+        )
+    }
+
+    @Throws(GenericException::class)
+    @Suppress("ASSIGNED_BUT_NEVER_ACCESSED_VARIABLE")
+    override suspend fun `stream`(`callback`: FfiConversationCallback) : FfiStreamCloser {
+        return uniffiRustCallAsync(
+            callWithPointer { thisPtr ->
+                _UniFFILib.INSTANCE.uniffi_xmtpv3_fn_method_fficonversations_stream(
+                    thisPtr,
+                    FfiConverterTypeFfiConversationCallback.lower(`callback`),
+                )
+            },
+            { future, continuation -> _UniFFILib.INSTANCE.ffi_xmtpv3_rust_future_poll_pointer(future, continuation) },
+            { future, continuation -> _UniFFILib.INSTANCE.ffi_xmtpv3_rust_future_complete_pointer(future, continuation) },
+            { future -> _UniFFILib.INSTANCE.ffi_xmtpv3_rust_future_free_pointer(future) },
+            // lift function
+            { FfiConverterTypeFfiStreamCloser.lift(it) },
             // Error FFI converter
             GenericException.ErrorHandler,
         )
@@ -1346,7 +1382,7 @@ public interface FfiGroupInterface {
     fun `listMembers`(): List<FfiGroupMember>@Throws(GenericException::class)
     suspend fun `removeMembers`(`accountAddresses`: List<String>)@Throws(GenericException::class)
     suspend fun `send`(`contentBytes`: ByteArray)@Throws(GenericException::class)
-    suspend fun `stream`(`messageCallback`: FfiMessageCallback): FfiMessageStreamCloser@Throws(GenericException::class)
+    suspend fun `stream`(`messageCallback`: FfiMessageCallback): FfiStreamCloser@Throws(GenericException::class)
     suspend fun `sync`()
     companion object
 }
@@ -1481,7 +1517,7 @@ class FfiGroup(
 
     @Throws(GenericException::class)
     @Suppress("ASSIGNED_BUT_NEVER_ACCESSED_VARIABLE")
-    override suspend fun `stream`(`messageCallback`: FfiMessageCallback) : FfiMessageStreamCloser {
+    override suspend fun `stream`(`messageCallback`: FfiMessageCallback) : FfiStreamCloser {
         return uniffiRustCallAsync(
             callWithPointer { thisPtr ->
                 _UniFFILib.INSTANCE.uniffi_xmtpv3_fn_method_ffigroup_stream(
@@ -1493,7 +1529,7 @@ class FfiGroup(
             { future, continuation -> _UniFFILib.INSTANCE.ffi_xmtpv3_rust_future_complete_pointer(future, continuation) },
             { future -> _UniFFILib.INSTANCE.ffi_xmtpv3_rust_future_free_pointer(future) },
             // lift function
-            { FfiConverterTypeFfiMessageStreamCloser.lift(it) },
+            { FfiConverterTypeFfiStreamCloser.lift(it) },
             // Error FFI converter
             GenericException.ErrorHandler,
         )
@@ -1551,15 +1587,15 @@ public object FfiConverterTypeFfiGroup: FfiConverter<FfiGroup, Pointer> {
 
 
 
-public interface FfiMessageStreamCloserInterface {
+public interface FfiStreamCloserInterface {
 
-    fun `close`()
+    fun `end`()
     companion object
 }
 
-class FfiMessageStreamCloser(
+class FfiStreamCloser(
     pointer: Pointer
-) : FFIObject(pointer), FfiMessageStreamCloserInterface {
+) : FFIObject(pointer), FfiStreamCloserInterface {
 
     /**
      * Disconnect the object from the underlying Rust object.
@@ -1571,14 +1607,14 @@ class FfiMessageStreamCloser(
      */
     override protected fun freeRustArcPtr() {
         rustCall() { status ->
-            _UniFFILib.INSTANCE.uniffi_xmtpv3_fn_free_ffimessagestreamcloser(this.pointer, status)
+            _UniFFILib.INSTANCE.uniffi_xmtpv3_fn_free_ffistreamcloser(this.pointer, status)
         }
     }
 
-    override fun `close`() =
+    override fun `end`() =
         callWithPointer {
             rustCall() { _status ->
-                _UniFFILib.INSTANCE.uniffi_xmtpv3_fn_method_ffimessagestreamcloser_close(it,
+                _UniFFILib.INSTANCE.uniffi_xmtpv3_fn_method_ffistreamcloser_end(it,
 
                     _status)
             }
@@ -1592,22 +1628,22 @@ class FfiMessageStreamCloser(
 
 }
 
-public object FfiConverterTypeFfiMessageStreamCloser: FfiConverter<FfiMessageStreamCloser, Pointer> {
-    override fun lower(value: FfiMessageStreamCloser): Pointer = value.callWithPointer { it }
+public object FfiConverterTypeFfiStreamCloser: FfiConverter<FfiStreamCloser, Pointer> {
+    override fun lower(value: FfiStreamCloser): Pointer = value.callWithPointer { it }
 
-    override fun lift(value: Pointer): FfiMessageStreamCloser {
-        return FfiMessageStreamCloser(value)
+    override fun lift(value: Pointer): FfiStreamCloser {
+        return FfiStreamCloser(value)
     }
 
-    override fun read(buf: ByteBuffer): FfiMessageStreamCloser {
+    override fun read(buf: ByteBuffer): FfiStreamCloser {
         // The Rust code always writes pointers as 8 bytes, and will
         // fail to compile if they don't fit.
         return lift(Pointer(buf.getLong()))
     }
 
-    override fun allocationSize(value: FfiMessageStreamCloser) = 8
+    override fun allocationSize(value: FfiStreamCloser) = 8
 
-    override fun write(value: FfiMessageStreamCloser, buf: ByteBuffer) {
+    override fun write(value: FfiStreamCloser, buf: ByteBuffer) {
         // The Rust code always expects pointers written as 8 bytes,
         // and will fail to compile if they don't fit.
         buf.putLong(Pointer.nativeValue(lower(value)))
@@ -2673,6 +2709,92 @@ public abstract class FfiConverterCallbackInterface<CallbackInterface>(
         buf.putLong(lower(value))
     }
 }
+
+// Declaration and FfiConverters for FfiConversationCallback Callback Interface
+
+public interface FfiConversationCallback {
+    fun `onConversation`(`conversation`: FfiGroup)
+
+    companion object
+}
+
+// The ForeignCallback that is passed to Rust.
+internal class ForeignCallbackTypeFfiConversationCallback : ForeignCallback {
+    @Suppress("TooGenericExceptionCaught")
+    override fun callback(handle: Handle, method: Int, argsData: Pointer, argsLen: Int, outBuf: RustBufferByReference): Int {
+        val cb = FfiConverterTypeFfiConversationCallback.lift(handle)
+        return when (method) {
+            IDX_CALLBACK_FREE -> {
+                FfiConverterTypeFfiConversationCallback.drop(handle)
+                // Successful return
+                // See docs of ForeignCallback in `uniffi_core/src/ffi/foreigncallbacks.rs`
+                UNIFFI_CALLBACK_SUCCESS
+            }
+            1 -> {
+                // Call the method, write to outBuf and return a status code
+                // See docs of ForeignCallback in `uniffi_core/src/ffi/foreigncallbacks.rs` for info
+                try {
+                    this.`invokeOnConversation`(cb, argsData, argsLen, outBuf)
+                } catch (e: Throwable) {
+                    // Unexpected error
+                    try {
+                        // Try to serialize the error into a string
+                        outBuf.setValue(FfiConverterString.lower(e.toString()))
+                    } catch (e: Throwable) {
+                        // If that fails, then it's time to give up and just return
+                    }
+                    UNIFFI_CALLBACK_UNEXPECTED_ERROR
+                }
+            }
+
+            else -> {
+                // An unexpected error happened.
+                // See docs of ForeignCallback in `uniffi_core/src/ffi/foreigncallbacks.rs`
+                try {
+                    // Try to serialize the error into a string
+                    outBuf.setValue(FfiConverterString.lower("Invalid Callback index"))
+                } catch (e: Throwable) {
+                    // If that fails, then it's time to give up and just return
+                }
+                UNIFFI_CALLBACK_UNEXPECTED_ERROR
+            }
+        }
+    }
+
+
+    @Suppress("UNUSED_PARAMETER")
+    private fun `invokeOnConversation`(kotlinCallbackInterface: FfiConversationCallback, argsData: Pointer, argsLen: Int, outBuf: RustBufferByReference): Int {
+        val argsBuf = argsData.getByteBuffer(0, argsLen.toLong()).also {
+            it.order(ByteOrder.BIG_ENDIAN)
+        }
+        fun makeCall() : Int {
+            kotlinCallbackInterface.`onConversation`(
+                FfiConverterTypeFfiGroup.read(argsBuf)
+            )
+            return UNIFFI_CALLBACK_SUCCESS
+        }
+        fun makeCallAndHandleError() : Int = makeCall()
+
+        return makeCallAndHandleError()
+    }
+
+}
+
+// The ffiConverter which transforms the Callbacks in to Handles to pass to Rust.
+public object FfiConverterTypeFfiConversationCallback: FfiConverterCallbackInterface<FfiConversationCallback>(
+    foreignCallback = ForeignCallbackTypeFfiConversationCallback()
+) {
+    override fun register(lib: _UniFFILib) {
+        rustCall() { status ->
+            lib.uniffi_xmtpv3_fn_init_callback_fficonversationcallback(this.foreignCallback, status)
+        }
+    }
+}
+
+
+
+
+
 
 // Declaration and FfiConverters for FfiInboxOwner Callback Interface
 

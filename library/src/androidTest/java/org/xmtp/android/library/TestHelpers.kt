@@ -217,20 +217,21 @@ class FakeApiClient : ApiClient {
 data class Fixtures(
     val aliceAccount: PrivateKeyBuilder,
     val bobAccount: PrivateKeyBuilder,
-    val steveAccount: PrivateKeyBuilder,
+    val caroAccount: PrivateKeyBuilder,
+    val clientOptions: ClientOptions? = null
 ) {
     var fakeApiClient: FakeApiClient = FakeApiClient()
     var alice: PrivateKey = aliceAccount.getPrivateKey()
-    var aliceClient: Client = Client().create(account = aliceAccount, apiClient = fakeApiClient)
+    var aliceClient: Client = Client().create(account = aliceAccount, apiClient = fakeApiClient, options = clientOptions)
     var bob: PrivateKey = bobAccount.getPrivateKey()
-    var bobClient: Client = Client().create(account = bobAccount, apiClient = fakeApiClient)
-    var steve: PrivateKey = steveAccount.getPrivateKey()
-    var steveClient: Client = Client().create(account = steveAccount, apiClient = fakeApiClient)
-
-    constructor() : this(
+    var bobClient: Client = Client().create(account = bobAccount, apiClient = fakeApiClient, options = clientOptions)
+    var caro: PrivateKey = caroAccount.getPrivateKey()
+    var caroClient: Client = Client().create(account = caroAccount, apiClient = fakeApiClient, options = clientOptions)
+    constructor(clientOptions: ClientOptions?) : this(
         aliceAccount = PrivateKeyBuilder(),
         bobAccount = PrivateKeyBuilder(),
-        steveAccount = PrivateKeyBuilder()
+        caroAccount = PrivateKeyBuilder(),
+        clientOptions = clientOptions
     )
 
     fun publishLegacyContact(client: Client) {
@@ -249,5 +250,5 @@ data class Fixtures(
     }
 }
 
-fun fixtures(): Fixtures =
-    Fixtures()
+fun fixtures(clientOptions: ClientOptions? = null): Fixtures =
+    Fixtures(clientOptions)

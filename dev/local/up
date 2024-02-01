@@ -1,0 +1,6 @@
+#!/bin/bash
+set -eou pipefail
+script_dir="$( cd -- "$( dirname -- "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )"
+
+"${script_dir}"/compose pull
+"${script_dir}"/compose up -d --build
