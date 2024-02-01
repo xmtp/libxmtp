@@ -389,13 +389,18 @@ fn build_group_join_config() -> MlsGroupJoinConfig {
 #[cfg(test)]
 mod tests {
     use openmls::prelude::Member;
+    use prost::Message;
     use xmtp_api_grpc::grpc_api_helper::Client as GrpcClient;
     use xmtp_cryptography::utils::generate_local_wallet;
-    use xmtp_proto::api_client::XmtpMlsClient;
+    use xmtp_proto::{api_client::XmtpMlsClient, xmtp::mls::message_contents::EncodedContent};
 
     use crate::{
         builder::ClientBuilder,
-        storage::{group_intent::IntentState, group_message::StoredGroupMessage},
+        codecs::{membership_change::GroupMembershipChangeCodec, ContentCodec},
+        storage::{
+            group_intent::IntentState,
+            group_message::{GroupMessageKind, StoredGroupMessage},
+        },
         Client, InboxOwner,
     };
 
@@ -527,7 +532,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_add_members() {
+    async fn test_add_installation() {
         let client = ClientBuilder::new_test_client(generate_local_wallet().into()).await;
         let client_2 = ClientBuilder::new_test_client(generate_local_wallet().into()).await;
         client_2.register_identity().await.unwrap();
@@ -572,7 +577,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_remove_member() {
+    async fn test_remove_installation() {
         let client_1 = ClientBuilder::new_test_client(generate_local_wallet().into()).await;
         // Add another client onto the network
         let client_2 = ClientBuilder::new_test_client(generate_local_wallet().into()).await;
@@ -682,12 +687,32 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(group.members().unwrap().len(), 3);
+        let messages = group.find_messages(None, None, None, None).unwrap();
+        assert_eq!(messages.len(), 1);
+        assert_eq!(messages[0].kind, GroupMessageKind::MembershipChange);
+        let encoded_content =
+            EncodedContent::decode(messages[0].decrypted_message_bytes.as_slice()).unwrap();
+        let members_changed_codec = GroupMembershipChangeCodec::decode(encoded_content).unwrap();
+        assert_eq!(members_changed_codec.members_added.len(), 2);
+        assert_eq!(members_changed_codec.members_removed.len(), 0);
+        assert_eq!(members_changed_codec.installations_added.len(), 0);
+        assert_eq!(members_changed_codec.installations_removed.len(), 0);
 
         group
             .remove_members(vec![bola.account_address()])
             .await
             .unwrap();
         assert_eq!(group.members().unwrap().len(), 2);
+        let messages = group.find_messages(None, None, None, None).unwrap();
+        assert_eq!(messages.len(), 2);
+        assert_eq!(messages[1].kind, GroupMessageKind::MembershipChange);
+        let encoded_content =
+            EncodedContent::decode(messages[1].decrypted_message_bytes.as_slice()).unwrap();
+        let members_changed_codec = GroupMembershipChangeCodec::decode(encoded_content).unwrap();
+        assert_eq!(members_changed_codec.members_added.len(), 0);
+        assert_eq!(members_changed_codec.members_removed.len(), 1);
+        assert_eq!(members_changed_codec.installations_added.len(), 0);
+        assert_eq!(members_changed_codec.installations_removed.len(), 0);
     }
 
     #[tokio::test]
