@@ -42,6 +42,20 @@ pub extern "C" fn frbgen_xmtp_bindings_flutter_rust_arc_decrement_strong_count_R
 }
 
 #[no_mangle]
+pub extern "C" fn frbgen_xmtp_bindings_flutter_rust_arc_increment_strong_count_RustOpaque_flutter_rust_bridgefor_generatedrust_asyncRwLockClient(
+    ptr: *const std::ffi::c_void,
+) {
+    MoiArc::<flutter_rust_bridge::for_generated::rust_async::RwLock<Client>>::increment_strong_count(ptr as _);
+}
+
+#[no_mangle]
+pub extern "C" fn frbgen_xmtp_bindings_flutter_rust_arc_decrement_strong_count_RustOpaque_flutter_rust_bridgefor_generatedrust_asyncRwLockClient(
+    ptr: *const std::ffi::c_void,
+) {
+    MoiArc::<flutter_rust_bridge::for_generated::rust_async::RwLock<Client>>::decrement_strong_count(ptr as _);
+}
+
+#[no_mangle]
 pub extern "C" fn frbgen_xmtp_bindings_flutter_rust_arc_increment_strong_count_RustOpaque_flutter_rust_bridgefor_generatedrust_asyncRwLockClientBuilderError(
     ptr: *const std::ffi::c_void,
 ) {
@@ -95,4 +109,18 @@ pub extern "C" fn frbgen_xmtp_bindings_flutter_rust_arc_decrement_strong_count_R
     ptr: *const std::ffi::c_void,
 ) {
     MoiArc::<flutter_rust_bridge::for_generated::rust_async::RwLock<xmtp_mls :: client :: ClientError>>::decrement_strong_count(ptr as _);
+}
+
+#[no_mangle]
+pub extern "C" fn frbgen_xmtp_bindings_flutter_rust_arc_increment_strong_count_RustOpaque_flutter_rust_bridgefor_generatedrust_asyncRwLockxmtp_mlsgroupsGroupError(
+    ptr: *const std::ffi::c_void,
+) {
+    MoiArc::<flutter_rust_bridge::for_generated::rust_async::RwLock<xmtp_mls :: groups :: GroupError>>::increment_strong_count(ptr as _);
+}
+
+#[no_mangle]
+pub extern "C" fn frbgen_xmtp_bindings_flutter_rust_arc_decrement_strong_count_RustOpaque_flutter_rust_bridgefor_generatedrust_asyncRwLockxmtp_mlsgroupsGroupError(
+    ptr: *const std::ffi::c_void,
+) {
+    MoiArc::<flutter_rust_bridge::for_generated::rust_async::RwLock<xmtp_mls :: groups :: GroupError>>::decrement_strong_count(ptr as _);
 }
