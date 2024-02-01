@@ -28,7 +28,7 @@ jobs:
         id: meta
         uses: docker/metadata-action@v3
         with:
-          images: ghcr.io/${{ github.repository }}
+          images: ghcr.io/xmtp/mls-validation-service
 
       - name: Build and push Docker image
         uses: docker/build-push-action@v2
