@@ -9,13 +9,14 @@ use openmls_basic_credential::SignatureKeyPair;
 
 use prost::DecodeError;
 use thiserror::Error;
-use xmtp_cryptography::signature::SignatureError;
+use xmtp_cryptography::signature::{RecoverableSignature, SignatureError};
 
 use xmtp_proto::xmtp::mls::message_contents::{
     mls_credential::Association as AssociationProto, MlsCredential as MlsCredentialProto,
 };
 
 use self::grant_messaging_access_association::GrantMessagingAccessAssociation;
+pub use self::grant_messaging_access_association::UnsignedGrantMessagingAccessData;
 use self::legacy_create_identity_association::LegacyCreateIdentityAssociation;
 
 #[derive(Debug, Error)]
@@ -63,16 +64,14 @@ impl Credential {
     }
 
     pub fn create_from_external_signer(
-        association_data: AssociationText,
+        association_data: UnsignedGrantMessagingAccessData,
         signature: Vec<u8>,
     ) -> Result<Self, AssociationError> {
-        let association = Eip191Association::new_validated(
+        let association = GrantMessagingAccessAssociation::new_validated(
             association_data,
             RecoverableSignature::Eip191Signature(signature),
         )?;
-        Ok(Self {
-            association: Association::Eip191(association),
-        })
+        Ok(Self::GrantMessagingAccess(association))
     }
 
     pub fn create_legacy(
@@ -128,8 +127,8 @@ impl Credential {
 
     pub fn address(&self) -> String {
         match &self {
-            Credential::GrantMessagingAccess(assoc) => assoc.address(),
-            Credential::LegacyCreateIdentity(assoc) => assoc.address(),
+            Credential::GrantMessagingAccess(assoc) => assoc.account_address(),
+            Credential::LegacyCreateIdentity(assoc) => assoc.account_address(),
         }
     }
 

@@ -93,7 +93,7 @@ impl LegacyCreateIdentityAssociation {
         Ok(())
     }
 
-    pub fn address(&self) -> String {
+    pub fn account_address(&self) -> String {
         self.legacy_signed_public_key.account_address()
     }
 
