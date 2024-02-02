@@ -502,7 +502,7 @@ impl XmtpMlsClient for Client {
         let stream = res.into_inner();
 
         let new_stream = stream.map_err(|e| Error::new(ErrorKind::SubscribeError).with(e));
-
+        println!("got group stream");
         Ok(Box::pin(new_stream))
     }
 
@@ -519,7 +519,7 @@ impl XmtpMlsClient for Client {
         let stream = res.into_inner();
 
         let new_stream = stream.map_err(|e| Error::new(ErrorKind::SubscribeError).with(e));
-
+        println!("got welcome stream");
         Ok(Box::pin(new_stream))
     }
 }

@@ -1,5 +1,5 @@
 services:
-  node:
+  node1:
     image: xmtp/node-go:latest
     platform: linux/amd64
     environment:
@@ -12,11 +12,37 @@ services:
       - --mls-validation.grpc-address=validation:50051
       - --api.enable-mls
       - --wait-for-db=30s
+      - --ws-port=6001
+      - --ws
+      - --static-node=/dns4/node2/tcp/6001/ws/p2p/16Uiu2HAmPexvM9XDgoac3i3V4PHGHpk11ZoYpNjG5TsuGfeQy79R
       # Disable authn until we have reliable support for generating auth tokens
       # - --api.authn.enable
     ports:
       - 5555:5555
       - 5556:5556
+    depends_on:
+      - db
+
+  node2:
+    image: xmtp/node-go:latest
+    platform: linux/amd64
+    environment:
+      - GOWAKU-NODEKEY=5757057f3daac3fa80e43a06d24edf15fcaba11eb16ede5fd53b78ba68ef1436
+    command:
+      - --store.enable
+      - --store.db-connection-string=postgres://postgres:xmtp@db:5432/postgres?sslmode=disable
+      - --store.reader-db-connection-string=postgres://postgres:xmtp@db:5432/postgres?sslmode=disable
+      - --mls-store.db-connection-string=postgres://postgres:xmtp@mlsdb:5432/postgres?sslmode=disable
+      - --static-node=/dns4/node1/tcp/60  01/ws/p2p/16Uiu2HAmNCxLZCkXNbpVPBpSSnHj9iq4HZQj7fxRzw2kj1kKSHHA
+      - --mls-validation.grpc-address=validation:50051
+      - --api.enable-mls
+      - --ws-port=6001
+      - --ws
+      - --wait-for-db=30s
+      # Disable authn until we have reliable support for generating auth tokens
+      # - --api.authn.enable
+    ports:
+      - 5557:5556
     depends_on:
       - db
 

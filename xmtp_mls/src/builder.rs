@@ -188,15 +188,25 @@ mod tests {
         Client,
     };
 
-    async fn get_local_grpc_client() -> GrpcClient {
-        GrpcClient::create("http://localhost:5556".to_string(), false)
+    async fn get_local_grpc_client(port: i32) -> GrpcClient {
+        GrpcClient::create(format!("http://localhost:{}", port).to_string(), false)
+            .await
+            .unwrap()
+    }
+
+    async fn get_dev_grpc_client() -> GrpcClient {
+        GrpcClient::create("https://dev.xmtp.network:5556".to_string(), true)
             .await
             .unwrap()
     }
 
     impl ClientBuilder<GrpcClient, LocalWallet> {
-        pub async fn local_grpc(self) -> Self {
-            self.api_client(get_local_grpc_client().await)
+        pub async fn local_grpc(self, port: i32) -> Self {
+            self.api_client(get_local_grpc_client(port).await)
+        }
+
+        pub async fn dev_grpc(self) -> Self {
+            self.api_client(get_dev_grpc_client().await)
         }
 
         fn temp_store(self) -> Self {
@@ -211,7 +221,19 @@ mod tests {
         ) -> Client<GrpcClient> {
             Self::new(strat)
                 .temp_store()
-                .local_grpc()
+                // .local_grpc(5556)
+                .dev_grpc()
+                .await
+                .build()
+                .unwrap()
+        }
+
+        pub async fn new_test_client2(
+            strat: IdentityStrategy<Wallet<SigningKey>>,
+        ) -> Client<GrpcClient> {
+            Self::new(strat)
+                .temp_store()
+                .local_grpc(5557)
                 .await
                 .build()
                 .unwrap()
@@ -238,7 +260,7 @@ mod tests {
                 .unwrap();
 
         let client_a = ClientBuilder::new(wallet.clone().into())
-            .local_grpc()
+            .local_grpc(5556)
             .await
             .store(store_a)
             .build()
@@ -253,7 +275,7 @@ mod tests {
                 .unwrap();
 
         let client_b = ClientBuilder::new(wallet.clone().into())
-            .local_grpc()
+            .local_grpc(5556)
             .await
             .store(store_b)
             .build()
@@ -270,7 +292,7 @@ mod tests {
                 .unwrap();
 
         ClientBuilder::new(generate_local_wallet().into())
-            .local_grpc()
+            .local_grpc(5556)
             .await
             .store(store_c)
             .build()
@@ -281,7 +303,7 @@ mod tests {
             EncryptedMessageStore::new_unencrypted(StorageOption::Persistent(tmpdb.clone()))
                 .unwrap();
         let client_d = ClientBuilder::new(IdentityStrategy::CachedOnly)
-            .local_grpc()
+            .local_grpc(5556)
             .await
             .store(store_d)
             .build()

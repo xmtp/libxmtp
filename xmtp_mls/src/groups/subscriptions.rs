@@ -61,6 +61,7 @@ where
             .await?;
         let stream = subscription
             .map(|res| async {
+                println!("Got message {:?}", res);
                 match res {
                     Ok(envelope) => self.process_stream_entry(envelope).await,
                     Err(err) => Err(GroupError::Api(err)),
@@ -107,13 +108,14 @@ mod tests {
         let bola_group = bola_groups.first().unwrap();
 
         let mut stream = bola_group.stream().await.unwrap();
-        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+        tokio::time::sleep(std::time::Duration::from_millis(1000)).await;
         amal_group.send_message("hello".as_bytes()).await.unwrap();
-        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+        tokio::time::sleep(std::time::Duration::from_millis(1000)).await;
         let first_val = stream.next().await.unwrap();
         assert_eq!(first_val.decrypted_message_bytes, "hello".as_bytes());
 
         amal_group.send_message("goodbye".as_bytes()).await.unwrap();
+        tokio::time::sleep(std::time::Duration::from_millis(1000)).await;
 
         let second_val = stream.next().await.unwrap();
         assert_eq!(second_val.decrypted_message_bytes, "goodbye".as_bytes());
@@ -126,7 +128,7 @@ mod tests {
 
         let stream = group.stream().await.unwrap();
 
-        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+        tokio::time::sleep(std::time::Duration::from_millis(500)).await;
 
         for i in 0..10 {
             group
@@ -156,13 +158,13 @@ mod tests {
         let amal_group = amal.create_group().unwrap();
 
         let mut stream = amal_group.stream().await.unwrap();
-        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+        tokio::time::sleep(std::time::Duration::from_millis(500)).await;
 
         amal_group
             .add_members_by_installation_id(vec![bola.installation_public_key()])
             .await
             .unwrap();
-        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+        tokio::time::sleep(std::time::Duration::from_millis(500)).await;
 
         let first_val = stream.next().await.unwrap();
         assert_eq!(first_val.kind, GroupMessageKind::MembershipChange);
