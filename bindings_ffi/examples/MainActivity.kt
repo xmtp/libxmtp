@@ -5,6 +5,13 @@ import android.util.Log
 import android.widget.TextView
 import androidx.appcompat.app.AppCompatActivity
 import com.example.xmtpv3_example.R.id.selftest_output
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.asSharedFlow
+import kotlinx.coroutines.flow.collect
+import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import org.bouncycastle.util.encoders.Hex.toHexString
 import org.web3j.crypto.Credentials
@@ -14,6 +21,9 @@ import uniffi.xmtpv3.FfiConversationCallback
 import uniffi.xmtpv3.FfiGroup
 import uniffi.xmtpv3.FfiInboxOwner
 import uniffi.xmtpv3.FfiLogger
+import uniffi.xmtpv3.FfiMessage
+import uniffi.xmtpv3.FfiMessageCallback
+import uniffi.xmtpv3.FfiXmtpClient
 import uniffi.xmtpv3.LegacyIdentitySource
 import java.io.File
 import java.nio.charset.StandardCharsets
@@ -46,9 +56,20 @@ class ConversationCallback: FfiConversationCallback {
     }
 }
 
+class GroupCallback: FfiConversationCallback {
+    private val _groups = MutableSharedFlow<FfiGroup>()
+    val groups = _groups.asSharedFlow()
+    override fun onConversation(conversation: FfiGroup) {
+        Log.i("App", "INFO - Conversation callback with ID: " + toHexString(conversation.id()) + ", members: " + conversation.listMembers())
+        runBlocking { _groups.emit(conversation) }
+    }
+}
+
 // An example Android app testing the end-to-end flow through Rust
 // Run setup_android_example.sh to set it up
 class MainActivity : AppCompatActivity() {
+    private var client: FfiXmtpClient? = null
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
@@ -86,12 +107,40 @@ class MainActivity : AppCompatActivity() {
                 client.registerIdentity(walletSignature);
                 textView.text = "Client constructed, wallet address: " + client.accountAddress()
                 Log.i("App", "Setting up conversation streaming")
-                client.conversations().stream(ConversationCallback());
+                streamGroups().collect {
+                    Log.i("App", "Group1 - Conversation callback with ID: " + toHexString(it.id()) + ", members: " + it.listMembers())
+                }
+                streamGroups2().collect {
+                    Log.i("App", "Group2 - Conversation callback with ID: " + toHexString(it.id()) + ", members: " + it.listMembers())
+                }
             } catch (e: Exception) {
                 textView.text = "Failed to construct client: " + e.message
             }
         }
 
         dbDir.deleteRecursively()
+    }
+
+    private fun streamGroups(): Flow<FfiGroup> = flow {
+        client?.conversations()?.stream(ConversationCallback())
+    }
+
+    private fun streamGroups2(): Flow<FfiGroup> = flow {
+        val callback = GroupCallback()
+        val stream = client?.conversations()?.stream(callback)
+
+        coroutineScope {
+            launch {
+                try {
+                    callback.groups.collect { group ->
+                        emit(group)
+                    }
+                } catch (error: Exception) {
+                    Log.e("App", "stream error ${error.message}")
+                } finally {
+                    stream?.end()
+                }
+            }
+        }
     }
 }
