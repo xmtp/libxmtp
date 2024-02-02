@@ -51,11 +51,13 @@ XMTP installations consist of a long-lived Ed25519 key-pair (the 'installation k
 2. The app prompts the user to sign the public key with their Ethereum wallet. The user is expected to inspect the text and reject the signing request if the data is invalid, for example if the account address is not the one they intended. The format for version 1 of the association text is as follows:
 
    ```
-   XMTP: Grant Messaging Access
+   XMTP : Grant Messaging Access
 
    Current Time: <ISO 8601 date and time in UTC>
    Account Address: <ethereum address>
    Installation ID: <hex(last_20_bytes(keccak256(Ed25519PublicKey)))>
+
+   For more info: https://xmtp.org/signatures/
    ```
 
 3. The signature and related data is then protobuf-serialized to form the MLS Credential:
@@ -64,14 +66,14 @@ XMTP installations consist of a long-lived Ed25519 key-pair (the 'installation k
    struct {
         association_text_version: i32,
         signature: bytes,
-        iso8601_time: string,
+        created_ns: u64,
         account_address: string,
-   } Eip191Association;
+   } GrantMessagingAccessAssociation;
 
 
    struct {
        installation_public_key: bytes,
-       eip191_association: Eip191Association
+       association: GrantMessagingAccessAssociation
    } MlsCredential;
    ```
 
@@ -100,19 +102,28 @@ Users may revoke an installation as follows:
 1. The app prompts the user to sign the revocation with their Ethereum wallet. The user is expected to inspect the text and reject the signing request if the data is invalid, for example if the account address is not the one they intended. The format for version 1 of the association text is as follows:
 
    ```
-   XMTP: Revoke Messaging Access
+   XMTP : Revoke Messaging Access
 
    Current Time: <ISO 8601 date and time in UTC>
    Account Address: <ethereum address>
    Installation ID: <hex(last_20_bytes(keccak256(Ed25519PublicKey)))>
+
+   For more info: https://xmtp.org/signatures/
    ```
 
 1. The signature and related data is then protobuf-serialized to form the revocation:
 
    ```
    struct {
+        association_text_version: i32,
+        signature: bytes,
+        created_ns: u64,
+        account_address: string,
+   } RevokeMessagingAccessAssociation;
+
+   struct {
        installation_public_key: bytes,
-       eip191_association: Eip191Association
+       association: RevokeMessagingAccessAssociation
    } InstallationRevocation;
    ```
 
