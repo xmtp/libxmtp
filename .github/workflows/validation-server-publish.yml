@@ -31,9 +31,23 @@ jobs:
 
       - name: Build and push Docker image
         uses: docker/build-push-action@v5
+        id: push
         with:
           context: .
           file: ./dev/validation_service/Dockerfile
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
+
+      - name: Deploy (dev)
+        run: echo $DOCKER_IMAGE
+        env:
+          DOCKER_IMAGE: "ghcr.io/xmtp/mls-validation-service:${{ steps.push.outputs.digest}}"
+        # uses: xmtp-labs/terraform-deployer@v1
+        # with:
+        #   terraform-token: ${{ secrets.TERRAFORM_TOKEN }}
+        #   terraform-org: xmtp
+        #   terraform-workspace: dev
+        #   variable-name: xmtp_node_image
+        #   variable-value: ${{ steps.push.outputs.docker_image }}
+        #   variable-value-required-prefix: "xmtp/node-go@sha256:"
