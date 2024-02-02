@@ -1,9 +1,6 @@
 name: Release Swift Bindings
 
 on:
-  push:
-    branches:
-      - cv/swift-bindings-fix-ghaction 
   workflow_dispatch:
 
 jobs:
