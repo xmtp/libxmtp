@@ -4,7 +4,6 @@ on:
   push:
     branches:
       - main
-      - nm/deploy-validation-service
 
 jobs:
   push_to_registry:
@@ -41,14 +40,11 @@ jobs:
           labels: ${{ steps.meta.outputs.labels }}
 
       - name: Deploy (dev)
-        run: echo $DOCKER_IMAGE
-        env:
-          DOCKER_IMAGE: "ghcr.io/xmtp/mls-validation-service:${{ steps.push.outputs.digest}}"
-        # uses: xmtp-labs/terraform-deployer@v1
-        # with:
-        #   terraform-token: ${{ secrets.TERRAFORM_TOKEN }}
-        #   terraform-org: xmtp
-        #   terraform-workspace: dev
-        #   variable-name: xmtp_node_image
-        #   variable-value: ${{ steps.push.outputs.docker_image }}
-        #   variable-value-required-prefix: "xmtp/node-go@sha256:"
+        uses: xmtp-labs/terraform-deployer@v1
+        with:
+          terraform-token: ${{ secrets.TERRAFORM_TOKEN }}
+          terraform-org: xmtp
+          terraform-workspace: dev
+          variable-name: validation_service_image
+          variable-value: "ghcr.io/xmtp/mls-validation-service@${{ steps.push.outputs.digest }}"
+          variable-value-required-prefix: "xmtp/node-go@sha256:"
