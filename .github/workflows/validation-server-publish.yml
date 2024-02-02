@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - main
+      - nm/deploy-validation-service
 
 jobs:
   push_to_registry:
