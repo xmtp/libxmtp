@@ -103,9 +103,7 @@ pub mod tests {
 
     use super::ValidatedLegacySignedPublicKey;
     use prost::Message;
-    use xmtp_proto::xmtp::message_contents::{
-        SignedPublicKey as LegacySignedPublicKeyProto,
-    };
+    use xmtp_proto::xmtp::message_contents::SignedPublicKey as LegacySignedPublicKeyProto;
 
     #[tokio::test]
     async fn validate_good_key() {

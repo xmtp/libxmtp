@@ -199,7 +199,7 @@ impl From<GrantMessagingAccessAssociation> for GrantMessagingAccessAssociationPr
 #[cfg(test)]
 pub mod tests {
     use ethers::signers::{LocalWallet, Signer};
-    
+
     use xmtp_cryptography::{signature::h160addr_to_string, utils::rng};
     use xmtp_proto::xmtp::mls::message_contents::GrantMessagingAccessAssociation as GrantMessagingAccessAssociationProto;
 
