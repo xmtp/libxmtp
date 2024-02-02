@@ -4891,7 +4891,7 @@ dependencies = [
 
 [[package]]
 name = "xmtp_bindings_flutter"
-version = "0.0.1-development"
+version = "0.1.0-development"
 dependencies = [
  "anyhow",
  "flutter_rust_bridge",

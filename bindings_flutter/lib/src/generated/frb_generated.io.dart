@@ -143,9 +143,6 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   int dco_decode_box_autoadd_i_64(dynamic raw);
 
   @protected
-  ListGroupsOptions dco_decode_box_autoadd_list_groups_options(dynamic raw);
-
-  @protected
   SignatureRequiredClient dco_decode_box_autoadd_signature_required_client(
       dynamic raw);
 
@@ -165,9 +162,6 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   List<Group> dco_decode_list_group(dynamic raw);
 
   @protected
-  ListGroupsOptions dco_decode_list_groups_options(dynamic raw);
-
-  @protected
   List<int> dco_decode_list_prim_u_8_loose(dynamic raw);
 
   @protected
@@ -175,10 +169,6 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   int? dco_decode_opt_box_autoadd_i_64(dynamic raw);
-
-  @protected
-  ListGroupsOptions? dco_decode_opt_box_autoadd_list_groups_options(
-      dynamic raw);
 
   @protected
   SignatureRequiredClient dco_decode_signature_required_client(dynamic raw);
@@ -293,10 +283,6 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   int sse_decode_box_autoadd_i_64(SseDeserializer deserializer);
 
   @protected
-  ListGroupsOptions sse_decode_box_autoadd_list_groups_options(
-      SseDeserializer deserializer);
-
-  @protected
   SignatureRequiredClient sse_decode_box_autoadd_signature_required_client(
       SseDeserializer deserializer);
 
@@ -316,10 +302,6 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   List<Group> sse_decode_list_group(SseDeserializer deserializer);
 
   @protected
-  ListGroupsOptions sse_decode_list_groups_options(
-      SseDeserializer deserializer);
-
-  @protected
   List<int> sse_decode_list_prim_u_8_loose(SseDeserializer deserializer);
 
   @protected
@@ -327,10 +309,6 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   int? sse_decode_opt_box_autoadd_i_64(SseDeserializer deserializer);
-
-  @protected
-  ListGroupsOptions? sse_decode_opt_box_autoadd_list_groups_options(
-      SseDeserializer deserializer);
 
   @protected
   SignatureRequiredClient sse_decode_signature_required_client(
@@ -449,10 +427,6 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   void sse_encode_box_autoadd_i_64(int self, SseSerializer serializer);
 
   @protected
-  void sse_encode_box_autoadd_list_groups_options(
-      ListGroupsOptions self, SseSerializer serializer);
-
-  @protected
   void sse_encode_box_autoadd_signature_required_client(
       SignatureRequiredClient self, SseSerializer serializer);
 
@@ -472,10 +446,6 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   void sse_encode_list_group(List<Group> self, SseSerializer serializer);
 
   @protected
-  void sse_encode_list_groups_options(
-      ListGroupsOptions self, SseSerializer serializer);
-
-  @protected
   void sse_encode_list_prim_u_8_loose(List<int> self, SseSerializer serializer);
 
   @protected
@@ -484,10 +454,6 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   void sse_encode_opt_box_autoadd_i_64(int? self, SseSerializer serializer);
-
-  @protected
-  void sse_encode_opt_box_autoadd_list_groups_options(
-      ListGroupsOptions? self, SseSerializer serializer);
 
   @protected
   void sse_encode_signature_required_client(
