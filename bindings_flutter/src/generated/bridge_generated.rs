@@ -141,14 +141,21 @@ fn wire_Client_list_groups_impl(
             let api_that = <RustOpaqueMoi<
                 flutter_rust_bridge::for_generated::rust_async::RwLock<Client>,
             >>::sse_decode(&mut deserializer);
-            let api_options =
-                <Option<crate::libxmtp_api::ListGroupsOptions>>::sse_decode(&mut deserializer);
+            let api_created_after_ns = <Option<i64>>::sse_decode(&mut deserializer);
+            let api_created_before_ns = <Option<i64>>::sse_decode(&mut deserializer);
+            let api_limit = <Option<i64>>::sse_decode(&mut deserializer);
             deserializer.end();
             move |context| async move {
                 transform_result_sse(
                     (move || async move {
                         let api_that = api_that.rust_auto_opaque_decode_ref();
-                        crate::libxmtp_api::Client::list_groups(&api_that, api_options).await
+                        crate::libxmtp_api::Client::list_groups(
+                            &api_that,
+                            api_created_after_ns,
+                            api_created_before_ns,
+                            api_limit,
+                        )
+                        .await
                     })()
                     .await,
                 )
@@ -619,20 +626,6 @@ impl SseDecode for Vec<crate::libxmtp_api::Group> {
     }
 }
 
-impl SseDecode for crate::libxmtp_api::ListGroupsOptions {
-    // Codec=Sse (Serialization based), see doc to use other codecs
-    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
-        let mut var_createdAfterNs = <Option<i64>>::sse_decode(deserializer);
-        let mut var_createdBeforeNs = <Option<i64>>::sse_decode(deserializer);
-        let mut var_limit = <Option<i64>>::sse_decode(deserializer);
-        return crate::libxmtp_api::ListGroupsOptions {
-            created_after_ns: var_createdAfterNs,
-            created_before_ns: var_createdBeforeNs,
-            limit: var_limit,
-        };
-    }
-}
-
 impl SseDecode for Vec<u8> {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
@@ -650,19 +643,6 @@ impl SseDecode for Option<i64> {
     fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
         if (<bool>::sse_decode(deserializer)) {
             return Some(<i64>::sse_decode(deserializer));
-        } else {
-            return None;
-        }
-    }
-}
-
-impl SseDecode for Option<crate::libxmtp_api::ListGroupsOptions> {
-    // Codec=Sse (Serialization based), see doc to use other codecs
-    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
-        if (<bool>::sse_decode(deserializer)) {
-            return Some(<crate::libxmtp_api::ListGroupsOptions>::sse_decode(
-                deserializer,
-            ));
         } else {
             return None;
         }
@@ -1021,28 +1001,6 @@ impl flutter_rust_bridge::IntoIntoDart<crate::libxmtp_api::Group> for crate::lib
     }
 }
 // Codec=Dco (DartCObject based), see doc to use other codecs
-impl flutter_rust_bridge::IntoDart for crate::libxmtp_api::ListGroupsOptions {
-    fn into_dart(self) -> flutter_rust_bridge::for_generated::DartAbi {
-        [
-            self.created_after_ns.into_into_dart().into_dart(),
-            self.created_before_ns.into_into_dart().into_dart(),
-            self.limit.into_into_dart().into_dart(),
-        ]
-        .into_dart()
-    }
-}
-impl flutter_rust_bridge::for_generated::IntoDartExceptPrimitive
-    for crate::libxmtp_api::ListGroupsOptions
-{
-}
-impl flutter_rust_bridge::IntoIntoDart<crate::libxmtp_api::ListGroupsOptions>
-    for crate::libxmtp_api::ListGroupsOptions
-{
-    fn into_into_dart(self) -> crate::libxmtp_api::ListGroupsOptions {
-        self
-    }
-}
-// Codec=Dco (DartCObject based), see doc to use other codecs
 impl flutter_rust_bridge::IntoDart for crate::libxmtp_api::SignatureRequiredClient {
     fn into_dart(self) -> flutter_rust_bridge::for_generated::DartAbi {
         [
@@ -1319,15 +1277,6 @@ impl SseEncode for Vec<crate::libxmtp_api::Group> {
     }
 }
 
-impl SseEncode for crate::libxmtp_api::ListGroupsOptions {
-    // Codec=Sse (Serialization based), see doc to use other codecs
-    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
-        <Option<i64>>::sse_encode(self.created_after_ns, serializer);
-        <Option<i64>>::sse_encode(self.created_before_ns, serializer);
-        <Option<i64>>::sse_encode(self.limit, serializer);
-    }
-}
-
 impl SseEncode for Vec<u8> {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
@@ -1344,16 +1293,6 @@ impl SseEncode for Option<i64> {
         <bool>::sse_encode(self.is_some(), serializer);
         if let Some(value) = self {
             <i64>::sse_encode(value, serializer);
-        }
-    }
-}
-
-impl SseEncode for Option<crate::libxmtp_api::ListGroupsOptions> {
-    // Codec=Sse (Serialization based), see doc to use other codecs
-    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
-        <bool>::sse_encode(self.is_some(), serializer);
-        if let Some(value) = self {
-            <crate::libxmtp_api::ListGroupsOptions>::sse_encode(value, serializer);
         }
     }
 }

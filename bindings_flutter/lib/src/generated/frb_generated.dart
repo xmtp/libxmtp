@@ -71,7 +71,11 @@ abstract class RustLibApi extends BaseApi {
       {required Client that, dynamic hint});
 
   Future<List<Group>> clientListGroups(
-      {required Client that, ListGroupsOptions? options, dynamic hint});
+      {required Client that,
+      int? createdAfterNs,
+      int? createdBeforeNs,
+      int? limit,
+      dynamic hint});
 
   Future<Client> signatureRequiredClientSign(
       {required SignatureRequiredClient that,
@@ -236,13 +240,19 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
 
   @override
   Future<List<Group>> clientListGroups(
-      {required Client that, ListGroupsOptions? options, dynamic hint}) {
+      {required Client that,
+      int? createdAfterNs,
+      int? createdBeforeNs,
+      int? limit,
+      dynamic hint}) {
     return handler.executeNormal(NormalTask(
       callFfi: (port_) {
         final serializer = SseSerializer(generalizedFrbRustBinding);
         sse_encode_Auto_Ref_RustOpaque_flutter_rust_bridgefor_generatedrust_asyncRwLockClient(
             that, serializer);
-        sse_encode_opt_box_autoadd_list_groups_options(options, serializer);
+        sse_encode_opt_box_autoadd_i_64(createdAfterNs, serializer);
+        sse_encode_opt_box_autoadd_i_64(createdBeforeNs, serializer);
+        sse_encode_opt_box_autoadd_i_64(limit, serializer);
         pdeCallFfi(generalizedFrbRustBinding, serializer,
             funcId: 6, port: port_);
       },
@@ -251,7 +261,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
         decodeErrorData: sse_decode_xmtp_error,
       ),
       constMeta: kClientListGroupsConstMeta,
-      argValues: [that, options],
+      argValues: [that, createdAfterNs, createdBeforeNs, limit],
       apiImpl: this,
       hint: hint,
     ));
@@ -259,7 +269,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
 
   TaskConstMeta get kClientListGroupsConstMeta => const TaskConstMeta(
         debugName: "Client_list_groups",
-        argNames: ["that", "options"],
+        argNames: ["that", "createdAfterNs", "createdBeforeNs", "limit"],
       );
 
   @override
@@ -642,12 +652,6 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
-  ListGroupsOptions dco_decode_box_autoadd_list_groups_options(dynamic raw) {
-    // Codec=Dco (DartCObject based), see doc to use other codecs
-    return dco_decode_list_groups_options(raw);
-  }
-
-  @protected
   SignatureRequiredClient dco_decode_box_autoadd_signature_required_client(
       dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
@@ -703,19 +707,6 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
-  ListGroupsOptions dco_decode_list_groups_options(dynamic raw) {
-    // Codec=Dco (DartCObject based), see doc to use other codecs
-    final arr = raw as List<dynamic>;
-    if (arr.length != 3)
-      throw Exception('unexpected arr length: expect 3 but see ${arr.length}');
-    return ListGroupsOptions(
-      createdAfterNs: dco_decode_opt_box_autoadd_i_64(arr[0]),
-      createdBeforeNs: dco_decode_opt_box_autoadd_i_64(arr[1]),
-      limit: dco_decode_opt_box_autoadd_i_64(arr[2]),
-    );
-  }
-
-  @protected
   List<int> dco_decode_list_prim_u_8_loose(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     return raw as List<int>;
@@ -731,13 +722,6 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   int? dco_decode_opt_box_autoadd_i_64(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     return raw == null ? null : dco_decode_box_autoadd_i_64(raw);
-  }
-
-  @protected
-  ListGroupsOptions? dco_decode_opt_box_autoadd_list_groups_options(
-      dynamic raw) {
-    // Codec=Dco (DartCObject based), see doc to use other codecs
-    return raw == null ? null : dco_decode_box_autoadd_list_groups_options(raw);
   }
 
   @protected
@@ -990,13 +974,6 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
-  ListGroupsOptions sse_decode_box_autoadd_list_groups_options(
-      SseDeserializer deserializer) {
-    // Codec=Sse (Serialization based), see doc to use other codecs
-    return (sse_decode_list_groups_options(deserializer));
-  }
-
-  @protected
   SignatureRequiredClient sse_decode_box_autoadd_signature_required_client(
       SseDeserializer deserializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
@@ -1062,19 +1039,6 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
-  ListGroupsOptions sse_decode_list_groups_options(
-      SseDeserializer deserializer) {
-    // Codec=Sse (Serialization based), see doc to use other codecs
-    var var_createdAfterNs = sse_decode_opt_box_autoadd_i_64(deserializer);
-    var var_createdBeforeNs = sse_decode_opt_box_autoadd_i_64(deserializer);
-    var var_limit = sse_decode_opt_box_autoadd_i_64(deserializer);
-    return ListGroupsOptions(
-        createdAfterNs: var_createdAfterNs,
-        createdBeforeNs: var_createdBeforeNs,
-        limit: var_limit);
-  }
-
-  @protected
   List<int> sse_decode_list_prim_u_8_loose(SseDeserializer deserializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
     var len_ = sse_decode_i_32(deserializer);
@@ -1094,18 +1058,6 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
 
     if (sse_decode_bool(deserializer)) {
       return (sse_decode_box_autoadd_i_64(deserializer));
-    } else {
-      return null;
-    }
-  }
-
-  @protected
-  ListGroupsOptions? sse_decode_opt_box_autoadd_list_groups_options(
-      SseDeserializer deserializer) {
-    // Codec=Sse (Serialization based), see doc to use other codecs
-
-    if (sse_decode_bool(deserializer)) {
-      return (sse_decode_box_autoadd_list_groups_options(deserializer));
     } else {
       return null;
     }
@@ -1349,13 +1301,6 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
-  void sse_encode_box_autoadd_list_groups_options(
-      ListGroupsOptions self, SseSerializer serializer) {
-    // Codec=Sse (Serialization based), see doc to use other codecs
-    sse_encode_list_groups_options(self, serializer);
-  }
-
-  @protected
   void sse_encode_box_autoadd_signature_required_client(
       SignatureRequiredClient self, SseSerializer serializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
@@ -1408,15 +1353,6 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
-  void sse_encode_list_groups_options(
-      ListGroupsOptions self, SseSerializer serializer) {
-    // Codec=Sse (Serialization based), see doc to use other codecs
-    sse_encode_opt_box_autoadd_i_64(self.createdAfterNs, serializer);
-    sse_encode_opt_box_autoadd_i_64(self.createdBeforeNs, serializer);
-    sse_encode_opt_box_autoadd_i_64(self.limit, serializer);
-  }
-
-  @protected
   void sse_encode_list_prim_u_8_loose(
       List<int> self, SseSerializer serializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
@@ -1440,17 +1376,6 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     sse_encode_bool(self != null, serializer);
     if (self != null) {
       sse_encode_box_autoadd_i_64(self, serializer);
-    }
-  }
-
-  @protected
-  void sse_encode_opt_box_autoadd_list_groups_options(
-      ListGroupsOptions? self, SseSerializer serializer) {
-    // Codec=Sse (Serialization based), see doc to use other codecs
-
-    sse_encode_bool(self != null, serializer);
-    if (self != null) {
-      sse_encode_box_autoadd_list_groups_options(self, serializer);
     }
   }
 

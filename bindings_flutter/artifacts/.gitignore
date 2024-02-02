@@ -1,0 +1,9 @@
+# These get published as releases on GitHub
+# and downloaded by the per-platform build scripts.
+# See android/CMakeLists.txt
+# See ios/xmtp_bindings_flutter.podspec
+# See linux/CMakeLists.txt
+# See macos/xmtp_bindings_flutter.podspec
+android
+apple
+linux
