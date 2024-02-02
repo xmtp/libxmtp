@@ -1,5 +1,5 @@
 use crate::{types::Address, utils::address::sanitize_evm_addresses};
-use ethers::etherscan::account;
+
 use prost::Message;
 use xmtp_cryptography::signature::RecoverableSignature;
 use xmtp_proto::xmtp::message_contents::{
@@ -104,8 +104,7 @@ pub mod tests {
     use super::ValidatedLegacySignedPublicKey;
     use prost::Message;
     use xmtp_proto::xmtp::message_contents::{
-        signature::Union, unsigned_public_key, SignedPublicKey as LegacySignedPublicKeyProto,
-        UnsignedPublicKey as LegacyUnsignedPublicKeyProto,
+        SignedPublicKey as LegacySignedPublicKeyProto,
     };
 
     #[tokio::test]
