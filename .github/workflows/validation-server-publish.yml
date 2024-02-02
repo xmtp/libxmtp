@@ -47,4 +47,4 @@ jobs:
           terraform-workspace: dev
           variable-name: validation_service_image
           variable-value: "ghcr.io/xmtp/mls-validation-service@${{ steps.push.outputs.digest }}"
-          variable-value-required-prefix: "xmtp/node-go@sha256:"
+          variable-value-required-prefix: "ghcr.io/xmtp/mls-validation-service@sha256:"
