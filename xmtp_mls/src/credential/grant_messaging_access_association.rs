@@ -6,7 +6,11 @@ use xmtp_proto::xmtp::mls::message_contents::{
     RecoverableEcdsaSignature as RecoverableEcdsaSignatureProto,
 };
 
-use crate::{types::Address, utils::time::NS_IN_SEC, InboxOwner};
+use crate::{
+    types::Address,
+    utils::{address::sanitize_evm_addresses, time::NS_IN_SEC},
+    InboxOwner,
+};
 
 use super::AssociationError;
 
@@ -24,6 +28,7 @@ impl UnsignedGrantMessagingAccessData {
         installation_public_key: Vec<u8>,
         created_ns: u64,
     ) -> Result<Self, AssociationError> {
+        let account_address = sanitize_evm_addresses(vec![account_address])?[0].clone();
         let created_time = DateTime::from_timestamp(
             created_ns as i64 / NS_IN_SEC,
             (created_ns as i64 % NS_IN_SEC) as u32,
@@ -150,10 +155,12 @@ impl GrantMessagingAccessAssociation {
         let addr = self
             .signature
             .recover_address(&self.association_data.text())?;
-        if assumed_addr != addr {
+
+        let sanitized_addresses = sanitize_evm_addresses(vec![assumed_addr, addr])?;
+        if sanitized_addresses[0] != sanitized_addresses[1] {
             Err(AssociationError::AddressMismatch {
-                provided_addr: assumed_addr,
-                signing_addr: addr,
+                provided_addr: sanitized_addresses[0].clone(),
+                signing_addr: sanitized_addresses[1].clone(),
             })
         } else {
             Ok(())

@@ -89,7 +89,7 @@ impl LegacyCreateIdentityAssociation {
         )
         .map_err(AssociationError::LegacySignature)?); // always returns true if no error
 
-        // Wallet signature of legacy key is internally validated by ValidatedLegacySignedPublicKey
+        // Wallet signature of legacy key is internally validated by ValidatedLegacySignedPublicKey on creation
         Ok(())
     }
 

@@ -1,4 +1,5 @@
-use crate::types::Address;
+use crate::{types::Address, utils::address::sanitize_evm_addresses};
+use ethers::etherscan::account;
 use prost::Message;
 use xmtp_cryptography::signature::RecoverableSignature;
 use xmtp_proto::xmtp::message_contents::{
@@ -71,7 +72,7 @@ impl TryFrom<LegacySignedPublicKeyProto> for ValidatedLegacySignedPublicKey {
         let wallet_signature = RecoverableSignature::Eip191Signature(wallet_signature);
         let account_address =
             wallet_signature.recover_address(&Self::text(&serialized_key_data))?;
-        // TODO verify this is a legitimate address
+        let account_address = sanitize_evm_addresses(vec![account_address])?[0].clone();
 
         let legacy_unsigned_public_key_proto =
             LegacyUnsignedPublicKeyProto::decode(serialized_key_data.as_slice())

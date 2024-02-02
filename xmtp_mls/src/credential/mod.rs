@@ -2,6 +2,7 @@ mod grant_messaging_access_association;
 mod legacy_create_identity_association;
 mod validated_legacy_signed_public_key;
 
+use crate::utils::address::AddressValidationError;
 use crate::utils::time::now_ns;
 use crate::{types::Address, InboxOwner};
 
@@ -40,6 +41,8 @@ pub enum AssociationError {
         provided_addr: Address,
         signing_addr: Address,
     },
+    #[error("Bad address")]
+    BadAddress(#[from] AddressValidationError),
     #[error("Malformed association")]
     MalformedAssociation,
 }

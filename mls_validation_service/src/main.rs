@@ -1,15 +1,13 @@
 mod config;
 mod handlers;
+mod health_check;
 
 use clap::Parser;
 use config::Args;
 use env_logger::Env;
 use handlers::ValidationService;
-use tokio::{
-    signal::unix::{signal, SignalKind},
-    spawn,
-    sync::oneshot::{self, Sender},
-};
+use health_check::health_check_server;
+use tokio::signal::unix::{signal, SignalKind};
 use tonic::transport::Server;
 use xmtp_proto::xmtp::mls_validation::v1::validation_api_server::ValidationApiServer;
 
@@ -23,29 +21,28 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let args = Args::parse();
     let addr = format!("0.0.0.0:{}", args.port).parse()?;
-    info!("Starting validation service on port {:?}", addr);
+    info!("Starting validation service on port {:?}", args.port);
+    info!("Starting health check on port {:?}", args.health_check_port);
 
-    let (signal_tx, signal_rx) = oneshot::channel();
-    spawn(wait_for_sigint(signal_tx));
+    let health_server = health_check_server(args.health_check_port as u16);
 
-    Server::builder()
+    let grpc_server = Server::builder()
         .add_service(ValidationApiServer::new(ValidationService::default()))
         .serve_with_shutdown(addr, async {
-            signal_rx.await.ok();
+            wait_for_quit().await;
             info!("Shutdown signal received");
-        })
-        .await?;
+        });
+
+    let _ = tokio::join!(health_server, grpc_server);
 
     Ok(())
 }
 
-async fn wait_for_sigint(tx: Sender<()>) {
-    // I was having shutdown problems without adding this helper
-    // The thing just refused to die locally
-    let _ = signal(SignalKind::interrupt())
-        .expect("failed to install signal handler")
-        .recv()
-        .await;
-    println!("SIGINT received: shutting down");
-    let _ = tx.send(());
+pub async fn wait_for_quit() {
+    let mut sigint = signal(SignalKind::interrupt()).unwrap();
+    let mut sigterm = signal(SignalKind::terminate()).unwrap();
+    tokio::select! {
+        _ = sigint.recv() => (),
+        _ = sigterm.recv() => (),
+    };
 }
