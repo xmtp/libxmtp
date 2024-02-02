@@ -79,6 +79,10 @@ class MainActivity : AppCompatActivity() {
         val credentials: Credentials = Credentials.create(ECKeyPair.create(privateKey))
         val inboxOwner = Web3jInboxOwner(credentials)
         val dbDir: File = File(this.filesDir.absolutePath, "xmtp_db")
+        try {
+            dbDir.deleteRecursively()
+        } catch (e: Exception) {
+        }
         dbDir.mkdir()
         val dbPath: String = dbDir.absolutePath + "/android_example.db3"
         val dbEncryptionKey = SecureRandom().generateSeed(32)
@@ -110,15 +114,16 @@ class MainActivity : AppCompatActivity() {
                 streamGroups().collect {
                     Log.i("App", "Group1 - Conversation callback with ID: " + toHexString(it.id()) + ", members: " + it.listMembers())
                 }
+                Log.i("App", "stream groups done")
                 streamGroups2().collect {
                     Log.i("App", "Group2 - Conversation callback with ID: " + toHexString(it.id()) + ", members: " + it.listMembers())
                 }
+                Log.i("App", "stream groups 2 done")
             } catch (e: Exception) {
                 textView.text = "Failed to construct client: " + e.message
             }
         }
 
-        dbDir.deleteRecursively()
     }
 
     private fun streamGroups(): Flow<FfiGroup> = flow {
