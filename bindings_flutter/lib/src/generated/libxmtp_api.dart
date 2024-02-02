@@ -117,10 +117,16 @@ class Client extends RustOpaque {
         that: this,
       );
 
-  Future<List<Group>> listGroups({ListGroupsOptions? options, dynamic hint}) =>
+  Future<List<Group>> listGroups(
+          {int? createdAfterNs,
+          int? createdBeforeNs,
+          int? limit,
+          dynamic hint}) =>
       RustLib.instance.api.clientListGroups(
         that: this,
-        options: options,
+        createdAfterNs: createdAfterNs,
+        createdBeforeNs: createdBeforeNs,
+        limit: limit,
       );
 }
 
@@ -248,31 +254,6 @@ class Group {
           runtimeType == other.runtimeType &&
           groupId == other.groupId &&
           createdAtNs == other.createdAtNs;
-}
-
-class ListGroupsOptions {
-  final int? createdAfterNs;
-  final int? createdBeforeNs;
-  final int? limit;
-
-  const ListGroupsOptions({
-    this.createdAfterNs,
-    this.createdBeforeNs,
-    this.limit,
-  });
-
-  @override
-  int get hashCode =>
-      createdAfterNs.hashCode ^ createdBeforeNs.hashCode ^ limit.hashCode;
-
-  @override
-  bool operator ==(Object other) =>
-      identical(this, other) ||
-      other is ListGroupsOptions &&
-          runtimeType == other.runtimeType &&
-          createdAfterNs == other.createdAfterNs &&
-          createdBeforeNs == other.createdBeforeNs &&
-          limit == other.limit;
 }
 
 class SignatureRequiredClient {

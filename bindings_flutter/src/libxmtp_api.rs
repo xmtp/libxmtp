@@ -78,12 +78,6 @@ pub struct InnerClient {
     pub client: MlsClient<ApiClient>,
 }
 
-pub struct ListGroupsOptions {
-    pub created_after_ns: Option<i64>,
-    pub created_before_ns: Option<i64>,
-    pub limit: Option<i64>,
-}
-
 impl Client {
     pub fn installation_public_key(&self) -> Vec<u8> {
         self.inner.client.installation_public_key()
@@ -91,23 +85,15 @@ impl Client {
 
     pub async fn list_groups(
         &self,
-        options: Option<ListGroupsOptions>,
+        created_after_ns: Option<i64>,
+        created_before_ns: Option<i64>,
+        limit: Option<i64>,
     ) -> Result<Vec<Group>, XmtpError> {
         self.inner.client.sync_welcomes().await?;
-        let opts = options.unwrap_or(ListGroupsOptions {
-            created_after_ns: None,
-            created_before_ns: None,
-            limit: None,
-        });
         let groups: Vec<Group> = self
             .inner
             .client
-            .find_groups(
-                None,
-                opts.created_after_ns,
-                opts.created_before_ns,
-                opts.limit,
-            )?
+            .find_groups(None, created_after_ns, created_before_ns, limit)?
             .into_iter()
             .map(|group| Group {
                 group_id: group.group_id,
@@ -256,7 +242,7 @@ mod tests {
         let client_b = create_client_for_wallet(&wallet_b).await;
         let client_c = create_client_for_wallet(&wallet_c).await;
         for client in vec![&client_a, &client_b, &client_c] {
-            assert_eq!(client.list_groups(None).await.unwrap().len(), 0);
+            assert_eq!(client.list_groups(None, None, None).await.unwrap().len(), 0);
         }
 
         // When user A creates a group with B and C
@@ -270,7 +256,7 @@ mod tests {
 
         // Now users A, B and C should all see the group
         for client in vec![&client_a, &client_b, &client_c] {
-            let groups = client.list_groups(None).await.unwrap();
+            let groups = client.list_groups(None, None, None).await.unwrap();
             assert_eq!(groups.len(), 1);
             assert_eq!(groups.first().unwrap().group_id, group.group_id);
         }
