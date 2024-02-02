@@ -78,11 +78,14 @@ public struct ConversationV2 {
 	}
 
 	func prepareMessage(encodedContent: EncodedContent, options: SendOptions?) async throws -> PreparedMessage {
+		let codec = client.codecRegistry.find(for: options?.contentType)
+
 		let message = try await MessageV2.encode(
 			client: client,
 			content: encodedContent,
 			topic: topic,
-			keyMaterial: keyMaterial
+			keyMaterial: keyMaterial,
+			codec: codec
 		)
 
 		let topic = options?.ephemeral == true ? ephemeralTopic : topic
@@ -233,7 +236,8 @@ public struct ConversationV2 {
 			client: client,
 			content: content,
 			topic: topic,
-			keyMaterial: keyMaterial
+			keyMaterial: keyMaterial,
+			codec: codec
 		)
 
 		let envelope = Envelope(

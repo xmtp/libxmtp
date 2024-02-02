@@ -9,6 +9,10 @@ import XCTest
 @testable import XMTPiOS
 
 struct NumberCodec: ContentCodec {
+	func shouldPush(content: Double) throws -> Bool {
+		return false
+	}
+	
 	func fallback(content: Double) throws -> String? {
 		return "pi"
 	}
@@ -74,6 +78,33 @@ class CodecTests: XCTestCase {
 		XCTAssertEqual(nil, content)
 		XCTAssertEqual("pi", messages[0].fallbackContent)
 	}
+	
+	func testCanGetPushInfoBeforeDecoded() async throws {
+		let fixtures = await fixtures()
+
+		let aliceClient = fixtures.aliceClient!
+		let aliceConversation = try await aliceClient.conversations.newConversation(with: fixtures.bob.address)
+
+		aliceClient.register(codec: NumberCodec())
+
+		try await aliceConversation.send(content: 3.14, options: .init(contentType: NumberCodec().contentType))
+
+		let messages = try await aliceConversation.messages()
+		XCTAssertEqual(messages.count, 1)
+		
+		let message = try await MessageV2.encode(
+			client: aliceClient,
+			content: messages[0].encodedContent,
+			topic: aliceConversation.topic,
+			keyMaterial: Data(aliceConversation.keyMaterial!),
+			codec: NumberCodec()
+		)
+		
+		XCTAssertEqual(false, message.shouldPush)
+		XCTAssert(!message.senderHmac.isEmpty)
+
+	}
+
 
 	func testCompositeCodecOnePart() async throws {
 		let fixtures = await fixtures()

@@ -97,4 +97,15 @@ public struct ReactionCodec: ContentCodec {
             return nil
         }
     }
+	
+	public func shouldPush(content: Reaction) throws -> Bool {
+		switch content.action {
+		case .added:
+			return true
+		case .removed:
+			return false
+		case .unknown:
+			return false
+		}
+	}
 }

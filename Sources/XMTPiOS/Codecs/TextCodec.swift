@@ -46,4 +46,8 @@ public struct TextCodec: ContentCodec {
     public func fallback(content: String) throws -> String? {
         return nil
     }
+	
+	public func shouldPush(content: String) throws -> Bool {
+		return true
+	}
 }

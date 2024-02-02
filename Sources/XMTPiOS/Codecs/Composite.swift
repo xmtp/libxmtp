@@ -45,6 +45,10 @@ struct CompositeCodec: ContentCodec {
     public func fallback(content: DecodedComposite) throws -> String? {
         return nil
     }
+	
+	public func shouldPush(content: DecodedComposite) throws -> Bool {
+		return false
+	}
 
 	func toComposite(content decodedComposite: DecodedComposite) -> Composite {
 		var composite = Composite()

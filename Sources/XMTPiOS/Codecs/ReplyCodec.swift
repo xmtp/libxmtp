@@ -66,4 +66,8 @@ public struct ReplyCodec: ContentCodec {
     public func fallback(content: Reply) throws -> String? {
         return "Replied with “\(content.content)” to an earlier message"
     }
+	
+	public func shouldPush(content: Reply) throws -> Bool {
+		return true
+	}
 }

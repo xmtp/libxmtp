@@ -72,6 +72,7 @@ public protocol ContentCodec: Hashable, Equatable {
 	func encode(content: T, client: Client) throws -> EncodedContent
 	func decode(content: EncodedContent, client: Client) throws -> T
 	func fallback(content: T) throws -> String?
+	func shouldPush(content: T) throws -> Bool
 }
 
 public extension ContentCodec {
