@@ -77,7 +77,7 @@ class MainViewModel : ViewModel() {
     val stream: StateFlow<MainListItem?> =
         stateFlow(viewModelScope, null) { subscriptionCount ->
             if (ClientManager.clientState.value is ClientManager.ClientState.Ready) {
-                ClientManager.client.conversations.stream()
+                ClientManager.client.conversations.streamAll()
                     .flowWhileShared(
                         subscriptionCount,
                         SharingStarted.WhileSubscribed(1000L)

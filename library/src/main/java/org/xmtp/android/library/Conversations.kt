@@ -3,9 +3,12 @@ package org.xmtp.android.library
 import android.util.Log
 import io.grpc.StatusException
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.callbackFlow
 import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.flow.merge
 import kotlinx.coroutines.runBlocking
 import org.xmtp.android.library.GRPCApiClient.Companion.makeQueryRequest
 import org.xmtp.android.library.GRPCApiClient.Companion.makeSubscribeRequest
@@ -32,7 +35,9 @@ import org.xmtp.android.library.messages.walletAddress
 import org.xmtp.proto.keystore.api.v1.Keystore.TopicMap.TopicData
 import org.xmtp.proto.message.contents.Contact
 import org.xmtp.proto.message.contents.Invitation
+import uniffi.xmtpv3.FfiConversationCallback
 import uniffi.xmtpv3.FfiConversations
+import uniffi.xmtpv3.FfiGroup
 import uniffi.xmtpv3.FfiListConversationsOptions
 import java.util.Date
 import kotlin.time.Duration.Companion.nanoseconds
@@ -477,7 +482,6 @@ data class Conversations(
         client.subscribeTopic(
             listOf(Topic.userIntro(client.address), Topic.userInvite(client.address)),
         ).collect { envelope ->
-
             if (envelope.contentTopic == Topic.userIntro(client.address).description) {
                 val conversationV1 = fromIntro(envelope = envelope)
                 if (!streamedConversationTopics.contains(conversationV1.topic)) {
@@ -494,6 +498,21 @@ data class Conversations(
                 }
             }
         }
+    }
+
+    fun streamAll(): Flow<Conversation> {
+        return merge(streamGroups(), stream())
+    }
+
+    fun streamGroups(): Flow<Conversation> = callbackFlow {
+        val groupCallback = object : FfiConversationCallback {
+            override fun onConversation(conversation: FfiGroup) {
+                trySend(Conversation.Group(Group(client, conversation)))
+            }
+        }
+        val stream = libXMTPConversations?.stream(groupCallback)
+            ?: throw XMTPException("Client does not support Groups")
+        awaitClose { stream.end() }
     }
 
     /**

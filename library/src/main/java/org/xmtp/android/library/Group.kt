@@ -1,5 +1,8 @@
 package org.xmtp.android.library
 
+import kotlinx.coroutines.channels.awaitClose
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.callbackFlow
 import kotlinx.coroutines.runBlocking
 import org.xmtp.android.library.codecs.ContentCodec
 import org.xmtp.android.library.codecs.EncodedContent
@@ -10,6 +13,8 @@ import org.xmtp.android.library.messages.PagingInfoSortDirection
 import org.xmtp.proto.message.api.v1.MessageApiOuterClass
 import uniffi.xmtpv3.FfiGroup
 import uniffi.xmtpv3.FfiListMessagesOptions
+import uniffi.xmtpv3.FfiMessage
+import uniffi.xmtpv3.FfiMessageCallback
 import java.util.Date
 import kotlin.time.Duration.Companion.nanoseconds
 import kotlin.time.DurationUnit
@@ -34,7 +39,7 @@ class Group(val client: Client, private val libXMTPGroup: FfiGroup) {
         runBlocking {
             libXMTPGroup.send(contentBytes = encodedContent.toByteArray())
         }
-        return id.toString()
+        return id.toHex()
     }
 
     fun <T> prepareMessage(content: T, options: SendOptions?): EncodedContent {
@@ -135,5 +140,27 @@ class Group(val client: Client, private val libXMTPGroup: FfiGroup) {
         return runBlocking {
             libXMTPGroup.listMembers().map { it.accountAddress }
         }
+    }
+
+    fun streamMessages(): Flow<DecodedMessage> = callbackFlow {
+        val messageCallback = object : FfiMessageCallback {
+            override fun onMessage(message: FfiMessage) {
+                trySend(Message(client, message).decode())
+            }
+        }
+
+        val stream = libXMTPGroup.stream(messageCallback)
+        awaitClose { stream.end() }
+    }
+
+    fun streamDecryptedMessages(): Flow<DecryptedMessage> = callbackFlow {
+        val messageCallback = object : FfiMessageCallback {
+            override fun onMessage(message: FfiMessage) {
+                trySend(decrypt(Message(client, message)))
+            }
+        }
+
+        val stream = libXMTPGroup.stream(messageCallback)
+        awaitClose { stream.end() }
     }
 }
