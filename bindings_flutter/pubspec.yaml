@@ -1,7 +1,7 @@
 name: xmtp_bindings_flutter
 description: low-level flutter bindings to libxmtp
 repository: https://github.com/xmtp/libxmtp
-version: 0.1.0-development.1
+version: 0.1.0-development.2
 # When this is updated it should be mirrored in
 # android/build.gradle
 # ios/xmtp_bindings_flutter.podspec
