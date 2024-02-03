@@ -17,13 +17,11 @@ use thiserror::Error;
 use tls_codec::Serialize;
 use xmtp_cryptography::signature::SignatureError;
 use xmtp_proto::{
-    api_client::{XmtpApiClient, XmtpMlsClient},
-    xmtp::mls::message_contents::MlsCredential as CredentialProto,
+    api_client::XmtpMlsClient, xmtp::mls::message_contents::MlsCredential as CredentialProto,
 };
 
 use crate::{
     api_client_wrapper::{ApiClientWrapper, IdentityUpdate},
-    builder::LegacyIdentity,
     configuration::CIPHERSUITE,
     credential::{AssociationError, Credential, UnsignedGrantMessagingAccessData},
     storage::{identity::StoredIdentity, StorageError},
@@ -70,29 +68,6 @@ pub struct Identity {
 }
 
 impl Identity {
-    pub(crate) async fn new<ApiClient: XmtpApiClient + XmtpMlsClient>(
-        api_client: &ApiClientWrapper<ApiClient>,
-        account_address: String,
-        legacy_identity: LegacyIdentity,
-    ) -> Result<Self, IdentityError> {
-        let identity = match legacy_identity {
-            LegacyIdentity::None | LegacyIdentity::Network(_) => {
-                Identity::create_to_be_signed(account_address)?
-            }
-            LegacyIdentity::KeyGenerator(legacy_signed_private_key) => {
-                Identity::create_from_legacy(account_address, legacy_signed_private_key)?
-            }
-            LegacyIdentity::Static(legacy_signed_private_key) => {
-                if Self::has_existing_legacy_credential(api_client, &account_address).await? {
-                    Identity::create_to_be_signed(account_address)?
-                } else {
-                    Identity::create_from_legacy(account_address, legacy_signed_private_key)?
-                }
-            }
-        };
-        Ok(identity)
-    }
-
     // Creates a credential that is not yet wallet signed. Implementors should sign the payload returned by 'text_to_sign'
     // and call 'register' with the signature.
     pub(crate) fn create_to_be_signed(account_address: String) -> Result<Self, IdentityError> {
