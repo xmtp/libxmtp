@@ -92,6 +92,8 @@ jobs:
 
       - name: Build target
         uses: actions-rs/cargo@v1
+        env: 
+          CROSS_NO_WARNINGS: "0"
         with:
           use-cross: true
           command: build

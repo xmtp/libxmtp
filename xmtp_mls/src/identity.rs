@@ -1,6 +1,5 @@
 use std::sync::RwLock;
 
-use chrono::Utc;
 use openmls::{
     credentials::errors::CredentialError,
     extensions::{errors::InvalidExtensionError, ApplicationIdExtension, LastResortExtension},
@@ -23,10 +22,11 @@ use xmtp_proto::{
 
 use crate::{
     api_client_wrapper::ApiClientWrapper,
-    association::{AssociationContext, AssociationError, AssociationText, Credential},
     configuration::CIPHERSUITE,
+    credential::{AssociationError, Credential, UnsignedGrantMessagingAccessData},
     storage::{identity::StoredIdentity, StorageError},
     types::Address,
+    utils::time::now_ns,
     xmtp_openmls_provider::XmtpOpenMlsProvider,
     Fetch, InboxOwner, Store,
 };
@@ -64,7 +64,7 @@ pub struct Identity {
     pub(crate) account_address: Address,
     pub(crate) installation_keys: SignatureKeyPair,
     pub(crate) credential: RwLock<Option<OpenMlsCredential>>,
-    pub(crate) unsigned_association_data: Option<AssociationText>,
+    pub(crate) unsigned_association_data: Option<UnsignedGrantMessagingAccessData>,
 }
 
 impl Identity {
@@ -84,12 +84,10 @@ impl Identity {
 
     pub(crate) fn new_unsigned(account_address: String) -> Result<Self, IdentityError> {
         let signature_keys = SignatureKeyPair::new(CIPHERSUITE.signature_algorithm())?;
-        let iso8601_time = format!("{}", Utc::now().format("%+"));
-        let unsigned_association_data = AssociationText::new_static(
-            AssociationContext::GrantMessagingAccess,
+        let unsigned_association_data = UnsignedGrantMessagingAccessData::new(
             account_address.clone(),
             signature_keys.to_public_vec(),
-            iso8601_time,
+            now_ns() as u64,
         )?;
         let identity = Self {
             account_address,
@@ -119,7 +117,7 @@ impl Identity {
                 return Err(IdentityError::WalletSignatureRequired);
             }
 
-            let credential_proto: CredentialProto = Credential::from_external_signer(
+            let credential_proto: CredentialProto = Credential::create_from_external_signer(
                 self.unsigned_association_data
                     .clone()
                     .expect("Unsigned identity is always created with unsigned_association_data"),
@@ -213,7 +211,7 @@ impl Identity {
         installation_keys: &SignatureKeyPair,
         owner: &impl InboxOwner,
     ) -> Result<OpenMlsCredential, IdentityError> {
-        let credential = Credential::create_eip191(installation_keys, owner)?;
+        let credential = Credential::create(installation_keys, owner)?;
         let credential_proto: CredentialProto = credential.into();
         Ok(OpenMlsCredential::new(
             credential_proto.encode_to_vec(),

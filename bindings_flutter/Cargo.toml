@@ -1,6 +1,6 @@
 [package]
 name = "xmtp_bindings_flutter"
-version = "0.0.1-development"
+version = "0.1.0-development"
 edition = "2021"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html

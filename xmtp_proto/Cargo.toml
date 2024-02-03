@@ -27,6 +27,6 @@ proto_full = ["xmtp-keystore_api-v1","xmtp-message_api-v1","xmtp-message_content
 "xmtp-message_contents" = []
 "xmtp-mls-api-v1" = ["xmtp-message_contents"]
 "xmtp-mls-database" = []
-"xmtp-mls-message_contents" = []
+"xmtp-mls-message_contents" = ["xmtp-message_contents"]
 "xmtp-mls_validation-v1" = []
 ## @@protoc_insertion_point(features)
