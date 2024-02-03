@@ -31,9 +31,20 @@ jobs:
 
       - name: Build and push Docker image
         uses: docker/build-push-action@v5
+        id: push
         with:
           context: .
           file: ./dev/validation_service/Dockerfile
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
+
+      - name: Deploy (dev)
+        uses: xmtp-labs/terraform-deployer@v1
+        with:
+          terraform-token: ${{ secrets.TERRAFORM_TOKEN }}
+          terraform-org: xmtp
+          terraform-workspace: dev
+          variable-name: validation_service_image
+          variable-value: "ghcr.io/xmtp/mls-validation-service@${{ steps.push.outputs.digest }}"
+          variable-value-required-prefix: "ghcr.io/xmtp/mls-validation-service@sha256:"

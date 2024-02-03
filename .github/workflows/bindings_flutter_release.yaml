@@ -28,7 +28,7 @@ jobs:
       - run: cargo install flutter_rust_bridge_codegen --version 2.0.0-dev.22
       - run: flutter_rust_bridge_codegen generate
       - run: scripts/build-android.sh
-      - uses: actions/upload-artifact@v3
+      - uses: actions/upload-artifact@v4
         with:
           name: xmtp_bindings_flutter.jniLibs.tar.gz
           path: bindings_flutter/platform-build/xmtp_bindings_flutter.jniLibs.tar.gz
@@ -51,7 +51,7 @@ jobs:
       - run: cargo install flutter_rust_bridge_codegen --version 2.0.0-dev.22
       - run: flutter_rust_bridge_codegen generate
       - run: scripts/build-linux.sh
-      - uses: actions/upload-artifact@v3
+      - uses: actions/upload-artifact@v4
         with:
           name: xmtp_bindings_flutter.linux.tar.gz
           path: bindings_flutter/platform-build/xmtp_bindings_flutter.linux.tar.gz
@@ -73,12 +73,12 @@ jobs:
       - run: cargo install flutter_rust_bridge_codegen --version 2.0.0-dev.22
       - run: flutter_rust_bridge_codegen generate
       - run: scripts/build-apple.sh
-      - uses: actions/upload-artifact@v3
+      - uses: actions/upload-artifact@v4
         with:
           name: xmtp_bindings_flutter.xcframework.zip
           path: bindings_flutter/platform-build/xmtp_bindings_flutter.xcframework.zip
           retention-days: 1
-      - uses: actions/upload-artifact@v3
+      - uses: actions/upload-artifact@v4
         with:
           name: libxmtp_bindings_flutter.dylib
           path: bindings_flutter/platform-build/libxmtp_bindings_flutter.dylib
@@ -89,16 +89,8 @@ jobs:
     steps:
       - uses: actions/download-artifact@v4
         with:
-          name: libxmtp_bindings_flutter.dylib
-      - uses: actions/download-artifact@v4
-        with:
-          name: xmtp_bindings_flutter.xcframework.zip
-      - uses: actions/download-artifact@v4
-        with:
-          name: xmtp_bindings_flutter.linux.tar.gz
-      - uses: actions/download-artifact@v4
-        with:
-          name: xmtp_bindings_flutter.jniLibs.tar.gz
+          path: .
+          merge-multiple: true
       - id: create_release
         uses: actions/create-release@v1
         env:
