@@ -4,7 +4,7 @@ use std::println as debug;
 #[cfg(not(test))]
 use log::debug;
 use thiserror::Error;
-use xmtp_proto::api_client::XmtpMlsClient;
+use xmtp_proto::api_client::{XmtpApiClient, XmtpMlsClient};
 
 use crate::{
     api_client_wrapper::ApiClientWrapper,
@@ -49,30 +49,29 @@ pub enum ClientBuilderError {
 /// have a wallet-signed v2 key. Depending on the source of this key,
 /// libxmtp may choose to bootstrap v3 installation keys using the existing
 /// legacy key.
-pub enum LegacyIdentitySource {
+/// If the client supports v2, then the serialized bytes of the legacy
+/// SignedPrivateKey proto for the v2 identity key should be provided.
+pub enum LegacyIdentity {
     // A client with no support for v2 messages
     None,
     // A cached v2 key was provided on client initialization
     Static(Vec<u8>),
     // A private bundle exists on the network from which the v2 key will be fetched
-    Network,
+    Network(Vec<u8>),
     // A new v2 key was generated on client initialization
     KeyGenerator(Vec<u8>),
 }
 
-pub enum IdentityStrategy<Owner> {
-    CreateIfNotFound(Owner, LegacyIdentitySource),
-    CreateUnsignedIfNotFound(String, LegacyIdentitySource),
+pub enum IdentityStrategy /*<Owner>*/ {
+    // CreateIfNotFound(Owner, LegacyIdentity),
+    CreateUnsignedIfNotFound(String, LegacyIdentity),
     CachedOnly,
     #[cfg(test)]
     ExternalIdentity(Identity),
 }
 
-impl<'a, Owner> IdentityStrategy<Owner>
-where
-    Owner: InboxOwner,
-{
-    async fn initialize_identity<ApiClient: XmtpApiClient + XmtpMlsClient>(
+impl IdentityStrategy {
+    async fn initialize_identity<ApiClient: XmtpMlsClient>(
         self,
         api_client: &ApiClientWrapper<ApiClient>,
         store: &EncryptedMessageStore,
@@ -88,23 +87,16 @@ where
             IdentityStrategy::CachedOnly => {
                 identity_option.ok_or(ClientBuilderError::RequiredIdentityNotFound)
             }
-            IdentityStrategy::CreateIfNotFound(owner, legacy_identity_source) => {
-                match identity_option {
-                    Some(identity) => {
-                        if identity.account_address != owner.get_address() {
-                            return Err(ClientBuilderError::StoredIdentityMismatch);
-                        }
-                        Ok(identity)
-                    }
-                    None => {
-                        Ok(
-                            Identity::new(api_client, &provider, &owner, legacy_identity_source)
-                                .await?,
-                        )
-                    }
-                }
-            },
-            IdentityStrategy::CreateUnsignedIfNotFound(account_address) => {
+            // IdentityStrategy::CreateIfNotFound(owner, legacy_identity) => match identity_option {
+            //     Some(identity) => {
+            //         if identity.account_address != owner.get_address() {
+            //             return Err(ClientBuilderError::StoredIdentityMismatch);
+            //         }
+            //         Ok(identity)
+            //     }
+            //     None => Ok(Identity::new(api_client, &owner, legacy_identity).await?),
+            // },
+            IdentityStrategy::CreateUnsignedIfNotFound(account_address, legacy_identity) => {
                 let account_address = sanitize_evm_addresses(vec![account_address])?[0].clone();
                 match identity_option {
                     Some(identity) => {
@@ -113,44 +105,76 @@ where
                         }
                         Ok(identity)
                     }
-                    None => Ok(Identity::new_unsigned(account_address)?),
+                    None => Ok(
+                        Self::create_identity(api_client, account_address, legacy_identity).await?,
+                    ),
                 }
-            },
+            }
             #[cfg(test)]
             IdentityStrategy::ExternalIdentity(identity) => Ok(identity),
         }
     }
-}
 
-impl<Owner> From<Owner> for IdentityStrategy<Owner>
-where
-    Owner: InboxOwner,
-{
-    fn from(value: Owner) -> Self {
-        IdentityStrategy::CreateIfNotFound(value, LegacyIdentitySource::None)
+    async fn create_identity<ApiClient: XmtpMlsClient>(
+        api_client: &ApiClientWrapper<ApiClient>,
+        account_address: String,
+        legacy_identity: LegacyIdentity,
+    ) -> Result<Identity, ClientBuilderError> {
+        let identity = match legacy_identity {
+            // This is a fresh install for a pre-existing user, and at most one v2 signature (enable_identity)
+            // has been requested so far, so it's fine to request another one (grant_messaging_access).
+            LegacyIdentity::None | LegacyIdentity::Network(_) => {
+                Identity::create_to_be_signed(account_address)?
+            }
+            // This is a new XMTP user and two v2 signatures (create_identity and enable_identity)
+            // have just been requested, don't request a third.
+            LegacyIdentity::KeyGenerator(legacy_signed_private_key) => {
+                Identity::create_from_legacy(account_address, legacy_signed_private_key)?
+            }
+            // This is an existing v2 install being upgraded to v3, not a fresh install.
+            // Don't request a signature out of the blue if possible.
+            LegacyIdentity::Static(legacy_signed_private_key) => {
+                if Identity::has_existing_legacy_credential(api_client, &account_address).await? {
+                    // Another installation has already derived a v3 key from this v2 key.
+                    // Don't reuse the same v2 key - make a new one altogether.
+                    Identity::create_to_be_signed(account_address)?
+                } else {
+                    Identity::create_from_legacy(account_address, legacy_signed_private_key)?
+                }
+            }
+        };
+        Ok(identity)
     }
 }
 
-impl<Owner> From<String> for IdentityStrategy<Owner> {
-    fn from(account_address: String) -> Self {
-        IdentityStrategy::CreateUnsignedIfNotFound(account_address)
-    }
-}
+// impl<Owner> From<Owner> for IdentityStrategy<Owner>
+// where
+//     Owner: InboxOwner,
+// {
+//     fn from(value: Owner) -> Self {
+//         IdentityStrategy::CreateIfNotFound(value, LegacyIdentitySource::None)
+//     }
+// }
 
-pub struct ClientBuilder<ApiClient, Owner> {
+// impl From<String> for IdentityStrategy /*<Owner>*/ {
+//     fn from(account_address: String) -> Self {
+//         IdentityStrategy::CreateUnsignedIfNotFound(account_address)
+//     }
+// }
+
+pub struct ClientBuilder<ApiClient> {
     api_client: Option<ApiClient>,
     network: Network,
     identity: Option<Identity>,
     store: Option<EncryptedMessageStore>,
-    identity_strategy: IdentityStrategy<Owner>,
+    identity_strategy: IdentityStrategy,
 }
 
-impl<ApiClient, Owner> ClientBuilder<ApiClient, Owner>
+impl<ApiClient> ClientBuilder<ApiClient>
 where
     ApiClient: XmtpMlsClient,
-    Owner: InboxOwner,
 {
-    pub fn new(strat: IdentityStrategy<Owner>) -> Self {
+    pub fn new(strat: IdentityStrategy) -> Self {
         Self {
             api_client: None,
             network: Network::Dev,
@@ -224,7 +248,7 @@ mod tests {
             .unwrap()
     }
 
-    impl ClientBuilder<GrpcClient, LocalWallet> {
+    impl ClientBuilder<GrpcClient> {
         pub async fn local_grpc(self) -> Self {
             self.api_client(get_local_grpc_client().await)
         }

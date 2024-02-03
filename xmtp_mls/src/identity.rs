@@ -23,14 +23,14 @@ use xmtp_proto::{
 
 use crate::{
     api_client_wrapper::{ApiClientWrapper, IdentityUpdate},
-    builder::LegacyIdentitySource,
+    builder::LegacyIdentity,
     configuration::CIPHERSUITE,
     credential::{AssociationError, Credential, UnsignedGrantMessagingAccessData},
     storage::{identity::StoredIdentity, StorageError},
     types::Address,
     utils::time::now_ns,
     xmtp_openmls_provider::XmtpOpenMlsProvider,
-    Fetch, InboxOwner, Store,
+    Fetch, Store,
 };
 
 #[derive(Debug, Error)]
@@ -59,8 +59,6 @@ pub enum IdentityError {
     ApiError(#[from] xmtp_proto::api_client::Error),
     #[error("OpenMLS credential error: {0}")]
     OpenMlsCredentialError(#[from] CredentialError),
-    #[error("network error")]
-    Network(#[from] xmtp_proto::api_client::Error),
 }
 
 #[derive(Debug)]
@@ -74,40 +72,30 @@ pub struct Identity {
 impl Identity {
     pub(crate) async fn new<ApiClient: XmtpApiClient + XmtpMlsClient>(
         api_client: &ApiClientWrapper<ApiClient>,
-        owner: &impl InboxOwner,
-        legacy_identity_source: LegacyIdentitySource,
+        account_address: String,
+        legacy_identity: LegacyIdentity,
     ) -> Result<Self, IdentityError> {
-        let signature_keys = SignatureKeyPair::new(CIPHERSUITE.signature_algorithm())?;
-
-        let credential = match legacy_identity_source {
-            LegacyIdentitySource::None | LegacyIdentitySource::Network => {
-                Credential::create(&signature_keys, owner)?
+        let identity = match legacy_identity {
+            LegacyIdentity::None | LegacyIdentity::Network(_) => {
+                Identity::create_to_be_signed(account_address)?
             }
-            LegacyIdentitySource::Static(v2_signed_private_key)
-            | LegacyIdentitySource::KeyGenerator(v2_signed_private_key) => {
-                if Self::has_existing_legacy_credential(api_client, &owner.get_address()).await? {
-                    Credential::create(&signature_keys, owner)?
+            LegacyIdentity::KeyGenerator(legacy_signed_private_key) => {
+                Identity::create_from_legacy(account_address, legacy_signed_private_key)?
+            }
+            LegacyIdentity::Static(legacy_signed_private_key) => {
+                if Self::has_existing_legacy_credential(api_client, &account_address).await? {
+                    Identity::create_to_be_signed(account_address)?
                 } else {
-                    // Save a signature
-                    Credential::create_legacy(&signature_keys, v2_signed_private_key)?
+                    Identity::create_from_legacy(account_address, legacy_signed_private_key)?
                 }
             }
         };
-        let credential_proto: CredentialProto = credential.into();
-        let mls_credential =
-            OpenMlsCredential::new(credential_proto.encode_to_vec(), CredentialType::Basic)?;
-
-        let identity = Self {
-            account_address: owner.get_address(),
-            installation_keys: signature_keys,
-            credential: RwLock::new(Some(mls_credential)),
-            unsigned_association_data: None,
-        };
-
         Ok(identity)
     }
 
-    pub(crate) fn new_unsigned(account_address: String) -> Result<Self, IdentityError> {
+    // Creates a credential that is not yet wallet signed. Implementors should sign the payload returned by 'text_to_sign'
+    // and call 'register' with the signature.
+    pub(crate) fn create_to_be_signed(account_address: String) -> Result<Self, IdentityError> {
         let signature_keys = SignatureKeyPair::new(CIPHERSUITE.signature_algorithm())?;
         let unsigned_association_data = UnsignedGrantMessagingAccessData::new(
             account_address.clone(),
@@ -122,6 +110,25 @@ impl Identity {
         };
 
         Ok(identity)
+    }
+
+    // Create a credential derived from an existing wallet-signed v2 key. No additional signing needed, so 'text_to_sign' will return None.
+    pub(crate) fn create_from_legacy(
+        account_address: String,
+        legacy_signed_private_key: Vec<u8>,
+    ) -> Result<Self, IdentityError> {
+        let signature_keys = SignatureKeyPair::new(CIPHERSUITE.signature_algorithm()).unwrap();
+        let credential =
+            Credential::create_from_legacy(&signature_keys, legacy_signed_private_key)?;
+        let credential_proto: CredentialProto = credential.into();
+        let mls_credential =
+            OpenMlsCredential::new(credential_proto.encode_to_vec(), CredentialType::Basic)?;
+        Ok(Self {
+            account_address,
+            installation_keys: signature_keys,
+            credential: RwLock::new(Some(mls_credential)),
+            unsigned_association_data: None,
+        })
     }
 
     pub(crate) async fn register<ApiClient: XmtpMlsClient>(
@@ -250,7 +257,7 @@ impl Identity {
         self.account_address.as_bytes().to_vec()
     }
 
-    async fn has_existing_legacy_credential<ApiClient: XmtpApiClient + XmtpMlsClient>(
+    pub(crate) async fn has_existing_legacy_credential<ApiClient: XmtpMlsClient>(
         api_client: &ApiClientWrapper<ApiClient>,
         account_address: &str,
     ) -> Result<bool, IdentityError> {

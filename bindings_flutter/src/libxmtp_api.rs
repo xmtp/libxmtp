@@ -139,6 +139,7 @@ impl SignatureRequiredClient {
     }
 }
 
+// TODO
 pub async fn create_client(
     // logger_fn: impl Fn(u32, String, String) -> DartFnFuture<()>,
     host: String,

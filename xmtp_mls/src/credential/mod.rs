@@ -77,7 +77,7 @@ impl Credential {
         Ok(Self::GrantMessagingAccess(association))
     }
 
-    pub fn create_legacy(
+    pub fn create_from_legacy(
         installation_keys: &SignatureKeyPair,
         legacy_signed_private_key: Vec<u8>,
     ) -> Result<Self, AssociationError> {
