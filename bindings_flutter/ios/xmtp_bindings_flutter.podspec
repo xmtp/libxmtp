@@ -4,7 +4,7 @@
 # See generally
 #  https://cjycode.com/flutter_rust_bridge/library/platform_setup/ios_and_macos.html
 
-release_version = '0.1.0-development.1'
+release_version = '0.1.0-development.2'
 # These versions should be kept in sync:
 # - pubspec.yaml
 # - android/gradle.properties

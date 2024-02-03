@@ -2,7 +2,15 @@ name: release bindings_flutter
 on:
   workflow_dispatch:
 env:
-  RELEASE_VERSION: '0.1.0-development.1'
+  RELEASE_VERSION: '0.1.0-development.2'
+  # this ^ version should be kept in sync:
+  # - pubspec.yaml
+  # - linux/CMakeLists.txt
+  # - android/gradle.properties
+  # - ios/xmtp_bindings_flutter.podspec
+  # - macos/xmtp_bindings_flutter.podspec
+  # TODO: automate that ^ and then also `dart pub publish` on release
+  # TODO: `dart pub publish` in this workflow after creating the release
 defaults:
   run:
     working-directory: ./bindings_flutter

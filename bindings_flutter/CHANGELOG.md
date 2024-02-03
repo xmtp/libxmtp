@@ -1,3 +1,6 @@
+## 0.1.0-development.2
+- pickup latest validation service updates
+
 ## 0.1.0-development.1
 - move from v2 to main branch on libxmtp
 - mls client creation
