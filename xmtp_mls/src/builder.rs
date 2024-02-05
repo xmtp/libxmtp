@@ -231,14 +231,13 @@ where
 #[cfg(test)]
 mod tests {
 
-    use ethers::signers::{LocalWallet, Signer, Wallet};
-    use ethers_core::k256::ecdsa::SigningKey;
+    use ethers::signers::{Signer};
+    
     use xmtp_api_grpc::grpc_api_helper::Client as GrpcClient;
     use xmtp_cryptography::utils::generate_local_wallet;
 
     use super::{ClientBuilder, IdentityStrategy};
     use crate::{
-        owner,
         storage::{EncryptedMessageStore, StorageOption},
         utils::test::tmp_path,
         Client, InboxOwner,

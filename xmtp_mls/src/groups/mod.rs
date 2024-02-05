@@ -725,7 +725,7 @@ mod tests {
         assert_eq!(_placeholder.len(), 0);
 
         // Add a second installation for amal using the same wallet
-        let amal_2nd = ClientBuilder::new_test_client(&amal_wallet).await;
+        let _amal_2nd = ClientBuilder::new_test_client(&amal_wallet).await;
 
         // Here we should find a new installation
         let (missing_members, _placeholder) = group.get_missing_members(&provider).await.unwrap();
@@ -759,7 +759,7 @@ mod tests {
         // Finished with setup
 
         // add a second installation for amal using the same wallet
-        let amal_2nd = ClientBuilder::new_test_client(&amal_wallet).await;
+        let _amal_2nd = ClientBuilder::new_test_client(&amal_wallet).await;
 
         // test that adding the new installation(s), worked
         let new_installations_count = group.add_missing_installations(&provider).await.unwrap();

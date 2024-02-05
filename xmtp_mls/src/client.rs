@@ -4,7 +4,6 @@ use crate::{
         validated_commit::CommitValidationError, AddressesOrInstallationIds, IntentError, MlsGroup,
     },
     identity::Identity,
-    retry::Retry,
     storage::{
         db_connection::DbConnection,
         group::{GroupMembershipState, StoredGroup},
@@ -699,7 +698,7 @@ mod tests {
         bola.sync_welcomes().await.unwrap();
         let bola_groups = bola.find_groups(None, None, None, None).unwrap();
         assert_eq!(bola_groups.len(), 1);
-        let bola_group = bola_groups.get(0).unwrap();
+        let bola_group = bola_groups.first().unwrap();
         bola_group.sync().await.unwrap();
 
         // Bola should have one readable message (them being added to the group)

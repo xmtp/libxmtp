@@ -250,7 +250,7 @@ impl Identity {
                 };
                 let Ok(credential) = Credential::from_proto_validated(
                     proto,
-                    Some(&account_address), // expected_account_address
+                    Some(account_address), // expected_account_address
                     None,                   // expected_installation_public_key
                 ) else {
                     continue;
@@ -307,7 +307,7 @@ mod tests {
         let (store, api_client) = get_test_resources().await;
         let conn = store.conn().unwrap();
         let provider = XmtpOpenMlsProvider::new(&conn);
-        let identity =
+        let _identity =
             create_registered_identity(&provider, &api_client, &generate_local_wallet()).await;
     }
 
