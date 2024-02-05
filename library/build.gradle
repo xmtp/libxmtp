@@ -20,11 +20,11 @@ ktlint {
 
 android {
     namespace 'org.xmtp.android.library'
-    compileSdk 33
+    compileSdk 34
 
     defaultConfig {
         minSdk 23
-        targetSdk 33
+        targetSdk 34
 
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         consumerProguardFiles "consumer-rules.pro"
@@ -37,14 +37,14 @@ android {
         }
     }
     compileOptions {
-        sourceCompatibility JavaVersion.VERSION_11
-        targetCompatibility JavaVersion.VERSION_11
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
     }
     testOptions {
         animationsDisabled = true
     }
     kotlinOptions {
-        jvmTarget = '11'
+        jvmTarget = '17'
     }
     publishing {
         singleVariant("release") {
@@ -78,11 +78,11 @@ protobuf {
 }
 
 dependencies {
-    implementation 'com.google.crypto.tink:tink-android:1.7.0'
+    implementation 'com.google.crypto.tink:tink-android:1.8.0'
     implementation 'io.grpc:grpc-kotlin-stub:1.3.0'
     implementation 'io.grpc:grpc-okhttp:1.51.1'
     implementation 'io.grpc:grpc-protobuf-lite:1.51.0'
-    implementation 'org.jetbrains.kotlinx:kotlinx-coroutines-core:1.6.4'
+    implementation 'org.jetbrains.kotlinx:kotlinx-coroutines-core:1.7.3'
     implementation 'org.web3j:crypto:5.0.0'
     implementation "net.java.dev.jna:jna:5.13.0@aar"
     api 'com.google.protobuf:protobuf-kotlin-lite:3.22.3'
@@ -90,7 +90,7 @@ dependencies {
 
     testImplementation 'junit:junit:4.13.2'
     androidTestImplementation 'app.cash.turbine:turbine:0.12.1'
-    androidTestImplementation 'org.jetbrains.kotlinx:kotlinx-coroutines-test:1.6.4'
+    androidTestImplementation 'org.jetbrains.kotlinx:kotlinx-coroutines-test:1.7.3'
     androidTestImplementation 'androidx.test.ext:junit:1.1.5'
     androidTestImplementation 'androidx.test.espresso:espresso-core:3.5.1'
 }
