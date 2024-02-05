@@ -20,6 +20,80 @@ class ClientTests: XCTestCase {
 		_ = try await Client.create(account: fakeWallet)
 	}
 
+	func testPassingSavedKeysWithNoSignerWithMLSErrors() async throws {
+		try TestConfig.skipIfNotRunningLocalNodeTests()
+
+		let bo = try PrivateKey.generate()
+
+		do {
+			let client = try await Client.create(
+				account: bo,
+				options: .init(
+					api: .init(env: .local, isSecure: false),
+					mlsAlpha: true
+				)
+			)
+		} catch {
+			XCTAssert(error.localizedDescription.contains("no keys"))
+		}
+	}
+
+	func testPassingSavedKeysWithMLS() async throws {
+		try TestConfig.skipIfNotRunningLocalNodeTests()
+
+		let bo = try PrivateKey.generate()
+		let client = try await Client.create(
+			account: bo,
+			options: .init(
+				api: .init(env: .local, isSecure: false),
+				mlsAlpha: true
+			)
+		)
+
+		let keys = client.privateKeyBundle
+		let otherClient = try await Client.from(
+			bundle: keys,
+			options: .init(
+				api: .init(env: .local, isSecure: false),
+				// Should not need to pass the signer again
+				mlsAlpha: true
+			)
+		)
+
+		XCTAssertEqual(client.address, otherClient.address)
+	}
+
+	func testPassingMLSEncryptionKey() async throws {
+		try TestConfig.skipIfNotRunningLocalNodeTests()
+
+		let bo = try PrivateKey.generate()
+		let key = try Crypto.secureRandomBytes(count: 32)
+
+		_ = try await Client.create(
+			account: bo,
+			options: .init(
+				api: .init(env: .local, isSecure: false),
+				mlsAlpha: true,
+				mlsEncryptionKey: key
+			)
+		)
+
+		do {
+			_ = try await Client.create(
+				account: bo,
+				options: .init(
+					api: .init(env: .local, isSecure: false),
+					mlsAlpha: true,
+					mlsEncryptionKey: nil // No key should error
+				)
+			)
+
+			XCTFail("did not throw")
+		} catch {
+			XCTAssert(true)
+		}
+	}
+
 	func testCanMessage() async throws {
 		let fixtures = await fixtures()
 		let notOnNetwork = try PrivateKey.generate()

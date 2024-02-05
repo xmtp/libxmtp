@@ -22,10 +22,10 @@ public struct ClientOptions {
 		/// Specify which XMTP network to connect to. Defaults to ``.dev``
 		public var env: XMTPEnvironment = .dev
 
-		/// Optional: Specify self-reported version e.g. XMTPInbox/v1.0.0.
+		/// Specify whether the API client should use TLS security. In general this should only be false when using the `.local` environment.
 		public var isSecure: Bool = true
 
-		/// Specify whether the API client should use TLS security. In general this should only be false when using the `.local` environment.
+		/// /// Optional: Specify self-reported version e.g. XMTPInbox/v1.0.0.
 		public var appVersion: String?
 
 		public init(env: XMTPEnvironment = .dev, isSecure: Bool = true, appVersion: String? = nil) {
@@ -44,11 +44,23 @@ public struct ClientOptions {
 	/// `preCreateIdentityCallback` will be called immediately before a Create Identity wallet signature is requested from the user.
 	public var preCreateIdentityCallback: PreEventCallback?
 
-	public init(api: Api = Api(), codecs: [any ContentCodec] = [], preEnableIdentityCallback: PreEventCallback? = nil, preCreateIdentityCallback: PreEventCallback? = nil) {
+	public var mlsAlpha = false
+	public var mlsEncryptionKey: Data?
+
+	public init(
+		api: Api = Api(),
+		codecs: [any ContentCodec] = [],
+		preEnableIdentityCallback: PreEventCallback? = nil,
+		preCreateIdentityCallback: PreEventCallback? = nil,
+		mlsAlpha: Bool = false,
+		mlsEncryptionKey: Data? = nil
+	) {
 		self.api = api
 		self.codecs = codecs
 		self.preEnableIdentityCallback = preEnableIdentityCallback
 		self.preCreateIdentityCallback = preCreateIdentityCallback
+		self.mlsAlpha = mlsAlpha
+		self.mlsEncryptionKey = mlsEncryptionKey
 	}
 }
 
@@ -60,11 +72,12 @@ public struct ClientOptions {
 /// 2. To sign a random salt used to encrypt the key bundle in storage. This happens every time the client is started, including the very first time).
 ///
 /// > Important: The client connects to the XMTP `dev` environment by default. Use ``ClientOptions`` to change this and other parameters of the network connection.
-public final class Client: Sendable {
+public final class Client {
 	/// The wallet address of the ``SigningKey`` used to create this Client.
 	public let address: String
 	let privateKeyBundleV1: PrivateKeyBundleV1
 	let apiClient: ApiClient
+	let v3Client: LibXMTP.FfiXmtpClient?
 
 	/// Access ``Conversations`` for this Client.
 	public lazy var conversations: Conversations = .init(client: self)
@@ -95,28 +108,80 @@ public final class Client: Sendable {
 			)
 			return try await create(account: account, apiClient: apiClient, options: options)
 		} catch {
-			throw ClientError.creationError(error.localizedDescription)
+			throw ClientError.creationError("\(error)")
+		}
+	}
+
+	static func initV3Client(
+		address: String,
+		options: ClientOptions?,
+		source: LegacyIdentitySource,
+		privateKeyBundleV1: PrivateKeyBundleV1,
+		signingKey: SigningKey?
+	) async throws -> FfiXmtpClient? {
+		if options?.mlsAlpha == true, options?.api.env == .local {
+			let dbURL = URL.documentsDirectory.appendingPathComponent("xmtp-\(options?.api.env.rawValue ?? "")-\(address).db3")
+			let v3Client = try await LibXMTP.createClient(
+				logger: XMTPLogger(),
+				host: GRPCApiClient.envToUrl(env: options?.api.env ?? .local),
+				isSecure: (options?.api.env ?? .local) != .local,
+				db: dbURL.path,
+				encryptionKey: options?.mlsEncryptionKey,
+				accountAddress: address,
+				legacyIdentitySource: source,
+				legacySignedPrivateKeyProto: try privateKeyBundleV1.toV2().identityKey.serializedData()
+			)
+
+			if let textToSign = v3Client.textToSign() {
+				guard let signingKey else {
+					throw ClientError.creationError("No v3 keys found, you must pass a SigningKey in order to enable alpha MLS features")
+				}
+
+				let signature = try await signingKey.sign(message: textToSign)
+				try await v3Client.registerIdentity(recoverableWalletSignature: signature.rawData)
+			} else {
+				try await v3Client.registerIdentity(recoverableWalletSignature: nil)
+			}
+
+			return v3Client
+		} else {
+			return nil
 		}
 	}
 
 	static func create(account: SigningKey, apiClient: ApiClient, options: ClientOptions? = nil) async throws -> Client {
-		let privateKeyBundleV1 = try await loadOrCreateKeys(for: account, apiClient: apiClient, options: options)
+		let (privateKeyBundleV1, source) = try await loadOrCreateKeys(for: account, apiClient: apiClient, options: options)
 
-		let client = try Client(address: account.address, privateKeyBundleV1: privateKeyBundleV1, apiClient: apiClient)
+		let v3Client = try await initV3Client(
+			address: account.address,
+			options: options,
+			source: source,
+			privateKeyBundleV1: privateKeyBundleV1,
+			signingKey: account
+		)
+
+		if let textToSign = v3Client?.textToSign() {
+			let signature = try await account.sign(message: textToSign).rawData
+			try await v3Client?.registerIdentity(recoverableWalletSignature: signature)
+		}
+
+		let client = try Client(address: account.address, privateKeyBundleV1: privateKeyBundleV1, apiClient: apiClient, v3Client: v3Client)
 		try await client.ensureUserContactPublished()
+
+		for codec in (options?.codecs ?? []) {
+			client.register(codec: codec)
+		}
 
 		return client
 	}
 
-	static func loadOrCreateKeys(for account: SigningKey, apiClient: ApiClient, options: ClientOptions? = nil) async throws -> PrivateKeyBundleV1 {
-		// swiftlint:disable no_optional_try
+	static func loadOrCreateKeys(for account: SigningKey, apiClient: ApiClient, options: ClientOptions? = nil) async throws -> (PrivateKeyBundleV1, LegacyIdentitySource) {
 		if let keys = try await loadPrivateKeys(for: account, apiClient: apiClient, options: options) {
-			// swiftlint:enable no_optional_try
 			print("loading existing private keys.")
 			#if DEBUG
 				print("Loaded existing private keys.")
 			#endif
-			return keys
+			return (keys, .network)
 		} else {
 			#if DEBUG
 				print("No existing keys found, creating new bundle.")
@@ -133,7 +198,7 @@ public final class Client: Sendable {
 				Envelope(topic: .userPrivateStoreKeyBundle(account.address), timestamp: Date(), message: encryptedKeys.serializedData()),
 			])
 
-			return keys
+			return (keys, .keyGenerator)
 		}
 	}
 
@@ -155,12 +220,24 @@ public final class Client: Sendable {
 		return nil
 	}
 
+	public func canMessageV3(address: String) async throws -> Bool {
+		guard let v3Client else {
+			return false
+		}
+
+		return try await v3Client.canMessage(accountAddresses: [address]) == [true]
+	}
+
 	public static func from(bundle: PrivateKeyBundle, options: ClientOptions? = nil) async throws -> Client {
 		return try await from(v1Bundle: bundle.v1, options: options)
 	}
 
 	/// Create a Client from saved v1 key bundle.
-	public static func from(v1Bundle: PrivateKeyBundleV1, options: ClientOptions? = nil) async throws -> Client {
+	public static func from(
+		v1Bundle: PrivateKeyBundleV1,
+		options: ClientOptions? = nil,
+		signingKey: SigningKey? = nil
+	) async throws -> Client {
 		let address = try v1Bundle.identityKey.publicKey.recoverWalletSignerPublicKey().walletAddress
 
 		let options = options ?? ClientOptions()
@@ -172,13 +249,28 @@ public final class Client: Sendable {
 			rustClient: client
 		)
 
-		return try Client(address: address, privateKeyBundleV1: v1Bundle, apiClient: apiClient)
+		let v3Client = try await initV3Client(
+			address: address,
+			options: options,
+			source: .static,
+			privateKeyBundleV1: v1Bundle,
+			signingKey: nil
+		)
+
+		let result = try Client(address: address, privateKeyBundleV1: v1Bundle, apiClient: apiClient, v3Client: v3Client)
+
+		for codec in options.codecs {
+			result.register(codec: codec)
+		}
+
+		return result
 	}
 
-	init(address: String, privateKeyBundleV1: PrivateKeyBundleV1, apiClient: ApiClient) throws {
+	init(address: String, privateKeyBundleV1: PrivateKeyBundleV1, apiClient: ApiClient, v3Client: LibXMTP.FfiXmtpClient?) throws {
 		self.address = address
 		self.privateKeyBundleV1 = privateKeyBundleV1
 		self.apiClient = apiClient
+		self.v3Client = v3Client
 	}
 
 	public var privateKeyBundle: PrivateKeyBundle {
