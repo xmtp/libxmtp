@@ -44,11 +44,14 @@ pub enum ClientBuilderError {
     StorageError(#[from] StorageError),
 }
 
+/// Describes how the legacy v2 identity key was obtained, if applicable.
+///
 /// XMTP SDK's may embed libxmtp (v3) alongside existing v2 protocol logic
 /// for backwards-compatibility purposes. In this case, the client may already
 /// have a wallet-signed v2 key. Depending on the source of this key,
 /// libxmtp may choose to bootstrap v3 installation keys using the existing
 /// legacy key.
+///
 /// If the client supports v2, then the serialized bytes of the legacy
 /// SignedPrivateKey proto for the v2 identity key should be provided.
 pub enum LegacyIdentity {
@@ -62,9 +65,11 @@ pub enum LegacyIdentity {
     KeyGenerator(Vec<u8>),
 }
 
-pub enum IdentityStrategy /*<Owner>*/ {
-    // CreateIfNotFound(Owner, LegacyIdentity),
-    CreateUnsignedIfNotFound(String, LegacyIdentity),
+/// Describes whether the v3 identity should be created
+/// If CreateIfNotFound is chosen, the wallet account address and legacy
+/// v2 identity should be specified, or set to LegacyIdentity::None if not applicable.
+pub enum IdentityStrategy {
+    CreateIfNotFound(String, LegacyIdentity),
     CachedOnly,
     #[cfg(test)]
     ExternalIdentity(Identity),
@@ -87,16 +92,7 @@ impl IdentityStrategy {
             IdentityStrategy::CachedOnly => {
                 identity_option.ok_or(ClientBuilderError::RequiredIdentityNotFound)
             }
-            // IdentityStrategy::CreateIfNotFound(owner, legacy_identity) => match identity_option {
-            //     Some(identity) => {
-            //         if identity.account_address != owner.get_address() {
-            //             return Err(ClientBuilderError::StoredIdentityMismatch);
-            //         }
-            //         Ok(identity)
-            //     }
-            //     None => Ok(Identity::new(api_client, &owner, legacy_identity).await?),
-            // },
-            IdentityStrategy::CreateUnsignedIfNotFound(account_address, legacy_identity) => {
+            IdentityStrategy::CreateIfNotFound(account_address, legacy_identity) => {
                 let account_address = sanitize_evm_addresses(vec![account_address])?[0].clone();
                 match identity_option {
                     Some(identity) => {
@@ -153,13 +149,13 @@ where
     Owner: InboxOwner,
 {
     fn from(value: &Owner) -> Self {
-        IdentityStrategy::CreateUnsignedIfNotFound(value.get_address(), LegacyIdentity::None)
+        IdentityStrategy::CreateIfNotFound(value.get_address(), LegacyIdentity::None)
     }
 }
 
 // impl From<String> for IdentityStrategy /*<Owner>*/ {
 //     fn from(account_address: String) -> Self {
-//         IdentityStrategy::CreateUnsignedIfNotFound(account_address)
+//         IdentityStrategy::CreateIfNotFound(account_address)
 //     }
 // }
 

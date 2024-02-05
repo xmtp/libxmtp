@@ -154,7 +154,7 @@ pub async fn create_client(
     let store = EncryptedMessageStore::new(StorageOption::Persistent(db_path), encryption_key)?;
     // log::info!("Creating XMTP client");
     let identity_strategy: IdentityStrategy =
-        IdentityStrategy::CreateUnsignedIfNotFound(account_address);
+        IdentityStrategy::CreateIfNotFound(account_address);
     let xmtp_client = ClientBuilder::new(identity_strategy)
         .api_client(api_client)
         .store(store)

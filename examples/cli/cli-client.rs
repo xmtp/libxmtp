@@ -306,7 +306,7 @@ async fn register(cli: &Cli, wallet_seed: &u64) -> Result<(), CliError> {
 
     let client = create_client(
         cli,
-        IdentityStrategy::CreateUnsignedIfNotFound(w.get_address(), LegacyIdentity::None),
+        IdentityStrategy::CreateIfNotFound(w.get_address(), LegacyIdentity::None),
     )
     .await?;
     info!("Address is: {}", client.account_address());

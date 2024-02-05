@@ -90,8 +90,7 @@ pub async fn create_client(
         LegacyIdentitySource::Network => LegacyIdentity::Network(legacy_key_result?),
         LegacyIdentitySource::KeyGenerator => LegacyIdentity::KeyGenerator(legacy_key_result?),
     };
-    let identity_strategy =
-        IdentityStrategy::CreateUnsignedIfNotFound(account_address, legacy_identity);
+    let identity_strategy = IdentityStrategy::CreateIfNotFound(account_address, legacy_identity);
     let xmtp_client: RustXmtpClient = ClientBuilder::new(identity_strategy)
         .api_client(api_client)
         .store(store)
