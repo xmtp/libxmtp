@@ -4955,6 +4955,7 @@ dependencies = [
  "tracing",
  "xmtp_cryptography",
  "xmtp_proto",
+ "xmtp_v2",
 ]
 
 [[package]]
