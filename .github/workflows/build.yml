@@ -92,6 +92,8 @@ jobs:
 
       - name: Build target
         uses: actions-rs/cargo@v1
+        env: 
+          CROSS_NO_WARNINGS: "0"
         with:
           use-cross: true
           command: build
@@ -101,7 +103,7 @@ jobs:
         uses: actions/upload-artifact@v3
         with:
           name: ${{ matrix.target }}
-          path: bindings_ffi/target/${{ matrix.target }}/release/libxmtpv3.dylib
+          path: bindings_ffi/target/${{ matrix.target }}/release/libxmtpv3.a
           retention-days: 1
 
   kotlin:

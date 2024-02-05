@@ -5,7 +5,7 @@ ARCHS_IOS = x86_64-apple-ios aarch64-apple-ios-sim
 ARCHS_MAC = x86_64-apple-darwin aarch64-apple-darwin
 # Not used
 # ARCHS_MACCATALYST = x86_64-apple-ios-macabi aarch64-apple-ios-macabi
-LIB=libxmtpv3.dylib
+LIB=libxmtpv3.a
 JAR_DIR=$(shell pwd)/tests/jar
 
 install-jar:
@@ -76,6 +76,6 @@ swift:
 	mv build/swift/$(PROJECT_NAME)FFI.h build/swift/include/
 	mv build/swift/$(PROJECT_NAME)FFI.modulemap build/swift/include/module.modulemap
 
-swiftlocal: libxmtpv3.dylib framework swift
+swiftlocal: libxmtpv3.a swift framework 
 
 .PHONY: $(ARCHS_IOS) $(ARCHS_MAC) framework all aarch64-apple-ios install-jar echo-jar download-toolchains swift lipo

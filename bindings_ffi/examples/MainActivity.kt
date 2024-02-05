@@ -6,11 +6,15 @@ import android.widget.TextView
 import androidx.appcompat.app.AppCompatActivity
 import com.example.xmtpv3_example.R.id.selftest_output
 import kotlinx.coroutines.runBlocking
+import org.bouncycastle.util.encoders.Hex.toHexString
 import org.web3j.crypto.Credentials
 import org.web3j.crypto.ECKeyPair
 import org.web3j.crypto.Sign
+import uniffi.xmtpv3.FfiConversationCallback
+import uniffi.xmtpv3.FfiGroup
 import uniffi.xmtpv3.FfiInboxOwner
 import uniffi.xmtpv3.FfiLogger
+import uniffi.xmtpv3.LegacyIdentitySource
 import java.io.File
 import java.nio.charset.StandardCharsets
 import java.security.SecureRandom
@@ -36,6 +40,12 @@ class AndroidFfiLogger : FfiLogger {
     }
 }
 
+class ConversationCallback: FfiConversationCallback {
+    override fun onConversation(conversation: FfiGroup) {
+        Log.i("App", "INFO - Conversation callback with ID: " + toHexString(conversation.id()) + ", members: " + conversation.listMembers())
+    }
+}
+
 // An example Android app testing the end-to-end flow through Rust
 // Run setup_android_example.sh to set it up
 class MainActivity : AppCompatActivity() {
@@ -50,23 +60,33 @@ class MainActivity : AppCompatActivity() {
         val dbDir: File = File(this.filesDir.absolutePath, "xmtp_db")
         dbDir.mkdir()
         val dbPath: String = dbDir.absolutePath + "/android_example.db3"
-        val dbEncryptionKey: List<UByte> = SecureRandom().generateSeed(32).asUByteArray().asList()
+        val dbEncryptionKey = SecureRandom().generateSeed(32)
         Log.i(
             "App",
-            "INFO -\nprivateKey: " + privateKey.asList() + "\nDB path: " + dbPath + "\nDB encryption key: " + dbEncryptionKey
+            "INFO -\naccountAddress: " + inboxOwner.getAddress() + "\nprivateKey: " + privateKey.asList() + "\nDB path: " + dbPath + "\nDB encryption key: " + dbEncryptionKey
         )
 
         runBlocking {
             try {
                 val client = uniffi.xmtpv3.createClient(
                     AndroidFfiLogger(),
-                    inboxOwner,
                     EMULATOR_LOCALHOST_ADDRESS,
-                    true,
+                    false,
                     dbPath,
-                    dbEncryptionKey
+                    dbEncryptionKey,
+                    inboxOwner.getAddress(),
+                    LegacyIdentitySource.NONE,
+                    null,
                 )
+                var walletSignature: ByteArray? = null;
+                val textToSign = client.textToSign();
+                if (textToSign != null) {
+                    walletSignature = inboxOwner.sign(textToSign)
+                }
+                client.registerIdentity(walletSignature);
                 textView.text = "Client constructed, wallet address: " + client.accountAddress()
+                Log.i("App", "Setting up conversation streaming")
+                client.conversations().stream(ConversationCallback());
             } catch (e: Exception) {
                 textView.text = "Failed to construct client: " + e.message
             }

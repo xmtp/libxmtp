@@ -16,15 +16,3 @@ callback interface FfiInboxOwner {
 callback interface FfiLogger {
     void log(u32 level, string level_label, string message);
 };
-
-callback interface FfiMessageCallback {
-  void on_message(FfiMessage message);
-};
-
-dictionary FfiMessage {
-  bytes id;
-  i64 sent_at_ns;
-  bytes convo_id;
-  string addr_from;
-  bytes content;
-};

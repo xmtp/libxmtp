@@ -1,7 +1,7 @@
 [package]
+edition = "2021"
 name = "mls_validation_service"
 version = "0.1.0"
-edition = "2021"
 
 [[bin]] # Bin to run the Validation Service
 name = "mls-validation-service"
@@ -11,6 +11,7 @@ path = "src/main.rs"
 clap = { version = "4.4.6", features = ["derive"] }
 env_logger = "0.10.0"
 hex = { workspace = true }
+hyper = "1.1.0"
 log = { workspace = true }
 openmls = { workspace = true }
 openmls_basic_credential = { workspace = true }
@@ -20,6 +21,7 @@ prost = { version = "0.11", features = ["prost-derive"] }
 serde = { workspace = true }
 tokio = { workspace = true, features = ["full"] }
 tonic = { workspace = true }
+warp = "0.3.6"
 xmtp_mls = { path = "../xmtp_mls" }
 xmtp_proto = { path = "../xmtp_proto", features = [
     "proto_full",

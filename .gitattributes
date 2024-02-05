@@ -1,0 +1,6 @@
+# Hint that these are generated. Practically this means:
+# - collapse diffs by default and
+# - don't count these during language analysis
+#  https://docs.github.com/en/repositories/working-with-files/managing-files/customizing-how-changed-files-appear-on-github
+**/generated/** linguist-generated=true
+**/bridge_generated.* linguist-generated=true

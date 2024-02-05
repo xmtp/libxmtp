@@ -10,12 +10,16 @@ use crate::{
     client::{Client, Network},
     identity::{Identity, IdentityError},
     storage::{identity::StoredIdentity, EncryptedMessageStore},
+    utils::address::sanitize_evm_addresses,
     xmtp_openmls_provider::XmtpOpenMlsProvider,
     Fetch, InboxOwner, StorageError,
 };
 
 #[derive(Error, Debug)]
 pub enum ClientBuilderError {
+    #[error("Address validation: {0}")]
+    AddressValidation(#[from] crate::utils::address::AddressValidationError),
+
     #[error("Missing parameter: {parameter}")]
     MissingParameter { parameter: &'static str },
 
@@ -72,15 +76,18 @@ where
                 }
                 None => Ok(Identity::new(&owner)?),
             },
-            IdentityStrategy::CreateUnsignedIfNotFound(account_address) => match identity_option {
-                Some(identity) => {
-                    if identity.account_address != account_address {
-                        return Err(ClientBuilderError::StoredIdentityMismatch);
+            IdentityStrategy::CreateUnsignedIfNotFound(account_address) => {
+                let account_address = sanitize_evm_addresses(vec![account_address])?[0].clone();
+                match identity_option {
+                    Some(identity) => {
+                        if identity.account_address != account_address {
+                            return Err(ClientBuilderError::StoredIdentityMismatch);
+                        }
+                        Ok(identity)
                     }
-                    Ok(identity)
+                    None => Ok(Identity::new_unsigned(account_address)?),
                 }
-                None => Ok(Identity::new_unsigned(account_address)?),
-            },
+            }
             #[cfg(test)]
             IdentityStrategy::ExternalIdentity(identity) => Ok(identity),
         }
