@@ -178,8 +178,8 @@ where
     }
 
     /// In some cases, the client may need a signature from the wallet to call [`register_identity`](Self::register_identity).
-    /// Integrators should always check the `text_to_sign` return value of this function before calling [`register_identity_with_external_signature`](Self::register_identity_with_external_signature).
-    /// If `text_to_sign` returns `None`, then the wallet signature is not required and [`register_identity_with_external_signature`](Self::register_identity_with_external_signature) can be called with None as an argument.
+    /// Integrators should always check the `text_to_sign` return value of this function before calling [`register_identity`](Self::register_identity).
+    /// If `text_to_sign` returns `None`, then the wallet signature is not required and [`register_identity`](Self::register_identity) can be called with None as an argument.
     pub fn text_to_sign(&self) -> Option<String> {
         self.identity.text_to_sign()
     }
@@ -238,7 +238,7 @@ where
     /// If `text_to_sign` returns `None`, then the wallet signature is not required and this function can be called with `None`.
     ///
     /// If `text_to_sign` returns `Some`, then the caller should sign the text with their wallet and pass the signature to this function.
-    pub async fn register_identity_with_external_signature(
+    pub async fn register_identity(
         &self,
         recoverable_wallet_signature: Option<Vec<u8>>,
     ) -> Result<(), ClientError> {

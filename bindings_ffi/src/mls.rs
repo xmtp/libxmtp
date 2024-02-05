@@ -147,7 +147,7 @@ impl FfiXmtpClient {
         recoverable_wallet_signature: Option<Vec<u8>>,
     ) -> Result<(), GenericError> {
         self.inner_client
-            .register_identity_with_external_signature(recoverable_wallet_signature)
+            .register_identity(recoverable_wallet_signature)
             .await?;
 
         Ok(())

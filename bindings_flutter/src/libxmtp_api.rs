@@ -131,7 +131,7 @@ impl SignatureRequiredClient {
     pub async fn sign(&self, signature: Vec<u8>) -> Result<Client, XmtpError> {
         self.inner
             .client
-            .register_identity_with_external_signature(Some(signature))
+            .register_identity(Some(signature))
             .await?;
         return Ok(Client {
             inner: self.inner.clone(),

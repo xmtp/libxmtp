@@ -231,8 +231,8 @@ where
 #[cfg(test)]
 mod tests {
 
-    use ethers::signers::{Signer};
-    
+    use ethers::signers::Signer;
+
     use xmtp_api_grpc::grpc_api_helper::Client as GrpcClient;
     use xmtp_cryptography::utils::generate_local_wallet;
 
@@ -272,10 +272,7 @@ mod tests {
             let signature: Option<Vec<u8>> = client
                 .text_to_sign()
                 .map(|text| owner.sign(&text).unwrap().into());
-            client
-                .register_identity_with_external_signature(signature)
-                .await
-                .unwrap();
+            client.register_identity(signature).await.unwrap();
             client
         }
     }
@@ -309,10 +306,7 @@ mod tests {
         let signature: Option<Vec<u8>> = client_a
             .text_to_sign()
             .map(|text| wallet.sign(&text).unwrap().into());
-        client_a
-            .register_identity_with_external_signature(signature)
-            .await
-            .unwrap(); // Persists the identity on registration
+        client_a.register_identity(signature).await.unwrap(); // Persists the identity on registration
         let keybytes_a = client_a.installation_public_key();
         drop(client_a);
 

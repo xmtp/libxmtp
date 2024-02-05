@@ -312,10 +312,7 @@ async fn register(cli: &Cli, wallet_seed: &u64) -> Result<(), CliError> {
     info!("Address is: {}", client.account_address());
     let signature: Option<Vec<u8>> = client.text_to_sign().map(|t| w.sign(&t).unwrap().into());
 
-    if let Err(e) = client
-        .register_identity_with_external_signature(signature)
-        .await
-    {
+    if let Err(e) = client.register_identity(signature).await {
         error!("Initialization Failed: {}", e.to_string());
         panic!("Could not init");
     };
