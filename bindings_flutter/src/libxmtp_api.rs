@@ -153,12 +153,13 @@ pub async fn create_client(
     let api_client = ApiClient::create(host.clone(), is_secure).await?;
     let store = EncryptedMessageStore::new(StorageOption::Persistent(db_path), encryption_key)?;
     // log::info!("Creating XMTP client");
-    let identity_strategy: IdentityStrategy<LocalWallet> =
+    let identity_strategy: IdentityStrategy =
         IdentityStrategy::CreateUnsignedIfNotFound(account_address);
     let xmtp_client = ClientBuilder::new(identity_strategy)
         .api_client(api_client)
         .store(store)
-        .build()?;
+        .build()
+        .await?;
 
     // log::info!(
     //     "Created XMTP client for address: {}",

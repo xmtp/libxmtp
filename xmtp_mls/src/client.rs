@@ -233,12 +233,6 @@ where
             .collect())
     }
 
-    /// Deprecated
-    pub async fn register_identity(&self) -> Result<(), ClientError> {
-        self.register_identity_with_external_signature(None).await?;
-        Ok(())
-    }
-
     /// Register the identity with the network
     /// Callers should always check the result of [`text_to_sign`](Self::text_to_sign) before invoking this function.
     ///
@@ -565,7 +559,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_mls_error() {
-        let client = ClientBuilder::new_test_client(generate_local_wallet().into()).await;
+        let client = ClientBuilder::new_test_client(&generate_local_wallet()).await;
         let result = client.api_client.register_installation(vec![1, 2, 3]).await;
 
         assert!(result.is_err());
@@ -576,8 +570,7 @@ mod tests {
     #[tokio::test]
     async fn test_register_installation() {
         let wallet = generate_local_wallet();
-        let client = ClientBuilder::new_test_client(wallet.clone().into()).await;
-        client.register_identity().await.unwrap();
+        let client = ClientBuilder::new_test_client(&wallet).await;
 
         // Make sure the installation is actually on the network
         let installation_ids = client
@@ -590,8 +583,7 @@ mod tests {
     #[tokio::test]
     async fn test_rotate_key_package() {
         let wallet = generate_local_wallet();
-        let client = ClientBuilder::new_test_client(wallet.clone().into()).await;
-        client.register_identity().await.unwrap();
+        let client = ClientBuilder::new_test_client(&wallet).await;
 
         // Get original KeyPackage.
         let kp1 = client
@@ -616,7 +608,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_find_groups() {
-        let client = ClientBuilder::new_test_client(generate_local_wallet().into()).await;
+        let client = ClientBuilder::new_test_client(&generate_local_wallet()).await;
         let group_1 = client.create_group().unwrap();
         let group_2 = client.create_group().unwrap();
 
@@ -628,10 +620,8 @@ mod tests {
 
     #[tokio::test]
     async fn test_sync_welcomes() {
-        let alice = ClientBuilder::new_test_client(generate_local_wallet().into()).await;
-        alice.register_identity().await.unwrap();
-        let bob = ClientBuilder::new_test_client(generate_local_wallet().into()).await;
-        bob.register_identity().await.unwrap();
+        let alice = ClientBuilder::new_test_client(&generate_local_wallet()).await;
+        let bob = ClientBuilder::new_test_client(&generate_local_wallet()).await;
 
         let alice_bob_group = alice.create_group().unwrap();
         alice_bob_group
@@ -652,9 +642,8 @@ mod tests {
 
     #[tokio::test]
     async fn test_can_message() {
-        let amal = ClientBuilder::new_test_client(generate_local_wallet().into()).await;
-        let bola = ClientBuilder::new_test_client(generate_local_wallet().into()).await;
-        futures::try_join!(amal.register_identity(), bola.register_identity()).unwrap();
+        let amal = ClientBuilder::new_test_client(&generate_local_wallet()).await;
+        let bola = ClientBuilder::new_test_client(&generate_local_wallet()).await;
         let charlie_address = generate_local_wallet().get_address();
 
         let can_message_result = amal
@@ -670,7 +659,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_welcome_encryption() {
-        let client = ClientBuilder::new_test_client(generate_local_wallet().into()).await;
+        let client = ClientBuilder::new_test_client(&generate_local_wallet()).await;
         let conn = client.store.conn().unwrap();
         let provider = client.mls_provider(&conn);
 
@@ -688,9 +677,8 @@ mod tests {
 
     #[tokio::test]
     async fn test_add_remove_then_add_again() {
-        let amal = ClientBuilder::new_test_client(generate_local_wallet().into()).await;
-        let bola = ClientBuilder::new_test_client(generate_local_wallet().into()).await;
-        bola.register_identity().await.unwrap();
+        let amal = ClientBuilder::new_test_client(&generate_local_wallet()).await;
+        let bola = ClientBuilder::new_test_client(&generate_local_wallet()).await;
 
         // Create a group and invite bola
         let amal_group = amal.create_group().unwrap();
@@ -745,9 +733,8 @@ mod tests {
 
     #[tokio::test]
     async fn test_stream_welcomes() {
-        let alice = ClientBuilder::new_test_client(generate_local_wallet().into()).await;
-        let bob = ClientBuilder::new_test_client(generate_local_wallet().into()).await;
-        bob.register_identity().await.unwrap();
+        let alice = ClientBuilder::new_test_client(&generate_local_wallet()).await;
+        let bob = ClientBuilder::new_test_client(&generate_local_wallet()).await;
 
         let alice_bob_group = alice.create_group().unwrap();
 

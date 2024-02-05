@@ -128,7 +128,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_invalid_application_id() {
-        let client = ClientBuilder::new_test_client(generate_local_wallet().into()).await;
+        let client = ClientBuilder::new_test_client(&generate_local_wallet()).await;
         let conn = client.store.conn().unwrap();
         let provider = client.mls_provider(&conn);
 

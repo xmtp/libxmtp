@@ -270,6 +270,7 @@ mod tests {
     use openmls::prelude::ExtensionType;
     use xmtp_api_grpc::grpc_api_helper::Client as GrpcClient;
     use xmtp_cryptography::utils::generate_local_wallet;
+    use xmtp_proto::api_client::XmtpMlsClient;
 
     use super::Identity;
     use crate::{
@@ -278,6 +279,22 @@ mod tests {
         xmtp_openmls_provider::XmtpOpenMlsProvider,
         InboxOwner,
     };
+
+    pub async fn create_registered_identity<ApiClient: XmtpMlsClient>(
+        provider: &XmtpOpenMlsProvider<'_>,
+        api_client: &ApiClientWrapper<ApiClient>,
+        owner: &impl InboxOwner,
+    ) -> Identity {
+        let identity = Identity::create_to_be_signed(owner.get_address()).unwrap();
+        let signature: Option<Vec<u8>> = identity
+            .text_to_sign()
+            .map(|text_to_sign| owner.sign(&text_to_sign).unwrap().into());
+        identity
+            .register(provider, api_client, signature)
+            .await
+            .unwrap();
+        identity
+    }
 
     async fn get_test_resources() -> (EncryptedMessageStore, ApiClientWrapper<GrpcClient>) {
         let store = EncryptedMessageStore::new_test();
@@ -290,11 +307,8 @@ mod tests {
         let (store, api_client) = get_test_resources().await;
         let conn = store.conn().unwrap();
         let provider = XmtpOpenMlsProvider::new(&conn);
-        let identity = Identity::new(&generate_local_wallet()).unwrap();
-        identity
-            .register(&provider, &api_client, None)
-            .await
-            .unwrap();
+        let identity =
+            create_registered_identity(&provider, &api_client, &generate_local_wallet()).await;
     }
 
     #[tokio::test]
@@ -302,11 +316,8 @@ mod tests {
         let (store, api_client) = get_test_resources().await;
         let conn = store.conn().unwrap();
         let provider = XmtpOpenMlsProvider::new(&conn);
-        let identity = Identity::new(&generate_local_wallet()).unwrap();
-        identity
-            .register(&provider, &api_client, None)
-            .await
-            .unwrap();
+        let identity =
+            create_registered_identity(&provider, &api_client, &generate_local_wallet()).await;
 
         let new_key_package = identity.new_key_package(&provider).unwrap();
         assert!(new_key_package
@@ -320,31 +331,28 @@ mod tests {
         let (store, api_client) = get_test_resources().await;
         let conn = store.conn().unwrap();
         let provider = XmtpOpenMlsProvider::new(&conn);
-        let identity = Identity::new(&generate_local_wallet()).unwrap();
-        identity
-            .register(&provider, &api_client, None)
-            .await
-            .unwrap();
+        let identity =
+            create_registered_identity(&provider, &api_client, &generate_local_wallet()).await;
         identity
             .register(&provider, &api_client, None)
             .await
             .unwrap();
     }
 
-    #[tokio::test]
-    async fn test_valid_external_signature() {
-        let (store, api_client) = get_test_resources().await;
-        let conn = store.conn().unwrap();
-        let provider = XmtpOpenMlsProvider::new(&conn);
-        let wallet = generate_local_wallet();
-        let identity = Identity::new_unsigned(wallet.get_address()).unwrap();
-        let text_to_sign = identity.text_to_sign().unwrap();
-        let signature = wallet.sign_message(text_to_sign).await.unwrap().to_vec();
-        identity
-            .register(&provider, &api_client, Some(signature))
-            .await
-            .unwrap();
-    }
+    // #[tokio::test]
+    // async fn test_legacy_identity() {
+    //     let (store, api_client) = get_test_resources().await;
+    //     let conn = store.conn().unwrap();
+    //     let provider = XmtpOpenMlsProvider::new(&conn);
+    //     let wallet = generate_local_wallet();
+    //     let identity = Identity::create_from_legacy(wallet.get_address()).unwrap();
+    //     let text_to_sign = identity.text_to_sign().unwrap();
+    //     let signature = wallet.sign_message(text_to_sign).await.unwrap().to_vec();
+    //     identity
+    //         .register(&provider, &api_client, Some(signature))
+    //         .await
+    //         .unwrap();
+    // }
 
     #[tokio::test]
     async fn test_invalid_external_signature() {
@@ -352,7 +360,7 @@ mod tests {
         let conn = store.conn().unwrap();
         let provider = XmtpOpenMlsProvider::new(&conn);
         let wallet = generate_local_wallet();
-        let identity = Identity::new_unsigned(wallet.get_address()).unwrap();
+        let identity = Identity::create_to_be_signed(wallet.get_address()).unwrap();
         let text_to_sign = identity.text_to_sign().unwrap();
         let mut signature = wallet.sign_message(text_to_sign).await.unwrap().to_vec();
         signature[0] ^= 1; // Tamper with signature

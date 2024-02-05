@@ -4,7 +4,7 @@ use std::println as debug;
 #[cfg(not(test))]
 use log::debug;
 use thiserror::Error;
-use xmtp_proto::api_client::{XmtpApiClient, XmtpMlsClient};
+use xmtp_proto::api_client::XmtpMlsClient;
 
 use crate::{
     api_client_wrapper::ApiClientWrapper,
@@ -147,14 +147,15 @@ impl IdentityStrategy {
     }
 }
 
-// impl<Owner> From<Owner> for IdentityStrategy<Owner>
-// where
-//     Owner: InboxOwner,
-// {
-//     fn from(value: Owner) -> Self {
-//         IdentityStrategy::CreateIfNotFound(value, LegacyIdentitySource::None)
-//     }
-// }
+// Deprecated
+impl<Owner> From<&Owner> for IdentityStrategy
+where
+    Owner: InboxOwner,
+{
+    fn from(value: &Owner) -> Self {
+        IdentityStrategy::CreateUnsignedIfNotFound(value.get_address(), LegacyIdentity::None)
+    }
+}
 
 // impl From<String> for IdentityStrategy /*<Owner>*/ {
 //     fn from(account_address: String) -> Self {
@@ -237,9 +238,10 @@ mod tests {
 
     use super::{ClientBuilder, IdentityStrategy};
     use crate::{
+        owner,
         storage::{EncryptedMessageStore, StorageOption},
         utils::test::tmp_path,
-        Client,
+        Client, InboxOwner,
     };
 
     async fn get_local_grpc_client() -> GrpcClient {
@@ -260,15 +262,22 @@ mod tests {
             )
         }
 
-        pub async fn new_test_client(
-            strat: IdentityStrategy<Wallet<SigningKey>>,
-        ) -> Client<GrpcClient> {
-            Self::new(strat)
+        pub async fn new_test_client(owner: &impl InboxOwner) -> Client<GrpcClient> {
+            let client = Self::new(owner.into())
                 .temp_store()
                 .local_grpc()
                 .await
                 .build()
-                .unwrap()
+                .await
+                .unwrap();
+            let signature: Option<Vec<u8>> = client
+                .text_to_sign()
+                .map(|text| owner.sign(&text).unwrap().into());
+            client
+                .register_identity_with_external_signature(signature)
+                .await
+                .unwrap();
+            client
         }
     }
 
@@ -276,7 +285,7 @@ mod tests {
     async fn builder_test() {
         let wallet = generate_local_wallet();
         let address = wallet.address();
-        let client = ClientBuilder::new_test_client(wallet.into()).await;
+        let client = ClientBuilder::new_test_client(&wallet).await;
         assert!(client.account_address() == format!("{address:#020x}"));
         assert!(!client.installation_public_key().is_empty());
     }
@@ -284,20 +293,27 @@ mod tests {
     #[tokio::test]
     async fn identity_persistence_test() {
         let tmpdb = tmp_path();
-        let wallet = generate_local_wallet();
+        let wallet = &generate_local_wallet();
 
         // Generate a new Wallet + Store
         let store_a =
             EncryptedMessageStore::new_unencrypted(StorageOption::Persistent(tmpdb.clone()))
                 .unwrap();
 
-        let client_a = ClientBuilder::new(wallet.clone().into())
+        let client_a = ClientBuilder::new(wallet.into())
             .local_grpc()
             .await
             .store(store_a)
             .build()
+            .await
             .unwrap();
-        client_a.register_identity().await.unwrap(); // Persists the identity on registration
+        let signature: Option<Vec<u8>> = client_a
+            .text_to_sign()
+            .map(|text| wallet.sign(&text).unwrap().into());
+        client_a
+            .register_identity_with_external_signature(signature)
+            .await
+            .unwrap(); // Persists the identity on registration
         let keybytes_a = client_a.installation_public_key();
         drop(client_a);
 
@@ -306,11 +322,12 @@ mod tests {
             EncryptedMessageStore::new_unencrypted(StorageOption::Persistent(tmpdb.clone()))
                 .unwrap();
 
-        let client_b = ClientBuilder::new(wallet.clone().into())
+        let client_b = ClientBuilder::new(wallet.into())
             .local_grpc()
             .await
             .store(store_b)
             .build()
+            .await
             .unwrap();
         let keybytes_b = client_b.installation_public_key();
         drop(client_b);
@@ -323,11 +340,12 @@ mod tests {
             EncryptedMessageStore::new_unencrypted(StorageOption::Persistent(tmpdb.clone()))
                 .unwrap();
 
-        ClientBuilder::new(generate_local_wallet().into())
+        ClientBuilder::new((&generate_local_wallet()).into())
             .local_grpc()
             .await
             .store(store_c)
             .build()
+            .await
             .expect_err("Testing expected mismatch error");
 
         // Use cached only strategy
@@ -339,6 +357,7 @@ mod tests {
             .await
             .store(store_d)
             .build()
+            .await
             .unwrap();
         assert_eq!(client_d.installation_public_key(), keybytes_a);
     }
