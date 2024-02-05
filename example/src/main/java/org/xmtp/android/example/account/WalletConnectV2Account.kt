@@ -26,34 +26,10 @@ data class WalletConnectV2Account(
         )
 
     override suspend fun sign(data: ByteArray): SignatureOuterClass.Signature? {
-        return signLegacy(String(data))
+        return sign(String(data))
     }
 
-    override fun sign(text: String): ByteArray {
-        val (parentChain, chainId, account) = session.namespaces.getValue(chain).accounts[0].split(":")
-        val requestParams = session.namespaces.getValue(chain).methods.find { method ->
-            method == "personal_sign"
-        }?.let { method ->
-            Modal.Params.Request(
-                sessionTopic = session.topic,
-                method = method,
-                params = getPersonalSignBody(text, account),
-                chainId = "$parentChain:$chainId"
-            )
-        }
-
-        runCatching {
-            runBlocking {
-                requestMethod(requestParams!!, sendSessionRequestDeepLink).first().getOrThrow()
-            }
-        }.onSuccess {
-            return it
-        }.onFailure {}
-
-        return byteArrayOf()
-    }
-
-    override suspend fun signLegacy(message: String): SignatureOuterClass.Signature? {
+    override suspend fun sign(message: String): SignatureOuterClass.Signature? {
         val (parentChain, chainId, account) = session.namespaces.getValue(chain).accounts[0].split(":")
         val requestParams = session.namespaces.getValue(chain).methods.find { method ->
             method == "personal_sign"

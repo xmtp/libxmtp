@@ -47,12 +47,8 @@ class FakeWallet : SigningKey {
         return signature
     }
 
-    override fun sign(text: String): ByteArray {
-        return privateKeyBuilder.sign(text)
-    }
-
-    override suspend fun signLegacy(message: String): Signature {
-        val signature = privateKeyBuilder.signLegacy(message)
+    override suspend fun sign(message: String): Signature {
+        val signature = privateKeyBuilder.sign(message)
         return signature
     }
 
