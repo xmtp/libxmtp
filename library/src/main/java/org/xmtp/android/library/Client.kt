@@ -324,7 +324,7 @@ class Client() {
 
                 createClient(
                     logger = logger,
-                    host = "http://10.0.2.2:5556",
+                    host = "http://${options.api.env.getValue()}:5556",
                     isSecure = false,
                     db = dbPath,
                     encryptionKey = retrievedKey.encoded,
