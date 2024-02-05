@@ -1,17 +1,5 @@
-use super::{intents::SendMessageIntentData, members::GroupMember, GroupError, MlsGroup};
-use crate::{
-    api_client_wrapper::IdentityUpdate,
-    codecs::ContentCodec,
-    configuration::MAX_INTENT_PUBLISH_ATTEMPTS,
-    hpke::{encrypt_welcome, HpkeError},
-    retry_async,
-    storage::{
-        group_intent::{IntentKind, IntentState, ID},
-        refresh_state::EntityKind,
-        StorageError,
-    },
-    Fetch,
-};
+use std::{collections::HashMap, mem::discriminant};
+
 use log::debug;
 use openmls::{
     framing::ProtocolMessage,
@@ -24,8 +12,8 @@ use openmls::{
 };
 use openmls_traits::OpenMlsProvider;
 use prost::Message;
-use std::{collections::HashMap, mem::discriminant};
 use tls_codec::{Deserialize, Serialize};
+
 use xmtp_proto::{
     api_client::XmtpMlsClient,
     xmtp::mls::api::v1::{
@@ -38,25 +26,35 @@ use xmtp_proto::{
     xmtp::mls::message_contents::GroupMembershipChanges,
 };
 
-use super::intents::{
-    AddMembersIntentData, AddressesOrInstallationIds, Installation, PostCommitAction,
-    RemoveMembersIntentData, SendWelcomesAction,
+use super::{
+    intents::{
+        AddMembersIntentData, AddressesOrInstallationIds, Installation, PostCommitAction,
+        RemoveMembersIntentData, SendMessageIntentData, SendWelcomesAction,
+    },
+    members::GroupMember,
+    GroupError, MlsGroup,
 };
 use crate::{
+    api_client_wrapper::IdentityUpdate,
     client::MessageProcessingError,
-    codecs::membership_change::GroupMembershipChangeCodec,
+    codecs::{membership_change::GroupMembershipChangeCodec, ContentCodec},
+    configuration::MAX_INTENT_PUBLISH_ATTEMPTS,
     groups::validated_commit::ValidatedCommit,
+    hpke::{encrypt_welcome, HpkeError},
     identity::Identity,
     retry,
     retry::Retry,
+    retry_async,
     storage::{
         db_connection::DbConnection,
-        group_intent::StoredGroupIntent,
+        group_intent::{IntentKind, IntentState, StoredGroupIntent, ID},
         group_message::{GroupMessageKind, StoredGroupMessage},
+        refresh_state::EntityKind,
+        StorageError,
     },
     utils::{hash::sha256, id::get_message_id},
     xmtp_openmls_provider::XmtpOpenMlsProvider,
-    Delete, Store,
+    Delete, Fetch, Store,
 };
 
 impl<'c, ApiClient> MlsGroup<'c, ApiClient>
