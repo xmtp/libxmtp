@@ -80,11 +80,11 @@ impl DbConnection<'_> {
     /// Updates group membership state
     pub fn update_group_membership<GroupId: AsRef<[u8]>>(
         &self,
-        id: GroupId,
+        group_id: GroupId,
         state: GroupMembershipState,
     ) -> Result<(), StorageError> {
         self.raw_query(|conn| {
-            diesel::update(dsl::groups.find(id.as_ref()))
+            diesel::update(dsl::groups.find(group_id.as_ref()))
                 .set(dsl::membership_state.eq(state))
                 .execute(conn)
         })?;
@@ -92,14 +92,13 @@ impl DbConnection<'_> {
         Ok(())
     }
 
-    // TODO: use GroupId instead?  don't need whole group.
     pub fn update_installation_list_time_checked(
         &self,
-        group: StoredGroup,
+        group_id: Vec<u8>,
     ) -> Result<i64, StorageError> {
         let now = crate::utils::time::now_ns();
         self.raw_query(|conn| {
-            diesel::update(dsl::groups.find(&group.id))
+            diesel::update(dsl::groups.find(&group_id))
                 .set(dsl::installation_list_last_checked.eq(Some(now)))
                 .execute(conn)
         })?;
