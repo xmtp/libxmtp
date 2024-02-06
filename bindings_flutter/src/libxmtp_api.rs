@@ -6,7 +6,7 @@ use xmtp_cryptography::utils::LocalWallet;
 pub use xmtp_mls::builder::ClientBuilderError;
 pub use xmtp_mls::storage::StorageError;
 use xmtp_mls::{
-    builder::ClientBuilder, builder::IdentityStrategy, client::Client as MlsClient,
+    builder::ClientBuilder, builder::IdentityStrategy, builder::LegacyIdentity, client::Client as MlsClient,
     storage::EncryptedMessageStore, storage::StorageOption,
 };
 pub use xmtp_proto::api_client::Error as ApiError;
@@ -139,7 +139,6 @@ impl SignatureRequiredClient {
     }
 }
 
-// TODO
 pub async fn create_client(
     // logger_fn: impl Fn(u32, String, String) -> DartFnFuture<()>,
     host: String,
@@ -154,7 +153,7 @@ pub async fn create_client(
     let store = EncryptedMessageStore::new(StorageOption::Persistent(db_path), encryption_key)?;
     // log::info!("Creating XMTP client");
     let identity_strategy: IdentityStrategy =
-        IdentityStrategy::CreateIfNotFound(account_address);
+        IdentityStrategy::CreateIfNotFound(account_address, LegacyIdentity::None); // TODO plumb legacy identity here
     let xmtp_client = ClientBuilder::new(identity_strategy)
         .api_client(api_client)
         .store(store)
