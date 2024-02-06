@@ -263,4 +263,25 @@ pub(crate) mod tests {
             assert_eq!(results_with_created_at_ns_after[0].id, test_group_2.id);
         })
     }
+
+    #[test]
+    fn test_installation_list_last_checked_is_updated() {
+        with_connection(|conn| {
+            let test_group = generate_group(None);
+            test_group.store(conn).unwrap();
+
+            // Check that the installation list update has not been performed, yet
+            assert!(test_group.installation_list_last_checked.is_none());
+
+            // Check that some event occurred which triggers an installation list update.
+            // Here we invoke that event directly
+            let result = conn.update_installation_list_time_checked(test_group.id.clone());
+            assert!(result.is_ok());
+            
+            // Check that the latest installation list timestamp has been updated
+            let fetched_group: StoredGroup = conn.fetch(&test_group.id).ok().flatten().unwrap();
+            assert!(fetched_group.installation_list_last_checked.is_some());
+            assert!(fetched_group.created_at_ns < fetched_group.installation_list_last_checked.unwrap());
+        })
+    }
 }
