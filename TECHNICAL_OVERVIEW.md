@@ -226,7 +226,7 @@ When receiving a message payload, recipients must:
 3. Find the relevant session using the `sender_user_address` and `sender_installation_id` in the unsealed metadata. If no session exists and `is_prekey_message` is true, establish a new session.
 4. Use the session to decrypt the payload.
 5. Verify that the `header_signature` in the decrypted payload was produced by signing the `header_bytes` with the ed25519 key matching the `sender_installation_id`.
-6. Verify that both the `sender_user` and `recipient_user `are participants of the conversation referenced by `convo_id`.
+6. Verify that both the `sender_user` and `recipient_user` are participants of the conversation referenced by `convo_id`.
 
 **Prekey management**
 
@@ -311,12 +311,12 @@ The XMTP v3 protocol implementation uses the following tech stack:
 
 | Tech                                                        | Responsibility                                                                                                                                                                                              |
 | ----------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| https://github.com/xmtp/libxmtp/tree/main/xmtp_cryptography | Cryptographic operations                                                                                                                                                                                    |
-| Vodezemac (Olm)                                             | Native Rust implementation of Matrix’s https://gitlab.matrix.org/matrix-org/olm/blob/master/docs/olm.md E2EE protocol.                                                                                      |
-| https://github.com/xmtp/libxmtp/tree/main/xmtp_proto        | Generated code for handling XMTP protocol buffers                                                                                                                                                           |
+| <https://github.com/xmtp/libxmtp/tree/main/xmtp_cryptography> | Cryptographic operations                                                                                                                                                                                    |
+| Vodezemac (Olm)                                             | Native Rust implementation of Matrix’s <https://gitlab.matrix.org/matrix-org/olm/blob/master/docs/olm.md> E2EE protocol.                                                                                      |
+| <https://github.com/xmtp/libxmtp/tree/main/xmtp_proto>        | Generated code for handling XMTP protocol buffers                                                                                                                                                           |
 | SQLCipher                                                   | Open source extension to the SQLite database engine that provides transparent 256-bit AES encryption of database files. Adds a layer of protection to local data storage that can be enabled by developers. |
-| https://github.com/xmtp/libxmtp                             | A shared library encapsulating the core functionality of the XMTP messaging protocol, such as cryptography, networking, and language bindings.                                                              |
-| https://xmtp.org/docs/introduction                          | Used by developers to build apps with XMTP across a variety of platforms.                                                                                                                                   |
+| <https://github.com/xmtp/libxmtp>                             | A shared library encapsulating the core functionality of the XMTP messaging protocol, such as cryptography, networking, and language bindings.                                                              |
+| <https://xmtp.org/docs/introduction>                          | Used by developers to build apps with XMTP across a variety of platforms.                                                                                                                                   |
 
 State machine (out of date): [https://github.com/xmtp/libxmtp/tree/main/xmtp#state-machine](https://github.com/xmtp/libxmtp/tree/main/xmtp#state-machine)
 
