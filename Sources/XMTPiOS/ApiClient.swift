@@ -75,14 +75,6 @@ final class GRPCApiClient: ApiClient {
 		}
 	}
 
-	static func envToUrl(env: XMTPEnvironment) -> String {
-		switch env {
-		case XMTPEnvironment.local: return "http://localhost:5556"
-		case XMTPEnvironment.dev: return "https://dev.xmtp.network:5556"
-		case XMTPEnvironment.production: return "https://production.xmtp.network:5556"
-		}
-	}
-
 	func setAuthToken(_ token: String) {
 		authToken = token
 	}

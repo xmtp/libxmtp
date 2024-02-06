@@ -100,7 +100,7 @@ public final class Client {
 	public static func create(account: SigningKey, options: ClientOptions? = nil) async throws -> Client {
 		let options = options ?? ClientOptions()
 		do {
-			let client = try await LibXMTP.createV2Client(host: GRPCApiClient.envToUrl(env: options.api.env), isSecure: options.api.env != .local)
+			let client = try await LibXMTP.createV2Client(host: options.api.env.url, isSecure: options.api.env != .local)
 			let apiClient = try GRPCApiClient(
 				environment: options.api.env,
 				secure: options.api.isSecure,
@@ -123,7 +123,7 @@ public final class Client {
 			let dbURL = URL.documentsDirectory.appendingPathComponent("xmtp-\(options?.api.env.rawValue ?? "")-\(address).db3")
 			let v3Client = try await LibXMTP.createClient(
 				logger: XMTPLogger(),
-				host: GRPCApiClient.envToUrl(env: options?.api.env ?? .local),
+				host: (options?.api.env ?? .local).url,
 				isSecure: (options?.api.env ?? .local) != .local,
 				db: dbURL.path,
 				encryptionKey: options?.mlsEncryptionKey,
@@ -242,7 +242,7 @@ public final class Client {
 
 		let options = options ?? ClientOptions()
 
-		let client = try await LibXMTP.createV2Client(host: GRPCApiClient.envToUrl(env: options.api.env), isSecure: options.api.env != .local)
+		let client = try await LibXMTP.createV2Client(host: options.api.env.url, isSecure: options.api.env != .local)
 		let apiClient = try GRPCApiClient(
 			environment: options.api.env,
 			secure: options.api.isSecure,
@@ -296,7 +296,7 @@ public final class Client {
 	public static func canMessage(_ peerAddress: String, options: ClientOptions? = nil) async throws -> Bool {
 		let options = options ?? ClientOptions()
 
-		let client = try await LibXMTP.createV2Client(host: GRPCApiClient.envToUrl(env: options.api.env), isSecure: options.api.env != .local)
+		let client = try await LibXMTP.createV2Client(host: options.api.env.url, isSecure: options.api.env != .local)
 		let apiClient = try GRPCApiClient(
 			environment: options.api.env,
 			secure: options.api.isSecure,
