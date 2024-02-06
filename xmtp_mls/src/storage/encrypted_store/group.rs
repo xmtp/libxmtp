@@ -183,7 +183,7 @@ pub(crate) mod tests {
     }
 
     #[test]
-    fn it_stores_group() {
+    fn test_it_stores_group() {
         with_connection(|conn| {
             let test_group = generate_group(None);
 
@@ -197,7 +197,7 @@ pub(crate) mod tests {
     }
 
     #[test]
-    fn it_fetches_group() {
+    fn test_it_fetches_group() {
         with_connection(|conn| {
             let test_group = generate_group(None);
 
@@ -215,7 +215,7 @@ pub(crate) mod tests {
     }
 
     #[test]
-    fn it_updates_group_membership_state() {
+    fn test_it_updates_group_membership_state() {
         with_connection(|conn| {
             let test_group = generate_group(Some(GroupMembershipState::Pending));
 
