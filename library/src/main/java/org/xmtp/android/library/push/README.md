@@ -35,7 +35,7 @@ This example branch can serve as the basis for what you might want to provide fo
     --xmtp-listener-tls \
     --xmtp-listener \
     --api \
-    -x "production.xmtp.network:5556" \
+    -x "grpc.production.xmtp.network:443:5556" \
     -d "postgres://postgres:xmtp@localhost:25432/postgres?sslmode=disable" \
     --fcm-enabled \
     --fcm-credentials-json=YOURFCMJSON \

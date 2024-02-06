@@ -279,7 +279,7 @@ class Client() {
     }
 
     private fun isAlphaMlsEnabled(options: ClientOptions?): Boolean {
-        return (options != null && options.enableAlphaMls && options.api.env == XMTPEnvironment.LOCAL && options.appContext != null)
+        return (options != null && options.enableAlphaMls && options.api.env != XMTPEnvironment.PRODUCTION && options.appContext != null)
     }
 
     private suspend fun ffiXmtpClient(
@@ -324,8 +324,8 @@ class Client() {
 
                 createClient(
                     logger = logger,
-                    host = "http://${options.api.env.getValue()}:5556",
-                    isSecure = false,
+                    host = if (options.api.env == XMTPEnvironment.LOCAL) "http://${options.api.env.getValue()}:5556" else "https://${options.api.env.getValue()}:443",
+                    isSecure = options.api.isSecure,
                     db = dbPath,
                     encryptionKey = retrievedKey.encoded,
                     accountAddress = accountAddress,
