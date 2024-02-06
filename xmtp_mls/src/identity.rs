@@ -251,7 +251,7 @@ impl Identity {
                 let Ok(credential) = Credential::from_proto_validated(
                     proto,
                     Some(account_address), // expected_account_address
-                    None,                   // expected_installation_public_key
+                    None,                  // expected_installation_public_key
                 ) else {
                     continue;
                 };
@@ -339,20 +339,37 @@ mod tests {
             .unwrap();
     }
 
-    // #[tokio::test]
-    // async fn test_legacy_identity() {
-    //     let (store, api_client) = get_test_resources().await;
-    //     let conn = store.conn().unwrap();
-    //     let provider = XmtpOpenMlsProvider::new(&conn);
-    //     let wallet = generate_local_wallet();
-    //     let identity = Identity::create_from_legacy(wallet.get_address()).unwrap();
-    //     let text_to_sign = identity.text_to_sign().unwrap();
-    //     let signature = wallet.sign_message(text_to_sign).await.unwrap().to_vec();
-    //     identity
-    //         .register(&provider, &api_client, Some(signature))
-    //         .await
-    //         .unwrap();
-    // }
+    #[tokio::test]
+    async fn test_legacy_identity() {
+        let legacy_address = "0x419cb1fa5635b0c6df47c9dc5765c8f1f4dff78e";
+        let legacy_signed_private_key_proto = vec![
+            8, 128, 154, 196, 133, 220, 244, 197, 216, 23, 18, 34, 10, 32, 214, 70, 104, 202, 68,
+            204, 25, 202, 197, 141, 239, 159, 145, 249, 55, 242, 147, 126, 3, 124, 159, 207, 96,
+            135, 134, 122, 60, 90, 82, 171, 131, 162, 26, 153, 1, 10, 79, 8, 128, 154, 196, 133,
+            220, 244, 197, 216, 23, 26, 67, 10, 65, 4, 232, 32, 50, 73, 113, 99, 115, 168, 104,
+            229, 206, 24, 217, 132, 223, 217, 91, 63, 137, 136, 50, 89, 82, 186, 179, 150, 7, 127,
+            140, 10, 165, 117, 233, 117, 196, 134, 227, 143, 125, 210, 187, 77, 195, 169, 162, 116,
+            34, 20, 196, 145, 40, 164, 246, 139, 197, 154, 233, 190, 148, 35, 131, 240, 106, 103,
+            18, 70, 18, 68, 10, 64, 90, 24, 36, 99, 130, 246, 134, 57, 60, 34, 142, 165, 221, 123,
+            63, 27, 138, 242, 195, 175, 212, 146, 181, 152, 89, 48, 8, 70, 104, 94, 163, 0, 25,
+            196, 228, 190, 49, 108, 141, 60, 174, 150, 177, 115, 229, 138, 92, 105, 170, 226, 204,
+            249, 206, 12, 37, 145, 3, 35, 226, 15, 49, 20, 102, 60, 16, 1,
+        ];
+        let (store, api_client) = get_test_resources().await;
+        let conn = store.conn().unwrap();
+        let provider = XmtpOpenMlsProvider::new(&conn);
+        let identity = Identity::create_from_legacy(
+            legacy_address.to_string(),
+            legacy_signed_private_key_proto,
+        )
+        .unwrap();
+        assert!(identity.text_to_sign().is_none());
+        identity
+            .register(&provider, &api_client, None)
+            .await
+            .unwrap();
+        assert_eq!(identity.account_address, legacy_address);
+    }
 
     #[tokio::test]
     async fn test_invalid_external_signature() {

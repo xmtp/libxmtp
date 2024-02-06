@@ -117,7 +117,7 @@ impl IdentityStrategy {
         legacy_identity: LegacyIdentity,
     ) -> Result<Identity, ClientBuilderError> {
         let identity = match legacy_identity {
-            // This is a fresh install for a pre-existing user, and at most one v2 signature (enable_identity)
+            // This is a fresh install, and at most one v2 signature (enable_identity)
             // has been requested so far, so it's fine to request another one (grant_messaging_access).
             LegacyIdentity::None | LegacyIdentity::Network(_) => {
                 Identity::create_to_be_signed(account_address)?
@@ -132,7 +132,7 @@ impl IdentityStrategy {
             LegacyIdentity::Static(legacy_signed_private_key) => {
                 if Identity::has_existing_legacy_credential(api_client, &account_address).await? {
                     // Another installation has already derived a v3 key from this v2 key.
-                    // Don't reuse the same v2 key - make a new one altogether.
+                    // Don't reuse the same v2 key - make a new key altogether.
                     Identity::create_to_be_signed(account_address)?
                 } else {
                     Identity::create_from_legacy(account_address, legacy_signed_private_key)?
@@ -152,12 +152,6 @@ where
         IdentityStrategy::CreateIfNotFound(value.get_address(), LegacyIdentity::None)
     }
 }
-
-// impl From<String> for IdentityStrategy /*<Owner>*/ {
-//     fn from(account_address: String) -> Self {
-//         IdentityStrategy::CreateIfNotFound(account_address)
-//     }
-// }
 
 pub struct ClientBuilder<ApiClient> {
     api_client: Option<ApiClient>,

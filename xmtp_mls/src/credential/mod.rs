@@ -158,7 +158,9 @@ impl From<Credential> for MlsCredentialProto {
                 Credential::GrantMessagingAccess(assoc) => {
                     Some(AssociationProto::MessagingAccess(assoc.into()))
                 }
-                Credential::LegacyCreateIdentity(_assoc) => todo!(),
+                Credential::LegacyCreateIdentity(assoc) => {
+                    Some(AssociationProto::LegacyCreateIdentity(assoc.into()))
+                }
             },
         }
     }

@@ -1,7 +1,10 @@
 use prost::Message;
 use xmtp_proto::xmtp::{
     message_contents::{signed_private_key, SignedPrivateKey as LegacySignedPrivateKeyProto},
-    mls::message_contents::LegacyCreateIdentityAssociation as LegacyCreateIdentityAssociationProto,
+    mls::message_contents::{
+        LegacyCreateIdentityAssociation as LegacyCreateIdentityAssociationProto,
+        RecoverableEcdsaSignature as RecoverableEcdsaSignatureProto,
+    },
 };
 use xmtp_v2::k256_helper;
 
@@ -103,5 +106,102 @@ impl LegacyCreateIdentityAssociation {
 
     pub fn created_ns(&self) -> u64 {
         self.legacy_signed_public_key.created_ns()
+    }
+}
+
+impl From<LegacyCreateIdentityAssociation> for LegacyCreateIdentityAssociationProto {
+    fn from(assoc: LegacyCreateIdentityAssociation) -> Self {
+        Self {
+            signature: Some(RecoverableEcdsaSignatureProto {
+                bytes: assoc.delegating_signature.clone(),
+            }),
+            signed_legacy_create_identity_key: Some(assoc.legacy_signed_public_key.into()),
+        }
+    }
+}
+
+#[cfg(test)]
+pub mod tests {
+    use openmls_basic_credential::SignatureKeyPair;
+    use xmtp_proto::xmtp::mls::message_contents::LegacyCreateIdentityAssociation as LegacyCreateIdentityAssociationProto;
+
+    use crate::{
+        assert_err,
+        configuration::CIPHERSUITE,
+        credential::{
+            legacy_create_identity_association::LegacyCreateIdentityAssociation, AssociationError,
+        },
+    };
+
+    #[tokio::test]
+    async fn validate_serialization_round_trip() {
+        let legacy_address = "0x419cb1fa5635b0c6df47c9dc5765c8f1f4dff78e";
+        let legacy_signed_private_key_proto = vec![
+            8, 128, 154, 196, 133, 220, 244, 197, 216, 23, 18, 34, 10, 32, 214, 70, 104, 202, 68,
+            204, 25, 202, 197, 141, 239, 159, 145, 249, 55, 242, 147, 126, 3, 124, 159, 207, 96,
+            135, 134, 122, 60, 90, 82, 171, 131, 162, 26, 153, 1, 10, 79, 8, 128, 154, 196, 133,
+            220, 244, 197, 216, 23, 26, 67, 10, 65, 4, 232, 32, 50, 73, 113, 99, 115, 168, 104,
+            229, 206, 24, 217, 132, 223, 217, 91, 63, 137, 136, 50, 89, 82, 186, 179, 150, 7, 127,
+            140, 10, 165, 117, 233, 117, 196, 134, 227, 143, 125, 210, 187, 77, 195, 169, 162, 116,
+            34, 20, 196, 145, 40, 164, 246, 139, 197, 154, 233, 190, 148, 35, 131, 240, 106, 103,
+            18, 70, 18, 68, 10, 64, 90, 24, 36, 99, 130, 246, 134, 57, 60, 34, 142, 165, 221, 123,
+            63, 27, 138, 242, 195, 175, 212, 146, 181, 152, 89, 48, 8, 70, 104, 94, 163, 0, 25,
+            196, 228, 190, 49, 108, 141, 60, 174, 150, 177, 115, 229, 138, 92, 105, 170, 226, 204,
+            249, 206, 12, 37, 145, 3, 35, 226, 15, 49, 20, 102, 60, 16, 1,
+        ];
+        let installation_keys = SignatureKeyPair::new(CIPHERSUITE.signature_algorithm()).unwrap();
+
+        let assoc = LegacyCreateIdentityAssociation::create(
+            legacy_signed_private_key_proto,
+            installation_keys.to_public_vec(),
+        )
+        .unwrap();
+
+        let proto: LegacyCreateIdentityAssociationProto = assoc.into();
+        let assoc = LegacyCreateIdentityAssociation::from_proto_validated(
+            proto,
+            &installation_keys.to_public_vec(),
+        )
+        .unwrap();
+        assert_eq!(assoc.account_address(), legacy_address);
+        assert_eq!(
+            assoc.installation_public_key(),
+            installation_keys.to_public_vec()
+        );
+    }
+
+    #[tokio::test]
+    async fn validate_bad_signature() {
+        // let legacy_address = "0x419Cb1fA5635b0c6Df47c9DC5765c8f1f4DfF78e";
+        let legacy_signed_private_key_proto = vec![
+            8, 128, 154, 196, 133, 220, 244, 197, 216, 23, 18, 34, 10, 32, 214, 70, 104, 202, 68,
+            204, 25, 202, 197, 141, 239, 159, 145, 249, 55, 242, 147, 126, 3, 124, 159, 207, 96,
+            135, 134, 122, 60, 90, 82, 171, 131, 162, 26, 153, 1, 10, 79, 8, 128, 154, 196, 133,
+            220, 244, 197, 216, 23, 26, 67, 10, 65, 4, 232, 32, 50, 73, 113, 99, 115, 168, 104,
+            229, 206, 24, 217, 132, 223, 217, 91, 63, 137, 136, 50, 89, 82, 186, 179, 150, 7, 127,
+            140, 10, 165, 117, 233, 117, 196, 134, 227, 143, 125, 210, 187, 77, 195, 169, 162, 116,
+            34, 20, 196, 145, 40, 164, 246, 139, 197, 154, 233, 190, 148, 35, 131, 240, 106, 103,
+            18, 70, 18, 68, 10, 64, 90, 24, 36, 99, 130, 246, 134, 57, 60, 34, 142, 165, 221, 123,
+            63, 27, 138, 242, 195, 175, 212, 146, 181, 152, 89, 48, 8, 70, 104, 94, 163, 0, 25,
+            196, 228, 190, 49, 108, 141, 60, 174, 150, 177, 115, 229, 138, 92, 105, 170, 226, 204,
+            249, 206, 12, 37, 145, 3, 35, 226, 15, 49, 20, 102, 60, 16, 1,
+        ];
+        let installation_keys = SignatureKeyPair::new(CIPHERSUITE.signature_algorithm()).unwrap();
+
+        let mut assoc = LegacyCreateIdentityAssociation::create(
+            legacy_signed_private_key_proto,
+            installation_keys.to_public_vec(),
+        )
+        .unwrap();
+        assoc.delegating_signature[0] ^= 1;
+
+        let proto: LegacyCreateIdentityAssociationProto = assoc.into();
+        assert_err!(
+            LegacyCreateIdentityAssociation::from_proto_validated(
+                proto,
+                &installation_keys.to_public_vec(),
+            ),
+            AssociationError::LegacySignature(_)
+        );
     }
 }
