@@ -10,8 +10,12 @@ import Foundation
 
 typealias SealedInvitation = Xmtp_MessageContents_SealedInvitation
 
-enum SealedInvitationError: Error {
+enum SealedInvitationError: Error, CustomStringConvertible {
 	case noSignature
+
+	var description: String {
+		"SealedInvitationError.noSignature"
+	}
 }
 
 extension SealedInvitation {

@@ -13,8 +13,19 @@ import CryptoKit
 /// to create a ``Client``.
 public typealias PrivateKey = Xmtp_MessageContents_PrivateKey
 
-enum PrivateKeyError: Error {
+enum PrivateKeyError: Error, CustomStringConvertible {
 	case invalidSignatureText, invalidPrefix, invalidSignature
+
+	var description: String {
+		switch self {
+		case .invalidSignatureText:
+			return "PrivateKeyError.invalidSignatureText"
+		case .invalidPrefix:
+			return "PrivateKeyError.invalidPrefix"
+		case .invalidSignature:
+			return "PrivateKeyError.invalidSignature"
+		}
+	}
 }
 
 extension PrivateKey: SigningKey {

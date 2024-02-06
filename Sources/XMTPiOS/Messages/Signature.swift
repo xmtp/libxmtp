@@ -11,8 +11,12 @@ import LibXMTP
 /// Represents a secp256k1 compact recoverable signature.
 public typealias Signature = Xmtp_MessageContents_Signature
 
-enum SignatureError: Error {
+enum SignatureError: Error, CustomStringConvertible {
 	case invalidMessage
+
+	var description: String {
+		return "SignatureError.invalidMessage"
+	}
 }
 
 public extension Signature {

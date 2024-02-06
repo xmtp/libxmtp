@@ -51,7 +51,7 @@
       "location" : "https://github.com/kishikawakatsumi/KeychainAccess",
       "state" : {
         "branch" : "master",
-        "revision" : "ecb18d8ce4d88277cc4fb103973352d91e18c535"
+        "revision" : "e0c7eebc5a4465a3c4680764f26b7a61f567cdaf"
       }
     },
     {
@@ -231,7 +231,7 @@
       "location" : "https://github.com/WalletConnect/WalletConnectSwiftV2",
       "state" : {
         "branch" : "main",
-        "revision" : "13446a81e678e8eddc6ab506e85c522df0163f1f"
+        "revision" : "f2db5e796976e6294b40da01c443f39a16b4732a"
       }
     },
     {

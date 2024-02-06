@@ -11,8 +11,15 @@ import web3
 
 public typealias PreEventCallback = () async throws -> Void
 
-public enum ClientError: Error {
+public enum ClientError: Error, CustomStringConvertible {
 	case creationError(String)
+
+	public var description: String {
+		switch self {
+		case .creationError(let err):
+			return "ClientError.creationError: \(err)"
+		}
+	}
 }
 
 /// Specify configuration options for creating a ``Client``.
