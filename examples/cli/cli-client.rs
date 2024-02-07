@@ -38,7 +38,7 @@ struct Cli {
     /// Sets a custom config file
     #[arg(long, value_name = "FILE", global = true)]
     db: Option<PathBuf>,
-    #[clap(long, default_value_t = true)]
+    #[clap(long, default_value_t = false)]
     local: bool,
 }
 
@@ -279,6 +279,7 @@ async fn create_client(cli: &Cli, account: IdentityStrategy<Wallet>) -> Result<C
     let mut builder = ClientBuilder::new(account).store(msg_store);
 
     if cli.local {
+        info!("Using local network");
         builder = builder
             .network(Network::Local("http://localhost:5556"))
             .api_client(
@@ -287,8 +288,9 @@ async fn create_client(cli: &Cli, account: IdentityStrategy<Wallet>) -> Result<C
                     .unwrap(),
             );
     } else {
+        info!("Using dev network");
         builder = builder.network(Network::Dev).api_client(
-            ApiClient::create("https://dev.xmtp.network:5556".into(), true)
+            ApiClient::create("https://grpc.dev.xmtp.network:443".into(), true)
                 .await
                 .unwrap(),
         );
