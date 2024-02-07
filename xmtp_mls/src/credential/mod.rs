@@ -2,18 +2,19 @@ mod grant_messaging_access_association;
 mod legacy_create_identity_association;
 mod validated_legacy_signed_public_key;
 
-use crate::utils::address::AddressValidationError;
-use crate::utils::time::now_ns;
-use crate::{types::Address, InboxOwner};
-
 use openmls_basic_credential::SignatureKeyPair;
-
 use prost::DecodeError;
 use thiserror::Error;
-use xmtp_cryptography::signature::{RecoverableSignature, SignatureError};
 
+use xmtp_cryptography::signature::{RecoverableSignature, SignatureError};
 use xmtp_proto::xmtp::mls::message_contents::{
     mls_credential::Association as AssociationProto, MlsCredential as MlsCredentialProto,
+};
+
+use crate::{
+    types::Address,
+    utils::{address::AddressValidationError, time::now_ns},
+    InboxOwner,
 };
 
 use self::grant_messaging_access_association::GrantMessagingAccessAssociation;

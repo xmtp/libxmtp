@@ -2,6 +2,7 @@ mod encryption;
 pub mod topic;
 
 use prost::Message as ProstMessage;
+
 use xmtp_proto::xmtp::message_contents::{
     private_preferences_payload::Version as PrivatePreferencesVersion, Ciphertext,
     PrivatePreferencesPayload,

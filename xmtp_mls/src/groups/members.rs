@@ -3,9 +3,9 @@ use std::collections::HashMap;
 use openmls::group::MlsGroup as OpenMlsGroup;
 use xmtp_proto::api_client::XmtpMlsClient;
 
-use crate::{identity::Identity, xmtp_openmls_provider::XmtpOpenMlsProvider};
-
 use super::{GroupError, MlsGroup};
+
+use crate::{identity::Identity, xmtp_openmls_provider::XmtpOpenMlsProvider};
 
 #[derive(Debug, Clone)]
 pub struct GroupMember {

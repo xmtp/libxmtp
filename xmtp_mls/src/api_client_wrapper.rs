@@ -1,6 +1,5 @@
 use std::collections::HashMap;
 
-use crate::{retry::Retry, retry_async};
 use xmtp_proto::{
     api_client::{
         Error as ApiError, ErrorKind, GroupMessageStream, WelcomeMessageStream, XmtpMlsClient,
@@ -17,6 +16,8 @@ use xmtp_proto::{
         UploadKeyPackageRequest, WelcomeMessage, WelcomeMessageInput,
     },
 };
+
+use crate::{retry::Retry, retry_async};
 
 #[derive(Debug)]
 pub struct ApiClientWrapper<ApiClient> {

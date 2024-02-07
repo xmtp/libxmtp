@@ -5,13 +5,7 @@ mod members;
 mod subscriptions;
 mod sync;
 pub mod validated_commit;
-use crate::{
-    client::deserialize_welcome,
-    hpke::{decrypt_welcome, HpkeError},
-    identity::IdentityError,
-    utils::address::AddressValidationError,
-};
-use intents::SendMessageIntentData;
+
 use openmls::{
     extensions::{Extension, Extensions, ProtectedMetadata},
     group::{MlsGroupCreateConfig, MlsGroupJoinConfig},
@@ -22,6 +16,30 @@ use openmls::{
 };
 use openmls_traits::OpenMlsProvider;
 use thiserror::Error;
+
+use intents::SendMessageIntentData;
+
+use crate::{
+    client::{deserialize_welcome, ClientError, MessageProcessingError},
+    configuration::CIPHERSUITE,
+    hpke::{decrypt_welcome, HpkeError},
+    identity::{Identity, IdentityError},
+    retry::RetryableError,
+    retryable,
+    storage::{
+        group::{GroupMembershipState, StoredGroup},
+        group_intent::{IntentKind, NewGroupIntent},
+        group_message::{GroupMessageKind, StoredGroupMessage},
+        StorageError,
+    },
+    utils::{
+        address::{sanitize_evm_addresses, AddressValidationError},
+        time::now_ns,
+    },
+    xmtp_openmls_provider::XmtpOpenMlsProvider,
+    Client, Store,
+};
+
 use xmtp_cryptography::signature::is_valid_ed25519_public_key;
 use xmtp_proto::{
     api_client::XmtpMlsClient,
@@ -32,27 +50,12 @@ use xmtp_proto::{
 };
 
 pub use self::intents::{AddressesOrInstallationIds, IntentError};
+
 use self::{
     group_metadata::{ConversationType, GroupMetadata, GroupMetadataError},
     group_permissions::{default_group_policy, PolicySet},
     intents::{AddMembersIntentData, RemoveMembersIntentData},
     validated_commit::CommitValidationError,
-};
-use crate::{
-    client::{ClientError, MessageProcessingError},
-    configuration::CIPHERSUITE,
-    identity::Identity,
-    retry::RetryableError,
-    retryable,
-    storage::{
-        group::{GroupMembershipState, StoredGroup},
-        group_intent::{IntentKind, NewGroupIntent},
-        group_message::{GroupMessageKind, StoredGroupMessage},
-        StorageError,
-    },
-    utils::{address::sanitize_evm_addresses, time::now_ns},
-    xmtp_openmls_provider::XmtpOpenMlsProvider,
-    Client, Store,
 };
 
 #[derive(Debug, Error)]

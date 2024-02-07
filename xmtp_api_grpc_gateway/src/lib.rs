@@ -1,11 +1,12 @@
 use async_trait::async_trait;
 use futures::Stream;
-use xmtp_proto::api_client::{
-    Error, ErrorKind, MutableApiSubscription, XmtpApiClient, XmtpApiSubscription,
-};
-use xmtp_proto::xmtp::message_api::v1::{
-    BatchQueryRequest, BatchQueryResponse, Envelope, PublishRequest, PublishResponse, QueryRequest,
-    QueryResponse, SubscribeRequest,
+
+use xmtp_proto::{
+    api_client::{Error, ErrorKind, MutableApiSubscription, XmtpApiClient, XmtpApiSubscription},
+    xmtp::message_api::v1::{
+        BatchQueryRequest, BatchQueryResponse, Envelope, PublishRequest, PublishResponse,
+        QueryRequest, QueryResponse, SubscribeRequest,
+    },
 };
 
 // TODO: consider moving these (and other address const) into `xmtp_proto`
