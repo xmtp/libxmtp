@@ -77,13 +77,13 @@ impl Credential {
         Ok(Self::GrantMessagingAccess(association))
     }
 
-    pub fn create_legacy(
+    pub fn create_from_legacy(
+        installation_keys: &SignatureKeyPair,
         legacy_signed_private_key: Vec<u8>,
-        installation_public_key: Vec<u8>,
     ) -> Result<Self, AssociationError> {
         let association = LegacyCreateIdentityAssociation::create(
             legacy_signed_private_key,
-            installation_public_key,
+            installation_keys.to_public_vec(),
         )?;
         Ok(Self::LegacyCreateIdentity(association))
     }
@@ -158,7 +158,9 @@ impl From<Credential> for MlsCredentialProto {
                 Credential::GrantMessagingAccess(assoc) => {
                     Some(AssociationProto::MessagingAccess(assoc.into()))
                 }
-                Credential::LegacyCreateIdentity(_assoc) => todo!(),
+                Credential::LegacyCreateIdentity(assoc) => {
+                    Some(AssociationProto::LegacyCreateIdentity(assoc.into()))
+                }
             },
         }
     }

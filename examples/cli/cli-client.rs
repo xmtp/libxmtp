@@ -17,7 +17,7 @@ use xmtp_cryptography::{
     utils::{rng, seeded_rng, LocalWallet},
 };
 use xmtp_mls::{
-    builder::{ClientBuilderError, IdentityStrategy},
+    builder::{ClientBuilderError, IdentityStrategy, LegacyIdentity},
     client::ClientError,
     groups::MlsGroup,
     storage::{EncryptedMessageStore, EncryptionKey, StorageError, StorageOption},
@@ -26,7 +26,7 @@ use xmtp_mls::{
 };
 use xmtp_proto::api_client::{XmtpApiClient, XmtpMlsClient};
 type Client = xmtp_mls::client::Client<ApiClient>;
-type ClientBuilder = xmtp_mls::builder::ClientBuilder<ApiClient, Wallet>;
+type ClientBuilder = xmtp_mls::builder::ClientBuilder<ApiClient>;
 
 /// A fictional versioning CLI
 #[derive(Debug, Parser)] // requires `derive` feature
@@ -274,7 +274,7 @@ async fn main() {
     }
 }
 
-async fn create_client(cli: &Cli, account: IdentityStrategy<Wallet>) -> Result<Client, CliError> {
+async fn create_client(cli: &Cli, account: IdentityStrategy) -> Result<Client, CliError> {
     let msg_store = get_encrypted_store(&cli.db).unwrap();
     let mut builder = ClientBuilder::new(account).store(msg_store);
 
@@ -296,7 +296,7 @@ async fn create_client(cli: &Cli, account: IdentityStrategy<Wallet>) -> Result<C
         );
     }
 
-    builder.build().map_err(CliError::ClientBuilder)
+    builder.build().await.map_err(CliError::ClientBuilder)
 }
 
 async fn register(cli: &Cli, wallet_seed: &u64) -> Result<(), CliError> {
@@ -306,10 +306,15 @@ async fn register(cli: &Cli, wallet_seed: &u64) -> Result<(), CliError> {
         Wallet::LocalWallet(LocalWallet::new(&mut seeded_rng(*wallet_seed)))
     };
 
-    let client = create_client(cli, IdentityStrategy::CreateIfNotFound(w)).await?;
+    let client = create_client(
+        cli,
+        IdentityStrategy::CreateIfNotFound(w.get_address(), LegacyIdentity::None),
+    )
+    .await?;
     info!("Address is: {}", client.account_address());
+    let signature: Option<Vec<u8>> = client.text_to_sign().map(|t| w.sign(&t).unwrap().into());
 
-    if let Err(e) = client.register_identity().await {
+    if let Err(e) = client.register_identity(signature).await {
         error!("Initialization Failed: {}", e.to_string());
         panic!("Could not init");
     };

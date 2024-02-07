@@ -90,10 +90,8 @@ mod tests {
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 10)]
     async fn test_subscribe_messages() {
-        let amal = ClientBuilder::new_test_client(generate_local_wallet().into()).await;
-        amal.register_identity().await.unwrap();
-        let bola = ClientBuilder::new_test_client(generate_local_wallet().into()).await;
-        bola.register_identity().await.unwrap();
+        let amal = ClientBuilder::new_test_client(&generate_local_wallet()).await;
+        let bola = ClientBuilder::new_test_client(&generate_local_wallet()).await;
 
         let amal_group = amal.create_group().unwrap();
         // Add bola
@@ -121,7 +119,7 @@ mod tests {
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 10)]
     async fn test_subscribe_multiple() {
-        let amal = ClientBuilder::new_test_client(generate_local_wallet().into()).await;
+        let amal = ClientBuilder::new_test_client(&generate_local_wallet()).await;
         let group = amal.create_group().unwrap();
 
         let stream = group.stream().await.unwrap();
@@ -148,10 +146,8 @@ mod tests {
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 10)]
     async fn test_subscribe_membership_changes() {
-        let amal = ClientBuilder::new_test_client(generate_local_wallet().into()).await;
-        amal.register_identity().await.unwrap();
-        let bola = ClientBuilder::new_test_client(generate_local_wallet().into()).await;
-        bola.register_identity().await.unwrap();
+        let amal = ClientBuilder::new_test_client(&generate_local_wallet()).await;
+        let bola = ClientBuilder::new_test_client(&generate_local_wallet()).await;
 
         let amal_group = amal.create_group().unwrap();
 

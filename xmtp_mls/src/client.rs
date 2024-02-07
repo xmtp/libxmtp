@@ -4,7 +4,6 @@ use crate::{
         validated_commit::CommitValidationError, AddressesOrInstallationIds, IntentError, MlsGroup,
     },
     identity::Identity,
-    retry::Retry,
     storage::{
         db_connection::DbConnection,
         group::{GroupMembershipState, StoredGroup},
@@ -155,13 +154,13 @@ where
     /// It is expected that most users will use the [`ClientBuilder`](crate::builder::ClientBuilder) instead of instantiating
     /// a client directly.
     pub fn new(
-        api_client: ApiClient,
+        api_client: ApiClientWrapper<ApiClient>,
         network: Network,
         identity: Identity,
         store: EncryptedMessageStore,
     ) -> Self {
         Self {
-            api_client: ApiClientWrapper::new(api_client, Retry::default()),
+            api_client,
             _network: network,
             identity,
             store,
@@ -179,8 +178,8 @@ where
     }
 
     /// In some cases, the client may need a signature from the wallet to call [`register_identity`](Self::register_identity).
-    /// Integrators should always check the `text_to_sign` return value of this function before calling [`register_identity_with_external_signature`](Self::register_identity_with_external_signature).
-    /// If `text_to_sign` returns `None`, then the wallet signature is not required and [`register_identity_with_external_signature`](Self::register_identity_with_external_signature) can be called with None as an argument.
+    /// Integrators should always check the `text_to_sign` return value of this function before calling [`register_identity`](Self::register_identity).
+    /// If `text_to_sign` returns `None`, then the wallet signature is not required and [`register_identity`](Self::register_identity) can be called with None as an argument.
     pub fn text_to_sign(&self) -> Option<String> {
         self.identity.text_to_sign()
     }
@@ -233,19 +232,13 @@ where
             .collect())
     }
 
-    /// Deprecated
-    pub async fn register_identity(&self) -> Result<(), ClientError> {
-        self.register_identity_with_external_signature(None).await?;
-        Ok(())
-    }
-
     /// Register the identity with the network
     /// Callers should always check the result of [`text_to_sign`](Self::text_to_sign) before invoking this function.
     ///
     /// If `text_to_sign` returns `None`, then the wallet signature is not required and this function can be called with `None`.
     ///
     /// If `text_to_sign` returns `Some`, then the caller should sign the text with their wallet and pass the signature to this function.
-    pub async fn register_identity_with_external_signature(
+    pub async fn register_identity(
         &self,
         recoverable_wallet_signature: Option<Vec<u8>>,
     ) -> Result<(), ClientError> {
@@ -565,7 +558,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_mls_error() {
-        let client = ClientBuilder::new_test_client(generate_local_wallet().into()).await;
+        let client = ClientBuilder::new_test_client(&generate_local_wallet()).await;
         let result = client.api_client.register_installation(vec![1, 2, 3]).await;
 
         assert!(result.is_err());
@@ -576,8 +569,7 @@ mod tests {
     #[tokio::test]
     async fn test_register_installation() {
         let wallet = generate_local_wallet();
-        let client = ClientBuilder::new_test_client(wallet.clone().into()).await;
-        client.register_identity().await.unwrap();
+        let client = ClientBuilder::new_test_client(&wallet).await;
 
         // Make sure the installation is actually on the network
         let installation_ids = client
@@ -590,8 +582,7 @@ mod tests {
     #[tokio::test]
     async fn test_rotate_key_package() {
         let wallet = generate_local_wallet();
-        let client = ClientBuilder::new_test_client(wallet.clone().into()).await;
-        client.register_identity().await.unwrap();
+        let client = ClientBuilder::new_test_client(&wallet).await;
 
         // Get original KeyPackage.
         let kp1 = client
@@ -616,7 +607,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_find_groups() {
-        let client = ClientBuilder::new_test_client(generate_local_wallet().into()).await;
+        let client = ClientBuilder::new_test_client(&generate_local_wallet()).await;
         let group_1 = client.create_group().unwrap();
         let group_2 = client.create_group().unwrap();
 
@@ -628,10 +619,8 @@ mod tests {
 
     #[tokio::test]
     async fn test_sync_welcomes() {
-        let alice = ClientBuilder::new_test_client(generate_local_wallet().into()).await;
-        alice.register_identity().await.unwrap();
-        let bob = ClientBuilder::new_test_client(generate_local_wallet().into()).await;
-        bob.register_identity().await.unwrap();
+        let alice = ClientBuilder::new_test_client(&generate_local_wallet()).await;
+        let bob = ClientBuilder::new_test_client(&generate_local_wallet()).await;
 
         let alice_bob_group = alice.create_group().unwrap();
         alice_bob_group
@@ -652,9 +641,8 @@ mod tests {
 
     #[tokio::test]
     async fn test_can_message() {
-        let amal = ClientBuilder::new_test_client(generate_local_wallet().into()).await;
-        let bola = ClientBuilder::new_test_client(generate_local_wallet().into()).await;
-        futures::try_join!(amal.register_identity(), bola.register_identity()).unwrap();
+        let amal = ClientBuilder::new_test_client(&generate_local_wallet()).await;
+        let bola = ClientBuilder::new_test_client(&generate_local_wallet()).await;
         let charlie_address = generate_local_wallet().get_address();
 
         let can_message_result = amal
@@ -670,7 +658,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_welcome_encryption() {
-        let client = ClientBuilder::new_test_client(generate_local_wallet().into()).await;
+        let client = ClientBuilder::new_test_client(&generate_local_wallet()).await;
         let conn = client.store.conn().unwrap();
         let provider = client.mls_provider(&conn);
 
@@ -688,9 +676,8 @@ mod tests {
 
     #[tokio::test]
     async fn test_add_remove_then_add_again() {
-        let amal = ClientBuilder::new_test_client(generate_local_wallet().into()).await;
-        let bola = ClientBuilder::new_test_client(generate_local_wallet().into()).await;
-        bola.register_identity().await.unwrap();
+        let amal = ClientBuilder::new_test_client(&generate_local_wallet()).await;
+        let bola = ClientBuilder::new_test_client(&generate_local_wallet()).await;
 
         // Create a group and invite bola
         let amal_group = amal.create_group().unwrap();
@@ -711,7 +698,7 @@ mod tests {
         bola.sync_welcomes().await.unwrap();
         let bola_groups = bola.find_groups(None, None, None, None).unwrap();
         assert_eq!(bola_groups.len(), 1);
-        let bola_group = bola_groups.get(0).unwrap();
+        let bola_group = bola_groups.first().unwrap();
         bola_group.sync().await.unwrap();
 
         // Bola should have one readable message (them being added to the group)
@@ -745,9 +732,8 @@ mod tests {
 
     #[tokio::test]
     async fn test_stream_welcomes() {
-        let alice = ClientBuilder::new_test_client(generate_local_wallet().into()).await;
-        let bob = ClientBuilder::new_test_client(generate_local_wallet().into()).await;
-        bob.register_identity().await.unwrap();
+        let alice = ClientBuilder::new_test_client(&generate_local_wallet()).await;
+        let bob = ClientBuilder::new_test_client(&generate_local_wallet()).await;
 
         let alice_bob_group = alice.create_group().unwrap();
 

@@ -3,7 +3,9 @@ use crate::{types::Address, utils::address::sanitize_evm_addresses};
 use prost::Message;
 use xmtp_cryptography::signature::RecoverableSignature;
 use xmtp_proto::xmtp::message_contents::{
-    signature::Union, unsigned_public_key, SignedPublicKey as LegacySignedPublicKeyProto,
+    signature::{Union, WalletEcdsaCompact},
+    unsigned_public_key, Signature as SignatureProto,
+    SignedPublicKey as LegacySignedPublicKeyProto,
     UnsignedPublicKey as LegacyUnsignedPublicKeyProto,
 };
 
@@ -11,8 +13,8 @@ use super::AssociationError;
 
 pub struct ValidatedLegacySignedPublicKey {
     account_address: Address,
-    _serialized_key_data: Vec<u8>,
-    _wallet_signature: RecoverableSignature,
+    serialized_key_data: Vec<u8>,
+    wallet_signature: RecoverableSignature,
     public_key_bytes: Vec<u8>,
     created_ns: u64,
 }
@@ -69,6 +71,9 @@ impl TryFrom<LegacySignedPublicKeyProto> for ValidatedLegacySignedPublicKey {
         };
         let mut wallet_signature = wallet_ecdsa_compact.bytes.clone();
         wallet_signature.push(wallet_ecdsa_compact.recovery as u8); // TODO: normalize recovery ID if necessary
+        if wallet_signature.len() != 65 {
+            return Err(AssociationError::MalformedAssociation);
+        }
         let wallet_signature = RecoverableSignature::Eip191Signature(wallet_signature);
         let account_address =
             wallet_signature.recover_address(&Self::text(&serialized_key_data))?;
@@ -89,11 +94,26 @@ impl TryFrom<LegacySignedPublicKeyProto> for ValidatedLegacySignedPublicKey {
 
         Ok(Self {
             account_address,
-            _wallet_signature: wallet_signature,
-            _serialized_key_data: serialized_key_data,
+            wallet_signature: wallet_signature,
+            serialized_key_data: serialized_key_data,
             public_key_bytes,
             created_ns,
         })
+    }
+}
+
+impl From<ValidatedLegacySignedPublicKey> for LegacySignedPublicKeyProto {
+    fn from(validated: ValidatedLegacySignedPublicKey) -> Self {
+        let RecoverableSignature::Eip191Signature(signature) = validated.wallet_signature;
+        Self {
+            key_bytes: validated.serialized_key_data,
+            signature: Some(SignatureProto {
+                union: Some(Union::WalletEcdsaCompact(WalletEcdsaCompact {
+                    bytes: signature[0..64].to_vec(),
+                    recovery: signature[64] as u32,
+                })),
+            }),
+        }
     }
 }
 
@@ -106,7 +126,7 @@ pub mod tests {
     use xmtp_proto::xmtp::message_contents::SignedPublicKey as LegacySignedPublicKeyProto;
 
     #[tokio::test]
-    async fn validate_good_key() {
+    async fn validate_good_key_round_trip() {
         let proto_bytes = vec![
             10, 79, 8, 192, 195, 165, 174, 203, 153, 231, 213, 23, 26, 67, 10, 65, 4, 216, 84, 174,
             252, 198, 225, 219, 168, 239, 166, 62, 233, 206, 108, 53, 155, 87, 132, 8, 43, 91, 36,
@@ -122,6 +142,9 @@ pub mod tests {
         let proto = LegacySignedPublicKeyProto::decode(proto_bytes.as_slice()).unwrap();
         let validated_key = ValidatedLegacySignedPublicKey::try_from(proto)
             .expect("Key should validate successfully");
+        let proto: LegacySignedPublicKeyProto = validated_key.into();
+        let validated_key = ValidatedLegacySignedPublicKey::try_from(proto)
+            .expect("Key should still validate successfully");
         assert_eq!(validated_key.account_address(), account_address);
     }
 

@@ -68,13 +68,11 @@ mod tests {
 
     #[tokio::test]
     async fn test_member_list() {
-        let amal = ClientBuilder::new_test_client(generate_local_wallet().into()).await;
+        let amal = ClientBuilder::new_test_client(&generate_local_wallet()).await;
         let bola_wallet = generate_local_wallet();
         // Add two separate installations for Bola
-        let bola_a = ClientBuilder::new_test_client(bola_wallet.clone().into()).await;
-        bola_a.register_identity().await.unwrap();
-        let bola_b = ClientBuilder::new_test_client(bola_wallet.clone().into()).await;
-        bola_b.register_identity().await.unwrap();
+        let bola_a = ClientBuilder::new_test_client(&bola_wallet).await;
+        let bola_b = ClientBuilder::new_test_client(&bola_wallet).await;
 
         let group = amal.create_group().unwrap();
         // Add both of Bola's installations to the group

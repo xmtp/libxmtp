@@ -350,7 +350,7 @@ mod tests {
         AggregatedMembershipChange {
             account_address: account_address.unwrap_or_else(rand_account_address),
             installation_ids: vec![installation_id.unwrap_or_else(rand_vec)],
-            is_creator: is_creator,
+            is_creator,
         }
     }
 
@@ -393,13 +393,13 @@ mod tests {
                 .unwrap_or_default(),
             members_removed: member_removed
                 .map(build_membership_change)
-                .unwrap_or_else(std::vec::Vec::new),
+                .unwrap_or_default(),
             installations_added: installation_added
                 .map(build_membership_change)
-                .unwrap_or_else(std::vec::Vec::new),
+                .unwrap_or_default(),
             installations_removed: installation_removed
                 .map(build_membership_change)
-                .unwrap_or_else(std::vec::Vec::new),
+                .unwrap_or_default(),
         }
     }
 
