@@ -811,6 +811,7 @@ mod tests {
         assert_eq!(stream_callback.message_count(), 2);
 
         stream.end();
+        tokio::time::sleep(tokio::time::Duration::from_millis(5)).await;
         assert!(stream.is_closed());
     }
 
