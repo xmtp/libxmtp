@@ -1,24 +1,24 @@
+use std::collections::HashMap;
+
 use openmls::{
     credentials::CredentialType,
     group::{QueuedAddProposal, QueuedRemoveProposal},
     prelude::{LeafNodeIndex, MlsGroup as OpenMlsGroup, Sender, StagedCommit},
 };
-use std::collections::HashMap;
 use thiserror::Error;
+
 use xmtp_proto::xmtp::mls::message_contents::{
     GroupMembershipChanges, MembershipChange as MembershipChangeProto,
 };
 
-use crate::{
-    identity::Identity,
-    verified_key_package::{KeyPackageVerificationError, VerifiedKeyPackage},
-};
-
-use crate::types::Address;
-
 use super::{
     group_metadata::{extract_group_metadata, GroupMetadata, GroupMetadataError},
     members::aggregate_member_list,
+};
+use crate::{
+    identity::Identity,
+    types::Address,
+    verified_key_package::{KeyPackageVerificationError, VerifiedKeyPackage},
 };
 
 #[derive(Debug, Error)]

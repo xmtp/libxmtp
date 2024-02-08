@@ -7,13 +7,11 @@ use futures::{SinkExt, Stream, StreamExt, TryStreamExt};
 use tokio::sync::oneshot;
 use tonic::transport::ClientTlsConfig;
 use tonic::{async_trait, metadata::MetadataValue, transport::Channel, Request, Streaming};
-use xmtp_proto::api_client::{GroupMessageStream, WelcomeMessageStream};
-use xmtp_proto::xmtp::mls::api::v1::{
-    SubscribeGroupMessagesRequest, SubscribeWelcomeMessagesRequest,
-};
+
 use xmtp_proto::{
     api_client::{
-        Error, ErrorKind, MutableApiSubscription, XmtpApiClient, XmtpApiSubscription, XmtpMlsClient,
+        Error, ErrorKind, GroupMessageStream, MutableApiSubscription, WelcomeMessageStream,
+        XmtpApiClient, XmtpApiSubscription, XmtpMlsClient,
     },
     xmtp::message_api::v1::{
         message_api_client::MessageApiClient, BatchQueryRequest, BatchQueryResponse, Envelope,
@@ -24,7 +22,8 @@ use xmtp_proto::{
         FetchKeyPackagesResponse, GetIdentityUpdatesRequest, GetIdentityUpdatesResponse,
         QueryGroupMessagesRequest, QueryGroupMessagesResponse, QueryWelcomeMessagesRequest,
         QueryWelcomeMessagesResponse, RegisterInstallationRequest, RegisterInstallationResponse,
-        SendGroupMessagesRequest, SendWelcomeMessagesRequest, UploadKeyPackageRequest,
+        SendGroupMessagesRequest, SendWelcomeMessagesRequest, SubscribeGroupMessagesRequest,
+        SubscribeWelcomeMessagesRequest, UploadKeyPackageRequest,
     },
 };
 

@@ -1,13 +1,12 @@
 use std::pin::Pin;
 
-use crate::api_client_wrapper::GroupFilter;
-use crate::storage::group_message::StoredGroupMessage;
-use crate::storage::refresh_state::EntityKind;
 use futures::{Stream, StreamExt};
-use xmtp_proto::api_client::XmtpMlsClient;
-use xmtp_proto::xmtp::mls::api::v1::GroupMessage;
+
+use xmtp_proto::{api_client::XmtpMlsClient, xmtp::mls::api::v1::GroupMessage};
 
 use super::{extract_message_v1, GroupError, MlsGroup};
+use crate::api_client_wrapper::GroupFilter;
+use crate::storage::{group_message::StoredGroupMessage, refresh_state::EntityKind};
 
 impl<'c, ApiClient> MlsGroup<'c, ApiClient>
 where

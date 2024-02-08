@@ -1,4 +1,5 @@
 use prost::Message;
+
 use xmtp_proto::xmtp::{
     message_contents::{signed_private_key, SignedPrivateKey as LegacySignedPrivateKeyProto},
     mls::message_contents::{

@@ -1,3 +1,25 @@
+use std::{collections::HashSet, mem::Discriminant, pin::Pin};
+
+use futures::{Stream, StreamExt};
+use openmls::{
+    framing::{MlsMessageIn, MlsMessageInBody},
+    group::GroupEpoch,
+    messages::Welcome,
+    prelude::TlsSerializeTrait,
+};
+use openmls_traits::OpenMlsProvider;
+use prost::EncodeError;
+use thiserror::Error;
+use tls_codec::{Deserialize, Error as TlsSerializationError};
+
+use xmtp_proto::{
+    api_client::XmtpMlsClient,
+    xmtp::mls::api::v1::{
+        welcome_message::{Version as WelcomeMessageVersion, V1 as WelcomeMessageV1},
+        GroupMessage, WelcomeMessage,
+    },
+};
+
 use crate::{
     api_client_wrapper::{ApiClientWrapper, IdentityUpdate},
     groups::{
@@ -15,25 +37,6 @@ use crate::{
     verified_key_package::{KeyPackageVerificationError, VerifiedKeyPackage},
     xmtp_openmls_provider::XmtpOpenMlsProvider,
     Fetch,
-};
-use futures::{Stream, StreamExt};
-use openmls::{
-    framing::{MlsMessageIn, MlsMessageInBody},
-    group::GroupEpoch,
-    messages::Welcome,
-    prelude::TlsSerializeTrait,
-};
-use openmls_traits::OpenMlsProvider;
-use prost::EncodeError;
-use std::{collections::HashSet, mem::Discriminant, pin::Pin};
-use thiserror::Error;
-use tls_codec::{Deserialize, Error as TlsSerializationError};
-use xmtp_proto::{
-    api_client::XmtpMlsClient,
-    xmtp::mls::api::v1::{
-        welcome_message::{Version as WelcomeMessageVersion, V1 as WelcomeMessageV1},
-        GroupMessage, WelcomeMessage,
-    },
 };
 
 /// Which network the Client is connected to

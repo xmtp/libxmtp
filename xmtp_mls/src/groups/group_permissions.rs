@@ -1,6 +1,6 @@
-use super::validated_commit::{AggregatedMembershipChange, CommitParticipant, ValidatedCommit};
 use prost::Message;
 use thiserror::Error;
+
 use xmtp_proto::xmtp::mls::message_contents::{
     membership_policy::{
         AndCondition as AndConditionProto, AnyCondition as AnyConditionProto,
@@ -8,6 +8,8 @@ use xmtp_proto::xmtp::mls::message_contents::{
     },
     MembershipPolicy as MembershipPolicyProto, PolicySet as PolicySetProto,
 };
+
+use super::validated_commit::{AggregatedMembershipChange, CommitParticipant, ValidatedCommit};
 
 // A trait for policies that can add/remove members and installations for the group
 pub trait MembershipPolicy: std::fmt::Debug {

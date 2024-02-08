@@ -1,6 +1,5 @@
-use crate::{types::Address, utils::address::sanitize_evm_addresses};
-
 use prost::Message;
+
 use xmtp_cryptography::signature::RecoverableSignature;
 use xmtp_proto::xmtp::message_contents::{
     signature::{Union, WalletEcdsaCompact},
@@ -10,6 +9,7 @@ use xmtp_proto::xmtp::message_contents::{
 };
 
 use super::AssociationError;
+use crate::{types::Address, utils::address::sanitize_evm_addresses};
 
 pub struct ValidatedLegacySignedPublicKey {
     account_address: Address,
