@@ -15,18 +15,21 @@
 		A6281995292DC825004B9117 /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A6281994292DC825004B9117 /* ContentView.swift */; };
 		A6281997292DC826004B9117 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = A6281996292DC826004B9117 /* Assets.xcassets */; };
 		A628199B292DC826004B9117 /* Preview Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = A628199A292DC826004B9117 /* Preview Assets.xcassets */; };
+		A6494F002B6C2DF700D9FFB9 /* XMTPiOS in Frameworks */ = {isa = PBXBuildFile; productRef = A6494EFF2B6C2DF700D9FFB9 /* XMTPiOS */; };
 		A6557A312941166E00CC4C7B /* MessageCellView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A6557A302941166E00CC4C7B /* MessageCellView.swift */; };
 		A6557A3329411F4F00CC4C7B /* NewConversationView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A6557A3229411F4F00CC4C7B /* NewConversationView.swift */; };
 		A65F0704297B5D4E00C3C76E /* Persistence.swift in Sources */ = {isa = PBXBuildFile; fileRef = A65F0703297B5D4E00C3C76E /* Persistence.swift */; };
 		A65F0707297B5E7600C3C76E /* WalletConnectSwift in Frameworks */ = {isa = PBXBuildFile; productRef = A65F0706297B5E7600C3C76E /* WalletConnectSwift */; };
 		A65F070A297B5E8600C3C76E /* KeychainAccess in Frameworks */ = {isa = PBXBuildFile; productRef = A65F0709297B5E8600C3C76E /* KeychainAccess */; };
-		A6606A182B5EE7F000E2ED4D /* XMTPiOS in Frameworks */ = {isa = PBXBuildFile; productRef = A6606A172B5EE7F000E2ED4D /* XMTPiOS */; };
 		A6606A1A2B5EE80000E2ED4D /* XMTPiOS in Frameworks */ = {isa = PBXBuildFile; productRef = A6606A192B5EE80000E2ED4D /* XMTPiOS */; };
 		A67CCEC129355B4B00131F5C /* AccountManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = A67CCEC029355B4B00131F5C /* AccountManager.swift */; };
 		A683860C293EA862006336FF /* MessageListView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A683860B293EA862006336FF /* MessageListView.swift */; };
+		A685CC662B72B114008ACECE /* Util.swift in Sources */ = {isa = PBXBuildFile; fileRef = A685CC652B72B114008ACECE /* Util.swift */; };
+		A685CC682B72B306008ACECE /* GroupSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A685CC672B72B306008ACECE /* GroupSettingsView.swift */; };
 		A687810729679BC700042FAB /* Account.swift in Sources */ = {isa = PBXBuildFile; fileRef = A687810629679BC700042FAB /* Account.swift */; };
 		A687810C29679BFC00042FAB /* WalletConnection.swift in Sources */ = {isa = PBXBuildFile; fileRef = A687810B29679BFC00042FAB /* WalletConnection.swift */; };
 		A687810E29679C0D00042FAB /* WalletConnectionMethod.swift in Sources */ = {isa = PBXBuildFile; fileRef = A687810D29679C0D00042FAB /* WalletConnectionMethod.swift */; };
+		A68807152B6C53E0004340BD /* GroupDetailView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A68807142B6C53E0004340BD /* GroupDetailView.swift */; };
 		A69F33CA292DD557005A5556 /* LoggedInView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A69F33C9292DD557005A5556 /* LoggedInView.swift */; };
 		A69F33CC292DD568005A5556 /* QRCodeSheetView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A69F33CB292DD568005A5556 /* QRCodeSheetView.swift */; };
 		A6AE5187297B61AE006FDD0F /* NotificationService.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = A6AE5180297B61AE006FDD0F /* NotificationService.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
@@ -81,9 +84,12 @@
 		A65F0703297B5D4E00C3C76E /* Persistence.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = Persistence.swift; sourceTree = "<group>"; };
 		A67CCEC029355B4B00131F5C /* AccountManager.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = AccountManager.swift; sourceTree = "<group>"; };
 		A683860B293EA862006336FF /* MessageListView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MessageListView.swift; sourceTree = "<group>"; };
+		A685CC652B72B114008ACECE /* Util.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Util.swift; sourceTree = "<group>"; };
+		A685CC672B72B306008ACECE /* GroupSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GroupSettingsView.swift; sourceTree = "<group>"; };
 		A687810629679BC700042FAB /* Account.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Account.swift; sourceTree = "<group>"; };
 		A687810B29679BFC00042FAB /* WalletConnection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WalletConnection.swift; sourceTree = "<group>"; };
 		A687810D29679C0D00042FAB /* WalletConnectionMethod.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WalletConnectionMethod.swift; sourceTree = "<group>"; };
+		A68807142B6C53E0004340BD /* GroupDetailView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GroupDetailView.swift; sourceTree = "<group>"; };
 		A69F33C9292DD557005A5556 /* LoggedInView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LoggedInView.swift; sourceTree = "<group>"; };
 		A69F33CB292DD568005A5556 /* QRCodeSheetView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QRCodeSheetView.swift; sourceTree = "<group>"; };
 		A6AE5180297B61AE006FDD0F /* NotificationService.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = NotificationService.appex; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -116,7 +122,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				A6AE5194297B62C8006FDD0F /* KeychainAccess in Frameworks */,
-				A6606A182B5EE7F000E2ED4D /* XMTPiOS in Frameworks */,
+				A6494F002B6C2DF700D9FFB9 /* XMTPiOS in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -155,6 +161,7 @@
 				A6281996292DC826004B9117 /* Assets.xcassets */,
 				A6281998292DC826004B9117 /* XMTPiOSExample.entitlements */,
 				A6281999292DC826004B9117 /* Preview Content */,
+				A685CC652B72B114008ACECE /* Util.swift */,
 			);
 			path = XMTPiOSExample;
 			sourceTree = "<group>";
@@ -198,6 +205,8 @@
 				A6557A302941166E00CC4C7B /* MessageCellView.swift */,
 				A6557A3229411F4F00CC4C7B /* NewConversationView.swift */,
 				A6C0F3832AC1E4B5008C6AA7 /* LoginView.swift */,
+				A68807142B6C53E0004340BD /* GroupDetailView.swift */,
+				A685CC672B72B306008ACECE /* GroupSettingsView.swift */,
 			);
 			path = Views;
 			sourceTree = "<group>";
@@ -266,7 +275,7 @@
 			name = NotificationService;
 			packageProductDependencies = (
 				A6AE5193297B62C8006FDD0F /* KeychainAccess */,
-				A6606A172B5EE7F000E2ED4D /* XMTPiOS */,
+				A6494EFF2B6C2DF700D9FFB9 /* XMTPiOS */,
 			);
 			productName = NotificationService;
 			productReference = A6AE5180297B61AE006FDD0F /* NotificationService.appex */;
@@ -341,11 +350,14 @@
 			buildActionMask = 2147483647;
 			files = (
 				A6557A3329411F4F00CC4C7B /* NewConversationView.swift in Sources */,
+				A68807152B6C53E0004340BD /* GroupDetailView.swift in Sources */,
 				A6C0F3862AC1E549008C6AA7 /* Data.swift in Sources */,
 				A65F0704297B5D4E00C3C76E /* Persistence.swift in Sources */,
 				A687810729679BC700042FAB /* Account.swift in Sources */,
 				A6557A312941166E00CC4C7B /* MessageCellView.swift in Sources */,
 				A60FC8C1293AD171001697E3 /* ConversationDetailView.swift in Sources */,
+				A685CC682B72B306008ACECE /* GroupSettingsView.swift in Sources */,
+				A685CC662B72B114008ACECE /* Util.swift in Sources */,
 				A60FC8C3293AD18A001697E3 /* PreviewClientProvider.swift in Sources */,
 				A6281995292DC825004B9117 /* ContentView.swift in Sources */,
 				A687810C29679BFC00042FAB /* WalletConnection.swift in Sources */,
@@ -709,6 +721,10 @@
 			package = 6AEE396C29F330CD0027B657 /* XCRemoteSwiftPackageReference "secp256k1.swift" */;
 			productName = secp256k1;
 		};
+		A6494EFF2B6C2DF700D9FFB9 /* XMTPiOS */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = XMTPiOS;
+		};
 		A65F0706297B5E7600C3C76E /* WalletConnectSwift */ = {
 			isa = XCSwiftPackageProductDependency;
 			package = A65F0705297B5E7500C3C76E /* XCRemoteSwiftPackageReference "WalletConnectSwift" */;
@@ -718,10 +734,6 @@
 			isa = XCSwiftPackageProductDependency;
 			package = A65F0708297B5E8600C3C76E /* XCRemoteSwiftPackageReference "KeychainAccess" */;
 			productName = KeychainAccess;
-		};
-		A6606A172B5EE7F000E2ED4D /* XMTPiOS */ = {
-			isa = XCSwiftPackageProductDependency;
-			productName = XMTPiOS;
 		};
 		A6606A192B5EE80000E2ED4D /* XMTPiOS */ = {
 			isa = XCSwiftPackageProductDependency;

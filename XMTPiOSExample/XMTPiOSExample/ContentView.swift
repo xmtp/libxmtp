@@ -42,6 +42,28 @@ struct ContentView: View {
 						})
 					}
 				Button("Generate Wallet") { generateWallet() }
+				Button("Load Saved Keys") {
+					Task {
+						do {
+							if let keysData = Persistence().loadKeys() {
+								let keys = try PrivateKeyBundle(serializedData: keysData)
+								let client = try await Client.from(
+									bundle: keys,
+									options: .init(
+										api: .init(env: .local, isSecure: false),
+										codecs: [GroupMembershipChangedCodec()],
+										mlsAlpha: true
+									)
+								)
+								await MainActor.run {
+									self.status = .connected(client)
+								}
+							}
+						} catch {
+							print("Error loading keys \(error)")
+						}
+					}
+				}
 			case .connecting:
 				ProgressView("Connecting…")
 			case let .connected(client):
@@ -70,7 +92,14 @@ struct ContentView: View {
 		Task {
 			do {
 				let wallet = try PrivateKey.generate()
-				let client = try await Client.create(account: wallet, options: .init(api: .init(env: .dev, isSecure: true, appVersion: "XMTPTest/v1.0.0")))
+				let client = try await Client.create(
+					account: wallet,
+					options: .init(
+						api: .init(env: .local, isSecure: false, appVersion: "XMTPTest/v1.0.0"),
+						codecs: [GroupMembershipChangedCodec()],
+						mlsAlpha: true
+					)
+				)
 
 				let keysData = try client.privateKeyBundle.serializedData()
 				Persistence().saveKeys(keysData)
@@ -80,6 +109,7 @@ struct ContentView: View {
 				}
 			} catch {
 				await MainActor.run {
+					print("ERROR: \(error.localizedDescription)")
 					self.status = .error("Error generating wallet: \(error)")
 				}
 			}

@@ -7,19 +7,27 @@
 
 import SwiftUI
 import XMTPiOS
+import web3
 
-struct MessageCellView: View {
+struct MessageTextView: View {
 	var myAddress: String
 	var message: DecodedMessage
+	var isGroup: Bool = false
 	@State private var isDebugging = false
 
 	var body: some View {
 		VStack {
 			HStack {
-				if message.senderAddress == myAddress {
+				if message.senderAddress.lowercased() == myAddress.lowercased() {
 					Spacer()
 				}
 				VStack(alignment: .leading) {
+					if isGroup && message.senderAddress.lowercased() != myAddress.lowercased() {
+						Text(message.senderAddress)
+							.font(.caption)
+							.foregroundStyle(.secondary)
+					}
+
 					Text(bodyText)
 
 					if isDebugging {
@@ -39,7 +47,7 @@ struct MessageCellView: View {
 						isDebugging.toggle()
 					}
 				}
-				if message.senderAddress != myAddress {
+				if message.senderAddress.lowercased() != myAddress.lowercased() {
 					Spacer()
 				}
 			}
@@ -47,13 +55,16 @@ struct MessageCellView: View {
 	}
 
 	var bodyText: String {
-		// swiftlint:disable force_try
-		return try! message.content()
+		do {
+			return try message.content()
+		} catch {
+			return message.fallbackContent
+		}
 		// swiftlint:enable force_try
 	}
 
 	var background: Color {
-		if message.senderAddress == myAddress {
+		if message.senderAddress.lowercased() == myAddress.lowercased() {
 			return .purple
 		} else {
 			return .secondary.opacity(0.2)
@@ -61,10 +72,58 @@ struct MessageCellView: View {
 	}
 
 	var color: Color {
-		if message.senderAddress == myAddress {
+		if message.senderAddress.lowercased() == myAddress.lowercased() {
 			return .white
 		} else {
 			return .primary
+		}
+	}
+}
+
+struct MessageGroupMembershipChangedView: View {
+	var message: DecodedMessage
+
+	var body: some View {
+		Text(label)
+			.font(.caption)
+			.foregroundStyle(.secondary)
+			.padding(.vertical)
+	}
+
+	var label: String {
+		do {
+			let changes: GroupMembershipChanges = try message.content()
+
+			if !changes.membersAdded.isEmpty {
+				return "Added \(changes.membersAdded.map(\.accountAddress).map { Util.abbreviate(address: $0) }.joined(separator: ", "))"
+			}
+
+			if !changes.membersRemoved.isEmpty {
+				return "Removed \(changes.membersRemoved.map(\.accountAddress).map { Util.abbreviate(address: $0) }.joined(separator: ", "))"
+			}
+
+			return changes.debugDescription
+		} catch {
+			return "Membership changed"
+		}
+
+	}
+}
+
+struct MessageCellView: View {
+	var myAddress: String
+	var message: DecodedMessage
+	var isGroup: Bool = false
+	@State private var isDebugging = false
+
+	var body: some View {
+		switch message.encodedContent.type {
+		case ContentTypeText:
+			MessageTextView(myAddress: myAddress, message: message)
+		case ContentTypeGroupMembershipChanged:
+			MessageGroupMembershipChangedView(message: message)
+		default:
+			Text(message.fallbackContent)
 		}
 	}
 }

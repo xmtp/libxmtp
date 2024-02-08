@@ -107,7 +107,7 @@ public final class Client {
 	public static func create(account: SigningKey, options: ClientOptions? = nil) async throws -> Client {
 		let options = options ?? ClientOptions()
 		do {
-			let client = try await LibXMTP.createV2Client(host: options.api.env.url, isSecure: options.api.env != .local)
+			let client = try await LibXMTP.createV2Client(host: options.api.env.url, isSecure: options.api.env.isSecure)
 			let apiClient = try GRPCApiClient(
 				environment: options.api.env,
 				secure: options.api.isSecure,
@@ -126,12 +126,12 @@ public final class Client {
 		privateKeyBundleV1: PrivateKeyBundleV1,
 		signingKey: SigningKey?
 	) async throws -> FfiXmtpClient? {
-		if options?.mlsAlpha == true, options?.api.env == .local {
+		if options?.mlsAlpha == true, options?.api.env.supportsMLS == true {
 			let dbURL = URL.documentsDirectory.appendingPathComponent("xmtp-\(options?.api.env.rawValue ?? "")-\(address).db3")
 			let v3Client = try await LibXMTP.createClient(
 				logger: XMTPLogger(),
 				host: (options?.api.env ?? .local).url,
-				isSecure: (options?.api.env ?? .local) != .local,
+				isSecure: options?.api.env.isSecure == true,
 				db: dbURL.path,
 				encryptionKey: options?.mlsEncryptionKey,
 				accountAddress: address,
@@ -248,8 +248,7 @@ public final class Client {
 		let address = try v1Bundle.identityKey.publicKey.recoverWalletSignerPublicKey().walletAddress
 
 		let options = options ?? ClientOptions()
-
-		let client = try await LibXMTP.createV2Client(host: options.api.env.url, isSecure: options.api.env != .local)
+		let client = try await LibXMTP.createV2Client(host: options.api.env.url, isSecure: options.api.env.isSecure)
 		let apiClient = try GRPCApiClient(
 			environment: options.api.env,
 			secure: options.api.isSecure,
@@ -302,8 +301,7 @@ public final class Client {
 
 	public static func canMessage(_ peerAddress: String, options: ClientOptions? = nil) async throws -> Bool {
 		let options = options ?? ClientOptions()
-
-		let client = try await LibXMTP.createV2Client(host: options.api.env.url, isSecure: options.api.env != .local)
+		let client = try await LibXMTP.createV2Client(host: options.api.env.url, isSecure: options.api.env.isSecure)
 		let apiClient = try GRPCApiClient(
 			environment: options.api.env,
 			secure: options.api.isSecure,

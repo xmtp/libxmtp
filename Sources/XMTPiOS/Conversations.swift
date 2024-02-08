@@ -1,4 +1,5 @@
 import Foundation
+import LibXMTP
 
 public enum ConversationError: Error, CustomStringConvertible {
 	case recipientNotOnNetwork, recipientIsSender, v1NotSupported(String)
@@ -15,13 +16,128 @@ public enum ConversationError: Error, CustomStringConvertible {
 	}
 }
 
+public enum GroupError: Error, CustomStringConvertible {
+	case alphaMLSNotEnabled, emptyCreation, memberCannotBeSelf, memberNotRegistered([String])
+
+	public var description: String {
+		switch self {
+		case .alphaMLSNotEnabled:
+			return "GroupError.alphaMLSNotEnabled"
+		case .emptyCreation:
+			return "GroupError.emptyCreation you cannot create an empty group"
+		case .memberCannotBeSelf:
+			return "GroupError.memberCannotBeSelf you cannot add yourself to a group"
+		case .memberNotRegistered(let array):
+			return "GroupError.memberNotRegistered members not registered: \(array.joined(separator: ", "))"
+		}
+	}
+}
+
+final class GroupStreamCallback: FfiConversationCallback {
+	let client: Client
+	let callback: (Group) -> Void
+
+	init(client: Client, callback: @escaping (Group) -> Void) {
+		self.client = client
+		self.callback = callback
+	}
+
+	func onConversation(conversation: FfiGroup) {
+		self.callback(conversation.fromFFI(client: client))
+	}
+}
+
 /// Handles listing and creating Conversations.
 public actor Conversations {
 	var client: Client
 	var conversationsByTopic: [String: Conversation] = [:]
+	let streamHolder = StreamHolder()
 
 	init(client: Client) {
 		self.client = client
+	}
+
+	public func sync() async throws {
+		guard let v3Client = client.v3Client else {
+			return
+		}
+
+		try await v3Client.conversations().sync()
+	}
+
+	public func groups(createdAfter: Date? = nil, createdBefore: Date? = nil, limit: Int? = nil) async throws -> [Group] {
+		guard let v3Client = client.v3Client else {
+			return []
+		}
+
+		var options = FfiListConversationsOptions(createdAfterNs: nil, createdBeforeNs: nil, limit: nil)
+
+		if let createdAfter {
+			options.createdAfterNs = Int64(createdAfter.millisecondsSinceEpoch)
+		}
+
+		if let createdBefore {
+			options.createdBeforeNs = Int64(createdBefore.millisecondsSinceEpoch)
+		}
+
+		if let limit {
+			options.limit = Int64(limit)
+		}
+
+		return try await v3Client.conversations().list(opts: options).map { $0.fromFFI(client: client) }
+	}
+
+	public func streamGroups() async throws -> AsyncThrowingStream<Group, Error> {
+		AsyncThrowingStream { continuation in
+			Task {
+				self.streamHolder.stream = try await self.client.v3Client?.conversations().stream(
+					callback: GroupStreamCallback(client: self.client) { group in
+						continuation.yield(group)
+					}
+				)
+			}
+		}
+	}
+
+	public func newGroup(with addresses: [String]) async throws -> Group {
+		guard let v3Client = client.v3Client else {
+			throw GroupError.alphaMLSNotEnabled
+		}
+
+		if addresses.isEmpty {
+			throw GroupError.emptyCreation
+		}
+
+		if addresses.first(where: { $0.lowercased() == client.address.lowercased() }) != nil {
+			throw GroupError.memberCannotBeSelf
+		}
+
+		let erroredAddresses = try await withThrowingTaskGroup(of: (String?).self) { group in
+			for address in addresses {
+				group.addTask {
+					if try await self.client.canMessageV3(address: address) {
+						return nil
+					} else {
+						return address
+					}
+				}
+			}
+
+			var results: [String] = []
+			for try await result in group {
+				if let result {
+					results.append(result)
+				}
+			}
+
+			return results
+		}
+
+		if !erroredAddresses.isEmpty {
+			throw GroupError.memberNotRegistered(erroredAddresses)
+		}
+
+		return try await v3Client.conversations().createGroup(accountAddresses: addresses).fromFFI(client: client)
 	}
 
 	/// Import a previously seen conversation.

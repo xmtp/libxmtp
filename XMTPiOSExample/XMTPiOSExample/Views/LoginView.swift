@@ -162,7 +162,11 @@ struct LoginView: View {
 					let signer = Signer(session: session, account: account)
 					let client = try await Client.create(
 						account: signer,
-						options: .init(api: .init(env: .production, isSecure: true))
+						options: .init(
+							api: .init(env: .local, isSecure: false),
+							codecs: [GroupMembershipChangedCodec()],
+							mlsAlpha: true
+						)
 					)
 
 					await MainActor.run {

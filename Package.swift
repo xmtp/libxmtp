@@ -20,14 +20,12 @@ let package = Package(
 	dependencies: [
 		// Dependencies declare other packages that this package depends on.
 		// .package(url: /* package url */, from: "1.0.0"),
-
 		.package(url: "https://github.com/GigaBitcoin/secp256k1.swift.git", exact: "0.10.0"),
 		.package(url: "https://github.com/argentlabs/web3.swift", from: "1.1.0"),
 		.package(url: "https://github.com/1024jp/GzipSwift", from: "5.2.0"),
 		.package(url: "https://github.com/bufbuild/connect-swift", exact: "0.3.0"),
 		.package(url: "https://github.com/apple/swift-docc-plugin.git", from: "1.0.0"),
 		.package(url: "https://github.com/xmtp/libxmtp-swift", revision: "503086d"),
-//		.package(path: "../libxmtp-swift")
 	],
 	targets: [
 		// Targets are the basic building blocks of a package. A target can define a module or a test suite.
@@ -39,7 +37,7 @@ let package = Package(
 				"web3.swift",
 				.product(name: "Gzip", package: "GzipSwift"),
 				.product(name: "Connect", package: "connect-swift"),
-				.product(name: "LibXMTP", package: "libxmtp-swift"),
+				.product(name: "LibXMTP", package: "libxmtp-swift")
 			]
 		),
 		.target(

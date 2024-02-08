@@ -8,13 +8,48 @@
 import SwiftUI
 import XMTPiOS
 
+enum ConversationOrGroup: Identifiable, Hashable {
+	case conversation(Conversation), group(XMTPiOS.Group)
+
+	static func == (lhs: ConversationOrGroup, rhs: ConversationOrGroup) -> Bool {
+		lhs.id == rhs.id
+	}
+
+	func hash(into hasher: inout Hasher) {
+		id.hash(into: &hasher)
+	}
+
+	var id: String {
+		switch self {
+		case .conversation(let conversation):
+			return conversation.peerAddress
+		case .group(let group):
+			return group.memberAddresses.joined(separator: ",")
+		}
+	}
+
+	var createdAt: Date {
+		switch self {
+		case .conversation(let conversation):
+			return conversation.createdAt
+		case .group(let group):
+			return group.createdAt
+		}
+	}
+}
+
 struct NewConversationView: View {
 	var client: XMTPiOS.Client
-	var onCreate: (Conversation) -> Void
+	var onCreate: (ConversationOrGroup) -> Void
 
 	@Environment(\.dismiss) var dismiss
 	@State private var recipientAddress: String = ""
 	@State private var error: String?
+
+	@State private var groupMembers: [String] = []
+	@State private var newGroupMember = ""
+	@State private var isAddingMember = false
+	@State private var groupError = ""
 
 	var body: some View {
 		Form {
@@ -30,9 +65,90 @@ struct NewConversationView: View {
 						.foregroundColor(.secondary)
 				}
 			}
+
+			Section("Or Create a Group") {
+				ForEach(groupMembers, id: \.self) { member in
+					Text(member)
+				}
+
+				HStack {
+					TextField("Add member", text: $newGroupMember)
+					Button("Add") {
+						if newGroupMember.lowercased() == client.address {
+							self.groupError = "You cannot add yourself to a group"
+							return
+						}
+
+						isAddingMember = true
+
+						Task {
+							do {
+								if try await self.client.canMessageV3(address: newGroupMember) {
+									await MainActor.run {
+										self.groupError = ""
+										self.groupMembers.append(newGroupMember)
+										self.newGroupMember = ""
+										self.isAddingMember = false
+									}
+								} else {
+									await MainActor.run {
+										self.groupError = "Member address not registered"
+										self.isAddingMember = false
+									}
+								}
+							} catch {
+								self.groupError = error.localizedDescription
+								self.isAddingMember = false
+							}
+						}
+					}
+					.opacity(isAddingMember ? 0 : 1)
+					.overlay {
+						if isAddingMember {
+							ProgressView()
+						}
+					}
+				}
+
+				if groupError != "" {
+					Text(groupError)
+						.foregroundStyle(.red)
+						.font(.subheadline)
+				}
+
+				Button("Create Group") {
+					Task {
+						do {
+							let group = try await client.conversations.newGroup(with: groupMembers)
+							try await client.conversations.sync()
+							await MainActor.run {
+								dismiss()
+								onCreate(.group(group))
+							}
+						} catch {
+							await MainActor.run {
+								self.groupError = error.localizedDescription
+							}
+						}
+					}
+				}
+				.disabled(!createGroupEnabled)
+			}
+			.disabled(isAddingMember)
 		}
-		.presentationDetents([.height(100), .height(120)])
 		.navigationTitle("New conversation")
+	}
+
+	var createGroupEnabled: Bool {
+		if groupError != "" {
+			return false
+		}
+
+		if groupMembers.isEmpty {
+			return false
+		}
+
+		return true
 	}
 
 	private func check(address: String) {
@@ -47,7 +163,7 @@ struct NewConversationView: View {
 				let conversation = try await client.conversations.newConversation(with: address)
 				await MainActor.run {
 					dismiss()
-					onCreate(conversation)
+					onCreate(.conversation(conversation))
 				}
 			} catch ConversationError.recipientNotOnNetwork {
 				await MainActor.run {
