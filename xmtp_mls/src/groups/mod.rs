@@ -765,8 +765,8 @@ mod tests {
         let _amal_2nd = ClientBuilder::new_test_client(&amal_wallet).await;
 
         // test that adding the new installation(s), worked
-        let new_installations_count = group.add_missing_installations(&provider).await.unwrap();
-        assert_eq!(new_installations_count, 1);
+        let new_installations_were_added = group.add_missing_installations(provider).await;
+        assert!(new_installations_were_added.is_ok());
     }
 
     #[tokio::test]

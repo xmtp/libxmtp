@@ -63,6 +63,9 @@ where
 {
     pub async fn sync(&self) -> Result<(), GroupError> {
         let conn = &mut self.client.store.conn()?;
+        let provider = self.client.mls_provider(&conn);
+        self.add_missing_installations(provider).await?;
+        self.update_latest_installation_list_timestamp(conn).await?;
         self.sync_with_conn(conn).await
     }
 
@@ -623,7 +626,6 @@ where
         Ok(())
     }
 
-    #[allow(dead_code)]
     pub(super) async fn get_missing_members(
         &self,
         provider: &XmtpOpenMlsProvider<'_>,
@@ -689,29 +691,24 @@ where
         Ok((to_add, vec![]))
     }
 
-    #[allow(dead_code)]
     pub(super) async fn add_missing_installations(
         &self,
-        provider: &XmtpOpenMlsProvider<'_>,
-    ) -> Result<usize, GroupError> {
-        let (missing_members, _placeholder) = self.get_missing_members(provider).await?;
+        provider: XmtpOpenMlsProvider<'_>,
+    ) -> Result<(), GroupError> {
+        let (missing_members, _placeholder) = self.get_missing_members(&provider).await?;
         if missing_members.is_empty() {
-            return Ok(0);
+            return Ok(());
         }
-        let new_member_installations_count = missing_members.len();
         self.add_members_by_installation_id(missing_members).await?;
 
-        Ok(new_member_installations_count)
+        Ok(())
     }
 
-    #[allow(dead_code)]
     pub(super) async fn update_latest_installation_list_timestamp(
         &self,
         conn: &DbConnection<'_>,
     ) -> Result<(), GroupError> {
-        let group_id = self.group_id.clone();
-        let _updated_at = conn.update_installation_list_time_checked(group_id)?;
-
+        let _updated_at = conn.update_installation_list_time_checked(self.group_id.clone())?;
         Ok(())
     }
 
