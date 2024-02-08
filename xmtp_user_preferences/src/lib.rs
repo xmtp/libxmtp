@@ -2,6 +2,7 @@ mod encryption;
 pub mod topic;
 
 use prost::Message as ProstMessage;
+
 use xmtp_proto::xmtp::message_contents::{
     private_preferences_payload::Version as PrivatePreferencesVersion, Ciphertext,
     PrivatePreferencesPayload,
@@ -63,7 +64,7 @@ mod test {
 
         let encrypted =
             encrypt_message(&pub_key.serialize(), &private_key.serialize(), &message).unwrap();
-        assert!(encrypted.len() > 0);
+        assert!(!encrypted.is_empty());
 
         let decrypted =
             decrypt_message(&pub_key.serialize(), &private_key.serialize(), &encrypted).unwrap();
@@ -78,7 +79,7 @@ mod test {
 
         let encrypted =
             encrypt_message(&pub_key.serialize(), &private_key.serialize(), &message).unwrap();
-        assert!(encrypted.len() > 0);
+        assert!(!encrypted.is_empty());
         let (other_private_key, _) = generate_keypair();
 
         let decrypt_result = decrypt_message(
@@ -87,7 +88,7 @@ mod test {
             &encrypted,
         );
 
-        assert_eq!(decrypt_result.is_err(), true);
+        assert!(decrypt_result.is_err());
     }
 
     #[test]

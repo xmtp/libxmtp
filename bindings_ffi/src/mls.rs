@@ -1,4 +1,3 @@
-use crate::inbox_owner::RustInboxOwner;
 pub use crate::inbox_owner::SigningError;
 use crate::logger::init_logger;
 use crate::logger::FfiLogger;
@@ -12,6 +11,7 @@ use std::sync::{
 use tokio::sync::{oneshot, oneshot::Sender};
 use xmtp_api_grpc::grpc_api_helper::Client as TonicApiClient;
 use xmtp_mls::builder::IdentityStrategy;
+use xmtp_mls::builder::LegacyIdentity;
 use xmtp_mls::{
     builder::ClientBuilder,
     client::Client as MlsClient,
@@ -84,11 +84,20 @@ pub async fn create_client(
     };
 
     log::info!("Creating XMTP client");
-    let identity_strategy: IdentityStrategy<RustInboxOwner> = account_address.into();
+    let legacy_key_result =
+        legacy_signed_private_key_proto.ok_or("No legacy key provided".to_string());
+    let legacy_identity = match legacy_identity_source {
+        LegacyIdentitySource::None => LegacyIdentity::None,
+        LegacyIdentitySource::Static => LegacyIdentity::Static(legacy_key_result?),
+        LegacyIdentitySource::Network => LegacyIdentity::Network(legacy_key_result?),
+        LegacyIdentitySource::KeyGenerator => LegacyIdentity::KeyGenerator(legacy_key_result?),
+    };
+    let identity_strategy = IdentityStrategy::CreateIfNotFound(account_address, legacy_identity);
     let xmtp_client: RustXmtpClient = ClientBuilder::new(identity_strategy)
         .api_client(api_client)
         .store(store)
-        .build()?;
+        .build()
+        .await?;
 
     log::info!(
         "Created XMTP client for address: {}",
@@ -139,7 +148,7 @@ impl FfiXmtpClient {
         recoverable_wallet_signature: Option<Vec<u8>>,
     ) -> Result<(), GenericError> {
         self.inner_client
-            .register_identity_with_external_signature(recoverable_wallet_signature)
+            .register_identity(recoverable_wallet_signature)
             .await?;
 
         Ok(())

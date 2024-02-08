@@ -9,6 +9,7 @@ use handlers::ValidationService;
 use health_check::health_check_server;
 use tokio::signal::unix::{signal, SignalKind};
 use tonic::transport::Server;
+
 use xmtp_proto::xmtp::mls_validation::v1::validation_api_server::ValidationApiServer;
 
 #[macro_use]
