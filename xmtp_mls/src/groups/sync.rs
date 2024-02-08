@@ -63,11 +63,9 @@ where
 {
     pub async fn sync(&self) -> Result<(), GroupError> {
         let conn = &mut self.client.store.conn()?;
-        
         let provider = self.client.mls_provider(&conn);
         self.add_missing_installations(provider).await?;
         self.update_latest_installation_list_timestamp(conn).await?;
-
         self.sync_with_conn(conn).await
     }
 
@@ -711,7 +709,6 @@ where
         conn: &DbConnection<'_>,
     ) -> Result<(), GroupError> {
         let _updated_at = conn.update_installation_list_time_checked(self.group_id.clone())?;
-        
         Ok(())
     }
 
