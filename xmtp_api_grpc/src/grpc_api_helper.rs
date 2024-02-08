@@ -33,7 +33,7 @@ async fn create_tls_channel(address: String) -> Result<Channel, Error> {
     let channel = Channel::from_shared(address)
         .map_err(|e| Error::new(ErrorKind::SetupError).with(e))?
         .keep_alive_while_idle(true)
-        .timeout(Duration::from_secs(5))
+        .connect_timeout(Duration::from_secs(5))
         .http2_keep_alive_interval(Duration::from_secs(3))
         .keep_alive_timeout(Duration::from_secs(5))
         .tls_config(ClientTlsConfig::new())
