@@ -1,6 +1,7 @@
 use std::pin::Pin;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex}; // TODO switch to async mutexes
+use std::time::Duration;
 
 use futures::stream::{AbortHandle, Abortable};
 use futures::{SinkExt, Stream, StreamExt, TryStreamExt};
@@ -30,6 +31,10 @@ use xmtp_proto::{
 async fn create_tls_channel(address: String) -> Result<Channel, Error> {
     let channel = Channel::from_shared(address)
         .map_err(|e| Error::new(ErrorKind::SetupError).with(e))?
+        .keep_alive_while_idle(true)
+        .connect_timeout(Duration::from_secs(5))
+        .http2_keep_alive_interval(Duration::from_secs(3))
+        .keep_alive_timeout(Duration::from_secs(5))
         .tls_config(ClientTlsConfig::new())
         .map_err(|e| Error::new(ErrorKind::SetupError).with(e))?
         .connect()
