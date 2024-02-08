@@ -65,7 +65,7 @@ where
         let conn = &mut self.client.store.conn()?;
         
         let provider = self.client.mls_provider(&conn);
-        self.add_missing_installations(&provider).await?;
+        self.add_missing_installations(provider).await?;
         self.update_latest_installation_list_timestamp(conn).await?;
 
         self.sync_with_conn(conn).await
@@ -695,9 +695,9 @@ where
 
     pub(super) async fn add_missing_installations(
         &self,
-        provider: &XmtpOpenMlsProvider<'_>,
+        provider: XmtpOpenMlsProvider<'_>,
     ) -> Result<(), GroupError> {
-        let (missing_members, _placeholder) = self.get_missing_members(provider).await?;
+        let (missing_members, _placeholder) = self.get_missing_members(&provider).await?;
         if missing_members.is_empty() {
             return Ok(());
         }
