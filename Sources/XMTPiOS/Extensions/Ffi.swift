@@ -207,6 +207,18 @@ extension FfiMessage {
 			sent: Date(timeIntervalSince1970: TimeInterval(sentAtNs / 1_000_000_000))
 		)
 	}
+	
+	func fromFFIDecrypted(client: Client) throws -> DecryptedMessage {
+		let encodedContent = try EncodedContent(serializedData: content)
+
+		return DecryptedMessage(
+			id: id.toHex,
+			encodedContent: encodedContent,
+			senderAddress: addrFrom,
+			sentAt: Date(timeIntervalSince1970: TimeInterval(sentAtNs / 1_000_000_000)),
+			topic: convoId.toHex
+		)
+	}
 }
 
 // MARK: Group

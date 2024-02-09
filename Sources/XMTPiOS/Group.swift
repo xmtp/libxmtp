@@ -151,4 +151,26 @@ public struct Group: Identifiable, Equatable, Hashable {
 			try ffiMessage.fromFFI(client: client)
 		}
 	}
+	
+	public func decryptedMessages(before: Date? = nil, after: Date? = nil, limit: Int? = nil) async throws -> [DecryptedMessage] {
+		var options = FfiListMessagesOptions(sentBeforeNs: nil, sentAfterNs: nil, limit: nil)
+
+		if let before {
+			options.sentBeforeNs = Int64(before.millisecondsSinceEpoch)
+		}
+
+		if let after {
+			options.sentAfterNs = Int64(after.millisecondsSinceEpoch)
+		}
+
+		if let limit {
+			options.limit = Int64(limit)
+		}
+
+		let messages = try ffiGroup.findMessages(opts: options)
+
+		return try messages.map { ffiMessage in
+			try ffiMessage.fromFFIDecrypted(client: client)
+		}
+	}
 }
