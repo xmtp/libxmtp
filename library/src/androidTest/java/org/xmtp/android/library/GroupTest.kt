@@ -232,10 +232,10 @@ class GroupTest {
         boClient.conversations.streamGroups().test {
             val group =
                 alixClient.conversations.newGroup(listOf(bo.walletAddress))
-            assertEquals(group.id.toHex(), awaitItem().topic)
+            assertEquals(group.id.toHex(), awaitItem().id.toHex())
             val group2 =
                 caroClient.conversations.newGroup(listOf(bo.walletAddress))
-            assertEquals(group2.id.toHex(), awaitItem().topic)
+            assertEquals(group2.id.toHex(), awaitItem().id.toHex())
         }
     }
 

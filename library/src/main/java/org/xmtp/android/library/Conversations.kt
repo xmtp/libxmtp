@@ -501,13 +501,24 @@ data class Conversations(
     }
 
     fun streamAll(): Flow<Conversation> {
-        return merge(streamGroups(), stream())
+        return merge(streamGroupConversations(), stream())
     }
 
-    fun streamGroups(): Flow<Conversation> = callbackFlow {
+    private fun streamGroupConversations(): Flow<Conversation> = callbackFlow {
         val groupCallback = object : FfiConversationCallback {
             override fun onConversation(conversation: FfiGroup) {
                 trySend(Conversation.Group(Group(client, conversation)))
+            }
+        }
+        val stream = libXMTPConversations?.stream(groupCallback)
+            ?: throw XMTPException("Client does not support Groups")
+        awaitClose { stream.end() }
+    }
+
+    fun streamGroups(): Flow<Group> = callbackFlow {
+        val groupCallback = object : FfiConversationCallback {
+            override fun onConversation(conversation: FfiGroup) {
+                trySend(Group(client, conversation))
             }
         }
         val stream = libXMTPConversations?.stream(groupCallback)
