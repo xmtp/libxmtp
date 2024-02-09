@@ -9,10 +9,10 @@ import Foundation
 import LibXMTP
 
 final class MessageCallback: FfiMessageCallback {
-	let client: XMTPiOS.Client
+	let client: Client
 	let callback: (DecodedMessage) -> Void
 
-	init(client: XMTPiOS.Client, _ callback: @escaping (DecodedMessage) -> Void) {
+	init(client: Client, _ callback: @escaping (DecodedMessage) -> Void) {
 		self.client = client
 		self.callback = callback
 	}
