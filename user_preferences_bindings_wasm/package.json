@@ -40,7 +40,6 @@
       "import": "./dist/web/user_preferences_bindings_wasm.js"
     }
   },
-  "sideEffects": false,
   "devDependencies": {
     "@changesets/cli": "^2.26.2",
     "wasm-pack": "^0.12.1"
