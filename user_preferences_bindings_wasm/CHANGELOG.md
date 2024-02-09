@@ -1,5 +1,11 @@
 # @xmtp/ecies-bindings-wasm
 
+## 0.3.5
+
+### Patch Changes
+
+- d67b1f2: Remove `sideEffects` field from `package.json`
+
 ## 0.3.4
 
 ### Patch Changes
