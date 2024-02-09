@@ -92,18 +92,33 @@ impl DbConnection<'_> {
         Ok(())
     }
 
+    /// Updates the 'last time checked' for installation lists.
+    /// @returns Result<(previously_checked_ts, latest_checked_ts)>
     pub fn update_installation_list_time_checked(
         &self,
         group_id: Vec<u8>,
-    ) -> Result<i64, StorageError> {
-        let now = crate::utils::time::now_ns();
-        self.raw_query(|conn| {
+    ) -> Result<(i64, i64), StorageError> {
+        let (last_ts, latest_ts) = self.raw_query(|conn| {
+            let maybe_get_last_ts = dsl::groups
+                .find(&group_id)
+                .select(dsl::installation_list_last_checked)
+                .execute(conn)
+                .optional()?;
+
+            let now = crate::utils::time::now_ns();
+            let last_ts = match maybe_get_last_ts {
+                Some(ts) => ts as i64,
+                None => now,
+            };
+
             diesel::update(dsl::groups.find(&group_id))
                 .set(dsl::installation_list_last_checked.eq(Some(now)))
-                .execute(conn)
+                .execute(conn)?;
+
+            Ok((last_ts, now))
         })?;
 
-        Ok(now)
+        Ok((last_ts, latest_ts))
     }
 
     pub fn insert_or_ignore_group(&self, group: StoredGroup) -> Result<StoredGroup, StorageError> {
@@ -275,8 +290,10 @@ pub(crate) mod tests {
 
             // Check that some event occurred which triggers an installation list update.
             // Here we invoke that event directly
-            let result = conn.update_installation_list_time_checked(test_group.id.clone());
-            assert!(result.is_ok());
+            let (last, latest) = conn
+                .update_installation_list_time_checked(test_group.id.clone())
+                .unwrap();
+            assert!(latest > last);
 
             // Check that the latest installation list timestamp has been updated
             let fetched_group: StoredGroup = conn.fetch(&test_group.id).ok().flatten().unwrap();
