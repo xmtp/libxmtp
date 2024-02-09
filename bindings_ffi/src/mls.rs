@@ -416,6 +416,16 @@ impl FfiGroup {
     pub fn created_at_ns(&self) -> i64 {
         self.created_at_ns
     }
+
+    pub fn is_active(&self) -> Result<bool, GenericError> {
+        let group = MlsGroup::new(
+            self.inner_client.as_ref(),
+            self.group_id.clone(),
+            self.created_at_ns,
+        );
+
+        Ok(group.is_active()?)
+    }
 }
 
 #[uniffi::export]

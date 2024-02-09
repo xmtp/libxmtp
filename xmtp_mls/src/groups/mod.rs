@@ -323,6 +323,14 @@ where
 
         self.sync_with_conn(conn).await
     }
+
+    pub fn is_active(&self) -> Result<bool, GroupError> {
+        let conn = &self.client.store.conn()?;
+        let provider = XmtpOpenMlsProvider::new(conn);
+        let mls_group = self.load_mls_group(&provider)?;
+
+        Ok(mls_group.is_active())
+    }
 }
 
 fn extract_message_v1(message: GroupMessage) -> Result<GroupMessageV1, MessageProcessingError> {
@@ -703,6 +711,10 @@ mod tests {
         assert_eq!(members_changed_codec.members_removed.len(), 1);
         assert_eq!(members_changed_codec.installations_added.len(), 0);
         assert_eq!(members_changed_codec.installations_removed.len(), 0);
+
+        let bola_group = receive_group_invite(&bola).await;
+        bola_group.sync().await.unwrap();
+        assert!(!bola_group.is_active().unwrap())
     }
 
     #[tokio::test]
