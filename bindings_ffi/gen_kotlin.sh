@@ -9,3 +9,5 @@ bindings_ffi/target/release/ffi-uniffi-bindgen generate \
     $CRATE_NAME/src/$PROJECT_NAME.udl \
     --language kotlin
 popd > /dev/null
+make libxmtp-version
+mv libxmtp-version.txt src/uniffi/$PROJECT_NAME/

@@ -69,7 +69,7 @@ framework: lipo
 		-output LibXMTPRust.xcframework
 
 # build uniffi bindings for swift
-swift:
+swift: libxmtp-version
 	cargo build --release
 	rm -rf build/swift
 	target/release/ffi-uniffi-bindgen generate \
@@ -81,6 +81,7 @@ swift:
 	mkdir -p build/swift/include
 	mv build/swift/$(PROJECT_NAME)FFI.h build/swift/include/
 	mv build/swift/$(PROJECT_NAME)FFI.modulemap build/swift/include/module.modulemap
+	mv libxmtp-version.txt build/swift/
 
 swiftlocal: libxmtpv3.a swift framework 
 
