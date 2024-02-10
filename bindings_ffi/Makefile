@@ -81,7 +81,7 @@ swift: libxmtp-version
 	mkdir -p build/swift/include
 	mv build/swift/$(PROJECT_NAME)FFI.h build/swift/include/
 	mv build/swift/$(PROJECT_NAME)FFI.modulemap build/swift/include/module.modulemap
-	mv libxmtp-version.txt build/swift/
+	cp libxmtp-version.txt build/swift/
 
 swiftlocal: libxmtpv3.a swift framework 
 
