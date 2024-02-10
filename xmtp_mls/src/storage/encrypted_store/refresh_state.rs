@@ -152,7 +152,7 @@ pub(crate) mod tests {
             let entity_kind = EntityKind::Group;
             let entry = RefreshState {
                 entity_id: id.clone(),
-                entity_kind: entity_kind,
+                entity_kind,
                 cursor: 123,
             };
             entry.store(conn).unwrap();

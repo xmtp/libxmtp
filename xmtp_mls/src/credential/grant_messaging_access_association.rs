@@ -1,5 +1,6 @@
 use chrono::DateTime;
 use serde::{Deserialize, Serialize};
+
 use xmtp_cryptography::signature::{ed25519_public_key_to_address, RecoverableSignature};
 use xmtp_proto::xmtp::mls::message_contents::{
     GrantMessagingAccessAssociation as GrantMessagingAccessAssociationProto,

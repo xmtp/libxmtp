@@ -1,14 +1,17 @@
-use crate::inbox_owner::RustInboxOwner;
 pub use crate::inbox_owner::SigningError;
 use crate::logger::init_logger;
 use crate::logger::FfiLogger;
 use crate::GenericError;
 use futures::StreamExt;
 use std::convert::TryInto;
-use std::sync::{Arc, Mutex};
+use std::sync::{
+    atomic::{AtomicBool, Ordering},
+    Arc, Mutex,
+};
 use tokio::sync::{oneshot, oneshot::Sender};
 use xmtp_api_grpc::grpc_api_helper::Client as TonicApiClient;
 use xmtp_mls::builder::IdentityStrategy;
+use xmtp_mls::builder::LegacyIdentity;
 use xmtp_mls::{
     builder::ClientBuilder,
     client::Client as MlsClient,
@@ -81,11 +84,20 @@ pub async fn create_client(
     };
 
     log::info!("Creating XMTP client");
-    let identity_strategy: IdentityStrategy<RustInboxOwner> = account_address.into();
+    let legacy_key_result =
+        legacy_signed_private_key_proto.ok_or("No legacy key provided".to_string());
+    let legacy_identity = match legacy_identity_source {
+        LegacyIdentitySource::None => LegacyIdentity::None,
+        LegacyIdentitySource::Static => LegacyIdentity::Static(legacy_key_result?),
+        LegacyIdentitySource::Network => LegacyIdentity::Network(legacy_key_result?),
+        LegacyIdentitySource::KeyGenerator => LegacyIdentity::KeyGenerator(legacy_key_result?),
+    };
+    let identity_strategy = IdentityStrategy::CreateIfNotFound(account_address, legacy_identity);
     let xmtp_client: RustXmtpClient = ClientBuilder::new(identity_strategy)
         .api_client(api_client)
         .store(store)
-        .build()?;
+        .build()
+        .await?;
 
     log::info!(
         "Created XMTP client for address: {}",
@@ -136,7 +148,7 @@ impl FfiXmtpClient {
         recoverable_wallet_signature: Option<Vec<u8>>,
     ) -> Result<(), GenericError> {
         self.inner_client
-            .register_identity_with_external_signature(recoverable_wallet_signature)
+            .register_identity(recoverable_wallet_signature)
             .await?;
 
         Ok(())
@@ -217,6 +229,8 @@ impl FfiConversations {
     ) -> Result<Arc<FfiStreamCloser>, GenericError> {
         let inner_client = Arc::clone(&self.inner_client);
         let (close_sender, close_receiver) = oneshot::channel::<()>();
+        let is_closed = Arc::new(AtomicBool::new(false));
+        let is_closed_clone = is_closed.clone();
 
         tokio::spawn(async move {
             let client = inner_client.as_ref();
@@ -239,11 +253,13 @@ impl FfiConversations {
                     }
                 }
             }
+            is_closed_clone.store(true, Ordering::Relaxed);
             log::info!("closing stream");
         });
 
         Ok(Arc::new(FfiStreamCloser {
             close_fn: Arc::new(Mutex::new(Some(close_sender))),
+            is_closed_atomic: is_closed,
         }))
     }
 }
@@ -366,6 +382,8 @@ impl FfiGroup {
         let group_id = self.group_id.clone();
         let created_at_ns = self.created_at_ns;
         let (close_sender, close_receiver) = oneshot::channel::<()>();
+        let is_closed = Arc::new(AtomicBool::new(false));
+        let is_closed_clone = is_closed.clone();
 
         tokio::spawn(async move {
             let client = inner_client.as_ref();
@@ -385,16 +403,28 @@ impl FfiGroup {
                     }
                 }
             }
+            is_closed_clone.store(true, Ordering::Relaxed);
             log::info!("closing stream");
         });
 
         Ok(Arc::new(FfiStreamCloser {
             close_fn: Arc::new(Mutex::new(Some(close_sender))),
+            is_closed_atomic: is_closed,
         }))
     }
 
     pub fn created_at_ns(&self) -> i64 {
         self.created_at_ns
+    }
+
+    pub fn is_active(&self) -> Result<bool, GenericError> {
+        let group = MlsGroup::new(
+            self.inner_client.as_ref(),
+            self.group_id.clone(),
+            self.created_at_ns,
+        );
+
+        Ok(group.is_active()?)
     }
 }
 
@@ -429,6 +459,7 @@ impl From<StoredGroupMessage> for FfiMessage {
 #[derive(uniffi::Object)]
 pub struct FfiStreamCloser {
     close_fn: Arc<Mutex<Option<Sender<()>>>>,
+    is_closed_atomic: Arc<AtomicBool>,
 }
 
 #[uniffi::export]
@@ -442,6 +473,10 @@ impl FfiStreamCloser {
                 log::warn!("close_fn already closed");
             }
         }
+    }
+
+    pub fn is_closed(&self) -> bool {
+        self.is_closed_atomic.load(Ordering::Relaxed)
     }
 }
 
@@ -795,6 +830,8 @@ mod tests {
         assert_eq!(stream_callback.message_count(), 2);
 
         stream.end();
+        tokio::time::sleep(tokio::time::Duration::from_millis(5)).await;
+        assert!(stream.is_closed());
     }
 
     // Disabling this flakey test until it's reliable

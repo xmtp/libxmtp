@@ -1,6 +1,7 @@
 use openmls::group::MlsGroup as OpenMlsGroup;
 use prost::Message;
 use thiserror::Error;
+
 use xmtp_proto::xmtp::mls::message_contents::{
     ConversationType as ConversationTypeProto, GroupMetadataV1 as GroupMetadataProto,
 };

@@ -1,25 +1,18 @@
 use std::pin::Pin;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex}; // TODO switch to async mutexes
-use std::{
-    str::FromStr,
-    sync::atomic::{AtomicBool, Ordering},
-};
+use std::time::Duration;
 
 use futures::stream::{AbortHandle, Abortable};
 use futures::{SinkExt, Stream, StreamExt, TryStreamExt};
-use http_body::combinators::UnsyncBoxBody;
-use hyper::{client::HttpConnector, Uri};
-use hyper_rustls::HttpsConnector;
 use tokio::sync::oneshot;
-use tokio_rustls::rustls::{ClientConfig, OwnedTrustAnchor, RootCertStore};
-use tonic::{async_trait, metadata::MetadataValue, transport::Channel, Request, Status, Streaming};
-use xmtp_proto::api_client::{GroupMessageStream, WelcomeMessageStream};
-use xmtp_proto::xmtp::mls::api::v1::{
-    SubscribeGroupMessagesRequest, SubscribeWelcomeMessagesRequest,
-};
+use tonic::transport::ClientTlsConfig;
+use tonic::{async_trait, metadata::MetadataValue, transport::Channel, Request, Streaming};
+
 use xmtp_proto::{
     api_client::{
-        Error, ErrorKind, MutableApiSubscription, XmtpApiClient, XmtpApiSubscription, XmtpMlsClient,
+        Error, ErrorKind, GroupMessageStream, MutableApiSubscription, WelcomeMessageStream,
+        XmtpApiClient, XmtpApiSubscription, XmtpMlsClient,
     },
     xmtp::message_api::v1::{
         message_api_client::MessageApiClient, BatchQueryRequest, BatchQueryResponse, Envelope,
@@ -30,67 +23,31 @@ use xmtp_proto::{
         FetchKeyPackagesResponse, GetIdentityUpdatesRequest, GetIdentityUpdatesResponse,
         QueryGroupMessagesRequest, QueryGroupMessagesResponse, QueryWelcomeMessagesRequest,
         QueryWelcomeMessagesResponse, RegisterInstallationRequest, RegisterInstallationResponse,
-        SendGroupMessagesRequest, SendWelcomeMessagesRequest, UploadKeyPackageRequest,
+        SendGroupMessagesRequest, SendWelcomeMessagesRequest, SubscribeGroupMessagesRequest,
+        SubscribeWelcomeMessagesRequest, UploadKeyPackageRequest,
     },
 };
 
-fn tls_config() -> ClientConfig {
-    let mut roots = RootCertStore::empty();
-    // Need to convert into OwnedTrustAnchor
-    roots.add_trust_anchors(webpki_roots::TLS_SERVER_ROOTS.0.iter().map(|ta| {
-        OwnedTrustAnchor::from_subject_spki_name_constraints(
-            ta.subject,
-            ta.spki,
-            ta.name_constraints,
-        )
-    }));
-    ClientConfig::builder()
-        .with_safe_defaults()
-        .with_root_certificates(roots)
-        .with_no_client_auth()
-}
+async fn create_tls_channel(address: String) -> Result<Channel, Error> {
+    let channel = Channel::from_shared(address)
+        .map_err(|e| Error::new(ErrorKind::SetupError).with(e))?
+        .keep_alive_while_idle(true)
+        .connect_timeout(Duration::from_secs(5))
+        .http2_keep_alive_interval(Duration::from_secs(3))
+        .keep_alive_timeout(Duration::from_secs(5))
+        .tls_config(ClientTlsConfig::new())
+        .map_err(|e| Error::new(ErrorKind::SetupError).with(e))?
+        .connect()
+        .await
+        .map_err(|e| Error::new(ErrorKind::SetupError).with(e))?;
 
-fn get_tls_connector() -> HttpsConnector<HttpConnector> {
-    let tls = tls_config();
-
-    let mut http = HttpConnector::new();
-    http.enforce_http(false);
-    tower::ServiceBuilder::new()
-        .layer_fn(move |s| {
-            let tls = tls.clone();
-            hyper_rustls::HttpsConnectorBuilder::new()
-                .with_tls_config(tls)
-                .https_or_http()
-                .enable_http2()
-                .wrap_connector(s)
-        })
-        .service(http)
-}
-
-#[derive(Debug)]
-pub enum InnerApiClient {
-    Plain(MessageApiClient<Channel>),
-    Tls(
-        MessageApiClient<
-            hyper::Client<HttpsConnector<HttpConnector>, UnsyncBoxBody<hyper::body::Bytes, Status>>,
-        >,
-    ),
-}
-
-#[derive(Debug)]
-pub enum InnerMlsClient {
-    Plain(ProtoMlsApiClient<Channel>),
-    Tls(
-        ProtoMlsApiClient<
-            hyper::Client<HttpsConnector<HttpConnector>, UnsyncBoxBody<hyper::body::Bytes, Status>>,
-        >,
-    ),
+    Ok(channel)
 }
 
 #[derive(Debug)]
 pub struct Client {
-    client: InnerApiClient,
-    mls_client: InnerMlsClient,
+    client: MessageApiClient<Channel>,
+    mls_client: ProtoMlsApiClient<Channel>,
     app_version: MetadataValue<tonic::metadata::Ascii>,
 }
 
@@ -99,19 +56,14 @@ impl Client {
         let host = host.to_string();
         let app_version = MetadataValue::try_from(&String::from("0.0.0")).unwrap();
         if is_secure {
-            let connector = get_tls_connector();
+            let channel = create_tls_channel(host).await?;
 
-            let tls_conn = hyper::Client::builder().build(connector);
-
-            let uri =
-                Uri::from_str(&host).map_err(|e| Error::new(ErrorKind::SetupError).with(e))?;
-
-            let tls_client = MessageApiClient::with_origin(tls_conn.clone(), uri.clone());
-            let mls_client = ProtoMlsApiClient::with_origin(tls_conn, uri);
+            let client = MessageApiClient::new(channel.clone());
+            let mls_client = ProtoMlsApiClient::new(channel);
 
             Ok(Self {
-                client: InnerApiClient::Tls(tls_client),
-                mls_client: InnerMlsClient::Tls(mls_client),
+                client,
+                mls_client,
                 app_version,
             })
         } else {
@@ -125,8 +77,8 @@ impl Client {
             let mls_client = ProtoMlsApiClient::new(channel);
 
             Ok(Self {
-                client: InnerApiClient::Plain(client),
-                mls_client: InnerMlsClient::Plain(mls_client),
+                client,
+                mls_client,
                 app_version,
             })
         }
@@ -157,21 +109,13 @@ impl XmtpApiClient for Client {
         tonic_request
             .metadata_mut()
             .insert("x-app-version", self.app_version.clone());
+        let client = &mut self.client.clone();
 
-        match &self.client {
-            InnerApiClient::Plain(c) => c
-                .clone()
-                .publish(tonic_request)
-                .await
-                .map(|r| r.into_inner())
-                .map_err(|e| Error::new(ErrorKind::PublishError).with(e)),
-            InnerApiClient::Tls(c) => c
-                .clone()
-                .publish(tonic_request)
-                .await
-                .map(|r| r.into_inner())
-                .map_err(|e| Error::new(ErrorKind::PublishError).with(e)),
-        }
+        client
+            .publish(tonic_request)
+            .await
+            .map(|r| r.into_inner())
+            .map_err(|e| Error::new(ErrorKind::PublishError).with(e))
     }
 
     async fn subscribe(&self, request: SubscribeRequest) -> Result<Subscription, Error> {
@@ -180,20 +124,12 @@ impl XmtpApiClient for Client {
             .metadata_mut()
             .insert("x-app-version", self.app_version.clone());
 
-        let stream = match &self.client {
-            InnerApiClient::Plain(c) => c
-                .clone()
-                .subscribe(tonic_request)
-                .await
-                .map_err(|e| Error::new(ErrorKind::SubscribeError).with(e))?
-                .into_inner(),
-            InnerApiClient::Tls(c) => c
-                .clone()
-                .subscribe(tonic_request)
-                .await
-                .map_err(|e| Error::new(ErrorKind::SubscribeError).with(e))?
-                .into_inner(),
-        };
+        let client = &mut self.client.clone();
+        let stream = client
+            .subscribe(tonic_request)
+            .await
+            .map_err(|e| Error::new(ErrorKind::SubscribeError).with(e))?
+            .into_inner();
 
         Ok(Subscription::start(stream).await)
     }
@@ -219,20 +155,14 @@ impl XmtpApiClient for Client {
             .metadata_mut()
             .insert("x-app-version", self.app_version.clone());
 
-        let stream = match &self.client {
-            InnerApiClient::Plain(c) => c
-                .clone()
-                .subscribe2(tonic_request)
-                .await
-                .map_err(|e| Error::new(ErrorKind::SubscribeError).with(e))?
-                .into_inner(),
-            InnerApiClient::Tls(c) => c
-                .clone()
-                .subscribe2(tonic_request)
-                .await
-                .map_err(|e| Error::new(ErrorKind::SubscribeError).with(e))?
-                .into_inner(),
-        };
+        let client = &mut self.client.clone();
+
+        let stream = client
+            .subscribe2(tonic_request)
+            .await
+            .map_err(|e| Error::new(ErrorKind::SubscribeError).with(e))?
+            .into_inner();
+
         Ok(GrpcMutableSubscription::new(
             Box::pin(stream.map_err(|e| Error::new(ErrorKind::SubscribeError).with(e))),
             sender,
@@ -244,11 +174,10 @@ impl XmtpApiClient for Client {
         tonic_request
             .metadata_mut()
             .insert("x-app-version", self.app_version.clone());
+        let client = &mut self.client.clone();
 
-        let res = match &self.client {
-            InnerApiClient::Plain(c) => c.clone().query(tonic_request).await,
-            InnerApiClient::Tls(c) => c.clone().query(tonic_request).await,
-        };
+        let res = client.query(tonic_request).await;
+
         match res {
             Ok(response) => Ok(response.into_inner()),
             Err(e) => Err(Error::new(ErrorKind::QueryError).with(e)),
@@ -261,10 +190,9 @@ impl XmtpApiClient for Client {
             .metadata_mut()
             .insert("x-app-version", self.app_version.clone());
 
-        let res = match &self.client {
-            InnerApiClient::Plain(c) => c.clone().batch_query(tonic_request).await,
-            InnerApiClient::Tls(c) => c.clone().batch_query(tonic_request).await,
-        };
+        let client = &mut self.client.clone();
+        let res = client.batch_query(tonic_request).await;
+
         match res {
             Ok(response) => Ok(response.into_inner()),
             Err(e) => Err(Error::new(ErrorKind::QueryError).with(e)),
@@ -394,10 +322,8 @@ impl XmtpMlsClient for Client {
         &self,
         req: RegisterInstallationRequest,
     ) -> Result<RegisterInstallationResponse, Error> {
-        let res = match &self.mls_client {
-            InnerMlsClient::Plain(c) => c.clone().register_installation(req).await,
-            InnerMlsClient::Tls(c) => c.clone().register_installation(req).await,
-        };
+        let client = &mut self.mls_client.clone();
+        let res = client.register_installation(req).await;
         match res {
             Ok(response) => Ok(response.into_inner()),
             Err(e) => Err(Error::new(ErrorKind::MlsError).with(e)),
@@ -405,10 +331,8 @@ impl XmtpMlsClient for Client {
     }
 
     async fn upload_key_package(&self, req: UploadKeyPackageRequest) -> Result<(), Error> {
-        let res = match &self.mls_client {
-            InnerMlsClient::Plain(c) => c.clone().upload_key_package(req).await,
-            InnerMlsClient::Tls(c) => c.clone().upload_key_package(req).await,
-        };
+        let client = &mut self.mls_client.clone();
+        let res = client.upload_key_package(req).await;
         match res {
             Ok(_) => Ok(()),
             Err(e) => Err(Error::new(ErrorKind::MlsError).with(e)),
@@ -419,20 +343,17 @@ impl XmtpMlsClient for Client {
         &self,
         req: FetchKeyPackagesRequest,
     ) -> Result<FetchKeyPackagesResponse, Error> {
-        let res = match &self.mls_client {
-            InnerMlsClient::Plain(c) => c.clone().fetch_key_packages(req).await,
-            InnerMlsClient::Tls(c) => c.clone().fetch_key_packages(req).await,
-        };
+        let client = &mut self.mls_client.clone();
+        let res = client.fetch_key_packages(req).await;
 
         res.map(|r| r.into_inner())
             .map_err(|e| Error::new(ErrorKind::MlsError).with(e))
     }
 
     async fn send_group_messages(&self, req: SendGroupMessagesRequest) -> Result<(), Error> {
-        let res = match &self.mls_client {
-            InnerMlsClient::Plain(c) => c.clone().send_group_messages(req).await,
-            InnerMlsClient::Tls(c) => c.clone().send_group_messages(req).await,
-        };
+        let client = &mut self.mls_client.clone();
+        let res = client.send_group_messages(req).await;
+
         match res {
             Ok(_) => Ok(()),
             Err(e) => Err(Error::new(ErrorKind::MlsError).with(e)),
@@ -440,10 +361,9 @@ impl XmtpMlsClient for Client {
     }
 
     async fn send_welcome_messages(&self, req: SendWelcomeMessagesRequest) -> Result<(), Error> {
-        let res = match &self.mls_client {
-            InnerMlsClient::Plain(c) => c.clone().send_welcome_messages(req).await,
-            InnerMlsClient::Tls(c) => c.clone().send_welcome_messages(req).await,
-        };
+        let client = &mut self.mls_client.clone();
+        let res = client.send_welcome_messages(req).await;
+
         match res {
             Ok(_) => Ok(()),
             Err(e) => Err(Error::new(ErrorKind::MlsError).with(e)),
@@ -454,10 +374,8 @@ impl XmtpMlsClient for Client {
         &self,
         req: QueryGroupMessagesRequest,
     ) -> Result<QueryGroupMessagesResponse, Error> {
-        let res = match &self.mls_client {
-            InnerMlsClient::Plain(c) => c.clone().query_group_messages(req).await,
-            InnerMlsClient::Tls(c) => c.clone().query_group_messages(req).await,
-        };
+        let client = &mut self.mls_client.clone();
+        let res = client.query_group_messages(req).await;
 
         res.map(|r| r.into_inner())
             .map_err(|e| Error::new(ErrorKind::MlsError).with(e))
@@ -467,10 +385,8 @@ impl XmtpMlsClient for Client {
         &self,
         req: QueryWelcomeMessagesRequest,
     ) -> Result<QueryWelcomeMessagesResponse, Error> {
-        let res = match &self.mls_client {
-            InnerMlsClient::Plain(c) => c.clone().query_welcome_messages(req).await,
-            InnerMlsClient::Tls(c) => c.clone().query_welcome_messages(req).await,
-        };
+        let client = &mut self.mls_client.clone();
+        let res = client.query_welcome_messages(req).await;
 
         res.map(|r| r.into_inner())
             .map_err(|e| Error::new(ErrorKind::MlsError).with(e))
@@ -480,10 +396,8 @@ impl XmtpMlsClient for Client {
         &self,
         req: GetIdentityUpdatesRequest,
     ) -> Result<GetIdentityUpdatesResponse, Error> {
-        let res = match &self.mls_client {
-            InnerMlsClient::Plain(c) => c.clone().get_identity_updates(req).await,
-            InnerMlsClient::Tls(c) => c.clone().get_identity_updates(req).await,
-        };
+        let client = &mut self.mls_client.clone();
+        let res = client.get_identity_updates(req).await;
 
         res.map(|r| r.into_inner())
             .map_err(|e| Error::new(ErrorKind::MlsError).with(e))
@@ -493,11 +407,11 @@ impl XmtpMlsClient for Client {
         &self,
         req: SubscribeGroupMessagesRequest,
     ) -> Result<GroupMessageStream, Error> {
-        let res = match &self.mls_client {
-            InnerMlsClient::Plain(c) => c.clone().subscribe_group_messages(req).await,
-            InnerMlsClient::Tls(c) => c.clone().subscribe_group_messages(req).await,
-        }
-        .map_err(|e| Error::new(ErrorKind::MlsError).with(e))?;
+        let client = &mut self.mls_client.clone();
+        let res = client
+            .subscribe_group_messages(req)
+            .await
+            .map_err(|e| Error::new(ErrorKind::MlsError).with(e))?;
 
         let stream = res.into_inner();
 
@@ -510,11 +424,11 @@ impl XmtpMlsClient for Client {
         &self,
         req: SubscribeWelcomeMessagesRequest,
     ) -> Result<WelcomeMessageStream, Error> {
-        let res = match &self.mls_client {
-            InnerMlsClient::Plain(c) => c.clone().subscribe_welcome_messages(req).await,
-            InnerMlsClient::Tls(c) => c.clone().subscribe_welcome_messages(req).await,
-        }
-        .map_err(|e| Error::new(ErrorKind::MlsError).with(e))?;
+        let client = &mut self.mls_client.clone();
+        let res = client
+            .subscribe_welcome_messages(req)
+            .await
+            .map_err(|e| Error::new(ErrorKind::MlsError).with(e))?;
 
         let stream = res.into_inner();
 

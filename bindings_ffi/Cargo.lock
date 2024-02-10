@@ -1999,9 +1999,7 @@ dependencies = [
  "futures-util",
  "http",
  "hyper",
- "log",
  "rustls",
- "rustls-native-certs",
  "tokio",
  "tokio-rustls",
 ]
@@ -4401,6 +4399,7 @@ version = "0.9.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3082666a3a6433f7f511c7192923fa1fe07c69332d3c6a2e6bb040b569199d5a"
 dependencies = [
+ "async-stream",
  "async-trait",
  "axum",
  "base64 0.21.7",
@@ -4415,7 +4414,10 @@ dependencies = [
  "percent-encoding",
  "pin-project",
  "prost",
+ "rustls-native-certs",
+ "rustls-pemfile",
  "tokio",
+ "tokio-rustls",
  "tokio-stream",
  "tower",
  "tower-layer",
@@ -5160,7 +5162,6 @@ dependencies = [
  "futures",
  "http-body",
  "hyper",
- "hyper-rustls",
  "log",
  "pbjson",
  "pbjson-types",
@@ -5168,7 +5169,6 @@ dependencies = [
  "serde",
  "serde_json",
  "tokio",
- "tokio-rustls",
  "tonic",
  "tower",
  "webpki-roots 0.23.1",

@@ -1,4 +1,5 @@
 use base64::{engine::general_purpose, Engine as _};
+
 use xmtp_v2::{encryption::hkdf, hashes::sha256};
 
 const PRIVATE_PREFERENCES_TOPIC_SALT: &[u8] = b"XMTP_PRIVATE_PREFERENCES_TOPIC";

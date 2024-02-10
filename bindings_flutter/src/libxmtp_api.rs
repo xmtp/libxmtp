@@ -6,7 +6,7 @@ use xmtp_cryptography::utils::LocalWallet;
 pub use xmtp_mls::builder::ClientBuilderError;
 pub use xmtp_mls::storage::StorageError;
 use xmtp_mls::{
-    builder::ClientBuilder, builder::IdentityStrategy, client::Client as MlsClient,
+    builder::ClientBuilder, builder::IdentityStrategy, builder::LegacyIdentity, client::Client as MlsClient,
     storage::EncryptedMessageStore, storage::StorageOption,
 };
 pub use xmtp_proto::api_client::Error as ApiError;
@@ -131,7 +131,7 @@ impl SignatureRequiredClient {
     pub async fn sign(&self, signature: Vec<u8>) -> Result<Client, XmtpError> {
         self.inner
             .client
-            .register_identity_with_external_signature(Some(signature))
+            .register_identity(Some(signature))
             .await?;
         return Ok(Client {
             inner: self.inner.clone(),
@@ -152,12 +152,13 @@ pub async fn create_client(
     let api_client = ApiClient::create(host.clone(), is_secure).await?;
     let store = EncryptedMessageStore::new(StorageOption::Persistent(db_path), encryption_key)?;
     // log::info!("Creating XMTP client");
-    let identity_strategy: IdentityStrategy<LocalWallet> =
-        IdentityStrategy::CreateUnsignedIfNotFound(account_address);
+    let identity_strategy: IdentityStrategy =
+        IdentityStrategy::CreateIfNotFound(account_address, LegacyIdentity::None); // TODO plumb legacy identity here
     let xmtp_client = ClientBuilder::new(identity_strategy)
         .api_client(api_client)
         .store(store)
-        .build()?;
+        .build()
+        .await?;
 
     // log::info!(
     //     "Created XMTP client for address: {}",
