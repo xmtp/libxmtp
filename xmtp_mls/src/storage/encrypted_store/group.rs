@@ -70,8 +70,6 @@ impl DbConnection<'_> {
             query = query.filter(dsl::created_at_ns.lt(created_before_ns));
         }
 
-        query = query.filter(dsl::installation_list_last_checked.gt(-1));
-
         if let Some(limit) = limit {
             query = query.limit(limit);
         }
@@ -99,18 +97,18 @@ impl DbConnection<'_> {
         group_id: Vec<u8>,
     ) -> Result<i64, StorageError> {
         let last_ts = self.raw_query(|conn| {
-            let last_ts = dsl::groups
+            let ts = dsl::groups
                 .find(&group_id)
                 .select(dsl::installation_list_last_checked)
                 .first(conn)
                 .optional()?;
-            match last_ts {
-                Some(ts) => Ok(ts),
-                None => Ok(0),
-            }
+            Ok(ts)
         })?;
 
-        Ok(last_ts)
+        match last_ts {
+            Some(ts) => Ok(ts),
+            None => Err(StorageError::NotFound),
+        }
     }
 
     /// Updates the 'last time checked' for installation lists.

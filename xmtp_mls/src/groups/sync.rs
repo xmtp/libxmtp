@@ -63,7 +63,7 @@ where
 {
     pub async fn sync(&self) -> Result<(), GroupError> {
         let conn = &mut self.client.store.conn()?;
-        let provider = self.client.mls_provider(&conn);
+        let provider = self.client.mls_provider(conn);
 
         let now = crate::utils::time::now_ns();
         let last = self.get_last_time_installations_checked(conn).await?;
