@@ -7,6 +7,9 @@ ARCHS_MAC = x86_64-apple-darwin aarch64-apple-darwin
 # ARCHS_MACCATALYST = x86_64-apple-ios-macabi aarch64-apple-ios-macabi
 LIB=libxmtpv3.a
 JAR_DIR=$(shell pwd)/tests/jar
+GIT_BRANCH=$(shell git rev-parse --abbrev-ref HEAD)
+GIT_COMMIT_HASH=$(shell git log -1 --pretty=format:"%h")
+GIT_COMMIT_DATE=$(shell TZ=UTC git log -1 --date=iso-local --pretty=format:"%ad")
 
 install-jar:
 	mkdir -p $(JAR_DIR) && \
@@ -26,6 +29,9 @@ download-toolchains:
 	rustup target add aarch64-apple-ios
 
 all: framework
+
+libxmtp-version:
+	echo "Version: $(GIT_COMMIT_HASH)\nBranch: $(GIT_BRANCH)\nDate: $(GIT_COMMIT_DATE)" > libxmtp-version.txt
 
 $(ARCHS_IOS): %:
 	cross build --target $@ --target-dir ./target --release --no-default-features
