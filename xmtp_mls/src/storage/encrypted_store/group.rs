@@ -102,17 +102,17 @@ impl DbConnection<'_> {
             let last_ts = dsl::groups
                 .find(&group_id)
                 .select(dsl::installation_list_last_checked)
-                .first(conn).optional()?;
+                .first(conn)
+                .optional()?;
             match last_ts {
                 Some(ts) => Ok(ts),
-                None => Ok(0)
+                None => Ok(0),
             }
-
         })?;
-        
+
         Ok(last_ts)
     }
-    
+
     /// Updates the 'last time checked' for installation lists.
     pub fn update_installation_list_time_checked(
         &self,
@@ -297,16 +297,13 @@ pub(crate) mod tests {
 
             // Check that some event occurred which triggers an installation list update.
             // Here we invoke that event directly
-            let result = conn
-                .update_installation_list_time_checked(test_group.id.clone());
+            let result = conn.update_installation_list_time_checked(test_group.id.clone());
             assert_ok!(result);
 
             // Check that the latest installation list timestamp has been updated
             let fetched_group: StoredGroup = conn.fetch(&test_group.id).ok().flatten().unwrap();
             assert_ne!(fetched_group.installation_list_last_checked, 0);
-            assert!(
-                fetched_group.created_at_ns < fetched_group.installation_list_last_checked
-            );
+            assert!(fetched_group.created_at_ns < fetched_group.installation_list_last_checked);
         })
     }
 }

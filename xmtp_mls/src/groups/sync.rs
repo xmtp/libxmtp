@@ -718,7 +718,7 @@ where
         let last_ts = conn.get_installation_list_time_checked(self.group_id.clone())?;
         Ok(last_ts)
     }
-    
+
     pub(super) async fn update_latest_installation_list_timestamp(
         &self,
         conn: &DbConnection<'_>,
