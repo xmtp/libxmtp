@@ -105,10 +105,7 @@ impl DbConnection<'_> {
             Ok(ts)
         })?;
 
-        match last_ts {
-            Some(ts) => Ok(ts),
-            None => Err(StorageError::NotFound),
-        }
+        last_ts.ok_or(StorageError::NotFound)
     }
 
     /// Updates the 'last time checked' for installation lists.
