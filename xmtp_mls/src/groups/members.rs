@@ -74,7 +74,7 @@ mod tests {
         let bola_a = ClientBuilder::new_test_client(&bola_wallet).await;
         let bola_b = ClientBuilder::new_test_client(&bola_wallet).await;
 
-        let group = amal.create_group().unwrap();
+        let group = amal.create_group(None).unwrap();
         // Add both of Bola's installations to the group
         group
             .add_members_by_installation_id(vec![
