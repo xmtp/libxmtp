@@ -17,7 +17,7 @@ use xmtp_cryptography::{
     utils::{rng, seeded_rng, LocalWallet},
 };
 use xmtp_mls::{
-    builder::{ClientBuilderError, IdentityStrategy},
+    builder::{ClientBuilderError, IdentityStrategy, LegacyIdentity},
     client::ClientError,
     groups::MlsGroup,
     storage::{EncryptedMessageStore, EncryptionKey, StorageError, StorageOption},
@@ -26,7 +26,7 @@ use xmtp_mls::{
 };
 use xmtp_proto::api_client::{XmtpApiClient, XmtpMlsClient};
 type Client = xmtp_mls::client::Client<ApiClient>;
-type ClientBuilder = xmtp_mls::builder::ClientBuilder<ApiClient, Wallet>;
+type ClientBuilder = xmtp_mls::builder::ClientBuilder<ApiClient>;
 
 /// A fictional versioning CLI
 #[derive(Debug, Parser)] // requires `derive` feature
@@ -38,7 +38,7 @@ struct Cli {
     /// Sets a custom config file
     #[arg(long, value_name = "FILE", global = true)]
     db: Option<PathBuf>,
-    #[clap(long, default_value_t = true)]
+    #[clap(long, default_value_t = false)]
     local: bool,
 }
 
@@ -274,11 +274,12 @@ async fn main() {
     }
 }
 
-async fn create_client(cli: &Cli, account: IdentityStrategy<Wallet>) -> Result<Client, CliError> {
+async fn create_client(cli: &Cli, account: IdentityStrategy) -> Result<Client, CliError> {
     let msg_store = get_encrypted_store(&cli.db).unwrap();
     let mut builder = ClientBuilder::new(account).store(msg_store);
 
     if cli.local {
+        info!("Using local network");
         builder = builder
             .network(Network::Local("http://localhost:5556"))
             .api_client(
@@ -287,14 +288,15 @@ async fn create_client(cli: &Cli, account: IdentityStrategy<Wallet>) -> Result<C
                     .unwrap(),
             );
     } else {
+        info!("Using dev network");
         builder = builder.network(Network::Dev).api_client(
-            ApiClient::create("https://dev.xmtp.network:5556".into(), true)
+            ApiClient::create("https://grpc.dev.xmtp.network:443".into(), true)
                 .await
                 .unwrap(),
         );
     }
 
-    builder.build().map_err(CliError::ClientBuilder)
+    builder.build().await.map_err(CliError::ClientBuilder)
 }
 
 async fn register(cli: &Cli, wallet_seed: &u64) -> Result<(), CliError> {
@@ -304,10 +306,15 @@ async fn register(cli: &Cli, wallet_seed: &u64) -> Result<(), CliError> {
         Wallet::LocalWallet(LocalWallet::new(&mut seeded_rng(*wallet_seed)))
     };
 
-    let client = create_client(cli, IdentityStrategy::CreateIfNotFound(w)).await?;
+    let client = create_client(
+        cli,
+        IdentityStrategy::CreateIfNotFound(w.get_address(), LegacyIdentity::None),
+    )
+    .await?;
     info!("Address is: {}", client.account_address());
+    let signature: Option<Vec<u8>> = client.text_to_sign().map(|t| w.sign(&t).unwrap().into());
 
-    if let Err(e) = client.register_identity().await {
+    if let Err(e) = client.register_identity(signature).await {
         error!("Initialization Failed: {}", e.to_string());
         panic!("Could not init");
     };

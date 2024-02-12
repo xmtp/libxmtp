@@ -1,17 +1,5 @@
-use super::{intents::SendMessageIntentData, members::GroupMember, GroupError, MlsGroup};
-use crate::{
-    api_client_wrapper::IdentityUpdate,
-    codecs::ContentCodec,
-    configuration::MAX_INTENT_PUBLISH_ATTEMPTS,
-    hpke::{encrypt_welcome, HpkeError},
-    retry_async,
-    storage::{
-        group_intent::{IntentKind, IntentState, ID},
-        refresh_state::EntityKind,
-        StorageError,
-    },
-    Fetch,
-};
+use std::{collections::HashMap, mem::discriminant};
+
 use log::debug;
 use openmls::{
     framing::ProtocolMessage,
@@ -24,8 +12,8 @@ use openmls::{
 };
 use openmls_traits::OpenMlsProvider;
 use prost::Message;
-use std::{collections::HashMap, mem::discriminant};
 use tls_codec::{Deserialize, Serialize};
+
 use xmtp_proto::{
     api_client::XmtpMlsClient,
     xmtp::mls::api::v1::{
@@ -38,25 +26,35 @@ use xmtp_proto::{
     xmtp::mls::message_contents::GroupMembershipChanges,
 };
 
-use super::intents::{
-    AddMembersIntentData, AddressesOrInstallationIds, Installation, PostCommitAction,
-    RemoveMembersIntentData, SendWelcomesAction,
+use super::{
+    intents::{
+        AddMembersIntentData, AddressesOrInstallationIds, Installation, PostCommitAction,
+        RemoveMembersIntentData, SendMessageIntentData, SendWelcomesAction,
+    },
+    members::GroupMember,
+    GroupError, MlsGroup,
 };
 use crate::{
+    api_client_wrapper::IdentityUpdate,
     client::MessageProcessingError,
-    codecs::membership_change::GroupMembershipChangeCodec,
+    codecs::{membership_change::GroupMembershipChangeCodec, ContentCodec},
+    configuration::{MAX_INTENT_PUBLISH_ATTEMPTS, UPDATE_INSTALLATION_LIST_INTERVAL_NS},
     groups::validated_commit::ValidatedCommit,
+    hpke::{encrypt_welcome, HpkeError},
     identity::Identity,
     retry,
     retry::Retry,
+    retry_async,
     storage::{
         db_connection::DbConnection,
-        group_intent::StoredGroupIntent,
+        group_intent::{IntentKind, IntentState, StoredGroupIntent, ID},
         group_message::{GroupMessageKind, StoredGroupMessage},
+        refresh_state::EntityKind,
+        StorageError,
     },
     utils::{hash::sha256, id::get_message_id},
     xmtp_openmls_provider::XmtpOpenMlsProvider,
-    Delete, Store,
+    Delete, Fetch, Store,
 };
 
 impl<'c, ApiClient> MlsGroup<'c, ApiClient>
@@ -65,6 +63,9 @@ where
 {
     pub async fn sync(&self) -> Result<(), GroupError> {
         let conn = &mut self.client.store.conn()?;
+
+        self.maybe_update_installation_list(conn).await?;
+
         self.sync_with_conn(conn).await
     }
 
@@ -625,7 +626,22 @@ where
         Ok(())
     }
 
-    #[allow(dead_code)]
+    pub(super) async fn maybe_update_installation_list<'a>(
+        &self,
+        conn: &'a DbConnection<'a>,
+    ) -> Result<(), GroupError> {
+        let now = crate::utils::time::now_ns();
+        let last = conn.get_installation_list_time_checked(self.group_id.clone())?;
+        let elapsed = now - last;
+        if elapsed > UPDATE_INSTALLATION_LIST_INTERVAL_NS {
+            let provider = self.client.mls_provider(conn);
+            self.add_missing_installations(provider).await?;
+            conn.update_installation_list_time_checked(self.group_id.clone())?;
+        }
+
+        Ok(())
+    }
+
     pub(super) async fn get_missing_members(
         &self,
         provider: &XmtpOpenMlsProvider<'_>,
@@ -691,19 +707,17 @@ where
         Ok((to_add, vec![]))
     }
 
-    #[allow(dead_code)]
     pub(super) async fn add_missing_installations(
         &self,
-        provider: &XmtpOpenMlsProvider<'_>,
-    ) -> Result<usize, GroupError> {
-        let (missing_members, _placeholder) = self.get_missing_members(provider).await?;
+        provider: XmtpOpenMlsProvider<'_>,
+    ) -> Result<(), GroupError> {
+        let (missing_members, _) = self.get_missing_members(&provider).await?;
         if missing_members.is_empty() {
-            return Ok(0);
+            return Ok(());
         }
-        let new_member_installations_count = missing_members.len();
         self.add_members_by_installation_id(missing_members).await?;
 
-        Ok(new_member_installations_count)
+        Ok(())
     }
 
     async fn send_welcomes(&self, action: SendWelcomesAction) -> Result<(), GroupError> {

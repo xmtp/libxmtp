@@ -1,5 +1,6 @@
 extern crate toml;
 extern crate xmtp_mls;
+
 use std::{
     env,
     fs::{self, File},
@@ -9,6 +10,7 @@ use std::{
 
 use rand::distributions::{Alphanumeric, DistString};
 use toml::Table;
+
 use xmtp_mls::storage::{EncryptedMessageStore, StorageOption};
 
 const DIESEL_TOML: &str = "./diesel.toml";

@@ -1,13 +1,12 @@
 use std::pin::Pin;
 
-use crate::api_client_wrapper::GroupFilter;
-use crate::storage::group_message::StoredGroupMessage;
-use crate::storage::refresh_state::EntityKind;
 use futures::{Stream, StreamExt};
-use xmtp_proto::api_client::XmtpMlsClient;
-use xmtp_proto::xmtp::mls::api::v1::GroupMessage;
+
+use xmtp_proto::{api_client::XmtpMlsClient, xmtp::mls::api::v1::GroupMessage};
 
 use super::{extract_message_v1, GroupError, MlsGroup};
+use crate::api_client_wrapper::GroupFilter;
+use crate::storage::{group_message::StoredGroupMessage, refresh_state::EntityKind};
 
 impl<'c, ApiClient> MlsGroup<'c, ApiClient>
 where
@@ -90,10 +89,8 @@ mod tests {
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 10)]
     async fn test_subscribe_messages() {
-        let amal = ClientBuilder::new_test_client(generate_local_wallet().into()).await;
-        amal.register_identity().await.unwrap();
-        let bola = ClientBuilder::new_test_client(generate_local_wallet().into()).await;
-        bola.register_identity().await.unwrap();
+        let amal = ClientBuilder::new_test_client(&generate_local_wallet()).await;
+        let bola = ClientBuilder::new_test_client(&generate_local_wallet()).await;
 
         let amal_group = amal.create_group().unwrap();
         // Add bola
@@ -121,7 +118,7 @@ mod tests {
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 10)]
     async fn test_subscribe_multiple() {
-        let amal = ClientBuilder::new_test_client(generate_local_wallet().into()).await;
+        let amal = ClientBuilder::new_test_client(&generate_local_wallet()).await;
         let group = amal.create_group().unwrap();
 
         let stream = group.stream().await.unwrap();
@@ -148,10 +145,8 @@ mod tests {
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 10)]
     async fn test_subscribe_membership_changes() {
-        let amal = ClientBuilder::new_test_client(generate_local_wallet().into()).await;
-        amal.register_identity().await.unwrap();
-        let bola = ClientBuilder::new_test_client(generate_local_wallet().into()).await;
-        bola.register_identity().await.unwrap();
+        let amal = ClientBuilder::new_test_client(&generate_local_wallet()).await;
+        let bola = ClientBuilder::new_test_client(&generate_local_wallet()).await;
 
         let amal_group = amal.create_group().unwrap();
 

@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 
 use prost::Message;
+
 use xmtp_proto::xmtp::mls::message_contents::{
     ContentTypeId, EncodedContent, GroupMembershipChanges,
 };

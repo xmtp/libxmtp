@@ -41,7 +41,7 @@ or
 Command line build using docker
 
 ```bash
-$ docker build . -t libxmtp:1
+docker build . -t libxmtp:1
 ```
 
 ## Structure
@@ -68,4 +68,4 @@ libxmtp/
 
 ├ [`xmtp_proto`](./xmtp_proto): Generated code for handling XMTP protocol buffers
 
-└ [`xmtp_v2`](./xmtp_v2): Version 2 of XMTP which uses a [user key bundle](https://xmtp.org/docs/concepts/key-generation-and-usage) to encrypt and exchange messages. 
+└ [`xmtp_v2`](./xmtp_v2): Version 2 of XMTP which uses a [user key bundle](https://xmtp.org/docs/concepts/key-generation-and-usage) to encrypt and exchange messages.

@@ -1,6 +1,7 @@
 use openmls::group::MlsGroup as OpenMlsGroup;
 use prost::Message;
 use thiserror::Error;
+
 use xmtp_proto::xmtp::mls::message_contents::{
     ConversationType as ConversationTypeProto, GroupMetadataV1 as GroupMetadataProto,
 };
@@ -78,11 +79,11 @@ impl TryFrom<GroupMetadata> for Vec<u8> {
     }
 }
 
-impl TryFrom<&[u8]> for GroupMetadata {
+impl TryFrom<&Vec<u8>> for GroupMetadata {
     type Error = GroupMetadataError;
 
-    fn try_from(value: &[u8]) -> Result<Self, Self::Error> {
-        let proto_val = GroupMetadataProto::decode(value)?;
+    fn try_from(value: &Vec<u8>) -> Result<Self, Self::Error> {
+        let proto_val = GroupMetadataProto::decode(value.as_slice())?;
         Self::from_proto(proto_val)
     }
 }
@@ -126,7 +127,7 @@ pub fn extract_group_metadata(group: &OpenMlsGroup) -> Result<GroupMetadata, Gro
     let extension = group
         .export_group_context()
         .extensions()
-        .protected_metadata()
+        .immutable_metadata()
         .ok_or(GroupMetadataError::MissingExtension)?;
 
     extension.metadata().try_into()

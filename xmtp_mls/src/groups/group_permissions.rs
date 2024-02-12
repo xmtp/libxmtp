@@ -1,6 +1,6 @@
-use super::validated_commit::{AggregatedMembershipChange, CommitParticipant, ValidatedCommit};
 use prost::Message;
 use thiserror::Error;
+
 use xmtp_proto::xmtp::mls::message_contents::{
     membership_policy::{
         AndCondition as AndConditionProto, AnyCondition as AnyConditionProto,
@@ -8,6 +8,8 @@ use xmtp_proto::xmtp::mls::message_contents::{
     },
     MembershipPolicy as MembershipPolicyProto, PolicySet as PolicySetProto,
 };
+
+use super::validated_commit::{AggregatedMembershipChange, CommitParticipant, ValidatedCommit};
 
 // A trait for policies that can add/remove members and installations for the group
 pub trait MembershipPolicy: std::fmt::Debug {
@@ -350,7 +352,7 @@ mod tests {
         AggregatedMembershipChange {
             account_address: account_address.unwrap_or_else(rand_account_address),
             installation_ids: vec![installation_id.unwrap_or_else(rand_vec)],
-            is_creator: is_creator,
+            is_creator,
         }
     }
 
@@ -393,13 +395,13 @@ mod tests {
                 .unwrap_or_default(),
             members_removed: member_removed
                 .map(build_membership_change)
-                .unwrap_or_else(std::vec::Vec::new),
+                .unwrap_or_default(),
             installations_added: installation_added
                 .map(build_membership_change)
-                .unwrap_or_else(std::vec::Vec::new),
+                .unwrap_or_default(),
             installations_removed: installation_removed
                 .map(build_membership_change)
-                .unwrap_or_else(std::vec::Vec::new),
+                .unwrap_or_default(),
         }
     }
 

@@ -1,7 +1,7 @@
 [package]
+edition = "2021"
 name = "bindings_wasm"
 version = "0.1.0"
-edition = "2021"
 
 [lib]
 crate-type = ["cdylib", "rlib"]
@@ -13,15 +13,15 @@ hex = "0.4"
 js-sys = "0.3"
 prost = { version = "0.11", features = ["prost-derive"] }
 prost-types = "0.11"
-wasm-bindgen = "0.2.87"
-wasm-bindgen-futures = "0.4.37"
+wasm-bindgen = "0.2.91"
+wasm-bindgen-futures = "0.4.41"
 xmtp_api_grpc_gateway = { path = "../xmtp_api_grpc_gateway" }
 xmtp_cryptography = { path = "../xmtp_cryptography", features = ["ws"] }
 xmtp_proto = { path = "../xmtp_proto", features = ["proto_full"] }
 
 [dev-dependencies]
 uuid = { version = "1.3.1", features = ["v4"] }
-wasm-bindgen-test = "0.3.34"
+wasm-bindgen-test = "0.3.41"
 
 [profile.release]
 opt-level = "s"
