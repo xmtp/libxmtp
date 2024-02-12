@@ -56,3 +56,18 @@ fn stringify_error_chain<T: Error>(error: &T) -> String {
 
     result
 }
+
+#[uniffi::export]
+pub fn get_version_info() -> String {
+    include_str!("../libxmtp-version.txt").to_string()
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::get_version_info;
+
+    #[test]
+    pub fn test_get_version_info() {
+        print!("{}", get_version_info());
+    }
+}

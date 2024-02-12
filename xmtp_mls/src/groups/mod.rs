@@ -36,7 +36,7 @@ use crate::{
 };
 use intents::SendMessageIntentData;
 use openmls::{
-    extensions::{Extension, Extensions, ProtectedMetadata},
+    extensions::{Extension, Extensions, Metadata},
     group::{MlsGroupCreateConfig, MlsGroupJoinConfig},
     prelude::{
         CredentialWithKey, CryptoConfig, GroupId, MlsGroup as OpenMlsGroup, Welcome as MlsWelcome,
@@ -365,15 +365,9 @@ fn build_protected_metadata_extension(
         identity.account_address.clone(),
         policies,
     );
-    let protected_metadata = ProtectedMetadata::new(
-        &identity.installation_keys,
-        identity.application_id(),
-        identity.credential()?,
-        identity.installation_keys.to_public_vec(),
-        metadata.try_into()?,
-    )?;
+    let protected_metadata = Metadata::new(metadata.try_into()?);
 
-    Ok(Extension::ProtectedMetadata(protected_metadata))
+    Ok(Extension::ImmutableMetadata(protected_metadata))
 }
 
 fn build_group_config(

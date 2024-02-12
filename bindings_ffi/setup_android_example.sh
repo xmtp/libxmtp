@@ -12,7 +12,9 @@ cp -r jniLibs $APP_PATH/app/src/main/
 
 # Copy the .kt files to the example project
 rm -f $APP_PATH/app/src/main/java/$PROJECT_NAME.kt
+rm -f $APP_PATH/app/src/main/java/libxmtp-version.txt
 cp src/uniffi/$PROJECT_NAME/$PROJECT_NAME.kt $APP_PATH/app/src/main/java/
+cp src/uniffi/$PROJECT_NAME/libxmtp-version.txt $APP_PATH/app/src/main/java/
 
 # Copy MainActivity.kt and ExampleInstrumentedTest.kt to the example project (comment this out if copying to a different app)
 rm -f $APP_PATH/app/src/main/java/com/example/xmtpv3_example/MainActivity.kt
