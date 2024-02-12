@@ -403,6 +403,7 @@ mod tests {
     use crate::{
         builder::ClientBuilder,
         codecs::{membership_change::GroupMembershipChangeCodec, ContentCodec},
+        groups::PreconfiguredPolicies,
         storage::{
             group_intent::IntentState,
             group_message::{GroupMessageKind, StoredGroupMessage},
@@ -821,5 +822,28 @@ mod tests {
         assert!(expected_latest_message.eq(&bola_latest_message.decrypted_message_bytes));
         assert!(expected_latest_message.eq(&charlie_latest_message.decrypted_message_bytes));
         assert!(expected_latest_message.eq(&dave_latest_message.decrypted_message_bytes));
+    }
+
+    #[tokio::test]
+    async fn test_group_permissions() {
+        let amal = ClientBuilder::new_test_client(&generate_local_wallet()).await;
+        let bola = ClientBuilder::new_test_client(&generate_local_wallet()).await;
+        let charlie = ClientBuilder::new_test_client(&generate_local_wallet()).await;
+
+        let amal_group = amal
+            .create_group(Some(PreconfiguredPolicies::GroupCreatorIsAdmin))
+            .unwrap();
+        // Add bola to the group
+        amal_group
+            .add_members(vec![bola.account_address()])
+            .await
+            .unwrap();
+
+        let bola_group = receive_group_invite(&bola).await;
+        bola_group.sync().await.unwrap();
+        assert!(bola_group
+            .add_members(vec![charlie.account_address()])
+            .await
+            .is_err(),);
     }
 }

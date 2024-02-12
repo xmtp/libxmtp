@@ -123,13 +123,19 @@ impl ValidatedCommit {
             &group_metadata,
         )?;
 
-        Ok(Some(Self {
+        let validated_commit = Self {
             actor,
             members_added,
             members_removed,
             installations_added,
             installations_removed,
-        }))
+        };
+
+        if !group_metadata.policies.evaluate_commit(&validated_commit) {
+            return Err(CommitValidationError::InsufficientPermissions);
+        }
+
+        Ok(Some(validated_commit))
     }
 
     pub fn actor_account_address(&self) -> Address {
