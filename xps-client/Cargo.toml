@@ -1,0 +1,23 @@
+[package]
+name = "xps-client"
+version = "0.1.0"
+edition = "2021"
+authors = ["XMTP Labs <eng@xmtp.com>"]
+description = "XMTP XPS Client for decentralized operations"
+homepage = "https://github.com/xmtp/libxmtp"
+repository = "https://github.com/xmtp/libxmtp"
+license = "MIT"
+keywords = ["ethereum", "did", "did:ethr", "jsonrpc"]
+categories = ["web-programming::websocket", "web-programming::http-server", "web-programming::http-client", "cryptography::cryptocurrencies"]
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+lib-xps = { git = "https://github.com/xmtp/xps-gateway", branch = "main", package = "lib-xps" }
+xps-types = { git = "https://github.com/xmtp/xps-gateway", branch = "main", package = "xps-types" }
+
+xmtp_proto = { path = "../xmtp_proto" }
+log.workspace = true
+futures.workspace = true
+
+
