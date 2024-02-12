@@ -13,11 +13,20 @@ categories = ["web-programming::websocket", "web-programming::http-server", "web
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
+jsonrpsee = { version = "0.22", features = ["client-core", "ws-client"] }
 lib_xps = { git = "https://github.com/xmtp/xps-gateway", branch = "main", package = "lib-xps" }
 xps-types = { git = "https://github.com/xmtp/xps-gateway", branch = "main", package = "xps-types" }
-
-xmtp_proto = { path = "../xmtp_proto" }
+lib-didethresolver = { git =  "https://github.com/xmtp/didethresolver", branch = "main" }
+xmtp_proto = { path = "../xmtp_proto", features = ["proto_full"] }
+xmtp_mls = { path = "../xmtp_mls" }
+rustc-hex = "2.1"
+url = "2.5"
+hex.workspace = true
 log.workspace = true
 futures.workspace = true
-
-
+async-trait.workspace = true
+thiserror.workspace = true
+openmls.workspace = true
+tls_codec.workspace = true
+ethers.workspace = true
+prost.workspace = true
