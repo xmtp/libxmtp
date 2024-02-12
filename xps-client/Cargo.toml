@@ -13,7 +13,7 @@ categories = ["web-programming::websocket", "web-programming::http-server", "web
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-lib_xps = { git = "https://github.com/xmtp/xps-gateway", branch = "main", package = "lib-xps" }
+lib-xps = { git = "https://github.com/xmtp/xps-gateway", branch = "main", package = "lib-xps" }
 xps-types = { git = "https://github.com/xmtp/xps-gateway", branch = "main", package = "xps-types" }
 
 xmtp_proto = { path = "../xmtp_proto" }
