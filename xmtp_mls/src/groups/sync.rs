@@ -63,15 +63,8 @@ where
 {
     pub async fn sync(&self) -> Result<(), GroupError> {
         let conn = &mut self.client.store.conn()?;
-        let provider = self.client.mls_provider(conn);
 
-        let now = crate::utils::time::now_ns();
-        let last = self.get_last_time_installations_checked(conn).await?;
-        let elapsed = now - last;
-        if elapsed > UPDATE_INSTALLATION_LIST_INTERVAL_NS {
-            self.add_missing_installations(provider).await?;
-            self.update_latest_installation_list_timestamp(conn).await?;
-        }
+        self.maybe_update_installation_list(conn).await?;
 
         self.sync_with_conn(conn).await
     }
@@ -633,6 +626,22 @@ where
         Ok(())
     }
 
+    pub(super) async fn maybe_update_installation_list<'a>(
+        &self,
+        conn: &'a DbConnection<'a>,
+    ) -> Result<(), GroupError> {
+        let now = crate::utils::time::now_ns();
+        let last = conn.get_installation_list_time_checked(self.group_id.clone())?;
+        let elapsed = now - last;
+        if elapsed > UPDATE_INSTALLATION_LIST_INTERVAL_NS {
+            let provider = self.client.mls_provider(conn);
+            self.add_missing_installations(provider).await?;
+            conn.update_installation_list_time_checked(self.group_id.clone())?;
+        }
+
+        Ok(())
+    }
+
     pub(super) async fn get_missing_members(
         &self,
         provider: &XmtpOpenMlsProvider<'_>,
@@ -702,28 +711,12 @@ where
         &self,
         provider: XmtpOpenMlsProvider<'_>,
     ) -> Result<(), GroupError> {
-        let (missing_members, _placeholder) = self.get_missing_members(&provider).await?;
+        let (missing_members, _) = self.get_missing_members(&provider).await?;
         if missing_members.is_empty() {
             return Ok(());
         }
         self.add_members_by_installation_id(missing_members).await?;
 
-        Ok(())
-    }
-
-    pub(super) async fn get_last_time_installations_checked(
-        &self,
-        conn: &DbConnection<'_>,
-    ) -> Result<i64, GroupError> {
-        let last_ts = conn.get_installation_list_time_checked(self.group_id.clone())?;
-        Ok(last_ts)
-    }
-
-    pub(super) async fn update_latest_installation_list_timestamp(
-        &self,
-        conn: &DbConnection<'_>,
-    ) -> Result<(), GroupError> {
-        let _result = conn.update_installation_list_time_checked(self.group_id.clone())?;
         Ok(())
     }
 
