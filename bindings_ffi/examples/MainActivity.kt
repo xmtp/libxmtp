@@ -68,6 +68,7 @@ class MainActivity : AppCompatActivity() {
         val credentials: Credentials = Credentials.create(ECKeyPair.create(privateKey))
         val inboxOwner = Web3jInboxOwner(credentials)
         val dbDir: File = File(this.filesDir.absolutePath, "xmtp_db")
+        dbDir.deleteRecursively()
         dbDir.mkdir()
         val dbPath: String = dbDir.absolutePath + "/android_example.db3"
         val dbEncryptionKey = SecureRandom().generateSeed(32)
@@ -122,6 +123,5 @@ class MainActivity : AppCompatActivity() {
             }
         }
 
-        dbDir.deleteRecursively()
     }
 }
