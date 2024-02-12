@@ -5,10 +5,13 @@ import android.util.Log
 import android.widget.TextView
 import androidx.appcompat.app.AppCompatActivity
 import com.example.xmtpv3_example.R.id.selftest_output
+import java.io.File
 import java.nio.charset.StandardCharsets
+import java.security.SecureRandom
 import kotlinx.coroutines.runBlocking
 import org.bouncycastle.util.encoders.Hex.toHexString
 import org.web3j.crypto.Credentials
+import org.web3j.crypto.ECKeyPair
 import org.web3j.crypto.Sign
 import org.xmtp.android.library.Client
 import org.xmtp.android.library.ClientOptions
@@ -18,6 +21,7 @@ import uniffi.xmtpv3.FfiConversationCallback
 import uniffi.xmtpv3.FfiGroup
 import uniffi.xmtpv3.FfiInboxOwner
 import uniffi.xmtpv3.FfiLogger
+import uniffi.xmtpv3.LegacyIdentitySource
 
 const val EMULATOR_LOCALHOST_ADDRESS = "http://10.0.2.2:5556"
 const val DEV_NETWORK_ADDRESS = "https://dev.xmtp.network:5556"
@@ -60,18 +64,24 @@ class MainActivity : AppCompatActivity() {
         setContentView(R.layout.activity_main)
 
         val textView: TextView = findViewById<TextView>(selftest_output)
-        // val privateKey: ByteArray = SecureRandom().generateSeed(32)
-        // val credentials: Credentials = Credentials.create(ECKeyPair.create(privateKey))
-        // val inboxOwner = Web3jInboxOwner(credentials)
-        // val dbDir: File = File(this.filesDir.absolutePath, "xmtp_db")
-        // dbDir.mkdir()
-        // val dbPath: String = dbDir.absolutePath + "/android_example.db3"
-        // val dbEncryptionKey = SecureRandom().generateSeed(32)
-        // Log.i(
-        //     "App",
-        //     "INFO -\naccountAddress: " + inboxOwner.getAddress() + "\nprivateKey: " +
-        // privateKey.asList() + "\nDB path: " + dbPath + "\nDB encryption key: " + dbEncryptionKey
-        // )
+        val privateKey: ByteArray = SecureRandom().generateSeed(32)
+        val credentials: Credentials = Credentials.create(ECKeyPair.create(privateKey))
+        val inboxOwner = Web3jInboxOwner(credentials)
+        val dbDir: File = File(this.filesDir.absolutePath, "xmtp_db")
+        dbDir.mkdir()
+        val dbPath: String = dbDir.absolutePath + "/android_example.db3"
+        val dbEncryptionKey = SecureRandom().generateSeed(32)
+        Log.i(
+                "App",
+                "INFO -\naccountAddress: " +
+                        inboxOwner.getAddress() +
+                        "\nprivateKey: " +
+                        privateKey.asList() +
+                        "\nDB path: " +
+                        dbPath +
+                        "\nDB encryption key: " +
+                        dbEncryptionKey
+        )
 
         runBlocking {
             try {
@@ -82,28 +92,28 @@ class MainActivity : AppCompatActivity() {
                                                 env = XMTPEnvironment.LOCAL,
                                                 isSecure = false,
                                         ),
-                                enableAlphaMls = true,
                                 appContext = this@MainActivity
                         )
                 val key = PrivateKeyBuilder()
                 val client = Client().create(account = key, options = options)
 
-                // val client = uniffi.xmtpv3.createClient(
-                //     AndroidFfiLogger(),
-                //     EMULATOR_LOCALHOST_ADDRESS,
-                //     false,
-                //     dbPath,
-                //     dbEncryptionKey,
-                //     inboxOwner.getAddress(),
-                //     LegacyIdentitySource.NONE,
-                //     null,
-                // )
-                // var walletSignature: ByteArray? = null;
-                // val textToSign = client.textToSign();
-                // if (textToSign != null) {
-                //     walletSignature = inboxOwner.sign(textToSign)
-                // }
-                // client.registerIdentity(walletSignature);
+                val clientV3 =
+                        uniffi.xmtpv3.createClient(
+                                AndroidFfiLogger(),
+                                EMULATOR_LOCALHOST_ADDRESS,
+                                false,
+                                dbPath,
+                                dbEncryptionKey,
+                                inboxOwner.getAddress(),
+                                LegacyIdentitySource.KEY_GENERATOR,
+                                client.privateKeyBundleV1.identityKey.toByteArray(),
+                        )
+                var walletSignature: ByteArray? = null
+                val textToSign = clientV3.textToSign()
+                if (textToSign != null) {
+                    walletSignature = inboxOwner.sign(textToSign)
+                }
+                clientV3.registerIdentity(walletSignature)
                 textView.text = "Client constructed, wallet address: " + client.address
                 Log.i("App", "Setting up conversation streaming")
                 client.conversations.stream()
@@ -112,6 +122,6 @@ class MainActivity : AppCompatActivity() {
             }
         }
 
-        //        dbDir.deleteRecursively()
+        dbDir.deleteRecursively()
     }
 }
