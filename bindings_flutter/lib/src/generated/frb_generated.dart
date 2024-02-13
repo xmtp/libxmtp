@@ -62,6 +62,12 @@ class RustLib extends BaseEntrypoint<RustLibApi, RustLibApiImpl, RustLibWire> {
 }
 
 abstract class RustLibApi extends BaseApi {
+  Future<void> clientAddMember(
+      {required Client that,
+      required List<int> groupId,
+      required String accountAddress,
+      dynamic hint});
+
   Future<Group> clientCreateGroup(
       {required Client that,
       required List<String> accountAddresses,
@@ -77,12 +83,21 @@ abstract class RustLibApi extends BaseApi {
       int? limit,
       dynamic hint});
 
+  Future<List<GroupMember>> clientListMembers(
+      {required Client that, required List<int> groupId, dynamic hint});
+
   Future<List<Message>> clientListMessages(
       {required Client that,
       required List<int> groupId,
       int? sentBeforeNs,
       int? sentAfterNs,
       int? limit,
+      dynamic hint});
+
+  Future<void> clientRemoveMember(
+      {required Client that,
+      required List<int> groupId,
+      required String accountAddress,
       dynamic hint});
 
   Future<void> clientSendMessage(
@@ -195,6 +210,38 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   });
 
   @override
+  Future<void> clientAddMember(
+      {required Client that,
+      required List<int> groupId,
+      required String accountAddress,
+      dynamic hint}) {
+    return handler.executeNormal(NormalTask(
+      callFfi: (port_) {
+        final serializer = SseSerializer(generalizedFrbRustBinding);
+        sse_encode_Auto_Ref_RustOpaque_flutter_rust_bridgefor_generatedrust_asyncRwLockClient(
+            that, serializer);
+        sse_encode_list_prim_u_8_loose(groupId, serializer);
+        sse_encode_String(accountAddress, serializer);
+        pdeCallFfi(generalizedFrbRustBinding, serializer,
+            funcId: 9, port: port_);
+      },
+      codec: SseCodec(
+        decodeSuccessData: sse_decode_unit,
+        decodeErrorData: sse_decode_xmtp_error,
+      ),
+      constMeta: kClientAddMemberConstMeta,
+      argValues: [that, groupId, accountAddress],
+      apiImpl: this,
+      hint: hint,
+    ));
+  }
+
+  TaskConstMeta get kClientAddMemberConstMeta => const TaskConstMeta(
+        debugName: "Client_add_member",
+        argNames: ["that", "groupId", "accountAddress"],
+      );
+
+  @override
   Future<Group> clientCreateGroup(
       {required Client that,
       required List<String> accountAddresses,
@@ -287,6 +334,34 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       );
 
   @override
+  Future<List<GroupMember>> clientListMembers(
+      {required Client that, required List<int> groupId, dynamic hint}) {
+    return handler.executeNormal(NormalTask(
+      callFfi: (port_) {
+        final serializer = SseSerializer(generalizedFrbRustBinding);
+        sse_encode_Auto_Ref_RustOpaque_flutter_rust_bridgefor_generatedrust_asyncRwLockClient(
+            that, serializer);
+        sse_encode_list_prim_u_8_loose(groupId, serializer);
+        pdeCallFfi(generalizedFrbRustBinding, serializer,
+            funcId: 8, port: port_);
+      },
+      codec: SseCodec(
+        decodeSuccessData: sse_decode_list_group_member,
+        decodeErrorData: sse_decode_xmtp_error,
+      ),
+      constMeta: kClientListMembersConstMeta,
+      argValues: [that, groupId],
+      apiImpl: this,
+      hint: hint,
+    ));
+  }
+
+  TaskConstMeta get kClientListMembersConstMeta => const TaskConstMeta(
+        debugName: "Client_list_members",
+        argNames: ["that", "groupId"],
+      );
+
+  @override
   Future<List<Message>> clientListMessages(
       {required Client that,
       required List<int> groupId,
@@ -304,7 +379,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
         sse_encode_opt_box_autoadd_i_64(sentAfterNs, serializer);
         sse_encode_opt_box_autoadd_i_64(limit, serializer);
         pdeCallFfi(generalizedFrbRustBinding, serializer,
-            funcId: 9, port: port_);
+            funcId: 12, port: port_);
       },
       codec: SseCodec(
         decodeSuccessData: sse_decode_list_message,
@@ -323,6 +398,38 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       );
 
   @override
+  Future<void> clientRemoveMember(
+      {required Client that,
+      required List<int> groupId,
+      required String accountAddress,
+      dynamic hint}) {
+    return handler.executeNormal(NormalTask(
+      callFfi: (port_) {
+        final serializer = SseSerializer(generalizedFrbRustBinding);
+        sse_encode_Auto_Ref_RustOpaque_flutter_rust_bridgefor_generatedrust_asyncRwLockClient(
+            that, serializer);
+        sse_encode_list_prim_u_8_loose(groupId, serializer);
+        sse_encode_String(accountAddress, serializer);
+        pdeCallFfi(generalizedFrbRustBinding, serializer,
+            funcId: 10, port: port_);
+      },
+      codec: SseCodec(
+        decodeSuccessData: sse_decode_unit,
+        decodeErrorData: sse_decode_xmtp_error,
+      ),
+      constMeta: kClientRemoveMemberConstMeta,
+      argValues: [that, groupId, accountAddress],
+      apiImpl: this,
+      hint: hint,
+    ));
+  }
+
+  TaskConstMeta get kClientRemoveMemberConstMeta => const TaskConstMeta(
+        debugName: "Client_remove_member",
+        argNames: ["that", "groupId", "accountAddress"],
+      );
+
+  @override
   Future<void> clientSendMessage(
       {required Client that,
       required List<int> groupId,
@@ -336,7 +443,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
         sse_encode_list_prim_u_8_loose(groupId, serializer);
         sse_encode_list_prim_u_8_loose(contentBytes, serializer);
         pdeCallFfi(generalizedFrbRustBinding, serializer,
-            funcId: 8, port: port_);
+            funcId: 11, port: port_);
       },
       codec: SseCodec(
         decodeSuccessData: sse_decode_unit,
@@ -365,7 +472,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
         sse_encode_box_autoadd_signature_required_client(that, serializer);
         sse_encode_list_prim_u_8_loose(signature, serializer);
         pdeCallFfi(generalizedFrbRustBinding, serializer,
-            funcId: 10, port: port_);
+            funcId: 13, port: port_);
       },
       codec: SseCodec(
         decodeSuccessData:
@@ -771,6 +878,18 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  GroupMember dco_decode_group_member(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    final arr = raw as List<dynamic>;
+    if (arr.length != 2)
+      throw Exception('unexpected arr length: expect 2 but see ${arr.length}');
+    return GroupMember(
+      accountAddress: dco_decode_String(arr[0]),
+      installationIds: dco_decode_list_list_prim_u_8_strict(arr[1]),
+    );
+  }
+
+  @protected
   int dco_decode_i_64(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     return dcoDecodeI64OrU64(raw);
@@ -786,6 +905,18 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   List<Group> dco_decode_list_group(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     return (raw as List<dynamic>).map(dco_decode_group).toList();
+  }
+
+  @protected
+  List<GroupMember> dco_decode_list_group_member(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    return (raw as List<dynamic>).map(dco_decode_group_member).toList();
+  }
+
+  @protected
+  List<Uint8List> dco_decode_list_list_prim_u_8_strict(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    return (raw as List<dynamic>).map(dco_decode_list_prim_u_8_strict).toList();
   }
 
   @protected
@@ -1112,6 +1243,17 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  GroupMember sse_decode_group_member(SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    var var_accountAddress = sse_decode_String(deserializer);
+    var var_installationIds =
+        sse_decode_list_list_prim_u_8_strict(deserializer);
+    return GroupMember(
+        accountAddress: var_accountAddress,
+        installationIds: var_installationIds);
+  }
+
+  @protected
   int sse_decode_i_64(SseDeserializer deserializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
     return deserializer.buffer.getInt64();
@@ -1137,6 +1279,31 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     var ans_ = <Group>[];
     for (var idx_ = 0; idx_ < len_; ++idx_) {
       ans_.add(sse_decode_group(deserializer));
+    }
+    return ans_;
+  }
+
+  @protected
+  List<GroupMember> sse_decode_list_group_member(SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+
+    var len_ = sse_decode_i_32(deserializer);
+    var ans_ = <GroupMember>[];
+    for (var idx_ = 0; idx_ < len_; ++idx_) {
+      ans_.add(sse_decode_group_member(deserializer));
+    }
+    return ans_;
+  }
+
+  @protected
+  List<Uint8List> sse_decode_list_list_prim_u_8_strict(
+      SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+
+    var len_ = sse_decode_i_32(deserializer);
+    var ans_ = <Uint8List>[];
+    for (var idx_ = 0; idx_ < len_; ++idx_) {
+      ans_.add(sse_decode_list_prim_u_8_strict(deserializer));
     }
     return ans_;
   }
@@ -1460,6 +1627,13 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  void sse_encode_group_member(GroupMember self, SseSerializer serializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_String(self.accountAddress, serializer);
+    sse_encode_list_list_prim_u_8_strict(self.installationIds, serializer);
+  }
+
+  @protected
   void sse_encode_i_64(int self, SseSerializer serializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
     serializer.buffer.putInt64(self);
@@ -1480,6 +1654,26 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     sse_encode_i_32(self.length, serializer);
     for (final item in self) {
       sse_encode_group(item, serializer);
+    }
+  }
+
+  @protected
+  void sse_encode_list_group_member(
+      List<GroupMember> self, SseSerializer serializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_i_32(self.length, serializer);
+    for (final item in self) {
+      sse_encode_group_member(item, serializer);
+    }
+  }
+
+  @protected
+  void sse_encode_list_list_prim_u_8_strict(
+      List<Uint8List> self, SseSerializer serializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_i_32(self.length, serializer);
+    for (final item in self) {
+      sse_encode_list_prim_u_8_strict(item, serializer);
     }
   }
 

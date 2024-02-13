@@ -105,6 +105,16 @@ class Client extends RustOpaque {
         RustLib.instance.api.rust_arc_decrement_strong_count_ClientPtr,
   );
 
+  Future<void> addMember(
+          {required List<int> groupId,
+          required String accountAddress,
+          dynamic hint}) =>
+      RustLib.instance.api.clientAddMember(
+        that: this,
+        groupId: groupId,
+        accountAddress: accountAddress,
+      );
+
   Future<Group> createGroup(
           {required List<String> accountAddresses, dynamic hint}) =>
       RustLib.instance.api.clientCreateGroup(
@@ -129,6 +139,13 @@ class Client extends RustOpaque {
         limit: limit,
       );
 
+  Future<List<GroupMember>> listMembers(
+          {required List<int> groupId, dynamic hint}) =>
+      RustLib.instance.api.clientListMembers(
+        that: this,
+        groupId: groupId,
+      );
+
   Future<List<Message>> listMessages(
           {required List<int> groupId,
           int? sentBeforeNs,
@@ -141,6 +158,16 @@ class Client extends RustOpaque {
         sentBeforeNs: sentBeforeNs,
         sentAfterNs: sentAfterNs,
         limit: limit,
+      );
+
+  Future<void> removeMember(
+          {required List<int> groupId,
+          required String accountAddress,
+          dynamic hint}) =>
+      RustLib.instance.api.clientRemoveMember(
+        that: this,
+        groupId: groupId,
+        accountAddress: accountAddress,
       );
 
   Future<void> sendMessage(
@@ -278,6 +305,27 @@ class Group {
           runtimeType == other.runtimeType &&
           groupId == other.groupId &&
           createdAtNs == other.createdAtNs;
+}
+
+class GroupMember {
+  final String accountAddress;
+  final List<Uint8List> installationIds;
+
+  const GroupMember({
+    required this.accountAddress,
+    required this.installationIds,
+  });
+
+  @override
+  int get hashCode => accountAddress.hashCode ^ installationIds.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is GroupMember &&
+          runtimeType == other.runtimeType &&
+          accountAddress == other.accountAddress &&
+          installationIds == other.installationIds;
 }
 
 class Message {

@@ -134,6 +134,72 @@ void main() {
       }
     },
   );
+  test(
+    'adding/removing/listing group members',
+    () async {
+      var walletA = EthPrivateKey.createRandom(Random.secure());
+      var walletB = EthPrivateKey.createRandom(Random.secure());
+      var walletC = EthPrivateKey.createRandom(Random.secure());
+      var clientA = await createClientForWallet(dbDir, walletA);
+      var clientB = await createClientForWallet(dbDir, walletB);
+      var clientC = await createClientForWallet(dbDir, walletC);
+
+      // At first, A creates a group with just B...
+      var group = await clientA.createGroup(
+        accountAddresses: [walletB.address.hex],
+      );
+      await delayToPropagate();
+
+      // So they should see each other
+      for (var client in [clientA, clientB]) {
+        expect(
+            (await client.listMembers(groupId: group.groupId))
+                .map((m) => m.accountAddress)
+                .toSet(),
+            {
+              walletA.address.hex,
+              walletB.address.hex,
+            });
+      }
+
+      // ... and when A adds C to the group...
+      await clientA.addMember(
+        groupId: group.groupId,
+        accountAddress: walletC.address.hex,
+      );
+
+      // ... then they should all see each other:
+      for (var client in [clientA, clientB]) {
+        expect(
+            (await client.listMembers(groupId: group.groupId))
+                .map((m) => m.accountAddress)
+                .toSet(),
+            {
+              walletA.address.hex,
+              walletB.address.hex,
+              walletC.address.hex,
+            });
+      }
+
+      // ... and when A removes B from the group...
+      await clientA.removeMember(
+        groupId: group.groupId,
+        accountAddress: walletB.address.hex,
+      );
+
+      // ... then only A and C should see each other:
+      for (var client in [clientA, clientC]) {
+        expect(
+            (await client.listMembers(groupId: group.groupId))
+                .map((m) => m.accountAddress)
+                .toSet(),
+            {
+              walletA.address.hex,
+              walletC.address.hex,
+            });
+      }
+    },
+  );
 }
 
 // Helpers
