@@ -19,6 +19,7 @@ xps-types = { git = "https://github.com/xmtp/xps-gateway", branch = "main", pack
 lib-didethresolver = { git =  "https://github.com/xmtp/didethresolver", branch = "main" }
 xmtp_proto = { path = "../xmtp_proto", features = ["proto_full"] }
 xmtp_mls = { path = "../xmtp_mls" }
+xmtp_api_grpc = { path = "../xmtp_api_grpc" }
 rustc-hex = "2.1"
 url = "2.5"
 hex.workspace = true

@@ -7006,6 +7006,7 @@ dependencies = [
 name = "xli"
 version = "0.1.0"
 dependencies = [
+ "anyhow",
  "clap",
  "env_logger",
  "ethers",
@@ -7022,6 +7023,7 @@ dependencies = [
  "xmtp_cryptography",
  "xmtp_mls",
  "xmtp_proto",
+ "xps-client",
 ]
 
 [[package]]
@@ -7177,6 +7179,7 @@ dependencies = [
  "thiserror",
  "tls_codec",
  "url",
+ "xmtp_api_grpc",
  "xmtp_mls",
  "xmtp_proto",
  "xps-types",

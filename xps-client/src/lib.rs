@@ -1,8 +1,15 @@
 use ethers::prelude::LocalWallet;
 
+use xmtp_api_grpc::grpc_api_helper::{
+    Client as GrpcHelperClient, GrpcMutableSubscription, Subscription,
+};
 use xmtp_proto::{
-    api_client::XmtpMlsClient,
     api_client::{Error as ProtoError, ErrorKind as ProtoErrorKind},
+    api_client::{XmtpApiClient, XmtpMlsClient},
+    xmtp::message_api::v1::{
+        BatchQueryRequest, BatchQueryResponse, PublishRequest, PublishResponse, QueryRequest,
+        QueryResponse, SubscribeRequest,
+    },
     xmtp::mls::api::v1::{
         FetchKeyPackagesRequest, FetchKeyPackagesResponse, GetIdentityUpdatesRequest,
         GetIdentityUpdatesResponse, QueryGroupMessagesRequest, QueryGroupMessagesResponse,
@@ -15,18 +22,18 @@ use xmtp_proto::{
 pub mod xps_operations;
 use xps_operations::{XpsClientError, XpsOperations};
 
-pub struct XmtpXpsClient<LegacyClient> {
+pub struct XmtpXpsClient<WakuClient> {
     /// This is the current mls client to fill in non-d14n functionality
-    waku_client: LegacyClient,
+    waku_client: WakuClient,
     xps: XpsOperations,
 }
 
-impl<LegacyClient> XmtpXpsClient<LegacyClient>
+impl<WakuClient> XmtpXpsClient<WakuClient>
 where
-    LegacyClient: XmtpMlsClient + Send + Sync,
+    WakuClient: XmtpMlsClient + XmtpApiClient + Send + Sync,
 {
     pub async fn new<S: AsRef<str>, P: AsRef<str>>(
-        waku_client: LegacyClient,
+        waku_client: WakuClient,
         owner: LocalWallet,
         endpoint: S,
         network_endpoint: P,
@@ -39,9 +46,9 @@ where
 }
 
 #[async_trait::async_trait]
-impl<LegacyClient> XmtpMlsClient for XmtpXpsClient<LegacyClient>
+impl<WakuClient> XmtpMlsClient for XmtpXpsClient<WakuClient>
 where
-    LegacyClient: XmtpMlsClient + Send + Sync,
+    WakuClient: XmtpMlsClient + Send + Sync,
 {
     async fn register_installation(
         &self,
@@ -119,6 +126,47 @@ where
         request: SubscribeWelcomeMessagesRequest,
     ) -> Result<xmtp_proto::api_client::WelcomeMessageStream, xmtp_proto::api_client::Error> {
         self.waku_client.subscribe_welcome_messages(request).await
+    }
+}
+
+#[async_trait::async_trait]
+impl XmtpApiClient for XmtpXpsClient<GrpcHelperClient> {
+    type Subscription = Subscription;
+
+    type MutableSubscription = GrpcMutableSubscription;
+
+    fn set_app_version(&mut self, version: String) {
+        self.waku_client.set_app_version(version);
+    }
+
+    async fn publish(
+        &self,
+        token: String,
+        request: PublishRequest,
+    ) -> Result<PublishResponse, ProtoError> {
+        self.waku_client.publish(token, request).await
+    }
+
+    async fn subscribe(&self, request: SubscribeRequest) -> Result<Self::Subscription, ProtoError> {
+        self.waku_client.subscribe(request).await
+    }
+
+    async fn subscribe2(
+        &self,
+        request: SubscribeRequest,
+    ) -> Result<Self::MutableSubscription, ProtoError> {
+        self.waku_client.subscribe2(request).await
+    }
+
+    async fn query(&self, request: QueryRequest) -> Result<QueryResponse, ProtoError> {
+        self.waku_client.query(request).await
+    }
+
+    async fn batch_query(
+        &self,
+        request: BatchQueryRequest,
+    ) -> Result<BatchQueryResponse, ProtoError> {
+        self.waku_client.batch_query(request).await
     }
 }
 

@@ -28,3 +28,5 @@ xmtp_api_grpc = { path = "../../xmtp_api_grpc" }
 xmtp_cryptography = { path = "../../xmtp_cryptography" }
 xmtp_mls = { path = "../../xmtp_mls", features = ["grpc", "native"] }
 xmtp_proto = { path = "../../xmtp_proto", features = ["proto_full", "grpc"] }
+xps-client = { path = "../../xps-client" }
+anyhow = "1.0"

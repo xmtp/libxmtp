@@ -8,6 +8,7 @@ extern crate xmtp_mls;
 
 use std::{fs, path::PathBuf, time::Duration};
 
+use anyhow::{anyhow, Context as _, Error};
 use clap::{Parser, Subcommand};
 use log::{error, info};
 use thiserror::Error;
@@ -25,8 +26,17 @@ use xmtp_mls::{
     InboxOwner, Network,
 };
 use xmtp_proto::api_client::{XmtpApiClient, XmtpMlsClient};
-type Client = xmtp_mls::client::Client<ApiClient>;
-type ClientBuilder = xmtp_mls::builder::ClientBuilder<ApiClient>;
+use xps_client::XmtpXpsClient;
+type Client = xmtp_mls::client::Client<XmtpXpsClient<ApiClient>>;
+type XpsClient = XmtpXpsClient<ApiClient>;
+type ClientBuilder = xmtp_mls::builder::ClientBuilder<XmtpXpsClient<ApiClient>>;
+
+fn wallet_path() -> PathBuf {
+    let mut cargo_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    cargo_path.push("wallets");
+    println!("Full path: {:?}", cargo_path);
+    cargo_path
+}
 
 /// A fictional versioning CLI
 #[derive(Debug, Parser)] // requires `derive` feature
@@ -106,8 +116,17 @@ impl From<&str> for CliError {
     }
 }
 /// This is an abstraction which allows the CLI to choose between different wallet types.
+#[derive(Debug, Clone)]
 enum Wallet {
     LocalWallet(LocalWallet),
+}
+
+impl Wallet {
+    fn inner(&self) -> &LocalWallet {
+        match self {
+            Wallet::LocalWallet(w) => w,
+        }
+    }
 }
 
 impl InboxOwner for Wallet {
@@ -125,19 +144,35 @@ impl InboxOwner for Wallet {
 }
 
 #[tokio::main]
-async fn main() {
+async fn main() -> Result<(), Error> {
     env_logger::init();
     info!("Starting CLI Client....");
 
     let cli = Cli::parse();
+    let wallet_name = format!(
+        "{}.wallet",
+        cli.db.clone().unwrap().as_path().to_str().unwrap()
+    );
+
+    let mut wallet_path = wallet_path();
+
+    let mut wallet: Option<Wallet> = LocalWallet::decrypt_keystore(wallet_path, "")
+        .ok()
+        .map(Wallet::LocalWallet);
 
     if let Commands::Register { wallet_seed } = &cli.command {
         info!("Register");
-        if let Err(e) = register(&cli, wallet_seed).await {
-            error!("Registration failed: {:?}", e)
-        }
-        return;
+        let inner_wallet =
+            init_wallet(wallet_seed, wallet_name).context("Wallet could not be generated")?;
+
+        register(&cli, &inner_wallet)
+            .await
+            .context("Registration failed")?;
+        wallet.replace(inner_wallet);
+        return Ok(());
     }
+
+    let wallet = wallet.ok_or(anyhow!("Wallet does not exist. Please register first"))?;
 
     match &cli.command {
         #[allow(unused_variables)]
@@ -146,7 +181,7 @@ async fn main() {
         }
         Commands::Info {} => {
             info!("Info");
-            let client = create_client(&cli, IdentityStrategy::CachedOnly)
+            let client = create_client(&cli, IdentityStrategy::CachedOnly, wallet.clone())
                 .await
                 .unwrap();
             info!("Address is: {}", client.account_address());
@@ -157,7 +192,7 @@ async fn main() {
         }
         Commands::ListGroups {} => {
             info!("List Groups");
-            let client = create_client(&cli, IdentityStrategy::CachedOnly)
+            let client = create_client(&cli, IdentityStrategy::CachedOnly, wallet.clone())
                 .await
                 .unwrap();
 
@@ -188,7 +223,7 @@ async fn main() {
         }
         Commands::Send { group_id, msg } => {
             info!("Send");
-            let client = create_client(&cli, IdentityStrategy::CachedOnly)
+            let client = create_client(&cli, IdentityStrategy::CachedOnly, wallet.clone())
                 .await
                 .unwrap();
             info!("Address is: {}", client.account_address());
@@ -199,7 +234,7 @@ async fn main() {
         }
         Commands::ListGroupMessages { group_id } => {
             info!("Recv");
-            let client = create_client(&cli, IdentityStrategy::CachedOnly)
+            let client = create_client(&cli, IdentityStrategy::CachedOnly, wallet.clone())
                 .await
                 .unwrap();
 
@@ -219,7 +254,7 @@ async fn main() {
             group_id,
             account_address,
         } => {
-            let client = create_client(&cli, IdentityStrategy::CachedOnly)
+            let client = create_client(&cli, IdentityStrategy::CachedOnly, wallet.clone())
                 .await
                 .unwrap();
 
@@ -241,7 +276,7 @@ async fn main() {
             group_id,
             account_address,
         } => {
-            let client = create_client(&cli, IdentityStrategy::CachedOnly)
+            let client = create_client(&cli, IdentityStrategy::CachedOnly, wallet.clone())
                 .await
                 .unwrap();
 
@@ -260,7 +295,7 @@ async fn main() {
             );
         }
         Commands::CreateGroup {} => {
-            let client = create_client(&cli, IdentityStrategy::CachedOnly)
+            let client = create_client(&cli, IdentityStrategy::CachedOnly, wallet.clone())
                 .await
                 .unwrap();
 
@@ -272,45 +307,65 @@ async fn main() {
             fs::remove_file(cli.db.unwrap()).unwrap();
         }
     }
+    Ok(())
 }
 
-async fn create_client(cli: &Cli, account: IdentityStrategy) -> Result<Client, CliError> {
+async fn create_client(
+    cli: &Cli,
+    account: IdentityStrategy,
+    owner: Wallet,
+) -> Result<Client, CliError> {
     let msg_store = get_encrypted_store(&cli.db).unwrap();
     let mut builder = ClientBuilder::new(account).store(msg_store);
 
     if cli.local {
         info!("Using local network");
+
+        let api_client = ApiClient::create("http://localhost:5556".into(), false)
+            .await
+            .unwrap();
+
         builder = builder
             .network(Network::Local("http://localhost:5556"))
             .api_client(
-                ApiClient::create("http://localhost:5556".into(), false)
-                    .await
-                    .unwrap(),
+                XmtpXpsClient::new(
+                    api_client,
+                    owner.inner().clone(),
+                    "ws://127.0.0.1:9944",
+                    "wss://ethereum-sepolia.publicnode.com",
+                )
+                .await
+                .unwrap(),
             );
     } else {
         info!("Using dev network");
+
+        let api_client = ApiClient::create("https://grpc.dev.xmtp.network:443".into(), true)
+            .await
+            .unwrap();
         builder = builder.network(Network::Dev).api_client(
-            ApiClient::create("https://grpc.dev.xmtp.network:443".into(), true)
-                .await
-                .unwrap(),
+            XmtpXpsClient::new(
+                api_client,
+                owner.inner().clone(),
+                "ws://127.0.0.1:9944",
+                "wss://ethereum-sepolia.publicnode.com",
+            )
+            .await
+            .unwrap(),
         );
     }
 
     builder.build().await.map_err(CliError::ClientBuilder)
 }
 
-async fn register(cli: &Cli, wallet_seed: &u64) -> Result<(), CliError> {
-    let w = if wallet_seed == &0 {
-        Wallet::LocalWallet(LocalWallet::new(&mut rng()))
-    } else {
-        Wallet::LocalWallet(LocalWallet::new(&mut seeded_rng(*wallet_seed)))
-    };
-
+async fn register(cli: &Cli, w: &Wallet) -> Result<(), CliError> {
     let client = create_client(
         cli,
         IdentityStrategy::CreateIfNotFound(w.get_address(), LegacyIdentity::None),
+        w.clone(),
     )
     .await?;
+
     info!("Address is: {}", client.account_address());
     let signature: Option<Vec<u8>> = client.text_to_sign().map(|t| w.sign(&t).unwrap().into());
 
@@ -322,7 +377,25 @@ async fn register(cli: &Cli, wallet_seed: &u64) -> Result<(), CliError> {
     Ok(())
 }
 
-async fn get_group(client: &Client, group_id: Vec<u8>) -> Result<MlsGroup<ApiClient>, CliError> {
+// initializes a wallet and stores it in {db_name}.wallet.json
+fn init_wallet<S: AsRef<str>>(wallet_seed: &u64, name: S) -> Result<Wallet, Error> {
+    info!("Creating wallet {}", name.as_ref());
+    let wallet_path = wallet_path();
+
+    let w = if wallet_seed == &0 {
+        LocalWallet::new_keystore(wallet_path, &mut rng(), "", Some(name.as_ref()))?
+    } else {
+        LocalWallet::new_keystore(
+            wallet_path,
+            &mut seeded_rng(*wallet_seed),
+            "",
+            Some(name.as_ref()),
+        )?
+    };
+    Ok(Wallet::LocalWallet(w.0))
+}
+
+async fn get_group(client: &Client, group_id: Vec<u8>) -> Result<MlsGroup<XpsClient>, CliError> {
     client.sync_welcomes().await?;
     let group = client.group(group_id)?;
     group
@@ -333,7 +406,7 @@ async fn get_group(client: &Client, group_id: Vec<u8>) -> Result<MlsGroup<ApiCli
     Ok(group)
 }
 
-async fn send(group: MlsGroup<'_, ApiClient>, msg: String) -> Result<(), CliError> {
+async fn send(group: MlsGroup<'_, XpsClient>, msg: String) -> Result<(), CliError> {
     group
         .send_message(msg.into_bytes().as_slice())
         .await
