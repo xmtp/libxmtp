@@ -1,3 +1,4 @@
+use log::info;
 use prost::Message;
 
 use xmtp_cryptography::signature::RecoverableSignature;
@@ -61,19 +62,35 @@ impl TryFrom<LegacySignedPublicKeyProto> for ValidatedLegacySignedPublicKey {
 
     fn try_from(proto: LegacySignedPublicKeyProto) -> Result<Self, AssociationError> {
         let serialized_key_data = proto.key_bytes;
-        let Union::WalletEcdsaCompact(wallet_ecdsa_compact) = proto
+        let union = proto
             .signature
-            .ok_or(AssociationError::MalformedLegacyKey)?
+            .ok_or(AssociationError::MalformedLegacyKey(
+                "Missing signature field".to_string(),
+            ))?
             .union
-            .ok_or(AssociationError::MalformedLegacyKey)?
-        else {
-            return Err(AssociationError::MalformedLegacyKey);
+            .ok_or(AssociationError::MalformedLegacyKey(
+                "Missing signature.union field".to_string(),
+            ))?;
+        let wallet_signature = match union {
+            Union::WalletEcdsaCompact(wallet_ecdsa_compact) => {
+                info!("Reading WalletEcdsaCompact from legacy key");
+                let mut wallet_signature = wallet_ecdsa_compact.bytes.clone();
+                wallet_signature.push(wallet_ecdsa_compact.recovery as u8); // TODO: normalize recovery ID if necessary
+                if wallet_signature.len() != 65 {
+                    return Err(AssociationError::MalformedAssociation);
+                }
+                wallet_signature
+            }
+            Union::EcdsaCompact(ecdsa_compact) => {
+                info!("Reading EcdsaCompact from legacy key");
+                let mut signature = ecdsa_compact.bytes.clone();
+                signature.push(ecdsa_compact.recovery as u8); // TODO: normalize recovery ID if necessary
+                if signature.len() != 65 {
+                    return Err(AssociationError::MalformedAssociation);
+                }
+                signature
+            }
         };
-        let mut wallet_signature = wallet_ecdsa_compact.bytes.clone();
-        wallet_signature.push(wallet_ecdsa_compact.recovery as u8); // TODO: normalize recovery ID if necessary
-        if wallet_signature.len() != 65 {
-            return Err(AssociationError::MalformedAssociation);
-        }
         let wallet_signature = RecoverableSignature::Eip191Signature(wallet_signature);
         let account_address =
             wallet_signature.recover_address(&Self::text(&serialized_key_data))?;
