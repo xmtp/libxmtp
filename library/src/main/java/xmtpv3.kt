@@ -413,6 +413,8 @@ internal interface _UniFFILib : Library {
     ): RustBuffer.ByValue
     fun uniffi_xmtpv3_fn_method_ffigroup_id(`ptr`: Pointer,_uniffi_out_err: RustCallStatus,
     ): RustBuffer.ByValue
+    fun uniffi_xmtpv3_fn_method_ffigroup_is_active(`ptr`: Pointer,_uniffi_out_err: RustCallStatus,
+    ): Byte
     fun uniffi_xmtpv3_fn_method_ffigroup_list_members(`ptr`: Pointer,_uniffi_out_err: RustCallStatus,
     ): RustBuffer.ByValue
     fun uniffi_xmtpv3_fn_method_ffigroup_remove_members(`ptr`: Pointer,`accountAddresses`: RustBuffer.ByValue,
@@ -427,6 +429,8 @@ internal interface _UniFFILib : Library {
     ): Unit
     fun uniffi_xmtpv3_fn_method_ffistreamcloser_end(`ptr`: Pointer,_uniffi_out_err: RustCallStatus,
     ): Unit
+    fun uniffi_xmtpv3_fn_method_ffistreamcloser_is_closed(`ptr`: Pointer,_uniffi_out_err: RustCallStatus,
+    ): Byte
     fun uniffi_xmtpv3_fn_free_ffiv2apiclient(`ptr`: Pointer,_uniffi_out_err: RustCallStatus,
     ): Unit
     fun uniffi_xmtpv3_fn_method_ffiv2apiclient_batch_query(`ptr`: Pointer,`req`: RustBuffer.ByValue,
@@ -474,6 +478,8 @@ internal interface _UniFFILib : Library {
     fun uniffi_xmtpv3_fn_func_diffie_hellman_k256(`privateKeyBytes`: RustBuffer.ByValue,`publicKeyBytes`: RustBuffer.ByValue,_uniffi_out_err: RustCallStatus,
     ): RustBuffer.ByValue
     fun uniffi_xmtpv3_fn_func_generate_private_preferences_topic_identifier(`privateKey`: RustBuffer.ByValue,_uniffi_out_err: RustCallStatus,
+    ): RustBuffer.ByValue
+    fun uniffi_xmtpv3_fn_func_get_version_info(_uniffi_out_err: RustCallStatus,
     ): RustBuffer.ByValue
     fun uniffi_xmtpv3_fn_func_keccak256(`input`: RustBuffer.ByValue,_uniffi_out_err: RustCallStatus,
     ): RustBuffer.ByValue
@@ -615,6 +621,8 @@ internal interface _UniFFILib : Library {
     ): Short
     fun uniffi_xmtpv3_checksum_func_generate_private_preferences_topic_identifier(
     ): Short
+    fun uniffi_xmtpv3_checksum_func_get_version_info(
+    ): Short
     fun uniffi_xmtpv3_checksum_func_keccak256(
     ): Short
     fun uniffi_xmtpv3_checksum_func_public_key_from_private_key_k256(
@@ -649,6 +657,8 @@ internal interface _UniFFILib : Library {
     ): Short
     fun uniffi_xmtpv3_checksum_method_ffigroup_id(
     ): Short
+    fun uniffi_xmtpv3_checksum_method_ffigroup_is_active(
+    ): Short
     fun uniffi_xmtpv3_checksum_method_ffigroup_list_members(
     ): Short
     fun uniffi_xmtpv3_checksum_method_ffigroup_remove_members(
@@ -660,6 +670,8 @@ internal interface _UniFFILib : Library {
     fun uniffi_xmtpv3_checksum_method_ffigroup_sync(
     ): Short
     fun uniffi_xmtpv3_checksum_method_ffistreamcloser_end(
+    ): Short
+    fun uniffi_xmtpv3_checksum_method_ffistreamcloser_is_closed(
     ): Short
     fun uniffi_xmtpv3_checksum_method_ffiv2apiclient_batch_query(
     ): Short
@@ -726,6 +738,9 @@ private fun uniffiCheckApiChecksums(lib: _UniFFILib) {
     if (lib.uniffi_xmtpv3_checksum_func_generate_private_preferences_topic_identifier() != 5952.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
+    if (lib.uniffi_xmtpv3_checksum_func_get_version_info() != 3533.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
     if (lib.uniffi_xmtpv3_checksum_func_keccak256() != 17749.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
@@ -777,6 +792,9 @@ private fun uniffiCheckApiChecksums(lib: _UniFFILib) {
     if (lib.uniffi_xmtpv3_checksum_method_ffigroup_id() != 35243.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
+    if (lib.uniffi_xmtpv3_checksum_method_ffigroup_is_active() != 27808.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
     if (lib.uniffi_xmtpv3_checksum_method_ffigroup_list_members() != 15786.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
@@ -793,6 +811,9 @@ private fun uniffiCheckApiChecksums(lib: _UniFFILib) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_xmtpv3_checksum_method_ffistreamcloser_end() != 47211.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_xmtpv3_checksum_method_ffistreamcloser_is_closed() != 37884.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_xmtpv3_checksum_method_ffiv2apiclient_batch_query() != 10812.toShort()) {
@@ -1379,6 +1400,7 @@ public interface FfiGroupInterface {
     fun `createdAtNs`(): Long@Throws(GenericException::class)
     fun `findMessages`(`opts`: FfiListMessagesOptions): List<FfiMessage>
     fun `id`(): ByteArray@Throws(GenericException::class)
+    fun `isActive`(): Boolean@Throws(GenericException::class)
     fun `listMembers`(): List<FfiGroupMember>@Throws(GenericException::class)
     suspend fun `removeMembers`(`accountAddresses`: List<String>)@Throws(GenericException::class)
     suspend fun `send`(`contentBytes`: ByteArray)@Throws(GenericException::class)
@@ -1458,6 +1480,18 @@ class FfiGroup(
             }
         }.let {
             FfiConverterByteArray.lift(it)
+        }
+
+
+    @Throws(GenericException::class)override fun `isActive`(): Boolean =
+        callWithPointer {
+            rustCallWithError(GenericException) { _status ->
+                _UniFFILib.INSTANCE.uniffi_xmtpv3_fn_method_ffigroup_is_active(it,
+
+                    _status)
+            }
+        }.let {
+            FfiConverterBoolean.lift(it)
         }
 
 
@@ -1590,6 +1624,7 @@ public object FfiConverterTypeFfiGroup: FfiConverter<FfiGroup, Pointer> {
 public interface FfiStreamCloserInterface {
 
     fun `end`()
+    fun `isClosed`(): Boolean
     companion object
 }
 
@@ -1620,6 +1655,17 @@ class FfiStreamCloser(
             }
         }
 
+
+    override fun `isClosed`(): Boolean =
+        callWithPointer {
+            rustCall() { _status ->
+                _UniFFILib.INSTANCE.uniffi_xmtpv3_fn_method_ffistreamcloser_is_closed(it,
+
+                    _status)
+            }
+        }.let {
+            FfiConverterBoolean.lift(it)
+        }
 
 
 
@@ -3507,6 +3553,14 @@ fun `generatePrivatePreferencesTopicIdentifier`(`privateKey`: ByteArray): String
     return FfiConverterString.lift(
         rustCallWithError(GenericException) { _status ->
             _UniFFILib.INSTANCE.uniffi_xmtpv3_fn_func_generate_private_preferences_topic_identifier(FfiConverterByteArray.lower(`privateKey`),_status)
+        })
+}
+
+
+fun `getVersionInfo`(): String {
+    return FfiConverterString.lift(
+        rustCall() { _status ->
+            _UniFFILib.INSTANCE.uniffi_xmtpv3_fn_func_get_version_info(_status)
         })
 }
 

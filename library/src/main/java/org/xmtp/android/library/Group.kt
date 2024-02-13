@@ -128,6 +128,10 @@ class Group(val client: Client, private val libXMTPGroup: FfiGroup) {
         )
     }
 
+    fun isActive(): Boolean {
+        return libXMTPGroup.isActive()
+    }
+
     fun addMembers(addresses: List<String>) {
         runBlocking { libXMTPGroup.addMembers(addresses) }
     }

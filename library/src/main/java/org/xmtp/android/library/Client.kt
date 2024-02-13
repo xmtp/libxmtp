@@ -44,6 +44,7 @@ import org.xmtp.proto.message.api.v1.MessageApiOuterClass.QueryRequest
 import uniffi.xmtpv3.FfiXmtpClient
 import uniffi.xmtpv3.LegacyIdentitySource
 import uniffi.xmtpv3.createClient
+import uniffi.xmtpv3.getVersionInfo
 import java.io.File
 import java.nio.charset.StandardCharsets
 import java.security.KeyStore
@@ -81,6 +82,7 @@ class Client() {
     lateinit var conversations: Conversations
     var logger: XMTPLogger = XMTPLogger()
     var libXMTPClient: FfiXmtpClient? = null
+    val libXMTPVersion: String = getVersionInfo()
 
     companion object {
         private const val TAG = "Client"
@@ -347,7 +349,7 @@ class Client() {
                 throw XMTPException("No signer passed but signer was required.")
             }
         }
-
+        Log.i(TAG, "LibXMTP $libXMTPVersion")
         return v3Client
     }
 
