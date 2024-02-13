@@ -1,13 +1,14 @@
 use flutter_rust_bridge::*;
 use std::sync::Arc;
 use thiserror::Error;
-use xmtp_api_grpc::grpc_api_helper::Client as ApiClient;
-use xmtp_cryptography::utils::LocalWallet;
+pub use xmtp_api_grpc::grpc_api_helper::Client as ApiClient;
 pub use xmtp_mls::builder::ClientBuilderError;
+use xmtp_mls::storage::group_message::GroupMessageKind::Application;
+use xmtp_mls::storage::group_message::StoredGroupMessage;
 pub use xmtp_mls::storage::StorageError;
 use xmtp_mls::{
-    builder::ClientBuilder, builder::IdentityStrategy, builder::LegacyIdentity, client::Client as MlsClient,
-    storage::EncryptedMessageStore, storage::StorageOption,
+    builder::ClientBuilder, builder::IdentityStrategy, builder::LegacyIdentity,
+    client::Client as MlsClient, storage::EncryptedMessageStore, storage::StorageOption,
 };
 pub use xmtp_proto::api_client::Error as ApiError;
 
@@ -62,10 +63,11 @@ pub fn user_preferences_decrypt(
     .map_err(|e| XmtpError::Generic(anyhow::Error::msg(e)))
 }
 
+pub type XmtpClient = MlsClient<ApiClient>;
+
 #[frb(opaque)]
 pub struct Client {
-    // We use this second wrapper to keep the inner client opaque.
-    pub inner: Arc<InnerClient>,
+    pub inner: Arc<XmtpClient>,
 }
 
 pub struct Group {
@@ -73,14 +75,29 @@ pub struct Group {
     pub created_at_ns: i64,
 }
 
-#[frb(opaque)]
-pub struct InnerClient {
-    pub client: MlsClient<ApiClient>,
+pub struct Message {
+    pub id: Vec<u8>,
+    pub sent_at_ns: i64,
+    pub group_id: Vec<u8>,
+    pub sender_account_address: String,
+    pub content_bytes: Vec<u8>,
+}
+
+impl From<StoredGroupMessage> for Message {
+    fn from(msg: StoredGroupMessage) -> Self {
+        Self {
+            id: msg.id,
+            sent_at_ns: msg.sent_at_ns,
+            group_id: msg.group_id,
+            sender_account_address: msg.sender_account_address,
+            content_bytes: msg.decrypted_message_bytes,
+        }
+    }
 }
 
 impl Client {
     pub fn installation_public_key(&self) -> Vec<u8> {
-        self.inner.client.installation_public_key()
+        self.inner.installation_public_key()
     }
 
     pub async fn list_groups(
@@ -89,10 +106,9 @@ impl Client {
         created_before_ns: Option<i64>,
         limit: Option<i64>,
     ) -> Result<Vec<Group>, XmtpError> {
-        self.inner.client.sync_welcomes().await?;
+        self.inner.sync_welcomes().await?;
         let groups: Vec<Group> = self
             .inner
-            .client
             .find_groups(None, created_after_ns, created_before_ns, limit)?
             .into_iter()
             .map(|group| Group {
@@ -104,16 +120,46 @@ impl Client {
     }
 
     pub async fn create_group(&self, account_addresses: Vec<String>) -> Result<Group, XmtpError> {
-        let group = self.inner.client.create_group(None)?;
+        let group = self.inner.create_group(None)?;
         // TODO: consider filtering self address from the list
         if !account_addresses.is_empty() {
             group.add_members(account_addresses).await?;
         }
-        self.inner.client.sync_welcomes().await?;
+        self.inner.sync_welcomes().await?;
         return Ok(Group {
             group_id: group.group_id,
             created_at_ns: group.created_at_ns,
         });
+    }
+
+    pub async fn send_message(
+        &self,
+        group_id: Vec<u8>,
+        content_bytes: Vec<u8>,
+    ) -> Result<(), XmtpError> {
+        // TODO: consider verifying content_bytes is a serialized EncodedContent proto
+        let group = self.inner.group(group_id)?;
+        group.send_message(content_bytes.as_slice()).await?;
+        group.sync().await?; // TODO: consider an explicit sync method
+        Ok(())
+    }
+
+    pub async fn list_messages(
+        &self,
+        group_id: Vec<u8>,
+        sent_before_ns: Option<i64>,
+        sent_after_ns: Option<i64>,
+        limit: Option<i64>,
+    ) -> Result<Vec<Message>, XmtpError> {
+        let group = self.inner.group(group_id)?;
+        group.sync().await?; // TODO: consider an explicit sync method
+        let messages: Vec<Message> = group
+            .find_messages(Some(Application), sent_before_ns, sent_after_ns, limit)?
+            .into_iter()
+            .map(|msg| msg.into())
+            .collect();
+
+        Ok(messages)
     }
 }
 
@@ -124,15 +170,12 @@ pub enum CreatedClient {
 
 pub struct SignatureRequiredClient {
     pub text_to_sign: String,
-    pub inner: Arc<InnerClient>,
+    pub inner: Arc<XmtpClient>,
 }
 
 impl SignatureRequiredClient {
     pub async fn sign(&self, signature: Vec<u8>) -> Result<Client, XmtpError> {
-        self.inner
-            .client
-            .register_identity(Some(signature))
-            .await?;
+        self.inner.register_identity(Some(signature)).await?;
         return Ok(Client {
             inner: self.inner.clone(),
         });
@@ -165,9 +208,7 @@ pub async fn create_client(
     //     xmtp_client.account_address()
     // );
     let text_to_sign = xmtp_client.text_to_sign();
-    let inner = Arc::new(InnerClient {
-        client: xmtp_client,
-    });
+    let inner = Arc::new(xmtp_client);
     if text_to_sign.is_none() {
         return Ok(CreatedClient::Ready(Client { inner }));
     }
@@ -180,9 +221,13 @@ pub async fn create_client(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use prost::Message;
     use xmtp_cryptography::signature::RecoverableSignature;
     use xmtp_cryptography::utils::LocalWallet;
+    use xmtp_mls::codecs::text::TextCodec;
+    use xmtp_mls::codecs::ContentCodec;
     use xmtp_mls::InboxOwner;
+    use xmtp_proto::xmtp::mls::message_contents::EncodedContent;
 
     #[tokio::test]
     async fn test_create_client() {
@@ -253,7 +298,7 @@ mod tests {
             .unwrap();
 
         // Wait a minute for the group to propagate
-        tokio::time::sleep(tokio::time::Duration::from_millis(300)).await;
+        delay_to_propagate().await;
 
         // Now users A, B and C should all see the group
         for client in vec![&client_a, &client_b, &client_c] {
@@ -263,7 +308,50 @@ mod tests {
         }
     }
 
+    #[tokio::test]
+    async fn test_message_sending_listing() {
+        let wallet_a = LocalWallet::new(&mut xmtp_cryptography::utils::rng());
+        let wallet_b = LocalWallet::new(&mut xmtp_cryptography::utils::rng());
+        let wallet_c = LocalWallet::new(&mut xmtp_cryptography::utils::rng());
+        let client_a = create_client_for_wallet(&wallet_a).await;
+        let client_b = create_client_for_wallet(&wallet_b).await;
+        let client_c = create_client_for_wallet(&wallet_c).await;
+        let group = client_a
+            .create_group(vec![wallet_b.get_address(), wallet_c.get_address()])
+            .await
+            .unwrap();
+        delay_to_propagate().await;
+
+        // When A sends a message to the group...
+        let encoded: EncodedContent = TextCodec::encode("Hello, world!".to_string()).unwrap();
+        client_a
+            .send_message(group.group_id.clone(), encoded.encode_to_vec())
+            .await
+            .unwrap();
+
+        // ... then they should all see the message.
+        for client in vec![&client_a, &client_b, &client_c] {
+            let groups = client.list_groups(None, None, None).await.unwrap();
+            assert_eq!(groups.len(), 1);
+            let group_id = groups.first().unwrap().group_id.clone();
+            let messages = client
+                .list_messages(group_id, None, None, None)
+                .await
+                .unwrap();
+            assert_eq!(messages.len(), 1);
+            let msg = messages.first().unwrap();
+            assert_eq!(msg.sender_account_address, wallet_a.get_address());
+            let encoded = EncodedContent::decode(msg.content_bytes.as_slice()).unwrap();
+            let decoded = TextCodec::decode(encoded).unwrap();
+            assert_eq!(decoded, "Hello, world!".to_string());
+        }
+    }
+
     // Helpers
+
+    async fn delay_to_propagate() {
+        tokio::time::sleep(tokio::time::Duration::from_millis(300)).await
+    }
 
     async fn create_client_for_wallet(wallet: &LocalWallet) -> Client {
         let db_path = format!(

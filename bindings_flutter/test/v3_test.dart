@@ -95,12 +95,54 @@ void main() {
       }
     },
   );
+  test(
+    'creating and listing messages',
+    () async {
+      var walletA = EthPrivateKey.createRandom(Random.secure());
+      var walletB = EthPrivateKey.createRandom(Random.secure());
+      var walletC = EthPrivateKey.createRandom(Random.secure());
+      var clientA = await createClientForWallet(dbDir, walletA);
+      var clientB = await createClientForWallet(dbDir, walletB);
+      var clientC = await createClientForWallet(dbDir, walletC);
+      var group = await clientA.createGroup(
+        accountAddresses: [walletB.address.hex, walletC.address.hex],
+      );
+      await delayToPropagate();
+
+      // They're all in the group...
+      for (var client in [clientA, clientB, clientC]) {
+        expect((await client.listGroups()).length, 1);
+        expect((await client.listGroups()).first.groupId, group.groupId);
+        // ... and at first, none of them see any messages...
+        expect((await client.listMessages(groupId: group.groupId)).length, 0);
+      }
+
+      // ... but when A sends a message to the group...
+      await clientA.sendMessage(
+        groupId: group.groupId,
+        contentBytes: [0xAA, 0xBB, 0xCC], // some encoded content
+      );
+
+      // ... then they should all see the message:
+      for (var client in [clientA, clientB, clientC]) {
+        var messages = (await client.listMessages(groupId: group.groupId));
+        expect(messages.length, 1);
+        expect(messages.first.groupId, group.groupId);
+        expect(messages.first.senderAccountAddress, walletA.address.hex);
+        expect(messages.first.contentBytes, [0xAA, 0xBB, 0xCC]);
+        expect(messages.first.sentAtNs, closeTo(nowNs(), 10e9 /* 10s drift */));
+      }
+    },
+  );
 }
 
 // Helpers
 
 /// A delay to allow messages to propagate before making assertions.
 delayToPropagate() => Future.delayed(const Duration(milliseconds: 200));
+
+/// This produces the current time in nanoseconds since the epoch.
+nowNs() => DateTime.now().millisecondsSinceEpoch * 1000000;
 
 /// Create a client for a [wallet] in the temporary [dbDir].
 Future<Client> createClientForWallet(
