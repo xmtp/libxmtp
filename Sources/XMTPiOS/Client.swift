@@ -85,6 +85,7 @@ public final class Client {
 	let privateKeyBundleV1: PrivateKeyBundleV1
 	let apiClient: ApiClient
 	let v3Client: LibXMTP.FfiXmtpClient?
+	public let libXMTPVersion: String = getVersionInfo()
 
 	/// Access ``Conversations`` for this Client.
 	public lazy var conversations: Conversations = .init(client: self)
@@ -149,6 +150,8 @@ public final class Client {
 			} else {
 				try await v3Client.registerIdentity(recoverableWalletSignature: nil)
 			}
+			
+			print("LibXMTP \(getVersionInfo())")
 
 			return v3Client
 		} else {

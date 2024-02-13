@@ -58,6 +58,10 @@ public struct Group: Identifiable, Equatable, Hashable {
 	public func hash(into hasher: inout Hasher) {
 		id.hash(into: &hasher)
 	}
+	
+	public func isActive() throws -> Bool {
+		return try ffiGroup.isActive()
+	}
 
 	public var memberAddresses: [String] {
 		do {

@@ -108,7 +108,7 @@ class GroupTests: XCTestCase {
 		let group = try await fixtures.aliceClient.conversations.newGroup(with: [fixtures.bob.address])
 
 		try await group.sync()
-		let members = group.members.map(\.localizedLowercase).sorted()
+		let members = group.memberAddresses.map(\.localizedLowercase).sorted()
 
 		XCTAssertEqual([fixtures.bob.address.localizedLowercase, fixtures.alice.address.localizedLowercase].sorted(), members)
 	}
@@ -120,7 +120,7 @@ class GroupTests: XCTestCase {
 		try await group.addMembers(addresses: [fixtures.fred.address])
 
 		try await group.sync()
-		let members = group.members.map(\.localizedLowercase).sorted()
+		let members = group.memberAddresses.map(\.localizedLowercase).sorted()
 
 		XCTAssertEqual([
 			fixtures.bob.address.localizedLowercase,
@@ -137,7 +137,7 @@ class GroupTests: XCTestCase {
 		let group = try await fixtures.aliceClient.conversations.newGroup(with: [fixtures.bob.address, fixtures.fred.address])
 
 		try await group.sync()
-		let members = group.members.map(\.localizedLowercase).sorted()
+		let members = group.memberAddresses.map(\.localizedLowercase).sorted()
 
 		XCTAssertEqual([
 			fixtures.bob.address.localizedLowercase,
@@ -149,7 +149,7 @@ class GroupTests: XCTestCase {
 
 		try await group.sync()
 
-		let newMembers = group.members.map(\.localizedLowercase).sorted()
+		let newMembers = group.memberAddresses.map(\.localizedLowercase).sorted()
 		XCTAssertEqual([
 			fixtures.bob.address.localizedLowercase,
 			fixtures.alice.address.localizedLowercase,
@@ -158,6 +158,49 @@ class GroupTests: XCTestCase {
 		let groupChangedMessage: GroupMembershipChanges = try await group.messages().last!.content()
 		XCTAssertEqual(groupChangedMessage.membersRemoved.map(\.accountAddress.localizedLowercase), [fixtures.fred.address.localizedLowercase])
 	}
+	
+	func testIsActive() async throws {
+		let fixtures = try await localFixtures()
+		let group = try await fixtures.aliceClient.conversations.newGroup(with: [fixtures.bob.address, fixtures.fred.address])
+
+		try await group.sync()
+		let members = group.memberAddresses.map(\.localizedLowercase).sorted()
+
+		XCTAssertEqual([
+			fixtures.bob.address.localizedLowercase,
+			fixtures.alice.address.localizedLowercase,
+			fixtures.fred.address.localizedLowercase
+		].sorted(), members)
+		
+		try await fixtures.fredClient.conversations.sync()
+		let fredGroup = try await fixtures.fredClient.conversations.groups().first
+		try await fredGroup?.sync()
+
+		var isAliceActive = try group.isActive()
+		var isFredActive = try fredGroup!.isActive()
+		
+		XCTAssert(isAliceActive)
+		XCTAssert(isFredActive)
+
+		try await group.removeMembers(addresses: [fixtures.fred.address])
+
+		try await group.sync()
+
+		let newMembers = group.memberAddresses.map(\.localizedLowercase).sorted()
+		XCTAssertEqual([
+			fixtures.bob.address.localizedLowercase,
+			fixtures.alice.address.localizedLowercase,
+		].sorted(), newMembers)
+		
+		try await fredGroup?.sync()
+		
+		isAliceActive = try group.isActive()
+		isFredActive = try fredGroup!.isActive()
+		
+		XCTAssert(isAliceActive)
+		XCTAssert(!isFredActive)
+	}
+
 
 	func testCannotStartGroupWithSelf() async throws {
 		let fixtures = try await localFixtures()
