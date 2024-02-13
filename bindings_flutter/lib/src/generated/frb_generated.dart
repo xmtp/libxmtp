@@ -77,6 +77,20 @@ abstract class RustLibApi extends BaseApi {
       int? limit,
       dynamic hint});
 
+  Future<List<Message>> clientListMessages(
+      {required Client that,
+      required List<int> groupId,
+      int? sentBeforeNs,
+      int? sentAfterNs,
+      int? limit,
+      dynamic hint});
+
+  Future<void> clientSendMessage(
+      {required Client that,
+      required List<int> groupId,
+      required List<int> contentBytes,
+      dynamic hint});
+
   Future<Client> signatureRequiredClientSign(
       {required SignatureRequiredClient that,
       required List<int> signature,
@@ -114,13 +128,13 @@ abstract class RustLibApi extends BaseApi {
   CrossPlatformFinalizerArg get rust_arc_decrement_strong_count_ApiErrorPtr;
 
   RustArcIncrementStrongCountFnType
-      get rust_arc_increment_strong_count_ArcInnerClient;
+      get rust_arc_increment_strong_count_ArcXmtpClient;
 
   RustArcDecrementStrongCountFnType
-      get rust_arc_decrement_strong_count_ArcInnerClient;
+      get rust_arc_decrement_strong_count_ArcXmtpClient;
 
   CrossPlatformFinalizerArg
-      get rust_arc_decrement_strong_count_ArcInnerClientPtr;
+      get rust_arc_decrement_strong_count_ArcXmtpClientPtr;
 
   RustArcIncrementStrongCountFnType get rust_arc_increment_strong_count_Client;
 
@@ -273,6 +287,74 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       );
 
   @override
+  Future<List<Message>> clientListMessages(
+      {required Client that,
+      required List<int> groupId,
+      int? sentBeforeNs,
+      int? sentAfterNs,
+      int? limit,
+      dynamic hint}) {
+    return handler.executeNormal(NormalTask(
+      callFfi: (port_) {
+        final serializer = SseSerializer(generalizedFrbRustBinding);
+        sse_encode_Auto_Ref_RustOpaque_flutter_rust_bridgefor_generatedrust_asyncRwLockClient(
+            that, serializer);
+        sse_encode_list_prim_u_8_loose(groupId, serializer);
+        sse_encode_opt_box_autoadd_i_64(sentBeforeNs, serializer);
+        sse_encode_opt_box_autoadd_i_64(sentAfterNs, serializer);
+        sse_encode_opt_box_autoadd_i_64(limit, serializer);
+        pdeCallFfi(generalizedFrbRustBinding, serializer,
+            funcId: 9, port: port_);
+      },
+      codec: SseCodec(
+        decodeSuccessData: sse_decode_list_message,
+        decodeErrorData: sse_decode_xmtp_error,
+      ),
+      constMeta: kClientListMessagesConstMeta,
+      argValues: [that, groupId, sentBeforeNs, sentAfterNs, limit],
+      apiImpl: this,
+      hint: hint,
+    ));
+  }
+
+  TaskConstMeta get kClientListMessagesConstMeta => const TaskConstMeta(
+        debugName: "Client_list_messages",
+        argNames: ["that", "groupId", "sentBeforeNs", "sentAfterNs", "limit"],
+      );
+
+  @override
+  Future<void> clientSendMessage(
+      {required Client that,
+      required List<int> groupId,
+      required List<int> contentBytes,
+      dynamic hint}) {
+    return handler.executeNormal(NormalTask(
+      callFfi: (port_) {
+        final serializer = SseSerializer(generalizedFrbRustBinding);
+        sse_encode_Auto_Ref_RustOpaque_flutter_rust_bridgefor_generatedrust_asyncRwLockClient(
+            that, serializer);
+        sse_encode_list_prim_u_8_loose(groupId, serializer);
+        sse_encode_list_prim_u_8_loose(contentBytes, serializer);
+        pdeCallFfi(generalizedFrbRustBinding, serializer,
+            funcId: 8, port: port_);
+      },
+      codec: SseCodec(
+        decodeSuccessData: sse_decode_unit,
+        decodeErrorData: sse_decode_xmtp_error,
+      ),
+      constMeta: kClientSendMessageConstMeta,
+      argValues: [that, groupId, contentBytes],
+      apiImpl: this,
+      hint: hint,
+    ));
+  }
+
+  TaskConstMeta get kClientSendMessageConstMeta => const TaskConstMeta(
+        debugName: "Client_send_message",
+        argNames: ["that", "groupId", "contentBytes"],
+      );
+
+  @override
   Future<Client> signatureRequiredClientSign(
       {required SignatureRequiredClient that,
       required List<int> signature,
@@ -283,7 +365,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
         sse_encode_box_autoadd_signature_required_client(that, serializer);
         sse_encode_list_prim_u_8_loose(signature, serializer);
         pdeCallFfi(generalizedFrbRustBinding, serializer,
-            funcId: 8, port: port_);
+            funcId: 10, port: port_);
       },
       codec: SseCodec(
         decodeSuccessData:
@@ -442,12 +524,12 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           .rust_arc_decrement_strong_count_RustOpaque_flutter_rust_bridgefor_generatedrust_asyncRwLockApiError;
 
   RustArcIncrementStrongCountFnType
-      get rust_arc_increment_strong_count_ArcInnerClient => wire
-          .rust_arc_increment_strong_count_RustOpaque_flutter_rust_bridgefor_generatedrust_asyncRwLockArcInnerClient;
+      get rust_arc_increment_strong_count_ArcXmtpClient => wire
+          .rust_arc_increment_strong_count_RustOpaque_flutter_rust_bridgefor_generatedrust_asyncRwLockArcXmtpClient;
 
   RustArcDecrementStrongCountFnType
-      get rust_arc_decrement_strong_count_ArcInnerClient => wire
-          .rust_arc_decrement_strong_count_RustOpaque_flutter_rust_bridgefor_generatedrust_asyncRwLockArcInnerClient;
+      get rust_arc_decrement_strong_count_ArcXmtpClient => wire
+          .rust_arc_decrement_strong_count_RustOpaque_flutter_rust_bridgefor_generatedrust_asyncRwLockArcXmtpClient;
 
   RustArcIncrementStrongCountFnType
       get rust_arc_increment_strong_count_Client => wire
@@ -506,11 +588,11 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
-  ArcInnerClient
-      dco_decode_Auto_Owned_RustOpaque_flutter_rust_bridgefor_generatedrust_asyncRwLockArcInnerClient(
+  ArcXmtpClient
+      dco_decode_Auto_Owned_RustOpaque_flutter_rust_bridgefor_generatedrust_asyncRwLockArcXmtpClient(
           dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
-    return ArcInnerClient.dcoDecode(raw as List<dynamic>);
+    return ArcXmtpClient.dcoDecode(raw as List<dynamic>);
   }
 
   @protected
@@ -578,11 +660,11 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
-  ArcInnerClient
-      dco_decode_RustOpaque_flutter_rust_bridgefor_generatedrust_asyncRwLockArcInnerClient(
+  ArcXmtpClient
+      dco_decode_RustOpaque_flutter_rust_bridgefor_generatedrust_asyncRwLockArcXmtpClient(
           dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
-    return ArcInnerClient.dcoDecode(raw as List<dynamic>);
+    return ArcXmtpClient.dcoDecode(raw as List<dynamic>);
   }
 
   @protected
@@ -707,6 +789,12 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  List<Message> dco_decode_list_message(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    return (raw as List<dynamic>).map(dco_decode_message).toList();
+  }
+
+  @protected
   List<int> dco_decode_list_prim_u_8_loose(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     return raw as List<int>;
@@ -716,6 +804,21 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   Uint8List dco_decode_list_prim_u_8_strict(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     return raw as Uint8List;
+  }
+
+  @protected
+  Message dco_decode_message(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    final arr = raw as List<dynamic>;
+    if (arr.length != 5)
+      throw Exception('unexpected arr length: expect 5 but see ${arr.length}');
+    return Message(
+      id: dco_decode_list_prim_u_8_strict(arr[0]),
+      sentAtNs: dco_decode_i_64(arr[1]),
+      groupId: dco_decode_list_prim_u_8_strict(arr[2]),
+      senderAccountAddress: dco_decode_String(arr[3]),
+      contentBytes: dco_decode_list_prim_u_8_strict(arr[4]),
+    );
   }
 
   @protected
@@ -733,7 +836,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     return SignatureRequiredClient(
       textToSign: dco_decode_String(arr[0]),
       inner:
-          dco_decode_Auto_Owned_RustOpaque_flutter_rust_bridgefor_generatedrust_asyncRwLockArcInnerClient(
+          dco_decode_Auto_Owned_RustOpaque_flutter_rust_bridgefor_generatedrust_asyncRwLockArcXmtpClient(
               arr[1]),
     );
   }
@@ -811,11 +914,11 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
-  ArcInnerClient
-      sse_decode_Auto_Owned_RustOpaque_flutter_rust_bridgefor_generatedrust_asyncRwLockArcInnerClient(
+  ArcXmtpClient
+      sse_decode_Auto_Owned_RustOpaque_flutter_rust_bridgefor_generatedrust_asyncRwLockArcXmtpClient(
           SseDeserializer deserializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
-    return ArcInnerClient.sseDecode(
+    return ArcXmtpClient.sseDecode(
         sse_decode_usize(deserializer), sse_decode_i_32(deserializer));
   }
 
@@ -892,11 +995,11 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
-  ArcInnerClient
-      sse_decode_RustOpaque_flutter_rust_bridgefor_generatedrust_asyncRwLockArcInnerClient(
+  ArcXmtpClient
+      sse_decode_RustOpaque_flutter_rust_bridgefor_generatedrust_asyncRwLockArcXmtpClient(
           SseDeserializer deserializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
-    return ArcInnerClient.sseDecode(
+    return ArcXmtpClient.sseDecode(
         sse_decode_usize(deserializer), sse_decode_i_32(deserializer));
   }
 
@@ -1039,6 +1142,18 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  List<Message> sse_decode_list_message(SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+
+    var len_ = sse_decode_i_32(deserializer);
+    var ans_ = <Message>[];
+    for (var idx_ = 0; idx_ < len_; ++idx_) {
+      ans_.add(sse_decode_message(deserializer));
+    }
+    return ans_;
+  }
+
+  @protected
   List<int> sse_decode_list_prim_u_8_loose(SseDeserializer deserializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
     var len_ = sse_decode_i_32(deserializer);
@@ -1050,6 +1165,22 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     // Codec=Sse (Serialization based), see doc to use other codecs
     var len_ = sse_decode_i_32(deserializer);
     return deserializer.buffer.getUint8List(len_);
+  }
+
+  @protected
+  Message sse_decode_message(SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    var var_id = sse_decode_list_prim_u_8_strict(deserializer);
+    var var_sentAtNs = sse_decode_i_64(deserializer);
+    var var_groupId = sse_decode_list_prim_u_8_strict(deserializer);
+    var var_senderAccountAddress = sse_decode_String(deserializer);
+    var var_contentBytes = sse_decode_list_prim_u_8_strict(deserializer);
+    return Message(
+        id: var_id,
+        sentAtNs: var_sentAtNs,
+        groupId: var_groupId,
+        senderAccountAddress: var_senderAccountAddress,
+        contentBytes: var_contentBytes);
   }
 
   @protected
@@ -1069,7 +1200,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     // Codec=Sse (Serialization based), see doc to use other codecs
     var var_textToSign = sse_decode_String(deserializer);
     var var_inner =
-        sse_decode_Auto_Owned_RustOpaque_flutter_rust_bridgefor_generatedrust_asyncRwLockArcInnerClient(
+        sse_decode_Auto_Owned_RustOpaque_flutter_rust_bridgefor_generatedrust_asyncRwLockArcXmtpClient(
             deserializer);
     return SignatureRequiredClient(
         textToSign: var_textToSign, inner: var_inner);
@@ -1156,8 +1287,8 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
 
   @protected
   void
-      sse_encode_Auto_Owned_RustOpaque_flutter_rust_bridgefor_generatedrust_asyncRwLockArcInnerClient(
-          ArcInnerClient self, SseSerializer serializer) {
+      sse_encode_Auto_Owned_RustOpaque_flutter_rust_bridgefor_generatedrust_asyncRwLockArcXmtpClient(
+          ArcXmtpClient self, SseSerializer serializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
     sse_encode_usize(self.sseEncode(move: true), serializer);
   }
@@ -1228,8 +1359,8 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
 
   @protected
   void
-      sse_encode_RustOpaque_flutter_rust_bridgefor_generatedrust_asyncRwLockArcInnerClient(
-          ArcInnerClient self, SseSerializer serializer) {
+      sse_encode_RustOpaque_flutter_rust_bridgefor_generatedrust_asyncRwLockArcXmtpClient(
+          ArcXmtpClient self, SseSerializer serializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
     sse_encode_usize(self.sseEncode(move: null), serializer);
   }
@@ -1353,6 +1484,15 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  void sse_encode_list_message(List<Message> self, SseSerializer serializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_i_32(self.length, serializer);
+    for (final item in self) {
+      sse_encode_message(item, serializer);
+    }
+  }
+
+  @protected
   void sse_encode_list_prim_u_8_loose(
       List<int> self, SseSerializer serializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
@@ -1370,6 +1510,16 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  void sse_encode_message(Message self, SseSerializer serializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_list_prim_u_8_strict(self.id, serializer);
+    sse_encode_i_64(self.sentAtNs, serializer);
+    sse_encode_list_prim_u_8_strict(self.groupId, serializer);
+    sse_encode_String(self.senderAccountAddress, serializer);
+    sse_encode_list_prim_u_8_strict(self.contentBytes, serializer);
+  }
+
+  @protected
   void sse_encode_opt_box_autoadd_i_64(int? self, SseSerializer serializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
 
@@ -1384,7 +1534,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       SignatureRequiredClient self, SseSerializer serializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
     sse_encode_String(self.textToSign, serializer);
-    sse_encode_Auto_Owned_RustOpaque_flutter_rust_bridgefor_generatedrust_asyncRwLockArcInnerClient(
+    sse_encode_Auto_Owned_RustOpaque_flutter_rust_bridgefor_generatedrust_asyncRwLockArcXmtpClient(
         self.inner, serializer);
   }
 

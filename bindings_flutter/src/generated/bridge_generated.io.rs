@@ -28,17 +28,17 @@ pub extern "C" fn frbgen_xmtp_bindings_flutter_rust_arc_decrement_strong_count_R
 }
 
 #[no_mangle]
-pub extern "C" fn frbgen_xmtp_bindings_flutter_rust_arc_increment_strong_count_RustOpaque_flutter_rust_bridgefor_generatedrust_asyncRwLockArcInnerClient(
+pub extern "C" fn frbgen_xmtp_bindings_flutter_rust_arc_increment_strong_count_RustOpaque_flutter_rust_bridgefor_generatedrust_asyncRwLockArcXmtpClient(
     ptr: *const std::ffi::c_void,
 ) {
-    MoiArc::<flutter_rust_bridge::for_generated::rust_async::RwLock<Arc < InnerClient >>>::increment_strong_count(ptr as _);
+    MoiArc::<flutter_rust_bridge::for_generated::rust_async::RwLock<Arc < XmtpClient >>>::increment_strong_count(ptr as _);
 }
 
 #[no_mangle]
-pub extern "C" fn frbgen_xmtp_bindings_flutter_rust_arc_decrement_strong_count_RustOpaque_flutter_rust_bridgefor_generatedrust_asyncRwLockArcInnerClient(
+pub extern "C" fn frbgen_xmtp_bindings_flutter_rust_arc_decrement_strong_count_RustOpaque_flutter_rust_bridgefor_generatedrust_asyncRwLockArcXmtpClient(
     ptr: *const std::ffi::c_void,
 ) {
-    MoiArc::<flutter_rust_bridge::for_generated::rust_async::RwLock<Arc < InnerClient >>>::decrement_strong_count(ptr as _);
+    MoiArc::<flutter_rust_bridge::for_generated::rust_async::RwLock<Arc < XmtpClient >>>::decrement_strong_count(ptr as _);
 }
 
 #[no_mangle]

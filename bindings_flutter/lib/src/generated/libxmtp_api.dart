@@ -69,22 +69,22 @@ class ApiError extends RustOpaque {
   );
 }
 
-// Rust type: RustOpaqueMoi<flutter_rust_bridge::for_generated::rust_async::RwLock<Arc < InnerClient >>>
+// Rust type: RustOpaqueMoi<flutter_rust_bridge::for_generated::rust_async::RwLock<Arc < XmtpClient >>>
 @sealed
-class ArcInnerClient extends RustOpaque {
-  ArcInnerClient.dcoDecode(List<dynamic> wire)
+class ArcXmtpClient extends RustOpaque {
+  ArcXmtpClient.dcoDecode(List<dynamic> wire)
       : super.dcoDecode(wire, _kStaticData);
 
-  ArcInnerClient.sseDecode(int ptr, int externalSizeOnNative)
+  ArcXmtpClient.sseDecode(int ptr, int externalSizeOnNative)
       : super.sseDecode(ptr, externalSizeOnNative, _kStaticData);
 
   static final _kStaticData = RustArcStaticData(
     rustArcIncrementStrongCount:
-        RustLib.instance.api.rust_arc_increment_strong_count_ArcInnerClient,
+        RustLib.instance.api.rust_arc_increment_strong_count_ArcXmtpClient,
     rustArcDecrementStrongCount:
-        RustLib.instance.api.rust_arc_decrement_strong_count_ArcInnerClient,
+        RustLib.instance.api.rust_arc_decrement_strong_count_ArcXmtpClient,
     rustArcDecrementStrongCountPtr:
-        RustLib.instance.api.rust_arc_decrement_strong_count_ArcInnerClientPtr,
+        RustLib.instance.api.rust_arc_decrement_strong_count_ArcXmtpClientPtr,
   );
 }
 
@@ -127,6 +127,30 @@ class Client extends RustOpaque {
         createdAfterNs: createdAfterNs,
         createdBeforeNs: createdBeforeNs,
         limit: limit,
+      );
+
+  Future<List<Message>> listMessages(
+          {required List<int> groupId,
+          int? sentBeforeNs,
+          int? sentAfterNs,
+          int? limit,
+          dynamic hint}) =>
+      RustLib.instance.api.clientListMessages(
+        that: this,
+        groupId: groupId,
+        sentBeforeNs: sentBeforeNs,
+        sentAfterNs: sentAfterNs,
+        limit: limit,
+      );
+
+  Future<void> sendMessage(
+          {required List<int> groupId,
+          required List<int> contentBytes,
+          dynamic hint}) =>
+      RustLib.instance.api.clientSendMessage(
+        that: this,
+        groupId: groupId,
+        contentBytes: contentBytes,
       );
 }
 
@@ -256,9 +280,44 @@ class Group {
           createdAtNs == other.createdAtNs;
 }
 
+class Message {
+  final Uint8List id;
+  final int sentAtNs;
+  final Uint8List groupId;
+  final String senderAccountAddress;
+  final Uint8List contentBytes;
+
+  const Message({
+    required this.id,
+    required this.sentAtNs,
+    required this.groupId,
+    required this.senderAccountAddress,
+    required this.contentBytes,
+  });
+
+  @override
+  int get hashCode =>
+      id.hashCode ^
+      sentAtNs.hashCode ^
+      groupId.hashCode ^
+      senderAccountAddress.hashCode ^
+      contentBytes.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is Message &&
+          runtimeType == other.runtimeType &&
+          id == other.id &&
+          sentAtNs == other.sentAtNs &&
+          groupId == other.groupId &&
+          senderAccountAddress == other.senderAccountAddress &&
+          contentBytes == other.contentBytes;
+}
+
 class SignatureRequiredClient {
   final String textToSign;
-  final ArcInnerClient inner;
+  final ArcXmtpClient inner;
 
   const SignatureRequiredClient({
     required this.textToSign,

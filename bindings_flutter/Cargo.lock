@@ -1929,9 +1929,7 @@ dependencies = [
  "futures-util",
  "http",
  "hyper",
- "log",
  "rustls",
- "rustls-native-certs",
  "tokio",
  "tokio-rustls",
 ]
@@ -2456,7 +2454,7 @@ dependencies = [
 [[package]]
 name = "openmls"
 version = "0.5.0"
-source = "git+https://github.com/xmtp/openmls?branch=main#a12c7435209b6714531bc0a1619f4fdf7c57d7c0"
+source = "git+https://github.com/xmtp/openmls?rev=0da7dcb#0da7dcb79d7f66e520041b54c34f82a10216cd72"
 dependencies = [
  "backtrace",
  "itertools 0.10.5",
@@ -2477,7 +2475,7 @@ dependencies = [
 [[package]]
 name = "openmls_basic_credential"
 version = "0.2.0"
-source = "git+https://github.com/xmtp/openmls?branch=main#a12c7435209b6714531bc0a1619f4fdf7c57d7c0"
+source = "git+https://github.com/xmtp/openmls?rev=0da7dcb#0da7dcb79d7f66e520041b54c34f82a10216cd72"
 dependencies = [
  "ed25519-dalek",
  "openmls_traits",
@@ -2490,7 +2488,7 @@ dependencies = [
 [[package]]
 name = "openmls_memory_keystore"
 version = "0.2.0"
-source = "git+https://github.com/xmtp/openmls?branch=main#a12c7435209b6714531bc0a1619f4fdf7c57d7c0"
+source = "git+https://github.com/xmtp/openmls?rev=0da7dcb#0da7dcb79d7f66e520041b54c34f82a10216cd72"
 dependencies = [
  "openmls_traits",
  "serde_json",
@@ -2500,7 +2498,7 @@ dependencies = [
 [[package]]
 name = "openmls_rust_crypto"
 version = "0.2.0"
-source = "git+https://github.com/xmtp/openmls?branch=main#a12c7435209b6714531bc0a1619f4fdf7c57d7c0"
+source = "git+https://github.com/xmtp/openmls?rev=0da7dcb#0da7dcb79d7f66e520041b54c34f82a10216cd72"
 dependencies = [
  "aes-gcm",
  "chacha20poly1305",
@@ -2524,7 +2522,7 @@ dependencies = [
 [[package]]
 name = "openmls_traits"
 version = "0.2.0"
-source = "git+https://github.com/xmtp/openmls?branch=main#a12c7435209b6714531bc0a1619f4fdf7c57d7c0"
+source = "git+https://github.com/xmtp/openmls?rev=0da7dcb#0da7dcb79d7f66e520041b54c34f82a10216cd72"
 dependencies = [
  "serde",
  "tls_codec",
@@ -4272,6 +4270,7 @@ version = "0.9.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3082666a3a6433f7f511c7192923fa1fe07c69332d3c6a2e6bb040b569199d5a"
 dependencies = [
+ "async-stream",
  "async-trait",
  "axum",
  "base64 0.21.7",
@@ -4286,7 +4285,10 @@ dependencies = [
  "percent-encoding",
  "pin-project",
  "prost",
+ "rustls-native-certs",
+ "rustls-pemfile",
  "tokio",
+ "tokio-rustls",
  "tokio-stream",
  "tower",
  "tower-layer",
@@ -4874,7 +4876,6 @@ dependencies = [
  "futures",
  "http-body",
  "hyper",
- "hyper-rustls",
  "log",
  "pbjson",
  "pbjson-types",
@@ -4882,7 +4883,6 @@ dependencies = [
  "serde",
  "serde_json",
  "tokio",
- "tokio-rustls",
  "tonic",
  "tower",
  "webpki-roots 0.23.1",
@@ -4896,6 +4896,7 @@ dependencies = [
  "anyhow",
  "flutter_rust_bridge",
  "futures",
+ "prost",
  "thiserror",
  "tokio",
  "xmtp_api_grpc",
