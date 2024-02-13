@@ -137,6 +137,13 @@ impl Client {
         });
     }
 
+    pub async fn is_active_group(&self, group_id: Vec<u8>) -> Result<bool, XmtpError> {
+        self.inner.sync_welcomes().await?;
+        let group = self.inner.group(group_id)?;
+        group.sync().await?; // TODO: consider an explicit sync method
+        Ok(group.is_active()?)
+    }
+
     pub async fn list_members(&self, group_id: Vec<u8>) -> Result<Vec<GroupMember>, XmtpError> {
         self.inner.sync_welcomes().await?;
         let group = self.inner.group(group_id)?;
@@ -415,6 +422,49 @@ mod tests {
                 assert!(vec![wallet_a.get_address(), wallet_c.get_address()]
                     .contains(&member.account_address));
             }
+        }
+    }
+
+    #[tokio::test]
+    async fn test_active_group_detection() {
+        let wallet_a = LocalWallet::new(&mut xmtp_cryptography::utils::rng());
+        let wallet_b = LocalWallet::new(&mut xmtp_cryptography::utils::rng());
+        let wallet_c = LocalWallet::new(&mut xmtp_cryptography::utils::rng());
+        let client_a = create_client_for_wallet(&wallet_a).await;
+        let client_b = create_client_for_wallet(&wallet_b).await;
+        let client_c = create_client_for_wallet(&wallet_c).await;
+        let group = client_a
+            .create_group(vec![wallet_b.get_address(), wallet_c.get_address()])
+            .await
+            .unwrap();
+        delay_to_propagate().await;
+
+        // At first the group should be active for all clients.
+        for (client, should_be_active) in
+            vec![(&client_a, true), (&client_b, true), (&client_c, true)]
+        {
+            let is_active = client
+                .is_active_group(group.group_id.clone())
+                .await
+                .unwrap();
+            assert_eq!(is_active, should_be_active);
+        }
+
+        // But when A removes B from the group...
+        client_a
+            .remove_member(group.group_id.clone(), wallet_b.get_address())
+            .await
+            .unwrap();
+
+        // ... then the group should be inactive for B.
+        for (client, should_be_active) in
+            vec![(&client_a, true), (&client_b, false), (&client_c, true)]
+        {
+            let is_active = client
+                .is_active_group(group.group_id.clone())
+                .await
+                .unwrap();
+            assert_eq!(is_active, should_be_active);
         }
     }
 

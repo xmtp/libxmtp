@@ -127,6 +127,12 @@ class Client extends RustOpaque {
         that: this,
       );
 
+  Future<bool> isActiveGroup({required List<int> groupId, dynamic hint}) =>
+      RustLib.instance.api.clientIsActiveGroup(
+        that: this,
+        groupId: groupId,
+      );
+
   Future<List<Group>> listGroups(
           {int? createdAfterNs,
           int? createdBeforeNs,

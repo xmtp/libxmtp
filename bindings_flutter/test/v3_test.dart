@@ -200,6 +200,37 @@ void main() {
       }
     },
   );
+  test(
+    'active group detection',
+    () async {
+      var walletA = EthPrivateKey.createRandom(Random.secure());
+      var walletB = EthPrivateKey.createRandom(Random.secure());
+      var walletC = EthPrivateKey.createRandom(Random.secure());
+      var clientA = await createClientForWallet(dbDir, walletA);
+      var clientB = await createClientForWallet(dbDir, walletB);
+      var clientC = await createClientForWallet(dbDir, walletC);
+
+      var group = await clientA.createGroup(
+        accountAddresses: [walletB.address.hex, walletC.address.hex],
+      );
+      await delayToPropagate();
+
+      expect(await clientA.isActiveGroup(groupId: group.groupId), true);
+      expect(await clientB.isActiveGroup(groupId: group.groupId), true);
+      expect(await clientC.isActiveGroup(groupId: group.groupId), true);
+
+      // ... but when A removes B from the group...
+      await clientA.removeMember(
+        groupId: group.groupId,
+        accountAddress: walletB.address.hex,
+      );
+
+      // ... then only A and C should see it as active:
+      expect(await clientA.isActiveGroup(groupId: group.groupId), true);
+      expect(await clientB.isActiveGroup(groupId: group.groupId), false);
+      expect(await clientC.isActiveGroup(groupId: group.groupId), true);
+    },
+  );
 }
 
 // Helpers
