@@ -99,8 +99,8 @@ class MainActivity : AppCompatActivity() {
                 if (textToSign != null) {
                     walletSignature = key.sign(textToSign).toByteArray()
                 }
-                client.registerIdentity(walletSignature)
-                textView.text = "Client constructed, wallet address: " + client.accountAddress()
+                client.registerIdentity(walletSignature);
+                textView.text = "Libxmtp version\n" + uniffi.xmtpv3.getVersionInfo() + "\n\nClient constructed, wallet address: " + client.accountAddress()
                 Log.i("App", "Setting up conversation streaming")
                 client.conversations().stream(ConversationCallback())
             } catch (e: Exception) {
