@@ -17,6 +17,7 @@ import org.xmtp.android.library.Client
 import org.xmtp.android.library.ClientOptions
 import org.xmtp.android.library.XMTPEnvironment
 import org.xmtp.android.library.messages.PrivateKeyBuilder
+import org.xmtp.android.library.messages.toV2
 import uniffi.xmtpv3.FfiConversationCallback
 import uniffi.xmtpv3.FfiGroup
 import uniffi.xmtpv3.FfiInboxOwner
@@ -64,21 +65,16 @@ class MainActivity : AppCompatActivity() {
         setContentView(R.layout.activity_main)
 
         val textView: TextView = findViewById<TextView>(selftest_output)
-        val privateKey: ByteArray = SecureRandom().generateSeed(32)
-        val credentials: Credentials = Credentials.create(ECKeyPair.create(privateKey))
-        val inboxOwner = Web3jInboxOwner(credentials)
         val dbDir: File = File(this.filesDir.absolutePath, "xmtp_db")
-        dbDir.deleteRecursively()
+        try {
+            dbDir.deleteRecursively()
+        } catch (e: Exception) {}
         dbDir.mkdir()
         val dbPath: String = dbDir.absolutePath + "/android_example.db3"
         val dbEncryptionKey = SecureRandom().generateSeed(32)
         Log.i(
                 "App",
-                "INFO -\naccountAddress: " +
-                        inboxOwner.getAddress() +
-                        "\nprivateKey: " +
-                        privateKey.asList() +
-                        "\nDB path: " +
+                "INFO -\nDB path: " +
                         dbPath +
                         "\nDB encryption key: " +
                         dbEncryptionKey
@@ -86,42 +82,44 @@ class MainActivity : AppCompatActivity() {
 
         runBlocking {
             try {
-                val options =
-                        ClientOptions(
-                                api =
-                                        ClientOptions.Api(
-                                                env = XMTPEnvironment.LOCAL,
-                                                isSecure = false,
-                                        ),
-                                appContext = this@MainActivity
-                        )
                 val key = PrivateKeyBuilder()
-                val client = Client().create(account = key, options = options)
-
-                val clientV3 =
+                val client =
                         uniffi.xmtpv3.createClient(
                                 AndroidFfiLogger(),
                                 EMULATOR_LOCALHOST_ADDRESS,
                                 false,
                                 dbPath,
                                 dbEncryptionKey,
-                                inboxOwner.getAddress(),
+                                key.address,
                                 LegacyIdentitySource.KEY_GENERATOR,
-                                client.privateKeyBundleV1.identityKey.toByteArray(),
+                                getV2SerializedSignedPrivateKey(key),
                         )
                 var walletSignature: ByteArray? = null
-                val textToSign = clientV3.textToSign()
+                val textToSign = client.textToSign()
                 if (textToSign != null) {
-                    walletSignature = inboxOwner.sign(textToSign)
+                    walletSignature = key.sign(textToSign).toByteArray()
                 }
-                clientV3.registerIdentity(walletSignature)
-                textView.text = "Client constructed, wallet address: " + client.address
+                client.registerIdentity(walletSignature)
+                textView.text = "Client constructed, wallet address: " + client.accountAddress()
                 Log.i("App", "Setting up conversation streaming")
-                client.conversations.stream()
+                client.conversations().stream(ConversationCallback())
             } catch (e: Exception) {
                 textView.text = "Failed to construct client: " + e.message
             }
         }
+    }
 
+    fun getV2SerializedSignedPrivateKey(key: PrivateKeyBuilder): ByteArray {
+        val options =
+            ClientOptions(
+                api =
+                ClientOptions.Api(
+                    env = XMTPEnvironment.LOCAL,
+                    isSecure = false,
+                ),
+                appContext = this@MainActivity
+            )
+        val client = Client().create(account = key, options = options)
+        return client.privateKeyBundleV1.toV2().identityKey.toByteArray();
     }
 }

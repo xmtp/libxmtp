@@ -3,6 +3,7 @@ use std::println as debug;
 
 #[cfg(not(test))]
 use log::debug;
+use log::info;
 use thiserror::Error;
 
 use xmtp_proto::api_client::XmtpMlsClient;
@@ -38,7 +39,7 @@ pub enum ClientBuilderError {
     // AssociationFailed(#[from] AssociationError),
     // #[error("Error Initializing Store")]
     // StoreInitialization(#[from] SE),
-    #[error("Error Initalizing Identity")]
+    #[error("Error initializing identity: {0}")]
     IdentityInitialization(#[from] IdentityError),
 
     #[error("Storage Error")]
@@ -82,6 +83,7 @@ impl IdentityStrategy {
         api_client: &ApiClientWrapper<ApiClient>,
         store: &EncryptedMessageStore,
     ) -> Result<Identity, ClientBuilderError> {
+        info!("Initializing identity");
         let conn = store.conn()?;
         let provider = XmtpOpenMlsProvider::new(&conn);
         let identity_option: Option<Identity> = provider
@@ -117,6 +119,7 @@ impl IdentityStrategy {
         account_address: String,
         legacy_identity: LegacyIdentity,
     ) -> Result<Identity, ClientBuilderError> {
+        info!("Creating identity");
         let identity = match legacy_identity {
             // This is a fresh install, and at most one v2 signature (enable_identity)
             // has been requested so far, so it's fine to request another one (grant_messaging_access).
