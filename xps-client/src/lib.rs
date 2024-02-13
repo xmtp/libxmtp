@@ -17,7 +17,7 @@ use xps_operations::{XpsClientError, XpsOperations};
 
 pub struct XmtpXpsClient<LegacyClient> {
     /// This is the current mls client to fill in non-d14n functionality
-    legacy_client: LegacyClient,
+    waku_client: LegacyClient,
     xps: XpsOperations,
 }
 
@@ -27,12 +27,12 @@ where
 {
     pub async fn new<S: AsRef<str>, P: AsRef<str>>(
         endpoint: S,
-        legacy_client: LegacyClient,
+        waku_client: LegacyClient,
         owner: LocalWallet,
         network_endpoint: P,
     ) -> Result<Self, XpsClientError> {
         Ok(Self {
-            legacy_client,
+            waku_client,
             xps: XpsOperations::new(endpoint, owner, network_endpoint).await?,
         })
     }
@@ -57,28 +57,28 @@ where
         &self,
         request: UploadKeyPackageRequest,
     ) -> Result<(), xmtp_proto::api_client::Error> {
-        self.legacy_client.upload_key_package(request).await
+        self.waku_client.upload_key_package(request).await
     }
 
     async fn fetch_key_packages(
         &self,
         request: FetchKeyPackagesRequest,
     ) -> Result<FetchKeyPackagesResponse, xmtp_proto::api_client::Error> {
-        self.legacy_client.fetch_key_packages(request).await
+        self.waku_client.fetch_key_packages(request).await
     }
 
     async fn send_group_messages(
         &self,
         request: SendGroupMessagesRequest,
     ) -> Result<(), xmtp_proto::api_client::Error> {
-        self.legacy_client.send_group_messages(request).await
+        self.waku_client.send_group_messages(request).await
     }
 
     async fn send_welcome_messages(
         &self,
         request: SendWelcomeMessagesRequest,
     ) -> Result<(), xmtp_proto::api_client::Error> {
-        self.legacy_client.send_welcome_messages(request).await
+        self.waku_client.send_welcome_messages(request).await
     }
 
     async fn get_identity_updates(
@@ -97,28 +97,28 @@ where
         &self,
         request: QueryGroupMessagesRequest,
     ) -> Result<QueryGroupMessagesResponse, xmtp_proto::api_client::Error> {
-        self.legacy_client.query_group_messages(request).await
+        self.waku_client.query_group_messages(request).await
     }
 
     async fn query_welcome_messages(
         &self,
         request: QueryWelcomeMessagesRequest,
     ) -> Result<QueryWelcomeMessagesResponse, xmtp_proto::api_client::Error> {
-        self.legacy_client.query_welcome_messages(request).await
+        self.waku_client.query_welcome_messages(request).await
     }
 
     async fn subscribe_group_messages(
         &self,
         request: SubscribeGroupMessagesRequest,
     ) -> Result<xmtp_proto::api_client::GroupMessageStream, xmtp_proto::api_client::Error> {
-        self.legacy_client.subscribe_group_messages(request).await
+        self.waku_client.subscribe_group_messages(request).await
     }
 
     async fn subscribe_welcome_messages(
         &self,
         request: SubscribeWelcomeMessagesRequest,
     ) -> Result<xmtp_proto::api_client::WelcomeMessageStream, xmtp_proto::api_client::Error> {
-        self.legacy_client.subscribe_welcome_messages(request).await
+        self.waku_client.subscribe_welcome_messages(request).await
     }
 }
 
