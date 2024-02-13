@@ -26,9 +26,9 @@ where
     LegacyClient: XmtpMlsClient + Send + Sync,
 {
     pub async fn new<S: AsRef<str>, P: AsRef<str>>(
-        endpoint: S,
         waku_client: LegacyClient,
         owner: LocalWallet,
+        endpoint: S,
         network_endpoint: P,
     ) -> Result<Self, XpsClientError> {
         Ok(Self {
