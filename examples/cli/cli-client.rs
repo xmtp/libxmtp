@@ -8,7 +8,7 @@ extern crate xmtp_mls;
 
 use std::{fs, path::PathBuf, time::Duration};
 
-use clap::{Parser, Subcommand};
+use clap::{Parser, Subcommand, ValueEnum};
 use log::{error, info};
 use thiserror::Error;
 use xmtp_api_grpc::grpc_api_helper::Client as ApiClient;
@@ -42,6 +42,12 @@ struct Cli {
     local: bool,
 }
 
+#[derive(ValueEnum, Debug, Copy, Clone)]
+enum Permissions {
+    EveryoneIsAdmin,
+    GroupCreatorIsAdmin,
+}
+
 #[derive(Debug, Subcommand)]
 enum Commands {
     /// Register Account on XMTP Network
@@ -49,7 +55,10 @@ enum Commands {
         #[clap(long = "seed", default_value_t = 0)]
         wallet_seed: u64,
     },
-    CreateGroup {},
+    CreateGroup {
+        #[clap(value_enum, default_value_t = Permissions::EveryoneIsAdmin)]
+        permissions: Permissions,
+    },
     // List conversations on the registered wallet
     ListGroups {},
     /// Send Message
@@ -259,12 +268,22 @@ async fn main() {
                 account_address, group_id
             );
         }
-        Commands::CreateGroup {} => {
+        Commands::CreateGroup { permissions } => {
+            let group_permissions = match permissions {
+                Permissions::EveryoneIsAdmin => {
+                    xmtp_mls::groups::PreconfiguredPolicies::EveryoneIsAdmin
+                }
+                Permissions::GroupCreatorIsAdmin => {
+                    xmtp_mls::groups::PreconfiguredPolicies::GroupCreatorIsAdmin
+                }
+            };
             let client = create_client(&cli, IdentityStrategy::CachedOnly)
                 .await
                 .unwrap();
 
-            let group = client.create_group().expect("failed to create group");
+            let group = client
+                .create_group(Some(group_permissions))
+                .expect("failed to create group");
             info!("Created group {}", hex::encode(group.group_id))
         }
 

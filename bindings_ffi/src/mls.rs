@@ -167,18 +167,35 @@ pub struct FfiConversations {
     inner_client: Arc<RustXmtpClient>,
 }
 
+#[derive(uniffi::Enum)]
+pub enum GroupPermissions {
+    EveryoneIsAdmin,
+    GroupCreatorIsAdmin,
+}
+
 #[uniffi::export(async_runtime = "tokio")]
 impl FfiConversations {
     pub async fn create_group(
         &self,
         account_addresses: Vec<String>,
+        permissions: Option<GroupPermissions>,
     ) -> Result<Arc<FfiGroup>, GenericError> {
         log::info!(
             "creating group with account addresses: {}",
             account_addresses.join(", ")
         );
 
-        let convo = self.inner_client.create_group()?;
+        let group_permissions = match permissions {
+            Some(GroupPermissions::EveryoneIsAdmin) => {
+                Some(xmtp_mls::groups::PreconfiguredPolicies::EveryoneIsAdmin)
+            }
+            Some(GroupPermissions::GroupCreatorIsAdmin) => {
+                Some(xmtp_mls::groups::PreconfiguredPolicies::GroupCreatorIsAdmin)
+            }
+            _ => None,
+        };
+
+        let convo = self.inner_client.create_group(group_permissions)?;
         if !account_addresses.is_empty() {
             convo.add_members(account_addresses).await?;
         }
@@ -748,7 +765,7 @@ mod tests {
 
         let group = amal
             .conversations()
-            .create_group(vec![bola.account_address()])
+            .create_group(vec![bola.account_address()], None)
             .await
             .unwrap();
 
@@ -848,7 +865,7 @@ mod tests {
         tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
 
         amal.conversations()
-            .create_group(vec![bola.account_address()])
+            .create_group(vec![bola.account_address()], None)
             .await
             .unwrap();
 
@@ -857,7 +874,7 @@ mod tests {
         assert_eq!(stream_callback.message_count(), 1);
         // Create another group and add bola
         amal.conversations()
-            .create_group(vec![bola.account_address()])
+            .create_group(vec![bola.account_address()], None)
             .await
             .unwrap();
 
@@ -877,7 +894,7 @@ mod tests {
 
         let group = amal
             .conversations()
-            .create_group(vec![bola.account_address()])
+            .create_group(vec![bola.account_address()], None)
             .await
             .unwrap();
 

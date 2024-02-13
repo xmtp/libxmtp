@@ -123,13 +123,19 @@ impl ValidatedCommit {
             &group_metadata,
         )?;
 
-        Ok(Some(Self {
+        let validated_commit = Self {
             actor,
             members_added,
             members_removed,
             installations_added,
             installations_removed,
-        }))
+        };
+
+        if !group_metadata.policies.evaluate_commit(&validated_commit) {
+            return Err(CommitValidationError::InsufficientPermissions);
+        }
+
+        Ok(Some(validated_commit))
     }
 
     pub fn actor_account_address(&self) -> Address {
@@ -374,7 +380,7 @@ mod tests {
         let bola = ClientBuilder::new_test_client(&generate_local_wallet()).await;
         let bola_key_package = get_key_package(&bola);
 
-        let amal_group = amal.create_group().unwrap();
+        let amal_group = amal.create_group(None).unwrap();
         let amal_conn = amal.store.conn().unwrap();
         let amal_provider = amal.mls_provider(&amal_conn);
         let mut mls_group = amal_group.load_mls_group(&amal_provider).unwrap();
@@ -445,7 +451,7 @@ mod tests {
         let amal_1_provider = amal_1.mls_provider(&amal_1_conn);
         let amal_2_provider = amal_2.mls_provider(&amal_2_conn);
 
-        let amal_group = amal_1.create_group().unwrap();
+        let amal_group = amal_1.create_group(None).unwrap();
         let mut amal_mls_group = amal_group.load_mls_group(&amal_1_provider).unwrap();
 
         let amal_2_kp = amal_2.identity.new_key_package(&amal_2_provider).unwrap();
@@ -483,7 +489,7 @@ mod tests {
         let amal_provider = amal.mls_provider(&amal_conn);
         let bola_provider = bola.mls_provider(&bola_conn);
 
-        let amal_group = amal.create_group().unwrap();
+        let amal_group = amal.create_group(None).unwrap();
         let mut amal_mls_group = amal_group.load_mls_group(&amal_provider).unwrap();
 
         // Create a key package with a malformed credential

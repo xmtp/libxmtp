@@ -332,10 +332,37 @@ fn default_remove_installation_policy() -> MembershipPolicies {
     MembershipPolicies::deny()
 }
 
-// The default policy set for a group
-// Currently set to allow everyone to do everything
-pub(crate) fn default_group_policy() -> PolicySet {
+/// A policy where any member can add or remove any other member
+pub(crate) fn policy_everyone_is_admin() -> PolicySet {
     PolicySet::new(MembershipPolicies::allow(), MembershipPolicies::allow())
+}
+
+/// A policy where only the group creator can add or remove members
+pub(crate) fn policy_group_creator_is_admin() -> PolicySet {
+    PolicySet::new(
+        MembershipPolicies::allow_if_actor_creator(),
+        MembershipPolicies::allow_if_actor_creator(),
+    )
+}
+
+pub enum PreconfiguredPolicies {
+    EveryoneIsAdmin,
+    GroupCreatorIsAdmin,
+}
+
+impl PreconfiguredPolicies {
+    pub fn to_policy_set(&self) -> PolicySet {
+        match self {
+            PreconfiguredPolicies::EveryoneIsAdmin => policy_everyone_is_admin(),
+            PreconfiguredPolicies::GroupCreatorIsAdmin => policy_group_creator_is_admin(),
+        }
+    }
+}
+
+impl Default for PreconfiguredPolicies {
+    fn default() -> Self {
+        PreconfiguredPolicies::EveryoneIsAdmin
+    }
 }
 
 #[cfg(test)]

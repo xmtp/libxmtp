@@ -287,6 +287,7 @@ where
             1 => Ok(IntentState::ToPublish),
             2 => Ok(IntentState::Published),
             3 => Ok(IntentState::Committed),
+            4 => Ok(IntentState::Error),
             x => Err(format!("Unrecognized variant {}", x).into()),
         }
     }

@@ -92,7 +92,7 @@ mod tests {
         let amal = ClientBuilder::new_test_client(&generate_local_wallet()).await;
         let bola = ClientBuilder::new_test_client(&generate_local_wallet()).await;
 
-        let amal_group = amal.create_group().unwrap();
+        let amal_group = amal.create_group(None).unwrap();
         // Add bola
         amal_group
             .add_members_by_installation_id(vec![bola.installation_public_key()])
@@ -119,7 +119,7 @@ mod tests {
     #[tokio::test(flavor = "multi_thread", worker_threads = 10)]
     async fn test_subscribe_multiple() {
         let amal = ClientBuilder::new_test_client(&generate_local_wallet()).await;
-        let group = amal.create_group().unwrap();
+        let group = amal.create_group(None).unwrap();
 
         let stream = group.stream().await.unwrap();
 
@@ -148,7 +148,7 @@ mod tests {
         let amal = ClientBuilder::new_test_client(&generate_local_wallet()).await;
         let bola = ClientBuilder::new_test_client(&generate_local_wallet()).await;
 
-        let amal_group = amal.create_group().unwrap();
+        let amal_group = amal.create_group(None).unwrap();
 
         let mut stream = amal_group.stream().await.unwrap();
         tokio::time::sleep(std::time::Duration::from_millis(50)).await;

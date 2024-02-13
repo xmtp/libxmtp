@@ -104,7 +104,7 @@ impl Client {
     }
 
     pub async fn create_group(&self, account_addresses: Vec<String>) -> Result<Group, XmtpError> {
-        let group = self.inner.client.create_group()?;
+        let group = self.inner.client.create_group(None)?;
         // TODO: consider filtering self address from the list
         if !account_addresses.is_empty() {
             group.add_members(account_addresses).await?;

@@ -24,6 +24,7 @@ use crate::{
     api_client_wrapper::{ApiClientWrapper, IdentityUpdate},
     groups::{
         validated_commit::CommitValidationError, AddressesOrInstallationIds, IntentError, MlsGroup,
+        PreconfiguredPolicies,
     },
     identity::Identity,
     storage::{
@@ -192,10 +193,13 @@ where
     }
 
     /// Create a new group with the default settings
-    pub fn create_group(&self) -> Result<MlsGroup<ApiClient>, ClientError> {
+    pub fn create_group(
+        &self,
+        permissions: Option<PreconfiguredPolicies>,
+    ) -> Result<MlsGroup<ApiClient>, ClientError> {
         log::info!("creating group");
 
-        let group = MlsGroup::create_and_insert(self, GroupMembershipState::Allowed)
+        let group = MlsGroup::create_and_insert(self, GroupMembershipState::Allowed, permissions)
             .map_err(|e| ClientError::Generic(format!("group create error {}", e)))?;
 
         Ok(group)
@@ -611,8 +615,8 @@ mod tests {
     #[tokio::test]
     async fn test_find_groups() {
         let client = ClientBuilder::new_test_client(&generate_local_wallet()).await;
-        let group_1 = client.create_group().unwrap();
-        let group_2 = client.create_group().unwrap();
+        let group_1 = client.create_group(None).unwrap();
+        let group_2 = client.create_group(None).unwrap();
 
         let groups = client.find_groups(None, None, None, None).unwrap();
         assert_eq!(groups.len(), 2);
@@ -625,7 +629,7 @@ mod tests {
         let alice = ClientBuilder::new_test_client(&generate_local_wallet()).await;
         let bob = ClientBuilder::new_test_client(&generate_local_wallet()).await;
 
-        let alice_bob_group = alice.create_group().unwrap();
+        let alice_bob_group = alice.create_group(None).unwrap();
         alice_bob_group
             .add_members_by_installation_id(vec![bob.installation_public_key()])
             .await
@@ -683,7 +687,7 @@ mod tests {
         let bola = ClientBuilder::new_test_client(&generate_local_wallet()).await;
 
         // Create a group and invite bola
-        let amal_group = amal.create_group().unwrap();
+        let amal_group = amal.create_group(None).unwrap();
         amal_group
             .add_members_by_installation_id(vec![bola.installation_public_key()])
             .await
@@ -738,7 +742,7 @@ mod tests {
         let alice = ClientBuilder::new_test_client(&generate_local_wallet()).await;
         let bob = ClientBuilder::new_test_client(&generate_local_wallet()).await;
 
-        let alice_bob_group = alice.create_group().unwrap();
+        let alice_bob_group = alice.create_group(None).unwrap();
 
         let mut bob_stream = bob.stream_conversations().await.unwrap();
         alice_bob_group
