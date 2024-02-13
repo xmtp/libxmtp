@@ -121,7 +121,7 @@ class Group(val client: Client, private val libXMTPGroup: FfiGroup) {
     fun decrypt(message: Message): DecryptedMessage {
         return DecryptedMessage(
             id = message.id.toHex(),
-            topic = message.id.toHex(),
+            topic = message.convoId.toHex(),
             encodedContent = message.decode().encodedContent,
             senderAddress = message.senderAddress,
             sentAt = Date()

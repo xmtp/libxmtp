@@ -12,6 +12,9 @@ data class Message(val client: Client, private val libXMTPMessage: FfiMessage) {
     val id: ByteArray
         get() = libXMTPMessage.id
 
+    val convoId: ByteArray
+        get() = libXMTPMessage.convoId
+
     val senderAddress: String
         get() = libXMTPMessage.addrFrom
 
