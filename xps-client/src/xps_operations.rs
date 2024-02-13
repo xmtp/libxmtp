@@ -1,7 +1,7 @@
 use ethers::{
     prelude::LocalWallet,
     prelude::Provider,
-    providers::Http,
+    providers::{ProviderError, Ws},
     signers::Signer,
     types::{Address, U256},
 };
@@ -27,8 +27,8 @@ use xmtp_proto::xmtp::mls::{
     },
     message_contents::MlsCredential as MlsCredentialProto,
 };
-
-pub const DID_ETH_REGISTRY: &str = "0xd1D374DDE031075157fDb64536eF5cC13Ae75000";
+// use xps_types::DID_ETH_REGISTRY;
+pub const DID_ETH_REGISTRY: &str = "0x5fbdb2315678afecb367f032d93f642f64180aa3";
 
 #[derive(Debug, Error)]
 pub enum XpsClientError {
@@ -43,9 +43,11 @@ pub enum XpsClientError {
     #[error("Hex decode error {0}")]
     Hex(#[from] hex::FromHexError),
     #[error("Registry Error {0}")]
-    Registry(#[from] lib_didethresolver::error::RegistrySignerError<Provider<Http>>),
+    Registry(#[from] lib_didethresolver::error::RegistrySignerError<Provider<Ws>>),
     #[error("Error unraveling key association credential {0}")]
     Credential(#[from] AssociationError),
+    #[error("Error connecting to ethereum {0}")]
+    Provider(#[from] ProviderError),
 }
 
 pub struct XpsOperations {
@@ -55,7 +57,7 @@ pub struct XpsOperations {
     owner: LocalWallet,
     // TODO: Should not be needed to interact directly with DID Registry. This is used for:
     // - getting nonce for payload signing
-    registry: DIDRegistry<Provider<Http>>,
+    registry: DIDRegistry<Provider<Ws>>,
 }
 
 impl XpsOperations {
@@ -64,15 +66,14 @@ impl XpsOperations {
         owner: LocalWallet,
         network_endpoint: P,
     ) -> Result<Self, XpsClientError> {
-        let client = WsClientBuilder::default()
-            .build(&format!("ws://{}", endpoint.as_ref()))
-            .await?;
-
+        let client = WsClientBuilder::default().build(endpoint.as_ref()).await?;
+        log::info!("Connected to XPS at {}", endpoint.as_ref());
         // TODO: we need to provide a nonce endpoint and modify the signing functions as needed to avoid a
         // dependency on Ethereum RPC in libxmtp
-        let provider = Provider::try_from(network_endpoint.as_ref())?;
+        let provider = Provider::connect(network_endpoint.as_ref()).await?;
         let contract = Address::from_str(DID_ETH_REGISTRY)?;
         let registry = DIDRegistry::new(contract, provider.into());
+        log::info!("Connected to ethereum at {}", network_endpoint.as_ref());
 
         Ok(Self {
             client,
@@ -85,6 +86,7 @@ impl XpsOperations {
         &self,
         request: RegisterInstallationRequest,
     ) -> Result<RegisterInstallationResponse, XpsClientError> {
+        log::info!("Registering installation");
         // NOTE: We are undoing something that was just done right before this call
         // there is a better way
         // this will be OK for now
@@ -96,7 +98,7 @@ impl XpsOperations {
         let credential: MlsCredentialProto = Message::decode(credential.identity()).unwrap();
         let credential = XmtpCredential::from_proto_validated(
             credential,
-            Some(&hex::encode(self.owner.address())),
+            Some(&format!("0x{}", hex::encode(self.owner.address()))),
             None,
         )?;
 
@@ -104,6 +106,11 @@ impl XpsOperations {
             purpose: XmtpKeyPurpose::Installation,
             encoding: KeyEncoding::Base64,
         };
+        log::info!("Registering with attribute {:?}", attribute);
+        log::info!(
+            "Registering with value {:?}",
+            credential.installation_public_key()
+        );
 
         // sign the attribute with the owner's wallet
         // `InboxOwner` should require an implementation of `RegistrySignerExt`
@@ -119,7 +126,8 @@ impl XpsOperations {
             )
             .await?;
 
-        self.client
+        let result = self
+            .client
             .grant_installation(
                 credential.address(),
                 attribute,
@@ -127,6 +135,8 @@ impl XpsOperations {
                 signature,
             )
             .await?;
+
+        log::info!("Grant Installation Result: {:?}", result);
 
         Ok(RegisterInstallationResponse {
             installation_key: Vec::new(),

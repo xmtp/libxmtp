@@ -1,1 +1,1 @@
-RUST_LOG=DEBUG cargo run -- "$@"
+RUST_LOG=INFO cargo run -- "$@"
