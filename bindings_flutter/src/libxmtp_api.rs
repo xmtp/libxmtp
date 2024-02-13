@@ -95,6 +95,11 @@ impl From<StoredGroupMessage> for Message {
     }
 }
 
+pub struct GroupMember {
+    pub account_address: String,
+    pub installation_ids: Vec<Vec<u8>>,
+}
+
 impl Client {
     pub fn installation_public_key(&self) -> Vec<u8> {
         self.inner.installation_public_key()
@@ -132,11 +137,52 @@ impl Client {
         });
     }
 
+    pub async fn list_members(&self, group_id: Vec<u8>) -> Result<Vec<GroupMember>, XmtpError> {
+        self.inner.sync_welcomes().await?;
+        let group = self.inner.group(group_id)?;
+        group.sync().await?; // TODO: consider an explicit sync method
+        let members: Vec<GroupMember> = group
+            .members()?
+            .into_iter()
+            .map(|member| GroupMember {
+                account_address: member.account_address,
+                installation_ids: member.installation_ids,
+            })
+            .collect();
+
+        Ok(members)
+    }
+
+    pub async fn add_member(
+        &self,
+        group_id: Vec<u8>,
+        account_address: String,
+    ) -> Result<(), XmtpError> {
+        self.inner.sync_welcomes().await?;
+        let group = self.inner.group(group_id)?;
+        group.add_members(vec![account_address]).await?;
+        group.sync().await?; // TODO: consider an explicit sync method
+        Ok(())
+    }
+
+    pub async fn remove_member(
+        &self,
+        group_id: Vec<u8>,
+        account_address: String,
+    ) -> Result<(), XmtpError> {
+        self.inner.sync_welcomes().await?;
+        let group = self.inner.group(group_id)?;
+        group.remove_members(vec![account_address]).await?;
+        group.sync().await?; // TODO: consider an explicit sync method
+        Ok(())
+    }
+
     pub async fn send_message(
         &self,
         group_id: Vec<u8>,
         content_bytes: Vec<u8>,
     ) -> Result<(), XmtpError> {
+        self.inner.sync_welcomes().await?;
         // TODO: consider verifying content_bytes is a serialized EncodedContent proto
         let group = self.inner.group(group_id)?;
         group.send_message(content_bytes.as_slice()).await?;
@@ -151,6 +197,7 @@ impl Client {
         sent_after_ns: Option<i64>,
         limit: Option<i64>,
     ) -> Result<Vec<Message>, XmtpError> {
+        self.inner.sync_welcomes().await?;
         let group = self.inner.group(group_id)?;
         group.sync().await?; // TODO: consider an explicit sync method
         let messages: Vec<Message> = group
@@ -305,6 +352,69 @@ mod tests {
             let groups = client.list_groups(None, None, None).await.unwrap();
             assert_eq!(groups.len(), 1);
             assert_eq!(groups.first().unwrap().group_id, group.group_id);
+        }
+    }
+
+    #[tokio::test]
+    async fn test_group_membership() {
+        let wallet_a = LocalWallet::new(&mut xmtp_cryptography::utils::rng());
+        let wallet_b = LocalWallet::new(&mut xmtp_cryptography::utils::rng());
+        let wallet_c = LocalWallet::new(&mut xmtp_cryptography::utils::rng());
+        let client_a = create_client_for_wallet(&wallet_a).await;
+        let client_b = create_client_for_wallet(&wallet_b).await;
+        let client_c = create_client_for_wallet(&wallet_c).await;
+
+        // At first, A creates a group with just B
+        let group = client_a
+            .create_group(vec![wallet_b.get_address()])
+            .await
+            .unwrap();
+        delay_to_propagate().await;
+
+        // Both A and B should all be able to list each other
+        for client in vec![&client_a, &client_b] {
+            let members = client.list_members(group.group_id.clone()).await.unwrap();
+            assert_eq!(members.len(), 2);
+            for member in members {
+                assert!(vec![wallet_a.get_address(), wallet_b.get_address()]
+                    .contains(&member.account_address));
+            }
+        }
+
+        // And then when A adds C to the group...
+        client_a
+            .add_member(group.group_id.clone(), wallet_c.get_address())
+            .await
+            .unwrap();
+
+        // ... then they should all see each other.
+        for client in vec![&client_a, &client_b, &client_c] {
+            let members = client.list_members(group.group_id.clone()).await.unwrap();
+            assert_eq!(members.len(), 3);
+            for member in members {
+                assert!(vec![
+                    wallet_a.get_address(),
+                    wallet_b.get_address(),
+                    wallet_c.get_address()
+                ]
+                .contains(&member.account_address));
+            }
+        }
+
+        // And then when A removes B from the group...
+        client_a
+            .remove_member(group.group_id.clone(), wallet_b.get_address())
+            .await
+            .unwrap();
+
+        // ... then only A and C should see each other.
+        for client in vec![&client_a, &client_b] {
+            let members = client.list_members(group.group_id.clone()).await.unwrap();
+            assert_eq!(members.len(), 2);
+            for member in members {
+                assert!(vec![wallet_a.get_address(), wallet_c.get_address()]
+                    .contains(&member.account_address));
+            }
         }
     }
 

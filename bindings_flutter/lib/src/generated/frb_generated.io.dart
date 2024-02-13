@@ -153,6 +153,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   Group dco_decode_group(dynamic raw);
 
   @protected
+  GroupMember dco_decode_group_member(dynamic raw);
+
+  @protected
   int dco_decode_i_64(dynamic raw);
 
   @protected
@@ -160,6 +163,12 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   List<Group> dco_decode_list_group(dynamic raw);
+
+  @protected
+  List<GroupMember> dco_decode_list_group_member(dynamic raw);
+
+  @protected
+  List<Uint8List> dco_decode_list_list_prim_u_8_strict(dynamic raw);
 
   @protected
   List<Message> dco_decode_list_message(dynamic raw);
@@ -299,6 +308,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   Group sse_decode_group(SseDeserializer deserializer);
 
   @protected
+  GroupMember sse_decode_group_member(SseDeserializer deserializer);
+
+  @protected
   int sse_decode_i_64(SseDeserializer deserializer);
 
   @protected
@@ -306,6 +318,13 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   List<Group> sse_decode_list_group(SseDeserializer deserializer);
+
+  @protected
+  List<GroupMember> sse_decode_list_group_member(SseDeserializer deserializer);
+
+  @protected
+  List<Uint8List> sse_decode_list_list_prim_u_8_strict(
+      SseDeserializer deserializer);
 
   @protected
   List<Message> sse_decode_list_message(SseDeserializer deserializer);
@@ -449,6 +468,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   void sse_encode_group(Group self, SseSerializer serializer);
 
   @protected
+  void sse_encode_group_member(GroupMember self, SseSerializer serializer);
+
+  @protected
   void sse_encode_i_64(int self, SseSerializer serializer);
 
   @protected
@@ -456,6 +478,14 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   void sse_encode_list_group(List<Group> self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_list_group_member(
+      List<GroupMember> self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_list_list_prim_u_8_strict(
+      List<Uint8List> self, SseSerializer serializer);
 
   @protected
   void sse_encode_list_message(List<Message> self, SseSerializer serializer);
