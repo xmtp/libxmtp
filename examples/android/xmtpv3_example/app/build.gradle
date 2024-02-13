@@ -9,7 +9,7 @@ android {
 
     defaultConfig {
         applicationId "com.example.xmtpv3_example"
-        minSdk 21
+        minSdk 23
         targetSdk 33
         versionCode 1
         versionName "1.0"
@@ -37,6 +37,7 @@ dependencies {
     implementation 'androidx.constraintlayout:constraintlayout:2.1.4'
     implementation 'androidx.core:core-ktx:1.7.0'
     implementation 'com.google.android.material:material:1.8.0'
+    implementation "org.xmtp:android:0.7.10"
     implementation "net.java.dev.jna:jna:5.13.0@aar"
     implementation 'org.web3j:crypto:5.0.0'
     testImplementation 'junit:junit:4.13.2'

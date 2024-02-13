@@ -1,5 +1,6 @@
 use std::sync::RwLock;
 
+use log::info;
 use openmls::{
     credentials::errors::CredentialError,
     extensions::{errors::InvalidExtensionError, ApplicationIdExtension, LastResortExtension},
@@ -33,19 +34,19 @@ use crate::{
 
 #[derive(Debug, Error)]
 pub enum IdentityError {
-    #[error("generating new identity")]
+    #[error("generating new identity: {0}")]
     BadGeneration(#[from] SignatureError),
-    #[error("bad association")]
+    #[error("bad association: {0}")]
     BadAssocation(#[from] AssociationError),
-    #[error("generating key-pairs")]
+    #[error("generating key-pairs: {0}")]
     KeyGenerationError(#[from] CryptoError),
-    #[error("storage error")]
+    #[error("storage error: {0}")]
     StorageError(#[from] StorageError),
-    #[error("generating key package")]
+    #[error("generating key package: {0}")]
     KeyPackageGenerationError(#[from] KeyPackageNewError<StorageError>),
-    #[error("deserialization")]
+    #[error("deserialization: {0}")]
     Deserialization(#[from] prost::DecodeError),
-    #[error("invalid extension")]
+    #[error("invalid extension: {0}")]
     InvalidExtension(#[from] InvalidExtensionError),
     #[error("uninitialized identity")]
     UninitializedIdentity,
@@ -92,12 +93,14 @@ impl Identity {
         account_address: String,
         legacy_signed_private_key: Vec<u8>,
     ) -> Result<Self, IdentityError> {
+        info!("Creating identity from legacy key");
         let signature_keys = SignatureKeyPair::new(CIPHERSUITE.signature_algorithm()).unwrap();
         let credential =
             Credential::create_from_legacy(&signature_keys, legacy_signed_private_key)?;
         let credential_proto: CredentialProto = credential.into();
         let mls_credential =
             OpenMlsCredential::new(credential_proto.encode_to_vec(), CredentialType::Basic)?;
+        info!("Successfully created identity from legacy key");
         Ok(Self {
             account_address,
             installation_keys: signature_keys,
@@ -115,9 +118,11 @@ impl Identity {
         // Do not re-register if already registered
         let stored_identity: Option<StoredIdentity> = provider.conn().fetch(&())?;
         if stored_identity.is_some() {
+            info!("Identity already registered, skipping registration");
             return Ok(());
         }
 
+        info!("Registering identity");
         // If we do not have a signed credential, apply the provided signature
         if self.credential().is_err() {
             if recoverable_wallet_signature.is_none() {

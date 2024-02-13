@@ -42,7 +42,9 @@ impl LegacyCreateIdentityAssociation {
             LegacySignedPrivateKeyProto::decode(legacy_signed_private_key.as_slice())?;
         let signed_private_key::Union::Secp256k1(secp256k1) = legacy_signed_private_key_proto
             .union
-            .ok_or(AssociationError::MalformedLegacyKey)?;
+            .ok_or(AssociationError::MalformedLegacyKey(
+                "Missing secp256k1.union field".to_string(),
+            ))?;
         let legacy_private_key = secp256k1.bytes;
         let (mut delegating_signature, recovery_id) = k256_helper::sign_sha256(
             &legacy_private_key,      // secret_key
@@ -51,9 +53,9 @@ impl LegacyCreateIdentityAssociation {
         .map_err(AssociationError::LegacySignature)?;
         delegating_signature.push(recovery_id); // TODO: normalize recovery ID if necessary
 
-        let legacy_signed_public_key_proto = legacy_signed_private_key_proto
-            .public_key
-            .ok_or(AssociationError::MalformedLegacyKey)?;
+        let legacy_signed_public_key_proto = legacy_signed_private_key_proto.public_key.ok_or(
+            AssociationError::MalformedLegacyKey("Missing public_key field".to_string()),
+        )?;
         Self::new_validated(
             installation_public_key,
             delegating_signature,

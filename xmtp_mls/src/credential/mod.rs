@@ -25,10 +25,10 @@ use self::legacy_create_identity_association::LegacyCreateIdentityAssociation;
 pub enum AssociationError {
     #[error("bad signature")]
     BadSignature(#[from] SignatureError),
-    #[error("decode error")]
+    #[error("decode error: {0}")]
     DecodeError(#[from] DecodeError),
-    #[error("legacy key")]
-    MalformedLegacyKey,
+    #[error("legacy key: {0}")]
+    MalformedLegacyKey(String),
     #[error("legacy signature: {0}")]
     LegacySignature(String),
     #[error("Association text mismatch")]
