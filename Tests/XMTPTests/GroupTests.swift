@@ -243,15 +243,44 @@ class GroupTests: XCTestCase {
 		try await fixtures.bobClient.conversations.sync()
 		let bobGroup = try await fixtures.bobClient.conversations.groups()[0]
 
+		try await aliceGroup.send(content: "sup gang original")
 		try await aliceGroup.send(content: "sup gang")
 
 		try await aliceGroup.sync()
-		let aliceMessage = try await aliceGroup.messages().last!
+		let aliceGroupsCount = try await aliceGroup.messages().count
+		XCTAssertEqual(3, aliceGroupsCount)
+		let aliceMessage = try await aliceGroup.messages().first!
 
 		try await bobGroup.sync()
-		let bobMessage = try await bobGroup.messages().last!
+		let bobGroupsCount = try await bobGroup.messages().count
+		XCTAssertEqual(2, bobGroupsCount)
+		let bobMessage = try await bobGroup.messages().first!
 
 		XCTAssertEqual("sup gang", try aliceMessage.content())
 		XCTAssertEqual("sup gang", try bobMessage.content())
+	}
+	
+	func testCanSendMessagesToGroupDecrypted() async throws {
+		let fixtures = try await localFixtures()
+		let aliceGroup = try await fixtures.aliceClient.conversations.newGroup(with: [fixtures.bob.address])
+
+		try await fixtures.bobClient.conversations.sync()
+		let bobGroup = try await fixtures.bobClient.conversations.groups()[0]
+
+		try await aliceGroup.send(content: "sup gang original")
+		try await aliceGroup.send(content: "sup gang")
+
+		try await aliceGroup.sync()
+		let aliceGroupsCount = try await aliceGroup.decryptedMessages().count
+		XCTAssertEqual(3, aliceGroupsCount)
+		let aliceMessage = try await aliceGroup.decryptedMessages().first!
+
+		try await bobGroup.sync()
+		let bobGroupsCount = try await bobGroup.decryptedMessages().count
+		XCTAssertEqual(2, bobGroupsCount)
+		let bobMessage = try await bobGroup.decryptedMessages().first!
+
+		XCTAssertEqual("sup gang", String(data: Data(aliceMessage.encodedContent.content), encoding: .utf8))
+		XCTAssertEqual("sup gang", String(data: Data(bobMessage.encodedContent.content), encoding: .utf8))
 	}
 }
