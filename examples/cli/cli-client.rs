@@ -154,7 +154,8 @@ async fn main() -> Result<(), Error> {
         cli.db.clone().unwrap().as_path().to_str().unwrap()
     );
 
-    let wallet_path = wallet_path();
+    let mut wallet_path = wallet_path();
+    wallet_path.push(wallet_name.clone());
     let mut wallet: Option<Wallet> = LocalWallet::decrypt_keystore(wallet_path, "")
         .ok()
         .map(Wallet::LocalWallet);
@@ -331,7 +332,7 @@ async fn create_client(
                     api_client,
                     owner.inner().clone(),
                     "ws://127.0.0.1:9944",
-                    "ws://127.0.0.1:8545",
+                    "wss://ethereum-sepolia.publicnode.com",
                 )
                 .await
                 .unwrap(),

@@ -27,8 +27,8 @@ use xmtp_proto::xmtp::mls::{
     },
     message_contents::MlsCredential as MlsCredentialProto,
 };
-// use xps_types::DID_ETH_REGISTRY;
-pub const DID_ETH_REGISTRY: &str = "0x5fbdb2315678afecb367f032d93f642f64180aa3";
+use xps_types::DID_ETH_REGISTRY;
+// pub const DID_ETH_REGISTRY: &str = "0x5fbdb2315678afecb367f032d93f642f64180aa3";
 
 #[derive(Debug, Error)]
 pub enum XpsClientError {
