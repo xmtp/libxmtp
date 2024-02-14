@@ -10,6 +10,7 @@ use std::{fs, path::PathBuf, time::Duration};
 
 use clap::{Parser, Subcommand, ValueEnum};
 use log::{error, info};
+use prost::Message;
 use thiserror::Error;
 use xmtp_api_grpc::grpc_api_helper::Client as ApiClient;
 use xmtp_cryptography::{
@@ -19,12 +20,16 @@ use xmtp_cryptography::{
 use xmtp_mls::{
     builder::{ClientBuilderError, IdentityStrategy, LegacyIdentity},
     client::ClientError,
+    codecs::{text::TextCodec, ContentCodec},
     groups::MlsGroup,
     storage::{EncryptedMessageStore, EncryptionKey, StorageError, StorageOption},
     utils::time::now_ns,
     InboxOwner, Network,
 };
-use xmtp_proto::api_client::{XmtpApiClient, XmtpMlsClient};
+use xmtp_proto::{
+    api_client::{XmtpApiClient, XmtpMlsClient},
+    xmtp::mls::message_contents::EncodedContent,
+};
 type Client = xmtp_mls::client::Client<ApiClient>;
 type ClientBuilder = xmtp_mls::builder::ClientBuilder<ApiClient>;
 
@@ -353,10 +358,12 @@ async fn get_group(client: &Client, group_id: Vec<u8>) -> Result<MlsGroup<ApiCli
 }
 
 async fn send(group: MlsGroup<'_, ApiClient>, msg: String) -> Result<(), CliError> {
-    group
-        .send_message(msg.into_bytes().as_slice())
-        .await
+    let mut buf = Vec::new();
+    TextCodec::encode(msg.clone())
+        .unwrap()
+        .encode(&mut buf)
         .unwrap();
+    group.send_message(buf.as_slice()).await.unwrap();
     info!(
         "Message successfully sent to group {}",
         hex::encode(group.group_id)
@@ -373,6 +380,8 @@ fn format_messages<A: XmtpApiClient + XmtpMlsClient>(
 
     for msg in convo.find_messages(None, None, None, None).unwrap() {
         let contents = msg.decrypted_message_bytes;
+        let encoded_content = EncodedContent::decode(contents.as_slice()).unwrap();
+        let decoded = TextCodec::decode(encoded_content).unwrap();
         let sender = if msg.sender_account_address == my_account_address {
             "Me".to_string()
         } else {
@@ -383,7 +392,7 @@ fn format_messages<A: XmtpApiClient + XmtpMlsClient>(
             "[{:>15} ] {}:   {}",
             pretty_delta(now_ns() as u64, msg.sent_at_ns as u64),
             sender,
-            String::from_utf8(contents).unwrap()
+            decoded
         );
         output.push(msg_line);
     }
