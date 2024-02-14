@@ -73,7 +73,6 @@ impl TryFrom<LegacySignedPublicKeyProto> for ValidatedLegacySignedPublicKey {
             ))?;
         let wallet_signature = match union {
             Union::WalletEcdsaCompact(wallet_ecdsa_compact) => {
-                info!("Reading WalletEcdsaCompact from legacy key");
                 let mut wallet_signature = wallet_ecdsa_compact.bytes.clone();
                 wallet_signature.push(wallet_ecdsa_compact.recovery as u8); // TODO: normalize recovery ID if necessary
                 if wallet_signature.len() != 65 {
@@ -82,7 +81,6 @@ impl TryFrom<LegacySignedPublicKeyProto> for ValidatedLegacySignedPublicKey {
                 wallet_signature
             }
             Union::EcdsaCompact(ecdsa_compact) => {
-                info!("Reading EcdsaCompact from legacy key");
                 let mut signature = ecdsa_compact.bytes.clone();
                 signature.push(ecdsa_compact.recovery as u8); // TODO: normalize recovery ID if necessary
                 if signature.len() != 65 {
