@@ -10,19 +10,15 @@ import LibXMTP
 
 final class MessageCallback: FfiMessageCallback {
 	let client: Client
-	let callback: (DecodedMessage) -> Void
+	let callback: (LibXMTP.FfiMessage) -> Void
 
-	init(client: Client, _ callback: @escaping (DecodedMessage) -> Void) {
+	init(client: Client, _ callback: @escaping (LibXMTP.FfiMessage) -> Void) {
 		self.client = client
 		self.callback = callback
 	}
 
 	func onMessage(message: LibXMTP.FfiMessage) {
-		do {
-			try callback(message.fromFFI(client: client))
-		} catch {
-			print("Error onMessage \(error)")
-		}
+		callback(message)
 	}
 }
 
@@ -136,7 +132,31 @@ public struct Group: Identifiable, Equatable, Hashable {
 				do {
 					self.streamHolder.stream = try await ffiGroup.stream(
 						messageCallback: MessageCallback(client: self.client) { message in
-							continuation.yield(message)
+							do {
+								continuation.yield(try message.fromFFI(client: self.client))
+							} catch {
+								print("Error onMessage \(error)")
+							}
+						}
+					)
+				} catch {
+					print("STREAM ERR: \(error)")
+				}
+			}
+		}
+	}
+	
+	public func streamDecryptedMessages() -> AsyncThrowingStream<DecryptedMessage, Error> {
+		AsyncThrowingStream { continuation in
+			Task.detached {
+				do {
+					self.streamHolder.stream = try await ffiGroup.stream(
+						messageCallback: MessageCallback(client: self.client) { message in
+							do {
+								continuation.yield(try message.fromFFIDecrypted(client: self.client))
+							} catch {
+								print("Error onMessage \(error)")
+							}
 						}
 					)
 				} catch {
@@ -165,11 +185,11 @@ public struct Group: Identifiable, Equatable, Hashable {
 			try ffiMessage.fromFFI(client: client)
 		}
 
-		return switch direction {
+		switch direction {
 		case .ascending:
-			messages
+			return messages
 		default:
-			messages.reversed()
+			return messages.reversed()
 		}
 	}
 	
@@ -192,11 +212,11 @@ public struct Group: Identifiable, Equatable, Hashable {
 			try ffiMessage.fromFFIDecrypted(client: client)
 		}
 		
-		return switch direction {
+		switch direction {
 		case .ascending:
-			messages
+			return messages
 		default:
-			messages.reversed()
+			return messages.reversed()
 		}
 
 	}

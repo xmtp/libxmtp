@@ -17,7 +17,7 @@ public enum ConversationError: Error, CustomStringConvertible {
 }
 
 public enum GroupError: Error, CustomStringConvertible {
-	case alphaMLSNotEnabled, emptyCreation, memberCannotBeSelf, memberNotRegistered([String])
+	case alphaMLSNotEnabled, emptyCreation, memberCannotBeSelf, memberNotRegistered([String]), groupsRequireMessagePassed, notSupportedByGroups
 
 	public var description: String {
 		switch self {
@@ -29,6 +29,10 @@ public enum GroupError: Error, CustomStringConvertible {
 			return "GroupError.memberCannotBeSelf you cannot add yourself to a group"
 		case .memberNotRegistered(let array):
 			return "GroupError.memberNotRegistered members not registered: \(array.joined(separator: ", "))"
+		case .groupsRequireMessagePassed:
+			return "GroupError.groupsRequireMessagePassed you cannot call this method without passing a message instead of an envelope"
+		case .notSupportedByGroups:
+			return "GroupError.notSupportedByGroups this method is not supported by groups"
 		}
 	}
 }
@@ -93,6 +97,18 @@ public actor Conversations {
 				self.streamHolder.stream = try await self.client.v3Client?.conversations().stream(
 					callback: GroupStreamCallback(client: self.client) { group in
 						continuation.yield(group)
+					}
+				)
+			}
+		}
+	}
+	
+	private func streamGroupConversations() -> AsyncThrowingStream<Conversation, Error> {
+		AsyncThrowingStream { continuation in
+			Task {
+				self.streamHolder.stream = try await self.client.v3Client?.conversations().stream(
+					callback: GroupStreamCallback(client: self.client) { group in
+						continuation.yield(Conversation.group(group))
 					}
 				)
 			}
@@ -393,7 +409,23 @@ public actor Conversations {
 			}
 		}
 	}
-
+	
+	public func streamAll() -> AsyncThrowingStream<Conversation, Error> {
+		AsyncThrowingStream<Conversation, Error> { continuation in
+			Task {
+				do {
+					for try await conversation in streamGroupConversations() {
+						continuation.yield(conversation)
+					}
+					for try await conversation in stream() {
+						continuation.yield(conversation)
+					}
+				} catch {
+					continuation.finish(throwing: error)
+				}
+			}
+		}
+	}
 	private func makeConversation(from sealedInvitation: SealedInvitation) throws -> ConversationV2 {
 		let unsealed = try sealedInvitation.v1.getInvitation(viewer: client.keys)
 		let conversation = try ConversationV2.create(client: client, invitation: unsealed, header: sealedInvitation.v1.header)
@@ -401,7 +433,15 @@ public actor Conversations {
 		return conversation
 	}
 
-	public func list() async throws -> [Conversation] {
+	public func list(includeGroups: Bool = false) async throws -> [Conversation] {
+		if (includeGroups) {
+			try await sync()
+			let groups = try await groups()
+
+			groups.forEach { group in
+				conversationsByTopic[group.id.toHex] = Conversation.group(group)
+			}
+		}
 		var newConversations: [Conversation] = []
 		let mostRecent = conversationsByTopic.values.max { a, b in
 			a.createdAt < b.createdAt

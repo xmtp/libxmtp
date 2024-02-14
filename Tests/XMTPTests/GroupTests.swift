@@ -102,6 +102,20 @@ class GroupTests: XCTestCase {
 		XCTAssertEqual(1, aliceGroupCount)
 		XCTAssertEqual(1, bobGroupCount)
 	}
+	
+	func testCanListGroupsAndConversations() async throws {
+		let fixtures = try await localFixtures()
+		_ = try await fixtures.aliceClient.conversations.newGroup(with: [fixtures.bob.address])
+		_ = try await fixtures.aliceClient.conversations.newConversation(with: fixtures.bob.address)
+
+		let aliceGroupCount = try await fixtures.aliceClient.conversations.list(includeGroups: true).count
+
+		try await fixtures.bobClient.conversations.sync()
+		let bobGroupCount = try await fixtures.bobClient.conversations.list(includeGroups: true).count
+
+		XCTAssertEqual(2, aliceGroupCount)
+		XCTAssertEqual(2, bobGroupCount)
+	}
 
 	func testCanListGroupMembers() async throws {
 		let fixtures = try await localFixtures()

@@ -6,6 +6,7 @@
 //
 
 import Foundation
+import LibXMTP
 
 public enum ConversationContainer: Codable {
 	case v1(ConversationV1Container), v2(ConversationV2Container)
@@ -23,10 +24,10 @@ public enum ConversationContainer: Codable {
 /// Wrapper that provides a common interface between ``ConversationV1`` and ``ConversationV2`` objects.
 public enum Conversation: Sendable {
 	// TODO: It'd be nice to not have to expose these types as public, maybe we make this a struct with an enum prop instead of just an enum
-	case v1(ConversationV1), v2(ConversationV2)
+	case v1(ConversationV1), v2(ConversationV2), group(Group)
 
 	public enum Version {
-		case v1, v2
+		case v1, v2, group
 	}
 
 	public func consentState() async -> ConsentState {
@@ -37,6 +38,8 @@ public enum Conversation: Sendable {
 			client = conversationV1.client
 		case .v2(let conversationV2):
 			client = conversationV2.client
+		case let .group(group):
+			client = group.client
 		}
 
 		return await client.contacts.consentList.state(address: peerAddress)
@@ -48,6 +51,8 @@ public enum Conversation: Sendable {
 			return .v1
 		case .v2:
 			return .v2
+		case .group:
+			return .group
 		}
 	}
 
@@ -57,15 +62,19 @@ public enum Conversation: Sendable {
 			return conversationV1.sentAt
 		case let .v2(conversationV2):
 			return conversationV2.createdAt
+		case let .group(group):
+			return group.createdAt
 		}
 	}
 
-	public var encodedContainer: ConversationContainer {
+	public func encodedContainer() throws -> ConversationContainer  {
 		switch self {
 		case let .v1(conversationV1):
 			return .v1(conversationV1.encodedContainer)
 		case let .v2(conversationV2):
 			return .v2(conversationV2.encodedContainer)
+		case let .group(group):
+			throw GroupError.notSupportedByGroups
 		}
 	}
 
@@ -76,6 +85,27 @@ public enum Conversation: Sendable {
 			return conversationV1.peerAddress
 		case let .v2(conversationV2):
 			return conversationV2.peerAddress
+		case let .group(group):
+			var addresses = group.memberAddresses
+			if let index = addresses.firstIndex(of: clientAddress) {
+				addresses.remove(at: index)
+			}
+			return addresses.joined(separator: ",")
+		}
+	}
+	
+	public var peerAddresses: [String] {
+		switch self {
+		case let .v1(conversationV1):
+			return [conversationV1.peerAddress]
+		case let .v2(conversationV2):
+			return [conversationV2.peerAddress]
+		case let .group(group):
+			var addresses = group.memberAddresses
+			if let index = addresses.firstIndex(of: clientAddress) {
+				addresses.remove(at: index)
+			}
+			return addresses
 		}
 	}
 	
@@ -85,6 +115,8 @@ public enum Conversation: Sendable {
 			return nil
 		case let .v2(conversationV2):
 			return conversationV2.keyMaterial
+		case let .group(group):
+			return nil
 		}
 	}
 
@@ -97,6 +129,8 @@ public enum Conversation: Sendable {
 			return nil
 		case let .v2(conversation):
 			return conversation.context.conversationID
+		case let .group(group):
+			return nil
 		}
 	}
 
@@ -118,21 +152,31 @@ public enum Conversation: Sendable {
 		}
 	}
 
-	public func decode(_ envelope: Envelope) throws -> DecodedMessage {
+	public func decode(_ envelope: Envelope, message: FfiMessage? = nil) throws -> DecodedMessage {
 		switch self {
 		case let .v1(conversationV1):
 			return try conversationV1.decode(envelope: envelope)
 		case let .v2(conversationV2):
 			return try conversationV2.decode(envelope: envelope)
+		case let .group(group):
+			guard let messageDecoded = try message?.fromFFI(client: client) else {
+				throw GroupError.groupsRequireMessagePassed
+			}
+			return messageDecoded
 		}
 	}
 
-	public func decrypt(_ envelope: Envelope) throws -> DecryptedMessage {
+	public func decrypt(_ envelope: Envelope, message: FfiMessage? = nil) throws -> DecryptedMessage {
 		switch self {
 		case let .v1(conversationV1):
 			return try conversationV1.decrypt(envelope: envelope)
 		case let .v2(conversationV2):
 			return try conversationV2.decrypt(envelope: envelope)
+		case let .group(group):
+			guard let messageDecrypted = try message?.fromFFIDecrypted(client: client) else {
+				throw GroupError.groupsRequireMessagePassed
+			}
+			return messageDecrypted
 		}
 	}
 
@@ -142,6 +186,8 @@ public enum Conversation: Sendable {
 			throw RemoteAttachmentError.v1NotSupported
 		case let .v2(conversationV2):
 			return try await conversationV2.encode(codec: codec, content: content)
+		case let .group(group):
+			throw GroupError.notSupportedByGroups
 		}
 	}
     
@@ -151,6 +197,8 @@ public enum Conversation: Sendable {
             return try await conversationV1.prepareMessage(encodedContent: encodedContent, options: options)
         case let .v2(conversationV2):
             return try await conversationV2.prepareMessage(encodedContent: encodedContent, options: options)
+		case let .group(group):
+			throw GroupError.notSupportedByGroups
         }
     }
 
@@ -160,6 +208,8 @@ public enum Conversation: Sendable {
 			return try await conversationV1.prepareMessage(content: content, options: options ?? .init())
 		case let .v2(conversationV2):
 			return try await conversationV2.prepareMessage(content: content, options: options ?? .init())
+		case let .group(group):
+			throw GroupError.notSupportedByGroups
 		}
 	}
 
@@ -171,6 +221,8 @@ public enum Conversation: Sendable {
 			return try await conversationV1.send(prepared: prepared)
 		case let .v2(conversationV2):
 			return try await conversationV2.send(prepared: prepared)
+		case let .group(group):
+			throw GroupError.notSupportedByGroups
 		}
 	}
 
@@ -180,6 +232,8 @@ public enum Conversation: Sendable {
 			return try await conversationV1.send(content: content, options: options)
 		case let .v2(conversationV2):
 			return try await conversationV2.send(content: content, options: options)
+		case let .group(group):
+			return try await group.send(content: content, options: options)
 		}
 	}
 
@@ -189,6 +243,8 @@ public enum Conversation: Sendable {
 			return try await conversationV1.send(encodedContent: encodedContent, options: options)
 		case let .v2(conversationV2):
 			return try await conversationV2.send(encodedContent: encodedContent, options: options)
+		case let .group(group):
+			return try await group.send(content: encodedContent, options: options)
 		}
 	}
 
@@ -199,6 +255,8 @@ public enum Conversation: Sendable {
 			return try await conversationV1.send(content: text, options: options)
 		case let .v2(conversationV2):
 			return try await conversationV2.send(content: text, options: options)
+		case let .group(group):
+			return try await group.send(content: text, options: options)
 		}
 	}
 
@@ -213,15 +271,19 @@ public enum Conversation: Sendable {
 			return conversation.topic.description
 		case let .v2(conversation):
 			return conversation.topic
+		case let .group(group):
+			return group.id.toHex
 		}
 	}
 
-	public func streamEphemeral() -> AsyncThrowingStream<Envelope, Error>? {
+	public func streamEphemeral() throws -> AsyncThrowingStream<Envelope, Error>? {
 		switch self {
 		case let .v1(conversation):
 			return conversation.streamEphemeral()
 		case let .v2(conversation):
 			return conversation.streamEphemeral()
+		case let .group(group):
+			throw GroupError.notSupportedByGroups
 		}
 	}
 
@@ -235,6 +297,8 @@ public enum Conversation: Sendable {
 			return conversation.streamMessages()
 		case let .v2(conversation):
 			return conversation.streamMessages()
+		case let .group(group):
+			return group.streamMessages()
 		}
 	}
 
@@ -244,6 +308,8 @@ public enum Conversation: Sendable {
 			return conversation.streamDecryptedMessages()
 		case let .v2(conversation):
 			return conversation.streamDecryptedMessages()
+		case let .group(group):
+			return group.streamDecryptedMessages()
 		}
 	}
 
@@ -254,6 +320,8 @@ public enum Conversation: Sendable {
 			return try await conversationV1.messages(limit: limit, before: before, after: after, direction: direction)
 		case let .v2(conversationV2):
 			return try await conversationV2.messages(limit: limit, before: before, after: after, direction: direction)
+		case let .group(group):
+			return try await group.messages(before: before, after: after, limit: limit, direction: direction)
 		}
 	}
 
@@ -263,6 +331,8 @@ public enum Conversation: Sendable {
 			return try await conversationV1.decryptedMessages(limit: limit, before: before, after: after, direction: direction)
 		case let .v2(conversationV2):
 			return try await conversationV2.decryptedMessages(limit: limit, before: before, after: after, direction: direction)
+		case let .group(group):
+			return try await group.decryptedMessages(before: before, after: after, limit: limit, direction: direction)
 		}
 	}
 
@@ -272,6 +342,8 @@ public enum Conversation: Sendable {
 			return conversationV1.client
 		case let .v2(conversationV2):
 			return conversationV2.client
+		case let .group(group):
+			return group.client
 		}
 	}
 }

@@ -536,7 +536,7 @@ class ConversationTests: XCTestCase {
 		let container = Conversation.v2(conversation).encodedContainer
 
 		try await fakeApiClient.assertNoQuery {
-			let decodedConversation = container.decode(with: aliceClient)
+			let decodedConversation = try container().decode(with: aliceClient)
 			let decodedMessage = try decodedConversation.decode(envelope)
 			XCTAssertEqual(decodedMessage.body, "hi")
 		}
