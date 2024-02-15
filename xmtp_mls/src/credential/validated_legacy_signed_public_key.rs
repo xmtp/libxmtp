@@ -1,4 +1,3 @@
-use log::info;
 use prost::Message;
 
 use xmtp_cryptography::signature::RecoverableSignature;
