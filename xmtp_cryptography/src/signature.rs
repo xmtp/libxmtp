@@ -184,7 +184,7 @@ pub mod tests {
     }
 
     fn toggle(index: usize, v: &mut [u8]) {
-        v[index] += 1;
+        v[index] ^= 1;
     }
 
     #[tokio::test]
