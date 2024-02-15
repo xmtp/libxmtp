@@ -6,7 +6,7 @@ use xmtp_proto::{api_client::XmtpMlsClient, xmtp::mls::api::v1::GroupMessage};
 
 use super::{extract_message_v1, GroupError, MlsGroup};
 use crate::api_client_wrapper::GroupFilter;
-use crate::storage::{group_message::StoredGroupMessage, refresh_state::EntityKind};
+use crate::storage::group_message::StoredGroupMessage;
 
 impl<'c, ApiClient> MlsGroup<'c, ApiClient>
 where
@@ -44,11 +44,7 @@ where
     pub async fn stream(
         &'c self,
     ) -> Result<Pin<Box<dyn Stream<Item = StoredGroupMessage> + 'c + Send>>, GroupError> {
-        let last_cursor = self
-            .client
-            .store
-            .conn()?
-            .get_last_cursor_for_id(self.group_id.clone(), EntityKind::Group)?;
+        let last_cursor = 0;
 
         let subscription = self
             .client

@@ -490,10 +490,7 @@ where
         &'a self,
     ) -> Result<Pin<Box<dyn Stream<Item = MlsGroup<ApiClient>> + Send + 'a>>, ClientError> {
         let installation_key = self.installation_public_key();
-        let id_cursor = self
-            .store
-            .conn()?
-            .get_last_cursor_for_id(&installation_key, EntityKind::Welcome)?;
+        let id_cursor = 0;
 
         let subscription = self
             .api_client
