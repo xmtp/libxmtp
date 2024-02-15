@@ -11,21 +11,15 @@ use lib_didethresolver::{
     types::{KeyEncoding, XmtpAttribute, XmtpKeyPurpose},
 };
 use lib_xps::{rpc::DEFAULT_ATTRIBUTE_VALIDITY, XpsClient};
-use openmls::prelude::KeyPackageIn;
-use prost::Message;
 use std::str::FromStr;
 use thiserror::Error;
-use tls_codec::Deserialize;
-use xmtp_mls::credential::{AssociationError, Credential as XmtpCredential};
-use xmtp_proto::xmtp::mls::{
-    api::v1::{
-        get_identity_updates_response::{
-            update::Kind as UpdateKind, NewInstallationUpdate, Update, WalletUpdates,
-        },
-        GetIdentityUpdatesRequest, GetIdentityUpdatesResponse, RegisterInstallationRequest,
-        RegisterInstallationResponse,
+use xmtp_mls::credential::AssociationError;
+use xmtp_proto::xmtp::mls::api::v1::{
+    get_identity_updates_response::{
+        update::Kind as UpdateKind, NewInstallationUpdate, Update, WalletUpdates,
     },
-    message_contents::MlsCredential as MlsCredentialProto,
+    GetIdentityUpdatesRequest, GetIdentityUpdatesResponse, RegisterInstallationRequest,
+    RegisterInstallationResponse,
 };
 use xps_types::{InstallationId, DID_ETH_REGISTRY};
 // pub const DID_ETH_REGISTRY: &str = "0x5fbdb2315678afecb367f032d93f642f64180aa3";
