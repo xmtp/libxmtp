@@ -3,7 +3,7 @@ use ethers::{
     prelude::Provider,
     providers::{ProviderError, Ws},
     signers::Signer,
-    types::{Address, U256},
+    types::{Address, Bytes, ParseBytesError, U256},
 };
 use jsonrpsee::ws_client::{WsClient, WsClientBuilder};
 use lib_didethresolver::{
@@ -27,7 +27,7 @@ use xmtp_proto::xmtp::mls::{
     },
     message_contents::MlsCredential as MlsCredentialProto,
 };
-use xps_types::DID_ETH_REGISTRY;
+use xps_types::{InstallationId, DID_ETH_REGISTRY};
 // pub const DID_ETH_REGISTRY: &str = "0x5fbdb2315678afecb367f032d93f642f64180aa3";
 
 #[derive(Debug, Error)]
@@ -48,6 +48,10 @@ pub enum XpsClientError {
     Credential(#[from] AssociationError),
     #[error("Error connecting to ethereum {0}")]
     Provider(#[from] ProviderError),
+    #[error(transparent)]
+    IntTypeError(#[from] std::num::TryFromIntError),
+    #[error("Error parsing bytes {0}")]
+    Bytes(#[from] ParseBytesError),
 }
 
 pub struct XpsOperations {
@@ -85,33 +89,16 @@ impl XpsOperations {
     pub async fn register_installation(
         &self,
         request: RegisterInstallationRequest,
+        expected_id: Vec<u8>,
     ) -> Result<RegisterInstallationResponse, XpsClientError> {
         log::info!("Registering installation");
-        // NOTE: We are undoing something that was just done right before this call
-        // there is a better way
-        // this will be OK for now
         let kp_bytes = request.key_package.unwrap().key_package_tls_serialized;
-        let kp: KeyPackageIn = Deserialize::tls_deserialize(&mut kp_bytes.as_slice()).unwrap();
-        let credential = kp.unverified_credential();
-        let credential = credential.credential;
-
-        let credential: MlsCredentialProto = Message::decode(credential.identity()).unwrap();
-        let credential = XmtpCredential::from_proto_validated(
-            credential,
-            Some(&format!("0x{}", hex::encode(self.owner.address()))),
-            None,
-        )?;
 
         let attribute = XmtpAttribute {
             purpose: XmtpKeyPurpose::Installation,
-            encoding: KeyEncoding::Base64,
+            encoding: KeyEncoding::Hex,
         };
-        log::info!("Registering with attribute {:?}", attribute);
-        log::info!(
-            "Registering with value {:?}",
-            credential.installation_public_key()
-        );
-
+        log::debug!("Expected installation_id: {:?}", expected_id);
         // sign the attribute with the owner's wallet
         // `InboxOwner` should require an implementation of `RegistrySignerExt`
         // If signing is done in the SDK's, then the SDKS need to send the signed payload to the
@@ -121,7 +108,7 @@ impl XpsOperations {
             .sign_attribute(
                 &self.registry,
                 attribute.clone().into(),
-                credential.installation_public_key(),
+                expected_id,
                 U256::from(DEFAULT_ATTRIBUTE_VALIDITY),
             )
             .await?;
@@ -129,9 +116,9 @@ impl XpsOperations {
         let result = self
             .client
             .grant_installation(
-                credential.address(),
+                format!("0x{}", hex::encode(self.owner.address())),
                 attribute,
-                credential.installation_public_key(),
+                kp_bytes,
                 signature,
             )
             .await?;
@@ -148,26 +135,29 @@ impl XpsOperations {
         request: GetIdentityUpdatesRequest,
     ) -> Result<GetIdentityUpdatesResponse, XpsClientError> {
         let mut updates = Vec::new();
+        log::info!("Fetching key packages {:?}", request);
         for address in request.account_addresses.iter() {
+            let address = Bytes::from_str(address)?;
             let keys = self
                 .client
-                .fetch_key_packages(address.into())
+                .fetch_key_packages(address.to_string(), request.start_time_ns.try_into()?)
                 .await?
-                .installation
+                .installations
                 .into_iter()
-                .map(|k| {
+                .map(|InstallationId { timestamp_ns, id }| {
                     Ok::<_, XpsClientError>(Update {
-                        timestamp_ns: 0,
+                        timestamp_ns,
                         kind: Some(UpdateKind::NewInstallation(NewInstallationUpdate {
-                            installation_key: k,
-                            credential_identity: hex::decode(address)?,
+                            installation_key: id,
+                            credential_identity: address.to_vec(),
                         })),
                     })
                 })
-                .collect::<Result<Vec<_>, _>>()?;
+                .collect::<Result<Vec<_>, _>>();
 
-            updates.push(WalletUpdates { updates: keys });
+            updates.push(WalletUpdates { updates: keys? });
         }
+        log::info!("Updates: {:?}", updates);
 
         Ok(GetIdentityUpdatesResponse { updates })
     }

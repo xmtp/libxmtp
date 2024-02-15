@@ -321,6 +321,7 @@ impl XmtpMlsClient for Client {
     async fn register_installation(
         &self,
         req: RegisterInstallationRequest,
+        _expected_id: Vec<u8>,
     ) -> Result<RegisterInstallationResponse, Error> {
         let client = &mut self.mls_client.clone();
         let res = client.register_installation(req).await;

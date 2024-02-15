@@ -14,9 +14,9 @@ categories = ["web-programming::websocket", "web-programming::http-server", "web
 
 [dependencies]
 jsonrpsee = { version = "0.22", features = ["client-core", "ws-client"] }
-lib_xps = { git = "https://github.com/xmtp/xps-gateway", branch = "main", package = "lib-xps" }
-xps-types = { git = "https://github.com/xmtp/xps-gateway", branch = "main", package = "xps-types" }
-lib-didethresolver = { git =  "https://github.com/xmtp/didethresolver", branch = "main" }
+lib_xps = { git = "https://github.com/xmtp/xps-gateway", branch = "insipx/xps-timestamp", package = "lib-xps" }
+xps-types = { git = "https://github.com/xmtp/xps-gateway", branch = "insipx/xps-timestamp", package = "xps-types" }
+lib-didethresolver = { git =  "https://github.com/xmtp/didethresolver", branch = "insipx/xps-timestamp" }
 xmtp_proto = { path = "../xmtp_proto", features = ["proto_full"] }
 xmtp_mls = { path = "../xmtp_mls" }
 xmtp_api_grpc = { path = "../xmtp_api_grpc" }

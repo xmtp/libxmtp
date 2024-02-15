@@ -3,8 +3,8 @@
 #[cfg(feature = "tonic")]
 pub mod mls_api_client {
     #![allow(unused_variables, dead_code, missing_docs, clippy::let_unit_value)]
-    use tonic::codegen::*;
     use tonic::codegen::http::Uri;
+    use tonic::codegen::*;
     #[derive(Debug, Clone)]
     pub struct MlsApiClient<T> {
         inner: tonic::client::Grpc<T>,
@@ -48,9 +48,8 @@ pub mod mls_api_client {
                     <T as tonic::client::GrpcService<tonic::body::BoxBody>>::ResponseBody,
                 >,
             >,
-            <T as tonic::codegen::Service<
-                http::Request<tonic::body::BoxBody>,
-            >>::Error: Into<StdError> + Send + Sync,
+            <T as tonic::codegen::Service<http::Request<tonic::body::BoxBody>>>::Error:
+                Into<StdError> + Send + Sync,
         {
             MlsApiClient::new(InterceptedService::new(inner, interceptor))
         }
@@ -89,219 +88,187 @@ pub mod mls_api_client {
             &mut self,
             request: impl tonic::IntoRequest<super::SendGroupMessagesRequest>,
         ) -> std::result::Result<tonic::Response<::pbjson_types::Empty>, tonic::Status> {
-            self.inner
-                .ready()
-                .await
-                .map_err(|e| {
-                    tonic::Status::new(
-                        tonic::Code::Unknown,
-                        format!("Service was not ready: {}", e.into()),
-                    )
-                })?;
+            self.inner.ready().await.map_err(|e| {
+                tonic::Status::new(
+                    tonic::Code::Unknown,
+                    format!("Service was not ready: {}", e.into()),
+                )
+            })?;
             let codec = tonic::codec::ProstCodec::default();
-            let path = http::uri::PathAndQuery::from_static(
-                "/xmtp.mls.api.v1.MlsApi/SendGroupMessages",
-            );
+            let path =
+                http::uri::PathAndQuery::from_static("/xmtp.mls.api.v1.MlsApi/SendGroupMessages");
             let mut req = request.into_request();
-            req.extensions_mut()
-                .insert(GrpcMethod::new("xmtp.mls.api.v1.MlsApi", "SendGroupMessages"));
+            req.extensions_mut().insert(GrpcMethod::new(
+                "xmtp.mls.api.v1.MlsApi",
+                "SendGroupMessages",
+            ));
             self.inner.unary(req, path, codec).await
         }
         pub async fn send_welcome_messages(
             &mut self,
             request: impl tonic::IntoRequest<super::SendWelcomeMessagesRequest>,
         ) -> std::result::Result<tonic::Response<::pbjson_types::Empty>, tonic::Status> {
-            self.inner
-                .ready()
-                .await
-                .map_err(|e| {
-                    tonic::Status::new(
-                        tonic::Code::Unknown,
-                        format!("Service was not ready: {}", e.into()),
-                    )
-                })?;
+            self.inner.ready().await.map_err(|e| {
+                tonic::Status::new(
+                    tonic::Code::Unknown,
+                    format!("Service was not ready: {}", e.into()),
+                )
+            })?;
             let codec = tonic::codec::ProstCodec::default();
-            let path = http::uri::PathAndQuery::from_static(
-                "/xmtp.mls.api.v1.MlsApi/SendWelcomeMessages",
-            );
+            let path =
+                http::uri::PathAndQuery::from_static("/xmtp.mls.api.v1.MlsApi/SendWelcomeMessages");
             let mut req = request.into_request();
-            req.extensions_mut()
-                .insert(
-                    GrpcMethod::new("xmtp.mls.api.v1.MlsApi", "SendWelcomeMessages"),
-                );
+            req.extensions_mut().insert(GrpcMethod::new(
+                "xmtp.mls.api.v1.MlsApi",
+                "SendWelcomeMessages",
+            ));
             self.inner.unary(req, path, codec).await
         }
         pub async fn register_installation(
             &mut self,
             request: impl tonic::IntoRequest<super::RegisterInstallationRequest>,
-        ) -> std::result::Result<
-            tonic::Response<super::RegisterInstallationResponse>,
-            tonic::Status,
-        > {
-            self.inner
-                .ready()
-                .await
-                .map_err(|e| {
-                    tonic::Status::new(
-                        tonic::Code::Unknown,
-                        format!("Service was not ready: {}", e.into()),
-                    )
-                })?;
+        ) -> std::result::Result<tonic::Response<super::RegisterInstallationResponse>, tonic::Status>
+        {
+            self.inner.ready().await.map_err(|e| {
+                tonic::Status::new(
+                    tonic::Code::Unknown,
+                    format!("Service was not ready: {}", e.into()),
+                )
+            })?;
             let codec = tonic::codec::ProstCodec::default();
             let path = http::uri::PathAndQuery::from_static(
                 "/xmtp.mls.api.v1.MlsApi/RegisterInstallation",
             );
             let mut req = request.into_request();
-            req.extensions_mut()
-                .insert(
-                    GrpcMethod::new("xmtp.mls.api.v1.MlsApi", "RegisterInstallation"),
-                );
+            req.extensions_mut().insert(GrpcMethod::new(
+                "xmtp.mls.api.v1.MlsApi",
+                "RegisterInstallation",
+            ));
             self.inner.unary(req, path, codec).await
         }
         pub async fn upload_key_package(
             &mut self,
             request: impl tonic::IntoRequest<super::UploadKeyPackageRequest>,
         ) -> std::result::Result<tonic::Response<::pbjson_types::Empty>, tonic::Status> {
-            self.inner
-                .ready()
-                .await
-                .map_err(|e| {
-                    tonic::Status::new(
-                        tonic::Code::Unknown,
-                        format!("Service was not ready: {}", e.into()),
-                    )
-                })?;
+            self.inner.ready().await.map_err(|e| {
+                tonic::Status::new(
+                    tonic::Code::Unknown,
+                    format!("Service was not ready: {}", e.into()),
+                )
+            })?;
             let codec = tonic::codec::ProstCodec::default();
-            let path = http::uri::PathAndQuery::from_static(
-                "/xmtp.mls.api.v1.MlsApi/UploadKeyPackage",
-            );
+            let path =
+                http::uri::PathAndQuery::from_static("/xmtp.mls.api.v1.MlsApi/UploadKeyPackage");
             let mut req = request.into_request();
-            req.extensions_mut()
-                .insert(GrpcMethod::new("xmtp.mls.api.v1.MlsApi", "UploadKeyPackage"));
+            req.extensions_mut().insert(GrpcMethod::new(
+                "xmtp.mls.api.v1.MlsApi",
+                "UploadKeyPackage",
+            ));
             self.inner.unary(req, path, codec).await
         }
         pub async fn fetch_key_packages(
             &mut self,
             request: impl tonic::IntoRequest<super::FetchKeyPackagesRequest>,
-        ) -> std::result::Result<
-            tonic::Response<super::FetchKeyPackagesResponse>,
-            tonic::Status,
-        > {
-            self.inner
-                .ready()
-                .await
-                .map_err(|e| {
-                    tonic::Status::new(
-                        tonic::Code::Unknown,
-                        format!("Service was not ready: {}", e.into()),
-                    )
-                })?;
+        ) -> std::result::Result<tonic::Response<super::FetchKeyPackagesResponse>, tonic::Status>
+        {
+            self.inner.ready().await.map_err(|e| {
+                tonic::Status::new(
+                    tonic::Code::Unknown,
+                    format!("Service was not ready: {}", e.into()),
+                )
+            })?;
             let codec = tonic::codec::ProstCodec::default();
-            let path = http::uri::PathAndQuery::from_static(
-                "/xmtp.mls.api.v1.MlsApi/FetchKeyPackages",
-            );
+            let path =
+                http::uri::PathAndQuery::from_static("/xmtp.mls.api.v1.MlsApi/FetchKeyPackages");
             let mut req = request.into_request();
-            req.extensions_mut()
-                .insert(GrpcMethod::new("xmtp.mls.api.v1.MlsApi", "FetchKeyPackages"));
+            req.extensions_mut().insert(GrpcMethod::new(
+                "xmtp.mls.api.v1.MlsApi",
+                "FetchKeyPackages",
+            ));
             self.inner.unary(req, path, codec).await
         }
         pub async fn revoke_installation(
             &mut self,
             request: impl tonic::IntoRequest<super::RevokeInstallationRequest>,
         ) -> std::result::Result<tonic::Response<::pbjson_types::Empty>, tonic::Status> {
-            self.inner
-                .ready()
-                .await
-                .map_err(|e| {
-                    tonic::Status::new(
-                        tonic::Code::Unknown,
-                        format!("Service was not ready: {}", e.into()),
-                    )
-                })?;
+            self.inner.ready().await.map_err(|e| {
+                tonic::Status::new(
+                    tonic::Code::Unknown,
+                    format!("Service was not ready: {}", e.into()),
+                )
+            })?;
             let codec = tonic::codec::ProstCodec::default();
-            let path = http::uri::PathAndQuery::from_static(
-                "/xmtp.mls.api.v1.MlsApi/RevokeInstallation",
-            );
+            let path =
+                http::uri::PathAndQuery::from_static("/xmtp.mls.api.v1.MlsApi/RevokeInstallation");
             let mut req = request.into_request();
-            req.extensions_mut()
-                .insert(GrpcMethod::new("xmtp.mls.api.v1.MlsApi", "RevokeInstallation"));
+            req.extensions_mut().insert(GrpcMethod::new(
+                "xmtp.mls.api.v1.MlsApi",
+                "RevokeInstallation",
+            ));
             self.inner.unary(req, path, codec).await
         }
         pub async fn get_identity_updates(
             &mut self,
             request: impl tonic::IntoRequest<super::GetIdentityUpdatesRequest>,
-        ) -> std::result::Result<
-            tonic::Response<super::GetIdentityUpdatesResponse>,
-            tonic::Status,
-        > {
-            self.inner
-                .ready()
-                .await
-                .map_err(|e| {
-                    tonic::Status::new(
-                        tonic::Code::Unknown,
-                        format!("Service was not ready: {}", e.into()),
-                    )
-                })?;
+        ) -> std::result::Result<tonic::Response<super::GetIdentityUpdatesResponse>, tonic::Status>
+        {
+            self.inner.ready().await.map_err(|e| {
+                tonic::Status::new(
+                    tonic::Code::Unknown,
+                    format!("Service was not ready: {}", e.into()),
+                )
+            })?;
             let codec = tonic::codec::ProstCodec::default();
-            let path = http::uri::PathAndQuery::from_static(
-                "/xmtp.mls.api.v1.MlsApi/GetIdentityUpdates",
-            );
+            let path =
+                http::uri::PathAndQuery::from_static("/xmtp.mls.api.v1.MlsApi/GetIdentityUpdates");
             let mut req = request.into_request();
-            req.extensions_mut()
-                .insert(GrpcMethod::new("xmtp.mls.api.v1.MlsApi", "GetIdentityUpdates"));
+            req.extensions_mut().insert(GrpcMethod::new(
+                "xmtp.mls.api.v1.MlsApi",
+                "GetIdentityUpdates",
+            ));
             self.inner.unary(req, path, codec).await
         }
         pub async fn query_group_messages(
             &mut self,
             request: impl tonic::IntoRequest<super::QueryGroupMessagesRequest>,
-        ) -> std::result::Result<
-            tonic::Response<super::QueryGroupMessagesResponse>,
-            tonic::Status,
-        > {
-            self.inner
-                .ready()
-                .await
-                .map_err(|e| {
-                    tonic::Status::new(
-                        tonic::Code::Unknown,
-                        format!("Service was not ready: {}", e.into()),
-                    )
-                })?;
+        ) -> std::result::Result<tonic::Response<super::QueryGroupMessagesResponse>, tonic::Status>
+        {
+            self.inner.ready().await.map_err(|e| {
+                tonic::Status::new(
+                    tonic::Code::Unknown,
+                    format!("Service was not ready: {}", e.into()),
+                )
+            })?;
             let codec = tonic::codec::ProstCodec::default();
-            let path = http::uri::PathAndQuery::from_static(
-                "/xmtp.mls.api.v1.MlsApi/QueryGroupMessages",
-            );
+            let path =
+                http::uri::PathAndQuery::from_static("/xmtp.mls.api.v1.MlsApi/QueryGroupMessages");
             let mut req = request.into_request();
-            req.extensions_mut()
-                .insert(GrpcMethod::new("xmtp.mls.api.v1.MlsApi", "QueryGroupMessages"));
+            req.extensions_mut().insert(GrpcMethod::new(
+                "xmtp.mls.api.v1.MlsApi",
+                "QueryGroupMessages",
+            ));
             self.inner.unary(req, path, codec).await
         }
         pub async fn query_welcome_messages(
             &mut self,
             request: impl tonic::IntoRequest<super::QueryWelcomeMessagesRequest>,
-        ) -> std::result::Result<
-            tonic::Response<super::QueryWelcomeMessagesResponse>,
-            tonic::Status,
-        > {
-            self.inner
-                .ready()
-                .await
-                .map_err(|e| {
-                    tonic::Status::new(
-                        tonic::Code::Unknown,
-                        format!("Service was not ready: {}", e.into()),
-                    )
-                })?;
+        ) -> std::result::Result<tonic::Response<super::QueryWelcomeMessagesResponse>, tonic::Status>
+        {
+            self.inner.ready().await.map_err(|e| {
+                tonic::Status::new(
+                    tonic::Code::Unknown,
+                    format!("Service was not ready: {}", e.into()),
+                )
+            })?;
             let codec = tonic::codec::ProstCodec::default();
             let path = http::uri::PathAndQuery::from_static(
                 "/xmtp.mls.api.v1.MlsApi/QueryWelcomeMessages",
             );
             let mut req = request.into_request();
-            req.extensions_mut()
-                .insert(
-                    GrpcMethod::new("xmtp.mls.api.v1.MlsApi", "QueryWelcomeMessages"),
-                );
+            req.extensions_mut().insert(GrpcMethod::new(
+                "xmtp.mls.api.v1.MlsApi",
+                "QueryWelcomeMessages",
+            ));
             self.inner.unary(req, path, codec).await
         }
         pub async fn subscribe_group_messages(
@@ -311,24 +278,21 @@ pub mod mls_api_client {
             tonic::Response<tonic::codec::Streaming<super::GroupMessage>>,
             tonic::Status,
         > {
-            self.inner
-                .ready()
-                .await
-                .map_err(|e| {
-                    tonic::Status::new(
-                        tonic::Code::Unknown,
-                        format!("Service was not ready: {}", e.into()),
-                    )
-                })?;
+            self.inner.ready().await.map_err(|e| {
+                tonic::Status::new(
+                    tonic::Code::Unknown,
+                    format!("Service was not ready: {}", e.into()),
+                )
+            })?;
             let codec = tonic::codec::ProstCodec::default();
             let path = http::uri::PathAndQuery::from_static(
                 "/xmtp.mls.api.v1.MlsApi/SubscribeGroupMessages",
             );
             let mut req = request.into_request();
-            req.extensions_mut()
-                .insert(
-                    GrpcMethod::new("xmtp.mls.api.v1.MlsApi", "SubscribeGroupMessages"),
-                );
+            req.extensions_mut().insert(GrpcMethod::new(
+                "xmtp.mls.api.v1.MlsApi",
+                "SubscribeGroupMessages",
+            ));
             self.inner.server_streaming(req, path, codec).await
         }
         pub async fn subscribe_welcome_messages(
@@ -338,24 +302,21 @@ pub mod mls_api_client {
             tonic::Response<tonic::codec::Streaming<super::WelcomeMessage>>,
             tonic::Status,
         > {
-            self.inner
-                .ready()
-                .await
-                .map_err(|e| {
-                    tonic::Status::new(
-                        tonic::Code::Unknown,
-                        format!("Service was not ready: {}", e.into()),
-                    )
-                })?;
+            self.inner.ready().await.map_err(|e| {
+                tonic::Status::new(
+                    tonic::Code::Unknown,
+                    format!("Service was not ready: {}", e.into()),
+                )
+            })?;
             let codec = tonic::codec::ProstCodec::default();
             let path = http::uri::PathAndQuery::from_static(
                 "/xmtp.mls.api.v1.MlsApi/SubscribeWelcomeMessages",
             );
             let mut req = request.into_request();
-            req.extensions_mut()
-                .insert(
-                    GrpcMethod::new("xmtp.mls.api.v1.MlsApi", "SubscribeWelcomeMessages"),
-                );
+            req.extensions_mut().insert(GrpcMethod::new(
+                "xmtp.mls.api.v1.MlsApi",
+                "SubscribeWelcomeMessages",
+            ));
             self.inner.server_streaming(req, path, codec).await
         }
     }
@@ -379,10 +340,8 @@ pub mod mls_api_server {
         async fn register_installation(
             &self,
             request: tonic::Request<super::RegisterInstallationRequest>,
-        ) -> std::result::Result<
-            tonic::Response<super::RegisterInstallationResponse>,
-            tonic::Status,
-        >;
+            expected_id: Vec<u8>,
+        ) -> std::result::Result<tonic::Response<super::RegisterInstallationResponse>, tonic::Status>;
         async fn upload_key_package(
             &self,
             request: tonic::Request<super::UploadKeyPackageRequest>,
@@ -390,10 +349,7 @@ pub mod mls_api_server {
         async fn fetch_key_packages(
             &self,
             request: tonic::Request<super::FetchKeyPackagesRequest>,
-        ) -> std::result::Result<
-            tonic::Response<super::FetchKeyPackagesResponse>,
-            tonic::Status,
-        >;
+        ) -> std::result::Result<tonic::Response<super::FetchKeyPackagesResponse>, tonic::Status>;
         async fn revoke_installation(
             &self,
             request: tonic::Request<super::RevokeInstallationRequest>,
@@ -401,50 +357,31 @@ pub mod mls_api_server {
         async fn get_identity_updates(
             &self,
             request: tonic::Request<super::GetIdentityUpdatesRequest>,
-        ) -> std::result::Result<
-            tonic::Response<super::GetIdentityUpdatesResponse>,
-            tonic::Status,
-        >;
+        ) -> std::result::Result<tonic::Response<super::GetIdentityUpdatesResponse>, tonic::Status>;
         async fn query_group_messages(
             &self,
             request: tonic::Request<super::QueryGroupMessagesRequest>,
-        ) -> std::result::Result<
-            tonic::Response<super::QueryGroupMessagesResponse>,
-            tonic::Status,
-        >;
+        ) -> std::result::Result<tonic::Response<super::QueryGroupMessagesResponse>, tonic::Status>;
         async fn query_welcome_messages(
             &self,
             request: tonic::Request<super::QueryWelcomeMessagesRequest>,
-        ) -> std::result::Result<
-            tonic::Response<super::QueryWelcomeMessagesResponse>,
-            tonic::Status,
-        >;
+        ) -> std::result::Result<tonic::Response<super::QueryWelcomeMessagesResponse>, tonic::Status>;
         /// Server streaming response type for the SubscribeGroupMessages method.
-        type SubscribeGroupMessagesStream: futures_core::Stream<
-                Item = std::result::Result<super::GroupMessage, tonic::Status>,
-            >
+        type SubscribeGroupMessagesStream: futures_core::Stream<Item = std::result::Result<super::GroupMessage, tonic::Status>>
             + Send
             + 'static;
         async fn subscribe_group_messages(
             &self,
             request: tonic::Request<super::SubscribeGroupMessagesRequest>,
-        ) -> std::result::Result<
-            tonic::Response<Self::SubscribeGroupMessagesStream>,
-            tonic::Status,
-        >;
+        ) -> std::result::Result<tonic::Response<Self::SubscribeGroupMessagesStream>, tonic::Status>;
         /// Server streaming response type for the SubscribeWelcomeMessages method.
-        type SubscribeWelcomeMessagesStream: futures_core::Stream<
-                Item = std::result::Result<super::WelcomeMessage, tonic::Status>,
-            >
+        type SubscribeWelcomeMessagesStream: futures_core::Stream<Item = std::result::Result<super::WelcomeMessage, tonic::Status>>
             + Send
             + 'static;
         async fn subscribe_welcome_messages(
             &self,
             request: tonic::Request<super::SubscribeWelcomeMessagesRequest>,
-        ) -> std::result::Result<
-            tonic::Response<Self::SubscribeWelcomeMessagesStream>,
-            tonic::Status,
-        >;
+        ) -> std::result::Result<tonic::Response<Self::SubscribeWelcomeMessagesStream>, tonic::Status>;
     }
     #[derive(Debug)]
     pub struct MlsApiServer<T: MlsApi> {
@@ -469,10 +406,7 @@ pub mod mls_api_server {
                 max_encoding_message_size: None,
             }
         }
-        pub fn with_interceptor<F>(
-            inner: T,
-            interceptor: F,
-        ) -> InterceptedService<Self, F>
+        pub fn with_interceptor<F>(inner: T, interceptor: F) -> InterceptedService<Self, F>
         where
             F: tonic::service::Interceptor,
         {
@@ -528,23 +462,17 @@ pub mod mls_api_server {
                 "/xmtp.mls.api.v1.MlsApi/SendGroupMessages" => {
                     #[allow(non_camel_case_types)]
                     struct SendGroupMessagesSvc<T: MlsApi>(pub Arc<T>);
-                    impl<
-                        T: MlsApi,
-                    > tonic::server::UnaryService<super::SendGroupMessagesRequest>
-                    for SendGroupMessagesSvc<T> {
+                    impl<T: MlsApi> tonic::server::UnaryService<super::SendGroupMessagesRequest>
+                        for SendGroupMessagesSvc<T>
+                    {
                         type Response = ::pbjson_types::Empty;
-                        type Future = BoxFuture<
-                            tonic::Response<Self::Response>,
-                            tonic::Status,
-                        >;
+                        type Future = BoxFuture<tonic::Response<Self::Response>, tonic::Status>;
                         fn call(
                             &mut self,
                             request: tonic::Request<super::SendGroupMessagesRequest>,
                         ) -> Self::Future {
                             let inner = Arc::clone(&self.0);
-                            let fut = async move {
-                                (*inner).send_group_messages(request).await
-                            };
+                            let fut = async move { (*inner).send_group_messages(request).await };
                             Box::pin(fut)
                         }
                     }
@@ -574,23 +502,17 @@ pub mod mls_api_server {
                 "/xmtp.mls.api.v1.MlsApi/SendWelcomeMessages" => {
                     #[allow(non_camel_case_types)]
                     struct SendWelcomeMessagesSvc<T: MlsApi>(pub Arc<T>);
-                    impl<
-                        T: MlsApi,
-                    > tonic::server::UnaryService<super::SendWelcomeMessagesRequest>
-                    for SendWelcomeMessagesSvc<T> {
+                    impl<T: MlsApi> tonic::server::UnaryService<super::SendWelcomeMessagesRequest>
+                        for SendWelcomeMessagesSvc<T>
+                    {
                         type Response = ::pbjson_types::Empty;
-                        type Future = BoxFuture<
-                            tonic::Response<Self::Response>,
-                            tonic::Status,
-                        >;
+                        type Future = BoxFuture<tonic::Response<Self::Response>, tonic::Status>;
                         fn call(
                             &mut self,
                             request: tonic::Request<super::SendWelcomeMessagesRequest>,
                         ) -> Self::Future {
                             let inner = Arc::clone(&self.0);
-                            let fut = async move {
-                                (*inner).send_welcome_messages(request).await
-                            };
+                            let fut = async move { (*inner).send_welcome_messages(request).await };
                             Box::pin(fut)
                         }
                     }
@@ -620,22 +542,18 @@ pub mod mls_api_server {
                 "/xmtp.mls.api.v1.MlsApi/RegisterInstallation" => {
                     #[allow(non_camel_case_types)]
                     struct RegisterInstallationSvc<T: MlsApi>(pub Arc<T>);
-                    impl<
-                        T: MlsApi,
-                    > tonic::server::UnaryService<super::RegisterInstallationRequest>
-                    for RegisterInstallationSvc<T> {
+                    impl<T: MlsApi> tonic::server::UnaryService<super::RegisterInstallationRequest>
+                        for RegisterInstallationSvc<T>
+                    {
                         type Response = super::RegisterInstallationResponse;
-                        type Future = BoxFuture<
-                            tonic::Response<Self::Response>,
-                            tonic::Status,
-                        >;
+                        type Future = BoxFuture<tonic::Response<Self::Response>, tonic::Status>;
                         fn call(
                             &mut self,
                             request: tonic::Request<super::RegisterInstallationRequest>,
                         ) -> Self::Future {
                             let inner = Arc::clone(&self.0);
                             let fut = async move {
-                                (*inner).register_installation(request).await
+                                (*inner).register_installation(request, vec![]).await
                             };
                             Box::pin(fut)
                         }
@@ -666,23 +584,17 @@ pub mod mls_api_server {
                 "/xmtp.mls.api.v1.MlsApi/UploadKeyPackage" => {
                     #[allow(non_camel_case_types)]
                     struct UploadKeyPackageSvc<T: MlsApi>(pub Arc<T>);
-                    impl<
-                        T: MlsApi,
-                    > tonic::server::UnaryService<super::UploadKeyPackageRequest>
-                    for UploadKeyPackageSvc<T> {
+                    impl<T: MlsApi> tonic::server::UnaryService<super::UploadKeyPackageRequest>
+                        for UploadKeyPackageSvc<T>
+                    {
                         type Response = ::pbjson_types::Empty;
-                        type Future = BoxFuture<
-                            tonic::Response<Self::Response>,
-                            tonic::Status,
-                        >;
+                        type Future = BoxFuture<tonic::Response<Self::Response>, tonic::Status>;
                         fn call(
                             &mut self,
                             request: tonic::Request<super::UploadKeyPackageRequest>,
                         ) -> Self::Future {
                             let inner = Arc::clone(&self.0);
-                            let fut = async move {
-                                (*inner).upload_key_package(request).await
-                            };
+                            let fut = async move { (*inner).upload_key_package(request).await };
                             Box::pin(fut)
                         }
                     }
@@ -712,23 +624,17 @@ pub mod mls_api_server {
                 "/xmtp.mls.api.v1.MlsApi/FetchKeyPackages" => {
                     #[allow(non_camel_case_types)]
                     struct FetchKeyPackagesSvc<T: MlsApi>(pub Arc<T>);
-                    impl<
-                        T: MlsApi,
-                    > tonic::server::UnaryService<super::FetchKeyPackagesRequest>
-                    for FetchKeyPackagesSvc<T> {
+                    impl<T: MlsApi> tonic::server::UnaryService<super::FetchKeyPackagesRequest>
+                        for FetchKeyPackagesSvc<T>
+                    {
                         type Response = super::FetchKeyPackagesResponse;
-                        type Future = BoxFuture<
-                            tonic::Response<Self::Response>,
-                            tonic::Status,
-                        >;
+                        type Future = BoxFuture<tonic::Response<Self::Response>, tonic::Status>;
                         fn call(
                             &mut self,
                             request: tonic::Request<super::FetchKeyPackagesRequest>,
                         ) -> Self::Future {
                             let inner = Arc::clone(&self.0);
-                            let fut = async move {
-                                (*inner).fetch_key_packages(request).await
-                            };
+                            let fut = async move { (*inner).fetch_key_packages(request).await };
                             Box::pin(fut)
                         }
                     }
@@ -758,23 +664,17 @@ pub mod mls_api_server {
                 "/xmtp.mls.api.v1.MlsApi/RevokeInstallation" => {
                     #[allow(non_camel_case_types)]
                     struct RevokeInstallationSvc<T: MlsApi>(pub Arc<T>);
-                    impl<
-                        T: MlsApi,
-                    > tonic::server::UnaryService<super::RevokeInstallationRequest>
-                    for RevokeInstallationSvc<T> {
+                    impl<T: MlsApi> tonic::server::UnaryService<super::RevokeInstallationRequest>
+                        for RevokeInstallationSvc<T>
+                    {
                         type Response = ::pbjson_types::Empty;
-                        type Future = BoxFuture<
-                            tonic::Response<Self::Response>,
-                            tonic::Status,
-                        >;
+                        type Future = BoxFuture<tonic::Response<Self::Response>, tonic::Status>;
                         fn call(
                             &mut self,
                             request: tonic::Request<super::RevokeInstallationRequest>,
                         ) -> Self::Future {
                             let inner = Arc::clone(&self.0);
-                            let fut = async move {
-                                (*inner).revoke_installation(request).await
-                            };
+                            let fut = async move { (*inner).revoke_installation(request).await };
                             Box::pin(fut)
                         }
                     }
@@ -804,23 +704,17 @@ pub mod mls_api_server {
                 "/xmtp.mls.api.v1.MlsApi/GetIdentityUpdates" => {
                     #[allow(non_camel_case_types)]
                     struct GetIdentityUpdatesSvc<T: MlsApi>(pub Arc<T>);
-                    impl<
-                        T: MlsApi,
-                    > tonic::server::UnaryService<super::GetIdentityUpdatesRequest>
-                    for GetIdentityUpdatesSvc<T> {
+                    impl<T: MlsApi> tonic::server::UnaryService<super::GetIdentityUpdatesRequest>
+                        for GetIdentityUpdatesSvc<T>
+                    {
                         type Response = super::GetIdentityUpdatesResponse;
-                        type Future = BoxFuture<
-                            tonic::Response<Self::Response>,
-                            tonic::Status,
-                        >;
+                        type Future = BoxFuture<tonic::Response<Self::Response>, tonic::Status>;
                         fn call(
                             &mut self,
                             request: tonic::Request<super::GetIdentityUpdatesRequest>,
                         ) -> Self::Future {
                             let inner = Arc::clone(&self.0);
-                            let fut = async move {
-                                (*inner).get_identity_updates(request).await
-                            };
+                            let fut = async move { (*inner).get_identity_updates(request).await };
                             Box::pin(fut)
                         }
                     }
@@ -850,23 +744,17 @@ pub mod mls_api_server {
                 "/xmtp.mls.api.v1.MlsApi/QueryGroupMessages" => {
                     #[allow(non_camel_case_types)]
                     struct QueryGroupMessagesSvc<T: MlsApi>(pub Arc<T>);
-                    impl<
-                        T: MlsApi,
-                    > tonic::server::UnaryService<super::QueryGroupMessagesRequest>
-                    for QueryGroupMessagesSvc<T> {
+                    impl<T: MlsApi> tonic::server::UnaryService<super::QueryGroupMessagesRequest>
+                        for QueryGroupMessagesSvc<T>
+                    {
                         type Response = super::QueryGroupMessagesResponse;
-                        type Future = BoxFuture<
-                            tonic::Response<Self::Response>,
-                            tonic::Status,
-                        >;
+                        type Future = BoxFuture<tonic::Response<Self::Response>, tonic::Status>;
                         fn call(
                             &mut self,
                             request: tonic::Request<super::QueryGroupMessagesRequest>,
                         ) -> Self::Future {
                             let inner = Arc::clone(&self.0);
-                            let fut = async move {
-                                (*inner).query_group_messages(request).await
-                            };
+                            let fut = async move { (*inner).query_group_messages(request).await };
                             Box::pin(fut)
                         }
                     }
@@ -896,23 +784,17 @@ pub mod mls_api_server {
                 "/xmtp.mls.api.v1.MlsApi/QueryWelcomeMessages" => {
                     #[allow(non_camel_case_types)]
                     struct QueryWelcomeMessagesSvc<T: MlsApi>(pub Arc<T>);
-                    impl<
-                        T: MlsApi,
-                    > tonic::server::UnaryService<super::QueryWelcomeMessagesRequest>
-                    for QueryWelcomeMessagesSvc<T> {
+                    impl<T: MlsApi> tonic::server::UnaryService<super::QueryWelcomeMessagesRequest>
+                        for QueryWelcomeMessagesSvc<T>
+                    {
                         type Response = super::QueryWelcomeMessagesResponse;
-                        type Future = BoxFuture<
-                            tonic::Response<Self::Response>,
-                            tonic::Status,
-                        >;
+                        type Future = BoxFuture<tonic::Response<Self::Response>, tonic::Status>;
                         fn call(
                             &mut self,
                             request: tonic::Request<super::QueryWelcomeMessagesRequest>,
                         ) -> Self::Future {
                             let inner = Arc::clone(&self.0);
-                            let fut = async move {
-                                (*inner).query_welcome_messages(request).await
-                            };
+                            let fut = async move { (*inner).query_welcome_messages(request).await };
                             Box::pin(fut)
                         }
                     }
@@ -942,25 +824,21 @@ pub mod mls_api_server {
                 "/xmtp.mls.api.v1.MlsApi/SubscribeGroupMessages" => {
                     #[allow(non_camel_case_types)]
                     struct SubscribeGroupMessagesSvc<T: MlsApi>(pub Arc<T>);
-                    impl<
-                        T: MlsApi,
-                    > tonic::server::ServerStreamingService<
-                        super::SubscribeGroupMessagesRequest,
-                    > for SubscribeGroupMessagesSvc<T> {
+                    impl<T: MlsApi>
+                        tonic::server::ServerStreamingService<super::SubscribeGroupMessagesRequest>
+                        for SubscribeGroupMessagesSvc<T>
+                    {
                         type Response = super::GroupMessage;
                         type ResponseStream = T::SubscribeGroupMessagesStream;
-                        type Future = BoxFuture<
-                            tonic::Response<Self::ResponseStream>,
-                            tonic::Status,
-                        >;
+                        type Future =
+                            BoxFuture<tonic::Response<Self::ResponseStream>, tonic::Status>;
                         fn call(
                             &mut self,
                             request: tonic::Request<super::SubscribeGroupMessagesRequest>,
                         ) -> Self::Future {
                             let inner = Arc::clone(&self.0);
-                            let fut = async move {
-                                (*inner).subscribe_group_messages(request).await
-                            };
+                            let fut =
+                                async move { (*inner).subscribe_group_messages(request).await };
                             Box::pin(fut)
                         }
                     }
@@ -990,27 +868,22 @@ pub mod mls_api_server {
                 "/xmtp.mls.api.v1.MlsApi/SubscribeWelcomeMessages" => {
                     #[allow(non_camel_case_types)]
                     struct SubscribeWelcomeMessagesSvc<T: MlsApi>(pub Arc<T>);
-                    impl<
-                        T: MlsApi,
-                    > tonic::server::ServerStreamingService<
-                        super::SubscribeWelcomeMessagesRequest,
-                    > for SubscribeWelcomeMessagesSvc<T> {
+                    impl<T: MlsApi>
+                        tonic::server::ServerStreamingService<
+                            super::SubscribeWelcomeMessagesRequest,
+                        > for SubscribeWelcomeMessagesSvc<T>
+                    {
                         type Response = super::WelcomeMessage;
                         type ResponseStream = T::SubscribeWelcomeMessagesStream;
-                        type Future = BoxFuture<
-                            tonic::Response<Self::ResponseStream>,
-                            tonic::Status,
-                        >;
+                        type Future =
+                            BoxFuture<tonic::Response<Self::ResponseStream>, tonic::Status>;
                         fn call(
                             &mut self,
-                            request: tonic::Request<
-                                super::SubscribeWelcomeMessagesRequest,
-                            >,
+                            request: tonic::Request<super::SubscribeWelcomeMessagesRequest>,
                         ) -> Self::Future {
                             let inner = Arc::clone(&self.0);
-                            let fut = async move {
-                                (*inner).subscribe_welcome_messages(request).await
-                            };
+                            let fut =
+                                async move { (*inner).subscribe_welcome_messages(request).await };
                             Box::pin(fut)
                         }
                     }
@@ -1037,18 +910,14 @@ pub mod mls_api_server {
                     };
                     Box::pin(fut)
                 }
-                _ => {
-                    Box::pin(async move {
-                        Ok(
-                            http::Response::builder()
-                                .status(200)
-                                .header("grpc-status", "12")
-                                .header("content-type", "application/grpc")
-                                .body(empty_body())
-                                .unwrap(),
-                        )
-                    })
-                }
+                _ => Box::pin(async move {
+                    Ok(http::Response::builder()
+                        .status(200)
+                        .header("grpc-status", "12")
+                        .header("content-type", "application/grpc")
+                        .body(empty_body())
+                        .unwrap())
+                }),
             }
         }
     }

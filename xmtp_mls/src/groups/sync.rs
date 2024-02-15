@@ -517,10 +517,13 @@ where
             IntentKind::AddMembers => {
                 let intent_data = AddMembersIntentData::from_bytes(intent.data.as_slice())?;
 
+                log::info!("Getting key packages");
                 let key_packages = self
                     .client
                     .get_key_packages(intent_data.address_or_id)
-                    .await?;
+                    .await;
+                log::info!("Key Packages Result {:?}", key_packages);
+                let key_packages = key_packages?;
 
                 let mls_key_packages: Vec<KeyPackage> =
                     key_packages.iter().map(|kp| kp.inner.clone()).collect();

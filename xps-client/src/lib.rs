@@ -53,11 +53,17 @@ where
     async fn register_installation(
         &self,
         request: RegisterInstallationRequest,
+        expected_id: Vec<u8>,
     ) -> Result<RegisterInstallationResponse, xmtp_proto::api_client::Error> {
-        self.xps
-            .register_installation(request)
+        let response = self
+            .xps
+            .register_installation(request.clone(), expected_id)
             .await
-            .map_err(|e| to_client_error(ProtoErrorKind::PublishError, e))
+            .map_err(|e| to_client_error(ProtoErrorKind::PublishError, e))?;
+        self.waku_client
+            .register_installation(request, vec![])
+            .await?;
+        Ok(response)
     }
 
     async fn upload_key_package(

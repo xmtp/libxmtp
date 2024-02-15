@@ -145,16 +145,23 @@ where
         Ok(out)
     }
 
-    pub async fn register_installation(&self, key_package: Vec<u8>) -> Result<Vec<u8>, ApiError> {
+    pub async fn register_installation(
+        &self,
+        key_package: Vec<u8>,
+        expected_id: Vec<u8>,
+    ) -> Result<Vec<u8>, ApiError> {
         let res = retry_async!(
             self.retry_strategy,
             (async {
                 self.api_client
-                    .register_installation(RegisterInstallationRequest {
-                        key_package: Some(KeyPackageUpload {
-                            key_package_tls_serialized: key_package.to_vec(),
-                        }),
-                    })
+                    .register_installation(
+                        RegisterInstallationRequest {
+                            key_package: Some(KeyPackageUpload {
+                                key_package_tls_serialized: key_package.to_vec(),
+                            }),
+                        },
+                        expected_id.clone(),
+                    )
                     .await
             })
         )?;
@@ -426,6 +433,7 @@ pub mod tests {
             async fn register_installation(
                 &self,
                 request: RegisterInstallationRequest,
+                expected_id: Vec<u8>,
             ) -> Result<RegisterInstallationResponse, Error>;
             async fn upload_key_package(&self, request: UploadKeyPackageRequest) -> Result<(), Error>;
             async fn fetch_key_packages(

@@ -136,6 +136,7 @@ pub trait XmtpMlsClient: Send + Sync {
     async fn register_installation(
         &self,
         request: RegisterInstallationRequest,
+        expected_id: Vec<u8>,
     ) -> Result<RegisterInstallationResponse, Error>;
     async fn upload_key_package(&self, request: UploadKeyPackageRequest) -> Result<(), Error>;
     async fn fetch_key_packages(

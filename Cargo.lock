@@ -3161,7 +3161,7 @@ checksum = "830d08ce1d1d941e6b30645f1a0eb5643013d835ce3779a5fc208261dbe10f55"
 [[package]]
 name = "lib-didethresolver"
 version = "0.1.0"
-source = "git+https://github.com/xmtp/didethresolver?branch=main#02a0e915755430cc7c47470f48dd581bca7bda4a"
+source = "git+https://github.com/xmtp/didethresolver?branch=insipx/xps-timestamp#6fab2a02d19ff90e1c0b3a4f039749f8e88ea28c"
 dependencies = [
  "async-trait",
  "base64 0.21.6",
@@ -3187,7 +3187,7 @@ dependencies = [
 [[package]]
 name = "lib-xps"
 version = "0.1.0"
-source = "git+https://github.com/xmtp/xps-gateway?branch=main#18f851da53b1b389a6be32848bd94a86400934a8"
+source = "git+https://github.com/xmtp/xps-gateway?branch=insipx/xps-timestamp#d954710240ceabe48ff605746673921203da80dc"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -3354,7 +3354,7 @@ checksum = "523dc4f511e55ab87b694dc30d0f820d60906ef06413f93d4d7a1385599cc149"
 [[package]]
 name = "messaging"
 version = "0.1.0"
-source = "git+https://github.com/xmtp/xps-gateway?branch=main#18f851da53b1b389a6be32848bd94a86400934a8"
+source = "git+https://github.com/xmtp/xps-gateway?branch=insipx/xps-timestamp#d954710240ceabe48ff605746673921203da80dc"
 dependencies = [
  "async-trait",
  "ethers",
@@ -4790,7 +4790,7 @@ checksum = "c08c74e62047bb2de4ff487b251e4a92e24f48745648451635cec7d591162d9f"
 [[package]]
 name = "registry"
 version = "0.1.0"
-source = "git+https://github.com/xmtp/xps-gateway?branch=main#18f851da53b1b389a6be32848bd94a86400934a8"
+source = "git+https://github.com/xmtp/xps-gateway?branch=insipx/xps-timestamp#d954710240ceabe48ff605746673921203da80dc"
 dependencies = [
  "async-trait",
  "ethers",
@@ -7188,7 +7188,7 @@ dependencies = [
 [[package]]
 name = "xps-types"
 version = "0.1.0"
-source = "git+https://github.com/xmtp/xps-gateway?branch=main#18f851da53b1b389a6be32848bd94a86400934a8"
+source = "git+https://github.com/xmtp/xps-gateway?branch=insipx/xps-timestamp#d954710240ceabe48ff605746673921203da80dc"
 dependencies = [
  "ethers",
  "jsonrpsee 0.22.0",
