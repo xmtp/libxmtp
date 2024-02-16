@@ -409,23 +409,30 @@ public actor Conversations {
 			}
 		}
 	}
-	
-	public func streamAll() -> AsyncThrowingStream<Conversation, Error> {
-		AsyncThrowingStream<Conversation, Error> { continuation in
-			Task {
-				do {
-					for try await conversation in streamGroupConversations() {
-						continuation.yield(conversation)
-					}
-					for try await conversation in stream() {
-						continuation.yield(conversation)
-					}
-				} catch {
-					continuation.finish(throwing: error)
-				}
-			}
-		}
-	}
+
+   public func streamAll() -> AsyncThrowingStream<Conversation, Error> {
+	   AsyncThrowingStream<Conversation, Error> { continuation in
+		   @Sendable func forwardStreamToMerged(stream: AsyncThrowingStream<Conversation, Error>) async {
+			   do {
+				   var iterator = stream.makeAsyncIterator()
+				   while let element = try await  iterator.next() {
+					   continuation.yield(element)
+				   }
+				   continuation.finish()
+			   } catch {
+				   continuation.finish(throwing: error)
+			   }
+		   }
+		   
+		   Task {
+			   await forwardStreamToMerged(stream: stream())
+		   }
+		   Task {
+			   await forwardStreamToMerged(stream: streamGroupConversations())
+		   }
+	   }
+   }
+
 	private func makeConversation(from sealedInvitation: SealedInvitation) throws -> ConversationV2 {
 		let unsealed = try sealedInvitation.v1.getInvitation(viewer: client.keys)
 		let conversation = try ConversationV2.create(client: client, invitation: unsealed, header: sealedInvitation.v1.header)

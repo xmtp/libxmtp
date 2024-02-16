@@ -306,4 +306,53 @@ class GroupTests: XCTestCase {
 		XCTAssertEqual("sup gang", String(data: Data(aliceMessage.encodedContent.content), encoding: .utf8))
 		XCTAssertEqual("sup gang", String(data: Data(bobMessage.encodedContent.content), encoding: .utf8))
 	}
+	
+	func testCanStreamGroups() async throws {
+		let fixtures = try await localFixtures()
+
+		let expectation1 = expectation(description: "got a group")
+
+		Task(priority: .userInitiated) {
+			for try await _ in try await fixtures.aliceClient.conversations.streamGroups() {
+				expectation1.fulfill()
+			}
+		}
+
+		try await fixtures.bobClient.conversations.newGroup(with: [fixtures.alice.address])
+
+		await waitForExpectations(timeout: 3)
+	}
+	
+	func testCanStreamGroupsAndConversationsWorksGroups() async throws {
+		let fixtures = try await localFixtures()
+
+		let expectation1 = expectation(description: "got a conversation")
+
+		Task(priority: .userInitiated) {
+			for try await _ in try await fixtures.aliceClient.conversations.streamAll() {
+				expectation1.fulfill()
+			}
+		}
+
+		_ = try await fixtures.bobClient.conversations.newGroup(with: [fixtures.alice.address])
+		//		_ = try await fixtures.bobClient.conversations.newConversation(with: fixtures.alice.address)
+
+		await waitForExpectations(timeout: 3)
+	}
+	
+	func testCanStreamGroupsAndConversationsWorksConvos() async throws {
+		let fixtures = try await localFixtures()
+
+		let expectation1 = expectation(description: "got a conversation")
+
+		Task(priority: .userInitiated) {
+			for try await _ in try await fixtures.aliceClient.conversations.streamAll() {
+				expectation1.fulfill()
+			}
+		}
+
+		_ = try await fixtures.bobClient.conversations.newConversation(with: fixtures.alice.address)
+
+		await waitForExpectations(timeout: 3)
+	}
 }
