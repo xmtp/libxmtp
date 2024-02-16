@@ -226,7 +226,8 @@ where
 
         let update_interval = Some(1_000_000); // 1 second in ns
 
-        self.maybe_update_installation_list(conn, update_interval).await?;
+        self.maybe_update_installation_list(conn, update_interval)
+            .await?;
 
         let intent_data: Vec<u8> = SendMessageIntentData::new(message.to_vec()).into();
         let intent =

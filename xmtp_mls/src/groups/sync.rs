@@ -636,7 +636,7 @@ where
             Some(val) => val,
             None => UPDATE_INSTALLATION_LIST_INTERVAL_NS,
         };
-        
+
         let now = crate::utils::time::now_ns();
         let last = conn.get_installation_list_time_checked(self.group_id.clone())?;
         let elapsed = now - last;
