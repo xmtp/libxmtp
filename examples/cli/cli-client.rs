@@ -381,7 +381,10 @@ fn format_messages<A: XmtpApiClient + XmtpMlsClient>(
     for msg in convo.find_messages(None, None, None, None).unwrap() {
         let contents = msg.decrypted_message_bytes;
         let encoded_content = EncodedContent::decode(contents.as_slice()).unwrap();
-        let decoded = TextCodec::decode(encoded_content).unwrap();
+        let Ok(decoded) = TextCodec::decode(encoded_content) else {
+            log::warn!("Skipping over unrecognized codec");
+            continue;
+        };
         let sender = if msg.sender_account_address == my_account_address {
             "Me".to_string()
         } else {
