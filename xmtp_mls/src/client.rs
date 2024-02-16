@@ -21,7 +21,7 @@ use xmtp_proto::{
 };
 
 use crate::{
-    api_client_wrapper::{ApiClientWrapper, IdentityUpdate},
+    api_client_wrapper::{ApiClientWrapper, GroupFilter, IdentityUpdate},
     groups::{
         validated_commit::CommitValidationError, AddressesOrInstallationIds, IntentError, MlsGroup,
         PreconfiguredPolicies,
@@ -30,6 +30,7 @@ use crate::{
     storage::{
         db_connection::DbConnection,
         group::{GroupMembershipState, StoredGroup},
+        group_message::StoredGroupMessage,
         refresh_state::EntityKind,
         EncryptedMessageStore, StorageError,
     },
@@ -513,6 +514,59 @@ where
             });
 
         Ok(Box::pin(stream))
+    }
+
+    pub async fn stream_all_messages(
+        &'a self,
+    ) -> Result<Pin<Box<dyn Stream<Item = StoredGroupMessage> + 'a + Send>>, ClientError> {
+        let mut groups_stream = self.stream_conversations().await?;
+        self.sync_welcomes().await?;
+        let mut group_id_to_cursor: std::collections::HashMap<Vec<u8>, u64> = self
+            .find_groups(None, None, None, None)?
+            .iter()
+            .map(|group| (group.group_id.clone(), 0))
+            .collect();
+
+        let filter: Vec<GroupFilter> = group_id_to_cursor
+            .iter()
+            .map(|(group_id, cursor)| GroupFilter::new(group_id.clone(), Some(*cursor as u64)))
+            .collect();
+        let messages_subscription = self.api_client.subscribe_group_messages(filter).await?;
+        // let stream = messages_subscription
+        //     .map(|res| async {
+        //         match res {
+        //             Ok(envelope) => self.process_stream_entry(envelope).await,
+        //             Err(err) => Err(GroupError::Api(err)),
+        //         }
+        //     })
+        //     .filter_map(move |res| async {
+        //         match res.await {
+        //             Ok(Some(message)) => Some(message),
+        //             Ok(None) => None,
+        //             Err(err) => {
+        //                 log::error!("Error processing stream entry: {:?}", err);
+        //                 None
+        //             }
+        //         }
+        //     });
+
+        loop {
+            tokio::select! {
+                item = groups_stream.next() => {
+                    match item {
+                        Some(convo) => callback.on_conversation(Arc::new(FfiGroup {
+                            inner_client: inner_client.clone(),
+                            group_id: convo.group_id,
+                            created_at_ns: convo.created_at_ns,
+                        })),
+                        None => break
+                    }
+                }
+                _ = &mut close_receiver => {
+                    break;
+                }
+            }
+        }
     }
 }
 
