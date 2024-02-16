@@ -224,7 +224,7 @@ where
     pub async fn send_message(&self, message: &[u8]) -> Result<(), GroupError> {
         let conn = &mut self.client.store.conn()?;
 
-        let update_interval = Some(1_000_000); // 1 second in ns
+        let update_interval = Some(5_000_000); // 5 seconds in ns
 
         self.maybe_update_installation_list(conn, update_interval)
             .await?;
