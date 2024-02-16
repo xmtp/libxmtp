@@ -173,6 +173,15 @@ class GroupTests: XCTestCase {
 		XCTAssertEqual(groupChangedMessage.membersRemoved.map(\.accountAddress.localizedLowercase), [fixtures.fred.address.localizedLowercase])
 	}
 	
+	func testCanMessage() async throws {
+		let fixtures = try await localFixtures()
+		let notOnNetwork = try PrivateKey.generate()
+		let canMessage = try await fixtures.aliceClient.canMessageV3(addresses: [fixtures.bobClient.address])
+		let cannotMessage = try await fixtures.aliceClient.canMessageV3(addresses: [notOnNetwork.address])
+		XCTAssert(canMessage)
+		XCTAssert(!cannotMessage)
+	}
+	
 	func testIsActive() async throws {
 		let fixtures = try await localFixtures()
 		let group = try await fixtures.aliceClient.conversations.newGroup(with: [fixtures.bob.address, fixtures.fred.address])

@@ -237,6 +237,15 @@ public final class Client {
 
 		return try await v3Client.canMessage(accountAddresses: [address]) == [true]
 	}
+	
+	public func canMessageV3(addresses: [String]) async throws -> Bool {
+		guard let v3Client else {
+			return false
+		}
+		
+		return try await v3Client.canMessage(accountAddresses: addresses) == [true]
+	}
+
 
 	public static func from(bundle: PrivateKeyBundle, options: ClientOptions? = nil) async throws -> Client {
 		return try await from(v1Bundle: bundle.v1, options: options)
