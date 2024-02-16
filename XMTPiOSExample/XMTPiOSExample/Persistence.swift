@@ -41,7 +41,7 @@ struct Persistence {
 	}
 
 	func save(conversation: Conversation) throws {
-		keychain[data: key(topic: conversation.topic)] = try JSONEncoder().encode(conversation.encodedContainer)
+//		keychain[data: key(topic: conversation.topic)] = try JSONEncoder().encode(conversation.encodedContainer)
 	}
 
 	func key(topic: String) -> String {
