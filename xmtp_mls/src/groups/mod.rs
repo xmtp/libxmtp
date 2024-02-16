@@ -224,7 +224,9 @@ where
     pub async fn send_message(&self, message: &[u8]) -> Result<(), GroupError> {
         let conn = &mut self.client.store.conn()?;
 
-        self.maybe_update_installation_list(conn).await?;
+        let update_interval = Some(1_000_000); // 1 second in ns
+
+        self.maybe_update_installation_list(conn, update_interval).await?;
 
         let intent_data: Vec<u8> = SendMessageIntentData::new(message.to_vec()).into();
         let intent =

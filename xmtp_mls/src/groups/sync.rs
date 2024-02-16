@@ -64,7 +64,7 @@ where
     pub async fn sync(&self) -> Result<(), GroupError> {
         let conn = &mut self.client.store.conn()?;
 
-        self.maybe_update_installation_list(conn).await?;
+        self.maybe_update_installation_list(conn, None).await?;
 
         self.sync_with_conn(conn).await
     }
@@ -629,11 +629,18 @@ where
     pub(super) async fn maybe_update_installation_list<'a>(
         &self,
         conn: &'a DbConnection<'a>,
+        update_interval: Option<i64>,
     ) -> Result<(), GroupError> {
+        // determine how long of an interval in time to use before updating list
+        let interval = match update_interval {
+            Some(val) => val,
+            None => UPDATE_INSTALLATION_LIST_INTERVAL_NS,
+        };
+        
         let now = crate::utils::time::now_ns();
         let last = conn.get_installation_list_time_checked(self.group_id.clone())?;
         let elapsed = now - last;
-        if elapsed > UPDATE_INSTALLATION_LIST_INTERVAL_NS {
+        if elapsed > interval {
             let provider = self.client.mls_provider(conn);
             self.add_missing_installations(provider).await?;
             conn.update_installation_list_time_checked(self.group_id.clone())?;
