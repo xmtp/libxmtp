@@ -113,6 +113,26 @@ class GroupTest {
     }
 
     @Test
+    fun testCanRemoveGroupMembersWhenNotCreator() {
+        boClient.conversations.newGroup(
+            listOf(
+                alix.walletAddress,
+                caro.walletAddress
+            )
+        )
+        runBlocking { alixClient.conversations.syncGroups() }
+        val group = alixClient.conversations.listGroups().first()
+        group.removeMembers(listOf(caro.walletAddress))
+        assertEquals(
+            group.memberAddresses().sorted(),
+            listOf(
+                alix.walletAddress.lowercase(),
+                bo.walletAddress.lowercase()
+            ).sorted()
+        )
+    }
+
+    @Test
     fun testIsActiveReturnsCorrectly() {
         val group = boClient.conversations.newGroup(
             listOf(

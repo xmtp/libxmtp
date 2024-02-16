@@ -127,6 +127,23 @@ class ClientTest {
     }
 
     @Test
+    fun testCreatesAV3DevClient() {
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        val fakeWallet = PrivateKeyBuilder()
+        val client =
+            Client().create(
+                account = fakeWallet,
+                options = ClientOptions(
+                    ClientOptions.Api(XMTPEnvironment.DEV, true),
+                    enableAlphaMls = true,
+                    appContext = context
+                )
+            )
+        val v3Client = client.libXMTPClient
+        assertEquals(client.address.lowercase(), v3Client?.accountAddress()?.lowercase())
+    }
+
+    @Test
     fun testDoesNotCreateAV3Client() {
         val fakeWallet = PrivateKeyBuilder()
         val client = Client().create(account = fakeWallet)

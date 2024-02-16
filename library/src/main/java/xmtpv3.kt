@@ -395,7 +395,7 @@ internal interface _UniFFILib : Library {
 
     fun uniffi_xmtpv3_fn_free_fficonversations(`ptr`: Pointer,_uniffi_out_err: RustCallStatus,
     ): Unit
-    fun uniffi_xmtpv3_fn_method_fficonversations_create_group(`ptr`: Pointer,`accountAddresses`: RustBuffer.ByValue,
+    fun uniffi_xmtpv3_fn_method_fficonversations_create_group(`ptr`: Pointer,`accountAddresses`: RustBuffer.ByValue,`permissions`: RustBuffer.ByValue,
     ): Pointer
     fun uniffi_xmtpv3_fn_method_fficonversations_list(`ptr`: Pointer,`opts`: RustBuffer.ByValue,
     ): Pointer
@@ -768,7 +768,7 @@ private fun uniffiCheckApiChecksums(lib: _UniFFILib) {
     if (lib.uniffi_xmtpv3_checksum_func_verify_k256_sha256() != 31332.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
-    if (lib.uniffi_xmtpv3_checksum_method_fficonversations_create_group() != 45500.toShort()) {
+    if (lib.uniffi_xmtpv3_checksum_method_fficonversations_create_group() != 16460.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_xmtpv3_checksum_method_fficonversations_list() != 44067.toShort()) {
@@ -1256,7 +1256,7 @@ abstract class FFIObject(
 
 public interface FfiConversationsInterface {
     @Throws(GenericException::class)
-    suspend fun `createGroup`(`accountAddresses`: List<String>): FfiGroup@Throws(GenericException::class)
+    suspend fun `createGroup`(`accountAddresses`: List<String>, `permissions`: GroupPermissions?): FfiGroup@Throws(GenericException::class)
     suspend fun `list`(`opts`: FfiListConversationsOptions): List<FfiGroup>@Throws(GenericException::class)
     suspend fun `stream`(`callback`: FfiConversationCallback): FfiStreamCloser@Throws(GenericException::class)
     suspend fun `sync`()
@@ -1284,12 +1284,12 @@ class FfiConversations(
 
     @Throws(GenericException::class)
     @Suppress("ASSIGNED_BUT_NEVER_ACCESSED_VARIABLE")
-    override suspend fun `createGroup`(`accountAddresses`: List<String>) : FfiGroup {
+    override suspend fun `createGroup`(`accountAddresses`: List<String>, `permissions`: GroupPermissions?) : FfiGroup {
         return uniffiRustCallAsync(
             callWithPointer { thisPtr ->
                 _UniFFILib.INSTANCE.uniffi_xmtpv3_fn_method_fficonversations_create_group(
                     thisPtr,
-                    FfiConverterSequenceString.lower(`accountAddresses`),
+                    FfiConverterSequenceString.lower(`accountAddresses`),FfiConverterOptionalTypeGroupPermissions.lower(`permissions`),
                 )
             },
             { future, continuation -> _UniFFILib.INSTANCE.ffi_xmtpv3_rust_future_poll_pointer(future, continuation) },
@@ -2613,6 +2613,30 @@ public object FfiConverterTypeGenericError : FfiConverterRustBuffer<GenericExcep
 
 
 
+enum class GroupPermissions {
+    EVERYONE_IS_ADMIN,GROUP_CREATOR_IS_ADMIN;
+    companion object
+}
+
+public object FfiConverterTypeGroupPermissions: FfiConverterRustBuffer<GroupPermissions> {
+    override fun read(buf: ByteBuffer) = try {
+        GroupPermissions.values()[buf.getInt() - 1]
+    } catch (e: IndexOutOfBoundsException) {
+        throw RuntimeException("invalid enum value, something is very wrong!!", e)
+    }
+
+    override fun allocationSize(value: GroupPermissions) = 4
+
+    override fun write(value: GroupPermissions, buf: ByteBuffer) {
+        buf.putInt(value.ordinal + 1)
+    }
+}
+
+
+
+
+
+
 enum class LegacyIdentitySource {
     NONE,STATIC,NETWORK,KEY_GENERATOR;
     companion object
@@ -3276,6 +3300,35 @@ public object FfiConverterOptionalTypeFfiPagingInfo: FfiConverterRustBuffer<FfiP
         } else {
             buf.put(1)
             FfiConverterTypeFfiPagingInfo.write(value, buf)
+        }
+    }
+}
+
+
+
+
+public object FfiConverterOptionalTypeGroupPermissions: FfiConverterRustBuffer<GroupPermissions?> {
+    override fun read(buf: ByteBuffer): GroupPermissions? {
+        if (buf.get().toInt() == 0) {
+            return null
+        }
+        return FfiConverterTypeGroupPermissions.read(buf)
+    }
+
+    override fun allocationSize(value: GroupPermissions?): Int {
+        if (value == null) {
+            return 1
+        } else {
+            return 1 + FfiConverterTypeGroupPermissions.allocationSize(value)
+        }
+    }
+
+    override fun write(value: GroupPermissions?, buf: ByteBuffer) {
+        if (value == null) {
+            buf.put(0)
+        } else {
+            buf.put(1)
+            FfiConverterTypeGroupPermissions.write(value, buf)
         }
     }
 }

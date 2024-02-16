@@ -105,7 +105,7 @@ data class Conversations(
         }
 
         val group = runBlocking {
-            libXMTPConversations?.createGroup(accountAddresses)
+            libXMTPConversations?.createGroup(accountAddresses, permissions = null)
                 ?: throw XMTPException("Client does not support Groups")
         }
         return Group(client, group)

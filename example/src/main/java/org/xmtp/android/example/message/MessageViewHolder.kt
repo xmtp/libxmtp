@@ -11,8 +11,9 @@ import org.xmtp.android.example.R
 import org.xmtp.android.example.conversation.ConversationDetailViewModel
 import org.xmtp.android.example.databinding.ListItemMessageBinding
 import org.xmtp.android.example.extension.margins
-import org.xmtp.proto.mls.message.contents.TranscriptMessages
 import uniffi.xmtpv3.org.xmtp.android.library.codecs.GroupMembershipChanges
+import java.text.SimpleDateFormat
+import java.util.Locale
 
 class MessageViewHolder(
     private val binding: ListItemMessageBinding,
@@ -45,6 +46,9 @@ class MessageViewHolder(
         binding.messageContainer.layoutParams = params
         if (item.message.content<Any>() is String) {
             binding.messageBody.text = item.message.body
+            val sdf = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.getDefault())
+            binding.messageDate.text = sdf.format(item.message.sent)
+
         } else if (item.message.content<Any>() is GroupMembershipChanges) {
             val changes = item.message.content() as? GroupMembershipChanges
             binding.messageBody.text =
