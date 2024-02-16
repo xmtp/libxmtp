@@ -170,11 +170,6 @@ public final class Client {
 			signingKey: account
 		)
 
-		if let textToSign = v3Client?.textToSign() {
-			let signature = try await account.sign(message: textToSign).rawData
-			try await v3Client?.registerIdentity(recoverableWalletSignature: signature)
-		}
-
 		let client = try Client(address: account.address, privateKeyBundleV1: privateKeyBundleV1, apiClient: apiClient, v3Client: v3Client)
 		try await client.ensureUserContactPublished()
 
@@ -258,14 +253,7 @@ public final class Client {
 		signingKey: SigningKey? = nil
 	) async throws -> Client {
 		let address = try v1Bundle.identityKey.publicKey.recoverWalletSignerPublicKey().walletAddress
-
 		let options = options ?? ClientOptions()
-		let client = try await LibXMTP.createV2Client(host: options.api.env.url, isSecure: options.api.env.isSecure)
-		let apiClient = try GRPCApiClient(
-			environment: options.api.env,
-			secure: options.api.isSecure,
-			rustClient: client
-		)
 
 		let v3Client = try await initV3Client(
 			address: address,
@@ -273,6 +261,13 @@ public final class Client {
 			source: .static,
 			privateKeyBundleV1: v1Bundle,
 			signingKey: nil
+		)
+		
+		let client = try await LibXMTP.createV2Client(host: options.api.env.url, isSecure: options.api.env.isSecure)
+		let apiClient = try GRPCApiClient(
+			environment: options.api.env,
+			secure: options.api.isSecure,
+			rustClient: client
 		)
 
 		let result = try Client(address: address, privateKeyBundleV1: v1Bundle, apiClient: apiClient, v3Client: v3Client)
