@@ -1,4 +1,8 @@
-use std::{collections::HashSet, mem::Discriminant, pin::Pin};
+use std::{
+    collections::{HashMap, HashSet},
+    mem::Discriminant,
+    pin::Pin,
+};
 
 use futures::{Stream, StreamExt};
 use openmls::{
@@ -15,6 +19,7 @@ use tls_codec::{Deserialize, Error as TlsSerializationError};
 use xmtp_proto::{
     api_client::XmtpMlsClient,
     xmtp::mls::api::v1::{
+        group_message,
         welcome_message::{Version as WelcomeMessageVersion, V1 as WelcomeMessageV1},
         GroupMessage, WelcomeMessage,
     },
@@ -23,8 +28,8 @@ use xmtp_proto::{
 use crate::{
     api_client_wrapper::{ApiClientWrapper, GroupFilter, IdentityUpdate},
     groups::{
-        validated_commit::CommitValidationError, AddressesOrInstallationIds, IntentError, MlsGroup,
-        PreconfiguredPolicies,
+        extract_group_id, validated_commit::CommitValidationError, AddressesOrInstallationIds,
+        GroupError, IntentError, MlsGroup, PreconfiguredPolicies,
     },
     identity::Identity,
     storage::{
@@ -70,6 +75,8 @@ pub enum ClientError {
     KeyPackageVerification(#[from] KeyPackageVerificationError),
     #[error("syncing errors: {0:?}")]
     SyncingError(Vec<MessageProcessingError>),
+    #[error("Stream inconsistency error: {0}")]
+    StreamInconsistency(String),
     #[error("generic:{0}")]
     Generic(String),
 }
@@ -139,6 +146,20 @@ impl From<String> for ClientError {
 impl From<&str> for ClientError {
     fn from(value: &str) -> Self {
         Self::Generic(value.to_string())
+    }
+}
+
+pub(crate) struct MessagesStreamInfo<'c, ApiClient> {
+    group: MlsGroup<'c, ApiClient>,
+    cursor: u64,
+}
+
+impl<'c, ApiClient> Clone for MessagesStreamInfo<'c, ApiClient> {
+    fn clone(&self) -> Self {
+        Self {
+            group: self.group.clone(),
+            cursor: self.cursor,
+        }
     }
 }
 
@@ -521,52 +542,72 @@ where
     ) -> Result<Pin<Box<dyn Stream<Item = StoredGroupMessage> + 'a + Send>>, ClientError> {
         let mut groups_stream = self.stream_conversations().await?;
         self.sync_welcomes().await?;
-        let mut group_id_to_cursor: std::collections::HashMap<Vec<u8>, u64> = self
+        let mut group_id_to_info: HashMap<Vec<u8>, MessagesStreamInfo<'a, ApiClient>> = self
             .find_groups(None, None, None, None)?
-            .iter()
-            .map(|group| (group.group_id.clone(), 0))
+            .into_iter()
+            .map(|group| {
+                (
+                    group.group_id.clone(),
+                    MessagesStreamInfo { group, cursor: 0 },
+                )
+            })
             .collect();
 
-        let filter: Vec<GroupFilter> = group_id_to_cursor
+        let filters: Vec<GroupFilter> = group_id_to_info
             .iter()
-            .map(|(group_id, cursor)| GroupFilter::new(group_id.clone(), Some(*cursor as u64)))
+            .map(|(group_id, info)| GroupFilter::new(group_id.clone(), Some(info.cursor)))
             .collect();
-        let messages_subscription = self.api_client.subscribe_group_messages(filter).await?;
-        // let stream = messages_subscription
-        //     .map(|res| async {
-        //         match res {
-        //             Ok(envelope) => self.process_stream_entry(envelope).await,
-        //             Err(err) => Err(GroupError::Api(err)),
-        //         }
-        //     })
-        //     .filter_map(move |res| async {
-        //         match res.await {
-        //             Ok(Some(message)) => Some(message),
-        //             Ok(None) => None,
-        //             Err(err) => {
-        //                 log::error!("Error processing stream entry: {:?}", err);
-        //                 None
-        //             }
-        //         }
-        //     });
-
-        loop {
-            tokio::select! {
-                item = groups_stream.next() => {
-                    match item {
-                        Some(convo) => callback.on_conversation(Arc::new(FfiGroup {
-                            inner_client: inner_client.clone(),
-                            group_id: convo.group_id,
-                            created_at_ns: convo.created_at_ns,
-                        })),
-                        None => break
+        let messages_subscription = self.api_client.subscribe_group_messages(filters).await?;
+        let group_id_to_info_clone = group_id_to_info.clone();
+        let stream = messages_subscription
+            .map(move |res| {
+                let group_id_to_info_clone = group_id_to_info_clone.clone();
+                async move {
+                    match res {
+                        Ok(envelope) => {
+                            let group_id = extract_group_id(&envelope)?;
+                            group_id_to_info_clone
+                                .get(&group_id)
+                                .ok_or(ClientError::StreamInconsistency(
+                                    "Received message for a non-subscribed group".to_string(),
+                                ))?
+                                .group
+                                .process_stream_entry(envelope)
+                                .await
+                        }
+                        Err(err) => Err(GroupError::Api(err)),
                     }
                 }
-                _ = &mut close_receiver => {
-                    break;
+            })
+            .filter_map(move |res| async {
+                match res.await {
+                    Ok(Some(message)) => Some(message),
+                    Ok(None) => None,
+                    Err(err) => {
+                        log::error!("Error processing stream entry: {:?}", err);
+                        None
+                    }
                 }
-            }
-        }
+            });
+
+        Ok(Box::pin(stream))
+        // loop {
+        //     tokio::select! {
+        //         item = groups_stream.next() => {
+        //             match item {
+        //                 Some(convo) => callback.on_conversation(Arc::new(FfiGroup {
+        //                     inner_client: inner_client.clone(),
+        //                     group_id: convo.group_id,
+        //                     created_at_ns: convo.created_at_ns,
+        //                 })),
+        //                 None => break
+        //             }
+        //         }
+        //         _ = &mut close_receiver => {
+        //             break;
+        //         }
+        //     }
+        // }
     }
 }
 
