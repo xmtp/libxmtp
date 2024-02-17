@@ -172,4 +172,49 @@ mod tests {
         let bob_received_groups = bob_stream.next().await.unwrap();
         assert_eq!(bob_received_groups.group_id, alice_bob_group.group_id);
     }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 10)]
+    async fn test_stream_all_messages_unchanging_group_list() {
+        let alix = ClientBuilder::new_test_client(&generate_local_wallet()).await;
+        let bo = ClientBuilder::new_test_client(&generate_local_wallet()).await;
+        let caro = ClientBuilder::new_test_client(&generate_local_wallet()).await;
+
+        let alix_group = alix.create_group(None).unwrap();
+        alix_group
+            .add_members_by_installation_id(vec![caro.installation_public_key()])
+            .await
+            .unwrap();
+
+        let bo_group = bo.create_group(None).unwrap();
+        bo_group
+            .add_members_by_installation_id(vec![caro.installation_public_key()])
+            .await
+            .unwrap();
+
+        let mut stream = caro.stream_all_messages().await.unwrap();
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+
+        alix_group.send_message("first".as_bytes()).await.unwrap();
+        bo_group.send_message("second".as_bytes()).await.unwrap();
+        alix_group.send_message("third".as_bytes()).await.unwrap();
+        bo_group.send_message("fourth".as_bytes()).await.unwrap();
+        tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+
+        assert_eq!(
+            stream.next().await.unwrap().decrypted_message_bytes,
+            "first".as_bytes()
+        );
+        assert_eq!(
+            stream.next().await.unwrap().decrypted_message_bytes,
+            "second".as_bytes()
+        );
+        assert_eq!(
+            stream.next().await.unwrap().decrypted_message_bytes,
+            "third".as_bytes()
+        );
+        assert_eq!(
+            stream.next().await.unwrap().decrypted_message_bytes,
+            "fourth".as_bytes()
+        );
+    }
 }
