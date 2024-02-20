@@ -15,6 +15,7 @@ import uniffi.xmtpv3.FfiGroup
 import uniffi.xmtpv3.FfiListMessagesOptions
 import uniffi.xmtpv3.FfiMessage
 import uniffi.xmtpv3.FfiMessageCallback
+import java.lang.Exception
 import java.util.Date
 import kotlin.time.Duration.Companion.nanoseconds
 import kotlin.time.DurationUnit
@@ -133,11 +134,19 @@ class Group(val client: Client, private val libXMTPGroup: FfiGroup) {
     }
 
     fun addMembers(addresses: List<String>) {
-        runBlocking { libXMTPGroup.addMembers(addresses) }
+        try {
+            runBlocking { libXMTPGroup.addMembers(addresses) }
+        } catch (e: Exception) {
+            throw XMTPException("User does not have permissions", e)
+        }
     }
 
     fun removeMembers(addresses: List<String>) {
-        runBlocking { libXMTPGroup.removeMembers(addresses) }
+        try {
+            runBlocking { libXMTPGroup.removeMembers(addresses) }
+        } catch (e: Exception) {
+            throw XMTPException("User does not have permissions", e)
+        }
     }
 
     fun memberAddresses(): List<String> {

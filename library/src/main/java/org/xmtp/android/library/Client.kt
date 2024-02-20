@@ -566,8 +566,7 @@ class Client() {
 
     fun canMessage(addresses: List<String>): Boolean {
         return runBlocking {
-            libXMTPClient != null && !libXMTPClient!!.canMessage(addresses.map { it })
-                .contains(false)
+            libXMTPClient != null && !libXMTPClient!!.canMessage(addresses).contains(false)
         }
     }
 
