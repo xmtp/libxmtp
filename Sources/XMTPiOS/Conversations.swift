@@ -115,7 +115,7 @@ public actor Conversations {
 		}
 	}
 
-	public func newGroup(with addresses: [String]) async throws -> Group {
+	public func newGroup(with addresses: [String], permissions: GroupPermissions = .everyoneIsAdmin) async throws -> Group {
 		guard let v3Client = client.v3Client else {
 			throw GroupError.alphaMLSNotEnabled
 		}
@@ -153,7 +153,7 @@ public actor Conversations {
 			throw GroupError.memberNotRegistered(erroredAddresses)
 		}
 
-		return try await v3Client.conversations().createGroup(accountAddresses: addresses, permissions: nil).fromFFI(client: client)
+		return try await v3Client.conversations().createGroup(accountAddresses: addresses, permissions: permissions).fromFFI(client: client)
 	}
 
 	/// Import a previously seen conversation.

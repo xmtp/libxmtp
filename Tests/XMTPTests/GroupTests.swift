@@ -8,6 +8,7 @@
 import CryptoKit
 import XCTest
 @testable import XMTPiOS
+import LibXMTP
 import XMTPTestHelpers
 
 func assertThrowsAsyncError<T>(
@@ -83,11 +84,63 @@ class GroupTests: XCTestCase {
 		)
 	}
 
-	func testCanCreateGroups() async throws {
+	func testCanCreateAGroupWithDefaultPermissions() async throws {
 		let fixtures = try await localFixtures()
-		let group = try await fixtures.aliceClient.conversations.newGroup(with: [fixtures.bob.address])
+		let bobGroup = try await fixtures.bobClient.conversations.newGroup(with: [fixtures.alice.address])
+		try await fixtures.aliceClient.conversations.sync()
+		let aliceGroup = try await fixtures.aliceClient.conversations.groups().first!
+		XCTAssert(!bobGroup.id.isEmpty)
+		XCTAssert(!aliceGroup.id.isEmpty)
+		
+		
+		try await aliceGroup.addMembers(addresses: [fixtures.fred.address])
+		try await bobGroup.sync()
+		XCTAssertEqual(aliceGroup.memberAddresses.count, 3)
+		XCTAssertEqual(bobGroup.memberAddresses.count, 3)
 
-		XCTAssert(!group.id.isEmpty)
+		try await aliceGroup.removeMembers(addresses: [fixtures.fred.address])
+		try await bobGroup.sync()
+		XCTAssertEqual(aliceGroup.memberAddresses.count, 2)
+		XCTAssertEqual(bobGroup.memberAddresses.count, 2)
+
+		try await bobGroup.addMembers(addresses: [fixtures.fred.address])
+		try await aliceGroup.sync()
+		XCTAssertEqual(aliceGroup.memberAddresses.count, 3)
+		XCTAssertEqual(bobGroup.memberAddresses.count, 3)
+	}
+	
+	func testCanCreateAGroupWithAdminPermissions() async throws {
+		let fixtures = try await localFixtures()
+		let bobGroup = try await fixtures.bobClient.conversations.newGroup(with: [fixtures.alice.address], permissions: GroupPermissions.groupCreatorIsAdmin)
+		try await fixtures.aliceClient.conversations.sync()
+		let aliceGroup = try await fixtures.aliceClient.conversations.groups().first!
+		XCTAssert(!bobGroup.id.isEmpty)
+		XCTAssert(!aliceGroup.id.isEmpty)
+		
+		
+		try await bobGroup.addMembers(addresses: [fixtures.fred.address])
+		try await aliceGroup.sync()
+		XCTAssertEqual(aliceGroup.memberAddresses.count, 3)
+		XCTAssertEqual(bobGroup.memberAddresses.count, 3)
+
+		await assertThrowsAsyncError(
+			try await aliceGroup.removeMembers(addresses: [fixtures.fred.address])
+		)
+		try await bobGroup.sync()
+		XCTAssertEqual(aliceGroup.memberAddresses.count, 3)
+		XCTAssertEqual(bobGroup.memberAddresses.count, 3)
+		
+		try await bobGroup.removeMembers(addresses: [fixtures.fred.address])
+		try await aliceGroup.sync()
+		XCTAssertEqual(aliceGroup.memberAddresses.count, 2)
+		XCTAssertEqual(bobGroup.memberAddresses.count, 2)
+
+		await assertThrowsAsyncError(
+			try await aliceGroup.addMembers(addresses: [fixtures.fred.address])
+		)
+		try await bobGroup.sync()
+		XCTAssertEqual(aliceGroup.memberAddresses.count, 2)
+		XCTAssertEqual(bobGroup.memberAddresses.count, 2)
 	}
 
 	func testCanListGroups() async throws {
@@ -142,7 +195,7 @@ class GroupTests: XCTestCase {
 			fixtures.fred.address.localizedLowercase
 		].sorted(), members)
 
-		let groupChangedMessage: GroupMembershipChanges = try await group.messages().last!.content()
+		let groupChangedMessage: GroupMembershipChanges = try await group.messages().first!.content()
 		XCTAssertEqual(groupChangedMessage.membersAdded.map(\.accountAddress.localizedLowercase), [fixtures.fred.address.localizedLowercase])
 	}
 
@@ -169,7 +222,7 @@ class GroupTests: XCTestCase {
 			fixtures.alice.address.localizedLowercase,
 		].sorted(), newMembers)
 
-		let groupChangedMessage: GroupMembershipChanges = try await group.messages().last!.content()
+		let groupChangedMessage: GroupMembershipChanges = try await group.messages().first!.content()
 		XCTAssertEqual(groupChangedMessage.membersRemoved.map(\.accountAddress.localizedLowercase), [fixtures.fred.address.localizedLowercase])
 	}
 	
@@ -177,7 +230,7 @@ class GroupTests: XCTestCase {
 		let fixtures = try await localFixtures()
 		let notOnNetwork = try PrivateKey.generate()
 		let canMessage = try await fixtures.aliceClient.canMessageV3(addresses: [fixtures.bobClient.address])
-		let cannotMessage = try await fixtures.aliceClient.canMessageV3(addresses: [notOnNetwork.address])
+		let cannotMessage = try await fixtures.aliceClient.canMessageV3(addresses: [notOnNetwork.address, fixtures.bobClient.address])
 		XCTAssert(canMessage)
 		XCTAssert(!cannotMessage)
 	}
