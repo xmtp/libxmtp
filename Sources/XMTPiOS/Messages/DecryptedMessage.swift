@@ -13,4 +13,5 @@ public struct DecryptedMessage {
 	public var senderAddress: String
 	public var sentAt: Date
 	public var topic: String = ""
+	public var shouldPush: Bool?
 }

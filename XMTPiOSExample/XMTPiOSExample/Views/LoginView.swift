@@ -128,7 +128,11 @@ struct LoginView: View {
 				name: "XMTP Chat",
 				description: "It's a chat app.",
 				url: "https://localhost:4567",
-				icons: []
+                icons: [],
+                redirect: AppMetadata.Redirect(
+                    native: "",
+                    universal: nil
+                )
 			)
 		)
 
