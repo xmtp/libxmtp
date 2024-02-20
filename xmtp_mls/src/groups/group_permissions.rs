@@ -345,6 +345,7 @@ pub(crate) fn policy_group_creator_is_admin() -> PolicySet {
     )
 }
 
+#[derive(Debug, Clone, PartialEq)]
 pub enum PreconfiguredPolicies {
     EveryoneIsAdmin,
     GroupCreatorIsAdmin,
@@ -355,6 +356,16 @@ impl PreconfiguredPolicies {
         match self {
             PreconfiguredPolicies::EveryoneIsAdmin => policy_everyone_is_admin(),
             PreconfiguredPolicies::GroupCreatorIsAdmin => policy_group_creator_is_admin(),
+        }
+    }
+
+    pub fn from_policy_set(policy_set: &PolicySet) -> Result<Self, PolicyError> {
+        if policy_set.eq(&policy_everyone_is_admin()) {
+            Ok(PreconfiguredPolicies::EveryoneIsAdmin)
+        } else if policy_set.eq(&policy_group_creator_is_admin()) {
+            Ok(PreconfiguredPolicies::GroupCreatorIsAdmin)
+        } else {
+            Err(PolicyError::InvalidPolicy)
         }
     }
 }

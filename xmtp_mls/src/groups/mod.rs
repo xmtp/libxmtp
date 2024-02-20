@@ -1,4 +1,4 @@
-mod group_metadata;
+pub mod group_metadata;
 mod group_permissions;
 mod intents;
 mod members;
@@ -6,6 +6,7 @@ mod subscriptions;
 mod sync;
 pub mod validated_commit;
 
+use self::group_metadata::extract_group_metadata;
 pub use self::group_permissions::PreconfiguredPolicies;
 pub use self::intents::{AddressesOrInstallationIds, IntentError};
 use self::{
@@ -337,6 +338,14 @@ where
         let mls_group = self.load_mls_group(&provider)?;
 
         Ok(mls_group.is_active())
+    }
+
+    pub fn metadata(&self) -> Result<GroupMetadata, GroupError> {
+        let conn = &self.client.store.conn()?;
+        let provider = XmtpOpenMlsProvider::new(conn);
+        let mls_group = self.load_mls_group(&provider)?;
+
+        Ok(extract_group_metadata(&mls_group)?)
     }
 }
 
