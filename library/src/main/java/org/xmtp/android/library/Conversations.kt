@@ -104,7 +104,7 @@ data class Conversations(
         ) {
             throw XMTPException("Recipient is sender")
         }
-        if (!client.canMessage(accountAddresses)) {
+        if (!client.canMessageV3(accountAddresses)) {
             throw XMTPException("Recipient not on network")
         }
 

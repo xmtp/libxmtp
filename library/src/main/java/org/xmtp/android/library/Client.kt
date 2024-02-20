@@ -66,6 +66,8 @@ data class ClientOptions(
     val preEnableIdentityCallback: PreEventCallback? = null,
     val appContext: Context? = null,
     val enableAlphaMls: Boolean = false,
+    val dbPath: String? = null,
+    val dbEncryptionKey: ByteArray? = null,
 ) {
     data class Api(
         val env: XMTPEnvironment = XMTPEnvironment.DEV,
@@ -81,8 +83,8 @@ class Client() {
     lateinit var contacts: Contacts
     lateinit var conversations: Conversations
     var logger: XMTPLogger = XMTPLogger()
-    var libXMTPClient: FfiXmtpClient? = null
     val libXMTPVersion: String = getVersionInfo()
+    private var libXMTPClient: FfiXmtpClient? = null
 
     companion object {
         private const val TAG = "Client"
@@ -296,32 +298,44 @@ class Client() {
             if (isAlphaMlsEnabled(options)) {
                 val alias = "xmtp-${options!!.api.env}-${accountAddress.lowercase()}"
 
-                val dbDir = File(appContext?.filesDir?.absolutePath, "xmtp_db")
-                dbDir.mkdir()
-                val dbPath: String = dbDir.absolutePath + "/$alias.db3"
-
-                val keyStore = KeyStore.getInstance("AndroidKeyStore")
-                withContext(Dispatchers.IO) {
-                    keyStore.load(null)
+                val dbPath = if (options.dbPath == null) {
+                    val dbDir = File(appContext?.filesDir?.absolutePath, "xmtp_db")
+                    dbDir.mkdir()
+                    dbDir.absolutePath + "/$alias.db3"
+                } else {
+                    options.dbPath
                 }
 
-                val entry = keyStore.getEntry(alias, null)
+                val encryptionKey = if (options.dbEncryptionKey == null) {
+                    val keyStore = KeyStore.getInstance("AndroidKeyStore")
+                    withContext(Dispatchers.IO) {
+                        keyStore.load(null)
+                    }
 
-                val retrievedKey: SecretKey = if (entry is KeyStore.SecretKeyEntry) {
-                    entry.secretKey
+                    val entry = keyStore.getEntry(alias, null)
+
+                    val retrievedKey: SecretKey = if (entry is KeyStore.SecretKeyEntry) {
+                        entry.secretKey
+                    } else {
+                        val keyGenerator =
+                            KeyGenerator.getInstance(
+                                KeyProperties.KEY_ALGORITHM_AES,
+                                "AndroidKeyStore"
+                            )
+                        val keyGenParameterSpec = KeyGenParameterSpec.Builder(
+                            alias,
+                            KeyProperties.PURPOSE_ENCRYPT or KeyProperties.PURPOSE_DECRYPT
+                        ).setBlockModes(KeyProperties.BLOCK_MODE_GCM)
+                            .setEncryptionPaddings(KeyProperties.ENCRYPTION_PADDING_NONE)
+                            .setKeySize(256)
+                            .build()
+
+                        keyGenerator.init(keyGenParameterSpec)
+                        keyGenerator.generateKey()
+                    }
+                    retrievedKey.encoded
                 } else {
-                    val keyGenerator =
-                        KeyGenerator.getInstance(KeyProperties.KEY_ALGORITHM_AES, "AndroidKeyStore")
-                    val keyGenParameterSpec = KeyGenParameterSpec.Builder(
-                        alias,
-                        KeyProperties.PURPOSE_ENCRYPT or KeyProperties.PURPOSE_DECRYPT
-                    ).setBlockModes(KeyProperties.BLOCK_MODE_GCM)
-                        .setEncryptionPaddings(KeyProperties.ENCRYPTION_PADDING_NONE)
-                        .setKeySize(256)
-                        .build()
-
-                    keyGenerator.init(keyGenParameterSpec)
-                    keyGenerator.generateKey()
+                    options.dbEncryptionKey
                 }
 
                 createClient(
@@ -329,7 +343,7 @@ class Client() {
                     host = if (options.api.env == XMTPEnvironment.LOCAL) "http://${options.api.env.getValue()}:5556" else "https://${options.api.env.getValue()}:443",
                     isSecure = options.api.isSecure,
                     db = dbPath,
-                    encryptionKey = retrievedKey.encoded,
+                    encryptionKey = encryptionKey,
                     accountAddress = accountAddress,
                     legacyIdentitySource = legacyIdentitySource,
                     legacySignedPrivateKeyProto = privateKeyBundleV1.toV2().identityKey.toByteArray()
@@ -564,10 +578,12 @@ class Client() {
         return runBlocking { query(Topic.contact(peerAddress)).envelopesList.size > 0 }
     }
 
-    fun canMessage(addresses: List<String>): Boolean {
-        return runBlocking {
-            libXMTPClient != null && !libXMTPClient!!.canMessage(addresses).contains(false)
+    fun canMessageV3(addresses: List<String>): Boolean {
+        if (libXMTPClient == null) return false
+        val statuses = runBlocking {
+            libXMTPClient!!.canMessage(addresses)
         }
+        return !statuses.contains(false)
     }
 
     val privateKeyBundle: PrivateKeyBundle

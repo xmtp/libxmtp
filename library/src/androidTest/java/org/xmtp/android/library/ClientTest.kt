@@ -3,7 +3,6 @@ package org.xmtp.android.library
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertNull
 import org.junit.Assert.fail
 import org.junit.Ignore
 import org.junit.Test
@@ -91,10 +90,7 @@ class ClientTest {
         )
         val client =
             Client().create(account = fakeWallet, options = options)
-        assertEquals(
-            client.address.lowercase(),
-            client.libXMTPClient?.accountAddress()?.lowercase()
-        )
+        assert(client.canMessageV3(listOf(client.address)))
 
         val bundle = client.privateKeyBundle
         val clientFromV1Bundle = Client().buildFromBundle(bundle, account = fakeWallet, options = options)
@@ -103,9 +99,12 @@ class ClientTest {
             client.privateKeyBundleV1.identityKey,
             clientFromV1Bundle.privateKeyBundleV1.identityKey,
         )
+
+        assert(clientFromV1Bundle.canMessageV3(listOf(client.address)))
+
         assertEquals(
-            client.libXMTPClient?.accountAddress(),
-            clientFromV1Bundle.libXMTPClient?.accountAddress()
+            client.address,
+            clientFromV1Bundle.address
         )
     }
 
@@ -122,8 +121,7 @@ class ClientTest {
                     appContext = context
                 )
             )
-        val v3Client = client.libXMTPClient
-        assertEquals(client.address.lowercase(), v3Client?.accountAddress()?.lowercase())
+        assert(client.canMessageV3(listOf(client.address)))
     }
 
     @Test
@@ -139,16 +137,14 @@ class ClientTest {
                     appContext = context
                 )
             )
-        val v3Client = client.libXMTPClient
-        assertEquals(client.address.lowercase(), v3Client?.accountAddress()?.lowercase())
+        assert(client.canMessageV3(listOf(client.address)))
     }
 
     @Test
     fun testDoesNotCreateAV3Client() {
         val fakeWallet = PrivateKeyBuilder()
         val client = Client().create(account = fakeWallet)
-        val v3Client = client.libXMTPClient
-        assertNull(v3Client)
+        assert(!client.canMessageV3(listOf(client.address)))
     }
 
     @Test
