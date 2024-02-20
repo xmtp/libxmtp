@@ -1,6 +1,15 @@
-use std::{collections::HashMap, pin::Pin};
+use std::{
+    collections::HashMap,
+    pin::Pin,
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        Arc, Mutex,
+    },
+};
 
 use futures::{Stream, StreamExt};
+use tokio::sync::oneshot::{self, Sender};
+// use xmtp_api_grpc::grpc_api_helper::Client as ApiClient;
 use xmtp_proto::{api_client::XmtpMlsClient, xmtp::mls::api::v1::WelcomeMessage};
 
 use crate::{
@@ -11,6 +20,27 @@ use crate::{
     Client,
 };
 
+pub struct StreamCloser {
+    pub close_fn: Arc<Mutex<Option<Sender<()>>>>,
+    pub is_closed_atomic: Arc<AtomicBool>,
+}
+
+impl StreamCloser {
+    pub fn end(&self) {
+        match self.close_fn.lock() {
+            Ok(mut close_fn_option) => {
+                let _ = close_fn_option.take().map(|close_fn| close_fn.send(()));
+            }
+            _ => {
+                log::warn!("close_fn already closed");
+            }
+        }
+    }
+
+    pub fn is_closed(&self) -> bool {
+        self.is_closed_atomic.load(Ordering::Relaxed)
+    }
+}
 struct MessagesStreamInfo<'c, ApiClient> {
     group: MlsGroup<'c, ApiClient>,
     cursor: u64,
@@ -27,7 +57,7 @@ impl<'c, ApiClient> Clone for MessagesStreamInfo<'c, ApiClient> {
 
 impl<'a, ApiClient> Client<ApiClient>
 where
-    ApiClient: XmtpMlsClient,
+    ApiClient: XmtpMlsClient + 'static,
 {
     fn process_streamed_welcome(
         &self,
@@ -75,10 +105,46 @@ where
         Ok(Box::pin(stream))
     }
 
+    pub fn stream_conversations_with_callback(
+        client: Arc<Client<ApiClient>>,
+        callback: impl Fn(MlsGroup<ApiClient>) -> () + Send + 'static,
+    ) -> Result<StreamCloser, ClientError> {
+        let (close_sender, close_receiver) = oneshot::channel::<()>();
+        let is_closed = Arc::new(AtomicBool::new(false));
+        let is_closed_clone = is_closed.clone();
+        // let client = client.clone();
+
+        tokio::spawn(async move {
+            // let client = client.as_ref();
+            let mut stream = client.stream_conversations().await.unwrap();
+            let mut close_receiver = close_receiver;
+            loop {
+                tokio::select! {
+                    item = stream.next() => {
+                        match item {
+                            Some(convo) => { callback(convo) },
+                            None => break
+                        }
+                    }
+                    _ = &mut close_receiver => {
+                        break;
+                    }
+                }
+            }
+            is_closed_clone.store(true, Ordering::Relaxed);
+            log::info!("closing stream");
+        });
+
+        Ok(StreamCloser {
+            close_fn: Arc::new(Mutex::new(Some(close_sender))),
+            is_closed_atomic: is_closed,
+        })
+    }
+
     pub async fn stream_all_messages(
         &'a self,
     ) -> Result<Pin<Box<dyn Stream<Item = StoredGroupMessage> + 'a + Send>>, ClientError> {
-        let _groups_stream = self.stream_conversations().await?;
+        let groups_stream = self.stream_conversations().await?;
         self.sync_welcomes().await?;
         let group_id_to_info: HashMap<Vec<u8>, MessagesStreamInfo<'a, ApiClient>> = self
             .find_groups(None, None, None, None)?
@@ -90,6 +156,17 @@ where
                 )
             })
             .collect();
+
+        // loop {
+        //     match groups_stream.next() {
+        //         Some(convo) => callback.on_conversation(Arc::new(FfiGroup {
+        //             inner_client: inner_client.clone(),
+        //             group_id: convo.group_id,
+        //             created_at_ns: convo.created_at_ns,
+        //         })),
+        //         None => break,
+        //     }
+        // }
 
         let filters: Vec<GroupFilter> = group_id_to_info
             .iter()
@@ -129,23 +206,6 @@ where
             });
 
         Ok(Box::pin(stream))
-        // loop {
-        //     tokio::select! {
-        //         item = groups_stream.next() => {
-        //             match item {
-        //                 Some(convo) => callback.on_conversation(Arc::new(FfiGroup {
-        //                     inner_client: inner_client.clone(),
-        //                     group_id: convo.group_id,
-        //                     created_at_ns: convo.created_at_ns,
-        //                 })),
-        //                 None => break
-        //             }
-        //         }
-        //         _ = &mut close_receiver => {
-        //             break;
-        //         }
-        //     }
-        // }
     }
 }
 

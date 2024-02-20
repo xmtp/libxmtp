@@ -244,40 +244,55 @@ impl FfiConversations {
         &self,
         callback: Box<dyn FfiConversationCallback>,
     ) -> Result<Arc<FfiStreamCloser>, GenericError> {
-        let inner_client = Arc::clone(&self.inner_client);
-        let (close_sender, close_receiver) = oneshot::channel::<()>();
-        let is_closed = Arc::new(AtomicBool::new(false));
-        let is_closed_clone = is_closed.clone();
-
-        tokio::spawn(async move {
-            let client = inner_client.as_ref();
-            let mut stream = client.stream_conversations().await.unwrap();
-            let mut close_receiver = close_receiver;
-            loop {
-                tokio::select! {
-                    item = stream.next() => {
-                        match item {
-                            Some(convo) => callback.on_conversation(Arc::new(FfiGroup {
-                                inner_client: inner_client.clone(),
-                                group_id: convo.group_id,
-                                created_at_ns: convo.created_at_ns,
-                            })),
-                            None => break
-                        }
-                    }
-                    _ = &mut close_receiver => {
-                        break;
-                    }
-                }
-            }
-            is_closed_clone.store(true, Ordering::Relaxed);
-            log::info!("closing stream");
-        });
+        let client = self.inner_client.clone();
+        let stream_closer =
+            RustXmtpClient::stream_conversations_with_callback(client.clone(), move |convo| {
+                callback.on_conversation(Arc::new(FfiGroup {
+                    inner_client: client.clone(),
+                    group_id: convo.group_id,
+                    created_at_ns: convo.created_at_ns,
+                }))
+            })?;
 
         Ok(Arc::new(FfiStreamCloser {
-            close_fn: Arc::new(Mutex::new(Some(close_sender))),
-            is_closed_atomic: is_closed,
+            close_fn: stream_closer.close_fn,
+            is_closed_atomic: stream_closer.is_closed_atomic,
         }))
+
+        // let inner_client = Arc::clone(&self.inner_client);
+        // let (close_sender, close_receiver) = oneshot::channel::<()>();
+        // let is_closed = Arc::new(AtomicBool::new(false));
+        // let is_closed_clone = is_closed.clone();
+
+        // tokio::spawn(async move {
+        //     let client = inner_client.as_ref();
+        //     let mut stream = client.stream_conversations().await.unwrap();
+        //     let mut close_receiver = close_receiver;
+        //     loop {
+        //         tokio::select! {
+        //             item = stream.next() => {
+        //                 match item {
+        //                     Some(convo) => callback.on_conversation(Arc::new(FfiGroup {
+        //                         inner_client: inner_client.clone(),
+        //                         group_id: convo.group_id,
+        //                         created_at_ns: convo.created_at_ns,
+        //                     })),
+        //                     None => break
+        //                 }
+        //             }
+        //             _ = &mut close_receiver => {
+        //                 break;
+        //             }
+        //         }
+        //     }
+        //     is_closed_clone.store(true, Ordering::Relaxed);
+        //     log::info!("closing stream");
+        // });
+
+        // Ok(Arc::new(FfiStreamCloser {
+        //     close_fn: Arc::new(Mutex::new(Some(close_sender))),
+        //     is_closed_atomic: is_closed,
+        // }))
     }
 
     pub async fn stream_all_messages(
