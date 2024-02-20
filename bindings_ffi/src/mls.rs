@@ -12,6 +12,9 @@ use tokio::sync::{oneshot, oneshot::Sender};
 use xmtp_api_grpc::grpc_api_helper::Client as TonicApiClient;
 use xmtp_mls::builder::IdentityStrategy;
 use xmtp_mls::builder::LegacyIdentity;
+use xmtp_mls::groups::group_metadata::ConversationType;
+use xmtp_mls::groups::group_metadata::GroupMetadata;
+use xmtp_mls::groups::PreconfiguredPolicies;
 use xmtp_mls::{
     builder::ClientBuilder,
     client::Client as MlsClient,
@@ -171,6 +174,15 @@ pub struct FfiConversations {
 pub enum GroupPermissions {
     EveryoneIsAdmin,
     GroupCreatorIsAdmin,
+}
+
+impl From<PreconfiguredPolicies> for GroupPermissions {
+    fn from(policy: PreconfiguredPolicies) -> Self {
+        match policy {
+            PreconfiguredPolicies::EveryoneIsAdmin => GroupPermissions::EveryoneIsAdmin,
+            PreconfiguredPolicies::GroupCreatorIsAdmin => GroupPermissions::GroupCreatorIsAdmin,
+        }
+    }
 }
 
 #[uniffi::export(async_runtime = "tokio")]
@@ -443,6 +455,19 @@ impl FfiGroup {
 
         Ok(group.is_active()?)
     }
+
+    pub fn group_metadata(&self) -> Result<Arc<FfiGroupMetadata>, GenericError> {
+        let group = MlsGroup::new(
+            self.inner_client.as_ref(),
+            self.group_id.clone(),
+            self.created_at_ns,
+        );
+
+        let metadata = group.metadata()?;
+        Ok(Arc::new(FfiGroupMetadata {
+            inner: Arc::new(metadata),
+        }))
+    }
 }
 
 #[uniffi::export]
@@ -505,6 +530,29 @@ pub trait FfiMessageCallback: Send + Sync {
 #[uniffi::export(callback_interface)]
 pub trait FfiConversationCallback: Send + Sync {
     fn on_conversation(&self, conversation: Arc<FfiGroup>);
+}
+
+#[derive(uniffi::Object)]
+pub struct FfiGroupMetadata {
+    inner: Arc<GroupMetadata>,
+}
+
+#[uniffi::export]
+impl FfiGroupMetadata {
+    pub fn creator_account_address(&self) -> String {
+        self.inner.creator_account_address.clone()
+    }
+
+    pub fn conversation_type(&self) -> String {
+        match self.inner.conversation_type {
+            ConversationType::Group => "group".to_string(),
+            ConversationType::Dm => "dm".to_string(),
+        }
+    }
+
+    pub fn policy_type(&self) -> Result<GroupPermissions, GenericError> {
+        Ok(self.inner.preconfigured_policy()?.into())
+    }
 }
 
 #[cfg(test)]
