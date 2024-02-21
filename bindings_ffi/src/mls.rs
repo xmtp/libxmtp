@@ -931,11 +931,13 @@ mod tests {
             .unwrap();
 
         alix_group.send("first".as_bytes().to_vec()).await.unwrap();
+        tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
         caro_group.send("second".as_bytes().to_vec()).await.unwrap();
+        tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
         alix_group.send("third".as_bytes().to_vec()).await.unwrap();
+        tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
         caro_group.send("fourth".as_bytes().to_vec()).await.unwrap();
-
-        tokio::time::sleep(tokio::time::Duration::from_millis(400)).await;
+        tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
 
         assert_eq!(stream_callback.message_count(), 4);
         stream.end();
