@@ -40,7 +40,7 @@ impl StreamCloser {
         self.is_closed_atomic.load(Ordering::Relaxed)
     }
 }
-struct MessagesStreamInfo {
+pub(crate) struct MessagesStreamInfo {
     group: StoredGroup,
     cursor: u64,
 }
@@ -143,20 +143,10 @@ where
         })
     }
 
-    pub async fn stream_all_messages(
+    pub(crate) async fn stream_messages_for_groups(
         client: Arc<Client<ApiClient>>,
+        group_id_to_info: HashMap<Vec<u8>, MessagesStreamInfo>,
     ) -> Result<Pin<Box<dyn Stream<Item = StoredGroupMessage> + Send>>, ClientError> {
-        client.sync_welcomes().await?; // TODO pipe cursor from welcomes sync into groups_stream
-        let group_id_to_info: HashMap<Vec<u8>, MessagesStreamInfo> = client
-            .store
-            .conn()?
-            .find_groups(None, None, None, None)?
-            .into_iter()
-            .map(|group| (group.id.clone(), MessagesStreamInfo { group, cursor: 0 }))
-            .collect();
-        // let groups_stream = Self::stream_conversations_with_callback(client.clone(), |convo| {});
-        // TODO update messages_stream based on groups_stream
-
         let filters: Vec<GroupFilter> = group_id_to_info
             .iter()
             .map(|(group_id, info)| GroupFilter::new(group_id.clone(), Some(info.cursor)))
@@ -203,16 +193,87 @@ where
 
         Ok(Box::pin(stream))
     }
+
+    pub(crate) fn stream_messages_for_groups_with_callback(
+        client: Arc<Client<ApiClient>>,
+        group_id_to_info: HashMap<Vec<u8>, MessagesStreamInfo>,
+        callback: impl Fn(StoredGroupMessage) + Send + 'static,
+    ) -> Result<StreamCloser, ClientError> {
+        let (close_sender, close_receiver) = oneshot::channel::<()>();
+        let is_closed = Arc::new(AtomicBool::new(false));
+        let is_closed_clone = is_closed.clone();
+
+        tokio::spawn(async move {
+            let mut stream = Self::stream_messages_for_groups(client, group_id_to_info)
+                .await
+                .unwrap();
+            let mut close_receiver = close_receiver;
+            loop {
+                tokio::select! {
+                    item = stream.next() => {
+                        match item {
+                            Some(message) => callback(message),
+                            None => break
+                        }
+                    }
+                    _ = &mut close_receiver => {
+                        break;
+                    }
+                }
+            }
+            is_closed_clone.store(true, Ordering::Relaxed);
+            log::info!("closing stream");
+        });
+
+        Ok(StreamCloser {
+            close_fn: Arc::new(Mutex::new(Some(close_sender))),
+            is_closed_atomic: is_closed,
+        })
+    }
+
+    pub async fn stream_all_messages_with_callback(
+        client: Arc<Client<ApiClient>>,
+        callback: impl Fn(StoredGroupMessage) + Send + 'static,
+    ) -> Result<StreamCloser, ClientError> {
+        client.sync_welcomes().await?; // TODO pipe cursor from welcomes sync into groups_stream
+        let group_id_to_info: HashMap<Vec<u8>, MessagesStreamInfo> = client
+            .store
+            .conn()?
+            .find_groups(None, None, None, None)?
+            .into_iter()
+            .map(|group| (group.id.clone(), MessagesStreamInfo { group, cursor: 0 }))
+            .collect();
+
+        Self::stream_messages_for_groups_with_callback(client, group_id_to_info, move |message| {
+            callback(message)
+        })
+
+        // 0. Allow streaming messages with callback. Make stream_all_messages use callback.
+        // 1. Set up groups stream to re-init message stream without cursor
+        //      - Can we add a GroupFilter field to stream_all_messages, and just call it again when needed?
+        // 2. Pipe cursor from groups stream to new message stream
+        // 3. Pipe cursor from group sync to groups stream
+        // 4. Set up new message streams instead of new groups streams
+
+        // Set up messages stream
+        // Set up groups stream.
+        // Every time it changes, close the current message stream and wait for confirmation
+        // Start a new messages stream using the existing cursors.
+        // group_id_to_info needs to be shared between the messages stream and the groups stream
+        // The groups stream needs to be able to shut down the messages stream
+
+        // let groups_stream = Self::stream_conversations_with_callback(client.clone(), |convo| {});
+        // TODO update messages_stream based on groups_stream
+    }
 }
 
 #[cfg(test)]
 mod tests {
-    use std::sync::Arc;
-
+    use crate::{builder::ClientBuilder, storage::group_message::StoredGroupMessage, Client};
     use futures::StreamExt;
+    use std::sync::{Arc, Mutex};
+    use xmtp_api_grpc::grpc_api_helper::Client as GrpcClient;
     use xmtp_cryptography::utils::generate_local_wallet;
-
-    use crate::{builder::ClientBuilder, Client};
 
     #[tokio::test]
     async fn test_stream_welcomes() {
@@ -249,7 +310,16 @@ mod tests {
             .await
             .unwrap();
 
-        let mut stream = Client::stream_all_messages(Arc::new(caro)).await.unwrap();
+        let messages: Arc<Mutex<Vec<StoredGroupMessage>>> = Arc::new(Mutex::new(Vec::new()));
+        let messages_clone = messages.clone();
+        let mut _stream = Client::<GrpcClient>::stream_all_messages_with_callback(
+            Arc::new(caro),
+            move |message| {
+                (*messages_clone.lock().unwrap()).push(message);
+            },
+        )
+        .await
+        .unwrap();
         tokio::time::sleep(std::time::Duration::from_millis(50)).await;
 
         alix_group.send_message("first".as_bytes()).await.unwrap();
@@ -258,21 +328,10 @@ mod tests {
         bo_group.send_message("fourth".as_bytes()).await.unwrap();
         tokio::time::sleep(std::time::Duration::from_millis(200)).await;
 
-        assert_eq!(
-            stream.next().await.unwrap().decrypted_message_bytes,
-            "first".as_bytes()
-        );
-        assert_eq!(
-            stream.next().await.unwrap().decrypted_message_bytes,
-            "second".as_bytes()
-        );
-        assert_eq!(
-            stream.next().await.unwrap().decrypted_message_bytes,
-            "third".as_bytes()
-        );
-        assert_eq!(
-            stream.next().await.unwrap().decrypted_message_bytes,
-            "fourth".as_bytes()
-        );
+        let messages = messages.lock().unwrap();
+        assert_eq!(messages[0].decrypted_message_bytes, "first".as_bytes());
+        assert_eq!(messages[1].decrypted_message_bytes, "second".as_bytes());
+        assert_eq!(messages[2].decrypted_message_bytes, "third".as_bytes());
+        assert_eq!(messages[3].decrypted_message_bytes, "fourth".as_bytes());
     }
 }
