@@ -231,15 +231,13 @@ where
             .await?;
 
         let intent_data: Vec<u8> = SendMessageIntentData::new(message.to_vec()).into();
-        let intent =
-            NewGroupIntent::new(IntentKind::SendMessage, self.group_id.clone(), intent_data);
-        intent.store(conn)?;
+        let intent = conn.insert_group_intent(NewGroupIntent::new(
+            IntentKind::SendMessage,
+            self.group_id.clone(),
+            intent_data,
+        ))?;
 
-        // Skipping a full sync here and instead just firing and forgetting
-        if let Err(err) = self.publish_intents(conn).await {
-            println!("error publishing intents: {:?}", err);
-        }
-        Ok(())
+        self.sync_until_intent_resolved(conn, intent.id).await
     }
 
     // Query the database for stored messages. Optionally filtered by time, kind, and limit
