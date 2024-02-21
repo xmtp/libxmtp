@@ -59,8 +59,8 @@
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/xmtp/libxmtp-swift",
       "state" : {
-        "revision" : "db13df1fef0e4a11880a889640a3df2998e4abac",
-        "version" : "0.4.2-beta1"
+        "revision" : "f6571b6b771b4c0a2a9469bd407ce124a9d91fed",
+        "version" : "0.4.2-beta3"
       }
     },
     {
@@ -230,8 +230,8 @@
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/WalletConnect/WalletConnectSwiftV2",
       "state" : {
-        "branch" : "main",
-        "revision" : "13446a81e678e8eddc6ab506e85c522df0163f1f"
+        "revision" : "addf9a3688ef5e5d9d148ecbb30ca0fd3132b908",
+        "version" : "1.9.8"
       }
     },
     {
