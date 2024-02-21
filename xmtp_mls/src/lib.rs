@@ -10,6 +10,7 @@ pub mod identity;
 pub mod owner;
 pub mod retry;
 pub mod storage;
+pub mod subscriptions;
 pub mod types;
 pub mod utils;
 pub mod verified_key_package;

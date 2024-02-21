@@ -1,6 +1,5 @@
-use std::{collections::HashSet, mem::Discriminant, pin::Pin};
+use std::{collections::HashSet, mem::Discriminant};
 
-use futures::{Stream, StreamExt};
 use openmls::{
     framing::{MlsMessageIn, MlsMessageInBody},
     group::GroupEpoch,
@@ -69,6 +68,8 @@ pub enum ClientError {
     KeyPackageVerification(#[from] KeyPackageVerificationError),
     #[error("syncing errors: {0:?}")]
     SyncingError(Vec<MessageProcessingError>),
+    #[error("Stream inconsistency error: {0}")]
+    StreamInconsistency(String),
     #[error("generic:{0}")]
     Generic(String),
 }
@@ -468,55 +469,11 @@ where
             })
             .collect())
     }
-
-    fn process_streamed_welcome(
-        &self,
-        welcome: WelcomeMessage,
-    ) -> Result<MlsGroup<ApiClient>, ClientError> {
-        let welcome_v1 = extract_welcome_message(welcome)?;
-        let conn = self.store.conn()?;
-        let provider = self.mls_provider(&conn);
-
-        MlsGroup::create_from_encrypted_welcome(
-            self,
-            &provider,
-            welcome_v1.hpke_public_key.as_slice(),
-            welcome_v1.data,
-        )
-        .map_err(|e| ClientError::Generic(e.to_string()))
-    }
-
-    pub async fn stream_conversations(
-        &'a self,
-    ) -> Result<Pin<Box<dyn Stream<Item = MlsGroup<ApiClient>> + Send + 'a>>, ClientError> {
-        let installation_key = self.installation_public_key();
-        let id_cursor = 0;
-
-        let subscription = self
-            .api_client
-            .subscribe_welcome_messages(installation_key, Some(id_cursor as u64))
-            .await?;
-
-        let stream = subscription
-            .map(|welcome_result| async {
-                let welcome = welcome_result?;
-                self.process_streamed_welcome(welcome)
-            })
-            .filter_map(|res| async {
-                match res.await {
-                    Ok(group) => Some(group),
-                    Err(err) => {
-                        log::error!("Error processing stream entry: {:?}", err);
-                        None
-                    }
-                }
-            });
-
-        Ok(Box::pin(stream))
-    }
 }
 
-fn extract_welcome_message(welcome: WelcomeMessage) -> Result<WelcomeMessageV1, ClientError> {
+pub(crate) fn extract_welcome_message(
+    welcome: WelcomeMessage,
+) -> Result<WelcomeMessageV1, ClientError> {
     match welcome.version {
         Some(WelcomeMessageVersion::V1(welcome)) => Ok(welcome),
         _ => Err(ClientError::Generic(
@@ -551,7 +508,6 @@ fn has_active_installation(updates: &Vec<IdentityUpdate>) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use futures::StreamExt;
     use xmtp_cryptography::utils::generate_local_wallet;
 
     use crate::{
@@ -732,22 +688,5 @@ mod tests {
             bola_messages.get(1).unwrap().decrypted_message_bytes,
             vec![1, 2, 3]
         )
-    }
-
-    #[tokio::test]
-    async fn test_stream_welcomes() {
-        let alice = ClientBuilder::new_test_client(&generate_local_wallet()).await;
-        let bob = ClientBuilder::new_test_client(&generate_local_wallet()).await;
-
-        let alice_bob_group = alice.create_group(None).unwrap();
-
-        let mut bob_stream = bob.stream_conversations().await.unwrap();
-        alice_bob_group
-            .add_members(vec![bob.account_address()])
-            .await
-            .unwrap();
-
-        let bob_received_groups = bob_stream.next().await.unwrap();
-        assert_eq!(bob_received_groups.group_id, alice_bob_group.group_id);
     }
 }

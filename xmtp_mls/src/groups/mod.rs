@@ -131,6 +131,16 @@ pub struct MlsGroup<'c, ApiClient> {
     client: &'c Client<ApiClient>,
 }
 
+impl<'c, ApiClient> Clone for MlsGroup<'c, ApiClient> {
+    fn clone(&self) -> Self {
+        Self {
+            client: self.client,
+            group_id: self.group_id.clone(),
+            created_at_ns: self.created_at_ns,
+        }
+    }
+}
+
 impl<'c, ApiClient> MlsGroup<'c, ApiClient>
 where
     ApiClient: XmtpMlsClient,
@@ -352,6 +362,13 @@ where
 fn extract_message_v1(message: GroupMessage) -> Result<GroupMessageV1, MessageProcessingError> {
     match message.version {
         Some(GroupMessageVersion::V1(value)) => Ok(value),
+        _ => Err(MessageProcessingError::InvalidPayload),
+    }
+}
+
+pub fn extract_group_id(message: &GroupMessage) -> Result<Vec<u8>, MessageProcessingError> {
+    match &message.version {
+        Some(GroupMessageVersion::V1(value)) => Ok(value.group_id.clone()),
         _ => Err(MessageProcessingError::InvalidPayload),
     }
 }
