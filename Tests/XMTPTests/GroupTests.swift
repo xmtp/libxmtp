@@ -394,6 +394,7 @@ class GroupTests: XCTestCase {
 		let fixtures = try await localFixtures()
 
 		let expectation1 = expectation(description: "got a conversation")
+		expectation1.expectedFulfillmentCount = 2
 
 		Task(priority: .userInitiated) {
 			for try await _ in try await fixtures.aliceClient.conversations.streamAll() {
@@ -402,23 +403,82 @@ class GroupTests: XCTestCase {
 		}
 
 		_ = try await fixtures.bobClient.conversations.newGroup(with: [fixtures.alice.address])
-		//		_ = try await fixtures.bobClient.conversations.newConversation(with: fixtures.alice.address)
+		_ = try await fixtures.bobClient.conversations.newConversation(with: fixtures.alice.address)
 
 		await waitForExpectations(timeout: 3)
 	}
 	
-	func testCanStreamGroupsAndConversationsWorksConvos() async throws {
+	func testCanStreamAllMessages() async throws {
 		let fixtures = try await localFixtures()
 
 		let expectation1 = expectation(description: "got a conversation")
-
+		expectation1.expectedFulfillmentCount = 2
+		let convo = try await fixtures.bobClient.conversations.newConversation(with: fixtures.alice.address)
+		let group = try await fixtures.bobClient.conversations.newGroup(with: [fixtures.alice.address])
+		try await fixtures.aliceClient.conversations.sync()
 		Task(priority: .userInitiated) {
-			for try await _ in try await fixtures.aliceClient.conversations.streamAll() {
+			for try await _ in try await fixtures.aliceClient.conversations.streamAllMessages(includeGroups: true) {
 				expectation1.fulfill()
 			}
 		}
 
-		_ = try await fixtures.bobClient.conversations.newConversation(with: fixtures.alice.address)
+		try await group.send(content: "hi")
+		try await convo.send(content: "hi")
+
+		await waitForExpectations(timeout: 3)
+	}
+	
+	func testCanStreamAllDecryptedMessages() async throws {
+		let fixtures = try await localFixtures()
+
+		let expectation1 = expectation(description: "got a conversation")
+		expectation1.expectedFulfillmentCount = 2
+		let convo = try await fixtures.bobClient.conversations.newConversation(with: fixtures.alice.address)
+		let group = try await fixtures.bobClient.conversations.newGroup(with: [fixtures.alice.address])
+		try await fixtures.aliceClient.conversations.sync()
+		Task(priority: .userInitiated) {
+			for try await _ in try await fixtures.aliceClient.conversations.streamAllDecryptedMessages(includeGroups: true) {
+				expectation1.fulfill()
+			}
+		}
+
+		try await group.send(content: "hi")
+		try await convo.send(content: "hi")
+
+		await waitForExpectations(timeout: 3)
+	}
+	
+	func testCanStreamAllGroupMessages() async throws {
+		let fixtures = try await localFixtures()
+
+		let expectation1 = expectation(description: "got a conversation")
+
+		let group = try await fixtures.bobClient.conversations.newGroup(with: [fixtures.alice.address])
+		try await fixtures.aliceClient.conversations.sync()
+		Task(priority: .userInitiated) {
+			for try await _ in try await fixtures.aliceClient.conversations.streamAllGroupMessages() {
+				expectation1.fulfill()
+			}
+		}
+
+		try await group.send(content: "hi")
+
+		await waitForExpectations(timeout: 3)
+	}
+	
+	func testCanStreamAllGroupDecryptedMessages() async throws {
+		let fixtures = try await localFixtures()
+
+		let expectation1 = expectation(description: "got a conversation")
+		let group = try await fixtures.bobClient.conversations.newGroup(with: [fixtures.alice.address])
+		try await fixtures.aliceClient.conversations.sync()
+		Task(priority: .userInitiated) {
+			for try await _ in try await fixtures.aliceClient.conversations.streamAllGroupDecryptedMessages() {
+				expectation1.fulfill()
+			}
+		}
+
+		try await group.send(content: "hi")
 
 		await waitForExpectations(timeout: 3)
 	}

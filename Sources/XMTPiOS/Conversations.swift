@@ -239,7 +239,7 @@ public actor Conversations {
 		return messages
 	}
 
-	public func streamAllMessages() async throws -> AsyncThrowingStream<DecodedMessage, Error> {
+	func streamAllV2Messages() async throws -> AsyncThrowingStream<DecodedMessage, Error> {
 		return AsyncThrowingStream { continuation in
 			Task {
 				while true {
@@ -278,8 +278,99 @@ public actor Conversations {
 			}
 		}
 	}
+	
+	public func streamAllGroupMessages() -> AsyncThrowingStream<DecodedMessage, Error> {
+		AsyncThrowingStream { continuation in
+			Task {
+				do {
+					self.streamHolder.stream = try await self.client.v3Client?.conversations().streamAllMessages(
+						messageCallback: MessageCallback(client: self.client) { message in
+							do {
+								continuation.yield(try message.fromFFI(client: self.client))
+							} catch {
+								print("Error onMessage \(error)")
+							}
+						}
+					)
+				} catch {
+					print("STREAM ERR: \(error)")
+				}
+			}
+		}
+	}
+	
+	public func streamAllMessages(includeGroups: Bool = false) async throws -> AsyncThrowingStream<DecodedMessage, Error> {
+		AsyncThrowingStream<DecodedMessage, Error> { continuation in
+			@Sendable func forwardStreamToMerged(stream: AsyncThrowingStream<DecodedMessage, Error>) async {
+				do {
+					var iterator = stream.makeAsyncIterator()
+					while let element = try await  iterator.next() {
+						continuation.yield(element)
+					}
+					continuation.finish()
+				} catch {
+					continuation.finish(throwing: error)
+				}
+			}
+			
+			Task {
+				await forwardStreamToMerged(stream: try streamAllV2Messages())
+			}
+			if (includeGroups) {
+				Task {
+					await forwardStreamToMerged(stream: streamAllGroupMessages())
+				}
+			}
+		}
+	}
+	
+	public func streamAllGroupDecryptedMessages() -> AsyncThrowingStream<DecryptedMessage, Error> {
+		AsyncThrowingStream { continuation in
+			Task {
+				do {
+					self.streamHolder.stream = try await self.client.v3Client?.conversations().streamAllMessages(
+						messageCallback: MessageCallback(client: self.client) { message in
+							do {
+								continuation.yield(try message.fromFFIDecrypted(client: self.client))
+							} catch {
+								print("Error onMessage \(error)")
+							}
+						}
+					)
+				} catch {
+					print("STREAM ERR: \(error)")
+				}
+			}
+		}
+	}
+	
+	public func streamAllDecryptedMessages(includeGroups: Bool = false) -> AsyncThrowingStream<DecryptedMessage, Error> {
+		AsyncThrowingStream<DecryptedMessage, Error> { continuation in
+			@Sendable func forwardStreamToMerged(stream: AsyncThrowingStream<DecryptedMessage, Error>) async {
+				do {
+					var iterator = stream.makeAsyncIterator()
+					while let element = try await  iterator.next() {
+						continuation.yield(element)
+					}
+					continuation.finish()
+				} catch {
+					continuation.finish(throwing: error)
+				}
+			}
+			
+			Task {
+				await forwardStreamToMerged(stream: try streamAllV2DecryptedMessages())
+			}
+			if (includeGroups) {
+				Task {
+					await forwardStreamToMerged(stream: streamAllGroupDecryptedMessages())
+				}
+			}
+		}
+	}
 
-	public func streamAllDecryptedMessages() async throws -> AsyncThrowingStream<DecryptedMessage, Error> {
+
+	func streamAllV2DecryptedMessages() async throws -> AsyncThrowingStream<DecryptedMessage, Error> {
 		return AsyncThrowingStream { continuation in
 			Task {
 				while true {
