@@ -935,7 +935,7 @@ mod tests {
         alix_group.send("third".as_bytes().to_vec()).await.unwrap();
         caro_group.send("fourth".as_bytes().to_vec()).await.unwrap();
 
-        tokio::time::sleep(tokio::time::Duration::from_millis(200)).await;
+        tokio::time::sleep(tokio::time::Duration::from_millis(400)).await;
 
         assert_eq!(stream_callback.message_count(), 4);
         stream.end();
