@@ -61,7 +61,8 @@ public struct ClientOptions {
 		preEnableIdentityCallback: PreEventCallback? = nil,
 		preCreateIdentityCallback: PreEventCallback? = nil,
 		mlsAlpha: Bool = false,
-		mlsEncryptionKey: Data? = nil
+		mlsEncryptionKey: Data? = nil,
+		mlsDbPath: String? = nil
 	) {
 		self.api = api
 		self.codecs = codecs
@@ -69,6 +70,7 @@ public struct ClientOptions {
 		self.preCreateIdentityCallback = preCreateIdentityCallback
 		self.mlsAlpha = mlsAlpha
 		self.mlsEncryptionKey = mlsEncryptionKey
+		self.mlsDbPath = mlsDbPath
 	}
 }
 
