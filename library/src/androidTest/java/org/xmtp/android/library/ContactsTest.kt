@@ -12,8 +12,8 @@ class ContactsTest {
     fun testNormalizesAddresses() {
         val fixtures = fixtures()
         fixtures.bobClient.ensureUserContactPublished()
-        val bobAddressLowercased = fixtures.bobClient.address?.lowercase()
-        val bobContact = fixtures.aliceClient.getUserContact(peerAddress = bobAddressLowercased!!)
+        val bobAddressLowerCased = fixtures.bobClient.address.lowercase()
+        val bobContact = fixtures.aliceClient.getUserContact(peerAddress = bobAddressLowerCased)
         assert(bobContact != null)
     }
 
@@ -54,7 +54,7 @@ class ContactsTest {
     }
 
     @Test
-    fun testBlockAddress() {
+    fun testDenyAddress() {
         val fixtures = fixtures()
 
         val contacts = fixtures.bobClient.contacts

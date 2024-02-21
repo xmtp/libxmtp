@@ -21,17 +21,17 @@ import uniffi.xmtpv3.GroupPermissions
 
 @RunWith(AndroidJUnit4::class)
 class GroupTest {
-    lateinit var fakeApiClient: FakeApiClient
-    lateinit var alixWallet: PrivateKeyBuilder
-    lateinit var boWallet: PrivateKeyBuilder
-    lateinit var alix: PrivateKey
-    lateinit var alixClient: Client
-    lateinit var bo: PrivateKey
-    lateinit var boClient: Client
-    lateinit var caroWallet: PrivateKeyBuilder
-    lateinit var caro: PrivateKey
-    lateinit var caroClient: Client
-    lateinit var fixtures: Fixtures
+    private lateinit var fakeApiClient: FakeApiClient
+    private lateinit var alixWallet: PrivateKeyBuilder
+    private lateinit var boWallet: PrivateKeyBuilder
+    private lateinit var alix: PrivateKey
+    private lateinit var alixClient: Client
+    private lateinit var bo: PrivateKey
+    private lateinit var boClient: Client
+    private lateinit var caroWallet: PrivateKeyBuilder
+    private lateinit var caro: PrivateKey
+    private lateinit var caroClient: Client
+    private lateinit var fixtures: Fixtures
 
     @Before
     fun setUp() {
@@ -98,6 +98,9 @@ class GroupTest {
         val alixGroup = alixClient.conversations.listGroups().first()
         assert(boGroup.id.isNotEmpty())
         assert(alixGroup.id.isNotEmpty())
+
+        assertEquals(boClient.contacts.consentList.groupState(boGroup.id), ConsentState.ALLOWED)
+        assertEquals(alixClient.contacts.consentList.groupState(alixGroup.id), ConsentState.UNKNOWN)
 
         boGroup.addMembers(listOf(caro.walletAddress))
         runBlocking { alixGroup.sync() }
@@ -239,7 +242,7 @@ class GroupTest {
 
     @Test
     fun testCannotSendMessageToGroupMemberNotOnV3() {
-        var fakeApiClient = FakeApiClient()
+        val fakeApiClient = FakeApiClient()
         val chuxAccount = PrivateKeyBuilder()
         val chux: PrivateKey = chuxAccount.getPrivateKey()
         val chuxClient: Client = Client().create(account = chuxAccount, apiClient = fakeApiClient)
@@ -261,6 +264,16 @@ class GroupTest {
         assertThrows("Cannot start an empty group chat.", XMTPException::class.java) {
             boClient.conversations.newGroup(listOf())
         }
+    }
+
+    @Test
+    fun testGroupStartsWithAllowedState() {
+        val group = boClient.conversations.newGroup(listOf(alix.walletAddress))
+        group.send("howdy")
+        group.send("gm")
+        runBlocking { group.sync() }
+        assert(boClient.contacts.isGroupAllowed(group.id))
+        assertEquals(boClient.contacts.consentList.groupState(group.id), ConsentState.ALLOWED)
     }
 
     @Test
@@ -405,5 +418,42 @@ class GroupTest {
                 boClient.conversations.newConversation(alix.walletAddress)
             assertEquals(conversation.topic, awaitItem().topic)
         }
+    }
+
+    @Test
+    fun testCanAllowGroup() {
+        val group = boClient.conversations.newGroup(
+            listOf(
+                alix.walletAddress,
+                caro.walletAddress
+            )
+        )
+
+        var result = boClient.contacts.isGroupAllowed(group.id)
+
+        assert(!result)
+
+        boClient.contacts.allowGroup(listOf(group.id))
+
+        result = boClient.contacts.isGroupAllowed(group.id)
+        assert(result)
+    }
+
+    @Test
+    fun testCanDenyGroup() {
+        val group = boClient.conversations.newGroup(
+            listOf(
+                alix.walletAddress,
+                caro.walletAddress
+            )
+        )
+        var result = boClient.contacts.isGroupAllowed(group.id)
+
+        assert(!result)
+
+        boClient.contacts.denyGroup(listOf(group.id))
+
+        result = boClient.contacts.isGroupDenied(group.id)
+        assert(result)
     }
 }

@@ -42,6 +42,9 @@ class Group(val client: Client, private val libXMTPGroup: FfiGroup) {
     }
 
     fun send(encodedContent: EncodedContent): String {
+        if (client.contacts.consentList.groupState(groupId = id) == ConsentState.UNKNOWN) {
+            client.contacts.allowGroup(groupIds = listOf(id))
+        }
         runBlocking {
             libXMTPGroup.send(contentBytes = encodedContent.toByteArray())
         }
