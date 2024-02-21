@@ -9,14 +9,13 @@ use std::{
 
 use futures::{Stream, StreamExt};
 use tokio::sync::oneshot::{self, Sender};
-// use xmtp_api_grpc::grpc_api_helper::Client as ApiClient;
 use xmtp_proto::{api_client::XmtpMlsClient, xmtp::mls::api::v1::WelcomeMessage};
 
 use crate::{
     api_client_wrapper::GroupFilter,
     client::{extract_welcome_message, ClientError},
     groups::{extract_group_id, GroupError, MlsGroup},
-    storage::group_message::StoredGroupMessage,
+    storage::{group::StoredGroup, group_message::StoredGroupMessage},
     Client,
 };
 
@@ -41,12 +40,12 @@ impl StreamCloser {
         self.is_closed_atomic.load(Ordering::Relaxed)
     }
 }
-struct MessagesStreamInfo<'c, ApiClient> {
-    group: MlsGroup<'c, ApiClient>,
+struct MessagesStreamInfo {
+    group: StoredGroup,
     cursor: u64,
 }
 
-impl<'c, ApiClient> Clone for MessagesStreamInfo<'c, ApiClient> {
+impl Clone for MessagesStreamInfo {
     fn clone(&self) -> Self {
         Self {
             group: self.group.clone(),
@@ -104,7 +103,12 @@ where
 
         Ok(Box::pin(stream))
     }
+}
 
+impl<ApiClient> Client<ApiClient>
+where
+    ApiClient: XmtpMlsClient + 'static,
+{
     pub fn stream_conversations_with_callback(
         client: Arc<Client<ApiClient>>,
         callback: impl Fn(MlsGroup<ApiClient>) -> () + Send + 'static,
@@ -112,10 +116,8 @@ where
         let (close_sender, close_receiver) = oneshot::channel::<()>();
         let is_closed = Arc::new(AtomicBool::new(false));
         let is_closed_clone = is_closed.clone();
-        // let client = client.clone();
 
         tokio::spawn(async move {
-            // let client = client.as_ref();
             let mut stream = client.stream_conversations().await.unwrap();
             let mut close_receiver = close_receiver;
             loop {
@@ -142,53 +144,47 @@ where
     }
 
     pub async fn stream_all_messages(
-        &'a self,
-    ) -> Result<Pin<Box<dyn Stream<Item = StoredGroupMessage> + 'a + Send>>, ClientError> {
-        let groups_stream = self.stream_conversations().await?;
-        self.sync_welcomes().await?;
-        let group_id_to_info: HashMap<Vec<u8>, MessagesStreamInfo<'a, ApiClient>> = self
+        client: Arc<Client<ApiClient>>,
+    ) -> Result<Pin<Box<dyn Stream<Item = StoredGroupMessage> + Send>>, ClientError> {
+        client.sync_welcomes().await?; // TODO pipe cursor from welcomes sync into groups_stream
+        let group_id_to_info: HashMap<Vec<u8>, MessagesStreamInfo> = client
+            .store
+            .conn()?
             .find_groups(None, None, None, None)?
             .into_iter()
-            .map(|group| {
-                (
-                    group.group_id.clone(),
-                    MessagesStreamInfo { group, cursor: 0 },
-                )
-            })
+            .map(|group| (group.id.clone(), MessagesStreamInfo { group, cursor: 0 }))
             .collect();
-
-        // loop {
-        //     match groups_stream.next() {
-        //         Some(convo) => callback.on_conversation(Arc::new(FfiGroup {
-        //             inner_client: inner_client.clone(),
-        //             group_id: convo.group_id,
-        //             created_at_ns: convo.created_at_ns,
-        //         })),
-        //         None => break,
-        //     }
-        // }
+        // let groups_stream = Self::stream_conversations_with_callback(client.clone(), |convo| {});
+        // TODO update messages_stream based on groups_stream
 
         let filters: Vec<GroupFilter> = group_id_to_info
             .iter()
             .map(|(group_id, info)| GroupFilter::new(group_id.clone(), Some(info.cursor)))
             .collect();
-        let messages_subscription = self.api_client.subscribe_group_messages(filters).await?;
+        let messages_subscription = client.api_client.subscribe_group_messages(filters).await?;
         let group_id_to_info_clone = group_id_to_info.clone();
+        let client_clone = client.clone();
         let stream = messages_subscription
             .map(move |res| {
                 let group_id_to_info_clone = group_id_to_info_clone.clone();
+                let client_clone = client_clone.clone();
                 async move {
                     match res {
                         Ok(envelope) => {
                             let group_id = extract_group_id(&envelope)?;
-                            group_id_to_info_clone
+                            let stored_group = &group_id_to_info_clone
                                 .get(&group_id)
                                 .ok_or(ClientError::StreamInconsistency(
                                     "Received message for a non-subscribed group".to_string(),
                                 ))?
-                                .group
-                                .process_stream_entry(envelope)
-                                .await
+                                .group;
+                            MlsGroup::new(
+                                client_clone.as_ref(),
+                                group_id,
+                                stored_group.created_at_ns,
+                            )
+                            .process_stream_entry(envelope)
+                            .await
                         }
                         Err(err) => Err(GroupError::Api(err)),
                     }
@@ -211,10 +207,12 @@ where
 
 #[cfg(test)]
 mod tests {
+    use std::sync::Arc;
+
     use futures::StreamExt;
     use xmtp_cryptography::utils::generate_local_wallet;
 
-    use crate::builder::ClientBuilder;
+    use crate::{builder::ClientBuilder, Client};
 
     #[tokio::test]
     async fn test_stream_welcomes() {
@@ -251,7 +249,7 @@ mod tests {
             .await
             .unwrap();
 
-        let mut stream = caro.stream_all_messages().await.unwrap();
+        let mut stream = Client::stream_all_messages(Arc::new(caro)).await.unwrap();
         tokio::time::sleep(std::time::Duration::from_millis(50)).await;
 
         alix_group.send_message("first".as_bytes()).await.unwrap();
