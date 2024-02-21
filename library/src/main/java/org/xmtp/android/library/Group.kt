@@ -115,23 +115,13 @@ class Group(val client: Client, private val libXMTPGroup: FfiGroup) {
                     limit = limit?.toLong()
                 )
             ).map {
-                decrypt(Message(client, it))
+                Message(client, it).decrypt()
             }
             when (direction) {
                 MessageApiOuterClass.SortDirection.SORT_DIRECTION_ASCENDING -> messages
                 else -> messages.reversed()
             }
         }
-    }
-
-    fun decrypt(message: Message): DecryptedMessage {
-        return DecryptedMessage(
-            id = message.id.toHex(),
-            topic = message.convoId.toHex(),
-            encodedContent = message.decode().encodedContent,
-            senderAddress = message.senderAddress,
-            sentAt = Date()
-        )
     }
 
     fun isActive(): Boolean {
@@ -186,7 +176,7 @@ class Group(val client: Client, private val libXMTPGroup: FfiGroup) {
     fun streamDecryptedMessages(): Flow<DecryptedMessage> = callbackFlow {
         val messageCallback = object : FfiMessageCallback {
             override fun onMessage(message: FfiMessage) {
-                trySend(decrypt(Message(client, message)))
+                trySend(Message(client, message).decrypt())
             }
         }
 

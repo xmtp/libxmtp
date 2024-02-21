@@ -12,6 +12,7 @@ import kotlinx.coroutines.flow.merge
 import kotlinx.coroutines.runBlocking
 import org.xmtp.android.library.GRPCApiClient.Companion.makeQueryRequest
 import org.xmtp.android.library.GRPCApiClient.Companion.makeSubscribeRequest
+import org.xmtp.android.library.libxmtp.Message
 import org.xmtp.android.library.messages.DecryptedMessage
 import org.xmtp.android.library.messages.Envelope
 import org.xmtp.android.library.messages.EnvelopeBuilder
@@ -39,6 +40,8 @@ import uniffi.xmtpv3.FfiConversationCallback
 import uniffi.xmtpv3.FfiConversations
 import uniffi.xmtpv3.FfiGroup
 import uniffi.xmtpv3.FfiListConversationsOptions
+import uniffi.xmtpv3.FfiMessage
+import uniffi.xmtpv3.FfiMessageCallback
 import uniffi.xmtpv3.GroupPermissions
 import java.util.Date
 import kotlin.time.Duration.Companion.nanoseconds
@@ -530,12 +533,34 @@ data class Conversations(
         awaitClose { stream.end() }
     }
 
+    fun streamAllGroupMessages(): Flow<DecodedMessage> = callbackFlow {
+        val messageCallback = object : FfiMessageCallback {
+            override fun onMessage(message: FfiMessage) {
+                trySend(Message(client, message).decode())
+            }
+        }
+        val stream = libXMTPConversations?.streamAllMessages(messageCallback)
+            ?: throw XMTPException("Client does not support Groups")
+        awaitClose { stream.end() }
+    }
+
+    fun streamAllGroupDecryptedMessages(): Flow<DecryptedMessage> = callbackFlow {
+        val messageCallback = object : FfiMessageCallback {
+            override fun onMessage(message: FfiMessage) {
+                trySend(Message(client, message).decrypt())
+            }
+        }
+        val stream = libXMTPConversations?.streamAllMessages(messageCallback)
+            ?: throw XMTPException("Client does not support Groups")
+        awaitClose { stream.end() }
+    }
+
     /**
      * Get the stream of all messages of the current [Client]
      * @return Flow object of [DecodedMessage] that represents all the messages of the
      * current [Client] as userInvite and userIntro
      */
-    fun streamAllMessages(): Flow<DecodedMessage> = flow {
+    private fun streamAllV2Messages(): Flow<DecodedMessage> = flow {
         val topics = mutableListOf(
             Topic.userInvite(client.address).description,
             Topic.userIntro(client.address).description,
@@ -590,7 +615,23 @@ data class Conversations(
         }
     }
 
-    fun streamAllDecryptedMessages(): Flow<DecryptedMessage> = flow {
+    fun streamAllMessages(includeGroups: Boolean = false): Flow<DecodedMessage> {
+        return if (includeGroups) {
+            merge(streamAllV2Messages(), streamAllGroupMessages())
+        } else {
+            streamAllV2Messages()
+        }
+    }
+
+    fun streamAllDecryptedMessages(includeGroups: Boolean = false): Flow<DecryptedMessage> {
+        return if (includeGroups) {
+            merge(streamAllV2DecryptedMessages(), streamAllGroupDecryptedMessages())
+        } else {
+            streamAllV2DecryptedMessages()
+        }
+    }
+
+    private fun streamAllV2DecryptedMessages(): Flow<DecryptedMessage> = flow {
         val topics = mutableListOf(
             Topic.userInvite(client.address).description,
             Topic.userIntro(client.address).description,

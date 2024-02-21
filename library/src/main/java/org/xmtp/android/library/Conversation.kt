@@ -291,11 +291,7 @@ sealed class Conversation {
             is V1 -> conversationV1.decrypt(envelope)
             is V2 -> conversationV2.decrypt(envelope)
             is Group -> {
-                if (message == null) {
-                    throw XMTPException("Groups require message be passed")
-                } else {
-                    group.decrypt(message)
-                }
+                message?.decrypt() ?: throw XMTPException("Groups require message be passed")
             }
         }
     }

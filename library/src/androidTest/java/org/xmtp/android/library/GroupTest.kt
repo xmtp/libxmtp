@@ -321,6 +321,31 @@ class GroupTest {
     }
 
     @Test
+    fun testCanStreamAllGroupMessages() = kotlinx.coroutines.test.runTest {
+        val group = caroClient.conversations.newGroup(listOf(alix.walletAddress))
+        alixClient.conversations.syncGroups()
+        alixClient.conversations.streamAllGroupMessages().test {
+            group.send("hi")
+            assertEquals("hi", awaitItem().encodedContent.content.toStringUtf8())
+            group.send("hi again")
+            assertEquals("hi again", awaitItem().encodedContent.content.toStringUtf8())
+        }
+    }
+
+    @Test
+    fun testCanStreamAllMessages() = kotlinx.coroutines.test.runTest {
+        val group = caroClient.conversations.newGroup(listOf(alix.walletAddress))
+        val conversation = boClient.conversations.newConversation(alix.walletAddress)
+        alixClient.conversations.syncGroups()
+        alixClient.conversations.streamAllMessages(includeGroups = true).test {
+            group.send("hi")
+            assertEquals("hi", awaitItem().encodedContent.content.toStringUtf8())
+            conversation.send("hi again")
+            assertEquals("hi again", awaitItem().encodedContent.content.toStringUtf8())
+        }
+    }
+
+    @Test
     fun testCanStreamDecryptedGroupMessages() = kotlinx.coroutines.test.runTest {
         val group = boClient.conversations.newGroup(listOf(alix.walletAddress))
         alixClient.conversations.syncGroups()
@@ -329,6 +354,31 @@ class GroupTest {
             alixGroup.send("hi")
             assertEquals("hi", awaitItem().encodedContent.content.toStringUtf8())
             alixGroup.send("hi again")
+            assertEquals("hi again", awaitItem().encodedContent.content.toStringUtf8())
+        }
+    }
+
+    @Test
+    fun testCanStreamAllDecryptedGroupMessages() = kotlinx.coroutines.test.runTest {
+        val group = caroClient.conversations.newGroup(listOf(alix.walletAddress))
+        alixClient.conversations.syncGroups()
+        alixClient.conversations.streamAllGroupDecryptedMessages().test {
+            group.send("hi")
+            assertEquals("hi", awaitItem().encodedContent.content.toStringUtf8())
+            group.send("hi again")
+            assertEquals("hi again", awaitItem().encodedContent.content.toStringUtf8())
+        }
+    }
+
+    @Test
+    fun testCanStreamAllDecryptedMessages() = kotlinx.coroutines.test.runTest {
+        val group = caroClient.conversations.newGroup(listOf(alix.walletAddress))
+        val conversation = boClient.conversations.newConversation(alix.walletAddress)
+        alixClient.conversations.syncGroups()
+        alixClient.conversations.streamAllDecryptedMessages(includeGroups = true).test {
+            group.send("hi")
+            assertEquals("hi", awaitItem().encodedContent.content.toStringUtf8())
+            conversation.send("hi again")
             assertEquals("hi again", awaitItem().encodedContent.content.toStringUtf8())
         }
     }

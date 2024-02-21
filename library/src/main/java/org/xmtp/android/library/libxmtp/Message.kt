@@ -4,6 +4,7 @@ import org.xmtp.android.library.Client
 import org.xmtp.android.library.DecodedMessage
 import org.xmtp.android.library.XMTPException
 import org.xmtp.android.library.codecs.EncodedContent
+import org.xmtp.android.library.messages.DecryptedMessage
 import org.xmtp.android.library.toHex
 import uniffi.xmtpv3.FfiMessage
 import java.util.Date
@@ -34,5 +35,15 @@ data class Message(val client: Client, private val libXMTPMessage: FfiMessage) {
         } catch (e: Exception) {
             throw XMTPException("Error decoding message", e)
         }
+    }
+
+    fun decrypt(): DecryptedMessage {
+        return DecryptedMessage(
+            id = id.toHex(),
+            topic = convoId.toHex(),
+            encodedContent = decode().encodedContent,
+            senderAddress = senderAddress,
+            sentAt = Date()
+        )
     }
 }
