@@ -258,46 +258,11 @@ impl FfiConversations {
             close_fn: stream_closer.close_fn,
             is_closed_atomic: stream_closer.is_closed_atomic,
         }))
-
-        // let inner_client = Arc::clone(&self.inner_client);
-        // let (close_sender, close_receiver) = oneshot::channel::<()>();
-        // let is_closed = Arc::new(AtomicBool::new(false));
-        // let is_closed_clone = is_closed.clone();
-
-        // tokio::spawn(async move {
-        //     let client = inner_client.as_ref();
-        //     let mut stream = client.stream_conversations().await.unwrap();
-        //     let mut close_receiver = close_receiver;
-        //     loop {
-        //         tokio::select! {
-        //             item = stream.next() => {
-        //                 match item {
-        //                     Some(convo) => callback.on_conversation(Arc::new(FfiGroup {
-        //                         inner_client: inner_client.clone(),
-        //                         group_id: convo.group_id,
-        //                         created_at_ns: convo.created_at_ns,
-        //                     })),
-        //                     None => break
-        //                 }
-        //             }
-        //             _ = &mut close_receiver => {
-        //                 break;
-        //             }
-        //         }
-        //     }
-        //     is_closed_clone.store(true, Ordering::Relaxed);
-        //     log::info!("closing stream");
-        // });
-
-        // Ok(Arc::new(FfiStreamCloser {
-        //     close_fn: Arc::new(Mutex::new(Some(close_sender))),
-        //     is_closed_atomic: is_closed,
-        // }))
     }
 
     pub async fn stream_all_messages(
         &self,
-        callback: Box<dyn FfiConversationCallback>,
+        message_callback: Box<dyn FfiMessageCallback>,
     ) -> Result<Arc<FfiStreamCloser>, GenericError> {
         let inner_client = Arc::clone(&self.inner_client);
         let (close_sender, close_receiver) = oneshot::channel::<()>();
@@ -305,18 +270,15 @@ impl FfiConversations {
         let is_closed_clone = is_closed.clone();
 
         tokio::spawn(async move {
-            let client = inner_client.as_ref();
-            let mut stream = client.stream_conversations().await.unwrap();
+            let mut stream = RustXmtpClient::stream_all_messages(inner_client)
+                .await
+                .unwrap();
             let mut close_receiver = close_receiver;
             loop {
                 tokio::select! {
                     item = stream.next() => {
                         match item {
-                            Some(convo) => callback.on_conversation(Arc::new(FfiGroup {
-                                inner_client: inner_client.clone(),
-                                group_id: convo.group_id,
-                                created_at_ns: convo.created_at_ns,
-                            })),
+                            Some(message) => message_callback.on_message(message.into()),
                             None => break
                         }
                     }
@@ -334,43 +296,6 @@ impl FfiConversations {
             is_closed_atomic: is_closed,
         }))
     }
-
-    //     message_callback: Box<dyn FfiMessageCallback>,
-    // ) -> Result<Arc<FfiStreamCloser>, GenericError> {
-    //     let inner_client = Arc::clone(&self.inner_client);
-    //     let group_id = self.group_id.clone();
-    //     let created_at_ns = self.created_at_ns;
-    //     let (close_sender, close_receiver) = oneshot::channel::<()>();
-    //     let is_closed = Arc::new(AtomicBool::new(false));
-    //     let is_closed_clone = is_closed.clone();
-
-    //     tokio::spawn(async move {
-    //         let client = inner_client.as_ref();
-    //         let group = MlsGroup::new(&client, group_id, created_at_ns);
-    //         let mut stream = group.stream().await.unwrap();
-    //         let mut close_receiver = close_receiver;
-    //         loop {
-    //             tokio::select! {
-    //                 item = stream.next() => {
-    //                     match item {
-    //                         Some(message) => message_callback.on_message(message.into()),
-    //                         None => break
-    //                     }
-    //                 }
-    //                 _ = &mut close_receiver => {
-    //                     break;
-    //                 }
-    //             }
-    //         }
-    //         is_closed_clone.store(true, Ordering::Relaxed);
-    //         log::info!("closing stream");
-    //     });
-
-    //     Ok(Arc::new(FfiStreamCloser {
-    //         close_fn: Arc::new(Mutex::new(Some(close_sender))),
-    //         is_closed_atomic: is_closed,
-    //     }))
-    // }
 }
 
 #[derive(uniffi::Object)]
@@ -973,6 +898,46 @@ mod tests {
         tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
         assert_eq!(stream_callback.message_count(), 2);
 
+        stream.end();
+        tokio::time::sleep(tokio::time::Duration::from_millis(5)).await;
+        assert!(stream.is_closed());
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 5)]
+    async fn test_stream_all_messages_unchanging_group_list() {
+        let alix = new_test_client().await;
+        let bo = new_test_client().await;
+        let caro = new_test_client().await;
+
+        let alix_group = alix
+            .conversations()
+            .create_group(vec![caro.account_address()], None)
+            .await
+            .unwrap();
+
+        let caro_group = caro
+            .conversations()
+            .create_group(vec![bo.account_address()], None)
+            .await
+            .unwrap();
+
+        tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+
+        let stream_callback = RustStreamCallback::new();
+        let stream = caro
+            .conversations()
+            .stream_all_messages(Box::new(stream_callback.clone()))
+            .await
+            .unwrap();
+
+        alix_group.send("first".as_bytes().to_vec()).await.unwrap();
+        caro_group.send("second".as_bytes().to_vec()).await.unwrap();
+        alix_group.send("third".as_bytes().to_vec()).await.unwrap();
+        caro_group.send("fourth".as_bytes().to_vec()).await.unwrap();
+
+        tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+
+        assert_eq!(stream_callback.message_count(), 4);
         stream.end();
         tokio::time::sleep(tokio::time::Duration::from_millis(5)).await;
         assert!(stream.is_closed());

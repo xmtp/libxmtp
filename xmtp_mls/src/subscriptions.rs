@@ -111,7 +111,7 @@ where
 {
     pub fn stream_conversations_with_callback(
         client: Arc<Client<ApiClient>>,
-        callback: impl Fn(MlsGroup<ApiClient>) -> () + Send + 'static,
+        callback: impl Fn(MlsGroup<ApiClient>) + Send + 'static,
     ) -> Result<StreamCloser, ClientError> {
         let (close_sender, close_receiver) = oneshot::channel::<()>();
         let is_closed = Arc::new(AtomicBool::new(false));
