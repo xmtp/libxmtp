@@ -915,6 +915,8 @@ mod tests {
             .await
             .unwrap();
 
+        tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+
         let caro_group = caro
             .conversations()
             .create_group(vec![bo.account_address()], None)
@@ -929,6 +931,7 @@ mod tests {
             .stream_all_messages(Box::new(stream_callback.clone()))
             .await
             .unwrap();
+        tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
 
         alix_group.send("first".as_bytes().to_vec()).await.unwrap();
         tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
