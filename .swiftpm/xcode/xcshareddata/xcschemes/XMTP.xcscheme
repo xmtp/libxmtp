@@ -14,9 +14,9 @@
             buildForAnalyzing = "YES">
             <BuildableReference
                BuildableIdentifier = "primary"
-               BlueprintIdentifier = "XMTP"
-               BuildableName = "XMTP"
-               BlueprintName = "XMTP"
+               BlueprintIdentifier = "XMTPiOS"
+               BuildableName = "XMTPiOS"
+               BlueprintName = "XMTPiOS"
                ReferencedContainer = "container:">
             </BuildableReference>
          </BuildActionEntry>
@@ -98,9 +98,9 @@
       <MacroExpansion>
          <BuildableReference
             BuildableIdentifier = "primary"
-            BlueprintIdentifier = "XMTP"
-            BuildableName = "XMTP"
-            BlueprintName = "XMTP"
+            BlueprintIdentifier = "XMTPiOS"
+            BuildableName = "XMTPiOS"
+            BlueprintName = "XMTPiOS"
             ReferencedContainer = "container:">
          </BuildableReference>
       </MacroExpansion>
