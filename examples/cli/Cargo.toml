@@ -14,9 +14,9 @@ path = "cli-client.rs"
 
 [dependencies]
 clap = { version = "4.4.6", features = ["derive"] }
-env_logger = "0.10.0"
 ethers = "2.0.4"
 ethers-core = "2.0.4"
+femme = "2.2.1"
 futures = "0.3.28"
 hex = "0.4.3"
 kv-log-macro = "1.0.7"

@@ -61,7 +61,7 @@ jobs:
       - name: Upload binary
         uses: actions/upload-artifact@v3
         with:
-          name: cli-${{ matrix.build }}
+          name: ${{ matrix.target }}
           path: examples/cli/target/${{ matrix.target }}/release/xmtp_cli*
           retention-days: 1
 
@@ -92,7 +92,7 @@ jobs:
           body: "Release of cli for commit ${{ github.sha}}"
           draft: false
           prerelease: true
-      - run: ls -la ./examples/cli/target
+      - run: ls -la ./examples/cli/target && ls -la ./examples/cli/target/x86_64-unknown-linux-gnu
 
       #   - name: Upload Release Asset
       #     uses: actions/upload-release-asset@v1

@@ -3,6 +3,7 @@ XLI is a Commandline client using XMTPv3.
 */
 
 mod json_logger;
+mod serializable;
 
 extern crate ethers;
 extern crate log;
@@ -14,7 +15,11 @@ use clap::{Parser, Subcommand, ValueEnum};
 use kv_log_macro::{error, info};
 use prost::Message;
 
-use serde::Serialize;
+use crate::{
+    json_logger::make_value,
+    serializable::{SerializableGroup, SerializableMessage},
+};
+use serializable::maybe_get_text;
 use thiserror::Error;
 use xmtp_api_grpc::grpc_api_helper::Client as ApiClient;
 use xmtp_cryptography::{
@@ -33,9 +38,6 @@ use xmtp_mls::{
     utils::time::now_ns,
     InboxOwner, Network,
 };
-use xmtp_proto::xmtp::mls::message_contents::EncodedContent;
-
-use crate::json_logger::make_value;
 type Client = xmtp_mls::client::Client<ApiClient>;
 type ClientBuilder = xmtp_mls::builder::ClientBuilder<ApiClient>;
 
@@ -152,7 +154,7 @@ async fn main() {
     if cli.json {
         crate::json_logger::start(log::LevelFilter::Info);
     } else {
-        env_logger::init();
+        femme::with_level(femme::LevelFilter::Info);
     }
     info!("Starting CLI Client....");
 
@@ -192,25 +194,21 @@ async fn main() {
             let group_list = client
                 .find_groups(None, None, None, None)
                 .expect("failed to list groups");
-
             for group in group_list.iter() {
                 group.sync().await.expect("error syncing group");
-                let group_id = hex::encode(group.group_id.clone());
-                let members = group
-                    .members()
-                    .unwrap()
-                    .into_iter()
-                    .map(|m| m.account_address)
-                    .collect::<Vec<String>>();
-                info!(
-                    "group members",
-                    {
-                        command_output: true,
-                        members: make_value(&members),
-                        group_id: group_id,
-                    }
-                );
             }
+            let serializable_group_list = group_list
+                .iter()
+                .map(|g| g.into())
+                .collect::<Vec<SerializableGroup>>();
+
+            info!(
+                "group members",
+                {
+                    command_output: true,
+                    groups: make_value(&serializable_group_list),
+                }
+            );
         }
         Commands::Send { group_id, msg } => {
             info!("Sending message to group", { group_id: group_id, message: msg });
@@ -388,37 +386,6 @@ async fn send(group: MlsGroup<'_, ApiClient>, msg: String) -> Result<(), CliErro
         .unwrap();
     group.send_message(buf.as_slice()).await.unwrap();
     Ok(())
-}
-
-#[derive(Serialize, Debug, Clone)]
-struct SerializableMessage {
-    sender_account_address: String,
-    sent_at_ns: u64,
-    message_text: Option<String>,
-    // content_type: String
-}
-
-impl SerializableMessage {
-    fn from_stored_message(msg: &StoredGroupMessage) -> Self {
-        let maybe_text = maybe_get_text(msg);
-        Self {
-            sender_account_address: msg.sender_account_address.clone(),
-            sent_at_ns: msg.sent_at_ns as u64,
-            message_text: maybe_text,
-        }
-    }
-}
-
-fn maybe_get_text(msg: &StoredGroupMessage) -> Option<String> {
-    let contents = msg.decrypted_message_bytes.clone();
-    let Ok(encoded_content) = EncodedContent::decode(contents.as_slice()) else {
-        return None;
-    };
-    let Ok(decoded) = TextCodec::decode(encoded_content) else {
-        log::warn!("Skipping over unrecognized codec");
-        return None;
-    };
-    Some(decoded)
 }
 
 fn format_messages(

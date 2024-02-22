@@ -376,6 +376,12 @@ impl Default for PreconfiguredPolicies {
     }
 }
 
+impl std::fmt::Display for PreconfiguredPolicies {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        write!(f, "{:?}", self)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use crate::utils::test::{rand_account_address, rand_vec};
