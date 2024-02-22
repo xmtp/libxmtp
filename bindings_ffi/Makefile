@@ -58,7 +58,7 @@ lipo:
 
 # xcframework combines libs for different platforms (iOS, iOS-simulator, macOS, ...) into one framework that can be used in Xcode
 framework: lipo
-	rm -rf LibXMTPRust.xcframework
+	rm -rf LibXMTPSwiftFFI.xcframework
 	xcodebuild -create-xcframework \
 		-library build/aarch64-apple-ios/$(LIB) \
 		-headers build/swift/include/ \
@@ -66,7 +66,7 @@ framework: lipo
 		-headers build/swift/include/ \
 		-library build/lipo_macos/$(LIB) \
 		-headers build/swift/include/ \
-		-output LibXMTPRust.xcframework
+		-output LibXMTPSwiftFFI.xcframework
 
 # build uniffi bindings for swift
 swift: libxmtp-version
