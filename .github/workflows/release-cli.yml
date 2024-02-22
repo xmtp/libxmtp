@@ -61,7 +61,7 @@ jobs:
       - name: Upload binary
         uses: actions/upload-artifact@v3
         with:
-          name: ${{ matrix.target }}
+          name: ${{ matrix.build }}
           path: examples/cli/target/${{ matrix.target }}/release/xmtp_cli*
           retention-days: 1
 
@@ -75,7 +75,7 @@ jobs:
       - name: Download artifacts
         uses: actions/download-artifact@v3
         with:
-          path: examples/cli/target
+          path: /artifacts
 
       - name: Get short SHA
         id: slug
@@ -110,8 +110,8 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           upload_url: ${{ steps.create_release.outputs.upload_url }}
-          asset_path: ./examples/cli/target/aarch64-apple-darwin/release/xmtp_cli
-          asset_name: cli-aarch64-apple-darwin
+          asset_path: /artifacts/macos-aarch64/xmtp_cli
+          asset_name: cli-macos-aarch64
           asset_content_type: application/octet-stream
 
       - name: Upload Release Asset
@@ -120,6 +120,6 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           upload_url: ${{ steps.create_release.outputs.upload_url }}
-          asset_path: ./examples/cli/target/x86_64-unknown-linux-gnu/release/xmtp_cli
-          asset_name: cli-x86_64-unknown-linux-gnu
+          asset_path: /artifacts/linux-x86_64/xmtp_cli
+          asset_name: cli-linux-x86_64
           asset_content_type: application/octet-stream
