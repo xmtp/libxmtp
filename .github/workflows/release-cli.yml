@@ -44,17 +44,11 @@ jobs:
           override: true
           target: ${{ matrix.target }}
 
-      # Install latest cross to mitigate unwind linking issue on android builds.
-      # See https://github.com/cross-rs/cross/issues/1222
-      - name: Install rust cross
-        run: |
-          cargo install cross --git https://github.com/cross-rs/cross
-
       - name: Build target
         uses: actions-rs/cargo@v1
         if:
         with:
-          use-cross: ${{ matrix.build != 'macos-aarch64' }}
+          use-cross: false
           command: build
           args: --release --target ${{ matrix.target }} --manifest-path examples/cli/Cargo.toml --target-dir examples/cli/target
 
