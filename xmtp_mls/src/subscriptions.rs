@@ -40,18 +40,11 @@ impl StreamCloser {
         self.is_closed_atomic.load(Ordering::Relaxed)
     }
 }
-pub(crate) struct MessagesStreamInfo {
-    group: StoredGroup,
-    cursor: u64,
-}
 
-impl Clone for MessagesStreamInfo {
-    fn clone(&self) -> Self {
-        Self {
-            group: self.group.clone(),
-            cursor: self.cursor,
-        }
-    }
+#[derive(Clone)]
+pub(crate) struct MessagesStreamInfo {
+    convo_created_at_ns: i64,
+    cursor: u64,
 }
 
 impl<'a, ApiClient> Client<ApiClient>
@@ -111,7 +104,7 @@ where
 {
     pub fn stream_conversations_with_callback(
         client: Arc<Client<ApiClient>>,
-        callback: impl Fn(MlsGroup<ApiClient>) + Send + 'static,
+        mut callback: impl FnMut(MlsGroup<ApiClient>) + Send + 'static,
     ) -> Result<StreamCloser, ClientError> {
         let (close_sender, close_receiver) = oneshot::channel::<()>();
         let is_closed = Arc::new(AtomicBool::new(false));
@@ -152,26 +145,23 @@ where
             .map(|(group_id, info)| GroupFilter::new(group_id.clone(), Some(info.cursor)))
             .collect();
         let messages_subscription = client.api_client.subscribe_group_messages(filters).await?;
-        let group_id_to_info_clone = group_id_to_info.clone();
-        let client_clone = client.clone();
         let stream = messages_subscription
             .map(move |res| {
-                let group_id_to_info_clone = group_id_to_info_clone.clone();
-                let client_clone = client_clone.clone();
+                let group_id_to_info_clone = group_id_to_info.clone();
+                let client_clone = client.clone();
                 async move {
                     match res {
                         Ok(envelope) => {
                             let group_id = extract_group_id(&envelope)?;
-                            let stored_group = &group_id_to_info_clone
-                                .get(&group_id)
-                                .ok_or(ClientError::StreamInconsistency(
+                            let stream_info = group_id_to_info_clone.get(&group_id).ok_or(
+                                ClientError::StreamInconsistency(
                                     "Received message for a non-subscribed group".to_string(),
-                                ))?
-                                .group;
+                                ),
+                            )?;
                             MlsGroup::new(
                                 client_clone.as_ref(),
                                 group_id,
-                                stored_group.created_at_ns,
+                                stream_info.convo_created_at_ns,
                             )
                             .process_stream_entry(envelope)
                             .await
@@ -197,7 +187,7 @@ where
     pub(crate) fn stream_messages_for_groups_with_callback(
         client: Arc<Client<ApiClient>>,
         group_id_to_info: HashMap<Vec<u8>, MessagesStreamInfo>,
-        callback: impl Fn(StoredGroupMessage) + Send + 'static,
+        mut callback: impl FnMut(StoredGroupMessage) + Send + 'static,
     ) -> Result<StreamCloser, ClientError> {
         let (close_sender, close_receiver) = oneshot::channel::<()>();
         let is_closed = Arc::new(AtomicBool::new(false));
@@ -233,21 +223,60 @@ where
 
     pub async fn stream_all_messages_with_callback(
         client: Arc<Client<ApiClient>>,
-        callback: impl Fn(StoredGroupMessage) + Send + 'static,
+        callback: impl FnMut(StoredGroupMessage) + Send + Sync + 'static,
     ) -> Result<StreamCloser, ClientError> {
         client.sync_welcomes().await?; // TODO pipe cursor from welcomes sync into groups_stream
-        let group_id_to_info: HashMap<Vec<u8>, MessagesStreamInfo> = client
+        let mut group_id_to_info: HashMap<Vec<u8>, MessagesStreamInfo> = client
             .store
             .conn()?
             .find_groups(None, None, None, None)?
             .into_iter()
-            .map(|group| (group.id.clone(), MessagesStreamInfo { group, cursor: 0 }))
+            .map(|group| {
+                (
+                    group.id.clone(),
+                    MessagesStreamInfo {
+                        convo_created_at_ns: group.created_at_ns,
+                        cursor: 0,
+                    },
+                )
+            })
             .collect();
 
-        Self::stream_messages_for_groups_with_callback(client, group_id_to_info, move |message| {
-            callback(message)
-        })
+        let callback = Arc::new(Mutex::new(callback));
 
+        let callback_clone = callback.clone();
+        let messages_stream = Self::stream_messages_for_groups_with_callback(
+            client.clone(),
+            group_id_to_info.clone(),
+            move |message| callback_clone.lock().unwrap()(message), // TODO fix unwrap
+        )?;
+
+        let groups_stream =
+            Self::stream_conversations_with_callback(client.clone(), move |convo| {
+                // TODO make sure key comparison works correctly
+                if group_id_to_info.contains_key(&convo.group_id) {
+                    return;
+                }
+                // Close existing message stream
+                messages_stream.end();
+
+                group_id_to_info.insert(
+                    convo.group_id,
+                    MessagesStreamInfo {
+                        convo_created_at_ns: convo.created_at_ns,
+                        cursor: 0,
+                    },
+                );
+
+                // Open new message stream
+                let callback_clone = callback.clone();
+                let messages_stream = Self::stream_messages_for_groups_with_callback(
+                    client.clone(),
+                    group_id_to_info.clone(),
+                    move |message| callback_clone.lock().unwrap()(message), // TODO fix unwrap
+                )
+                .unwrap(); // TODO fix unwrap
+            })?;
         // 0. Allow streaming messages with callback. Make stream_all_messages use callback.
         // 1. Set up groups stream to re-init message stream without cursor
         //      - Can we add a GroupFilter field to stream_all_messages, and just call it again when needed?
@@ -262,8 +291,7 @@ where
         // group_id_to_info needs to be shared between the messages stream and the groups stream
         // The groups stream needs to be able to shut down the messages stream
 
-        // let groups_stream = Self::stream_conversations_with_callback(client.clone(), |convo| {});
-        // TODO update messages_stream based on groups_stream
+        Ok(groups_stream)
     }
 }
 
