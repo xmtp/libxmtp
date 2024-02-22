@@ -125,7 +125,7 @@ where
                     item = stream.next() => {
                         match item {
                             Some(convo) => { callback(convo) },
-                            None => break
+                            None => continue
                         }
                     }
                     _ = &mut close_receiver => {
