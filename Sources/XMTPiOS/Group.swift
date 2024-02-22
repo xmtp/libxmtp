@@ -82,6 +82,14 @@ public struct Group: Identifiable, Equatable, Hashable {
 			return []
 		}
 	}
+	
+	public var peerAddresses: [String] {
+		var addresses = memberAddresses.map(\.localizedLowercase)
+		if let index = addresses.firstIndex(of: client.address.localizedLowercase) {
+			addresses.remove(at: index)
+		}
+		return addresses
+	}
 
 	public var createdAt: Date {
 		Date(millisecondsSinceEpoch: ffiGroup.createdAtNs())

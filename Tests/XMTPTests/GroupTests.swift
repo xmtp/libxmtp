@@ -190,8 +190,11 @@ class GroupTests: XCTestCase {
 
 		try await group.sync()
 		let members = group.memberAddresses.map(\.localizedLowercase).sorted()
+		let peerMembers = Conversation.group(group).peerAddresses.map(\.localizedLowercase).sorted()
+
 
 		XCTAssertEqual([fixtures.bob.address.localizedLowercase, fixtures.alice.address.localizedLowercase].sorted(), members)
+		XCTAssertEqual([fixtures.bob.address.localizedLowercase].sorted(), peerMembers)
 	}
 
 	func testCanAddGroupMembers() async throws {
