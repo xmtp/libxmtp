@@ -85,17 +85,17 @@ enum Commands {
         #[arg(value_name = "Group ID")]
         group_id: String,
     },
-    AddGroupMember {
+    AddGroupMembers {
         #[arg(value_name = "Group ID")]
         group_id: String,
-        #[arg(value_name = "Wallet Address")]
-        account_address: String,
+        #[clap(short, long, value_parser, num_args = 1.., value_delimiter = ' ')]
+        account_addresses: Vec<String>,
     },
-    RemoveGroupMember {
+    RemoveGroupMembers {
         #[arg(value_name = "Group ID")]
         group_id: String,
-        #[arg(value_name = "Wallet Address")]
-        account_address: String,
+        #[clap(short, long, value_parser, num_args = 1.., value_delimiter = ' ')]
+        account_addresses: Vec<String>,
     },
     /// Information about the account that owns the DB
     Info {},
@@ -251,9 +251,9 @@ async fn main() {
                 )
             }
         }
-        Commands::AddGroupMember {
+        Commands::AddGroupMembers {
             group_id,
-            account_address,
+            account_addresses,
         } => {
             let client = create_client(&cli, IdentityStrategy::CachedOnly)
                 .await
@@ -264,18 +264,18 @@ async fn main() {
                 .expect("failed to get group");
 
             group
-                .add_members(vec![account_address.clone()])
+                .add_members(account_addresses.clone())
                 .await
                 .expect("failed to add member");
 
             info!(
                 "Successfully added {} to group {}",
-                account_address, group_id, { command_output: true, group_id: group_id}
+                account_addresses.join(", "), group_id, { command_output: true, group_id: group_id}
             );
         }
-        Commands::RemoveGroupMember {
+        Commands::RemoveGroupMembers {
             group_id,
-            account_address,
+            account_addresses,
         } => {
             let client = create_client(&cli, IdentityStrategy::CachedOnly)
                 .await
@@ -286,13 +286,13 @@ async fn main() {
                 .expect("failed to get group");
 
             group
-                .remove_members(vec![account_address.clone()])
+                .remove_members(account_addresses.clone())
                 .await
                 .expect("failed to add member");
 
             info!(
                 "Successfully removed {} from group {}",
-                account_address, group_id, { command_output: true }
+                account_addresses.join(", "), group_id, { command_output: true }
             );
         }
         Commands::CreateGroup { permissions } => {

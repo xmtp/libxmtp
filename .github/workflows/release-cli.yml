@@ -26,6 +26,11 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v1
+      - name: Choco help
+        if: ${{ matrix.build == 'windows-x86_64-gnu' }}
+        uses: crazy-max/ghaction-chocolatey@v3
+        with:
+          args: install openssl
 
       - name: "Cache"
         uses: actions/cache@v3
