@@ -35,7 +35,8 @@ jobs:
             ~/.cargo/git
             ./examples/cli/target/${{ matrix.target }}
           key: ${{ matrix.target }}-${{ hashFiles('**/Cargo.toml','**/Cargo.lock') }}
-
+      - run: sudo apt install musl-tools
+        if: ${{ matrix.target == 'x86_64-unknown-linux-musl' }}
       - name: Install rust
         uses: actions-rs/toolchain@v1
         with:
