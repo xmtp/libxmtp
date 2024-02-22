@@ -10,7 +10,7 @@ jobs:
       matrix:
         build:
           - linux-x86_64
-          - windows-x86_64-gnu
+          #   - windows-x86_64-gnu
           - macos-aarch64
         include:
           - build: linux-x86_64
@@ -19,9 +19,9 @@ jobs:
           - build: macos-aarch64
             os: macos-latest
             target: aarch64-apple-darwin
-        #   - build: windows-x86_64-gnu
-        #     os: windows-latest
-        #     target: x86_64-pc-windows-gnu
+          - build: windows-x86_64-gnu
+            os: windows-latest
+            target: x86_64-pc-windows-gnu
     runs-on: ${{ matrix.os }}
     steps:
       - name: Checkout
