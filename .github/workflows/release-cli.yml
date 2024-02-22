@@ -93,15 +93,15 @@ jobs:
           draft: false
           prerelease: true
 
-      - name: Upload Release Asset
-        uses: actions/upload-release-asset@v1
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          upload_url: ${{ steps.create_release.outputs.upload_url }}
-          asset_path: ./examples/cli/target/x86_64-pc-windows-gnu.exe
-          asset_name: cli-x86_64-pc-windows-gnu.exe
-          asset_content_type: application/octet-stream
+      #   - name: Upload Release Asset
+      #     uses: actions/upload-release-asset@v1
+      #     env:
+      #       GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      #     with:
+      #       upload_url: ${{ steps.create_release.outputs.upload_url }}
+      #       asset_path: ./examples/cli/target/x86_64-pc-windows-gnu.exe
+      #       asset_name: cli-x86_64-pc-windows-gnu.exe
+      #       asset_content_type: application/octet-stream
 
       - name: Upload Release Asset
         uses: actions/upload-release-asset@v1
@@ -112,6 +112,7 @@ jobs:
           asset_path: ./examples/cli/target/aarch64-apple-darwin
           asset_name: cli-aarch64-apple-darwin
           asset_content_type: application/octet-stream
+
       - name: Upload Release Asset
         uses: actions/upload-release-asset@v1
         env:
