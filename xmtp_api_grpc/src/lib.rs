@@ -28,7 +28,7 @@ mod tests {
             message: vec![65],
         }
     }
-
+    
     #[tokio::test]
     async fn grpc_query_test() {
         let mut client = Client::create(LOCALHOST_ADDRESS.to_string(), false)
@@ -53,9 +53,15 @@ mod tests {
         let client = Client::create(LOCALHOST_ADDRESS.to_string(), false)
             .await
             .unwrap();
-        let req = BatchQueryRequest { requests: vec![] };
+        let query_req = QueryRequest {
+            content_topics: vec!["test-query".to_string()],
+            ..QueryRequest::default()
+        };
+        let req = BatchQueryRequest {
+            requests: vec![query_req],
+        };
         let result = client.batch_query(req).await.unwrap();
-        assert_eq!(result.responses.len(), 0);
+        assert_eq!(result.responses.len(), 1);
     }
 
     #[tokio::test]
