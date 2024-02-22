@@ -186,11 +186,11 @@ public struct Group: Identifiable, Equatable, Hashable {
 		var options = FfiListMessagesOptions(sentBeforeNs: nil, sentAfterNs: nil, limit: nil)
 
 		if let before {
-			options.sentBeforeNs = Int64(before.millisecondsSinceEpoch)
+			options.sentBeforeNs = Int64(before.millisecondsSinceEpoch * 1_000_000)
 		}
 
 		if let after {
-			options.sentAfterNs = Int64(after.millisecondsSinceEpoch)
+			options.sentAfterNs = Int64(after.millisecondsSinceEpoch * 1_000_000)
 		}
 
 		if let limit {
@@ -213,11 +213,11 @@ public struct Group: Identifiable, Equatable, Hashable {
 		var options = FfiListMessagesOptions(sentBeforeNs: nil, sentAfterNs: nil, limit: nil)
 
 		if let before {
-			options.sentBeforeNs = Int64(before.millisecondsSinceEpoch)
+			options.sentBeforeNs = Int64(before.millisecondsSinceEpoch * 1_000_000)
 		}
 
 		if let after {
-			options.sentAfterNs = Int64(after.millisecondsSinceEpoch)
+			options.sentAfterNs = Int64(after.millisecondsSinceEpoch * 1_000_000)
 		}
 
 		if let limit {
