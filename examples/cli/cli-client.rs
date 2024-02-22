@@ -222,7 +222,7 @@ async fn main() {
                 .await
                 .expect("failed to get group");
             send(group, msg.clone()).await.unwrap();
-            info!("sent message", { command_output: true, group_id: group_id, message: msg, success: true });
+            info!("sent message", { command_output: true, group_id: group_id, message: msg });
         }
         Commands::ListGroupMessages { group_id } => {
             info!("Recv");
@@ -292,7 +292,7 @@ async fn main() {
 
             info!(
                 "Successfully removed {} from group {}",
-                account_address, group_id, { command_output: true, success: true }
+                account_address, group_id, { command_output: true }
             );
         }
         Commands::CreateGroup { permissions } => {
@@ -312,7 +312,7 @@ async fn main() {
                 .create_group(Some(group_permissions))
                 .expect("failed to create group");
             let group_id = hex::encode(group.group_id);
-            info!("Created group {}", group_id, { command_output: true, success: true, group_id: group_id})
+            info!("Created group {}", group_id, { command_output: true, group_id: group_id})
         }
 
         Commands::Clear {} => {
