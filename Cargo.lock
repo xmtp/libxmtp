@@ -1338,15 +1338,6 @@ dependencies = [
 
 [[package]]
 name = "env_logger"
-version = "0.7.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "44533bbbb3bb3c1fa17d9f2e4e38bbbaf8396ba82193c4cb1b6445d711445d36"
-dependencies = [
- "log",
-]
-
-[[package]]
-name = "env_logger"
 version = "0.10.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "95b3f3e67048839cb0d0781f445682a35113da7121f7c949db0e2be96a4fbece"
@@ -1860,22 +1851,6 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn 1.0.109",
-]
-
-[[package]]
-name = "femme"
-version = "2.2.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "cc04871e5ae3aa2952d552dae6b291b3099723bf779a8054281c1366a54613ef"
-dependencies = [
- "cfg-if 1.0.0",
- "js-sys",
- "log",
- "serde",
- "serde_derive",
- "serde_json",
- "wasm-bindgen",
- "web-sys",
 ]
 
 [[package]]
@@ -2812,18 +2787,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "json_env_logger"
-version = "0.1.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4e2ec540ea0448b187d3a8b4a9f13e75527d06ef76b3a2baa1cd982aecb62ce2"
-dependencies = [
- "env_logger 0.7.1",
- "kv-log-macro",
- "log",
- "serde_json",
-]
-
-[[package]]
 name = "jsonrpc-core"
 version = "18.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3450,7 +3413,7 @@ name = "mls_validation_service"
 version = "0.1.0"
 dependencies = [
  "clap",
- "env_logger 0.10.1",
+ "env_logger",
  "ethers",
  "hex",
  "hyper 1.1.0",
@@ -6631,8 +6594,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c1e124130aee3fb58c5bdd6b639a0509486b0338acaaae0c84a5124b0f588b7f"
 dependencies = [
  "cfg-if 1.0.0",
- "serde",
- "serde_json",
  "wasm-bindgen-macro",
 ]
 
@@ -7041,13 +7002,11 @@ name = "xli"
 version = "0.1.0"
 dependencies = [
  "clap",
- "env_logger 0.10.1",
+ "env_logger",
  "ethers",
  "ethers-core 2.0.13",
- "femme",
  "futures",
  "hex",
- "json_env_logger",
  "kv-log-macro",
  "log",
  "prost",
@@ -7056,7 +7015,6 @@ dependencies = [
  "thiserror",
  "timeago",
  "tokio",
- "tracing-log",
  "url",
  "walletconnect",
  "xmtp_api_grpc",

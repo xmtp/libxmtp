@@ -12,7 +12,6 @@ use std::{fs, path::PathBuf, time::Duration};
 
 use clap::{Parser, Subcommand, ValueEnum};
 use kv_log_macro::{error, info};
-use log::kv::ToValue;
 use prost::Message;
 
 use serde::Serialize;
@@ -34,10 +33,7 @@ use xmtp_mls::{
     utils::time::now_ns,
     InboxOwner, Network,
 };
-use xmtp_proto::{
-    api_client::{XmtpApiClient, XmtpMlsClient},
-    xmtp::mls::message_contents::EncodedContent,
-};
+use xmtp_proto::xmtp::mls::message_contents::EncodedContent;
 
 use crate::json_logger::make_value;
 type Client = xmtp_mls::client::Client<ApiClient>;
