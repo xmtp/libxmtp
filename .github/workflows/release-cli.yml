@@ -92,6 +92,7 @@ jobs:
           body: "Release of cli for commit ${{ github.sha}}"
           draft: false
           prerelease: true
+      - run: ls -la ./examples/cli/target
 
       #   - name: Upload Release Asset
       #     uses: actions/upload-release-asset@v1
@@ -109,7 +110,7 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           upload_url: ${{ steps.create_release.outputs.upload_url }}
-          asset_path: ./examples/cli/target/aarch64-apple-darwin
+          asset_path: ./examples/cli/target/aarch64-apple-darwin/release/xmtp_cli
           asset_name: cli-aarch64-apple-darwin
           asset_content_type: application/octet-stream
 
@@ -119,6 +120,6 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           upload_url: ${{ steps.create_release.outputs.upload_url }}
-          asset_path: ./examples/cli/target/x86_64-unknown-linux-gnu
+          asset_path: ./examples/cli/target/x86_64-unknown-linux-gnu/release/xmtp_cli
           asset_name: cli-x86_64-unknown-linux-gnu
           asset_content_type: application/octet-stream
