@@ -345,11 +345,11 @@ async fn create_client(cli: &Cli, account: IdentityStrategy) -> Result<Client, C
     builder.build().await.map_err(CliError::ClientBuilder)
 }
 
-async fn register(cli: &Cli, seed_phrase: Option<String>) -> Result<(), CliError> {
-    let w: Wallet = if seed_phrase.is_some() {
+async fn register(cli: &Cli, maybe_seed_phrase: Option<String>) -> Result<(), CliError> {
+    let w: Wallet = if let Some(seed_phrase) = maybe_seed_phrase {
         Wallet::LocalWallet(
             MnemonicBuilder::<English>::default()
-                .phrase(seed_phrase.unwrap().as_str())
+                .phrase(seed_phrase.as_str())
                 .build()
                 .unwrap(),
         )
