@@ -6,23 +6,22 @@ on:
 jobs:
   build:
     strategy:
-        fail-fast: false
-        matrix:
-            build: 
-                - windows-x86_64-gnu,
-                - macos-aarch64
-                - linux-x86_64
-                runs-on: ubuntu-latest
-            include: 
-                - build: linux-x86_64
-                  os: warp-ubuntu-latest-x64-16x
-                  target: x86_64-unknown-linux-gnu
-                - build: macos-aarch64
-                  os: macos-latest
-                  target: aarch64-apple-darwin
-                - build: windows-x86_64-gnu
-                  os: windows-latest
-                  target: x86_64-pc-windows-gnu
+      fail-fast: false
+      matrix:
+        build:
+          - windows-x86_64-gnu,
+          - macos-aarch64
+          - linux-x86_64
+        include:
+          - build: linux-x86_64
+            os: warp-ubuntu-latest-x64-16x
+            target: x86_64-unknown-linux-gnu
+          - build: macos-aarch64
+            os: macos-latest
+            target: aarch64-apple-darwin
+          - build: windows-x86_64-gnu
+            os: windows-latest
+            target: x86_64-pc-windows-gnu
     runs-on: ${{ matrix.os }}
     steps:
       - name: Checkout
