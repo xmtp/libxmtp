@@ -409,7 +409,7 @@ impl FfiGroup {
         message_callback: Box<dyn FfiMessageCallback>,
     ) -> Result<Arc<FfiStreamCloser>, GenericError> {
         let inner_client = Arc::clone(&self.inner_client);
-        let stream_closer = RustXmtpClient::stream_messages_for_groups_with_callback(
+        let stream_closer = RustXmtpClient::stream_messages_with_callback(
             inner_client,
             HashMap::from([(
                 self.group_id.clone(),

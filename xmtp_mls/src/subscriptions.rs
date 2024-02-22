@@ -97,6 +97,49 @@ where
 
         Ok(Box::pin(stream))
     }
+
+    pub(crate) async fn stream_messages(
+        &'a self,
+        group_id_to_info: &'a HashMap<Vec<u8>, MessagesStreamInfo>,
+    ) -> Result<Pin<Box<dyn Stream<Item = StoredGroupMessage> + 'a + Send>>, ClientError> {
+        let filters: Vec<GroupFilter> = group_id_to_info
+            .iter()
+            .map(|(group_id, info)| GroupFilter::new(group_id.clone(), Some(info.cursor)))
+            .collect();
+        let messages_subscription = self.api_client.subscribe_group_messages(filters).await?;
+        let stream = messages_subscription
+            .map(|res| {
+                async {
+                    match res {
+                        Ok(envelope) => {
+                            let group_id = extract_group_id(&envelope)?;
+                            let stream_info = group_id_to_info.get(&group_id).ok_or(
+                                ClientError::StreamInconsistency(
+                                    "Received message for a non-subscribed group".to_string(),
+                                ),
+                            )?;
+                            // TODO update cursor
+                            MlsGroup::new(self, group_id, stream_info.convo_created_at_ns)
+                                .process_stream_entry(envelope)
+                                .await
+                        }
+                        Err(err) => Err(GroupError::Api(err)),
+                    }
+                }
+            })
+            .filter_map(move |res| async {
+                match res.await {
+                    Ok(Some(message)) => Some(message),
+                    Ok(None) => None,
+                    Err(err) => {
+                        log::error!("Error processing stream entry: {:?}", err);
+                        None
+                    }
+                }
+            });
+
+        Ok(Box::pin(stream))
+    }
 }
 
 impl<ApiClient> Client<ApiClient>
@@ -139,56 +182,7 @@ where
         })
     }
 
-    pub(crate) async fn stream_messages_for_groups(
-        client: Arc<Client<ApiClient>>,
-        group_id_to_info: HashMap<Vec<u8>, MessagesStreamInfo>,
-    ) -> Result<Pin<Box<dyn Stream<Item = StoredGroupMessage> + Send>>, ClientError> {
-        let filters: Vec<GroupFilter> = group_id_to_info
-            .iter()
-            .map(|(group_id, info)| GroupFilter::new(group_id.clone(), Some(info.cursor)))
-            .collect();
-        let messages_subscription = client.api_client.subscribe_group_messages(filters).await?;
-        let stream = messages_subscription
-            .map(move |res| {
-                let group_id_to_info_clone = group_id_to_info.clone();
-                let client_clone = client.clone();
-                async move {
-                    match res {
-                        Ok(envelope) => {
-                            let group_id = extract_group_id(&envelope)?;
-                            let stream_info = group_id_to_info_clone.get(&group_id).ok_or(
-                                ClientError::StreamInconsistency(
-                                    "Received message for a non-subscribed group".to_string(),
-                                ),
-                            )?;
-                            // TODO update cursor
-                            MlsGroup::new(
-                                client_clone.as_ref(),
-                                group_id,
-                                stream_info.convo_created_at_ns,
-                            )
-                            .process_stream_entry(envelope)
-                            .await
-                        }
-                        Err(err) => Err(GroupError::Api(err)),
-                    }
-                }
-            })
-            .filter_map(move |res| async {
-                match res.await {
-                    Ok(Some(message)) => Some(message),
-                    Ok(None) => None,
-                    Err(err) => {
-                        log::error!("Error processing stream entry: {:?}", err);
-                        None
-                    }
-                }
-            });
-
-        Ok(Box::pin(stream))
-    }
-
-    pub fn stream_messages_for_groups_with_callback(
+    pub fn stream_messages_with_callback(
         client: Arc<Client<ApiClient>>,
         group_id_to_info: HashMap<Vec<u8>, MessagesStreamInfo>,
         mut callback: impl FnMut(StoredGroupMessage) + Send + 'static,
@@ -198,7 +192,7 @@ where
 
         let is_closed_clone = is_closed.clone();
         tokio::spawn(async move {
-            let mut stream = Self::stream_messages_for_groups(client, group_id_to_info)
+            let mut stream = Self::stream_messages(client.as_ref(), &group_id_to_info)
                 .await
                 .unwrap();
             let mut close_receiver = close_receiver;
@@ -250,7 +244,7 @@ where
 
         let callback_clone = callback.clone();
         let messages_stream_closer_mutex =
-            Arc::new(Mutex::new(Self::stream_messages_for_groups_with_callback(
+            Arc::new(Mutex::new(Self::stream_messages_with_callback(
                 client.clone(),
                 group_id_to_info.clone(),
                 move |message| callback_clone.lock().unwrap()(message), // TODO fix unwrap
@@ -278,7 +272,7 @@ where
 
                 // Open new message stream
                 let callback_clone = callback.clone();
-                *messages_stream_closer = Self::stream_messages_for_groups_with_callback(
+                *messages_stream_closer = Self::stream_messages_with_callback(
                     client.clone(),
                     group_id_to_info.clone(),
                     move |message| callback_clone.lock().unwrap()(message), // TODO fix unwrap
