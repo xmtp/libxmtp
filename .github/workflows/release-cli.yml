@@ -33,7 +33,7 @@ jobs:
           path: |
             ~/.cargo/registry
             ~/.cargo/git
-            ./target/${{ matrix.target }}
+            ./examples/cli/target/${{ matrix.target }}
           key: ${{ matrix.target }}-${{ hashFiles('**/Cargo.toml','**/Cargo.lock') }}
 
       - name: Install rust
