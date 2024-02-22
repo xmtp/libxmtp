@@ -52,8 +52,9 @@ jobs:
 
       - name: Build target
         uses: actions-rs/cargo@v1
+        if:
         with:
-          use-cross: true
+          use-cross: ${{ matrix.build != 'macos-aarch64' }}
           command: build
           args: --release --target ${{ matrix.target }} --manifest-path examples/cli/Cargo.toml --target-dir examples/cli/target
 
@@ -61,7 +62,7 @@ jobs:
         uses: actions/upload-artifact@v3
         with:
           name: cli-${{ matrix.build }}
-          path: examples/cli/target/${{ matrix.target }}/release
+          path: examples/cli/target/${{ matrix.target }}/release/xmtp_cli*
           retention-days: 1
 
   release:
