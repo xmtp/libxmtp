@@ -12,6 +12,7 @@ extern crate xmtp_mls;
 use std::{fs, path::PathBuf, time::Duration};
 
 use clap::{Parser, Subcommand, ValueEnum};
+use ethers::signers::{coins_bip39::English, MnemonicBuilder};
 use kv_log_macro::{error, info};
 use prost::Message;
 
@@ -24,7 +25,7 @@ use thiserror::Error;
 use xmtp_api_grpc::grpc_api_helper::Client as ApiClient;
 use xmtp_cryptography::{
     signature::{RecoverableSignature, SignatureError},
-    utils::{rng, seeded_rng, LocalWallet},
+    utils::{rng, LocalWallet},
 };
 use xmtp_mls::{
     builder::{ClientBuilderError, IdentityStrategy, LegacyIdentity},
@@ -67,8 +68,8 @@ enum Permissions {
 enum Commands {
     /// Register Account on XMTP Network
     Register {
-        #[clap(long = "seed", default_value_t = 0)]
-        wallet_seed: u64,
+        #[clap(long)]
+        seed_phrase: Option<String>,
     },
     CreateGroup {
         #[clap(value_enum, default_value_t = Permissions::EveryoneIsAdmin)]
@@ -158,9 +159,9 @@ async fn main() {
     }
     info!("Starting CLI Client....");
 
-    if let Commands::Register { wallet_seed } = &cli.command {
+    if let Commands::Register { seed_phrase } = &cli.command {
         info!("Register");
-        if let Err(e) = register(&cli, wallet_seed).await {
+        if let Err(e) = register(&cli, seed_phrase.clone()).await {
             error!("Registration failed: {:?}", e)
         }
         return;
@@ -168,7 +169,7 @@ async fn main() {
 
     match &cli.command {
         #[allow(unused_variables)]
-        Commands::Register { wallet_seed } => {
+        Commands::Register { seed_phrase } => {
             unreachable!()
         }
         Commands::Info {} => {
@@ -344,11 +345,16 @@ async fn create_client(cli: &Cli, account: IdentityStrategy) -> Result<Client, C
     builder.build().await.map_err(CliError::ClientBuilder)
 }
 
-async fn register(cli: &Cli, wallet_seed: &u64) -> Result<(), CliError> {
-    let w = if wallet_seed == &0 {
-        Wallet::LocalWallet(LocalWallet::new(&mut rng()))
+async fn register(cli: &Cli, seed_phrase: Option<String>) -> Result<(), CliError> {
+    let w: Wallet = if seed_phrase.is_some() {
+        Wallet::LocalWallet(
+            MnemonicBuilder::<English>::default()
+                .phrase(seed_phrase.unwrap().as_str())
+                .build()
+                .unwrap(),
+        )
     } else {
-        Wallet::LocalWallet(LocalWallet::new(&mut seeded_rng(*wallet_seed)))
+        Wallet::LocalWallet(LocalWallet::new(&mut rng()))
     };
 
     let client = create_client(
