@@ -1,11 +1,15 @@
 [package]
-default-run = "cli-client"
+default-run = "xmtp_cli"
 edition = "2021"
-name = "xli"
+keywords = ["xmtp", "messaging", "web3", "group-chat"]
+license = "MIT"
+name = "xmtp_cli"
+readme = "README.md"
+repository = "https://github.com/xmtp/libxmtp"
 version = "0.1.0"
 
 [[bin]]
-name = "cli-client"
+name = "xmtp_cli"
 path = "cli-client.rs"
 
 [dependencies]
@@ -15,16 +19,19 @@ ethers = "2.0.4"
 ethers-core = "2.0.4"
 futures = "0.3.28"
 hex = "0.4.3"
-log = "0.4.17"
+kv-log-macro = "1.0.7"
+log = { version = "0.4.17", features = [
+    "kv_unstable",
+    "std",
+    "kv_unstable_serde",
+] }
 prost.workspace = true
+serde = { workspace = true, features = ["derive"] }
+serde_json = "1.0.114"
 thiserror = "1.0.40"
 timeago = "0.4.1"
 tokio = "1.28.1"
 url = "2.3.1"
-walletconnect = { git = "https://github.com/nlordell/walletconnect-rs.git", features = [
-    "qr",
-    "transport",
-] }
 xmtp_api_grpc = { path = "../../xmtp_api_grpc" }
 xmtp_cryptography = { path = "../../xmtp_cryptography" }
 xmtp_mls = { path = "../../xmtp_mls", features = ["grpc", "native"] }
