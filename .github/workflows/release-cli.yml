@@ -1,0 +1,113 @@
+name: Build
+on:
+  push:
+    branches:
+      - nm/cli-release
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        target:
+          [
+            x86_64-pc-windows-gnu,
+            aarch64-apple-darwin,
+            x86_64-unknown-linux-gnu,
+          ]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v1
+
+      - name: "Cache"
+        uses: actions/cache@v3
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            ./target/${{ matrix.target }}
+          key: ${{ matrix.target }}-${{ hashFiles('**/Cargo.toml','**/Cargo.lock') }}
+
+      - name: Install rust
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+          profile: minimal
+          override: true
+          target: ${{ matrix.target }}
+
+      # Install latest cross to mitigate unwind linking issue on android builds.
+      # See https://github.com/cross-rs/cross/issues/1222
+      - name: Install rust cross
+        run: |
+          cargo install cross --git https://github.com/cross-rs/cross
+
+      - name: Build target
+        uses: actions-rs/cargo@v1
+        with:
+          use-cross: true
+          command: build
+          args: --release --target ${{ matrix.target }} --manifest-path examples/cli/Cargo.toml --target-dir examples/cli/target
+
+      - name: Upload binary
+        uses: actions/upload-artifact@v3
+        with:
+          name: cli-${{ matrix.target }}
+          path: examples/cli/target/${{ matrix.target }}/release/xmtp_cli
+          retention-days: 1
+
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v1
+
+      - name: Download artifacts
+        uses: actions/download-artifact@v3
+        with:
+          path: examples/cli/target
+
+      - name: Get short SHA
+        id: slug
+        run: echo "::set-output name=sha7::$(echo ${GITHUB_SHA} | cut -c1-7)"
+
+      - name: Create Release
+        id: create_release
+        uses: actions/create-release@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tag_name: cli-${{ steps.slug.outputs.sha7 }}
+          release_name: cli-${{ steps.slug.outputs.sha7 }}
+          body: "Release of cli for commit ${{ github.sha}}"
+          draft: false
+          prerelease: true
+
+      - name: Upload Release Asset
+        uses: actions/upload-release-asset@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: ${{ steps.create_release.outputs.upload_url }}
+          asset_path: ./examples/cli/target/x86_64-pc-windows-gnu.exe
+          asset_name: cli-x86_64-pc-windows-gnu.exe
+          asset_content_type: application/octet-stream
+
+      - name: Upload Release Asset
+        uses: actions/upload-release-asset@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: ${{ steps.create_release.outputs.upload_url }}
+          asset_path: ./examples/cli/target/aarch64-apple-darwin
+          asset_name: cli-aarch64-apple-darwin
+          asset_content_type: application/octet-stream
+      - name: Upload Release Asset
+        uses: actions/upload-release-asset@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: ${{ steps.create_release.outputs.upload_url }}
+          asset_path: ./examples/cli/target/x86_64-unknown-linux-gnu
+          asset_name: cli-x86_64-unknown-linux-gnu
+          asset_content_type: application/octet-stream
