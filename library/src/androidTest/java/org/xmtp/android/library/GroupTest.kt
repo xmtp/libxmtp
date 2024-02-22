@@ -150,6 +150,14 @@ class GroupTest {
                 bo.walletAddress.lowercase()
             ).sorted()
         )
+
+        assertEquals(
+            Conversation.Group(group).peerAddresses.sorted(),
+            listOf(
+                caro.walletAddress.lowercase(),
+                alix.walletAddress.lowercase(),
+            ).sorted()
+        )
     }
 
     @Test
@@ -430,8 +438,7 @@ class GroupTest {
         )
 
         var result = boClient.contacts.isGroupAllowed(group.id)
-
-        assert(!result)
+        assert(result)
 
         boClient.contacts.allowGroup(listOf(group.id))
 
@@ -448,8 +455,7 @@ class GroupTest {
             )
         )
         var result = boClient.contacts.isGroupAllowed(group.id)
-
-        assert(!result)
+        assert(result)
 
         boClient.contacts.denyGroup(listOf(group.id))
 

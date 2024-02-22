@@ -165,6 +165,12 @@ class Group(val client: Client, private val libXMTPGroup: FfiGroup) {
         }
     }
 
+    fun peerAddresses(): List<String> {
+        val addresses = memberAddresses().map { it.lowercase() }.toMutableList()
+        addresses.remove(client.address.lowercase())
+        return addresses
+    }
+
     fun streamMessages(): Flow<DecodedMessage> = callbackFlow {
         val messageCallback = object : FfiMessageCallback {
             override fun onMessage(message: FfiMessage) {
