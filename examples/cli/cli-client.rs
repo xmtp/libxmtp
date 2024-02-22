@@ -175,7 +175,7 @@ async fn main() {
                 .await
                 .unwrap();
             let installation_id = hex::encode(client.installation_public_key());
-            info!("wallet info", { command_output: true, success: true, account_address: client.account_address(), installation_id: installation_id });
+            info!("wallet info", { command_output: true, account_address: client.account_address(), installation_id: installation_id });
         }
         Commands::ListGroups {} => {
             info!("List Groups");
@@ -206,7 +206,6 @@ async fn main() {
                     "group members",
                     {
                         command_output: true,
-                        success: true,
                         members: make_value(&members),
                         group_id: group_id,
                     }
@@ -241,7 +240,7 @@ async fn main() {
                     .iter()
                     .map(SerializableMessage::from_stored_message)
                     .collect::<Vec<_>>();
-                info!("messages", { command_output: true, success: true, messages: make_value(&json_serializable_messages), group_id: group_id });
+                info!("messages", { command_output: true, messages: make_value(&json_serializable_messages), group_id: group_id });
             } else {
                 let messages = format_messages(messages, client.account_address())
                     .expect("failed to get messages");
@@ -271,7 +270,7 @@ async fn main() {
 
             info!(
                 "Successfully added {} to group {}",
-                account_address, group_id, { command_output: true, success: true}
+                account_address, group_id, { command_output: true, group_id: group_id}
             );
         }
         Commands::RemoveGroupMember {
@@ -359,13 +358,13 @@ async fn register(cli: &Cli, wallet_seed: &u64) -> Result<(), CliError> {
         IdentityStrategy::CreateIfNotFound(w.get_address(), LegacyIdentity::None),
     )
     .await?;
-    info!("Address is: {}", client.account_address());
     let signature: Option<Vec<u8>> = client.text_to_sign().map(|t| w.sign(&t).unwrap().into());
 
     if let Err(e) = client.register_identity(signature).await {
         error!("Initialization Failed: {}", e.to_string());
         panic!("Could not init");
     };
+    info!("Registered identity", {account_address: client.account_address(), installation_id: hex::encode(client.installation_public_key()), command_output: true});
 
     Ok(())
 }
