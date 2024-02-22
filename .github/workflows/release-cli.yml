@@ -6,12 +6,12 @@ on:
 jobs:
   build:
     strategy:
-      fail-fast: false
+      fail-fast: true
       matrix:
         build:
-          - windows-x86_64-gnu,
-          - macos-aarch64
           - linux-x86_64
+          - windows-x86_64-gnu
+          - macos-aarch64
         include:
           - build: linux-x86_64
             os: warp-ubuntu-latest-x64-16x
