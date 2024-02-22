@@ -57,6 +57,7 @@ jobs:
           retention-days: 1
 
   release:
+    needs: ["build"]
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
