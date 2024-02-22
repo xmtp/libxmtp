@@ -19,6 +19,7 @@ jobs:
             archive: zip
     steps:
       - uses: actions/checkout@master
+      - run: sudo apt-get install -y pkg-config libssl-dev
       - name: Compile and release
         uses: rust-build/rust-build.action@v1.4.4
         env:
