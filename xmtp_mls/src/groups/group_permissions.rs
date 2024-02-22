@@ -345,8 +345,9 @@ pub(crate) fn policy_group_creator_is_admin() -> PolicySet {
     )
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Default)]
 pub enum PreconfiguredPolicies {
+    #[default]
     EveryoneIsAdmin,
     GroupCreatorIsAdmin,
 }
@@ -367,12 +368,6 @@ impl PreconfiguredPolicies {
         } else {
             Err(PolicyError::InvalidPolicy)
         }
-    }
-}
-
-impl Default for PreconfiguredPolicies {
-    fn default() -> Self {
-        PreconfiguredPolicies::EveryoneIsAdmin
     }
 }
 
