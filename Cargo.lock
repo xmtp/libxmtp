@@ -2836,7 +2836,7 @@ dependencies = [
  "openmls_basic_credential",
  "openmls_rust_crypto",
  "openmls_traits",
- "prost 0.11.9",
+ "prost 0.12.3",
  "rand",
  "serde",
  "tokio",

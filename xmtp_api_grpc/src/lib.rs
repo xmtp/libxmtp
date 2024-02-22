@@ -28,7 +28,7 @@ mod tests {
             message: vec![65],
         }
     }
-    
+
     #[tokio::test]
     async fn grpc_query_test() {
         let mut client = Client::create(LOCALHOST_ADDRESS.to_string(), false)
