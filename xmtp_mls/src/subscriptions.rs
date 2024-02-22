@@ -15,7 +15,7 @@ use crate::{
     api_client_wrapper::GroupFilter,
     client::{extract_welcome_message, ClientError},
     groups::{extract_group_id, GroupError, MlsGroup},
-    storage::{group::StoredGroup, group_message::StoredGroupMessage},
+    storage::group_message::StoredGroupMessage,
     Client,
 };
 
@@ -43,14 +43,14 @@ impl StreamCloser {
 }
 
 #[derive(Clone)]
-pub struct MessagesStreamInfo {
+pub(crate) struct MessagesStreamInfo {
     pub convo_created_at_ns: i64,
     pub cursor: u64,
 }
 
 impl<'a, ApiClient> Client<ApiClient>
 where
-    ApiClient: XmtpMlsClient + 'static,
+    ApiClient: XmtpMlsClient,
 {
     fn process_streamed_welcome(
         &self,
@@ -100,16 +100,17 @@ where
 
     pub(crate) async fn stream_messages(
         &'a self,
-        group_id_to_info: &'a HashMap<Vec<u8>, MessagesStreamInfo>,
-    ) -> Result<Pin<Box<dyn Stream<Item = StoredGroupMessage> + 'a + Send>>, ClientError> {
+        group_id_to_info: HashMap<Vec<u8>, MessagesStreamInfo>,
+    ) -> Result<Pin<Box<dyn Stream<Item = StoredGroupMessage> + Send + 'a>>, ClientError> {
         let filters: Vec<GroupFilter> = group_id_to_info
             .iter()
             .map(|(group_id, info)| GroupFilter::new(group_id.clone(), Some(info.cursor)))
             .collect();
         let messages_subscription = self.api_client.subscribe_group_messages(filters).await?;
         let stream = messages_subscription
-            .map(|res| {
-                async {
+            .map(move |res| {
+                let group_id_to_info = group_id_to_info.clone();
+                async move {
                     match res {
                         Ok(envelope) => {
                             let group_id = extract_group_id(&envelope)?;
@@ -144,7 +145,7 @@ where
 
 impl<ApiClient> Client<ApiClient>
 where
-    ApiClient: XmtpMlsClient + 'static,
+    ApiClient: XmtpMlsClient,
 {
     pub fn stream_conversations_with_callback(
         client: Arc<Client<ApiClient>>,
@@ -182,7 +183,7 @@ where
         })
     }
 
-    pub fn stream_messages_with_callback(
+    pub(crate) fn stream_messages_with_callback(
         client: Arc<Client<ApiClient>>,
         group_id_to_info: HashMap<Vec<u8>, MessagesStreamInfo>,
         mut callback: impl FnMut(StoredGroupMessage) + Send + 'static,
@@ -192,7 +193,7 @@ where
 
         let is_closed_clone = is_closed.clone();
         tokio::spawn(async move {
-            let mut stream = Self::stream_messages(client.as_ref(), &group_id_to_info)
+            let mut stream = Self::stream_messages(client.as_ref(), group_id_to_info)
                 .await
                 .unwrap();
             let mut close_receiver = close_receiver;

@@ -2,7 +2,6 @@ pub use crate::inbox_owner::SigningError;
 use crate::logger::init_logger;
 use crate::logger::FfiLogger;
 use crate::GenericError;
-use std::collections::HashMap;
 use std::convert::TryInto;
 use std::sync::{
     atomic::{AtomicBool, Ordering},
@@ -15,7 +14,6 @@ use xmtp_mls::builder::LegacyIdentity;
 use xmtp_mls::groups::group_metadata::ConversationType;
 use xmtp_mls::groups::group_metadata::GroupMetadata;
 use xmtp_mls::groups::PreconfiguredPolicies;
-use xmtp_mls::subscriptions::MessagesStreamInfo;
 use xmtp_mls::{
     builder::ClientBuilder,
     client::Client as MlsClient,
@@ -409,17 +407,13 @@ impl FfiGroup {
         message_callback: Box<dyn FfiMessageCallback>,
     ) -> Result<Arc<FfiStreamCloser>, GenericError> {
         let inner_client = Arc::clone(&self.inner_client);
-        let stream_closer = RustXmtpClient::stream_messages_with_callback(
+        let stream_closer = MlsGroup::stream_with_callback(
             inner_client,
-            HashMap::from([(
-                self.group_id.clone(),
-                MessagesStreamInfo {
-                    convo_created_at_ns: self.created_at_ns,
-                    cursor: 0,
-                },
-            )]),
+            self.group_id.clone(),
+            self.created_at_ns,
             move |message| message_callback.on_message(message.into()),
-        )?;
+        )
+        .await?;
 
         Ok(Arc::new(FfiStreamCloser {
             close_fn: stream_closer.close_fn,
