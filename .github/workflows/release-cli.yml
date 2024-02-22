@@ -2,7 +2,7 @@ name: Release CLI
 on:
   push:
     branches:
-      - nm/cli-release
+      - main
 jobs:
   build:
     strategy:
@@ -10,6 +10,7 @@ jobs:
       matrix:
         build:
           - linux-x86_64
+          #   Windows is erroring right now
           #   - windows-x86_64-gnu
           - macos-aarch64
         include:
@@ -35,6 +36,7 @@ jobs:
             ~/.cargo/git
             ./examples/cli/target/${{ matrix.target }}
           key: ${{ matrix.target }}-${{ hashFiles('**/Cargo.toml','**/Cargo.lock') }}
+
       - run: sudo apt install musl-tools
         if: ${{ matrix.target == 'x86_64-unknown-linux-musl' }}
       - name: Install rust
