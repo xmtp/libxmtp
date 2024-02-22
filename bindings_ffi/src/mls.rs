@@ -2,19 +2,20 @@ pub use crate::inbox_owner::SigningError;
 use crate::logger::init_logger;
 use crate::logger::FfiLogger;
 use crate::GenericError;
-use futures::StreamExt;
+use std::collections::HashMap;
 use std::convert::TryInto;
 use std::sync::{
     atomic::{AtomicBool, Ordering},
     Arc, Mutex,
 };
-use tokio::sync::{oneshot, oneshot::Sender};
+use tokio::sync::oneshot::Sender;
 use xmtp_api_grpc::grpc_api_helper::Client as TonicApiClient;
 use xmtp_mls::builder::IdentityStrategy;
 use xmtp_mls::builder::LegacyIdentity;
 use xmtp_mls::groups::group_metadata::ConversationType;
 use xmtp_mls::groups::group_metadata::GroupMetadata;
 use xmtp_mls::groups::PreconfiguredPolicies;
+use xmtp_mls::subscriptions::MessagesStreamInfo;
 use xmtp_mls::{
     builder::ClientBuilder,
     client::Client as MlsClient,
@@ -257,14 +258,17 @@ impl FfiConversations {
         callback: Box<dyn FfiConversationCallback>,
     ) -> Result<Arc<FfiStreamCloser>, GenericError> {
         let client = self.inner_client.clone();
-        let stream_closer =
-            RustXmtpClient::stream_conversations_with_callback(client.clone(), move |convo| {
+        let stream_closer = RustXmtpClient::stream_conversations_with_callback(
+            client.clone(),
+            move |convo| {
                 callback.on_conversation(Arc::new(FfiGroup {
                     inner_client: client.clone(),
                     group_id: convo.group_id,
                     created_at_ns: convo.created_at_ns,
                 }))
-            })?;
+            },
+            || {}, // on_close_callback
+        )?;
 
         Ok(Arc::new(FfiStreamCloser {
             close_fn: stream_closer.close_fn,
@@ -276,36 +280,16 @@ impl FfiConversations {
         &self,
         message_callback: Box<dyn FfiMessageCallback>,
     ) -> Result<Arc<FfiStreamCloser>, GenericError> {
-        let inner_client = Arc::clone(&self.inner_client);
-        let (close_sender, close_receiver) = oneshot::channel::<()>();
-        let is_closed = Arc::new(AtomicBool::new(false));
-        let is_closed_clone = is_closed.clone();
-
-        tokio::spawn(async move {
-            let mut stream = RustXmtpClient::stream_all_messages(inner_client)
-                .await
-                .unwrap();
-            let mut close_receiver = close_receiver;
-            loop {
-                tokio::select! {
-                    item = stream.next() => {
-                        match item {
-                            Some(message) => message_callback.on_message(message.into()),
-                            None => break
-                        }
-                    }
-                    _ = &mut close_receiver => {
-                        break;
-                    }
-                }
-            }
-            is_closed_clone.store(true, Ordering::Relaxed);
-            log::info!("closing stream");
-        });
+        let client = self.inner_client.clone();
+        let stream_closer =
+            RustXmtpClient::stream_all_messages_with_callback(client.clone(), move |message| {
+                message_callback.on_message(message.into())
+            })
+            .await?;
 
         Ok(Arc::new(FfiStreamCloser {
-            close_fn: Arc::new(Mutex::new(Some(close_sender))),
-            is_closed_atomic: is_closed,
+            close_fn: stream_closer.close_fn,
+            is_closed_atomic: stream_closer.is_closed_atomic,
         }))
     }
 }
@@ -425,37 +409,21 @@ impl FfiGroup {
         message_callback: Box<dyn FfiMessageCallback>,
     ) -> Result<Arc<FfiStreamCloser>, GenericError> {
         let inner_client = Arc::clone(&self.inner_client);
-        let group_id = self.group_id.clone();
-        let created_at_ns = self.created_at_ns;
-        let (close_sender, close_receiver) = oneshot::channel::<()>();
-        let is_closed = Arc::new(AtomicBool::new(false));
-        let is_closed_clone = is_closed.clone();
-
-        tokio::spawn(async move {
-            let client = inner_client.as_ref();
-            let group = MlsGroup::new(&client, group_id, created_at_ns);
-            let mut stream = group.stream().await.unwrap();
-            let mut close_receiver = close_receiver;
-            loop {
-                tokio::select! {
-                    item = stream.next() => {
-                        match item {
-                            Some(message) => message_callback.on_message(message.into()),
-                            None => break
-                        }
-                    }
-                    _ = &mut close_receiver => {
-                        break;
-                    }
-                }
-            }
-            is_closed_clone.store(true, Ordering::Relaxed);
-            log::info!("closing stream");
-        });
+        let stream_closer = RustXmtpClient::stream_messages_for_groups_with_callback(
+            inner_client,
+            HashMap::from([(
+                self.group_id.clone(),
+                MessagesStreamInfo {
+                    convo_created_at_ns: self.created_at_ns,
+                    cursor: 0,
+                },
+            )]),
+            move |message| message_callback.on_message(message.into()),
+        )?;
 
         Ok(Arc::new(FfiStreamCloser {
-            close_fn: Arc::new(Mutex::new(Some(close_sender))),
-            is_closed_atomic: is_closed,
+            close_fn: stream_closer.close_fn,
+            is_closed_atomic: stream_closer.is_closed_atomic,
         }))
     }
 

@@ -19,6 +19,7 @@ use crate::{
     Client,
 };
 
+// TODO simplify FfiStreamCloser + StreamCloser duplication
 pub struct StreamCloser {
     pub close_fn: Arc<Mutex<Option<Sender<()>>>>,
     pub is_closed_atomic: Arc<AtomicBool>,
@@ -42,9 +43,9 @@ impl StreamCloser {
 }
 
 #[derive(Clone)]
-pub(crate) struct MessagesStreamInfo {
-    convo_created_at_ns: i64,
-    cursor: u64,
+pub struct MessagesStreamInfo {
+    pub convo_created_at_ns: i64,
+    pub cursor: u64,
 }
 
 impl<'a, ApiClient> Client<ApiClient>
@@ -105,7 +106,7 @@ where
     pub fn stream_conversations_with_callback(
         client: Arc<Client<ApiClient>>,
         mut convo_callback: impl FnMut(MlsGroup<ApiClient>) + Send + 'static,
-        on_close_callback: Option<impl FnMut() + Send + 'static>,
+        mut on_close_callback: impl FnMut() + Send + 'static,
     ) -> Result<StreamCloser, ClientError> {
         let (close_sender, close_receiver) = oneshot::channel::<()>();
         let is_closed = Arc::new(AtomicBool::new(false));
@@ -123,9 +124,7 @@ where
                         }
                     }
                     _ = &mut close_receiver => {
-                        if let Some(mut on_close_callback) = on_close_callback {
-                            on_close_callback();
-                        }
+                        on_close_callback();
                         break;
                     }
                 }
@@ -189,7 +188,7 @@ where
         Ok(Box::pin(stream))
     }
 
-    pub(crate) fn stream_messages_for_groups_with_callback(
+    pub fn stream_messages_for_groups_with_callback(
         client: Arc<Client<ApiClient>>,
         group_id_to_info: HashMap<Vec<u8>, MessagesStreamInfo>,
         mut callback: impl FnMut(StoredGroupMessage) + Send + 'static,
@@ -286,9 +285,9 @@ where
                 )
                 .unwrap(); // TODO fix unwrap
             },
-            Some(move || {
+            move || {
                 messages_stream_closer_mutex_clone.lock().unwrap().end();
-            }),
+            },
         )?;
 
         Ok(groups_stream_closer)
