@@ -260,7 +260,7 @@ impl FfiConversations {
             client.clone(),
             move |convo| {
                 callback.on_conversation(Arc::new(FfiGroup {
-                    inner_client: client.clone(),
+                    inner_client: client,
                     group_id: convo.group_id,
                     created_at_ns: convo.created_at_ns,
                 }))
@@ -278,12 +278,11 @@ impl FfiConversations {
         &self,
         message_callback: Box<dyn FfiMessageCallback>,
     ) -> Result<Arc<FfiStreamCloser>, GenericError> {
-        let client = self.inner_client.clone();
-        let stream_closer =
-            RustXmtpClient::stream_all_messages_with_callback(client.clone(), move |message| {
-                message_callback.on_message(message.into())
-            })
-            .await?;
+        let stream_closer = RustXmtpClient::stream_all_messages_with_callback(
+            self.inner_client.clone(),
+            move |message| message_callback.on_message(message.into()),
+        )
+        .await?;
 
         Ok(Arc::new(FfiStreamCloser {
             close_fn: stream_closer.close_fn,
