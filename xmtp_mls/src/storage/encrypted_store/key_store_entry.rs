@@ -1,4 +1,5 @@
 use diesel::prelude::*;
+use std::time::{SystemTime, UNIX_EPOCH};
 
 use super::{db_connection::DbConnection, schema::openmls_key_store, StorageError};
 use crate::{impl_fetch, impl_store, Delete};
@@ -9,6 +10,7 @@ use crate::{impl_fetch, impl_store, Delete};
 pub struct StoredKeyStoreEntry {
     pub key_bytes: Vec<u8>,
     pub value_bytes: Vec<u8>,
+    pub expiration: Option<i64>,
 }
 
 impl_fetch!(StoredKeyStoreEntry, openmls_key_store, Vec<u8>);
@@ -29,18 +31,32 @@ impl DbConnection<'_> {
         &self,
         key: Vec<u8>,
         value: Vec<u8>,
+        exp: Option<u64>,
     ) -> Result<(), StorageError> {
         use super::schema::openmls_key_store::dsl::*;
         let entry = StoredKeyStoreEntry {
             key_bytes: key,
             value_bytes: value,
+            expiration: if let Some(e) = exp {
+                e.try_into().ok()
+            } else {
+                None
+            },
         };
+
+        let current_time = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_secs() as i64;
 
         self.raw_query(|conn| {
             diesel::replace_into(openmls_key_store)
                 .values(entry)
-                .execute(conn)
+                .execute(conn)?;
+            // Delete expired entries.
+            diesel::delete(openmls_key_store.filter(expiration.lt(current_time))).execute(conn)
         })?;
+
         Ok(())
     }
 }
