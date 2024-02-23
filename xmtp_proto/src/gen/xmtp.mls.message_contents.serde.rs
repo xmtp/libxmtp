@@ -36,10 +36,9 @@ impl<'de> serde::Deserialize<'de> for AssociationTextVersion {
             where
                 E: serde::de::Error,
             {
-                use std::convert::TryFrom;
                 i32::try_from(v)
                     .ok()
-                    .and_then(AssociationTextVersion::from_i32)
+                    .and_then(|x| x.try_into().ok())
                     .ok_or_else(|| {
                         serde::de::Error::invalid_value(serde::de::Unexpected::Signed(v), &self)
                     })
@@ -49,10 +48,9 @@ impl<'de> serde::Deserialize<'de> for AssociationTextVersion {
             where
                 E: serde::de::Error,
             {
-                use std::convert::TryFrom;
                 i32::try_from(v)
                     .ok()
-                    .and_then(AssociationTextVersion::from_i32)
+                    .and_then(|x| x.try_into().ok())
                     .ok_or_else(|| {
                         serde::de::Error::invalid_value(serde::de::Unexpected::Unsigned(v), &self)
                     })
@@ -109,10 +107,9 @@ impl<'de> serde::Deserialize<'de> for Compression {
             where
                 E: serde::de::Error,
             {
-                use std::convert::TryFrom;
                 i32::try_from(v)
                     .ok()
-                    .and_then(Compression::from_i32)
+                    .and_then(|x| x.try_into().ok())
                     .ok_or_else(|| {
                         serde::de::Error::invalid_value(serde::de::Unexpected::Signed(v), &self)
                     })
@@ -122,10 +119,9 @@ impl<'de> serde::Deserialize<'de> for Compression {
             where
                 E: serde::de::Error,
             {
-                use std::convert::TryFrom;
                 i32::try_from(v)
                     .ok()
-                    .and_then(Compression::from_i32)
+                    .and_then(|x| x.try_into().ok())
                     .ok_or_else(|| {
                         serde::de::Error::invalid_value(serde::de::Unexpected::Unsigned(v), &self)
                     })
@@ -244,7 +240,7 @@ impl<'de> serde::Deserialize<'de> for ContentTypeId {
                 formatter.write_str("struct xmtp.mls.message_contents.ContentTypeId")
             }
 
-            fn visit_map<V>(self, mut map: V) -> std::result::Result<ContentTypeId, V::Error>
+            fn visit_map<V>(self, mut map_: V) -> std::result::Result<ContentTypeId, V::Error>
                 where
                     V: serde::de::MapAccess<'de>,
             {
@@ -252,26 +248,26 @@ impl<'de> serde::Deserialize<'de> for ContentTypeId {
                 let mut type_id__ = None;
                 let mut version_major__ = None;
                 let mut version_minor__ = None;
-                while let Some(k) = map.next_key()? {
+                while let Some(k) = map_.next_key()? {
                     match k {
                         GeneratedField::AuthorityId => {
                             if authority_id__.is_some() {
                                 return Err(serde::de::Error::duplicate_field("authorityId"));
                             }
-                            authority_id__ = Some(map.next_value()?);
+                            authority_id__ = Some(map_.next_value()?);
                         }
                         GeneratedField::TypeId => {
                             if type_id__.is_some() {
                                 return Err(serde::de::Error::duplicate_field("typeId"));
                             }
-                            type_id__ = Some(map.next_value()?);
+                            type_id__ = Some(map_.next_value()?);
                         }
                         GeneratedField::VersionMajor => {
                             if version_major__.is_some() {
                                 return Err(serde::de::Error::duplicate_field("versionMajor"));
                             }
                             version_major__ = 
-                                Some(map.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
+                                Some(map_.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
                             ;
                         }
                         GeneratedField::VersionMinor => {
@@ -279,7 +275,7 @@ impl<'de> serde::Deserialize<'de> for ContentTypeId {
                                 return Err(serde::de::Error::duplicate_field("versionMinor"));
                             }
                             version_minor__ = 
-                                Some(map.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
+                                Some(map_.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
                             ;
                         }
                     }
@@ -334,10 +330,9 @@ impl<'de> serde::Deserialize<'de> for ConversationType {
             where
                 E: serde::de::Error,
             {
-                use std::convert::TryFrom;
                 i32::try_from(v)
                     .ok()
-                    .and_then(ConversationType::from_i32)
+                    .and_then(|x| x.try_into().ok())
                     .ok_or_else(|| {
                         serde::de::Error::invalid_value(serde::de::Unexpected::Signed(v), &self)
                     })
@@ -347,10 +342,9 @@ impl<'de> serde::Deserialize<'de> for ConversationType {
             where
                 E: serde::de::Error,
             {
-                use std::convert::TryFrom;
                 i32::try_from(v)
                     .ok()
-                    .and_then(ConversationType::from_i32)
+                    .and_then(|x| x.try_into().ok())
                     .ok_or_else(|| {
                         serde::de::Error::invalid_value(serde::de::Unexpected::Unsigned(v), &self)
                     })
@@ -389,9 +383,11 @@ impl serde::Serialize for CredentialRevocation {
         if let Some(v) = self.public_key.as_ref() {
             match v {
                 credential_revocation::PublicKey::InstallationKey(v) => {
+                    #[allow(clippy::needless_borrow)]
                     struct_ser.serialize_field("installationKey", pbjson::private::base64::encode(&v).as_str())?;
                 }
                 credential_revocation::PublicKey::UnsignedLegacyCreateIdentityKey(v) => {
+                    #[allow(clippy::needless_borrow)]
                     struct_ser.serialize_field("unsignedLegacyCreateIdentityKey", pbjson::private::base64::encode(&v).as_str())?;
                 }
             }
@@ -465,31 +461,31 @@ impl<'de> serde::Deserialize<'de> for CredentialRevocation {
                 formatter.write_str("struct xmtp.mls.message_contents.CredentialRevocation")
             }
 
-            fn visit_map<V>(self, mut map: V) -> std::result::Result<CredentialRevocation, V::Error>
+            fn visit_map<V>(self, mut map_: V) -> std::result::Result<CredentialRevocation, V::Error>
                 where
                     V: serde::de::MapAccess<'de>,
             {
                 let mut public_key__ = None;
                 let mut association__ = None;
-                while let Some(k) = map.next_key()? {
+                while let Some(k) = map_.next_key()? {
                     match k {
                         GeneratedField::InstallationKey => {
                             if public_key__.is_some() {
                                 return Err(serde::de::Error::duplicate_field("installationKey"));
                             }
-                            public_key__ = map.next_value::<::std::option::Option<::pbjson::private::BytesDeserialize<_>>>()?.map(|x| credential_revocation::PublicKey::InstallationKey(x.0));
+                            public_key__ = map_.next_value::<::std::option::Option<::pbjson::private::BytesDeserialize<_>>>()?.map(|x| credential_revocation::PublicKey::InstallationKey(x.0));
                         }
                         GeneratedField::UnsignedLegacyCreateIdentityKey => {
                             if public_key__.is_some() {
                                 return Err(serde::de::Error::duplicate_field("unsignedLegacyCreateIdentityKey"));
                             }
-                            public_key__ = map.next_value::<::std::option::Option<::pbjson::private::BytesDeserialize<_>>>()?.map(|x| credential_revocation::PublicKey::UnsignedLegacyCreateIdentityKey(x.0));
+                            public_key__ = map_.next_value::<::std::option::Option<::pbjson::private::BytesDeserialize<_>>>()?.map(|x| credential_revocation::PublicKey::UnsignedLegacyCreateIdentityKey(x.0));
                         }
                         GeneratedField::MessagingAccess => {
                             if association__.is_some() {
                                 return Err(serde::de::Error::duplicate_field("messagingAccess"));
                             }
-                            association__ = map.next_value::<::std::option::Option<_>>()?.map(credential_revocation::Association::MessagingAccess)
+                            association__ = map_.next_value::<::std::option::Option<_>>()?.map(credential_revocation::Association::MessagingAccess)
 ;
                         }
                     }
@@ -516,6 +512,7 @@ impl serde::Serialize for EdDsaSignature {
         }
         let mut struct_ser = serializer.serialize_struct("xmtp.mls.message_contents.EdDsaSignature", len)?;
         if !self.bytes.is_empty() {
+            #[allow(clippy::needless_borrow)]
             struct_ser.serialize_field("bytes", pbjson::private::base64::encode(&self.bytes).as_str())?;
         }
         struct_ser.end()
@@ -571,19 +568,19 @@ impl<'de> serde::Deserialize<'de> for EdDsaSignature {
                 formatter.write_str("struct xmtp.mls.message_contents.EdDsaSignature")
             }
 
-            fn visit_map<V>(self, mut map: V) -> std::result::Result<EdDsaSignature, V::Error>
+            fn visit_map<V>(self, mut map_: V) -> std::result::Result<EdDsaSignature, V::Error>
                 where
                     V: serde::de::MapAccess<'de>,
             {
                 let mut bytes__ = None;
-                while let Some(k) = map.next_key()? {
+                while let Some(k) = map_.next_key()? {
                     match k {
                         GeneratedField::Bytes => {
                             if bytes__.is_some() {
                                 return Err(serde::de::Error::duplicate_field("bytes"));
                             }
                             bytes__ = 
-                                Some(map.next_value::<::pbjson::private::BytesDeserialize<_>>()?.0)
+                                Some(map_.next_value::<::pbjson::private::BytesDeserialize<_>>()?.0)
                             ;
                         }
                     }
@@ -630,11 +627,12 @@ impl serde::Serialize for EncodedContent {
             struct_ser.serialize_field("fallback", v)?;
         }
         if let Some(v) = self.compression.as_ref() {
-            let v = Compression::from_i32(*v)
-                .ok_or_else(|| serde::ser::Error::custom(format!("Invalid variant {}", *v)))?;
+            let v = Compression::try_from(*v)
+                .map_err(|_| serde::ser::Error::custom(format!("Invalid variant {}", *v)))?;
             struct_ser.serialize_field("compression", &v)?;
         }
         if !self.content.is_empty() {
+            #[allow(clippy::needless_borrow)]
             struct_ser.serialize_field("content", pbjson::private::base64::encode(&self.content).as_str())?;
         }
         struct_ser.end()
@@ -702,7 +700,7 @@ impl<'de> serde::Deserialize<'de> for EncodedContent {
                 formatter.write_str("struct xmtp.mls.message_contents.EncodedContent")
             }
 
-            fn visit_map<V>(self, mut map: V) -> std::result::Result<EncodedContent, V::Error>
+            fn visit_map<V>(self, mut map_: V) -> std::result::Result<EncodedContent, V::Error>
                 where
                     V: serde::de::MapAccess<'de>,
             {
@@ -711,40 +709,40 @@ impl<'de> serde::Deserialize<'de> for EncodedContent {
                 let mut fallback__ = None;
                 let mut compression__ = None;
                 let mut content__ = None;
-                while let Some(k) = map.next_key()? {
+                while let Some(k) = map_.next_key()? {
                     match k {
                         GeneratedField::Type => {
                             if r#type__.is_some() {
                                 return Err(serde::de::Error::duplicate_field("type"));
                             }
-                            r#type__ = map.next_value()?;
+                            r#type__ = map_.next_value()?;
                         }
                         GeneratedField::Parameters => {
                             if parameters__.is_some() {
                                 return Err(serde::de::Error::duplicate_field("parameters"));
                             }
                             parameters__ = Some(
-                                map.next_value::<std::collections::HashMap<_, _>>()?
+                                map_.next_value::<std::collections::HashMap<_, _>>()?
                             );
                         }
                         GeneratedField::Fallback => {
                             if fallback__.is_some() {
                                 return Err(serde::de::Error::duplicate_field("fallback"));
                             }
-                            fallback__ = map.next_value()?;
+                            fallback__ = map_.next_value()?;
                         }
                         GeneratedField::Compression => {
                             if compression__.is_some() {
                                 return Err(serde::de::Error::duplicate_field("compression"));
                             }
-                            compression__ = map.next_value::<::std::option::Option<Compression>>()?.map(|x| x as i32);
+                            compression__ = map_.next_value::<::std::option::Option<Compression>>()?.map(|x| x as i32);
                         }
                         GeneratedField::Content => {
                             if content__.is_some() {
                                 return Err(serde::de::Error::duplicate_field("content"));
                             }
                             content__ = 
-                                Some(map.next_value::<::pbjson::private::BytesDeserialize<_>>()?.0)
+                                Some(map_.next_value::<::pbjson::private::BytesDeserialize<_>>()?.0)
                             ;
                         }
                     }
@@ -783,8 +781,8 @@ impl serde::Serialize for GrantMessagingAccessAssociation {
         }
         let mut struct_ser = serializer.serialize_struct("xmtp.mls.message_contents.GrantMessagingAccessAssociation", len)?;
         if self.association_text_version != 0 {
-            let v = AssociationTextVersion::from_i32(self.association_text_version)
-                .ok_or_else(|| serde::ser::Error::custom(format!("Invalid variant {}", self.association_text_version)))?;
+            let v = AssociationTextVersion::try_from(self.association_text_version)
+                .map_err(|_| serde::ser::Error::custom(format!("Invalid variant {}", self.association_text_version)))?;
             struct_ser.serialize_field("associationTextVersion", &v)?;
         }
         if let Some(v) = self.signature.as_ref() {
@@ -794,6 +792,7 @@ impl serde::Serialize for GrantMessagingAccessAssociation {
             struct_ser.serialize_field("accountAddress", &self.account_address)?;
         }
         if self.created_ns != 0 {
+            #[allow(clippy::needless_borrow)]
             struct_ser.serialize_field("createdNs", ToString::to_string(&self.created_ns).as_str())?;
         }
         struct_ser.end()
@@ -861,7 +860,7 @@ impl<'de> serde::Deserialize<'de> for GrantMessagingAccessAssociation {
                 formatter.write_str("struct xmtp.mls.message_contents.GrantMessagingAccessAssociation")
             }
 
-            fn visit_map<V>(self, mut map: V) -> std::result::Result<GrantMessagingAccessAssociation, V::Error>
+            fn visit_map<V>(self, mut map_: V) -> std::result::Result<GrantMessagingAccessAssociation, V::Error>
                 where
                     V: serde::de::MapAccess<'de>,
             {
@@ -869,32 +868,32 @@ impl<'de> serde::Deserialize<'de> for GrantMessagingAccessAssociation {
                 let mut signature__ = None;
                 let mut account_address__ = None;
                 let mut created_ns__ = None;
-                while let Some(k) = map.next_key()? {
+                while let Some(k) = map_.next_key()? {
                     match k {
                         GeneratedField::AssociationTextVersion => {
                             if association_text_version__.is_some() {
                                 return Err(serde::de::Error::duplicate_field("associationTextVersion"));
                             }
-                            association_text_version__ = Some(map.next_value::<AssociationTextVersion>()? as i32);
+                            association_text_version__ = Some(map_.next_value::<AssociationTextVersion>()? as i32);
                         }
                         GeneratedField::Signature => {
                             if signature__.is_some() {
                                 return Err(serde::de::Error::duplicate_field("signature"));
                             }
-                            signature__ = map.next_value()?;
+                            signature__ = map_.next_value()?;
                         }
                         GeneratedField::AccountAddress => {
                             if account_address__.is_some() {
                                 return Err(serde::de::Error::duplicate_field("accountAddress"));
                             }
-                            account_address__ = Some(map.next_value()?);
+                            account_address__ = Some(map_.next_value()?);
                         }
                         GeneratedField::CreatedNs => {
                             if created_ns__.is_some() {
                                 return Err(serde::de::Error::duplicate_field("createdNs"));
                             }
                             created_ns__ = 
-                                Some(map.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
+                                Some(map_.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
                             ;
                         }
                     }
@@ -1009,7 +1008,7 @@ impl<'de> serde::Deserialize<'de> for GroupMembershipChanges {
                 formatter.write_str("struct xmtp.mls.message_contents.GroupMembershipChanges")
             }
 
-            fn visit_map<V>(self, mut map: V) -> std::result::Result<GroupMembershipChanges, V::Error>
+            fn visit_map<V>(self, mut map_: V) -> std::result::Result<GroupMembershipChanges, V::Error>
                 where
                     V: serde::de::MapAccess<'de>,
             {
@@ -1017,31 +1016,31 @@ impl<'de> serde::Deserialize<'de> for GroupMembershipChanges {
                 let mut members_removed__ = None;
                 let mut installations_added__ = None;
                 let mut installations_removed__ = None;
-                while let Some(k) = map.next_key()? {
+                while let Some(k) = map_.next_key()? {
                     match k {
                         GeneratedField::MembersAdded => {
                             if members_added__.is_some() {
                                 return Err(serde::de::Error::duplicate_field("membersAdded"));
                             }
-                            members_added__ = Some(map.next_value()?);
+                            members_added__ = Some(map_.next_value()?);
                         }
                         GeneratedField::MembersRemoved => {
                             if members_removed__.is_some() {
                                 return Err(serde::de::Error::duplicate_field("membersRemoved"));
                             }
-                            members_removed__ = Some(map.next_value()?);
+                            members_removed__ = Some(map_.next_value()?);
                         }
                         GeneratedField::InstallationsAdded => {
                             if installations_added__.is_some() {
                                 return Err(serde::de::Error::duplicate_field("installationsAdded"));
                             }
-                            installations_added__ = Some(map.next_value()?);
+                            installations_added__ = Some(map_.next_value()?);
                         }
                         GeneratedField::InstallationsRemoved => {
                             if installations_removed__.is_some() {
                                 return Err(serde::de::Error::duplicate_field("installationsRemoved"));
                             }
-                            installations_removed__ = Some(map.next_value()?);
+                            installations_removed__ = Some(map_.next_value()?);
                         }
                     }
                 }
@@ -1075,8 +1074,8 @@ impl serde::Serialize for GroupMetadataV1 {
         }
         let mut struct_ser = serializer.serialize_struct("xmtp.mls.message_contents.GroupMetadataV1", len)?;
         if self.conversation_type != 0 {
-            let v = ConversationType::from_i32(self.conversation_type)
-                .ok_or_else(|| serde::ser::Error::custom(format!("Invalid variant {}", self.conversation_type)))?;
+            let v = ConversationType::try_from(self.conversation_type)
+                .map_err(|_| serde::ser::Error::custom(format!("Invalid variant {}", self.conversation_type)))?;
             struct_ser.serialize_field("conversationType", &v)?;
         }
         if !self.creator_account_address.is_empty() {
@@ -1146,32 +1145,32 @@ impl<'de> serde::Deserialize<'de> for GroupMetadataV1 {
                 formatter.write_str("struct xmtp.mls.message_contents.GroupMetadataV1")
             }
 
-            fn visit_map<V>(self, mut map: V) -> std::result::Result<GroupMetadataV1, V::Error>
+            fn visit_map<V>(self, mut map_: V) -> std::result::Result<GroupMetadataV1, V::Error>
                 where
                     V: serde::de::MapAccess<'de>,
             {
                 let mut conversation_type__ = None;
                 let mut creator_account_address__ = None;
                 let mut policies__ = None;
-                while let Some(k) = map.next_key()? {
+                while let Some(k) = map_.next_key()? {
                     match k {
                         GeneratedField::ConversationType => {
                             if conversation_type__.is_some() {
                                 return Err(serde::de::Error::duplicate_field("conversationType"));
                             }
-                            conversation_type__ = Some(map.next_value::<ConversationType>()? as i32);
+                            conversation_type__ = Some(map_.next_value::<ConversationType>()? as i32);
                         }
                         GeneratedField::CreatorAccountAddress => {
                             if creator_account_address__.is_some() {
                                 return Err(serde::de::Error::duplicate_field("creatorAccountAddress"));
                             }
-                            creator_account_address__ = Some(map.next_value()?);
+                            creator_account_address__ = Some(map_.next_value()?);
                         }
                         GeneratedField::Policies => {
                             if policies__.is_some() {
                                 return Err(serde::de::Error::duplicate_field("policies"));
                             }
-                            policies__ = map.next_value()?;
+                            policies__ = map_.next_value()?;
                         }
                     }
                 }
@@ -1263,25 +1262,25 @@ impl<'de> serde::Deserialize<'de> for LegacyCreateIdentityAssociation {
                 formatter.write_str("struct xmtp.mls.message_contents.LegacyCreateIdentityAssociation")
             }
 
-            fn visit_map<V>(self, mut map: V) -> std::result::Result<LegacyCreateIdentityAssociation, V::Error>
+            fn visit_map<V>(self, mut map_: V) -> std::result::Result<LegacyCreateIdentityAssociation, V::Error>
                 where
                     V: serde::de::MapAccess<'de>,
             {
                 let mut signature__ = None;
                 let mut signed_legacy_create_identity_key__ = None;
-                while let Some(k) = map.next_key()? {
+                while let Some(k) = map_.next_key()? {
                     match k {
                         GeneratedField::Signature => {
                             if signature__.is_some() {
                                 return Err(serde::de::Error::duplicate_field("signature"));
                             }
-                            signature__ = map.next_value()?;
+                            signature__ = map_.next_value()?;
                         }
                         GeneratedField::SignedLegacyCreateIdentityKey => {
                             if signed_legacy_create_identity_key__.is_some() {
                                 return Err(serde::de::Error::duplicate_field("signedLegacyCreateIdentityKey"));
                             }
-                            signed_legacy_create_identity_key__ = map.next_value()?;
+                            signed_legacy_create_identity_key__ = map_.next_value()?;
                         }
                     }
                 }
@@ -1383,21 +1382,21 @@ impl<'de> serde::Deserialize<'de> for MembershipChange {
                 formatter.write_str("struct xmtp.mls.message_contents.MembershipChange")
             }
 
-            fn visit_map<V>(self, mut map: V) -> std::result::Result<MembershipChange, V::Error>
+            fn visit_map<V>(self, mut map_: V) -> std::result::Result<MembershipChange, V::Error>
                 where
                     V: serde::de::MapAccess<'de>,
             {
                 let mut installation_ids__ = None;
                 let mut account_address__ = None;
                 let mut initiated_by_account_address__ = None;
-                while let Some(k) = map.next_key()? {
+                while let Some(k) = map_.next_key()? {
                     match k {
                         GeneratedField::InstallationIds => {
                             if installation_ids__.is_some() {
                                 return Err(serde::de::Error::duplicate_field("installationIds"));
                             }
                             installation_ids__ = 
-                                Some(map.next_value::<Vec<::pbjson::private::BytesDeserialize<_>>>()?
+                                Some(map_.next_value::<Vec<::pbjson::private::BytesDeserialize<_>>>()?
                                     .into_iter().map(|x| x.0).collect())
                             ;
                         }
@@ -1405,13 +1404,13 @@ impl<'de> serde::Deserialize<'de> for MembershipChange {
                             if account_address__.is_some() {
                                 return Err(serde::de::Error::duplicate_field("accountAddress"));
                             }
-                            account_address__ = Some(map.next_value()?);
+                            account_address__ = Some(map_.next_value()?);
                         }
                         GeneratedField::InitiatedByAccountAddress => {
                             if initiated_by_account_address__.is_some() {
                                 return Err(serde::de::Error::duplicate_field("initiatedByAccountAddress"));
                             }
-                            initiated_by_account_address__ = Some(map.next_value()?);
+                            initiated_by_account_address__ = Some(map_.next_value()?);
                         }
                     }
                 }
@@ -1440,8 +1439,8 @@ impl serde::Serialize for MembershipPolicy {
         if let Some(v) = self.kind.as_ref() {
             match v {
                 membership_policy::Kind::Base(v) => {
-                    let v = membership_policy::BasePolicy::from_i32(*v)
-                        .ok_or_else(|| serde::ser::Error::custom(format!("Invalid variant {}", *v)))?;
+                    let v = membership_policy::BasePolicy::try_from(*v)
+                        .map_err(|_| serde::ser::Error::custom(format!("Invalid variant {}", *v)))?;
                     struct_ser.serialize_field("base", &v)?;
                 }
                 membership_policy::Kind::AndCondition(v) => {
@@ -1513,31 +1512,31 @@ impl<'de> serde::Deserialize<'de> for MembershipPolicy {
                 formatter.write_str("struct xmtp.mls.message_contents.MembershipPolicy")
             }
 
-            fn visit_map<V>(self, mut map: V) -> std::result::Result<MembershipPolicy, V::Error>
+            fn visit_map<V>(self, mut map_: V) -> std::result::Result<MembershipPolicy, V::Error>
                 where
                     V: serde::de::MapAccess<'de>,
             {
                 let mut kind__ = None;
-                while let Some(k) = map.next_key()? {
+                while let Some(k) = map_.next_key()? {
                     match k {
                         GeneratedField::Base => {
                             if kind__.is_some() {
                                 return Err(serde::de::Error::duplicate_field("base"));
                             }
-                            kind__ = map.next_value::<::std::option::Option<membership_policy::BasePolicy>>()?.map(|x| membership_policy::Kind::Base(x as i32));
+                            kind__ = map_.next_value::<::std::option::Option<membership_policy::BasePolicy>>()?.map(|x| membership_policy::Kind::Base(x as i32));
                         }
                         GeneratedField::AndCondition => {
                             if kind__.is_some() {
                                 return Err(serde::de::Error::duplicate_field("andCondition"));
                             }
-                            kind__ = map.next_value::<::std::option::Option<_>>()?.map(membership_policy::Kind::AndCondition)
+                            kind__ = map_.next_value::<::std::option::Option<_>>()?.map(membership_policy::Kind::AndCondition)
 ;
                         }
                         GeneratedField::AnyCondition => {
                             if kind__.is_some() {
                                 return Err(serde::de::Error::duplicate_field("anyCondition"));
                             }
-                            kind__ = map.next_value::<::std::option::Option<_>>()?.map(membership_policy::Kind::AnyCondition)
+                            kind__ = map_.next_value::<::std::option::Option<_>>()?.map(membership_policy::Kind::AnyCondition)
 ;
                         }
                     }
@@ -1618,18 +1617,18 @@ impl<'de> serde::Deserialize<'de> for membership_policy::AndCondition {
                 formatter.write_str("struct xmtp.mls.message_contents.MembershipPolicy.AndCondition")
             }
 
-            fn visit_map<V>(self, mut map: V) -> std::result::Result<membership_policy::AndCondition, V::Error>
+            fn visit_map<V>(self, mut map_: V) -> std::result::Result<membership_policy::AndCondition, V::Error>
                 where
                     V: serde::de::MapAccess<'de>,
             {
                 let mut policies__ = None;
-                while let Some(k) = map.next_key()? {
+                while let Some(k) = map_.next_key()? {
                     match k {
                         GeneratedField::Policies => {
                             if policies__.is_some() {
                                 return Err(serde::de::Error::duplicate_field("policies"));
                             }
-                            policies__ = Some(map.next_value()?);
+                            policies__ = Some(map_.next_value()?);
                         }
                     }
                 }
@@ -1709,18 +1708,18 @@ impl<'de> serde::Deserialize<'de> for membership_policy::AnyCondition {
                 formatter.write_str("struct xmtp.mls.message_contents.MembershipPolicy.AnyCondition")
             }
 
-            fn visit_map<V>(self, mut map: V) -> std::result::Result<membership_policy::AnyCondition, V::Error>
+            fn visit_map<V>(self, mut map_: V) -> std::result::Result<membership_policy::AnyCondition, V::Error>
                 where
                     V: serde::de::MapAccess<'de>,
             {
                 let mut policies__ = None;
-                while let Some(k) = map.next_key()? {
+                while let Some(k) = map_.next_key()? {
                     match k {
                         GeneratedField::Policies => {
                             if policies__.is_some() {
                                 return Err(serde::de::Error::duplicate_field("policies"));
                             }
-                            policies__ = Some(map.next_value()?);
+                            policies__ = Some(map_.next_value()?);
                         }
                     }
                 }
@@ -1773,10 +1772,9 @@ impl<'de> serde::Deserialize<'de> for membership_policy::BasePolicy {
             where
                 E: serde::de::Error,
             {
-                use std::convert::TryFrom;
                 i32::try_from(v)
                     .ok()
-                    .and_then(membership_policy::BasePolicy::from_i32)
+                    .and_then(|x| x.try_into().ok())
                     .ok_or_else(|| {
                         serde::de::Error::invalid_value(serde::de::Unexpected::Signed(v), &self)
                     })
@@ -1786,10 +1784,9 @@ impl<'de> serde::Deserialize<'de> for membership_policy::BasePolicy {
             where
                 E: serde::de::Error,
             {
-                use std::convert::TryFrom;
                 i32::try_from(v)
                     .ok()
-                    .and_then(membership_policy::BasePolicy::from_i32)
+                    .and_then(|x| x.try_into().ok())
                     .ok_or_else(|| {
                         serde::de::Error::invalid_value(serde::de::Unexpected::Unsigned(v), &self)
                     })
@@ -1827,6 +1824,7 @@ impl serde::Serialize for MlsCredential {
         }
         let mut struct_ser = serializer.serialize_struct("xmtp.mls.message_contents.MlsCredential", len)?;
         if !self.installation_public_key.is_empty() {
+            #[allow(clippy::needless_borrow)]
             struct_ser.serialize_field("installationPublicKey", pbjson::private::base64::encode(&self.installation_public_key).as_str())?;
         }
         if let Some(v) = self.association.as_ref() {
@@ -1901,34 +1899,34 @@ impl<'de> serde::Deserialize<'de> for MlsCredential {
                 formatter.write_str("struct xmtp.mls.message_contents.MlsCredential")
             }
 
-            fn visit_map<V>(self, mut map: V) -> std::result::Result<MlsCredential, V::Error>
+            fn visit_map<V>(self, mut map_: V) -> std::result::Result<MlsCredential, V::Error>
                 where
                     V: serde::de::MapAccess<'de>,
             {
                 let mut installation_public_key__ = None;
                 let mut association__ = None;
-                while let Some(k) = map.next_key()? {
+                while let Some(k) = map_.next_key()? {
                     match k {
                         GeneratedField::InstallationPublicKey => {
                             if installation_public_key__.is_some() {
                                 return Err(serde::de::Error::duplicate_field("installationPublicKey"));
                             }
                             installation_public_key__ = 
-                                Some(map.next_value::<::pbjson::private::BytesDeserialize<_>>()?.0)
+                                Some(map_.next_value::<::pbjson::private::BytesDeserialize<_>>()?.0)
                             ;
                         }
                         GeneratedField::MessagingAccess => {
                             if association__.is_some() {
                                 return Err(serde::de::Error::duplicate_field("messagingAccess"));
                             }
-                            association__ = map.next_value::<::std::option::Option<_>>()?.map(mls_credential::Association::MessagingAccess)
+                            association__ = map_.next_value::<::std::option::Option<_>>()?.map(mls_credential::Association::MessagingAccess)
 ;
                         }
                         GeneratedField::LegacyCreateIdentity => {
                             if association__.is_some() {
                                 return Err(serde::de::Error::duplicate_field("legacyCreateIdentity"));
                             }
-                            association__ = map.next_value::<::std::option::Option<_>>()?.map(mls_credential::Association::LegacyCreateIdentity)
+                            association__ = map_.next_value::<::std::option::Option<_>>()?.map(mls_credential::Association::LegacyCreateIdentity)
 ;
                         }
                     }
@@ -1940,6 +1938,214 @@ impl<'de> serde::Deserialize<'de> for MlsCredential {
             }
         }
         deserializer.deserialize_struct("xmtp.mls.message_contents.MlsCredential", FIELDS, GeneratedVisitor)
+    }
+}
+impl serde::Serialize for PlaintextEnvelope {
+    #[allow(deprecated)]
+    fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        use serde::ser::SerializeStruct;
+        let mut len = 0;
+        if self.content.is_some() {
+            len += 1;
+        }
+        let mut struct_ser = serializer.serialize_struct("xmtp.mls.message_contents.PlaintextEnvelope", len)?;
+        if let Some(v) = self.content.as_ref() {
+            match v {
+                plaintext_envelope::Content::V1(v) => {
+                    struct_ser.serialize_field("v1", v)?;
+                }
+            }
+        }
+        struct_ser.end()
+    }
+}
+impl<'de> serde::Deserialize<'de> for PlaintextEnvelope {
+    #[allow(deprecated)]
+    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        const FIELDS: &[&str] = &[
+            "v1",
+        ];
+
+        #[allow(clippy::enum_variant_names)]
+        enum GeneratedField {
+            V1,
+        }
+        impl<'de> serde::Deserialize<'de> for GeneratedField {
+            fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
+            where
+                D: serde::Deserializer<'de>,
+            {
+                struct GeneratedVisitor;
+
+                impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+                    type Value = GeneratedField;
+
+                    fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                        write!(formatter, "expected one of: {:?}", &FIELDS)
+                    }
+
+                    #[allow(unused_variables)]
+                    fn visit_str<E>(self, value: &str) -> std::result::Result<GeneratedField, E>
+                    where
+                        E: serde::de::Error,
+                    {
+                        match value {
+                            "v1" => Ok(GeneratedField::V1),
+                            _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
+                        }
+                    }
+                }
+                deserializer.deserialize_identifier(GeneratedVisitor)
+            }
+        }
+        struct GeneratedVisitor;
+        impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+            type Value = PlaintextEnvelope;
+
+            fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                formatter.write_str("struct xmtp.mls.message_contents.PlaintextEnvelope")
+            }
+
+            fn visit_map<V>(self, mut map_: V) -> std::result::Result<PlaintextEnvelope, V::Error>
+                where
+                    V: serde::de::MapAccess<'de>,
+            {
+                let mut content__ = None;
+                while let Some(k) = map_.next_key()? {
+                    match k {
+                        GeneratedField::V1 => {
+                            if content__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("v1"));
+                            }
+                            content__ = map_.next_value::<::std::option::Option<_>>()?.map(plaintext_envelope::Content::V1)
+;
+                        }
+                    }
+                }
+                Ok(PlaintextEnvelope {
+                    content: content__,
+                })
+            }
+        }
+        deserializer.deserialize_struct("xmtp.mls.message_contents.PlaintextEnvelope", FIELDS, GeneratedVisitor)
+    }
+}
+impl serde::Serialize for plaintext_envelope::V1 {
+    #[allow(deprecated)]
+    fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        use serde::ser::SerializeStruct;
+        let mut len = 0;
+        if !self.content.is_empty() {
+            len += 1;
+        }
+        if !self.idempotency_key.is_empty() {
+            len += 1;
+        }
+        let mut struct_ser = serializer.serialize_struct("xmtp.mls.message_contents.PlaintextEnvelope.V1", len)?;
+        if !self.content.is_empty() {
+            #[allow(clippy::needless_borrow)]
+            struct_ser.serialize_field("content", pbjson::private::base64::encode(&self.content).as_str())?;
+        }
+        if !self.idempotency_key.is_empty() {
+            struct_ser.serialize_field("idempotencyKey", &self.idempotency_key)?;
+        }
+        struct_ser.end()
+    }
+}
+impl<'de> serde::Deserialize<'de> for plaintext_envelope::V1 {
+    #[allow(deprecated)]
+    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        const FIELDS: &[&str] = &[
+            "content",
+            "idempotency_key",
+            "idempotencyKey",
+        ];
+
+        #[allow(clippy::enum_variant_names)]
+        enum GeneratedField {
+            Content,
+            IdempotencyKey,
+        }
+        impl<'de> serde::Deserialize<'de> for GeneratedField {
+            fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
+            where
+                D: serde::Deserializer<'de>,
+            {
+                struct GeneratedVisitor;
+
+                impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+                    type Value = GeneratedField;
+
+                    fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                        write!(formatter, "expected one of: {:?}", &FIELDS)
+                    }
+
+                    #[allow(unused_variables)]
+                    fn visit_str<E>(self, value: &str) -> std::result::Result<GeneratedField, E>
+                    where
+                        E: serde::de::Error,
+                    {
+                        match value {
+                            "content" => Ok(GeneratedField::Content),
+                            "idempotencyKey" | "idempotency_key" => Ok(GeneratedField::IdempotencyKey),
+                            _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
+                        }
+                    }
+                }
+                deserializer.deserialize_identifier(GeneratedVisitor)
+            }
+        }
+        struct GeneratedVisitor;
+        impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+            type Value = plaintext_envelope::V1;
+
+            fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                formatter.write_str("struct xmtp.mls.message_contents.PlaintextEnvelope.V1")
+            }
+
+            fn visit_map<V>(self, mut map_: V) -> std::result::Result<plaintext_envelope::V1, V::Error>
+                where
+                    V: serde::de::MapAccess<'de>,
+            {
+                let mut content__ = None;
+                let mut idempotency_key__ = None;
+                while let Some(k) = map_.next_key()? {
+                    match k {
+                        GeneratedField::Content => {
+                            if content__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("content"));
+                            }
+                            content__ = 
+                                Some(map_.next_value::<::pbjson::private::BytesDeserialize<_>>()?.0)
+                            ;
+                        }
+                        GeneratedField::IdempotencyKey => {
+                            if idempotency_key__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("idempotencyKey"));
+                            }
+                            idempotency_key__ = Some(map_.next_value()?);
+                        }
+                    }
+                }
+                Ok(plaintext_envelope::V1 {
+                    content: content__.unwrap_or_default(),
+                    idempotency_key: idempotency_key__.unwrap_or_default(),
+                })
+            }
+        }
+        deserializer.deserialize_struct("xmtp.mls.message_contents.PlaintextEnvelope.V1", FIELDS, GeneratedVisitor)
     }
 }
 impl serde::Serialize for PolicySet {
@@ -2021,25 +2227,25 @@ impl<'de> serde::Deserialize<'de> for PolicySet {
                 formatter.write_str("struct xmtp.mls.message_contents.PolicySet")
             }
 
-            fn visit_map<V>(self, mut map: V) -> std::result::Result<PolicySet, V::Error>
+            fn visit_map<V>(self, mut map_: V) -> std::result::Result<PolicySet, V::Error>
                 where
                     V: serde::de::MapAccess<'de>,
             {
                 let mut add_member_policy__ = None;
                 let mut remove_member_policy__ = None;
-                while let Some(k) = map.next_key()? {
+                while let Some(k) = map_.next_key()? {
                     match k {
                         GeneratedField::AddMemberPolicy => {
                             if add_member_policy__.is_some() {
                                 return Err(serde::de::Error::duplicate_field("addMemberPolicy"));
                             }
-                            add_member_policy__ = map.next_value()?;
+                            add_member_policy__ = map_.next_value()?;
                         }
                         GeneratedField::RemoveMemberPolicy => {
                             if remove_member_policy__.is_some() {
                                 return Err(serde::de::Error::duplicate_field("removeMemberPolicy"));
                             }
-                            remove_member_policy__ = map.next_value()?;
+                            remove_member_policy__ = map_.next_value()?;
                         }
                     }
                 }
@@ -2065,6 +2271,7 @@ impl serde::Serialize for RecoverableEcdsaSignature {
         }
         let mut struct_ser = serializer.serialize_struct("xmtp.mls.message_contents.RecoverableEcdsaSignature", len)?;
         if !self.bytes.is_empty() {
+            #[allow(clippy::needless_borrow)]
             struct_ser.serialize_field("bytes", pbjson::private::base64::encode(&self.bytes).as_str())?;
         }
         struct_ser.end()
@@ -2120,19 +2327,19 @@ impl<'de> serde::Deserialize<'de> for RecoverableEcdsaSignature {
                 formatter.write_str("struct xmtp.mls.message_contents.RecoverableEcdsaSignature")
             }
 
-            fn visit_map<V>(self, mut map: V) -> std::result::Result<RecoverableEcdsaSignature, V::Error>
+            fn visit_map<V>(self, mut map_: V) -> std::result::Result<RecoverableEcdsaSignature, V::Error>
                 where
                     V: serde::de::MapAccess<'de>,
             {
                 let mut bytes__ = None;
-                while let Some(k) = map.next_key()? {
+                while let Some(k) = map_.next_key()? {
                     match k {
                         GeneratedField::Bytes => {
                             if bytes__.is_some() {
                                 return Err(serde::de::Error::duplicate_field("bytes"));
                             }
                             bytes__ = 
-                                Some(map.next_value::<::pbjson::private::BytesDeserialize<_>>()?.0)
+                                Some(map_.next_value::<::pbjson::private::BytesDeserialize<_>>()?.0)
                             ;
                         }
                     }
@@ -2167,8 +2374,8 @@ impl serde::Serialize for RevokeMessagingAccessAssociation {
         }
         let mut struct_ser = serializer.serialize_struct("xmtp.mls.message_contents.RevokeMessagingAccessAssociation", len)?;
         if self.association_text_version != 0 {
-            let v = AssociationTextVersion::from_i32(self.association_text_version)
-                .ok_or_else(|| serde::ser::Error::custom(format!("Invalid variant {}", self.association_text_version)))?;
+            let v = AssociationTextVersion::try_from(self.association_text_version)
+                .map_err(|_| serde::ser::Error::custom(format!("Invalid variant {}", self.association_text_version)))?;
             struct_ser.serialize_field("associationTextVersion", &v)?;
         }
         if let Some(v) = self.signature.as_ref() {
@@ -2178,6 +2385,7 @@ impl serde::Serialize for RevokeMessagingAccessAssociation {
             struct_ser.serialize_field("accountAddress", &self.account_address)?;
         }
         if self.created_ns != 0 {
+            #[allow(clippy::needless_borrow)]
             struct_ser.serialize_field("createdNs", ToString::to_string(&self.created_ns).as_str())?;
         }
         struct_ser.end()
@@ -2245,7 +2453,7 @@ impl<'de> serde::Deserialize<'de> for RevokeMessagingAccessAssociation {
                 formatter.write_str("struct xmtp.mls.message_contents.RevokeMessagingAccessAssociation")
             }
 
-            fn visit_map<V>(self, mut map: V) -> std::result::Result<RevokeMessagingAccessAssociation, V::Error>
+            fn visit_map<V>(self, mut map_: V) -> std::result::Result<RevokeMessagingAccessAssociation, V::Error>
                 where
                     V: serde::de::MapAccess<'de>,
             {
@@ -2253,32 +2461,32 @@ impl<'de> serde::Deserialize<'de> for RevokeMessagingAccessAssociation {
                 let mut signature__ = None;
                 let mut account_address__ = None;
                 let mut created_ns__ = None;
-                while let Some(k) = map.next_key()? {
+                while let Some(k) = map_.next_key()? {
                     match k {
                         GeneratedField::AssociationTextVersion => {
                             if association_text_version__.is_some() {
                                 return Err(serde::de::Error::duplicate_field("associationTextVersion"));
                             }
-                            association_text_version__ = Some(map.next_value::<AssociationTextVersion>()? as i32);
+                            association_text_version__ = Some(map_.next_value::<AssociationTextVersion>()? as i32);
                         }
                         GeneratedField::Signature => {
                             if signature__.is_some() {
                                 return Err(serde::de::Error::duplicate_field("signature"));
                             }
-                            signature__ = map.next_value()?;
+                            signature__ = map_.next_value()?;
                         }
                         GeneratedField::AccountAddress => {
                             if account_address__.is_some() {
                                 return Err(serde::de::Error::duplicate_field("accountAddress"));
                             }
-                            account_address__ = Some(map.next_value()?);
+                            account_address__ = Some(map_.next_value()?);
                         }
                         GeneratedField::CreatedNs => {
                             if created_ns__.is_some() {
                                 return Err(serde::de::Error::duplicate_field("createdNs"));
                             }
                             created_ns__ = 
-                                Some(map.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
+                                Some(map_.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
                             ;
                         }
                     }

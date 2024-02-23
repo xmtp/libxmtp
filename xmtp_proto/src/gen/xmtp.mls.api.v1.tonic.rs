@@ -420,7 +420,7 @@ pub mod mls_api_server {
             tonic::Status,
         >;
         /// Server streaming response type for the SubscribeGroupMessages method.
-        type SubscribeGroupMessagesStream: futures_core::Stream<
+        type SubscribeGroupMessagesStream: tonic::codegen::tokio_stream::Stream<
                 Item = std::result::Result<super::GroupMessage, tonic::Status>,
             >
             + Send
@@ -433,7 +433,7 @@ pub mod mls_api_server {
             tonic::Status,
         >;
         /// Server streaming response type for the SubscribeWelcomeMessages method.
-        type SubscribeWelcomeMessagesStream: futures_core::Stream<
+        type SubscribeWelcomeMessagesStream: tonic::codegen::tokio_stream::Stream<
                 Item = std::result::Result<super::WelcomeMessage, tonic::Status>,
             >
             + Send
@@ -543,7 +543,7 @@ pub mod mls_api_server {
                         ) -> Self::Future {
                             let inner = Arc::clone(&self.0);
                             let fut = async move {
-                                (*inner).send_group_messages(request).await
+                                <T as MlsApi>::send_group_messages(&inner, request).await
                             };
                             Box::pin(fut)
                         }
@@ -589,7 +589,7 @@ pub mod mls_api_server {
                         ) -> Self::Future {
                             let inner = Arc::clone(&self.0);
                             let fut = async move {
-                                (*inner).send_welcome_messages(request).await
+                                <T as MlsApi>::send_welcome_messages(&inner, request).await
                             };
                             Box::pin(fut)
                         }
@@ -635,7 +635,7 @@ pub mod mls_api_server {
                         ) -> Self::Future {
                             let inner = Arc::clone(&self.0);
                             let fut = async move {
-                                (*inner).register_installation(request).await
+                                <T as MlsApi>::register_installation(&inner, request).await
                             };
                             Box::pin(fut)
                         }
@@ -681,7 +681,7 @@ pub mod mls_api_server {
                         ) -> Self::Future {
                             let inner = Arc::clone(&self.0);
                             let fut = async move {
-                                (*inner).upload_key_package(request).await
+                                <T as MlsApi>::upload_key_package(&inner, request).await
                             };
                             Box::pin(fut)
                         }
@@ -727,7 +727,7 @@ pub mod mls_api_server {
                         ) -> Self::Future {
                             let inner = Arc::clone(&self.0);
                             let fut = async move {
-                                (*inner).fetch_key_packages(request).await
+                                <T as MlsApi>::fetch_key_packages(&inner, request).await
                             };
                             Box::pin(fut)
                         }
@@ -773,7 +773,7 @@ pub mod mls_api_server {
                         ) -> Self::Future {
                             let inner = Arc::clone(&self.0);
                             let fut = async move {
-                                (*inner).revoke_installation(request).await
+                                <T as MlsApi>::revoke_installation(&inner, request).await
                             };
                             Box::pin(fut)
                         }
@@ -819,7 +819,7 @@ pub mod mls_api_server {
                         ) -> Self::Future {
                             let inner = Arc::clone(&self.0);
                             let fut = async move {
-                                (*inner).get_identity_updates(request).await
+                                <T as MlsApi>::get_identity_updates(&inner, request).await
                             };
                             Box::pin(fut)
                         }
@@ -865,7 +865,7 @@ pub mod mls_api_server {
                         ) -> Self::Future {
                             let inner = Arc::clone(&self.0);
                             let fut = async move {
-                                (*inner).query_group_messages(request).await
+                                <T as MlsApi>::query_group_messages(&inner, request).await
                             };
                             Box::pin(fut)
                         }
@@ -911,7 +911,7 @@ pub mod mls_api_server {
                         ) -> Self::Future {
                             let inner = Arc::clone(&self.0);
                             let fut = async move {
-                                (*inner).query_welcome_messages(request).await
+                                <T as MlsApi>::query_welcome_messages(&inner, request).await
                             };
                             Box::pin(fut)
                         }
@@ -959,7 +959,8 @@ pub mod mls_api_server {
                         ) -> Self::Future {
                             let inner = Arc::clone(&self.0);
                             let fut = async move {
-                                (*inner).subscribe_group_messages(request).await
+                                <T as MlsApi>::subscribe_group_messages(&inner, request)
+                                    .await
                             };
                             Box::pin(fut)
                         }
@@ -1009,7 +1010,8 @@ pub mod mls_api_server {
                         ) -> Self::Future {
                             let inner = Arc::clone(&self.0);
                             let fut = async move {
-                                (*inner).subscribe_welcome_messages(request).await
+                                <T as MlsApi>::subscribe_welcome_messages(&inner, request)
+                                    .await
                             };
                             Box::pin(fut)
                         }

@@ -68,18 +68,18 @@ impl<'de> serde::Deserialize<'de> for AccountAddresses {
                 formatter.write_str("struct xmtp.mls.database.AccountAddresses")
             }
 
-            fn visit_map<V>(self, mut map: V) -> std::result::Result<AccountAddresses, V::Error>
+            fn visit_map<V>(self, mut map_: V) -> std::result::Result<AccountAddresses, V::Error>
                 where
                     V: serde::de::MapAccess<'de>,
             {
                 let mut account_addresses__ = None;
-                while let Some(k) = map.next_key()? {
+                while let Some(k) = map_.next_key()? {
                     match k {
                         GeneratedField::AccountAddresses => {
                             if account_addresses__.is_some() {
                                 return Err(serde::de::Error::duplicate_field("accountAddresses"));
                             }
-                            account_addresses__ = Some(map.next_value()?);
+                            account_addresses__ = Some(map_.next_value()?);
                         }
                     }
                 }
@@ -163,18 +163,18 @@ impl<'de> serde::Deserialize<'de> for AddMembersData {
                 formatter.write_str("struct xmtp.mls.database.AddMembersData")
             }
 
-            fn visit_map<V>(self, mut map: V) -> std::result::Result<AddMembersData, V::Error>
+            fn visit_map<V>(self, mut map_: V) -> std::result::Result<AddMembersData, V::Error>
                 where
                     V: serde::de::MapAccess<'de>,
             {
                 let mut version__ = None;
-                while let Some(k) = map.next_key()? {
+                while let Some(k) = map_.next_key()? {
                     match k {
                         GeneratedField::V1 => {
                             if version__.is_some() {
                                 return Err(serde::de::Error::duplicate_field("v1"));
                             }
-                            version__ = map.next_value::<::std::option::Option<_>>()?.map(add_members_data::Version::V1)
+                            version__ = map_.next_value::<::std::option::Option<_>>()?.map(add_members_data::Version::V1)
 ;
                         }
                     }
@@ -256,18 +256,18 @@ impl<'de> serde::Deserialize<'de> for add_members_data::V1 {
                 formatter.write_str("struct xmtp.mls.database.AddMembersData.V1")
             }
 
-            fn visit_map<V>(self, mut map: V) -> std::result::Result<add_members_data::V1, V::Error>
+            fn visit_map<V>(self, mut map_: V) -> std::result::Result<add_members_data::V1, V::Error>
                 where
                     V: serde::de::MapAccess<'de>,
             {
                 let mut addresses_or_installation_ids__ = None;
-                while let Some(k) = map.next_key()? {
+                while let Some(k) = map_.next_key()? {
                     match k {
                         GeneratedField::AddressesOrInstallationIds => {
                             if addresses_or_installation_ids__.is_some() {
                                 return Err(serde::de::Error::duplicate_field("addressesOrInstallationIds"));
                             }
-                            addresses_or_installation_ids__ = map.next_value()?;
+                            addresses_or_installation_ids__ = map_.next_value()?;
                         }
                     }
                 }
@@ -359,25 +359,25 @@ impl<'de> serde::Deserialize<'de> for AddressesOrInstallationIds {
                 formatter.write_str("struct xmtp.mls.database.AddressesOrInstallationIds")
             }
 
-            fn visit_map<V>(self, mut map: V) -> std::result::Result<AddressesOrInstallationIds, V::Error>
+            fn visit_map<V>(self, mut map_: V) -> std::result::Result<AddressesOrInstallationIds, V::Error>
                 where
                     V: serde::de::MapAccess<'de>,
             {
                 let mut addresses_or_installation_ids__ = None;
-                while let Some(k) = map.next_key()? {
+                while let Some(k) = map_.next_key()? {
                     match k {
                         GeneratedField::AccountAddresses => {
                             if addresses_or_installation_ids__.is_some() {
                                 return Err(serde::de::Error::duplicate_field("accountAddresses"));
                             }
-                            addresses_or_installation_ids__ = map.next_value::<::std::option::Option<_>>()?.map(addresses_or_installation_ids::AddressesOrInstallationIds::AccountAddresses)
+                            addresses_or_installation_ids__ = map_.next_value::<::std::option::Option<_>>()?.map(addresses_or_installation_ids::AddressesOrInstallationIds::AccountAddresses)
 ;
                         }
                         GeneratedField::InstallationIds => {
                             if addresses_or_installation_ids__.is_some() {
                                 return Err(serde::de::Error::duplicate_field("installationIds"));
                             }
-                            addresses_or_installation_ids__ = map.next_value::<::std::option::Option<_>>()?.map(addresses_or_installation_ids::AddressesOrInstallationIds::InstallationIds)
+                            addresses_or_installation_ids__ = map_.next_value::<::std::option::Option<_>>()?.map(addresses_or_installation_ids::AddressesOrInstallationIds::InstallationIds)
 ;
                         }
                     }
@@ -459,19 +459,19 @@ impl<'de> serde::Deserialize<'de> for InstallationIds {
                 formatter.write_str("struct xmtp.mls.database.InstallationIds")
             }
 
-            fn visit_map<V>(self, mut map: V) -> std::result::Result<InstallationIds, V::Error>
+            fn visit_map<V>(self, mut map_: V) -> std::result::Result<InstallationIds, V::Error>
                 where
                     V: serde::de::MapAccess<'de>,
             {
                 let mut installation_ids__ = None;
-                while let Some(k) = map.next_key()? {
+                while let Some(k) = map_.next_key()? {
                     match k {
                         GeneratedField::InstallationIds => {
                             if installation_ids__.is_some() {
                                 return Err(serde::de::Error::duplicate_field("installationIds"));
                             }
                             installation_ids__ = 
-                                Some(map.next_value::<Vec<::pbjson::private::BytesDeserialize<_>>>()?
+                                Some(map_.next_value::<Vec<::pbjson::private::BytesDeserialize<_>>>()?
                                     .into_iter().map(|x| x.0).collect())
                             ;
                         }
@@ -558,18 +558,18 @@ impl<'de> serde::Deserialize<'de> for PostCommitAction {
                 formatter.write_str("struct xmtp.mls.database.PostCommitAction")
             }
 
-            fn visit_map<V>(self, mut map: V) -> std::result::Result<PostCommitAction, V::Error>
+            fn visit_map<V>(self, mut map_: V) -> std::result::Result<PostCommitAction, V::Error>
                 where
                     V: serde::de::MapAccess<'de>,
             {
                 let mut kind__ = None;
-                while let Some(k) = map.next_key()? {
+                while let Some(k) = map_.next_key()? {
                     match k {
                         GeneratedField::SendWelcomes => {
                             if kind__.is_some() {
                                 return Err(serde::de::Error::duplicate_field("sendWelcomes"));
                             }
-                            kind__ = map.next_value::<::std::option::Option<_>>()?.map(post_commit_action::Kind::SendWelcomes)
+                            kind__ = map_.next_value::<::std::option::Option<_>>()?.map(post_commit_action::Kind::SendWelcomes)
 ;
                         }
                     }
@@ -598,9 +598,11 @@ impl serde::Serialize for post_commit_action::Installation {
         }
         let mut struct_ser = serializer.serialize_struct("xmtp.mls.database.PostCommitAction.Installation", len)?;
         if !self.installation_key.is_empty() {
+            #[allow(clippy::needless_borrow)]
             struct_ser.serialize_field("installationKey", pbjson::private::base64::encode(&self.installation_key).as_str())?;
         }
         if !self.hpke_public_key.is_empty() {
+            #[allow(clippy::needless_borrow)]
             struct_ser.serialize_field("hpkePublicKey", pbjson::private::base64::encode(&self.hpke_public_key).as_str())?;
         }
         struct_ser.end()
@@ -661,20 +663,20 @@ impl<'de> serde::Deserialize<'de> for post_commit_action::Installation {
                 formatter.write_str("struct xmtp.mls.database.PostCommitAction.Installation")
             }
 
-            fn visit_map<V>(self, mut map: V) -> std::result::Result<post_commit_action::Installation, V::Error>
+            fn visit_map<V>(self, mut map_: V) -> std::result::Result<post_commit_action::Installation, V::Error>
                 where
                     V: serde::de::MapAccess<'de>,
             {
                 let mut installation_key__ = None;
                 let mut hpke_public_key__ = None;
-                while let Some(k) = map.next_key()? {
+                while let Some(k) = map_.next_key()? {
                     match k {
                         GeneratedField::InstallationKey => {
                             if installation_key__.is_some() {
                                 return Err(serde::de::Error::duplicate_field("installationKey"));
                             }
                             installation_key__ = 
-                                Some(map.next_value::<::pbjson::private::BytesDeserialize<_>>()?.0)
+                                Some(map_.next_value::<::pbjson::private::BytesDeserialize<_>>()?.0)
                             ;
                         }
                         GeneratedField::HpkePublicKey => {
@@ -682,7 +684,7 @@ impl<'de> serde::Deserialize<'de> for post_commit_action::Installation {
                                 return Err(serde::de::Error::duplicate_field("hpkePublicKey"));
                             }
                             hpke_public_key__ = 
-                                Some(map.next_value::<::pbjson::private::BytesDeserialize<_>>()?.0)
+                                Some(map_.next_value::<::pbjson::private::BytesDeserialize<_>>()?.0)
                             ;
                         }
                     }
@@ -715,6 +717,7 @@ impl serde::Serialize for post_commit_action::SendWelcomes {
             struct_ser.serialize_field("installations", &self.installations)?;
         }
         if !self.welcome_message.is_empty() {
+            #[allow(clippy::needless_borrow)]
             struct_ser.serialize_field("welcomeMessage", pbjson::private::base64::encode(&self.welcome_message).as_str())?;
         }
         struct_ser.end()
@@ -774,26 +777,26 @@ impl<'de> serde::Deserialize<'de> for post_commit_action::SendWelcomes {
                 formatter.write_str("struct xmtp.mls.database.PostCommitAction.SendWelcomes")
             }
 
-            fn visit_map<V>(self, mut map: V) -> std::result::Result<post_commit_action::SendWelcomes, V::Error>
+            fn visit_map<V>(self, mut map_: V) -> std::result::Result<post_commit_action::SendWelcomes, V::Error>
                 where
                     V: serde::de::MapAccess<'de>,
             {
                 let mut installations__ = None;
                 let mut welcome_message__ = None;
-                while let Some(k) = map.next_key()? {
+                while let Some(k) = map_.next_key()? {
                     match k {
                         GeneratedField::Installations => {
                             if installations__.is_some() {
                                 return Err(serde::de::Error::duplicate_field("installations"));
                             }
-                            installations__ = Some(map.next_value()?);
+                            installations__ = Some(map_.next_value()?);
                         }
                         GeneratedField::WelcomeMessage => {
                             if welcome_message__.is_some() {
                                 return Err(serde::de::Error::duplicate_field("welcomeMessage"));
                             }
                             welcome_message__ = 
-                                Some(map.next_value::<::pbjson::private::BytesDeserialize<_>>()?.0)
+                                Some(map_.next_value::<::pbjson::private::BytesDeserialize<_>>()?.0)
                             ;
                         }
                     }
@@ -879,18 +882,18 @@ impl<'de> serde::Deserialize<'de> for RemoveMembersData {
                 formatter.write_str("struct xmtp.mls.database.RemoveMembersData")
             }
 
-            fn visit_map<V>(self, mut map: V) -> std::result::Result<RemoveMembersData, V::Error>
+            fn visit_map<V>(self, mut map_: V) -> std::result::Result<RemoveMembersData, V::Error>
                 where
                     V: serde::de::MapAccess<'de>,
             {
                 let mut version__ = None;
-                while let Some(k) = map.next_key()? {
+                while let Some(k) = map_.next_key()? {
                     match k {
                         GeneratedField::V1 => {
                             if version__.is_some() {
                                 return Err(serde::de::Error::duplicate_field("v1"));
                             }
-                            version__ = map.next_value::<::std::option::Option<_>>()?.map(remove_members_data::Version::V1)
+                            version__ = map_.next_value::<::std::option::Option<_>>()?.map(remove_members_data::Version::V1)
 ;
                         }
                     }
@@ -972,18 +975,18 @@ impl<'de> serde::Deserialize<'de> for remove_members_data::V1 {
                 formatter.write_str("struct xmtp.mls.database.RemoveMembersData.V1")
             }
 
-            fn visit_map<V>(self, mut map: V) -> std::result::Result<remove_members_data::V1, V::Error>
+            fn visit_map<V>(self, mut map_: V) -> std::result::Result<remove_members_data::V1, V::Error>
                 where
                     V: serde::de::MapAccess<'de>,
             {
                 let mut addresses_or_installation_ids__ = None;
-                while let Some(k) = map.next_key()? {
+                while let Some(k) = map_.next_key()? {
                     match k {
                         GeneratedField::AddressesOrInstallationIds => {
                             if addresses_or_installation_ids__.is_some() {
                                 return Err(serde::de::Error::duplicate_field("addressesOrInstallationIds"));
                             }
-                            addresses_or_installation_ids__ = map.next_value()?;
+                            addresses_or_installation_ids__ = map_.next_value()?;
                         }
                     }
                 }
@@ -1067,18 +1070,18 @@ impl<'de> serde::Deserialize<'de> for SendMessageData {
                 formatter.write_str("struct xmtp.mls.database.SendMessageData")
             }
 
-            fn visit_map<V>(self, mut map: V) -> std::result::Result<SendMessageData, V::Error>
+            fn visit_map<V>(self, mut map_: V) -> std::result::Result<SendMessageData, V::Error>
                 where
                     V: serde::de::MapAccess<'de>,
             {
                 let mut version__ = None;
-                while let Some(k) = map.next_key()? {
+                while let Some(k) = map_.next_key()? {
                     match k {
                         GeneratedField::V1 => {
                             if version__.is_some() {
                                 return Err(serde::de::Error::duplicate_field("v1"));
                             }
-                            version__ = map.next_value::<::std::option::Option<_>>()?.map(send_message_data::Version::V1)
+                            version__ = map_.next_value::<::std::option::Option<_>>()?.map(send_message_data::Version::V1)
 ;
                         }
                     }
@@ -1104,6 +1107,7 @@ impl serde::Serialize for send_message_data::V1 {
         }
         let mut struct_ser = serializer.serialize_struct("xmtp.mls.database.SendMessageData.V1", len)?;
         if !self.payload_bytes.is_empty() {
+            #[allow(clippy::needless_borrow)]
             struct_ser.serialize_field("payloadBytes", pbjson::private::base64::encode(&self.payload_bytes).as_str())?;
         }
         struct_ser.end()
@@ -1160,19 +1164,19 @@ impl<'de> serde::Deserialize<'de> for send_message_data::V1 {
                 formatter.write_str("struct xmtp.mls.database.SendMessageData.V1")
             }
 
-            fn visit_map<V>(self, mut map: V) -> std::result::Result<send_message_data::V1, V::Error>
+            fn visit_map<V>(self, mut map_: V) -> std::result::Result<send_message_data::V1, V::Error>
                 where
                     V: serde::de::MapAccess<'de>,
             {
                 let mut payload_bytes__ = None;
-                while let Some(k) = map.next_key()? {
+                while let Some(k) = map_.next_key()? {
                     match k {
                         GeneratedField::PayloadBytes => {
                             if payload_bytes__.is_some() {
                                 return Err(serde::de::Error::duplicate_field("payloadBytes"));
                             }
                             payload_bytes__ = 
-                                Some(map.next_value::<::pbjson::private::BytesDeserialize<_>>()?.0)
+                                Some(map_.next_value::<::pbjson::private::BytesDeserialize<_>>()?.0)
                             ;
                         }
                     }
