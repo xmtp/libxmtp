@@ -92,10 +92,7 @@ impl DbConnection<'_> {
         Ok(())
     }
 
-    pub fn get_installations_time_checked(
-        &self,
-        group_id: Vec<u8>,
-    ) -> Result<i64, StorageError> {
+    pub fn get_installations_time_checked(&self, group_id: Vec<u8>) -> Result<i64, StorageError> {
         let last_ts = self.raw_query(|conn| {
             let ts = dsl::groups
                 .find(&group_id)
@@ -109,10 +106,7 @@ impl DbConnection<'_> {
     }
 
     /// Updates the 'last time checked' we checked for new installations.
-    pub fn update_installations_time_checked(
-        &self,
-        group_id: Vec<u8>,
-    ) -> Result<(), StorageError> {
+    pub fn update_installations_time_checked(&self, group_id: Vec<u8>) -> Result<(), StorageError> {
         self.raw_query(|conn| {
             let now = crate::utils::time::now_ns();
             diesel::update(dsl::groups.find(&group_id))
