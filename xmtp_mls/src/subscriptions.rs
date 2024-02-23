@@ -334,7 +334,7 @@ mod tests {
 
         let messages: Arc<Mutex<Vec<StoredGroupMessage>>> = Arc::new(Mutex::new(Vec::new()));
         let messages_clone = messages.clone();
-        let mut _stream = Client::<GrpcClient>::stream_all_messages_with_callback(
+        let stream = Client::<GrpcClient>::stream_all_messages_with_callback(
             Arc::new(caro),
             move |message| {
                 (*messages_clone.lock().unwrap()).push(message);
@@ -355,5 +355,73 @@ mod tests {
         assert_eq!(messages[1].decrypted_message_bytes, "second".as_bytes());
         assert_eq!(messages[2].decrypted_message_bytes, "third".as_bytes());
         assert_eq!(messages[3].decrypted_message_bytes, "fourth".as_bytes());
+
+        stream.end();
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 10)]
+    async fn test_stream_all_messages_changing_group_list() {
+        let alix = ClientBuilder::new_test_client(&generate_local_wallet()).await;
+        let bo = ClientBuilder::new_test_client(&generate_local_wallet()).await;
+        let caro = Arc::new(ClientBuilder::new_test_client(&generate_local_wallet()).await);
+
+        let alix_group = alix.create_group(None).unwrap();
+        alix_group
+            .add_members_by_installation_id(vec![caro.installation_public_key()])
+            .await
+            .unwrap();
+
+        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+
+        let messages: Arc<Mutex<Vec<StoredGroupMessage>>> = Arc::new(Mutex::new(Vec::new()));
+        let messages_clone = messages.clone();
+        let stream =
+            Client::<GrpcClient>::stream_all_messages_with_callback(caro.clone(), move |message| {
+                (*messages_clone.lock().unwrap()).push(message);
+            })
+            .await
+            .unwrap();
+
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+
+        alix_group.send_message("first".as_bytes()).await.unwrap();
+
+        let bo_group = bo.create_group(None).unwrap();
+        bo_group
+            .add_members_by_installation_id(vec![caro.installation_public_key()])
+            .await
+            .unwrap();
+        bo_group.send_message("second".as_bytes()).await.unwrap();
+        alix_group.send_message("third".as_bytes()).await.unwrap();
+
+        let alix_group_2 = alix.create_group(None).unwrap();
+        alix_group_2
+            .add_members_by_installation_id(vec![
+                bo.installation_public_key(),
+                caro.installation_public_key(),
+            ])
+            .await
+            .unwrap();
+
+        alix_group.send_message("fourth".as_bytes()).await.unwrap();
+        alix_group_2.send_message("fifth".as_bytes()).await.unwrap();
+
+        tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+
+        let messages = messages.lock().unwrap();
+        assert_eq!(messages[0].decrypted_message_bytes, "first".as_bytes());
+        assert_eq!(messages[1].decrypted_message_bytes, "second".as_bytes());
+        assert_eq!(messages[2].decrypted_message_bytes, "third".as_bytes());
+        assert_eq!(messages[3].decrypted_message_bytes, "fourth".as_bytes());
+        assert_eq!(messages[4].decrypted_message_bytes, "fifth".as_bytes());
+
+        stream.end();
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+        assert!(stream.is_closed());
+
+        alix_group.send_message("first".as_bytes()).await.unwrap();
+        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+
+        assert_eq!(messages.len(), 5);
     }
 }
