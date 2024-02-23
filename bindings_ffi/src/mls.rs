@@ -605,7 +605,9 @@ mod tests {
     }
 
     impl FfiMessageCallback for RustStreamCallback {
-        fn on_message(&self, _: FfiMessage) {
+        fn on_message(&self, message: FfiMessage) {
+            let message = String::from_utf8(message.content).unwrap_or("<not UTF8>".to_string());
+            log::info!("Received: {}", message);
             *self.num_messages.lock().unwrap() += 1;
         }
     }
@@ -985,9 +987,14 @@ mod tests {
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 5)]
-    async fn test_message_streaming_skips_erroring_messages() {
+    async fn test_message_streaming_when_removed_then_added() {
         let amal = new_test_client().await;
         let bola = new_test_client().await;
+        log::info!(
+            "Created addresses {} and {}",
+            amal.account_address(),
+            bola.account_address()
+        );
 
         let amal_group = amal
             .conversations()
@@ -996,20 +1003,10 @@ mod tests {
             .unwrap();
         tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
 
-        bola.conversations().sync().await.unwrap();
-        let bola_group = &bola
-            .conversations()
-            .list(crate::FfiListConversationsOptions {
-                created_after_ns: None,
-                created_before_ns: None,
-                limit: None,
-            })
-            .await
-            .unwrap()[0];
-
         let stream_callback = RustStreamCallback::new();
-        let stream_closer = bola_group
-            .stream(Box::new(stream_callback.clone()))
+        let stream_closer = bola
+            .conversations()
+            .stream_all_messages(Box::new(stream_callback.clone()))
             .await
             .unwrap();
 
@@ -1027,9 +1024,12 @@ mod tests {
             .remove_members(vec![bola.account_address()])
             .await
             .unwrap();
+        tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+        assert_eq!(stream_callback.message_count(), 3); // Member removal transcript message
+
         amal_group.send("hello3".as_bytes().to_vec()).await.unwrap();
         tokio::time::sleep(tokio::time::Duration::from_millis(200)).await;
-        assert_eq!(stream_callback.message_count(), 2);
+        assert_eq!(stream_callback.message_count(), 3); // Don't receive messages while removed
         assert!(!stream_closer.is_closed());
 
         tokio::time::sleep(tokio::time::Duration::from_millis(200)).await;
@@ -1037,9 +1037,12 @@ mod tests {
             .add_members(vec![bola.account_address()])
             .await
             .unwrap();
+        tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+        assert_eq!(stream_callback.message_count(), 3); // Don't receive transcript messages while removed
+
         amal_group.send("hello4".as_bytes().to_vec()).await.unwrap();
         tokio::time::sleep(tokio::time::Duration::from_millis(200)).await;
-        assert_eq!(stream_callback.message_count(), 3);
+        assert_eq!(stream_callback.message_count(), 4); // Receiving messages again
         assert!(!stream_closer.is_closed());
 
         stream_closer.end();

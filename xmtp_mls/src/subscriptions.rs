@@ -331,6 +331,7 @@ mod tests {
             .add_members_by_installation_id(vec![caro.installation_public_key()])
             .await
             .unwrap();
+        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
 
         let messages: Arc<Mutex<Vec<StoredGroupMessage>>> = Arc::new(Mutex::new(Vec::new()));
         let messages_clone = messages.clone();
@@ -391,6 +392,8 @@ mod tests {
             .add_members_by_installation_id(vec![caro.installation_public_key()])
             .await
             .unwrap();
+        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+
         bo_group.send_message("second".as_bytes()).await.unwrap();
         alix_group.send_message("third".as_bytes()).await.unwrap();
 
@@ -402,6 +405,7 @@ mod tests {
             ])
             .await
             .unwrap();
+        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
 
         alix_group.send_message("fourth".as_bytes()).await.unwrap();
         alix_group_2.send_message("fifth".as_bytes()).await.unwrap();
