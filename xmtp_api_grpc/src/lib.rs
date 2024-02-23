@@ -55,12 +55,12 @@ mod tests {
             .unwrap();
         let req = BatchQueryRequest {
             requests: vec![QueryRequest {
-                content_topics: vec!["/junk/some-random-topic-with-no-messages".to_string()],
+                content_topics: vec!["some-random-topic-with-no-messages".to_string()],
                 ..QueryRequest::default()
             }],
         };
         let result = client.batch_query(req).await.unwrap();
-        assert_eq!(result.responses.len(), 0);
+        assert_eq!(result.responses.len(), 1);
     }
 
     #[tokio::test]
