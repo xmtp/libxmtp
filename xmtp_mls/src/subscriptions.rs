@@ -263,11 +263,15 @@ where
                 let mut messages_stream_closer = messages_stream_closer_mutex.lock().unwrap();
                 messages_stream_closer.end();
 
+                // Set up new stream. For existing groups, stream new messages only by unsetting the cursor
+                for info in group_id_to_info.values_mut() {
+                    info.cursor = 0;
+                }
                 group_id_to_info.insert(
                     convo.group_id,
                     MessagesStreamInfo {
                         convo_created_at_ns: convo.created_at_ns,
-                        cursor: 1, // Stream all messages since the group was created
+                        cursor: 1, // For the new group, stream all messages since the group was created
                     },
                 );
 
@@ -378,6 +382,9 @@ mod tests {
         let messages_clone = messages.clone();
         let stream =
             Client::<GrpcClient>::stream_all_messages_with_callback(caro.clone(), move |message| {
+                let text = String::from_utf8(message.decrypted_message_bytes.clone())
+                    .unwrap_or("<not UTF8>".to_string());
+                println!("Received: {}", text);
                 (*messages_clone.lock().unwrap()).push(message);
             })
             .await
@@ -386,31 +393,33 @@ mod tests {
         tokio::time::sleep(std::time::Duration::from_millis(50)).await;
 
         alix_group.send_message("first".as_bytes()).await.unwrap();
+        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
 
         let bo_group = bo.create_group(None).unwrap();
         bo_group
             .add_members_by_installation_id(vec![caro.installation_public_key()])
             .await
             .unwrap();
-        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+        tokio::time::sleep(std::time::Duration::from_millis(300)).await;
 
         bo_group.send_message("second".as_bytes()).await.unwrap();
+        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+
         alix_group.send_message("third".as_bytes()).await.unwrap();
+        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
 
         let alix_group_2 = alix.create_group(None).unwrap();
         alix_group_2
-            .add_members_by_installation_id(vec![
-                bo.installation_public_key(),
-                caro.installation_public_key(),
-            ])
+            .add_members_by_installation_id(vec![caro.installation_public_key()])
             .await
             .unwrap();
-        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+        tokio::time::sleep(std::time::Duration::from_millis(300)).await;
 
         alix_group.send_message("fourth".as_bytes()).await.unwrap();
+        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
         alix_group_2.send_message("fifth".as_bytes()).await.unwrap();
 
-        tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
 
         let messages = messages.lock().unwrap();
         assert_eq!(messages.len(), 5);
