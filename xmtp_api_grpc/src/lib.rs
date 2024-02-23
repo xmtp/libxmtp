@@ -53,7 +53,12 @@ mod tests {
         let client = Client::create(LOCALHOST_ADDRESS.to_string(), false)
             .await
             .unwrap();
-        let req = BatchQueryRequest { requests: vec![] };
+        let req = BatchQueryRequest {
+            requests: vec![QueryRequest {
+                content_topics: vec!["foo".to_string()],
+                ..QueryRequest::default()
+            }],
+        };
         let result = client.batch_query(req).await.unwrap();
         assert_eq!(result.responses.len(), 0);
     }
