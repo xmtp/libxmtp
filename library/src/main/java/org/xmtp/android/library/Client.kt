@@ -85,6 +85,7 @@ class Client() {
     var logger: XMTPLogger = XMTPLogger()
     val libXMTPVersion: String = getVersionInfo()
     private var libXMTPClient: FfiXmtpClient? = null
+    private var dbPath: String = ""
 
     companion object {
         private const val TAG = "Client"
@@ -160,6 +161,7 @@ class Client() {
         privateKeyBundleV1: PrivateKeyBundleV1,
         apiClient: ApiClient,
         libXMTPClient: FfiXmtpClient? = null,
+        dbPath: String = "",
     ) : this() {
         this.address = address
         this.privateKeyBundleV1 = privateKeyBundleV1
@@ -168,6 +170,7 @@ class Client() {
         this.libXMTPClient = libXMTPClient
         this.conversations =
             Conversations(client = this, libXMTPConversations = libXMTPClient?.conversations())
+        this.dbPath = dbPath
     }
 
     fun buildFrom(
@@ -179,7 +182,7 @@ class Client() {
         val clientOptions = options ?: ClientOptions()
         val apiClient =
             GRPCApiClient(environment = clientOptions.api.env, secure = clientOptions.api.isSecure)
-        val v3Client: FfiXmtpClient? = if (isAlphaMlsEnabled(options)) {
+        val (v3Client, dbPath) = if (isAlphaMlsEnabled(options)) {
             runBlocking {
                 ffiXmtpClient(
                     options,
@@ -190,13 +193,14 @@ class Client() {
                     address
                 )
             }
-        } else null
+        } else Pair(null, " ")
 
         return Client(
             address = address,
             privateKeyBundleV1 = bundle,
             apiClient = apiClient,
-            libXMTPClient = v3Client
+            libXMTPClient = v3Client,
+            dbPath = dbPath
         )
     }
 
@@ -226,7 +230,7 @@ class Client() {
                     apiClient,
                     options
                 )
-                val libXMTPClient: FfiXmtpClient? =
+                val (libXMTPClient, dbPath) =
                     ffiXmtpClient(
                         options,
                         account,
@@ -236,7 +240,7 @@ class Client() {
                         account.address
                     )
                 val client =
-                    Client(account.address, privateKeyBundleV1, apiClient, libXMTPClient)
+                    Client(account.address, privateKeyBundleV1, apiClient, libXMTPClient, dbPath)
                 client.ensureUserContactPublished()
                 client
             } catch (e: java.lang.Exception) {
@@ -261,7 +265,7 @@ class Client() {
         val newOptions = options ?: ClientOptions()
         val apiClient =
             GRPCApiClient(environment = newOptions.api.env, secure = newOptions.api.isSecure)
-        val v3Client: FfiXmtpClient? = if (isAlphaMlsEnabled(options)) {
+        val (v3Client, dbPath) = if (isAlphaMlsEnabled(options)) {
             runBlocking {
                 ffiXmtpClient(
                     options,
@@ -272,13 +276,14 @@ class Client() {
                     address
                 )
             }
-        } else null
+        } else Pair(null, "")
 
         return Client(
             address = address,
             privateKeyBundleV1 = v1Bundle,
             apiClient = apiClient,
-            libXMTPClient = v3Client
+            libXMTPClient = v3Client,
+            dbPath = dbPath
         )
     }
 
@@ -293,12 +298,13 @@ class Client() {
         privateKeyBundleV1: PrivateKeyBundleV1,
         legacyIdentitySource: LegacyIdentitySource,
         accountAddress: String,
-    ): FfiXmtpClient? {
+    ): Pair<FfiXmtpClient?, String> {
+        var dbPath = ""
         val v3Client: FfiXmtpClient? =
             if (isAlphaMlsEnabled(options)) {
                 val alias = "xmtp-${options!!.api.env}-${accountAddress.lowercase()}"
 
-                val dbPath = if (options.dbPath == null) {
+                dbPath = if (options.dbPath == null) {
                     val dbDir = File(appContext?.filesDir?.absolutePath, "xmtp_db")
                     dbDir.mkdir()
                     dbDir.absolutePath + "/$alias.db3"
@@ -364,7 +370,7 @@ class Client() {
             }
         }
         Log.i(TAG, "LibXMTP $libXMTPVersion")
-        return v3Client
+        return Pair(v3Client, dbPath)
     }
 
     /**
@@ -584,6 +590,10 @@ class Client() {
             libXMTPClient!!.canMessage(addresses)
         }
         return !statuses.contains(false)
+    }
+
+    fun deleteLocalDatabase() {
+        File(dbPath).delete()
     }
 
     val privateKeyBundle: PrivateKeyBundle

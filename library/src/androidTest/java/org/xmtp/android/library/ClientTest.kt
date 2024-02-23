@@ -2,6 +2,7 @@ package org.xmtp.android.library
 
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
+import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.fail
 import org.junit.Ignore
@@ -122,6 +123,49 @@ class ClientTest {
                 )
             )
         assert(client.canMessageV3(listOf(client.address)))
+    }
+
+    @Test
+    fun testCanDeleteDatabase() {
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        val fakeWallet = PrivateKeyBuilder()
+        val fakeWallet2 = PrivateKeyBuilder()
+        var client =
+            Client().create(
+                account = fakeWallet,
+                options = ClientOptions(
+                    ClientOptions.Api(XMTPEnvironment.LOCAL, false),
+                    enableAlphaMls = true,
+                    appContext = context
+                )
+            )
+        val client2 =
+            Client().create(
+                account = fakeWallet2,
+                options = ClientOptions(
+                    ClientOptions.Api(XMTPEnvironment.LOCAL, false),
+                    enableAlphaMls = true,
+                    appContext = context
+                )
+            )
+        client.conversations.newGroup(listOf(client2.address,))
+        runBlocking { client.conversations.syncGroups() }
+        assertEquals(client.conversations.listGroups().size, 1)
+
+        client.deleteLocalDatabase()
+
+        client =
+            Client().create(
+                account = fakeWallet,
+                options = ClientOptions(
+                    ClientOptions.Api(XMTPEnvironment.LOCAL, false),
+                    enableAlphaMls = true,
+                    appContext = context
+                )
+            )
+
+        runBlocking { client.conversations.syncGroups() }
+        assertEquals(client.conversations.listGroups().size, 0)
     }
 
     @Test
