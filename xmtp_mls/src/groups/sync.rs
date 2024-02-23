@@ -38,7 +38,7 @@ use crate::{
     api_client_wrapper::IdentityUpdate,
     client::MessageProcessingError,
     codecs::{membership_change::GroupMembershipChangeCodec, ContentCodec},
-    configuration::{MAX_INTENT_PUBLISH_ATTEMPTS, UPDATE_INSTALLATION_LIST_INTERVAL_NS},
+    configuration::{MAX_INTENT_PUBLISH_ATTEMPTS, UPDATE_INSTALLATIONS_INTERVAL_NS},
     groups::validated_commit::ValidatedCommit,
     hpke::{encrypt_welcome, HpkeError},
     identity::Identity,
@@ -64,7 +64,7 @@ where
     pub async fn sync(&self) -> Result<(), GroupError> {
         let conn = &mut self.client.store.conn()?;
 
-        self.maybe_update_installation_list(conn, None).await?;
+        self.maybe_update_installations(conn, None).await?;
 
         self.sync_with_conn(conn).await
     }
@@ -626,7 +626,7 @@ where
         Ok(())
     }
 
-    pub(super) async fn maybe_update_installation_list<'a>(
+    pub(super) async fn maybe_update_installations<'a>(
         &self,
         conn: &'a DbConnection<'a>,
         update_interval: Option<i64>,
@@ -634,16 +634,16 @@ where
         // determine how long of an interval in time to use before updating list
         let interval = match update_interval {
             Some(val) => val,
-            None => UPDATE_INSTALLATION_LIST_INTERVAL_NS,
+            None => UPDATE_INSTALLATIONS_INTERVAL_NS,
         };
 
         let now = crate::utils::time::now_ns();
-        let last = conn.get_installation_list_time_checked(self.group_id.clone())?;
+        let last = conn.get_installations_time_checked(self.group_id.clone())?;
         let elapsed = now - last;
         if elapsed > interval {
             let provider = self.client.mls_provider(conn);
             self.add_missing_installations(provider).await?;
-            conn.update_installation_list_time_checked(self.group_id.clone())?;
+            conn.update_installations_time_checked(self.group_id.clone())?;
         }
 
         Ok(())
