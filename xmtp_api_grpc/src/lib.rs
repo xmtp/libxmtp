@@ -55,7 +55,7 @@ mod tests {
             .unwrap();
         let req = BatchQueryRequest {
             requests: vec![QueryRequest {
-                content_topics: vec!["foo".to_string()],
+                content_topics: vec!["/junk/some-random-topic-with-no-messages".to_string()],
                 ..QueryRequest::default()
             }],
         };
