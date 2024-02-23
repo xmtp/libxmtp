@@ -30,8 +30,8 @@ pub struct StoredGroup {
     pub created_at_ns: i64,
     /// Enum, [`GroupMembershipState`] representing access to the group
     pub membership_state: GroupMembershipState,
-    /// Track when the latest, most recent installation list was checked
-    pub installation_list_last_checked: i64,
+    /// Track when the latest, most recent installations were checked
+    pub installations_last_checked: i64,
 }
 
 impl_fetch!(StoredGroup, groups, Vec<u8>);
@@ -43,7 +43,7 @@ impl StoredGroup {
             id,
             created_at_ns,
             membership_state,
-            installation_list_last_checked: 0,
+            installations_last_checked: 0,
         }
     }
 }
@@ -92,14 +92,14 @@ impl DbConnection<'_> {
         Ok(())
     }
 
-    pub fn get_installation_list_time_checked(
+    pub fn get_installations_time_checked(
         &self,
         group_id: Vec<u8>,
     ) -> Result<i64, StorageError> {
         let last_ts = self.raw_query(|conn| {
             let ts = dsl::groups
                 .find(&group_id)
-                .select(dsl::installation_list_last_checked)
+                .select(dsl::installations_last_checked)
                 .first(conn)
                 .optional()?;
             Ok(ts)
@@ -108,15 +108,15 @@ impl DbConnection<'_> {
         last_ts.ok_or(StorageError::NotFound)
     }
 
-    /// Updates the 'last time checked' for installation lists.
-    pub fn update_installation_list_time_checked(
+    /// Updates the 'last time checked' we checked for new installations.
+    pub fn update_installations_time_checked(
         &self,
         group_id: Vec<u8>,
     ) -> Result<(), StorageError> {
         self.raw_query(|conn| {
             let now = crate::utils::time::now_ns();
             diesel::update(dsl::groups.find(&group_id))
-                .set(dsl::installation_list_last_checked.eq(now))
+                .set(dsl::installations_last_checked.eq(now))
                 .execute(conn)
         })?;
 
@@ -195,7 +195,7 @@ pub(crate) mod tests {
             id: rand_vec(),
             created_at_ns: now_ns(),
             membership_state: state.unwrap_or(GroupMembershipState::Allowed),
-            installation_list_last_checked: 0,
+            installations_last_checked: 0,
         }
     }
 
@@ -282,23 +282,23 @@ pub(crate) mod tests {
     }
 
     #[test]
-    fn test_installation_list_last_checked_is_updated() {
+    fn test_installations_last_checked_is_updated() {
         with_connection(|conn| {
             let test_group = generate_group(None);
             test_group.store(conn).unwrap();
 
-            // Check that the installation list update has not been performed, yet
-            assert_eq!(test_group.installation_list_last_checked, 0);
+            // Check that the installations update has not been performed, yet
+            assert_eq!(test_group.installations_last_checked, 0);
 
             // Check that some event occurred which triggers an installation list update.
             // Here we invoke that event directly
-            let result = conn.update_installation_list_time_checked(test_group.id.clone());
+            let result = conn.update_installations_time_checked(test_group.id.clone());
             assert_ok!(result);
 
             // Check that the latest installation list timestamp has been updated
             let fetched_group: StoredGroup = conn.fetch(&test_group.id).ok().flatten().unwrap();
-            assert_ne!(fetched_group.installation_list_last_checked, 0);
-            assert!(fetched_group.created_at_ns < fetched_group.installation_list_last_checked);
+            assert_ne!(fetched_group.installations_last_checked, 0);
+            assert!(fetched_group.created_at_ns < fetched_group.installations_last_checked);
         })
     }
 }
