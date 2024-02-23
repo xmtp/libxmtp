@@ -40,4 +40,3 @@ public struct GroupMembershipChangedCodec: ContentCodec {
 		false
 	}
 }
-

@@ -10,7 +10,6 @@ import UIKit
 import WalletConnectSwift
 import web3
 import XMTPiOS
-import UIKit
 
 extension WCURL {
 	var asURL: URL {
@@ -183,7 +182,7 @@ class WCWalletConnection: WalletConnection, WalletConnectSwift.ClientDelegate {
 	func client(_: WalletConnectSwift.Client, didFailToConnect _: WalletConnectSwift.WCURL) {}
 
 	func client(_: WalletConnectSwift.Client, didConnect session: WalletConnectSwift.Session) {
-		// TODO: Cache session
+		// Future Implementation Cache session
 		self.session = session
 	}
 

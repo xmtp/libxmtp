@@ -9,7 +9,6 @@ import CryptoKit
 import Foundation
 import LibXMTP
 
-
 public typealias PrivateKeyBundleV1 = Xmtp_MessageContents_PrivateKeyBundleV1
 
 extension PrivateKeyBundleV1 {

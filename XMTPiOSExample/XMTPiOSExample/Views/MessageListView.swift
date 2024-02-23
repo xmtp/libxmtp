@@ -43,6 +43,7 @@ struct MessageListView: View {
 struct MessageListView_Previews: PreviewProvider {
 	static var previews: some View {
 		PreviewClientProvider { client in
+            // swiftlint: disable comma
 			MessageListView(
 				myAddress: "0x00", messages: [
 					DecodedMessage.preview(client: client, topic: "foo", body: "Hello", senderAddress: "0x00", sent: Date().addingTimeInterval(-10)),
@@ -53,6 +54,7 @@ struct MessageListView_Previews: PreviewProvider {
 					DecodedMessage.preview(client: client, topic: "foo",body: "🧐", senderAddress: "0x00", sent: Date().addingTimeInterval(-5)),
 				]
 			)
+            // swiftlint: enable comma
 		}
 	}
 }

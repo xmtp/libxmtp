@@ -60,7 +60,6 @@ struct MessageTextView: View {
 		} catch {
 			return message.fallbackContent
 		}
-		// swiftlint:enable force_try
 	}
 
 	var background: Color {

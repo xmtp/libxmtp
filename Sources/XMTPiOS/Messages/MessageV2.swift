@@ -98,7 +98,7 @@ extension MessageV2 {
 		let signedBytes = try signedContent.serializedData()
 
 		let ciphertext = try Crypto.encrypt(keyMaterial, signedBytes, additionalData: headerBytes)
-		
+
 		let thirtyDayPeriodsSinceEpoch = Int(date.timeIntervalSince1970 / 60 / 60 / 24 / 30)
 		let info = "\(thirtyDayPeriodsSinceEpoch)-\(client.address)"
 		guard let infoEncoded = info.data(using: .utf8) else {
@@ -106,7 +106,7 @@ extension MessageV2 {
 		}
 
 		let senderHmac = try Crypto.generateHmacSignature(secret: keyMaterial, info: infoEncoded, message: headerBytes)
-		
+
 		let decoded = try codec.decode(content: encodedContent, client: client)
 		let calculatedShouldPush = try codec.shouldPush(content: decoded)
 

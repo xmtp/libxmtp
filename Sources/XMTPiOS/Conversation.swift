@@ -89,7 +89,7 @@ public enum Conversation: Sendable {
 			return group.peerAddresses.joined(separator: ",")
 		}
 	}
-	
+
 	public var peerAddresses: [String] {
 		switch self {
 		case let .v1(conversationV1):
@@ -100,7 +100,7 @@ public enum Conversation: Sendable {
 			return group.peerAddresses
 		}
 	}
-	
+
 	public var keyMaterial: Data? {
 		switch self {
 		case let .v1(conversationV1):
@@ -182,7 +182,7 @@ public enum Conversation: Sendable {
 			throw GroupError.notSupportedByGroups
 		}
 	}
-    
+
     public func prepareMessage(encodedContent: EncodedContent, options: SendOptions? = nil) async throws -> PreparedMessage {
         switch self {
         case let .v1(conversationV1):

@@ -89,6 +89,7 @@ public final class Client {
 	let apiClient: ApiClient
 	let v3Client: LibXMTP.FfiXmtpClient?
 	public let libXMTPVersion: String = getVersionInfo()
+	let dbPath: String = ""
 
 	/// Access ``Conversations`` for this Client.
 	public lazy var conversations: Conversations = .init(client: self)
@@ -132,7 +133,7 @@ public final class Client {
 	) async throws -> FfiXmtpClient? {
 		if options?.mlsAlpha == true, options?.api.env.supportsMLS == true {
 			let dbURL = options?.mlsDbPath ?? URL.documentsDirectory.appendingPathComponent("xmtp-\(options?.api.env.rawValue ?? "")-\(address).db3").path
-			
+
 			var encryptionKey = options?.mlsEncryptionKey
 			if (encryptionKey == nil) {
 				let preferences = UserDefaults.standard
@@ -146,7 +147,7 @@ public final class Client {
 					encryptionKey = preferences.data(forKey: key)
 				}
 			}
-			
+
 			let v3Client = try await LibXMTP.createClient(
 				logger: XMTPLogger(),
 				host: (options?.api.env ?? .local).url,
@@ -168,7 +169,7 @@ public final class Client {
 			} else {
 				try await v3Client.registerIdentity(recoverableWalletSignature: nil)
 			}
-			
+
 			print("LibXMTP \(getVersionInfo())")
 
 			return v3Client
@@ -250,15 +251,14 @@ public final class Client {
 
 		return try await v3Client.canMessage(accountAddresses: [address]) == [true]
 	}
-	
+
 	public func canMessageV3(addresses: [String]) async throws -> Bool {
 		guard let v3Client else {
 			return false
 		}
-		
+
 		return try await !v3Client.canMessage(accountAddresses: addresses).contains(false)
 	}
-
 
 	public static func from(bundle: PrivateKeyBundle, options: ClientOptions? = nil) async throws -> Client {
 		return try await from(v1Bundle: bundle.v1, options: options)
@@ -280,7 +280,7 @@ public final class Client {
 			privateKeyBundleV1: v1Bundle,
 			signingKey: nil
 		)
-		
+
 		let client = try await LibXMTP.createV2Client(host: options.api.env.url, isSecure: options.api.env.isSecure)
 		let apiClient = try GRPCApiClient(
 			environment: options.api.env,
@@ -449,6 +449,20 @@ public final class Client {
 
 	public func subscribe(topics: [Topic]) -> AsyncThrowingStream<Envelope, Error> {
 		return subscribe(topics: topics.map(\.description))
+	}
+
+	public func deleteLocalDatabase() {
+		let fm = FileManager.default
+		let url = URL(string: dbPath)
+		if (url != nil) {
+			do {
+				// swiftlint: disable force_unwrapping
+				try fm.removeItem(at: url!)
+				// swiftlint: enable force_unwrapping
+			} catch {
+				print("Error deleting file: \(dbPath)")
+			}
+		}
 	}
 
 	func getUserContact(peerAddress: String) async throws -> ContactBundle? {

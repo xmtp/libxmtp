@@ -42,7 +42,7 @@ public struct Group: Identifiable, Equatable, Hashable {
 	public var id: Data {
 		ffiGroup.id()
 	}
-	
+
 	func metadata() throws -> FfiGroupMetadata {
 		return try ffiGroup.groupMetadata()
 	}
@@ -58,11 +58,11 @@ public struct Group: Identifiable, Equatable, Hashable {
 	public func hash(into hasher: inout Hasher) {
 		id.hash(into: &hasher)
 	}
-	
+
 	public func isActive() throws -> Bool {
 		return try ffiGroup.isActive()
 	}
-	
+
 	public func isAdmin() throws -> Bool {
 		return try metadata().creatorAccountAddress().lowercased() == client.address.lowercased()
 	}
@@ -74,7 +74,7 @@ public struct Group: Identifiable, Equatable, Hashable {
 	public func adminAddress() throws -> String {
 		return try metadata().creatorAccountAddress()
 	}
-	
+
 	public var memberAddresses: [String] {
 		do {
 			return try ffiGroup.listMembers().map(\.fromFFI.accountAddress)
@@ -82,7 +82,7 @@ public struct Group: Identifiable, Equatable, Hashable {
 			return []
 		}
 	}
-	
+
 	public var peerAddresses: [String] {
 		var addresses = memberAddresses.map(\.localizedLowercase)
 		if let index = addresses.firstIndex(of: client.address.localizedLowercase) {
@@ -103,17 +103,16 @@ public struct Group: Identifiable, Equatable, Hashable {
 		try await ffiGroup.removeMembers(accountAddresses: addresses)
 	}
 
-
 	public func send<T>(content: T, options: SendOptions? = nil) async throws -> String {
 		let preparedMessage = try await prepareMessage(content: content, options: options)
 		return try await send(encodedContent: preparedMessage)
 	}
-	
+
 	public func send(encodedContent: EncodedContent) async throws -> String {
 		try await ffiGroup.send(contentBytes: encodedContent.serializedData())
 		return id.toHex
 	}
-	
+
 	public func prepareMessage<T>(content: T, options: SendOptions?) async throws -> EncodedContent {
 		let codec = client.codecRegistry.find(for: options?.contentType)
 
@@ -126,7 +125,7 @@ public struct Group: Identifiable, Equatable, Hashable {
 		}
 
 		var encoded = try encode(codec: codec, content: content)
-		
+
 		func fallback<Codec: ContentCodec>(codec: Codec, content: Any) throws -> String? {
 			if let content = content as? Codec.T {
 				return try codec.fallback(content: content)
@@ -134,11 +133,11 @@ public struct Group: Identifiable, Equatable, Hashable {
 				throw CodecError.invalidContent
 			}
 		}
-		
+
 		if let fallback = try fallback(codec: codec, content: content) {
 			encoded.fallback = fallback
 		}
-		
+
 		if let compression = options?.compression {
 			encoded = try encoded.compress(compression)
 		}
@@ -169,7 +168,7 @@ public struct Group: Identifiable, Equatable, Hashable {
 			}
 		}
 	}
-	
+
 	public func streamDecryptedMessages() -> AsyncThrowingStream<DecryptedMessage, Error> {
 		AsyncThrowingStream { continuation in
 			Task.detached {
@@ -216,7 +215,7 @@ public struct Group: Identifiable, Equatable, Hashable {
 			return messages.reversed()
 		}
 	}
-	
+
 	public func decryptedMessages(before: Date? = nil, after: Date? = nil, limit: Int? = nil, direction: PagingInfoSortDirection? = .descending) async throws -> [DecryptedMessage] {
 		var options = FfiListMessagesOptions(sentBeforeNs: nil, sentAfterNs: nil, limit: nil)
 
@@ -242,6 +241,5 @@ public struct Group: Identifiable, Equatable, Hashable {
 		default:
 			return messages.reversed()
 		}
-
 	}
 }

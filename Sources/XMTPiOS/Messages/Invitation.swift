@@ -16,7 +16,7 @@ extension InvitationV1 {
 		let context = context ?? InvitationV1.Context()
         let myAddress = try sender.toV1().walletAddress
         let theirAddress = try recipient.walletAddress
-        
+
 		let secret = try sender.sharedSecret(
 				peer: recipient,
 				myPreKey: sender.preKeys[0].publicKey,

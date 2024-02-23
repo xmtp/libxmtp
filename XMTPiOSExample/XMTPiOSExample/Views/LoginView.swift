@@ -6,11 +6,10 @@
 //
 
 import SwiftUI
+import Combine
 import WebKit
 import XMTPiOS
 import WalletConnectRelay
-import Combine
-import SwiftUI
 import WalletConnectModal
 import Starscream
 
@@ -111,7 +110,7 @@ struct LoginView: View {
 	var publishers: [AnyCancellable] = []
 
 	@State private var isShowingWebview = true
-
+    // swiftlint:disable function_body_length
 	init(
 		onConnected: @escaping (Client) -> Void
 	) {
@@ -141,8 +140,8 @@ struct LoginView: View {
 			"eip155": ProposalNamespace(
 				chains: [
 					// swiftlint:disable force_unwrapping
-					Blockchain("eip155:80001")!,        //Polygon Testnet
-					Blockchain("eip155:421613")!        //Arbitrum Testnet
+					Blockchain("eip155:80001")!,        // Polygon Testnet
+					Blockchain("eip155:421613")!        // Arbitrum Testnet
 					// swiftlint:enable force_unwrapping
 				],
 				methods: [
@@ -182,6 +181,7 @@ struct LoginView: View {
 			}
 			.store(in: &publishers)
 	}
+    // swiftlint:enable function_body_length
 
 	var body: some View {
 		ModalWrapper()

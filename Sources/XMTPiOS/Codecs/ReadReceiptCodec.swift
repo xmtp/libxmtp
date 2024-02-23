@@ -32,11 +32,11 @@ public struct ReadReceiptCodec: ContentCodec {
     public func decode(content: EncodedContent, client _: Client) throws -> ReadReceipt {
         return ReadReceipt()
     }
-    
+
     public func fallback(content: ReadReceipt) throws -> String? {
         return nil
     }
-	
+
 	public func shouldPush(content: ReadReceipt) throws -> Bool {
 		return false
 	}

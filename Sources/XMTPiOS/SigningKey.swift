@@ -35,7 +35,7 @@ extension SigningKey {
 		slimKey.secp256K1Uncompressed = identity.publicKey.secp256K1Uncompressed
 
 		try await preCreateIdentityCallback?()
-    
+
 		let signatureText = Signature.createIdentityText(key: try slimKey.serializedData())
 		let signature = try await sign(message: signatureText)
 

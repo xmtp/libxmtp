@@ -238,6 +238,7 @@
 				A628198B292DC825004B9117 /* Sources */,
 				A628198C292DC825004B9117 /* Frameworks */,
 				A628198D292DC825004B9117 /* Resources */,
+				636E6B4E2B890E7300B43B62 /* Code Linter: SwiftLint */,
 				A65F0701297B5BCC00C3C76E /* Embed Foundation Extensions */,
 			);
 			buildRules = (
@@ -343,6 +344,28 @@
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 /* End PBXResourcesBuildPhase section */
+
+/* Begin PBXShellScriptBuildPhase section */
+		636E6B4E2B890E7300B43B62 /* Code Linter: SwiftLint */ = {
+			isa = PBXShellScriptBuildPhase;
+			alwaysOutOfDate = 1;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputFileListPaths = (
+			);
+			inputPaths = (
+			);
+			name = "Code Linter: SwiftLint";
+			outputFileListPaths = (
+			);
+			outputPaths = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "if [ $ACTION != \"indexbuild\" ]; then\n  if which swiftlint >/dev/null; then\n    swiftlint lint --strict\n  else \n    echo \"warning: SwiftLint not installed, install it via Homebrew according to README instructions\"\n  fi\nfi\n\n";
+		};
+/* End PBXShellScriptBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
 		A628198B292DC825004B9117 /* Sources */ = {

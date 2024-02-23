@@ -7,7 +7,6 @@
 
 import Foundation
 
-
 public let ContentTypeReaction = ContentTypeID(authorityID: "xmtp.org", typeID: "reaction", versionMajor: 1, versionMinor: 0)
 
 public struct Reaction: Codable {
@@ -15,7 +14,7 @@ public struct Reaction: Codable {
     public var action: ReactionAction
     public var content: String
     public var schema: ReactionSchema
-    
+
     public init(reference: String, action: ReactionAction, content: String, schema: ReactionSchema) {
         self.reference = reference
         self.action = action
@@ -26,7 +25,7 @@ public struct Reaction: Codable {
 
 public enum ReactionAction: String, Codable {
     case added, removed, unknown
-    
+
     public init(rawValue: String) {
         switch rawValue {
         case "added":
@@ -41,7 +40,7 @@ public enum ReactionAction: String, Codable {
 
 public enum ReactionSchema: String, Codable {
     case unicode, shortcode, custom, unknown
-    
+
     public init(rawValue: String) {
         switch rawValue {
         case "unicode":
@@ -85,8 +84,9 @@ public struct ReactionCodec: ContentCodec {
             content: String(data: content.content, encoding: .utf8) ?? "",
             schema: ReactionSchema(rawValue: content.parameters["schema"] ?? "")
         )
+		// swiftlint:enable no_optional_try
     }
-    
+
     public func fallback(content: Reaction) throws -> String? {
         switch content.action {
         case .added:
@@ -97,7 +97,7 @@ public struct ReactionCodec: ContentCodec {
             return nil
         }
     }
-	
+
 	public func shouldPush(content: Reaction) throws -> Bool {
 		switch content.action {
 		case .added:

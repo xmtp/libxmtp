@@ -152,12 +152,10 @@ struct ConversationListView: View {
 					print("Error saving \(conversation.topic): \(error)")
 				}
 			case .group:
-				// TODO: handle
+				// Handle this in the future
 				return
 			}
 		}
-
-
 	}
 }
 

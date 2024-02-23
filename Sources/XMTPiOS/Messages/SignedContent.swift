@@ -7,7 +7,6 @@
 
 import Foundation
 
-
 typealias SignedContent = Xmtp_MessageContents_SignedContent
 
 extension SignedContent {

@@ -149,7 +149,7 @@ public struct RemoteAttachment {
 }
 
 public struct RemoteAttachmentCodec: ContentCodec {
-    
+
 	public typealias T = RemoteAttachment
 
 	public init() {}
@@ -207,7 +207,7 @@ public struct RemoteAttachmentCodec: ContentCodec {
 
 		return attachment
 	}
-    
+
     public func fallback(content: RemoteAttachment) throws -> String? {
         return "Can’t display “\(String(describing: content.filename))”. This app doesn’t support attachments."
     }
@@ -223,7 +223,7 @@ public struct RemoteAttachmentCodec: ContentCodec {
 
 		return Data(parameterData)
 	}
-	
+
 	public func shouldPush(content: RemoteAttachment) throws -> Bool {
 		return true
 	}

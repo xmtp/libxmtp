@@ -7,7 +7,6 @@
 
 import Foundation
 
-
 public typealias PrivateKeyBundle = Xmtp_MessageContents_PrivateKeyBundle
 
 enum PrivateKeyBundleError: Error {
@@ -23,9 +22,9 @@ extension PrivateKeyBundle {
 	func encrypted(with key: SigningKey, preEnableIdentityCallback: PreEventCallback? = nil) async throws -> EncryptedPrivateKeyBundle {
 		let bundleBytes = try serializedData()
 		let walletPreKey = try Crypto.secureRandomBytes(count: 32)
-    
+
 		try await preEnableIdentityCallback?()
-    
+
 		let signature = try await key.sign(message: Signature.enableIdentityText(key: walletPreKey))
 		let cipherText = try Crypto.encrypt(signature.rawDataWithNormalizedRecovery, bundleBytes)
 

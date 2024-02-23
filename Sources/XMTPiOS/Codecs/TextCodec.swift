@@ -14,7 +14,7 @@ enum TextCodecError: Error {
 }
 
 public struct TextCodec: ContentCodec {
-    
+
 	public typealias T = String
 
 	public init() {	}
@@ -42,11 +42,11 @@ public struct TextCodec: ContentCodec {
 			throw TextCodecError.unknownDecodingError
 		}
 	}
-    
+
     public func fallback(content: String) throws -> String? {
         return nil
     }
-	
+
 	public func shouldPush(content: String) throws -> Bool {
 		return true
 	}
