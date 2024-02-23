@@ -1,0 +1,127 @@
+name: Release CLI
+on:
+  push:
+    branches:
+      - main
+jobs:
+  build:
+    strategy:
+      fail-fast: true
+      matrix:
+        build:
+          - linux-x86_64
+          #   Windows is erroring right now
+          #   - windows-x86_64-gnu
+          - macos-aarch64
+        include:
+          - build: linux-x86_64
+            os: warp-ubuntu-latest-x64-16x
+            target: x86_64-unknown-linux-musl
+          - build: macos-aarch64
+            os: warp-macos-13-arm64-6x
+            target: aarch64-apple-darwin
+        #   - build: windows-x86_64-gnu
+        #     os: windows-latest
+        #     target: x86_64-pc-windows-gnu
+    runs-on: ${{ matrix.os }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v1
+
+      - name: "Cache"
+        uses: actions/cache@v3
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            ./examples/cli/target/${{ matrix.target }}
+          key: ${{ matrix.target }}-${{ hashFiles('**/Cargo.toml','**/Cargo.lock') }}
+
+      - run: sudo apt install musl-tools
+        if: ${{ matrix.target == 'x86_64-unknown-linux-musl' }}
+      - name: Install rust
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+          profile: minimal
+          override: true
+          target: ${{ matrix.target }}
+
+      - name: Install openssl windows
+        if: ${{ matrix.build == 'windows-x86_64-gnu' }}
+        uses: crazy-max/ghaction-chocolatey@v3
+        with:
+          args: install openssl
+
+      - name: Build target
+        uses: actions-rs/cargo@v1
+        if:
+        with:
+          use-cross: false
+          command: build
+          args: --release --target ${{ matrix.target }} --manifest-path examples/cli/Cargo.toml --target-dir examples/cli/target
+
+      - name: Upload binary
+        uses: actions/upload-artifact@v3
+        with:
+          name: ${{ matrix.build }}
+          path: examples/cli/target/${{ matrix.target }}/release/xmtp_cli*
+          retention-days: 1
+
+  release:
+    needs: ["build"]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v1
+
+      - name: Download artifacts
+        uses: actions/download-artifact@v3
+        with:
+          path: ./artifacts
+
+      - name: Get short SHA
+        id: slug
+        run: echo "::set-output name=sha7::$(echo ${GITHUB_SHA} | cut -c1-7)"
+
+      - name: Create Release
+        id: create_release
+        uses: actions/create-release@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tag_name: cli-${{ steps.slug.outputs.sha7 }}
+          release_name: cli-${{ steps.slug.outputs.sha7 }}
+          body: "Release of cli for commit ${{ github.sha}}"
+          draft: false
+          prerelease: true
+
+      #   - name: Upload Release Asset
+      #     uses: actions/upload-release-asset@v1
+      #     env:
+      #       GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      #     with:
+      #       upload_url: ${{ steps.create_release.outputs.upload_url }}
+      #       asset_path: ./examples/cli/target/x86_64-pc-windows-gnu.exe
+      #       asset_name: cli-x86_64-pc-windows-gnu.exe
+      #       asset_content_type: application/octet-stream
+
+      - name: Upload Release Asset
+        uses: actions/upload-release-asset@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: ${{ steps.create_release.outputs.upload_url }}
+          asset_path: ./artifacts/macos-aarch64/xmtp_cli
+          asset_name: cli-macos-aarch64
+          asset_content_type: application/octet-stream
+
+      - name: Upload Release Asset
+        uses: actions/upload-release-asset@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: ${{ steps.create_release.outputs.upload_url }}
+          asset_path: ./artifacts/linux-x86_64/xmtp_cli
+          asset_name: cli-linux-x86_64
+          asset_content_type: application/octet-stream

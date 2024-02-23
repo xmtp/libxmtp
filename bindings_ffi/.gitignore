@@ -7,7 +7,7 @@ tags
 
 # Ignore intermediate build files
 *.a
-LibXMTPRust.xcframework
+LibXMTPSwiftFFI.xcframework
 /target
 /build
 

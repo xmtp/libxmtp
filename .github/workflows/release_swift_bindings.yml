@@ -105,7 +105,7 @@ jobs:
           mv build/swift/xmtpv3.swift Sources/LibXMTP/
           make framework
           cp ../LICENSE ./LICENSE
-          zip -r LibXMTPSwiftFFI.zip Sources LibXMTPRust.xcframework LICENSE
+          zip -r LibXMTPSwiftFFI.zip Sources LibXMTPSwiftFFI.xcframework LICENSE
 
       - name: Calculate checksum
         id: checksum
