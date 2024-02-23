@@ -267,7 +267,7 @@ where
                     convo.group_id,
                     MessagesStreamInfo {
                         convo_created_at_ns: convo.created_at_ns,
-                        cursor: 0,
+                        cursor: 1, // Stream all messages since the group was created
                     },
                 );
 
