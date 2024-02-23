@@ -53,9 +53,17 @@ mod tests {
         let client = Client::create(LOCALHOST_ADDRESS.to_string(), false)
             .await
             .unwrap();
-        let req = BatchQueryRequest { requests: vec![] };
+        let req = BatchQueryRequest {
+            requests: vec![QueryRequest {
+                content_topics: vec!["test".to_string()],
+                start_time_ns: 0,
+                end_time_ns: 0,
+                paging_info: None,
+            }],
+        };
         let result = client.batch_query(req).await.unwrap();
-        assert_eq!(result.responses.len(), 0);
+        assert_eq!(result.responses.len(), 1);
+        assert_eq!(result.responses[0].envelopes.len(), 0);
     }
 
     #[tokio::test]
