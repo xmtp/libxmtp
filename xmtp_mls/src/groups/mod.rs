@@ -164,6 +164,7 @@ where
     }
 
     // Create a new group and save it to the DB
+    #[allow(clippy::unwrap_or_default)]
     pub fn create_and_insert(
         client: &'c Client<ApiClient>,
         membership_state: GroupMembershipState,

@@ -183,7 +183,7 @@ impl EncryptedMessageStore {
 }
 
 #[allow(dead_code)]
-fn warn_length<T>(list: &Vec<T>, str_id: &str, max_length: usize) {
+fn warn_length<T>(list: &[T], str_id: &str, max_length: usize) {
     if list.len() > max_length {
         warn!(
             "EncryptedStore expected at most {} {} however found {}. Using the Oldest.",
