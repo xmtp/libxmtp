@@ -345,8 +345,9 @@ pub(crate) fn policy_group_creator_is_admin() -> PolicySet {
     )
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Default)]
 pub enum PreconfiguredPolicies {
+    #[default]
     EveryoneIsAdmin,
     GroupCreatorIsAdmin,
 }
@@ -370,9 +371,9 @@ impl PreconfiguredPolicies {
     }
 }
 
-impl Default for PreconfiguredPolicies {
-    fn default() -> Self {
-        PreconfiguredPolicies::EveryoneIsAdmin
+impl std::fmt::Display for PreconfiguredPolicies {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        write!(f, "{:?}", self)
     }
 }
 
