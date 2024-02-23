@@ -6,7 +6,7 @@ CREATE TABLE groups (
     -- Enum of GROUP_MEMBERSHIP_STATE
     "membership_state" INT NOT NULL,
     -- Last time the installations were checked for the purpose of seeing if any are missing
-    "installations_last_checked" BIGINT NOT NULL
+    "installation_list_last_checked" BIGINT NOT NULL
 );
 
 -- Allow for efficient sorting of groups
