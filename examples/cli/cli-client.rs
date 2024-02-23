@@ -84,6 +84,10 @@ enum Commands {
         #[arg(value_name = "Message")]
         msg: String,
     },
+    GroupInfo {
+        #[arg(value_name = "Group ID")]
+        group_id: String,
+    },
     ListGroupMessages {
         #[arg(value_name = "Group ID")]
         group_id: String,
@@ -313,7 +317,17 @@ async fn main() {
             let group_id = hex::encode(group.group_id);
             info!("Created group {}", group_id, { command_output: true, group_id: group_id})
         }
-
+        Commands::GroupInfo { group_id } => {
+            let client = create_client(&cli, IdentityStrategy::CachedOnly)
+                .await
+                .unwrap();
+            let group = &client
+                .group(hex::decode(group_id).expect("bad group id"))
+                .expect("group not found");
+            group.sync().await.unwrap();
+            let serializable: SerializableGroup = group.into();
+            info!("Group {}", group_id, { command_output: true, group_id: group_id, group_info: make_value(&serializable) })
+        }
         Commands::Clear {} => {
             fs::remove_file(cli.db.unwrap()).unwrap();
         }
