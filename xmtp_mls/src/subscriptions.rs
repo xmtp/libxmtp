@@ -134,11 +134,11 @@ where
                 match res.await {
                     Ok(Some(message)) => Some(message),
                     Ok(None) => {
-                        log::error!("Skipped message streaming payload");
+                        log::info!("Skipped message streaming payload");
                         None
                     }
                     Err(err) => {
-                        log::error!("Error processing stream entry: {:?}", err);
+                        log::info!("Error processing stream entry: {:?}", err);
                         None
                     }
                 }
