@@ -1019,7 +1019,6 @@ mod tests {
         assert_eq!(stream_callback.message_count(), 2);
         assert!(!stream_closer.is_closed());
 
-        // These messages should error in Bola's stream
         amal_group
             .remove_members(vec![bola.account_address()])
             .await

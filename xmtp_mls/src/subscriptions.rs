@@ -82,6 +82,7 @@ where
 
         let stream = subscription
             .map(|welcome_result| async {
+                log::info!("Received conversation streaming payload");
                 let welcome = welcome_result?;
                 self.process_streamed_welcome(welcome)
             })
@@ -113,6 +114,7 @@ where
                 async move {
                     match res {
                         Ok(envelope) => {
+                            log::info!("Received message streaming payload");
                             let group_id = extract_group_id(&envelope)?;
                             let stream_info = group_id_to_info.get(&group_id).ok_or(
                                 ClientError::StreamInconsistency(
@@ -131,7 +133,10 @@ where
             .filter_map(move |res| async {
                 match res.await {
                     Ok(Some(message)) => Some(message),
-                    Ok(None) => None,
+                    Ok(None) => {
+                        log::error!("Skipped message streaming payload");
+                        None
+                    }
                     Err(err) => {
                         log::error!("Error processing stream entry: {:?}", err);
                         None
