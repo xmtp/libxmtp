@@ -74,12 +74,15 @@ where
         conn: &'a DbConnection<'a>,
     ) -> Result<(), GroupError> {
         let mut errors: Vec<GroupError> = vec![];
+        log::info!("Sync1");
 
         // Even if publish fails, continue to receiving
         if let Err(publish_error) = self.publish_intents(conn).await {
             log::error!("error publishing intents {:?}", publish_error);
             errors.push(publish_error);
         }
+
+        log::info!("Sync2");
 
         // Even if receiving fails, continue to post_commit
         if let Err(receive_error) = self.receive(conn).await {
@@ -89,15 +92,21 @@ where
             // added to the group
         }
 
+        log::info!("Sync3");
+
         if let Err(post_commit_err) = self.post_commit(conn).await {
             log::error!("post commit error {:?}", post_commit_err);
             errors.push(post_commit_err);
         }
 
+        log::info!("Sync4");
+
         // Return a combination of publish and post_commit errors
         if !errors.is_empty() {
             return Err(GroupError::Sync(errors));
         }
+
+        log::info!("Sync5");
 
         Ok(())
     }

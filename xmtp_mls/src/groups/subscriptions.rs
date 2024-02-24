@@ -30,6 +30,7 @@ where
         });
 
         if let Some(GroupError::ReceiveError(_)) = process_result.err() {
+            log::info!("Re-syncing due to unreadable messaging stream payload");
             self.sync().await?;
         }
 
