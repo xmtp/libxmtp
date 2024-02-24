@@ -1,5 +1,11 @@
 # @xmtp/ecies-bindings-wasm
 
+## 0.3.6
+
+### Patch Changes
+
+- e545fe7: Remove ESM export and type
+
 ## 0.3.5
 
 ### Patch Changes
