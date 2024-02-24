@@ -132,7 +132,10 @@ where
             })
             .filter_map(move |res| async {
                 match res.await {
-                    Ok(Some(message)) => Some(message),
+                    Ok(Some(message)) => {
+                        log::info!("Message processed successfully");
+                        Some(message)
+                    }
                     Ok(None) => {
                         log::info!("Skipped message streaming payload");
                         None
