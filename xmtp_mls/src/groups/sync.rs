@@ -367,6 +367,10 @@ where
             }
             // No matching intent found
             Ok(None) => {
+                log::info!(
+                    "Calling process_external_message {}",
+                    self.client.account_address()
+                );
                 let res = self.process_external_message(
                     openmls_group,
                     provider,
@@ -374,7 +378,10 @@ where
                     envelope.created_ns,
                     allow_epoch_increment,
                 );
-                log::info!("process_external_message return");
+                log::info!(
+                    "process_external_message return {}",
+                    self.client.account_address()
+                );
                 log::info!("process_external_message result {:?}", res);
                 res
             }

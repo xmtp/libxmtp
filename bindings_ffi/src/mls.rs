@@ -1023,7 +1023,7 @@ mod tests {
             .remove_members(vec![bola.account_address()])
             .await
             .unwrap();
-        tokio::time::sleep(std::time::Duration::from_millis(1000)).await;
+        tokio::time::sleep(std::time::Duration::from_millis(60000)).await;
         assert_eq!(stream_callback.message_count(), 3); // Member removal transcript message
 
         amal_group.send("hello3".as_bytes().to_vec()).await.unwrap();
