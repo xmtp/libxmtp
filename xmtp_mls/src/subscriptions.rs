@@ -121,12 +121,19 @@ where
                                     "Received message for a non-subscribed group".to_string(),
                                 ),
                             )?;
+                            log::info!("Processing stream entry");
                             // TODO update cursor
-                            MlsGroup::new(self, group_id, stream_info.convo_created_at_ns)
-                                .process_stream_entry(envelope)
-                                .await
+                            let result =
+                                MlsGroup::new(self, group_id, stream_info.convo_created_at_ns)
+                                    .process_stream_entry(envelope)
+                                    .await;
+                            log::info!("Finished processing stream entry");
+                            result
                         }
-                        Err(err) => Err(GroupError::Api(err)),
+                        Err(err) => {
+                            log::info!("Got API error");
+                            Err(GroupError::Api(err))
+                        }
                     }
                 }
             })

@@ -21,10 +21,12 @@ where
     ) -> Result<Option<StoredGroupMessage>, GroupError> {
         let msgv1 = extract_message_v1(envelope)?;
 
+        log::info!("Running transaction");
         let process_result = self.client.store.transaction(|provider| {
             let mut openmls_group = self.load_mls_group(&provider)?;
             // Attempt processing immediately, but fail if the message is not an Application Message
             // Returning an error should roll back the DB tx
+            log::info!("Processing message in process_stream_entry");
             self.process_message(&mut openmls_group, &provider, &msgv1, false)
                 .map_err(GroupError::ReceiveError)
         });
@@ -34,6 +36,7 @@ where
             self.sync().await?;
         }
 
+        log::info!("Storing message");
         // Load the message from the DB to handle cases where it may have been already processed in
         // another thread
         let new_message = self
@@ -41,6 +44,7 @@ where
             .store
             .conn()?
             .get_group_message_by_timestamp(&self.group_id, msgv1.created_ns as i64)?;
+        log::info!("Stored message");
 
         Ok(new_message)
     }
