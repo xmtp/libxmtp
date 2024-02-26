@@ -409,6 +409,12 @@ where
             {
                 return Ok(None);
             }
+            log::info!(
+                "{}: Storing a transcript message with {} members added and {} members removed",
+                self.client.account_address(),
+                validated_commit.members_added.len(),
+                validated_commit.members_removed.len()
+            );
             let sender_installation_id = validated_commit.actor_installation_id();
             let sender_account_address = validated_commit.actor_account_address();
             let payload: GroupMembershipChanges = validated_commit.into();
