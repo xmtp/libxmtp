@@ -121,7 +121,7 @@ where
                                     "Received message for a non-subscribed group".to_string(),
                                 ),
                             )?;
-                            log::info!("Processing stream entry");
+                            log::info!("Processing stream entry {}", self.account_address());
                             // TODO update cursor
                             let result =
                                 MlsGroup::new(self, group_id, stream_info.convo_created_at_ns)

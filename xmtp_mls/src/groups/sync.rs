@@ -166,6 +166,7 @@ where
         envelope_timestamp_ns: u64,
         allow_epoch_increment: bool,
     ) -> Result<(), MessageProcessingError> {
+        log::info!("Process own message {}", self.client.account_address());
         if intent.state == IntentState::Committed {
             return Ok(());
         }
@@ -252,12 +253,14 @@ where
             "[{}] processing private message",
             self.client.account_address()
         );
+        log::info!("process_external_message {}", self.client.account_address());
         let decrypted_message = openmls_group.process_message(provider, message)?;
         let (sender_account_address, sender_installation_id) =
             validate_message_sender(openmls_group, &decrypted_message, envelope_timestamp_ns)?;
 
         match decrypted_message.into_content() {
             ProcessedMessageContent::ApplicationMessage(application_message) => {
+                log::info!("Application message {}", self.client.account_address());
                 let message_bytes = application_message.into_bytes();
                 let message_id =
                     get_message_id(&message_bytes, &self.group_id, envelope_timestamp_ns);
@@ -279,6 +282,7 @@ where
                 // intentionally left blank.
             }
             ProcessedMessageContent::StagedCommitMessage(staged_commit) => {
+                log::info!("Staged commit {}", self.client.account_address());
                 if !allow_epoch_increment {
                     return Err(MessageProcessingError::EpochIncrementNotAllowed);
                 }
@@ -288,14 +292,18 @@ where
                 );
 
                 let sc = *staged_commit;
+                log::info!("Staged 1 {}", self.client.account_address());
                 // Validate the commit
                 let validated_commit = ValidatedCommit::from_staged_commit(&sc, openmls_group)?;
+                log::info!("Staged 2 {}", self.client.account_address());
                 openmls_group.merge_staged_commit(provider, sc)?;
+                log::info!("Staged 3 {}", self.client.account_address());
                 self.save_transcript_message(
                     provider.conn(),
                     validated_commit,
                     envelope_timestamp_ns,
                 )?;
+                log::info!("Staged 4 {}", self.client.account_address());
             }
         };
 
@@ -309,6 +317,7 @@ where
         envelope: &GroupMessageV1,
         allow_epoch_increment: bool,
     ) -> Result<(), MessageProcessingError> {
+        log::info!("process message 1 {}", self.client.account_address());
         let mls_message_in = MlsMessageIn::tls_deserialize_exact(&envelope.data)?;
 
         let message = match mls_message_in.extract() {
@@ -318,9 +327,13 @@ where
             )),
         }?;
 
+        log::info!("process message 2 {}", self.client.account_address());
+
         let intent = provider
             .conn()
             .find_group_intent_by_payload_hash(sha256(envelope.data.as_slice()));
+
+        log::info!("process message 3 {}", self.client.account_address());
         match intent {
             // Intent with the payload hash matches
             Ok(Some(intent)) => self.process_own_message(
@@ -331,7 +344,10 @@ where
                 envelope.created_ns,
                 allow_epoch_increment,
             ),
-            Err(err) => Err(MessageProcessingError::Storage(err)),
+            Err(err) => {
+                log::info!("Storage error {}", self.client.account_address());
+                Err(MessageProcessingError::Storage(err))
+            }
             // No matching intent found
             Ok(None) => self.process_external_message(
                 openmls_group,
@@ -411,11 +427,14 @@ where
         timestamp_ns: u64,
     ) -> Result<Option<StoredGroupMessage>, MessageProcessingError> {
         let mut transcript_message = None;
+        log::info!("Transcript {}", self.client.account_address());
         if let Some(validated_commit) = maybe_validated_commit {
+            log::info!("Transcript 2 {}", self.client.account_address());
             // If there are no members added or removed, don't write a transcript message
             if validated_commit.members_added.is_empty()
                 && validated_commit.members_removed.is_empty()
             {
+                log::info!("Transcript 3 {}", self.client.account_address());
                 return Ok(None);
             }
             log::info!(

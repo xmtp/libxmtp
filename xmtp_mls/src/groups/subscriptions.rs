@@ -21,12 +21,15 @@ where
     ) -> Result<Option<StoredGroupMessage>, GroupError> {
         let msgv1 = extract_message_v1(envelope)?;
 
-        log::info!("Running transaction");
+        log::info!("Running transaction {}", self.client.account_address());
         let process_result = self.client.store.transaction(|provider| {
             let mut openmls_group = self.load_mls_group(&provider)?;
             // Attempt processing immediately, but fail if the message is not an Application Message
             // Returning an error should roll back the DB tx
-            log::info!("Processing message in process_stream_entry");
+            log::info!(
+                "Processing message in process_stream_entry {}",
+                self.client.account_address()
+            );
             self.process_message(&mut openmls_group, &provider, &msgv1, false)
                 .map_err(GroupError::ReceiveError)
         });
