@@ -74,12 +74,15 @@ where
         conn: &'a DbConnection<'a>,
     ) -> Result<(), GroupError> {
         let mut errors: Vec<GroupError> = vec![];
+        log::info!("Sync1");
 
         // Even if publish fails, continue to receiving
         if let Err(publish_error) = self.publish_intents(conn).await {
             log::error!("error publishing intents {:?}", publish_error);
             errors.push(publish_error);
         }
+
+        log::info!("Sync2");
 
         // Even if receiving fails, continue to post_commit
         if let Err(receive_error) = self.receive(conn).await {
@@ -89,15 +92,21 @@ where
             // added to the group
         }
 
+        log::info!("Sync3");
+
         if let Err(post_commit_err) = self.post_commit(conn).await {
             log::error!("post commit error {:?}", post_commit_err);
             errors.push(post_commit_err);
         }
 
+        log::info!("Sync4");
+
         // Return a combination of publish and post_commit errors
         if !errors.is_empty() {
             return Err(GroupError::Sync(errors));
         }
+
+        log::info!("Sync5");
 
         Ok(())
     }
@@ -157,6 +166,7 @@ where
         envelope_timestamp_ns: u64,
         allow_epoch_increment: bool,
     ) -> Result<(), MessageProcessingError> {
+        log::info!("Process own message {}", self.client.account_address());
         if intent.state == IntentState::Committed {
             return Ok(());
         }
@@ -243,12 +253,23 @@ where
             "[{}] processing private message",
             self.client.account_address()
         );
+        log::info!("process_external_message {}", self.client.account_address());
         let decrypted_message = openmls_group.process_message(provider, message)?;
+        log::info!(
+            "process_external_message a {}",
+            self.client.account_address()
+        );
         let (sender_account_address, sender_installation_id) =
             validate_message_sender(openmls_group, &decrypted_message, envelope_timestamp_ns)?;
 
+        log::info!(
+            "process_external_message 2 {}",
+            self.client.account_address()
+        );
+
         match decrypted_message.into_content() {
             ProcessedMessageContent::ApplicationMessage(application_message) => {
+                log::info!("Application message {}", self.client.account_address());
                 let message_bytes = application_message.into_bytes();
                 let message_id =
                     get_message_id(&message_bytes, &self.group_id, envelope_timestamp_ns);
@@ -264,12 +285,21 @@ where
                 .store(provider.conn())?;
             }
             ProcessedMessageContent::ProposalMessage(_proposal_ptr) => {
+                log::info!(
+                    "process_external_message 3 {}",
+                    self.client.account_address()
+                );
                 // intentionally left blank.
             }
             ProcessedMessageContent::ExternalJoinProposalMessage(_external_proposal_ptr) => {
+                log::info!(
+                    "process_external_message 4 {}",
+                    self.client.account_address()
+                );
                 // intentionally left blank.
             }
             ProcessedMessageContent::StagedCommitMessage(staged_commit) => {
+                log::info!("Staged commit {}", self.client.account_address());
                 if !allow_epoch_increment {
                     return Err(MessageProcessingError::EpochIncrementNotAllowed);
                 }
@@ -279,14 +309,18 @@ where
                 );
 
                 let sc = *staged_commit;
+                log::info!("Staged 1 {}", self.client.account_address());
                 // Validate the commit
                 let validated_commit = ValidatedCommit::from_staged_commit(&sc, openmls_group)?;
+                log::info!("Staged 2 {}", self.client.account_address());
                 openmls_group.merge_staged_commit(provider, sc)?;
+                log::info!("Staged 3 {}", self.client.account_address());
                 self.save_transcript_message(
                     provider.conn(),
                     validated_commit,
                     envelope_timestamp_ns,
                 )?;
+                log::info!("Staged 4 {}", self.client.account_address());
             }
         };
 
@@ -300,6 +334,7 @@ where
         envelope: &GroupMessageV1,
         allow_epoch_increment: bool,
     ) -> Result<(), MessageProcessingError> {
+        log::info!("process message 1 {}", self.client.account_address());
         let mls_message_in = MlsMessageIn::tls_deserialize_exact(&envelope.data)?;
 
         let message = match mls_message_in.extract() {
@@ -309,9 +344,13 @@ where
             )),
         }?;
 
+        log::info!("process message 2 {}", self.client.account_address());
+
         let intent = provider
             .conn()
             .find_group_intent_by_payload_hash(sha256(envelope.data.as_slice()));
+
+        log::info!("process message 3 {}", self.client.account_address());
         match intent {
             // Intent with the payload hash matches
             Ok(Some(intent)) => self.process_own_message(
@@ -322,15 +361,30 @@ where
                 envelope.created_ns,
                 allow_epoch_increment,
             ),
-            Err(err) => Err(MessageProcessingError::Storage(err)),
+            Err(err) => {
+                log::info!("Storage error {}", self.client.account_address());
+                Err(MessageProcessingError::Storage(err))
+            }
             // No matching intent found
-            Ok(None) => self.process_external_message(
-                openmls_group,
-                provider,
-                message,
-                envelope.created_ns,
-                allow_epoch_increment,
-            ),
+            Ok(None) => {
+                log::info!(
+                    "Calling process_external_message {}",
+                    self.client.account_address()
+                );
+                let res = self.process_external_message(
+                    openmls_group,
+                    provider,
+                    message,
+                    envelope.created_ns,
+                    allow_epoch_increment,
+                );
+                log::info!(
+                    "process_external_message return {}",
+                    self.client.account_address()
+                );
+                log::info!("process_external_message result {:?}", res);
+                res
+            }
         }
     }
 
@@ -402,13 +456,22 @@ where
         timestamp_ns: u64,
     ) -> Result<Option<StoredGroupMessage>, MessageProcessingError> {
         let mut transcript_message = None;
+        log::info!("Transcript {}", self.client.account_address());
         if let Some(validated_commit) = maybe_validated_commit {
+            log::info!("Transcript 2 {}", self.client.account_address());
             // If there are no members added or removed, don't write a transcript message
             if validated_commit.members_added.is_empty()
                 && validated_commit.members_removed.is_empty()
             {
+                log::info!("Transcript 3 {}", self.client.account_address());
                 return Ok(None);
             }
+            log::info!(
+                "Storing a transcript message with {} members added and {} members removed for address {}",
+                validated_commit.members_added.len(),
+                validated_commit.members_removed.len(),
+                self.client.account_address()
+            );
             let sender_installation_id = validated_commit.actor_installation_id();
             let sender_account_address = validated_commit.actor_account_address();
             let payload: GroupMembershipChanges = validated_commit.into();
