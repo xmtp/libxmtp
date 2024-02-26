@@ -30,9 +30,13 @@ where
                 "Processing message in process_stream_entry {}",
                 self.client.account_address()
             );
-            self.process_message(&mut openmls_group, &provider, &msgv1, false)
-                .map_err(GroupError::ReceiveError)
+            let res = self
+                .process_message(&mut openmls_group, &provider, &msgv1, false)
+                .map_err(GroupError::ReceiveError);
+            log::info!("Got process message result {:?}", res);
+            res
         });
+        log::info!("Got process_result {:?}", process_result);
 
         if let Some(GroupError::ReceiveError(_)) = process_result.err() {
             log::info!("Re-syncing due to unreadable messaging stream payload");

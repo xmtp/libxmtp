@@ -255,8 +255,17 @@ where
         );
         log::info!("process_external_message {}", self.client.account_address());
         let decrypted_message = openmls_group.process_message(provider, message)?;
+        log::info!(
+            "process_external_message a {}",
+            self.client.account_address()
+        );
         let (sender_account_address, sender_installation_id) =
             validate_message_sender(openmls_group, &decrypted_message, envelope_timestamp_ns)?;
+
+        log::info!(
+            "process_external_message 2 {}",
+            self.client.account_address()
+        );
 
         match decrypted_message.into_content() {
             ProcessedMessageContent::ApplicationMessage(application_message) => {
@@ -276,9 +285,17 @@ where
                 .store(provider.conn())?;
             }
             ProcessedMessageContent::ProposalMessage(_proposal_ptr) => {
+                log::info!(
+                    "process_external_message 3 {}",
+                    self.client.account_address()
+                );
                 // intentionally left blank.
             }
             ProcessedMessageContent::ExternalJoinProposalMessage(_external_proposal_ptr) => {
+                log::info!(
+                    "process_external_message 4 {}",
+                    self.client.account_address()
+                );
                 // intentionally left blank.
             }
             ProcessedMessageContent::StagedCommitMessage(staged_commit) => {
