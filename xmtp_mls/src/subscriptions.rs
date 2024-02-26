@@ -88,7 +88,12 @@ where
             })
             .filter_map(|res| async {
                 match res.await {
-                    Ok(group) => Some(group),
+                    Ok(group) => {
+                        if let Err(err) = self.rotate_key_package().await {
+                            log::error!("Error rotating key package: {:?}", err);
+                        }
+                        Some(group)
+                    },
                     Err(err) => {
                         log::error!("Error processing stream entry: {:?}", err);
                         None
