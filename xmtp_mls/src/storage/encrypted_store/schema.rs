@@ -22,6 +22,7 @@ diesel::table! {
         kind -> Integer,
         sender_installation_id -> Binary,
         sender_account_address -> Text,
+        delivery_status -> Text,
     }
 }
 
