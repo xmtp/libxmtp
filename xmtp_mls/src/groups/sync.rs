@@ -366,13 +366,18 @@ where
                 Err(MessageProcessingError::Storage(err))
             }
             // No matching intent found
-            Ok(None) => self.process_external_message(
-                openmls_group,
-                provider,
-                message,
-                envelope.created_ns,
-                allow_epoch_increment,
-            ),
+            Ok(None) => {
+                let res = self.process_external_message(
+                    openmls_group,
+                    provider,
+                    message,
+                    envelope.created_ns,
+                    allow_epoch_increment,
+                );
+                log::info!("process_external_message return");
+                log::info!("process_external_message result {:?}", res);
+                res
+            }
         }
     }
 
