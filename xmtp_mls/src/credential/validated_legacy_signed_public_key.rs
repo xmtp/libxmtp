@@ -108,8 +108,8 @@ impl TryFrom<LegacySignedPublicKeyProto> for ValidatedLegacySignedPublicKey {
 
         Ok(Self {
             account_address,
-            wallet_signature: wallet_signature,
-            serialized_key_data: serialized_key_data,
+            wallet_signature,
+            serialized_key_data,
             public_key_bytes,
             created_ns,
         })

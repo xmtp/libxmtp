@@ -5,7 +5,7 @@ CREATE TABLE groups (
     "created_at_ns" BIGINT NOT NULL,
     -- Enum of GROUP_MEMBERSHIP_STATE
     "membership_state" INT NOT NULL,
-    -- Last time the installation list was checked for the purpose of seeing if any are missing
+    -- Last time the installations were checked for the purpose of seeing if any are missing
     "installation_list_last_checked" BIGINT NOT NULL
 );
 

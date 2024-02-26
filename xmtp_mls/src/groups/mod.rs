@@ -164,6 +164,7 @@ where
     }
 
     // Create a new group and save it to the DB
+    #[allow(clippy::unwrap_or_default)]
     pub fn create_and_insert(
         client: &'c Client<ApiClient>,
         membership_state: GroupMembershipState,
@@ -236,8 +237,7 @@ where
         let conn = &mut self.client.store.conn()?;
 
         let update_interval = Some(5_000_000); // 5 seconds in ns
-
-        self.maybe_update_installation_list(conn, update_interval)
+        self.maybe_update_installations(conn, update_interval)
             .await?;
 
         let intent_data: Vec<u8> = SendMessageIntentData::new(message.to_vec()).into();

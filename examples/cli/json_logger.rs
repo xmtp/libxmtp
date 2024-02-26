@@ -48,7 +48,7 @@ fn get_level(level: log::Level) -> u8 {
     }
 }
 
-fn format_kv_pairs<'b>(out: &mut StdoutLock<'b>, record: &Record) {
+fn format_kv_pairs(out: &mut StdoutLock<'_>, record: &Record) {
     struct Visitor<'a, 'b> {
         string: &'a mut StdoutLock<'b>,
     }
@@ -73,7 +73,7 @@ fn format_kv_pairs<'b>(out: &mut StdoutLock<'b>, record: &Record) {
     record.key_values().visit(&mut visitor).unwrap();
 }
 
-pub fn make_value<'v, ValueType>(value: &'v ValueType) -> log::kv::Value<'v>
+pub fn make_value<ValueType>(value: &ValueType) -> log::kv::Value<'_>
 where
     ValueType: serde::Serialize,
 {
