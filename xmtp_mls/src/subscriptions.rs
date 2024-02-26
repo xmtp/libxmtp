@@ -128,9 +128,7 @@ where
                                     .await;
                             result
                         }
-                        Err(err) => {
-                            Err(GroupError::Api(err))
-                        }
+                        Err(err) => Err(GroupError::Api(err)),
                     }
                 }
             })
