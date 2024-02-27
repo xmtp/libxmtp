@@ -48,7 +48,7 @@ use crate::{
     storage::{
         db_connection::DbConnection,
         group_intent::{IntentKind, IntentState, StoredGroupIntent, ID},
-        group_message::{GroupMessageKind, StoredGroupMessage},
+        group_message::{GroupMessageKind, StoredGroupMessage, DeliveryStatus},
         refresh_state::EntityKind,
         StorageError,
     },
@@ -221,6 +221,7 @@ where
                     kind: GroupMessageKind::Application,
                     sender_installation_id: self.client.installation_public_key(),
                     sender_account_address: self.client.account_address(),
+                    delivery_status: DeliveryStatus::Unpublished
                 }
                 .store(conn)?;
             }
@@ -260,6 +261,7 @@ where
                     kind: GroupMessageKind::Application,
                     sender_installation_id,
                     sender_account_address,
+                    delivery_status: DeliveryStatus::Unpublished
                 }
                 .store(provider.conn())?;
             }
@@ -432,6 +434,7 @@ where
                 kind: GroupMessageKind::MembershipChange,
                 sender_installation_id,
                 sender_account_address,
+                delivery_status: DeliveryStatus::Unpublished
             };
 
             msg.store(conn)?;

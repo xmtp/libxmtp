@@ -4,7 +4,7 @@ use diesel::{
     expression::AsExpression,
     prelude::*,
     serialize::{self, IsNull, Output, ToSql},
-    sql_types::Integer,
+    sql_types::{Integer, Text},
     sqlite::Sqlite,
 };
 
@@ -30,6 +30,8 @@ pub struct StoredGroupMessage {
     pub sender_installation_id: Vec<u8>,
     /// Network wallet address of the Sender
     pub sender_account_address: String,
+    /// `PUBLISHED` | `UNPUBLISHED`
+    pub delivery_status: DeliveryStatus,
 }
 
 #[repr(i32)]
@@ -58,6 +60,41 @@ where
         match i32::from_sql(bytes)? {
             1 => Ok(GroupMessageKind::Application),
             2 => Ok(GroupMessageKind::MembershipChange),
+            x => Err(format!("Unrecognized variant {}", x).into()),
+        }
+    }
+}
+
+use std::io::Write;
+
+#[derive(diesel::SqlType)]
+#[derive(Debug, Clone, FromSqlRow, Eq, PartialEq, AsExpression)]
+#[diesel(sql_type = DeliveryStatus)]
+pub enum DeliveryStatus {
+    Published,
+    Unpublished,
+}
+
+impl ToSql<DeliveryStatus, Sqlite> for DeliveryStatus
+{
+    fn to_sql<'b>(
+        &self,
+        out: &mut Output<'b, '_, Sqlite>,
+    ) -> serialize::Result {
+        match *self {
+            DeliveryStatus::Published => out.write_all(b"published")?,
+            DeliveryStatus::Unpublished => out.write_all(b"unpublished")?,
+        }
+        Ok(IsNull::No)
+    }
+}
+
+impl FromSql<DeliveryStatus, Sqlite> for DeliveryStatus
+{
+    fn from_sql(bytes: <Sqlite as Backend>::RawValue<'_>) -> deserialize::Result<Self> {
+        match String::from_sql(bytes)? {
+            b"published" => Ok(DeliveryStatus::Published),
+            b"unpublished" => Ok(DeliveryStatus::Unpublished),
             x => Err(format!("Unrecognized variant {}", x).into()),
         }
     }
@@ -155,6 +192,7 @@ mod tests {
             sender_installation_id: rand_vec(),
             sender_account_address: "0x0".to_string(),
             kind: kind.unwrap_or(GroupMessageKind::Application),
+            delivery_status: DeliveryStatus::Unpublished,
         }
     }
 
