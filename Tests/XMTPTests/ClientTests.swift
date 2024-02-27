@@ -146,6 +146,46 @@ class ClientTests: XCTestCase {
 			)
 		)
 	}
+	
+	func testCanDeleteDatabase() async throws {
+		let bo = try PrivateKey.generate()
+		let alix = try PrivateKey.generate()
+		var boClient = try await Client.create(
+			account: bo,
+			options: .init(
+				api: .init(env: .local, isSecure: false),
+				mlsAlpha: true
+			)
+		)
+	
+		let alixClient = try await Client.create(
+			account: alix,
+			options: .init(
+				api: .init(env: .local, isSecure: false),
+				mlsAlpha: true
+			)
+		)
+
+		_ = try await boClient.conversations.newGroup(with: [alixClient.address])
+		try await boClient.conversations.sync()
+
+		var groupCount = try await boClient.conversations.groups().count
+		XCTAssertEqual(groupCount, 1)
+
+		try boClient.deleteLocalDatabase()
+
+		boClient = try await Client.create(
+			account: bo,
+			options: .init(
+				api: .init(env: .local, isSecure: false),
+				mlsAlpha: true
+			)
+		)
+
+		try await boClient.conversations.sync()
+		groupCount = try await boClient.conversations.groups().count
+		XCTAssertEqual(groupCount, 0)
+	}
 
 	func testCanMessage() async throws {
 		let fixtures = await fixtures()

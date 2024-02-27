@@ -89,7 +89,7 @@ public final class Client {
 	let apiClient: ApiClient
 	let v3Client: LibXMTP.FfiXmtpClient?
 	public let libXMTPVersion: String = getVersionInfo()
-	let dbPath: String = ""
+	let dbPath: String
 
 	/// Access ``Conversations`` for this Client.
 	public lazy var conversations: Conversations = .init(client: self)
@@ -130,7 +130,7 @@ public final class Client {
 		source: LegacyIdentitySource,
 		privateKeyBundleV1: PrivateKeyBundleV1,
 		signingKey: SigningKey?
-	) async throws -> FfiXmtpClient? {
+	) async throws -> (FfiXmtpClient?, String) {
 		if options?.mlsAlpha == true, options?.api.env.supportsMLS == true {
 			let dbURL = options?.mlsDbPath ?? URL.documentsDirectory.appendingPathComponent("xmtp-\(options?.api.env.rawValue ?? "")-\(address).db3").path
 
@@ -172,16 +172,16 @@ public final class Client {
 
 			print("LibXMTP \(getVersionInfo())")
 
-			return v3Client
+			return (v3Client, dbURL)
 		} else {
-			return nil
+			return (nil, "")
 		}
 	}
 
 	static func create(account: SigningKey, apiClient: ApiClient, options: ClientOptions? = nil) async throws -> Client {
 		let (privateKeyBundleV1, source) = try await loadOrCreateKeys(for: account, apiClient: apiClient, options: options)
 
-		let v3Client = try await initV3Client(
+		let (v3Client, dbPath) = try await initV3Client(
 			address: account.address,
 			options: options,
 			source: source,
@@ -189,7 +189,7 @@ public final class Client {
 			signingKey: account
 		)
 
-		let client = try Client(address: account.address, privateKeyBundleV1: privateKeyBundleV1, apiClient: apiClient, v3Client: v3Client)
+		let client = try Client(address: account.address, privateKeyBundleV1: privateKeyBundleV1, apiClient: apiClient, v3Client: v3Client, dbPath: dbPath)
 		try await client.ensureUserContactPublished()
 
 		for codec in (options?.codecs ?? []) {
@@ -273,7 +273,7 @@ public final class Client {
 		let address = try v1Bundle.identityKey.publicKey.recoverWalletSignerPublicKey().walletAddress
 		let options = options ?? ClientOptions()
 
-		let v3Client = try await initV3Client(
+		let (v3Client, dbPath) = try await initV3Client(
 			address: address,
 			options: options,
 			source: .static,
@@ -288,7 +288,7 @@ public final class Client {
 			rustClient: client
 		)
 
-		let result = try Client(address: address, privateKeyBundleV1: v1Bundle, apiClient: apiClient, v3Client: v3Client)
+		let result = try Client(address: address, privateKeyBundleV1: v1Bundle, apiClient: apiClient, v3Client: v3Client, dbPath: dbPath)
 
 		for codec in options.codecs {
 			result.register(codec: codec)
@@ -297,11 +297,12 @@ public final class Client {
 		return result
 	}
 
-	init(address: String, privateKeyBundleV1: PrivateKeyBundleV1, apiClient: ApiClient, v3Client: LibXMTP.FfiXmtpClient?) throws {
+	init(address: String, privateKeyBundleV1: PrivateKeyBundleV1, apiClient: ApiClient, v3Client: LibXMTP.FfiXmtpClient?, dbPath: String = "") throws {
 		self.address = address
 		self.privateKeyBundleV1 = privateKeyBundleV1
 		self.apiClient = apiClient
 		self.v3Client = v3Client
+		self.dbPath = dbPath
 	}
 
 	public var privateKeyBundle: PrivateKeyBundle {
@@ -451,18 +452,9 @@ public final class Client {
 		return subscribe(topics: topics.map(\.description))
 	}
 
-	public func deleteLocalDatabase() {
+	public func deleteLocalDatabase() throws {
 		let fm = FileManager.default
-		let url = URL(string: dbPath)
-		if (url != nil) {
-			do {
-				// swiftlint: disable force_unwrapping
-				try fm.removeItem(at: url!)
-				// swiftlint: enable force_unwrapping
-			} catch {
-				print("Error deleting file: \(dbPath)")
-			}
-		}
+		try fm.removeItem(atPath: dbPath)
 	}
 
 	func getUserContact(peerAddress: String) async throws -> ContactBundle? {
