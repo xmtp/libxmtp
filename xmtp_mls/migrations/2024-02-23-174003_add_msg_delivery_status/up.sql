@@ -1,6 +1,3 @@
--- ALTER TABLE group_messages
--- ADD COLUMN "delivery_status" TEXT NOT NULL DEFAULT 'PUBLISHED'
--- CHECK ("delivery_status" IN ('PUBLISHED', 'UNPUBLISHED'));
-
+-- Values are: 1 = Published, 2 = Unpublished
 ALTER TABLE group_messages
 ADD COLUMN "delivery_status" INT NOT NULL DEFAULT 1 
