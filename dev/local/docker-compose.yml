@@ -1,27 +1,34 @@
-version: "3.8"
 services:
-  wakunode:
-    image: xmtp/node-go
+  node:
+    image: xmtp/node-go:latest
+    platform: linux/amd64
     environment:
       - GOWAKU-NODEKEY=8a30dcb604b0b53627a5adc054dbf434b446628d4bd1eccc681d223f0550ce67
     command:
       - --store.enable
       - --store.db-connection-string=postgres://postgres:xmtp@db:5432/postgres?sslmode=disable
       - --store.reader-db-connection-string=postgres://postgres:xmtp@db:5432/postgres?sslmode=disable
+      - --mls-store.db-connection-string=postgres://postgres:xmtp@mlsdb:5432/postgres?sslmode=disable
+      - --mls-validation.grpc-address=validation:50051
+      - --api.enable-mls
       - --wait-for-db=30s
       - --api.authn.enable
     ports:
-      - 9001:9001
-      - 5555:5555 # http message API
-      - 5556:5556 # grpc message API
+      - 5555:5555
+      - 5556:5556
     depends_on:
       - db
-    healthcheck:
-      test: [ "CMD", "lsof", "-i", ":5556" ]
-      interval: 3s
-      timeout: 10s
-      retries: 5
+
+  validation:
+    image: ghcr.io/xmtp/mls-validation-service:main
+    platform: linux/amd64
+
   db:
+    image: postgres:13
+    environment:
+      POSTGRES_PASSWORD: xmtp
+
+  mlsdb:
     image: postgres:13
     environment:
       POSTGRES_PASSWORD: xmtp

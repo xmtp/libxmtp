@@ -95,9 +95,19 @@ class ClientTests: XCTestCase {
 	}
 	
 	func testPassingMLSEncryptionKeyAndDatabasePath() async throws {
+		try TestConfig.skipIfNotRunningLocalNodeTests()
+		
 		let bo = try PrivateKey.generate()
 		let key = try Crypto.secureRandomBytes(count: 32)
-		let dbPath = URL.documentsDirectory.appendingPathComponent("xmtp-\(bo.walletAddress).db3").path
+		let documentsURL = try
+			FileManager.default.url(
+				for: .documentDirectory,
+				in: .userDomainMask,
+				appropriateFor: nil,
+				create: false
+			)
+		
+		let dbPath = documentsURL.appendingPathComponent("xmtp-\(bo.walletAddress).db3").path
 		
 		let client = try await Client.create(
 			account: bo,
@@ -280,7 +290,7 @@ class ClientTests: XCTestCase {
 		let opts = ClientOptions(api: ClientOptions.Api(env: .local, isSecure: false), preEnableIdentityCallback: preEnableIdentityCallback )
 		do {
 			_ = try await Client.create(account: fakeWallet, options: opts)
-			await XCTWaiter().fulfillment(of: [expectation], timeout: 5)
+			await XCTWaiter().fulfillment(of: [expectation], timeout: 30)
 		} catch {
 			XCTFail("Error: \(error)")
 		}
@@ -298,7 +308,7 @@ class ClientTests: XCTestCase {
 		let opts = ClientOptions(api: ClientOptions.Api(env: .local, isSecure: false), preCreateIdentityCallback: preCreateIdentityCallback )
 		do {
 			_ = try await Client.create(account: fakeWallet, options: opts)
-			await XCTWaiter().fulfillment(of: [expectation], timeout: 5)
+			await XCTWaiter().fulfillment(of: [expectation], timeout: 30)
 		} catch {
 			XCTFail("Error: \(error)")
 		}

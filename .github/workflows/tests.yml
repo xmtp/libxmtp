@@ -1,0 +1,39 @@
+name: iOS Integration Tests
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+
+env:
+  GPR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+  GPR_USER: ${{ secrets.GITHUB_ACTOR }}
+  
+jobs:  
+  ios-tests:
+    name: iOS Tests
+    # macos-14 currently breaks colima
+    runs-on: macos-13
+    
+    steps:
+      - uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: '15.2'
+      
+      - name: Checkout project sources
+        uses: actions/checkout@v3
+
+      - name: Install docker
+        run: brew install docker docker-compose colima
+
+      - name: Start colima
+        run: colima start
+                
+      - name: Start Docker containers
+        run: dev/up
+        
+      - name: Run tests
+        run: swift test --vv
+        
+      - name: Stop local test server
+        run: docker-compose -p xmtp-ios -f dev/local/docker-compose.yml down
