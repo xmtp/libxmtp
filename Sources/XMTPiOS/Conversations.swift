@@ -581,6 +581,39 @@ public actor Conversations {
 			a.createdAt < b.createdAt
 		}
 	}
+	
+	public func getHmacKeys(request: Xmtp_KeystoreApi_V1_GetConversationHmacKeysRequest? = nil) -> Xmtp_KeystoreApi_V1_GetConversationHmacKeysResponse {
+		let thirtyDayPeriodsSinceEpoch = Int(Date().timeIntervalSince1970) / (60 * 60 * 24 * 30)
+		var hmacKeysResponse = Xmtp_KeystoreApi_V1_GetConversationHmacKeysResponse()
+		
+		var topics = conversationsByTopic
+
+		if let requestTopics = request?.topics, !requestTopics.isEmpty {
+			topics = topics.filter { requestTopics.contains($0.key) }
+		}
+		
+		for (topic, conversation) in topics {
+			guard let keyMaterial = conversation.keyMaterial else { continue }
+			
+			var hmacKeys = Xmtp_KeystoreApi_V1_GetConversationHmacKeysResponse.HmacKeys()
+
+			for period in (thirtyDayPeriodsSinceEpoch - 1)...(thirtyDayPeriodsSinceEpoch + 1) {
+				let info = "\(period)-\(client.address)"
+				do {
+					let hmacKey = try Crypto.deriveKey(secret: keyMaterial, nonce: Data(), info: Data(info.utf8))
+					var hmacKeyData = Xmtp_KeystoreApi_V1_GetConversationHmacKeysResponse.HmacKeyData()
+					hmacKeyData.hmacKey = hmacKey
+					hmacKeyData.thirtyDayPeriodsSinceEpoch = Int32(period)
+					hmacKeys.values.append(hmacKeyData)
+				} catch {
+					print("Error calculating HMAC key for topic \(topic): \(error)")
+				}
+			}
+			hmacKeysResponse.hmacKeys[topic] = hmacKeys
+		}
+		
+		return hmacKeysResponse
+	}
 
 	private func listIntroductionPeers(pagination: Pagination?) async throws -> [String: Date] {
 		let envelopes = try await client.apiClient.query(

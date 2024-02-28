@@ -8,6 +8,8 @@
 import Foundation
 import XCTest
 @testable import XMTPiOS
+import XMTPTestHelpers
+import CryptoKit
 
 @available(macOS 13.0, *)
 @available(iOS 15, *)
@@ -122,4 +124,73 @@ class ConversationsTests: XCTestCase {
         XCTAssertFalse(Topic.isValidTopic(topic: directMessageV2))
         XCTAssertFalse(Topic.isValidTopic(topic: preferenceList))
     }
+	
+	func testReturnsAllHMACKeys() async throws {
+		try TestConfig.skipIfNotRunningLocalNodeTests()
+
+		let alix = try PrivateKey.generate()
+		let opts = ClientOptions(api: ClientOptions.Api(env: .local, isSecure: false))
+		let alixClient = try await Client.create(
+			account: alix,
+			options: opts
+		)
+		var conversations: [Conversation] = []
+		for _ in 0..<5 {
+			let account = try PrivateKey.generate()
+			let client = try await Client.create(account: account, options: opts)
+			do {
+				let newConversation = try await alixClient.conversations.newConversation(
+					with: client.address,
+					context: InvitationV1.Context(conversationID: "hi")
+				)
+				conversations.append(newConversation)
+			} catch {
+				print("Error creating conversation: \(error)")
+			}
+		}
+		
+		let thirtyDayPeriodsSinceEpoch = Int(Date().timeIntervalSince1970) / (60 * 60 * 24 * 30)
+		
+		let hmacKeys = await alixClient.conversations.getHmacKeys()
+		
+		let topics = hmacKeys.hmacKeys.keys
+		conversations.forEach { conversation in
+			XCTAssertTrue(topics.contains(conversation.topic))
+		}
+		
+		var topicHmacs: [String: Data] = [:]
+		let headerBytes = try Crypto.secureRandomBytes(count: 10)
+		
+		for conversation in conversations {
+			let topic = conversation.topic
+			let payload = try? TextCodec().encode(content: "Hello, world!", client: alixClient)
+			
+			_ = try await MessageV2.encode(
+				client: alixClient,
+				content: payload!,
+				topic: topic,
+				keyMaterial: headerBytes,
+				codec: TextCodec()
+			)
+			
+			let keyMaterial = conversation.keyMaterial
+			let info = "\(thirtyDayPeriodsSinceEpoch)-\(alixClient.address)"
+			let key = try Crypto.deriveKey(secret: keyMaterial!, nonce: Data(), info: Data(info.utf8))
+			let hmac = try Crypto.calculateMac(headerBytes, key)
+			
+			topicHmacs[topic] = hmac
+		}
+		
+		for (topic, hmacData) in hmacKeys.hmacKeys {
+			for (idx, hmacKeyThirtyDayPeriod) in hmacData.values.enumerated() {
+				let valid = Crypto.verifyHmacSignature(
+					key: SymmetricKey(data: hmacKeyThirtyDayPeriod.hmacKey),
+					signature: topicHmacs[topic]!,
+					message: headerBytes
+				)
+
+				XCTAssertTrue(valid == (idx == 1))
+			}
+		}
+	}
 }

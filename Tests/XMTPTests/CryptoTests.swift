@@ -60,4 +60,71 @@ final class CryptoTests: XCTestCase {
 
 		XCTAssertEqual(decryptedText, msg)
 	}
+	
+	func testGenerateAndValidateHmac() async throws {
+		let secret = try Crypto.secureRandomBytes(count: 32)
+		let info = try Crypto.secureRandomBytes(count: 32)
+		let message = try Crypto.secureRandomBytes(count: 32)
+		let hmac = try Crypto.generateHmacSignature(secret: secret, info: info, message: message)
+		let key = try Crypto.hkdfHmacKey(secret: secret, info: info)
+		let valid = Crypto.verifyHmacSignature(key: key, signature: hmac, message: message)
+		
+		XCTAssertTrue(valid)
+	}
+	
+	func testGenerateAndValidateHmacWithExportedKey() async throws {
+		let secret = try Crypto.secureRandomBytes(count: 32)
+		let info = try Crypto.secureRandomBytes(count: 32)
+		let message = try Crypto.secureRandomBytes(count: 32)
+		let hmac = try Crypto.generateHmacSignature(secret: secret, info: info, message: message)
+		let key = try Crypto.hkdfHmacKey(secret: secret, info: info)
+		let exportedKey = Crypto.exportHmacKey(key: key)
+		let importedKey = Crypto.importHmacKey(keyData: exportedKey)
+		let valid = Crypto.verifyHmacSignature(key: importedKey, signature: hmac, message: message)
+		
+		XCTAssertTrue(valid)
+	}
+	
+	func testGenerateDifferentHmacKeysWithDifferentInfos() async throws {
+		let secret = try Crypto.secureRandomBytes(count: 32)
+		let info1 = try Crypto.secureRandomBytes(count: 32)
+		let info2 = try Crypto.secureRandomBytes(count: 32)
+		let key1 = try Crypto.hkdfHmacKey(secret: secret, info: info1)
+		let key2 = try Crypto.hkdfHmacKey(secret: secret, info: info2)
+		let exportedKey1 = Crypto.exportHmacKey(key: key1)
+		let exportedKey2 = Crypto.exportHmacKey(key: key2)
+		
+		XCTAssertNotEqual(exportedKey1, exportedKey2)
+	}
+	
+	func testValidateHmacWithWrongMessage() async throws {
+		let secret = try Crypto.secureRandomBytes(count: 32)
+		let info = try Crypto.secureRandomBytes(count: 32)
+		let message = try Crypto.secureRandomBytes(count: 32)
+		let hmac = try Crypto.generateHmacSignature(secret: secret, info: info, message: message)
+		let key = try Crypto.hkdfHmacKey(secret: secret, info: info)
+		let valid = Crypto.verifyHmacSignature(
+			key: key,
+			signature: hmac,
+			message: try Crypto.secureRandomBytes(count: 32)
+		)
+		
+		XCTAssertFalse(valid)
+	}
+	
+	func testValidateHmacWithWrongKey() async throws {
+		let secret = try Crypto.secureRandomBytes(count: 32)
+		let info = try Crypto.secureRandomBytes(count: 32)
+		let message = try Crypto.secureRandomBytes(count: 32)
+		let hmac = try Crypto.generateHmacSignature(secret: secret, info: info, message: message)
+		let valid = Crypto.verifyHmacSignature(
+			key: try Crypto.hkdfHmacKey(
+				secret: try Crypto.secureRandomBytes(count: 32),
+				info: try Crypto.secureRandomBytes(count: 32)),
+			signature: hmac,
+			message: message
+		)
+		
+		XCTAssertFalse(valid)
+	}
 }

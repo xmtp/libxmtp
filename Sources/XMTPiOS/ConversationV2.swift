@@ -85,8 +85,7 @@ public struct ConversationV2 {
 			content: encodedContent,
 			topic: topic,
 			keyMaterial: keyMaterial,
-			codec: codec,
-			shouldPush: options?.shouldPush
+			codec: codec
 		)
 
 		let topic = options?.ephemeral == true ? ephemeralTopic : topic
