@@ -296,17 +296,25 @@ where
         Ok(())
     }
 
-    // Query the database for stored messages. Optionally filtered by time, kind, and limit
+    // Query the database for stored messages. Optionally filtered by time, kind, delivery_status
+    // and limit
     pub fn find_messages(
         &self,
         kind: Option<GroupMessageKind>,
         sent_before_ns: Option<i64>,
         sent_after_ns: Option<i64>,
+        delivery_status: Option<DeliveryStatus>,
         limit: Option<i64>,
     ) -> Result<Vec<StoredGroupMessage>, GroupError> {
         let conn = self.client.store.conn()?;
-        let messages =
-            conn.get_group_messages(&self.group_id, sent_after_ns, sent_before_ns, kind, limit)?;
+        let messages = conn.get_group_messages(
+            &self.group_id,
+            sent_after_ns,
+            sent_before_ns,
+            kind,
+            delivery_status,
+            limit,
+        )?;
 
         Ok(messages)
     }
@@ -501,7 +509,7 @@ mod tests {
 
     async fn get_latest_message<'c>(group: &MlsGroup<'c, GrpcClient>) -> StoredGroupMessage {
         group.sync().await.unwrap();
-        let mut messages = group.find_messages(None, None, None, None).unwrap();
+        let mut messages = group.find_messages(None, None, None, None, None).unwrap();
 
         messages.pop().unwrap()
     }
@@ -533,7 +541,7 @@ mod tests {
         group.receive(&client.store.conn().unwrap()).await.unwrap();
         // Check for messages
         // println!("HERE: {:#?}", messages);
-        let messages = group.find_messages(None, None, None, None).unwrap();
+        let messages = group.find_messages(None, None, None, None, None).unwrap();
         assert_eq!(messages.len(), 1);
         assert_eq!(messages.first().unwrap().decrypted_message_bytes, msg);
     }
@@ -664,7 +672,7 @@ mod tests {
             .await
             .expect("group create failure");
 
-        let messages_with_add = group.find_messages(None, None, None, None).unwrap();
+        let messages_with_add = group.find_messages(None, None, None, None, None).unwrap();
         assert_eq!(messages_with_add.len(), 1);
 
         // Try and add another member without merging the pending commit
@@ -673,7 +681,7 @@ mod tests {
             .await
             .expect("group create failure");
 
-        let messages_with_remove = group.find_messages(None, None, None, None).unwrap();
+        let messages_with_remove = group.find_messages(None, None, None, None, None).unwrap();
         assert_eq!(messages_with_remove.len(), 2);
 
         // We are expecting 1 message on the group topic, not 2, because the second one should have
@@ -720,7 +728,9 @@ mod tests {
         let bola_groups = bola_client.find_groups(None, None, None, None).unwrap();
         let bola_group = bola_groups.first().unwrap();
         bola_group.sync().await.unwrap();
-        let bola_messages = bola_group.find_messages(None, None, None, None).unwrap();
+        let bola_messages = bola_group
+            .find_messages(None, None, None, None, None)
+            .unwrap();
         assert_eq!(bola_messages.len(), 1);
     }
 
@@ -757,7 +767,7 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(group.members().unwrap().len(), 3);
-        let messages = group.find_messages(None, None, None, None).unwrap();
+        let messages = group.find_messages(None, None, None, None, None).unwrap();
         assert_eq!(messages.len(), 1);
         assert_eq!(messages[0].kind, GroupMessageKind::MembershipChange);
         let encoded_content =
@@ -773,7 +783,7 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(group.members().unwrap().len(), 2);
-        let messages = group.find_messages(None, None, None, None).unwrap();
+        let messages = group.find_messages(None, None, None, None, None).unwrap();
         assert_eq!(messages.len(), 2);
         assert_eq!(messages[1].kind, GroupMessageKind::MembershipChange);
         let encoded_content =

@@ -237,7 +237,7 @@ async fn main() {
                 .await
                 .expect("failed to get group");
 
-            let messages = group.find_messages(None, None, None, None).unwrap();
+            let messages = group.find_messages(None, None, None, None, None).unwrap();
             if cli.json {
                 let json_serializable_messages = messages
                     .iter()

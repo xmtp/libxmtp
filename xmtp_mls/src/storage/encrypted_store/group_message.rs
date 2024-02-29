@@ -107,6 +107,7 @@ impl DbConnection<'_> {
         sent_after_ns: Option<i64>,
         sent_before_ns: Option<i64>,
         kind: Option<GroupMessageKind>,
+        delivery_status: Option<DeliveryStatus>,
         limit: Option<i64>,
     ) -> Result<Vec<StoredGroupMessage>, StorageError> {
         use super::schema::group_messages::dsl;
@@ -126,6 +127,10 @@ impl DbConnection<'_> {
 
         if let Some(kind) = kind {
             query = query.filter(dsl::kind.eq(kind));
+        }
+
+        if let Some(status) = delivery_status {
+            query = query.filter(dsl::delivery_status.eq(status));
         }
 
         if let Some(limit) = limit {
@@ -251,7 +256,7 @@ mod tests {
             assert_eq!(count, 50);
 
             let messages = conn
-                .get_group_messages(&group.id, None, None, None, None)
+                .get_group_messages(&group.id, None, None, None, None, None)
                 .unwrap();
 
             assert_eq!(messages.len(), 50);
@@ -276,18 +281,18 @@ mod tests {
             ];
             assert_ok!(messages.store(conn));
             let message = conn
-                .get_group_messages(&group.id, Some(1_000), Some(100_000), None, None)
+                .get_group_messages(&group.id, Some(1_000), Some(100_000), None, None, None)
                 .unwrap();
             assert_eq!(message.len(), 1);
             assert_eq!(message.first().unwrap().sent_at_ns, 10_000);
 
             let messages = conn
-                .get_group_messages(&group.id, None, Some(100_000), None, None)
+                .get_group_messages(&group.id, None, Some(100_000), None, None, None)
                 .unwrap();
             assert_eq!(messages.len(), 2);
 
             let messages = conn
-                .get_group_messages(&group.id, Some(10_000), None, None, None)
+                .get_group_messages(&group.id, Some(10_000), None, None, None, None)
                 .unwrap();
             assert_eq!(messages.len(), 2);
         })
@@ -328,6 +333,7 @@ mod tests {
                     None,
                     Some(GroupMessageKind::Application),
                     None,
+                    None,
                 )
                 .unwrap();
             assert_eq!(application_messages.len(), 15);
@@ -338,6 +344,7 @@ mod tests {
                     None,
                     None,
                     Some(GroupMessageKind::MembershipChange),
+                    None,
                     None,
                 )
                 .unwrap();
