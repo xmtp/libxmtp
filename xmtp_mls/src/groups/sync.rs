@@ -223,11 +223,12 @@ where
                 let envelope = PlaintextEnvelope::decode(decrypted_message_data)
                     .map_err(MessageProcessingError::DeserializationError)?;
 
-                let key = if let Some(content) = envelope.content {
+                let (key, message) = if let Some(content) = envelope.content {
                     let Content::V1(V1 {
-                        idempotency_key, ..
+                        idempotency_key,
+                        content,
                     }) = content;
-                    idempotency_key
+                    (idempotency_key, content)
                 } else {
                     return Err(MessageProcessingError::InvalidPayload);
                 };
@@ -242,8 +243,7 @@ where
                 StoredGroupMessage {
                     id: message_id,
                     group_id: group_id.to_vec(),
-                    decrypted_message_bytes: intent_data.message, // TODO: does this now need to be
-                    // pulled out from the envelope instead?
+                    decrypted_message_bytes: message,
                     sent_at_ns: envelope_timestamp_ns as i64,
                     kind: GroupMessageKind::Application,
                     sender_installation_id: self.client.installation_public_key(),
@@ -283,11 +283,12 @@ where
                 let envelope = PlaintextEnvelope::decode(bytes)
                     .map_err(MessageProcessingError::DeserializationError)?;
 
-                let key = if let Some(content) = envelope.content {
+                let (key, message) = if let Some(content) = envelope.content {
                     let Content::V1(V1 {
-                        idempotency_key, ..
+                        idempotency_key,
+                        content,
                     }) = content;
-                    idempotency_key
+                    (idempotency_key, content)
                 } else {
                     return Err(MessageProcessingError::InvalidPayload);
                 };
@@ -299,12 +300,10 @@ where
                     &key,
                 );
 
-                // let message_id =
-                //     get_message_id(&message_bytes, &self.group_id, envelope_timestamp_ns);
                 StoredGroupMessage {
                     id: message_id,
                     group_id: self.group_id.clone(),
-                    decrypted_message_bytes: message_bytes,
+                    decrypted_message_bytes: message,
                     sent_at_ns: envelope_timestamp_ns as i64,
                     kind: GroupMessageKind::Application,
                     sender_installation_id,

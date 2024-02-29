@@ -30,7 +30,7 @@ pub struct StoredGroupMessage {
     pub sender_installation_id: Vec<u8>,
     /// Network wallet address of the Sender
     pub sender_account_address: String,
-    /// Enum: 1 = Published, 2 = Unpublished 
+    /// Enum: 1 = Published, 2 = Unpublished
     pub delivery_status: DeliveryStatus,
 }
 

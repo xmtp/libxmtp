@@ -4,7 +4,7 @@ pub fn serialize_group_id(group_id: &[u8]) -> String {
     hex::encode(group_id)
 }
 
-/// DEPRECATED: Relies on server-sent envelope timestamp
+/// DEPRECATED: Relies on server-sent timestamp
 pub fn get_message_id(
     decrypted_message_bytes: &[u8],
     group_id: &[u8],
@@ -17,7 +17,7 @@ pub fn get_message_id(
     sha256(&id_vec)
 }
 
-/// Relies on a client-created timestamp as the idempotency_key
+/// Relies on a client-created idempotency_key (which could be a timestamp)
 pub fn calculate_message_id(
     group_id: &[u8],
     decrypted_message_bytes: &[u8],

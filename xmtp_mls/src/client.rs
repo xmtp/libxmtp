@@ -120,7 +120,7 @@ pub enum MessageProcessingError {
     #[error("Welcome processing error: {0}")]
     WelcomeProcessing(String),
     #[error("deserialization error: {0}")]
-    DeserializationError(#[from] prost::DecodeError)
+    DeserializationError(#[from] prost::DecodeError),
 }
 
 impl crate::retry::RetryableError for MessageProcessingError {
