@@ -5,6 +5,9 @@ import android.util.Log
 import android.widget.TextView
 import androidx.appcompat.app.AppCompatActivity
 import com.example.xmtpv3_example.R.id.selftest_output
+import kotlinx.coroutines.channels.awaitClose
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.callbackFlow
 import java.io.File
 import java.nio.charset.StandardCharsets
 import java.security.SecureRandom
@@ -15,14 +18,23 @@ import org.web3j.crypto.ECKeyPair
 import org.web3j.crypto.Sign
 import org.xmtp.android.library.Client
 import org.xmtp.android.library.ClientOptions
+import org.xmtp.android.library.DecodedMessage
 import org.xmtp.android.library.XMTPEnvironment
+import org.xmtp.android.library.XMTPException
+import org.xmtp.android.library.libxmtp.Message
 import org.xmtp.android.library.messages.PrivateKeyBuilder
 import org.xmtp.android.library.messages.toV2
 import uniffi.xmtpv3.FfiConversationCallback
 import uniffi.xmtpv3.FfiGroup
 import uniffi.xmtpv3.FfiInboxOwner
 import uniffi.xmtpv3.FfiLogger
+import uniffi.xmtpv3.FfiMessage
+import uniffi.xmtpv3.FfiMessageCallback
 import uniffi.xmtpv3.LegacyIdentitySource
+import kotlinx.coroutines.flow.callbackFlow
+import kotlinx.coroutines.flow.combine
+import uniffi.xmtpv3.FfiXmtpClient
+
 
 const val EMULATOR_LOCALHOST_ADDRESS = "http://10.0.2.2:5556"
 const val DEV_NETWORK_ADDRESS = "https://dev.xmtp.network:5556"
@@ -103,10 +115,30 @@ class MainActivity : AppCompatActivity() {
                 textView.text = "Libxmtp version\n" + uniffi.xmtpv3.getVersionInfo() + "\n\nClient constructed, wallet address: " + client.accountAddress()
                 Log.i("App", "Setting up conversation streaming")
                 client.conversations().stream(ConversationCallback())
+                streamAllMessages(client).collect {
+                    Log.i("StreamedMessage", it.body)
+
+                }
             } catch (e: Exception) {
                 textView.text = "Failed to construct client: " + e.message
             }
         }
+    }
+
+    fun streamAllMessages(client: FfiXmtpClient): Flow<DecodedMessage> = callbackFlow {
+        val messageCallback = object : FfiMessageCallback {
+            override fun onMessage(message: FfiMessage) {
+                Log.i(
+                    "App",
+                    "INFO - Message callback with ID: " +
+                            toHexString(message.id) +
+                            ", members: " +
+                            message.addrFrom
+                )
+            }
+        }
+        val stream = client.conversations().streamAllMessages(messageCallback)
+        awaitClose { stream.end() }
     }
 
     fun getV2SerializedSignedPrivateKey(key: PrivateKeyBuilder): ByteArray {
