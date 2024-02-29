@@ -1,19 +1,21 @@
+use std::collections::HashMap;
 use std::pin::Pin;
+use std::sync::Arc;
 
-use crate::api_client_wrapper::GroupFilter;
-use crate::storage::group_message::StoredGroupMessage;
-use crate::storage::refresh_state::EntityKind;
-use futures::{Stream, StreamExt};
-use xmtp_proto::api_client::XmtpMlsClient;
-use xmtp_proto::xmtp::mls::api::v1::GroupMessage;
+use futures::Stream;
+
+use xmtp_proto::{api_client::XmtpMlsClient, xmtp::mls::api::v1::GroupMessage};
 
 use super::{extract_message_v1, GroupError, MlsGroup};
+use crate::storage::group_message::StoredGroupMessage;
+use crate::subscriptions::{MessagesStreamInfo, StreamCloser};
+use crate::Client;
 
 impl<'c, ApiClient> MlsGroup<'c, ApiClient>
 where
     ApiClient: XmtpMlsClient,
 {
-    async fn process_stream_entry(
+    pub(crate) async fn process_stream_entry(
         &self,
         envelope: GroupMessage,
     ) -> Result<Option<StoredGroupMessage>, GroupError> {
@@ -45,39 +47,35 @@ where
     pub async fn stream(
         &'c self,
     ) -> Result<Pin<Box<dyn Stream<Item = StoredGroupMessage> + 'c + Send>>, GroupError> {
-        let last_cursor = self
+        Ok(self
             .client
-            .store
-            .conn()?
-            .get_last_cursor_for_id(self.group_id.clone(), EntityKind::Group)?;
-
-        let subscription = self
-            .client
-            .api_client
-            .subscribe_group_messages(vec![GroupFilter::new(
+            .stream_messages(HashMap::from([(
                 self.group_id.clone(),
-                Some(last_cursor as u64),
-            )])
-            .await?;
-        let stream = subscription
-            .map(|res| async {
-                match res {
-                    Ok(envelope) => self.process_stream_entry(envelope).await,
-                    Err(err) => Err(GroupError::Api(err)),
-                }
-            })
-            .filter_map(move |res| async {
-                match res.await {
-                    Ok(Some(message)) => Some(message),
-                    Ok(None) => None,
-                    Err(err) => {
-                        log::error!("Error processing stream entry: {:?}", err);
-                        None
-                    }
-                }
-            });
+                MessagesStreamInfo {
+                    convo_created_at_ns: self.created_at_ns,
+                    cursor: 0,
+                },
+            )]))
+            .await?)
+    }
 
-        Ok(Box::pin(stream))
+    pub async fn stream_with_callback(
+        client: Arc<Client<ApiClient>>,
+        group_id: Vec<u8>,
+        created_at_ns: i64,
+        mut callback: impl FnMut(StoredGroupMessage) + Send + 'static,
+    ) -> Result<StreamCloser, GroupError> {
+        Ok(Client::<ApiClient>::stream_messages_with_callback(
+            client,
+            HashMap::from([(
+                group_id,
+                MessagesStreamInfo {
+                    convo_created_at_ns: created_at_ns,
+                    cursor: 0,
+                },
+            )]),
+            move |message| callback(message),
+        )?)
     }
 }
 
@@ -90,12 +88,10 @@ mod tests {
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 10)]
     async fn test_subscribe_messages() {
-        let amal = ClientBuilder::new_test_client(generate_local_wallet().into()).await;
-        amal.register_identity().await.unwrap();
-        let bola = ClientBuilder::new_test_client(generate_local_wallet().into()).await;
-        bola.register_identity().await.unwrap();
+        let amal = ClientBuilder::new_test_client(&generate_local_wallet()).await;
+        let bola = ClientBuilder::new_test_client(&generate_local_wallet()).await;
 
-        let amal_group = amal.create_group().unwrap();
+        let amal_group = amal.create_group(None).unwrap();
         // Add bola
         amal_group
             .add_members_by_installation_id(vec![bola.installation_public_key()])
@@ -121,8 +117,8 @@ mod tests {
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 10)]
     async fn test_subscribe_multiple() {
-        let amal = ClientBuilder::new_test_client(generate_local_wallet().into()).await;
-        let group = amal.create_group().unwrap();
+        let amal = ClientBuilder::new_test_client(&generate_local_wallet()).await;
+        let group = amal.create_group(None).unwrap();
 
         let stream = group.stream().await.unwrap();
 
@@ -148,12 +144,10 @@ mod tests {
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 10)]
     async fn test_subscribe_membership_changes() {
-        let amal = ClientBuilder::new_test_client(generate_local_wallet().into()).await;
-        amal.register_identity().await.unwrap();
-        let bola = ClientBuilder::new_test_client(generate_local_wallet().into()).await;
-        bola.register_identity().await.unwrap();
+        let amal = ClientBuilder::new_test_client(&generate_local_wallet()).await;
+        let bola = ClientBuilder::new_test_client(&generate_local_wallet()).await;
 
-        let amal_group = amal.create_group().unwrap();
+        let amal_group = amal.create_group(None).unwrap();
 
         let mut stream = amal_group.stream().await.unwrap();
         tokio::time::sleep(std::time::Duration::from_millis(50)).await;

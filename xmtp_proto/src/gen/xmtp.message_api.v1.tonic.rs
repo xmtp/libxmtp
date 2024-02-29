@@ -249,7 +249,7 @@ pub mod message_api_server {
             request: tonic::Request<super::PublishRequest>,
         ) -> std::result::Result<tonic::Response<super::PublishResponse>, tonic::Status>;
         /// Server streaming response type for the Subscribe method.
-        type SubscribeStream: futures_core::Stream<
+        type SubscribeStream: tonic::codegen::tokio_stream::Stream<
                 Item = std::result::Result<super::Envelope, tonic::Status>,
             >
             + Send
@@ -259,7 +259,7 @@ pub mod message_api_server {
             request: tonic::Request<super::SubscribeRequest>,
         ) -> std::result::Result<tonic::Response<Self::SubscribeStream>, tonic::Status>;
         /// Server streaming response type for the Subscribe2 method.
-        type Subscribe2Stream: futures_core::Stream<
+        type Subscribe2Stream: tonic::codegen::tokio_stream::Stream<
                 Item = std::result::Result<super::Envelope, tonic::Status>,
             >
             + Send
@@ -269,7 +269,7 @@ pub mod message_api_server {
             request: tonic::Request<tonic::Streaming<super::SubscribeRequest>>,
         ) -> std::result::Result<tonic::Response<Self::Subscribe2Stream>, tonic::Status>;
         /// Server streaming response type for the SubscribeAll method.
-        type SubscribeAllStream: futures_core::Stream<
+        type SubscribeAllStream: tonic::codegen::tokio_stream::Stream<
                 Item = std::result::Result<super::Envelope, tonic::Status>,
             >
             + Send
@@ -389,7 +389,9 @@ pub mod message_api_server {
                             request: tonic::Request<super::PublishRequest>,
                         ) -> Self::Future {
                             let inner = Arc::clone(&self.0);
-                            let fut = async move { (*inner).publish(request).await };
+                            let fut = async move {
+                                <T as MessageApi>::publish(&inner, request).await
+                            };
                             Box::pin(fut)
                         }
                     }
@@ -434,7 +436,9 @@ pub mod message_api_server {
                             request: tonic::Request<super::SubscribeRequest>,
                         ) -> Self::Future {
                             let inner = Arc::clone(&self.0);
-                            let fut = async move { (*inner).subscribe(request).await };
+                            let fut = async move {
+                                <T as MessageApi>::subscribe(&inner, request).await
+                            };
                             Box::pin(fut)
                         }
                     }
@@ -481,7 +485,9 @@ pub mod message_api_server {
                             >,
                         ) -> Self::Future {
                             let inner = Arc::clone(&self.0);
-                            let fut = async move { (*inner).subscribe2(request).await };
+                            let fut = async move {
+                                <T as MessageApi>::subscribe2(&inner, request).await
+                            };
                             Box::pin(fut)
                         }
                     }
@@ -527,7 +533,7 @@ pub mod message_api_server {
                         ) -> Self::Future {
                             let inner = Arc::clone(&self.0);
                             let fut = async move {
-                                (*inner).subscribe_all(request).await
+                                <T as MessageApi>::subscribe_all(&inner, request).await
                             };
                             Box::pin(fut)
                         }
@@ -570,7 +576,9 @@ pub mod message_api_server {
                             request: tonic::Request<super::QueryRequest>,
                         ) -> Self::Future {
                             let inner = Arc::clone(&self.0);
-                            let fut = async move { (*inner).query(request).await };
+                            let fut = async move {
+                                <T as MessageApi>::query(&inner, request).await
+                            };
                             Box::pin(fut)
                         }
                     }
@@ -614,7 +622,9 @@ pub mod message_api_server {
                             request: tonic::Request<super::BatchQueryRequest>,
                         ) -> Self::Future {
                             let inner = Arc::clone(&self.0);
-                            let fut = async move { (*inner).batch_query(request).await };
+                            let fut = async move {
+                                <T as MessageApi>::batch_query(&inner, request).await
+                            };
                             Box::pin(fut)
                         }
                     }

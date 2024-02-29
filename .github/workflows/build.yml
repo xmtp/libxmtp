@@ -213,7 +213,7 @@ jobs:
           mkdir -p Sources/LibXMTP
           mv build/swift/xmtpv3.swift Sources/LibXMTP/
           make framework
-          zip -r libxmtp-swift.zip Sources LibXMTPRust.xcframework
+          zip -r libxmtp-swift.zip Sources LibXMTPSwiftFFI.xcframework
       - name: Upload artifact
         uses: actions/upload-artifact@v3
         with:

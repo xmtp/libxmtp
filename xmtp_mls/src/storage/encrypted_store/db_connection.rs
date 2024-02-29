@@ -1,5 +1,6 @@
-use crate::storage::RawDbConnection;
 use std::{fmt, sync::Mutex};
+
+use crate::storage::RawDbConnection;
 
 // Re-implementation of Cow without ToOwned requirement
 enum RefOrValue<'a, T> {

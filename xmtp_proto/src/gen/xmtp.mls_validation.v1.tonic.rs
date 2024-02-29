@@ -267,7 +267,8 @@ pub mod validation_api_server {
                         ) -> Self::Future {
                             let inner = Arc::clone(&self.0);
                             let fut = async move {
-                                (*inner).validate_key_packages(request).await
+                                <T as ValidationApi>::validate_key_packages(&inner, request)
+                                    .await
                             };
                             Box::pin(fut)
                         }
@@ -313,7 +314,11 @@ pub mod validation_api_server {
                         ) -> Self::Future {
                             let inner = Arc::clone(&self.0);
                             let fut = async move {
-                                (*inner).validate_group_messages(request).await
+                                <T as ValidationApi>::validate_group_messages(
+                                        &inner,
+                                        request,
+                                    )
+                                    .await
                             };
                             Box::pin(fut)
                         }

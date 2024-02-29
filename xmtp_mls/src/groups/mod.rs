@@ -1,19 +1,43 @@
-mod group_metadata;
+pub mod group_metadata;
 mod group_permissions;
 mod intents;
 mod members;
 mod subscriptions;
 mod sync;
 pub mod validated_commit;
+
+use self::group_metadata::extract_group_metadata;
+pub use self::group_permissions::PreconfiguredPolicies;
+pub use self::intents::{AddressesOrInstallationIds, IntentError};
+use self::{
+    group_metadata::{ConversationType, GroupMetadata, GroupMetadataError},
+    group_permissions::PolicySet,
+    intents::{AddMembersIntentData, RemoveMembersIntentData},
+    validated_commit::CommitValidationError,
+};
 use crate::{
-    client::deserialize_welcome,
+    client::{deserialize_welcome, ClientError, MessageProcessingError},
+    configuration::CIPHERSUITE,
     hpke::{decrypt_welcome, HpkeError},
-    identity::IdentityError,
-    utils::address::AddressValidationError,
+    identity::{Identity, IdentityError},
+    retry::RetryableError,
+    retryable,
+    storage::{
+        group::{GroupMembershipState, StoredGroup},
+        group_intent::{IntentKind, NewGroupIntent},
+        group_message::{GroupMessageKind, StoredGroupMessage},
+        StorageError,
+    },
+    utils::{
+        address::{sanitize_evm_addresses, AddressValidationError},
+        time::now_ns,
+    },
+    xmtp_openmls_provider::XmtpOpenMlsProvider,
+    Client, Store,
 };
 use intents::SendMessageIntentData;
 use openmls::{
-    extensions::{Extension, Extensions, ProtectedMetadata},
+    extensions::{Extension, Extensions, Metadata},
     group::{MlsGroupCreateConfig, MlsGroupJoinConfig},
     prelude::{
         CredentialWithKey, CryptoConfig, GroupId, MlsGroup as OpenMlsGroup, Welcome as MlsWelcome,
@@ -29,30 +53,6 @@ use xmtp_proto::{
         group_message::{Version as GroupMessageVersion, V1 as GroupMessageV1},
         GroupMessage,
     },
-};
-
-pub use self::intents::{AddressesOrInstallationIds, IntentError};
-use self::{
-    group_metadata::{ConversationType, GroupMetadata, GroupMetadataError},
-    group_permissions::{default_group_policy, PolicySet},
-    intents::{AddMembersIntentData, RemoveMembersIntentData},
-    validated_commit::CommitValidationError,
-};
-use crate::{
-    client::{ClientError, MessageProcessingError},
-    configuration::CIPHERSUITE,
-    identity::Identity,
-    retry::RetryableError,
-    retryable,
-    storage::{
-        group::{GroupMembershipState, StoredGroup},
-        group_intent::{IntentKind, NewGroupIntent},
-        group_message::{GroupMessageKind, StoredGroupMessage},
-        StorageError,
-    },
-    utils::{address::sanitize_evm_addresses, time::now_ns},
-    xmtp_openmls_provider::XmtpOpenMlsProvider,
-    Client, Store,
 };
 
 #[derive(Debug, Error)]
@@ -131,6 +131,16 @@ pub struct MlsGroup<'c, ApiClient> {
     client: &'c Client<ApiClient>,
 }
 
+impl<'c, ApiClient> Clone for MlsGroup<'c, ApiClient> {
+    fn clone(&self) -> Self {
+        Self {
+            client: self.client,
+            group_id: self.group_id.clone(),
+            created_at_ns: self.created_at_ns,
+        }
+    }
+}
+
 impl<'c, ApiClient> MlsGroup<'c, ApiClient>
 where
     ApiClient: XmtpMlsClient,
@@ -154,14 +164,20 @@ where
     }
 
     // Create a new group and save it to the DB
+    #[allow(clippy::unwrap_or_default)]
     pub fn create_and_insert(
         client: &'c Client<ApiClient>,
         membership_state: GroupMembershipState,
+        permissions: Option<PreconfiguredPolicies>,
     ) -> Result<Self, GroupError> {
         let conn = client.store.conn()?;
         let provider = XmtpOpenMlsProvider::new(&conn);
-        let protected_metadata =
-            build_protected_metadata_extension(&client.identity, default_group_policy())?;
+        let protected_metadata = build_protected_metadata_extension(
+            &client.identity,
+            permissions
+                .unwrap_or(PreconfiguredPolicies::default())
+                .to_policy_set(),
+        )?;
         let group_config = build_group_config(protected_metadata)?;
 
         let mut mls_group = OpenMlsGroup::new(
@@ -219,6 +235,11 @@ where
 
     pub async fn send_message(&self, message: &[u8]) -> Result<(), GroupError> {
         let conn = &mut self.client.store.conn()?;
+
+        let update_interval = Some(5_000_000); // 5 seconds in ns
+        self.maybe_update_installations(conn, update_interval)
+            .await?;
+
         let intent_data: Vec<u8> = SendMessageIntentData::new(message.to_vec()).into();
         let intent =
             NewGroupIntent::new(IntentKind::SendMessage, self.group_id.clone(), intent_data);
@@ -320,11 +341,34 @@ where
 
         self.sync_with_conn(conn).await
     }
+
+    pub fn is_active(&self) -> Result<bool, GroupError> {
+        let conn = &self.client.store.conn()?;
+        let provider = XmtpOpenMlsProvider::new(conn);
+        let mls_group = self.load_mls_group(&provider)?;
+
+        Ok(mls_group.is_active())
+    }
+
+    pub fn metadata(&self) -> Result<GroupMetadata, GroupError> {
+        let conn = &self.client.store.conn()?;
+        let provider = XmtpOpenMlsProvider::new(conn);
+        let mls_group = self.load_mls_group(&provider)?;
+
+        Ok(extract_group_metadata(&mls_group)?)
+    }
 }
 
 fn extract_message_v1(message: GroupMessage) -> Result<GroupMessageV1, MessageProcessingError> {
     match message.version {
         Some(GroupMessageVersion::V1(value)) => Ok(value),
+        _ => Err(MessageProcessingError::InvalidPayload),
+    }
+}
+
+pub fn extract_group_id(message: &GroupMessage) -> Result<Vec<u8>, MessageProcessingError> {
+    match &message.version {
+        Some(GroupMessageVersion::V1(value)) => Ok(value.group_id.clone()),
         _ => Err(MessageProcessingError::InvalidPayload),
     }
 }
@@ -353,15 +397,9 @@ fn build_protected_metadata_extension(
         identity.account_address.clone(),
         policies,
     );
-    let protected_metadata = ProtectedMetadata::new(
-        &identity.installation_keys,
-        identity.application_id(),
-        identity.credential()?,
-        identity.installation_keys.to_public_vec(),
-        metadata.try_into()?,
-    )?;
+    let protected_metadata = Metadata::new(metadata.try_into()?);
 
-    Ok(Extension::ProtectedMetadata(protected_metadata))
+    Ok(Extension::ImmutableMetadata(protected_metadata))
 }
 
 fn build_group_config(
@@ -397,6 +435,7 @@ mod tests {
     use crate::{
         builder::ClientBuilder,
         codecs::{membership_change::GroupMembershipChangeCodec, ContentCodec},
+        groups::PreconfiguredPolicies,
         storage::{
             group_intent::IntentState,
             group_message::{GroupMessageKind, StoredGroupMessage},
@@ -426,8 +465,8 @@ mod tests {
     #[tokio::test]
     async fn test_send_message() {
         let wallet = generate_local_wallet();
-        let client = ClientBuilder::new_test_client(wallet.into()).await;
-        let group = client.create_group().expect("create group");
+        let client = ClientBuilder::new_test_client(&wallet).await;
+        let group = client.create_group(None).expect("create group");
         group.send_message(b"hello").await.expect("send message");
 
         let messages = client
@@ -442,8 +481,8 @@ mod tests {
     #[tokio::test]
     async fn test_receive_self_message() {
         let wallet = generate_local_wallet();
-        let client = ClientBuilder::new_test_client(wallet.into()).await;
-        let group = client.create_group().expect("create group");
+        let client = ClientBuilder::new_test_client(&wallet).await;
+        let group = client.create_group(None).expect("create group");
         let msg = b"hello";
         group.send_message(msg).await.expect("send message");
 
@@ -459,17 +498,11 @@ mod tests {
     // The group should resolve to a consistent state
     #[tokio::test]
     async fn test_add_member_conflict() {
-        let amal = ClientBuilder::new_test_client(generate_local_wallet().into()).await;
-        let bola = ClientBuilder::new_test_client(generate_local_wallet().into()).await;
-        let charlie = ClientBuilder::new_test_client(generate_local_wallet().into()).await;
-        futures::future::join_all(vec![
-            amal.register_identity(),
-            bola.register_identity(),
-            charlie.register_identity(),
-        ])
-        .await;
+        let amal = ClientBuilder::new_test_client(&generate_local_wallet()).await;
+        let bola = ClientBuilder::new_test_client(&generate_local_wallet()).await;
+        let charlie = ClientBuilder::new_test_client(&generate_local_wallet()).await;
 
-        let amal_group = amal.create_group().unwrap();
+        let amal_group = amal.create_group(None).unwrap();
         // Add bola
         amal_group
             .add_members_by_installation_id(vec![bola.installation_public_key()])
@@ -533,10 +566,9 @@ mod tests {
 
     #[tokio::test]
     async fn test_add_installation() {
-        let client = ClientBuilder::new_test_client(generate_local_wallet().into()).await;
-        let client_2 = ClientBuilder::new_test_client(generate_local_wallet().into()).await;
-        client_2.register_identity().await.unwrap();
-        let group = client.create_group().expect("create group");
+        let client = ClientBuilder::new_test_client(&generate_local_wallet()).await;
+        let client_2 = ClientBuilder::new_test_client(&generate_local_wallet()).await;
+        let group = client.create_group(None).expect("create group");
 
         group
             .add_members_by_installation_id(vec![client_2.installation_public_key()])
@@ -556,8 +588,8 @@ mod tests {
 
     #[tokio::test]
     async fn test_add_invalid_member() {
-        let client = ClientBuilder::new_test_client(generate_local_wallet().into()).await;
-        let group = client.create_group().expect("create group");
+        let client = ClientBuilder::new_test_client(&generate_local_wallet()).await;
+        let group = client.create_group(None).expect("create group");
 
         let result = group
             .add_members_by_installation_id(vec![b"1234".to_vec()])
@@ -568,9 +600,9 @@ mod tests {
 
     #[tokio::test]
     async fn test_add_unregistered_member() {
-        let amal = ClientBuilder::new_test_client(generate_local_wallet().into()).await;
+        let amal = ClientBuilder::new_test_client(&generate_local_wallet()).await;
         let unconnected_wallet_address = generate_local_wallet().get_address();
-        let group = amal.create_group().unwrap();
+        let group = amal.create_group(None).unwrap();
         let result = group.add_members(vec![unconnected_wallet_address]).await;
 
         assert!(result.is_err());
@@ -578,12 +610,11 @@ mod tests {
 
     #[tokio::test]
     async fn test_remove_installation() {
-        let client_1 = ClientBuilder::new_test_client(generate_local_wallet().into()).await;
+        let client_1 = ClientBuilder::new_test_client(&generate_local_wallet()).await;
         // Add another client onto the network
-        let client_2 = ClientBuilder::new_test_client(generate_local_wallet().into()).await;
-        client_2.register_identity().await.unwrap();
+        let client_2 = ClientBuilder::new_test_client(&generate_local_wallet()).await;
 
-        let group = client_1.create_group().expect("create group");
+        let group = client_1.create_group(None).expect("create group");
         group
             .add_members_by_installation_id(vec![client_2.installation_public_key()])
             .await
@@ -615,11 +646,10 @@ mod tests {
 
     #[tokio::test]
     async fn test_key_update() {
-        let client = ClientBuilder::new_test_client(generate_local_wallet().into()).await;
-        let bola_client = ClientBuilder::new_test_client(generate_local_wallet().into()).await;
-        bola_client.register_identity().await.unwrap();
+        let client = ClientBuilder::new_test_client(&generate_local_wallet()).await;
+        let bola_client = ClientBuilder::new_test_client(&generate_local_wallet()).await;
 
-        let group = client.create_group().expect("create group");
+        let group = client.create_group(None).expect("create group");
         group
             .add_members(vec![bola_client.account_address()])
             .await
@@ -652,10 +682,9 @@ mod tests {
 
     #[tokio::test]
     async fn test_post_commit() {
-        let client = ClientBuilder::new_test_client(generate_local_wallet().into()).await;
-        let client_2 = ClientBuilder::new_test_client(generate_local_wallet().into()).await;
-        client_2.register_identity().await.unwrap();
-        let group = client.create_group().expect("create group");
+        let client = ClientBuilder::new_test_client(&generate_local_wallet()).await;
+        let client_2 = ClientBuilder::new_test_client(&generate_local_wallet()).await;
+        let group = client.create_group(None).expect("create group");
 
         group
             .add_members_by_installation_id(vec![client_2.installation_public_key()])
@@ -674,14 +703,11 @@ mod tests {
 
     #[tokio::test]
     async fn test_remove_by_account_address() {
-        let amal = ClientBuilder::new_test_client(generate_local_wallet().into()).await;
-        amal.register_identity().await.unwrap();
-        let bola = ClientBuilder::new_test_client(generate_local_wallet().into()).await;
-        bola.register_identity().await.unwrap();
-        let charlie = ClientBuilder::new_test_client(generate_local_wallet().into()).await;
-        charlie.register_identity().await.unwrap();
+        let amal = ClientBuilder::new_test_client(&generate_local_wallet()).await;
+        let bola = ClientBuilder::new_test_client(&generate_local_wallet()).await;
+        let charlie = ClientBuilder::new_test_client(&generate_local_wallet()).await;
 
-        let group = amal.create_group().unwrap();
+        let group = amal.create_group(None).unwrap();
         group
             .add_members(vec![bola.account_address(), charlie.account_address()])
             .await
@@ -713,19 +739,20 @@ mod tests {
         assert_eq!(members_changed_codec.members_removed.len(), 1);
         assert_eq!(members_changed_codec.installations_added.len(), 0);
         assert_eq!(members_changed_codec.installations_removed.len(), 0);
+
+        let bola_group = receive_group_invite(&bola).await;
+        bola_group.sync().await.unwrap();
+        assert!(!bola_group.is_active().unwrap())
     }
 
     #[tokio::test]
     async fn test_get_missing_members() {
         // Setup for test
         let amal_wallet = generate_local_wallet();
-        let amal = ClientBuilder::new_test_client(amal_wallet.clone().into()).await;
-        amal.register_identity().await.unwrap();
+        let amal = ClientBuilder::new_test_client(&amal_wallet).await;
+        let bola = ClientBuilder::new_test_client(&generate_local_wallet()).await;
 
-        let bola = ClientBuilder::new_test_client(generate_local_wallet().into()).await;
-        bola.register_identity().await.unwrap();
-
-        let group = amal.create_group().unwrap();
+        let group = amal.create_group(None).unwrap();
         group
             .add_members(vec![bola.account_address()])
             .await
@@ -741,8 +768,7 @@ mod tests {
         assert_eq!(_placeholder.len(), 0);
 
         // Add a second installation for amal using the same wallet
-        let amal_2nd = ClientBuilder::new_test_client(amal_wallet.into()).await;
-        amal_2nd.register_identity().await.unwrap();
+        let _amal_2nd = ClientBuilder::new_test_client(&amal_wallet).await;
 
         // Here we should find a new installation
         let (missing_members, _placeholder) = group.get_missing_members(&provider).await.unwrap();
@@ -761,13 +787,10 @@ mod tests {
     async fn test_add_missing_installations() {
         // Setup for test
         let amal_wallet = generate_local_wallet();
-        let amal = ClientBuilder::new_test_client(amal_wallet.clone().into()).await;
-        amal.register_identity().await.unwrap();
+        let amal = ClientBuilder::new_test_client(&amal_wallet).await;
+        let bola = ClientBuilder::new_test_client(&generate_local_wallet()).await;
 
-        let bola = ClientBuilder::new_test_client(generate_local_wallet().into()).await;
-        bola.register_identity().await.unwrap();
-
-        let group = amal.create_group().unwrap();
+        let group = amal.create_group(None).unwrap();
         group
             .add_members(vec![bola.account_address()])
             .await
@@ -779,27 +802,20 @@ mod tests {
         // Finished with setup
 
         // add a second installation for amal using the same wallet
-        let amal_2nd = ClientBuilder::new_test_client(amal_wallet.into()).await;
-        amal_2nd.register_identity().await.unwrap();
+        let _amal_2nd = ClientBuilder::new_test_client(&amal_wallet).await;
 
         // test that adding the new installation(s), worked
-        let new_installations_count = group.add_missing_installations(&provider).await.unwrap();
-        assert_eq!(new_installations_count, 1);
+        let new_installations_were_added = group.add_missing_installations(provider).await;
+        assert!(new_installations_were_added.is_ok());
     }
 
     #[tokio::test]
     async fn test_self_resolve_epoch_mismatch() {
-        let amal = ClientBuilder::new_test_client(generate_local_wallet().into()).await;
-        let bola = ClientBuilder::new_test_client(generate_local_wallet().into()).await;
-        let charlie = ClientBuilder::new_test_client(generate_local_wallet().into()).await;
-        let dave = ClientBuilder::new_test_client(generate_local_wallet().into()).await;
-        let (_, _, _, _) = tokio::join!(
-            amal.register_identity(),
-            bola.register_identity(),
-            charlie.register_identity(),
-            dave.register_identity(),
-        );
-        let amal_group = amal.create_group().unwrap();
+        let amal = ClientBuilder::new_test_client(&generate_local_wallet()).await;
+        let bola = ClientBuilder::new_test_client(&generate_local_wallet()).await;
+        let charlie = ClientBuilder::new_test_client(&generate_local_wallet()).await;
+        let dave = ClientBuilder::new_test_client(&generate_local_wallet()).await;
+        let amal_group = amal.create_group(None).unwrap();
         // Add bola to the group
         amal_group
             .add_members(vec![bola.account_address()])
@@ -838,5 +854,28 @@ mod tests {
         assert!(expected_latest_message.eq(&bola_latest_message.decrypted_message_bytes));
         assert!(expected_latest_message.eq(&charlie_latest_message.decrypted_message_bytes));
         assert!(expected_latest_message.eq(&dave_latest_message.decrypted_message_bytes));
+    }
+
+    #[tokio::test]
+    async fn test_group_permissions() {
+        let amal = ClientBuilder::new_test_client(&generate_local_wallet()).await;
+        let bola = ClientBuilder::new_test_client(&generate_local_wallet()).await;
+        let charlie = ClientBuilder::new_test_client(&generate_local_wallet()).await;
+
+        let amal_group = amal
+            .create_group(Some(PreconfiguredPolicies::GroupCreatorIsAdmin))
+            .unwrap();
+        // Add bola to the group
+        amal_group
+            .add_members(vec![bola.account_address()])
+            .await
+            .unwrap();
+
+        let bola_group = receive_group_invite(&bola).await;
+        bola_group.sync().await.unwrap();
+        assert!(bola_group
+            .add_members(vec![charlie.account_address()])
+            .await
+            .is_err(),);
     }
 }

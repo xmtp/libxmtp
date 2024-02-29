@@ -30,6 +30,7 @@ diesel::table! {
         id -> Binary,
         created_at_ns -> BigInt,
         membership_state -> Integer,
+        installations_last_checked -> BigInt,
     }
 }
 

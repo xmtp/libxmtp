@@ -2,31 +2,45 @@
 XLI is a Commandline client using XMTPv3.
 */
 
+mod json_logger;
+mod serializable;
+
 extern crate ethers;
 extern crate log;
 extern crate xmtp_mls;
 
 use std::{fs, path::PathBuf, time::Duration};
 
-use clap::{Parser, Subcommand};
-use log::{error, info};
+use clap::{Parser, Subcommand, ValueEnum};
+use ethers::signers::{coins_bip39::English, MnemonicBuilder};
+use kv_log_macro::{error, info};
+use prost::Message;
+
+use crate::{
+    json_logger::make_value,
+    serializable::{SerializableGroup, SerializableMessage},
+};
+use serializable::maybe_get_text;
 use thiserror::Error;
 use xmtp_api_grpc::grpc_api_helper::Client as ApiClient;
 use xmtp_cryptography::{
     signature::{RecoverableSignature, SignatureError},
-    utils::{rng, seeded_rng, LocalWallet},
+    utils::{rng, LocalWallet},
 };
 use xmtp_mls::{
-    builder::{ClientBuilderError, IdentityStrategy},
+    builder::{ClientBuilderError, IdentityStrategy, LegacyIdentity},
     client::ClientError,
+    codecs::{text::TextCodec, ContentCodec},
     groups::MlsGroup,
-    storage::{EncryptedMessageStore, EncryptionKey, StorageError, StorageOption},
+    storage::{
+        group_message::StoredGroupMessage, EncryptedMessageStore, EncryptionKey, StorageError,
+        StorageOption,
+    },
     utils::time::now_ns,
     InboxOwner, Network,
 };
-use xmtp_proto::api_client::{XmtpApiClient, XmtpMlsClient};
 type Client = xmtp_mls::client::Client<ApiClient>;
-type ClientBuilder = xmtp_mls::builder::ClientBuilder<ApiClient, Wallet>;
+type ClientBuilder = xmtp_mls::builder::ClientBuilder<ApiClient>;
 
 /// A fictional versioning CLI
 #[derive(Debug, Parser)] // requires `derive` feature
@@ -38,18 +52,29 @@ struct Cli {
     /// Sets a custom config file
     #[arg(long, value_name = "FILE", global = true)]
     db: Option<PathBuf>,
-    #[clap(long, default_value_t = true)]
+    #[clap(long, default_value_t = false)]
     local: bool,
+    #[clap(long, default_value_t = false)]
+    json: bool,
+}
+
+#[derive(ValueEnum, Debug, Copy, Clone)]
+enum Permissions {
+    EveryoneIsAdmin,
+    GroupCreatorIsAdmin,
 }
 
 #[derive(Debug, Subcommand)]
 enum Commands {
     /// Register Account on XMTP Network
     Register {
-        #[clap(long = "seed", default_value_t = 0)]
-        wallet_seed: u64,
+        #[clap(long)]
+        seed_phrase: Option<String>,
     },
-    CreateGroup {},
+    CreateGroup {
+        #[clap(value_enum, default_value_t = Permissions::EveryoneIsAdmin)]
+        permissions: Permissions,
+    },
     // List conversations on the registered wallet
     ListGroups {},
     /// Send Message
@@ -59,21 +84,25 @@ enum Commands {
         #[arg(value_name = "Message")]
         msg: String,
     },
+    GroupInfo {
+        #[arg(value_name = "Group ID")]
+        group_id: String,
+    },
     ListGroupMessages {
         #[arg(value_name = "Group ID")]
         group_id: String,
     },
-    AddGroupMember {
+    AddGroupMembers {
         #[arg(value_name = "Group ID")]
         group_id: String,
-        #[arg(value_name = "Wallet Address")]
-        account_address: String,
+        #[clap(short, long, value_parser, num_args = 1.., value_delimiter = ' ')]
+        account_addresses: Vec<String>,
     },
-    RemoveGroupMember {
+    RemoveGroupMembers {
         #[arg(value_name = "Group ID")]
         group_id: String,
-        #[arg(value_name = "Wallet Address")]
-        account_address: String,
+        #[clap(short, long, value_parser, num_args = 1.., value_delimiter = ' ')]
+        account_addresses: Vec<String>,
     },
     /// Information about the account that owns the DB
     Info {},
@@ -126,14 +155,17 @@ impl InboxOwner for Wallet {
 
 #[tokio::main]
 async fn main() {
-    env_logger::init();
+    let cli = Cli::parse();
+    if cli.json {
+        crate::json_logger::start(log::LevelFilter::Info);
+    } else {
+        femme::with_level(femme::LevelFilter::Info);
+    }
     info!("Starting CLI Client....");
 
-    let cli = Cli::parse();
-
-    if let Commands::Register { wallet_seed } = &cli.command {
+    if let Commands::Register { seed_phrase } = &cli.command {
         info!("Register");
-        if let Err(e) = register(&cli, wallet_seed).await {
+        if let Err(e) = register(&cli, seed_phrase.clone()).await {
             error!("Registration failed: {:?}", e)
         }
         return;
@@ -141,7 +173,7 @@ async fn main() {
 
     match &cli.command {
         #[allow(unused_variables)]
-        Commands::Register { wallet_seed } => {
+        Commands::Register { seed_phrase } => {
             unreachable!()
         }
         Commands::Info {} => {
@@ -149,11 +181,8 @@ async fn main() {
             let client = create_client(&cli, IdentityStrategy::CachedOnly)
                 .await
                 .unwrap();
-            info!("Address is: {}", client.account_address());
-            info!(
-                "Installation_id: {}",
-                hex::encode(client.installation_public_key())
-            );
+            let installation_id = hex::encode(client.installation_public_key());
+            info!("wallet info", { command_output: true, account_address: client.account_address(), installation_id: installation_id });
         }
         Commands::ListGroups {} => {
             info!("List Groups");
@@ -170,24 +199,24 @@ async fn main() {
             let group_list = client
                 .find_groups(None, None, None, None)
                 .expect("failed to list groups");
-
             for group in group_list.iter() {
                 group.sync().await.expect("error syncing group");
-                info!(
-                    "\n====== Group {} ======\n====================== Members ======================\n{}",
-                    hex::encode(group.group_id.clone()),
-                    group
-                        .members()
-                        .unwrap()
-                        .into_iter()
-                        .map(|m| m.account_address)
-                        .collect::<Vec<String>>()
-                        .join("\n"),
-                );
             }
+            let serializable_group_list = group_list
+                .iter()
+                .map(|g| g.into())
+                .collect::<Vec<SerializableGroup>>();
+
+            info!(
+                "group members",
+                {
+                    command_output: true,
+                    groups: make_value(&serializable_group_list),
+                }
+            );
         }
         Commands::Send { group_id, msg } => {
-            info!("Send");
+            info!("Sending message to group", { group_id: group_id, message: msg });
             let client = create_client(&cli, IdentityStrategy::CachedOnly)
                 .await
                 .unwrap();
@@ -196,6 +225,7 @@ async fn main() {
                 .await
                 .expect("failed to get group");
             send(group, msg.clone()).await.unwrap();
+            info!("sent message", { command_output: true, group_id: group_id, message: msg });
         }
         Commands::ListGroupMessages { group_id } => {
             info!("Recv");
@@ -207,17 +237,26 @@ async fn main() {
                 .await
                 .expect("failed to get group");
 
-            let messages =
-                format_messages(&group, client.account_address()).expect("failed to get messages");
-            info!(
-                "====== Group {} ======\n{}",
-                hex::encode(group.group_id),
-                messages
-            )
+            let messages = group.find_messages(None, None, None, None).unwrap();
+            if cli.json {
+                let json_serializable_messages = messages
+                    .iter()
+                    .map(SerializableMessage::from_stored_message)
+                    .collect::<Vec<_>>();
+                info!("messages", { command_output: true, messages: make_value(&json_serializable_messages), group_id: group_id });
+            } else {
+                let messages = format_messages(messages, client.account_address())
+                    .expect("failed to get messages");
+                info!(
+                    "====== Group {} ======\n{}",
+                    hex::encode(group.group_id),
+                    messages
+                )
+            }
         }
-        Commands::AddGroupMember {
+        Commands::AddGroupMembers {
             group_id,
-            account_address,
+            account_addresses,
         } => {
             let client = create_client(&cli, IdentityStrategy::CachedOnly)
                 .await
@@ -228,18 +267,18 @@ async fn main() {
                 .expect("failed to get group");
 
             group
-                .add_members(vec![account_address.clone()])
+                .add_members(account_addresses.clone())
                 .await
                 .expect("failed to add member");
 
             info!(
                 "Successfully added {} to group {}",
-                account_address, group_id
+                account_addresses.join(", "), group_id, { command_output: true, group_id: group_id}
             );
         }
-        Commands::RemoveGroupMember {
+        Commands::RemoveGroupMembers {
             group_id,
-            account_address,
+            account_addresses,
         } => {
             let client = create_client(&cli, IdentityStrategy::CachedOnly)
                 .await
@@ -250,35 +289,57 @@ async fn main() {
                 .expect("failed to get group");
 
             group
-                .remove_members(vec![account_address.clone()])
+                .remove_members(account_addresses.clone())
                 .await
                 .expect("failed to add member");
 
             info!(
                 "Successfully removed {} from group {}",
-                account_address, group_id
+                account_addresses.join(", "), group_id, { command_output: true }
             );
         }
-        Commands::CreateGroup {} => {
+        Commands::CreateGroup { permissions } => {
+            let group_permissions = match permissions {
+                Permissions::EveryoneIsAdmin => {
+                    xmtp_mls::groups::PreconfiguredPolicies::EveryoneIsAdmin
+                }
+                Permissions::GroupCreatorIsAdmin => {
+                    xmtp_mls::groups::PreconfiguredPolicies::GroupCreatorIsAdmin
+                }
+            };
             let client = create_client(&cli, IdentityStrategy::CachedOnly)
                 .await
                 .unwrap();
 
-            let group = client.create_group().expect("failed to create group");
-            info!("Created group {}", hex::encode(group.group_id))
+            let group = client
+                .create_group(Some(group_permissions))
+                .expect("failed to create group");
+            let group_id = hex::encode(group.group_id);
+            info!("Created group {}", group_id, { command_output: true, group_id: group_id})
         }
-
+        Commands::GroupInfo { group_id } => {
+            let client = create_client(&cli, IdentityStrategy::CachedOnly)
+                .await
+                .unwrap();
+            let group = &client
+                .group(hex::decode(group_id).expect("bad group id"))
+                .expect("group not found");
+            group.sync().await.unwrap();
+            let serializable: SerializableGroup = group.into();
+            info!("Group {}", group_id, { command_output: true, group_id: group_id, group_info: make_value(&serializable) })
+        }
         Commands::Clear {} => {
             fs::remove_file(cli.db.unwrap()).unwrap();
         }
     }
 }
 
-async fn create_client(cli: &Cli, account: IdentityStrategy<Wallet>) -> Result<Client, CliError> {
+async fn create_client(cli: &Cli, account: IdentityStrategy) -> Result<Client, CliError> {
     let msg_store = get_encrypted_store(&cli.db).unwrap();
     let mut builder = ClientBuilder::new(account).store(msg_store);
 
     if cli.local {
+        info!("Using local network");
         builder = builder
             .network(Network::Local("http://localhost:5556"))
             .api_client(
@@ -287,30 +348,41 @@ async fn create_client(cli: &Cli, account: IdentityStrategy<Wallet>) -> Result<C
                     .unwrap(),
             );
     } else {
+        info!("Using dev network");
         builder = builder.network(Network::Dev).api_client(
-            ApiClient::create("https://dev.xmtp.network:5556".into(), true)
+            ApiClient::create("https://grpc.dev.xmtp.network:443".into(), true)
                 .await
                 .unwrap(),
         );
     }
 
-    builder.build().map_err(CliError::ClientBuilder)
+    builder.build().await.map_err(CliError::ClientBuilder)
 }
 
-async fn register(cli: &Cli, wallet_seed: &u64) -> Result<(), CliError> {
-    let w = if wallet_seed == &0 {
-        Wallet::LocalWallet(LocalWallet::new(&mut rng()))
+async fn register(cli: &Cli, maybe_seed_phrase: Option<String>) -> Result<(), CliError> {
+    let w: Wallet = if let Some(seed_phrase) = maybe_seed_phrase {
+        Wallet::LocalWallet(
+            MnemonicBuilder::<English>::default()
+                .phrase(seed_phrase.as_str())
+                .build()
+                .unwrap(),
+        )
     } else {
-        Wallet::LocalWallet(LocalWallet::new(&mut seeded_rng(*wallet_seed)))
+        Wallet::LocalWallet(LocalWallet::new(&mut rng()))
     };
 
-    let client = create_client(cli, IdentityStrategy::CreateIfNotFound(w)).await?;
-    info!("Address is: {}", client.account_address());
+    let client = create_client(
+        cli,
+        IdentityStrategy::CreateIfNotFound(w.get_address(), LegacyIdentity::None),
+    )
+    .await?;
+    let signature: Option<Vec<u8>> = client.text_to_sign().map(|t| w.sign(&t).unwrap().into());
 
-    if let Err(e) = client.register_identity().await {
+    if let Err(e) = client.register_identity(signature).await {
         error!("Initialization Failed: {}", e.to_string());
         panic!("Could not init");
     };
+    info!("Registered identity", {account_address: client.account_address(), installation_id: hex::encode(client.installation_public_key()), command_output: true});
 
     Ok(())
 }
@@ -327,26 +399,26 @@ async fn get_group(client: &Client, group_id: Vec<u8>) -> Result<MlsGroup<ApiCli
 }
 
 async fn send(group: MlsGroup<'_, ApiClient>, msg: String) -> Result<(), CliError> {
-    group
-        .send_message(msg.into_bytes().as_slice())
-        .await
+    let mut buf = Vec::new();
+    TextCodec::encode(msg.clone())
+        .unwrap()
+        .encode(&mut buf)
         .unwrap();
-    info!(
-        "Message successfully sent to group {}",
-        hex::encode(group.group_id)
-    );
-
+    group.send_message(buf.as_slice()).await.unwrap();
     Ok(())
 }
 
-fn format_messages<A: XmtpApiClient + XmtpMlsClient>(
-    convo: &MlsGroup<'_, A>,
+fn format_messages(
+    messages: Vec<StoredGroupMessage>,
     my_account_address: String,
 ) -> Result<String, CliError> {
     let mut output: Vec<String> = vec![];
 
-    for msg in convo.find_messages(None, None, None, None).unwrap() {
-        let contents = msg.decrypted_message_bytes;
+    for msg in messages {
+        let text = maybe_get_text(&msg);
+        if text.is_none() {
+            continue;
+        }
         let sender = if msg.sender_account_address == my_account_address {
             "Me".to_string()
         } else {
@@ -357,7 +429,7 @@ fn format_messages<A: XmtpApiClient + XmtpMlsClient>(
             "[{:>15} ] {}:   {}",
             pretty_delta(now_ns() as u64, msg.sent_at_ns as u64),
             sender,
-            String::from_utf8(contents).unwrap()
+            text.expect("already checked")
         );
         output.push(msg_line);
     }

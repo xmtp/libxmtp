@@ -1,6 +1,7 @@
 use openmls::prelude::{MlsMessageIn, ProtocolMessage, TlsDeserializeTrait};
 use openmls_rust_crypto::RustCrypto;
 use tonic::{Request, Response, Status};
+
 use xmtp_mls::{utils::id::serialize_group_id, verified_key_package::VerifiedKeyPackage};
 use xmtp_proto::xmtp::mls_validation::v1::{
     validate_group_messages_response::ValidationResponse as ValidateGroupMessageValidationResponse,

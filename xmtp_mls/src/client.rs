@@ -1,10 +1,31 @@
+use std::{collections::HashSet, mem::Discriminant};
+
+use openmls::{
+    framing::{MlsMessageIn, MlsMessageInBody},
+    group::GroupEpoch,
+    messages::Welcome,
+    prelude::TlsSerializeTrait,
+};
+use openmls_traits::OpenMlsProvider;
+use prost::EncodeError;
+use thiserror::Error;
+use tls_codec::{Deserialize, Error as TlsSerializationError};
+
+use xmtp_proto::{
+    api_client::XmtpMlsClient,
+    xmtp::mls::api::v1::{
+        welcome_message::{Version as WelcomeMessageVersion, V1 as WelcomeMessageV1},
+        GroupMessage, WelcomeMessage,
+    },
+};
+
 use crate::{
     api_client_wrapper::{ApiClientWrapper, IdentityUpdate},
     groups::{
         validated_commit::CommitValidationError, AddressesOrInstallationIds, IntentError, MlsGroup,
+        PreconfiguredPolicies,
     },
     identity::Identity,
-    retry::Retry,
     storage::{
         db_connection::DbConnection,
         group::{GroupMembershipState, StoredGroup},
@@ -16,25 +37,6 @@ use crate::{
     verified_key_package::{KeyPackageVerificationError, VerifiedKeyPackage},
     xmtp_openmls_provider::XmtpOpenMlsProvider,
     Fetch,
-};
-use futures::{Stream, StreamExt};
-use openmls::{
-    framing::{MlsMessageIn, MlsMessageInBody},
-    group::GroupEpoch,
-    messages::Welcome,
-    prelude::TlsSerializeTrait,
-};
-use openmls_traits::OpenMlsProvider;
-use prost::EncodeError;
-use std::{collections::HashSet, mem::Discriminant, pin::Pin};
-use thiserror::Error;
-use tls_codec::{Deserialize, Error as TlsSerializationError};
-use xmtp_proto::{
-    api_client::XmtpMlsClient,
-    xmtp::mls::api::v1::{
-        welcome_message::{Version as WelcomeMessageVersion, V1 as WelcomeMessageV1},
-        GroupMessage, WelcomeMessage,
-    },
 };
 
 /// Which network the Client is connected to
@@ -66,6 +68,8 @@ pub enum ClientError {
     KeyPackageVerification(#[from] KeyPackageVerificationError),
     #[error("syncing errors: {0:?}")]
     SyncingError(Vec<MessageProcessingError>),
+    #[error("Stream inconsistency error: {0}")]
+    StreamInconsistency(String),
     #[error("generic:{0}")]
     Generic(String),
 }
@@ -155,13 +159,13 @@ where
     /// It is expected that most users will use the [`ClientBuilder`](crate::builder::ClientBuilder) instead of instantiating
     /// a client directly.
     pub fn new(
-        api_client: ApiClient,
+        api_client: ApiClientWrapper<ApiClient>,
         network: Network,
         identity: Identity,
         store: EncryptedMessageStore,
     ) -> Self {
         Self {
-            api_client: ApiClientWrapper::new(api_client, Retry::default()),
+            api_client,
             _network: network,
             identity,
             store,
@@ -179,8 +183,8 @@ where
     }
 
     /// In some cases, the client may need a signature from the wallet to call [`register_identity`](Self::register_identity).
-    /// Integrators should always check the `text_to_sign` return value of this function before calling [`register_identity_with_external_signature`](Self::register_identity_with_external_signature).
-    /// If `text_to_sign` returns `None`, then the wallet signature is not required and [`register_identity_with_external_signature`](Self::register_identity_with_external_signature) can be called with None as an argument.
+    /// Integrators should always check the `text_to_sign` return value of this function before calling [`register_identity`](Self::register_identity).
+    /// If `text_to_sign` returns `None`, then the wallet signature is not required and [`register_identity`](Self::register_identity) can be called with None as an argument.
     pub fn text_to_sign(&self) -> Option<String> {
         self.identity.text_to_sign()
     }
@@ -190,10 +194,13 @@ where
     }
 
     /// Create a new group with the default settings
-    pub fn create_group(&self) -> Result<MlsGroup<ApiClient>, ClientError> {
+    pub fn create_group(
+        &self,
+        permissions: Option<PreconfiguredPolicies>,
+    ) -> Result<MlsGroup<ApiClient>, ClientError> {
         log::info!("creating group");
 
-        let group = MlsGroup::create_and_insert(self, GroupMembershipState::Allowed)
+        let group = MlsGroup::create_and_insert(self, GroupMembershipState::Allowed, permissions)
             .map_err(|e| ClientError::Generic(format!("group create error {}", e)))?;
 
         Ok(group)
@@ -233,19 +240,13 @@ where
             .collect())
     }
 
-    /// Deprecated
-    pub async fn register_identity(&self) -> Result<(), ClientError> {
-        self.register_identity_with_external_signature(None).await?;
-        Ok(())
-    }
-
     /// Register the identity with the network
     /// Callers should always check the result of [`text_to_sign`](Self::text_to_sign) before invoking this function.
     ///
     /// If `text_to_sign` returns `None`, then the wallet signature is not required and this function can be called with `None`.
     ///
     /// If `text_to_sign` returns `Some`, then the caller should sign the text with their wallet and pass the signature to this function.
-    pub async fn register_identity_with_external_signature(
+    pub async fn register_identity(
         &self,
         recoverable_wallet_signature: Option<Vec<u8>>,
     ) -> Result<(), ClientError> {
@@ -468,58 +469,11 @@ where
             })
             .collect())
     }
-
-    fn process_streamed_welcome(
-        &self,
-        welcome: WelcomeMessage,
-    ) -> Result<MlsGroup<ApiClient>, ClientError> {
-        let welcome_v1 = extract_welcome_message(welcome)?;
-        let conn = self.store.conn()?;
-        let provider = self.mls_provider(&conn);
-
-        MlsGroup::create_from_encrypted_welcome(
-            self,
-            &provider,
-            welcome_v1.hpke_public_key.as_slice(),
-            welcome_v1.data,
-        )
-        .map_err(|e| ClientError::Generic(e.to_string()))
-    }
-
-    pub async fn stream_conversations(
-        &'a self,
-    ) -> Result<Pin<Box<dyn Stream<Item = MlsGroup<ApiClient>> + Send + 'a>>, ClientError> {
-        let installation_key = self.installation_public_key();
-        let id_cursor = self
-            .store
-            .conn()?
-            .get_last_cursor_for_id(&installation_key, EntityKind::Welcome)?;
-
-        let subscription = self
-            .api_client
-            .subscribe_welcome_messages(installation_key, Some(id_cursor as u64))
-            .await?;
-
-        let stream = subscription
-            .map(|welcome_result| async {
-                let welcome = welcome_result?;
-                self.process_streamed_welcome(welcome)
-            })
-            .filter_map(|res| async {
-                match res.await {
-                    Ok(group) => Some(group),
-                    Err(err) => {
-                        log::error!("Error processing stream entry: {:?}", err);
-                        None
-                    }
-                }
-            });
-
-        Ok(Box::pin(stream))
-    }
 }
 
-fn extract_welcome_message(welcome: WelcomeMessage) -> Result<WelcomeMessageV1, ClientError> {
+pub(crate) fn extract_welcome_message(
+    welcome: WelcomeMessage,
+) -> Result<WelcomeMessageV1, ClientError> {
     match welcome.version {
         Some(WelcomeMessageVersion::V1(welcome)) => Ok(welcome),
         _ => Err(ClientError::Generic(
@@ -554,7 +508,6 @@ fn has_active_installation(updates: &Vec<IdentityUpdate>) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use futures::StreamExt;
     use xmtp_cryptography::utils::generate_local_wallet;
 
     use crate::{
@@ -565,7 +518,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_mls_error() {
-        let client = ClientBuilder::new_test_client(generate_local_wallet().into()).await;
+        let client = ClientBuilder::new_test_client(&generate_local_wallet()).await;
         let result = client.api_client.register_installation(vec![1, 2, 3]).await;
 
         assert!(result.is_err());
@@ -576,8 +529,7 @@ mod tests {
     #[tokio::test]
     async fn test_register_installation() {
         let wallet = generate_local_wallet();
-        let client = ClientBuilder::new_test_client(wallet.clone().into()).await;
-        client.register_identity().await.unwrap();
+        let client = ClientBuilder::new_test_client(&wallet).await;
 
         // Make sure the installation is actually on the network
         let installation_ids = client
@@ -590,8 +542,7 @@ mod tests {
     #[tokio::test]
     async fn test_rotate_key_package() {
         let wallet = generate_local_wallet();
-        let client = ClientBuilder::new_test_client(wallet.clone().into()).await;
-        client.register_identity().await.unwrap();
+        let client = ClientBuilder::new_test_client(&wallet).await;
 
         // Get original KeyPackage.
         let kp1 = client
@@ -616,9 +567,9 @@ mod tests {
 
     #[tokio::test]
     async fn test_find_groups() {
-        let client = ClientBuilder::new_test_client(generate_local_wallet().into()).await;
-        let group_1 = client.create_group().unwrap();
-        let group_2 = client.create_group().unwrap();
+        let client = ClientBuilder::new_test_client(&generate_local_wallet()).await;
+        let group_1 = client.create_group(None).unwrap();
+        let group_2 = client.create_group(None).unwrap();
 
         let groups = client.find_groups(None, None, None, None).unwrap();
         assert_eq!(groups.len(), 2);
@@ -628,12 +579,10 @@ mod tests {
 
     #[tokio::test]
     async fn test_sync_welcomes() {
-        let alice = ClientBuilder::new_test_client(generate_local_wallet().into()).await;
-        alice.register_identity().await.unwrap();
-        let bob = ClientBuilder::new_test_client(generate_local_wallet().into()).await;
-        bob.register_identity().await.unwrap();
+        let alice = ClientBuilder::new_test_client(&generate_local_wallet()).await;
+        let bob = ClientBuilder::new_test_client(&generate_local_wallet()).await;
 
-        let alice_bob_group = alice.create_group().unwrap();
+        let alice_bob_group = alice.create_group(None).unwrap();
         alice_bob_group
             .add_members_by_installation_id(vec![bob.installation_public_key()])
             .await
@@ -652,9 +601,8 @@ mod tests {
 
     #[tokio::test]
     async fn test_can_message() {
-        let amal = ClientBuilder::new_test_client(generate_local_wallet().into()).await;
-        let bola = ClientBuilder::new_test_client(generate_local_wallet().into()).await;
-        futures::try_join!(amal.register_identity(), bola.register_identity()).unwrap();
+        let amal = ClientBuilder::new_test_client(&generate_local_wallet()).await;
+        let bola = ClientBuilder::new_test_client(&generate_local_wallet()).await;
         let charlie_address = generate_local_wallet().get_address();
 
         let can_message_result = amal
@@ -670,7 +618,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_welcome_encryption() {
-        let client = ClientBuilder::new_test_client(generate_local_wallet().into()).await;
+        let client = ClientBuilder::new_test_client(&generate_local_wallet()).await;
         let conn = client.store.conn().unwrap();
         let provider = client.mls_provider(&conn);
 
@@ -688,12 +636,11 @@ mod tests {
 
     #[tokio::test]
     async fn test_add_remove_then_add_again() {
-        let amal = ClientBuilder::new_test_client(generate_local_wallet().into()).await;
-        let bola = ClientBuilder::new_test_client(generate_local_wallet().into()).await;
-        bola.register_identity().await.unwrap();
+        let amal = ClientBuilder::new_test_client(&generate_local_wallet()).await;
+        let bola = ClientBuilder::new_test_client(&generate_local_wallet()).await;
 
         // Create a group and invite bola
-        let amal_group = amal.create_group().unwrap();
+        let amal_group = amal.create_group(None).unwrap();
         amal_group
             .add_members_by_installation_id(vec![bola.installation_public_key()])
             .await
@@ -711,7 +658,7 @@ mod tests {
         bola.sync_welcomes().await.unwrap();
         let bola_groups = bola.find_groups(None, None, None, None).unwrap();
         assert_eq!(bola_groups.len(), 1);
-        let bola_group = bola_groups.get(0).unwrap();
+        let bola_group = bola_groups.first().unwrap();
         bola_group.sync().await.unwrap();
 
         // Bola should have one readable message (them being added to the group)
@@ -741,23 +688,5 @@ mod tests {
             bola_messages.get(1).unwrap().decrypted_message_bytes,
             vec![1, 2, 3]
         )
-    }
-
-    #[tokio::test]
-    async fn test_stream_welcomes() {
-        let alice = ClientBuilder::new_test_client(generate_local_wallet().into()).await;
-        let bob = ClientBuilder::new_test_client(generate_local_wallet().into()).await;
-        bob.register_identity().await.unwrap();
-
-        let alice_bob_group = alice.create_group().unwrap();
-
-        let mut bob_stream = bob.stream_conversations().await.unwrap();
-        alice_bob_group
-            .add_members(vec![bob.account_address()])
-            .await
-            .unwrap();
-
-        let bob_received_groups = bob_stream.next().await.unwrap();
-        assert_eq!(bob_received_groups.group_id, alice_bob_group.group_id);
     }
 }

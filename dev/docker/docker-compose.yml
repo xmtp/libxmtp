@@ -21,7 +21,7 @@ services:
       - db
 
   validation:
-    image: xmtp/mls-validation-service:latest
+    image: ghcr.io/xmtp/mls-validation-service:main
     platform: linux/amd64
     build:
       context: ../..

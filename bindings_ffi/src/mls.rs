@@ -1,14 +1,19 @@
-use crate::inbox_owner::RustInboxOwner;
 pub use crate::inbox_owner::SigningError;
 use crate::logger::init_logger;
 use crate::logger::FfiLogger;
 use crate::GenericError;
-use futures::StreamExt;
 use std::convert::TryInto;
-use std::sync::{Arc, Mutex};
-use tokio::sync::{oneshot, oneshot::Sender};
+use std::sync::{
+    atomic::{AtomicBool, Ordering},
+    Arc, Mutex,
+};
+use tokio::sync::oneshot::Sender;
 use xmtp_api_grpc::grpc_api_helper::Client as TonicApiClient;
 use xmtp_mls::builder::IdentityStrategy;
+use xmtp_mls::builder::LegacyIdentity;
+use xmtp_mls::groups::group_metadata::ConversationType;
+use xmtp_mls::groups::group_metadata::GroupMetadata;
+use xmtp_mls::groups::PreconfiguredPolicies;
 use xmtp_mls::{
     builder::ClientBuilder,
     client::Client as MlsClient,
@@ -81,11 +86,20 @@ pub async fn create_client(
     };
 
     log::info!("Creating XMTP client");
-    let identity_strategy: IdentityStrategy<RustInboxOwner> = account_address.into();
+    let legacy_key_result =
+        legacy_signed_private_key_proto.ok_or("No legacy key provided".to_string());
+    let legacy_identity = match legacy_identity_source {
+        LegacyIdentitySource::None => LegacyIdentity::None,
+        LegacyIdentitySource::Static => LegacyIdentity::Static(legacy_key_result?),
+        LegacyIdentitySource::Network => LegacyIdentity::Network(legacy_key_result?),
+        LegacyIdentitySource::KeyGenerator => LegacyIdentity::KeyGenerator(legacy_key_result?),
+    };
+    let identity_strategy = IdentityStrategy::CreateIfNotFound(account_address, legacy_identity);
     let xmtp_client: RustXmtpClient = ClientBuilder::new(identity_strategy)
         .api_client(api_client)
         .store(store)
-        .build()?;
+        .build()
+        .await?;
 
     log::info!(
         "Created XMTP client for address: {}",
@@ -136,7 +150,7 @@ impl FfiXmtpClient {
         recoverable_wallet_signature: Option<Vec<u8>>,
     ) -> Result<(), GenericError> {
         self.inner_client
-            .register_identity_with_external_signature(recoverable_wallet_signature)
+            .register_identity(recoverable_wallet_signature)
             .await?;
 
         Ok(())
@@ -155,18 +169,44 @@ pub struct FfiConversations {
     inner_client: Arc<RustXmtpClient>,
 }
 
+#[derive(uniffi::Enum)]
+pub enum GroupPermissions {
+    EveryoneIsAdmin,
+    GroupCreatorIsAdmin,
+}
+
+impl From<PreconfiguredPolicies> for GroupPermissions {
+    fn from(policy: PreconfiguredPolicies) -> Self {
+        match policy {
+            PreconfiguredPolicies::EveryoneIsAdmin => GroupPermissions::EveryoneIsAdmin,
+            PreconfiguredPolicies::GroupCreatorIsAdmin => GroupPermissions::GroupCreatorIsAdmin,
+        }
+    }
+}
+
 #[uniffi::export(async_runtime = "tokio")]
 impl FfiConversations {
     pub async fn create_group(
         &self,
         account_addresses: Vec<String>,
+        permissions: Option<GroupPermissions>,
     ) -> Result<Arc<FfiGroup>, GenericError> {
         log::info!(
             "creating group with account addresses: {}",
             account_addresses.join(", ")
         );
 
-        let convo = self.inner_client.create_group()?;
+        let group_permissions = match permissions {
+            Some(GroupPermissions::EveryoneIsAdmin) => {
+                Some(xmtp_mls::groups::PreconfiguredPolicies::EveryoneIsAdmin)
+            }
+            Some(GroupPermissions::GroupCreatorIsAdmin) => {
+                Some(xmtp_mls::groups::PreconfiguredPolicies::GroupCreatorIsAdmin)
+            }
+            _ => None,
+        };
+
+        let convo = self.inner_client.create_group(group_permissions)?;
         if !account_addresses.is_empty() {
             convo.add_members(account_addresses).await?;
         }
@@ -215,35 +255,38 @@ impl FfiConversations {
         &self,
         callback: Box<dyn FfiConversationCallback>,
     ) -> Result<Arc<FfiStreamCloser>, GenericError> {
-        let inner_client = Arc::clone(&self.inner_client);
-        let (close_sender, close_receiver) = oneshot::channel::<()>();
-
-        tokio::spawn(async move {
-            let client = inner_client.as_ref();
-            let mut stream = client.stream_conversations().await.unwrap();
-            let mut close_receiver = close_receiver;
-            loop {
-                tokio::select! {
-                    item = stream.next() => {
-                        match item {
-                            Some(convo) => callback.on_conversation(Arc::new(FfiGroup {
-                                inner_client: inner_client.clone(),
-                                group_id: convo.group_id,
-                                created_at_ns: convo.created_at_ns,
-                            })),
-                            None => break
-                        }
-                    }
-                    _ = &mut close_receiver => {
-                        break;
-                    }
-                }
-            }
-            log::info!("closing stream");
-        });
+        let client = self.inner_client.clone();
+        let stream_closer = RustXmtpClient::stream_conversations_with_callback(
+            client.clone(),
+            move |convo| {
+                callback.on_conversation(Arc::new(FfiGroup {
+                    inner_client: client.clone(),
+                    group_id: convo.group_id,
+                    created_at_ns: convo.created_at_ns,
+                }))
+            },
+            || {}, // on_close_callback
+        )?;
 
         Ok(Arc::new(FfiStreamCloser {
-            close_fn: Arc::new(Mutex::new(Some(close_sender))),
+            close_fn: stream_closer.close_fn,
+            is_closed_atomic: stream_closer.is_closed_atomic,
+        }))
+    }
+
+    pub async fn stream_all_messages(
+        &self,
+        message_callback: Box<dyn FfiMessageCallback>,
+    ) -> Result<Arc<FfiStreamCloser>, GenericError> {
+        let stream_closer = RustXmtpClient::stream_all_messages_with_callback(
+            self.inner_client.clone(),
+            move |message| message_callback.on_message(message.into()),
+        )
+        .await?;
+
+        Ok(Arc::new(FfiStreamCloser {
+            close_fn: stream_closer.close_fn,
+            is_closed_atomic: stream_closer.is_closed_atomic,
         }))
     }
 }
@@ -363,38 +406,45 @@ impl FfiGroup {
         message_callback: Box<dyn FfiMessageCallback>,
     ) -> Result<Arc<FfiStreamCloser>, GenericError> {
         let inner_client = Arc::clone(&self.inner_client);
-        let group_id = self.group_id.clone();
-        let created_at_ns = self.created_at_ns;
-        let (close_sender, close_receiver) = oneshot::channel::<()>();
-
-        tokio::spawn(async move {
-            let client = inner_client.as_ref();
-            let group = MlsGroup::new(&client, group_id, created_at_ns);
-            let mut stream = group.stream().await.unwrap();
-            let mut close_receiver = close_receiver;
-            loop {
-                tokio::select! {
-                    item = stream.next() => {
-                        match item {
-                            Some(message) => message_callback.on_message(message.into()),
-                            None => break
-                        }
-                    }
-                    _ = &mut close_receiver => {
-                        break;
-                    }
-                }
-            }
-            log::info!("closing stream");
-        });
+        let stream_closer = MlsGroup::stream_with_callback(
+            inner_client,
+            self.group_id.clone(),
+            self.created_at_ns,
+            move |message| message_callback.on_message(message.into()),
+        )
+        .await?;
 
         Ok(Arc::new(FfiStreamCloser {
-            close_fn: Arc::new(Mutex::new(Some(close_sender))),
+            close_fn: stream_closer.close_fn,
+            is_closed_atomic: stream_closer.is_closed_atomic,
         }))
     }
 
     pub fn created_at_ns(&self) -> i64 {
         self.created_at_ns
+    }
+
+    pub fn is_active(&self) -> Result<bool, GenericError> {
+        let group = MlsGroup::new(
+            self.inner_client.as_ref(),
+            self.group_id.clone(),
+            self.created_at_ns,
+        );
+
+        Ok(group.is_active()?)
+    }
+
+    pub fn group_metadata(&self) -> Result<Arc<FfiGroupMetadata>, GenericError> {
+        let group = MlsGroup::new(
+            self.inner_client.as_ref(),
+            self.group_id.clone(),
+            self.created_at_ns,
+        );
+
+        let metadata = group.metadata()?;
+        Ok(Arc::new(FfiGroupMetadata {
+            inner: Arc::new(metadata),
+        }))
     }
 }
 
@@ -429,6 +479,7 @@ impl From<StoredGroupMessage> for FfiMessage {
 #[derive(uniffi::Object)]
 pub struct FfiStreamCloser {
     close_fn: Arc<Mutex<Option<Sender<()>>>>,
+    is_closed_atomic: Arc<AtomicBool>,
 }
 
 #[uniffi::export]
@@ -443,6 +494,10 @@ impl FfiStreamCloser {
             }
         }
     }
+
+    pub fn is_closed(&self) -> bool {
+        self.is_closed_atomic.load(Ordering::Relaxed)
+    }
 }
 
 #[uniffi::export(callback_interface)]
@@ -453,6 +508,29 @@ pub trait FfiMessageCallback: Send + Sync {
 #[uniffi::export(callback_interface)]
 pub trait FfiConversationCallback: Send + Sync {
     fn on_conversation(&self, conversation: Arc<FfiGroup>);
+}
+
+#[derive(uniffi::Object)]
+pub struct FfiGroupMetadata {
+    inner: Arc<GroupMetadata>,
+}
+
+#[uniffi::export]
+impl FfiGroupMetadata {
+    pub fn creator_account_address(&self) -> String {
+        self.inner.creator_account_address.clone()
+    }
+
+    pub fn conversation_type(&self) -> String {
+        match self.inner.conversation_type {
+            ConversationType::Group => "group".to_string(),
+            ConversationType::Dm => "dm".to_string(),
+        }
+    }
+
+    pub fn policy_type(&self) -> Result<GroupPermissions, GenericError> {
+        Ok(self.inner.preconfigured_policy()?.into())
+    }
 }
 
 #[cfg(test)]
@@ -527,7 +605,9 @@ mod tests {
     }
 
     impl FfiMessageCallback for RustStreamCallback {
-        fn on_message(&self, _: FfiMessage) {
+        fn on_message(&self, message: FfiMessage) {
+            let message = String::from_utf8(message.content).unwrap_or("<not UTF8>".to_string());
+            log::info!("Received: {}", message);
             *self.num_messages.lock().unwrap() += 1;
         }
     }
@@ -579,6 +659,41 @@ mod tests {
     async fn test_client_creation() {
         let client = new_test_client().await;
         assert!(!client.account_address().is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_legacy_identity() {
+        let legacy_address = "0x419cb1fa5635b0c6df47c9dc5765c8f1f4dff78e";
+        let legacy_signed_private_key_proto = vec![
+            8, 128, 154, 196, 133, 220, 244, 197, 216, 23, 18, 34, 10, 32, 214, 70, 104, 202, 68,
+            204, 25, 202, 197, 141, 239, 159, 145, 249, 55, 242, 147, 126, 3, 124, 159, 207, 96,
+            135, 134, 122, 60, 90, 82, 171, 131, 162, 26, 153, 1, 10, 79, 8, 128, 154, 196, 133,
+            220, 244, 197, 216, 23, 26, 67, 10, 65, 4, 232, 32, 50, 73, 113, 99, 115, 168, 104,
+            229, 206, 24, 217, 132, 223, 217, 91, 63, 137, 136, 50, 89, 82, 186, 179, 150, 7, 127,
+            140, 10, 165, 117, 233, 117, 196, 134, 227, 143, 125, 210, 187, 77, 195, 169, 162, 116,
+            34, 20, 196, 145, 40, 164, 246, 139, 197, 154, 233, 190, 148, 35, 131, 240, 106, 103,
+            18, 70, 18, 68, 10, 64, 90, 24, 36, 99, 130, 246, 134, 57, 60, 34, 142, 165, 221, 123,
+            63, 27, 138, 242, 195, 175, 212, 146, 181, 152, 89, 48, 8, 70, 104, 94, 163, 0, 25,
+            196, 228, 190, 49, 108, 141, 60, 174, 150, 177, 115, 229, 138, 92, 105, 170, 226, 204,
+            249, 206, 12, 37, 145, 3, 35, 226, 15, 49, 20, 102, 60, 16, 1,
+        ];
+
+        let client = create_client(
+            Box::new(MockLogger {}),
+            xmtp_api_grpc::LOCALHOST_ADDRESS.to_string(),
+            false,
+            Some(tmp_path()),
+            None,
+            legacy_address.to_string(),
+            LegacyIdentitySource::KeyGenerator,
+            Some(legacy_signed_private_key_proto),
+        )
+        .await
+        .unwrap();
+
+        assert!(client.text_to_sign().is_none());
+        client.register_identity(None).await.unwrap();
+        assert_eq!(client.account_address(), legacy_address);
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
@@ -678,7 +793,7 @@ mod tests {
 
         let group = amal
             .conversations()
-            .create_group(vec![bola.account_address()])
+            .create_group(vec![bola.account_address()], None)
             .await
             .unwrap();
 
@@ -778,7 +893,7 @@ mod tests {
         tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
 
         amal.conversations()
-            .create_group(vec![bola.account_address()])
+            .create_group(vec![bola.account_address()], None)
             .await
             .unwrap();
 
@@ -787,7 +902,7 @@ mod tests {
         assert_eq!(stream_callback.message_count(), 1);
         // Create another group and add bola
         amal.conversations()
-            .create_group(vec![bola.account_address()])
+            .create_group(vec![bola.account_address()], None)
             .await
             .unwrap();
 
@@ -795,17 +910,60 @@ mod tests {
         assert_eq!(stream_callback.message_count(), 2);
 
         stream.end();
+        tokio::time::sleep(tokio::time::Duration::from_millis(5)).await;
+        assert!(stream.is_closed());
     }
 
-    // Disabling this flakey test until it's reliable
     #[tokio::test(flavor = "multi_thread", worker_threads = 5)]
-    async fn test_streaming() {
+    async fn test_stream_all_messages() {
+        let alix = new_test_client().await;
+        let bo = new_test_client().await;
+        let caro = new_test_client().await;
+
+        let alix_group = alix
+            .conversations()
+            .create_group(vec![caro.account_address()], None)
+            .await
+            .unwrap();
+        tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+
+        let stream_callback = RustStreamCallback::new();
+        let stream = caro
+            .conversations()
+            .stream_all_messages(Box::new(stream_callback.clone()))
+            .await
+            .unwrap();
+        tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+
+        alix_group.send("first".as_bytes().to_vec()).await.unwrap();
+        tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+        let bo_group = bo
+            .conversations()
+            .create_group(vec![caro.account_address()], None)
+            .await
+            .unwrap();
+        tokio::time::sleep(tokio::time::Duration::from_millis(200)).await;
+        bo_group.send("second".as_bytes().to_vec()).await.unwrap();
+        tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+        alix_group.send("third".as_bytes().to_vec()).await.unwrap();
+        tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+        bo_group.send("fourth".as_bytes().to_vec()).await.unwrap();
+        tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+
+        assert_eq!(stream_callback.message_count(), 4);
+        stream.end();
+        tokio::time::sleep(tokio::time::Duration::from_millis(5)).await;
+        assert!(stream.is_closed());
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 5)]
+    async fn test_message_streaming() {
         let amal = new_test_client().await;
         let bola = new_test_client().await;
 
         let group = amal
             .conversations()
-            .create_group(vec![bola.account_address()])
+            .create_group(vec![bola.account_address()], None)
             .await
             .unwrap();
 
@@ -826,5 +984,68 @@ mod tests {
         assert_eq!(stream_callback.message_count(), 2);
 
         stream_closer.end();
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 5)]
+    async fn test_message_streaming_when_removed_then_added() {
+        let amal = new_test_client().await;
+        let bola = new_test_client().await;
+        log::info!(
+            "Created addresses {} and {}",
+            amal.account_address(),
+            bola.account_address()
+        );
+
+        let amal_group = amal
+            .conversations()
+            .create_group(vec![bola.account_address()], None)
+            .await
+            .unwrap();
+        tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+
+        let stream_callback = RustStreamCallback::new();
+        let stream_closer = bola
+            .conversations()
+            .stream_all_messages(Box::new(stream_callback.clone()))
+            .await
+            .unwrap();
+
+        tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+
+        amal_group.send("hello1".as_bytes().to_vec()).await.unwrap();
+        amal_group.send("hello2".as_bytes().to_vec()).await.unwrap();
+
+        tokio::time::sleep(tokio::time::Duration::from_millis(200)).await;
+        assert_eq!(stream_callback.message_count(), 2);
+        assert!(!stream_closer.is_closed());
+
+        amal_group
+            .remove_members(vec![bola.account_address()])
+            .await
+            .unwrap();
+        tokio::time::sleep(std::time::Duration::from_millis(2000)).await;
+        assert_eq!(stream_callback.message_count(), 3); // Member removal transcript message
+
+        amal_group.send("hello3".as_bytes().to_vec()).await.unwrap();
+        tokio::time::sleep(tokio::time::Duration::from_millis(200)).await;
+        assert_eq!(stream_callback.message_count(), 3); // Don't receive messages while removed
+        assert!(!stream_closer.is_closed());
+
+        tokio::time::sleep(tokio::time::Duration::from_millis(200)).await;
+        amal_group
+            .add_members(vec![bola.account_address()])
+            .await
+            .unwrap();
+        tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+        assert_eq!(stream_callback.message_count(), 3); // Don't receive transcript messages while removed
+
+        amal_group.send("hello4".as_bytes().to_vec()).await.unwrap();
+        tokio::time::sleep(tokio::time::Duration::from_millis(200)).await;
+        assert_eq!(stream_callback.message_count(), 4); // Receiving messages again
+        assert!(!stream_closer.is_closed());
+
+        stream_closer.end();
+        tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+        assert!(stream_closer.is_closed());
     }
 }

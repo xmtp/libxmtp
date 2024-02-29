@@ -1,0 +1,2 @@
+ALTER TABLE groups
+RENAME COLUMN installations_last_checked TO installation_list_last_checked;

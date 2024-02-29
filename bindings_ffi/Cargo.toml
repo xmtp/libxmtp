@@ -28,8 +28,8 @@ name = "ffi-uniffi-bindgen"
 path = "src/bin.rs"
 
 [dev-dependencies]
-ethers = "2.0.4"
-ethers-core = "2.0.4"
+ethers = "2.0.13"
+ethers-core = "2.0.13"
 tempfile = "3.5.0"
 tokio = { version = "1.28.1", features = ["full"] }
 uniffi = { version = "0.25.3", features = ["bindgen-tests"] }

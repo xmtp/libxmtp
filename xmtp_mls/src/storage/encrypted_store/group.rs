@@ -26,10 +26,12 @@ pub type ID = Vec<u8>;
 pub struct StoredGroup {
     /// Randomly generated ID by group creator
     pub id: Vec<u8>,
-    /// based on timestamp of this welcome message
+    /// Based on timestamp of this welcome message
     pub created_at_ns: i64,
-    /// enum, [`GroupMembershipState`] representing access to the group.
+    /// Enum, [`GroupMembershipState`] representing access to the group
     pub membership_state: GroupMembershipState,
+    /// Track when the latest, most recent installations were checked
+    pub installations_last_checked: i64,
 }
 
 impl_fetch!(StoredGroup, groups, Vec<u8>);
@@ -41,6 +43,7 @@ impl StoredGroup {
             id,
             created_at_ns,
             membership_state,
+            installations_last_checked: 0,
         }
     }
 }
@@ -77,12 +80,37 @@ impl DbConnection<'_> {
     /// Updates group membership state
     pub fn update_group_membership<GroupId: AsRef<[u8]>>(
         &self,
-        id: GroupId,
+        group_id: GroupId,
         state: GroupMembershipState,
     ) -> Result<(), StorageError> {
         self.raw_query(|conn| {
-            diesel::update(dsl::groups.find(id.as_ref()))
+            diesel::update(dsl::groups.find(group_id.as_ref()))
                 .set(dsl::membership_state.eq(state))
+                .execute(conn)
+        })?;
+
+        Ok(())
+    }
+
+    pub fn get_installations_time_checked(&self, group_id: Vec<u8>) -> Result<i64, StorageError> {
+        let last_ts = self.raw_query(|conn| {
+            let ts = dsl::groups
+                .find(&group_id)
+                .select(dsl::installations_last_checked)
+                .first(conn)
+                .optional()?;
+            Ok(ts)
+        })?;
+
+        last_ts.ok_or(StorageError::NotFound)
+    }
+
+    /// Updates the 'last time checked' we checked for new installations.
+    pub fn update_installations_time_checked(&self, group_id: Vec<u8>) -> Result<(), StorageError> {
+        self.raw_query(|conn| {
+            let now = crate::utils::time::now_ns();
+            diesel::update(dsl::groups.find(&group_id))
+                .set(dsl::installations_last_checked.eq(now))
                 .execute(conn)
         })?;
 
@@ -161,11 +189,12 @@ pub(crate) mod tests {
             id: rand_vec(),
             created_at_ns: now_ns(),
             membership_state: state.unwrap_or(GroupMembershipState::Allowed),
+            installations_last_checked: 0,
         }
     }
 
     #[test]
-    fn it_stores_group() {
+    fn test_it_stores_group() {
         with_connection(|conn| {
             let test_group = generate_group(None);
 
@@ -179,7 +208,7 @@ pub(crate) mod tests {
     }
 
     #[test]
-    fn it_fetches_group() {
+    fn test_it_fetches_group() {
         with_connection(|conn| {
             let test_group = generate_group(None);
 
@@ -197,7 +226,7 @@ pub(crate) mod tests {
     }
 
     #[test]
-    fn it_updates_group_membership_state() {
+    fn test_it_updates_group_membership_state() {
         with_connection(|conn| {
             let test_group = generate_group(Some(GroupMembershipState::Pending));
 
@@ -243,6 +272,27 @@ pub(crate) mod tests {
                 .unwrap();
             assert_eq!(results_with_created_at_ns_after.len(), 1);
             assert_eq!(results_with_created_at_ns_after[0].id, test_group_2.id);
+        })
+    }
+
+    #[test]
+    fn test_installations_last_checked_is_updated() {
+        with_connection(|conn| {
+            let test_group = generate_group(None);
+            test_group.store(conn).unwrap();
+
+            // Check that the installations update has not been performed, yet
+            assert_eq!(test_group.installations_last_checked, 0);
+
+            // Check that some event occurred which triggers an installation list update.
+            // Here we invoke that event directly
+            let result = conn.update_installations_time_checked(test_group.id.clone());
+            assert_ok!(result);
+
+            // Check that the latest installation list timestamp has been updated
+            let fetched_group: StoredGroup = conn.fetch(&test_group.id).ok().flatten().unwrap();
+            assert_ne!(fetched_group.installations_last_checked, 0);
+            assert!(fetched_group.created_at_ns < fetched_group.installations_last_checked);
         })
     }
 }

@@ -2,18 +2,19 @@ mod grant_messaging_access_association;
 mod legacy_create_identity_association;
 mod validated_legacy_signed_public_key;
 
-use crate::utils::address::AddressValidationError;
-use crate::utils::time::now_ns;
-use crate::{types::Address, InboxOwner};
-
 use openmls_basic_credential::SignatureKeyPair;
-
 use prost::DecodeError;
 use thiserror::Error;
-use xmtp_cryptography::signature::{RecoverableSignature, SignatureError};
 
+use xmtp_cryptography::signature::{RecoverableSignature, SignatureError};
 use xmtp_proto::xmtp::mls::message_contents::{
     mls_credential::Association as AssociationProto, MlsCredential as MlsCredentialProto,
+};
+
+use crate::{
+    types::Address,
+    utils::{address::AddressValidationError, time::now_ns},
+    InboxOwner,
 };
 
 use self::grant_messaging_access_association::GrantMessagingAccessAssociation;
@@ -24,10 +25,10 @@ use self::legacy_create_identity_association::LegacyCreateIdentityAssociation;
 pub enum AssociationError {
     #[error("bad signature")]
     BadSignature(#[from] SignatureError),
-    #[error("decode error")]
+    #[error("decode error: {0}")]
     DecodeError(#[from] DecodeError),
-    #[error("legacy key")]
-    MalformedLegacyKey,
+    #[error("legacy key: {0}")]
+    MalformedLegacyKey(String),
     #[error("legacy signature: {0}")]
     LegacySignature(String),
     #[error("Association text mismatch")]
@@ -77,13 +78,13 @@ impl Credential {
         Ok(Self::GrantMessagingAccess(association))
     }
 
-    pub fn create_legacy(
+    pub fn create_from_legacy(
+        installation_keys: &SignatureKeyPair,
         legacy_signed_private_key: Vec<u8>,
-        installation_public_key: Vec<u8>,
     ) -> Result<Self, AssociationError> {
         let association = LegacyCreateIdentityAssociation::create(
             legacy_signed_private_key,
-            installation_public_key,
+            installation_keys.to_public_vec(),
         )?;
         Ok(Self::LegacyCreateIdentity(association))
     }
@@ -158,7 +159,9 @@ impl From<Credential> for MlsCredentialProto {
                 Credential::GrantMessagingAccess(assoc) => {
                     Some(AssociationProto::MessagingAccess(assoc.into()))
                 }
-                Credential::LegacyCreateIdentity(_assoc) => todo!(),
+                Credential::LegacyCreateIdentity(assoc) => {
+                    Some(AssociationProto::LegacyCreateIdentity(assoc.into()))
+                }
             },
         }
     }

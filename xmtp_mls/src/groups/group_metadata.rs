@@ -1,11 +1,15 @@
 use openmls::group::MlsGroup as OpenMlsGroup;
 use prost::Message;
 use thiserror::Error;
+
 use xmtp_proto::xmtp::mls::message_contents::{
     ConversationType as ConversationTypeProto, GroupMetadataV1 as GroupMetadataProto,
 };
 
-use super::group_permissions::{PolicyError, PolicySet};
+use super::{
+    group_permissions::{PolicyError, PolicySet},
+    PreconfiguredPolicies,
+};
 
 #[derive(Debug, Error)]
 pub enum GroupMetadataError {
@@ -43,6 +47,10 @@ impl GroupMetadata {
         }
     }
 
+    pub fn preconfigured_policy(&self) -> Result<PreconfiguredPolicies, GroupMetadataError> {
+        Ok(PreconfiguredPolicies::from_policy_set(&self.policies)?)
+    }
+
     pub(crate) fn from_proto(proto: GroupMetadataProto) -> Result<Self, GroupMetadataError> {
         if proto.policies.is_none() {
             return Err(GroupMetadataError::MissingPolicies);
@@ -78,11 +86,11 @@ impl TryFrom<GroupMetadata> for Vec<u8> {
     }
 }
 
-impl TryFrom<&[u8]> for GroupMetadata {
+impl TryFrom<&Vec<u8>> for GroupMetadata {
     type Error = GroupMetadataError;
 
-    fn try_from(value: &[u8]) -> Result<Self, Self::Error> {
-        let proto_val = GroupMetadataProto::decode(value)?;
+    fn try_from(value: &Vec<u8>) -> Result<Self, Self::Error> {
+        let proto_val = GroupMetadataProto::decode(value.as_slice())?;
         Self::from_proto(proto_val)
     }
 }
@@ -126,8 +134,41 @@ pub fn extract_group_metadata(group: &OpenMlsGroup) -> Result<GroupMetadata, Gro
     let extension = group
         .export_group_context()
         .extensions()
-        .protected_metadata()
+        .immutable_metadata()
         .ok_or(GroupMetadataError::MissingExtension)?;
 
     extension.metadata().try_into()
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::groups::group_permissions::{
+        policy_everyone_is_admin, policy_group_creator_is_admin,
+    };
+
+    use super::*;
+    #[test]
+    fn test_preconfigured_policy() {
+        let account_address = "account_address";
+        let group_metadata = GroupMetadata::new(
+            ConversationType::Group,
+            account_address.to_string(),
+            policy_everyone_is_admin(),
+        );
+        assert_eq!(
+            group_metadata.preconfigured_policy().unwrap(),
+            PreconfiguredPolicies::EveryoneIsAdmin
+        );
+
+        let group_metadata_creator_admin = GroupMetadata::new(
+            ConversationType::Group,
+            account_address.to_string(),
+            policy_group_creator_is_admin(),
+        );
+
+        assert_eq!(
+            group_metadata_creator_admin.preconfigured_policy().unwrap(),
+            PreconfiguredPolicies::GroupCreatorIsAdmin
+        );
+    }
 }

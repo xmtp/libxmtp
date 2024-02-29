@@ -1,4 +1,5 @@
 use thiserror::Error;
+
 use xmtp_cryptography::signature::is_valid_ethereum_address;
 
 #[derive(Debug, Error)]

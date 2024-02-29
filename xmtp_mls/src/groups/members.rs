@@ -3,9 +3,9 @@ use std::collections::HashMap;
 use openmls::group::MlsGroup as OpenMlsGroup;
 use xmtp_proto::api_client::XmtpMlsClient;
 
-use crate::{identity::Identity, xmtp_openmls_provider::XmtpOpenMlsProvider};
-
 use super::{GroupError, MlsGroup};
+
+use crate::{identity::Identity, xmtp_openmls_provider::XmtpOpenMlsProvider};
 
 #[derive(Debug, Clone)]
 pub struct GroupMember {
@@ -68,15 +68,13 @@ mod tests {
 
     #[tokio::test]
     async fn test_member_list() {
-        let amal = ClientBuilder::new_test_client(generate_local_wallet().into()).await;
+        let amal = ClientBuilder::new_test_client(&generate_local_wallet()).await;
         let bola_wallet = generate_local_wallet();
         // Add two separate installations for Bola
-        let bola_a = ClientBuilder::new_test_client(bola_wallet.clone().into()).await;
-        bola_a.register_identity().await.unwrap();
-        let bola_b = ClientBuilder::new_test_client(bola_wallet.clone().into()).await;
-        bola_b.register_identity().await.unwrap();
+        let bola_a = ClientBuilder::new_test_client(&bola_wallet).await;
+        let bola_b = ClientBuilder::new_test_client(&bola_wallet).await;
 
-        let group = amal.create_group().unwrap();
+        let group = amal.create_group(None).unwrap();
         // Add both of Bola's installations to the group
         group
             .add_members_by_installation_id(vec![

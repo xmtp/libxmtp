@@ -7,6 +7,9 @@ ARCHS_MAC = x86_64-apple-darwin aarch64-apple-darwin
 # ARCHS_MACCATALYST = x86_64-apple-ios-macabi aarch64-apple-ios-macabi
 LIB=libxmtpv3.a
 JAR_DIR=$(shell pwd)/tests/jar
+GIT_BRANCH=$(shell git rev-parse --abbrev-ref HEAD)
+GIT_COMMIT_HASH=$(shell git log -1 --pretty=format:"%h")
+GIT_COMMIT_DATE=$(shell TZ=UTC git log -1 --date=iso-local --pretty=format:"%ad")
 
 install-jar:
 	mkdir -p $(JAR_DIR) && \
@@ -26,6 +29,9 @@ download-toolchains:
 	rustup target add aarch64-apple-ios
 
 all: framework
+
+libxmtp-version:
+	echo "Version: $(GIT_COMMIT_HASH)\nBranch: $(GIT_BRANCH)\nDate: $(GIT_COMMIT_DATE)" > libxmtp-version.txt
 
 $(ARCHS_IOS): %:
 	cross build --target $@ --target-dir ./target --release --no-default-features
@@ -52,7 +58,7 @@ lipo:
 
 # xcframework combines libs for different platforms (iOS, iOS-simulator, macOS, ...) into one framework that can be used in Xcode
 framework: lipo
-	rm -rf LibXMTPRust.xcframework
+	rm -rf LibXMTPSwiftFFI.xcframework
 	xcodebuild -create-xcframework \
 		-library build/aarch64-apple-ios/$(LIB) \
 		-headers build/swift/include/ \
@@ -60,10 +66,10 @@ framework: lipo
 		-headers build/swift/include/ \
 		-library build/lipo_macos/$(LIB) \
 		-headers build/swift/include/ \
-		-output LibXMTPRust.xcframework
+		-output LibXMTPSwiftFFI.xcframework
 
 # build uniffi bindings for swift
-swift:
+swift: libxmtp-version
 	cargo build --release
 	rm -rf build/swift
 	target/release/ffi-uniffi-bindgen generate \
@@ -75,6 +81,7 @@ swift:
 	mkdir -p build/swift/include
 	mv build/swift/$(PROJECT_NAME)FFI.h build/swift/include/
 	mv build/swift/$(PROJECT_NAME)FFI.modulemap build/swift/include/module.modulemap
+	cp libxmtp-version.txt build/swift/
 
 swiftlocal: libxmtpv3.a swift framework 
 

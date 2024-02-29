@@ -1,7 +1,7 @@
 pub mod grpc_api_helper;
 
 pub const LOCALHOST_ADDRESS: &str = "http://localhost:5556";
-pub const DEV_ADDRESS: &str = "https://dev.xmtp.network:5556";
+pub const DEV_ADDRESS: &str = "https://grpc.dev.xmtp.network:443";
 
 pub use grpc_api_helper::Client;
 
@@ -53,9 +53,14 @@ mod tests {
         let client = Client::create(LOCALHOST_ADDRESS.to_string(), false)
             .await
             .unwrap();
-        let req = BatchQueryRequest { requests: vec![] };
+        let req = BatchQueryRequest {
+            requests: vec![QueryRequest {
+                content_topics: vec!["some-random-topic-with-no-messages".to_string()],
+                ..QueryRequest::default()
+            }],
+        };
         let result = client.batch_query(req).await.unwrap();
-        assert_eq!(result.responses.len(), 0);
+        assert_eq!(result.responses.len(), 1);
     }
 
     #[tokio::test]
