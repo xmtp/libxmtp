@@ -265,7 +265,6 @@ where
             .encode(&mut serialized_envelope)
             .map_err(GroupError::SerializationError)?;
 
-        // let intent_data: Vec<u8> = SendMessageIntentData::new(message.to_vec()).into();
         let intent_data: Vec<u8> = SendMessageIntentData::new(serialized_envelope).into();
         let intent =
             NewGroupIntent::new(IntentKind::SendMessage, self.group_id.clone(), intent_data);
@@ -274,7 +273,7 @@ where
         // optimistically store this message locally before sending
         let msg_id = calculate_message_id(
             &self.group_id,
-            &message,
+            message,
             &self.client.account_address(),
             &now.to_string(),
         );

@@ -235,7 +235,7 @@ where
 
                 let message_id = calculate_message_id(
                     group_id,
-                    &decrypted_message_data,
+                    decrypted_message_data,
                     &self.client.account_address(),
                     &key,
                 );
