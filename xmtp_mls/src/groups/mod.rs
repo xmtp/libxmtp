@@ -5,36 +5,10 @@ mod members;
 mod subscriptions;
 mod sync;
 pub mod validated_commit;
+    
+use thiserror::Error;
+use prost::Message;
 
-use self::group_metadata::extract_group_metadata;
-pub use self::group_permissions::PreconfiguredPolicies;
-pub use self::intents::{AddressesOrInstallationIds, IntentError};
-use self::{
-    group_metadata::{ConversationType, GroupMetadata, GroupMetadataError},
-    group_permissions::PolicySet,
-    intents::{AddMembersIntentData, RemoveMembersIntentData},
-    validated_commit::CommitValidationError,
-};
-use crate::{
-    client::{deserialize_welcome, ClientError, MessageProcessingError},
-    configuration::CIPHERSUITE,
-    hpke::{decrypt_welcome, HpkeError},
-    identity::{Identity, IdentityError},
-    retry::RetryableError,
-    retryable,
-    storage::{
-        group::{GroupMembershipState, StoredGroup},
-        group_intent::{IntentKind, NewGroupIntent},
-        group_message::{GroupMessageKind, StoredGroupMessage},
-        StorageError,
-    },
-    utils::{
-        address::{sanitize_evm_addresses, AddressValidationError},
-        time::now_ns,
-    },
-    xmtp_openmls_provider::XmtpOpenMlsProvider,
-    Client, Store,
-};
 use intents::SendMessageIntentData;
 use openmls::{
     extensions::{Extension, Extensions, Metadata},
@@ -45,7 +19,6 @@ use openmls::{
     },
 };
 use openmls_traits::OpenMlsProvider;
-use thiserror::Error;
 use xmtp_cryptography::signature::is_valid_ed25519_public_key;
 use xmtp_proto::{
     api_client::XmtpMlsClient,
@@ -53,7 +26,42 @@ use xmtp_proto::{
         group_message::{Version as GroupMessageVersion, V1 as GroupMessageV1},
         GroupMessage,
     },
+    xmtp::mls::message_contents::plaintext_envelope::{Content, V1},
+    xmtp::mls::message_contents::PlaintextEnvelope,
 };
+
+use self::group_metadata::extract_group_metadata;
+pub use self::group_permissions::PreconfiguredPolicies;
+pub use self::intents::{AddressesOrInstallationIds, IntentError};
+use self::{
+    group_metadata::{ConversationType, GroupMetadata, GroupMetadataError},
+    group_permissions::PolicySet,
+    intents::{AddMembersIntentData, RemoveMembersIntentData},
+    validated_commit::CommitValidationError,
+};
+
+use crate::{
+    client::{deserialize_welcome, ClientError, MessageProcessingError},
+    configuration::CIPHERSUITE,
+    hpke::{decrypt_welcome, HpkeError},
+    identity::{Identity, IdentityError},
+    retry::RetryableError,
+    retryable,
+    storage::{
+        group::{GroupMembershipState, StoredGroup},
+        group_intent::{IntentKind, NewGroupIntent},
+        group_message::{GroupMessageKind, DeliveryStatus, StoredGroupMessage},
+        StorageError,
+    },
+    utils::{
+        address::{sanitize_evm_addresses, AddressValidationError},
+        time::now_ns,
+        id::calculate_message_id
+    },
+    xmtp_openmls_provider::XmtpOpenMlsProvider,
+    Client, Store,
+};
+
 
 #[derive(Debug, Error)]
 pub enum GroupError {
@@ -107,6 +115,8 @@ pub enum GroupError {
     Hpke(#[from] HpkeError),
     #[error("identity error: {0}")]
     Identity(#[from] IdentityError),
+    #[error("serialization error: {0}")]
+    SerializationError(#[from] prost::EncodeError)
 }
 
 impl RetryableError for GroupError {
@@ -233,6 +243,15 @@ where
         Self::create_from_welcome(client, provider, welcome)
     }
 
+    fn add_idempotency_key(encoded_msg: &[u8], idempotency_key: &str) -> PlaintextEnvelope {
+        PlaintextEnvelope {
+            content: Some(Content::V1(V1 {
+                content: encoded_msg.to_vec(),
+                idempotency_key: idempotency_key.into(),
+            })),
+        }
+    }
+
     pub async fn send_message(&self, message: &[u8]) -> Result<(), GroupError> {
         let conn = &mut self.client.store.conn()?;
 
@@ -240,10 +259,31 @@ where
         self.maybe_update_installations(conn, update_interval)
             .await?;
 
-        let intent_data: Vec<u8> = SendMessageIntentData::new(message.to_vec()).into();
+        let now = now_ns();
+        let envelope = Self::add_idempotency_key(message, &now.to_string());
+        let mut serialized_envelope = vec![];
+        envelope.encode(&mut serialized_envelope).map_err(GroupError::SerializationError)?;
+        
+        // let intent_data: Vec<u8> = SendMessageIntentData::new(message.to_vec()).into();
+        let intent_data: Vec<u8> = SendMessageIntentData::new(serialized_envelope).into();
         let intent =
             NewGroupIntent::new(IntentKind::SendMessage, self.group_id.clone(), intent_data);
         intent.store(conn)?;
+
+        // optimistically store this message locally before sending
+        let msg_id = calculate_message_id(&self.group_id, &message, &self.client.account_address(), &now.to_string());
+        let msg_to_store = StoredGroupMessage {
+            id: msg_id,
+            group_id: self.group_id.clone(),
+            decrypted_message_bytes: message.to_vec(),
+            sent_at_ns: now, 
+            kind: GroupMessageKind::Application,
+            sender_installation_id: self.client.installation_public_key(),
+            sender_account_address: self.client.account_address(),
+            delivery_status: DeliveryStatus::Unpublished
+        };
+        msg_to_store.store(conn)?;
+        
 
         // Skipping a full sync here and instead just firing and forgetting
         if let Err(err) = self.publish_intents(conn).await {
