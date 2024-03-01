@@ -14,7 +14,7 @@ val ContentTypeReaction = ContentTypeIdBuilder.builderFromAuthorityId(
     "xmtp.org",
     "reaction",
     versionMajor = 1,
-    versionMinor = 0
+    versionMinor = 0,
 )
 
 data class Reaction(
@@ -94,6 +94,11 @@ data class ReactionCodec(override var contentType: ContentTypeId = ContentTypeRe
             ReactionAction.Removed -> "Removed “${content.content}” from an earlier message"
             else -> null
         }
+    }
+
+    override fun shouldPush(content: Reaction): Boolean = when (content.action) {
+        ReactionAction.Added -> true
+        else -> false
     }
 }
 

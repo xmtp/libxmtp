@@ -52,7 +52,7 @@ fun InvitationV1.createRandom(context: Context? = null): InvitationV1 {
     return InvitationV1Builder.buildFromTopic(
         topic = topic,
         context = inviteContext,
-        aes256GcmHkdfSha256 = aes256GcmHkdfSha256
+        aes256GcmHkdfSha256 = aes256GcmHkdfSha256,
     )
 }
 
@@ -68,7 +68,7 @@ fun InvitationV1.createDeterministic(
     val secret = sender.sharedSecret(
         peer = recipient,
         myPreKey = sender.preKeysList[0].publicKey,
-        isRecipient = myAddress < theirAddress
+        isRecipient = myAddress < theirAddress,
     )
 
     val addresses = arrayOf(myAddress, theirAddress)
@@ -80,12 +80,12 @@ fun InvitationV1.createDeterministic(
         addresses.joinToString(separator = ",")
     }
 
-    val topicId = Crypto().calculateMac(secret = secret, message = msg.toByteArray()).toHex()
+    val topicId = Crypto.calculateMac(secret = secret, message = msg.toByteArray()).toHex()
     val topic = Topic.directMessageV2(topicId)
-    val keyMaterial = Crypto().deriveKey(
+    val keyMaterial = Crypto.deriveKey(
         secret = secret,
         salt = "__XMTP__INVITATION__SALT__XMTP__".toByteArray(),
-        info = listOf("0").plus(addresses).joinToString(separator = "|").toByteArray()
+        info = listOf("0").plus(addresses).joinToString(separator = "|").toByteArray(),
     )
     val aes256GcmHkdfSha256 = Invitation.InvitationV1.Aes256gcmHkdfsha256.newBuilder().apply {
         this.keyMaterial = keyMaterial.toByteString()
@@ -94,7 +94,7 @@ fun InvitationV1.createDeterministic(
     return InvitationV1Builder.buildFromTopic(
         topic = topic,
         context = inviteContext,
-        aes256GcmHkdfSha256 = aes256GcmHkdfSha256
+        aes256GcmHkdfSha256 = aes256GcmHkdfSha256,
     )
 }
 

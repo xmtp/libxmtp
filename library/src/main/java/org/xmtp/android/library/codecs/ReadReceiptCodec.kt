@@ -6,7 +6,7 @@ val ContentTypeReadReceipt = ContentTypeIdBuilder.builderFromAuthorityId(
     "xmtp.org",
     "readReceipt",
     versionMajor = 1,
-    versionMinor = 0
+    versionMinor = 0,
 )
 
 object ReadReceipt
@@ -28,4 +28,6 @@ data class ReadReceiptCodec(override var contentType: ContentTypeId = ContentTyp
     override fun fallback(content: ReadReceipt): String? {
         return null
     }
+
+    override fun shouldPush(content: ReadReceipt): Boolean = false
 }

@@ -229,11 +229,16 @@ class ConversationTest {
             additionalData = headerBytes,
         )
         val tamperedMessage =
-            MessageV2Builder.buildFromCipherText(headerBytes = headerBytes, ciphertext = ciphertext)
+            MessageV2Builder.buildFromCipherText(
+                headerBytes = headerBytes,
+                ciphertext = ciphertext,
+                senderHmac = null,
+                shouldPush = true,
+            )
         val tamperedEnvelope = EnvelopeBuilder.buildFromString(
             topic = aliceConversation.topic,
             timestamp = Date(),
-            message = MessageBuilder.buildFromMessageV2(v2 = tamperedMessage).toByteArray(),
+            message = MessageBuilder.buildFromMessageV2(v2 = tamperedMessage.messageV2).toByteArray(),
         )
         aliceClient.publish(envelopes = listOf(tamperedEnvelope))
         val bobConversation = bobClient.conversations.newConversation(
@@ -585,7 +590,8 @@ class ConversationTest {
                             encodedContent,
                             topic = conversation.topic,
                             keyMaterial = conversation.keyMaterial!!,
-                        ),
+                            codec = encoder,
+                        ).messageV2,
                     ).toByteArray(),
                 ),
             )
@@ -848,7 +854,6 @@ class ConversationTest {
         val directMessageV1 = Topic.directMessageV1(invalidId, "sd").description
         val directMessageV2 = Topic.directMessageV2(invalidId).description
         val preferenceList = Topic.preferenceList(invalidId).description
-        val conversations = bobClient.conversations
 
         // check if validation of topics no accept all types with invalid topic
         assertFalse(Topic.isValidTopic(privateStore))

@@ -60,7 +60,7 @@ class RemoteAttachmentTest {
 
         val remoteAttachment = RemoteAttachment.from(
             url = URL("https://abcdefg"),
-            encryptedEncodedContent = encodedEncryptedContent
+            encryptedEncodedContent = encodedEncryptedContent,
         )
 
         remoteAttachment.contentLength = attachment.data.size()
@@ -113,7 +113,7 @@ class RemoteAttachmentTest {
         Assert.assertThrows(XMTPException::class.java) {
             RemoteAttachment.from(
                 url = URL("http://abcdefg"),
-                encryptedEncodedContent = encodedEncryptedContent
+                encryptedEncodedContent = encodedEncryptedContent,
             )
         }
     }
@@ -139,7 +139,7 @@ class RemoteAttachmentTest {
 
         val remoteAttachment = RemoteAttachment.from(
             url = URL("https://abcdefg"),
-            encryptedEncodedContent = encodedEncryptedContent
+            encryptedEncodedContent = encodedEncryptedContent,
         )
 
         remoteAttachment.contentLength = attachment.data.size()

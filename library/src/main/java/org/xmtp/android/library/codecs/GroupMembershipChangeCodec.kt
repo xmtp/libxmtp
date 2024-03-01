@@ -11,7 +11,7 @@ val ContentTypeGroupMembershipChange = ContentTypeIdBuilder.builderFromAuthority
     "xmtp.org",
     "group_membership_change",
     versionMajor = 1,
-    versionMinor = 0
+    versionMinor = 0,
 )
 
 data class GroupMembershipChangeCodec(override var contentType: ContentTypeId = ContentTypeGroupMembershipChange) :
@@ -31,4 +31,6 @@ data class GroupMembershipChangeCodec(override var contentType: ContentTypeId = 
     override fun fallback(content: GroupMembershipChanges): String? {
         return null
     }
+
+    override fun shouldPush(content: GroupMembershipChanges): Boolean = false
 }

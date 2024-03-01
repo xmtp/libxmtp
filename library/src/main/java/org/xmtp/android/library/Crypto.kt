@@ -3,9 +3,6 @@ package org.xmtp.android.library
 import android.util.Log
 import com.google.crypto.tink.subtle.Hkdf
 import com.google.protobuf.kotlin.toByteString
-import org.bouncycastle.crypto.digests.SHA256Digest
-import org.bouncycastle.crypto.generators.HKDFBytesGenerator
-import org.bouncycastle.crypto.params.HKDFParameters
 import org.xmtp.proto.message.contents.CiphertextOuterClass
 import java.security.GeneralSecurityException
 import java.security.SecureRandom
@@ -77,26 +74,40 @@ class Crypto {
                 null
             }
         }
-    }
 
-    fun calculateMac(secret: ByteArray, message: ByteArray): ByteArray {
-        val sha256HMAC: Mac = Mac.getInstance("HmacSHA256")
-        val secretKey = SecretKeySpec(secret, "HmacSHA256")
-        sha256HMAC.init(secretKey)
-        return sha256HMAC.doFinal(message)
-    }
+        fun calculateMac(secret: ByteArray, message: ByteArray): ByteArray {
+            val sha256HMAC: Mac = Mac.getInstance("HmacSHA256")
+            val secretKey = SecretKeySpec(secret, "HmacSHA256")
+            sha256HMAC.init(secretKey)
+            return sha256HMAC.doFinal(message)
+        }
 
-    fun deriveKey(
-        secret: ByteArray,
-        salt: ByteArray,
-        info: ByteArray,
-    ): ByteArray {
-        val derivationParameters = HKDFParameters(secret, salt, info)
-        val digest = SHA256Digest()
-        val hkdfGenerator = HKDFBytesGenerator(digest)
-        hkdfGenerator.init(derivationParameters)
-        val hkdf = ByteArray(32)
-        hkdfGenerator.generateBytes(hkdf, 0, hkdf.size)
-        return hkdf
+        fun deriveKey(
+            secret: ByteArray,
+            salt: ByteArray,
+            info: ByteArray,
+        ): ByteArray {
+            val keySpec = SecretKeySpec(secret, "HmacSHA256")
+            val hmac = Mac.getInstance("HmacSHA256")
+            hmac.init(keySpec)
+            val derivedKey = hmac.doFinal(salt + info)
+
+            return derivedKey.copyOfRange(0, 32)
+        }
+
+        fun verifyHmacSignature(
+            key: ByteArray,
+            signature: ByteArray,
+            message: ByteArray
+        ): Boolean {
+            return try {
+                val mac = Mac.getInstance("HmacSHA256")
+                mac.init(SecretKeySpec(key, "HmacSHA256"))
+                val computedSignature = mac.doFinal(message)
+                computedSignature.contentEquals(signature)
+            } catch (e: Exception) {
+                false
+            }
+        }
     }
 }

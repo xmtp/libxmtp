@@ -1,7 +1,8 @@
 package org.xmtp.android.library
 
+import android.content.Context
+import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
-import androidx.test.platform.app.InstrumentationRegistry
 import org.junit.Assert.assertEquals
 import org.junit.Before
 import org.junit.Test
@@ -25,18 +26,17 @@ class GroupMembershipChangeTest {
     lateinit var caro: PrivateKey
     lateinit var caroClient: Client
     lateinit var fixtures: Fixtures
+    val context = ApplicationProvider.getApplicationContext<Context>()
 
     @Before
     fun setUp() {
-        val context = InstrumentationRegistry.getInstrumentation().targetContext
-        fixtures =
-            fixtures(
-                clientOptions = ClientOptions(
-                    ClientOptions.Api(XMTPEnvironment.LOCAL, false),
-                    enableAlphaMls = true,
-                    appContext = context
-                )
+        fixtures = fixtures(
+            clientOptions = ClientOptions(
+                ClientOptions.Api(XMTPEnvironment.LOCAL, false),
+                enableAlphaMls = true,
+                appContext = context,
             )
+        )
         alixWallet = fixtures.aliceAccount
         alix = fixtures.alice
         boWallet = fixtures.bobAccount

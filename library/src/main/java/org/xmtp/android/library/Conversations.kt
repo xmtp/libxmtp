@@ -1,6 +1,8 @@
 package org.xmtp.android.library
 
 import android.util.Log
+import com.google.protobuf.kotlin.toByteString
+import com.google.protobuf.kotlin.toByteStringUtf8
 import io.grpc.StatusException
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.channels.awaitClose
@@ -33,6 +35,9 @@ import org.xmtp.android.library.messages.senderAddress
 import org.xmtp.android.library.messages.sentAt
 import org.xmtp.android.library.messages.toSignedPublicKeyBundle
 import org.xmtp.android.library.messages.walletAddress
+import org.xmtp.proto.keystore.api.v1.Keystore
+import org.xmtp.proto.keystore.api.v1.Keystore.GetConversationHmacKeysResponse.HmacKeyData
+import org.xmtp.proto.keystore.api.v1.Keystore.GetConversationHmacKeysResponse.HmacKeys
 import org.xmtp.proto.keystore.api.v1.Keystore.TopicMap.TopicData
 import org.xmtp.proto.message.contents.Contact
 import org.xmtp.proto.message.contents.Invitation
@@ -296,6 +301,42 @@ data class Conversations(
         }
         conversationsByTopic[conversation.topic] = conversation
         return conversation
+    }
+
+    fun getHmacKeys(
+        request: Keystore.GetConversationHmacKeysRequest? = null,
+    ): Keystore.GetConversationHmacKeysResponse {
+        val thirtyDayPeriodsSinceEpoch = (Date().time / 1000 / 60 / 60 / 24 / 30).toInt()
+        val hmacKeysResponse = Keystore.GetConversationHmacKeysResponse.newBuilder()
+
+        var topics = conversationsByTopic
+
+        if (!request?.topicsList.isNullOrEmpty()) {
+            topics = topics.filter {
+                request!!.topicsList.contains(it.key)
+            }.toMutableMap()
+        }
+
+        topics.forEach {
+            val conversation = it.value
+            val hmacKeys = HmacKeys.newBuilder()
+            if (conversation.keyMaterial != null) {
+                (thirtyDayPeriodsSinceEpoch - 1..thirtyDayPeriodsSinceEpoch + 1).forEach { value ->
+                    val info = "$value-${client.address}"
+                    val hmacKey =
+                        Crypto.calculateMac(
+                            conversation.keyMaterial!!,
+                            info.toByteStringUtf8().toByteArray()
+                        )
+                    val hmacKeyData = HmacKeyData.newBuilder()
+                    hmacKeyData.hmacKey = hmacKey.toByteString()
+                    hmacKeyData.thirtyDayPeriodsSinceEpoch = value
+                    hmacKeys.addValues(hmacKeyData)
+                }
+                hmacKeysResponse.putHmacKeys(conversation.topic, hmacKeys.build())
+            }
+        }
+        return hmacKeysResponse.build()
     }
 
     private fun listIntroductionPeers(pagination: Pagination? = null): Map<String, Date> {

@@ -1,6 +1,7 @@
 package org.xmtp.android.library.messages
 
 import com.google.protobuf.kotlin.toByteString
+import com.google.protobuf.kotlin.toByteStringUtf8
 import org.web3j.crypto.ECDSASignature
 import org.web3j.crypto.Hash
 import org.web3j.crypto.Sign
@@ -10,19 +11,30 @@ import org.xmtp.android.library.Crypto
 import org.xmtp.android.library.DecodedMessage
 import org.xmtp.android.library.KeyUtil
 import org.xmtp.android.library.XMTPException
+import org.xmtp.android.library.codecs.ContentCodec
 import org.xmtp.android.library.codecs.EncodedContent
 import java.math.BigInteger
 import java.util.Date
 
 typealias MessageV2 = org.xmtp.proto.message.contents.MessageOuterClass.MessageV2
 
-class MessageV2Builder {
+class MessageV2Builder(val senderHmac: ByteArray? = null, val shouldPush: Boolean = false) {
+    lateinit var messageV2: MessageV2
+
     companion object {
-        fun buildFromCipherText(headerBytes: ByteArray, ciphertext: CipherText?): MessageV2 {
-            return MessageV2.newBuilder().also {
+        fun buildFromCipherText(
+            headerBytes: ByteArray,
+            ciphertext: CipherText?,
+            senderHmac: ByteArray?,
+            shouldPush: Boolean,
+        ): MessageV2Builder {
+            val messageBuilder = MessageV2Builder(senderHmac = senderHmac, shouldPush = shouldPush)
+            messageBuilder.messageV2 = MessageV2.newBuilder().also {
                 it.headerBytes = headerBytes.toByteString()
                 it.ciphertext = ciphertext
+                it.shouldPush = shouldPush
             }.build()
+            return messageBuilder
         }
 
         fun buildDecode(
@@ -41,7 +53,7 @@ class MessageV2Builder {
                     topic = decryptedMessage.topic,
                     encodedContent = decryptedMessage.encodedContent,
                     senderAddress = decryptedMessage.senderAddress,
-                    sent = decryptedMessage.sentAt
+                    sent = decryptedMessage.sentAt,
                 )
             } catch (e: Exception) {
                 throw XMTPException("Error decoding message", e)
@@ -69,7 +81,7 @@ class MessageV2Builder {
 
             if (!senderPreKey.signature.verify(
                     senderIdentityKey,
-                    signed.sender.preKey.keyBytes.toByteArray()
+                    signed.sender.preKey.keyBytes.toByteArray(),
                 )
             ) {
                 throw XMTPException("pre-key not signed by identity key")
@@ -109,16 +121,25 @@ class MessageV2Builder {
                 encodedContent = encodedMessage,
                 senderAddress = signed.sender.walletAddress,
                 sentAt = Date(header.createdNs / 1_000_000),
-                topic = topic
+                topic = topic,
             )
         }
 
-        fun buildEncode(
+        private fun <Codec : ContentCodec<T>, T> shouldPush(codec: Codec, content: T?): Boolean {
+            if (content != null) {
+                return codec.shouldPush(content = content)
+            } else {
+                throw XMTPException("Codec invalid content")
+            }
+        }
+
+        fun <Codec : ContentCodec<T>, T> buildEncode(
             client: Client,
             encodedContent: EncodedContent,
             topic: String,
             keyMaterial: ByteArray,
-        ): MessageV2 {
+            codec: Codec,
+        ): MessageV2Builder {
             val payload = encodedContent.toByteArray()
             val date = Date()
             val header = MessageHeaderV2Builder.buildFromTopic(topic, date)
@@ -130,7 +151,23 @@ class MessageV2Builder {
             val signedContent = SignedContentBuilder.builderFromPayload(payload, bundle, signature)
             val signedBytes = signedContent.toByteArray()
             val ciphertext = Crypto.encrypt(keyMaterial, signedBytes, additionalData = headerBytes)
-            return buildFromCipherText(headerBytes, ciphertext)
+
+            val thirtyDayPeriodsSinceEpoch =
+                (Date().time / 1000 / 60 / 60 / 24 / 30).toInt()
+            val info = "$thirtyDayPeriodsSinceEpoch-${client.address}"
+            val infoEncoded = info.toByteStringUtf8().toByteArray()
+            val senderHmacGenerated =
+                Crypto.calculateMac(
+                    Crypto.deriveKey(keyMaterial, ByteArray(0), infoEncoded),
+                    headerBytes
+                )
+
+            return buildFromCipherText(
+                headerBytes,
+                ciphertext,
+                senderHmacGenerated,
+                shouldPush(codec = codec, content = codec.decode(encodedContent)),
+            )
         }
     }
 }

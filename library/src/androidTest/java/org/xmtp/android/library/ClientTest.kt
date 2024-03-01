@@ -5,7 +5,6 @@ import androidx.test.platform.app.InstrumentationRegistry
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.fail
-import org.junit.Ignore
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.xmtp.android.library.messages.PrivateKeyBuilder
@@ -202,7 +201,6 @@ class ClientTest {
     }
 
     @Test
-    @Ignore("CI Issues")
     fun testPublicCanMessage() {
         val aliceWallet = PrivateKeyBuilder()
         val notOnNetwork = PrivateKeyBuilder()
@@ -218,7 +216,6 @@ class ClientTest {
     }
 
     @Test
-    @Ignore("CI Issues")
     fun testPreEnableIdentityCallback() {
         val fakeWallet = PrivateKeyBuilder()
         val expectation = CompletableFuture<Unit>()
@@ -241,7 +238,6 @@ class ClientTest {
     }
 
     @Test
-    @Ignore("CI Issues")
     fun testPreCreateIdentityCallback() {
         val fakeWallet = PrivateKeyBuilder()
         val expectation = CompletableFuture<Unit>()

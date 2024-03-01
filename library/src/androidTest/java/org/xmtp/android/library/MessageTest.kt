@@ -53,7 +53,7 @@ class MessageTest {
                 sender = alice,
                 recipient = bob.toPublicKeyBundle(),
                 message = content,
-                timestamp = Date()
+                timestamp = Date(),
             )
             assertEquals(aliceWallet.getPrivateKey().walletAddress, message1.senderAddress)
             assertEquals(bobWallet.getPrivateKey().walletAddress, message1.recipientAddress)
@@ -77,13 +77,13 @@ class MessageTest {
             InvitationV1.newBuilder().build().createDeterministic(
                 sender = alice.toV2(),
                 recipient = bob.toV2().getPublicKeyBundle(),
-                context = invitationContext
+                context = invitationContext,
             )
         val sealedInvitation = SealedInvitationBuilder.buildFromV1(
             sender = alice.toV2(),
             recipient = bob.toV2().getPublicKeyBundle(),
             created = Date(),
-            invitation = invitationv1
+            invitation = invitationv1,
         )
         val encoder = TextCodec()
         val encodedContent = encoder.encode(content = "Yo!")
@@ -91,14 +91,15 @@ class MessageTest {
             client = client,
             encodedContent,
             topic = invitationv1.topic,
-            keyMaterial = invitationv1.aes256GcmHkdfSha256.keyMaterial.toByteArray()
+            keyMaterial = invitationv1.aes256GcmHkdfSha256.keyMaterial.toByteArray(),
+            codec = encoder,
         )
         val decoded = MessageV2Builder.buildDecode(
             id = "",
             client = client,
-            message = message1,
+            message = message1.messageV2,
             keyMaterial = invitationv1.aes256GcmHkdfSha256.keyMaterial.toByteArray(),
-            topic = invitationv1.topic
+            topic = invitationv1.topic,
         )
         val result: String? = decoded.content()
         assertEquals(result, "Yo!")
@@ -118,7 +119,7 @@ class MessageTest {
             Numeric.hexStringToByteArray("d752fb09ee0390fe5902a1bd7b2f530da7e5b3a2bd91bad9df8fa284ab63327b86a59620fd3e2d2cf9183f46bd0fe75bda3caca893420c38416b1f")
         val additionalData =
             Numeric.hexStringToByteArray(
-                "0aac020a940108d995eeadcc3012460a440a408f20c9fc03909edeb21538b0a568c423f8829e95c0270779ca704f72a45f02416f6071f6faaf421cac3bacc6bb432fc4b5f92bc4391349953c7c98f12253cdd710011a430a4104b7eb7b56059a4f08bf3dd8f1b329e21d486e39822f17db15bad0d7f689f6c8081ae2800b9014fc9ef355a39e10503fddfdfa0b07ccc1946c2275b10e660d5ded12920108e995eeadcc3012440a420a40da669aa014468ffe34d5b962443d8b1e353b1e39f252bbcffa5c6c70adf9f7d2484de944213f345bac869e8c1942657b9c59f6fc12d139171b22789bc76ffb971a430a4104901d3a7f728bde1f871bcf46d44dcf34eead4c532135913583268d35bd93ca0a1571a8cb6546ab333f2d77c3bb9839be7e8f27795ea4d6e979b6670dec20636d12aa020a920108bad3eaadcc3012440a420a4016d83a6e44ee8b9764f18fbb390f2a4049d92ff904ebd75c76a71d58a7f943744f8bed7d3696f9fb41ce450c5ab9f4a7f9a83e3d10f401bbe85e3992c5156d491a430a41047cebe3a23e573672363665d13220d368d37776e10232de9bd382d5af36392956dbd806f8b78bec5cdc111763e4ef4aff7dee65a8a15fee8d338c387320c5b23912920108bad3eaadcc3012440a420a404a751f28001f34a4136529a99e738279856da6b32a1ee9dba20849d9cd84b6165166a6abeae1139ed8df8be3b4594d9701309075f2b8d5d4de1f713fb62ae37e1a430a41049c45e552ac9f69c083bd358acac31a2e3cf7d9aa9298fef11b43252730949a39c68272302a61b548b13452e19272c119b5189a5d7b5c3283a37d5d9db5ed0c6818b286deaecc30"
+                "0aac020a940108d995eeadcc3012460a440a408f20c9fc03909edeb21538b0a568c423f8829e95c0270779ca704f72a45f02416f6071f6faaf421cac3bacc6bb432fc4b5f92bc4391349953c7c98f12253cdd710011a430a4104b7eb7b56059a4f08bf3dd8f1b329e21d486e39822f17db15bad0d7f689f6c8081ae2800b9014fc9ef355a39e10503fddfdfa0b07ccc1946c2275b10e660d5ded12920108e995eeadcc3012440a420a40da669aa014468ffe34d5b962443d8b1e353b1e39f252bbcffa5c6c70adf9f7d2484de944213f345bac869e8c1942657b9c59f6fc12d139171b22789bc76ffb971a430a4104901d3a7f728bde1f871bcf46d44dcf34eead4c532135913583268d35bd93ca0a1571a8cb6546ab333f2d77c3bb9839be7e8f27795ea4d6e979b6670dec20636d12aa020a920108bad3eaadcc3012440a420a4016d83a6e44ee8b9764f18fbb390f2a4049d92ff904ebd75c76a71d58a7f943744f8bed7d3696f9fb41ce450c5ab9f4a7f9a83e3d10f401bbe85e3992c5156d491a430a41047cebe3a23e573672363665d13220d368d37776e10232de9bd382d5af36392956dbd806f8b78bec5cdc111763e4ef4aff7dee65a8a15fee8d338c387320c5b23912920108bad3eaadcc3012440a420a404a751f28001f34a4136529a99e738279856da6b32a1ee9dba20849d9cd84b6165166a6abeae1139ed8df8be3b4594d9701309075f2b8d5d4de1f713fb62ae37e1a430a41049c45e552ac9f69c083bd358acac31a2e3cf7d9aa9298fef11b43252730949a39c68272302a61b548b13452e19272c119b5189a5d7b5c3283a37d5d9db5ed0c6818b286deaecc30",
             )
         val ciphertext = CipherText.newBuilder().apply {
             aes256GcmHkdfSha256 = aes256GcmHkdfSha256.toBuilder().also {
@@ -197,7 +198,7 @@ class MessageTest {
         val convo = client.conversations.list()[0]
         convo.send(
             text = "hello deflate from kotlin again",
-            SendOptions(compression = EncodedContentCompression.DEFLATE)
+            SendOptions(compression = EncodedContentCompression.DEFLATE),
         )
         val message = convo.messages().lastOrNull()!!
         assertEquals("hello deflate from kotlin again", message.content())
@@ -239,7 +240,7 @@ class MessageTest {
         val convo = ConversationV1(
             client = client,
             peerAddress = "0xf4BF19Ed562651837bc11ff975472ABd239D35B5",
-            sentAt = Date()
+            sentAt = Date(),
         )
         convo.send(text = "hello from kotlin")
         val messages = convo.messages()
@@ -254,7 +255,7 @@ class MessageTest {
         val client = Client().create(account = wallet)
         val convo = client.conversations.newConversation(
             "0xf4BF19Ed562651837bc11ff975472ABd239D35B5",
-            InvitationV1ContextBuilder.buildFromConversation("https://example.com/4")
+            InvitationV1ContextBuilder.buildFromConversation("https://example.com/4"),
         )
 
         convo.send(content = "hello from kotlin")
@@ -279,7 +280,7 @@ class MessageTest {
     fun testGetsV2ID() {
         val envelopeMessageData =
             Numeric.hexStringToByteArray(
-                "12bf040a470880dedf9dafc0ff9e17123b2f786d74702f302f6d2d32536b644e355161305a6d694649357433524662667749532d4f4c76356a7573716e6465656e544c764e672f70726f746f12f3030af0030a20439174a205643a50af33c7670341338526dbb9c1cf0560687ff8a742e957282d120c090ba2b385b40639867493ce1abd037648c947f72e5c62e8691d7748e78f9a346ff401c97a628ebecf627d722829ff9cfb7d7c3e0b9e26b5801f2b5a39fd58757cc5771427bfefad6243f52cfc84b384fa042873ebeb90948aa80ca34f26ff883d64720c9228ed6bcd1a5c46953a12ae8732fd70260651455674e2e2c23bc8d64ed35562fef4cdfc55d38e72ad9cf2d597e68f48b6909967b0f5d0b4f33c0af3efce55c739fbc93888d20b833df15811823970a356b26622936564d830434d3ecde9a013f7433142e366f1df5589131e440251be54d5d6deef9aaaa9facac26eb54fb7b74eb48c5a2a9a2e2956633b123cc5b91dec03e4dba30683be03bd7510f16103d3f81712dccf2be003f2f77f9e1f162bc47f6c1c38a1068abd3403952bef31d75e8024e7a62d9a8cbd48f1872a0156abb559d01de689b4370a28454658957061c46f47fc5594808d15753876d4b5408b3a3410d0555c016e427dfceae9c05a4a21fd7ce4cfbb11b2a696170443cf310e0083b0a48e357fc2f00c688c0b56821c8a14c2bb44ddfa31d680dfc85efe4811e86c6aa3adfc373ad5731ddab83960774d98d60075b8fd70228da5d748bfb7a5334bd07e1cc4a9fbf3d5de50860d0684bb27786b5b4e00d415"
+                "12bf040a470880dedf9dafc0ff9e17123b2f786d74702f302f6d2d32536b644e355161305a6d694649357433524662667749532d4f4c76356a7573716e6465656e544c764e672f70726f746f12f3030af0030a20439174a205643a50af33c7670341338526dbb9c1cf0560687ff8a742e957282d120c090ba2b385b40639867493ce1abd037648c947f72e5c62e8691d7748e78f9a346ff401c97a628ebecf627d722829ff9cfb7d7c3e0b9e26b5801f2b5a39fd58757cc5771427bfefad6243f52cfc84b384fa042873ebeb90948aa80ca34f26ff883d64720c9228ed6bcd1a5c46953a12ae8732fd70260651455674e2e2c23bc8d64ed35562fef4cdfc55d38e72ad9cf2d597e68f48b6909967b0f5d0b4f33c0af3efce55c739fbc93888d20b833df15811823970a356b26622936564d830434d3ecde9a013f7433142e366f1df5589131e440251be54d5d6deef9aaaa9facac26eb54fb7b74eb48c5a2a9a2e2956633b123cc5b91dec03e4dba30683be03bd7510f16103d3f81712dccf2be003f2f77f9e1f162bc47f6c1c38a1068abd3403952bef31d75e8024e7a62d9a8cbd48f1872a0156abb559d01de689b4370a28454658957061c46f47fc5594808d15753876d4b5408b3a3410d0555c016e427dfceae9c05a4a21fd7ce4cfbb11b2a696170443cf310e0083b0a48e357fc2f00c688c0b56821c8a14c2bb44ddfa31d680dfc85efe4811e86c6aa3adfc373ad5731ddab83960774d98d60075b8fd70228da5d748bfb7a5334bd07e1cc4a9fbf3d5de50860d0684bb27786b5b4e00d415",
             )
         val envelope = MessageApiOuterClass.Envelope.newBuilder().also {
             it.contentTopic = "/xmtp/0/m-2SkdN5Qa0ZmiFI5t3RFbfwIS-OLv5jusqndeenTLvNg/proto"
@@ -288,7 +289,7 @@ class MessageTest {
         }.build()
         val ints = arrayOf(
             80, 84, 15, 126, 14, 105, 216, 8, 61, 147, 153, 232, 103, 69, 219, 13,
-            99, 118, 68, 56, 160, 94, 58, 22, 140, 247, 221, 172, 14, 188, 52, 88
+            99, 118, 68, 56, 160, 94, 58, 22, 140, 247, 221, 172, 14, 188, 52, 88,
         )
         val bytes =
             ints.foldIndexed(ByteArray(ints.size)) { i, a, v -> a.apply { set(i, v.toByte()) } }
@@ -310,7 +311,7 @@ class MessageTest {
         val client = Client().buildFrom(bundle = keyBundle.v1)
         val conversationJSON =
             (""" {"version":"v2","topic":"/xmtp/0/m-2SkdN5Qa0ZmiFI5t3RFbfwIS-OLv5jusqndeenTLvNg/proto","keyMaterial":"ATA1L0O2aTxHmskmlGKCudqfGqwA1H+bad3W/GpGOr8=","peerAddress":"0x436D906d1339fC4E951769b1699051f020373D04","createdAt":"2023-01-26T22:58:45.068Z","context":{"conversationId":"pat/messageid","metadata":{}}} """).toByteArray(
-                UTF_8
+                UTF_8,
             )
         val decodedConversation = client.importConversation(conversationJSON)
         val conversation = ConversationV2(
@@ -319,12 +320,12 @@ class MessageTest {
             context = Context.newBuilder().build(),
             peerAddress = decodedConversation.peerAddress,
             client = client,
-            header = Invitation.SealedInvitationHeaderV1.newBuilder().build()
+            header = Invitation.SealedInvitationHeaderV1.newBuilder().build(),
         )
         val decodedMessage = conversation.decodeEnvelope(envelope)
         assertEquals(
             decodedMessage.id,
-            "e42a7dd44d0e1214824eab093cb89cfe6f666298d0af2d54fe0c914c8b72eff3"
+            "e42a7dd44d0e1214824eab093cb89cfe6f666298d0af2d54fe0c914c8b72eff3",
         )
     }
 
@@ -365,12 +366,12 @@ class MessageTest {
         val aliceSharedSecret = alicePrivateBundle.sharedSecret(
             peer = bobPublicBundle,
             myPreKey = alicePublicBundle.preKey,
-            isRecipient = true
+            isRecipient = true,
         )
         val bobSharedSecret = bobPrivateBundle.sharedSecret(
             peer = alicePublicBundle,
             myPreKey = bobPublicBundle.preKey,
-            isRecipient = false
+            isRecipient = false,
         )
         assert(aliceSharedSecret.contentEquals(bobSharedSecret))
     }
@@ -389,7 +390,7 @@ class MessageTest {
         val secret = meBundle.sharedSecret(
             peer = youBundlePublic,
             myPreKey = meBundle.preKeysList[0].publicKey,
-            isRecipient = true
+            isRecipient = true,
         )
         assert(secretData.contentEquals(secret))
     }
