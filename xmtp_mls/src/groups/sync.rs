@@ -163,6 +163,7 @@ where
         envelope_timestamp_ns: u64,
         allow_epoch_increment: bool,
     ) -> Result<(), MessageProcessingError> {
+        dbg!("processing own");
         if intent.state == IntentState::Committed {
             return Ok(());
         }
@@ -235,22 +236,30 @@ where
 
                 let message_id = calculate_message_id(
                     group_id,
-                    decrypted_message_data,
+                    &message,
                     &self.client.account_address(),
                     &key,
                 );
 
-                StoredGroupMessage {
-                    id: message_id,
-                    group_id: group_id.to_vec(),
-                    decrypted_message_bytes: message,
-                    sent_at_ns: envelope_timestamp_ns as i64,
-                    kind: GroupMessageKind::Application,
-                    sender_installation_id: self.client.installation_public_key(),
-                    sender_account_address: self.client.account_address(),
-                    delivery_status: DeliveryStatus::Unpublished,
-                }
-                .store(conn)?;
+                dbg!(&decrypted_message_data);
+                dbg!(&message);
+                
+                let existing_msg = conn.get_group_message(&message_id);
+                dbg!(&existing_msg);
+
+                let updated = conn.set_delivery_status_to_published(&message_id);
+                dbg!(&updated);
+                // StoredGroupMessage {
+                //     id: message_id,
+                //     group_id: group_id.to_vec(),
+                //     decrypted_message_bytes: message,
+                //     sent_at_ns: envelope_timestamp_ns as i64,
+                //     kind: GroupMessageKind::Application,
+                //     sender_installation_id: self.client.installation_public_key(),
+                //     sender_account_address: self.client.account_address(),
+                //     delivery_status: DeliveryStatus::Published,
+                // }
+                // .store(conn)?;
             }
         };
 
@@ -267,6 +276,8 @@ where
         envelope_timestamp_ns: u64,
         allow_epoch_increment: bool,
     ) -> Result<(), MessageProcessingError> {
+        
+        dbg!("processing external");
         debug!(
             "[{}] processing private message",
             self.client.account_address()
@@ -295,7 +306,7 @@ where
 
                 let message_id = calculate_message_id(
                     &self.group_id,
-                    &message_bytes,
+                    &message,
                     &self.client.account_address(),
                     &key,
                 );

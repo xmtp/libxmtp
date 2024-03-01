@@ -8,7 +8,10 @@ use diesel::{
     sqlite::Sqlite,
 };
 
-use super::{db_connection::DbConnection, schema::group_messages};
+use super::{
+    db_connection::DbConnection,
+    schema::{group_messages, group_messages::dsl},
+};
 use crate::{impl_fetch, impl_store, StorageError};
 
 #[derive(Insertable, Identifiable, Queryable, Debug, Clone, PartialEq, Eq)]
@@ -110,8 +113,6 @@ impl DbConnection<'_> {
         delivery_status: Option<DeliveryStatus>,
         limit: Option<i64>,
     ) -> Result<Vec<StoredGroupMessage>, StorageError> {
-        use super::schema::group_messages::dsl;
-
         let mut query = dsl::group_messages
             .order(dsl::sent_at_ns.asc())
             .filter(dsl::group_id.eq(group_id.as_ref()))
@@ -145,7 +146,6 @@ impl DbConnection<'_> {
         &self,
         id: MessageId,
     ) -> Result<Option<StoredGroupMessage>, StorageError> {
-        use super::schema::group_messages::dsl;
         Ok(self.raw_query(|conn| {
             dsl::group_messages
                 .filter(dsl::id.eq(id.as_ref()))
@@ -159,7 +159,6 @@ impl DbConnection<'_> {
         group_id: GroupId,
         timestamp: i64,
     ) -> Result<Option<StoredGroupMessage>, StorageError> {
-        use super::schema::group_messages::dsl;
         Ok(self.raw_query(|conn| {
             dsl::group_messages
                 .filter(dsl::group_id.eq(group_id.as_ref()))
@@ -167,6 +166,23 @@ impl DbConnection<'_> {
                 .first(conn)
                 .optional()
         })?)
+    }
+
+    pub fn set_delivery_status_to_published<MessageId: AsRef<[u8]>>(
+        &self,
+        msg_id: MessageId,
+    ) -> Result<usize, StorageError> {
+        let res = self.raw_query(|conn| {
+            diesel::update(dsl::group_messages)
+                .filter(dsl::id.eq(msg_id.as_ref()))
+                .set(dsl::delivery_status.eq(1))
+                .execute(conn)
+        });
+
+        match res {
+            Ok(n) => Ok(n),
+            Err(_e) => Err(StorageError::NotFound),
+        }
     }
 }
 
