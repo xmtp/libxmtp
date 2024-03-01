@@ -167,11 +167,11 @@ impl From<FfiV2QueryRequest> for QueryRequest {
             start_time_ns: req.start_time_ns,
             end_time_ns: req.end_time_ns,
             paging_info: req.paging_info.map(|paging_info| {
-                return PagingInfo {
+                PagingInfo {
                     limit: paging_info.limit,
                     direction: paging_info.direction as i32,
                     cursor: paging_info.cursor.map(|c| c.into()), // TODO: fix me
-                };
+                }
             }),
         }
     }
@@ -183,12 +183,10 @@ impl From<QueryRequest> for FfiV2QueryRequest {
             content_topics: req.content_topics,
             start_time_ns: req.start_time_ns,
             end_time_ns: req.end_time_ns,
-            paging_info: req.paging_info.map(|paging_info| {
-                return FfiPagingInfo {
-                    limit: paging_info.limit,
-                    direction: FfiSortDirection::from_i32(paging_info.direction),
-                    cursor: proto_cursor_to_ffi(paging_info.cursor),
-                };
+            paging_info: req.paging_info.map(|paging_info| FfiPagingInfo {
+                limit: paging_info.limit,
+                direction: FfiSortDirection::from_i32(paging_info.direction),
+                cursor: proto_cursor_to_ffi(paging_info.cursor),
             }),
         }
     }
@@ -204,12 +202,10 @@ impl From<QueryResponse> for FfiV2QueryResponse {
     fn from(resp: QueryResponse) -> Self {
         Self {
             envelopes: resp.envelopes.into_iter().map(|env| env.into()).collect(),
-            paging_info: resp.paging_info.map(|paging_info| {
-                return FfiPagingInfo {
-                    limit: paging_info.limit,
-                    direction: FfiSortDirection::from_i32(paging_info.direction),
-                    cursor: None,
-                };
+            paging_info: resp.paging_info.map(|paging_info| FfiPagingInfo {
+                limit: paging_info.limit,
+                direction: FfiSortDirection::from_i32(paging_info.direction),
+                cursor: None,
             }),
         }
     }
@@ -220,11 +216,11 @@ impl From<FfiV2QueryResponse> for QueryResponse {
         Self {
             envelopes: resp.envelopes.into_iter().map(|env| env.into()).collect(),
             paging_info: resp.paging_info.map(|paging_info| {
-                return PagingInfo {
+                PagingInfo {
                     limit: paging_info.limit,
                     direction: paging_info.direction as i32,
                     cursor: None, // TODO: fix me
-                };
+                }
             }),
         }
     }
