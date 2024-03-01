@@ -432,7 +432,7 @@ class GroupTests: XCTestCase {
 		let fixtures = try await localFixtures()
 
 		let expectation1 = expectation(description: "got a conversation")
-		expectation1.expectedFulfillmentCount = 2
+		expectation1.expectedFulfillmentCount = 4
 		let convo = try await fixtures.bobClient.conversations.newConversation(with: fixtures.alice.address)
 		let group = try await fixtures.bobClient.conversations.newGroup(with: [fixtures.alice.address])
 		try await fixtures.aliceClient.conversations.sync()
@@ -444,6 +444,11 @@ class GroupTests: XCTestCase {
 
 		_ = try await group.send(content: "hi")
 		_ = try await convo.send(content: "hi")
+		let group2 = try await fixtures.fredClient.conversations.newGroup(with: [fixtures.alice.address])
+		let convo2 = try await fixtures.fredClient.conversations.newConversation(with: fixtures.alice.address)
+
+		_ = try await group2.send(content: "hi")
+		_ = try await convo2.send(content: "hi")
 
 		await waitForExpectations(timeout: 3)
 	}
@@ -452,7 +457,7 @@ class GroupTests: XCTestCase {
 		let fixtures = try await localFixtures()
 
 		let expectation1 = expectation(description: "got a conversation")
-		expectation1.expectedFulfillmentCount = 2
+		expectation1.expectedFulfillmentCount = 4
 		let convo = try await fixtures.bobClient.conversations.newConversation(with: fixtures.alice.address)
 		let group = try await fixtures.bobClient.conversations.newGroup(with: [fixtures.alice.address])
 		try await fixtures.aliceClient.conversations.sync()
@@ -464,6 +469,12 @@ class GroupTests: XCTestCase {
 
 		_ = try await group.send(content: "hi")
 		_ = try await convo.send(content: "hi")
+		
+		let group2 = try await fixtures.fredClient.conversations.newGroup(with: [fixtures.alice.address])
+		let convo2 = try await fixtures.fredClient.conversations.newConversation(with: fixtures.alice.address)
+
+		_ = try await group2.send(content: "hi")
+		_ = try await convo2.send(content: "hi")
 
 		await waitForExpectations(timeout: 3)
 	}
