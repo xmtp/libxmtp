@@ -5,6 +5,8 @@ import android.util.Log
 import android.widget.TextView
 import androidx.appcompat.app.AppCompatActivity
 import com.example.xmtpv3_example.R.id.selftest_output
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.callbackFlow
@@ -32,7 +34,9 @@ import uniffi.xmtpv3.FfiMessage
 import uniffi.xmtpv3.FfiMessageCallback
 import uniffi.xmtpv3.LegacyIdentitySource
 import kotlinx.coroutines.flow.callbackFlow
+import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.launch
 import uniffi.xmtpv3.FfiXmtpClient
 
 
@@ -66,6 +70,17 @@ class ConversationCallback : FfiConversationCallback {
                         ", members: " +
                         conversation.listMembers()
         )
+        runBlocking {
+            Log.i(
+                "App",
+                "INFO - Sending message from conversation callback"
+            )
+            conversation.send("Hi new group".toByteArray())
+            Log.i(
+                "App",
+                "INFO - Send completed"
+            )
+        }
     }
 }
 
@@ -115,10 +130,7 @@ class MainActivity : AppCompatActivity() {
                 textView.text = "Libxmtp version\n" + uniffi.xmtpv3.getVersionInfo() + "\n\nClient constructed, wallet address: " + client.accountAddress()
                 Log.i("App", "Setting up conversation streaming")
                 client.conversations().stream(ConversationCallback())
-                streamAllMessages(client).collect {
-                    Log.i("StreamedMessage", it.body)
-
-                }
+                streamAllMessages(client).collect()
             } catch (e: Exception) {
                 textView.text = "Failed to construct client: " + e.message
             }
