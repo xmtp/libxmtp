@@ -15,8 +15,8 @@ class ContactsTests: XCTestCase {
 		let fixtures = await fixtures()
 		try await fixtures.bobClient.ensureUserContactPublished()
 
-		let bobAddressLowercased = fixtures.bobClient.address.lowercased()
-		let bobContact = try await fixtures.aliceClient.getUserContact(peerAddress: bobAddressLowercased)
+		let bobAddressLowerCased = fixtures.bobClient.address.lowercased()
+		let bobContact = try await fixtures.aliceClient.getUserContact(peerAddress: bobAddressLowerCased)
 
 		XCTAssertNotNil(bobContact)
 	}
@@ -68,7 +68,7 @@ class ContactsTests: XCTestCase {
 		XCTAssertTrue(result)
 	}
 
-	func testBlockAddress() async throws {
+	func testDenyAddress() async throws {
 		let fixtures = await fixtures()
 
 		let contacts = fixtures.bobClient.contacts

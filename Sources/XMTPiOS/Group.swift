@@ -109,6 +109,12 @@ public struct Group: Identifiable, Equatable, Hashable {
 	}
 
 	public func send(encodedContent: EncodedContent) async throws -> String {
+		let groupState = await client.contacts.consentList.groupState(groupId: id)
+
+		if groupState == ConsentState.unknown {
+			try await client.contacts.allowGroup(groupIds: [id])
+		}
+
 		try await ffiGroup.send(contentBytes: encodedContent.serializedData())
 		return id.toHex
 	}

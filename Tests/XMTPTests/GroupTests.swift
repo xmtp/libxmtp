@@ -32,7 +32,6 @@ func assertThrowsAsyncError<T>(
 		}
 }
 
-
 @available(iOS 16, *)
 class GroupTests: XCTestCase {
 	// Use these fixtures to talk to the local node
@@ -92,7 +91,6 @@ class GroupTests: XCTestCase {
 		XCTAssert(!bobGroup.id.isEmpty)
 		XCTAssert(!aliceGroup.id.isEmpty)
 		
-		
 		try await aliceGroup.addMembers(addresses: [fixtures.fred.address])
 		try await bobGroup.sync()
 		XCTAssertEqual(aliceGroup.memberAddresses.count, 3)
@@ -115,7 +113,7 @@ class GroupTests: XCTestCase {
 		XCTAssert(try bobGroup.isAdmin())
 		XCTAssert(try !aliceGroup.isAdmin())
 	}
-	
+
 	func testCanCreateAGroupWithAdminPermissions() async throws {
 		let fixtures = try await localFixtures()
 		let bobGroup = try await fixtures.bobClient.conversations.newGroup(with: [fixtures.alice.address], permissions: GroupPermissions.groupCreatorIsAdmin)
@@ -123,8 +121,13 @@ class GroupTests: XCTestCase {
 		let aliceGroup = try await fixtures.aliceClient.conversations.groups().first!
 		XCTAssert(!bobGroup.id.isEmpty)
 		XCTAssert(!aliceGroup.id.isEmpty)
-		
-		
+
+		let bobConsentResult = await fixtures.bobClient.contacts.consentList.groupState(groupId: bobGroup.id)
+		XCTAssertEqual(bobConsentResult, ConsentState.allowed)
+
+		let aliceConsentResult = await fixtures.aliceClient.contacts.consentList.groupState(groupId: aliceGroup.id)
+		XCTAssertEqual(aliceConsentResult, ConsentState.unknown)
+
 		try await bobGroup.addMembers(addresses: [fixtures.fred.address])
 		try await aliceGroup.sync()
 		XCTAssertEqual(aliceGroup.memberAddresses.count, 3)
@@ -191,7 +194,6 @@ class GroupTests: XCTestCase {
 		try await group.sync()
 		let members = group.memberAddresses.map(\.localizedLowercase).sorted()
 		let peerMembers = Conversation.group(group).peerAddresses.map(\.localizedLowercase).sorted()
-
 
 		XCTAssertEqual([fixtures.bob.address.localizedLowercase, fixtures.alice.address.localizedLowercase].sorted(), members)
 		XCTAssertEqual([fixtures.bob.address.localizedLowercase].sorted(), peerMembers)
@@ -329,6 +331,21 @@ class GroupTests: XCTestCase {
 		}
 	}
 
+	func testGroupStartsWithAllowedState() async throws {
+		let fixtures = try await localFixtures()
+		let bobGroup = try await fixtures.bobClient.conversations.newGroup(with: [fixtures.alice.walletAddress])
+
+		_ = try await bobGroup.send(content: "howdy")
+		_ = try await bobGroup.send(content: "gm")
+		try await bobGroup.sync()
+
+		let isGroupAllowedResult = await fixtures.bobClient.contacts.isGroupAllowed(groupId: bobGroup.id)
+		XCTAssertTrue(isGroupAllowedResult)
+
+		let groupStateResult = await fixtures.bobClient.contacts.consentList.groupState(groupId: bobGroup.id)
+		XCTAssertEqual(groupStateResult, ConsentState.allowed)
+	}
+	
 	func testCanSendMessagesToGroup() async throws {
 		let fixtures = try await localFixtures()
 		let aliceGroup = try await fixtures.aliceClient.conversations.newGroup(with: [fixtures.bob.address])
@@ -336,8 +353,8 @@ class GroupTests: XCTestCase {
 		try await fixtures.bobClient.conversations.sync()
 		let bobGroup = try await fixtures.bobClient.conversations.groups()[0]
 
-		try await aliceGroup.send(content: "sup gang original")
-		try await aliceGroup.send(content: "sup gang")
+		_ = try await aliceGroup.send(content: "sup gang original")
+		_ = try await aliceGroup.send(content: "sup gang")
 
 		try await aliceGroup.sync()
 		let aliceGroupsCount = try await aliceGroup.messages().count
@@ -360,8 +377,8 @@ class GroupTests: XCTestCase {
 		try await fixtures.bobClient.conversations.sync()
 		let bobGroup = try await fixtures.bobClient.conversations.groups()[0]
 
-		try await aliceGroup.send(content: "sup gang original")
-		try await aliceGroup.send(content: "sup gang")
+		_ = try await aliceGroup.send(content: "sup gang original")
+		_ = try await aliceGroup.send(content: "sup gang")
 
 		try await aliceGroup.sync()
 		let aliceGroupsCount = try await aliceGroup.decryptedMessages().count
@@ -388,7 +405,7 @@ class GroupTests: XCTestCase {
 			}
 		}
 
-		try await fixtures.bobClient.conversations.newGroup(with: [fixtures.alice.address])
+		_ = try await fixtures.bobClient.conversations.newGroup(with: [fixtures.alice.address])
 
 		await waitForExpectations(timeout: 3)
 	}
@@ -425,8 +442,8 @@ class GroupTests: XCTestCase {
 			}
 		}
 
-		try await group.send(content: "hi")
-		try await convo.send(content: "hi")
+		_ = try await group.send(content: "hi")
+		_ = try await convo.send(content: "hi")
 
 		await waitForExpectations(timeout: 3)
 	}
@@ -445,8 +462,8 @@ class GroupTests: XCTestCase {
 			}
 		}
 
-		try await group.send(content: "hi")
-		try await convo.send(content: "hi")
+		_ = try await group.send(content: "hi")
+		_ = try await convo.send(content: "hi")
 
 		await waitForExpectations(timeout: 3)
 	}
@@ -464,7 +481,7 @@ class GroupTests: XCTestCase {
 			}
 		}
 
-		try await group.send(content: "hi")
+		_ = try await group.send(content: "hi")
 
 		await waitForExpectations(timeout: 3)
 	}
@@ -481,7 +498,7 @@ class GroupTests: XCTestCase {
 			}
 		}
 
-		try await group.send(content: "hi")
+		_ = try await group.send(content: "hi")
 
 		await waitForExpectations(timeout: 3)
 	}

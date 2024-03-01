@@ -125,16 +125,32 @@ public struct Xmtp_MessageContents_MessageV2 {
   public mutating func clearCiphertext() {self._ciphertext = nil}
 
   /// HMAC of the message ciphertext, with the HMAC key derived from the topic key
-  public var senderHmac: Data = Data()
+  public var senderHmac: Data {
+	get {return _senderHmac ?? Data()}
+	set {_senderHmac = newValue}
+  }
+  /// Returns true if `senderHmac` has been explicitly set.
+  public var hasSenderHmac: Bool {return self._senderHmac != nil}
+  /// Clears the value of `senderHmac`. Subsequent reads from it will return its default value.
+  public mutating func clearSenderHmac() {self._senderHmac = nil}
 
   /// Flag indicating whether the message should be pushed from a notification server
-  public var shouldPush: Bool = false
+  public var shouldPush: Bool {
+	get {return _shouldPush ?? false}
+	set {_shouldPush = newValue}
+  }
+  /// Returns true if `shouldPush` has been explicitly set.
+  public var hasShouldPush: Bool {return self._shouldPush != nil}
+  /// Clears the value of `shouldPush`. Subsequent reads from it will return its default value.
+  public mutating func clearShouldPush() {self._shouldPush = nil}
 
   public var unknownFields = SwiftProtobuf.UnknownStorage()
 
   public init() {}
 
   fileprivate var _ciphertext: Xmtp_MessageContents_Ciphertext? = nil
+  fileprivate var _senderHmac: Data? = nil
+  fileprivate var _shouldPush: Bool? = nil
 }
 
 /// Versioned Message
@@ -432,8 +448,8 @@ extension Xmtp_MessageContents_MessageV2: SwiftProtobuf.Message, SwiftProtobuf._
 	  switch fieldNumber {
 	  case 1: try { try decoder.decodeSingularBytesField(value: &self.headerBytes) }()
 	  case 2: try { try decoder.decodeSingularMessageField(value: &self._ciphertext) }()
-	  case 3: try { try decoder.decodeSingularBytesField(value: &self.senderHmac) }()
-	  case 4: try { try decoder.decodeSingularBoolField(value: &self.shouldPush) }()
+	  case 3: try { try decoder.decodeSingularBytesField(value: &self._senderHmac) }()
+	  case 4: try { try decoder.decodeSingularBoolField(value: &self._shouldPush) }()
 	  default: break
 	  }
 	}
@@ -450,20 +466,20 @@ extension Xmtp_MessageContents_MessageV2: SwiftProtobuf.Message, SwiftProtobuf._
 	try { if let v = self._ciphertext {
 	  try visitor.visitSingularMessageField(value: v, fieldNumber: 2)
 	} }()
-	if !self.senderHmac.isEmpty {
-	  try visitor.visitSingularBytesField(value: self.senderHmac, fieldNumber: 3)
-	}
-	if self.shouldPush != false {
-	  try visitor.visitSingularBoolField(value: self.shouldPush, fieldNumber: 4)
-	}
+	try { if let v = self._senderHmac {
+	  try visitor.visitSingularBytesField(value: v, fieldNumber: 3)
+	} }()
+	try { if let v = self._shouldPush {
+	  try visitor.visitSingularBoolField(value: v, fieldNumber: 4)
+	} }()
 	try unknownFields.traverse(visitor: &visitor)
   }
 
   public static func ==(lhs: Xmtp_MessageContents_MessageV2, rhs: Xmtp_MessageContents_MessageV2) -> Bool {
 	if lhs.headerBytes != rhs.headerBytes {return false}
 	if lhs._ciphertext != rhs._ciphertext {return false}
-	if lhs.senderHmac != rhs.senderHmac {return false}
-	if lhs.shouldPush != rhs.shouldPush {return false}
+	if lhs._senderHmac != rhs._senderHmac {return false}
+	if lhs._shouldPush != rhs._shouldPush {return false}
 	if lhs.unknownFields != rhs.unknownFields {return false}
 	return true
   }

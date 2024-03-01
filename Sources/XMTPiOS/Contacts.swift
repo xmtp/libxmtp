@@ -16,11 +16,15 @@ public enum ConsentState: String, Codable {
 
 public struct ConsentListEntry: Codable, Hashable {
 	public enum EntryType: String, Codable {
-		case address
+		case address, groupId
 	}
 
 	static func address(_ address: String, type: ConsentState = .unknown) -> ConsentListEntry {
 		ConsentListEntry(value: address, entryType: .address, consentType: type)
+	}
+	
+	static func groupId(groupId: String, type: ConsentState = ConsentState.unknown) -> ConsentListEntry {
+		ConsentListEntry(value: groupId, entryType: .groupId, consentType: type)
 	}
 
 	public var value: String
@@ -48,16 +52,13 @@ public class ConsentList {
 		self.client = client
 		privateKey = client.privateKeyBundleV1.identityKey.secp256K1.bytes
 		publicKey = client.privateKeyBundleV1.identityKey.publicKey.secp256K1Uncompressed.bytes
-		// swiftlint:disable no_optional_try
 		identifier = try? LibXMTP.generatePrivatePreferencesTopicIdentifier(privateKey: privateKey)
-		// swiftlint:enable no_optional_try
 	}
 
 	func load() async throws -> ConsentList {
 		guard let identifier = identifier else {
 			throw ContactError.invalidIdentifier
 		}
-
 
 		let envelopes = try await client.apiClient.envelopes(topic: Topic.preferenceList(identifier).description, pagination: Pagination(direction: .ascending))
 		let consentList = ConsentList(client: client)
@@ -71,12 +72,20 @@ public class ConsentList {
 		}
 
 		for preference in preferences {
-			for address in preference.allow.walletAddresses {
+			for address in preference.allowAddress.walletAddresses {
 				_ = consentList.allow(address: address)
 			}
 
-			for address in preference.block.walletAddresses {
+			for address in preference.denyAddress.walletAddresses {
 				_ = consentList.deny(address: address)
+			}
+
+			for groupId in preference.allowGroup.groupIds {
+				_ = consentList.allowGroup(groupId: groupId)
+			}
+
+			for groupId in preference.denyGroup.groupIds {
+				_ = consentList.denyGroup(groupId: groupId)
 			}
 		}
 
@@ -89,13 +98,31 @@ public class ConsentList {
 		}
 
 		var payload = PrivatePreferencesAction()
-		switch entry.consentType {
-		case .allowed:
-			payload.allow.walletAddresses = [entry.value]
-		case .denied:
-			payload.block.walletAddresses = [entry.value]
-		case .unknown:
-			payload.messageType = nil
+		switch entry.entryType {
+
+		case .address:
+			switch entry.consentType {
+			case .allowed:
+				payload.allowAddress.walletAddresses = [entry.value]
+			case .denied:
+				payload.denyAddress.walletAddresses = [entry.value]
+			case .unknown:
+				payload.messageType = nil
+			}
+
+		case .groupId:
+			switch entry.consentType {
+			case .allowed:
+				if let valueData = entry.value.data(using: .utf8) {
+					payload.allowGroup.groupIds = [valueData]
+				}
+			case .denied:
+				if let valueData = entry.value.data(using: .utf8) {
+					payload.denyGroup.groupIds = [valueData]
+				}
+			case .unknown:
+				payload.messageType = nil
+			}
 		}
 
 		let message = try LibXMTP.userPreferencesEncrypt(
@@ -127,12 +154,36 @@ public class ConsentList {
 		return entry
 	}
 
-	func state(address: String) -> ConsentState {
-		let entry = entries[ConsentListEntry.address(address).key]
+	func allowGroup(groupId: Data) -> ConsentListEntry {
+		let groupIdString = groupId.toHex
+		let entry = ConsentListEntry.groupId(groupId: groupIdString, type: ConsentState.allowed)
+		entries[ConsentListEntry.groupId(groupId: groupIdString).key] = entry
 
-		// swiftlint:disable no_optional_try
-		return entry?.consentType ?? .unknown
-		// swiftlint:enable no_optional_try
+		return entry
+	}
+
+	func denyGroup(groupId: Data) -> ConsentListEntry {
+		let groupIdString = groupId.toHex
+		let entry = ConsentListEntry.groupId(groupId: groupIdString, type: ConsentState.denied)
+		entries[ConsentListEntry.groupId(groupId: groupIdString).key] = entry
+
+		return entry
+	}
+
+	func state(address: String) -> ConsentState {
+		guard let entry = entries[ConsentListEntry.address(address).key] else {
+			return .unknown
+		}
+
+		return entry.consentType
+	}
+
+	func groupState(groupId: Data) -> ConsentState {
+		guard let entry =  entries[ConsentListEntry.groupId(groupId: groupId.toHex).key] else {
+			return .unknown
+		}
+
+		return entry.consentType
 	}
 }
 
@@ -166,6 +217,14 @@ public actor Contacts {
 		return consentList.state(address: address) == .denied
 	}
 
+	public func isGroupAllowed(groupId: Data) -> Bool {
+		return consentList.groupState(groupId: groupId) == .allowed
+	}
+
+	public func isGroupDenied(groupId: Data) -> Bool {
+		return consentList.groupState(groupId: groupId) == .denied
+	}
+
 	public func allow(addresses: [String]) async throws {
 		for address in addresses {
 			try await ConsentList(client: client).publish(entry: consentList.allow(address: address))
@@ -175,6 +234,20 @@ public actor Contacts {
 	public func deny(addresses: [String]) async throws {
 		for address in addresses {
 			try await ConsentList(client: client).publish(entry: consentList.deny(address: address))
+		}
+	}
+
+	public func allowGroup(groupIds: [Data]) async throws {
+		for groupId in groupIds {
+			let entry = consentList.allowGroup(groupId: groupId)
+			try await ConsentList(client: client).publish(entry: entry)
+		}
+	}
+
+	public func denyGroup(groupIds: [Data]) async throws {
+		for groupId in groupIds {
+			let entry = consentList.denyGroup(groupId: groupId)
+			try await ConsentList(client: client).publish(entry: entry)
 		}
 	}
 
@@ -198,15 +271,11 @@ public actor Contacts {
 		let response = try await client.query(topic: .contact(peerAddress))
 
 		for envelope in response.envelopes {
-			// swiftlint:disable no_optional_try
 			if let contactBundle = try? ContactBundle.from(envelope: envelope) {
 				knownBundles[peerAddress] = contactBundle
-
 				return contactBundle
 			}
-			// swiftlint:enable no_optional_try
 		}
-
 		return nil
 	}
 }

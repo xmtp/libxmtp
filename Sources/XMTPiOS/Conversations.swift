@@ -153,7 +153,11 @@ public actor Conversations {
 			throw GroupError.memberNotRegistered(erroredAddresses)
 		}
 
-		return try await v3Client.conversations().createGroup(accountAddresses: addresses, permissions: permissions).fromFFI(client: client)
+		let group = try await v3Client.conversations().createGroup(accountAddresses: addresses, permissions: permissions).fromFFI(client: client)
+
+		try await client.contacts.allowGroup(groupIds: [group.id])
+
+		return group
 	}
 
 	/// Import a previously seen conversation.

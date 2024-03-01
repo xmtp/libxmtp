@@ -28,9 +28,7 @@ struct ModalWrapper: UIViewControllerRepresentable {
 	func makeUIViewController(context: Context) -> UIViewController {
 		let controller = UIViewController()
 		Task {
-			// swiftlint:disable no_optional_try
 			try? await Task.sleep(for: .seconds(0.4))
-			// swiftlint:enable no_optional_try
 			await MainActor.run {
 				WalletConnectModal.present(from: controller)
 			}
@@ -110,7 +108,6 @@ struct LoginView: View {
 	var publishers: [AnyCancellable] = []
 
 	@State private var isShowingWebview = true
-    // swiftlint:disable function_body_length
 	init(
 		onConnected: @escaping (Client) -> Void
 	) {
@@ -177,7 +174,6 @@ struct LoginView: View {
 			}
 			.store(in: &publishers)
 	}
-    // swiftlint:enable function_body_length
 
 	var body: some View {
 		ModalWrapper()
