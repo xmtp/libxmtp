@@ -319,7 +319,7 @@ where
                     kind: GroupMessageKind::Application,
                     sender_installation_id,
                     sender_account_address,
-                    delivery_status: DeliveryStatus::Unpublished,
+                    delivery_status: DeliveryStatus::Published,
                 }
                 .store(provider.conn())?;
             }

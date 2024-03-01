@@ -259,26 +259,26 @@ where
             .await?;
 
         let now = now_ns();
-        let envelope = Self::add_idempotency_key(message, &now.to_string());
-        let mut serialized_envelope = vec![];
-        envelope
-            .encode(&mut serialized_envelope)
+        let plain_envelope = Self::add_idempotency_key(message, &now.to_string());
+        let mut encoded_envelope = vec![];
+        plain_envelope
+            .encode(&mut encoded_envelope)
             .map_err(GroupError::SerializationError)?;
 
-        let intent_data: Vec<u8> = SendMessageIntentData::new(serialized_envelope).into();
+        let intent_data: Vec<u8> = SendMessageIntentData::new(encoded_envelope).into();
         let intent =
             NewGroupIntent::new(IntentKind::SendMessage, self.group_id.clone(), intent_data);
         intent.store(conn)?;
 
         // optimistically store this message locally before sending
-        let msg_id = calculate_message_id(
+        let message_id = calculate_message_id(
             &self.group_id,
             message,
             &self.client.account_address(),
             &now.to_string(),
         );
-        let msg_to_store = StoredGroupMessage {
-            id: msg_id,
+        let group_message = StoredGroupMessage {
+            id: message_id,
             group_id: self.group_id.clone(),
             decrypted_message_bytes: message.to_vec(),
             sent_at_ns: now,
@@ -287,7 +287,7 @@ where
             sender_account_address: self.client.account_address(),
             delivery_status: DeliveryStatus::Unpublished,
         };
-        msg_to_store.store(conn)?;
+        group_message.store(conn)?;
 
         // Skipping a full sync here and instead just firing and forgetting
         if let Err(err) = self.publish_intents(conn).await {
