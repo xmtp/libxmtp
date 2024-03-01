@@ -121,7 +121,7 @@ impl Client {
                 created_at_ns: group.created_at_ns,
             })
             .collect();
-        return Ok(groups);
+        Ok(groups)
     }
 
     pub async fn create_group(&self, account_addresses: Vec<String>) -> Result<Group, XmtpError> {
@@ -131,10 +131,10 @@ impl Client {
             group.add_members(account_addresses).await?;
         }
         self.inner.sync_welcomes().await?;
-        return Ok(Group {
+        Ok(Group {
             group_id: group.group_id,
             created_at_ns: group.created_at_ns,
-        });
+        })
     }
 
     pub async fn list_members(&self, group_id: Vec<u8>) -> Result<Vec<GroupMember>, XmtpError> {
@@ -223,9 +223,9 @@ pub struct SignatureRequiredClient {
 impl SignatureRequiredClient {
     pub async fn sign(&self, signature: Vec<u8>) -> Result<Client, XmtpError> {
         self.inner.register_identity(Some(signature)).await?;
-        return Ok(Client {
+        Ok(Client {
             inner: self.inner.clone(),
-        });
+        })
     }
 }
 
@@ -259,10 +259,10 @@ pub async fn create_client(
     if text_to_sign.is_none() {
         return Ok(CreatedClient::Ready(Client { inner }));
     }
-    return Ok(CreatedClient::RequiresSignature(SignatureRequiredClient {
+    Ok(CreatedClient::RequiresSignature(SignatureRequiredClient {
         text_to_sign: text_to_sign.unwrap(),
         inner,
-    }));
+    }))
 }
 
 #[cfg(test)]
