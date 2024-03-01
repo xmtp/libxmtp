@@ -236,12 +236,6 @@ where
                 let message_id =
                     calculate_message_id(group_id, &message, &self.client.account_address(), &key);
 
-                dbg!(&decrypted_message_data);
-                dbg!(&message);
-
-                let existing_msg = conn.get_group_message(&message_id);
-                dbg!(&existing_msg);
-
                 conn.set_delivery_status_to_published(&message_id)?;
                 // StoredGroupMessage {
                 //     id: message_id,
@@ -331,7 +325,6 @@ where
                 );
 
                 let sc = *staged_commit;
-                dbg!(&sc);
                 // Validate the commit
                 let validated_commit = ValidatedCommit::from_staged_commit(&sc, openmls_group)?;
                 openmls_group.merge_staged_commit(provider, sc)?;
@@ -477,24 +470,6 @@ where
             let group_id = self.group_id.as_slice();
             let message_id =
                 get_message_id(encoded_payload_bytes.as_slice(), group_id, timestamp_ns);
-
-            // let envelope = PlaintextEnvelope::decode(encoded_payload_bytes.as_slice())
-            //     .map_err(MessageProcessingError::DeserializationError)?;
-            //
-            // let (key, message) = if let Some(content) = envelope.content {
-            //     let Content::V1(V1 {
-            //         idempotency_key,
-            //         content,
-            //     }) = content;
-            //     (idempotency_key, content)
-            // } else {
-            //     return Err(MessageProcessingError::InvalidPayload);
-            // };
-            //
-            // let message_id =
-            //     calculate_message_id(group_id, &message, &sender_account_address, &key);
-            //
-            // let updated = conn.set_delivery_status_to_published(&message_id);
 
             let msg = StoredGroupMessage {
                 id: message_id,
