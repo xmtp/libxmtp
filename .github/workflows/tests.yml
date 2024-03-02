@@ -32,8 +32,9 @@ jobs:
       - name: Start Docker containers
         run: dev/up
         
+        # retries are added due to test failures with dependencies
       - name: Run tests
-        run: swift test --vv
+        run: script/run_tests.sh
         
       - name: Stop local test server
         run: docker-compose -p xmtp-ios -f dev/local/docker-compose.yml down
