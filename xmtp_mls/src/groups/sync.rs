@@ -221,7 +221,7 @@ where
                 let decrypted_message_data = intent_data.message.as_slice();
 
                 let envelope = PlaintextEnvelope::decode(decrypted_message_data)
-                    .map_err(MessageProcessingError::DeserializationError)?;
+                    .map_err(MessageProcessingError::DecodeError)?;
 
                 let (key, message) = if let Some(outer_content) = envelope.content {
                     let Content::V1(V1 {
@@ -236,7 +236,7 @@ where
                 let message_id =
                     calculate_message_id(group_id, &message, &self.client.account_address(), &key);
 
-                conn.set_delivery_status_to_published(&message_id)?;
+                conn.set_delivery_status_to_published(message_id)?;
                 // StoredGroupMessage {
                 //     id: message_id,
                 //     group_id: group_id.to_vec(),
@@ -278,7 +278,7 @@ where
 
                 let bytes = Bytes::from(message_bytes.clone());
                 let envelope = PlaintextEnvelope::decode(bytes)
-                    .map_err(MessageProcessingError::DeserializationError)?;
+                    .map_err(MessageProcessingError::DecodeError)?;
 
                 let (key, message) = if let Some(outer_content) = envelope.content {
                     let Content::V1(V1 {

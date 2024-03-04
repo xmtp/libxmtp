@@ -119,8 +119,8 @@ pub enum MessageProcessingError {
     EpochIncrementNotAllowed,
     #[error("Welcome processing error: {0}")]
     WelcomeProcessing(String),
-    #[error("deserialization error: {0}")]
-    DeserializationError(#[from] prost::DecodeError),
+    #[error("proto decode error: {0}")]
+    DecodeError(#[from] prost::DecodeError),
 }
 
 impl crate::retry::RetryableError for MessageProcessingError {

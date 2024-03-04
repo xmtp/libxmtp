@@ -115,7 +115,7 @@ pub enum GroupError {
     #[error("identity error: {0}")]
     Identity(#[from] IdentityError),
     #[error("serialization error: {0}")]
-    SerializationError(#[from] prost::EncodeError),
+    EncodeError(#[from] prost::EncodeError),
 }
 
 impl RetryableError for GroupError {
@@ -263,14 +263,14 @@ where
         let mut encoded_envelope = vec![];
         plain_envelope
             .encode(&mut encoded_envelope)
-            .map_err(GroupError::SerializationError)?;
+            .map_err(GroupError::EncodeError)?;
 
         let intent_data: Vec<u8> = SendMessageIntentData::new(encoded_envelope).into();
         let intent =
             NewGroupIntent::new(IntentKind::SendMessage, self.group_id.clone(), intent_data);
         intent.store(conn)?;
 
-        // optimistically store this message locally before sending
+        // store this unpublished message locally before sending
         let message_id = calculate_message_id(
             &self.group_id,
             message,
