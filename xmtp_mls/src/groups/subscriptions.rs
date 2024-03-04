@@ -116,6 +116,46 @@ mod tests {
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 10)]
+    async fn test_subscribe_messages_msg_from_self() {
+        let amal = ClientBuilder::new_test_client(&generate_local_wallet()).await;
+        let bola = ClientBuilder::new_test_client(&generate_local_wallet()).await;
+
+        let amal_group = amal.create_group(None).unwrap();
+        // Add bola
+        amal_group
+            .add_members_by_installation_id(vec![bola.installation_public_key()])
+            .await
+            .unwrap();
+
+        // Get bola's version of the same group
+        let bola_groups = bola.sync_welcomes().await.unwrap();
+        let bola_group = bola_groups.first().unwrap();
+
+        let mut stream = bola_group.stream().await.unwrap();
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+        amal_group.send_message("hello".as_bytes()).await.unwrap();
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+        let first_val = stream.next().await.unwrap();
+        assert_eq!(first_val.decrypted_message_bytes, "hello".as_bytes());
+
+        amal_group.send_message("goodbye".as_bytes()).await.unwrap();
+
+        let second_val = stream.next().await.unwrap();
+        assert_eq!(second_val.decrypted_message_bytes, "goodbye".as_bytes());
+
+        // Have bola send messages while streaming
+        bola_group.send_message("hello from bola".as_bytes()).await.unwrap();
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+        let third_val = stream.next().await.unwrap();
+        assert_eq!(third_val.decrypted_message_bytes, "hello from bola".as_bytes());
+
+        bola_group.send_message("goodbye from bola".as_bytes()).await.unwrap();
+
+        let fourth_val = stream.next().await.unwrap();
+        assert_eq!(fourth_val.decrypted_message_bytes, "goodbye from bola".as_bytes());
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 10)]
     async fn test_subscribe_multiple() {
         let amal = ClientBuilder::new_test_client(&generate_local_wallet()).await;
         let group = amal.create_group(None).unwrap();
