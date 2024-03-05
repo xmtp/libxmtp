@@ -31,18 +31,14 @@ public enum Conversation: Sendable {
 	}
 
 	public func consentState() async -> ConsentState {
-		let client: Client
-
 		switch self {
 		case .v1(let conversationV1):
-			client = conversationV1.client
+			return await conversationV1.client.contacts.consentList.state(address: peerAddress)
 		case .v2(let conversationV2):
-			client = conversationV2.client
+			return await conversationV2.client.contacts.consentList.state(address: peerAddress)
 		case let .group(group):
-			client = group.client
+			return await group.client.contacts.consentList.groupState(groupId: group.id)
 		}
-
-		return await client.contacts.consentList.state(address: peerAddress)
 	}
 
 	public var version: Version {
