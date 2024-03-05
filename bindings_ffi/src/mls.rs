@@ -348,7 +348,7 @@ impl FfiGroup {
         );
 
         let messages: Vec<FfiMessage> = group
-            .find_messages(None, opts.sent_before_ns, opts.sent_after_ns, opts.limit)?
+            .find_messages(None, opts.sent_before_ns, opts.sent_after_ns, None, opts.limit)?
             .into_iter()
             .map(|msg| msg.into())
             .collect();

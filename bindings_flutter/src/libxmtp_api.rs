@@ -201,7 +201,7 @@ impl Client {
         let group = self.inner.group(group_id)?;
         group.sync().await?; // TODO: consider an explicit sync method
         let messages: Vec<Message> = group
-            .find_messages(Some(Application), sent_before_ns, sent_after_ns, limit)?
+            .find_messages(Some(Application), sent_before_ns, sent_after_ns, None, limit)?
             .into_iter()
             .map(|msg| msg.into())
             .collect();
