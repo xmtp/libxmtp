@@ -324,8 +324,9 @@ data class Conversations(
                 (thirtyDayPeriodsSinceEpoch - 1..thirtyDayPeriodsSinceEpoch + 1).forEach { value ->
                     val info = "$value-${client.address}"
                     val hmacKey =
-                        Crypto.calculateMac(
+                        Crypto.deriveKey(
                             conversation.keyMaterial!!,
+                            ByteArray(0),
                             info.toByteStringUtf8().toByteArray()
                         )
                     val hmacKeyData = HmacKeyData.newBuilder()
