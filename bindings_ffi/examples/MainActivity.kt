@@ -139,7 +139,7 @@ class MainActivity : AppCompatActivity() {
                         getV2SerializedSignedPrivateKey(boKey),
                     )
                 var boWalletSignature: ByteArray? = null
-                val boTextToSign = alix.textToSign()
+                val boTextToSign = bo.textToSign()
                 if (boTextToSign != null) {
                     boWalletSignature = boKey.sign(boTextToSign).toByteArray()
                 }
