@@ -17,22 +17,46 @@ public typealias QueryRequest = Xmtp_MessageApi_V1_QueryRequest
 public typealias QueryResponse = Xmtp_MessageApi_V1_QueryResponse
 public typealias SubscribeRequest = Xmtp_MessageApi_V1_SubscribeRequest
 
-public enum ApiClientError: Error, CustomStringConvertible {
-	case batchQueryError(String)
-	case queryError(String)
-	case publishError(String)
-	case subscribeError(String)
+// This protocol is in place to enable extending error handling for errors
+// thrown via call sites to LibXMTP.FfiConverterTypeGenericError. Adopting
+// the GenericErrorDescribing protocol will catch all instances of the enum
+// and generate the string descriptions.
+protocol GenericErrorDescribing {
+	func generateDescription(error: GenericError) -> String
+}
+
+extension GenericErrorDescribing {
+	func generateDescription(error: GenericError) -> String {
+		switch error {
+		case let .Client(message),
+			let .ClientBuilder(message),
+			let .Storage(message),
+			let .ApiError(message),
+			let .GroupError(message),
+			let .Signature(message),
+			let .GroupMetadata(message),
+			let .Generic(message):
+			return message
+		}
+	}
+}
+
+public enum ApiClientError: Error, CustomStringConvertible, GenericErrorDescribing {
+	case batchQueryError(GenericError)
+	case queryError(GenericError)
+	case publishError(GenericError)
+	case subscribeError(GenericError)
 
 	public var description: String {
 		switch self {
-		case .batchQueryError(let err):
-			return "ApiClientError.batchQueryError: \(err)"
-		case .queryError(let err):
-			return "ApiClientError.queryError: \(err)"
-		case .publishError(let err):
-			return "ApiClientError.publishError: \(err)"
-		case .subscribeError(let err):
-			return "ApiClientError.subscribeError: \(err)"
+		case .batchQueryError(let error):
+			return "ApiClientError.batchQueryError: \(generateDescription(error: error))"
+		case .queryError(let error):
+			return "ApiClientError.queryError: \(generateDescription(error: error))"
+		case .publishError(let error):
+			return "ApiClientError.publishError: \(generateDescription(error: error))"
+		case .subscribeError(let error):
+			return "ApiClientError.subscribeError: \(generateDescription(error: error))"
 		}
 	}
 }
@@ -95,16 +119,16 @@ final class GRPCApiClient: ApiClient {
 	func batchQuery(request: BatchQueryRequest) async throws -> BatchQueryResponse {
 		do {
 			return try await rustClient.batchQuery(req: request.toFFI).fromFFI
-		} catch {
-			throw ApiClientError.batchQueryError(error.localizedDescription)
+		} catch let error as GenericError {
+			throw ApiClientError.batchQueryError(error)
 		}
 	}
 
 	func query(request: QueryRequest) async throws -> QueryResponse {
 		do {
 			return try await rustClient.query(request: request.toFFI).fromFFI
-		} catch {
-			throw ApiClientError.queryError(error.localizedDescription)
+		} catch let error as GenericError {
+			throw ApiClientError.queryError(error)
 		}
 	}
 
@@ -155,8 +179,8 @@ final class GRPCApiClient: ApiClient {
 						let nextEnvelope = try await subscription.next()
 						continuation.yield(nextEnvelope.fromFFI)
 					}
-				} catch {
-					throw ApiClientError.subscribeError(error.localizedDescription)
+				} catch let error as GenericError {
+					throw ApiClientError.subscribeError(error)
 				}
 			}
 		}
@@ -165,8 +189,8 @@ final class GRPCApiClient: ApiClient {
 	func publish(request: PublishRequest) async throws {
 		do {
 			try await rustClient.publish(request: request.toFFI, authToken: authToken)
-		} catch {
-			throw ApiClientError.publishError(error.localizedDescription)
+		} catch let error as GenericError {
+			throw ApiClientError.publishError(error)
 		}
 	}
 
