@@ -158,7 +158,6 @@ class MainActivity : AppCompatActivity() {
                 ).first()
                 alixGroup.stream(MessageCallback())
                 val message = "hello"
-                val preparedMessage =
                 boGroup.send(message.encodeToByteArray())
                 boGroup.send(message.encodeToByteArray())
                 boGroup.send(message.encodeToByteArray())
