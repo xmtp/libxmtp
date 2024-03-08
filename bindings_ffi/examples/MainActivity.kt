@@ -21,6 +21,7 @@ import org.xmtp.android.library.messages.toV2
 import uniffi.xmtpv3.FfiConversationCallback
 import uniffi.xmtpv3.FfiGroup
 import uniffi.xmtpv3.FfiInboxOwner
+import uniffi.xmtpv3.FfiListConversationsOptions
 import uniffi.xmtpv3.FfiLogger
 import uniffi.xmtpv3.LegacyIdentitySource
 
@@ -82,12 +83,17 @@ class MainActivity : AppCompatActivity() {
 
         runBlocking {
             try {
-                val key = PrivateKeyBuilder()
+                val privateKeyData = listOf(0x08, 0x36, 0x20, 0x0f, 0xfa, 0xfa, 0x17, 0xa3, 0xcb, 0x8b, 0x54, 0xf2, 0x2d, 0x6a, 0xfa, 0x60, 0xb1, 0x3d, 0xa4, 0x87, 0x26, 0x54, 0x32, 0x41, 0xad, 0xc5, 0xc2, 0x50, 0xdb, 0xb0, 0xe0, 0xcd)
+                    .map { it.toByte() }
+                    .toByteArray()
+                // Use hardcoded privateKey
+                val privateKey = PrivateKeyBuilder.buildFromPrivateKeyData(privateKeyData)
+                val key = PrivateKeyBuilder(privateKey)
                 val client =
                         uniffi.xmtpv3.createClient(
                                 AndroidFfiLogger(),
-                                EMULATOR_LOCALHOST_ADDRESS,
-                                false,
+                                DEV_NETWORK_ADDRESS,
+                                true,
                                 dbPath,
                                 dbEncryptionKey,
                                 key.address,
@@ -102,6 +108,11 @@ class MainActivity : AppCompatActivity() {
                 client.registerIdentity(walletSignature);
                 textView.text = "Libxmtp version\n" + uniffi.xmtpv3.getVersionInfo() + "\n\nClient constructed, wallet address: " + client.accountAddress()
                 Log.i("App", "Setting up conversation streaming")
+                val conversations = client.conversations().list(FfiListConversationsOptions(null, null, null))
+                Log.i(
+                    "App",
+                    "INFO - conversation list is ${conversations.size} long but should be 2k+"
+                )
                 client.conversations().stream(ConversationCallback())
             } catch (e: Exception) {
                 textView.text = "Failed to construct client: " + e.message
@@ -114,8 +125,8 @@ class MainActivity : AppCompatActivity() {
             ClientOptions(
                 api =
                 ClientOptions.Api(
-                    env = XMTPEnvironment.LOCAL,
-                    isSecure = false,
+                    env = XMTPEnvironment.DEV,
+                    isSecure = true,
                 ),
                 appContext = this@MainActivity
             )
