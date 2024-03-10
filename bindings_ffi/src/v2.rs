@@ -205,7 +205,7 @@ impl From<QueryResponse> for FfiV2QueryResponse {
             paging_info: resp.paging_info.map(|paging_info| FfiPagingInfo {
                 limit: paging_info.limit,
                 direction: FfiSortDirection::from_i32(paging_info.direction),
-                cursor: None,
+                cursor: proto_cursor_to_ffi(paging_info.cursor),
             }),
         }
     }
@@ -215,12 +215,10 @@ impl From<FfiV2QueryResponse> for QueryResponse {
     fn from(resp: FfiV2QueryResponse) -> Self {
         Self {
             envelopes: resp.envelopes.into_iter().map(|env| env.into()).collect(),
-            paging_info: resp.paging_info.map(|paging_info| {
-                PagingInfo {
-                    limit: paging_info.limit,
-                    direction: paging_info.direction as i32,
-                    cursor: None, // TODO: fix me
-                }
+            paging_info: resp.paging_info.map(|paging_info| PagingInfo {
+                limit: paging_info.limit,
+                direction: paging_info.direction as i32,
+                cursor: paging_info.cursor.map(|c| c.into()),
             }),
         }
     }
