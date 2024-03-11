@@ -2,7 +2,6 @@ package org.xmtp.android.library
 
 import android.util.Log
 import com.google.protobuf.kotlin.toByteString
-import com.google.protobuf.kotlin.toByteStringUtf8
 import io.grpc.StatusException
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.channels.awaitClose
@@ -327,7 +326,7 @@ data class Conversations(
                         Crypto.deriveKey(
                             conversation.keyMaterial!!,
                             ByteArray(0),
-                            info.toByteStringUtf8().toByteArray()
+                            info.toByteArray(Charsets.UTF_8),
                         )
                     val hmacKeyData = HmacKeyData.newBuilder()
                     hmacKeyData.hmacKey = hmacKey.toByteString()

@@ -87,12 +87,7 @@ class Crypto {
             salt: ByteArray,
             info: ByteArray,
         ): ByteArray {
-            val keySpec = SecretKeySpec(secret, "HmacSHA256")
-            val hmac = Mac.getInstance("HmacSHA256")
-            hmac.init(keySpec)
-            val derivedKey = hmac.doFinal(salt + info)
-
-            return derivedKey.copyOfRange(0, 32)
+            return Hkdf.computeHkdf("HMACSHA256", secret, salt, info, 32)
         }
 
         fun verifyHmacSignature(
