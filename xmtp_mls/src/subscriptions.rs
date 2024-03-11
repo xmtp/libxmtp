@@ -93,7 +93,7 @@ where
                             log::error!("Error rotating key package: {:?}", err);
                         }
                         Some(group)
-                    },
+                    }
                     Err(err) => {
                         log::error!("Error processing stream entry: {:?}", err);
                         None

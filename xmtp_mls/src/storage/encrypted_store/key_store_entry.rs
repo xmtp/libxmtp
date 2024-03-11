@@ -10,7 +10,7 @@ use crate::{impl_fetch, impl_store, Delete};
 pub struct StoredKeyStoreEntry {
     pub key_bytes: Vec<u8>,
     pub value_bytes: Vec<u8>,
-    pub expiration: Option<i64>,
+    pub expire_at_s: Option<i64>,
 }
 
 impl_fetch!(StoredKeyStoreEntry, openmls_key_store, Vec<u8>);
@@ -37,7 +37,7 @@ impl DbConnection<'_> {
         let entry = StoredKeyStoreEntry {
             key_bytes: key,
             value_bytes: value,
-            expiration: if let Some(e) = exp {
+            expire_at_s: if let Some(e) = exp {
                 e.try_into().ok()
             } else {
                 None
@@ -54,7 +54,7 @@ impl DbConnection<'_> {
                 .values(entry)
                 .execute(conn)?;
             // Delete expired entries.
-            diesel::delete(openmls_key_store.filter(expiration.lt(current_time))).execute(conn)
+            diesel::delete(openmls_key_store.filter(expire_at_s.lt(current_time))).execute(conn)
         })?;
 
         Ok(())
