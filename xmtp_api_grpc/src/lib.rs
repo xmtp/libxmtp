@@ -272,7 +272,7 @@ mod tests {
             let mut next_message = subscription.next().await.unwrap();
             assert!(next_message.is_ok());
 
-            tokio::time::sleep(std::time::Duration::from_secs(4)).await;
+            tokio::time::sleep(std::time::Duration::from_secs(16)).await;
             client
                 .publish(
                     auth_token.to_string(),
