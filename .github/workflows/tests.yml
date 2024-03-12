@@ -12,7 +12,7 @@ env:
 jobs:  
   ios-tests:
     name: iOS Tests
-    # macos-14 currently breaks colima
+    # macos-14 currently breaks Colima
     runs-on: macos-13
     
     steps:
@@ -22,13 +22,53 @@ jobs:
       
       - name: Checkout project sources
         uses: actions/checkout@v3
-
+        
+        # This step and the Install Colima step have been modified to address a
+        # Python error started 3.11.2024, emitting the following error:
+        #
+        # Error: The `brew link` step did not complete successfully
+        # The formula built, but is not symlinked into /usr/local
+        # Could not symlink bin/2to3
+        #
+        # Others reported: https://github.com/Cockatrice/Cockatrice/issues/5007
+        #
+        # Once the fix enters the Homebrew pipeline, it is safe to remove this.
+        #
+        # Note: Upgrading to a macos-14 runner fixes this, but Colima still
+        # can't install on macos-14 due to virtualization issues.
+      - name: Homebrew Workaround - Temporary
+        #run: brew update && brew upgrade && brew cleanup
+        run: |
+         brew update
+         rm '/usr/local/bin/2to3'
+         rm '/usr/local/bin/2to3-3.12'
+         rm '/usr/local/bin/idle3'
+         rm '/usr/local/bin/idle3.12'
+         rm '/usr/local/bin/pydoc3'
+         rm '/usr/local/bin/pydoc3.12'
+         rm '/usr/local/bin/python3'
+         rm '/usr/local/bin/python3-config'
+         rm '/usr/local/bin/python3.12'
+         rm '/usr/local/bin/python3.12-config'
+         rm '/usr/local/share/man/man1/python3.1'
+         rm '/usr/local/lib/pkgconfig/python3-embed.pc'
+         rm '/usr/local/lib/pkgconfig/python3.pc'
+         rm '/usr/local/Frameworks/Python.framework/Headers'
+         rm '/usr/local/Frameworks/Python.framework/Python'
+         rm '/usr/local/Frameworks/Python.framework/Resources'
+         rm '/usr/local/Frameworks/Python.framework/Versions/Current'
+        
+      - name: Install colima
+        run: |
+         brew install colima || true
+         brew link --overwrite python@3.11 
+         
       - name: Install docker
-        run: brew install docker docker-compose colima
-
+        run: brew install docker docker-compose
+        
       - name: Start colima
         run: colima start
-                
+        
       - name: Start Docker containers
         run: dev/up
         
