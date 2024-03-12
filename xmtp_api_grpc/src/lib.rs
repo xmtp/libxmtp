@@ -275,8 +275,7 @@ mod tests {
 
             let mut next_message = subscription.next().await.unwrap();
             if let Err(err) = next_message {
-                println!("Message 1 Error {}", err);
-                assert!(false)
+                panic!("Message 1 Error: {}", err);
             }
 
             tokio::time::sleep(std::time::Duration::from_secs(15)).await;
@@ -295,8 +294,7 @@ mod tests {
 
             next_message = subscription.next().await.unwrap();
             if let Err(err) = next_message {
-                println!("Error {}", err);
-                assert!(false)
+                panic!("Message 2 Error: {}", err);
             }
         })
         .await
