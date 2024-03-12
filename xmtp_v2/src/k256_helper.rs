@@ -4,7 +4,9 @@ use k256::{
     PublicKey, SecretKey,
 };
 use sha2::{digest::Update, Digest, Sha256};
-use sha3::Keccak256;
+use sha3::{Keccak256, Keccak256Core};
+
+use crate::hashes::keccak256;
 
 /// diffie_hellman - compute the shared secret between a secret key and a public key
 /// NOTE: This is a custom implementation of the diffie_hellman operation
@@ -39,6 +41,15 @@ pub fn sign_sha256(secret_key: &[u8], message: &[u8]) -> Result<(Vec<u8>, u8), S
     let sha256 = Sha256::new().chain(message);
     let (signature, recovery_id) = signing_key
         .sign_digest_recoverable(sha256)
+        .map_err(|e| e.to_string())?;
+    Ok((signature.to_vec(), recovery_id.to_byte()))
+}
+
+pub fn sign_keccak_256(secret_key: &[u8], message: &[u8]) -> Result<(Vec<u8>, u8), String> {
+    let signing_key = SigningKey::from_bytes(secret_key).map_err(|e| e.to_string())?;
+    let hash = Keccak256::new().chain(message);
+    let (signature, recovery_id) = signing_key
+        .sign_digest_recoverable::<Keccak256>(hash)
         .map_err(|e| e.to_string())?;
     Ok((signature.to_vec(), recovery_id.to_byte()))
 }

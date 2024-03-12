@@ -502,7 +502,9 @@ mod tests {
     use futures::stream;
     use xmtp_proto::api_client::{Envelope, Error as ApiError};
 
-    use crate::v2::FfiV2Subscription;
+    use crate::v2::{
+        create_v2_client, FfiEnvelope, FfiPublishRequest, FfiV2SubscribeRequest, FfiV2Subscription,
+    };
 
     // Try a query on a test topic, and make sure we get a response
     #[tokio::test]
@@ -576,5 +578,37 @@ mod tests {
         stream_handler.end().await;
         let second = stream_handler.next().await;
         assert!(second.is_err());
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn test_e2e() {
+        let client = create_v2_client("http://localhost:5556".to_string(), false)
+            .await
+            .unwrap();
+        let content_topic = "/xmtp/0/foo";
+
+        let subscription = client
+            .subscribe(FfiV2SubscribeRequest {
+                content_topics: vec![content_topic.to_string()],
+            })
+            .await
+            .unwrap();
+
+        client
+            .publish(
+                FfiPublishRequest {
+                    envelopes: vec![FfiEnvelope {
+                        content_topic: content_topic.to_string(),
+                        timestamp_ns: 3,
+                        message: vec![1, 2, 3],
+                    }],
+                },
+                "".to_string(),
+            )
+            .await
+            .unwrap();
+
+        let sub_result = subscription.next().await.unwrap();
+        assert_eq!(sub_result.content_topic, content_topic.to_string());
     }
 }
