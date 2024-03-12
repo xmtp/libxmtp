@@ -33,8 +33,7 @@ async fn create_tls_channel(address: String) -> Result<Channel, Error> {
         .map_err(|e| Error::new(ErrorKind::SetupError).with(e))?
         .keep_alive_while_idle(true)
         .connect_timeout(Duration::from_secs(5))
-        .http2_keep_alive_interval(Duration::from_secs(3))
-        .keep_alive_timeout(Duration::from_secs(5))
+        .keep_alive_timeout(Duration::from_secs(25))
         .tls_config(ClientTlsConfig::new())
         .map_err(|e| Error::new(ErrorKind::SetupError).with(e))?
         .connect()

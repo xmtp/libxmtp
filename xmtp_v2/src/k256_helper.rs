@@ -4,9 +4,7 @@ use k256::{
     PublicKey, SecretKey,
 };
 use sha2::{digest::Update, Digest, Sha256};
-use sha3::{Keccak256, Keccak256Core};
-
-use crate::hashes::keccak256;
+use sha3::Keccak256;
 
 /// diffie_hellman - compute the shared secret between a secret key and a public key
 /// NOTE: This is a custom implementation of the diffie_hellman operation

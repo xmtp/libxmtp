@@ -1,3 +1,4 @@
+use base64::Engine;
 use prost::Message;
 use xmtp_proto::xmtp::message_api::v1::{AuthData, Token};
 use xmtp_proto::xmtp::message_contents::private_key_bundle::Version;
@@ -54,7 +55,7 @@ impl Authenticator {
         let mut token_bytes = Vec::new();
         let _ = token.encode(&mut token_bytes);
 
-        let token_base64 = base64::encode(&token_bytes);
+        let token_base64 = base64::engine::general_purpose::STANDARD.encode(&token_bytes);
         token_base64
     }
 
