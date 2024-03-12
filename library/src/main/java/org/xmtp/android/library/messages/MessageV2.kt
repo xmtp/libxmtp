@@ -25,7 +25,7 @@ class MessageV2Builder(val senderHmac: ByteArray? = null, val shouldPush: Boolea
         fun buildFromCipherText(
             headerBytes: ByteArray,
             ciphertext: CipherText?,
-            senderHmac: ByteArray?,
+            senderHmac: ByteArray,
             shouldPush: Boolean,
         ): MessageV2Builder {
             val messageBuilder = MessageV2Builder(senderHmac = senderHmac, shouldPush = shouldPush)
@@ -33,6 +33,7 @@ class MessageV2Builder(val senderHmac: ByteArray? = null, val shouldPush: Boolea
                 it.headerBytes = headerBytes.toByteString()
                 it.ciphertext = ciphertext
                 it.shouldPush = shouldPush
+                it.senderHmac = senderHmac.toByteString()
             }.build()
             return messageBuilder
         }

@@ -3,6 +3,7 @@ package org.xmtp.android.library
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import app.cash.turbine.test
 import com.google.protobuf.kotlin.toByteString
+import com.google.protobuf.kotlin.toByteStringUtf8
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import org.junit.Assert
 import org.junit.Assert.assertEquals
@@ -228,12 +229,21 @@ class ConversationTest {
             signedBytes,
             additionalData = headerBytes,
         )
+        val thirtyDayPeriodsSinceEpoch =
+            (Date().time / 1000 / 60 / 60 / 24 / 30).toInt()
+        val info = "$thirtyDayPeriodsSinceEpoch-${aliceClient.address}"
+        val infoEncoded = info.toByteStringUtf8().toByteArray()
+        val senderHmacGenerated =
+            Crypto.calculateMac(
+                Crypto.deriveKey(aliceConversation.keyMaterial!!, ByteArray(0), infoEncoded),
+                headerBytes
+            )
         val tamperedMessage =
             MessageV2Builder.buildFromCipherText(
                 headerBytes = headerBytes,
                 ciphertext = ciphertext,
-                senderHmac = null,
-                shouldPush = true,
+                senderHmac = senderHmacGenerated,
+                shouldPush = codec.shouldPush("this is a fake"),
             )
         val tamperedEnvelope = EnvelopeBuilder.buildFromString(
             topic = aliceConversation.topic,
