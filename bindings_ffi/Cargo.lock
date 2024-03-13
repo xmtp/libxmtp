@@ -5313,6 +5313,7 @@ dependencies = [
  "async-stream",
  "base64 0.21.7",
  "futures",
+ "hex",
  "http-body",
  "hyper",
  "log",
@@ -5326,6 +5327,7 @@ dependencies = [
  "tower",
  "webpki-roots 0.23.1",
  "xmtp_proto",
+ "xmtp_v2",
 ]
 
 [[package]]

@@ -6034,6 +6034,7 @@ dependencies = [
  "async-stream",
  "base64 0.21.6",
  "futures",
+ "hex",
  "http-body 0.4.6",
  "hyper 0.14.28",
  "log",
@@ -6048,6 +6049,7 @@ dependencies = [
  "uuid 1.6.1",
  "webpki-roots 0.23.1",
  "xmtp_proto",
+ "xmtp_v2",
 ]
 
 [[package]]
