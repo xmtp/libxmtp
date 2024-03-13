@@ -43,6 +43,15 @@ pub fn sign_sha256(secret_key: &[u8], message: &[u8]) -> Result<(Vec<u8>, u8), S
     Ok((signature.to_vec(), recovery_id.to_byte()))
 }
 
+pub fn sign_keccak_256(secret_key: &[u8], message: &[u8]) -> Result<(Vec<u8>, u8), String> {
+    let signing_key = SigningKey::from_bytes(secret_key).map_err(|e| e.to_string())?;
+    let hash = Keccak256::new().chain(message);
+    let (signature, recovery_id) = signing_key
+        .sign_digest_recoverable::<Keccak256>(hash)
+        .map_err(|e| e.to_string())?;
+    Ok((signature.to_vec(), recovery_id.to_byte()))
+}
+
 /// Verify given a compact signature, recovery_id, digest, and public key in uncompressed format
 /// NOTE: the recovery_id situation is not necessary, but it is a good sanity check
 pub fn verify_sha256(
