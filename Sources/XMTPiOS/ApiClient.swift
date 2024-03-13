@@ -22,11 +22,11 @@ public typealias SubscribeRequest = Xmtp_MessageApi_V1_SubscribeRequest
 // the GenericErrorDescribing protocol will catch all instances of the enum
 // and generate the string descriptions.
 protocol GenericErrorDescribing {
-	func generateDescription(error: GenericError) -> String
+	func generateApiDescription(error: GenericError) -> String
 }
 
 extension GenericErrorDescribing {
-	func generateDescription(error: GenericError) -> String {
+	func generateApiDescription(error: GenericError) -> String {
 		switch error {
 		case let .Client(message),
 			let .ClientBuilder(message),
@@ -41,23 +41,11 @@ extension GenericErrorDescribing {
 	}
 }
 
-public enum ApiClientError: Error, CustomStringConvertible, GenericErrorDescribing {
-	case batchQueryError(GenericError)
-	case queryError(GenericError)
-	case publishError(GenericError)
-	case subscribeError(GenericError)
+struct ApiClientError: LocalizedError, GenericErrorDescribing {
+	var errorDescription: String?
 
-	public var description: String {
-		switch self {
-		case .batchQueryError(let error):
-			return "ApiClientError.batchQueryError: \(generateDescription(error: error))"
-		case .queryError(let error):
-			return "ApiClientError.queryError: \(generateDescription(error: error))"
-		case .publishError(let error):
-			return "ApiClientError.publishError: \(generateDescription(error: error))"
-		case .subscribeError(let error):
-			return "ApiClientError.subscribeError: \(generateDescription(error: error))"
-		}
+	init(error: GenericError, description: String) {
+		self.errorDescription = "\(description) \(generateApiDescription(error: error))"
 	}
 }
 
@@ -120,7 +108,7 @@ final class GRPCApiClient: ApiClient {
 		do {
 			return try await rustClient.batchQuery(req: request.toFFI).fromFFI
 		} catch let error as GenericError {
-			throw ApiClientError.batchQueryError(error)
+			throw ApiClientError(error: error, description: "ApiClientError.batchQueryError:")
 		}
 	}
 
@@ -128,7 +116,7 @@ final class GRPCApiClient: ApiClient {
 		do {
 			return try await rustClient.query(request: request.toFFI).fromFFI
 		} catch let error as GenericError {
-			throw ApiClientError.queryError(error)
+			throw ApiClientError(error: error, description: "ApiClientError.queryError:")
 		}
 	}
 
@@ -180,7 +168,7 @@ final class GRPCApiClient: ApiClient {
 						continuation.yield(nextEnvelope.fromFFI)
 					}
 				} catch let error as GenericError {
-					throw ApiClientError.subscribeError(error)
+					throw ApiClientError(error: error, description: "ApiClientError.subscribeError:")
 				}
 			}
 		}
@@ -190,7 +178,7 @@ final class GRPCApiClient: ApiClient {
 		do {
 			try await rustClient.publish(request: request.toFFI, authToken: authToken)
 		} catch let error as GenericError {
-			throw ApiClientError.publishError(error)
+			throw ApiClientError(error: error, description: "ApiClientError.publishError:")
 		}
 	}
 
