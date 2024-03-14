@@ -141,7 +141,22 @@ struct ConversationListView: View {
 			case .conversation(let conversation):
 				// Ensure we're subscribed to push notifications on these conversations
 				do {
-					try await XMTPPush.shared.subscribe(topics: [conversation.topic])
+					let hmacKeysResult = await client.conversations.getHmacKeys()
+					let hmacKeys = hmacKeysResult.hmacKeys
+					
+					let result = hmacKeys[conversation.topic]?.values.map { hmacKey -> NotificationSubscriptionHmacKey in
+						NotificationSubscriptionHmacKey.with { sub_key in
+							sub_key.key = hmacKey.hmacKey
+							sub_key.thirtyDayPeriodsSinceEpoch = UInt32(hmacKey.thirtyDayPeriodsSinceEpoch)
+						}
+					}
+					
+					let subscription = NotificationSubscription.with { sub in
+						sub.hmacKeys = result ?? []
+						sub.topic = conversation.topic
+						sub.isSilent = conversation.version == .v1
+					}
+					try await XMTPPush.shared.subscribeWithMetadata(subscriptions: [subscription])
 				} catch {
 					print("Error subscribing: \(error)")
 				}

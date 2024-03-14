@@ -23,7 +23,7 @@ let package = Package(
 		.package(url: "https://github.com/GigaBitcoin/secp256k1.swift.git", exact: "0.10.0"),
 		.package(url: "https://github.com/argentlabs/web3.swift", from: "1.1.0"),
 		.package(url: "https://github.com/1024jp/GzipSwift", from: "5.2.0"),
-		.package(url: "https://github.com/bufbuild/connect-swift", exact: "0.3.0"),
+		.package(url: "https://github.com/bufbuild/connect-swift", exact: "0.12.0"),
 		.package(url: "https://github.com/apple/swift-docc-plugin.git", from: "1.0.0"),
 		.package(url: "https://github.com/xmtp/libxmtp-swift", exact: "0.4.3-beta2"),
 	],
