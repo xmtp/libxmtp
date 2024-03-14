@@ -17,7 +17,6 @@ import uniffi.xmtpv3.FfiListMessagesOptions
 import uniffi.xmtpv3.FfiMessage
 import uniffi.xmtpv3.FfiMessageCallback
 import uniffi.xmtpv3.GroupPermissions
-import java.lang.Exception
 import java.util.Date
 import kotlin.time.Duration.Companion.nanoseconds
 import kotlin.time.DurationUnit
@@ -32,22 +31,20 @@ class Group(val client: Client, private val libXMTPGroup: FfiGroup) {
     private val metadata: FfiGroupMetadata
         get() = libXMTPGroup.groupMetadata()
 
-    fun send(text: String): String {
+    suspend fun send(text: String): String {
         return send(prepareMessage(content = text, options = null))
     }
 
-    fun <T> send(content: T, options: SendOptions? = null): String {
+    suspend fun <T> send(content: T, options: SendOptions? = null): String {
         val preparedMessage = prepareMessage(content = content, options = options)
         return send(preparedMessage)
     }
 
-    fun send(encodedContent: EncodedContent): String {
+    suspend fun send(encodedContent: EncodedContent): String {
         if (client.contacts.consentList.groupState(groupId = id) == ConsentState.UNKNOWN) {
             client.contacts.allowGroup(groupIds = listOf(id))
         }
-        runBlocking {
-            libXMTPGroup.send(contentBytes = encodedContent.toByteArray())
-        }
+        libXMTPGroup.send(contentBytes = encodedContent.toByteArray())
         return id.toHex()
     }
 

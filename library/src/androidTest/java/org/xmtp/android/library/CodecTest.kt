@@ -2,6 +2,7 @@ package org.xmtp.android.library
 
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.google.protobuf.kotlin.toByteStringUtf8
+import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -60,10 +61,12 @@ class CodecTest {
         val aliceClient = fixtures.aliceClient
         val aliceConversation =
             aliceClient.conversations.newConversation(fixtures.bob.walletAddress)
-        aliceConversation.send(
-            content = 3.14,
-            options = SendOptions(contentType = NumberCodec().contentType),
-        )
+        runBlocking {
+            aliceConversation.send(
+                content = 3.14,
+                options = SendOptions(contentType = NumberCodec().contentType),
+            )
+        }
         val messages = aliceConversation.messages()
         assertEquals(messages.size, 1)
         if (messages.size == 1) {
@@ -82,10 +85,12 @@ class CodecTest {
             aliceClient.conversations.newConversation(fixtures.bob.walletAddress)
         val textContent = TextCodec().encode(content = "hiya")
         val source = DecodedComposite(encodedContent = textContent)
-        aliceConversation.send(
-            content = source,
-            options = SendOptions(contentType = CompositeCodec().contentType),
-        )
+        runBlocking {
+            aliceConversation.send(
+                content = source,
+                options = SendOptions(contentType = CompositeCodec().contentType),
+            )
+        }
         val messages = aliceConversation.messages()
         val decoded: DecodedComposite? = messages[0].content()
         assertEquals("hiya", decoded?.content())
@@ -107,10 +112,12 @@ class CodecTest {
                 DecodedComposite(parts = listOf(DecodedComposite(encodedContent = numberContent))),
             ),
         )
-        aliceConversation.send(
-            content = source,
-            options = SendOptions(contentType = CompositeCodec().contentType),
-        )
+        runBlocking {
+            aliceConversation.send(
+                content = source,
+                options = SendOptions(contentType = CompositeCodec().contentType),
+            )
+        }
         val messages = aliceConversation.messages()
         val decoded: DecodedComposite? = messages[0].content()
         val part1 = decoded!!.parts[0]
@@ -127,10 +134,12 @@ class CodecTest {
         val aliceClient = fixtures.aliceClient!!
         val aliceConversation =
             aliceClient.conversations.newConversation(fixtures.bob.walletAddress)
-        aliceConversation.send(
-            content = 3.14,
-            options = SendOptions(contentType = codec.contentType),
-        )
+        runBlocking {
+            aliceConversation.send(
+                content = 3.14,
+                options = SendOptions(contentType = codec.contentType),
+            )
+        }
         val messages = aliceConversation.messages()
         assert(messages.isNotEmpty())
 

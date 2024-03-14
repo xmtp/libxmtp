@@ -4,6 +4,7 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.xmtp.android.library.codecs.Fetcher
 import org.xmtp.android.library.messages.ContactBundle
@@ -226,7 +227,7 @@ data class Fixtures(val aliceAccount: PrivateKeyBuilder, val bobAccount: Private
             message = contactBundle.toByteString()
         }.build()
 
-        client.publish(envelopes = listOf(envelope))
+        runBlocking { client.publish(envelopes = listOf(envelope)) }
     }
 }
 

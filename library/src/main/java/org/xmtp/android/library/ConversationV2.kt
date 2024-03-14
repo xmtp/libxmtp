@@ -173,22 +173,22 @@ data class ConversationV2(
         }
     }
 
-    fun <T> send(content: T, options: SendOptions? = null): String {
+    suspend fun <T> send(content: T, options: SendOptions? = null): String {
         val preparedMessage = prepareMessage(content = content, options = options)
         return send(preparedMessage)
     }
 
-    fun send(text: String, options: SendOptions? = null, sentAt: Date? = null): String {
+    suspend fun send(text: String, options: SendOptions? = null, sentAt: Date? = null): String {
         val preparedMessage = prepareMessage(content = text, options = options)
         return send(preparedMessage)
     }
 
-    fun send(encodedContent: EncodedContent, options: SendOptions?): String {
+    suspend fun send(encodedContent: EncodedContent, options: SendOptions?): String {
         val preparedMessage = prepareMessage(encodedContent = encodedContent, options = options)
         return send(preparedMessage)
     }
 
-    fun send(prepared: PreparedMessage): String {
+    suspend fun send(prepared: PreparedMessage): String {
         client.publish(envelopes = prepared.envelopes)
         if (client.contacts.consentList.state(address = peerAddress) == ConsentState.UNKNOWN) {
             client.contacts.allow(addresses = listOf(peerAddress))

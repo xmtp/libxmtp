@@ -169,7 +169,7 @@ sealed class Conversation {
         }
     }
 
-    fun send(prepared: PreparedMessage): String {
+    suspend fun send(prepared: PreparedMessage): String {
         return when (this) {
             is V1 -> conversationV1.send(prepared = prepared)
             is V2 -> conversationV2.send(prepared = prepared)
@@ -177,7 +177,7 @@ sealed class Conversation {
         }
     }
 
-    fun <T> send(content: T, options: SendOptions? = null): String {
+    suspend fun <T> send(content: T, options: SendOptions? = null): String {
         return when (this) {
             is V1 -> conversationV1.send(content = content, options = options)
             is V2 -> conversationV2.send(content = content, options = options)
@@ -185,7 +185,7 @@ sealed class Conversation {
         }
     }
 
-    fun send(text: String, sendOptions: SendOptions? = null, sentAt: Date? = null): String {
+    suspend fun send(text: String, sendOptions: SendOptions? = null, sentAt: Date? = null): String {
         return when (this) {
             is V1 -> conversationV1.send(text = text, sendOptions, sentAt)
             is V2 -> conversationV2.send(text = text, sendOptions, sentAt)
@@ -193,7 +193,7 @@ sealed class Conversation {
         }
     }
 
-    fun send(encodedContent: EncodedContent, options: SendOptions? = null): String {
+    suspend fun send(encodedContent: EncodedContent, options: SendOptions? = null): String {
         return when (this) {
             is V1 -> conversationV1.send(encodedContent = encodedContent, options = options)
             is V2 -> conversationV2.send(encodedContent = encodedContent, options = options)

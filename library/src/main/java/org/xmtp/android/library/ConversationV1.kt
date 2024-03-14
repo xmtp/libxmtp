@@ -164,11 +164,11 @@ data class ConversationV1(
         }
     }
 
-    fun send(text: String, options: SendOptions? = null): String {
+    suspend fun send(text: String, options: SendOptions? = null): String {
         return send(text = text, sendOptions = options, sentAt = null)
     }
 
-    internal fun send(
+    internal suspend fun send(
         text: String,
         sendOptions: SendOptions? = null,
         sentAt: Date? = null,
@@ -177,17 +177,17 @@ data class ConversationV1(
         return send(preparedMessage)
     }
 
-    fun <T> send(content: T, options: SendOptions? = null): String {
+    suspend fun <T> send(content: T, options: SendOptions? = null): String {
         val preparedMessage = prepareMessage(content = content, options = options)
         return send(preparedMessage)
     }
 
-    fun send(encodedContent: EncodedContent, options: SendOptions? = null): String {
+    suspend fun send(encodedContent: EncodedContent, options: SendOptions? = null): String {
         val preparedMessage = prepareMessage(encodedContent = encodedContent, options = options)
         return send(preparedMessage)
     }
 
-    fun send(prepared: PreparedMessage): String {
+    suspend fun send(prepared: PreparedMessage): String {
         client.publish(envelopes = prepared.envelopes)
         if (client.contacts.consentList.state(address = peerAddress) == ConsentState.UNKNOWN) {
             client.contacts.allow(addresses = listOf(peerAddress))

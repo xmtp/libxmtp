@@ -71,10 +71,12 @@ class RemoteAttachmentTest {
         val aliceConversation =
             aliceClient.conversations.newConversation(fixtures.bob.walletAddress)
 
-        aliceConversation.send(
-            content = remoteAttachment,
-            options = SendOptions(contentType = ContentTypeRemoteAttachment),
-        )
+        runBlocking {
+            aliceConversation.send(
+                content = remoteAttachment,
+                options = SendOptions(contentType = ContentTypeRemoteAttachment),
+            )
+        }
 
         val messages = aliceConversation.messages()
         Assert.assertEquals(messages.size, 1)
@@ -150,10 +152,12 @@ class RemoteAttachmentTest {
         val aliceConversation =
             aliceClient.conversations.newConversation(fixtures.bob.walletAddress)
 
-        aliceConversation.send(
-            content = remoteAttachment,
-            options = SendOptions(contentType = ContentTypeRemoteAttachment),
-        )
+        runBlocking {
+            aliceConversation.send(
+                content = remoteAttachment,
+                options = SendOptions(contentType = ContentTypeRemoteAttachment),
+            )
+        }
 
         val messages = aliceConversation.messages()
         Assert.assertEquals(messages.size, 1)

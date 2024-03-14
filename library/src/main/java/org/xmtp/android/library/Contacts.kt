@@ -152,7 +152,7 @@ class ConsentList(val client: Client) {
                 ByteArray(message.size) { message[it] },
             )
 
-        client.publish(listOf(envelope))
+        runBlocking { client.publish(listOf(envelope)) }
     }
 
     fun allow(address: String): ConsentListEntry {
