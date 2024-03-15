@@ -236,18 +236,8 @@ where
                 let message_id =
                     calculate_message_id(group_id, &message, &self.client.account_address(), &key);
 
-                conn.set_delivery_status_to_published(message_id)?;
-                // StoredGroupMessage {
-                //     id: message_id,
-                //     group_id: group_id.to_vec(),
-                //     decrypted_message_bytes: message,
-                //     sent_at_ns: envelope_timestamp_ns as i64,
-                //     kind: GroupMessageKind::Application,
-                //     sender_installation_id: self.client.installation_public_key(),
-                //     sender_account_address: self.client.account_address(),
-                //     delivery_status: DeliveryStatus::Published,
-                // }
-                // .store(conn)?;
+                conn.set_delivery_status_to_published(&message_id)?;
+                conn.set_sent_at_ts(message_id, envelope_timestamp_ns)?;
             }
         };
 

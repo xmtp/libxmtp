@@ -170,12 +170,30 @@ impl DbConnection<'_> {
 
     pub fn set_delivery_status_to_published<MessageId: AsRef<[u8]>>(
         &self,
-        msg_id: MessageId,
+        msg_id: &MessageId,
     ) -> Result<usize, StorageError> {
         let res = self.raw_query(|conn| {
             diesel::update(dsl::group_messages)
                 .filter(dsl::id.eq(msg_id.as_ref()))
                 .set(dsl::delivery_status.eq(DeliveryStatus::Published))
+                .execute(conn)
+        });
+
+        match res {
+            Ok(n) => Ok(n),
+            Err(_e) => Err(StorageError::NotFound),
+        }
+    }
+
+    pub fn set_sent_at_ts<MessageId: AsRef<[u8]>>(
+        &self,
+        msg_id: MessageId,
+        timestamp: u64,
+    ) -> Result<usize, StorageError> {
+        let res = self.raw_query(|conn| {
+            diesel::update(dsl::group_messages)
+                .filter(dsl::id.eq(msg_id.as_ref()))
+                .set(dsl::sent_at_ns.eq(timestamp as i64))
                 .execute(conn)
         });
 
