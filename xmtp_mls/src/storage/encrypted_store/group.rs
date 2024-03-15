@@ -32,6 +32,8 @@ pub struct StoredGroup {
     pub membership_state: GroupMembershipState,
     /// Track when the latest, most recent installations were checked
     pub installations_last_checked: i64,
+/// Enum: `conversation = 1, sync = 2`
+    pub purpose: u8
 }
 
 impl_fetch!(StoredGroup, groups, Vec<u8>);
@@ -44,6 +46,7 @@ impl StoredGroup {
             created_at_ns,
             membership_state,
             installations_last_checked: 0,
+            purpose: 1,
         }
     }
 }
@@ -73,6 +76,8 @@ impl DbConnection<'_> {
         if let Some(limit) = limit {
             query = query.limit(limit);
         }
+
+        query = query.filter(dsl::purpose.eq(Purpose::Conversation))
 
         Ok(self.raw_query(|conn| query.load(conn))?)
     }
@@ -167,6 +172,37 @@ where
             1 => Ok(GroupMembershipState::Allowed),
             2 => Ok(GroupMembershipState::Rejected),
             3 => Ok(GroupMembershipState::Pending),
+            x => Err(format!("Unrecognized variant {}", x).into()),
+        }
+    }
+}
+
+#[repr(i32)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, AsExpression, FromSqlRow)]
+#[diesel(sql_type = Integer)]
+pub enum Purpose {
+    Conversation = 1,
+    Sync = 2,
+}
+
+impl ToSql<Integer, Sqlite> for Purpose
+where
+    i32: ToSql<Integer, Sqlite>,
+{
+    fn to_sql<'b>(&'b self, out: &mut Output<'b, '_, Sqlite>) -> serialize::Result {
+        out.set_value(*self as i32);
+        Ok(IsNull::No)
+    }
+}
+
+impl FromSql<Integer, Sqlite> for Purpose
+where
+    i32: FromSql<Integer, Sqlite>,
+{
+    fn from_sql(bytes: <Sqlite as Backend>::RawValue<'_>) -> deserialize::Result<Self> {
+        match i32::from_sql(bytes)? {
+            1 => Ok(Purpose::Conversation),
+            2 => Ok(Purpose::Sync),
             x => Err(format!("Unrecognized variant {}", x).into()),
         }
     }
