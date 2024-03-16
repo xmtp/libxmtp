@@ -1,12 +1,9 @@
 -- Copy and replace is only necesasry for SQLite as SQLite does not support DROP COLUMN directly.
--- Create a new temporary table without the `delivery_status` column
-CREATE TABLE tmp_group_messages AS SELECT * FROM group_messages;
-
--- Copy the data from the original table to the new temp table (excluding the `delivery_status` column)
-INSERT INTO tmp_group_messages SELECT * FROM group_messages;
-
--- Drop the original `group_messages` table thereby removing the `delivery_status` column
-DROP TABLE group_messages;
-
--- Rename the new temp table to the original name
-ALTER TABLE tmp_group_messages RENAME TO group_messages;
+BEGIN TRANSACTION;
+CREATE TEMPORARY TABLE backup_group(id BLOB PRIMARY KEY NOT NULL, created_at_ns BIGINT NOT NULL, membership_state INT NOT NULL, installations_last_checked BIGINT NOT NULL);
+INSERT INTO backup_group SELECT id, created_at_ns, membership_state, installations_last_checked FROM groups;
+DROP TABLE groups;
+CREATE TABLE groups(id BLOB PRIMARY KEY NOT NULL, created_at_ns BIGINT NOT NULL, membership_state INT NOT NULL, installations_last_checked BIGINT NOT NULL);
+INSERT INTO groups SELECT id, created_at_ns, membership_state, installations_last_checked FROM backup_group;
+DROP TABLE backup_group;
+COMMIT;
