@@ -17,7 +17,7 @@ use self::{
 };
 use crate::{
     client::{deserialize_welcome, ClientError, MessageProcessingError},
-    configuration::CIPHERSUITE,
+    configuration::{CIPHERSUITE, MAX_GROUP_SIZE},
     hpke::{decrypt_welcome, HpkeError},
     identity::{Identity, IdentityError},
     retry::RetryableError,
@@ -272,6 +272,15 @@ where
         account_addresses_to_add: Vec<String>,
     ) -> Result<(), GroupError> {
         let account_addresses = sanitize_evm_addresses(account_addresses_to_add)?;
+        // get current number of users in group
+        let member_count = self.members().unwrap().len();
+        if member_count + account_addresses.len() > MAX_GROUP_SIZE as usize {
+            return Err(GroupError::Generic(format!(
+                "Group size limit exceeded. Max group size is {}",
+                MAX_GROUP_SIZE
+            )));
+        }
+
         let conn = &mut self.client.store.conn()?;
         let intent_data: Vec<u8> =
             AddMembersIntentData::new(account_addresses.into()).try_into()?;
