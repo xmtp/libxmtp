@@ -40,6 +40,7 @@ impl_fetch!(StoredGroup, groups, Vec<u8>);
 impl_store!(StoredGroup, groups);
 
 impl StoredGroup {
+    /// Create a new [`Purpose::Conversation`] group. This is the default type of group.
     pub fn new(id: ID, created_at_ns: i64, membership_state: GroupMembershipState) -> Self {
         Self {
             id,
@@ -49,9 +50,22 @@ impl StoredGroup {
             purpose: Purpose::Conversation,
         }
     }
+
+    /// Create a new [`Purpose::Sync`] group
+    pub fn new_sync_group(id: ID, created_at_ns: i64, membership_state: GroupMembershipState) -> Self {
+        Self {
+            id,
+            created_at_ns,
+            membership_state,
+            installations_last_checked: 0,
+            purpose: Purpose::Sync,
+           
+        }
+    }
 }
 
 impl DbConnection<'_> {
+    /// Return  regular [`Purpose::Conversation`] groups with additional filters
     pub fn find_groups(
         &self,
         allowed_states: Option<Vec<GroupMembershipState>>,
@@ -79,6 +93,14 @@ impl DbConnection<'_> {
 
         query = query.filter(dsl::purpose.eq(Purpose::Conversation));
 
+        Ok(self.raw_query(|conn| query.load(conn))?)
+    }
+
+    /// Return only the [`Purpose::Sync`] groups 
+    pub fn sync_groups(&self) -> Result<Vec<StoredGroup>, StorageError> {
+        let mut query = dsl::groups.order(dsl::created_at_ns.asc()).into_boxed();
+        query = query.filter(dsl::purpose.eq(Purpose::Sync));
+        
         Ok(self.raw_query(|conn| query.load(conn))?)
     }
 
