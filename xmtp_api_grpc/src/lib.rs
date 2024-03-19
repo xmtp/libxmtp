@@ -249,7 +249,7 @@ mod tests {
     #[tokio::test]
     async fn long_lived_subscribe_test() {
         let auth_token = get_auth_token();
-        tokio::time::timeout(std::time::Duration::from_secs(30), async move {
+        tokio::time::timeout(std::time::Duration::from_secs(100), async move {
             let client = Client::create(DEV_ADDRESS.to_string(), true).await.unwrap();
 
             let topic = uuid::Uuid::new_v4();
@@ -278,7 +278,7 @@ mod tests {
                 panic!("Message 1 Error: {}", err);
             }
 
-            tokio::time::sleep(std::time::Duration::from_secs(15)).await;
+            tokio::time::sleep(std::time::Duration::from_secs(50)).await;
             client
                 .publish(
                     auth_token.to_string(),

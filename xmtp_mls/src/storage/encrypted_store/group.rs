@@ -32,6 +32,8 @@ pub struct StoredGroup {
     pub membership_state: GroupMembershipState,
     /// Track when the latest, most recent installations were checked
     pub installations_last_checked: i64,
+    /// Enum: `conversation = 1, sync = 2`
+    pub purpose: Purpose,
 }
 
 impl_fetch!(StoredGroup, groups, Vec<u8>);
@@ -44,6 +46,7 @@ impl StoredGroup {
             created_at_ns,
             membership_state,
             installations_last_checked: 0,
+            purpose: Purpose::Conversation,
         }
     }
 }
@@ -73,6 +76,8 @@ impl DbConnection<'_> {
         if let Some(limit) = limit {
             query = query.limit(limit);
         }
+
+        query = query.filter(dsl::purpose.eq(Purpose::Conversation));
 
         Ok(self.raw_query(|conn| query.load(conn))?)
     }
@@ -172,6 +177,37 @@ where
     }
 }
 
+#[repr(i32)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, AsExpression, FromSqlRow)]
+#[diesel(sql_type = Integer)]
+pub enum Purpose {
+    Conversation = 1,
+    Sync = 2,
+}
+
+impl ToSql<Integer, Sqlite> for Purpose
+where
+    i32: ToSql<Integer, Sqlite>,
+{
+    fn to_sql<'b>(&'b self, out: &mut Output<'b, '_, Sqlite>) -> serialize::Result {
+        out.set_value(*self as i32);
+        Ok(IsNull::No)
+    }
+}
+
+impl FromSql<Integer, Sqlite> for Purpose
+where
+    i32: FromSql<Integer, Sqlite>,
+{
+    fn from_sql(bytes: <Sqlite as Backend>::RawValue<'_>) -> deserialize::Result<Self> {
+        match i32::from_sql(bytes)? {
+            1 => Ok(Purpose::Conversation),
+            2 => Ok(Purpose::Sync),
+            x => Err(format!("Unrecognized variant {}", x).into()),
+        }
+    }
+}
+
 #[cfg(test)]
 pub(crate) mod tests {
 
@@ -185,12 +221,10 @@ pub(crate) mod tests {
 
     /// Generate a test group
     pub fn generate_group(state: Option<GroupMembershipState>) -> StoredGroup {
-        StoredGroup {
-            id: rand_vec(),
-            created_at_ns: now_ns(),
-            membership_state: state.unwrap_or(GroupMembershipState::Allowed),
-            installations_last_checked: 0,
-        }
+        let id = rand_vec();
+        let created_at_ns = now_ns();
+        let membership_state = state.unwrap_or(GroupMembershipState::Allowed);
+        StoredGroup::new(id, created_at_ns, membership_state)
     }
 
     #[test]
@@ -293,6 +327,26 @@ pub(crate) mod tests {
             let fetched_group: StoredGroup = conn.fetch(&test_group.id).ok().flatten().unwrap();
             assert_ne!(fetched_group.installations_last_checked, 0);
             assert!(fetched_group.created_at_ns < fetched_group.installations_last_checked);
+        })
+    }
+
+    #[test]
+    fn test_new_group_has_correct_purpose() {
+        with_connection(|conn| {
+            let test_group = generate_group(None);
+
+            conn.raw_query(|raw_conn| {
+                diesel::insert_into(groups)
+                    .values(test_group.clone())
+                    .execute(raw_conn)
+            })
+            .unwrap();
+
+            let fetched_group: Result<Option<StoredGroup>, StorageError> =
+                conn.fetch(&test_group.id);
+            assert_ok!(fetched_group, Some(test_group));
+            let purpose = fetched_group.unwrap().unwrap().purpose;
+            assert_eq!(purpose, Purpose::Conversation);
         })
     }
 }
