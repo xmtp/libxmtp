@@ -5,14 +5,14 @@ use openmls::{
     framing::ProtocolMessage,
     group::MergePendingCommitError,
     prelude::{
-        LeafNodeIndex, MlsGroup as OpenMlsGroup, MlsMessageIn, MlsMessageInBody, PrivateMessageIn,
+        LeafNodeIndex, MlsGroup as OpenMlsGroup, MlsMessageIn, MlsMessageBodyIn, PrivateMessageIn,
         ProcessedMessage, ProcessedMessageContent, Sender,
     },
     prelude_test::KeyPackage,
 };
 use openmls_traits::OpenMlsProvider;
 use prost::Message;
-use tls_codec::{Deserialize, Serialize};
+use openmls::prelude::tls_codec::{Deserialize, Serialize};
 
 use xmtp_proto::{
     api_client::XmtpMlsClient,
@@ -300,10 +300,10 @@ where
         envelope: &GroupMessageV1,
         allow_epoch_increment: bool,
     ) -> Result<(), MessageProcessingError> {
-        let mls_message_in = MlsMessageIn::tls_deserialize_exact(&envelope.data)?;
+        let mls_message_in = MlsMessageIn::tls_deserialize_exact(&envelope.data).unwrap();
 
         let message = match mls_message_in.extract() {
-            MlsMessageInBody::PrivateMessage(message) => Ok(message),
+            MlsMessageBodyIn::PrivateMessage(message) => Ok(message),
             other => Err(MessageProcessingError::UnsupportedMessageType(
                 discriminant(&other),
             )),
@@ -517,7 +517,7 @@ where
                     intent_data.message.as_slice(),
                 )?;
 
-                let msg_bytes = msg.tls_serialize_detached()?;
+                let msg_bytes = msg.tls_serialize_detached().unwrap();
                 Ok((msg_bytes, None))
             }
             IntentKind::AddMembers => {
@@ -542,7 +542,7 @@ where
                     ValidatedCommit::from_staged_commit(staged_commit, openmls_group)?;
                 }
 
-                let commit_bytes = commit.tls_serialize_detached()?;
+                let commit_bytes = commit.tls_serialize_detached().unwrap();
 
                 let installations = key_packages
                     .iter()
@@ -595,7 +595,7 @@ where
                     ValidatedCommit::from_staged_commit(staged_commit, openmls_group)?;
                 }
 
-                let commit_bytes = commit.tls_serialize_detached()?;
+                let commit_bytes = commit.tls_serialize_detached().unwrap();
 
                 Ok((commit_bytes, None))
             }
@@ -603,7 +603,7 @@ where
                 let (commit, _, _) =
                     openmls_group.self_update(provider, &self.client.identity.installation_keys)?;
 
-                Ok((commit.tls_serialize_detached()?, None))
+                Ok((commit.tls_serialize_detached().unwrap(), None))
             }
         }
     }

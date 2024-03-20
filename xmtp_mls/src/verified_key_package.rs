@@ -1,7 +1,7 @@
 use openmls::prelude::{KeyPackage, KeyPackageIn, KeyPackageVerifyError};
 use openmls_rust_crypto::RustCrypto;
 use thiserror::Error;
-use tls_codec::{Deserialize, Error as TlsSerializationError};
+use openmls::prelude::tls_codec::{Deserialize, Error as TlsSerializationError};
 
 use crate::{
     configuration::MLS_PROTOCOL_VERSION,

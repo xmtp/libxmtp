@@ -15,7 +15,7 @@ use openmls_basic_credential::SignatureKeyPair;
 use openmls_traits::{types::CryptoError, OpenMlsProvider};
 use prost::Message;
 use thiserror::Error;
-use tls_codec::Serialize;
+use openmls::prelude::tls_codec::Serialize;
 use xmtp_cryptography::signature::SignatureError;
 use xmtp_proto::{
     api_client::XmtpMlsClient, xmtp::mls::message_contents::MlsCredential as CredentialProto,
@@ -143,7 +143,7 @@ impl Identity {
 
         // Register the installation with the server
         let kp = self.new_key_package(provider)?;
-        let kp_bytes = kp.tls_serialize_detached()?;
+        let kp_bytes = kp.tls_serialize_detached().unwrap();
         api_client.register_installation(kp_bytes).await?;
 
         // Only persist the installation keys if the registration was successful

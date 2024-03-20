@@ -701,6 +701,16 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "acbf1af155f9b9ef647e42cdc158db4b64a1b61f743629225fde6f3e0be2a7c7"
 
 [[package]]
+name = "console_error_panic_hook"
+version = "0.1.7"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a06aeb73f470f66dcdbf7223caeebb85984942f22f1adb2a088cf9668146bbbc"
+dependencies = [
+ "cfg-if",
+ "wasm-bindgen",
+]
+
+[[package]]
 name = "const-hex"
 version = "1.10.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1901,7 +1911,7 @@ dependencies = [
  "hpke-rs-crypto",
  "log",
  "serde",
- "tls_codec",
+ "tls_codec 0.4.0",
  "zeroize",
 ]
 
@@ -2556,7 +2566,7 @@ dependencies = [
 [[package]]
 name = "openmls"
 version = "0.5.0"
-source = "git+https://github.com/xmtp/openmls?rev=0da7dcb#0da7dcb79d7f66e520041b54c34f82a10216cd72"
+source = "git+https://github.com/xmtp/openmls?rev=4eee1fc#4eee1fc51acd70d267e7d208ed69f47dd32db115"
 dependencies = [
  "backtrace",
  "itertools 0.10.5",
@@ -2571,26 +2581,27 @@ dependencies = [
  "serde",
  "serde_json",
  "thiserror",
- "tls_codec",
+ "tls_codec 0.4.2-pre.1",
+ "wasm-bindgen-test",
 ]
 
 [[package]]
 name = "openmls_basic_credential"
 version = "0.2.0"
-source = "git+https://github.com/xmtp/openmls?rev=0da7dcb#0da7dcb79d7f66e520041b54c34f82a10216cd72"
+source = "git+https://github.com/xmtp/openmls?rev=4eee1fc#4eee1fc51acd70d267e7d208ed69f47dd32db115"
 dependencies = [
  "ed25519-dalek",
  "openmls_traits",
  "p256",
  "rand",
  "serde",
- "tls_codec",
+ "tls_codec 0.4.2-pre.1",
 ]
 
 [[package]]
 name = "openmls_memory_keystore"
 version = "0.2.0"
-source = "git+https://github.com/xmtp/openmls?rev=0da7dcb#0da7dcb79d7f66e520041b54c34f82a10216cd72"
+source = "git+https://github.com/xmtp/openmls?rev=4eee1fc#4eee1fc51acd70d267e7d208ed69f47dd32db115"
 dependencies = [
  "openmls_traits",
  "serde_json",
@@ -2600,7 +2611,7 @@ dependencies = [
 [[package]]
 name = "openmls_rust_crypto"
 version = "0.2.0"
-source = "git+https://github.com/xmtp/openmls?rev=0da7dcb#0da7dcb79d7f66e520041b54c34f82a10216cd72"
+source = "git+https://github.com/xmtp/openmls?rev=4eee1fc#4eee1fc51acd70d267e7d208ed69f47dd32db115"
 dependencies = [
  "aes-gcm",
  "chacha20poly1305",
@@ -2618,16 +2629,16 @@ dependencies = [
  "serde",
  "sha2",
  "thiserror",
- "tls_codec",
+ "tls_codec 0.4.2-pre.1",
 ]
 
 [[package]]
 name = "openmls_traits"
 version = "0.2.0"
-source = "git+https://github.com/xmtp/openmls?rev=0da7dcb#0da7dcb79d7f66e520041b54c34f82a10216cd72"
+source = "git+https://github.com/xmtp/openmls?rev=4eee1fc#4eee1fc51acd70d267e7d208ed69f47dd32db115"
 dependencies = [
  "serde",
- "tls_codec",
+ "tls_codec 0.4.2-pre.1",
 ]
 
 [[package]]
@@ -3788,6 +3799,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "scoped-tls"
+version = "1.0.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e1cf6437eb19a8f4a6cc0f7dca544973b0b78843adbfeb3683d1a94a0024a294"
+
+[[package]]
 name = "scopeguard"
 version = "1.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4342,7 +4359,17 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d38a1d5fcfa859f0ec2b5e111dc903890bd7dac7f34713232bf9aa4fd7cad7b2"
 dependencies = [
  "serde",
- "tls_codec_derive",
+ "tls_codec_derive 0.4.0",
+ "zeroize",
+]
+
+[[package]]
+name = "tls_codec"
+version = "0.4.2-pre.1"
+source = "git+https://github.com/rustcrypto/formats#ef837bce43803eebc99922c6552b1cb9b2a01a03"
+dependencies = [
+ "serde",
+ "tls_codec_derive 0.4.1",
  "zeroize",
 ]
 
@@ -4351,6 +4378,16 @@ name = "tls_codec_derive"
 version = "0.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d8e00e3e7a54e0f1c8834ce72ed49c8487fbd3f801d8cfe1a0ad0640382f8e15"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 2.0.48",
+]
+
+[[package]]
+name = "tls_codec_derive"
+version = "0.4.1"
+source = "git+https://github.com/rustcrypto/formats#ef837bce43803eebc99922c6552b1cb9b2a01a03"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -5021,6 +5058,31 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "4d91413b1c31d7539ba5ef2451af3f0b833a005eb27a631cec32bc0635a8602b"
 
 [[package]]
+name = "wasm-bindgen-test"
+version = "0.3.40"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "139bd73305d50e1c1c4333210c0db43d989395b64a237bd35c10ef3832a7f70c"
+dependencies = [
+ "console_error_panic_hook",
+ "js-sys",
+ "scoped-tls",
+ "wasm-bindgen",
+ "wasm-bindgen-futures",
+ "wasm-bindgen-test-macro",
+]
+
+[[package]]
+name = "wasm-bindgen-test-macro"
+version = "0.3.40"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "70072aebfe5da66d2716002c729a14e4aec4da0e23cc2ea66323dac541c93928"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 2.0.48",
+]
+
+[[package]]
 name = "web-sys"
 version = "0.3.67"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5374,7 +5436,7 @@ dependencies = [
  "serde_json",
  "smart-default",
  "thiserror",
- "tls_codec",
+ "tls_codec 0.4.0",
  "tokio",
  "toml 0.7.8",
  "tracing",

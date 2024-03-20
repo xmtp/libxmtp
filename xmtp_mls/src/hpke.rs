@@ -6,7 +6,7 @@ use openmls_traits::types::HpkeCiphertext;
 use openmls_traits::OpenMlsProvider;
 use openmls_traits::{key_store::OpenMlsKeyStore, types::HpkePrivateKey};
 use thiserror::Error;
-use tls_codec::{Deserialize, Serialize};
+use openmls::prelude::tls_codec::{Deserialize, Serialize};
 
 use crate::{
     configuration::{CIPHERSUITE, WELCOME_HPKE_LABEL},
@@ -34,7 +34,7 @@ pub fn encrypt_welcome(welcome_payload: &[u8], hpke_key: &[u8]) -> Result<Vec<u8
         &crypto,
     )?;
 
-    let serialized_ciphertext = ciphertext.tls_serialize_detached()?;
+    let serialized_ciphertext = ciphertext.tls_serialize_detached().unwrap();
 
     Ok(serialized_ciphertext)
 }
@@ -49,7 +49,7 @@ pub fn decrypt_welcome(
         .read::<HpkePrivateKey>(hpke_public_key)
         .ok_or(HpkeError::KeyNotFound)?;
 
-    let ciphertext = HpkeCiphertext::tls_deserialize_exact(ciphertext)?;
+    let ciphertext = HpkeCiphertext::tls_deserialize_exact(ciphertext).unwrap();
 
     Ok(decrypt_with_label(
         private_key.to_vec().as_slice(),

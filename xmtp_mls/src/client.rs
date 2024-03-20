@@ -1,15 +1,16 @@
 use std::{collections::HashSet, mem::Discriminant};
 
-use openmls::{
-    framing::{MlsMessageIn, MlsMessageInBody},
-    group::GroupEpoch,
+use openmls:: {
+    framing::{MlsMessageBodyIn, MlsMessageIn},
+    group:: GroupEpoch,
     messages::Welcome,
-    prelude::TlsSerializeTrait,
+    prelude::tls_codec::Serialize,
 };
+
 use openmls_traits::OpenMlsProvider;
+use openmls::prelude::tls_codec::{Deserialize, Error as TlsSerializationError};
 use prost::EncodeError;
 use thiserror::Error;
-use tls_codec::{Deserialize, Error as TlsSerializationError};
 
 use xmtp_proto::{
     api_client::XmtpMlsClient,
@@ -108,7 +109,7 @@ pub enum MessageProcessingError {
     #[error("tls deserialization: {0}")]
     TlsDeserialization(#[from] tls_codec::Error),
     #[error("unsupported message type: {0:?}")]
-    UnsupportedMessageType(Discriminant<MlsMessageInBody>),
+    UnsupportedMessageType(Discriminant<MlsMessageBodyIn>),
     #[error("commit validation")]
     CommitValidation(#[from] CommitValidationError),
     #[error("codec")]
@@ -266,8 +267,7 @@ where
         let kp = self
             .identity
             .new_key_package(&self.mls_provider(&connection))?;
-        let kp_bytes = kp.tls_serialize_detached()?;
-
+        let kp_bytes = kp.tls_serialize_detached().unwrap();
         self.api_client.upload_key_package(kp_bytes).await?;
 
         Ok(())
@@ -486,7 +486,7 @@ pub fn deserialize_welcome(welcome_bytes: &Vec<u8>) -> Result<Welcome, ClientErr
     // let welcome_proto = WelcomeMessageProto::decode(&mut welcome_bytes.as_slice())?;
     let welcome = MlsMessageIn::tls_deserialize(&mut welcome_bytes.as_slice())?;
     match welcome.extract() {
-        MlsMessageInBody::Welcome(welcome) => Ok(welcome),
+        MlsMessageBodyIn::Welcome(welcome) => Ok(welcome),
         _ => Err(ClientError::Generic(
             "unexpected message type in welcome".to_string(),
         )),

@@ -1,7 +1,7 @@
 use openmls::prelude::MlsMessageOut;
 use prost::{DecodeError, Message};
 use thiserror::Error;
-use tls_codec::Serialize;
+use openmls::prelude::tls_codec::Serialize;
 
 use xmtp_proto::xmtp::mls::database::{
     add_members_data::{Version as AddMembersVersion, V1 as AddMembersV1},
@@ -318,7 +318,7 @@ impl PostCommitAction {
         welcome: MlsMessageOut,
         installations: Vec<Installation>,
     ) -> Result<Self, IntentError> {
-        let welcome_bytes = welcome.tls_serialize_detached()?;
+        let welcome_bytes = welcome.tls_serialize_detached().unwrap();
 
         Ok(Self::SendWelcomes(SendWelcomesAction::new(
             installations,
