@@ -33,7 +33,7 @@ pub struct StoredGroupMessage {
     pub sender_installation_id: Vec<u8>,
     /// Network wallet address of the Sender
     pub sender_account_address: String,
-    /// We optimistically store messages before sending. 
+    /// We optimistically store messages before sending.
     pub delivery_status: DeliveryStatus,
 }
 
