@@ -236,8 +236,7 @@ where
                 let message_id =
                     calculate_message_id(group_id, &message, &self.client.account_address(), &key);
 
-                conn.set_delivery_status_to_published(&message_id)?;
-                conn.set_sent_at_ts(message_id, envelope_timestamp_ns)?;
+                conn.set_delivery_status_to_published(&message_id, envelope_timestamp_ns)?;
             }
         };
 
