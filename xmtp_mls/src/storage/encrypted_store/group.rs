@@ -93,6 +93,7 @@ impl DbConnection<'_> {
 
         query = query.filter(dsl::purpose.eq(Purpose::Conversation));
 
+<<<<<<< HEAD
         Ok(self.raw_query(|conn| query.load(conn))?)
     }
 
@@ -101,6 +102,8 @@ impl DbConnection<'_> {
         let mut query = dsl::groups.order(dsl::created_at_ns.asc()).into_boxed();
         query = query.filter(dsl::purpose.eq(Purpose::Sync));
         
+=======
+>>>>>>> main
         Ok(self.raw_query(|conn| query.load(conn))?)
     }
 

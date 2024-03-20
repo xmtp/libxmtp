@@ -13,7 +13,6 @@ members = [
 
 exclude = [
   "bindings_ffi",
-  "bindings_flutter",
   "bindings_wasm",
   "xmtp_api_grpc_gateway",
 ]
