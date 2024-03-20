@@ -898,14 +898,11 @@ mod tests {
             let client: Client<_> = ClientBuilder::new_test_client(&generate_local_wallet()).await;
             clients.push(client.account_address());
         }
-        amal_group
-            .add_members(clients)
-            .await
-            .unwrap();
+        amal_group.add_members(clients).await.unwrap();
         let bola = ClientBuilder::new_test_client(&generate_local_wallet()).await;
         assert!(amal_group
             .add_members(vec![bola.account_address()])
             .await
             .is_err(),);
-    }   
+    }
 }
