@@ -33,7 +33,7 @@ pub struct StoredGroupMessage {
     pub sender_installation_id: Vec<u8>,
     /// Network wallet address of the Sender
     pub sender_account_address: String,
-    /// Enum: 1 = Published, 2 = Unpublished
+    /// We optimistically store messages before sending. Enum: 1 = Unpublished, 2 = Published
     pub delivery_status: DeliveryStatus,
 }
 
@@ -72,8 +72,8 @@ where
 #[derive(Debug, Copy, Clone, FromSqlRow, Eq, PartialEq, AsExpression)]
 #[diesel(sql_type = Integer)]
 pub enum DeliveryStatus {
-    Published = 1,
-    Unpublished = 2,
+    Unpublished = 1,
+    Published = 2,
 }
 
 impl ToSql<Integer, Sqlite> for DeliveryStatus
@@ -92,8 +92,8 @@ where
 {
     fn from_sql(bytes: <Sqlite as Backend>::RawValue<'_>) -> deserialize::Result<Self> {
         match i32::from_sql(bytes)? {
-            1 => Ok(DeliveryStatus::Published),
-            2 => Ok(DeliveryStatus::Unpublished),
+            1 => Ok(DeliveryStatus::Unpublished),
+            2 => Ok(DeliveryStatus::Published),
             x => Err(format!("Unrecognized variant {}", x).into()),
         }
     }
