@@ -59,6 +59,8 @@ use xmtp_proto::{
 pub enum GroupError {
     #[error("group not found")]
     GroupNotFound,
+    #[error("Max user limit exceeded.")]
+    UserLimitExceeded,
     #[error("api error: {0}")]
     Api(#[from] xmtp_proto::api_client::Error),
     #[error("storage error: {0}")]
@@ -273,12 +275,9 @@ where
     ) -> Result<(), GroupError> {
         let account_addresses = sanitize_evm_addresses(account_addresses_to_add)?;
         // get current number of users in group
-        let member_count = self.members().unwrap().len();
+        let member_count = self.members()?.len();
         if member_count + account_addresses.len() > MAX_GROUP_SIZE as usize {
-            return Err(GroupError::Generic(format!(
-                "Group size limit exceeded. Max group size is {}",
-                MAX_GROUP_SIZE
-            )));
+            return Err(GroupError::UserLimitExceeded);
         }
 
         let conn = &mut self.client.store.conn()?;
@@ -887,4 +886,26 @@ mod tests {
             .await
             .is_err(),);
     }
+
+    #[tokio::test]
+    async fn test_max_limit_add() {
+        let amal = ClientBuilder::new_test_client(&generate_local_wallet()).await;
+        let amal_group = amal
+            .create_group(Some(PreconfiguredPolicies::GroupCreatorIsAdmin))
+            .unwrap();
+        let mut clients = Vec::new();
+        for _ in 0..249 {
+            let client: Client<_> = ClientBuilder::new_test_client(&generate_local_wallet()).await;
+            clients.push(client.account_address());
+        }
+        amal_group
+            .add_members(clients)
+            .await
+            .unwrap();
+        let bola = ClientBuilder::new_test_client(&generate_local_wallet()).await;
+        assert!(amal_group
+            .add_members(vec![bola.account_address()])
+            .await
+            .is_err(),);
+    }   
 }
