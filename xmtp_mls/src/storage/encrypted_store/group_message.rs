@@ -33,7 +33,7 @@ pub struct StoredGroupMessage {
     pub sender_installation_id: Vec<u8>,
     /// Network wallet address of the Sender
     pub sender_account_address: String,
-    /// We optimistically store messages before sending. Enum: 1 = Unpublished, 2 = Published
+    /// We optimistically store messages before sending. 
     pub delivery_status: DeliveryStatus,
 }
 
@@ -173,7 +173,7 @@ impl DbConnection<'_> {
         msg_id: &MessageId,
         timestamp: u64,
     ) -> Result<usize, StorageError> {
-        let res = self.raw_query(|conn| {
+        Ok(self.raw_query(|conn| {
             diesel::update(dsl::group_messages)
                 .filter(dsl::id.eq(msg_id.as_ref()))
                 .set((
@@ -181,12 +181,7 @@ impl DbConnection<'_> {
                     dsl::sent_at_ns.eq(timestamp as i64),
                 ))
                 .execute(conn)
-        });
-
-        match res {
-            Ok(n) => Ok(n),
-            Err(_e) => Err(StorageError::NotFound),
-        }
+        })?)
     }
 }
 
