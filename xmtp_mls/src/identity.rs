@@ -7,7 +7,7 @@ use openmls::{
     prelude::{
         Capabilities, Credential as OpenMlsCredential, CredentialType, CredentialWithKey,
         CryptoConfig, Extension, ExtensionType, Extensions, KeyPackage, KeyPackageNewError,
-        Lifetime,
+        Lifetime, tls_codec::Serialize,
     },
     versions::ProtocolVersion,
 };
@@ -15,7 +15,6 @@ use openmls_basic_credential::SignatureKeyPair;
 use openmls_traits::{types::CryptoError, OpenMlsProvider};
 use prost::Message;
 use thiserror::Error;
-use openmls::prelude::tls_codec::Serialize;
 use xmtp_cryptography::signature::SignatureError;
 use xmtp_proto::{
     api_client::XmtpMlsClient, xmtp::mls::message_contents::MlsCredential as CredentialProto,
@@ -99,7 +98,7 @@ impl Identity {
             Credential::create_from_legacy(&signature_keys, legacy_signed_private_key)?;
         let credential_proto: CredentialProto = credential.into();
         let mls_credential =
-            OpenMlsCredential::new(credential_proto.encode_to_vec(), CredentialType::Basic)?;
+            OpenMlsCredential::new(CredentialType::Basic, credential_proto.encode_to_vec());
         info!("Successfully created identity from legacy key");
         Ok(Self {
             account_address,
@@ -137,7 +136,7 @@ impl Identity {
             )?
             .into();
             let credential =
-                OpenMlsCredential::new(credential_proto.encode_to_vec(), CredentialType::Basic)?;
+            OpenMlsCredential::new(CredentialType::Basic, credential_proto.encode_to_vec());
             self.set_credential(credential)?;
         }
 
