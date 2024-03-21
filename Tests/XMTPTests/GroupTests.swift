@@ -45,13 +45,15 @@ class GroupTests: XCTestCase {
 	}
 
 	func localFixtures() async throws -> LocalFixtures {
+		let key = try Crypto.secureRandomBytes(count: 32)
 		let alice = try PrivateKey.generate()
 		let aliceClient = try await Client.create(
 			account: alice,
 			options: .init(
 				api: .init(env: .local, isSecure: false),
 				codecs: [GroupMembershipChangedCodec()],
-				mlsAlpha: true
+				mlsAlpha: true,
+				mlsEncryptionKey: key
 			)
 		)
 		let bob = try PrivateKey.generate()
@@ -60,7 +62,8 @@ class GroupTests: XCTestCase {
 			options: .init(
 				api: .init(env: .local, isSecure: false),
 				codecs: [GroupMembershipChangedCodec()],
-				mlsAlpha: true
+				mlsAlpha: true,
+				mlsEncryptionKey: key
 			)
 		)
 		let fred = try PrivateKey.generate()
@@ -69,7 +72,8 @@ class GroupTests: XCTestCase {
 			options: .init(
 				api: .init(env: .local, isSecure: false),
 				codecs: [GroupMembershipChangedCodec()],
-				mlsAlpha: true
+				mlsAlpha: true,
+				mlsEncryptionKey: key
 			)
 		)
 

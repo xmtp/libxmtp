@@ -136,16 +136,7 @@ public final class Client {
 
 			var encryptionKey = options?.mlsEncryptionKey
 			if (encryptionKey == nil) {
-				let preferences = UserDefaults.standard
-				let key = "xmtp-key"
-				if preferences.data(forKey: key) == nil {
-					let data = Data(try Crypto.secureRandomBytes(count: 32))
-					preferences.set(data, forKey: key)
-					preferences.synchronize()
-					encryptionKey = data
-				} else {
-					encryptionKey = preferences.data(forKey: key)
-				}
+				throw ClientError.creationError("No encryption key passed for the database. Please store and provide a secure encryption key.")
 			}
 
 			let v3Client = try await LibXMTP.createClient(

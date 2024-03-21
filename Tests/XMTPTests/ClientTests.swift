@@ -21,8 +21,7 @@ class ClientTests: XCTestCase {
 	}
 
 	func testPassingSavedKeysWithNoSignerWithMLSErrors() async throws {
-		try TestConfig.skipIfNotRunningLocalNodeTests()
-
+		let key = try Crypto.secureRandomBytes(count: 32)
 		let bo = try PrivateKey.generate()
 
 		do {
@@ -30,7 +29,8 @@ class ClientTests: XCTestCase {
 				account: bo,
 				options: .init(
 					api: .init(env: .local, isSecure: false),
-					mlsAlpha: true
+					mlsAlpha: true,
+					mlsEncryptionKey: key
 				)
 			)
 		} catch {
@@ -39,14 +39,14 @@ class ClientTests: XCTestCase {
 	}
 
 	func testPassingSavedKeysWithMLS() async throws {
-		try TestConfig.skipIfNotRunningLocalNodeTests()
-
+		let key = try Crypto.secureRandomBytes(count: 32)
 		let bo = try PrivateKey.generate()
 		let client = try await Client.create(
 			account: bo,
 			options: .init(
 				api: .init(env: .local, isSecure: false),
-				mlsAlpha: true
+				mlsAlpha: true,
+				mlsEncryptionKey: key
 			)
 		)
 
@@ -56,7 +56,8 @@ class ClientTests: XCTestCase {
 			options: .init(
 				api: .init(env: .local, isSecure: false),
 				// Should not need to pass the signer again
-				mlsAlpha: true
+				mlsAlpha: true,
+				mlsEncryptionKey: key
 			)
 		)
 
@@ -64,8 +65,6 @@ class ClientTests: XCTestCase {
 	}
 
 	func testPassingMLSEncryptionKey() async throws {
-		try TestConfig.skipIfNotRunningLocalNodeTests()
-
 		let bo = try PrivateKey.generate()
 		let key = try Crypto.secureRandomBytes(count: 32)
 
@@ -94,9 +93,7 @@ class ClientTests: XCTestCase {
 		}
 	}
 	
-	func testPassingMLSEncryptionKeyAndDatabasePath() async throws {
-		try TestConfig.skipIfNotRunningLocalNodeTests()
-		
+	func testPassingMLSEncryptionKeyAndDatabasePath() async throws {		
 		let bo = try PrivateKey.generate()
 		let key = try Crypto.secureRandomBytes(count: 32)
 		let documentsURL = try
@@ -158,13 +155,15 @@ class ClientTests: XCTestCase {
 	}
 	
 	func testCanDeleteDatabase() async throws {
+		let key = try Crypto.secureRandomBytes(count: 32)
 		let bo = try PrivateKey.generate()
 		let alix = try PrivateKey.generate()
 		var boClient = try await Client.create(
 			account: bo,
 			options: .init(
 				api: .init(env: .local, isSecure: false),
-				mlsAlpha: true
+				mlsAlpha: true,
+				mlsEncryptionKey: key
 			)
 		)
 	
@@ -172,7 +171,8 @@ class ClientTests: XCTestCase {
 			account: alix,
 			options: .init(
 				api: .init(env: .local, isSecure: false),
-				mlsAlpha: true
+				mlsAlpha: true,
+				mlsEncryptionKey: key
 			)
 		)
 
@@ -188,7 +188,8 @@ class ClientTests: XCTestCase {
 			account: bo,
 			options: .init(
 				api: .init(env: .local, isSecure: false),
-				mlsAlpha: true
+				mlsAlpha: true,
+				mlsEncryptionKey: key
 			)
 		)
 
