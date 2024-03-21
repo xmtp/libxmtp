@@ -24,10 +24,13 @@ pub fn calculate_message_id(
     sender_account_address: &str,
     idempotency_key: &str,
 ) -> Vec<u8> {
+    let separator = b"\t";
     let mut id_vec = Vec::new();
     id_vec.extend_from_slice(group_id);
     id_vec.extend_from_slice(sender_account_address.as_bytes());
+    id_vec.extend_from_slice(separator);
     id_vec.extend_from_slice(idempotency_key.as_bytes());
+    id_vec.extend_from_slice(separator);
     id_vec.extend_from_slice(decrypted_message_bytes);
     sha256(&id_vec)
 }
