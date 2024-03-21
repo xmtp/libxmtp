@@ -55,10 +55,7 @@ use crate::{
         refresh_state::EntityKind,
         StorageError,
     },
-    utils::{
-        hash::sha256,
-        id::{calculate_message_id, get_message_id},
-    },
+    utils::{hash::sha256, id::calculate_message_id},
     xmtp_openmls_provider::XmtpOpenMlsProvider,
     Delete, Fetch, Store,
 };
@@ -457,8 +454,12 @@ where
             let mut encoded_payload_bytes = Vec::new();
             encoded_payload.encode(&mut encoded_payload_bytes)?;
             let group_id = self.group_id.as_slice();
-            let message_id =
-                get_message_id(encoded_payload_bytes.as_slice(), group_id, timestamp_ns);
+            let message_id = calculate_message_id(
+                group_id,
+                encoded_payload_bytes.as_slice(),
+                &sender_account_address,
+                &timestamp_ns.to_string(),
+            );
 
             let msg = StoredGroupMessage {
                 id: message_id,
