@@ -7,8 +7,6 @@ mod sync;
 pub mod validated_commit;
 
 use intents::SendMessageIntentData;
-use prost::Message;
-use thiserror::Error;
 use openmls::{
     extensions::{Extension, Extensions, Metadata},
     group::{MlsGroupCreateConfig, MlsGroupJoinConfig},
@@ -18,6 +16,8 @@ use openmls::{
     },
 };
 use openmls_traits::OpenMlsProvider;
+use prost::Message;
+use thiserror::Error;
 
 use xmtp_cryptography::signature::is_valid_ed25519_public_key;
 use xmtp_proto::{
@@ -55,16 +55,12 @@ use crate::{
     },
     utils::{
         address::{sanitize_evm_addresses, AddressValidationError},
-        time::now_ns,
         id::calculate_message_id,
+        time::now_ns,
     },
     xmtp_openmls_provider::XmtpOpenMlsProvider,
     Client, Store,
 };
-
-
-
-
 
 #[derive(Debug, Error)]
 pub enum GroupError {
