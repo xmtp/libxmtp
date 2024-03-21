@@ -32,7 +32,7 @@ pub struct StoredGroup {
     pub membership_state: GroupMembershipState,
     /// Track when the latest, most recent installations were checked
     pub installations_last_checked: i64,
-    /// Enum: `conversation = 1, sync = 2`
+    /// Enum, [`Purpose`] signifies the group purpose which extends to who can access it. 
     pub purpose: Purpose,
 }
 
@@ -59,7 +59,6 @@ impl StoredGroup {
             membership_state,
             installations_last_checked: 0,
             purpose: Purpose::Sync,
-           
         }
     }
 }
@@ -93,7 +92,6 @@ impl DbConnection<'_> {
 
         query = query.filter(dsl::purpose.eq(Purpose::Conversation));
 
-<<<<<<< HEAD
         Ok(self.raw_query(|conn| query.load(conn))?)
     }
 
@@ -102,8 +100,6 @@ impl DbConnection<'_> {
         let mut query = dsl::groups.order(dsl::created_at_ns.asc()).into_boxed();
         query = query.filter(dsl::purpose.eq(Purpose::Sync));
         
-=======
->>>>>>> main
         Ok(self.raw_query(|conn| query.load(conn))?)
     }
 
