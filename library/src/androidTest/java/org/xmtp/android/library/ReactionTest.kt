@@ -74,7 +74,7 @@ class ReactionTest {
 
         runBlocking { aliceConversation.send(text = "hey alice 2 bob") }
 
-        val messageToReact = aliceConversation.messages()[0]
+        val messageToReact = runBlocking { aliceConversation.messages()[0] }
 
         val attachment = Reaction(
             reference = messageToReact.id,
@@ -89,7 +89,7 @@ class ReactionTest {
                 options = SendOptions(contentType = ContentTypeReaction),
             )
         }
-        val messages = aliceConversation.messages()
+        val messages = runBlocking { aliceConversation.messages() }
         assertEquals(messages.size, 2)
         if (messages.size == 2) {
             val content: Reaction? = messages.first().content()
@@ -112,7 +112,7 @@ class ReactionTest {
 
         runBlocking { aliceConversation.send(text = "hey alice 2 bob") }
 
-        val messageToReact = aliceConversation.messages()[0]
+        val messageToReact = runBlocking { aliceConversation.messages()[0] }
 
         val attachment = Reaction(
             reference = messageToReact.id,
@@ -127,7 +127,7 @@ class ReactionTest {
                 options = SendOptions(contentType = ContentTypeReaction),
             )
         }
-        val messages = aliceConversation.messages()
+        val messages = runBlocking { aliceConversation.messages() }
         assertEquals(messages.size, 2)
 
         val message = MessageV2Builder.buildEncode(

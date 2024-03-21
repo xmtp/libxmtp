@@ -162,9 +162,11 @@ class MessageTest {
 
         val client = Client().create(account = PrivateKeyBuilder(key))
         assertEquals(client.apiClient.environment, XMTPEnvironment.DEV)
-        val convo = client.conversations.list()[0]
-        val message = convo.messages()[0]
-        assertEquals("Test message", message.content())
+        runBlocking {
+            val convo = client.conversations.list()[0]
+            val message = convo.messages()[0]
+            assertEquals("Test message", message.content())
+        }
     }
 
     @Test
@@ -195,15 +197,15 @@ class MessageTest {
 
         val client = Client().create(account = PrivateKeyBuilder(key))
         assertEquals(client.apiClient.environment, XMTPEnvironment.DEV)
-        val convo = client.conversations.list()[0]
         runBlocking {
+            val convo = client.conversations.list()[0]
             convo.send(
                 text = "hello deflate from kotlin again",
                 SendOptions(compression = EncodedContentCompression.DEFLATE),
             )
+            val message = convo.messages().lastOrNull()!!
+            assertEquals("hello deflate from kotlin again", message.content())
         }
-        val message = convo.messages().lastOrNull()!!
-        assertEquals("hello deflate from kotlin again", message.content())
     }
 
     @Test
@@ -231,7 +233,7 @@ class MessageTest {
             }.build()
         }.build()
         val client = Client().create(account = PrivateKeyBuilder(key))
-        val conversations = client.conversations.list()
+        val conversations = runBlocking { client.conversations.list() }
         assertEquals(201, conversations.size)
     }
 
@@ -245,7 +247,7 @@ class MessageTest {
             sentAt = Date(),
         )
         runBlocking { convo.send(text = "hello from kotlin") }
-        val messages = convo.messages()
+        val messages = runBlocking { convo.messages() }
         assertEquals(1, messages.size)
         assertEquals("hello from kotlin", messages[0].body)
         assertEquals(convo.topic.description, messages[0].topic)
@@ -263,7 +265,7 @@ class MessageTest {
         }
 
         runBlocking { convo.send(content = "hello from kotlin") }
-        val messages = convo.messages()
+        val messages = runBlocking { convo.messages() }
         assertEquals(1, messages.size)
         assertEquals("hello from kotlin", messages[0].body)
         assertEquals(convo.topic, messages[0].topic)

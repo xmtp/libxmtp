@@ -101,7 +101,7 @@ class ConsentList(val client: Client) {
         return consentList
     }
 
-    fun publish(entry: ConsentListEntry) {
+    suspend fun publish(entry: ConsentListEntry) {
         val payload =
             PrivatePreferencesAction.newBuilder().also {
                 when (entry.entryType) {
@@ -152,7 +152,7 @@ class ConsentList(val client: Client) {
                 ByteArray(message.size) { message[it] },
             )
 
-        runBlocking { client.publish(listOf(envelope)) }
+        client.publish(listOf(envelope))
     }
 
     fun allow(address: String): ConsentListEntry {
@@ -210,25 +210,25 @@ data class Contacts(
         return consentList
     }
 
-    fun allow(addresses: List<String>) {
+    suspend fun allow(addresses: List<String>) {
         for (address in addresses) {
             ConsentList(client).publish(consentList.allow(address))
         }
     }
 
-    fun deny(addresses: List<String>) {
+    suspend fun deny(addresses: List<String>) {
         for (address in addresses) {
             ConsentList(client).publish(consentList.deny(address))
         }
     }
 
-    fun allowGroup(groupIds: List<ByteArray>) {
+    suspend fun allowGroup(groupIds: List<ByteArray>) {
         for (id in groupIds) {
             ConsentList(client).publish(consentList.allowGroup(id))
         }
     }
 
-    fun denyGroup(groupIds: List<ByteArray>) {
+    suspend fun denyGroup(groupIds: List<ByteArray>) {
         for (id in groupIds) {
             ConsentList(client).publish(consentList.denyGroup(id))
         }

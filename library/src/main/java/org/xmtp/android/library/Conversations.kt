@@ -10,7 +10,6 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.callbackFlow
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.merge
-import kotlinx.coroutines.runBlocking
 import org.xmtp.android.library.GRPCApiClient.Companion.makeQueryRequest
 import org.xmtp.android.library.GRPCApiClient.Companion.makeSubscribeRequest
 import org.xmtp.android.library.libxmtp.Message
@@ -127,17 +126,19 @@ data class Conversations(
         libXMTPConversations?.sync()
     }
 
-    fun listGroups(after: Date? = null, before: Date? = null, limit: Int? = null): List<Group> {
-        return runBlocking {
-            libXMTPConversations?.list(
-                opts = FfiListConversationsOptions(
-                    after?.time?.nanoseconds?.toLong(DurationUnit.NANOSECONDS),
-                    before?.time?.nanoseconds?.toLong(DurationUnit.NANOSECONDS),
-                    limit?.toLong()
-                )
-            )?.map {
-                Group(client, it)
-            }
+    suspend fun listGroups(
+        after: Date? = null,
+        before: Date? = null,
+        limit: Int? = null,
+    ): List<Group> {
+        return libXMTPConversations?.list(
+            opts = FfiListConversationsOptions(
+                after?.time?.nanoseconds?.toLong(DurationUnit.NANOSECONDS),
+                before?.time?.nanoseconds?.toLong(DurationUnit.NANOSECONDS),
+                limit?.toLong()
+            )
+        )?.map {
+            Group(client, it)
         } ?: emptyList()
     }
 
@@ -234,7 +235,7 @@ data class Conversations(
      * Get the list of conversations that current user has
      * @return The list of [Conversation] that the current [Client] has.
      */
-    fun list(includeGroups: Boolean = false): List<Conversation> {
+    suspend fun list(includeGroups: Boolean = false): List<Conversation> {
         val newConversations = mutableListOf<Conversation>()
         val mostRecent = conversationsByTopic.values.maxOfOrNull { it.createdAt }
         val pagination = Pagination(after = mostRecent)
@@ -264,10 +265,8 @@ data class Conversations(
         }.map { Pair(it.topic, it) }
 
         if (includeGroups) {
-            val groups = runBlocking {
-                syncGroups()
-                listGroups()
-            }
+            syncGroups()
+            val groups = listGroups()
             conversationsByTopic += groups.map { Pair(it.id.toString(), Conversation.Group(it)) }
         }
         return conversationsByTopic.values.sortedByDescending { it.createdAt }
@@ -338,14 +337,11 @@ data class Conversations(
         return hmacKeysResponse.build()
     }
 
-    private fun listIntroductionPeers(pagination: Pagination? = null): Map<String, Date> {
-        val envelopes =
-            runBlocking {
-                client.apiClient.queryTopic(
-                    topic = Topic.userIntro(client.address),
-                    pagination = pagination,
-                ).envelopesList
-            }
+    private suspend fun listIntroductionPeers(pagination: Pagination? = null): Map<String, Date> {
+        val envelopes = client.apiClient.queryTopic(
+            topic = Topic.userIntro(client.address),
+            pagination = pagination,
+        ).envelopesList
         val messages = envelopes.mapNotNull { envelope ->
             try {
                 val message = MessageV1Builder.buildFromBytes(envelope.message.toByteArray())
@@ -381,10 +377,9 @@ data class Conversations(
      * @param pagination Information of the topics, ranges (dates), etc.
      * @return List of [SealedInvitation] that are inside of the range specified by [pagination]
      */
-    private fun listInvitations(pagination: Pagination? = null): List<SealedInvitation> {
-        val envelopes = runBlocking {
+    private suspend fun listInvitations(pagination: Pagination? = null): List<SealedInvitation> {
+        val envelopes =
             client.apiClient.envelopes(Topic.userInvite(client.address).description, pagination)
-        }
         return envelopes.map { envelope ->
             SealedInvitation.parseFrom(envelope.message)
         }
@@ -404,7 +399,7 @@ data class Conversations(
      *  This pulls messages from multiple conversations in a single call.
      *  @see Conversation.messages
      */
-    fun listBatchMessages(
+    suspend fun listBatchMessages(
         topics: List<Pair<String, Pagination?>>,
     ): List<DecodedMessage> {
         val requests = topics.map { (topic, page) ->
@@ -416,21 +411,19 @@ data class Conversations(
         val messages: MutableList<DecodedMessage> = mutableListOf()
         val batches = requests.chunked(maxQueryRequestsPerBatch)
         for (batch in batches) {
-            runBlocking {
-                messages.addAll(
-                    client.batchQuery(batch).responsesOrBuilderList.flatMap { res ->
-                        res.envelopesList.mapNotNull { envelope ->
-                            val conversation = conversationsByTopic[envelope.contentTopic]
-                            if (conversation == null) {
-                                Log.d(TAG, "discarding message, unknown conversation $envelope")
-                                return@mapNotNull null
-                            }
-                            val msg = conversation.decodeOrNull(envelope)
-                            msg
+            messages.addAll(
+                client.batchQuery(batch).responsesOrBuilderList.flatMap { res ->
+                    res.envelopesList.mapNotNull { envelope ->
+                        val conversation = conversationsByTopic[envelope.contentTopic]
+                        if (conversation == null) {
+                            Log.d(TAG, "discarding message, unknown conversation $envelope")
+                            return@mapNotNull null
                         }
-                    },
-                )
-            }
+                        val msg = conversation.decodeOrNull(envelope)
+                        msg
+                    }
+                },
+            )
         }
         return messages
     }
@@ -440,7 +433,7 @@ data class Conversations(
      *  This pulls messages from multiple conversations in a single call.
      *  @see listBatchMessages
      */
-    fun listBatchDecryptedMessages(
+    suspend fun listBatchDecryptedMessages(
         topics: List<Pair<String, Pagination?>>,
     ): List<DecryptedMessage> {
         val requests = topics.map { (topic, page) ->
@@ -452,26 +445,24 @@ data class Conversations(
         val messages: MutableList<DecryptedMessage> = mutableListOf()
         val batches = requests.chunked(maxQueryRequestsPerBatch)
         for (batch in batches) {
-            runBlocking {
-                messages.addAll(
-                    client.batchQuery(batch).responsesOrBuilderList.flatMap { res ->
-                        res.envelopesList.mapNotNull { envelope ->
-                            val conversation = conversationsByTopic[envelope.contentTopic]
-                            if (conversation == null) {
-                                Log.d(TAG, "discarding message, unknown conversation $envelope")
-                                return@mapNotNull null
-                            }
-                            try {
-                                val msg = conversation.decrypt(envelope)
-                                msg
-                            } catch (e: Exception) {
-                                Log.e(TAG, "Error decrypting message: $envelope", e)
-                                null
-                            }
+            messages.addAll(
+                client.batchQuery(batch).responsesOrBuilderList.flatMap { res ->
+                    res.envelopesList.mapNotNull { envelope ->
+                        val conversation = conversationsByTopic[envelope.contentTopic]
+                        if (conversation == null) {
+                            Log.d(TAG, "discarding message, unknown conversation $envelope")
+                            return@mapNotNull null
                         }
-                    },
-                )
-            }
+                        try {
+                            val msg = conversation.decrypt(envelope)
+                            msg
+                        } catch (e: Exception) {
+                            Log.e(TAG, "Error decrypting message: $envelope", e)
+                            null
+                        }
+                    }
+                },
+            )
         }
         return messages
     }

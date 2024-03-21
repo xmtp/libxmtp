@@ -2,6 +2,7 @@ package org.xmtp.android.library
 
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.google.protobuf.kotlin.toByteString
+import kotlinx.coroutines.runBlocking
 import org.junit.Assert
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotEquals
@@ -52,10 +53,10 @@ class InvitationTest {
 
         val client = Client().create(account = PrivateKeyBuilder(key))
         Assert.assertEquals(client.apiClient.environment, XMTPEnvironment.DEV)
-        val conversations = client.conversations.list()
-        Assert.assertEquals(1, conversations.size)
-        val message = conversations[0].messages().firstOrNull()
-        Assert.assertEquals(message?.body, "hello")
+        val conversations = runBlocking { client.conversations.list() }
+        assertEquals(1, conversations.size)
+        val message = runBlocking { conversations[0].messages().firstOrNull() }
+        assertEquals(message?.body, "hello")
     }
 
     @Test

@@ -26,7 +26,7 @@ class ReplyTest {
 
         runBlocking { aliceConversation.send(text = "hey alice 2 bob") }
 
-        val messageToReact = aliceConversation.messages()[0]
+        val messageToReact = runBlocking { aliceConversation.messages()[0] }
 
         val attachment = Reply(
             reference = messageToReact.id,
@@ -40,7 +40,7 @@ class ReplyTest {
                 options = SendOptions(contentType = ContentTypeReply),
             )
         }
-        val messages = aliceConversation.messages()
+        val messages = runBlocking { aliceConversation.messages() }
         assertEquals(messages.size, 2)
         if (messages.size == 2) {
             val content: Reply? = messages.first().content()

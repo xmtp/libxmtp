@@ -229,7 +229,7 @@ sealed class Conversation {
      * If [limit] is specified then results are pulled in pages of that size.
      * If [direction] is specified then that will control the sort order of te messages.
      */
-    fun messages(
+    suspend fun messages(
         limit: Int? = null,
         before: Date? = null,
         after: Date? = null,
@@ -262,7 +262,7 @@ sealed class Conversation {
         }
     }
 
-    fun decryptedMessages(
+    suspend fun decryptedMessages(
         limit: Int? = null,
         before: Date? = null,
         after: Date? = null,

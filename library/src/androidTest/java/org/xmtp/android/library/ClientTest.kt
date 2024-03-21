@@ -148,11 +148,12 @@ class ClientTest {
                     appContext = context
                 )
             )
+
         runBlocking {
             client.conversations.newGroup(listOf(client2.address))
             client.conversations.syncGroups()
+            assertEquals(client.conversations.listGroups().size, 1)
         }
-        assertEquals(client.conversations.listGroups().size, 1)
 
         client.deleteLocalDatabase()
 
@@ -166,8 +167,10 @@ class ClientTest {
                 )
             )
 
-        runBlocking { client.conversations.syncGroups() }
-        assertEquals(client.conversations.listGroups().size, 0)
+        runBlocking {
+            client.conversations.syncGroups()
+            assertEquals(client.conversations.listGroups().size, 0)
+        }
     }
 
     @Test
@@ -209,7 +212,7 @@ class ClientTest {
         val notOnNetwork = PrivateKeyBuilder()
         val opts = ClientOptions(ClientOptions.Api(XMTPEnvironment.LOCAL, false))
         val aliceClient = Client().create(aliceWallet, opts)
-        aliceClient.ensureUserContactPublished()
+        runBlocking { aliceClient.ensureUserContactPublished() }
 
         val canMessage = Client.canMessage(aliceWallet.address, opts)
         val cannotMessage = Client.canMessage(notOnNetwork.address, opts)

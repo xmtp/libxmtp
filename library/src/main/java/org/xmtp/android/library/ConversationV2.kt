@@ -4,7 +4,6 @@ import android.util.Log
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.mapNotNull
-import kotlinx.coroutines.runBlocking
 import org.web3j.crypto.Hash
 import org.xmtp.android.library.codecs.ContentCodec
 import org.xmtp.android.library.codecs.EncodedContent
@@ -73,7 +72,7 @@ data class ConversationV2(
      * If [direction] is specified then that will control the sort order of te messages.
      * @see Conversation.messages
      */
-    fun messages(
+    suspend fun messages(
         limit: Int? = null,
         before: Date? = null,
         after: Date? = null,
@@ -81,12 +80,11 @@ data class ConversationV2(
     ): List<DecodedMessage> {
         val pagination =
             Pagination(limit = limit, before = before, after = after, direction = direction)
-        val result = runBlocking {
+        val result =
             client.apiClient.envelopes(
                 topic = topic,
                 pagination = pagination,
             )
-        }
 
         return result.mapNotNull { envelope ->
             decodeEnvelopeOrNull(envelope)
@@ -106,7 +104,7 @@ data class ConversationV2(
      * If [limit] is specified then results are pulled in pages of that size.
      * If [direction] is specified then that will control the sort order of te messages.
      */
-    fun decryptedMessages(
+    suspend fun decryptedMessages(
         limit: Int? = null,
         before: Date? = null,
         after: Date? = null,
@@ -114,7 +112,7 @@ data class ConversationV2(
     ): List<DecryptedMessage> {
         val pagination =
             Pagination(limit = limit, before = before, after = after, direction = direction)
-        val envelopes = runBlocking { client.apiClient.envelopes(topic, pagination) }
+        val envelopes = client.apiClient.envelopes(topic, pagination)
 
         return envelopes.map { envelope ->
             decrypt(envelope)

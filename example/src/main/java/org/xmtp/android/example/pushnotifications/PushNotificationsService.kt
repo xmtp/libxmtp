@@ -14,6 +14,7 @@ import com.google.firebase.messaging.RemoteMessage
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.GlobalScope
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.runBlocking
 import org.xmtp.android.example.ClientManager
 import org.xmtp.android.example.R
 import org.xmtp.android.example.conversation.ConversationDetailActivity
@@ -56,7 +57,8 @@ class PushNotificationsService : FirebaseMessagingService() {
         GlobalScope.launch(Dispatchers.Main) {
             ClientManager.createClient(keysData, applicationContext)
         }
-        val conversation = ClientManager.client.fetchConversation(topic, includeGroups = true)
+        val conversation =
+            runBlocking { ClientManager.client.fetchConversation(topic, includeGroups = true) }
         if (conversation == null) {
             Log.e(TAG, "No keys or conversation persisted")
             return

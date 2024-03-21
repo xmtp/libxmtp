@@ -35,7 +35,7 @@ class AttachmentTest {
                 options = SendOptions(contentType = ContentTypeAttachment),
             )
         }
-        val messages = aliceConversation.messages()
+        val messages = runBlocking { aliceConversation.messages() }
         assertEquals(messages.size, 1)
         if (messages.size == 1) {
             val content: Attachment? = messages[0].content()

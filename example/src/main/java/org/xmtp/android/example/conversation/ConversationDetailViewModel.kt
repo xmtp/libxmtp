@@ -15,6 +15,7 @@ import kotlinx.coroutines.flow.emptyFlow
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.mapLatest
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.runBlocking
 import org.xmtp.android.example.ClientManager
 import org.xmtp.android.example.extension.flowWhileShared
 import org.xmtp.android.example.extension.stateFlow
@@ -77,7 +78,12 @@ class ConversationDetailViewModel(private val savedStateHandle: SavedStateHandle
         stateFlow(viewModelScope, null) { subscriptionCount ->
             if (conversation == null) {
                 conversation =
-                    ClientManager.client.fetchConversation(conversationTopic, includeGroups = false)
+                    runBlocking {
+                        ClientManager.client.fetchConversation(
+                            conversationTopic,
+                            includeGroups = false
+                        )
+                    }
             }
             if (conversation != null) {
                 conversation!!.streamMessages()

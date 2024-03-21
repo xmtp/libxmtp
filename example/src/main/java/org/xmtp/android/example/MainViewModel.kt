@@ -15,6 +15,7 @@ import kotlinx.coroutines.flow.emptyFlow
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.mapLatest
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.runBlocking
 import org.xmtp.android.example.extension.flowWhileShared
 import org.xmtp.android.example.extension.stateFlow
 import org.xmtp.android.example.pushnotifications.PushNotificationTokenManager
@@ -70,7 +71,7 @@ class MainViewModel : ViewModel() {
 
     @WorkerThread
     private fun fetchMostRecentMessage(conversation: Conversation): DecodedMessage? {
-        return conversation.messages(limit = 1).firstOrNull()
+        return runBlocking { conversation.messages(limit = 1).firstOrNull() }
     }
 
     @OptIn(ExperimentalCoroutinesApi::class)

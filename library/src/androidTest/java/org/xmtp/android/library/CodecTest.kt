@@ -68,7 +68,7 @@ class CodecTest {
                 options = SendOptions(contentType = NumberCodec().contentType),
             )
         }
-        val messages = aliceConversation.messages()
+        val messages = runBlocking { aliceConversation.messages() }
         assertEquals(messages.size, 1)
         if (messages.size == 1) {
             val content: Double? = messages[0].content()
@@ -93,7 +93,7 @@ class CodecTest {
                 options = SendOptions(contentType = CompositeCodec().contentType),
             )
         }
-        val messages = aliceConversation.messages()
+        val messages = runBlocking { aliceConversation.messages() }
         val decoded: DecodedComposite? = messages[0].content()
         assertEquals("hiya", decoded?.content())
     }
@@ -121,7 +121,7 @@ class CodecTest {
                 options = SendOptions(contentType = CompositeCodec().contentType),
             )
         }
-        val messages = aliceConversation.messages()
+        val messages = runBlocking { aliceConversation.messages() }
         val decoded: DecodedComposite? = messages[0].content()
         val part1 = decoded!!.parts[0]
         val part2 = decoded.parts[1].parts[0]
@@ -144,7 +144,7 @@ class CodecTest {
                 options = SendOptions(contentType = codec.contentType),
             )
         }
-        val messages = aliceConversation.messages()
+        val messages = runBlocking { aliceConversation.messages() }
         assert(messages.isNotEmpty())
 
         val message = MessageV2Builder.buildEncode(

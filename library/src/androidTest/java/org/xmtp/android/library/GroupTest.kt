@@ -62,7 +62,7 @@ class GroupTest {
     fun testCanCreateAGroupWithDefaultPermissions() {
         val boGroup = runBlocking { boClient.conversations.newGroup(listOf(alix.walletAddress)) }
         runBlocking { alixClient.conversations.syncGroups() }
-        val alixGroup = alixClient.conversations.listGroups().first()
+        val alixGroup = runBlocking { alixClient.conversations.listGroups().first() }
         assert(boGroup.id.isNotEmpty())
         assert(alixGroup.id.isNotEmpty())
 
@@ -104,7 +104,7 @@ class GroupTest {
             )
         }
         runBlocking { alixClient.conversations.syncGroups() }
-        val alixGroup = alixClient.conversations.listGroups().first()
+        val alixGroup = runBlocking { alixClient.conversations.listGroups().first() }
         assert(boGroup.id.isNotEmpty())
         assert(alixGroup.id.isNotEmpty())
 
@@ -219,7 +219,7 @@ class GroupTest {
             )
         }
         runBlocking { alixClient.conversations.syncGroups() }
-        val group = alixClient.conversations.listGroups().first()
+        val group = runBlocking { alixClient.conversations.listGroups().first() }
         runBlocking { group.removeMembers(listOf(caro.walletAddress)) }
         assertEquals(
             group.memberAddresses().sorted(),
@@ -241,7 +241,7 @@ class GroupTest {
             )
         }
         runBlocking { caroClient.conversations.syncGroups() }
-        val caroGroup = caroClient.conversations.listGroups().first()
+        val caroGroup = runBlocking { caroClient.conversations.listGroups().first() }
         runBlocking { caroGroup.sync() }
         assert(caroGroup.isActive())
         assert(group.isActive())
@@ -259,7 +259,7 @@ class GroupTest {
             boClient.conversations.newGroup(listOf(alix.walletAddress))
             boClient.conversations.newGroup(listOf(caro.walletAddress))
         }
-        val groups = boClient.conversations.listGroups()
+        val groups = runBlocking { boClient.conversations.listGroups() }
         assertEquals(groups.size, 2)
     }
 
@@ -270,7 +270,7 @@ class GroupTest {
             boClient.conversations.newGroup(listOf(caro.walletAddress))
             boClient.conversations.newConversation(alix.walletAddress)
         }
-        val convos = boClient.conversations.list(includeGroups = true)
+        val convos = runBlocking { boClient.conversations.list(includeGroups = true) }
         assertEquals(convos.size, 3)
     }
 
@@ -319,7 +319,7 @@ class GroupTest {
         assertEquals(group.messages().size, 3)
 
         runBlocking { alixClient.conversations.syncGroups() }
-        val sameGroup = alixClient.conversations.listGroups().last()
+        val sameGroup = runBlocking { alixClient.conversations.listGroups().last() }
         runBlocking { sameGroup.sync() }
         assertEquals(sameGroup.messages().size, 2)
         assertEquals(sameGroup.messages().first().body, "gm")
@@ -515,7 +515,7 @@ class GroupTest {
         var result = boClient.contacts.isGroupAllowed(group.id)
         assert(result)
 
-        boClient.contacts.allowGroup(listOf(group.id))
+        runBlocking { boClient.contacts.allowGroup(listOf(group.id)) }
 
         result = boClient.contacts.isGroupAllowed(group.id)
         assert(result)
@@ -534,7 +534,7 @@ class GroupTest {
         var result = boClient.contacts.isGroupAllowed(group.id)
         assert(result)
 
-        boClient.contacts.denyGroup(listOf(group.id))
+        runBlocking { boClient.contacts.denyGroup(listOf(group.id)) }
 
         result = boClient.contacts.isGroupDenied(group.id)
         assert(result)

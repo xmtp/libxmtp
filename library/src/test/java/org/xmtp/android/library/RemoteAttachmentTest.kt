@@ -79,7 +79,7 @@ class RemoteAttachmentTest {
             )
         }
 
-        val messages = aliceConversation.messages()
+        val messages = runBlocking { aliceConversation.messages() }
         Assert.assertEquals(messages.size, 1)
 
         if (messages.size == 1) {
@@ -161,7 +161,7 @@ class RemoteAttachmentTest {
             )
         }
 
-        val messages = aliceConversation.messages()
+        val messages = runBlocking { aliceConversation.messages() }
         Assert.assertEquals(messages.size, 1)
 
         // Tamper with the payload

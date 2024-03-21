@@ -3,7 +3,6 @@ package org.xmtp.android.library
 import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.callbackFlow
-import kotlinx.coroutines.runBlocking
 import org.xmtp.android.library.codecs.ContentCodec
 import org.xmtp.android.library.codecs.EncodedContent
 import org.xmtp.android.library.codecs.compress
@@ -84,20 +83,18 @@ class Group(val client: Client, private val libXMTPGroup: FfiGroup) {
         after: Date? = null,
         direction: PagingInfoSortDirection = MessageApiOuterClass.SortDirection.SORT_DIRECTION_DESCENDING,
     ): List<DecodedMessage> {
-        return runBlocking {
-            val messages = libXMTPGroup.findMessages(
-                opts = FfiListMessagesOptions(
-                    sentBeforeNs = before?.time?.nanoseconds?.toLong(DurationUnit.NANOSECONDS),
-                    sentAfterNs = after?.time?.nanoseconds?.toLong(DurationUnit.NANOSECONDS),
-                    limit = limit?.toLong()
-                )
-            ).map {
-                Message(client, it).decode()
-            }
-            when (direction) {
-                MessageApiOuterClass.SortDirection.SORT_DIRECTION_ASCENDING -> messages
-                else -> messages.reversed()
-            }
+        val messages = libXMTPGroup.findMessages(
+            opts = FfiListMessagesOptions(
+                sentBeforeNs = before?.time?.nanoseconds?.toLong(DurationUnit.NANOSECONDS),
+                sentAfterNs = after?.time?.nanoseconds?.toLong(DurationUnit.NANOSECONDS),
+                limit = limit?.toLong()
+            )
+        ).map {
+            Message(client, it).decode()
+        }
+        return when (direction) {
+            MessageApiOuterClass.SortDirection.SORT_DIRECTION_ASCENDING -> messages
+            else -> messages.reversed()
         }
     }
 
@@ -107,20 +104,18 @@ class Group(val client: Client, private val libXMTPGroup: FfiGroup) {
         after: Date? = null,
         direction: PagingInfoSortDirection = MessageApiOuterClass.SortDirection.SORT_DIRECTION_DESCENDING,
     ): List<DecryptedMessage> {
-        return runBlocking {
-            val messages = libXMTPGroup.findMessages(
-                opts = FfiListMessagesOptions(
-                    sentBeforeNs = before?.time?.nanoseconds?.toLong(DurationUnit.NANOSECONDS),
-                    sentAfterNs = after?.time?.nanoseconds?.toLong(DurationUnit.NANOSECONDS),
-                    limit = limit?.toLong()
-                )
-            ).map {
-                Message(client, it).decrypt()
-            }
-            when (direction) {
-                MessageApiOuterClass.SortDirection.SORT_DIRECTION_ASCENDING -> messages
-                else -> messages.reversed()
-            }
+        val messages = libXMTPGroup.findMessages(
+            opts = FfiListMessagesOptions(
+                sentBeforeNs = before?.time?.nanoseconds?.toLong(DurationUnit.NANOSECONDS),
+                sentAfterNs = after?.time?.nanoseconds?.toLong(DurationUnit.NANOSECONDS),
+                limit = limit?.toLong()
+            )
+        ).map {
+            Message(client, it).decrypt()
+        }
+        return when (direction) {
+            MessageApiOuterClass.SortDirection.SORT_DIRECTION_ASCENDING -> messages
+            else -> messages.reversed()
         }
     }
 
@@ -157,9 +152,7 @@ class Group(val client: Client, private val libXMTPGroup: FfiGroup) {
     }
 
     fun memberAddresses(): List<String> {
-        return runBlocking {
-            libXMTPGroup.listMembers().map { it.accountAddress }
-        }
+        return libXMTPGroup.listMembers().map { it.accountAddress }
     }
 
     fun peerAddresses(): List<String> {

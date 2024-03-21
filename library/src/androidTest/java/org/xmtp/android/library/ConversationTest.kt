@@ -5,7 +5,6 @@ import app.cash.turbine.test
 import com.google.protobuf.kotlin.toByteString
 import com.google.protobuf.kotlin.toByteStringUtf8
 import kotlinx.coroutines.runBlocking
-import org.junit.Assert
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertThrows
@@ -89,8 +88,10 @@ class ConversationTest {
             timestamp = someTimeAgo,
         )
         // Overwrite contact as legacy
-        bobClient.publishUserContact(legacy = true)
-        aliceClient.publishUserContact(legacy = true)
+        runBlocking {
+            bobClient.publishUserContact(legacy = true)
+            aliceClient.publishUserContact(legacy = true)
+        }
         runBlocking {
             bobClient.publish(
                 envelopes = listOf(
@@ -167,7 +168,7 @@ class ConversationTest {
 
         runBlocking { bobConversation.send(content = "hey alice") }
         runBlocking { bobConversation.send(content = "hey alice again") }
-        val messages = aliceConversation.messages()
+        val messages = runBlocking { aliceConversation.messages() }
         assertEquals(2, messages.size)
         assertEquals("hey alice", messages[1].body)
         assertEquals(bobWallet.address, messages[1].senderAddress)
@@ -189,7 +190,7 @@ class ConversationTest {
             )
         }
         runBlocking { bobConversation.send(content = "hey alice") }
-        val messages = aliceConversation.messages()
+        val messages = runBlocking { aliceConversation.messages() }
         assertEquals(1, messages.size)
         assertEquals("hey alice", messages[0].body)
         assertEquals(bobWallet.address, messages[0].senderAddress)
@@ -260,7 +261,9 @@ class ConversationTest {
             bobConversation.decode(tamperedEnvelope)
         }
         // But it should be properly discarded from the message listing.
-        assertEquals(0, bobConversation.messages().size)
+        runBlocking {
+            assertEquals(0, bobConversation.messages().size)
+        }
     }
 
     @Test
@@ -277,7 +280,7 @@ class ConversationTest {
                 sendOptions = SendOptions(compression = EncodedContentCompression.GZIP),
             )
         }
-        val messages = aliceConversation.messages()
+        val messages = runBlocking { aliceConversation.messages() }
         assertEquals(1, messages.size)
         assertEquals(MutableList(1000) { "A" }.toString(), messages[0].content())
     }
@@ -296,7 +299,7 @@ class ConversationTest {
                 options = SendOptions(compression = EncodedContentCompression.DEFLATE),
             )
         }
-        val messages = aliceConversation.messages()
+        val messages = runBlocking { aliceConversation.messages() }
         assertEquals(1, messages.size)
         assertEquals(MutableList(1000) { "A" }.toString(), messages[0].content())
     }
@@ -321,7 +324,7 @@ class ConversationTest {
                 sendOptions = SendOptions(compression = EncodedContentCompression.GZIP),
             )
         }
-        val messages = aliceConversation.messages()
+        val messages = runBlocking { aliceConversation.messages() }
         assertEquals(1, messages.size)
         assertEquals(MutableList(1000) { "A" }.toString(), messages[0].body)
         assertEquals(bobWallet.address, messages[0].senderAddress)
@@ -347,7 +350,7 @@ class ConversationTest {
                 options = SendOptions(compression = EncodedContentCompression.DEFLATE),
             )
         }
-        val messages = aliceConversation.messages()
+        val messages = runBlocking { aliceConversation.messages() }
         assertEquals(1, messages.size)
         assertEquals(MutableList(1000) { "A" }.toString(), messages[0].body)
         assertEquals(bobWallet.address, messages[0].senderAddress)
@@ -357,7 +360,7 @@ class ConversationTest {
     fun testEndToEndConversation() {
         val fakeContactWallet = PrivateKeyBuilder()
         val fakeContactClient = Client().create(account = fakeContactWallet)
-        fakeContactClient.publishUserContact()
+        runBlocking { fakeContactClient.publishUserContact() }
         val fakeWallet = PrivateKeyBuilder()
         val client = Client().create(account = fakeWallet)
         val contact = client.getUserContact(peerAddress = fakeContactWallet.address)!!
@@ -392,10 +395,10 @@ class ConversationTest {
 
         runBlocking { conversation.send(content = "hello world") }
 
-        val conversationList = client.conversations.list()
+        val conversationList = runBlocking { client.conversations.list() }
         val recipientConversation = conversationList.lastOrNull()
 
-        val messages = recipientConversation?.messages()
+        val messages = runBlocking { recipientConversation?.messages() }
         val message = messages?.firstOrNull()
         if (message != null) {
             assertEquals("hello world", message.body)
@@ -427,7 +430,7 @@ class ConversationTest {
         runBlocking { bobConversation.send(text = "hey alice 1", sentAt = date) }
         runBlocking { bobConversation.send(text = "hey alice 2") }
         runBlocking { bobConversation.send(text = "hey alice 3") }
-        val messages = aliceConversation.messages(limit = 1)
+        val messages = runBlocking { aliceConversation.messages(limit = 1) }
         assertEquals(1, messages.size)
         assertEquals("hey alice 3", messages[0].body)
     }
@@ -448,21 +451,23 @@ class ConversationTest {
         }
         val date = Date()
         date.time = date.time - 1000000
-        runBlocking { bobConversation.send(text = "hey alice 1", sentAt = date) }
-        runBlocking { bobConversation.send(text = "hey alice 2") }
-        runBlocking { bobConversation.send(text = "hey alice 3") }
-        val messages = aliceConversation.messages(limit = 1)
-        assertEquals(1, messages.size)
-        assertEquals("hey alice 3", messages[0].body)
-        val messages2 = aliceConversation.messages(limit = 1, after = date)
-        assertEquals(1, messages2.size)
-        assertEquals("hey alice 3", messages2[0].body)
-        val messagesAsc =
-            aliceConversation.messages(direction = MessageApiOuterClass.SortDirection.SORT_DIRECTION_ASCENDING)
-        assertEquals("hey alice 1", messagesAsc[0].body)
-        val messagesDesc =
-            aliceConversation.messages(direction = MessageApiOuterClass.SortDirection.SORT_DIRECTION_DESCENDING)
-        assertEquals("hey alice 3", messagesDesc[0].body)
+        runBlocking {
+            bobConversation.send(text = "hey alice 1", sentAt = date)
+            bobConversation.send(text = "hey alice 2")
+            bobConversation.send(text = "hey alice 3")
+            val messages = aliceConversation.messages(limit = 1)
+            assertEquals(1, messages.size)
+            assertEquals("hey alice 3", messages[0].body)
+            val messages2 = aliceConversation.messages(limit = 1, after = date)
+            assertEquals(1, messages2.size)
+            assertEquals("hey alice 3", messages2[0].body)
+            val messagesAsc =
+                aliceConversation.messages(direction = MessageApiOuterClass.SortDirection.SORT_DIRECTION_ASCENDING)
+            assertEquals("hey alice 1", messagesAsc[0].body)
+            val messagesDesc =
+                aliceConversation.messages(direction = MessageApiOuterClass.SortDirection.SORT_DIRECTION_DESCENDING)
+            assertEquals("hey alice 3", messagesDesc[0].body)
+        }
     }
 
     @Test
@@ -476,12 +481,14 @@ class ConversationTest {
         runBlocking { bobConversation.send(text = "hey alice 1") }
         runBlocking { bobConversation.send(text = "hey alice 2") }
         runBlocking { steveConversation.send(text = "hey alice 3") }
-        val messages = aliceClient.conversations.listBatchMessages(
-            listOf(
-                Pair(steveConversation.topic, null),
-                Pair(bobConversation.topic, null),
-            ),
-        )
+        val messages = runBlocking {
+            aliceClient.conversations.listBatchMessages(
+                listOf(
+                    Pair(steveConversation.topic, null),
+                    Pair(bobConversation.topic, null),
+                ),
+            )
+        }
         val isSteveOrBobConversation = { topic: String ->
             (topic.equals(steveConversation.topic) || topic.equals(bobConversation.topic))
         }
@@ -504,12 +511,14 @@ class ConversationTest {
             bobConversation.send(text = "hey alice 2")
             steveConversation.send(text = "hey alice 3")
         }
-        val messages = aliceClient.conversations.listBatchDecryptedMessages(
-            listOf(
-                Pair(steveConversation.topic, null),
-                Pair(bobConversation.topic, null),
-            ),
-        )
+        val messages = runBlocking {
+            aliceClient.conversations.listBatchDecryptedMessages(
+                listOf(
+                    Pair(steveConversation.topic, null),
+                    Pair(bobConversation.topic, null),
+                ),
+            )
+        }
         val isSteveOrBobConversation = { topic: String ->
             (topic.lowercase() == steveConversation.topic.lowercase() || topic.lowercase() == bobConversation.topic.lowercase())
         }
@@ -541,12 +550,14 @@ class ConversationTest {
             steveConversation.send(text = "hey alice 3 steve")
         }
 
-        val messages = aliceClient.conversations.listBatchMessages(
-            listOf(
-                Pair(steveConversation.topic, Pagination(after = date)),
-                Pair(bobConversation.topic, Pagination(after = date)),
-            ),
-        )
+        val messages = runBlocking {
+            aliceClient.conversations.listBatchMessages(
+                listOf(
+                    Pair(steveConversation.topic, Pagination(after = date)),
+                    Pair(bobConversation.topic, Pagination(after = date)),
+                ),
+            )
+        }
 
         assertEquals(4, messages.size)
     }
@@ -648,7 +659,7 @@ class ConversationTest {
         val preparedMessage = conversation.prepareMessage(content = "hi")
         val messageID = preparedMessage.messageId
         runBlocking { conversation.send(prepared = preparedMessage) }
-        val messages = conversation.messages()
+        val messages = runBlocking { conversation.messages() }
         val message = messages[0]
         assertEquals("hi", message.body)
         assertEquals(message.id, messageID)
@@ -661,7 +672,7 @@ class ConversationTest {
         val preparedMessage = conversation.prepareMessage(content = "hi")
         val messageID = preparedMessage.messageId
         runBlocking { conversation.send(prepared = preparedMessage) }
-        val messages = conversation.messages()
+        val messages = runBlocking { conversation.messages() }
         val message = messages[0]
         assertEquals("hi", message.body)
         assertEquals(message.id, messageID)
@@ -678,7 +689,7 @@ class ConversationTest {
         // This simulates a background task publishing all pending messages upon connection.
         runBlocking { aliceClient.publish(envelopes = preparedMessage.envelopes) }
 
-        val messages = conversation.messages()
+        val messages = runBlocking { conversation.messages() }
         val message = messages[0]
         assertEquals("hi", message.body)
         assertEquals(message.id, messageID)
@@ -738,16 +749,18 @@ class ConversationTest {
         }.build()
 
         val client = Client().create(account = PrivateKeyBuilder(key))
-        Assert.assertEquals(client.apiClient.environment, XMTPEnvironment.DEV)
-        val conversations = client.conversations.list()
-        Assert.assertEquals(1, conversations.size)
-        val topic = conversations[0].topic
-        val conversation = client.fetchConversation(topic)
-        Assert.assertEquals(conversations[0].topic, conversation?.topic)
-        Assert.assertEquals(conversations[0].peerAddress, conversation?.peerAddress)
+        assertEquals(client.apiClient.environment, XMTPEnvironment.DEV)
+        runBlocking {
+            val conversations = client.conversations.list()
+            assertEquals(1, conversations.size)
+            val topic = conversations[0].topic
+            val conversation = client.fetchConversation(topic)
+            assertEquals(conversations[0].topic, conversation?.topic)
+            assertEquals(conversations[0].peerAddress, conversation?.peerAddress)
 
-        val noConversation = client.fetchConversation("invalid_topic")
-        Assert.assertEquals(null, noConversation)
+            val noConversation = client.fetchConversation("invalid_topic")
+            assertEquals(null, noConversation)
+        }
     }
 
     @Test
@@ -760,7 +773,7 @@ class ConversationTest {
             runBlocking { aliceClient.conversations.newConversation(bobWallet.address) }
         val encodedContent = TextCodec().encode(content = "hi")
         runBlocking { bobConversation.send(encodedContent = encodedContent) }
-        val messages = aliceConversation.messages()
+        val messages = runBlocking { aliceConversation.messages() }
         assertEquals(1, messages.size)
         assertEquals("hi", messages[0].content())
     }
@@ -771,7 +784,7 @@ class ConversationTest {
             runBlocking { bobClient.conversations.newConversation(aliceWallet.address) }
         val encodedContent = TextCodec().encode(content = "hi")
         runBlocking { bobConversation.send(encodedContent = encodedContent) }
-        val messages = bobConversation.messages()
+        val messages = runBlocking { bobConversation.messages() }
         assertEquals(1, messages.size)
         assertEquals("hi", messages[0].content())
     }
@@ -786,26 +799,26 @@ class ConversationTest {
         assertTrue(isAllowed)
         assertTrue(bobClient.contacts.isAllowed(alice.walletAddress))
 
-        bobClient.contacts.deny(listOf(alice.walletAddress))
+        runBlocking { bobClient.contacts.deny(listOf(alice.walletAddress)) }
         bobClient.contacts.refreshConsentList()
 
         val isDenied = bobConversation.consentState() == ConsentState.DENIED
         assertEquals(bobClient.contacts.consentList.entries.size, 1)
         assertTrue(isDenied)
 
-        val aliceConversation = aliceClient.conversations.list()[0]
+        val aliceConversation = runBlocking { aliceClient.conversations.list()[0] }
         val isUnknown = aliceConversation.consentState() == ConsentState.UNKNOWN
 
         // Conversations started with you should start as unknown
         assertTrue(isUnknown)
 
-        aliceClient.contacts.allow(listOf(bob.walletAddress))
+        runBlocking { aliceClient.contacts.allow(listOf(bob.walletAddress)) }
 
         val isBobAllowed = aliceConversation.consentState() == ConsentState.ALLOWED
         assertTrue(isBobAllowed)
 
         val aliceClient2 = Client().create(aliceWallet)
-        val aliceConversation2 = aliceClient2.conversations.list()[0]
+        val aliceConversation2 = runBlocking { aliceClient2.conversations.list()[0] }
 
         aliceClient2.contacts.refreshConsentList()
 
@@ -824,7 +837,7 @@ class ConversationTest {
         // Conversations you start should start as allowed
         assertTrue(isAllowed)
 
-        val aliceConversation = aliceClient.conversations.list()[0]
+        val aliceConversation = runBlocking { aliceClient.conversations.list()[0] }
         val isUnknown = aliceConversation.consentState() == ConsentState.UNKNOWN
 
         // Conversations you receive should start as unknown

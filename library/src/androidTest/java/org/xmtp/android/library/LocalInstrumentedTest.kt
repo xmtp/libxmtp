@@ -141,28 +141,30 @@ class LocalInstrumentedTest {
         // Say this message is sent in the past
         val date = Date()
         date.time = date.time - 5000
-        runBlocking { convo.send(text = "10 seconds ago", sentAt = date) }
-        Thread.sleep(5000)
-        runBlocking { convo.send(text = "now first") }
-        runBlocking { convo.send(text = "now") }
-        val messages = convo.messages()
-        assertEquals(3, messages.size)
-        val messagesLimit = convo.messages(limit = 2)
-        assertEquals(2, messagesLimit.size)
-        val nowMessage = messages[0]
-        assertEquals("now", nowMessage.body)
-        val messages2 = convo.messages(limit = 1, before = nowMessage.sent)
-        val tenSecondsAgoMessage = messages2[0]
-        assertEquals("now first", tenSecondsAgoMessage.body)
-        val messages3 = convo.messages(after = tenSecondsAgoMessage.sent)
-        val nowMessage2 = messages3[0]
-        assertEquals("now", nowMessage2.body)
-        val messagesAsc =
-            convo.messages(direction = MessageApiOuterClass.SortDirection.SORT_DIRECTION_ASCENDING)
-        assertEquals("10 seconds ago", messagesAsc[0].body)
-        val messagesDesc =
-            convo.messages(direction = MessageApiOuterClass.SortDirection.SORT_DIRECTION_DESCENDING)
-        assertEquals("now", messagesDesc[0].body)
+        runBlocking {
+            convo.send(text = "10 seconds ago", sentAt = date)
+            Thread.sleep(5000)
+            convo.send(text = "now first")
+            convo.send(text = "now")
+            val messages = convo.messages()
+            assertEquals(3, messages.size)
+            val messagesLimit = convo.messages(limit = 2)
+            assertEquals(2, messagesLimit.size)
+            val nowMessage = messages[0]
+            assertEquals("now", nowMessage.body)
+            val messages2 = convo.messages(limit = 1, before = nowMessage.sent)
+            val tenSecondsAgoMessage = messages2[0]
+            assertEquals("now first", tenSecondsAgoMessage.body)
+            val messages3 = convo.messages(after = tenSecondsAgoMessage.sent)
+            val nowMessage2 = messages3[0]
+            assertEquals("now", nowMessage2.body)
+            val messagesAsc =
+                convo.messages(direction = MessageApiOuterClass.SortDirection.SORT_DIRECTION_ASCENDING)
+            assertEquals("10 seconds ago", messagesAsc[0].body)
+            val messagesDesc =
+                convo.messages(direction = MessageApiOuterClass.SortDirection.SORT_DIRECTION_DESCENDING)
+            assertEquals("now", messagesDesc[0].body)
+        }
     }
 
     @Test
@@ -190,7 +192,7 @@ class LocalInstrumentedTest {
         delayToPropagate()
 
         // So Alice should see just that one conversation.
-        var aliceConvoList = alice.conversations.list()
+        var aliceConvoList = runBlocking { alice.conversations.list() }
         assertEquals(1, aliceConvoList.size)
         assertEquals("example.com/alice-bob-1", aliceConvoList[0].conversationId)
 
@@ -208,7 +210,7 @@ class LocalInstrumentedTest {
         delayToPropagate()
 
         // Then Alice should see both conversations, the newer one first.
-        aliceConvoList = alice.conversations.list()
+        aliceConvoList = runBlocking { alice.conversations.list() }
         assertEquals(2, aliceConvoList.size)
         assertEquals("example.com/alice-bob-2", aliceConvoList[0].conversationId)
         assertEquals("example.com/alice-bob-1", aliceConvoList[1].conversationId)
@@ -238,7 +240,7 @@ class LocalInstrumentedTest {
         val topicData = aliceConvo.toTopicData().toByteArray()
 
         // Meanwhile, Bob sends a reply.
-        val bobConvos = bob.conversations.list()
+        val bobConvos = runBlocking { bob.conversations.list() }
         val bobConvo = bobConvos[0]
         runBlocking { bobConvo.send("Oh, hello Alice") }
         delayToPropagate()
@@ -255,7 +257,7 @@ class LocalInstrumentedTest {
         assertEquals("example.com/alice-bob-1", aliceConvo2.conversationId)
 
         // Now Alice should be able to load message using her saved key material.
-        val messages = aliceConvo2.messages()
+        val messages = runBlocking { aliceConvo2.messages() }
         assertEquals("Hello Bob", messages[1].body)
         assertEquals("Oh, hello Alice", messages[0].body)
     }
@@ -274,8 +276,7 @@ class LocalInstrumentedTest {
         runBlocking { convo.send(text = "10 seconds ago") }
         Thread.sleep(10000)
         runBlocking { convo.send(text = "now") }
-        val allMessages = convo.messages()
-        val messages = convo.messages()
+        val messages = runBlocking { convo.messages() }
         assertEquals(2, messages.size)
         val nowMessage = messages[0]
         assertEquals("now", nowMessage.body)
@@ -790,14 +791,16 @@ class LocalInstrumentedTest {
             ClientOptions(api = ClientOptions.Api(env = XMTPEnvironment.LOCAL, isSecure = false))
         val bobClient = Client().create(bob, clientOptions)
         val aliceClient = Client().create(account = alice, options = clientOptions)
-        aliceClient.publishUserContact(legacy = true)
-        bobClient.publishUserContact(legacy = true)
+        runBlocking {
+            aliceClient.publishUserContact(legacy = true)
+            bobClient.publishUserContact(legacy = true)
+        }
         val convo = ConversationV1(client = bobClient, peerAddress = alice.address, sentAt = Date())
         convo.streamEphemeral().mapLatest {
             assertEquals("hi", it.message.toStringUtf8())
         }
         runBlocking { convo.send(content = "hi", options = SendOptions(ephemeral = true)) }
-        val messages = convo.messages()
+        val messages = runBlocking { convo.messages() }
         assertEquals(0, messages.size)
     }
 
@@ -831,7 +834,7 @@ class LocalInstrumentedTest {
                 options = SendOptions(ephemeral = true)
             )
         }
-        val messages = aliceConversation.messages()
+        val messages = runBlocking { aliceConversation.messages() }
         assertEquals(0, messages.size)
     }
 }

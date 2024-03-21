@@ -448,7 +448,7 @@ class Client() {
         return null
     }
 
-    fun publishUserContact(legacy: Boolean = false) {
+    suspend fun publishUserContact(legacy: Boolean = false) {
         val envelopes: MutableList<MessageApiOuterClass.Envelope> = mutableListOf()
         if (legacy) {
             val contactBundle = ContactBundle.newBuilder().also {
@@ -484,7 +484,7 @@ class Client() {
             message = contactBundle.toByteString()
         }.build()
         envelopes.add(envelope)
-        runBlocking { publish(envelopes = envelopes) }
+        publish(envelopes = envelopes)
     }
 
     fun getUserContact(peerAddress: String): ContactBundle? {
@@ -506,7 +506,7 @@ class Client() {
         return apiClient.subscribe(request = request)
     }
 
-    fun fetchConversation(topic: String?, includeGroups: Boolean = false): Conversation? {
+    suspend fun fetchConversation(topic: String?, includeGroups: Boolean = false): Conversation? {
         if (topic.isNullOrBlank()) return null
         return conversations.list(includeGroups = includeGroups).firstOrNull {
             it.topic == topic
@@ -525,7 +525,7 @@ class Client() {
         return apiClient.publish(envelopes = envelopes)
     }
 
-    fun ensureUserContactPublished() {
+    suspend fun ensureUserContactPublished() {
         val contact = getUserContact(peerAddress = address)
         if (contact != null && keys.getPublicKeyBundle() == contact.v2.keyBundle) {
             return
