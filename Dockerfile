@@ -5,6 +5,7 @@ RUN sudo apt update && sudo apt install -y pkg-config openssl
 WORKDIR /workspaces/libxmtp
 COPY --chown=xmtp:xmtp . .
 
+ENV RUSTUP_PERMIT_COPY_RENAME "yes"
 
 RUN cargo check
 RUN cargo fmt --check
