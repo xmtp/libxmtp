@@ -140,17 +140,17 @@ class Group(val client: Client, private val libXMTPGroup: FfiGroup) {
         return metadata.creatorAccountAddress()
     }
 
-    fun addMembers(addresses: List<String>) {
+    suspend fun addMembers(addresses: List<String>) {
         try {
-            runBlocking { libXMTPGroup.addMembers(addresses) }
+            libXMTPGroup.addMembers(addresses)
         } catch (e: Exception) {
             throw XMTPException("User does not have permissions", e)
         }
     }
 
-    fun removeMembers(addresses: List<String>) {
+    suspend fun removeMembers(addresses: List<String>) {
         try {
-            runBlocking { libXMTPGroup.removeMembers(addresses) }
+            libXMTPGroup.removeMembers(addresses)
         } catch (e: Exception) {
             throw XMTPException("User does not have permissions", e)
         }

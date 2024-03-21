@@ -20,8 +20,9 @@ class ReplyTest {
 
         val fixtures = fixtures()
         val aliceClient = fixtures.aliceClient
-        val aliceConversation =
+        val aliceConversation = runBlocking {
             aliceClient.conversations.newConversation(fixtures.bob.walletAddress)
+        }
 
         runBlocking { aliceConversation.send(text = "hey alice 2 bob") }
 

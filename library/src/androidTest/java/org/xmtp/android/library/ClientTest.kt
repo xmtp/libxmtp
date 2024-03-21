@@ -26,8 +26,8 @@ class ClientTest {
     fun testHasPrivateKeyBundleV1() {
         val fakeWallet = PrivateKeyBuilder()
         val client = Client().create(account = fakeWallet)
-        assertEquals(1, client.privateKeyBundleV1?.preKeysList?.size)
-        val preKey = client.privateKeyBundleV1?.preKeysList?.get(0)
+        assertEquals(1, client.privateKeyBundleV1.preKeysList?.size)
+        val preKey = client.privateKeyBundleV1.preKeysList?.get(0)
         assert(preKey?.publicKey?.hasSignature() ?: false)
     }
 
@@ -50,15 +50,15 @@ class ClientTest {
         val fakeWallet = PrivateKeyBuilder()
         val client = Client().create(account = fakeWallet)
         val bundle = client.privateKeyBundle
-        val clientFromV1Bundle = Client().buildFromBundle(bundle!!)
+        val clientFromV1Bundle = Client().buildFromBundle(bundle)
         assertEquals(client.address, clientFromV1Bundle.address)
         assertEquals(
-            client.privateKeyBundleV1?.identityKey,
-            clientFromV1Bundle.privateKeyBundleV1?.identityKey,
+            client.privateKeyBundleV1.identityKey,
+            clientFromV1Bundle.privateKeyBundleV1.identityKey,
         )
         assertEquals(
-            client.privateKeyBundleV1?.preKeysList,
-            clientFromV1Bundle.privateKeyBundleV1?.preKeysList,
+            client.privateKeyBundleV1.preKeysList,
+            clientFromV1Bundle.privateKeyBundleV1.preKeysList,
         )
     }
 
@@ -67,15 +67,15 @@ class ClientTest {
         val fakeWallet = PrivateKeyBuilder()
         val client = Client().create(account = fakeWallet)
         val bundleV1 = client.v1keys
-        val clientFromV1Bundle = Client().buildFromV1Bundle(bundleV1!!)
+        val clientFromV1Bundle = Client().buildFromV1Bundle(bundleV1)
         assertEquals(client.address, clientFromV1Bundle.address)
         assertEquals(
-            client.privateKeyBundleV1?.identityKey,
-            clientFromV1Bundle.privateKeyBundleV1?.identityKey,
+            client.privateKeyBundleV1.identityKey,
+            clientFromV1Bundle.privateKeyBundleV1.identityKey,
         )
         assertEquals(
-            client.privateKeyBundleV1?.preKeysList,
-            clientFromV1Bundle.privateKeyBundleV1?.preKeysList,
+            client.privateKeyBundleV1.preKeysList,
+            clientFromV1Bundle.privateKeyBundleV1.preKeysList,
         )
     }
 
@@ -93,7 +93,8 @@ class ClientTest {
         assert(client.canMessageV3(listOf(client.address)))
 
         val bundle = client.privateKeyBundle
-        val clientFromV1Bundle = Client().buildFromBundle(bundle, account = fakeWallet, options = options)
+        val clientFromV1Bundle =
+            Client().buildFromBundle(bundle, account = fakeWallet, options = options)
         assertEquals(client.address, clientFromV1Bundle.address)
         assertEquals(
             client.privateKeyBundleV1.identityKey,
@@ -147,8 +148,10 @@ class ClientTest {
                     appContext = context
                 )
             )
-        client.conversations.newGroup(listOf(client2.address,))
-        runBlocking { client.conversations.syncGroups() }
+        runBlocking {
+            client.conversations.newGroup(listOf(client2.address))
+            client.conversations.syncGroups()
+        }
         assertEquals(client.conversations.listGroups().size, 1)
 
         client.deleteLocalDatabase()

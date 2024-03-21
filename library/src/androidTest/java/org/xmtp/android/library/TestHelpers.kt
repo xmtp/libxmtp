@@ -191,17 +191,7 @@ class FakeApiClient : ApiClient {
         published.addAll(envelopes)
         return PublishResponse.newBuilder().build()
     }
-
-    override suspend fun subscribe(topics: List<String>): Flow<Envelope> {
-        val env = stream.counts().first()
-
-        if (topics.contains(env.contentTopic)) {
-            return flowOf(env)
-        }
-        return flowOf()
-    }
-
-    override suspend fun subscribe2(request: Flow<MessageApiOuterClass.SubscribeRequest>): Flow<MessageApiOuterClass.Envelope> {
+    override suspend fun subscribe(request: Flow<MessageApiOuterClass.SubscribeRequest>): Flow<MessageApiOuterClass.Envelope> {
         val env = stream.counts().first()
 
         if (request.first().contentTopicsList.contains(env.contentTopic)) {
@@ -219,11 +209,11 @@ data class Fixtures(
 ) {
     var fakeApiClient: FakeApiClient = FakeApiClient()
     var alice: PrivateKey = aliceAccount.getPrivateKey()
-    var aliceClient: Client = Client().create(account = aliceAccount, apiClient = fakeApiClient, options = clientOptions)
+    var aliceClient: Client = Client().create(account = aliceAccount, options = clientOptions)
     var bob: PrivateKey = bobAccount.getPrivateKey()
-    var bobClient: Client = Client().create(account = bobAccount, apiClient = fakeApiClient, options = clientOptions)
+    var bobClient: Client = Client().create(account = bobAccount, options = clientOptions)
     var caro: PrivateKey = caroAccount.getPrivateKey()
-    var caroClient: Client = Client().create(account = caroAccount, apiClient = fakeApiClient, options = clientOptions)
+    var caroClient: Client = Client().create(account = caroAccount, options = clientOptions)
     constructor(clientOptions: ClientOptions?) : this(
         aliceAccount = PrivateKeyBuilder(),
         bobAccount = PrivateKeyBuilder(),

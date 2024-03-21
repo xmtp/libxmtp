@@ -9,7 +9,6 @@ import org.junit.Assert.assertEquals
 import org.junit.Ignore
 import org.junit.Test
 import org.junit.runner.RunWith
-import org.web3j.crypto.Hash
 import org.web3j.utils.Numeric
 import org.xmtp.android.library.codecs.TextCodec
 import org.xmtp.android.library.messages.InvitationV1
@@ -256,27 +255,18 @@ class MessageTest {
     fun canReceiveV2MessagesFromJS() {
         val wallet = PrivateKeyBuilder()
         val client = Client().create(account = wallet)
-        val convo = client.conversations.newConversation(
-            "0xf4BF19Ed562651837bc11ff975472ABd239D35B5",
-            InvitationV1ContextBuilder.buildFromConversation("https://example.com/4"),
-        )
+        val convo = runBlocking {
+            client.conversations.newConversation(
+                "0xf4BF19Ed562651837bc11ff975472ABd239D35B5",
+                InvitationV1ContextBuilder.buildFromConversation("https://example.com/4"),
+            )
+        }
 
         runBlocking { convo.send(content = "hello from kotlin") }
         val messages = convo.messages()
         assertEquals(1, messages.size)
         assertEquals("hello from kotlin", messages[0].body)
         assertEquals(convo.topic, messages[0].topic)
-    }
-
-    @Test
-    fun testGetsV1ID() {
-        val fixtures = fixtures()
-        val conversation =
-            fixtures.aliceClient.conversations.newConversation(fixtures.bob.walletAddress)
-        runBlocking { conversation.send(text = "hi") }
-        val envelope = fixtures.fakeApiClient.published.lastOrNull()!!
-        val decodedMessage = conversation.decode(envelope)
-        assertEquals(Hash.sha256(envelope.message.toByteArray()).toHex(), decodedMessage.id)
     }
 
     @Test

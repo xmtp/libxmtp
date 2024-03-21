@@ -99,7 +99,7 @@ data class Conversations(
         )
     }
 
-    fun newGroup(
+    suspend fun newGroup(
         accountAddresses: List<String>,
         permissions: GroupPermissions = GroupPermissions.EVERYONE_IS_ADMIN,
     ): Group {
@@ -115,10 +115,9 @@ data class Conversations(
             throw XMTPException("Recipient not on network")
         }
 
-        val group = runBlocking {
+        val group =
             libXMTPConversations?.createGroup(accountAddresses, permissions = permissions)
                 ?: throw XMTPException("Client does not support Groups")
-        }
         client.contacts.allowGroup(groupIds = listOf(group.id()))
 
         return Group(client, group)
@@ -149,7 +148,7 @@ data class Conversations(
      * @return New [Conversation] using the address and according to that address is able to find
      * the topics if exists for that new conversation.
      */
-    fun newConversation(
+    suspend fun newConversation(
         peerAddress: String,
         context: Invitation.InvitationV1.Context? = null,
     ): Conversation {
@@ -484,7 +483,7 @@ data class Conversations(
      * @param created Specified date creation for this invitation.
      * @return [SealedInvitation] with the specified information.
      */
-    fun sendInvitation(
+    suspend fun sendInvitation(
         recipient: SignedPublicKeyBundle,
         invitation: InvitationV1,
         created: Date,
@@ -498,26 +497,24 @@ data class Conversations(
             )
             val peerAddress = recipient.walletAddress
 
-            runBlocking {
-                client.publish(
-                    envelopes = listOf(
-                        EnvelopeBuilder.buildFromTopic(
-                            topic = Topic.userInvite(
-                                client.address,
-                            ),
-                            timestamp = created,
-                            message = sealed.toByteArray(),
+            client.publish(
+                envelopes = listOf(
+                    EnvelopeBuilder.buildFromTopic(
+                        topic = Topic.userInvite(
+                            client.address,
                         ),
-                        EnvelopeBuilder.buildFromTopic(
-                            topic = Topic.userInvite(
-                                peerAddress,
-                            ),
-                            timestamp = created,
-                            message = sealed.toByteArray(),
-                        ),
+                        timestamp = created,
+                        message = sealed.toByteArray(),
                     ),
-                )
-            }
+                    EnvelopeBuilder.buildFromTopic(
+                        topic = Topic.userInvite(
+                            peerAddress,
+                        ),
+                        timestamp = created,
+                        message = sealed.toByteArray(),
+                    ),
+                ),
+            )
             return sealed
         }
     }
@@ -529,8 +526,11 @@ data class Conversations(
      */
     fun stream(): Flow<Conversation> = flow {
         val streamedConversationTopics: MutableSet<String> = mutableSetOf()
-        client.subscribeTopic(
-            listOf(Topic.userIntro(client.address), Topic.userInvite(client.address)),
+        client.subscribe(
+            listOf(
+                Topic.userIntro(client.address).description,
+                Topic.userInvite(client.address).description
+            )
         ).collect { envelope ->
             if (envelope.contentTopic == Topic.userIntro(client.address).description) {
                 val conversationV1 = fromIntro(envelope = envelope)

@@ -26,4 +26,12 @@ enum class XMTPEnvironment(val rawValue: String) {
     fun getValue(): String {
         return if (this == LOCAL && customValue.isNotEmpty()) customValue else rawValue
     }
+
+    fun getUrl(): String {
+        return when (this) {
+            DEV -> "https://${getValue()}:443"
+            PRODUCTION -> "https://${getValue()}:443"
+            LOCAL -> "http://${getValue()}:5556"
+        }
+    }
 }

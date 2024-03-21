@@ -9,10 +9,12 @@ import com.google.crypto.tink.subtle.Base64
 import com.google.gson.GsonBuilder
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withContext
 import org.web3j.crypto.Keys
 import org.web3j.crypto.Keys.toChecksumAddress
+import org.xmtp.android.library.GRPCApiClient.Companion.makeSubscribeRequest
 import org.xmtp.android.library.codecs.ContentCodec
 import org.xmtp.android.library.codecs.TextCodec
 import org.xmtp.android.library.libxmtp.XMTPLogger
@@ -41,6 +43,7 @@ import org.xmtp.android.library.messages.walletAddress
 import org.xmtp.proto.message.api.v1.MessageApiOuterClass
 import org.xmtp.proto.message.api.v1.MessageApiOuterClass.BatchQueryResponse
 import org.xmtp.proto.message.api.v1.MessageApiOuterClass.QueryRequest
+import uniffi.xmtpv3.FfiV2ApiClient
 import uniffi.xmtpv3.FfiXmtpClient
 import uniffi.xmtpv3.LegacyIdentitySource
 import uniffi.xmtpv3.createClient
@@ -86,6 +89,7 @@ class Client() {
     val libXMTPVersion: String = getVersionInfo()
     private var libXMTPClient: FfiXmtpClient? = null
     private var dbPath: String = ""
+    private lateinit var v2RustClient: FfiV2ApiClient
 
     companion object {
         private const val TAG = "Client"
@@ -181,7 +185,10 @@ class Client() {
         val address = bundle.identityKey.publicKey.recoverWalletSignerPublicKey().walletAddress
         val clientOptions = options ?: ClientOptions()
         val apiClient =
-            GRPCApiClient(environment = clientOptions.api.env, secure = clientOptions.api.isSecure)
+            GRPCApiClient(
+                environment = clientOptions.api.env,
+                secure = clientOptions.api.isSecure,
+            )
         val (v3Client, dbPath) = if (isAlphaMlsEnabled(options)) {
             runBlocking {
                 ffiXmtpClient(
@@ -210,7 +217,10 @@ class Client() {
     ): Client {
         val clientOptions = options ?: ClientOptions()
         val apiClient =
-            GRPCApiClient(environment = clientOptions.api.env, secure = clientOptions.api.isSecure)
+            GRPCApiClient(
+                environment = clientOptions.api.env,
+                secure = clientOptions.api.isSecure,
+            )
         return create(
             account = account,
             apiClient = apiClient,
@@ -223,24 +233,32 @@ class Client() {
         apiClient: ApiClient,
         options: ClientOptions? = null,
     ): Client {
+        val clientOptions = options ?: ClientOptions()
         return runBlocking {
             try {
                 val (privateKeyBundleV1, legacyIdentityKey) = loadOrCreateKeys(
                     account,
                     apiClient,
-                    options
+                    clientOptions
                 )
                 val (libXMTPClient, dbPath) =
                     ffiXmtpClient(
                         options,
                         account,
-                        options?.appContext,
+                        clientOptions.appContext,
                         privateKeyBundleV1,
                         legacyIdentityKey,
                         account.address
                     )
+
                 val client =
-                    Client(account.address, privateKeyBundleV1, apiClient, libXMTPClient, dbPath)
+                    Client(
+                        account.address,
+                        privateKeyBundleV1,
+                        apiClient,
+                        libXMTPClient,
+                        dbPath
+                    )
                 client.ensureUserContactPublished()
                 client
             } catch (e: java.lang.Exception) {
@@ -264,7 +282,10 @@ class Client() {
         val address = v1Bundle.identityKey.publicKey.recoverWalletSignerPublicKey().walletAddress
         val newOptions = options ?: ClientOptions()
         val apiClient =
-            GRPCApiClient(environment = newOptions.api.env, secure = newOptions.api.isSecure)
+            GRPCApiClient(
+                environment = newOptions.api.env,
+                secure = newOptions.api.isSecure,
+            )
         val (v3Client, dbPath) = if (isAlphaMlsEnabled(options)) {
             runBlocking {
                 ffiXmtpClient(
@@ -346,7 +367,7 @@ class Client() {
 
                 createClient(
                     logger = logger,
-                    host = if (options.api.env == XMTPEnvironment.LOCAL) "http://${options.api.env.getValue()}:5556" else "https://${options.api.env.getValue()}:443",
+                    host = options.api.env.getUrl(),
                     isSecure = options.api.isSecure,
                     db = dbPath,
                     encryptionKey = encryptionKey,
@@ -479,15 +500,10 @@ class Client() {
     }
 
     suspend fun subscribe(topics: List<String>): Flow<Envelope> {
-        return apiClient.subscribe(topics = topics)
+        return subscribe2(flowOf(makeSubscribeRequest(topics)))
     }
-
     suspend fun subscribe2(request: Flow<MessageApiOuterClass.SubscribeRequest>): Flow<Envelope> {
-        return apiClient.subscribe2(request = request)
-    }
-
-    suspend fun subscribeTopic(topics: List<Topic>): Flow<Envelope> {
-        return subscribe(topics.map { it.description })
+        return apiClient.subscribe(request = request)
     }
 
     fun fetchConversation(topic: String?, includeGroups: Boolean = false): Conversation? {

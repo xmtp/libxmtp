@@ -34,8 +34,7 @@ interface ApiClient {
     suspend fun batchQuery(requests: List<QueryRequest>): BatchQueryResponse
     suspend fun envelopes(topic: String, pagination: Pagination? = null): List<Envelope>
     suspend fun publish(envelopes: List<Envelope>): PublishResponse
-    suspend fun subscribe(topics: List<String>): Flow<Envelope>
-    suspend fun subscribe2(request: Flow<SubscribeRequest>): Flow<Envelope>
+    suspend fun subscribe(request: Flow<SubscribeRequest>): Flow<Envelope>
 }
 
 data class GRPCApiClient(
@@ -183,19 +182,7 @@ data class GRPCApiClient(
         return client.publish(request, headers)
     }
 
-    override suspend fun subscribe(topics: List<String>): Flow<Envelope> {
-        val request = makeSubscribeRequest(topics)
-        val headers = Metadata()
-
-        headers.put(CLIENT_VERSION_HEADER_KEY, Constants.VERSION)
-        if (appVersion != null) {
-            headers.put(APP_VERSION_HEADER_KEY, appVersion)
-        }
-
-        return client.subscribe(request, headers)
-    }
-
-    override suspend fun subscribe2(request: Flow<SubscribeRequest>): Flow<Envelope> {
+    override suspend fun subscribe(request: Flow<SubscribeRequest>): Flow<Envelope> {
         val headers = Metadata()
 
         headers.put(CLIENT_VERSION_HEADER_KEY, Constants.VERSION)

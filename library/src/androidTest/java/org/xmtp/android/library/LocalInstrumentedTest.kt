@@ -63,7 +63,10 @@ class LocalInstrumentedTest {
         val identity = PrivateKey.newBuilder().build().generate()
         val authorized = alice.createIdentity(identity)
         val authToken = authorized.createAuthToken()
-        val api = GRPCApiClient(environment = XMTPEnvironment.LOCAL, secure = false)
+        val api = GRPCApiClient(
+            environment = XMTPEnvironment.LOCAL,
+            secure = false,
+        )
         api.setAuthToken(authToken)
         val encryptedBundle = authorized.toBundle.encrypted(alice)
         val envelope = Envelope.newBuilder().also {
@@ -90,7 +93,10 @@ class LocalInstrumentedTest {
         val identity = PrivateKeyBuilder().getPrivateKey()
         val authorized = aliceWallet.createIdentity(identity)
         val authToken = authorized.createAuthToken()
-        val api = GRPCApiClient(environment = XMTPEnvironment.LOCAL, secure = false)
+        val api = GRPCApiClient(
+            environment = XMTPEnvironment.LOCAL,
+            secure = false,
+        )
         api.setAuthToken(authToken)
         val encryptedBundle =
             PrivateKeyBundleBuilder.buildFromV1Key(v1 = alice).encrypted(aliceWallet)
@@ -126,10 +132,12 @@ class LocalInstrumentedTest {
         val bobClient = Client().create(bob, clientOptions)
         // Publish alice's contact
         Client().create(account = alice, clientOptions)
-        val convo = bobClient.conversations.newConversation(
-            alice.address,
-            context = InvitationV1ContextBuilder.buildFromConversation("hi")
-        )
+        val convo = runBlocking {
+            bobClient.conversations.newConversation(
+                alice.address,
+                context = InvitationV1ContextBuilder.buildFromConversation("hi")
+            )
+        }
         // Say this message is sent in the past
         val date = Date()
         date.time = date.time - 5000
@@ -169,13 +177,15 @@ class LocalInstrumentedTest {
         )
 
         // First Bob starts a conversation with Alice
-        val c1 = bob.conversations.newConversation(
-            alice.address,
-            context = context {
-                conversationId = "example.com/alice-bob-1"
-                metadata["title"] = "First Chat"
-            }
-        )
+        val c1 = runBlocking {
+            bob.conversations.newConversation(
+                alice.address,
+                context = context {
+                    conversationId = "example.com/alice-bob-1"
+                    metadata["title"] = "First Chat"
+                }
+            )
+        }
         runBlocking { c1.send("hello Alice!") }
         delayToPropagate()
 
@@ -185,13 +195,15 @@ class LocalInstrumentedTest {
         assertEquals("example.com/alice-bob-1", aliceConvoList[0].conversationId)
 
         // And later when Bob starts a second conversation with Alice
-        val c2 = bob.conversations.newConversation(
-            alice.address,
-            context = context {
-                conversationId = "example.com/alice-bob-2"
-                metadata["title"] = "Second Chat"
-            }
-        )
+        val c2 = runBlocking {
+            bob.conversations.newConversation(
+                alice.address,
+                context = context {
+                    conversationId = "example.com/alice-bob-2"
+                    metadata["title"] = "Second Chat"
+                }
+            )
+        }
         runBlocking { c2.send("hello again Alice!") }
         delayToPropagate()
 
@@ -209,13 +221,15 @@ class LocalInstrumentedTest {
         val bob = Client().create(PrivateKeyBuilder(), options)
 
         // Alice starts a conversation with Bob
-        val aliceConvo = alice.conversations.newConversation(
-            bob.address,
-            context = context {
-                conversationId = "example.com/alice-bob-1"
-                metadata["title"] = "Chatting Using Saved Credentials"
-            }
-        )
+        val aliceConvo = runBlocking {
+            alice.conversations.newConversation(
+                bob.address,
+                context = context {
+                    conversationId = "example.com/alice-bob-1"
+                    metadata["title"] = "Chatting Using Saved Credentials"
+                }
+            )
+        }
         runBlocking { aliceConvo.send("Hello Bob") }
         delayToPropagate()
 
@@ -279,7 +293,8 @@ class LocalInstrumentedTest {
         aliceClient.conversations.streamAllMessages().mapLatest {
             assertEquals("hi", it.encodedContent.content.toStringUtf8())
         }
-        val bobConversation = bobClient.conversations.newConversation(aliceClient.address)
+        val bobConversation =
+            runBlocking { bobClient.conversations.newConversation(aliceClient.address) }
         runBlocking { bobConversation.send(text = "hi") }
     }
 
@@ -300,7 +315,8 @@ class LocalInstrumentedTest {
         aliceClient.conversations.streamAllMessages().mapLatest {
             assertEquals("hi", it.encodedContent.content.toStringUtf8())
         }
-        val bobConversation = bobClient.conversations.newConversation(aliceClient.address)
+        val bobConversation =
+            runBlocking { bobClient.conversations.newConversation(aliceClient.address) }
         assertEquals(bobConversation.version, Conversation.Version.V1)
         runBlocking { bobConversation.send(text = "hi") }
     }
@@ -737,7 +753,10 @@ class LocalInstrumentedTest {
         val identity = PrivateKey.newBuilder().build().generate()
         val authorized = alice.createIdentity(identity)
         val authToken = authorized.createAuthToken()
-        val api = GRPCApiClient(environment = XMTPEnvironment.LOCAL, secure = false)
+        val api = GRPCApiClient(
+            environment = XMTPEnvironment.LOCAL,
+            secure = false,
+        )
         api.setAuthToken(authToken)
         val encryptedBundle = authorized.toBundle.encrypted(alice)
         val envelope = Envelope.newBuilder().also {
@@ -790,14 +809,18 @@ class LocalInstrumentedTest {
             ClientOptions(api = ClientOptions.Api(env = XMTPEnvironment.LOCAL, isSecure = false))
         val bobClient = Client().create(bob, clientOptions)
         val aliceClient = Client().create(account = alice, options = clientOptions)
-        val aliceConversation = aliceClient.conversations.newConversation(
-            bob.address,
-            context = InvitationV1ContextBuilder.buildFromConversation("https://example.com/3")
-        )
-        val bobConversation = bobClient.conversations.newConversation(
-            alice.address,
-            context = InvitationV1ContextBuilder.buildFromConversation("https://example.com/3")
-        )
+        val aliceConversation = runBlocking {
+            aliceClient.conversations.newConversation(
+                bob.address,
+                context = InvitationV1ContextBuilder.buildFromConversation("https://example.com/3")
+            )
+        }
+        val bobConversation = runBlocking {
+            bobClient.conversations.newConversation(
+                alice.address,
+                context = InvitationV1ContextBuilder.buildFromConversation("https://example.com/3")
+            )
+        }
 
         bobConversation.streamEphemeral().mapLatest {
             assertEquals("hi", it.message.toStringUtf8())

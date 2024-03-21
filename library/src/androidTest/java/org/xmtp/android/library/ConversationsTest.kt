@@ -33,7 +33,7 @@ class ConversationsTest {
         val client = fixtures.aliceClient
         val created = Date()
         val newWallet = PrivateKeyBuilder()
-        val newClient = Client().create(account = newWallet, apiClient = fixtures.fakeApiClient)
+        val newClient = Client().create(account = newWallet)
         val message = MessageV1Builder.buildEncode(
             sender = newClient.privateKeyBundleV1,
             recipient = fixtures.aliceClient.v1keys.toPublicKeyBundle(),
@@ -56,7 +56,7 @@ class ConversationsTest {
         val client = fixtures.aliceClient
         val created = Date()
         val newWallet = PrivateKeyBuilder()
-        val newClient = Client().create(account = newWallet, apiClient = fixtures.fakeApiClient)
+        val newClient = Client().create(account = newWallet)
         val invitation = InvitationV1.newBuilder().build().createDeterministic(
             sender = newClient.keys,
             recipient = client.keys.getPublicKeyBundle()
@@ -87,7 +87,7 @@ class ConversationsTest {
             ClientOptions(api = ClientOptions.Api(env = XMTPEnvironment.LOCAL, isSecure = false))
         val boClient = Client().create(bo, clientOptions)
         val alixClient = Client().create(alix, clientOptions)
-        val boConversation = boClient.conversations.newConversation(alixClient.address)
+        val boConversation = runBlocking { boClient.conversations.newConversation(alixClient.address) }
 
         // Record message stream across all conversations
         val allMessages = mutableListOf<DecodedMessage>()
@@ -109,7 +109,7 @@ class ConversationsTest {
 
         val caro = PrivateKeyBuilder()
         val caroClient = Client().create(caro, clientOptions)
-        val caroConversation = caroClient.conversations.newConversation(alixClient.address)
+        val caroConversation = runBlocking { caroClient.conversations.newConversation(alixClient.address) }
         sleep(2500)
 
         for (i in 0 until 5) {

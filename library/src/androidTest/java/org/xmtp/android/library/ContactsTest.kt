@@ -5,6 +5,7 @@ import org.junit.Assert.assertEquals
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.xmtp.android.library.messages.walletAddress
+
 @RunWith(AndroidJUnit4::class)
 class ContactsTest {
 

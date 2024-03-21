@@ -187,16 +187,7 @@ class FakeApiClient : ApiClient {
         return PublishResponse.newBuilder().build()
     }
 
-    override suspend fun subscribe(topics: List<String>): Flow<Envelope> {
-        val env = stream.counts().first()
-
-        if (topics.contains(env.contentTopic)) {
-            return flowOf(env)
-        }
-        return flowOf()
-    }
-
-    override suspend fun subscribe2(request: Flow<MessageApiOuterClass.SubscribeRequest>): Flow<MessageApiOuterClass.Envelope> {
+    override suspend fun subscribe(request: Flow<MessageApiOuterClass.SubscribeRequest>): Flow<MessageApiOuterClass.Envelope> {
         val env = stream.counts().first()
 
         if (request.first().contentTopicsList.contains(env.contentTopic)) {
