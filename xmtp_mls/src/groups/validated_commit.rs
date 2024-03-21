@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
 use openmls::{
-    credentials::CredentialType,
+    credentials::{BasicCredential, errors::BasicCredentialError, CredentialType},
     group::{QueuedAddProposal, QueuedRemoveProposal},
     prelude::{LeafNodeIndex, MlsGroup as OpenMlsGroup, Sender, StagedCommit},
 };
@@ -47,6 +47,8 @@ pub enum CommitValidationError {
     GroupMetadata(#[from] GroupMetadataError),
     #[error("invalid application id")]
     InvalidApplicationId,
+    #[error("wrong credential type")]
+    WrongCredentialType(#[from] BasicCredentialError),
 }
 
 // A participant in a commit. Could be the actor or the subject of a proposal
@@ -164,8 +166,13 @@ fn extract_actor(
 ) -> Result<CommitParticipant, CommitValidationError> {
     if let Some(leaf_node) = group.member_at(leaf_index) {
         let signature_key = leaf_node.signature_key.as_slice();
+
+        let basic_credential = 
+            BasicCredential::try_from(&leaf_node.credential)
+                .map_err(|_| BasicCredentialError::WrongCredentialType)?;
+
         let account_address =
-            Identity::get_validated_account_address(leaf_node.credential.identity(), signature_key)
+            Identity::get_validated_account_address(basic_credential.identity(), signature_key)
                 .map_err(|_| CommitValidationError::InvalidActorCredential)?;
 
         let is_creator = account_address.eq(&group_metadata.creator_account_address);
@@ -215,8 +222,13 @@ fn extract_identity_from_remove(
 
     if let Some(member) = group.member_at(leaf_index) {
         let signature_key = member.signature_key.as_slice();
+
+        let basic_credential = 
+            BasicCredential::try_from(&member.credential)
+                .map_err(|_| BasicCredentialError::WrongCredentialType)?;
+
         let account_address =
-            Identity::get_validated_account_address(member.credential.identity(), signature_key)
+            Identity::get_validated_account_address(basic_credential.identity(), signature_key)
                 .map_err(|_| CommitValidationError::InvalidSubjectCredential)?;
         let is_creator = account_address.eq(&group_metadata.creator_account_address);
 
@@ -503,7 +515,7 @@ mod tests {
                 &bola.identity.installation_keys,
                 CredentialWithKey {
                     // Broken credential
-                    credential: Credential::new(vec![1, 2, 3], CredentialType::Basic).unwrap(),
+                    credential: Credential::new(CredentialType::Basic, vec![1, 2, 3]),
                     signature_key: bola.identity.installation_keys.to_public_vec().into(),
                 },
             )

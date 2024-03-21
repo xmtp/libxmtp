@@ -1,6 +1,7 @@
 use std::{collections::HashSet, mem::Discriminant};
 
 use openmls:: {
+    credentials::errors::BasicCredentialError, 
     framing::{MlsMessageBodyIn, MlsMessageIn},
     group:: GroupEpoch,
     messages::Welcome,
@@ -120,6 +121,8 @@ pub enum MessageProcessingError {
     EpochIncrementNotAllowed,
     #[error("Welcome processing error: {0}")]
     WelcomeProcessing(String),
+    #[error("wrong credential type")]
+    WrongCredentialType(#[from] BasicCredentialError),
 }
 
 impl crate::retry::RetryableError for MessageProcessingError {

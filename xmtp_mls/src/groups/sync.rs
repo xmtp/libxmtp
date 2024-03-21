@@ -2,6 +2,10 @@ use std::{collections::HashMap, mem::discriminant};
 
 use log::debug;
 use openmls::{
+    credentials::{
+        BasicCredential,
+        errors::BasicCredentialError,
+    }, 
     framing::ProtocolMessage,
     group::MergePendingCommitError,
     prelude::{
@@ -773,8 +777,12 @@ fn validate_message_sender(
     if let Sender::Member(leaf_node_index) = decrypted_message.sender() {
         if let Some(member) = openmls_group.member_at(*leaf_node_index) {
             if member.credential.eq(decrypted_message.credential()) {
+                let basic_credential = 
+                    BasicCredential::try_from(&member.credential)
+                        .map_err(|_| BasicCredentialError::WrongCredentialType)?;
+
                 sender_account_address = Identity::get_validated_account_address(
-                    member.credential.identity(),
+                    basic_credential.identity(),
                     &member.signature_key,
                 )
                 .ok();
@@ -784,9 +792,13 @@ fn validate_message_sender(
     }
 
     if sender_account_address.is_none() {
+        let basic_credential = 
+            BasicCredential::try_from(decrypted_message.credential())
+                .map_err(|_| BasicCredentialError::WrongCredentialType)?;
+
         return Err(MessageProcessingError::InvalidSender {
             message_time_ns: message_created_ns,
-            credential: decrypted_message.credential().identity().to_vec(),
+            credential: basic_credential.identity().to_vec(),
         });
     }
     Ok((

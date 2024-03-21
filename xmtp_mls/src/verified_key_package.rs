@@ -1,17 +1,20 @@
-use openmls::prelude::{
-        KeyPackage, KeyPackageIn, KeyPackageVerifyError,
+use openmls::{
+    credentials::{
+        BasicCredential, errors::BasicCredentialError
+    },
+    prelude::{
         tls_codec::{
-            Deserialize, Error as TlsSerializationError
-        },
-    };
+             Deserialize, Error as TlsSerializationError
+        }, 
+        KeyPackage, KeyPackageIn, KeyPackageVerifyError
+    }
+};
 
 use openmls_rust_crypto::RustCrypto;
 use thiserror::Error;
 
 use crate::{
-    configuration::MLS_PROTOCOL_VERSION,
-    identity::{Identity, IdentityError},
-    types::Address,
+    configuration::MLS_PROTOCOL_VERSION, identity::{Identity, IdentityError}, types::Address
 };
 
 #[derive(Debug, Error)]
@@ -26,10 +29,14 @@ pub enum KeyPackageVerificationError {
     InvalidApplicationId,
     #[error("application id ({0}) does not match the credential address ({1}).")]
     ApplicationIdCredentialMismatch(String, String),
+    #[error("invalid credential")]
+    InvalidCredential,
     #[error("invalid lifetime")]
     InvalidLifetime,
     #[error("generic: {0}")]
     Generic(String),
+    #[error("wrong credential type")]
+    WrongCredentialType(#[from] BasicCredentialError),
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -49,9 +56,13 @@ impl VerifiedKeyPackage {
     // Validates starting with a KeyPackage (which is already validated by OpenMLS)
     pub fn from_key_package(kp: KeyPackage) -> Result<Self, KeyPackageVerificationError> {
         let leaf_node = kp.leaf_node();
-        let identity_bytes = leaf_node.credential().identity();
+
+        let basic_credential = 
+            BasicCredential::try_from(leaf_node.credential())
+                .map_err(|_| BasicCredentialError::WrongCredentialType)?;
+
         let pub_key_bytes = leaf_node.signature_key().as_slice();
-        let account_address = identity_to_account_address(identity_bytes, pub_key_bytes)?;
+        let account_address = identity_to_account_address(basic_credential.identity(), pub_key_bytes)?;
         let application_id = extract_application_id(&kp)?;
         if !account_address.eq(&application_id) {
             return Err(
