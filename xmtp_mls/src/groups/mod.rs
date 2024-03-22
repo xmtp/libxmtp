@@ -6,7 +6,6 @@ mod subscriptions;
 mod sync;
 pub mod validated_commit;
 
-
 use intents::SendMessageIntentData;
 use openmls::{
     extensions::{Extension, Extensions, Metadata},
@@ -55,8 +54,8 @@ use crate::{
     },
     utils::{
         address::{sanitize_evm_addresses, AddressValidationError},
-        time::now_ns,
         id::calculate_message_id,
+        time::now_ns,
     },
     xmtp_openmls_provider::XmtpOpenMlsProvider,
     Client, Store,
