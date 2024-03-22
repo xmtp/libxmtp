@@ -6,6 +6,31 @@ mod subscriptions;
 mod sync;
 pub mod validated_commit;
 
+
+use intents::SendMessageIntentData;
+use openmls::{
+    extensions::{Extension, Extensions, Metadata},
+    group::{MlsGroupCreateConfig, MlsGroupJoinConfig},
+    prelude::{
+        CredentialWithKey, CryptoConfig, GroupId, MlsGroup as OpenMlsGroup, Welcome as MlsWelcome,
+        WireFormatPolicy,
+    },
+};
+use openmls_traits::OpenMlsProvider;
+use prost::Message;
+use thiserror::Error;
+
+use xmtp_cryptography::signature::is_valid_ed25519_public_key;
+use xmtp_proto::{
+    api_client::XmtpMlsClient,
+    xmtp::mls::api::v1::{
+        group_message::{Version as GroupMessageVersion, V1 as GroupMessageV1},
+        GroupMessage,
+    },
+    xmtp::mls::message_contents::plaintext_envelope::{Content, V1},
+    xmtp::mls::message_contents::PlaintextEnvelope,
+};
+
 use self::group_metadata::extract_group_metadata;
 pub use self::group_permissions::PreconfiguredPolicies;
 pub use self::intents::{AddressesOrInstallationIds, IntentError};
@@ -25,34 +50,16 @@ use crate::{
     storage::{
         group::{GroupMembershipState, StoredGroup},
         group_intent::{IntentKind, NewGroupIntent},
-        group_message::{GroupMessageKind, StoredGroupMessage},
+        group_message::{DeliveryStatus, GroupMessageKind, StoredGroupMessage},
         StorageError,
     },
     utils::{
         address::{sanitize_evm_addresses, AddressValidationError},
         time::now_ns,
+        id::calculate_message_id,
     },
     xmtp_openmls_provider::XmtpOpenMlsProvider,
     Client, Store,
-};
-use intents::SendMessageIntentData;
-use openmls::{
-    extensions::{Extension, Extensions, Metadata},
-    group::{MlsGroupCreateConfig, MlsGroupJoinConfig},
-    prelude::{
-        CredentialWithKey, CryptoConfig, GroupId, MlsGroup as OpenMlsGroup, Welcome as MlsWelcome,
-        WireFormatPolicy,
-    },
-};
-use openmls_traits::OpenMlsProvider;
-use thiserror::Error;
-use xmtp_cryptography::signature::is_valid_ed25519_public_key;
-use xmtp_proto::{
-    api_client::XmtpMlsClient,
-    xmtp::mls::api::v1::{
-        group_message::{Version as GroupMessageVersion, V1 as GroupMessageV1},
-        GroupMessage,
-    },
 };
 
 #[derive(Debug, Error)]
@@ -109,6 +116,8 @@ pub enum GroupError {
     Hpke(#[from] HpkeError),
     #[error("identity error: {0}")]
     Identity(#[from] IdentityError),
+    #[error("serialization error: {0}")]
+    EncodeError(#[from] prost::EncodeError),
 }
 
 impl RetryableError for GroupError {
@@ -235,17 +244,52 @@ where
         Self::create_from_welcome(client, provider, welcome)
     }
 
+    fn add_idempotency_key(encoded_msg: &[u8], idempotency_key: &str) -> PlaintextEnvelope {
+        PlaintextEnvelope {
+            content: Some(Content::V1(V1 {
+                content: encoded_msg.to_vec(),
+                idempotency_key: idempotency_key.into(),
+            })),
+        }
+    }
+
     pub async fn send_message(&self, message: &[u8]) -> Result<(), GroupError> {
         let conn = &mut self.client.store.conn()?;
 
-        let update_interval = Some(5_000_000); // 5 seconds in ns
+        let update_interval = Some(5_000_000); // 5 seconds in nanoseconds
         self.maybe_update_installations(conn, update_interval)
             .await?;
 
-        let intent_data: Vec<u8> = SendMessageIntentData::new(message.to_vec()).into();
+        let now = now_ns();
+        let plain_envelope = Self::add_idempotency_key(message, &now.to_string());
+        let mut encoded_envelope = vec![];
+        plain_envelope
+            .encode(&mut encoded_envelope)
+            .map_err(GroupError::EncodeError)?;
+
+        let intent_data: Vec<u8> = SendMessageIntentData::new(encoded_envelope).into();
         let intent =
             NewGroupIntent::new(IntentKind::SendMessage, self.group_id.clone(), intent_data);
         intent.store(conn)?;
+
+        // store this unpublished message locally before sending
+        let message_id = calculate_message_id(
+            &self.group_id,
+            message,
+            &self.client.account_address(),
+            &now.to_string(),
+        );
+        let group_message = StoredGroupMessage {
+            id: message_id,
+            group_id: self.group_id.clone(),
+            decrypted_message_bytes: message.to_vec(),
+            sent_at_ns: now,
+            kind: GroupMessageKind::Application,
+            sender_installation_id: self.client.installation_public_key(),
+            sender_account_address: self.client.account_address(),
+            delivery_status: DeliveryStatus::Unpublished,
+        };
+        group_message.store(conn)?;
 
         // Skipping a full sync here and instead just firing and forgetting
         if let Err(err) = self.publish_intents(conn).await {
@@ -254,17 +298,25 @@ where
         Ok(())
     }
 
-    // Query the database for stored messages. Optionally filtered by time, kind, and limit
+    // Query the database for stored messages. Optionally filtered by time, kind, delivery_status
+    // and limit
     pub fn find_messages(
         &self,
         kind: Option<GroupMessageKind>,
         sent_before_ns: Option<i64>,
         sent_after_ns: Option<i64>,
+        delivery_status: Option<DeliveryStatus>,
         limit: Option<i64>,
     ) -> Result<Vec<StoredGroupMessage>, GroupError> {
         let conn = self.client.store.conn()?;
-        let messages =
-            conn.get_group_messages(&self.group_id, sent_after_ns, sent_before_ns, kind, limit)?;
+        let messages = conn.get_group_messages(
+            &self.group_id,
+            sent_after_ns,
+            sent_before_ns,
+            kind,
+            delivery_status,
+            limit,
+        )?;
 
         Ok(messages)
     }
@@ -465,7 +517,7 @@ mod tests {
 
     async fn get_latest_message<'c>(group: &MlsGroup<'c, GrpcClient>) -> StoredGroupMessage {
         group.sync().await.unwrap();
-        let mut messages = group.find_messages(None, None, None, None).unwrap();
+        let mut messages = group.find_messages(None, None, None, None, None).unwrap();
 
         messages.pop().unwrap()
     }
@@ -497,7 +549,7 @@ mod tests {
         group.receive(&client.store.conn().unwrap()).await.unwrap();
         // Check for messages
         // println!("HERE: {:#?}", messages);
-        let messages = group.find_messages(None, None, None, None).unwrap();
+        let messages = group.find_messages(None, None, None, None, None).unwrap();
         assert_eq!(messages.len(), 1);
         assert_eq!(messages.first().unwrap().decrypted_message_bytes, msg);
     }
@@ -628,7 +680,7 @@ mod tests {
             .await
             .expect("group create failure");
 
-        let messages_with_add = group.find_messages(None, None, None, None).unwrap();
+        let messages_with_add = group.find_messages(None, None, None, None, None).unwrap();
         assert_eq!(messages_with_add.len(), 1);
 
         // Try and add another member without merging the pending commit
@@ -637,7 +689,7 @@ mod tests {
             .await
             .expect("group create failure");
 
-        let messages_with_remove = group.find_messages(None, None, None, None).unwrap();
+        let messages_with_remove = group.find_messages(None, None, None, None, None).unwrap();
         assert_eq!(messages_with_remove.len(), 2);
 
         // We are expecting 1 message on the group topic, not 2, because the second one should have
@@ -684,7 +736,9 @@ mod tests {
         let bola_groups = bola_client.find_groups(None, None, None, None).unwrap();
         let bola_group = bola_groups.first().unwrap();
         bola_group.sync().await.unwrap();
-        let bola_messages = bola_group.find_messages(None, None, None, None).unwrap();
+        let bola_messages = bola_group
+            .find_messages(None, None, None, None, None)
+            .unwrap();
         assert_eq!(bola_messages.len(), 1);
     }
 
@@ -721,7 +775,7 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(group.members().unwrap().len(), 3);
-        let messages = group.find_messages(None, None, None, None).unwrap();
+        let messages = group.find_messages(None, None, None, None, None).unwrap();
         assert_eq!(messages.len(), 1);
         assert_eq!(messages[0].kind, GroupMessageKind::MembershipChange);
         let encoded_content =
@@ -737,7 +791,7 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(group.members().unwrap().len(), 2);
-        let messages = group.find_messages(None, None, None, None).unwrap();
+        let messages = group.find_messages(None, None, None, None, None).unwrap();
         assert_eq!(messages.len(), 2);
         assert_eq!(messages[1].kind, GroupMessageKind::MembershipChange);
         let encoded_content =

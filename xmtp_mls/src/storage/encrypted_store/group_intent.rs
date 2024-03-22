@@ -20,7 +20,6 @@ pub type ID = i32;
 #[repr(i32)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, AsExpression, FromSqlRow)]
 #[diesel(sql_type = Integer)]
-/// Status of membership in a group, once a user sends a request to join
 pub enum IntentKind {
     SendMessage = 1,
     AddMembers = 2,
@@ -31,7 +30,6 @@ pub enum IntentKind {
 #[repr(i32)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, AsExpression, FromSqlRow)]
 #[diesel(sql_type = Integer)]
-/// Status of membership in a group, once a user sends a request to join
 pub enum IntentState {
     ToPublish = 1,
     Published = 2,

@@ -1,6 +1,6 @@
 # XMTP MLS
 
-This document describes plans for how XMTP can implement [Messaging Layer Security](https://messaginglayersecurity.rocks/) (MLS).
+This document describes how XMTP implements [Messaging Layer Security](https://messaginglayersecurity.rocks/) (MLS).
 
 ## Database Schema
 
@@ -35,6 +35,8 @@ CREATE TABLE group_messages (
     -- Could remove this if we added a table mapping installation_ids to wallet addresses
     "sender_installation_id" BLOB NOT NULL,
     "sender_account_address" TEXT NOT NULL,
+    -- Enum: 1 = 'published' or 2 = 'unpublished'
+    "delivery_status" INT NOT NULL,
     FOREIGN KEY (group_id) REFERENCES groups(id)
 );
 
