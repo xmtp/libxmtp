@@ -21,6 +21,7 @@ import org.xmtp.android.example.extension.stateFlow
 import org.xmtp.android.example.pushnotifications.PushNotificationTokenManager
 import org.xmtp.android.library.Conversation
 import org.xmtp.android.library.DecodedMessage
+import org.xmtp.android.library.push.Service
 
 class MainViewModel : ViewModel() {
 
@@ -44,7 +45,24 @@ class MainViewModel : ViewModel() {
             val listItems = mutableListOf<MainListItem>()
             try {
                 val conversations = ClientManager.client.conversations.list(includeGroups = true)
-                PushNotificationTokenManager.xmtpPush.subscribe(conversations.map { it.topic })
+                val subscriptions = conversations.map {
+                    val hmacKeysResult = ClientManager.client.conversations.getHmacKeys()
+                    val hmacKeys = hmacKeysResult.hmacKeysMap
+                    val result = hmacKeys[it.topic]?.valuesList?.map { hmacKey ->
+                        Service.Subscription.HmacKey.newBuilder().also { sub_key ->
+                            sub_key.key = hmacKey.hmacKey
+                            sub_key.thirtyDayPeriodsSinceEpoch = hmacKey.thirtyDayPeriodsSinceEpoch
+                        }.build()
+                    }
+
+                    Service.Subscription.newBuilder().also { sub ->
+                        sub.addAllHmacKeys(result)
+                        sub.topic = it.topic
+                        sub.isSilent = it.version == Conversation.Version.V1
+                    }.build()
+                }
+
+                PushNotificationTokenManager.xmtpPush.subscribeWithMetadata(subscriptions)
                 listItems.addAll(
                     conversations.map { conversation ->
                         val lastMessage = fetchMostRecentMessage(conversation)

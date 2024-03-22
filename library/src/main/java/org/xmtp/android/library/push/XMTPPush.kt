@@ -51,6 +51,17 @@ class XMTPPush() {
         client.subscribe(request)
     }
 
+    fun subscribeWithMetadata(subscriptions: List<Service.Subscription>) {
+        if (pushServer == "") {
+            throw XMTPException("No push server")
+        }
+        val request = Service.SubscribeWithMetadataRequest.newBuilder().also { request ->
+            request.installationId = installationId
+            request.addAllSubscriptions(subscriptions)
+        }.build()
+        client.subscribeWithMetadata(request)
+    }
+
     fun unsubscribe(topics: List<String>) {
         if (pushServer == "") {
             throw XMTPException("No push server")
