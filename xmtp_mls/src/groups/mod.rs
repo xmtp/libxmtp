@@ -6,6 +6,7 @@ mod subscriptions;
 mod sync;
 pub mod validated_commit;
 
+
 use intents::SendMessageIntentData;
 use openmls::{
     extensions::{Extension, Extensions, Metadata},
@@ -39,7 +40,6 @@ use self::{
     intents::{AddMembersIntentData, RemoveMembersIntentData},
     validated_commit::CommitValidationError,
 };
-
 use crate::{
     client::{deserialize_welcome, ClientError, MessageProcessingError},
     configuration::{CIPHERSUITE, MAX_GROUP_SIZE},
@@ -55,8 +55,8 @@ use crate::{
     },
     utils::{
         address::{sanitize_evm_addresses, AddressValidationError},
-        id::calculate_message_id,
         time::now_ns,
+        id::calculate_message_id,
     },
     xmtp_openmls_provider::XmtpOpenMlsProvider,
     Client, Store,
