@@ -108,7 +108,7 @@ pub enum MessageProcessingError {
     #[error("storage error: {0}")]
     Storage(#[from] crate::storage::StorageError),
     #[error("tls deserialization: {0}")]
-    TlsDeserialization(#[from] tls_codec::Error),
+    TlsDeserialization(#[from] openmls::prelude::Error),
     #[error("unsupported message type: {0:?}")]
     UnsupportedMessageType(Discriminant<MlsMessageBodyIn>),
     #[error("commit validation")]
@@ -270,7 +270,8 @@ where
         let kp = self
             .identity
             .new_key_package(&self.mls_provider(&connection))?;
-        let kp_bytes = kp.tls_serialize_detached().unwrap();
+        let kp_bytes = kp.tls_serialize_detached()
+            .map_err(|e| ClientError::Serialization(e))?;
         self.api_client.upload_key_package(kp_bytes).await?;
 
         Ok(())

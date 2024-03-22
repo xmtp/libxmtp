@@ -304,7 +304,8 @@ where
         envelope: &GroupMessageV1,
         allow_epoch_increment: bool,
     ) -> Result<(), MessageProcessingError> {
-        let mls_message_in = MlsMessageIn::tls_deserialize_exact(&envelope.data).unwrap();
+        let mls_message_in = MlsMessageIn::tls_deserialize_exact(&envelope.data)
+            .map_err(|e| MessageProcessingError::TlsDeserialization(e))?;
 
         let message = match mls_message_in.extract() {
             MlsMessageBodyIn::PrivateMessage(message) => Ok(message),
@@ -521,7 +522,8 @@ where
                     intent_data.message.as_slice(),
                 )?;
 
-                let msg_bytes = msg.tls_serialize_detached().unwrap();
+                let msg_bytes = msg.tls_serialize_detached()
+                    .map_err(|e| GroupError::TlsSerialization(e))?;
                 Ok((msg_bytes, None))
             }
             IntentKind::AddMembers => {
@@ -546,7 +548,8 @@ where
                     ValidatedCommit::from_staged_commit(staged_commit, openmls_group)?;
                 }
 
-                let commit_bytes = commit.tls_serialize_detached().unwrap();
+                let commit_bytes = commit.tls_serialize_detached()
+                    .map_err(|e| GroupError::TlsSerialization(e))?;
 
                 let installations = key_packages
                     .iter()
@@ -599,7 +602,8 @@ where
                     ValidatedCommit::from_staged_commit(staged_commit, openmls_group)?;
                 }
 
-                let commit_bytes = commit.tls_serialize_detached().unwrap();
+                let commit_bytes = commit.tls_serialize_detached()
+                    .map_err(|e| GroupError::TlsSerialization(e))?;
 
                 Ok((commit_bytes, None))
             }
@@ -607,7 +611,9 @@ where
                 let (commit, _, _) =
                     openmls_group.self_update(provider, &self.client.identity.installation_keys)?;
 
-                Ok((commit.tls_serialize_detached().unwrap(), None))
+                Ok((commit.tls_serialize_detached()
+                    .map_err(|e| GroupError::TlsSerialization(e))?, 
+                None))
             }
         }
     }

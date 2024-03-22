@@ -1,4 +1,4 @@
-use openmls::prelude::MlsMessageOut;
+use openmls::prelude::{MlsMessageOut, tls_codec::Error as TlsSerializationError,};
 use prost::{DecodeError, Message};
 use thiserror::Error;
 use openmls::prelude::tls_codec::Serialize;
@@ -32,6 +32,8 @@ pub enum IntentError {
     TlsCodec(#[from] tls_codec::Error),
     #[error("generic: {0}")]
     Generic(String),
+    #[error("serialization error: {0}")]
+    TlsSerialization(#[from] TlsSerializationError),
 }
 
 #[derive(Debug, Clone)]
@@ -318,7 +320,8 @@ impl PostCommitAction {
         welcome: MlsMessageOut,
         installations: Vec<Installation>,
     ) -> Result<Self, IntentError> {
-        let welcome_bytes = welcome.tls_serialize_detached().unwrap();
+        let welcome_bytes = welcome.tls_serialize_detached()
+            .map_err(|e| IntentError::TlsSerialization(e))?;
 
         Ok(Self::SendWelcomes(SendWelcomesAction::new(
             installations,

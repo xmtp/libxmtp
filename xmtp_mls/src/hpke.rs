@@ -17,8 +17,8 @@ use crate::{
 pub enum HpkeError {
     #[error("OpenMLS HPKE error: {0}")]
     Hpke(#[from] OpenmlsHpkeError),
-    #[error("TLS codec error: {0}")]
-    Tls(#[from] tls_codec::Error),
+    #[error("tls error: {0}")]
+    TlsError(#[from] openmls::prelude::Error),
     #[error("Key not found")]
     KeyNotFound,
 }
@@ -34,7 +34,8 @@ pub fn encrypt_welcome(welcome_payload: &[u8], hpke_key: &[u8]) -> Result<Vec<u8
         &crypto,
     )?;
 
-    let serialized_ciphertext = ciphertext.tls_serialize_detached().unwrap();
+    let serialized_ciphertext = ciphertext.tls_serialize_detached()
+        .map_err(|e| HpkeError::TlsError(e))?;
 
     Ok(serialized_ciphertext)
 }
@@ -49,7 +50,8 @@ pub fn decrypt_welcome(
         .read::<HpkePrivateKey>(hpke_public_key)
         .ok_or(HpkeError::KeyNotFound)?;
 
-    let ciphertext = HpkeCiphertext::tls_deserialize_exact(ciphertext).unwrap();
+    let ciphertext = HpkeCiphertext::tls_deserialize_exact(ciphertext)
+        .map_err(|e| HpkeError::TlsError(e))?;
 
     Ok(decrypt_with_label(
         private_key.to_vec().as_slice(),

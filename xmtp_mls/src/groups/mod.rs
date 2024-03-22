@@ -68,7 +68,7 @@ pub enum GroupError {
     #[error("create message: {0}")]
     CreateMessage(#[from] openmls::prelude::CreateMessageError),
     #[error("tls serialization: {0}")]
-    TlsSerialization(#[from] tls_codec::Error),
+    TlsSerialization(#[from] openmls::prelude::Error),
     #[error("add members: {0}")]
     AddMembers(#[from] openmls::prelude::AddMembersError<StorageError>),
     #[error("remove members: {0}")]
