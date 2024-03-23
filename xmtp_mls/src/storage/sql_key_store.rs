@@ -32,9 +32,14 @@ impl OpenMlsKeyStore for SqlKeyStore<'_> {
     /// serialization for ID `k`.
     ///
     /// Returns an error if storing fails.
-    fn store<V: MlsEntity>(&self, k: &[u8], v: &V) -> Result<(), Self::Error> {
+    fn store<V: MlsEntity>(
+        &self,
+        k: &[u8],
+        v: &V,
+        expiration: Option<u64>,
+    ) -> Result<(), Self::Error> {
         self.conn()
-            .insert_or_update_key_store_entry(k.to_vec(), db_serialize(v)?)?;
+            .insert_or_update_key_store_entry(k.to_vec(), db_serialize(v)?, expiration)?;
         Ok(())
     }
 
@@ -97,7 +102,7 @@ mod tests {
         let signature_keys = SignatureKeyPair::new(CIPHERSUITE.signature_algorithm()).unwrap();
         let index = "index".as_bytes();
         assert!(key_store.read::<SignatureKeyPair>(index).is_none());
-        key_store.store(index, &signature_keys).unwrap();
+        key_store.store(index, &signature_keys, None).unwrap();
         assert!(key_store.read::<SignatureKeyPair>(index).is_some());
         key_store.delete::<SignatureKeyPair>(index).unwrap();
         assert!(key_store.read::<SignatureKeyPair>(index).is_none());

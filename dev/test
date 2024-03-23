@@ -1,4 +1,4 @@
 #!/bin/bash
 set -eou pipefail
 
-cargo test "$@"
+cargo test "$@" -- --test-threads=1

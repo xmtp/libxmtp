@@ -441,6 +441,12 @@ where
             })
             .collect();
 
+        if groups.len() > 0 {
+            if let Err(err) = self.rotate_key_package().await {
+                log::error!("Error rotating key package: {:?}", err);
+            }
+        }
+
         Ok(groups)
     }
 
