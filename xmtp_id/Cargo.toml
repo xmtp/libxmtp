@@ -1,5 +1,5 @@
 [package]
-name = "xmtp_xid"
+name = "xmtp_id"
 version = "0.1.0"
 edition = "2021"
 
