@@ -11,9 +11,11 @@ tracing.workspace = true
 thiserror.workspace = true
 xmtp_cryptography.workspace = true 
 xmtp_mls.workspace = true
+xmtp_proto.workspace = true
 openmls_traits.workspace = true
 openmls.workspace = true
+openmls_basic_credential.workspace = true
 prost.workspace = true
 tls_codec.workspace = true
-xmtp_proto.workspace = true
-
+chrono.workspace = true
+serde.workspace = true

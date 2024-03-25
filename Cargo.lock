@@ -6193,6 +6193,7 @@ version = "0.1.0"
 dependencies = [
  "log",
  "openmls",
+ "openmls_basic_credential",
  "openmls_traits",
  "prost 0.12.3",
  "thiserror",
