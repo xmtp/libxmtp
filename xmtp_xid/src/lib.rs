@@ -12,7 +12,9 @@ use xmtp_mls::{
 use crate::error::IdentityError;
 
 pub struct Identity {
+    #[allow(dead_code)]
     pub(crate) account_address: Address,
+    #[allow(dead_code)]
     pub(crate) installation_keys: SignatureKeyPair,
     pub(crate) credential: RwLock<Option<OpenMlsCredential>>,
     pub(crate) unsigned_association_data: Option<UnsignedGrantMessagingAccessData>,
@@ -21,6 +23,7 @@ pub struct Identity {
 impl Identity {
     // Creates a credential that is not yet wallet signed. Implementors should sign the payload returned by 'text_to_sign'
     // and call 'register' with the signature.
+    #[allow(dead_code)]
     pub(crate) fn create_to_be_signed(account_address: String) -> Result<Self, IdentityError> {
         let signature_keys = SignatureKeyPair::new(CIPHERSUITE.signature_algorithm())?;
         let unsigned_association_data = UnsignedGrantMessagingAccessData::new(
