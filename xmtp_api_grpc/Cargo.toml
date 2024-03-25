@@ -10,7 +10,7 @@ futures = "0.3.29"
 hex.workspace = true
 http-body = "0.4.5"
 hyper = "0.14.26"
-log = { version = "0.4", features = ["std"] }
+log = { workspace = true, features = ["std"] }
 pbjson = "0.5.1"
 pbjson-types = "0.5.1"
 prost = { workspace = true, features = ["prost-derive"] }
