@@ -42,8 +42,8 @@ chrono = "0.4.31"
 libsqlite3-sys = { version = "0.26.0", optional = true }
 smart-default = "0.7.1"
 toml = "0.8.4"
-xmtp_cryptography = { path = "../xmtp_cryptography" }
-xmtp_proto = { path = "../xmtp_proto", features = ["proto_full"] }
+xmtp_proto = { workspace = true, features = ["proto_full"] }
+xmtp_cryptography = { workspace = true }
 xmtp_v2 = { path = "../xmtp_v2" }
 
 [dev-dependencies]

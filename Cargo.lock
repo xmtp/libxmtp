@@ -6192,7 +6192,15 @@ name = "xmtp_xid"
 version = "0.1.0"
 dependencies = [
  "log",
+ "openmls",
+ "openmls_traits",
+ "prost 0.12.3",
+ "thiserror",
+ "tls_codec",
  "tracing",
+ "xmtp_cryptography",
+ "xmtp_mls",
+ "xmtp_proto",
 ]
 
 [[package]]
