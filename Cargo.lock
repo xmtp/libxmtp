@@ -6191,11 +6191,13 @@ dependencies = [
 name = "xmtp_xid"
 version = "0.1.0"
 dependencies = [
+ "chrono",
  "log",
  "openmls",
  "openmls_basic_credential",
  "openmls_traits",
  "prost 0.12.3",
+ "serde",
  "thiserror",
  "tls_codec",
  "tracing",

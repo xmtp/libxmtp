@@ -6,7 +6,7 @@ rust-version = "1.64"
 
 [dependencies]
 aes-gcm = "0.10.1"
-chrono = "0.4.23"
+chrono = { workspace = true } 
 ecdsa = "0.15.1"
 ethers-core = { workspace = true }
 generic-array = "0.14.6"

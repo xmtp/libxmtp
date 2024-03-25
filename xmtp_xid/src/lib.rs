@@ -1,6 +1,6 @@
 pub mod error;
 
-use std::collections::RwLock;
+use std::sync::RwLock;
 
 use openmls::prelude::Credential as OpenMlsCredential;
 use openmls_basic_credential::SignatureKeyPair;
