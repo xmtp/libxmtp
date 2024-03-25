@@ -5763,10 +5763,28 @@ dependencies = [
 ]
 
 [[package]]
+name = "xmtp_id"
+version = "0.1.0"
+dependencies = [
+ "chrono",
+ "log",
+ "openmls",
+ "openmls_basic_credential",
+ "openmls_traits",
+ "prost 0.12.3",
+ "serde",
+ "thiserror",
+ "tls_codec",
+ "tracing",
+ "xmtp_cryptography",
+ "xmtp_mls",
+ "xmtp_proto",
+]
+
+[[package]]
 name = "xmtp_mls"
 version = "0.1.0"
 dependencies = [
- "anyhow",
  "async-trait",
  "chrono",
  "ctor",
@@ -5793,8 +5811,7 @@ dependencies = [
  "thiserror",
  "tls_codec",
  "tokio",
- "toml 0.7.8",
- "tracing",
+ "toml 0.8.8",
  "tracing-subscriber",
  "xmtp_api_grpc",
  "xmtp_cryptography",
