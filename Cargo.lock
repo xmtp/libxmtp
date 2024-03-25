@@ -6101,7 +6101,6 @@ dependencies = [
 name = "xmtp_mls"
 version = "0.1.0"
 dependencies = [
- "anyhow",
  "async-trait",
  "chrono",
  "ctor",
@@ -6128,7 +6127,7 @@ dependencies = [
  "thiserror",
  "tls_codec",
  "tokio",
- "toml 0.7.8",
+ "toml 0.8.8",
  "tracing",
  "tracing-subscriber",
  "xmtp_api_grpc",
@@ -6188,6 +6187,10 @@ dependencies = [
  "thiserror",
  "tokio",
 ]
+
+[[package]]
+name = "xmtp_xid"
+version = "0.1.0"
 
 [[package]]
 name = "xps-client"
