@@ -8,7 +8,7 @@ members = [
   "xmtp_proto",
   "xmtp_user_preferences",
   "xmtp_v2",
-  "xmtp_mls", "xps-client",
+  "xmtp_mls",
 ]
 
 exclude = [
