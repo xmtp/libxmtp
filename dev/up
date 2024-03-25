@@ -14,7 +14,7 @@ if [[ "${OSTYPE}" == "darwin"* ]]; then
     if ! swiftformat -version &>/dev/null; then brew install swiftformat; fi
 fi
 
-# rustup update
+rustup update
 
 dev/build_validation_service_local
 dev/docker/up
