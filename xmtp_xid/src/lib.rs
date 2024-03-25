@@ -58,6 +58,4 @@ impl Identity {
 
 #[cfg(test)]
 mod tests {
-
-  
 }
