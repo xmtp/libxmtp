@@ -320,15 +320,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d86b93f97252c47b41663388e6d155714a9d0c398b99f1005cbc5f978b29f445"
 
 [[package]]
-name = "beef"
-version = "0.5.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3a8241f3ebb85c056b509d4327ad0358fbbba6ffb340bf388f26350aeda225b1"
-dependencies = [
- "serde",
-]
-
-[[package]]
 name = "bit-set"
 version = "0.5.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2310,178 +2301,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "jsonrpsee"
-version = "0.21.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9579d0ca9fb30da026bac2f0f7d9576ec93489aeb7cd4971dd5b4617d82c79b2"
-dependencies = [
- "jsonrpsee-core 0.21.0",
- "jsonrpsee-proc-macros 0.21.0",
- "jsonrpsee-server 0.21.0",
- "jsonrpsee-types 0.21.0",
- "tokio",
- "tracing",
-]
-
-[[package]]
-name = "jsonrpsee"
-version = "0.22.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4a95f7cc23d5fab0cdeeaf6bad8c8f5e7a3aa7f0d211957ea78232b327ab27b0"
-dependencies = [
- "jsonrpsee-core 0.22.0",
- "jsonrpsee-proc-macros 0.22.0",
- "jsonrpsee-server 0.22.0",
- "jsonrpsee-types 0.22.0",
- "tokio",
- "tracing",
-]
-
-[[package]]
-name = "jsonrpsee-core"
-version = "0.21.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "776d009e2f591b78c038e0d053a796f94575d66ca4e77dd84bfc5e81419e436c"
-dependencies = [
- "anyhow",
- "async-trait",
- "beef",
- "futures-util",
- "hyper 0.14.28",
- "jsonrpsee-types 0.21.0",
- "parking_lot",
- "rand",
- "rustc-hash",
- "serde",
- "serde_json",
- "thiserror",
- "tokio",
- "tracing",
-]
-
-[[package]]
-name = "jsonrpsee-core"
-version = "0.22.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "82030d038658974732103e623ba2e0abec03bbbe175b39c0a2fafbada60c5868"
-dependencies = [
- "anyhow",
- "async-trait",
- "beef",
- "futures-util",
- "hyper 0.14.28",
- "jsonrpsee-types 0.22.0",
- "parking_lot",
- "rand",
- "rustc-hash",
- "serde",
- "serde_json",
- "thiserror",
- "tokio",
- "tracing",
-]
-
-[[package]]
-name = "jsonrpsee-proc-macros"
-version = "0.21.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d94b7505034e2737e688e1153bf81e6f93ad296695c43958d6da2e4321f0a990"
-dependencies = [
- "heck",
- "proc-macro-crate 2.0.0",
- "proc-macro2",
- "quote",
- "syn 1.0.109",
-]
-
-[[package]]
-name = "jsonrpsee-proc-macros"
-version = "0.22.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "69fc56131589f82e57805f7338b87023db4aafef813555708b159787e34ad6bc"
-dependencies = [
- "heck",
- "proc-macro-crate 3.0.0",
- "proc-macro2",
- "quote",
- "syn 1.0.109",
-]
-
-[[package]]
-name = "jsonrpsee-server"
-version = "0.21.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5cc7c6d1a2c58f6135810284a390d9f823d0f508db74cd914d8237802de80f98"
-dependencies = [
- "futures-util",
- "http 0.2.11",
- "hyper 0.14.28",
- "jsonrpsee-core 0.21.0",
- "jsonrpsee-types 0.21.0",
- "pin-project",
- "route-recognizer",
- "serde",
- "serde_json",
- "soketto",
- "thiserror",
- "tokio",
- "tokio-stream",
- "tokio-util",
- "tower",
- "tracing",
-]
-
-[[package]]
-name = "jsonrpsee-server"
-version = "0.22.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d85be77fe5b2a94589e3164fb780017f7aff7d646b49278c0d0346af16975c8e"
-dependencies = [
- "futures-util",
- "http 0.2.11",
- "hyper 0.14.28",
- "jsonrpsee-core 0.22.0",
- "jsonrpsee-types 0.22.0",
- "pin-project",
- "route-recognizer",
- "serde",
- "serde_json",
- "soketto",
- "thiserror",
- "tokio",
- "tokio-stream",
- "tokio-util",
- "tower",
- "tracing",
-]
-
-[[package]]
-name = "jsonrpsee-types"
-version = "0.21.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3266dfb045c9174b24c77c2dfe0084914bb23a6b2597d70c9dc6018392e1cd1b"
-dependencies = [
- "anyhow",
- "beef",
- "serde",
- "serde_json",
- "thiserror",
-]
-
-[[package]]
-name = "jsonrpsee-types"
-version = "0.22.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9a48fdc1202eafc51c63e00406575e59493284ace8b8b61aa16f3a6db5d64f1a"
-dependencies = [
- "anyhow",
- "beef",
- "serde",
- "serde_json",
- "thiserror",
-]
-
-[[package]]
 name = "jsonwebtoken"
 version = "8.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2574,57 +2393,6 @@ name = "lazy_static"
 version = "1.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e2abad23fbc42b3700f2f279844dc832adb2b2eb069b2df918f455c4e18cc646"
-
-[[package]]
-name = "lib-didethresolver"
-version = "0.1.0"
-source = "git+https://github.com/xmtp/didethresolver?branch=main#05b7e66372fdac703bebc51d01afcbce0e460908"
-dependencies = [
- "async-trait",
- "base64 0.21.6",
- "bs58",
- "chrono",
- "ethers",
- "hex",
- "jsonrpsee 0.21.0",
- "log",
- "peg",
- "percent-encoding",
- "rand",
- "rustc-hex",
- "serde",
- "sha3",
- "smart-default",
- "thiserror",
- "tokio",
- "tracing",
- "url",
-]
-
-[[package]]
-name = "lib-xps"
-version = "0.1.0"
-source = "git+https://github.com/xmtp/xps-gateway?branch=main#d01fe2b34a2f85b2c2f6493e6e1538ac4bbb0669"
-dependencies = [
- "anyhow",
- "async-trait",
- "ctor",
- "ethers",
- "hex",
- "jsonrpsee 0.22.0",
- "lib-didethresolver",
- "log",
- "messaging",
- "rand",
- "registry",
- "serde",
- "thiserror",
- "tokio",
- "tokio-stream",
- "tracing",
- "tracing-subscriber",
- "xps-types",
-]
 
 [[package]]
 name = "libc"
@@ -2765,21 +2533,6 @@ name = "memchr"
 version = "2.7.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "523dc4f511e55ab87b694dc30d0f820d60906ef06413f93d4d7a1385599cc149"
-
-[[package]]
-name = "messaging"
-version = "0.1.0"
-source = "git+https://github.com/xmtp/xps-gateway?branch=main#d01fe2b34a2f85b2c2f6493e6e1538ac4bbb0669"
-dependencies = [
- "async-trait",
- "ethers",
- "log",
- "serde",
- "thiserror",
- "tokio",
- "tracing",
- "xps-types",
-]
 
 [[package]]
 name = "migrations_internals"
@@ -3352,33 +3105,6 @@ dependencies = [
  "digest 0.10.7",
  "hmac 0.12.1",
 ]
-
-[[package]]
-name = "peg"
-version = "0.8.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "400bcab7d219c38abf8bd7cc2054eb9bbbd4312d66f6a5557d572a203f646f61"
-dependencies = [
- "peg-macros",
- "peg-runtime",
-]
-
-[[package]]
-name = "peg-macros"
-version = "0.8.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "46e61cce859b76d19090f62da50a9fe92bab7c2a5f09e183763559a2ac392c90"
-dependencies = [
- "peg-runtime",
- "proc-macro2",
- "quote",
-]
-
-[[package]]
-name = "peg-runtime"
-version = "0.8.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "36bae92c60fa2398ce4678b98b2c4b5a7c61099961ca1fa305aec04a9ad28922"
 
 [[package]]
 name = "pem"
@@ -3994,22 +3720,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c08c74e62047bb2de4ff487b251e4a92e24f48745648451635cec7d591162d9f"
 
 [[package]]
-name = "registry"
-version = "0.1.0"
-source = "git+https://github.com/xmtp/xps-gateway?branch=main#d01fe2b34a2f85b2c2f6493e6e1538ac4bbb0669"
-dependencies = [
- "async-trait",
- "ethers",
- "lib-didethresolver",
- "log",
- "rustc-hex",
- "thiserror",
- "tokio",
- "tracing",
- "xps-types",
-]
-
-[[package]]
 name = "reqwest"
 version = "0.11.23"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4131,12 +3841,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "route-recognizer"
-version = "0.3.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "afab94fb28594581f62d981211a9a4d53cc8130bbcbbb89a0440d9b8e81a7746"
-
-[[package]]
 name = "rstest"
 version = "0.16.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4178,12 +3882,6 @@ name = "rustc-demangle"
 version = "0.1.23"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d626bb9dae77e28219937af045c257c28bfd3f69333c512553507f5f9798cb76"
-
-[[package]]
-name = "rustc-hash"
-version = "1.1.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "08d43f7aa6b08d49f382cde6a7982047c3426db949b1424bc4b7ec9ae12c6ce2"
 
 [[package]]
 name = "rustc-hex"
@@ -4548,19 +4246,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "sha-1"
-version = "0.9.8"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "99cd6713db3cf16b6c84e06321e049a9b9f699826e16096d23bbcc44d15d51a6"
-dependencies = [
- "block-buffer 0.9.0",
- "cfg-if",
- "cpufeatures",
- "digest 0.9.0",
- "opaque-debug",
-]
-
-[[package]]
 name = "sha1"
 version = "0.10.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4685,22 +4370,6 @@ checksum = "7b5fac59a5cb5dd637972e5fca70daf0523c9067fcdc4842f053dae04a18f8e9"
 dependencies = [
  "libc",
  "windows-sys 0.48.0",
-]
-
-[[package]]
-name = "soketto"
-version = "0.7.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "41d1c5305e39e09653383c2c7244f2f78b3bcae37cf50c64cb4789c9f5096ec2"
-dependencies = [
- "base64 0.13.1",
- "bytes",
- "futures",
- "http 0.2.11",
- "httparse",
- "log",
- "rand",
- "sha-1",
 ]
 
 [[package]]
@@ -5182,7 +4851,6 @@ dependencies = [
  "futures-core",
  "pin-project-lite",
  "tokio",
- "tokio-util",
 ]
 
 [[package]]
@@ -5208,7 +4876,6 @@ checksum = "5419f34732d9eb6ee4c3578b7989078579b7f039cbbb9ca2c4da015749371e15"
 dependencies = [
  "bytes",
  "futures-core",
- "futures-io",
  "futures-sink",
  "pin-project-lite",
  "tokio",
@@ -5538,7 +5205,6 @@ dependencies = [
  "form_urlencoded",
  "idna",
  "percent-encoding",
- "serde",
 ]
 
 [[package]]
@@ -6042,7 +5708,6 @@ dependencies = [
  "pbjson-types 0.5.1",
  "prost 0.12.3",
  "serde",
- "serde_json",
  "tokio",
  "tonic",
  "tower",
@@ -6170,10 +5835,7 @@ name = "xmtp_v2"
 version = "0.1.0"
 dependencies = [
  "aes-gcm",
- "chrono",
  "ecdsa 0.15.1",
- "ethers",
- "ethers-core",
  "generic-array",
  "getrandom",
  "hex",
@@ -6181,35 +5843,8 @@ dependencies = [
  "k256 0.12.0",
  "rand",
  "rand_chacha",
- "rlp",
- "serde",
  "sha2 0.10.8",
  "sha3",
- "thiserror",
- "tokio",
-]
-
-[[package]]
-name = "xps-client"
-version = "0.1.0"
-dependencies = [
- "futures",
- "lib-xps",
- "log",
- "xmtp_proto",
- "xps-types",
-]
-
-[[package]]
-name = "xps-types"
-version = "0.1.0"
-source = "git+https://github.com/xmtp/xps-gateway?branch=main#d01fe2b34a2f85b2c2f6493e6e1538ac4bbb0669"
-dependencies = [
- "ethers",
- "jsonrpsee 0.22.0",
- "lib-didethresolver",
- "serde",
- "thiserror",
 ]
 
 [[package]]
