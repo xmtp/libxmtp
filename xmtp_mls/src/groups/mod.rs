@@ -204,12 +204,11 @@ where
         provider: &XmtpOpenMlsProvider,
         welcome: MlsWelcome,
     ) -> Result<Self, GroupError> {
-        let mls_welcome =
-            StagedWelcome::new_from_welcome(provider, &build_group_join_config(), welcome, None)?;
+        let mls_welcome = StagedWelcome::new_from_welcome(provider, &build_group_join_config(), welcome, None)?;
         let mut mls_group = mls_welcome.into_group(provider)?;
         mls_group.save(provider.key_store())?;
+        
         let group_id = mls_group.group_id().to_vec();
-
         let to_store = StoredGroup::new(group_id, now_ns(), GroupMembershipState::Pending);
         let stored_group = provider.conn().insert_or_ignore_group(to_store)?;
 

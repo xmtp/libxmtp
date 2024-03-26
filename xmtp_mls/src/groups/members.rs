@@ -1,9 +1,6 @@
 use std::collections::HashMap;
 
-use openmls::{
-    credentials::BasicCredential,    
-    group::MlsGroup as OpenMlsGroup
-};
+use openmls::{credentials::BasicCredential, group::MlsGroup as OpenMlsGroup};
 
 use xmtp_proto::api_client::XmtpMlsClient;
 
@@ -41,11 +38,7 @@ pub fn aggregate_member_list(openmls_group: &OpenMlsGroup) -> Result<Vec<GroupMe
     let member_map: HashMap<String, GroupMember> = openmls_group
         .members()
         .filter_map(|member| {
-            let basic_credential = BasicCredential::try_from(
-                &member.credential
-            )
-            .ok()
-            .map(|basic_credential| (basic_credential))?;
+            let basic_credential = BasicCredential::try_from(&member.credential).ok()?;
             Identity::get_validated_account_address(
                 basic_credential.identity(),
                 &member.signature_key,

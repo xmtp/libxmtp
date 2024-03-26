@@ -1,4 +1,7 @@
-use openmls::prelude::{MlsMessageOut, tls_codec::{Error as TlsCodecError, Serialize}};
+use openmls::prelude::{
+    tls_codec::{Error as TlsCodecError, Serialize},
+    MlsMessageOut,
+};
 use prost::{DecodeError, Message};
 use thiserror::Error;
 
@@ -30,7 +33,7 @@ pub enum IntentError {
     #[error("TLS Codec error: {0}")]
     TlsError(#[from] TlsCodecError),
     #[error("generic: {0}")]
-    Generic(String)
+    Generic(String),
 }
 
 #[derive(Debug, Clone)]

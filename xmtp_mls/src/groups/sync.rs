@@ -2,13 +2,13 @@ use std::{collections::HashMap, mem::discriminant};
 
 use log::debug;
 use openmls::{
-    credentials::BasicCredential, 
+    credentials::BasicCredential,
     framing::ProtocolMessage,
     group::MergePendingCommitError,
     prelude::{
+        tls_codec::{Deserialize,Serialize},
         LeafNodeIndex, MlsGroup as OpenMlsGroup, MlsMessageIn, MlsMessageBodyIn, PrivateMessageIn,
         ProcessedMessage, ProcessedMessageContent, Sender,
-        tls_codec::{Deserialize,Serialize}
     },
     prelude_test::KeyPackage,
 };
@@ -35,6 +35,7 @@ use super::{
     members::GroupMember,
     GroupError, MlsGroup,
 };
+
 use crate::{
     api_client_wrapper::IdentityUpdate,
     client::MessageProcessingError,
@@ -604,7 +605,7 @@ where
                 let (commit, _, _) =
                     openmls_group.self_update(provider, &self.client.identity.installation_keys)?;
 
-                Ok((commit.tls_serialize_detached()?,None))
+                Ok((commit.tls_serialize_detached()?, None))
             }
         }
     }
@@ -774,8 +775,7 @@ fn validate_message_sender(
     if let Sender::Member(leaf_node_index) = decrypted_message.sender() {
         if let Some(member) = openmls_group.member_at(*leaf_node_index) {
             if member.credential.eq(decrypted_message.credential()) {
-                let basic_credential = 
-                    BasicCredential::try_from(&member.credential)?;
+                let basic_credential = BasicCredential::try_from(&member.credential)?;
                 sender_account_address = Identity::get_validated_account_address(
                     basic_credential.identity(),
                     &member.signature_key,
@@ -787,8 +787,7 @@ fn validate_message_sender(
     }
 
     if sender_account_address.is_none() {
-        let basic_credential = 
-            BasicCredential::try_from(decrypted_message.credential())?;
+        let basic_credential= BasicCredential::try_from(decrypted_message.credential())?;
         return Err(MessageProcessingError::InvalidSender {
             message_time_ns: message_created_ns,
             credential: basic_credential.identity().to_vec(),

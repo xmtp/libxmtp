@@ -1,20 +1,18 @@
 use openmls::{
-    credentials::{
-        BasicCredential, errors::BasicCredentialError
-    },
+    credentials::{BasicCredential, errors::BasicCredentialError},
     prelude::{
-        tls_codec::{
-             Deserialize, Error as TlsCodecError
-        }, 
+        tls_codec::{Deserialize, Error as TlsCodecError},
         KeyPackage, KeyPackageIn, KeyPackageVerifyError
-    }
+    },
 };
 
 use openmls_rust_crypto::RustCrypto;
 use thiserror::Error;
 
 use crate::{
-    configuration::MLS_PROTOCOL_VERSION, identity::{Identity, IdentityError}, types::Address
+    configuration::MLS_PROTOCOL_VERSION,
+    identity::{Identity, IdentityError},
+    types::Address,
 };
 
 #[derive(Debug, Error)]

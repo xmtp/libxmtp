@@ -5,9 +5,10 @@ use openmls::{
     credentials::errors::CredentialError,
     extensions::{errors::InvalidExtensionError, ApplicationIdExtension, LastResortExtension},
     prelude::{
+        tls_codec::{Error as TlsCodecError, Serialize},
         Capabilities, Credential as OpenMlsCredential, CredentialType, CredentialWithKey,
         CryptoConfig, Extension, ExtensionType, Extensions, KeyPackage, KeyPackageNewError,
-        Lifetime, tls_codec::{Error as TlsCodecError, Serialize}
+        Lifetime,
     },
     versions::ProtocolVersion,
 };
@@ -136,7 +137,7 @@ impl Identity {
             )?
             .into();
             let credential =
-            OpenMlsCredential::new(CredentialType::Basic, credential_proto.encode_to_vec());
+                OpenMlsCredential::new(CredentialType::Basic, credential_proto.encode_to_vec());
             self.set_credential(credential)?;
         }
 
