@@ -15,7 +15,7 @@ impl<'c, ApiClient> MlsGroup<'c, ApiClient>
 where
     ApiClient: XmtpMlsClient,
 {
-    pub(crate) async fn process_stream_entry(
+    pub async fn process_stream_entry(
         &self,
         envelope: GroupMessage,
     ) -> Result<Option<StoredGroupMessage>, GroupError> {

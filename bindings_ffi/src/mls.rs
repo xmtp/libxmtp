@@ -356,6 +356,19 @@ impl FfiGroup {
         Ok(messages)
     }
 
+    pub fn process_streamed_group_message(&self, envelope_bytes: Vec<u8>) -> Result<FfiMessage, GenericError> {
+        let group = MlsGroup::new(
+            self.inner_client.as_ref(),
+            self.group_id.clone(),
+            self.created_at_ns,
+        );
+        let slice = envelope_bytes.as_slice();
+        let envelope = GroupMessage::decode(slice);
+        let message = group.process_stream_entry(envelope).into();
+        
+        Ok(message)
+    }
+
     pub fn list_members(&self) -> Result<Vec<FfiGroupMember>, GenericError> {
         let group = MlsGroup::new(
             self.inner_client.as_ref(),
