@@ -7,7 +7,7 @@ use openmls::{
     prelude::{
         Capabilities, Credential as OpenMlsCredential, CredentialType, CredentialWithKey,
         CryptoConfig, Extension, ExtensionType, Extensions, KeyPackage, KeyPackageNewError,
-        Lifetime, tls_codec::Serialize,
+        Lifetime, tls_codec::{Error as TlsCodecError, Serialize}
     },
     versions::ProtocolVersion,
 };
@@ -51,8 +51,8 @@ pub enum IdentityError {
     UninitializedIdentity,
     #[error("wallet signature required - please sign the text produced by text_to_sign()")]
     WalletSignatureRequired,
-    #[error("tls serialization: {0}")]
-    TlsSerialization(#[from] openmls::prelude::Error),
+    #[error("TLS Codec error: {0}")]
+    TlsError(#[from] TlsCodecError),
     #[error("api error: {0}")]
     ApiError(#[from] xmtp_proto::api_client::Error),
     #[error("OpenMLS credential error: {0}")]
@@ -93,8 +93,7 @@ impl Identity {
         legacy_signed_private_key: Vec<u8>,
     ) -> Result<Self, IdentityError> {
         info!("Creating identity from legacy key");
-        let signature_keys = SignatureKeyPair::new(CIPHERSUITE.signature_algorithm())
-            .map_err(|e| IdentityError::KeyGenerationError(e))?;
+        let signature_keys = SignatureKeyPair::new(CIPHERSUITE.signature_algorithm())?;
         let credential =
             Credential::create_from_legacy(&signature_keys, legacy_signed_private_key)?;
         let credential_proto: CredentialProto = credential.into();
@@ -143,8 +142,7 @@ impl Identity {
 
         // Register the installation with the server
         let kp = self.new_key_package(provider)?;
-        let kp_bytes = kp.tls_serialize_detached()
-            .map_err(|e| IdentityError::TlsSerialization(e))?;
+        let kp_bytes = kp.tls_serialize_detached()?;
         api_client.register_installation(kp_bytes).await?;
 
         // Only persist the installation keys if the registration was successful

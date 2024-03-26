@@ -5,11 +5,10 @@ use openmls:: {
     framing::{MlsMessageBodyIn, MlsMessageIn},
     group:: GroupEpoch,
     messages::Welcome,
-    prelude::tls_codec::Serialize,
+    prelude::tls_codec::{Deserialize, Serialize, Error as TlsCodecError},
 };
 
 use openmls_traits::OpenMlsProvider;
-use openmls::prelude::tls_codec::{Deserialize, Error as TlsSerializationError};
 use prost::EncodeError;
 use thiserror::Error;
 
@@ -64,8 +63,8 @@ pub enum ClientError {
     QueryError(#[from] xmtp_proto::api_client::Error),
     #[error("identity error: {0}")]
     Identity(#[from] crate::identity::IdentityError),
-    #[error("serialization error: {0}")]
-    Serialization(#[from] TlsSerializationError),
+    #[error("TLS Codec error: {0}")]
+    TlsError(#[from] TlsCodecError),
     #[error("key package verification: {0}")]
     KeyPackageVerification(#[from] KeyPackageVerificationError),
     #[error("syncing errors: {0:?}")]
@@ -107,8 +106,8 @@ pub enum MessageProcessingError {
     Intent(#[from] IntentError),
     #[error("storage error: {0}")]
     Storage(#[from] crate::storage::StorageError),
-    #[error("tls deserialization: {0}")]
-    TlsDeserialization(#[from] openmls::prelude::Error),
+    #[error("TLS Codec error: {0}")]
+    TlsError(#[from] TlsCodecError),
     #[error("unsupported message type: {0:?}")]
     UnsupportedMessageType(Discriminant<MlsMessageBodyIn>),
     #[error("commit validation")]
@@ -270,8 +269,7 @@ where
         let kp = self
             .identity
             .new_key_package(&self.mls_provider(&connection))?;
-        let kp_bytes = kp.tls_serialize_detached()
-            .map_err(|e| ClientError::Serialization(e))?;
+        let kp_bytes = kp.tls_serialize_detached()?;
         self.api_client.upload_key_package(kp_bytes).await?;
 
         Ok(())

@@ -4,7 +4,7 @@ use openmls::{
     },
     prelude::{
         tls_codec::{
-             Deserialize, Error as TlsSerializationError
+             Deserialize, Error as TlsCodecError
         }, 
         KeyPackage, KeyPackageIn, KeyPackageVerifyError
     }
@@ -19,8 +19,8 @@ use crate::{
 
 #[derive(Debug, Error)]
 pub enum KeyPackageVerificationError {
-    #[error("serialization error: {0}")]
-    Serialization(#[from] TlsSerializationError),
+    #[error("TLS Codec error: {0}")]
+    TlsError(#[from] TlsCodecError),
     #[error("mls validation: {0}")]
     MlsValidation(#[from] KeyPackageVerifyError),
     #[error("identity: {0}")]
@@ -56,11 +56,8 @@ impl VerifiedKeyPackage {
     // Validates starting with a KeyPackage (which is already validated by OpenMLS)
     pub fn from_key_package(kp: KeyPackage) -> Result<Self, KeyPackageVerificationError> {
         let leaf_node = kp.leaf_node();
-
         let basic_credential = 
-            BasicCredential::try_from(leaf_node.credential())
-                .map_err(|_| BasicCredentialError::WrongCredentialType)?;
-
+            BasicCredential::try_from(leaf_node.credential())?;
         let pub_key_bytes = leaf_node.signature_key().as_slice();
         let account_address = identity_to_account_address(basic_credential.identity(), pub_key_bytes)?;
         let application_id = extract_application_id(&kp)?;

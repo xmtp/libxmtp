@@ -40,7 +40,7 @@ use openmls::{
     extensions::{Extension, Extensions, Metadata},
     group::{MlsGroupCreateConfig, MlsGroupJoinConfig, StagedWelcome},
     prelude::{
-        CredentialWithKey, CryptoConfig, GroupId, MlsGroup as OpenMlsGroup, Welcome as MlsWelcome,
+        CredentialWithKey, CryptoConfig, Error as TlsCodecError, GroupId, MlsGroup as OpenMlsGroup, Welcome as MlsWelcome,
         WireFormatPolicy,
     },
 };
@@ -67,8 +67,8 @@ pub enum GroupError {
     Intent(#[from] IntentError),
     #[error("create message: {0}")]
     CreateMessage(#[from] openmls::prelude::CreateMessageError),
-    #[error("tls serialization: {0}")]
-    TlsSerialization(#[from] openmls::prelude::Error),
+    #[error("TLS Codec error: {0}")]
+    TlsError(#[from] TlsCodecError),
     #[error("add members: {0}")]
     AddMembers(#[from] openmls::prelude::AddMembersError<StorageError>),
     #[error("remove members: {0}")]

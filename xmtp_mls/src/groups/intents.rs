@@ -1,7 +1,6 @@
-use openmls::prelude::{MlsMessageOut, tls_codec::Error as TlsSerializationError,};
+use openmls::prelude::{MlsMessageOut, tls_codec::{Error as TlsCodecError, Serialize}};
 use prost::{DecodeError, Message};
 use thiserror::Error;
-use openmls::prelude::tls_codec::Serialize;
 
 use xmtp_proto::xmtp::mls::database::{
     add_members_data::{Version as AddMembersVersion, V1 as AddMembersV1},
@@ -28,12 +27,10 @@ pub enum IntentError {
     Decode(#[from] DecodeError),
     #[error("key package verification: {0}")]
     KeyPackageVerification(#[from] KeyPackageVerificationError),
-    #[error("tls codec: {0}")]
-    TlsCodec(#[from] tls_codec::Error),
+    #[error("TLS Codec error: {0}")]
+    TlsError(#[from] TlsCodecError),
     #[error("generic: {0}")]
-    Generic(String),
-    #[error("serialization error: {0}")]
-    TlsSerialization(#[from] TlsSerializationError),
+    Generic(String)
 }
 
 #[derive(Debug, Clone)]
@@ -320,8 +317,7 @@ impl PostCommitAction {
         welcome: MlsMessageOut,
         installations: Vec<Installation>,
     ) -> Result<Self, IntentError> {
-        let welcome_bytes = welcome.tls_serialize_detached()
-            .map_err(|e| IntentError::TlsSerialization(e))?;
+        let welcome_bytes = welcome.tls_serialize_detached()?;
 
         Ok(Self::SendWelcomes(SendWelcomesAction::new(
             installations,

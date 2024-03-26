@@ -16,7 +16,7 @@ use super::{
     members::aggregate_member_list,
 };
 use crate::{
-    identity::Identity,
+    identity::{Identity, IdentityError},
     types::Address,
     verified_key_package::{KeyPackageVerificationError, VerifiedKeyPackage},
 };
@@ -45,10 +45,12 @@ pub enum CommitValidationError {
     ListMembers(String),
     #[error("Failed to parse group metadata: {0}")]
     GroupMetadata(#[from] GroupMetadataError),
+    #[error("Failed to validate identity: {0}")]
+    IdentityValidation(#[from] IdentityError),
     #[error("invalid application id")]
     InvalidApplicationId,
-    #[error("wrong credential type")]
-    WrongCredentialType(#[from] BasicCredentialError),
+    #[error("Credential error")]
+    CredentialError(#[from] BasicCredentialError),
 }
 
 // A participant in a commit. Could be the actor or the subject of a proposal
@@ -168,12 +170,9 @@ fn extract_actor(
         let signature_key = leaf_node.signature_key.as_slice();
 
         let basic_credential = 
-            BasicCredential::try_from(&leaf_node.credential)
-                .map_err(|_| BasicCredentialError::WrongCredentialType)?;
-
+            BasicCredential::try_from(&leaf_node.credential)?;
         let account_address =
-            Identity::get_validated_account_address(basic_credential.identity(), signature_key)
-                .map_err(|_| CommitValidationError::InvalidActorCredential)?;
+            Identity::get_validated_account_address(basic_credential.identity(), signature_key)?;
 
         let is_creator = account_address.eq(&group_metadata.creator_account_address);
 
@@ -224,12 +223,9 @@ fn extract_identity_from_remove(
         let signature_key = member.signature_key.as_slice();
 
         let basic_credential = 
-            BasicCredential::try_from(&member.credential)
-                .map_err(|_| BasicCredentialError::WrongCredentialType)?;
-
+            BasicCredential::try_from(&member.credential)?;
         let account_address =
-            Identity::get_validated_account_address(basic_credential.identity(), signature_key)
-                .map_err(|_| CommitValidationError::InvalidSubjectCredential)?;
+            Identity::get_validated_account_address(basic_credential.identity(), signature_key)?;
         let is_creator = account_address.eq(&group_metadata.creator_account_address);
 
         Ok(CommitParticipant {
