@@ -41,7 +41,7 @@ pub fn aggregate_member_list(openmls_group: &OpenMlsGroup) -> Result<Vec<GroupMe
     let member_map: HashMap<String, GroupMember> = openmls_group
         .members()
         .filter_map(|member| {
-            let basic_credential = BasicCredential::try_from(&member.credential).unwrap();
+            let basic_credential = BasicCredential::try_from(&member.credential).ok()?;
             Identity::get_validated_account_address(
                 basic_credential.identity(),
                 &member.signature_key,

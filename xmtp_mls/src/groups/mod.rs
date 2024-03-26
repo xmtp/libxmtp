@@ -208,8 +208,7 @@ where
             // EM: Fix error handling here
             StagedWelcome::new_from_welcome(provider, &build_group_join_config(), welcome, None)
                 .expect("Error creating staged join from Welcome")
-                .into_group(provider)
-                .expect("Error creating group from staged join");
+                .into_group(provider)?;
 
         mls_welcome.save(provider.key_store())?;
         let group_id = mls_welcome.group_id().to_vec();
