@@ -1,13 +1,12 @@
 use std::{collections::HashSet, mem::Discriminant};
 
-use openmls:: {
-    credentials::errors::BasicCredentialError, 
+use openmls::{
+    credentials::errors::BasicCredentialError,
     framing::{MlsMessageBodyIn, MlsMessageIn},
-    group:: GroupEpoch,
+    group::GroupEpoch,
     messages::Welcome,
-    prelude::tls_codec::{Deserialize, Serialize, Error as TlsCodecError},
+    prelude::tls_codec::{Deserialize, Error as TlsCodecError, Serialize},
 };
-
 use openmls_traits::OpenMlsProvider;
 use prost::EncodeError;
 use thiserror::Error;
@@ -122,6 +121,8 @@ pub enum MessageProcessingError {
     WelcomeProcessing(String),
     #[error("wrong credential type")]
     WrongCredentialType(#[from] BasicCredentialError),
+    #[error("proto decode error: {0}")]
+    DecodeError(#[from] prost::DecodeError),
 }
 
 impl crate::retry::RetryableError for MessageProcessingError {
@@ -664,7 +665,9 @@ mod tests {
         bola_group.sync().await.unwrap();
 
         // Bola should have one readable message (them being added to the group)
-        let mut bola_messages = bola_group.find_messages(None, None, None, None).unwrap();
+        let mut bola_messages = bola_group
+            .find_messages(None, None, None, None, None)
+            .unwrap();
         assert_eq!(bola_messages.len(), 1);
 
         // Add Bola back to the group
@@ -683,7 +686,9 @@ mod tests {
         // Sync Bola's state to get the latest
         bola_group.sync().await.unwrap();
         // Find Bola's updated list of messages
-        bola_messages = bola_group.find_messages(None, None, None, None).unwrap();
+        bola_messages = bola_group
+            .find_messages(None, None, None, None, None)
+            .unwrap();
         // Bola should have been able to decrypt the last message
         assert_eq!(bola_messages.len(), 2);
         assert_eq!(
