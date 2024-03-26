@@ -4,6 +4,8 @@ The sequence diagrams stored here are for documenting LibXMTP's group chat imple
 
 The diagrams represent the creation of a group chat between Alice, Bob, and Charlie, our implmentation of [Figure 2](https://messaginglayersecurity.rocks/mls-architecture/draft-ietf-mls-architecture.html#fig-group-formation-example) from [The Messaging Layer Security (MLS) Architecture](https://messaginglayersecurity.rocks/mls-architecture/draft-ietf-mls-architecture.html) spec. 
 
+Note: calls into LibXMTP with the `conversations.` prefix use the [Conversations](https://github.com/xmtp/libxmtp/blob/204b35a337daf2a9f2ed0cb20199e254d0a7493a/bindings_ffi/src/mls.rs#L188) protocol, and calls with a `group.` prefix use the [Group](https://github.com/xmtp/libxmtp/blob/204b35a337daf2a9f2ed0cb20199e254d0a7493a/bindings_ffi/src/mls.rs#L315) protocol.
+
 * *form-group.mermaid* - Covers Steps 1-4 of forming a group.  In LibXMTP, steps 1 and 2 happen at the same time, and steps 3 and 4 can also be consolidated by calling `newGroup()` with multiple participants.
 * *send-recieve.mermaid* - Covers sending and receiving messages to the newly formed group.
 * *add-remove.mermaid* - Covers adding and removing group members.
@@ -32,7 +34,7 @@ sequenceDiagram
     Node-->>-LibXMTP: installation_key:Charlie 
 
     Note over Alice,Node: Step 3 (Adding Bob) & 4 (Adding Charlie) of MLS group creation
-    Alice->>LibXMTP: newGroup(Bob, Charlie)
+    Alice->>LibXMTP: conversations.create_group(Bob, Charlie)
     LibXMTP->>+Node: get-identity-updates(Bob)
     Node-->>-LibXMTP: installation_key:Bob + credential_identity:Bob
     LibXMTP->>+Node: get-identity-updates(Charlie)
@@ -40,13 +42,13 @@ sequenceDiagram
     LibXMTP->>Node: fetch-key-packages(installation_keys: Bob + Charlie)
     Node-->>LibXMTP: KeyPackages(Bob+Charlie) 
     LibXMTP->>Node: send-welcome-messages(KeyPackages:Bob + Charlie)
-    Bob->>+LibXMTP: syncGroups()
+    Bob->>+LibXMTP: conversations.sync()
     LibXMTP->>+Node: query-welcome-messages(installation_key:Bob)
     Node-->>-LibXMTP: WelcomeMessages()
     LibXMTP-->>-Bob: "Alice has added you to a group"   
     Bob->>LibXMTP: rotate_key_packages()
     LibXMTP->>Node: upload-key-package()
-    Charlie->>+LibXMTP: syncGroups()
+    Charlie->>+LibXMTP: conversations.sync()
     LibXMTP->>+Node: query-welcome-messages(installation_key:Charlie)
     Node-->>-LibXMTP: WelcomeMessages()
     LibXMTP-->>-Charlie: "Alice has added you to a group"   
@@ -69,7 +71,7 @@ sequenceDiagram
     LibXMTP->>Node: send-group-messages(SEND_MESSAGE:"Hello, group!")
 
     Note left of Alice: Receive Message
-    Bob->>+LibXMTP: group.messages()
+    Bob->>+LibXMTP: group.find_messages()
     LibXMTP->>+Node: query-group-messages(group_id)
     Node-->>-LibXMTP: "Hello, group!"
     LibXMTP->>-Bob: "Hello, group!"
@@ -84,16 +86,16 @@ sequenceDiagram
     participant Charlie
     participant LibXMTP
     participant Node
-    
+
     Note left of Alice: Remove Charlie
 
-    Alice->>LibXMTP: group.removeMembers(Charlie)
+    Alice->>LibXMTP: group.remove_members(Charlie)
     LibXMTP->>Node: send-group-message(REMOVE_MEMBER:installation_key:Charlie)
-    Alice->>+LibXMTP: group.messages()
+    Alice->>+LibXMTP: group.sync()
     LibXMTP->>+Node: query-group-messages(group_id)
     Node->>-LibXMTP: REMOVE_MEMBER:Charlie
     LibXMTP-->>-Alice: "Charlie has been removed from the group"
-    Bob->>+LibXMTP: group.messages()
+    Bob->>+LibXMTP: group.sync()
     LibXMTP->>+Node: query-group-messages(group_id)
     Node->>-LibXMTP: REMOVE_MEMBER:Charlie
     LibXMTP-->>-Bob: "Charlie has been removed from the group"
@@ -103,15 +105,15 @@ sequenceDiagram
     LibXMTP->>+Node: get-identity-updates(Charlie)
     Node-->>-LibXMTP: installation_key:Charlie + credential_identity:Charlie  
     LibXMTP->>Node: send-group-message(ADD_MEMBER:installation_key:Charlie)
-    Bob->>+LibXMTP: group.messages()
+    Bob->>+LibXMTP: group.sync()
     LibXMTP->>+Node: query-group-messages(group_id)
     Node->>-LibXMTP: ADD_MEMBER:Charlie
     LibXMTP-->>-Bob: "Charlie has been added to the group"    
-    Alice->>+LibXMTP: group.messages()
+    Alice->>+LibXMTP: group.sync()
     LibXMTP->>+Node: query-group-messages(group_id)
     Node->>-LibXMTP: ADD_MEMBER:Charlie
     LibXMTP-->>-Alice: "Charlie has been added to the group"  
-    Charlie->>+LibXMTP: syncGroups()
+    Charlie->>+LibXMTP: conversations.sync()
     LibXMTP->>+Node: query-welcome-messages(installation_key:Charlie)
     Node-->>-LibXMTP: WelcomeMessages()
     LibXMTP-->>-Charlie: "Alice has added you to a group"   
