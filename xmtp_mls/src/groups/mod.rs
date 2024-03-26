@@ -38,7 +38,7 @@ use crate::{
 use intents::SendMessageIntentData;
 use openmls::{
     extensions::{Extension, Extensions, Metadata},
-    group::{MlsGroupCreateConfig, MlsGroupJoinConfig},
+    group::{MlsGroupCreateConfig, MlsGroupJoinConfig, StagedWelcome},
     prelude::{
         CredentialWithKey, CryptoConfig, GroupId, MlsGroup as OpenMlsGroup, Welcome as MlsWelcome,
         WireFormatPolicy,
@@ -204,10 +204,15 @@ where
         provider: &XmtpOpenMlsProvider,
         welcome: MlsWelcome,
     ) -> Result<Self, GroupError> {
-        let mut mls_group =
-            OpenMlsGroup::new_from_welcome(provider, &build_group_join_config(), welcome, None)?;
-        mls_group.save(provider.key_store())?;
-        let group_id = mls_group.group_id().to_vec();
+        let mut mls_welcome =
+            // EM: Fix error handling here
+            StagedWelcome::new_from_welcome(provider, &build_group_join_config(), welcome, None)
+                .expect("Error creating staged join from Welcome")
+                .into_group(provider)
+                .expect("Error creating group from staged join");
+
+        mls_welcome.save(provider.key_store())?;
+        let group_id = mls_welcome.group_id().to_vec();
 
         let to_store = StoredGroup::new(group_id, now_ns(), GroupMembershipState::Pending);
         let stored_group = provider.conn().insert_or_ignore_group(to_store)?;
