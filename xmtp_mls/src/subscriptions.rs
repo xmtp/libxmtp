@@ -122,11 +122,9 @@ where
                                 ),
                             )?;
                             // TODO update cursor
-                            let result =
-                                MlsGroup::new(self, group_id, stream_info.convo_created_at_ns)
-                                    .process_stream_entry(envelope)
-                                    .await;
-                            result
+                            MlsGroup::new(self, group_id, stream_info.convo_created_at_ns)
+                                .process_stream_entry(envelope)
+                                .await
                         }
                         Err(err) => Err(GroupError::Api(err)),
                     }

@@ -1,0 +1,9 @@
+sequenceDiagram
+    participant LibXMTP
+    participant Node
+
+    Note left of LibXMTP: Sync installations
+    LibXMTP->>Node: get-identity-updates(Alice, Bob, Charlie)
+    Node-->>LibXMTP: Added and Revoked installation_keys
+    LibXMTP->>Node: send-group-message(REMOVE_MEMBER:installation_key:revoked installation)
+    LibXMTP->>Node: send-group-message(ADD_MEMBER:installation_key:new installation) 

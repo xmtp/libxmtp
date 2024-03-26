@@ -11,6 +11,7 @@ use openmls::{
     prelude_test::KeyPackage,
 };
 use openmls_traits::OpenMlsProvider;
+use prost::bytes::Bytes;
 use prost::Message;
 use tls_codec::{Deserialize, Serialize};
 
@@ -23,7 +24,9 @@ use xmtp_proto::{
         },
         GroupMessage, WelcomeMessageInput,
     },
+    xmtp::mls::message_contents::plaintext_envelope::{Content, V1},
     xmtp::mls::message_contents::GroupMembershipChanges,
+    xmtp::mls::message_contents::PlaintextEnvelope,
 };
 
 use super::{
@@ -48,11 +51,11 @@ use crate::{
     storage::{
         db_connection::DbConnection,
         group_intent::{IntentKind, IntentState, StoredGroupIntent, ID},
-        group_message::{GroupMessageKind, StoredGroupMessage},
+        group_message::{DeliveryStatus, GroupMessageKind, StoredGroupMessage},
         refresh_state::EntityKind,
         StorageError,
     },
-    utils::{hash::sha256, id::get_message_id},
+    utils::{hash::sha256, id::calculate_message_id},
     xmtp_openmls_provider::XmtpOpenMlsProvider,
     Delete, Fetch, Store,
 };
@@ -213,16 +216,24 @@ where
                 let intent_data = SendMessageIntentData::from_bytes(intent.data.as_slice())?;
                 let group_id = openmls_group.group_id().as_slice();
                 let decrypted_message_data = intent_data.message.as_slice();
-                StoredGroupMessage {
-                    id: get_message_id(decrypted_message_data, group_id, envelope_timestamp_ns),
-                    group_id: group_id.to_vec(),
-                    decrypted_message_bytes: intent_data.message,
-                    sent_at_ns: envelope_timestamp_ns as i64,
-                    kind: GroupMessageKind::Application,
-                    sender_installation_id: self.client.installation_public_key(),
-                    sender_account_address: self.client.account_address(),
-                }
-                .store(conn)?;
+
+                let envelope = PlaintextEnvelope::decode(decrypted_message_data)
+                    .map_err(MessageProcessingError::DecodeError)?;
+
+                let (key, message) = if let Some(outer_content) = envelope.content {
+                    let Content::V1(V1 {
+                        idempotency_key,
+                        content,
+                    }) = outer_content;
+                    (idempotency_key, content)
+                } else {
+                    return Err(MessageProcessingError::InvalidPayload);
+                };
+
+                let message_id =
+                    calculate_message_id(group_id, &message, &self.client.account_address(), &key);
+
+                conn.set_delivery_status_to_published(&message_id, envelope_timestamp_ns)?;
             }
         };
 
@@ -250,16 +261,37 @@ where
         match decrypted_message.into_content() {
             ProcessedMessageContent::ApplicationMessage(application_message) => {
                 let message_bytes = application_message.into_bytes();
-                let message_id =
-                    get_message_id(&message_bytes, &self.group_id, envelope_timestamp_ns);
+
+                let bytes = Bytes::from(message_bytes.clone());
+                let envelope = PlaintextEnvelope::decode(bytes)
+                    .map_err(MessageProcessingError::DecodeError)?;
+
+                let (key, message) = if let Some(outer_content) = envelope.content {
+                    let Content::V1(V1 {
+                        idempotency_key,
+                        content,
+                    }) = outer_content;
+                    (idempotency_key, content)
+                } else {
+                    return Err(MessageProcessingError::InvalidPayload);
+                };
+
+                let message_id = calculate_message_id(
+                    &self.group_id,
+                    &message,
+                    &self.client.account_address(),
+                    &key,
+                );
+
                 StoredGroupMessage {
                     id: message_id,
                     group_id: self.group_id.clone(),
-                    decrypted_message_bytes: message_bytes,
+                    decrypted_message_bytes: message,
                     sent_at_ns: envelope_timestamp_ns as i64,
                     kind: GroupMessageKind::Application,
                     sender_installation_id,
                     sender_account_address,
+                    delivery_status: DeliveryStatus::Published,
                 }
                 .store(provider.conn())?;
             }
@@ -322,7 +354,6 @@ where
                 envelope.created_ns,
                 allow_epoch_increment,
             ),
-            Err(err) => Err(MessageProcessingError::Storage(err)),
             // No matching intent found
             Ok(None) => self.process_external_message(
                 openmls_group,
@@ -331,6 +362,7 @@ where
                 envelope.created_ns,
                 allow_epoch_increment,
             ),
+            Err(err) => Err(MessageProcessingError::Storage(err)),
         }
     }
 
@@ -422,8 +454,13 @@ where
             let mut encoded_payload_bytes = Vec::new();
             encoded_payload.encode(&mut encoded_payload_bytes)?;
             let group_id = self.group_id.as_slice();
-            let message_id =
-                get_message_id(encoded_payload_bytes.as_slice(), group_id, timestamp_ns);
+            let message_id = calculate_message_id(
+                group_id,
+                encoded_payload_bytes.as_slice(),
+                &sender_account_address,
+                &timestamp_ns.to_string(),
+            );
+
             let msg = StoredGroupMessage {
                 id: message_id,
                 group_id: group_id.to_vec(),
@@ -432,6 +469,7 @@ where
                 kind: GroupMessageKind::MembershipChange,
                 sender_installation_id,
                 sender_account_address,
+                delivery_status: DeliveryStatus::Published,
             };
 
             msg.store(conn)?;

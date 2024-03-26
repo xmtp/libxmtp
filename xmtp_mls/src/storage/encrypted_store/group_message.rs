@@ -8,7 +8,10 @@ use diesel::{
     sqlite::Sqlite,
 };
 
-use super::{db_connection::DbConnection, schema::group_messages};
+use super::{
+    db_connection::DbConnection,
+    schema::{group_messages, group_messages::dsl},
+};
 use crate::{impl_fetch, impl_store, StorageError};
 
 #[derive(Insertable, Identifiable, Queryable, Debug, Clone, PartialEq, Eq)]
@@ -24,12 +27,14 @@ pub struct StoredGroupMessage {
     pub decrypted_message_bytes: Vec<u8>,
     /// Time in nanoseconds the message was sent.
     pub sent_at_ns: i64,
-    /// Group Message Kind Enum
+    /// Group Message Kind Enum: 1 = Application, 2 = MembershipChange
     pub kind: GroupMessageKind,
     /// The ID of the App Installation this message was sent from.
     pub sender_installation_id: Vec<u8>,
     /// Network wallet address of the Sender
     pub sender_account_address: String,
+    /// We optimistically store messages before sending.
+    pub delivery_status: DeliveryStatus,
 }
 
 #[repr(i32)]
@@ -63,6 +68,37 @@ where
     }
 }
 
+#[repr(i32)]
+#[derive(Debug, Copy, Clone, FromSqlRow, Eq, PartialEq, AsExpression)]
+#[diesel(sql_type = Integer)]
+pub enum DeliveryStatus {
+    Unpublished = 1,
+    Published = 2,
+}
+
+impl ToSql<Integer, Sqlite> for DeliveryStatus
+where
+    i32: ToSql<Integer, Sqlite>,
+{
+    fn to_sql<'b>(&'b self, out: &mut Output<'b, '_, Sqlite>) -> serialize::Result {
+        out.set_value(*self as i32);
+        Ok(IsNull::No)
+    }
+}
+
+impl FromSql<Integer, Sqlite> for DeliveryStatus
+where
+    i32: FromSql<Integer, Sqlite>,
+{
+    fn from_sql(bytes: <Sqlite as Backend>::RawValue<'_>) -> deserialize::Result<Self> {
+        match i32::from_sql(bytes)? {
+            1 => Ok(DeliveryStatus::Unpublished),
+            2 => Ok(DeliveryStatus::Published),
+            x => Err(format!("Unrecognized variant {}", x).into()),
+        }
+    }
+}
+
 impl_fetch!(StoredGroupMessage, group_messages, Vec<u8>);
 impl_store!(StoredGroupMessage, group_messages);
 
@@ -74,10 +110,9 @@ impl DbConnection<'_> {
         sent_after_ns: Option<i64>,
         sent_before_ns: Option<i64>,
         kind: Option<GroupMessageKind>,
+        delivery_status: Option<DeliveryStatus>,
         limit: Option<i64>,
     ) -> Result<Vec<StoredGroupMessage>, StorageError> {
-        use super::schema::group_messages::dsl;
-
         let mut query = dsl::group_messages
             .order(dsl::sent_at_ns.asc())
             .filter(dsl::group_id.eq(group_id.as_ref()))
@@ -95,6 +130,10 @@ impl DbConnection<'_> {
             query = query.filter(dsl::kind.eq(kind));
         }
 
+        if let Some(status) = delivery_status {
+            query = query.filter(dsl::delivery_status.eq(status));
+        }
+
         if let Some(limit) = limit {
             query = query.limit(limit);
         }
@@ -107,7 +146,6 @@ impl DbConnection<'_> {
         &self,
         id: MessageId,
     ) -> Result<Option<StoredGroupMessage>, StorageError> {
-        use super::schema::group_messages::dsl;
         Ok(self.raw_query(|conn| {
             dsl::group_messages
                 .filter(dsl::id.eq(id.as_ref()))
@@ -121,13 +159,28 @@ impl DbConnection<'_> {
         group_id: GroupId,
         timestamp: i64,
     ) -> Result<Option<StoredGroupMessage>, StorageError> {
-        use super::schema::group_messages::dsl;
         Ok(self.raw_query(|conn| {
             dsl::group_messages
                 .filter(dsl::group_id.eq(group_id.as_ref()))
                 .filter(dsl::sent_at_ns.eq(timestamp))
                 .first(conn)
                 .optional()
+        })?)
+    }
+
+    pub fn set_delivery_status_to_published<MessageId: AsRef<[u8]>>(
+        &self,
+        msg_id: &MessageId,
+        timestamp: u64,
+    ) -> Result<usize, StorageError> {
+        Ok(self.raw_query(|conn| {
+            diesel::update(dsl::group_messages)
+                .filter(dsl::id.eq(msg_id.as_ref()))
+                .set((
+                    dsl::delivery_status.eq(DeliveryStatus::Published),
+                    dsl::sent_at_ns.eq(timestamp as i64),
+                ))
+                .execute(conn)
         })?)
     }
 }
@@ -155,6 +208,7 @@ mod tests {
             sender_installation_id: rand_vec(),
             sender_account_address: "0x0".to_string(),
             kind: kind.unwrap_or(GroupMessageKind::Application),
+            delivery_status: DeliveryStatus::Unpublished,
         }
     }
 
@@ -217,7 +271,7 @@ mod tests {
             assert_eq!(count, 50);
 
             let messages = conn
-                .get_group_messages(&group.id, None, None, None, None)
+                .get_group_messages(&group.id, None, None, None, None, None)
                 .unwrap();
 
             assert_eq!(messages.len(), 50);
@@ -242,18 +296,18 @@ mod tests {
             ];
             assert_ok!(messages.store(conn));
             let message = conn
-                .get_group_messages(&group.id, Some(1_000), Some(100_000), None, None)
+                .get_group_messages(&group.id, Some(1_000), Some(100_000), None, None, None)
                 .unwrap();
             assert_eq!(message.len(), 1);
             assert_eq!(message.first().unwrap().sent_at_ns, 10_000);
 
             let messages = conn
-                .get_group_messages(&group.id, None, Some(100_000), None, None)
+                .get_group_messages(&group.id, None, Some(100_000), None, None, None)
                 .unwrap();
             assert_eq!(messages.len(), 2);
 
             let messages = conn
-                .get_group_messages(&group.id, Some(10_000), None, None, None)
+                .get_group_messages(&group.id, Some(10_000), None, None, None, None)
                 .unwrap();
             assert_eq!(messages.len(), 2);
         })
@@ -294,6 +348,7 @@ mod tests {
                     None,
                     Some(GroupMessageKind::Application),
                     None,
+                    None,
                 )
                 .unwrap();
             assert_eq!(application_messages.len(), 15);
@@ -304,6 +359,7 @@ mod tests {
                     None,
                     None,
                     Some(GroupMessageKind::MembershipChange),
+                    None,
                     None,
                 )
                 .unwrap();
