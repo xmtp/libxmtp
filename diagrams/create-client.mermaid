@@ -1,0 +1,14 @@
+sequenceDiagram
+    participant Alice
+    participant LibXMTP
+    participant Node
+
+    Note over Alice,LibXMTP: These calls are coming from higher-level SDKs on behalf of users
+    Note over Alice,Node: Step 1 (Account Creation) & 2 (Initial Keying Material) of MLS group creation combined
+    Alice->>+LibXMTP: create_client(encryption_key, account_address)
+    LibXMTP-->>-Alice: client
+    Alice->>+LibXMTP: client.text_to_sign()
+    LibXMTP-->>-Alice: text to be signed for register_identity
+    Alice->>LibXMTP: client.register_identity(recoverable_wallet_signature)
+    LibXMTP->>+Node: register_installation(key_package:Alice)
+    Node-->>-LibXMTP: installation_key:Alice
