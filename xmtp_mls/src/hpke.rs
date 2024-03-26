@@ -1,12 +1,12 @@
 use openmls::ciphersuite::hpke::{
     decrypt_with_label, encrypt_with_label, Error as OpenmlsHpkeError,
 };
+use openmls::prelude::tls_codec::{Deserialize, Error as TlsCodecError, Serialize};
 use openmls_rust_crypto::RustCrypto;
 use openmls_traits::types::HpkeCiphertext;
 use openmls_traits::OpenMlsProvider;
 use openmls_traits::{key_store::OpenMlsKeyStore, types::HpkePrivateKey};
 use thiserror::Error;
-use openmls::prelude::tls_codec::{Deserialize, Error as TlsCodecError, Serialize};
 
 use crate::{
     configuration::{CIPHERSUITE, WELCOME_HPKE_LABEL},

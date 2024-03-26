@@ -1,9 +1,6 @@
 use std::collections::HashMap;
 
-use openmls::{
-    credentials::BasicCredential,    
-    group::MlsGroup as OpenMlsGroup
-};
+use openmls::{credentials::BasicCredential, group::MlsGroup as OpenMlsGroup};
 
 use xmtp_proto::api_client::XmtpMlsClient;
 

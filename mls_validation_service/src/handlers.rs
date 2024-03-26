@@ -1,4 +1,7 @@
-use openmls::{credentials::BasicCredential, prelude::{tls_codec::Deserialize, MlsMessageIn, ProtocolMessage}};
+use openmls::{
+    credentials::BasicCredential,
+    prelude::{tls_codec::Deserialize, MlsMessageIn, ProtocolMessage},
+};
 use openmls_rust_crypto::RustCrypto;
 use tonic::{Request, Response, Status};
 
@@ -85,10 +88,11 @@ struct ValidateGroupMessageResult {
 }
 
 fn validate_group_message(message: Vec<u8>) -> Result<ValidateGroupMessageResult, String> {
-    let msg_result = MlsMessageIn::tls_deserialize(&mut message.as_slice())
-        .map_err(|e| e.to_string())?;
+    let msg_result =
+        MlsMessageIn::tls_deserialize(&mut message.as_slice()).map_err(|e| e.to_string())?;
 
-    let protocol_message: ProtocolMessage = msg_result.try_into_protocol_message()
+    let protocol_message: ProtocolMessage = msg_result
+        .try_into_protocol_message()
         .map_err(|e| e.to_string())?;
 
     Ok(ValidateGroupMessageResult {
@@ -109,13 +113,9 @@ fn validate_key_package(key_package_bytes: Vec<u8>) -> Result<ValidateKeyPackage
         VerifiedKeyPackage::from_bytes(&rust_crypto, key_package_bytes.as_slice())
             .map_err(|e| e.to_string())?;
 
-    let credential = verified_key_package
-    .inner
-    .leaf_node()
-    .credential();
+    let credential = verified_key_package.inner.leaf_node().credential();
 
-    let basic_credential = BasicCredential::try_from(credential)
-        .map_err(|e| e.to_string())?;
+    let basic_credential = BasicCredential::try_from(credential).map_err(|e| e.to_string())?;
 
     Ok(ValidateKeyPackageResult {
         installation_id: verified_key_package.installation_id(),
@@ -129,9 +129,13 @@ fn validate_key_package(key_package_bytes: Vec<u8>) -> Result<ValidateKeyPackage
 mod tests {
     use ethers::signers::LocalWallet;
     use openmls::{
-        extensions::{ApplicationIdExtension, Extension, Extensions}, prelude::{
-            tls_codec::Serialize, Ciphersuite, Credential as OpenMlsCredential, CredentialType, CredentialWithKey, CryptoConfig
-        }, prelude_test::KeyPackage, versions::ProtocolVersion
+        extensions::{ApplicationIdExtension, Extension, Extensions},
+        prelude::{
+            tls_codec::Serialize, Ciphersuite, Credential as OpenMlsCredential, CredentialType,
+            CredentialWithKey, CryptoConfig,
+        },
+        prelude_test::KeyPackage,
+        versions::ProtocolVersion,
     };
     use openmls_basic_credential::SignatureKeyPair;
     use openmls_rust_crypto::OpenMlsRustCrypto;

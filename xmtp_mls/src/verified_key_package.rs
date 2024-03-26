@@ -1,20 +1,18 @@
 use openmls::{
-    credentials::{
-        BasicCredential, errors::BasicCredentialError
-    },
+    credentials::{errors::BasicCredentialError, BasicCredential},
     prelude::{
-        tls_codec::{
-             Deserialize, Error as TlsCodecError
-        }, 
-        KeyPackage, KeyPackageIn, KeyPackageVerifyError
-    }
+        tls_codec::{Deserialize, Error as TlsCodecError},
+        KeyPackage, KeyPackageIn, KeyPackageVerifyError,
+    },
 };
 
 use openmls_rust_crypto::RustCrypto;
 use thiserror::Error;
 
 use crate::{
-    configuration::MLS_PROTOCOL_VERSION, identity::{Identity, IdentityError}, types::Address
+    configuration::MLS_PROTOCOL_VERSION,
+    identity::{Identity, IdentityError},
+    types::Address,
 };
 
 #[derive(Debug, Error)]
@@ -56,10 +54,10 @@ impl VerifiedKeyPackage {
     // Validates starting with a KeyPackage (which is already validated by OpenMLS)
     pub fn from_key_package(kp: KeyPackage) -> Result<Self, KeyPackageVerificationError> {
         let leaf_node = kp.leaf_node();
-        let basic_credential = 
-            BasicCredential::try_from(leaf_node.credential())?;
+        let basic_credential = BasicCredential::try_from(leaf_node.credential())?;
         let pub_key_bytes = leaf_node.signature_key().as_slice();
-        let account_address = identity_to_account_address(basic_credential.identity(), pub_key_bytes)?;
+        let account_address =
+            identity_to_account_address(basic_credential.identity(), pub_key_bytes)?;
         let application_id = extract_application_id(&kp)?;
         if !account_address.eq(&application_id) {
             return Err(

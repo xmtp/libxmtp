@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
 use openmls::{
-    credentials::{BasicCredential, errors::BasicCredentialError, CredentialType},
+    credentials::{errors::BasicCredentialError, BasicCredential, CredentialType},
     group::{QueuedAddProposal, QueuedRemoveProposal},
     prelude::{LeafNodeIndex, MlsGroup as OpenMlsGroup, Sender, StagedCommit},
 };
@@ -15,6 +15,7 @@ use super::{
     group_metadata::{extract_group_metadata, GroupMetadata, GroupMetadataError},
     members::aggregate_member_list,
 };
+
 use crate::{
     identity::{Identity, IdentityError},
     types::Address,
@@ -169,8 +170,7 @@ fn extract_actor(
     if let Some(leaf_node) = group.member_at(leaf_index) {
         let signature_key = leaf_node.signature_key.as_slice();
 
-        let basic_credential = 
-            BasicCredential::try_from(&leaf_node.credential)?;
+        let basic_credential = BasicCredential::try_from(&leaf_node.credential)?;
         let account_address =
             Identity::get_validated_account_address(basic_credential.identity(), signature_key)?;
 
@@ -222,8 +222,7 @@ fn extract_identity_from_remove(
     if let Some(member) = group.member_at(leaf_index) {
         let signature_key = member.signature_key.as_slice();
 
-        let basic_credential = 
-            BasicCredential::try_from(&member.credential)?;
+        let basic_credential = BasicCredential::try_from(&member.credential)?;
         let account_address =
             Identity::get_validated_account_address(basic_credential.identity(), signature_key)?;
         let is_creator = account_address.eq(&group_metadata.creator_account_address);
