@@ -117,6 +117,8 @@ pub enum GroupError {
     Identity(#[from] IdentityError),
     #[error("serialization error: {0}")]
     EncodeError(#[from] prost::EncodeError),
+    #[error("group message not found: {0}")]
+    GroupMessageNotFound(String),
 }
 
 impl RetryableError for GroupError {
@@ -318,6 +320,16 @@ where
         )?;
 
         Ok(messages)
+    }
+
+    pub async fn process_streamed_group_message(
+        &self, 
+        envelope_bytes: Vec<u8>
+    ) -> Result<GroupMessage, GroupError> {
+        let envelope = GroupMessage::decode(envelope_bytes.as_slice())
+            .map_err(|e| GroupError::GroupMessageNotFound(e.to_string()))?;
+
+        Ok(envelope)
     }
 
     pub async fn add_members(

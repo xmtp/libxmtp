@@ -362,9 +362,7 @@ impl FfiGroup {
             self.group_id.clone(),
             self.created_at_ns,
         );
-        let slice = envelope_bytes.as_slice();
-        let envelope = GroupMessage::decode(slice);
-        let message = group.process_stream_entry(envelope).into();
+        let message = group.process_streamed_group_message(envelope).into();
         
         Ok(message)
     }
