@@ -221,7 +221,7 @@ impl FfiConversations {
     }
 
     pub fn process_streamed_welcome_message(&self, envelope_bytes: Vec<u8>) -> Result<FfiGroup, GenericError> {
-        let message = process_streamed_welcome_message(envelope).into();
+        let message = process_streamed_welcome_message(envelope_bytes).into();
         
         Ok(message)
     }
@@ -368,7 +368,7 @@ impl FfiGroup {
             self.group_id.clone(),
             self.created_at_ns,
         );
-        let message = group.process_streamed_group_message(envelope).await?.into();
+        let message = group.process_streamed_group_message(envelope_bytes).await?.into();
         
         Ok(message)
     }
