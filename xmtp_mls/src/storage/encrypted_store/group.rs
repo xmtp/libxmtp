@@ -32,7 +32,7 @@ pub struct StoredGroup {
     pub membership_state: GroupMembershipState,
     /// Track when the latest, most recent installations were checked
     pub installations_last_checked: i64,
-    /// Enum, [`Purpose`] signifies the group purpose which extends to who can access it. 
+    /// Enum, [`Purpose`] signifies the group purpose which extends to who can access it.
     pub purpose: Purpose,
 }
 
@@ -52,7 +52,11 @@ impl StoredGroup {
     }
 
     /// Create a new [`Purpose::Sync`] group
-    pub fn new_sync_group(id: ID, created_at_ns: i64, membership_state: GroupMembershipState) -> Self {
+    pub fn new_sync_group(
+        id: ID,
+        created_at_ns: i64,
+        membership_state: GroupMembershipState,
+    ) -> Self {
         Self {
             id,
             created_at_ns,
@@ -95,11 +99,11 @@ impl DbConnection<'_> {
         Ok(self.raw_query(|conn| query.load(conn))?)
     }
 
-    /// Return only the [`Purpose::Sync`] groups 
-    pub fn sync_groups(&self) -> Result<Vec<StoredGroup>, StorageError> {
+    /// Return only the [`Purpose::Sync`] groups
+    pub fn find_sync_groups(&self) -> Result<Vec<StoredGroup>, StorageError> {
         let mut query = dsl::groups.order(dsl::created_at_ns.asc()).into_boxed();
         query = query.filter(dsl::purpose.eq(Purpose::Sync));
-        
+
         Ok(self.raw_query(|conn| query.load(conn))?)
     }
 
@@ -327,6 +331,10 @@ pub(crate) mod tests {
                 .unwrap();
             assert_eq!(results_with_created_at_ns_after.len(), 1);
             assert_eq!(results_with_created_at_ns_after[0].id, test_group_2.id);
+
+            // Sync groups SHOULD NOT be returned
+            let synced_groups = conn.find_sync_groups().unwrap();
+            assert_eq!(synced_groups.len(), 0);
         })
     }
 
@@ -368,6 +376,19 @@ pub(crate) mod tests {
             assert_ok!(fetched_group, Some(test_group));
             let purpose = fetched_group.unwrap().unwrap().purpose;
             assert_eq!(purpose, Purpose::Conversation);
+        })
+    }
+
+    #[test]
+    fn test_new_sync_group() {
+        with_connection(|_conn| {
+            let id = rand_vec();
+            let created_at_ns = now_ns();
+            let membership_state = GroupMembershipState::Allowed;
+
+            let sync_group = StoredGroup::new_sync_group(id, created_at_ns, membership_state);
+            let purpose = sync_group.purpose;
+            assert_eq!(purpose, Purpose::Sync);
         })
     }
 }
