@@ -48,12 +48,12 @@ where
     pub async fn process_streamed_group_message(
         &self, 
         envelope_bytes: Vec<u8>
-    ) -> Result<Option<StoredGroupMessage>, GroupError> {
+    ) -> Result<StoredGroupMessage, GroupError> {
         let envelope = GroupMessage::decode(envelope_bytes.as_slice())
             .map_err(|e| GroupError::GroupMessageNotFound(e.to_string()))?;
         
         let message = self.process_stream_entry(envelope).await.map_err(|e| e)?;
-        Ok(message)
+        Ok(message.unwrap())
     }
 
     pub async fn stream(
