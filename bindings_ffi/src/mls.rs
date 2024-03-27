@@ -362,13 +362,13 @@ impl FfiGroup {
         Ok(messages)
     }
 
-    pub fn process_streamed_group_message(&self, envelope_bytes: Vec<u8>) -> Result<FfiMessage, GenericError> {
+    pub async fn process_streamed_group_message(&self, envelope_bytes: Vec<u8>) -> Result<FfiMessage, GenericError> {
         let group = MlsGroup::new(
             self.inner_client.as_ref(),
             self.group_id.clone(),
             self.created_at_ns,
         );
-        let message = group.process_streamed_group_message(envelope).into();
+        let message = group.process_streamed_group_message(envelope).await?.into();
         
         Ok(message)
     }
