@@ -7,7 +7,7 @@ use openmls::{
     prelude::TlsSerializeTrait,
 };
 use openmls_traits::OpenMlsProvider;
-use prost::EncodeError;
+use prost::{EncodeError, Message};
 use thiserror::Error;
 use tls_codec::{Deserialize, Error as TlsSerializationError};
 
@@ -403,6 +403,16 @@ where
                 VerifiedKeyPackage::from_bytes(self.mls_provider(&conn).crypto(), bytes.as_slice())
             })
             .collect::<Result<_, _>>()?)
+    }
+
+    pub fn process_streamed_welcome_message(
+        &self, 
+        envelope_bytes: Vec<u8>
+    ) -> Result<WelcomeMessage, MessageProcessingError> {
+        let envelope = WelcomeMessage::decode(envelope_bytes.as_slice())
+            .map_err(|e| MessageProcessingError::WelcomeProcessing(e.to_string()))?;
+
+        Ok(envelope)
     }
 
     /// Download all unread welcome messages and convert to groups.

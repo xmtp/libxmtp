@@ -322,7 +322,7 @@ where
         Ok(messages)
     }
 
-    pub async fn process_streamed_group_message(
+    pub fn process_streamed_group_message(
         &self, 
         envelope_bytes: Vec<u8>
     ) -> Result<GroupMessage, GroupError> {

@@ -220,6 +220,12 @@ impl FfiConversations {
         Ok(out)
     }
 
+    pub fn process_streamed_welcome_message(&self, envelope_bytes: Vec<u8>) -> Result<FfiMessage, GenericError> {
+        let message = process_streamed_welcome_message(envelope).into();
+        
+        Ok(message)
+    }
+
     pub async fn sync(&self) -> Result<(), GenericError> {
         let inner = self.inner_client.as_ref();
         inner.sync_welcomes().await?;
