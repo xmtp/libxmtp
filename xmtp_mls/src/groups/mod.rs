@@ -322,16 +322,6 @@ where
         Ok(messages)
     }
 
-    pub fn process_streamed_group_message(
-        &self, 
-        envelope_bytes: Vec<u8>
-    ) -> Result<GroupMessage, GroupError> {
-        let envelope = GroupMessage::decode(envelope_bytes.as_slice())
-            .map_err(|e| GroupError::GroupMessageNotFound(e.to_string()))?;
-
-        Ok(envelope)
-    }
-
     pub async fn add_members(
         &self,
         account_addresses_to_add: Vec<String>,

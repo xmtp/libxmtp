@@ -9,6 +9,7 @@ use std::{
 
 use futures::{Stream, StreamExt};
 use tokio::sync::oneshot::{self, Sender};
+use prost::Message;
 use xmtp_proto::{api_client::XmtpMlsClient, xmtp::mls::api::v1::WelcomeMessage};
 
 use crate::{
@@ -67,6 +68,17 @@ where
             welcome_v1.data,
         )
         .map_err(|e| ClientError::Generic(e.to_string()))
+    }
+
+    pub fn process_streamed_welcome_message(
+        &self, 
+        envelope_bytes: Vec<u8>
+    ) -> Result<MlsGroup<ApiClient>, ClientError> {
+        let envelope = WelcomeMessage::decode(envelope_bytes.as_slice())
+            .map_err(|e| ClientError::Generic(e.to_string()))?;
+
+        let welcome = self.process_streamed_welcome(envelope).map_err(|e| e)?;
+        Ok(welcome)
     }
 
     pub async fn stream_conversations(

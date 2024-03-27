@@ -220,7 +220,7 @@ impl FfiConversations {
         Ok(out)
     }
 
-    pub fn process_streamed_welcome_message(&self, envelope_bytes: Vec<u8>) -> Result<FfiMessage, GenericError> {
+    pub fn process_streamed_welcome_message(&self, envelope_bytes: Vec<u8>) -> Result<FfiGroup, GenericError> {
         let message = process_streamed_welcome_message(envelope).into();
         
         Ok(message)
