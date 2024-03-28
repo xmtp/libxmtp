@@ -5,6 +5,7 @@ use openmls::{
     credentials::errors::CredentialError,
     extensions::{errors::InvalidExtensionError, ApplicationIdExtension, LastResortExtension},
     prelude::{
+        tls_codec::{Error as TlsCodecError, Serialize},
         Capabilities, Credential as OpenMlsCredential, CredentialType, CredentialWithKey,
         CryptoConfig, Extension, ExtensionType, Extensions, KeyPackage, KeyPackageNewError,
         Lifetime,
@@ -15,7 +16,6 @@ use openmls_basic_credential::SignatureKeyPair;
 use openmls_traits::{types::CryptoError, OpenMlsProvider};
 use prost::Message;
 use thiserror::Error;
-use tls_codec::Serialize;
 use xmtp_cryptography::signature::SignatureError;
 use xmtp_proto::{
     api_client::XmtpMlsClient, xmtp::mls::message_contents::MlsCredential as CredentialProto,
@@ -52,8 +52,8 @@ pub enum IdentityError {
     UninitializedIdentity,
     #[error("wallet signature required - please sign the text produced by text_to_sign()")]
     WalletSignatureRequired,
-    #[error("tls serialization: {0}")]
-    TlsSerialization(#[from] tls_codec::Error),
+    #[error("TLS Codec error: {0}")]
+    TlsError(#[from] TlsCodecError),
     #[error("api error: {0}")]
     ApiError(#[from] xmtp_proto::api_client::Error),
     #[error("OpenMLS credential error: {0}")]
@@ -94,12 +94,12 @@ impl Identity {
         legacy_signed_private_key: Vec<u8>,
     ) -> Result<Self, IdentityError> {
         info!("Creating identity from legacy key");
-        let signature_keys = SignatureKeyPair::new(CIPHERSUITE.signature_algorithm()).unwrap();
+        let signature_keys = SignatureKeyPair::new(CIPHERSUITE.signature_algorithm())?;
         let credential =
             Credential::create_from_legacy(&signature_keys, legacy_signed_private_key)?;
         let credential_proto: CredentialProto = credential.into();
         let mls_credential =
-            OpenMlsCredential::new(credential_proto.encode_to_vec(), CredentialType::Basic)?;
+            OpenMlsCredential::new(CredentialType::Basic, credential_proto.encode_to_vec());
         info!("Successfully created identity from legacy key");
         Ok(Self {
             account_address,
@@ -137,7 +137,7 @@ impl Identity {
             )?
             .into();
             let credential =
-                OpenMlsCredential::new(credential_proto.encode_to_vec(), CredentialType::Basic)?;
+                OpenMlsCredential::new(CredentialType::Basic, credential_proto.encode_to_vec());
             self.set_credential(credential)?;
         }
 

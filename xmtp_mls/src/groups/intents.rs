@@ -1,7 +1,9 @@
-use openmls::prelude::MlsMessageOut;
+use openmls::prelude::{
+    tls_codec::{Error as TlsCodecError, Serialize},
+    MlsMessageOut,
+};
 use prost::{DecodeError, Message};
 use thiserror::Error;
-use tls_codec::Serialize;
 
 use xmtp_proto::xmtp::mls::database::{
     add_members_data::{Version as AddMembersVersion, V1 as AddMembersV1},
@@ -28,8 +30,8 @@ pub enum IntentError {
     Decode(#[from] DecodeError),
     #[error("key package verification: {0}")]
     KeyPackageVerification(#[from] KeyPackageVerificationError),
-    #[error("tls codec: {0}")]
-    TlsCodec(#[from] tls_codec::Error),
+    #[error("TLS Codec error: {0}")]
+    TlsError(#[from] TlsCodecError),
     #[error("generic: {0}")]
     Generic(String),
 }
