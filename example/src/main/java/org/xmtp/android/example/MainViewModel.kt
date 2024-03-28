@@ -45,8 +45,8 @@ class MainViewModel : ViewModel() {
             val listItems = mutableListOf<MainListItem>()
             try {
                 val conversations = ClientManager.client.conversations.list(includeGroups = true)
+                val hmacKeysResult = ClientManager.client.conversations.getHmacKeys()
                 val subscriptions = conversations.map {
-                    val hmacKeysResult = ClientManager.client.conversations.getHmacKeys()
                     val hmacKeys = hmacKeysResult.hmacKeysMap
                     val result = hmacKeys[it.topic]?.valuesList?.map { hmacKey ->
                         Service.Subscription.HmacKey.newBuilder().also { sub_key ->

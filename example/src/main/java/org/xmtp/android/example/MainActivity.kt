@@ -1,10 +1,12 @@
 package org.xmtp.android.example
 
+import android.Manifest
 import android.accounts.AccountManager
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.os.Bundle
 import android.view.Menu
 import android.view.MenuItem
@@ -12,6 +14,8 @@ import android.view.View
 import android.widget.Toast
 import androidx.activity.viewModels
 import androidx.appcompat.app.AppCompatActivity
+import androidx.core.app.ActivityCompat
+import androidx.core.content.ContextCompat
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.repeatOnLifecycle
@@ -28,6 +32,7 @@ import org.xmtp.android.example.pushnotifications.PushNotificationTokenManager
 import org.xmtp.android.example.utils.KeyUtil
 import org.xmtp.android.library.Conversation
 
+
 class MainActivity : AppCompatActivity(),
     ConversationsClickListener {
 
@@ -37,10 +42,12 @@ class MainActivity : AppCompatActivity(),
     private lateinit var adapter: ConversationsAdapter
     private var bottomSheet: NewConversationBottomSheet? = null
     private var groupBottomSheet: NewGroupBottomSheet? = null
+    private val REQUEST_CODE_POST_NOTIFICATIONS = 101
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         accountManager = AccountManager.get(this)
+        checkAndRequestPermissions()
         PushNotificationTokenManager.init(this, "10.0.2.2:8080")
         viewModel.setupPush()
 
@@ -207,5 +214,19 @@ class MainActivity : AppCompatActivity(),
             supportFragmentManager,
             NewGroupBottomSheet.TAG
         )
+    }
+
+    private fun checkAndRequestPermissions() {
+        if (ContextCompat.checkSelfPermission(
+                this,
+                Manifest.permission.POST_NOTIFICATIONS
+            ) != PackageManager.PERMISSION_GRANTED
+        ) {
+            ActivityCompat.requestPermissions(
+                this,
+                arrayOf(Manifest.permission.POST_NOTIFICATIONS),
+                REQUEST_CODE_POST_NOTIFICATIONS
+            )
+        }
     }
 }

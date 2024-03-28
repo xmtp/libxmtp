@@ -18,27 +18,31 @@ For this tutorial, we'll use [Firebase Cloud Messaging](https://console.firebase
 
 ## Run an example notification server
 
-Now that you have an FCM server set up, take a look at the [export-kotlin-proto-code](https://github.com/xmtp/example-notification-server-go/tree/np/export-kotlin-proto-code) branch in the `example-notifications-server-go` repo. 
+Now that you have an FCM server set up, take a look at the `kotlin` folder in the `example-notifications-server-go` repo. 
 
-This example branch can serve as the basis for what you might want to provide for your own notification server. The branch also demonstrates how to generate the proto code if you decide to perform these tasks for your own app. This proto code from the example notification server has already been generated in the `xmtp-android` example app.
+These files can serve as the basis for what you might want to provide for your own notification server. This proto code from the example notification server has already been generated and add in the `xmtp-android` example app if you use the example notification server as is.
 
-**To run a notification server based on the example branch:**
+**To run a example notification server:**
 
 1. Clone the [example-notification-server-go](https://github.com/xmtp/example-notification-server-go) repo.
 
 2. Complete the steps in [Local Setup](https://github.com/xmtp/example-notification-server-go/blob/np/export-kotlin-proto-code/README.md#local-setup).
 
-3. Get the FCM project ID and `google-services.json` file you created earlier and run:
+3. Get the FCM project ID and the FCM credentials you created in step 4 of setting up FCM and run:
+
+   ```bash
+   YOURFCMJSON=$(cat /path/to/FCMCredentials.json)
+   ```
 
     ```bash
     dev/run \                                                                     
     --xmtp-listener-tls \
     --xmtp-listener \
     --api \
-    -x "grpc.production.xmtp.network:443:5556" \
+    -x "grpc.production.xmtp.network:443" \
     -d "postgres://postgres:xmtp@localhost:25432/postgres?sslmode=disable" \
     --fcm-enabled \
-    --fcm-credentials-json=YOURFCMJSON \
+    --fcm-credentials-json=$YOURFCMJSON \
     --fcm-project-id="YOURFCMPROJECTID"
     ```
 
@@ -68,7 +72,7 @@ This example branch can serve as the basis for what you might want to provide fo
 
 5. Add the example notification server address to the example app's `MainActivity`. In this case, it should be `PushNotificationTokenManager.init(this, "10.0.2.2:8080")`.
 
-6. Change the example app's environment to `XMTPEnvironment.PRODUCTION` in `Client.kt`.
+6. Change the example app's environment to `XMTPEnvironment.PRODUCTION` in `ClientManager.kt`.
 
 7. Set up the example app to register the FCM token with the network and then subscribe each conversation to push notifications. For example:
 
@@ -77,7 +81,24 @@ This example branch can serve as the basis for what you might want to provide fo
     ```
 
     ```kotlin
-    XMTPPush(context, "10.0.2.2:8080").subscribe(conversations.map { it.topic })
+    val hmacKeysResult = ClientManager.client.conversations.getHmacKeys()
+    val subscriptions = conversations.map {
+        val hmacKeys = hmacKeysResult.hmacKeysMap
+        val result = hmacKeys[it.topic]?.valuesList?.map { hmacKey ->
+            Service.Subscription.HmacKey.newBuilder().also { sub_key ->
+                sub_key.key = hmacKey.hmacKey
+                sub_key.thirtyDayPeriodsSinceEpoch = hmacKey.thirtyDayPeriodsSinceEpoch
+            }.build()
+        }
+
+        Service.Subscription.newBuilder().also { sub ->
+            sub.addAllHmacKeys(result)
+            sub.topic = it.topic
+            sub.isSilent = it.version == Conversation.Version.V1
+        }.build()
+    }
+
+    XMTPPush(context, "10.0.2.2:8080").subscribeWithMetadata(subscriptions)
     ```
 
     ```kotlin
