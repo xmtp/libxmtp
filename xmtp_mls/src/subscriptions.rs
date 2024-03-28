@@ -8,8 +8,8 @@ use std::{
 };
 
 use futures::{Stream, StreamExt};
-use tokio::sync::oneshot::{self, Sender};
 use prost::Message;
+use tokio::sync::oneshot::{self, Sender};
 use xmtp_proto::{api_client::XmtpMlsClient, xmtp::mls::api::v1::WelcomeMessage};
 
 use crate::{
@@ -71,8 +71,8 @@ where
     }
 
     pub fn process_streamed_welcome_message(
-        &self, 
-        envelope_bytes: Vec<u8>
+        &self,
+        envelope_bytes: Vec<u8>,
     ) -> Result<MlsGroup<ApiClient>, ClientError> {
         let envelope = WelcomeMessage::decode(envelope_bytes.as_slice())
             .map_err(|e| ClientError::Generic(e.to_string()))?;
