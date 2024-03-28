@@ -50,9 +50,9 @@ where
         envelope_bytes: Vec<u8>
     ) -> Result<StoredGroupMessage, GroupError> {
         let envelope = GroupMessage::decode(envelope_bytes.as_slice())
-            .map_err(|e| GroupError::GroupMessageNotFound(e.to_string()))?;
+            .map_err(|e| GroupError::Generic(e.to_string()))?;
         
-        let message = self.process_stream_entry(envelope).await.map_err(|e| e)?;
+        let message = self.process_stream_entry(envelope).await?;
         Ok(message.unwrap())
     }
 

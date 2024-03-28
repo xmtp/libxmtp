@@ -117,8 +117,6 @@ pub enum GroupError {
     Identity(#[from] IdentityError),
     #[error("serialization error: {0}")]
     EncodeError(#[from] prost::EncodeError),
-    #[error("group message not found: {0}")]
-    GroupMessageNotFound(String),
 }
 
 impl RetryableError for GroupError {

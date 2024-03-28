@@ -77,7 +77,7 @@ where
         let envelope = WelcomeMessage::decode(envelope_bytes.as_slice())
             .map_err(|e| ClientError::Generic(e.to_string()))?;
 
-        let welcome = self.process_streamed_welcome(envelope).map_err(|e| e)?;
+        let welcome = self.process_streamed_welcome(envelope)?;
         Ok(welcome)
     }
 
