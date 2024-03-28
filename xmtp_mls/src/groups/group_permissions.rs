@@ -231,6 +231,8 @@ pub struct PolicySet {
     pub remove_member_policy: MembershipPolicies,
     pub add_installation_policy: MembershipPolicies,
     pub remove_installation_policy: MembershipPolicies,
+    pub update_group_name_policy: MembershipPolicies,
+    pub update_allow_list_policy: MembershipPolicies,
 }
 
 #[allow(dead_code)]
@@ -238,12 +240,16 @@ impl PolicySet {
     pub fn new(
         add_member_policy: MembershipPolicies,
         remove_member_policy: MembershipPolicies,
+        update_group_name_policy: MembershipPolicies,
+        update_allow_list_policy: MembershipPolicies,
     ) -> Self {
         Self {
             add_member_policy,
             remove_member_policy,
             add_installation_policy: default_add_installation_policy(),
             remove_installation_policy: default_remove_installation_policy(),
+            update_group_name_policy,
+            update_allow_list_policy,
         }
     }
 
@@ -295,6 +301,8 @@ impl PolicySet {
         Ok(PolicySetProto {
             add_member_policy: Some(self.add_member_policy.to_proto()?),
             remove_member_policy: Some(self.remove_member_policy.to_proto()?),
+            update_group_name_policy: Some(self.update_group_name_policy.to_proto()?),
+            update_allow_list_policy: Some(self.update_allow_list_policy.to_proto()?),
         })
     }
 
@@ -307,6 +315,16 @@ impl PolicySet {
                 proto
                     .remove_member_policy
                     .ok_or(PolicyError::InvalidPolicy)?,
+            )?,
+            MembershipPolicies::try_from(
+                proto
+                .update_group_name_policy
+                .ok_or(PolicyError::InvalidPolicy)?,
+            )?,
+            MembershipPolicies::try_from(
+                proto
+                .update_allow_list_policy
+                .ok_or(PolicyError::InvalidPolicy)?,
             )?,
         ))
     }
@@ -332,9 +350,13 @@ fn default_remove_installation_policy() -> MembershipPolicies {
     MembershipPolicies::deny()
 }
 
-/// A policy where any member can add or remove any other member
+/// A policy where any member can add or remove any other member or set group name
 pub(crate) fn policy_everyone_is_admin() -> PolicySet {
-    PolicySet::new(MembershipPolicies::allow(), MembershipPolicies::allow())
+    PolicySet::new(
+        MembershipPolicies::allow(), 
+        MembershipPolicies::allow(), 
+        MembershipPolicies::allow(),  
+        MembershipPolicies::deny())
 }
 
 /// A policy where only the group creator can add or remove members
@@ -342,6 +364,8 @@ pub(crate) fn policy_group_creator_is_admin() -> PolicySet {
     PolicySet::new(
         MembershipPolicies::allow_if_actor_creator(),
         MembershipPolicies::allow_if_actor_creator(),
+        MembershipPolicies::allow_if_actor_creator(),
+        MembershipPolicies::deny(),
     )
 }
 
@@ -446,7 +470,12 @@ mod tests {
 
     #[test]
     fn test_allow_all() {
-        let permissions = PolicySet::new(MembershipPolicies::allow(), MembershipPolicies::allow());
+        let permissions = PolicySet::new(
+            MembershipPolicies::allow(), 
+            MembershipPolicies::allow(),
+            MembershipPolicies::allow(),
+            MembershipPolicies::allow(),
+        );
 
         let commit = build_validated_commit(Some(true), Some(true), None, None, false);
         assert!(permissions.evaluate_commit(&commit));
@@ -454,7 +483,12 @@ mod tests {
 
     #[test]
     fn test_deny() {
-        let permissions = PolicySet::new(MembershipPolicies::deny(), MembershipPolicies::deny());
+        let permissions = PolicySet::new(
+            MembershipPolicies::deny(), 
+            MembershipPolicies::deny(),
+            MembershipPolicies::deny(),
+            MembershipPolicies::deny(),
+        );
 
         let member_added_commit = build_validated_commit(Some(false), None, None, None, false);
         assert!(!permissions.evaluate_commit(&member_added_commit));
@@ -478,6 +512,8 @@ mod tests {
         let permissions = PolicySet::new(
             MembershipPolicies::allow_if_actor_creator(),
             MembershipPolicies::allow_if_actor_creator(),
+            MembershipPolicies::allow_if_actor_creator(),
+            MembershipPolicies::allow_if_actor_creator(),
         );
 
         let commit_with_creator = build_validated_commit(Some(true), Some(true), None, None, true);
@@ -492,6 +528,8 @@ mod tests {
     fn test_allow_same_member() {
         let permissions = PolicySet::new(
             MembershipPolicies::allow_same_member(),
+            MembershipPolicies::deny(),
+            MembershipPolicies::deny(),
             MembershipPolicies::deny(),
         );
 
@@ -511,6 +549,8 @@ mod tests {
                 MembershipPolicies::Standard(BasePolicies::Allow),
             ]),
             MembershipPolicies::allow(),
+            MembershipPolicies::allow(),
+            MembershipPolicies::allow(),
         );
 
         let member_added_commit = build_validated_commit(Some(true), None, None, None, false);
@@ -525,6 +565,8 @@ mod tests {
                 MembershipPolicies::allow(),
             ]),
             MembershipPolicies::allow(),
+            MembershipPolicies::allow(),
+            MembershipPolicies::allow(),
         );
 
         let member_added_commit = build_validated_commit(Some(true), None, None, None, false);
@@ -536,6 +578,14 @@ mod tests {
         let permissions = PolicySet::new(
             MembershipPolicies::any(vec![
                 MembershipPolicies::allow(),
+                MembershipPolicies::deny(),
+            ]),
+            MembershipPolicies::and(vec![
+                MembershipPolicies::allow_if_actor_creator(),
+                MembershipPolicies::deny(),
+            ]),
+            MembershipPolicies::and(vec![
+                MembershipPolicies::allow_if_actor_creator(),
                 MembershipPolicies::deny(),
             ]),
             MembershipPolicies::and(vec![
@@ -558,6 +608,8 @@ mod tests {
     fn test_disallow_serialize_allow_same_member() {
         let permissions = PolicySet::new(
             MembershipPolicies::allow_same_member(),
+            MembershipPolicies::deny(),
+            MembershipPolicies::deny(),
             MembershipPolicies::deny(),
         );
 
