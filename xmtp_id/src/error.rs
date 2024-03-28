@@ -10,4 +10,6 @@ pub enum IdentityError {
     KeyGenerationError(#[from] CryptoError),
     #[error("uninitialized identity")]
     UninitializedIdentity,
+    #[error("protobuf deserialization: {0}")]
+    Deserialization(#[from] prost::DecodeError),
 }

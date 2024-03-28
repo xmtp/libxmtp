@@ -1,13 +1,17 @@
+mod credential;
 pub mod error;
+mod verified_key_package;
 
 use std::sync::RwLock;
 
 use openmls::prelude::Credential as OpenMlsCredential;
 use openmls_basic_credential::SignatureKeyPair;
+use prost::Message;
 use xmtp_mls::{
-    configuration::CIPHERSUITE, credential::UnsignedGrantMessagingAccessData, types::Address,
-    utils::time::now_ns,
+    configuration::CIPHERSUITE, credential::Credential,
+    credential::UnsignedGrantMessagingAccessData, types::Address, utils::time::now_ns,
 };
+use xmtp_proto::xmtp::mls::message_contents::MlsCredential as CredentialProto;
 
 use crate::error::IdentityError;
 
@@ -56,6 +60,20 @@ impl Identity {
             .unwrap_or_else(|err| err.into_inner())
             .clone()
             .ok_or(IdentityError::UninitializedIdentity)
+    }
+
+    pub(crate) fn get_validated_account_address(
+        credential: &[u8],
+        installation_public_key: &[u8],
+    ) -> Result<String, IdentityError> {
+        let proto = CredentialProto::decode(credential)?;
+        let credential = Credential::from_proto_validated(
+            proto,
+            None, // expected_account_address
+            Some(installation_public_key),
+        )?;
+
+        Ok(credential.address())
     }
 }
 
