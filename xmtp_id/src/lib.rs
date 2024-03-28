@@ -13,7 +13,10 @@ use xmtp_mls::{
 };
 use xmtp_proto::xmtp::mls::message_contents::MlsCredential as CredentialProto;
 
-use crate::error::IdentityError;
+use crate::{
+    credential::{CredentialVerifier, VerificationRequest, VerifiedCredential},
+    error::IdentityError,
+};
 
 pub struct Identity {
     #[allow(dead_code)]
@@ -66,13 +69,8 @@ impl Identity {
         credential: &[u8],
         installation_public_key: &[u8],
     ) -> Result<String, IdentityError> {
-        let proto = CredentialProto::decode(credential)?;
-        let credential = Credential::from_proto_validated(
-            proto,
-            None, // expected_account_address
-            Some(installation_public_key),
-        )?;
-
+        let request = VerificationRequest::new(credential, installation_public_key);
+        let credential = CredentialVerifier::verify_credential(request)?;
         Ok(credential.address())
     }
 }

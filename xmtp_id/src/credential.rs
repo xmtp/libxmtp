@@ -1,10 +1,10 @@
 use prost::Message;
 use xmtp_mls::{
-    credential::{GrantMessagingAccessAssociation, LegacyCreateIdentityAssociation},
+    credential::{Credential, GrantMessagingAccessAssociation, LegacyCreateIdentityAssociation},
     types::Address,
 };
 use xmtp_proto::xmtp::mls::message_contents::MlsCredential as CredentialProto;
-
+#[derive(Debug, Clone)]
 pub enum AssociationType {
     ExternallyOwned,
     SmartContract,
@@ -40,18 +40,20 @@ impl VerifiedCredential {
 }
 
 pub struct VerificationRequest {
-    expected_account_address: String,
     installation_public_key: Vec<u8>,
     credential: Vec<u8>,
 }
 
-type VerificationResult = Result<VerifiedCredential, VerificationError>;
-
-pub trait Credential {
-    fn address(&self) -> String;
-    fn installation_public_key(&self) -> Vec<u8>;
-    fn created_ns(&self) -> u64;
+impl VerificationRequest {
+    pub fn new(installation_public_key: Vec<u8>, credential: Vec<u8>) -> Self {
+        Self {
+            installation_public_key,
+            credential,
+        }
+    }
 }
+
+type VerificationResult = Result<VerifiedCredential, VerificationError>;
 
 #[async_trait::async_trait]
 pub trait CredentialVerifier {
@@ -68,68 +70,21 @@ pub trait CredentialVerifier {
     }
 }
 
-impl<'a> Credential for &'a GrantMessagingAccessAssociation {
-    fn address(&self) -> String {
-        self.account_address().clone()
-    }
-
-    fn installation_public_key(&self) -> Vec<u8> {
-        self.installation_public_key().clone()
-    }
-
-    fn created_ns(&self) -> u64 {
-        GrantMessagingAccessAssociation::created_ns(self)
-    }
-}
-
-fn validate_credential(
-    credential: impl Credential,
-    request: VerificationRequest,
-) -> Result<(), VerificationError> {
-    if credential.address() != request.expected_account_address {
-        return Err(VerificationError::AddressMismatch {
-            provided_addr: request.expected_account_address.to_string(),
-            signing_addr: credential.address(),
-        });
-    }
-
-    if credential.installation_public_key() != request.installation_public_key {
-        return Err(VerificationError::InstallationPublicKeyMismatch);
-    }
-
-    Ok(())
-}
-
 #[async_trait::async_trait]
-impl CredentialVerifier for GrantMessagingAccessAssociation {
+impl CredentialVerifier for Credential {
     async fn verify_credential(request: VerificationRequest) -> VerificationResult {
         let proto = CredentialProto::decode(request.credential);
-        let credential = GrantMessagingAccessAssociation::from_proto_validated(
-            proto,
-            Some(request.installation_public_key),
-        );
-        validate_credential(&credential, request)?;
-
-        Ok(VerifiedCredential {
-            account_address: credential.account_address(),
-            account_type: AssociationType::EOA,
-        })
-    }
-}
-
-#[async_trait::async_trait]
-impl CredentialVerifier for LegacyCreateIdentityAssociation {
-    async fn verify_credential(request: VerificationRequest) -> VerificationResult {
-        let proto = CredentialProto::decode(request.credential);
-        let credential = LegacyCreateIdentityAssociation::from_proto_validated(
-            proto,
-            Some(request.installation_public_key),
-        );
-        validate_credential(&credential, request)?;
-
-        Ok(VerifiedCredential {
-            account_address: credential.account_address(),
-            account_type: AssociationType::Legacy,
+        let credential =
+            Credential::from_proto_validated(proto, None, Some(request.installation_public_key));
+        Ok(match credential {
+            Credential::GrantMessagingAccess(cred) => VerifiedCredential {
+                account_address: cred.account_address(),
+                account_type: AssociationType::ExternallyOwned,
+            },
+            Credential::LegacyCreateIdentity(cred) => VerifiedCredential {
+                account_address: cred.account_address(),
+                account_type: AssociationType::Legacy,
+            },
         })
     }
 }
