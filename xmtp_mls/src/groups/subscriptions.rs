@@ -4,6 +4,7 @@ use std::sync::Arc;
 
 use futures::Stream;
 
+use prost::Message;
 use xmtp_proto::{api_client::XmtpMlsClient, xmtp::mls::api::v1::GroupMessage};
 
 use super::{extract_message_v1, GroupError, MlsGroup};
@@ -42,6 +43,17 @@ where
             .get_group_message_by_timestamp(&self.group_id, msgv1.created_ns as i64)?;
 
         Ok(new_message)
+    }
+
+    pub async fn process_streamed_group_message(
+        &self,
+        envelope_bytes: Vec<u8>,
+    ) -> Result<StoredGroupMessage, GroupError> {
+        let envelope = GroupMessage::decode(envelope_bytes.as_slice())
+            .map_err(|e| GroupError::Generic(e.to_string()))?;
+
+        let message = self.process_stream_entry(envelope).await?;
+        Ok(message.unwrap())
     }
 
     pub async fn stream(

@@ -220,6 +220,19 @@ impl FfiConversations {
         Ok(out)
     }
 
+    pub fn process_streamed_welcome_message(&self, envelope_bytes: Vec<u8>) -> Result<Arc<FfiGroup>, GenericError> {
+        let inner = self.inner_client.as_ref();
+        let group = inner.process_streamed_welcome_message(envelope_bytes)?;
+
+        let out = Arc::new(FfiGroup {
+            inner_client: self.inner_client.clone(),
+            group_id: group.group_id,
+            created_at_ns: group.created_at_ns,
+        });
+
+        Ok(out)
+    }
+
     pub async fn sync(&self) -> Result<(), GenericError> {
         let inner = self.inner_client.as_ref();
         inner.sync_welcomes().await?;
@@ -354,6 +367,18 @@ impl FfiGroup {
             .collect();
 
         Ok(messages)
+    }
+
+    pub async fn process_streamed_group_message(&self, envelope_bytes: Vec<u8>) -> Result<FfiMessage, GenericError> {
+        let group = MlsGroup::new(
+            self.inner_client.as_ref(),
+            self.group_id.clone(),
+            self.created_at_ns,
+        );
+        let message = group.process_streamed_group_message(envelope_bytes).await?;
+        let ffi_message = message.into();
+        
+        Ok(ffi_message)
     }
 
     pub fn list_members(&self) -> Result<Vec<FfiGroupMember>, GenericError> {
