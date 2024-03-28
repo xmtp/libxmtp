@@ -1941,6 +1941,9 @@ impl serde::Serialize for FrameActionBody {
         if !self.input_text.is_empty() {
             len += 1;
         }
+        if !self.state.is_empty() {
+            len += 1;
+        }
         let mut struct_ser = serializer.serialize_struct("xmtp.message_contents.FrameActionBody", len)?;
         if !self.frame_url.is_empty() {
             struct_ser.serialize_field("frameUrl", &self.frame_url)?;
@@ -1960,6 +1963,9 @@ impl serde::Serialize for FrameActionBody {
         }
         if !self.input_text.is_empty() {
             struct_ser.serialize_field("inputText", &self.input_text)?;
+        }
+        if !self.state.is_empty() {
+            struct_ser.serialize_field("state", &self.state)?;
         }
         struct_ser.end()
     }
@@ -1982,6 +1988,7 @@ impl<'de> serde::Deserialize<'de> for FrameActionBody {
             "unixTimestamp",
             "input_text",
             "inputText",
+            "state",
         ];
 
         #[allow(clippy::enum_variant_names)]
@@ -1992,6 +1999,7 @@ impl<'de> serde::Deserialize<'de> for FrameActionBody {
             OpaqueConversationIdentifier,
             UnixTimestamp,
             InputText,
+            State,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
             fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
@@ -2019,6 +2027,7 @@ impl<'de> serde::Deserialize<'de> for FrameActionBody {
                             "opaqueConversationIdentifier" | "opaque_conversation_identifier" => Ok(GeneratedField::OpaqueConversationIdentifier),
                             "unixTimestamp" | "unix_timestamp" => Ok(GeneratedField::UnixTimestamp),
                             "inputText" | "input_text" => Ok(GeneratedField::InputText),
+                            "state" => Ok(GeneratedField::State),
                             _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
                         }
                     }
@@ -2044,6 +2053,7 @@ impl<'de> serde::Deserialize<'de> for FrameActionBody {
                 let mut opaque_conversation_identifier__ = None;
                 let mut unix_timestamp__ = None;
                 let mut input_text__ = None;
+                let mut state__ = None;
                 while let Some(k) = map_.next_key()? {
                     match k {
                         GeneratedField::FrameUrl => {
@@ -2088,6 +2098,12 @@ impl<'de> serde::Deserialize<'de> for FrameActionBody {
                             }
                             input_text__ = Some(map_.next_value()?);
                         }
+                        GeneratedField::State => {
+                            if state__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("state"));
+                            }
+                            state__ = Some(map_.next_value()?);
+                        }
                     }
                 }
                 Ok(FrameActionBody {
@@ -2097,6 +2113,7 @@ impl<'de> serde::Deserialize<'de> for FrameActionBody {
                     opaque_conversation_identifier: opaque_conversation_identifier__.unwrap_or_default(),
                     unix_timestamp: unix_timestamp__.unwrap_or_default(),
                     input_text: input_text__.unwrap_or_default(),
+                    state: state__.unwrap_or_default(),
                 })
             }
         }

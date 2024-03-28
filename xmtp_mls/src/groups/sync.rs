@@ -220,20 +220,25 @@ where
                 let envelope = PlaintextEnvelope::decode(decrypted_message_data)
                     .map_err(MessageProcessingError::DecodeError)?;
 
-                let (key, message) = if let Some(outer_content) = envelope.content {
-                    let Content::V1(V1 {
+                match envelope.content {
+                    Some(Content::V1(V1 {
                         idempotency_key,
                         content,
-                    }) = outer_content;
-                    (idempotency_key, content)
-                } else {
-                    return Err(MessageProcessingError::InvalidPayload);
+                    })) => {
+                        let message_id = calculate_message_id(
+                            group_id,
+                            &content,
+                            &self.client.account_address(),
+                            &idempotency_key,
+                        );
+
+                        conn.set_delivery_status_to_published(&message_id, envelope_timestamp_ns)?;
+                    }
+                    Some(Content::V2(_)) => {
+                        todo!()
+                    }
+                    None => return Err(MessageProcessingError::InvalidPayload),
                 };
-
-                let message_id =
-                    calculate_message_id(group_id, &message, &self.client.account_address(), &key);
-
-                conn.set_delivery_status_to_published(&message_id, envelope_timestamp_ns)?;
             }
         };
 
@@ -262,38 +267,38 @@ where
             ProcessedMessageContent::ApplicationMessage(application_message) => {
                 let message_bytes = application_message.into_bytes();
 
-                let bytes = Bytes::from(message_bytes.clone());
-                let envelope = PlaintextEnvelope::decode(bytes)
+                let mut bytes = Bytes::from(message_bytes.clone());
+                let envelope = PlaintextEnvelope::decode(&mut bytes)
                     .map_err(MessageProcessingError::DecodeError)?;
 
-                let (key, message) = if let Some(outer_content) = envelope.content {
-                    let Content::V1(V1 {
+                match envelope.content {
+                    Some(Content::V1(V1 {
                         idempotency_key,
                         content,
-                    }) = outer_content;
-                    (idempotency_key, content)
-                } else {
-                    return Err(MessageProcessingError::InvalidPayload);
-                };
-
-                let message_id = calculate_message_id(
-                    &self.group_id,
-                    &message,
-                    &self.client.account_address(),
-                    &key,
-                );
-
-                StoredGroupMessage {
-                    id: message_id,
-                    group_id: self.group_id.clone(),
-                    decrypted_message_bytes: message,
-                    sent_at_ns: envelope_timestamp_ns as i64,
-                    kind: GroupMessageKind::Application,
-                    sender_installation_id,
-                    sender_account_address,
-                    delivery_status: DeliveryStatus::Published,
+                    })) => {
+                        let message_id = calculate_message_id(
+                            &self.group_id,
+                            &content,
+                            &self.client.account_address(),
+                            &idempotency_key,
+                        );
+                        StoredGroupMessage {
+                            id: message_id,
+                            group_id: self.group_id.clone(),
+                            decrypted_message_bytes: content,
+                            sent_at_ns: envelope_timestamp_ns as i64,
+                            kind: GroupMessageKind::Application,
+                            sender_installation_id,
+                            sender_account_address,
+                            delivery_status: DeliveryStatus::Published,
+                        }
+                        .store(provider.conn())?
+                    }
+                    Some(Content::V2(_)) => {
+                        todo!()
+                    }
+                    None => return Err(MessageProcessingError::InvalidPayload),
                 }
-                .store(provider.conn())?;
             }
             ProcessedMessageContent::ProposalMessage(_proposal_ptr) => {
                 // intentionally left blank.
