@@ -1184,6 +1184,116 @@ impl<'de> serde::Deserialize<'de> for GroupMetadataV1 {
         deserializer.deserialize_struct("xmtp.mls.message_contents.GroupMetadataV1", FIELDS, GeneratedVisitor)
     }
 }
+impl serde::Serialize for GroupMutableMetadataV1 {
+    #[allow(deprecated)]
+    fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        use serde::ser::SerializeStruct;
+        let mut len = 0;
+        if !self.group_name.is_empty() {
+            len += 1;
+        }
+        if !self.allow_list_account_addresses.is_empty() {
+            len += 1;
+        }
+        let mut struct_ser = serializer.serialize_struct("xmtp.mls.message_contents.GroupMutableMetadataV1", len)?;
+        if !self.group_name.is_empty() {
+            struct_ser.serialize_field("groupName", &self.group_name)?;
+        }
+        if !self.allow_list_account_addresses.is_empty() {
+            struct_ser.serialize_field("allowListAccountAddresses", &self.allow_list_account_addresses)?;
+        }
+        struct_ser.end()
+    }
+}
+impl<'de> serde::Deserialize<'de> for GroupMutableMetadataV1 {
+    #[allow(deprecated)]
+    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        const FIELDS: &[&str] = &[
+            "group_name",
+            "groupName",
+            "allow_list_account_addresses",
+            "allowListAccountAddresses",
+        ];
+
+        #[allow(clippy::enum_variant_names)]
+        enum GeneratedField {
+            GroupName,
+            AllowListAccountAddresses,
+        }
+        impl<'de> serde::Deserialize<'de> for GeneratedField {
+            fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
+            where
+                D: serde::Deserializer<'de>,
+            {
+                struct GeneratedVisitor;
+
+                impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+                    type Value = GeneratedField;
+
+                    fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                        write!(formatter, "expected one of: {:?}", &FIELDS)
+                    }
+
+                    #[allow(unused_variables)]
+                    fn visit_str<E>(self, value: &str) -> std::result::Result<GeneratedField, E>
+                    where
+                        E: serde::de::Error,
+                    {
+                        match value {
+                            "groupName" | "group_name" => Ok(GeneratedField::GroupName),
+                            "allowListAccountAddresses" | "allow_list_account_addresses" => Ok(GeneratedField::AllowListAccountAddresses),
+                            _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
+                        }
+                    }
+                }
+                deserializer.deserialize_identifier(GeneratedVisitor)
+            }
+        }
+        struct GeneratedVisitor;
+        impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+            type Value = GroupMutableMetadataV1;
+
+            fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                formatter.write_str("struct xmtp.mls.message_contents.GroupMutableMetadataV1")
+            }
+
+            fn visit_map<V>(self, mut map_: V) -> std::result::Result<GroupMutableMetadataV1, V::Error>
+                where
+                    V: serde::de::MapAccess<'de>,
+            {
+                let mut group_name__ = None;
+                let mut allow_list_account_addresses__ = None;
+                while let Some(k) = map_.next_key()? {
+                    match k {
+                        GeneratedField::GroupName => {
+                            if group_name__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("groupName"));
+                            }
+                            group_name__ = Some(map_.next_value()?);
+                        }
+                        GeneratedField::AllowListAccountAddresses => {
+                            if allow_list_account_addresses__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("allowListAccountAddresses"));
+                            }
+                            allow_list_account_addresses__ = Some(map_.next_value()?);
+                        }
+                    }
+                }
+                Ok(GroupMutableMetadataV1 {
+                    group_name: group_name__.unwrap_or_default(),
+                    allow_list_account_addresses: allow_list_account_addresses__.unwrap_or_default(),
+                })
+            }
+        }
+        deserializer.deserialize_struct("xmtp.mls.message_contents.GroupMutableMetadataV1", FIELDS, GeneratedVisitor)
+    }
+}
 impl serde::Serialize for LegacyCreateIdentityAssociation {
     #[allow(deprecated)]
     fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
@@ -1742,6 +1852,7 @@ impl serde::Serialize for membership_policy::BasePolicy {
             Self::Allow => "BASE_POLICY_ALLOW",
             Self::Deny => "BASE_POLICY_DENY",
             Self::AllowIfActorCreator => "BASE_POLICY_ALLOW_IF_ACTOR_CREATOR",
+            Self::AllowIfActorAllowList => "BASE_POLICY_ALLOW_IF_ACTOR_ALLOW_LIST",
         };
         serializer.serialize_str(variant)
     }
@@ -1757,6 +1868,7 @@ impl<'de> serde::Deserialize<'de> for membership_policy::BasePolicy {
             "BASE_POLICY_ALLOW",
             "BASE_POLICY_DENY",
             "BASE_POLICY_ALLOW_IF_ACTOR_CREATOR",
+            "BASE_POLICY_ALLOW_IF_ACTOR_ALLOW_LIST",
         ];
 
         struct GeneratedVisitor;
@@ -1801,6 +1913,7 @@ impl<'de> serde::Deserialize<'de> for membership_policy::BasePolicy {
                     "BASE_POLICY_ALLOW" => Ok(membership_policy::BasePolicy::Allow),
                     "BASE_POLICY_DENY" => Ok(membership_policy::BasePolicy::Deny),
                     "BASE_POLICY_ALLOW_IF_ACTOR_CREATOR" => Ok(membership_policy::BasePolicy::AllowIfActorCreator),
+                    "BASE_POLICY_ALLOW_IF_ACTOR_ALLOW_LIST" => Ok(membership_policy::BasePolicy::AllowIfActorAllowList),
                     _ => Err(serde::de::Error::unknown_variant(value, FIELDS)),
                 }
             }
@@ -2543,12 +2656,24 @@ impl serde::Serialize for PolicySet {
         if self.remove_member_policy.is_some() {
             len += 1;
         }
+        if self.update_group_name_policy.is_some() {
+            len += 1;
+        }
+        if self.update_allow_list_policy.is_some() {
+            len += 1;
+        }
         let mut struct_ser = serializer.serialize_struct("xmtp.mls.message_contents.PolicySet", len)?;
         if let Some(v) = self.add_member_policy.as_ref() {
             struct_ser.serialize_field("addMemberPolicy", v)?;
         }
         if let Some(v) = self.remove_member_policy.as_ref() {
             struct_ser.serialize_field("removeMemberPolicy", v)?;
+        }
+        if let Some(v) = self.update_group_name_policy.as_ref() {
+            struct_ser.serialize_field("updateGroupNamePolicy", v)?;
+        }
+        if let Some(v) = self.update_allow_list_policy.as_ref() {
+            struct_ser.serialize_field("updateAllowListPolicy", v)?;
         }
         struct_ser.end()
     }
@@ -2564,12 +2689,18 @@ impl<'de> serde::Deserialize<'de> for PolicySet {
             "addMemberPolicy",
             "remove_member_policy",
             "removeMemberPolicy",
+            "update_group_name_policy",
+            "updateGroupNamePolicy",
+            "update_allow_list_policy",
+            "updateAllowListPolicy",
         ];
 
         #[allow(clippy::enum_variant_names)]
         enum GeneratedField {
             AddMemberPolicy,
             RemoveMemberPolicy,
+            UpdateGroupNamePolicy,
+            UpdateAllowListPolicy,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
             fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
@@ -2593,6 +2724,8 @@ impl<'de> serde::Deserialize<'de> for PolicySet {
                         match value {
                             "addMemberPolicy" | "add_member_policy" => Ok(GeneratedField::AddMemberPolicy),
                             "removeMemberPolicy" | "remove_member_policy" => Ok(GeneratedField::RemoveMemberPolicy),
+                            "updateGroupNamePolicy" | "update_group_name_policy" => Ok(GeneratedField::UpdateGroupNamePolicy),
+                            "updateAllowListPolicy" | "update_allow_list_policy" => Ok(GeneratedField::UpdateAllowListPolicy),
                             _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
                         }
                     }
@@ -2614,6 +2747,8 @@ impl<'de> serde::Deserialize<'de> for PolicySet {
             {
                 let mut add_member_policy__ = None;
                 let mut remove_member_policy__ = None;
+                let mut update_group_name_policy__ = None;
+                let mut update_allow_list_policy__ = None;
                 while let Some(k) = map_.next_key()? {
                     match k {
                         GeneratedField::AddMemberPolicy => {
@@ -2628,11 +2763,25 @@ impl<'de> serde::Deserialize<'de> for PolicySet {
                             }
                             remove_member_policy__ = map_.next_value()?;
                         }
+                        GeneratedField::UpdateGroupNamePolicy => {
+                            if update_group_name_policy__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("updateGroupNamePolicy"));
+                            }
+                            update_group_name_policy__ = map_.next_value()?;
+                        }
+                        GeneratedField::UpdateAllowListPolicy => {
+                            if update_allow_list_policy__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("updateAllowListPolicy"));
+                            }
+                            update_allow_list_policy__ = map_.next_value()?;
+                        }
                     }
                 }
                 Ok(PolicySet {
                     add_member_policy: add_member_policy__,
                     remove_member_policy: remove_member_policy__,
+                    update_group_name_policy: update_group_name_policy__,
+                    update_allow_list_policy: update_allow_list_policy__,
                 })
             }
         }
