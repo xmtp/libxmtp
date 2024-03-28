@@ -137,6 +137,13 @@ impl FfiXmtpClient {
 
         Ok(results)
     }
+
+    pub async fn installation_ids(&self) -> Result<Vec<Vec<u8>>, GenericError> {
+        let address = self.inner_client.account_address();
+        let installations = self.inner_client.get_all_active_installation_ids(vec![address]).await?;
+
+        Ok(installations)
+    }
 }
 
 #[uniffi::export(async_runtime = "tokio")]
