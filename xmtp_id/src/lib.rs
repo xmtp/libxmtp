@@ -1,3 +1,4 @@
+pub mod associations;
 pub mod credential_verifier;
 pub mod verified_key_package;
 
