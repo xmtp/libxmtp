@@ -78,14 +78,14 @@ impl AssociationState {
     }
 
     pub fn entities(&self) -> Vec<Entity> {
-        self.current_entities.values().map(|e| e.clone()).collect()
+        self.current_entities.values().cloned().collect()
     }
 
     pub fn entities_by_role(&self, role: EntityRole) -> Vec<Entity> {
         self.current_entities
             .values()
             .filter(|e| e.role == role)
-            .map(|e| e.clone())
+            .cloned()
             .collect()
     }
 
@@ -97,6 +97,12 @@ impl AssociationState {
             allowlisted_association_hashes: HashSet::new(),
             recovery_address: None,
         }
+    }
+}
+
+impl Default for AssociationState {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
