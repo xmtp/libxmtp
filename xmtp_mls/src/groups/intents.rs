@@ -13,10 +13,11 @@ use xmtp_proto::xmtp::mls::database::{
         SendWelcomes as SendWelcomesProto,
     },
     remove_members_data::{Version as RemoveMembersVersion, V1 as RemoveMembersV1},
+    update_metadata_data::{Version as UpdateMetadataVersion, V1 as UpdateMetadataV1},
     send_message_data::{Version as SendMessageVersion, V1 as SendMessageV1},
     AccountAddresses, AddMembersData,
     AddressesOrInstallationIds as AddressesOrInstallationIdsProtoWrapper, InstallationIds,
-    PostCommitAction as PostCommitActionProto, RemoveMembersData, SendMessageData,
+    PostCommitAction as PostCommitActionProto, RemoveMembersData, SendMessageData, UpdateMetadataData,
 };
 
 use crate::{
@@ -218,6 +219,56 @@ impl RemoveMembersIntentData {
 
 impl From<RemoveMembersIntentData> for Vec<u8> {
     fn from(intent: RemoveMembersIntentData) -> Self {
+        intent.to_bytes()
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct UpdateMetadataIntentData {
+    pub group_name: String,
+    pub allow_list_account_addresses: AccountAddresses,
+}
+
+impl UpdateMetadataIntentData {
+    pub fn new(group_name: String, allow_list_account_addresses: AccountAddresses) -> Self {
+        Self { group_name, allow_list_account_addresses }
+    }
+
+    pub(crate) fn to_bytes(&self) -> Vec<u8> {
+        let mut buf = Vec::new();
+
+        UpdateMetadataData {
+            version: Some(UpdateMetadataVersion::V1(UpdateMetadataV1 {
+                group_name: self.group_name.clone(),
+                allow_list_account_addresses: Some(self.allow_list_account_addresses.clone().into()),
+            })),
+        }
+        .encode(&mut buf)
+        .expect("encode error");
+
+        buf
+    }
+
+    pub(crate) fn from_bytes(data: &[u8]) -> Result<Self, IntentError> {
+        let msg = UpdateMetadataData::decode(data)?;
+        let group_name = match msg.version {
+            Some(UpdateMetadataVersion::V1(ref v1)) => v1
+                .group_name.clone(),
+            None => return Err(IntentError::Generic("missing payload".to_string())),
+        };
+        let allow_list_account_addresses = match msg.version {
+            Some(UpdateMetadataVersion::V1(v1)) => v1
+                .allow_list_account_addresses
+                .ok_or(IntentError::Generic("missing payload".to_string()))?,
+            None => return Err(IntentError::Generic("missing payload".to_string())),
+        };
+
+        Ok(Self::new(group_name, allow_list_account_addresses))
+    }
+}
+
+impl From<UpdateMetadataIntentData> for Vec<u8> {
+    fn from(intent: UpdateMetadataIntentData) -> Self {
         intent.to_bytes()
     }
 }

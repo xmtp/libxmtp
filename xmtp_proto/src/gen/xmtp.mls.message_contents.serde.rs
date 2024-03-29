@@ -1,4 +1,96 @@
 // @generated
+impl serde::Serialize for AccountAddresses {
+    #[allow(deprecated)]
+    fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        use serde::ser::SerializeStruct;
+        let mut len = 0;
+        if !self.account_addresses.is_empty() {
+            len += 1;
+        }
+        let mut struct_ser = serializer.serialize_struct("xmtp.mls.message_contents.AccountAddresses", len)?;
+        if !self.account_addresses.is_empty() {
+            struct_ser.serialize_field("accountAddresses", &self.account_addresses)?;
+        }
+        struct_ser.end()
+    }
+}
+impl<'de> serde::Deserialize<'de> for AccountAddresses {
+    #[allow(deprecated)]
+    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        const FIELDS: &[&str] = &[
+            "account_addresses",
+            "accountAddresses",
+        ];
+
+        #[allow(clippy::enum_variant_names)]
+        enum GeneratedField {
+            AccountAddresses,
+        }
+        impl<'de> serde::Deserialize<'de> for GeneratedField {
+            fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
+            where
+                D: serde::Deserializer<'de>,
+            {
+                struct GeneratedVisitor;
+
+                impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+                    type Value = GeneratedField;
+
+                    fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                        write!(formatter, "expected one of: {:?}", &FIELDS)
+                    }
+
+                    #[allow(unused_variables)]
+                    fn visit_str<E>(self, value: &str) -> std::result::Result<GeneratedField, E>
+                    where
+                        E: serde::de::Error,
+                    {
+                        match value {
+                            "accountAddresses" | "account_addresses" => Ok(GeneratedField::AccountAddresses),
+                            _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
+                        }
+                    }
+                }
+                deserializer.deserialize_identifier(GeneratedVisitor)
+            }
+        }
+        struct GeneratedVisitor;
+        impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+            type Value = AccountAddresses;
+
+            fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                formatter.write_str("struct xmtp.mls.message_contents.AccountAddresses")
+            }
+
+            fn visit_map<V>(self, mut map_: V) -> std::result::Result<AccountAddresses, V::Error>
+                where
+                    V: serde::de::MapAccess<'de>,
+            {
+                let mut account_addresses__ = None;
+                while let Some(k) = map_.next_key()? {
+                    match k {
+                        GeneratedField::AccountAddresses => {
+                            if account_addresses__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("accountAddresses"));
+                            }
+                            account_addresses__ = Some(map_.next_value()?);
+                        }
+                    }
+                }
+                Ok(AccountAddresses {
+                    account_addresses: account_addresses__.unwrap_or_default(),
+                })
+            }
+        }
+        deserializer.deserialize_struct("xmtp.mls.message_contents.AccountAddresses", FIELDS, GeneratedVisitor)
+    }
+}
 impl serde::Serialize for AssociationTextVersion {
     #[allow(deprecated)]
     fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
@@ -1195,15 +1287,15 @@ impl serde::Serialize for GroupMutableMetadataV1 {
         if !self.group_name.is_empty() {
             len += 1;
         }
-        if !self.allow_list_account_addresses.is_empty() {
+        if self.allow_list_account_addresses.is_some() {
             len += 1;
         }
         let mut struct_ser = serializer.serialize_struct("xmtp.mls.message_contents.GroupMutableMetadataV1", len)?;
         if !self.group_name.is_empty() {
             struct_ser.serialize_field("groupName", &self.group_name)?;
         }
-        if !self.allow_list_account_addresses.is_empty() {
-            struct_ser.serialize_field("allowListAccountAddresses", &self.allow_list_account_addresses)?;
+        if let Some(v) = self.allow_list_account_addresses.as_ref() {
+            struct_ser.serialize_field("allowListAccountAddresses", v)?;
         }
         struct_ser.end()
     }
@@ -1281,13 +1373,13 @@ impl<'de> serde::Deserialize<'de> for GroupMutableMetadataV1 {
                             if allow_list_account_addresses__.is_some() {
                                 return Err(serde::de::Error::duplicate_field("allowListAccountAddresses"));
                             }
-                            allow_list_account_addresses__ = Some(map_.next_value()?);
+                            allow_list_account_addresses__ = map_.next_value()?;
                         }
                     }
                 }
                 Ok(GroupMutableMetadataV1 {
                     group_name: group_name__.unwrap_or_default(),
-                    allow_list_account_addresses: allow_list_account_addresses__.unwrap_or_default(),
+                    allow_list_account_addresses: allow_list_account_addresses__,
                 })
             }
         }

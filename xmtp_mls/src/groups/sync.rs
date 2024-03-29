@@ -174,7 +174,7 @@ where
 
         let conn = provider.conn();
         match intent.kind {
-            IntentKind::AddMembers | IntentKind::RemoveMembers | IntentKind::KeyUpdate => {
+            IntentKind::AddMembers | IntentKind::RemoveMembers | IntentKind::KeyUpdate | IntentKind::MetadataUpdate => {
                 if !allow_epoch_increment {
                     return Err(MessageProcessingError::EpochIncrementNotAllowed);
                 }
@@ -653,6 +653,11 @@ where
                     openmls_group.self_update(provider, &self.client.identity.installation_keys)?;
 
                 Ok((commit.tls_serialize_detached()?, None))
+            }
+            IntentKind::MetadataUpdate => {
+                // TODO: Not implemented
+
+                Ok((vec![], None))
             }
         }
     }
