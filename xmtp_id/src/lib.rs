@@ -1,3 +1,4 @@
+pub mod associations;
 pub mod error;
 
 use std::sync::RwLock;

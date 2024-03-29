@@ -19,3 +19,5 @@ prost.workspace = true
 tls_codec.workspace = true
 chrono.workspace = true
 serde.workspace = true
+sha2 = "0.10.8"
+rand.workspace = true
