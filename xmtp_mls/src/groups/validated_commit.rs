@@ -363,7 +363,7 @@ impl From<ValidatedCommit> for GroupMembershipChanges {
 #[cfg(test)]
 mod tests {
     use openmls::{
-        credentials::{Credential, CredentialType, CredentialWithKey},
+        credentials::{BasicCredential, Credential, CredentialType, CredentialWithKey},
         group::config::CryptoConfig,
         prelude_test::KeyPackage,
         versions::ProtocolVersion,
@@ -510,7 +510,7 @@ mod tests {
                 &bola.identity.installation_keys,
                 CredentialWithKey {
                     // Broken credential
-                    credential: Credential::new(CredentialType::Basic, vec![1, 2, 3]),
+                    credential: BasicCredential::new(vec![1, 2, 3]).unwrap().into(),
                     signature_key: bola.identity.installation_keys.to_public_vec().into(),
                 },
             )
