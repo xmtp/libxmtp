@@ -123,6 +123,8 @@ pub enum MessageProcessingError {
     WrongCredentialType(#[from] BasicCredentialError),
     #[error("proto decode error: {0}")]
     DecodeError(#[from] prost::DecodeError),
+    #[error("generic:{0}")]
+    Generic(String),
 }
 
 impl crate::retry::RetryableError for MessageProcessingError {
