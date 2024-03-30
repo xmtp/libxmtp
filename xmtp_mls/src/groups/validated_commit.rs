@@ -363,7 +363,7 @@ impl From<ValidatedCommit> for GroupMembershipChanges {
 #[cfg(test)]
 mod tests {
     use openmls::{
-        credentials::{BasicCredential, Credential, CredentialType, CredentialWithKey},
+        credentials::{BasicCredential, CredentialWithKey},
         group::config::CryptoConfig,
         prelude_test::KeyPackage,
         versions::ProtocolVersion,

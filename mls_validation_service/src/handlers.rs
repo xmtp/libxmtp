@@ -226,7 +226,7 @@ mod tests {
         let (identity, keypair, account_address) = generate_identity();
         let (_, other_keypair, _) = generate_identity();
 
-        let credential = OpenMlsCredential::new(CredentialType::Basic, identity);
+        let credential: OpenMlsCredential = BasicCredential::new(identity).unwrap().into();
         let credential_with_key = CredentialWithKey {
             credential,
             // Use the wrong signature key to make the validation fail
