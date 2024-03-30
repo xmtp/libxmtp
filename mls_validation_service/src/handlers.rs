@@ -131,8 +131,8 @@ mod tests {
     use openmls::{
         extensions::{ApplicationIdExtension, Extension, Extensions},
         prelude::{
-            tls_codec::Serialize, Ciphersuite, Credential as OpenMlsCredential, CredentialType,
-            CredentialWithKey, CryptoConfig,
+            tls_codec::Serialize, Ciphersuite, Credential as OpenMlsCredential, CredentialWithKey,
+            CryptoConfig,
         },
         prelude_test::KeyPackage,
         versions::ProtocolVersion,
