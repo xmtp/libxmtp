@@ -237,7 +237,9 @@ where
                         conn.set_delivery_status_to_published(&message_id, envelope_timestamp_ns)?;
                     }
                     Some(Content::V2(_)) => {
-                        todo!()
+                        return Err(MessageProcessingError::Generic(
+                            "not yet implemented".into(),
+                        ))
                     }
                     None => return Err(MessageProcessingError::InvalidPayload),
                 };
@@ -297,7 +299,9 @@ where
                         .store(provider.conn())?
                     }
                     Some(Content::V2(_)) => {
-                        todo!()
+                        return Err(MessageProcessingError::Generic(
+                            "not yet implemented".into(),
+                        ))
                     }
                     None => return Err(MessageProcessingError::InvalidPayload),
                 }
