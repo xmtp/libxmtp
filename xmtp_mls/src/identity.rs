@@ -2,7 +2,10 @@ use std::sync::RwLock;
 
 use log::info;
 use openmls::{
-    credentials::errors::CredentialError,
+    credentials::{
+        errors::{BasicCredentialError, CredentialError},
+        BasicCredential,
+    },
     extensions::{errors::InvalidExtensionError, ApplicationIdExtension, LastResortExtension},
     prelude::{
         tls_codec::{Error as TlsCodecError, Serialize},
@@ -58,6 +61,8 @@ pub enum IdentityError {
     ApiError(#[from] xmtp_proto::api_client::Error),
     #[error("OpenMLS credential error: {0}")]
     OpenMlsCredentialError(#[from] CredentialError),
+    #[error("Basic Credential error: {0}")]
+    BasicCredential(#[from] BasicCredentialError),
 }
 
 #[derive(Debug)]
@@ -136,8 +141,8 @@ impl Identity {
                 recoverable_wallet_signature.unwrap(),
             )?
             .into();
-            let credential =
-                OpenMlsCredential::new(CredentialType::Basic, credential_proto.encode_to_vec());
+            let credential: OpenMlsCredential =
+                BasicCredential::new(credential_proto.encode_to_vec())?.into();
             self.set_credential(credential)?;
         }
 

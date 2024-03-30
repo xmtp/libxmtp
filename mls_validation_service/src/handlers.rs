@@ -196,7 +196,7 @@ mod tests {
     async fn test_validate_key_packages_happy_path() {
         let (identity, keypair, account_address) = generate_identity();
 
-        let credential = OpenMlsCredential::new(CredentialType::Basic, identity);
+        let credential: OpenMlsCredential = BasicCredential::new(identity).unwrap().into();
         let credential_with_key = CredentialWithKey {
             credential,
             signature_key: keypair.to_public_vec().into(),
