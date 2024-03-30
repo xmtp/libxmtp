@@ -103,8 +103,8 @@ impl Identity {
         let credential =
             Credential::create_from_legacy(&signature_keys, legacy_signed_private_key)?;
         let credential_proto: CredentialProto = credential.into();
-        let mls_credential =
-            OpenMlsCredential::new(CredentialType::Basic, credential_proto.encode_to_vec());
+        let mls_credential: OpenMlsCredential =
+            BasicCredential::new(credential_proto.encode_to_vec())?.into();
         info!("Successfully created identity from legacy key");
         Ok(Self {
             account_address,
