@@ -9,9 +9,8 @@ use openmls::{
     extensions::{errors::InvalidExtensionError, ApplicationIdExtension, LastResortExtension},
     prelude::{
         tls_codec::{Error as TlsCodecError, Serialize},
-        Capabilities, Credential as OpenMlsCredential, CredentialType, CredentialWithKey,
-        CryptoConfig, Extension, ExtensionType, Extensions, KeyPackage, KeyPackageNewError,
-        Lifetime,
+        Capabilities, Credential as OpenMlsCredential, CredentialWithKey, CryptoConfig, Extension,
+        ExtensionType, Extensions, KeyPackage, KeyPackageNewError, Lifetime,
     },
     versions::ProtocolVersion,
 };
