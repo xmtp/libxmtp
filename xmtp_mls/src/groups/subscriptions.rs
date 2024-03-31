@@ -93,8 +93,8 @@ where
 
 #[cfg(test)]
 mod tests {
-    use xmtp_cryptography::utils::generate_local_wallet;
     use prost::Message;
+    use xmtp_cryptography::utils::generate_local_wallet;
     use xmtp_proto::xmtp::mls::api::v1::GroupMessage;
 
     use crate::{builder::ClientBuilder, storage::group_message::GroupMessageKind};
@@ -121,7 +121,9 @@ mod tests {
         let message = messages.first().unwrap();
         let mut message_bytes: Vec<u8> = Vec::new();
         message.encode(&mut message_bytes).unwrap();
-        let message_again = amal_group.process_streamed_group_message(message_bytes).await;
+        let message_again = amal_group
+            .process_streamed_group_message(message_bytes)
+            .await;
 
         if let Ok(message) = message_again {
             assert_eq!(message.group_id, amal_group.clone().group_id)
