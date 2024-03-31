@@ -11,8 +11,8 @@ use openmls::{
     extensions::{Extension, Extensions, Metadata},
     group::{MlsGroupCreateConfig, MlsGroupJoinConfig},
     prelude::{
-        CredentialWithKey, CryptoConfig, GroupId, MlsGroup as OpenMlsGroup, Welcome as MlsWelcome,
-        WireFormatPolicy,
+        CredentialWithKey, CryptoConfig, Error as TlsCodecError, GroupId, MlsGroup as OpenMlsGroup,
+        StagedWelcome, Welcome as MlsWelcome, WireFormatPolicy,
     },
 };
 use openmls_traits::OpenMlsProvider;
@@ -39,6 +39,7 @@ use self::{
     intents::{AddMembersIntentData, RemoveMembersIntentData},
     validated_commit::CommitValidationError,
 };
+
 use crate::{
     client::{deserialize_welcome, ClientError, MessageProcessingError},
     configuration::{CIPHERSUITE, MAX_GROUP_SIZE},
@@ -75,8 +76,8 @@ pub enum GroupError {
     Intent(#[from] IntentError),
     #[error("create message: {0}")]
     CreateMessage(#[from] openmls::prelude::CreateMessageError),
-    #[error("tls serialization: {0}")]
-    TlsSerialization(#[from] tls_codec::Error),
+    #[error("TLS Codec error: {0}")]
+    TlsError(#[from] TlsCodecError),
     #[error("add members: {0}")]
     AddMembers(#[from] openmls::prelude::AddMembersError<StorageError>),
     #[error("remove members: {0}")]
@@ -214,11 +215,13 @@ where
         provider: &XmtpOpenMlsProvider,
         welcome: MlsWelcome,
     ) -> Result<Self, GroupError> {
-        let mut mls_group =
-            OpenMlsGroup::new_from_welcome(provider, &build_group_join_config(), welcome, None)?;
-        mls_group.save(provider.key_store())?;
-        let group_id = mls_group.group_id().to_vec();
+        let mls_welcome =
+            StagedWelcome::new_from_welcome(provider, &build_group_join_config(), welcome, None)?;
 
+        let mut mls_group = mls_welcome.into_group(provider)?;
+        mls_group.save(provider.key_store())?;
+
+        let group_id = mls_group.group_id().to_vec();
         let to_store = StoredGroup::new(group_id, now_ns(), GroupMembershipState::Pending);
         let stored_group = provider.conn().insert_or_ignore_group(to_store)?;
 

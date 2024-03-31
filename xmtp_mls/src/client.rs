@@ -1,15 +1,15 @@
 use std::{collections::HashSet, mem::Discriminant};
 
 use openmls::{
-    framing::{MlsMessageIn, MlsMessageInBody},
+    credentials::errors::BasicCredentialError,
+    framing::{MlsMessageBodyIn, MlsMessageIn},
     group::GroupEpoch,
     messages::Welcome,
-    prelude::TlsSerializeTrait,
+    prelude::tls_codec::{Deserialize, Error as TlsCodecError, Serialize},
 };
 use openmls_traits::OpenMlsProvider;
 use prost::EncodeError;
 use thiserror::Error;
-use tls_codec::{Deserialize, Error as TlsSerializationError};
 
 use xmtp_proto::{
     api_client::XmtpMlsClient,
@@ -62,8 +62,8 @@ pub enum ClientError {
     QueryError(#[from] xmtp_proto::api_client::Error),
     #[error("identity error: {0}")]
     Identity(#[from] crate::identity::IdentityError),
-    #[error("serialization error: {0}")]
-    Serialization(#[from] TlsSerializationError),
+    #[error("TLS Codec error: {0}")]
+    TlsError(#[from] TlsCodecError),
     #[error("key package verification: {0}")]
     KeyPackageVerification(#[from] KeyPackageVerificationError),
     #[error("syncing errors: {0:?}")]
@@ -105,10 +105,10 @@ pub enum MessageProcessingError {
     Intent(#[from] IntentError),
     #[error("storage error: {0}")]
     Storage(#[from] crate::storage::StorageError),
-    #[error("tls deserialization: {0}")]
-    TlsDeserialization(#[from] tls_codec::Error),
+    #[error("TLS Codec error: {0}")]
+    TlsError(#[from] TlsCodecError),
     #[error("unsupported message type: {0:?}")]
-    UnsupportedMessageType(Discriminant<MlsMessageInBody>),
+    UnsupportedMessageType(Discriminant<MlsMessageBodyIn>),
     #[error("commit validation")]
     CommitValidation(#[from] CommitValidationError),
     #[error("codec")]
@@ -119,8 +119,12 @@ pub enum MessageProcessingError {
     EpochIncrementNotAllowed,
     #[error("Welcome processing error: {0}")]
     WelcomeProcessing(String),
+    #[error("wrong credential type")]
+    WrongCredentialType(#[from] BasicCredentialError),
     #[error("proto decode error: {0}")]
     DecodeError(#[from] prost::DecodeError),
+    #[error("generic:{0}")]
+    Generic(String),
 }
 
 impl crate::retry::RetryableError for MessageProcessingError {
@@ -269,7 +273,6 @@ where
             .identity
             .new_key_package(&self.mls_provider(&connection))?;
         let kp_bytes = kp.tls_serialize_detached()?;
-
         self.api_client.upload_key_package(kp_bytes).await?;
 
         Ok(())
@@ -488,7 +491,7 @@ pub fn deserialize_welcome(welcome_bytes: &Vec<u8>) -> Result<Welcome, ClientErr
     // let welcome_proto = WelcomeMessageProto::decode(&mut welcome_bytes.as_slice())?;
     let welcome = MlsMessageIn::tls_deserialize(&mut welcome_bytes.as_slice())?;
     match welcome.extract() {
-        MlsMessageInBody::Welcome(welcome) => Ok(welcome),
+        MlsMessageBodyIn::Welcome(welcome) => Ok(welcome),
         _ => Err(ClientError::Generic(
             "unexpected message type in welcome".to_string(),
         )),
