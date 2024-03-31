@@ -5353,7 +5353,6 @@ dependencies = [
 name = "xmtp_mls"
 version = "0.1.0"
 dependencies = [
- "anyhow",
  "async-trait",
  "chrono",
  "diesel",
@@ -5376,8 +5375,7 @@ dependencies = [
  "thiserror",
  "tls_codec",
  "tokio",
- "toml 0.7.8",
- "tracing",
+ "toml 0.8.8",
  "xmtp_cryptography",
  "xmtp_proto",
  "xmtp_v2",
