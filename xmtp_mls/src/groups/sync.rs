@@ -2,10 +2,12 @@ use std::{collections::HashMap, mem::discriminant};
 
 use log::debug;
 use openmls::{
+    credentials::BasicCredential,
     framing::ProtocolMessage,
     group::MergePendingCommitError,
     prelude::{
-        LeafNodeIndex, MlsGroup as OpenMlsGroup, MlsMessageIn, MlsMessageInBody, PrivateMessageIn,
+        tls_codec::{Deserialize, Serialize},
+        LeafNodeIndex, MlsGroup as OpenMlsGroup, MlsMessageBodyIn, MlsMessageIn, PrivateMessageIn,
         ProcessedMessage, ProcessedMessageContent, Sender,
     },
     prelude_test::KeyPackage,
@@ -13,7 +15,6 @@ use openmls::{
 use openmls_traits::OpenMlsProvider;
 use prost::bytes::Bytes;
 use prost::Message;
-use tls_codec::{Deserialize, Serialize};
 
 use xmtp_proto::{
     api_client::XmtpMlsClient,
@@ -37,6 +38,7 @@ use super::{
     members::GroupMember,
     GroupError, MlsGroup,
 };
+
 use crate::{
     api_client_wrapper::IdentityUpdate,
     client::MessageProcessingError,
@@ -220,20 +222,27 @@ where
                 let envelope = PlaintextEnvelope::decode(decrypted_message_data)
                     .map_err(MessageProcessingError::DecodeError)?;
 
-                let (key, message) = if let Some(outer_content) = envelope.content {
-                    let Content::V1(V1 {
+                match envelope.content {
+                    Some(Content::V1(V1 {
                         idempotency_key,
                         content,
-                    }) = outer_content;
-                    (idempotency_key, content)
-                } else {
-                    return Err(MessageProcessingError::InvalidPayload);
+                    })) => {
+                        let message_id = calculate_message_id(
+                            group_id,
+                            &content,
+                            &self.client.account_address(),
+                            &idempotency_key,
+                        );
+
+                        conn.set_delivery_status_to_published(&message_id, envelope_timestamp_ns)?;
+                    }
+                    Some(Content::V2(_)) => {
+                        return Err(MessageProcessingError::Generic(
+                            "not yet implemented".into(),
+                        ))
+                    }
+                    None => return Err(MessageProcessingError::InvalidPayload),
                 };
-
-                let message_id =
-                    calculate_message_id(group_id, &message, &self.client.account_address(), &key);
-
-                conn.set_delivery_status_to_published(&message_id, envelope_timestamp_ns)?;
             }
         };
 
@@ -262,38 +271,40 @@ where
             ProcessedMessageContent::ApplicationMessage(application_message) => {
                 let message_bytes = application_message.into_bytes();
 
-                let bytes = Bytes::from(message_bytes.clone());
-                let envelope = PlaintextEnvelope::decode(bytes)
+                let mut bytes = Bytes::from(message_bytes.clone());
+                let envelope = PlaintextEnvelope::decode(&mut bytes)
                     .map_err(MessageProcessingError::DecodeError)?;
 
-                let (key, message) = if let Some(outer_content) = envelope.content {
-                    let Content::V1(V1 {
+                match envelope.content {
+                    Some(Content::V1(V1 {
                         idempotency_key,
                         content,
-                    }) = outer_content;
-                    (idempotency_key, content)
-                } else {
-                    return Err(MessageProcessingError::InvalidPayload);
-                };
-
-                let message_id = calculate_message_id(
-                    &self.group_id,
-                    &message,
-                    &self.client.account_address(),
-                    &key,
-                );
-
-                StoredGroupMessage {
-                    id: message_id,
-                    group_id: self.group_id.clone(),
-                    decrypted_message_bytes: message,
-                    sent_at_ns: envelope_timestamp_ns as i64,
-                    kind: GroupMessageKind::Application,
-                    sender_installation_id,
-                    sender_account_address,
-                    delivery_status: DeliveryStatus::Published,
+                    })) => {
+                        let message_id = calculate_message_id(
+                            &self.group_id,
+                            &content,
+                            &self.client.account_address(),
+                            &idempotency_key,
+                        );
+                        StoredGroupMessage {
+                            id: message_id,
+                            group_id: self.group_id.clone(),
+                            decrypted_message_bytes: content,
+                            sent_at_ns: envelope_timestamp_ns as i64,
+                            kind: GroupMessageKind::Application,
+                            sender_installation_id,
+                            sender_account_address,
+                            delivery_status: DeliveryStatus::Published,
+                        }
+                        .store(provider.conn())?
+                    }
+                    Some(Content::V2(_)) => {
+                        return Err(MessageProcessingError::Generic(
+                            "not yet implemented".into(),
+                        ))
+                    }
+                    None => return Err(MessageProcessingError::InvalidPayload),
                 }
-                .store(provider.conn())?;
             }
             ProcessedMessageContent::ProposalMessage(_proposal_ptr) => {
                 // intentionally left blank.
@@ -335,7 +346,7 @@ where
         let mls_message_in = MlsMessageIn::tls_deserialize_exact(&envelope.data)?;
 
         let message = match mls_message_in.extract() {
-            MlsMessageInBody::PrivateMessage(message) => Ok(message),
+            MlsMessageBodyIn::PrivateMessage(message) => Ok(message),
             other => Err(MessageProcessingError::UnsupportedMessageType(
                 discriminant(&other),
             )),
@@ -811,8 +822,9 @@ fn validate_message_sender(
     if let Sender::Member(leaf_node_index) = decrypted_message.sender() {
         if let Some(member) = openmls_group.member_at(*leaf_node_index) {
             if member.credential.eq(decrypted_message.credential()) {
+                let basic_credential = BasicCredential::try_from(&member.credential)?;
                 sender_account_address = Identity::get_validated_account_address(
-                    member.credential.identity(),
+                    basic_credential.identity(),
                     &member.signature_key,
                 )
                 .ok();
@@ -822,9 +834,10 @@ fn validate_message_sender(
     }
 
     if sender_account_address.is_none() {
+        let basic_credential = BasicCredential::try_from(decrypted_message.credential())?;
         return Err(MessageProcessingError::InvalidSender {
             message_time_ns: message_created_ns,
-            credential: decrypted_message.credential().identity().to_vec(),
+            credential: basic_credential.identity().to_vec(),
         });
     }
     Ok((

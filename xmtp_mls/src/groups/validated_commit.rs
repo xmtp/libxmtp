@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
 use openmls::{
-    credentials::CredentialType,
+    credentials::{errors::BasicCredentialError, BasicCredential, CredentialType},
     group::{QueuedAddProposal, QueuedRemoveProposal},
     prelude::{LeafNodeIndex, MlsGroup as OpenMlsGroup, Sender, StagedCommit},
 };
@@ -15,8 +15,9 @@ use super::{
     group_metadata::{extract_group_metadata, GroupMetadata, GroupMetadataError},
     members::aggregate_member_list,
 };
+
 use crate::{
-    identity::Identity,
+    identity::{Identity, IdentityError},
     types::Address,
     verified_key_package::{KeyPackageVerificationError, VerifiedKeyPackage},
 };
@@ -45,8 +46,12 @@ pub enum CommitValidationError {
     ListMembers(String),
     #[error("Failed to parse group metadata: {0}")]
     GroupMetadata(#[from] GroupMetadataError),
+    #[error("Failed to validate identity: {0}")]
+    IdentityValidation(#[from] IdentityError),
     #[error("invalid application id")]
     InvalidApplicationId,
+    #[error("Credential error")]
+    CredentialError(#[from] BasicCredentialError),
 }
 
 // A participant in a commit. Could be the actor or the subject of a proposal
@@ -164,9 +169,10 @@ fn extract_actor(
 ) -> Result<CommitParticipant, CommitValidationError> {
     if let Some(leaf_node) = group.member_at(leaf_index) {
         let signature_key = leaf_node.signature_key.as_slice();
+
+        let basic_credential = BasicCredential::try_from(&leaf_node.credential)?;
         let account_address =
-            Identity::get_validated_account_address(leaf_node.credential.identity(), signature_key)
-                .map_err(|_| CommitValidationError::InvalidActorCredential)?;
+            Identity::get_validated_account_address(basic_credential.identity(), signature_key)?;
 
         let is_creator = account_address.eq(&group_metadata.creator_account_address);
 
@@ -215,9 +221,10 @@ fn extract_identity_from_remove(
 
     if let Some(member) = group.member_at(leaf_index) {
         let signature_key = member.signature_key.as_slice();
+
+        let basic_credential = BasicCredential::try_from(&member.credential)?;
         let account_address =
-            Identity::get_validated_account_address(member.credential.identity(), signature_key)
-                .map_err(|_| CommitValidationError::InvalidSubjectCredential)?;
+            Identity::get_validated_account_address(basic_credential.identity(), signature_key)?;
         let is_creator = account_address.eq(&group_metadata.creator_account_address);
 
         Ok(CommitParticipant {
@@ -356,7 +363,7 @@ impl From<ValidatedCommit> for GroupMembershipChanges {
 #[cfg(test)]
 mod tests {
     use openmls::{
-        credentials::{Credential, CredentialType, CredentialWithKey},
+        credentials::{BasicCredential, CredentialWithKey},
         group::config::CryptoConfig,
         prelude_test::KeyPackage,
         versions::ProtocolVersion,
@@ -503,7 +510,7 @@ mod tests {
                 &bola.identity.installation_keys,
                 CredentialWithKey {
                     // Broken credential
-                    credential: Credential::new(vec![1, 2, 3], CredentialType::Basic).unwrap(),
+                    credential: BasicCredential::new(vec![1, 2, 3]).unwrap().into(),
                     signature_key: bola.identity.installation_keys.to_public_vec().into(),
                 },
             )
