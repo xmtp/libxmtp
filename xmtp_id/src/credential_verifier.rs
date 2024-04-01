@@ -8,6 +8,7 @@ use xmtp_proto::xmtp::mls::message_contents::MlsCredential as CredentialProto;
 #[derive(Debug, Clone)]
 pub enum AssociationType {
     ExternallyOwned,
+    #[allow(dead_code)]
     SmartContract,
     Legacy,
 }
@@ -37,10 +38,6 @@ pub struct VerifiedCredential {
 impl VerifiedCredential {
     pub fn account_address(&self) -> &String {
         &self.account_address
-    }
-
-    pub fn account_type(&self) -> &AssociationType {
-        &self.account_type
     }
 }
 

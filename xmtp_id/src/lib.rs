@@ -1,5 +1,5 @@
-mod credential;
-mod verified_key_package;
+pub mod credential_verifier;
+pub mod verified_key_package;
 
 use std::sync::RwLock;
 
@@ -15,7 +15,7 @@ use xmtp_mls::{
     utils::time::now_ns,
 };
 
-use crate::credential::{CredentialVerifier, VerificationError, VerificationRequest};
+use crate::credential_verifier::{CredentialVerifier, VerificationError, VerificationRequest};
 
 #[derive(Debug, Error)]
 pub enum IdentityError {
@@ -78,7 +78,7 @@ impl Identity {
             .ok_or(IdentityError::UninitializedIdentity)
     }
 
-    /// Get an account address verified
+    /// Get an account address verified by the
     pub async fn get_validated_account_address(
         credential: &[u8],
         installation_public_key: &[u8],
