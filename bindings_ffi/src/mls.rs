@@ -137,6 +137,10 @@ impl FfiXmtpClient {
 
         Ok(results)
     }
+
+    pub fn installation_id(&self) -> Vec<u8> {
+        self.inner_client.installation_public_key()
+    }
 }
 
 #[uniffi::export(async_runtime = "tokio")]
