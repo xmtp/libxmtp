@@ -93,10 +93,44 @@ where
 
 #[cfg(test)]
 mod tests {
+    use prost::Message;
     use xmtp_cryptography::utils::generate_local_wallet;
+    use xmtp_proto::xmtp::mls::api::v1::GroupMessage;
 
     use crate::{builder::ClientBuilder, storage::group_message::GroupMessageKind};
     use futures::StreamExt;
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+    async fn test_decode_group_message_bytes() {
+        let amal = ClientBuilder::new_test_client(&generate_local_wallet()).await;
+        let bola = ClientBuilder::new_test_client(&generate_local_wallet()).await;
+
+        let amal_group = amal.create_group(None).unwrap();
+        // Add bola
+        amal_group
+            .add_members_by_installation_id(vec![bola.installation_public_key()])
+            .await
+            .unwrap();
+
+        amal_group.send_message("hello".as_bytes()).await.unwrap();
+        let messages = amal
+            .api_client
+            .query_group_messages(amal_group.clone().group_id, None)
+            .await
+            .expect("read topic");
+        let message = messages.first().unwrap();
+        let mut message_bytes: Vec<u8> = Vec::new();
+        message.encode(&mut message_bytes).unwrap();
+        let message_again = amal_group
+            .process_streamed_group_message(message_bytes)
+            .await;
+
+        if let Ok(message) = message_again {
+            assert_eq!(message.group_id, amal_group.clone().group_id)
+        } else {
+            assert!(false)
+        }
+    }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 10)]
     async fn test_subscribe_messages() {

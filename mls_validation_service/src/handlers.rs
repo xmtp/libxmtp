@@ -1,4 +1,7 @@
-use openmls::prelude::{MlsMessageIn, ProtocolMessage, TlsDeserializeTrait};
+use openmls::{
+    credentials::BasicCredential,
+    prelude::{tls_codec::Deserialize, MlsMessageIn, ProtocolMessage},
+};
 use openmls_rust_crypto::RustCrypto;
 use tonic::{Request, Response, Status};
 
@@ -85,10 +88,12 @@ struct ValidateGroupMessageResult {
 }
 
 fn validate_group_message(message: Vec<u8>) -> Result<ValidateGroupMessageResult, String> {
-    let msg_result = MlsMessageIn::tls_deserialize(&mut message.as_slice())
-        .map_err(|_| "failed to decode".to_string())?;
+    let msg_result =
+        MlsMessageIn::tls_deserialize(&mut message.as_slice()).map_err(|e| e.to_string())?;
 
-    let protocol_message: ProtocolMessage = msg_result.into();
+    let protocol_message: ProtocolMessage = msg_result
+        .try_into_protocol_message()
+        .map_err(|e| e.to_string())?;
 
     Ok(ValidateGroupMessageResult {
         group_id: serialize_group_id(protocol_message.group_id().as_slice()),
@@ -108,15 +113,14 @@ fn validate_key_package(key_package_bytes: Vec<u8>) -> Result<ValidateKeyPackage
         VerifiedKeyPackage::from_bytes(&rust_crypto, key_package_bytes.as_slice())
             .map_err(|e| e.to_string())?;
 
+    let credential = verified_key_package.inner.leaf_node().credential();
+
+    let basic_credential = BasicCredential::try_from(credential).map_err(|e| e.to_string())?;
+
     Ok(ValidateKeyPackageResult {
         installation_id: verified_key_package.installation_id(),
         account_address: verified_key_package.account_address,
-        credential_identity_bytes: verified_key_package
-            .inner
-            .leaf_node()
-            .credential()
-            .identity()
-            .to_vec(),
+        credential_identity_bytes: basic_credential.identity().to_vec(),
         expiration: verified_key_package.inner.life_time().not_after(),
     })
 }
@@ -127,8 +131,8 @@ mod tests {
     use openmls::{
         extensions::{ApplicationIdExtension, Extension, Extensions},
         prelude::{
-            Ciphersuite, Credential as OpenMlsCredential, CredentialType, CredentialWithKey,
-            CryptoConfig, TlsSerializeTrait,
+            tls_codec::Serialize, Ciphersuite, Credential as OpenMlsCredential, CredentialWithKey,
+            CryptoConfig,
         },
         prelude_test::KeyPackage,
         versions::ProtocolVersion,
@@ -192,7 +196,7 @@ mod tests {
     async fn test_validate_key_packages_happy_path() {
         let (identity, keypair, account_address) = generate_identity();
 
-        let credential = OpenMlsCredential::new(identity, CredentialType::Basic).unwrap();
+        let credential: OpenMlsCredential = BasicCredential::new(identity).unwrap().into();
         let credential_with_key = CredentialWithKey {
             credential,
             signature_key: keypair.to_public_vec().into(),
@@ -222,7 +226,7 @@ mod tests {
         let (identity, keypair, account_address) = generate_identity();
         let (_, other_keypair, _) = generate_identity();
 
-        let credential = OpenMlsCredential::new(identity, CredentialType::Basic).unwrap();
+        let credential: OpenMlsCredential = BasicCredential::new(identity).unwrap().into();
         let credential_with_key = CredentialWithKey {
             credential,
             // Use the wrong signature key to make the validation fail
