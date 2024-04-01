@@ -1,5 +1,4 @@
 mod credential;
-pub mod error;
 mod verified_key_package;
 
 use std::sync::RwLock;
@@ -7,7 +6,6 @@ use std::sync::RwLock;
 use openmls::prelude::Credential as OpenMlsCredential;
 use openmls_basic_credential::SignatureKeyPair;
 use openmls_traits::types::CryptoError;
-use prost::Message;
 use thiserror::Error;
 use xmtp_mls::{
     configuration::CIPHERSUITE,
@@ -16,12 +14,8 @@ use xmtp_mls::{
     types::Address,
     utils::time::now_ns,
 };
-use xmtp_proto::xmtp::mls::message_contents::MlsCredential as CredentialProto;
 
-use crate::{
-    credential::{CredentialVerifier, VerificationError, VerificationRequest, VerifiedCredential},
-    error::IdentityError,
-};
+use crate::credential::{CredentialVerifier, VerificationError, VerificationRequest};
 
 #[derive(Debug, Error)]
 pub enum IdentityError {
@@ -84,12 +78,13 @@ impl Identity {
             .ok_or(IdentityError::UninitializedIdentity)
     }
 
-    pub(crate) async fn get_validated_account_address(
+    /// Get an account address verified
+    pub async fn get_validated_account_address(
         credential: &[u8],
         installation_public_key: &[u8],
     ) -> Result<String, IdentityError> {
         let request = VerificationRequest::new(credential, installation_public_key);
         let credential = <Credential as CredentialVerifier>::verify_credential(request).await?;
-        Ok(credential.account_address())
+        Ok(credential.account_address().to_string())
     }
 }

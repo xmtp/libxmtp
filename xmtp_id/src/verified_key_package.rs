@@ -9,7 +9,7 @@ use openmls::{
 use openmls_rust_crypto::RustCrypto;
 use thiserror::Error;
 
-use crate::{error::IdentityError, Identity};
+use crate::Identity;
 use xmtp_mls::{configuration::MLS_PROTOCOL_VERSION, types::Address};
 
 #[derive(Debug, Error)]
@@ -19,7 +19,7 @@ pub enum KeyPackageVerificationError {
     #[error("mls validation: {0}")]
     MlsValidation(#[from] KeyPackageVerifyError),
     #[error("identity: {0}")]
-    Identity(#[from] IdentityError),
+    Identity(#[from] crate::IdentityError),
     #[error("invalid application id")]
     InvalidApplicationId,
     #[error("application id ({0}) does not match the credential address ({1}).")]

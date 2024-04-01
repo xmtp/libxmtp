@@ -1,9 +1,6 @@
 use prost::Message;
 use xmtp_mls::{
-    credential::{
-        AssociationError, Credential, GrantMessagingAccessAssociation,
-        LegacyCreateIdentityAssociation,
-    },
+    credential::{AssociationError, Credential},
     types::Address,
 };
 use xmtp_proto::xmtp::mls::message_contents::MlsCredential as CredentialProto;
@@ -38,12 +35,12 @@ pub struct VerifiedCredential {
 }
 
 impl VerifiedCredential {
-    pub fn account_address(&self) -> String {
-        self.account_address.clone()
+    pub fn account_address(&self) -> &String {
+        &self.account_address
     }
 
-    pub fn account_type(&self) -> AssociationType {
-        self.account_type.clone()
+    pub fn account_type(&self) -> &AssociationType {
+        &self.account_type
     }
 }
 
