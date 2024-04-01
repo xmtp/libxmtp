@@ -93,6 +93,3 @@ impl Identity {
         Ok(credential.account_address())
     }
 }
-
-#[cfg(test)]
-mod tests {}

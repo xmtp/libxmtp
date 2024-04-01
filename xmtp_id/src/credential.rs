@@ -7,6 +7,7 @@ use xmtp_mls::{
     types::Address,
 };
 use xmtp_proto::xmtp::mls::message_contents::MlsCredential as CredentialProto;
+
 #[derive(Debug, Clone)]
 pub enum AssociationType {
     ExternallyOwned,
