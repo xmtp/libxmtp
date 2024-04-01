@@ -9,6 +9,7 @@ import org.xmtp.android.library.codecs.compress
 import org.xmtp.android.library.libxmtp.Message
 import org.xmtp.android.library.messages.DecryptedMessage
 import org.xmtp.android.library.messages.PagingInfoSortDirection
+import org.xmtp.android.library.messages.Topic
 import org.xmtp.proto.message.api.v1.MessageApiOuterClass
 import uniffi.xmtpv3.FfiGroup
 import uniffi.xmtpv3.FfiGroupMetadata
@@ -23,6 +24,9 @@ import kotlin.time.DurationUnit
 class Group(val client: Client, private val libXMTPGroup: FfiGroup) {
     val id: ByteArray
         get() = libXMTPGroup.id()
+
+    val topic: String
+        get() = Topic.groupMessage(id.toHex()).description
 
     val createdAt: Date
         get() = Date(libXMTPGroup.createdAtNs() / 1_000_000)
@@ -117,6 +121,11 @@ class Group(val client: Client, private val libXMTPGroup: FfiGroup) {
             MessageApiOuterClass.SortDirection.SORT_DIRECTION_ASCENDING -> messages
             else -> messages.reversed()
         }
+    }
+
+    suspend fun processMessage(envelopeBytes: ByteArray): Message {
+        val message = libXMTPGroup.processStreamedGroupMessage(envelopeBytes)
+        return Message(client, message)
     }
 
     fun isActive(): Boolean {

@@ -82,7 +82,7 @@ These files can serve as the basis for what you might want to provide for your o
 
     ```kotlin
     val hmacKeysResult = ClientManager.client.conversations.getHmacKeys()
-    val subscriptions = conversations.map {
+    val subscriptions: MutableList<Service.Subscription> = conversations.map {
         val hmacKeys = hmacKeysResult.hmacKeysMap
         val result = hmacKeys[it.topic]?.valuesList?.map { hmacKey ->
             Service.Subscription.HmacKey.newBuilder().also { sub_key ->
@@ -96,11 +96,20 @@ These files can serve as the basis for what you might want to provide for your o
             sub.topic = it.topic
             sub.isSilent = it.version == Conversation.Version.V1
         }.build()
-    }
+    }.toMutableList()
+   
+   // To get pushes for New Group (WelcomeMessages)
+   val welcomeTopic = Service.Subscription.newBuilder().also { sub -> 
+       sub.topic = Topic.userWelcome(ClientManager.client.installationId).description
+       sub.isSilent = false
+   }.build()
+   subscriptions.add(welcomeTopic)
 
-    XMTPPush(context, "10.0.2.2:8080").subscribeWithMetadata(subscriptions)
-    ```
+   XMTPPush(context, "10.0.2.2:8080").subscribeWithMetadata(subscriptions)
+   ```
 
     ```kotlin
     XMTPPush(context, "10.0.2.2:8080").unsubscribe(conversations.map { it.topic })
     ```
+   
+8. See example in [PushNotificationsService](https://github.com/xmtp/xmtp-android/blob/main/example/src/main/java/org/xmtp/android/example/pushnotifications/PushNotificationsService.kt) for how to decrypt the different messages.

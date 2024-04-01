@@ -43,7 +43,6 @@ import org.xmtp.android.library.messages.walletAddress
 import org.xmtp.proto.message.api.v1.MessageApiOuterClass
 import org.xmtp.proto.message.api.v1.MessageApiOuterClass.BatchQueryResponse
 import org.xmtp.proto.message.api.v1.MessageApiOuterClass.QueryRequest
-import uniffi.xmtpv3.FfiV2ApiClient
 import uniffi.xmtpv3.FfiXmtpClient
 import uniffi.xmtpv3.LegacyIdentitySource
 import uniffi.xmtpv3.createClient
@@ -87,9 +86,9 @@ class Client() {
     lateinit var conversations: Conversations
     var logger: XMTPLogger = XMTPLogger()
     val libXMTPVersion: String = getVersionInfo()
+    var installationId: String = ""
     private var libXMTPClient: FfiXmtpClient? = null
     private var dbPath: String = ""
-    private lateinit var v2RustClient: FfiV2ApiClient
 
     companion object {
         private const val TAG = "Client"
@@ -166,6 +165,7 @@ class Client() {
         apiClient: ApiClient,
         libXMTPClient: FfiXmtpClient? = null,
         dbPath: String = "",
+        installationId: String = "",
     ) : this() {
         this.address = address
         this.privateKeyBundleV1 = privateKeyBundleV1
@@ -175,6 +175,7 @@ class Client() {
         this.conversations =
             Conversations(client = this, libXMTPConversations = libXMTPClient?.conversations())
         this.dbPath = dbPath
+        this.installationId = installationId
     }
 
     fun buildFrom(
@@ -207,7 +208,8 @@ class Client() {
             privateKeyBundleV1 = bundle,
             apiClient = apiClient,
             libXMTPClient = v3Client,
-            dbPath = dbPath
+            dbPath = dbPath,
+            installationId = v3Client?.installationId()?.toHex() ?: ""
         )
     }
 
@@ -257,7 +259,8 @@ class Client() {
                         privateKeyBundleV1,
                         apiClient,
                         libXMTPClient,
-                        dbPath
+                        dbPath,
+                        libXMTPClient?.installationId()?.toHex() ?: ""
                     )
                 client.ensureUserContactPublished()
                 client
@@ -304,7 +307,8 @@ class Client() {
             privateKeyBundleV1 = v1Bundle,
             apiClient = apiClient,
             libXMTPClient = v3Client,
-            dbPath = dbPath
+            dbPath = dbPath,
+            installationId = v3Client?.installationId()?.toHex() ?: ""
         )
     }
 
@@ -502,6 +506,7 @@ class Client() {
     suspend fun subscribe(topics: List<String>): Flow<Envelope> {
         return subscribe2(flowOf(makeSubscribeRequest(topics)))
     }
+
     suspend fun subscribe2(request: Flow<MessageApiOuterClass.SubscribeRequest>): Flow<Envelope> {
         return apiClient.subscribe(request = request)
     }

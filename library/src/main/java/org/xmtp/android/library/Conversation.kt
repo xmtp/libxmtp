@@ -212,7 +212,7 @@ sealed class Conversation {
             return when (this) {
                 is V1 -> conversationV1.topic.description
                 is V2 -> conversationV2.topic
-                is Group -> group.id.toHex()
+                is Group -> group.topic
             }
         }
 

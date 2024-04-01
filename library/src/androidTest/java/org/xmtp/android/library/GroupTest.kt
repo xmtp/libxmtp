@@ -494,7 +494,7 @@ class GroupTest {
         boClient.conversations.streamAll().test {
             val group =
                 caroClient.conversations.newGroup(listOf(bo.walletAddress))
-            assertEquals(group.id.toHex(), awaitItem().topic)
+            assertEquals(group.topic, awaitItem().topic)
             val conversation =
                 alixClient.conversations.newConversation(bo.walletAddress)
             assertEquals(conversation.topic, awaitItem().topic)

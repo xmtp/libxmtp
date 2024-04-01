@@ -5,6 +5,7 @@ import org.xmtp.android.library.DecodedMessage
 import org.xmtp.android.library.XMTPException
 import org.xmtp.android.library.codecs.EncodedContent
 import org.xmtp.android.library.messages.DecryptedMessage
+import org.xmtp.android.library.messages.Topic
 import org.xmtp.android.library.toHex
 import uniffi.xmtpv3.FfiMessage
 import java.util.Date
@@ -27,7 +28,7 @@ data class Message(val client: Client, private val libXMTPMessage: FfiMessage) {
             return DecodedMessage(
                 id = id.toHex(),
                 client = client,
-                topic = id.toHex(),
+                topic = Topic.groupMessage(convoId.toHex()).description,
                 encodedContent = EncodedContent.parseFrom(libXMTPMessage.content),
                 senderAddress = senderAddress,
                 sent = sentAt
@@ -40,7 +41,7 @@ data class Message(val client: Client, private val libXMTPMessage: FfiMessage) {
     fun decrypt(): DecryptedMessage {
         return DecryptedMessage(
             id = id.toHex(),
-            topic = convoId.toHex(),
+            topic = Topic.groupMessage(convoId.toHex()).description,
             encodedContent = decode().encodedContent,
             senderAddress = senderAddress,
             sentAt = Date()

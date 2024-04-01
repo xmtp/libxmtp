@@ -8,6 +8,8 @@ sealed class Topic {
     data class directMessageV1(val address1: String?, val address2: String?) : Topic()
     data class directMessageV2(val addresses: String?) : Topic()
     data class preferenceList(val identifier: String?) : Topic()
+    data class userWelcome(val installationId: String?) : Topic()
+    data class groupMessage(val groupId: String?) : Topic()
 
     /**
      * Getting the [Topic] structured depending if is [userPrivateStoreKeyBundle], [contact],
@@ -29,10 +31,13 @@ sealed class Topic {
 
                 is directMessageV2 -> wrap("m-$addresses")
                 is preferenceList -> wrap("userpreferences-$identifier")
+                is groupMessage -> wrapMls("g-$groupId")
+                is userWelcome -> wrapMls("w-$installationId")
             }
         }
 
     private fun wrap(value: String): String = "/xmtp/0/$value/proto"
+    private fun wrapMls(value: String): String = "/xmtp/mls/1/$value/proto"
 
     companion object {
         /**

@@ -21,6 +21,7 @@ import org.xmtp.android.example.extension.stateFlow
 import org.xmtp.android.example.pushnotifications.PushNotificationTokenManager
 import org.xmtp.android.library.Conversation
 import org.xmtp.android.library.DecodedMessage
+import org.xmtp.android.library.messages.Topic
 import org.xmtp.android.library.push.Service
 
 class MainViewModel : ViewModel() {
@@ -46,7 +47,7 @@ class MainViewModel : ViewModel() {
             try {
                 val conversations = ClientManager.client.conversations.list(includeGroups = true)
                 val hmacKeysResult = ClientManager.client.conversations.getHmacKeys()
-                val subscriptions = conversations.map {
+                val subscriptions: MutableList<Service.Subscription> = conversations.map {
                     val hmacKeys = hmacKeysResult.hmacKeysMap
                     val result = hmacKeys[it.topic]?.valuesList?.map { hmacKey ->
                         Service.Subscription.HmacKey.newBuilder().also { sub_key ->
@@ -56,11 +57,19 @@ class MainViewModel : ViewModel() {
                     }
 
                     Service.Subscription.newBuilder().also { sub ->
-                        sub.addAllHmacKeys(result)
+                        if (!result.isNullOrEmpty()) {
+                            sub.addAllHmacKeys(result)
+                        }
                         sub.topic = it.topic
                         sub.isSilent = it.version == Conversation.Version.V1
                     }.build()
-                }
+                }.toMutableList()
+
+                val welcomeTopic = Service.Subscription.newBuilder().also { sub ->
+                    sub.topic = Topic.userWelcome(ClientManager.client.installationId).description
+                    sub.isSilent = false
+                }.build()
+                subscriptions.add(welcomeTopic)
 
                 PushNotificationTokenManager.xmtpPush.subscribeWithMetadata(subscriptions)
                 listItems.addAll(

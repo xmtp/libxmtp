@@ -20,7 +20,10 @@ import org.xmtp.android.example.R
 import org.xmtp.android.example.conversation.ConversationDetailActivity
 import org.xmtp.android.example.extension.truncatedAddress
 import org.xmtp.android.example.utils.KeyUtil
+import org.xmtp.android.library.Conversation
 import org.xmtp.android.library.messages.EnvelopeBuilder
+import org.xmtp.android.library.messages.Topic
+import uniffi.xmtpv3.org.xmtp.android.library.codecs.GroupMembershipChanges
 import java.util.Date
 
 class PushNotificationsService : FirebaseMessagingService() {
@@ -57,40 +60,78 @@ class PushNotificationsService : FirebaseMessagingService() {
         GlobalScope.launch(Dispatchers.Main) {
             ClientManager.createClient(keysData, applicationContext)
         }
-        val conversation =
-            runBlocking { ClientManager.client.fetchConversation(topic, includeGroups = true) }
-        if (conversation == null) {
-            Log.e(TAG, "No keys or conversation persisted")
-            return
-        }
-        val envelope = EnvelopeBuilder.buildFromString(topic, Date(), encryptedMessageData)
-        val peerAddress = conversation.peerAddress
-        val decodedMessage = conversation.decode(envelope)
-
-        val body = decodedMessage.body
-        val title = peerAddress.truncatedAddress()
-
-        val pendingIntent = PendingIntent.getActivity(
-            this,
-            0,
-            ConversationDetailActivity.intent(
+        val welcomeTopic = Topic.userWelcome(ClientManager.client.installationId).description
+        val builder = if (welcomeTopic == topic) {
+            val group = ClientManager.client.conversations.fromWelcome(encryptedMessageData)
+            val pendingIntent = PendingIntent.getActivity(
                 this,
-                topic = topic,
-                peerAddress = peerAddress
-            ),
-            (PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
-        )
+                0,
+                ConversationDetailActivity.intent(
+                    this,
+                    topic = group.topic,
+                    peerAddress = Conversation.Group(group).peerAddress
+                ),
+                (PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
+            )
 
-        val builder = NotificationCompat.Builder(this, CHANNEL_ID)
-            .setSmallIcon(R.drawable.ic_xmtp_white)
-            .setContentTitle(title)
-            .setContentText(body)
-            .setAutoCancel(true)
-            .setColor(ContextCompat.getColor(this, R.color.black))
-            .setPriority(NotificationCompat.PRIORITY_DEFAULT)
-            .setStyle(NotificationCompat.BigTextStyle().bigText(body))
-            .setContentIntent(pendingIntent)
+            NotificationCompat.Builder(this, CHANNEL_ID)
+                .setSmallIcon(R.drawable.ic_xmtp_white)
+                .setContentTitle(Conversation.Group(group).peerAddress.truncatedAddress())
+                .setContentText("New Group Chat")
+                .setAutoCancel(true)
+                .setColor(ContextCompat.getColor(this, R.color.black))
+                .setPriority(NotificationCompat.PRIORITY_DEFAULT)
+                .setStyle(NotificationCompat.BigTextStyle().bigText("New Group Chat"))
+                .setContentIntent(pendingIntent)
+        } else {
+            val conversation =
+                runBlocking { ClientManager.client.fetchConversation(topic, includeGroups = true) }
+            if (conversation == null) {
+                Log.e(TAG, topic)
+                Log.e(TAG, "No keys or conversation persisted")
+                return
+            }
+            val decodedMessage = if (conversation is Conversation.Group) {
+                runBlocking { conversation.group.processMessage(encryptedMessageData).decode() }
+            } else {
+                val envelope = EnvelopeBuilder.buildFromString(topic, Date(), encryptedMessageData)
+                conversation.decode(envelope)
+            }
+            val peerAddress = conversation.peerAddress
 
+            val body: String = if (decodedMessage.content<Any>() is String) {
+                decodedMessage.body
+            } else if (decodedMessage.content<Any>() is GroupMembershipChanges) {
+                val changes = decodedMessage.content() as? GroupMembershipChanges
+                "Membership Changed ${
+                    changes?.membersAddedList?.mapNotNull { it.accountAddress }.toString()
+                }"
+            } else {
+                ""
+            }
+            val title = peerAddress.truncatedAddress()
+
+            val pendingIntent = PendingIntent.getActivity(
+                this,
+                0,
+                ConversationDetailActivity.intent(
+                    this,
+                    topic = topic,
+                    peerAddress = peerAddress
+                ),
+                (PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
+            )
+
+            NotificationCompat.Builder(this, CHANNEL_ID)
+                .setSmallIcon(R.drawable.ic_xmtp_white)
+                .setContentTitle(title)
+                .setContentText(body)
+                .setAutoCancel(true)
+                .setColor(ContextCompat.getColor(this, R.color.black))
+                .setPriority(NotificationCompat.PRIORITY_DEFAULT)
+                .setStyle(NotificationCompat.BigTextStyle().bigText(body))
+                .setContentIntent(pendingIntent)
+        }
         // Use the URL as the ID for now until one is passed back from the server.
         NotificationManagerCompat.from(this).apply {
             if (ActivityCompat.checkSelfPermission(
