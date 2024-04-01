@@ -6,17 +6,36 @@ use std::sync::RwLock;
 
 use openmls::prelude::Credential as OpenMlsCredential;
 use openmls_basic_credential::SignatureKeyPair;
+use openmls_traits::types::CryptoError;
 use prost::Message;
+use thiserror::Error;
 use xmtp_mls::{
-    configuration::CIPHERSUITE, credential::Credential,
-    credential::UnsignedGrantMessagingAccessData, types::Address, utils::time::now_ns,
+    configuration::CIPHERSUITE,
+    credential::Credential,
+    credential::{AssociationError, UnsignedGrantMessagingAccessData},
+    types::Address,
+    utils::time::now_ns,
 };
 use xmtp_proto::xmtp::mls::message_contents::MlsCredential as CredentialProto;
 
 use crate::{
-    credential::{CredentialVerifier, VerificationRequest, VerifiedCredential},
+    credential::{CredentialVerifier, VerificationError, VerificationRequest, VerifiedCredential},
     error::IdentityError,
 };
+
+#[derive(Debug, Error)]
+pub enum IdentityError {
+    #[error("bad association: {0}")]
+    BadAssocation(#[from] AssociationError),
+    #[error("generating key-pairs: {0}")]
+    KeyGenerationError(#[from] CryptoError),
+    #[error("uninitialized identity")]
+    UninitializedIdentity,
+    #[error("protobuf deserialization: {0}")]
+    Deserialization(#[from] prost::DecodeError),
+    #[error("credential verification {0}")]
+    VerificationError(#[from] VerificationError),
+}
 
 pub struct Identity {
     #[allow(dead_code)]
