@@ -108,6 +108,7 @@ struct LoginView: View {
 	var publishers: [AnyCancellable] = []
 
 	@State private var isShowingWebview = true
+	// swiftlint:disable function_body_length
 	init(
 		onConnected: @escaping (Client) -> Void
 	) {
@@ -124,7 +125,11 @@ struct LoginView: View {
 				name: "XMTP Chat",
 				description: "It's a chat app.",
 				url: "https://localhost:4567",
-				icons: []
+				icons: [],
+				redirect: AppMetadata.Redirect(
+					native: "",
+					universal: nil
+				)
 			)
 		)
 
@@ -174,6 +179,7 @@ struct LoginView: View {
 			}
 			.store(in: &publishers)
 	}
+	// swiftlint:enable function_body_length
 
 	var body: some View {
 		ModalWrapper()

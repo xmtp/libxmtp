@@ -143,14 +143,14 @@ struct ConversationListView: View {
 				do {
 					let hmacKeysResult = await client.conversations.getHmacKeys()
 					let hmacKeys = hmacKeysResult.hmacKeys
-					
+
 					let result = hmacKeys[conversation.topic]?.values.map { hmacKey -> NotificationSubscriptionHmacKey in
 						NotificationSubscriptionHmacKey.with { sub_key in
 							sub_key.key = hmacKey.hmacKey
 							sub_key.thirtyDayPeriodsSinceEpoch = UInt32(hmacKey.thirtyDayPeriodsSinceEpoch)
 						}
 					}
-					
+
 					let subscription = NotificationSubscription.with { sub in
 						sub.hmacKeys = result ?? []
 						sub.topic = conversation.topic
