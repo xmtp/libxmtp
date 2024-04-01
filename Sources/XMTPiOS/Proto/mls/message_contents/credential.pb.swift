@@ -32,18 +32,27 @@ public struct Xmtp_Mls_MessageContents_MlsCredential {
 
   public var association: Xmtp_Mls_MessageContents_MlsCredential.OneOf_Association? = nil
 
-  public var eip191: Xmtp_Mls_MessageContents_Eip191Association {
+  public var messagingAccess: Xmtp_Mls_MessageContents_GrantMessagingAccessAssociation {
     get {
-      if case .eip191(let v)? = association {return v}
-      return Xmtp_Mls_MessageContents_Eip191Association()
+      if case .messagingAccess(let v)? = association {return v}
+      return Xmtp_Mls_MessageContents_GrantMessagingAccessAssociation()
     }
-    set {association = .eip191(newValue)}
+    set {association = .messagingAccess(newValue)}
+  }
+
+  public var legacyCreateIdentity: Xmtp_Mls_MessageContents_LegacyCreateIdentityAssociation {
+    get {
+      if case .legacyCreateIdentity(let v)? = association {return v}
+      return Xmtp_Mls_MessageContents_LegacyCreateIdentityAssociation()
+    }
+    set {association = .legacyCreateIdentity(newValue)}
   }
 
   public var unknownFields = SwiftProtobuf.UnknownStorage()
 
   public enum OneOf_Association: Equatable {
-    case eip191(Xmtp_Mls_MessageContents_Eip191Association)
+    case messagingAccess(Xmtp_Mls_MessageContents_GrantMessagingAccessAssociation)
+    case legacyCreateIdentity(Xmtp_Mls_MessageContents_LegacyCreateIdentityAssociation)
 
   #if !swift(>=4.1)
     public static func ==(lhs: Xmtp_Mls_MessageContents_MlsCredential.OneOf_Association, rhs: Xmtp_Mls_MessageContents_MlsCredential.OneOf_Association) -> Bool {
@@ -51,10 +60,15 @@ public struct Xmtp_Mls_MessageContents_MlsCredential {
       // allocates stack space for every case branch when no optimizations are
       // enabled. https://github.com/apple/swift-protobuf/issues/1034
       switch (lhs, rhs) {
-      case (.eip191, .eip191): return {
-        guard case .eip191(let l) = lhs, case .eip191(let r) = rhs else { preconditionFailure() }
+      case (.messagingAccess, .messagingAccess): return {
+        guard case .messagingAccess(let l) = lhs, case .messagingAccess(let r) = rhs else { preconditionFailure() }
         return l == r
       }()
+      case (.legacyCreateIdentity, .legacyCreateIdentity): return {
+        guard case .legacyCreateIdentity(let l) = lhs, case .legacyCreateIdentity(let r) = rhs else { preconditionFailure() }
+        return l == r
+      }()
+      default: return false
       }
     }
   #endif
@@ -69,22 +83,66 @@ public struct Xmtp_Mls_MessageContents_CredentialRevocation {
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
   // methods supported on all messages.
 
-  public var installationPublicKey: Data = Data()
+  public var publicKey: Xmtp_Mls_MessageContents_CredentialRevocation.OneOf_PublicKey? = nil
+
+  /// The 'installation_public_key' field of the MlsCredential proto
+  public var installationKey: Data {
+    get {
+      if case .installationKey(let v)? = publicKey {return v}
+      return Data()
+    }
+    set {publicKey = .installationKey(newValue)}
+  }
+
+  /// The 'key_bytes' field of the legacy SignedPublicKey proto
+  public var unsignedLegacyCreateIdentityKey: Data {
+    get {
+      if case .unsignedLegacyCreateIdentityKey(let v)? = publicKey {return v}
+      return Data()
+    }
+    set {publicKey = .unsignedLegacyCreateIdentityKey(newValue)}
+  }
 
   public var association: Xmtp_Mls_MessageContents_CredentialRevocation.OneOf_Association? = nil
 
-  public var eip191: Xmtp_Mls_MessageContents_Eip191Association {
+  public var messagingAccess: Xmtp_Mls_MessageContents_RevokeMessagingAccessAssociation {
     get {
-      if case .eip191(let v)? = association {return v}
-      return Xmtp_Mls_MessageContents_Eip191Association()
+      if case .messagingAccess(let v)? = association {return v}
+      return Xmtp_Mls_MessageContents_RevokeMessagingAccessAssociation()
     }
-    set {association = .eip191(newValue)}
+    set {association = .messagingAccess(newValue)}
   }
 
   public var unknownFields = SwiftProtobuf.UnknownStorage()
 
+  public enum OneOf_PublicKey: Equatable {
+    /// The 'installation_public_key' field of the MlsCredential proto
+    case installationKey(Data)
+    /// The 'key_bytes' field of the legacy SignedPublicKey proto
+    case unsignedLegacyCreateIdentityKey(Data)
+
+  #if !swift(>=4.1)
+    public static func ==(lhs: Xmtp_Mls_MessageContents_CredentialRevocation.OneOf_PublicKey, rhs: Xmtp_Mls_MessageContents_CredentialRevocation.OneOf_PublicKey) -> Bool {
+      // The use of inline closures is to circumvent an issue where the compiler
+      // allocates stack space for every case branch when no optimizations are
+      // enabled. https://github.com/apple/swift-protobuf/issues/1034
+      switch (lhs, rhs) {
+      case (.installationKey, .installationKey): return {
+        guard case .installationKey(let l) = lhs, case .installationKey(let r) = rhs else { preconditionFailure() }
+        return l == r
+      }()
+      case (.unsignedLegacyCreateIdentityKey, .unsignedLegacyCreateIdentityKey): return {
+        guard case .unsignedLegacyCreateIdentityKey(let l) = lhs, case .unsignedLegacyCreateIdentityKey(let r) = rhs else { preconditionFailure() }
+        return l == r
+      }()
+      default: return false
+      }
+    }
+  #endif
+  }
+
   public enum OneOf_Association: Equatable {
-    case eip191(Xmtp_Mls_MessageContents_Eip191Association)
+    case messagingAccess(Xmtp_Mls_MessageContents_RevokeMessagingAccessAssociation)
 
   #if !swift(>=4.1)
     public static func ==(lhs: Xmtp_Mls_MessageContents_CredentialRevocation.OneOf_Association, rhs: Xmtp_Mls_MessageContents_CredentialRevocation.OneOf_Association) -> Bool {
@@ -92,8 +150,8 @@ public struct Xmtp_Mls_MessageContents_CredentialRevocation {
       // allocates stack space for every case branch when no optimizations are
       // enabled. https://github.com/apple/swift-protobuf/issues/1034
       switch (lhs, rhs) {
-      case (.eip191, .eip191): return {
-        guard case .eip191(let l) = lhs, case .eip191(let r) = rhs else { preconditionFailure() }
+      case (.messagingAccess, .messagingAccess): return {
+        guard case .messagingAccess(let l) = lhs, case .messagingAccess(let r) = rhs else { preconditionFailure() }
         return l == r
       }()
       }
@@ -108,6 +166,7 @@ public struct Xmtp_Mls_MessageContents_CredentialRevocation {
 extension Xmtp_Mls_MessageContents_MlsCredential: @unchecked Sendable {}
 extension Xmtp_Mls_MessageContents_MlsCredential.OneOf_Association: @unchecked Sendable {}
 extension Xmtp_Mls_MessageContents_CredentialRevocation: @unchecked Sendable {}
+extension Xmtp_Mls_MessageContents_CredentialRevocation.OneOf_PublicKey: @unchecked Sendable {}
 extension Xmtp_Mls_MessageContents_CredentialRevocation.OneOf_Association: @unchecked Sendable {}
 #endif  // swift(>=5.5) && canImport(_Concurrency)
 
@@ -119,7 +178,8 @@ extension Xmtp_Mls_MessageContents_MlsCredential: SwiftProtobuf.Message, SwiftPr
   public static let protoMessageName: String = _protobuf_package + ".MlsCredential"
   public static let _protobuf_nameMap: SwiftProtobuf._NameMap = [
     1: .standard(proto: "installation_public_key"),
-    2: .standard(proto: "eip_191"),
+    2: .standard(proto: "messaging_access"),
+    3: .standard(proto: "legacy_create_identity"),
   ]
 
   public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
@@ -130,16 +190,29 @@ extension Xmtp_Mls_MessageContents_MlsCredential: SwiftProtobuf.Message, SwiftPr
       switch fieldNumber {
       case 1: try { try decoder.decodeSingularBytesField(value: &self.installationPublicKey) }()
       case 2: try {
-        var v: Xmtp_Mls_MessageContents_Eip191Association?
+        var v: Xmtp_Mls_MessageContents_GrantMessagingAccessAssociation?
         var hadOneofValue = false
         if let current = self.association {
           hadOneofValue = true
-          if case .eip191(let m) = current {v = m}
+          if case .messagingAccess(let m) = current {v = m}
         }
         try decoder.decodeSingularMessageField(value: &v)
         if let v = v {
           if hadOneofValue {try decoder.handleConflictingOneOf()}
-          self.association = .eip191(v)
+          self.association = .messagingAccess(v)
+        }
+      }()
+      case 3: try {
+        var v: Xmtp_Mls_MessageContents_LegacyCreateIdentityAssociation?
+        var hadOneofValue = false
+        if let current = self.association {
+          hadOneofValue = true
+          if case .legacyCreateIdentity(let m) = current {v = m}
+        }
+        try decoder.decodeSingularMessageField(value: &v)
+        if let v = v {
+          if hadOneofValue {try decoder.handleConflictingOneOf()}
+          self.association = .legacyCreateIdentity(v)
         }
       }()
       default: break
@@ -155,9 +228,17 @@ extension Xmtp_Mls_MessageContents_MlsCredential: SwiftProtobuf.Message, SwiftPr
     if !self.installationPublicKey.isEmpty {
       try visitor.visitSingularBytesField(value: self.installationPublicKey, fieldNumber: 1)
     }
-    try { if case .eip191(let v)? = self.association {
+    switch self.association {
+    case .messagingAccess?: try {
+      guard case .messagingAccess(let v)? = self.association else { preconditionFailure() }
       try visitor.visitSingularMessageField(value: v, fieldNumber: 2)
-    } }()
+    }()
+    case .legacyCreateIdentity?: try {
+      guard case .legacyCreateIdentity(let v)? = self.association else { preconditionFailure() }
+      try visitor.visitSingularMessageField(value: v, fieldNumber: 3)
+    }()
+    case nil: break
+    }
     try unknownFields.traverse(visitor: &visitor)
   }
 
@@ -172,8 +253,9 @@ extension Xmtp_Mls_MessageContents_MlsCredential: SwiftProtobuf.Message, SwiftPr
 extension Xmtp_Mls_MessageContents_CredentialRevocation: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".CredentialRevocation"
   public static let _protobuf_nameMap: SwiftProtobuf._NameMap = [
-    1: .standard(proto: "installation_public_key"),
-    2: .standard(proto: "eip_191"),
+    1: .standard(proto: "installation_key"),
+    2: .standard(proto: "unsigned_legacy_create_identity_key"),
+    3: .standard(proto: "messaging_access"),
   ]
 
   public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
@@ -182,18 +264,33 @@ extension Xmtp_Mls_MessageContents_CredentialRevocation: SwiftProtobuf.Message, 
       // allocates stack space for every case branch when no optimizations are
       // enabled. https://github.com/apple/swift-protobuf/issues/1034
       switch fieldNumber {
-      case 1: try { try decoder.decodeSingularBytesField(value: &self.installationPublicKey) }()
+      case 1: try {
+        var v: Data?
+        try decoder.decodeSingularBytesField(value: &v)
+        if let v = v {
+          if self.publicKey != nil {try decoder.handleConflictingOneOf()}
+          self.publicKey = .installationKey(v)
+        }
+      }()
       case 2: try {
-        var v: Xmtp_Mls_MessageContents_Eip191Association?
+        var v: Data?
+        try decoder.decodeSingularBytesField(value: &v)
+        if let v = v {
+          if self.publicKey != nil {try decoder.handleConflictingOneOf()}
+          self.publicKey = .unsignedLegacyCreateIdentityKey(v)
+        }
+      }()
+      case 3: try {
+        var v: Xmtp_Mls_MessageContents_RevokeMessagingAccessAssociation?
         var hadOneofValue = false
         if let current = self.association {
           hadOneofValue = true
-          if case .eip191(let m) = current {v = m}
+          if case .messagingAccess(let m) = current {v = m}
         }
         try decoder.decodeSingularMessageField(value: &v)
         if let v = v {
           if hadOneofValue {try decoder.handleConflictingOneOf()}
-          self.association = .eip191(v)
+          self.association = .messagingAccess(v)
         }
       }()
       default: break
@@ -206,17 +303,25 @@ extension Xmtp_Mls_MessageContents_CredentialRevocation: SwiftProtobuf.Message, 
     // allocates stack space for every if/case branch local when no optimizations
     // are enabled. https://github.com/apple/swift-protobuf/issues/1034 and
     // https://github.com/apple/swift-protobuf/issues/1182
-    if !self.installationPublicKey.isEmpty {
-      try visitor.visitSingularBytesField(value: self.installationPublicKey, fieldNumber: 1)
+    switch self.publicKey {
+    case .installationKey?: try {
+      guard case .installationKey(let v)? = self.publicKey else { preconditionFailure() }
+      try visitor.visitSingularBytesField(value: v, fieldNumber: 1)
+    }()
+    case .unsignedLegacyCreateIdentityKey?: try {
+      guard case .unsignedLegacyCreateIdentityKey(let v)? = self.publicKey else { preconditionFailure() }
+      try visitor.visitSingularBytesField(value: v, fieldNumber: 2)
+    }()
+    case nil: break
     }
-    try { if case .eip191(let v)? = self.association {
-      try visitor.visitSingularMessageField(value: v, fieldNumber: 2)
+    try { if case .messagingAccess(let v)? = self.association {
+      try visitor.visitSingularMessageField(value: v, fieldNumber: 3)
     } }()
     try unknownFields.traverse(visitor: &visitor)
   }
 
   public static func ==(lhs: Xmtp_Mls_MessageContents_CredentialRevocation, rhs: Xmtp_Mls_MessageContents_CredentialRevocation) -> Bool {
-    if lhs.installationPublicKey != rhs.installationPublicKey {return false}
+    if lhs.publicKey != rhs.publicKey {return false}
     if lhs.association != rhs.association {return false}
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true

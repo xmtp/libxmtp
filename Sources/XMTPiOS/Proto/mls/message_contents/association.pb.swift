@@ -64,14 +64,15 @@ extension Xmtp_Mls_MessageContents_AssociationTextVersion: CaseIterable {
 
 #endif  // swift(>=4.2)
 
-/// EIP191Association is used for all EIP 191 compliant wallet signatures
-public struct Xmtp_Mls_MessageContents_Eip191Association {
+/// Used for "Grant Messaging Access" associations
+public struct Xmtp_Mls_MessageContents_GrantMessagingAccessAssociation {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
   // methods supported on all messages.
 
   public var associationTextVersion: Xmtp_Mls_MessageContents_AssociationTextVersion = .unspecified
 
+  /// EIP-191 signature
   public var signature: Xmtp_Mls_MessageContents_RecoverableEcdsaSignature {
     get {return _signature ?? Xmtp_Mls_MessageContents_RecoverableEcdsaSignature()}
     set {_signature = newValue}
@@ -83,7 +84,7 @@ public struct Xmtp_Mls_MessageContents_Eip191Association {
 
   public var accountAddress: String = String()
 
-  public var iso8601Time: String = String()
+  public var createdNs: UInt64 = 0
 
   public var unknownFields = SwiftProtobuf.UnknownStorage()
 
@@ -92,13 +93,79 @@ public struct Xmtp_Mls_MessageContents_Eip191Association {
   fileprivate var _signature: Xmtp_Mls_MessageContents_RecoverableEcdsaSignature? = nil
 }
 
+/// Used for "Revoke Messaging Access" associations
+public struct Xmtp_Mls_MessageContents_RevokeMessagingAccessAssociation {
+  // SwiftProtobuf.Message conformance is added in an extension below. See the
+  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
+  // methods supported on all messages.
+
+  public var associationTextVersion: Xmtp_Mls_MessageContents_AssociationTextVersion = .unspecified
+
+  /// EIP-191 signature
+  public var signature: Xmtp_Mls_MessageContents_RecoverableEcdsaSignature {
+    get {return _signature ?? Xmtp_Mls_MessageContents_RecoverableEcdsaSignature()}
+    set {_signature = newValue}
+  }
+  /// Returns true if `signature` has been explicitly set.
+  public var hasSignature: Bool {return self._signature != nil}
+  /// Clears the value of `signature`. Subsequent reads from it will return its default value.
+  public mutating func clearSignature() {self._signature = nil}
+
+  public var accountAddress: String = String()
+
+  public var createdNs: UInt64 = 0
+
+  public var unknownFields = SwiftProtobuf.UnknownStorage()
+
+  public init() {}
+
+  fileprivate var _signature: Xmtp_Mls_MessageContents_RecoverableEcdsaSignature? = nil
+}
+
+/// LegacyCreateIdentityAssociation is used when a v3 installation key
+/// is signed by a v2 identity key, which in turn is signed via a
+/// 'CreateIdentity' wallet signature
+public struct Xmtp_Mls_MessageContents_LegacyCreateIdentityAssociation {
+  // SwiftProtobuf.Message conformance is added in an extension below. See the
+  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
+  // methods supported on all messages.
+
+  /// Signs SHA-256 hash of installation key
+  public var signature: Xmtp_Mls_MessageContents_RecoverableEcdsaSignature {
+    get {return _signature ?? Xmtp_Mls_MessageContents_RecoverableEcdsaSignature()}
+    set {_signature = newValue}
+  }
+  /// Returns true if `signature` has been explicitly set.
+  public var hasSignature: Bool {return self._signature != nil}
+  /// Clears the value of `signature`. Subsequent reads from it will return its default value.
+  public mutating func clearSignature() {self._signature = nil}
+
+  /// created_ns is encoded inside serialized key, account_address is recoverable
+  /// from the SignedPublicKey signature
+  public var signedLegacyCreateIdentityKey: Xmtp_MessageContents_SignedPublicKey {
+    get {return _signedLegacyCreateIdentityKey ?? Xmtp_MessageContents_SignedPublicKey()}
+    set {_signedLegacyCreateIdentityKey = newValue}
+  }
+  /// Returns true if `signedLegacyCreateIdentityKey` has been explicitly set.
+  public var hasSignedLegacyCreateIdentityKey: Bool {return self._signedLegacyCreateIdentityKey != nil}
+  /// Clears the value of `signedLegacyCreateIdentityKey`. Subsequent reads from it will return its default value.
+  public mutating func clearSignedLegacyCreateIdentityKey() {self._signedLegacyCreateIdentityKey = nil}
+
+  public var unknownFields = SwiftProtobuf.UnknownStorage()
+
+  public init() {}
+
+  fileprivate var _signature: Xmtp_Mls_MessageContents_RecoverableEcdsaSignature? = nil
+  fileprivate var _signedLegacyCreateIdentityKey: Xmtp_MessageContents_SignedPublicKey? = nil
+}
+
 /// RecoverableEcdsaSignature
 public struct Xmtp_Mls_MessageContents_RecoverableEcdsaSignature {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
   // methods supported on all messages.
 
-  /// Includes recovery id as the last byte
+  /// 65-bytes [ R || S || V ], with recovery id as the last byte
   public var bytes: Data = Data()
 
   public var unknownFields = SwiftProtobuf.UnknownStorage()
@@ -121,7 +188,9 @@ public struct Xmtp_Mls_MessageContents_EdDsaSignature {
 
 #if swift(>=5.5) && canImport(_Concurrency)
 extension Xmtp_Mls_MessageContents_AssociationTextVersion: @unchecked Sendable {}
-extension Xmtp_Mls_MessageContents_Eip191Association: @unchecked Sendable {}
+extension Xmtp_Mls_MessageContents_GrantMessagingAccessAssociation: @unchecked Sendable {}
+extension Xmtp_Mls_MessageContents_RevokeMessagingAccessAssociation: @unchecked Sendable {}
+extension Xmtp_Mls_MessageContents_LegacyCreateIdentityAssociation: @unchecked Sendable {}
 extension Xmtp_Mls_MessageContents_RecoverableEcdsaSignature: @unchecked Sendable {}
 extension Xmtp_Mls_MessageContents_EdDsaSignature: @unchecked Sendable {}
 #endif  // swift(>=5.5) && canImport(_Concurrency)
@@ -137,13 +206,13 @@ extension Xmtp_Mls_MessageContents_AssociationTextVersion: SwiftProtobuf._ProtoN
   ]
 }
 
-extension Xmtp_Mls_MessageContents_Eip191Association: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
-  public static let protoMessageName: String = _protobuf_package + ".Eip191Association"
+extension Xmtp_Mls_MessageContents_GrantMessagingAccessAssociation: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+  public static let protoMessageName: String = _protobuf_package + ".GrantMessagingAccessAssociation"
   public static let _protobuf_nameMap: SwiftProtobuf._NameMap = [
     1: .standard(proto: "association_text_version"),
     2: .same(proto: "signature"),
     3: .standard(proto: "account_address"),
-    4: .standard(proto: "iso8601_time"),
+    4: .standard(proto: "created_ns"),
   ]
 
   public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
@@ -155,7 +224,7 @@ extension Xmtp_Mls_MessageContents_Eip191Association: SwiftProtobuf.Message, Swi
       case 1: try { try decoder.decodeSingularEnumField(value: &self.associationTextVersion) }()
       case 2: try { try decoder.decodeSingularMessageField(value: &self._signature) }()
       case 3: try { try decoder.decodeSingularStringField(value: &self.accountAddress) }()
-      case 4: try { try decoder.decodeSingularStringField(value: &self.iso8601Time) }()
+      case 4: try { try decoder.decodeSingularUInt64Field(value: &self.createdNs) }()
       default: break
       }
     }
@@ -175,17 +244,113 @@ extension Xmtp_Mls_MessageContents_Eip191Association: SwiftProtobuf.Message, Swi
     if !self.accountAddress.isEmpty {
       try visitor.visitSingularStringField(value: self.accountAddress, fieldNumber: 3)
     }
-    if !self.iso8601Time.isEmpty {
-      try visitor.visitSingularStringField(value: self.iso8601Time, fieldNumber: 4)
+    if self.createdNs != 0 {
+      try visitor.visitSingularUInt64Field(value: self.createdNs, fieldNumber: 4)
     }
     try unknownFields.traverse(visitor: &visitor)
   }
 
-  public static func ==(lhs: Xmtp_Mls_MessageContents_Eip191Association, rhs: Xmtp_Mls_MessageContents_Eip191Association) -> Bool {
+  public static func ==(lhs: Xmtp_Mls_MessageContents_GrantMessagingAccessAssociation, rhs: Xmtp_Mls_MessageContents_GrantMessagingAccessAssociation) -> Bool {
     if lhs.associationTextVersion != rhs.associationTextVersion {return false}
     if lhs._signature != rhs._signature {return false}
     if lhs.accountAddress != rhs.accountAddress {return false}
-    if lhs.iso8601Time != rhs.iso8601Time {return false}
+    if lhs.createdNs != rhs.createdNs {return false}
+    if lhs.unknownFields != rhs.unknownFields {return false}
+    return true
+  }
+}
+
+extension Xmtp_Mls_MessageContents_RevokeMessagingAccessAssociation: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+  public static let protoMessageName: String = _protobuf_package + ".RevokeMessagingAccessAssociation"
+  public static let _protobuf_nameMap: SwiftProtobuf._NameMap = [
+    1: .standard(proto: "association_text_version"),
+    2: .same(proto: "signature"),
+    3: .standard(proto: "account_address"),
+    4: .standard(proto: "created_ns"),
+  ]
+
+  public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
+    while let fieldNumber = try decoder.nextFieldNumber() {
+      // The use of inline closures is to circumvent an issue where the compiler
+      // allocates stack space for every case branch when no optimizations are
+      // enabled. https://github.com/apple/swift-protobuf/issues/1034
+      switch fieldNumber {
+      case 1: try { try decoder.decodeSingularEnumField(value: &self.associationTextVersion) }()
+      case 2: try { try decoder.decodeSingularMessageField(value: &self._signature) }()
+      case 3: try { try decoder.decodeSingularStringField(value: &self.accountAddress) }()
+      case 4: try { try decoder.decodeSingularUInt64Field(value: &self.createdNs) }()
+      default: break
+      }
+    }
+  }
+
+  public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    // The use of inline closures is to circumvent an issue where the compiler
+    // allocates stack space for every if/case branch local when no optimizations
+    // are enabled. https://github.com/apple/swift-protobuf/issues/1034 and
+    // https://github.com/apple/swift-protobuf/issues/1182
+    if self.associationTextVersion != .unspecified {
+      try visitor.visitSingularEnumField(value: self.associationTextVersion, fieldNumber: 1)
+    }
+    try { if let v = self._signature {
+      try visitor.visitSingularMessageField(value: v, fieldNumber: 2)
+    } }()
+    if !self.accountAddress.isEmpty {
+      try visitor.visitSingularStringField(value: self.accountAddress, fieldNumber: 3)
+    }
+    if self.createdNs != 0 {
+      try visitor.visitSingularUInt64Field(value: self.createdNs, fieldNumber: 4)
+    }
+    try unknownFields.traverse(visitor: &visitor)
+  }
+
+  public static func ==(lhs: Xmtp_Mls_MessageContents_RevokeMessagingAccessAssociation, rhs: Xmtp_Mls_MessageContents_RevokeMessagingAccessAssociation) -> Bool {
+    if lhs.associationTextVersion != rhs.associationTextVersion {return false}
+    if lhs._signature != rhs._signature {return false}
+    if lhs.accountAddress != rhs.accountAddress {return false}
+    if lhs.createdNs != rhs.createdNs {return false}
+    if lhs.unknownFields != rhs.unknownFields {return false}
+    return true
+  }
+}
+
+extension Xmtp_Mls_MessageContents_LegacyCreateIdentityAssociation: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+  public static let protoMessageName: String = _protobuf_package + ".LegacyCreateIdentityAssociation"
+  public static let _protobuf_nameMap: SwiftProtobuf._NameMap = [
+    1: .same(proto: "signature"),
+    2: .standard(proto: "signed_legacy_create_identity_key"),
+  ]
+
+  public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
+    while let fieldNumber = try decoder.nextFieldNumber() {
+      // The use of inline closures is to circumvent an issue where the compiler
+      // allocates stack space for every case branch when no optimizations are
+      // enabled. https://github.com/apple/swift-protobuf/issues/1034
+      switch fieldNumber {
+      case 1: try { try decoder.decodeSingularMessageField(value: &self._signature) }()
+      case 2: try { try decoder.decodeSingularMessageField(value: &self._signedLegacyCreateIdentityKey) }()
+      default: break
+      }
+    }
+  }
+
+  public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    // The use of inline closures is to circumvent an issue where the compiler
+    // allocates stack space for every if/case branch local when no optimizations
+    // are enabled. https://github.com/apple/swift-protobuf/issues/1034 and
+    // https://github.com/apple/swift-protobuf/issues/1182
+    try { if let v = self._signature {
+      try visitor.visitSingularMessageField(value: v, fieldNumber: 1)
+    } }()
+    try { if let v = self._signedLegacyCreateIdentityKey {
+      try visitor.visitSingularMessageField(value: v, fieldNumber: 2)
+    } }()
+    try unknownFields.traverse(visitor: &visitor)
+  }
+
+  public static func ==(lhs: Xmtp_Mls_MessageContents_LegacyCreateIdentityAssociation, rhs: Xmtp_Mls_MessageContents_LegacyCreateIdentityAssociation) -> Bool {
+    if lhs._signature != rhs._signature {return false}
+    if lhs._signedLegacyCreateIdentityKey != rhs._signedLegacyCreateIdentityKey {return false}
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }

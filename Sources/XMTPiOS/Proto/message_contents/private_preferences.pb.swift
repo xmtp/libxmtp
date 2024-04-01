@@ -35,127 +35,127 @@ public struct Xmtp_MessageContents_PrivatePreferencesAction {
   public var messageType: Xmtp_MessageContents_PrivatePreferencesAction.OneOf_MessageType? = nil
 
   public var allowAddress: Xmtp_MessageContents_PrivatePreferencesAction.AllowAddress {
-	get {
-	  if case .allowAddress(let v)? = messageType {return v}
-	  return Xmtp_MessageContents_PrivatePreferencesAction.AllowAddress()
-	}
-	set {messageType = .allowAddress(newValue)}
+    get {
+      if case .allowAddress(let v)? = messageType {return v}
+      return Xmtp_MessageContents_PrivatePreferencesAction.AllowAddress()
+    }
+    set {messageType = .allowAddress(newValue)}
   }
 
   public var denyAddress: Xmtp_MessageContents_PrivatePreferencesAction.DenyAddress {
-	get {
-	  if case .denyAddress(let v)? = messageType {return v}
-	  return Xmtp_MessageContents_PrivatePreferencesAction.DenyAddress()
-	}
-	set {messageType = .denyAddress(newValue)}
+    get {
+      if case .denyAddress(let v)? = messageType {return v}
+      return Xmtp_MessageContents_PrivatePreferencesAction.DenyAddress()
+    }
+    set {messageType = .denyAddress(newValue)}
   }
 
   public var allowGroup: Xmtp_MessageContents_PrivatePreferencesAction.AllowGroup {
-	get {
-	  if case .allowGroup(let v)? = messageType {return v}
-	  return Xmtp_MessageContents_PrivatePreferencesAction.AllowGroup()
-	}
-	set {messageType = .allowGroup(newValue)}
+    get {
+      if case .allowGroup(let v)? = messageType {return v}
+      return Xmtp_MessageContents_PrivatePreferencesAction.AllowGroup()
+    }
+    set {messageType = .allowGroup(newValue)}
   }
 
   public var denyGroup: Xmtp_MessageContents_PrivatePreferencesAction.DenyGroup {
-	get {
-	  if case .denyGroup(let v)? = messageType {return v}
-	  return Xmtp_MessageContents_PrivatePreferencesAction.DenyGroup()
-	}
-	set {messageType = .denyGroup(newValue)}
+    get {
+      if case .denyGroup(let v)? = messageType {return v}
+      return Xmtp_MessageContents_PrivatePreferencesAction.DenyGroup()
+    }
+    set {messageType = .denyGroup(newValue)}
   }
 
   public var unknownFields = SwiftProtobuf.UnknownStorage()
 
   public enum OneOf_MessageType: Equatable {
-	case allowAddress(Xmtp_MessageContents_PrivatePreferencesAction.AllowAddress)
-	case denyAddress(Xmtp_MessageContents_PrivatePreferencesAction.DenyAddress)
-	case allowGroup(Xmtp_MessageContents_PrivatePreferencesAction.AllowGroup)
-	case denyGroup(Xmtp_MessageContents_PrivatePreferencesAction.DenyGroup)
+    case allowAddress(Xmtp_MessageContents_PrivatePreferencesAction.AllowAddress)
+    case denyAddress(Xmtp_MessageContents_PrivatePreferencesAction.DenyAddress)
+    case allowGroup(Xmtp_MessageContents_PrivatePreferencesAction.AllowGroup)
+    case denyGroup(Xmtp_MessageContents_PrivatePreferencesAction.DenyGroup)
 
   #if !swift(>=4.1)
-	public static func ==(lhs: Xmtp_MessageContents_PrivatePreferencesAction.OneOf_MessageType, rhs: Xmtp_MessageContents_PrivatePreferencesAction.OneOf_MessageType) -> Bool {
-	  // The use of inline closures is to circumvent an issue where the compiler
-	  // allocates stack space for every case branch when no optimizations are
-	  // enabled. https://github.com/apple/swift-protobuf/issues/1034
-	  switch (lhs, rhs) {
-	  case (.allowAddress, .allowAddress): return {
-		guard case .allowAddress(let l) = lhs, case .allowAddress(let r) = rhs else { preconditionFailure() }
-		return l == r
-	  }()
-	  case (.denyAddress, .denyAddress): return {
-		guard case .denyAddress(let l) = lhs, case .denyAddress(let r) = rhs else { preconditionFailure() }
-		return l == r
-	  }()
-	  case (.allowGroup, .allowGroup): return {
-		guard case .allowGroup(let l) = lhs, case .allowGroup(let r) = rhs else { preconditionFailure() }
-		return l == r
-	  }()
-	  case (.denyGroup, .denyGroup): return {
-		guard case .denyGroup(let l) = lhs, case .denyGroup(let r) = rhs else { preconditionFailure() }
-		return l == r
-	  }()
-	  default: return false
-	  }
-	}
+    public static func ==(lhs: Xmtp_MessageContents_PrivatePreferencesAction.OneOf_MessageType, rhs: Xmtp_MessageContents_PrivatePreferencesAction.OneOf_MessageType) -> Bool {
+      // The use of inline closures is to circumvent an issue where the compiler
+      // allocates stack space for every case branch when no optimizations are
+      // enabled. https://github.com/apple/swift-protobuf/issues/1034
+      switch (lhs, rhs) {
+      case (.allowAddress, .allowAddress): return {
+        guard case .allowAddress(let l) = lhs, case .allowAddress(let r) = rhs else { preconditionFailure() }
+        return l == r
+      }()
+      case (.denyAddress, .denyAddress): return {
+        guard case .denyAddress(let l) = lhs, case .denyAddress(let r) = rhs else { preconditionFailure() }
+        return l == r
+      }()
+      case (.allowGroup, .allowGroup): return {
+        guard case .allowGroup(let l) = lhs, case .allowGroup(let r) = rhs else { preconditionFailure() }
+        return l == r
+      }()
+      case (.denyGroup, .denyGroup): return {
+        guard case .denyGroup(let l) = lhs, case .denyGroup(let r) = rhs else { preconditionFailure() }
+        return l == r
+      }()
+      default: return false
+      }
+    }
   #endif
   }
 
   /// Allow 1:1 direct message (DM) access
   public struct AllowAddress {
-	// SwiftProtobuf.Message conformance is added in an extension below. See the
-	// `Message` and `Message+*Additions` files in the SwiftProtobuf library for
-	// methods supported on all messages.
+    // SwiftProtobuf.Message conformance is added in an extension below. See the
+    // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
+    // methods supported on all messages.
 
-	/// Add the given wallet addresses to the allow list
-	public var walletAddresses: [String] = []
+    /// Add the given wallet addresses to the allow list
+    public var walletAddresses: [String] = []
 
-	public var unknownFields = SwiftProtobuf.UnknownStorage()
+    public var unknownFields = SwiftProtobuf.UnknownStorage()
 
-	public init() {}
+    public init() {}
   }
 
   /// Deny (block) 1:1 direct message (DM) access
   public struct DenyAddress {
-	// SwiftProtobuf.Message conformance is added in an extension below. See the
-	// `Message` and `Message+*Additions` files in the SwiftProtobuf library for
-	// methods supported on all messages.
+    // SwiftProtobuf.Message conformance is added in an extension below. See the
+    // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
+    // methods supported on all messages.
 
-	/// Add the given wallet addresses to the deny list
-	public var walletAddresses: [String] = []
+    /// Add the given wallet addresses to the deny list
+    public var walletAddresses: [String] = []
 
-	public var unknownFields = SwiftProtobuf.UnknownStorage()
+    public var unknownFields = SwiftProtobuf.UnknownStorage()
 
-	public init() {}
+    public init() {}
   }
 
   /// Allow Group access
   public struct AllowGroup {
-	// SwiftProtobuf.Message conformance is added in an extension below. See the
-	// `Message` and `Message+*Additions` files in the SwiftProtobuf library for
-	// methods supported on all messages.
+    // SwiftProtobuf.Message conformance is added in an extension below. See the
+    // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
+    // methods supported on all messages.
 
-	/// Add the given group_ids to the allow list
-	public var groupIds: [Data] = []
+    /// Add the given group_ids to the allow list
+    public var groupIds: [Data] = []
 
-	public var unknownFields = SwiftProtobuf.UnknownStorage()
+    public var unknownFields = SwiftProtobuf.UnknownStorage()
 
-	public init() {}
+    public init() {}
   }
 
   /// Deny (deny) Group access
   public struct DenyGroup {
-	// SwiftProtobuf.Message conformance is added in an extension below. See the
-	// `Message` and `Message+*Additions` files in the SwiftProtobuf library for
-	// methods supported on all messages.
+    // SwiftProtobuf.Message conformance is added in an extension below. See the
+    // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
+    // methods supported on all messages.
 
-	/// Add the given group_ids to the deny list
-	public var groupIds: [Data] = []
+    /// Add the given group_ids to the deny list
+    public var groupIds: [Data] = []
 
-	public var unknownFields = SwiftProtobuf.UnknownStorage()
+    public var unknownFields = SwiftProtobuf.UnknownStorage()
 
-	public init() {}
+    public init() {}
   }
 
   public init() {}
@@ -170,30 +170,30 @@ public struct Xmtp_MessageContents_PrivatePreferencesPayload {
   public var version: Xmtp_MessageContents_PrivatePreferencesPayload.OneOf_Version? = nil
 
   public var v1: Xmtp_MessageContents_Ciphertext {
-	get {
-	  if case .v1(let v)? = version {return v}
-	  return Xmtp_MessageContents_Ciphertext()
-	}
-	set {version = .v1(newValue)}
+    get {
+      if case .v1(let v)? = version {return v}
+      return Xmtp_MessageContents_Ciphertext()
+    }
+    set {version = .v1(newValue)}
   }
 
   public var unknownFields = SwiftProtobuf.UnknownStorage()
 
   public enum OneOf_Version: Equatable {
-	case v1(Xmtp_MessageContents_Ciphertext)
+    case v1(Xmtp_MessageContents_Ciphertext)
 
   #if !swift(>=4.1)
-	public static func ==(lhs: Xmtp_MessageContents_PrivatePreferencesPayload.OneOf_Version, rhs: Xmtp_MessageContents_PrivatePreferencesPayload.OneOf_Version) -> Bool {
-	  // The use of inline closures is to circumvent an issue where the compiler
-	  // allocates stack space for every case branch when no optimizations are
-	  // enabled. https://github.com/apple/swift-protobuf/issues/1034
-	  switch (lhs, rhs) {
-	  case (.v1, .v1): return {
-		guard case .v1(let l) = lhs, case .v1(let r) = rhs else { preconditionFailure() }
-		return l == r
-	  }()
-	  }
-	}
+    public static func ==(lhs: Xmtp_MessageContents_PrivatePreferencesPayload.OneOf_Version, rhs: Xmtp_MessageContents_PrivatePreferencesPayload.OneOf_Version) -> Bool {
+      // The use of inline closures is to circumvent an issue where the compiler
+      // allocates stack space for every case branch when no optimizations are
+      // enabled. https://github.com/apple/swift-protobuf/issues/1034
+      switch (lhs, rhs) {
+      case (.v1, .v1): return {
+        guard case .v1(let l) = lhs, case .v1(let r) = rhs else { preconditionFailure() }
+        return l == r
+      }()
+      }
+    }
   #endif
   }
 
@@ -218,281 +218,281 @@ fileprivate let _protobuf_package = "xmtp.message_contents"
 extension Xmtp_MessageContents_PrivatePreferencesAction: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".PrivatePreferencesAction"
   public static let _protobuf_nameMap: SwiftProtobuf._NameMap = [
-	1: .standard(proto: "allow_address"),
-	2: .standard(proto: "deny_address"),
-	3: .standard(proto: "allow_group"),
-	4: .standard(proto: "deny_group"),
+    1: .standard(proto: "allow_address"),
+    2: .standard(proto: "deny_address"),
+    3: .standard(proto: "allow_group"),
+    4: .standard(proto: "deny_group"),
   ]
 
   public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
-	while let fieldNumber = try decoder.nextFieldNumber() {
-	  // The use of inline closures is to circumvent an issue where the compiler
-	  // allocates stack space for every case branch when no optimizations are
-	  // enabled. https://github.com/apple/swift-protobuf/issues/1034
-	  switch fieldNumber {
-	  case 1: try {
-		var v: Xmtp_MessageContents_PrivatePreferencesAction.AllowAddress?
-		var hadOneofValue = false
-		if let current = self.messageType {
-		  hadOneofValue = true
-		  if case .allowAddress(let m) = current {v = m}
-		}
-		try decoder.decodeSingularMessageField(value: &v)
-		if let v = v {
-		  if hadOneofValue {try decoder.handleConflictingOneOf()}
-		  self.messageType = .allowAddress(v)
-		}
-	  }()
-	  case 2: try {
-		var v: Xmtp_MessageContents_PrivatePreferencesAction.DenyAddress?
-		var hadOneofValue = false
-		if let current = self.messageType {
-		  hadOneofValue = true
-		  if case .denyAddress(let m) = current {v = m}
-		}
-		try decoder.decodeSingularMessageField(value: &v)
-		if let v = v {
-		  if hadOneofValue {try decoder.handleConflictingOneOf()}
-		  self.messageType = .denyAddress(v)
-		}
-	  }()
-	  case 3: try {
-		var v: Xmtp_MessageContents_PrivatePreferencesAction.AllowGroup?
-		var hadOneofValue = false
-		if let current = self.messageType {
-		  hadOneofValue = true
-		  if case .allowGroup(let m) = current {v = m}
-		}
-		try decoder.decodeSingularMessageField(value: &v)
-		if let v = v {
-		  if hadOneofValue {try decoder.handleConflictingOneOf()}
-		  self.messageType = .allowGroup(v)
-		}
-	  }()
-	  case 4: try {
-		var v: Xmtp_MessageContents_PrivatePreferencesAction.DenyGroup?
-		var hadOneofValue = false
-		if let current = self.messageType {
-		  hadOneofValue = true
-		  if case .denyGroup(let m) = current {v = m}
-		}
-		try decoder.decodeSingularMessageField(value: &v)
-		if let v = v {
-		  if hadOneofValue {try decoder.handleConflictingOneOf()}
-		  self.messageType = .denyGroup(v)
-		}
-	  }()
-	  default: break
-	  }
-	}
+    while let fieldNumber = try decoder.nextFieldNumber() {
+      // The use of inline closures is to circumvent an issue where the compiler
+      // allocates stack space for every case branch when no optimizations are
+      // enabled. https://github.com/apple/swift-protobuf/issues/1034
+      switch fieldNumber {
+      case 1: try {
+        var v: Xmtp_MessageContents_PrivatePreferencesAction.AllowAddress?
+        var hadOneofValue = false
+        if let current = self.messageType {
+          hadOneofValue = true
+          if case .allowAddress(let m) = current {v = m}
+        }
+        try decoder.decodeSingularMessageField(value: &v)
+        if let v = v {
+          if hadOneofValue {try decoder.handleConflictingOneOf()}
+          self.messageType = .allowAddress(v)
+        }
+      }()
+      case 2: try {
+        var v: Xmtp_MessageContents_PrivatePreferencesAction.DenyAddress?
+        var hadOneofValue = false
+        if let current = self.messageType {
+          hadOneofValue = true
+          if case .denyAddress(let m) = current {v = m}
+        }
+        try decoder.decodeSingularMessageField(value: &v)
+        if let v = v {
+          if hadOneofValue {try decoder.handleConflictingOneOf()}
+          self.messageType = .denyAddress(v)
+        }
+      }()
+      case 3: try {
+        var v: Xmtp_MessageContents_PrivatePreferencesAction.AllowGroup?
+        var hadOneofValue = false
+        if let current = self.messageType {
+          hadOneofValue = true
+          if case .allowGroup(let m) = current {v = m}
+        }
+        try decoder.decodeSingularMessageField(value: &v)
+        if let v = v {
+          if hadOneofValue {try decoder.handleConflictingOneOf()}
+          self.messageType = .allowGroup(v)
+        }
+      }()
+      case 4: try {
+        var v: Xmtp_MessageContents_PrivatePreferencesAction.DenyGroup?
+        var hadOneofValue = false
+        if let current = self.messageType {
+          hadOneofValue = true
+          if case .denyGroup(let m) = current {v = m}
+        }
+        try decoder.decodeSingularMessageField(value: &v)
+        if let v = v {
+          if hadOneofValue {try decoder.handleConflictingOneOf()}
+          self.messageType = .denyGroup(v)
+        }
+      }()
+      default: break
+      }
+    }
   }
 
   public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
-	// The use of inline closures is to circumvent an issue where the compiler
-	// allocates stack space for every if/case branch local when no optimizations
-	// are enabled. https://github.com/apple/swift-protobuf/issues/1034 and
-	// https://github.com/apple/swift-protobuf/issues/1182
-	switch self.messageType {
-	case .allowAddress?: try {
-	  guard case .allowAddress(let v)? = self.messageType else { preconditionFailure() }
-	  try visitor.visitSingularMessageField(value: v, fieldNumber: 1)
-	}()
-	case .denyAddress?: try {
-	  guard case .denyAddress(let v)? = self.messageType else { preconditionFailure() }
-	  try visitor.visitSingularMessageField(value: v, fieldNumber: 2)
-	}()
-	case .allowGroup?: try {
-	  guard case .allowGroup(let v)? = self.messageType else { preconditionFailure() }
-	  try visitor.visitSingularMessageField(value: v, fieldNumber: 3)
-	}()
-	case .denyGroup?: try {
-	  guard case .denyGroup(let v)? = self.messageType else { preconditionFailure() }
-	  try visitor.visitSingularMessageField(value: v, fieldNumber: 4)
-	}()
-	case nil: break
-	}
-	try unknownFields.traverse(visitor: &visitor)
+    // The use of inline closures is to circumvent an issue where the compiler
+    // allocates stack space for every if/case branch local when no optimizations
+    // are enabled. https://github.com/apple/swift-protobuf/issues/1034 and
+    // https://github.com/apple/swift-protobuf/issues/1182
+    switch self.messageType {
+    case .allowAddress?: try {
+      guard case .allowAddress(let v)? = self.messageType else { preconditionFailure() }
+      try visitor.visitSingularMessageField(value: v, fieldNumber: 1)
+    }()
+    case .denyAddress?: try {
+      guard case .denyAddress(let v)? = self.messageType else { preconditionFailure() }
+      try visitor.visitSingularMessageField(value: v, fieldNumber: 2)
+    }()
+    case .allowGroup?: try {
+      guard case .allowGroup(let v)? = self.messageType else { preconditionFailure() }
+      try visitor.visitSingularMessageField(value: v, fieldNumber: 3)
+    }()
+    case .denyGroup?: try {
+      guard case .denyGroup(let v)? = self.messageType else { preconditionFailure() }
+      try visitor.visitSingularMessageField(value: v, fieldNumber: 4)
+    }()
+    case nil: break
+    }
+    try unknownFields.traverse(visitor: &visitor)
   }
 
   public static func ==(lhs: Xmtp_MessageContents_PrivatePreferencesAction, rhs: Xmtp_MessageContents_PrivatePreferencesAction) -> Bool {
-	if lhs.messageType != rhs.messageType {return false}
-	if lhs.unknownFields != rhs.unknownFields {return false}
-	return true
+    if lhs.messageType != rhs.messageType {return false}
+    if lhs.unknownFields != rhs.unknownFields {return false}
+    return true
   }
 }
 
 extension Xmtp_MessageContents_PrivatePreferencesAction.AllowAddress: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = Xmtp_MessageContents_PrivatePreferencesAction.protoMessageName + ".AllowAddress"
   public static let _protobuf_nameMap: SwiftProtobuf._NameMap = [
-	1: .standard(proto: "wallet_addresses"),
+    1: .standard(proto: "wallet_addresses"),
   ]
 
   public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
-	while let fieldNumber = try decoder.nextFieldNumber() {
-	  // The use of inline closures is to circumvent an issue where the compiler
-	  // allocates stack space for every case branch when no optimizations are
-	  // enabled. https://github.com/apple/swift-protobuf/issues/1034
-	  switch fieldNumber {
-	  case 1: try { try decoder.decodeRepeatedStringField(value: &self.walletAddresses) }()
-	  default: break
-	  }
-	}
+    while let fieldNumber = try decoder.nextFieldNumber() {
+      // The use of inline closures is to circumvent an issue where the compiler
+      // allocates stack space for every case branch when no optimizations are
+      // enabled. https://github.com/apple/swift-protobuf/issues/1034
+      switch fieldNumber {
+      case 1: try { try decoder.decodeRepeatedStringField(value: &self.walletAddresses) }()
+      default: break
+      }
+    }
   }
 
   public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
-	if !self.walletAddresses.isEmpty {
-	  try visitor.visitRepeatedStringField(value: self.walletAddresses, fieldNumber: 1)
-	}
-	try unknownFields.traverse(visitor: &visitor)
+    if !self.walletAddresses.isEmpty {
+      try visitor.visitRepeatedStringField(value: self.walletAddresses, fieldNumber: 1)
+    }
+    try unknownFields.traverse(visitor: &visitor)
   }
 
   public static func ==(lhs: Xmtp_MessageContents_PrivatePreferencesAction.AllowAddress, rhs: Xmtp_MessageContents_PrivatePreferencesAction.AllowAddress) -> Bool {
-	if lhs.walletAddresses != rhs.walletAddresses {return false}
-	if lhs.unknownFields != rhs.unknownFields {return false}
-	return true
+    if lhs.walletAddresses != rhs.walletAddresses {return false}
+    if lhs.unknownFields != rhs.unknownFields {return false}
+    return true
   }
 }
 
 extension Xmtp_MessageContents_PrivatePreferencesAction.DenyAddress: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = Xmtp_MessageContents_PrivatePreferencesAction.protoMessageName + ".DenyAddress"
   public static let _protobuf_nameMap: SwiftProtobuf._NameMap = [
-	1: .standard(proto: "wallet_addresses"),
+    1: .standard(proto: "wallet_addresses"),
   ]
 
   public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
-	while let fieldNumber = try decoder.nextFieldNumber() {
-	  // The use of inline closures is to circumvent an issue where the compiler
-	  // allocates stack space for every case branch when no optimizations are
-	  // enabled. https://github.com/apple/swift-protobuf/issues/1034
-	  switch fieldNumber {
-	  case 1: try { try decoder.decodeRepeatedStringField(value: &self.walletAddresses) }()
-	  default: break
-	  }
-	}
+    while let fieldNumber = try decoder.nextFieldNumber() {
+      // The use of inline closures is to circumvent an issue where the compiler
+      // allocates stack space for every case branch when no optimizations are
+      // enabled. https://github.com/apple/swift-protobuf/issues/1034
+      switch fieldNumber {
+      case 1: try { try decoder.decodeRepeatedStringField(value: &self.walletAddresses) }()
+      default: break
+      }
+    }
   }
 
   public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
-	if !self.walletAddresses.isEmpty {
-	  try visitor.visitRepeatedStringField(value: self.walletAddresses, fieldNumber: 1)
-	}
-	try unknownFields.traverse(visitor: &visitor)
+    if !self.walletAddresses.isEmpty {
+      try visitor.visitRepeatedStringField(value: self.walletAddresses, fieldNumber: 1)
+    }
+    try unknownFields.traverse(visitor: &visitor)
   }
 
   public static func ==(lhs: Xmtp_MessageContents_PrivatePreferencesAction.DenyAddress, rhs: Xmtp_MessageContents_PrivatePreferencesAction.DenyAddress) -> Bool {
-	if lhs.walletAddresses != rhs.walletAddresses {return false}
-	if lhs.unknownFields != rhs.unknownFields {return false}
-	return true
+    if lhs.walletAddresses != rhs.walletAddresses {return false}
+    if lhs.unknownFields != rhs.unknownFields {return false}
+    return true
   }
 }
 
 extension Xmtp_MessageContents_PrivatePreferencesAction.AllowGroup: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = Xmtp_MessageContents_PrivatePreferencesAction.protoMessageName + ".AllowGroup"
   public static let _protobuf_nameMap: SwiftProtobuf._NameMap = [
-	1: .standard(proto: "group_ids"),
+    1: .standard(proto: "group_ids"),
   ]
 
   public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
-	while let fieldNumber = try decoder.nextFieldNumber() {
-	  // The use of inline closures is to circumvent an issue where the compiler
-	  // allocates stack space for every case branch when no optimizations are
-	  // enabled. https://github.com/apple/swift-protobuf/issues/1034
-	  switch fieldNumber {
-	  case 1: try { try decoder.decodeRepeatedBytesField(value: &self.groupIds) }()
-	  default: break
-	  }
-	}
+    while let fieldNumber = try decoder.nextFieldNumber() {
+      // The use of inline closures is to circumvent an issue where the compiler
+      // allocates stack space for every case branch when no optimizations are
+      // enabled. https://github.com/apple/swift-protobuf/issues/1034
+      switch fieldNumber {
+      case 1: try { try decoder.decodeRepeatedBytesField(value: &self.groupIds) }()
+      default: break
+      }
+    }
   }
 
   public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
-	if !self.groupIds.isEmpty {
-	  try visitor.visitRepeatedBytesField(value: self.groupIds, fieldNumber: 1)
-	}
-	try unknownFields.traverse(visitor: &visitor)
+    if !self.groupIds.isEmpty {
+      try visitor.visitRepeatedBytesField(value: self.groupIds, fieldNumber: 1)
+    }
+    try unknownFields.traverse(visitor: &visitor)
   }
 
   public static func ==(lhs: Xmtp_MessageContents_PrivatePreferencesAction.AllowGroup, rhs: Xmtp_MessageContents_PrivatePreferencesAction.AllowGroup) -> Bool {
-	if lhs.groupIds != rhs.groupIds {return false}
-	if lhs.unknownFields != rhs.unknownFields {return false}
-	return true
+    if lhs.groupIds != rhs.groupIds {return false}
+    if lhs.unknownFields != rhs.unknownFields {return false}
+    return true
   }
 }
 
 extension Xmtp_MessageContents_PrivatePreferencesAction.DenyGroup: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = Xmtp_MessageContents_PrivatePreferencesAction.protoMessageName + ".DenyGroup"
   public static let _protobuf_nameMap: SwiftProtobuf._NameMap = [
-	1: .standard(proto: "group_ids"),
+    1: .standard(proto: "group_ids"),
   ]
 
   public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
-	while let fieldNumber = try decoder.nextFieldNumber() {
-	  // The use of inline closures is to circumvent an issue where the compiler
-	  // allocates stack space for every case branch when no optimizations are
-	  // enabled. https://github.com/apple/swift-protobuf/issues/1034
-	  switch fieldNumber {
-	  case 1: try { try decoder.decodeRepeatedBytesField(value: &self.groupIds) }()
-	  default: break
-	  }
-	}
+    while let fieldNumber = try decoder.nextFieldNumber() {
+      // The use of inline closures is to circumvent an issue where the compiler
+      // allocates stack space for every case branch when no optimizations are
+      // enabled. https://github.com/apple/swift-protobuf/issues/1034
+      switch fieldNumber {
+      case 1: try { try decoder.decodeRepeatedBytesField(value: &self.groupIds) }()
+      default: break
+      }
+    }
   }
 
   public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
-	if !self.groupIds.isEmpty {
-	  try visitor.visitRepeatedBytesField(value: self.groupIds, fieldNumber: 1)
-	}
-	try unknownFields.traverse(visitor: &visitor)
+    if !self.groupIds.isEmpty {
+      try visitor.visitRepeatedBytesField(value: self.groupIds, fieldNumber: 1)
+    }
+    try unknownFields.traverse(visitor: &visitor)
   }
 
   public static func ==(lhs: Xmtp_MessageContents_PrivatePreferencesAction.DenyGroup, rhs: Xmtp_MessageContents_PrivatePreferencesAction.DenyGroup) -> Bool {
-	if lhs.groupIds != rhs.groupIds {return false}
-	if lhs.unknownFields != rhs.unknownFields {return false}
-	return true
+    if lhs.groupIds != rhs.groupIds {return false}
+    if lhs.unknownFields != rhs.unknownFields {return false}
+    return true
   }
 }
 
 extension Xmtp_MessageContents_PrivatePreferencesPayload: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".PrivatePreferencesPayload"
   public static let _protobuf_nameMap: SwiftProtobuf._NameMap = [
-	1: .same(proto: "v1"),
+    1: .same(proto: "v1"),
   ]
 
   public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
-	while let fieldNumber = try decoder.nextFieldNumber() {
-	  // The use of inline closures is to circumvent an issue where the compiler
-	  // allocates stack space for every case branch when no optimizations are
-	  // enabled. https://github.com/apple/swift-protobuf/issues/1034
-	  switch fieldNumber {
-	  case 1: try {
-		var v: Xmtp_MessageContents_Ciphertext?
-		var hadOneofValue = false
-		if let current = self.version {
-		  hadOneofValue = true
-		  if case .v1(let m) = current {v = m}
-		}
-		try decoder.decodeSingularMessageField(value: &v)
-		if let v = v {
-		  if hadOneofValue {try decoder.handleConflictingOneOf()}
-		  self.version = .v1(v)
-		}
-	  }()
-	  default: break
-	  }
-	}
+    while let fieldNumber = try decoder.nextFieldNumber() {
+      // The use of inline closures is to circumvent an issue where the compiler
+      // allocates stack space for every case branch when no optimizations are
+      // enabled. https://github.com/apple/swift-protobuf/issues/1034
+      switch fieldNumber {
+      case 1: try {
+        var v: Xmtp_MessageContents_Ciphertext?
+        var hadOneofValue = false
+        if let current = self.version {
+          hadOneofValue = true
+          if case .v1(let m) = current {v = m}
+        }
+        try decoder.decodeSingularMessageField(value: &v)
+        if let v = v {
+          if hadOneofValue {try decoder.handleConflictingOneOf()}
+          self.version = .v1(v)
+        }
+      }()
+      default: break
+      }
+    }
   }
 
   public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
-	// The use of inline closures is to circumvent an issue where the compiler
-	// allocates stack space for every if/case branch local when no optimizations
-	// are enabled. https://github.com/apple/swift-protobuf/issues/1034 and
-	// https://github.com/apple/swift-protobuf/issues/1182
-	try { if case .v1(let v)? = self.version {
-	  try visitor.visitSingularMessageField(value: v, fieldNumber: 1)
-	} }()
-	try unknownFields.traverse(visitor: &visitor)
+    // The use of inline closures is to circumvent an issue where the compiler
+    // allocates stack space for every if/case branch local when no optimizations
+    // are enabled. https://github.com/apple/swift-protobuf/issues/1034 and
+    // https://github.com/apple/swift-protobuf/issues/1182
+    try { if case .v1(let v)? = self.version {
+      try visitor.visitSingularMessageField(value: v, fieldNumber: 1)
+    } }()
+    try unknownFields.traverse(visitor: &visitor)
   }
 
   public static func ==(lhs: Xmtp_MessageContents_PrivatePreferencesPayload, rhs: Xmtp_MessageContents_PrivatePreferencesPayload) -> Bool {
-	if lhs.version != rhs.version {return false}
-	if lhs.unknownFields != rhs.unknownFields {return false}
-	return true
+    if lhs.version != rhs.version {return false}
+    if lhs.unknownFields != rhs.unknownFields {return false}
+    return true
   }
 }
