@@ -1,8 +1,13 @@
 /// Key Package Verification (Copied from `xmtp_mls/src/verified_key_package.rs`)
-use openmls::prelude::{KeyPackage, KeyPackageIn, KeyPackageVerifyError};
+use openmls::{
+    credentials::BasicCredential,
+    prelude::{
+        tls_codec::{Deserialize, Error as TlsSerializationError},
+        BasicCredentialError, KeyPackage, KeyPackageIn, KeyPackageVerifyError,
+    },
+};
 use openmls_rust_crypto::RustCrypto;
 use thiserror::Error;
-use tls_codec::{Deserialize, Error as TlsSerializationError};
 
 use crate::{error::IdentityError, Identity};
 use xmtp_mls::{configuration::MLS_PROTOCOL_VERSION, types::Address};
@@ -23,6 +28,8 @@ pub enum KeyPackageVerificationError {
     InvalidLifetime,
     #[error("generic: {0}")]
     Generic(String),
+    #[error("wrong credential type")]
+    WrongCredentialType(#[from] BasicCredentialError),
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -40,11 +47,13 @@ impl VerifiedKeyPackage {
     }
 
     // Validates starting with a KeyPackage (which is already validated by OpenMLS)
-    pub fn from_key_package(kp: KeyPackage) -> Result<Self, KeyPackageVerificationError> {
+    pub async fn from_key_package(kp: KeyPackage) -> Result<Self, KeyPackageVerificationError> {
         let leaf_node = kp.leaf_node();
-        let identity_bytes = leaf_node.credential().identity();
+
+        let basic_credential = BasicCredential::try_from(leaf_node.credential())?;
         let pub_key_bytes = leaf_node.signature_key().as_slice();
-        let account_address = identity_to_account_address(identity_bytes, pub_key_bytes)?;
+        let account_address =
+            identity_to_account_address(basic_credential.identity(), pub_key_bytes).await?;
         let application_id = extract_application_id(&kp)?;
         if !account_address.eq(&application_id) {
             return Err(
@@ -62,14 +71,14 @@ impl VerifiedKeyPackage {
     }
 
     // Validates starting with a KeyPackageIn as bytes (which is not validated by OpenMLS)
-    pub fn from_bytes(
+    pub async fn from_bytes(
         crypto_provider: &RustCrypto,
         data: &[u8],
     ) -> Result<VerifiedKeyPackage, KeyPackageVerificationError> {
         let kp_in: KeyPackageIn = KeyPackageIn::tls_deserialize_exact(data)?;
         let kp = kp_in.validate(crypto_provider, MLS_PROTOCOL_VERSION)?;
 
-        Self::from_key_package(kp)
+        Self::from_key_package(kp).await
     }
 
     pub fn installation_id(&self) -> Vec<u8> {
@@ -81,14 +90,11 @@ impl VerifiedKeyPackage {
     }
 }
 
-fn identity_to_account_address(
+async fn identity_to_account_address(
     credential_bytes: &[u8],
     installation_key_bytes: &[u8],
 ) -> Result<String, KeyPackageVerificationError> {
-    Ok(Identity::get_validated_account_address(
-        credential_bytes,
-        installation_key_bytes,
-    )?)
+    Ok(Identity::get_validated_account_address(credential_bytes, installation_key_bytes).await?)
 }
 
 fn extract_application_id(kp: &KeyPackage) -> Result<Address, KeyPackageVerificationError> {

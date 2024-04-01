@@ -1,6 +1,9 @@
 use prost::Message;
 use xmtp_mls::{
-    credential::{Credential, GrantMessagingAccessAssociation, LegacyCreateIdentityAssociation},
+    credential::{
+        AssociationError, Credential, GrantMessagingAccessAssociation,
+        LegacyCreateIdentityAssociation,
+    },
     types::Address,
 };
 use xmtp_proto::xmtp::mls::message_contents::MlsCredential as CredentialProto;
@@ -22,6 +25,10 @@ pub enum VerificationError {
     },
     #[error("Installation public key mismatch")]
     InstallationPublicKeyMismatch,
+    #[error("protobuf deserialization: {0}")]
+    Deserialization(#[from] prost::DecodeError),
+    #[error("bad association: {0}")]
+    BadAssocation(#[from] AssociationError),
 }
 
 pub struct VerifiedCredential {
@@ -45,10 +52,14 @@ pub struct VerificationRequest {
 }
 
 impl VerificationRequest {
-    pub fn new(installation_public_key: Vec<u8>, credential: Vec<u8>) -> Self {
+    pub fn new<I, C>(installation_public_key: I, credential: C) -> Self
+    where
+        I: AsRef<[u8]>,
+        C: AsRef<[u8]>,
+    {
         Self {
-            installation_public_key,
-            credential,
+            installation_public_key: installation_public_key.as_ref().to_vec(),
+            credential: credential.as_ref().to_vec(),
         }
     }
 }
@@ -73,9 +84,12 @@ pub trait CredentialVerifier {
 #[async_trait::async_trait]
 impl CredentialVerifier for Credential {
     async fn verify_credential(request: VerificationRequest) -> VerificationResult {
-        let proto = CredentialProto::decode(request.credential);
-        let credential =
-            Credential::from_proto_validated(proto, None, Some(request.installation_public_key));
+        let proto = CredentialProto::decode(request.credential.as_slice())?;
+        let credential = Credential::from_proto_validated(
+            proto,
+            None,
+            Some(request.installation_public_key.as_slice()),
+        )?;
         Ok(match credential {
             Credential::GrantMessagingAccess(cred) => VerifiedCredential {
                 account_address: cred.account_address(),

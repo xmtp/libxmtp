@@ -65,13 +65,13 @@ impl Identity {
             .ok_or(IdentityError::UninitializedIdentity)
     }
 
-    pub(crate) fn get_validated_account_address(
+    pub(crate) async fn get_validated_account_address(
         credential: &[u8],
         installation_public_key: &[u8],
     ) -> Result<String, IdentityError> {
         let request = VerificationRequest::new(credential, installation_public_key);
-        let credential = CredentialVerifier::verify_credential(request)?;
-        Ok(credential.address())
+        let credential = <Credential as CredentialVerifier>::verify_credential(request).await?;
+        Ok(credential.account_address())
     }
 }
 

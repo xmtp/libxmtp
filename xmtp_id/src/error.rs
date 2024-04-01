@@ -2,6 +2,8 @@ use openmls_traits::types::CryptoError;
 use thiserror::Error;
 use xmtp_mls::credential::AssociationError;
 
+use crate::credential::VerificationError;
+
 #[derive(Debug, Error)]
 pub enum IdentityError {
     #[error("bad association: {0}")]
@@ -12,4 +14,6 @@ pub enum IdentityError {
     UninitializedIdentity,
     #[error("protobuf deserialization: {0}")]
     Deserialization(#[from] prost::DecodeError),
+    #[error("credential verification {0}")]
+    VerificationError(#[from] VerificationError),
 }
