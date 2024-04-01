@@ -42,6 +42,10 @@ public struct Group: Identifiable, Equatable, Hashable {
 	public var id: Data {
 		ffiGroup.id()
 	}
+	
+	public var topic: String {
+		Topic.groupMessage(id.toHex).description
+	}
 
 	func metadata() throws -> FfiGroupMetadata {
 		return try ffiGroup.groupMetadata()
@@ -101,6 +105,16 @@ public struct Group: Identifiable, Equatable, Hashable {
 
 	public func removeMembers(addresses: [String]) async throws {
 		try await ffiGroup.removeMembers(accountAddresses: addresses)
+	}
+	
+	public func processMessage(envelopeBytes: Data) async throws -> DecodedMessage {
+		let message = try await ffiGroup.processStreamedGroupMessage(envelopeBytes: envelopeBytes)
+		return try message.fromFFI(client: client)
+	}
+	
+	public func processMessageDecrypted(envelopeBytes: Data) async throws -> DecryptedMessage {
+		let message = try await ffiGroup.processStreamedGroupMessage(envelopeBytes: envelopeBytes)
+		return try message.fromFFIDecrypted(client: client)
 	}
 
 	public func send<T>(content: T, options: SendOptions? = nil) async throws -> String {

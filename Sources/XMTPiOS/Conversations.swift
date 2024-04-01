@@ -437,6 +437,15 @@ public actor Conversations {
 				(($0.value.conversationID ?? "") == (conversationID ?? ""))
 		})?.value
 	}
+	
+	public func fromWelcome(envelopeBytes: Data) throws -> Group? {
+		guard let v3Client = client.v3Client else {
+			return nil
+		}
+
+		let group = try v3Client.conversations().processStreamedWelcomeMessage(envelopeBytes: envelopeBytes)
+		return Group(ffiGroup: group, client: client)
+	}
 
 	public func newConversation(with peerAddress: String, context: InvitationV1.Context? = nil) async throws -> Conversation {
 		if peerAddress.lowercased() == client.address.lowercased() {

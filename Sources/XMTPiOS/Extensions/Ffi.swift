@@ -201,7 +201,7 @@ extension FfiMessage {
 
 		return DecodedMessage(
 			client: client,
-			topic: convoId.toHex,
+			topic: Topic.groupMessage(convoId.toHex).description,
 			encodedContent: encodedContent,
 			senderAddress: addrFrom,
 			sent: Date(timeIntervalSince1970: TimeInterval(sentAtNs / 1_000_000_000))
@@ -216,7 +216,7 @@ extension FfiMessage {
 			encodedContent: encodedContent,
 			senderAddress: addrFrom,
 			sentAt: Date(timeIntervalSince1970: TimeInterval(sentAtNs / 1_000_000_000)),
-			topic: convoId.toHex
+			topic: Topic.groupMessage(convoId.toHex).description
 		)
 	}
 }

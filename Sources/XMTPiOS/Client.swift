@@ -90,6 +90,7 @@ public final class Client {
 	let v3Client: LibXMTP.FfiXmtpClient?
 	public let libXMTPVersion: String = getVersionInfo()
 	let dbPath: String
+	public let installationID: String
 
 	/// Access ``Conversations`` for this Client.
 	public lazy var conversations: Conversations = .init(client: self)
@@ -180,7 +181,7 @@ public final class Client {
 			signingKey: account
 		)
 
-		let client = try Client(address: account.address, privateKeyBundleV1: privateKeyBundleV1, apiClient: apiClient, v3Client: v3Client, dbPath: dbPath)
+		let client = try Client(address: account.address, privateKeyBundleV1: privateKeyBundleV1, apiClient: apiClient, v3Client: v3Client, dbPath: dbPath, installationID: v3Client?.installationId().toHex ?? "")
 		try await client.ensureUserContactPublished()
 
 		for codec in (options?.codecs ?? []) {
@@ -279,7 +280,7 @@ public final class Client {
 			rustClient: client
 		)
 
-		let result = try Client(address: address, privateKeyBundleV1: v1Bundle, apiClient: apiClient, v3Client: v3Client, dbPath: dbPath)
+		let result = try Client(address: address, privateKeyBundleV1: v1Bundle, apiClient: apiClient, v3Client: v3Client, dbPath: dbPath, installationID: v3Client?.installationId().toHex ?? "")
 
 		for codec in options.codecs {
 			result.register(codec: codec)
@@ -288,12 +289,13 @@ public final class Client {
 		return result
 	}
 
-	init(address: String, privateKeyBundleV1: PrivateKeyBundleV1, apiClient: ApiClient, v3Client: LibXMTP.FfiXmtpClient?, dbPath: String = "") throws {
+	init(address: String, privateKeyBundleV1: PrivateKeyBundleV1, apiClient: ApiClient, v3Client: LibXMTP.FfiXmtpClient?, dbPath: String = "", installationID: String) throws {
 		self.address = address
 		self.privateKeyBundleV1 = privateKeyBundleV1
 		self.apiClient = apiClient
 		self.v3Client = v3Client
 		self.dbPath = dbPath
+		self.installationID = installationID
 	}
 
 	public var privateKeyBundle: PrivateKeyBundle {

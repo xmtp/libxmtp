@@ -128,6 +128,7 @@ class ClientTests: XCTestCase {
 		)
 
 		XCTAssertEqual(client.address, bundleClient.address)
+		XCTAssert(!client.installationID.isEmpty)
 		
 		await assertThrowsAsyncError(
 			_ = try await Client.from(

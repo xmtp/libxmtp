@@ -12,7 +12,9 @@ public enum Topic {
 	     userInvite(String),
 	     directMessageV1(String, String),
 	     directMessageV2(String),
-         preferenceList(String)
+         preferenceList(String),
+		 userWelcome(String),
+		 groupMessage(String)
 
 	var description: String {
 		switch self {
@@ -31,11 +33,19 @@ public enum Topic {
 			return wrap("m-\(randomString)")
 		case let .preferenceList(identifier):
 			return wrap("userpreferences-\(identifier)")
+		case let .groupMessage(groupId):
+			return wrapMls("g-\(groupId)")
+		case let .userWelcome(installationId):
+			return wrapMls("w-\(installationId)")
 		}
 	}
 
 	private func wrap(_ value: String) -> String {
 		"/xmtp/0/\(value)/proto"
+	}
+	
+	private func wrapMls(_ value: String) -> String {
+		"/xmtp/mls/1/\(value)/proto"
 	}
 
     static func isValidTopic(topic: String) -> Bool {

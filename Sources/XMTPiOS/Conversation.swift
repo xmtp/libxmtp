@@ -260,7 +260,7 @@ public enum Conversation: Sendable {
 		case let .v2(conversation):
 			return conversation.topic
 		case let .group(group):
-			return group.id.toHex
+			return group.topic
 		}
 	}
 
