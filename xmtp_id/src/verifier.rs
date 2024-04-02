@@ -6,6 +6,7 @@ use crate::bindings::coinbase_smart_wallet::CoinbaseSmartWallet;
 use anyhow::Error;
 
 const BASE_SEPOLIA_RPC_URL: &str = "https://sepolia.base.org";
+const EIP1271_MAGIC_VALUE: [u8; 4] = [0x16, 0x26, 0xba, 0x7e];
 
 pub struct ERC1271Verifier {
     pub provider: Arc<Provider<Http>>,
@@ -41,7 +42,6 @@ impl ERC1271Verifier {
             .await?
             .into();
 
-        // check if response is magic value
-        Ok(res == [0x16, 0x26, 0xba, 0x7e])
+        Ok(res == EIP1271_MAGIC_VALUE)
     }
 }
