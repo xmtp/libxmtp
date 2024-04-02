@@ -67,7 +67,8 @@ type VerificationResult = Result<VerifiedCredential, VerificationError>;
 pub trait CredentialVerifier {
     /// Verify a single MLS credential.
     async fn verify_credential(request: VerificationRequest) -> VerificationResult;
-    /// Verify a batch of MLS credentials and return the
+    /// Verify a batch of MLS credentials.
+    /// Returns the results in the same order as provided.
     async fn batch_verify_credentials(
         credentials_to_verify: Vec<VerificationRequest>,
     ) -> Vec<VerificationResult> {
