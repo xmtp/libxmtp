@@ -93,6 +93,8 @@ impl LogEntry for AddAssociation {
     ) -> Result<AssociationState, AssociationError> {
         let existing_state = maybe_existing_state.ok_or(AssociationError::NotCreated)?;
 
+        // Catch replays per-association
+        // The real hash function should probably just be the signature text, but since that's stubbed out I have some more inputs
         let association_hash = self.hash();
         if existing_state.has_seen(&association_hash) {
             return Err(AssociationError::Replay);
@@ -110,7 +112,7 @@ impl LogEntry for AddAssociation {
             }
         }
 
-        // Get the current version of the entity that added this new entry. If it has been revoked and added back, it will now be unrevoked
+        // Find the existing entity that authorized this add
         let existing_entity = existing_state
             .get(&existing_member_address)
             .ok_or(AssociationError::MissingExistingMember)?;
