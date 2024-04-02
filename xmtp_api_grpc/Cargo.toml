@@ -15,7 +15,6 @@ pbjson = "0.5.1"
 pbjson-types = "0.5.1"
 prost = { workspace = true, features = ["prost-derive"] }
 serde = { workspace = true, features = ["derive"] }
-serde_json.workspace = true 
 tokio = { workspace = true, features = ["macros", "rt-multi-thread", "time"] }
 tonic = { workspace = true, features = [
     "tls",
