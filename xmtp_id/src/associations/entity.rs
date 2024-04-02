@@ -9,15 +9,15 @@ pub enum EntityRole {
 pub struct Entity {
     pub role: EntityRole,
     pub id: String,
-    pub is_revoked: bool,
+    pub added_by_entity: Option<String>,
 }
 
 impl Entity {
-    pub fn new(role: EntityRole, id: String, is_revoked: bool) -> Self {
+    pub fn new(role: EntityRole, id: String, added_by_entity: Option<String>) -> Self {
         Self {
             role,
             id,
-            is_revoked,
+            added_by_entity,
         }
     }
 }
@@ -35,7 +35,7 @@ mod tests {
             Self {
                 role: EntityRole::Address,
                 id: rand_string(),
-                is_revoked: false,
+                added_by_entity: None,
             }
         }
     }
