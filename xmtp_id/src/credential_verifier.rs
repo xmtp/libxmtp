@@ -111,12 +111,6 @@ mod test {
         pub valid: bool,
     }
 
-    impl TestCredential {
-        pub fn new(valid: bool) -> Self {
-            Self { valid }
-        }
-    }
-
     impl From<TestCredential> for Vec<u8> {
         fn from(cred: TestCredential) -> Vec<u8> {
             if cred.valid {
