@@ -17,9 +17,9 @@ use crate::{
     InboxOwner,
 };
 
-use self::grant_messaging_access_association::GrantMessagingAccessAssociation;
+pub use self::grant_messaging_access_association::GrantMessagingAccessAssociation;
 pub use self::grant_messaging_access_association::UnsignedGrantMessagingAccessData;
-use self::legacy_create_identity_association::LegacyCreateIdentityAssociation;
+pub use self::legacy_create_identity_association::LegacyCreateIdentityAssociation;
 
 #[derive(Debug, Error)]
 pub enum AssociationError {
@@ -113,6 +113,7 @@ impl Credential {
                 .map(Credential::LegacyCreateIdentity)
             }
         }?;
+
         if let Some(address) = expected_account_address {
             if credential.address() != address {
                 return Err(AssociationError::AddressMismatch {

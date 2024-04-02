@@ -51,7 +51,7 @@ impl VerifiedKeyPackage {
         }
     }
 
-    // Validates starting with a KeyPackage (which is already validated by OpenMLS)
+    /// Validates starting with a KeyPackage (which is already validated by OpenMLS)
     pub fn from_key_package(kp: KeyPackage) -> Result<Self, KeyPackageVerificationError> {
         let leaf_node = kp.leaf_node();
         let basic_credential = BasicCredential::try_from(leaf_node.credential())?;
