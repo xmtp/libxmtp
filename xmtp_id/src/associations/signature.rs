@@ -8,6 +8,7 @@ pub enum SignatureError {
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum SignatureKind {
+    // We might want to have some sort of LegacyErc191 Signature Kind for the `CreateIdentity` signatures only
     Erc191,
     Erc1271,
     InstallationKey,
