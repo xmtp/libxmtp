@@ -2,7 +2,6 @@
 pub enum EntityRole {
     Installation,
     Address,
-    LegacyKey,
 }
 
 #[derive(Clone, Debug)]

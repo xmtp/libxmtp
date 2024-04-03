@@ -12,7 +12,7 @@ pub enum SignatureKind {
     Erc191,
     Erc1271,
     InstallationKey,
-    LegacyKey,
+    LegacyDelegated,
 }
 
 pub trait Signature {
