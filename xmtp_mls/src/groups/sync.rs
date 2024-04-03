@@ -5,12 +5,12 @@ use openmls::{
     credentials::BasicCredential,
     framing::ProtocolMessage,
     group::MergePendingCommitError,
+    messages::proposals::GroupContextExtensionProposal,
     prelude::{
         tls_codec::{Deserialize, Serialize},
         LeafNodeIndex, MlsGroup as OpenMlsGroup, MlsMessageBodyIn, MlsMessageIn, PrivateMessageIn,
         ProcessedMessage, ProcessedMessageContent, Sender,
-    },
-    prelude_test::KeyPackage,
+    }, prelude_test::KeyPackage
 };
 use openmls_traits::OpenMlsProvider;
 use prost::bytes::Bytes;
@@ -33,7 +33,7 @@ use xmtp_proto::{
 use super::{
     intents::{
         AddMembersIntentData, AddressesOrInstallationIds, Installation, PostCommitAction,
-        RemoveMembersIntentData, SendMessageIntentData, SendWelcomesAction,
+        RemoveMembersIntentData, SendMessageIntentData, SendWelcomesAction, UpdateMetadataIntentData,
     },
     members::GroupMember,
     GroupError, MlsGroup,
@@ -656,6 +656,10 @@ where
             }
             IntentKind::MetadataUpdate => {
                 // TODO: Not implemented
+                let intent_data = UpdateMetadataIntentData::from_bytes(intent.data.as_slice())?;
+                println!("Trying to process Update metadata intent data: {}", intent_data.group_name);
+
+                
 
                 Ok((vec![], None))
             }
