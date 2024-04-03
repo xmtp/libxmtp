@@ -2,11 +2,7 @@ use std::{collections::HashMap, mem::discriminant};
 
 use log::debug;
 use openmls::{
-    credentials::BasicCredential,
-    framing::ProtocolMessage,
-    group::MergePendingCommitError,
-    messages::proposals::GroupContextExtensionProposal,
-    prelude::{
+    credentials::BasicCredential, extensions::Extensions, framing::ProtocolMessage, group::MergePendingCommitError, messages::proposals::GroupContextExtensionProposal, prelude::{
         tls_codec::{Deserialize, Serialize},
         LeafNodeIndex, MlsGroup as OpenMlsGroup, MlsMessageBodyIn, MlsMessageIn, PrivateMessageIn,
         ProcessedMessage, ProcessedMessageContent, Sender,
@@ -44,7 +40,7 @@ use crate::{
     client::MessageProcessingError,
     codecs::{membership_change::GroupMembershipChangeCodec, ContentCodec},
     configuration::{MAX_INTENT_PUBLISH_ATTEMPTS, UPDATE_INSTALLATIONS_INTERVAL_NS},
-    groups::validated_commit::ValidatedCommit,
+    groups::{build_mutable_metadata_extension, validated_commit::ValidatedCommit},
     hpke::{encrypt_welcome, HpkeError},
     identity::Identity,
     retry,
@@ -658,10 +654,24 @@ where
                 // TODO: Not implemented
                 let intent_data = UpdateMetadataIntentData::from_bytes(intent.data.as_slice())?;
                 println!("Trying to process Update metadata intent data: {}", intent_data.group_name);
+                let mutable_metadata = build_mutable_metadata_extension(
+                    "New Group".to_string(),
+                    vec![self.client.account_address().clone()],
+                )?;
+                let (commit, _) = openmls_group.propose_group_context_extensions(
+                    provider,
+                    Extensions::single(mutable_metadata),
+                    &self.client.identity.installation_keys,
+                )?;
 
-                
+                if let Some(staged_commit) = openmls_group.pending_commit() {
+                    // Validate the commit, even if it's from yourself
+                    ValidatedCommit::from_staged_commit(staged_commit, openmls_group)?;
+                }
 
-                Ok((vec![], None))
+                let commit_bytes = commit.tls_serialize_detached()?;
+
+                Ok((commit_bytes, None))
             }
         }
     }

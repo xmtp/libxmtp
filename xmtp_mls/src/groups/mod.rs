@@ -10,7 +10,7 @@ pub mod validated_commit;
 use intents::SendMessageIntentData;
 use openmls::{
     extensions::{Extension, Extensions, Metadata, UnknownExtension},
-    group::{MlsGroupCreateConfig, MlsGroupJoinConfig},
+    group::{MlsGroupCreateConfig, MlsGroupJoinConfig, ProposalError},
     prelude::{
         CredentialWithKey, CryptoConfig, Error as TlsCodecError, GroupId, MlsGroup as OpenMlsGroup,
         StagedWelcome, Welcome as MlsWelcome, WireFormatPolicy,
@@ -120,6 +120,8 @@ pub enum GroupError {
     Identity(#[from] IdentityError),
     #[error("serialization error: {0}")]
     EncodeError(#[from] prost::EncodeError),
+    #[error("group context extension proposal error: {0}")]
+    ProposalError(#[from] ProposalError<()>),
 }
 
 impl RetryableError for GroupError {
@@ -498,7 +500,7 @@ fn build_protected_metadata_extension(
     Ok(Extension::ImmutableMetadata(protected_metadata))
 }
 
-fn build_mutable_metadata_extension(
+pub fn build_mutable_metadata_extension(
     group_name: String,
     allow_list_account_addresses: Vec<String>,
 ) -> Result<Extension, GroupError> {
@@ -1013,15 +1015,15 @@ mod tests {
         assert!(group_mutable_metadata.group_name.eq("New Group"));
 
          // Update group name
-        // amal_group
-        //     .update_group_metadata("New Group Name 1".to_string())
-        //     .await
-        //     .unwrap();
+        amal_group
+            .update_group_metadata("New Group Name 1".to_string())
+            .await
+            .unwrap();
 
-        // amal_group.sync().await.unwrap();
+        amal_group.sync().await.unwrap();
 
-        // group_mutable_metadata = amal_group.mutable_metadata().unwrap();
-        // assert!(group_mutable_metadata.group_name.eq("New Group Name 1"));
+        group_mutable_metadata = amal_group.mutable_metadata().unwrap();
+        assert!(group_mutable_metadata.group_name.eq("New Group Name 1"));
     }
 
     #[tokio::test]
