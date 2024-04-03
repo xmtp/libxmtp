@@ -1,5 +1,5 @@
 pub mod credential_verifier;
-pub mod verified_key_package;
+pub mod erc1271_verifier;
 
 use std::sync::RwLock;
 

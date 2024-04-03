@@ -21,4 +21,5 @@ chrono.workspace = true
 serde.workspace = true
 async-trait.workspace = true
 futures.workspace = true
-
+ethers.workspace = true
+anyhow.workspace = true
