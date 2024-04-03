@@ -190,22 +190,22 @@ mod tests {
                 existing_member_signature: MockSignature::new_boxed(
                     true,
                     account_address.clone(),
-                    SignatureKind::Erc191,
+                    SignatureKind::LegacyDelegated,
                 ),
                 new_member_signature: MockSignature::new_boxed(
                     true,
                     rand_string(),
-                    SignatureKind::LegacyKey,
+                    SignatureKind::InstallationKey,
                 ),
-                new_member_role: EntityRole::LegacyKey,
+                new_member_role: EntityRole::Installation,
             },
         };
 
         let initial_state = get_state(vec![AssociationEvent::CreateXid(create_request)]).unwrap();
         assert_eq!(initial_state.entities().len(), 2);
 
-        let legacy_keys = initial_state.entities_by_role(EntityRole::LegacyKey);
-        assert_eq!(legacy_keys.len(), 1);
+        let installation_keys = initial_state.entities_by_role(EntityRole::Installation);
+        assert_eq!(installation_keys.len(), 1);
     }
 
     #[test]
@@ -337,5 +337,43 @@ mod tests {
         let replay_result = attempt_to_replay.update_state(Some(new_state));
         assert_eq!(replay_result.is_err(), true);
         assert_eq!(replay_result.err().unwrap(), AssociationError::Replay)
+    }
+
+    #[test]
+    fn test_add_from_recovery_address() {
+        let create_request = CreateXid::default();
+        let initial_wallet_address = create_request.account_address.clone();
+        let revocation = RevokeAssociation {
+            recovery_address_signature: MockSignature::new_boxed(
+                true,
+                initial_wallet_address.clone(),
+                SignatureKind::Erc191,
+            ),
+            revoked_member: initial_wallet_address.clone(),
+            ..Default::default()
+        };
+
+        let state = get_state(vec![
+            AssociationEvent::CreateXid(create_request),
+            AssociationEvent::RevokeAssociation(revocation),
+        ])
+        .unwrap();
+
+        // Ensure that the initial wallet isn't in there. The recovery address has not changed, however.
+        assert_eq!(state.get(&initial_wallet_address).is_none(), true);
+
+        let add_from_recovery = AddAssociation {
+            client_timestamp_ns: rand_u32(),
+            existing_member_signature: MockSignature::new_boxed(
+                true,
+                initial_wallet_address,
+                SignatureKind::Erc191,
+            ),
+            ..Default::default()
+        };
+
+        add_from_recovery
+            .update_state(Some(state))
+            .expect("should be allowed because we are using the recovery address");
     }
 }

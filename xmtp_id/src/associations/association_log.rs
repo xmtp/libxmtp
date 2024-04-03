@@ -102,20 +102,20 @@ impl LogEntry for AddAssociation {
 
         let new_member_address = self.new_member_signature.recover_signer()?;
         let existing_member_address = self.existing_member_signature.recover_signer()?;
+        let recovery_address = &existing_state.recovery_address;
+
+        // You cannot add yourself
         if new_member_address == existing_member_address {
             return Err(AssociationError::Generic("tried to add self".to_string()));
         }
 
-        if self.new_member_role == EntityRole::LegacyKey {
+        // Only allow LegacyDelegated signatures on XIDs with a nonce of 0
+        // Otherwise the client should use the regular wallet signature to create
+        if self.new_member_signature.signature_kind() == SignatureKind::LegacyDelegated {
             if existing_state.xid != generate_xid(&existing_member_address, &0) {
                 return Err(AssociationError::LegacySignatureReuse);
             }
         }
-
-        // Find the existing entity that authorized this add
-        let existing_entity = existing_state
-            .get(&existing_member_address)
-            .ok_or(AssociationError::MissingExistingMember)?;
 
         // Make sure that the signature type lines up with the role
         if !allowed_signature_for_role(
@@ -128,10 +128,30 @@ impl LogEntry for AddAssociation {
             ));
         }
 
+        let existing_member = existing_state.get(&existing_member_address);
+
+        let existing_entity_id = match existing_member {
+            // If there is an existing member of the XID, use that member's ID
+            Some(member) => member.id.clone(),
+            None => {
+                // Check if it is a signature from the recovery address, which is allowed to add members
+                if existing_member_address.ne(recovery_address) {
+                    return Err(AssociationError::MissingExistingMember);
+                }
+                // BUT, the recovery address has to be used with a real wallet signature, can't be delegated
+                if self.existing_member_signature.signature_kind() == SignatureKind::LegacyDelegated
+                {
+                    return Err(AssociationError::LegacySignatureReuse);
+                }
+                // If it is a real wallet signature, then it is allowed to add members
+                recovery_address.clone()
+            }
+        };
+
         let new_member = Entity::new(
             self.new_member_role.clone(),
             new_member_address,
-            Some(existing_entity.id),
+            Some(existing_entity_id),
         );
 
         println!(
@@ -166,6 +186,13 @@ impl LogEntry for RevokeAssociation {
         maybe_existing_state: Option<AssociationState>,
     ) -> Result<AssociationState, AssociationError> {
         let existing_state = maybe_existing_state.ok_or(AssociationError::NotCreated)?;
+
+        if self.recovery_address_signature.signature_kind() == SignatureKind::LegacyDelegated {
+            return Err(AssociationError::SignatureNotAllowed(
+                EntityRole::Address,
+                SignatureKind::LegacyDelegated,
+            ));
+        }
         // Don't need to check for replay here since revocation is idempotent
         let recovery_signer = self.recovery_address_signature.recover_signer()?;
         // Make sure there is a recovery address set on the state
@@ -239,19 +266,13 @@ pub fn allowed_signature_for_role(role: &EntityRole, signature_kind: &SignatureK
             SignatureKind::Erc191 => true,
             SignatureKind::Erc1271 => true,
             SignatureKind::InstallationKey => false,
-            SignatureKind::LegacyKey => false,
-        },
-        EntityRole::LegacyKey => match signature_kind {
-            SignatureKind::Erc191 => false,
-            SignatureKind::Erc1271 => false,
-            SignatureKind::InstallationKey => false,
-            SignatureKind::LegacyKey => true,
+            SignatureKind::LegacyDelegated => true,
         },
         EntityRole::Installation => match signature_kind {
             SignatureKind::Erc191 => false,
             SignatureKind::Erc1271 => false,
             SignatureKind::InstallationKey => true,
-            SignatureKind::LegacyKey => false,
+            SignatureKind::LegacyDelegated => false,
         },
     }
 }
