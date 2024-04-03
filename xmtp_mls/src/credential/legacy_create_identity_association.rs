@@ -63,7 +63,7 @@ impl LegacyCreateIdentityAssociation {
         )
     }
 
-    pub(crate) fn from_proto_validated(
+    pub fn from_proto_validated(
         proto: LegacyCreateIdentityAssociationProto,
         expected_installation_public_key: &[u8],
     ) -> Result<Self, AssociationError> {

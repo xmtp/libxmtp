@@ -130,7 +130,7 @@ impl GrantMessagingAccessAssociation {
         Self::new_validated(unsigned_data, signature)
     }
 
-    pub(crate) fn from_proto_validated(
+    pub fn from_proto_validated(
         proto: GrantMessagingAccessAssociationProto,
         expected_installation_public_key: &[u8],
     ) -> Result<Self, AssociationError> {

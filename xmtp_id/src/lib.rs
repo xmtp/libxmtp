@@ -1,15 +1,35 @@
-pub mod error;
+pub mod credential_verifier;
+pub mod verified_key_package;
 
 use std::sync::RwLock;
 
 use openmls::prelude::Credential as OpenMlsCredential;
 use openmls_basic_credential::SignatureKeyPair;
+use openmls_traits::types::CryptoError;
+use thiserror::Error;
 use xmtp_mls::{
-    configuration::CIPHERSUITE, credential::UnsignedGrantMessagingAccessData, types::Address,
+    configuration::CIPHERSUITE,
+    credential::Credential,
+    credential::{AssociationError, UnsignedGrantMessagingAccessData},
+    types::Address,
     utils::time::now_ns,
 };
 
-use crate::error::IdentityError;
+use crate::credential_verifier::{CredentialVerifier, VerificationError, VerificationRequest};
+
+#[derive(Debug, Error)]
+pub enum IdentityError {
+    #[error("bad association: {0}")]
+    BadAssocation(#[from] AssociationError),
+    #[error("generating key-pairs: {0}")]
+    KeyGenerationError(#[from] CryptoError),
+    #[error("uninitialized identity")]
+    UninitializedIdentity,
+    #[error("protobuf deserialization: {0}")]
+    Deserialization(#[from] prost::DecodeError),
+    #[error("credential verification {0}")]
+    VerificationError(#[from] VerificationError),
+}
 
 pub struct Identity {
     #[allow(dead_code)]
@@ -57,7 +77,14 @@ impl Identity {
             .clone()
             .ok_or(IdentityError::UninitializedIdentity)
     }
-}
 
-#[cfg(test)]
-mod tests {}
+    /// Get an account address verified by the
+    pub async fn get_validated_account_address(
+        credential: &[u8],
+        installation_public_key: &[u8],
+    ) -> Result<String, IdentityError> {
+        let request = VerificationRequest::new(credential, installation_public_key);
+        let credential = <Credential as CredentialVerifier>::verify_credential(request).await?;
+        Ok(credential.account_address().to_string())
+    }
+}
