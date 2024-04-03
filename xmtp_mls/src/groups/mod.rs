@@ -358,9 +358,7 @@ where
         group_name: String,
     ) -> Result<(), GroupError> {
         // TODO: enable mutable metadata allow list
-        let empty_account_addresses: AccountAddresses = AccountAddresses{
-            account_addresses: vec![]
-        };
+        let empty_account_addresses = vec![];
             
         let conn = &mut self.client.store.conn()?;
         let intent_data: Vec<u8> =

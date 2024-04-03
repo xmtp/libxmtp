@@ -226,11 +226,11 @@ impl From<RemoveMembersIntentData> for Vec<u8> {
 #[derive(Debug, Clone)]
 pub struct UpdateMetadataIntentData {
     pub group_name: String,
-    pub allow_list_account_addresses: AccountAddresses,
+    pub allow_list_account_addresses: Vec<String>,
 }
 
 impl UpdateMetadataIntentData {
-    pub fn new(group_name: String, allow_list_account_addresses: AccountAddresses) -> Self {
+    pub fn new(group_name: String, allow_list_account_addresses: Vec<String>) -> Self {
         Self { group_name, allow_list_account_addresses }
     }
 
@@ -240,7 +240,7 @@ impl UpdateMetadataIntentData {
         UpdateMetadataData {
             version: Some(UpdateMetadataVersion::V1(UpdateMetadataV1 {
                 group_name: self.group_name.clone(),
-                allow_list_account_addresses: Some(self.allow_list_account_addresses.clone().into()),
+                allow_list_account_addresses: self.allow_list_account_addresses.clone(),
             })),
         }
         .encode(&mut buf)
@@ -258,8 +258,7 @@ impl UpdateMetadataIntentData {
         };
         let allow_list_account_addresses = match msg.version {
             Some(UpdateMetadataVersion::V1(v1)) => v1
-                .allow_list_account_addresses
-                .ok_or(IntentError::Generic("missing payload".to_string()))?,
+                .allow_list_account_addresses.clone(),
             None => return Err(IntentError::Generic("missing payload".to_string())),
         };
 
@@ -388,6 +387,7 @@ impl From<Vec<u8>> for PostCommitAction {
 
 #[cfg(test)]
 mod tests {
+    use serde_json::to_string;
     use xmtp_cryptography::utils::generate_local_wallet;
 
     use super::*;
@@ -413,5 +413,17 @@ mod tests {
         let restored_intent = AddMembersIntentData::from_bytes(as_bytes.as_slice()).unwrap();
 
         assert_eq!(intent.address_or_id, restored_intent.address_or_id);
+    }
+
+    #[tokio::test]
+    async fn test_serialize_update_metadata() {
+        let wallet = generate_local_wallet();
+        let account_address = wallet.get_address();
+
+        let intent = UpdateMetadataIntentData::new("group name".to_string(), vec![account_address.clone()].into());
+        let as_bytes: Vec<u8> = intent.clone().try_into().unwrap();
+        let restored_intent = UpdateMetadataIntentData::from_bytes(as_bytes.as_slice()).unwrap();
+
+        assert_eq!(intent.group_name, restored_intent.group_name);
     }
 }

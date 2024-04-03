@@ -1296,15 +1296,15 @@ impl serde::Serialize for update_metadata_data::V1 {
         if !self.group_name.is_empty() {
             len += 1;
         }
-        if self.allow_list_account_addresses.is_some() {
+        if !self.allow_list_account_addresses.is_empty() {
             len += 1;
         }
         let mut struct_ser = serializer.serialize_struct("xmtp.mls.database.UpdateMetadataData.V1", len)?;
         if !self.group_name.is_empty() {
             struct_ser.serialize_field("groupName", &self.group_name)?;
         }
-        if let Some(v) = self.allow_list_account_addresses.as_ref() {
-            struct_ser.serialize_field("allowListAccountAddresses", v)?;
+        if !self.allow_list_account_addresses.is_empty() {
+            struct_ser.serialize_field("allowListAccountAddresses", &self.allow_list_account_addresses)?;
         }
         struct_ser.end()
     }
@@ -1382,13 +1382,13 @@ impl<'de> serde::Deserialize<'de> for update_metadata_data::V1 {
                             if allow_list_account_addresses__.is_some() {
                                 return Err(serde::de::Error::duplicate_field("allowListAccountAddresses"));
                             }
-                            allow_list_account_addresses__ = map_.next_value()?;
+                            allow_list_account_addresses__ = Some(map_.next_value()?);
                         }
                     }
                 }
                 Ok(update_metadata_data::V1 {
                     group_name: group_name__.unwrap_or_default(),
-                    allow_list_account_addresses: allow_list_account_addresses__,
+                    allow_list_account_addresses: allow_list_account_addresses__.unwrap_or_default(),
                 })
             }
         }
