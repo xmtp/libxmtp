@@ -182,6 +182,7 @@ public final class Client {
 		)
 
 		let client = try Client(address: account.address, privateKeyBundleV1: privateKeyBundleV1, apiClient: apiClient, v3Client: v3Client, dbPath: dbPath, installationID: v3Client?.installationId().toHex ?? "")
+		client.conversations
 		try await client.ensureUserContactPublished()
 
 		for codec in (options?.codecs ?? []) {
@@ -281,7 +282,7 @@ public final class Client {
 		)
 
 		let result = try Client(address: address, privateKeyBundleV1: v1Bundle, apiClient: apiClient, v3Client: v3Client, dbPath: dbPath, installationID: v3Client?.installationId().toHex ?? "")
-
+		result.conversations
 		for codec in options.codecs {
 			result.register(codec: codec)
 		}
