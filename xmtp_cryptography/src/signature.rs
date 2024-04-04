@@ -19,8 +19,8 @@ pub enum SignatureError {
     },
     #[error("Error creating signature")]
     SigningError(#[from] ecdsa::Error),
-    #[error("Error thrown from thirdParty")]
-    ThirdPartyError(String),
+    #[error("Error creating signature with ethers wallet")]
+    EthersWalletError(#[from] ethers::signers::WalletError),
     #[error("unknown data store error")]
     Unknown,
 }
@@ -71,6 +71,12 @@ impl RecoverableSignature {
                 Ok(addr)
             }
         }
+    }
+}
+
+impl From<Vec<u8>> for RecoverableSignature {
+    fn from(value: Vec<u8>) -> Self {
+        RecoverableSignature::Eip191Signature(value)
     }
 }
 

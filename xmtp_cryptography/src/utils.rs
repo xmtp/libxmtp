@@ -1,4 +1,4 @@
-pub use ethers::prelude::LocalWallet;
+use ethers::signers::LocalWallet;
 use ethers_core::utils::keccak256;
 use k256::ecdsa::VerifyingKey;
 use rand::{CryptoRng, RngCore, SeedableRng};

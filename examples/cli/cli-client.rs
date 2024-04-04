@@ -12,7 +12,7 @@ extern crate xmtp_mls;
 use std::{fs, path::PathBuf, time::Duration};
 
 use clap::{Parser, Subcommand, ValueEnum};
-use ethers::signers::{coins_bip39::English, MnemonicBuilder};
+use ethers::signers::{coins_bip39::English, MnemonicBuilder, LocalWallet};
 use kv_log_macro::{error, info};
 use prost::Message;
 
@@ -25,7 +25,7 @@ use thiserror::Error;
 use xmtp_api_grpc::grpc_api_helper::Client as ApiClient;
 use xmtp_cryptography::{
     signature::{RecoverableSignature, SignatureError},
-    utils::{rng, LocalWallet},
+    utils::rng,
 };
 use xmtp_mls::{
     builder::{ClientBuilderError, IdentityStrategy, LegacyIdentity},

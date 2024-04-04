@@ -11,9 +11,6 @@ impl InboxOwner for LocalWallet {
     }
 
     fn sign(&self, text: &str) -> Result<RecoverableSignature, SignatureError> {
-        let signature = executor::block_on(self.sign_message(text))
-            .map_err(|e| SignatureError::ThirdPartyError(e.to_string()))?;
-
-        Ok(RecoverableSignature::Eip191Signature(signature.to_vec()))
+        Ok(executor::block_on(self.sign_message(text))?.to_vec().into())
     }
 }

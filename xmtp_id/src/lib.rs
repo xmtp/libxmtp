@@ -9,8 +9,7 @@ use openmls_traits::types::CryptoError;
 use thiserror::Error;
 use xmtp_mls::{
     configuration::CIPHERSUITE,
-    credential::Credential,
-    credential::{AssociationError, UnsignedGrantMessagingAccessData},
+    credential::{AssociationError, Credential, UnsignedGrantMessagingAccessData},
     types::Address,
     utils::time::now_ns,
 };
@@ -29,10 +28,22 @@ pub enum IdentityError {
     Deserialization(#[from] prost::DecodeError),
     #[error("credential verification {0}")]
     VerificationError(#[from] VerificationError),
+    #[error("blockchain error: {0}")]
+    BlockchainError(#[from] ethers::providers::ProviderError),
+}
+
+/// Trait allowing libxmtp to interface with a blockchain network
+#[async_trait::async_trait]
+pub trait BlockchainConnection {
+    /// Get the code for a given address at the given block height.
+    async fn get_code(
+        &self,
+        address: &String,
+        block: Option<u64>,
+    ) -> Result<Vec<u8>, IdentityError>;
 }
 
 pub struct Identity {
-    #[allow(dead_code)]
     pub(crate) account_address: Address,
     #[allow(dead_code)]
     pub(crate) installation_keys: SignatureKeyPair,
@@ -86,5 +97,77 @@ impl Identity {
         let request = VerificationRequest::new(credential, installation_public_key);
         let credential = <Credential as CredentialVerifier>::verify_credential(request).await?;
         Ok(credential.account_address().to_string())
+    }
+
+    /// Check if a given address is a smart contract at the latest block height by checking the code at a smart contract
+    /// address.
+    /// **WARN** This is not fool-proof. It is possible to mis-characterize a contract as an EOA
+    /// when the contract has not yet been deployed at the block height being queried.
+    /// Therefore, going back in time too far will return a false negative.
+    pub async fn is_smart_contract(
+        &self,
+        chain: &impl BlockchainConnection,
+        block: Option<u64>,
+    ) -> Result<bool, IdentityError> {
+        Ok(!chain
+            .get_code(&self.account_address, block)
+            .await?
+            .is_empty())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use ethers::{
+        middleware::Middleware,
+        providers::{Http, Provider},
+    };
+    use xmtp_cryptography::utils::generate_local_wallet;
+    use xmtp_mls::InboxOwner;
+
+    struct EthereumConnection {
+        provider: Provider<Http>,
+    }
+
+    impl EthereumConnection {
+        pub fn new() -> Self {
+            let provider = Provider::<Http>::try_from("https://eth.llamarpc.com").unwrap();
+            Self { provider }
+        }
+    }
+
+    #[async_trait::async_trait]
+    impl BlockchainConnection for EthereumConnection {
+        async fn get_code(
+            &self,
+            address: &String,
+            block: Option<u64>,
+        ) -> Result<Vec<u8>, IdentityError> {
+            let res = self.provider.get_code(address, block.map(Into::into)).await;
+
+            println!("{:?}", res);
+
+            Ok(res.unwrap().to_vec())
+        }
+    }
+
+    #[tokio::test]
+    async fn test_is_smart_contract() {
+        let wallet = generate_local_wallet();
+        let identity_eoa = Identity::create_to_be_signed(wallet.get_address()).unwrap();
+        let identity_scw =
+            Identity::create_to_be_signed("0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48".into())
+                .unwrap();
+        let eth = EthereumConnection::new();
+
+        assert_eq!(
+            identity_scw.is_smart_contract(&eth, None).await.unwrap(),
+            false
+        );
+        assert_eq!(
+            identity_eoa.is_smart_contract(&eth, None).await.unwrap(),
+            false
+        );
     }
 }
