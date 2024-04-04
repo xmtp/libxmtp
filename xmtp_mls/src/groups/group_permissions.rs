@@ -318,13 +318,13 @@ impl PolicySet {
             )?,
             MembershipPolicies::try_from(
                 proto
-                .update_group_name_policy
-                .ok_or(PolicyError::InvalidPolicy)?,
+                    .update_group_name_policy
+                    .ok_or(PolicyError::InvalidPolicy)?,
             )?,
             MembershipPolicies::try_from(
                 proto
-                .update_allow_list_policy
-                .ok_or(PolicyError::InvalidPolicy)?,
+                    .update_allow_list_policy
+                    .ok_or(PolicyError::InvalidPolicy)?,
             )?,
         ))
     }
@@ -353,10 +353,11 @@ fn default_remove_installation_policy() -> MembershipPolicies {
 /// A policy where any member can add or remove any other member or set group name
 pub(crate) fn policy_everyone_is_admin() -> PolicySet {
     PolicySet::new(
-        MembershipPolicies::allow(), 
-        MembershipPolicies::allow(), 
-        MembershipPolicies::allow(),  
-        MembershipPolicies::deny())
+        MembershipPolicies::allow(),
+        MembershipPolicies::allow(),
+        MembershipPolicies::allow(),
+        MembershipPolicies::deny(),
+    )
 }
 
 /// A policy where only the group creator can add or remove members
@@ -471,7 +472,7 @@ mod tests {
     #[test]
     fn test_allow_all() {
         let permissions = PolicySet::new(
-            MembershipPolicies::allow(), 
+            MembershipPolicies::allow(),
             MembershipPolicies::allow(),
             MembershipPolicies::allow(),
             MembershipPolicies::allow(),
@@ -484,7 +485,7 @@ mod tests {
     #[test]
     fn test_deny() {
         let permissions = PolicySet::new(
-            MembershipPolicies::deny(), 
+            MembershipPolicies::deny(),
             MembershipPolicies::deny(),
             MembershipPolicies::deny(),
             MembershipPolicies::deny(),

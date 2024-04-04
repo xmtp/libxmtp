@@ -2,11 +2,15 @@ use std::{collections::HashMap, mem::discriminant};
 
 use log::debug;
 use openmls::{
-    credentials::BasicCredential, extensions::Extensions, framing::ProtocolMessage, group::MergePendingCommitError, messages::proposals::GroupContextExtensionProposal, prelude::{
+    credentials::BasicCredential,
+    framing::ProtocolMessage,
+    group::MergePendingCommitError,
+    prelude::{
         tls_codec::{Deserialize, Serialize},
         LeafNodeIndex, MlsGroup as OpenMlsGroup, MlsMessageBodyIn, MlsMessageIn, PrivateMessageIn,
         ProcessedMessage, ProcessedMessageContent, Sender,
-    }, prelude_test::KeyPackage
+    },
+    prelude_test::KeyPackage,
 };
 use openmls_traits::OpenMlsProvider;
 use prost::bytes::Bytes;
@@ -29,7 +33,7 @@ use xmtp_proto::{
 use super::{
     intents::{
         AddMembersIntentData, AddressesOrInstallationIds, Installation, PostCommitAction,
-        RemoveMembersIntentData, SendMessageIntentData, SendWelcomesAction, UpdateMetadataIntentData,
+        RemoveMembersIntentData, SendMessageIntentData, SendWelcomesAction,
     },
     members::GroupMember,
     GroupError, MlsGroup,
@@ -170,7 +174,10 @@ where
 
         let conn = provider.conn();
         match intent.kind {
-            IntentKind::AddMembers | IntentKind::RemoveMembers | IntentKind::KeyUpdate | IntentKind::MetadataUpdate => {
+            IntentKind::AddMembers
+            | IntentKind::RemoveMembers
+            | IntentKind::KeyUpdate
+            | IntentKind::MetadataUpdate => {
                 if !allow_epoch_increment {
                     return Err(MessageProcessingError::EpochIncrementNotAllowed);
                 }
@@ -241,7 +248,6 @@ where
                 };
             }
         };
-
         conn.set_group_intent_committed(intent.id)?;
 
         Ok(())
@@ -361,6 +367,7 @@ where
                 envelope.created_ns,
                 allow_epoch_increment,
             ),
+
             // No matching intent found
             Ok(None) => self.process_external_message(
                 openmls_group,
@@ -369,6 +376,7 @@ where
                 envelope.created_ns,
                 allow_epoch_increment,
             ),
+
             Err(err) => Err(MessageProcessingError::Storage(err)),
         }
     }
@@ -651,16 +659,19 @@ where
                 Ok((commit.tls_serialize_detached()?, None))
             }
             IntentKind::MetadataUpdate => {
-                // TODO: Not implemented
-                let intent_data = UpdateMetadataIntentData::from_bytes(intent.data.as_slice())?;
-                println!("Trying to process Update metadata intent data: {}", intent_data.group_name);
                 let mutable_metadata = build_mutable_metadata_extension(
                     "New Group".to_string(),
                     vec![self.client.account_address().clone()],
                 )?;
+                let mut extensions = openmls_group.extensions().clone();
+                extensions.add_or_replace(mutable_metadata);
                 let (commit, _) = openmls_group.propose_group_context_extensions(
                     provider,
-                    Extensions::single(mutable_metadata),
+                    extensions,
+                    &self.client.identity.installation_keys,
+                )?;
+                openmls_group.commit_to_pending_proposals(
+                    provider,
                     &self.client.identity.installation_keys,
                 )?;
 

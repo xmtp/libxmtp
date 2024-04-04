@@ -9,8 +9,14 @@ pub mod validated_commit;
 
 use intents::SendMessageIntentData;
 use openmls::{
-    extensions::{Extension, Extensions, Metadata, UnknownExtension},
-    group::{MlsGroupCreateConfig, MlsGroupJoinConfig, ProposalError},
+    credentials::CredentialType,
+    extensions::{
+        Extension, ExtensionType, Extensions, Metadata, RequiredCapabilitiesExtension,
+        UnknownExtension,
+    },
+    group::{
+        CommitToPendingProposalsError, MlsGroupCreateConfig, MlsGroupJoinConfig, ProposalError,
+    },
     prelude::{
         CredentialWithKey, CryptoConfig, Error as TlsCodecError, GroupId, MlsGroup as OpenMlsGroup,
         StagedWelcome, Welcome as MlsWelcome, WireFormatPolicy,
@@ -23,16 +29,26 @@ use thiserror::Error;
 use xmtp_cryptography::signature::is_valid_ed25519_public_key;
 use xmtp_proto::{
     api_client::XmtpMlsClient,
-    xmtp::mls::{api::v1::{
-        group_message::{Version as GroupMessageVersion, V1 as GroupMessageV1},
-        GroupMessage,
-    }, database::AccountAddresses, message_contents::{plaintext_envelope::{Content, V1}, GroupMutableMetadataV1, PlaintextEnvelope}},
+    xmtp::mls::{
+        api::v1::{
+            group_message::{Version as GroupMessageVersion, V1 as GroupMessageV1},
+            GroupMessage,
+        },
+        message_contents::{
+            plaintext_envelope::{Content, V1},
+            GroupMutableMetadataV1, PlaintextEnvelope,
+        },
+    },
 };
 
-use self::{group_metadata::extract_group_metadata, group_mutable_metadata::{GroupMutableMetadata, GroupMutableMetadataError}, intents::UpdateMetadataIntentData};
 use self::group_mutable_metadata::extract_group_mutable_metadata;
 pub use self::group_permissions::PreconfiguredPolicies;
 pub use self::intents::{AddressesOrInstallationIds, IntentError};
+use self::{
+    group_metadata::extract_group_metadata,
+    group_mutable_metadata::{GroupMutableMetadata, GroupMutableMetadataError},
+    intents::UpdateMetadataIntentData,
+};
 use self::{
     group_metadata::{ConversationType, GroupMetadata, GroupMetadataError},
     group_permissions::PolicySet,
@@ -122,6 +138,8 @@ pub enum GroupError {
     EncodeError(#[from] prost::EncodeError),
     #[error("group context extension proposal error: {0}")]
     ProposalError(#[from] ProposalError<()>),
+    #[error("commit to pending proposal error: {0}")]
+    CommitToPendingProposalsError(#[from] CommitToPendingProposalsError<StorageError>),
 }
 
 impl RetryableError for GroupError {
@@ -355,13 +373,9 @@ where
         self.sync_until_intent_resolved(conn, intent.id).await
     }
 
-    pub async fn update_group_metadata(
-        &self,
-        group_name: String,
-    ) -> Result<(), GroupError> {
+    pub async fn update_group_metadata(&self, group_name: String) -> Result<(), GroupError> {
         // TODO: enable mutable metadata allow list
         let empty_account_addresses = vec![];
-            
         let conn = &mut self.client.store.conn()?;
         let intent_data: Vec<u8> =
             UpdateMetadataIntentData::new(group_name, empty_account_addresses).to_bytes();
@@ -504,7 +518,6 @@ pub fn build_mutable_metadata_extension(
     group_name: String,
     allow_list_account_addresses: Vec<String>,
 ) -> Result<Extension, GroupError> {
-
     let mutable_metadata: GroupMutableMetadataV1 = GroupMutableMetadataV1 {
         group_name,
         allow_list_account_addresses,
@@ -513,16 +526,23 @@ pub fn build_mutable_metadata_extension(
     let unknown_gc_extension = UnknownExtension(mutable_metadata.encode_to_vec());
 
     // TODO: Where should the constant hex value live?
-    Ok(Extension::Unknown(0xff00, unknown_gc_extension))
+    Ok(Extension::Unknown(0xff11, unknown_gc_extension))
 }
 
 fn build_group_config(
     protected_metadata_extension: Extension,
-    mutable_metadata_extension: Extension
+    mutable_metadata_extension: Extension,
 ) -> Result<MlsGroupCreateConfig, GroupError> {
     let mut extensions = Extensions::single(protected_metadata_extension);
     extensions.add(mutable_metadata_extension)?;
 
+    let rc_extensions = &[ExtensionType::Unknown(0xff11)];
+    let proposals = &[];
+    let credentials = &[CredentialType::Basic];
+    let required_capabilities =
+        RequiredCapabilitiesExtension::new(rc_extensions, proposals, credentials);
+
+    let _ = extensions.add(Extension::RequiredCapabilities(required_capabilities))?;
     Ok(MlsGroupCreateConfig::builder()
         .with_group_context_extensions(extensions)?
         .crypto_config(CryptoConfig::with_default_version(CIPHERSUITE))
@@ -542,7 +562,7 @@ fn build_group_join_config() -> MlsGroupJoinConfig {
 
 #[cfg(test)]
 mod tests {
-    use openmls::{group, prelude::Member};
+    use openmls::prelude::Member;
     use prost::Message;
     use xmtp_api_grpc::grpc_api_helper::Client as GrpcClient;
     use xmtp_cryptography::utils::generate_local_wallet;
@@ -1002,19 +1022,28 @@ mod tests {
         // TODO: Add check for updating group mutable metadata
         let amal = ClientBuilder::new_test_client(&generate_local_wallet()).await;
         let bola = ClientBuilder::new_test_client(&generate_local_wallet()).await;
-        let charlie = ClientBuilder::new_test_client(&generate_local_wallet()).await;
 
         let policies = Some(PreconfiguredPolicies::GroupCreatorIsAdmin);
 
-        let amal_group: MlsGroup<_> = amal.create_group(policies)
-            .unwrap();
+        let amal_group: MlsGroup<_> = amal.create_group(policies).unwrap();
 
         amal_group.sync().await.unwrap();
+
+        // Add bola to the group
+        println!("Adding Bola to the group");
+        amal_group
+            .add_members(vec![bola.account_address()])
+            .await
+            .unwrap();
+
+        let bola_group = receive_group_invite(&bola).await;
+        bola_group.sync().await.unwrap();
 
         let mut group_mutable_metadata = amal_group.mutable_metadata().unwrap();
         assert!(group_mutable_metadata.group_name.eq("New Group"));
 
-         // Update group name
+        // Update group name
+        println!("Updating group name");
         amal_group
             .update_group_metadata("New Group Name 1".to_string())
             .await

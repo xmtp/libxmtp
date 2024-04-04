@@ -129,10 +129,10 @@ fn validate_key_package(key_package_bytes: Vec<u8>) -> Result<ValidateKeyPackage
 mod tests {
     use ethers::signers::LocalWallet;
     use openmls::{
-        extensions::{ApplicationIdExtension, Extension, Extensions},
+        extensions::{ApplicationIdExtension, Extension, ExtensionType, Extensions},
         prelude::{
-            tls_codec::Serialize, Ciphersuite, Credential as OpenMlsCredential, CredentialWithKey,
-            CryptoConfig,
+            tls_codec::Serialize, Capabilities, Ciphersuite, Credential as OpenMlsCredential,
+            CredentialWithKey, CryptoConfig,
         },
         prelude_test::KeyPackage,
         versions::ProtocolVersion,
@@ -177,7 +177,16 @@ mod tests {
         let application_id =
             Extension::ApplicationId(ApplicationIdExtension::new(account_address.as_bytes()));
 
+        let capabilities = Capabilities::new(
+            None,
+            Some(&[CIPHERSUITE]),
+            Some(&[ExtensionType::Unknown(0xff11)]),
+            None,
+            None,
+        );
+
         let kp = KeyPackage::builder()
+            .leaf_node_capabilities(capabilities)
             .leaf_node_extensions(Extensions::single(application_id))
             .build(
                 CryptoConfig {

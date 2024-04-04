@@ -1,4 +1,7 @@
-use openmls::{extensions::{Extension, UnknownExtension}, group::MlsGroup as OpenMlsGroup};
+use openmls::{
+    extensions::{Extension, UnknownExtension},
+    group::MlsGroup as OpenMlsGroup,
+};
 use prost::Message;
 use thiserror::Error;
 
@@ -21,17 +24,16 @@ pub struct GroupMutableMetadata {
 }
 
 impl GroupMutableMetadata {
-    pub fn new(
-        group_name: String,
-        allow_list_account_addresses: Vec<String>,
-    ) -> Self {
+    pub fn new(group_name: String, allow_list_account_addresses: Vec<String>) -> Self {
         Self {
             group_name,
             allow_list_account_addresses,
         }
     }
 
-    pub(crate) fn from_proto(proto: GroupMutableMetadataProto) -> Result<Self, GroupMutableMetadataError> {
+    pub(crate) fn from_proto(
+        proto: GroupMutableMetadataProto,
+    ) -> Result<Self, GroupMutableMetadataError> {
         Ok(Self::new(
             proto.group_name.clone(),
             proto.allow_list_account_addresses.clone(),
@@ -75,12 +77,13 @@ impl TryFrom<GroupMutableMetadataProto> for GroupMutableMetadata {
     }
 }
 
-pub fn extract_group_mutable_metadata(group: &OpenMlsGroup) -> Result<GroupMutableMetadata, GroupMutableMetadataError> {
-    let extensions = group
-        .export_group_context()
-        .extensions();
+pub fn extract_group_mutable_metadata(
+    group: &OpenMlsGroup,
+) -> Result<GroupMutableMetadata, GroupMutableMetadataError> {
+    let extensions = group.export_group_context().extensions();
     for extension in extensions.iter() {
-        if let Extension::Unknown(0xff00, UnknownExtension(meta_data)) = extension {
+        // TODO: Replace with Constant
+        if let Extension::Unknown(0xff11, UnknownExtension(meta_data)) = extension {
             return GroupMutableMetadata::try_from(meta_data);
         }
     }

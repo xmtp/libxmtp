@@ -5,14 +5,11 @@ use openmls::{
     credentials::{
         errors::{BasicCredentialError, CredentialError},
         BasicCredential,
-    },
-    extensions::{errors::InvalidExtensionError, ApplicationIdExtension, LastResortExtension},
-    prelude::{
+    }, extensions::{errors::InvalidExtensionError, ApplicationIdExtension, LastResortExtension}, messages::proposals::ProposalType, prelude::{
         tls_codec::{Error as TlsCodecError, Serialize},
         Capabilities, Credential as OpenMlsCredential, CredentialWithKey, CryptoConfig, Extension,
         ExtensionType, Extensions, KeyPackage, KeyPackageNewError, Lifetime,
-    },
-    versions::ProtocolVersion,
+    }, versions::ProtocolVersion
 };
 use openmls_basic_credential::SignatureKeyPair;
 use openmls_traits::{types::CryptoError, OpenMlsProvider};
@@ -198,7 +195,7 @@ impl Identity {
         let capabilities = Capabilities::new(
             None,
             Some(&[CIPHERSUITE]),
-            Some(&[ExtensionType::LastResort, ExtensionType::ApplicationId]),
+            Some(&[ExtensionType::LastResort, ExtensionType::ApplicationId, ExtensionType::Unknown(0xff11), ExtensionType::ImmutableMetadata]),
             None,
             None,
         );

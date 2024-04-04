@@ -81,6 +81,7 @@ pub struct ValidatedCommit {
     pub(crate) installations_removed: Vec<AggregatedMembershipChange>,
 }
 
+// TODO - Validate the commit against the group mutable metadata
 impl ValidatedCommit {
     // Build a ValidatedCommit from a StagedCommit and OpenMlsGroup
     pub fn from_staged_commit(

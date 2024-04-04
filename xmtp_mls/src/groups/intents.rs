@@ -13,11 +13,12 @@ use xmtp_proto::xmtp::mls::database::{
         SendWelcomes as SendWelcomesProto,
     },
     remove_members_data::{Version as RemoveMembersVersion, V1 as RemoveMembersV1},
-    update_metadata_data::{Version as UpdateMetadataVersion, V1 as UpdateMetadataV1},
     send_message_data::{Version as SendMessageVersion, V1 as SendMessageV1},
+    update_metadata_data::{Version as UpdateMetadataVersion, V1 as UpdateMetadataV1},
     AccountAddresses, AddMembersData,
     AddressesOrInstallationIds as AddressesOrInstallationIdsProtoWrapper, InstallationIds,
-    PostCommitAction as PostCommitActionProto, RemoveMembersData, SendMessageData, UpdateMetadataData,
+    PostCommitAction as PostCommitActionProto, RemoveMembersData, SendMessageData,
+    UpdateMetadataData,
 };
 
 use crate::{
@@ -231,7 +232,10 @@ pub struct UpdateMetadataIntentData {
 
 impl UpdateMetadataIntentData {
     pub fn new(group_name: String, allow_list_account_addresses: Vec<String>) -> Self {
-        Self { group_name, allow_list_account_addresses }
+        Self {
+            group_name,
+            allow_list_account_addresses,
+        }
     }
 
     pub(crate) fn to_bytes(&self) -> Vec<u8> {
@@ -252,13 +256,11 @@ impl UpdateMetadataIntentData {
     pub(crate) fn from_bytes(data: &[u8]) -> Result<Self, IntentError> {
         let msg = UpdateMetadataData::decode(data)?;
         let group_name = match msg.version {
-            Some(UpdateMetadataVersion::V1(ref v1)) => v1
-                .group_name.clone(),
+            Some(UpdateMetadataVersion::V1(ref v1)) => v1.group_name.clone(),
             None => return Err(IntentError::Generic("missing payload".to_string())),
         };
         let allow_list_account_addresses = match msg.version {
-            Some(UpdateMetadataVersion::V1(v1)) => v1
-                .allow_list_account_addresses.clone(),
+            Some(UpdateMetadataVersion::V1(v1)) => v1.allow_list_account_addresses.clone(),
             None => return Err(IntentError::Generic("missing payload".to_string())),
         };
 
@@ -420,7 +422,10 @@ mod tests {
         let wallet = generate_local_wallet();
         let account_address = wallet.get_address();
 
-        let intent = UpdateMetadataIntentData::new("group name".to_string(), vec![account_address.clone()].into());
+        let intent = UpdateMetadataIntentData::new(
+            "group name".to_string(),
+            vec![account_address.clone()].into(),
+        );
         let as_bytes: Vec<u8> = intent.clone().try_into().unwrap();
         let restored_intent = UpdateMetadataIntentData::from_bytes(as_bytes.as_slice()).unwrap();
 
