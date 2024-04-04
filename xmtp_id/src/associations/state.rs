@@ -1,10 +1,10 @@
 use std::collections::{HashMap, HashSet};
 
-use super::{hashes::generate_xid, member::Member, MemberIdentifier, MemberKind};
+use super::{hashes::generate_inbox_id, member::Member, MemberIdentifier, MemberKind};
 
 #[derive(Clone, Debug)]
 pub struct AssociationState {
-    xid: String,
+    inbox_id: String,
     members: HashMap<MemberIdentifier, Member>,
     recovery_address: String,
     seen_signatures: HashSet<Vec<u8>>,
@@ -51,8 +51,8 @@ impl AssociationState {
         self.members.values().cloned().collect()
     }
 
-    pub fn xid(&self) -> &String {
-        &self.xid
+    pub fn inbox_id(&self) -> &String {
+        &self.inbox_id
     }
 
     pub fn recovery_address(&self) -> &String {
@@ -76,7 +76,7 @@ impl AssociationState {
     }
 
     pub fn new(account_address: String, nonce: u64) -> Self {
-        let xid = generate_xid(&account_address, &nonce);
+        let inbox_id = generate_inbox_id(&account_address, &nonce);
         let identifier = MemberIdentifier::Address(account_address.clone());
         let new_member = Member::new(identifier.clone(), None);
         Self {
@@ -87,7 +87,7 @@ impl AssociationState {
             },
             seen_signatures: HashSet::new(),
             recovery_address: account_address,
-            xid,
+            inbox_id,
         }
     }
 }

@@ -7,6 +7,6 @@ pub fn sha256_string(input: String) -> String {
     format!("{:x}", result)
 }
 
-pub fn generate_xid(account_address: &String, nonce: &u64) -> String {
+pub fn generate_inbox_id(account_address: &String, nonce: &u64) -> String {
     sha256_string(format!("{}{}", account_address, nonce))
 }

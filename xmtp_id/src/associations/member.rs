@@ -13,6 +13,7 @@ impl std::fmt::Display for MemberKind {
     }
 }
 
+/// A MemberIdentifier can be either an Address or an Installation Public Key
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub enum MemberIdentifier {
     Address(String),
@@ -51,6 +52,7 @@ impl From<Vec<u8>> for MemberIdentifier {
     }
 }
 
+/// A Member of Inbox
 #[derive(Clone, Debug, PartialEq)]
 pub struct Member {
     pub identifier: MemberIdentifier,
