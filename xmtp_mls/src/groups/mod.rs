@@ -241,6 +241,24 @@ where
 
         let welcome = deserialize_welcome(&welcome_bytes)?;
 
+        // === Create Staged Welcome ===
+        let join_config = build_group_join_config();
+        let staged_welcome = StagedWelcome::new_from_welcome(
+            provider, 
+            &join_config,
+            welcome.clone(),
+            None
+        )
+        .expect("error created staged mls group");
+
+        // === Obtain address of welcome sender ===
+        // Note: .expect will be cleaned up before exiting DRAFT
+        let welcome_sender = staged_welcome
+            .welcome_sender()
+            .expect("couldn't determine the sender of welcome");
+
+        println!("{:?}", welcome_sender.credential());
+
         Self::create_from_welcome(client, provider, welcome)
     }
 
@@ -963,44 +981,18 @@ mod tests {
 
     #[tokio::test]
     async fn test_staged_welcome() {
-        println!("Begin stub_group_test");
-
-        // === Client Creation ===
         let amal = ClientBuilder::new_test_client(&generate_local_wallet()).await;
         let bola = ClientBuilder::new_test_client(&generate_local_wallet()).await;
 
-        // === Dependency Creation ===
-        let conn = &amal.store.conn().unwrap();
-        let provider = super::XmtpOpenMlsProvider::new(conn);
-
-        // === Amal creates a group ===
-        let amal_group = amal
-            .create_group(Some(PreconfiguredPolicies::GroupCreatorIsAdmin))
+        let amal_group = amal.create_group(None).unwrap();
+        // Add bola
+        amal_group
+            .add_members_by_installation_id(vec![bola.installation_public_key()])
+            .await
             .unwrap();
 
-        // === Amal provider ===    
-        let provider = amal.mls_provider(conn);
-
-        // === Amal group triple (WIP) ===
-        // TODO: Need to fulfill .add_members call site requirements
-        let (_queued_message, welcome, _group_info) = amal_group
-            .add_members(provider, &amal_signer, &[bola_kpb.key_package().clone()])
-            .expect("Could not add member to group.");
-
-        // === Amal join config (WIP) ===
-
-        // === Amal Welcome - MlsMessageIN (WIP) ===
-
-        // === Amal MlsMessageIN - into_welcome (WIP) ===
-
-        // === Stage Bola Group (WIP) ===
-
-        // === Staged Bola Group Welcome Sender (WIP) ===
-
-        // === Who Added Me Leaf Node Assertion (WIP) ===
-
-        // === Bola Group Assertion (WIP) ===
-
-        // === Amal / Bola Group Equality Assertion (WIP) ===
+        // Get bola's version of the same group
+        let bola_groups = bola.sync_welcomes().await.unwrap();
+        let bola_group = bola_groups.first().unwrap();
     }
 }
