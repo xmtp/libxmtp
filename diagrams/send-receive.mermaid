@@ -1,7 +1,6 @@
 sequenceDiagram
     participant Alice
     participant Bob
-    participant Charlie
     participant LibXMTP
     participant Node
 
@@ -10,7 +9,8 @@ sequenceDiagram
     LibXMTP->>Node: send-group-messages(SEND_MESSAGE:"Hello, group!")
 
     Note left of Alice: Receive Message
-    Bob->>+LibXMTP: group.messages()
-    LibXMTP->>+Node: query-group-messages(group_id)
-    Node-->>-LibXMTP: "Hello, group!"
-    LibXMTP->>-Bob: "Hello, group!"
+    Bob->>LibXMTP: group.sync()
+    LibXMTP->>Node: query-group-messages(group_id)
+    Node-->>LibXMTP: "Alice: Hello, group!"
+    Bob->>LibXMTP: group.find_messages()
+    LibXMTP-->>Bob: "Alice: Hello, group!"
