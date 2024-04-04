@@ -960,4 +960,47 @@ mod tests {
             .await
             .is_err(),);
     }
+
+    #[tokio::test]
+    async fn test_staged_welcome() {
+        println!("Begin stub_group_test");
+
+        // === Client Creation ===
+        let amal = ClientBuilder::new_test_client(&generate_local_wallet()).await;
+        let bola = ClientBuilder::new_test_client(&generate_local_wallet()).await;
+
+        // === Dependency Creation ===
+        let conn = &amal.store.conn().unwrap();
+        let provider = super::XmtpOpenMlsProvider::new(conn);
+
+        // === Amal creates a group ===
+        let amal_group = amal
+            .create_group(Some(PreconfiguredPolicies::GroupCreatorIsAdmin))
+            .unwrap();
+
+        // === Amal provider ===    
+        let provider = amal.mls_provider(conn);
+
+        // === Amal group triple (WIP) ===
+        // TODO: Need to fulfill .add_members call site requirements
+        let (_queued_message, welcome, _group_info) = amal_group
+            .add_members(provider, &amal_signer, &[bola_kpb.key_package().clone()])
+            .expect("Could not add member to group.");
+
+        // === Amal join config (WIP) ===
+
+        // === Amal Welcome - MlsMessageIN (WIP) ===
+
+        // === Amal MlsMessageIN - into_welcome (WIP) ===
+
+        // === Stage Bola Group (WIP) ===
+
+        // === Staged Bola Group Welcome Sender (WIP) ===
+
+        // === Who Added Me Leaf Node Assertion (WIP) ===
+
+        // === Bola Group Assertion (WIP) ===
+
+        // === Amal / Bola Group Equality Assertion (WIP) ===
+    }
 }
