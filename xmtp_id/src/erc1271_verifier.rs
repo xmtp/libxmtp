@@ -29,24 +29,23 @@ impl ERC1271Verifier {
     ///
     /// # Arguments
     ///
-    /// * `wallet_address` - Address of the ERC1271 wallet.
+    /// * `contract_address` - Address of the ERC1271 wallet.
     /// * `block_number` - Block number to verify the signature at.
     /// * `hash`, `signature` - Inputs to ERC-1271, used for signer verification.
     pub async fn is_valid_signature(
         &self,
-        wallet_address: Address,
+        contract_address: Address,
         block_number: Option<BlockNumber>,
         hash: [u8; 32],
         signature: Bytes,
     ) -> Result<bool, Error> {
-        let erc1271 = ERC1271::new(wallet_address, self.provider.clone());
+        let erc1271 = ERC1271::new(contract_address, self.provider.clone());
 
         let res: [u8; 4] = erc1271
             .is_valid_signature(hash, signature)
             .block(block_number.unwrap_or_default())
             .call()
-            .await?
-            .into();
+            .await?;
 
         Ok(res == EIP1271_MAGIC_VALUE)
     }
