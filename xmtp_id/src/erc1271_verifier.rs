@@ -20,7 +20,7 @@ pub struct ERC1271Verifier {
 }
 
 impl ERC1271Verifier {
-    pub fn new(url: &str) -> Self {
+    pub fn new(url: String) -> Self {
         let provider = Arc::new(Provider::<Http>::try_from(url).unwrap());
         Self { provider }
     }
@@ -49,5 +49,163 @@ impl ERC1271Verifier {
             .into();
 
         Ok(res == EIP1271_MAGIC_VALUE)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use ethers::{
+        abi::{self, encode, Token},
+        providers::{Http, Middleware, Provider},
+        types::{Bytes, H256, U256},
+        utils::AnvilInstance,
+    };
+
+    use ethers::{
+        core::utils::Anvil,
+        middleware::SignerMiddleware,
+        signers::{LocalWallet, Signer as _},
+    };
+    use futures::Future;
+    use std::{convert::TryFrom, sync::Arc};
+
+    abigen!(
+        CoinbaseSmartWallet,
+        "artifact/CoinbaseSmartWallet.json",
+        derives(serde::Serialize, serde::Deserialize)
+    );
+
+    abigen!(
+        CoinbaseSmartWalletFactory,
+        "artifact/CoinbaseSmartWalletFactory.json",
+        derives(serde::Serialize, serde::Deserialize)
+    );
+
+    #[tokio::test]
+    async fn test_coinbase_smart_wallet() {
+        let anvil = Anvil::new()
+            .args(vec!["--base-fee", "100"])
+            .spawn();
+        let owner0: LocalWallet = anvil.keys()[1].clone().into();
+        let owner1: LocalWallet = anvil.keys()[2].clone().into();
+        let owners = vec![
+            Bytes::from(H256::from(owner0.address()).0.to_vec()),
+            Bytes::from(H256::from(owner1.address()).0.to_vec()),
+        ];
+        let nonce = U256::from(0); // needed when creating a smart wallet
+        let provider = Provider::<Http>::try_from(anvil.endpoint()).unwrap();
+        let client = Arc::new(SignerMiddleware::new(
+            provider.clone(),
+            owner0.clone().with_chain_id(anvil.chain_id()),
+        ));
+        let verifier = ERC1271Verifier::new(anvil.endpoint());
+
+        // deploy a coinbase smart wallet as the implementation for factory
+        let implementation = CoinbaseSmartWallet::deploy(client.clone(), ())
+            .unwrap()
+            .gas_price(100)
+            .send()
+            .await
+            .unwrap();
+
+        // Deploy the factory
+        let factory = CoinbaseSmartWalletFactory::deploy(client.clone(), implementation.address())
+            .unwrap()
+            .gas_price(100)
+            .send()
+            .await
+            .unwrap();
+
+        let smart_wallet_address = factory.get_address(owners.clone(), nonce).await.unwrap();
+        let tx = factory.create_account(owners.clone(), nonce);
+        let pending_tx = tx.send().await.unwrap();
+        let _ = pending_tx.await.unwrap();
+
+        // Generate signatures from owners and verify them.
+        let smart_wallet = CoinbaseSmartWallet::new(smart_wallet_address, client.clone());
+        let hash: [u8; 32] = H256::random().into();
+        let replay_safe_hash = smart_wallet.replay_safe_hash(hash).call().await.unwrap();
+        // owner 0
+        let sig0 = owner0.sign_hash(replay_safe_hash.into()).unwrap();
+        let res = smart_wallet
+            .is_valid_signature(
+                hash,
+                abi::encode(&[Token::Tuple(vec![
+                    Token::Uint(U256::from(0)),
+                    Token::Bytes(sig0.to_vec()),
+                ])])
+                .into(),
+            )
+            .call()
+            .await
+            .unwrap();
+        assert_eq!(res, EIP1271_MAGIC_VALUE);
+        // owner1
+        let sig1 = owner1.sign_hash(replay_safe_hash.into()).unwrap();
+        let res = smart_wallet
+            .is_valid_signature(
+                hash,
+                encode(&[Token::Tuple(vec![
+                    Token::Uint(1.into()),
+                    Token::Bytes(sig1.to_vec()),
+                ])])
+                .into(),
+            )
+            .call()
+            .await
+            .unwrap();
+        assert_eq!(res, EIP1271_MAGIC_VALUE);
+        // owner0 siganture won't be seen valid as from owner 1
+        let res = smart_wallet
+            .is_valid_signature(
+                hash,
+                abi::encode(&[Token::Tuple(vec![
+                    Token::Uint(U256::from(1)),
+                    Token::Bytes(sig0.to_vec()),
+                ])])
+                .into(),
+            )
+            .call()
+            .await
+            .unwrap();
+        assert_ne!(res, EIP1271_MAGIC_VALUE);
+
+        // get block number before removing
+        let block_number = provider.get_block_number().await.unwrap();
+
+        // remove owner1 and check their signature
+        let tx = smart_wallet.remove_owner_at_index(1.into());
+        let pending_tx = tx.send().await.unwrap();
+        let _ = pending_tx.await.unwrap();
+
+        let res = smart_wallet
+            .is_valid_signature(
+                hash,
+                encode(&[Token::Tuple(vec![
+                    Token::Uint(1.into()),
+                    Token::Bytes(sig1.to_vec()),
+                ])])
+                .into(),
+            )
+            .call()
+            .await;
+        assert!(res.is_err());
+
+        // use pre-removal block number to verify owner1 signature
+        let res = smart_wallet
+            .is_valid_signature(
+                hash,
+                encode(&[Token::Tuple(vec![
+                    Token::Uint(1.into()),
+                    Token::Bytes(sig1.to_vec()),
+                ])])
+                .into(),
+            )
+            .block(block_number)
+            .call()
+            .await
+            .unwrap();
+        assert_eq!(res, EIP1271_MAGIC_VALUE);
     }
 }
