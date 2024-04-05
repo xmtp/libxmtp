@@ -15,6 +15,9 @@ jobs:
       - name: Update rust toolchain from rust-toolchain file
         run: rustup update
 
+      - name: Install Foundry
+        run: curl -L https://foundry.paradigm.xyz | bash
+
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: |
