@@ -16,11 +16,8 @@ jobs:
         run: rustup update
 
       - name: Install Foundry
-        run: |
-          curl -L https://foundry.paradigm.xyz | bash
-          source /home/runner/.bashrc
-          foundryup
-
+        uses: foundry-rs/foundry-toolchain@v1
+        
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: |
