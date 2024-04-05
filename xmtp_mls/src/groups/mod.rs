@@ -143,7 +143,7 @@ impl RetryableError for GroupError {
 pub struct MlsGroup<'c, ApiClient> {
     pub group_id: Vec<u8>,
     pub created_at_ns: i64,
-    pub host_id: Option<Vec<u8>>,
+    pub added_by_id: Option<Vec<u8>>,
     client: &'c Client<ApiClient>,
 }
 
@@ -153,7 +153,7 @@ impl<'c, ApiClient> Clone for MlsGroup<'c, ApiClient> {
             client: self.client,
             group_id: self.group_id.clone(),
             created_at_ns: self.created_at_ns,
-            host_id: self.host_id.clone(),
+            added_by_id: self.added_by_id.clone(),
         }
     }
 }
@@ -163,22 +163,12 @@ where
     ApiClient: XmtpMlsClient,
 {
     // Creates a new group instance. Does not validate that the group exists in the DB
-    pub fn new(client: &'c Client<ApiClient>, group_id: Vec<u8>, created_at_ns: i64) -> Self {
+    pub fn new(client: &'c Client<ApiClient>, group_id: Vec<u8>, created_at_ns: i64, added_by_id: Option<Vec<u8>>) -> Self {
         Self {
             client,
             group_id,
             created_at_ns,
-            host_id: None,
-        }
-    }
-
-    // Creates a new group instance with the Welcome host_id. Does not validate that the group exists in the DB
-    pub fn new_with_host_id(client: &'c Client<ApiClient>, group_id: Vec<u8>, created_at_ns: i64, host_id: Option<Vec<u8>>) -> Self {
-        Self {
-            client,
-            group_id,
-            created_at_ns,
-            host_id,
+            added_by_id,
         }
     }
 
@@ -219,7 +209,7 @@ where
         let group_id = mls_group.group_id().to_vec();
         let stored_group = StoredGroup::new(group_id.clone(), now_ns(), membership_state);
         stored_group.store(provider.conn())?;
-        Ok(Self::new(client, group_id, stored_group.created_at_ns))
+        Ok(Self::new(client, group_id, stored_group.created_at_ns, None))
     }
 
     // Create a group from a decrypted and decoded welcome message
@@ -228,7 +218,7 @@ where
         client: &'c Client<ApiClient>,
         provider: &XmtpOpenMlsProvider,
         welcome: MlsWelcome,
-        host_id: Option<Vec<u8>>,
+        added_by_id: Option<Vec<u8>>,
     ) -> Result<Self, GroupError> {
         let mls_welcome =
             StagedWelcome::new_from_welcome(provider, &build_group_join_config(), welcome, None)?;
@@ -240,11 +230,11 @@ where
         let to_store = StoredGroup::new(group_id, now_ns(), GroupMembershipState::Pending);
         let stored_group = provider.conn().insert_or_ignore_group(to_store)?;
 
-        Ok(Self::new_with_host_id(
+        Ok(Self::new(
             client,
             stored_group.id,
             stored_group.created_at_ns,
-            host_id,
+            added_by_id,
         ))
     }
 
@@ -260,6 +250,7 @@ where
         let welcome = deserialize_welcome(&welcome_bytes)?;
 
         // === Create Staged Welcome ===
+        // Note: .expect will be cleaned up before exiting DRAFT
         let join_config = build_group_join_config();
         let staged_welcome = StagedWelcome::new_from_welcome(
             provider, 
@@ -271,14 +262,14 @@ where
 
         // === Obtain address of welcome sender ===
         // Note: .expect will be cleaned up before exiting DRAFT
-        let welcome_sender = staged_welcome
+        let added_by_node = staged_welcome
             .welcome_sender()
             .expect("couldn't determine the sender of welcome");
 
-        let host_credential = BasicCredential::try_from(welcome_sender.credential())?;
-        let host_id = host_credential.identity().to_vec();
+        let added_by_credential = BasicCredential::try_from(added_by_node.credential())?;
+        let added_by_id = added_by_credential.identity().to_vec();
 
-        Self::create_from_welcome(client, provider, welcome, Some(host_id))
+        Self::create_from_welcome(client, provider, welcome, Some(added_by_id))
     }
 
     fn into_envelope(encoded_msg: &[u8], idempotency_key: &str) -> PlaintextEnvelope {
@@ -1022,7 +1013,7 @@ mod tests {
         let bola_group = bola_groups.first().unwrap();
 
         // Check Bola's group for the welcome host_id
-        let host_id: Vec<u8> = bola_group.host_id.clone().unwrap();
+        let host_id: Vec<u8> = bola_group.added_by_id.clone().unwrap();
         let host_basic_credential = BasicCredential::new(host_id).unwrap();
         let host_credential = Credential::from(host_basic_credential);
 

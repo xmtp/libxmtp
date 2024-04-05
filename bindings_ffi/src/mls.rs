@@ -340,6 +340,7 @@ impl FfiGroup {
             self.inner_client.as_ref(),
             self.group_id.clone(),
             self.created_at_ns,
+            None,
         );
 
         group.send_message(content_bytes.as_slice()).await?;
@@ -352,6 +353,7 @@ impl FfiGroup {
             self.inner_client.as_ref(),
             self.group_id.clone(),
             self.created_at_ns,
+            None,
         );
 
         group.sync().await?;
@@ -367,6 +369,7 @@ impl FfiGroup {
             self.inner_client.as_ref(),
             self.group_id.clone(),
             self.created_at_ns,
+            None,
         );
 
         let messages: Vec<FfiMessage> = group
@@ -392,6 +395,7 @@ impl FfiGroup {
             self.inner_client.as_ref(),
             self.group_id.clone(),
             self.created_at_ns,
+            None,            
         );
         let message = group.process_streamed_group_message(envelope_bytes).await?;
         let ffi_message = message.into();
@@ -404,6 +408,7 @@ impl FfiGroup {
             self.inner_client.as_ref(),
             self.group_id.clone(),
             self.created_at_ns,
+            None,
         );
 
         let members: Vec<FfiGroupMember> = group
@@ -425,6 +430,7 @@ impl FfiGroup {
             self.inner_client.as_ref(),
             self.group_id.clone(),
             self.created_at_ns,
+            None,
         );
 
         group.add_members(account_addresses).await?;
@@ -437,6 +443,7 @@ impl FfiGroup {
             self.inner_client.as_ref(),
             self.group_id.clone(),
             self.created_at_ns,
+            None,
         );
 
         group.remove_members(account_addresses).await?;
@@ -472,6 +479,7 @@ impl FfiGroup {
             self.inner_client.as_ref(),
             self.group_id.clone(),
             self.created_at_ns,
+            None,
         );
 
         Ok(group.is_active()?)
@@ -482,6 +490,7 @@ impl FfiGroup {
             self.inner_client.as_ref(),
             self.group_id.clone(),
             self.created_at_ns,
+            None,
         );
 
         let metadata = group.metadata()?;
