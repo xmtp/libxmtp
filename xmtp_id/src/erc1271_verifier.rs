@@ -1,6 +1,6 @@
 use anyhow::Error;
 use ethers::contract::abigen;
-use ethers::providers::{Http, Middleware, Provider};
+use ethers::providers::{Http, Provider};
 use ethers::types::{Address, BlockNumber, Bytes};
 use std::convert::TryFrom;
 use std::sync::Arc;
@@ -32,10 +32,10 @@ impl ERC1271Verifier {
     /// * `wallet_address` - Address of the ERC1271 wallet.
     /// * `block_number` - Block number to verify the signature at.
     /// * `hash`, `signature` - Inputs to ERC-1271, used for signer verification.
-    pub async fn is_valid_signature<M: Middleware>(
+    pub async fn is_valid_signature(
         &self,
         wallet_address: Address,
-        block_number: BlockNumber,
+        block_number: Option<BlockNumber>,
         hash: [u8; 32],
         signature: Bytes,
     ) -> Result<bool, Error> {
@@ -43,7 +43,7 @@ impl ERC1271Verifier {
 
         let res: [u8; 4] = erc1271
             .is_valid_signature(hash, signature)
-            .block(block_number)
+            .block(block_number.unwrap_or_default())
             .call()
             .await?
             .into();
@@ -56,10 +56,9 @@ impl ERC1271Verifier {
 mod tests {
     use super::*;
     use ethers::{
-        abi::{self, encode, Token},
+        abi::{self, Token},
         providers::{Http, Middleware, Provider},
         types::{Bytes, H256, U256},
-        utils::AnvilInstance,
     };
 
     use ethers::{
@@ -67,7 +66,6 @@ mod tests {
         middleware::SignerMiddleware,
         signers::{LocalWallet, Signer as _},
     };
-    use futures::Future;
     use std::{convert::TryFrom, sync::Arc};
 
     abigen!(
@@ -84,9 +82,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_coinbase_smart_wallet() {
-        let anvil = Anvil::new()
-            .args(vec!["--base-fee", "100"])
-            .spawn();
+        let anvil = Anvil::new().args(vec!["--base-fee", "100"]).spawn();
         let owner0: LocalWallet = anvil.keys()[1].clone().into();
         let owner1: LocalWallet = anvil.keys()[2].clone().into();
         let owners = vec![
@@ -128,8 +124,11 @@ mod tests {
         let replay_safe_hash = smart_wallet.replay_safe_hash(hash).call().await.unwrap();
         // owner 0
         let sig0 = owner0.sign_hash(replay_safe_hash.into()).unwrap();
-        let res = smart_wallet
+
+        let res = verifier
             .is_valid_signature(
+                smart_wallet_address,
+                None,
                 hash,
                 abi::encode(&[Token::Tuple(vec![
                     Token::Uint(U256::from(0)),
@@ -137,28 +136,30 @@ mod tests {
                 ])])
                 .into(),
             )
-            .call()
             .await
             .unwrap();
-        assert_eq!(res, EIP1271_MAGIC_VALUE);
+        assert_eq!(res, true);
         // owner1
         let sig1 = owner1.sign_hash(replay_safe_hash.into()).unwrap();
-        let res = smart_wallet
+        let res = verifier
             .is_valid_signature(
+                smart_wallet_address,
+                None,
                 hash,
-                encode(&[Token::Tuple(vec![
-                    Token::Uint(1.into()),
+                abi::encode(&[Token::Tuple(vec![
+                    Token::Uint(U256::from(1)),
                     Token::Bytes(sig1.to_vec()),
                 ])])
                 .into(),
             )
-            .call()
             .await
             .unwrap();
-        assert_eq!(res, EIP1271_MAGIC_VALUE);
-        // owner0 siganture won't be seen valid as from owner 1
-        let res = smart_wallet
+        assert_eq!(res, true);
+        // owner0 siganture won't be deemed as signed by owner1
+        let res = verifier
             .is_valid_signature(
+                smart_wallet_address,
+                None,
                 hash,
                 abi::encode(&[Token::Tuple(vec![
                     Token::Uint(U256::from(1)),
@@ -166,10 +167,9 @@ mod tests {
                 ])])
                 .into(),
             )
-            .call()
             .await
             .unwrap();
-        assert_ne!(res, EIP1271_MAGIC_VALUE);
+        assert_eq!(res, false);
 
         // get block number before removing
         let block_number = provider.get_block_number().await.unwrap();
@@ -179,33 +179,34 @@ mod tests {
         let pending_tx = tx.send().await.unwrap();
         let _ = pending_tx.await.unwrap();
 
-        let res = smart_wallet
+        let res = verifier
             .is_valid_signature(
+                smart_wallet_address,
+                None,
                 hash,
-                encode(&[Token::Tuple(vec![
-                    Token::Uint(1.into()),
+                abi::encode(&[Token::Tuple(vec![
+                    Token::Uint(U256::from(1)),
                     Token::Bytes(sig1.to_vec()),
                 ])])
                 .into(),
             )
-            .call()
             .await;
-        assert!(res.is_err());
+        assert!(res.is_err()); // when verify a non-existing owner, it errors
 
         // use pre-removal block number to verify owner1 signature
-        let res = smart_wallet
+        let res = verifier
             .is_valid_signature(
+                smart_wallet_address,
+                Some(BlockNumber::Number(block_number)),
                 hash,
-                encode(&[Token::Tuple(vec![
-                    Token::Uint(1.into()),
+                abi::encode(&[Token::Tuple(vec![
+                    Token::Uint(U256::from(1)),
                     Token::Bytes(sig1.to_vec()),
                 ])])
                 .into(),
             )
-            .block(block_number)
-            .call()
             .await
             .unwrap();
-        assert_eq!(res, EIP1271_MAGIC_VALUE);
+        assert_eq!(res, true);
     }
 }
