@@ -90,7 +90,6 @@ impl IdentityAction for CreateInbox {
 
 /// AddAssociation Action
 pub struct AddAssociation {
-    pub client_timestamp_ns: u64,
     pub new_member_signature: Box<dyn Signature>,
     pub new_member_identifier: MemberIdentifier,
     pub existing_member_signature: Box<dyn Signature>,
@@ -187,7 +186,6 @@ impl IdentityAction for AddAssociation {
 
 /// RevokeAssociation Action
 pub struct RevokeAssociation {
-    pub client_timestamp_ns: u64,
     pub recovery_address_signature: Box<dyn Signature>,
     pub revoked_member: MemberIdentifier,
 }
@@ -240,7 +238,6 @@ impl IdentityAction for RevokeAssociation {
 
 /// ChangeRecoveryAddress Action
 pub struct ChangeRecoveryAddress {
-    pub client_timestamp_ns: u64,
     pub recovery_address_signature: Box<dyn Signature>,
     pub new_recovery_address: String,
 }
@@ -306,12 +303,16 @@ impl IdentityAction for Action {
 
 /// An `IdentityUpdate` contains one or more Actions that can be applied to the AssociationState
 pub struct IdentityUpdate {
+    pub client_timestamp_ns: u64,
     pub actions: Vec<Action>,
 }
 
 impl IdentityUpdate {
-    pub fn new(actions: Vec<Action>) -> Self {
-        Self { actions }
+    pub fn new(actions: Vec<Action>, client_timestamp_ns: u64) -> Self {
+        Self {
+            actions,
+            client_timestamp_ns,
+        }
     }
 }
 

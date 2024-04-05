@@ -5,6 +5,7 @@ mod signature;
 mod state;
 #[cfg(test)]
 mod test_utils;
+mod unsigned_actions;
 
 pub use self::association_log::*;
 pub use self::member::{Member, MemberIdentifier, MemberKind};
@@ -44,6 +45,12 @@ mod tests {
         signer_identity: MemberIdentifier,
         signature_kind: SignatureKind,
         signature_nonce: u64,
+    }
+
+    impl IdentityUpdate {
+        pub fn new_test(actions: Vec<Action>) -> Self {
+            Self::new(actions, rand_u64())
+        }
     }
 
     impl MockSignature {
@@ -88,7 +95,6 @@ mod tests {
             let existing_member = rand_string();
             let new_member = rand_vec();
             return Self {
-                client_timestamp_ns: rand_u64(),
                 existing_member_signature: MockSignature::new_boxed(
                     true,
                     existing_member.into(),
@@ -127,7 +133,6 @@ mod tests {
         fn default() -> Self {
             let signer = rand_string();
             return Self {
-                client_timestamp_ns: rand_u64(),
                 recovery_address_signature: MockSignature::new_boxed(
                     true,
                     signer.into(),
@@ -141,7 +146,7 @@ mod tests {
 
     fn new_test_inbox() -> AssociationState {
         let create_request = CreateInbox::default();
-        let identity_update = IdentityUpdate::new(vec![Action::CreateInbox(create_request)]);
+        let identity_update = IdentityUpdate::new_test(vec![Action::CreateInbox(create_request)]);
 
         get_state(vec![identity_update]).unwrap()
     }
@@ -161,14 +166,14 @@ mod tests {
             ..Default::default()
         });
 
-        apply_update(initial_state, IdentityUpdate::new(vec![update])).unwrap()
+        apply_update(initial_state, IdentityUpdate::new_test(vec![update])).unwrap()
     }
 
     #[test]
     fn test_create_inbox() {
         let create_request = CreateInbox::default();
         let account_address = create_request.account_address.clone();
-        let identity_update = IdentityUpdate::new(vec![Action::CreateInbox(create_request)]);
+        let identity_update = IdentityUpdate::new_test(vec![Action::CreateInbox(create_request)]);
         let state = get_state(vec![identity_update]).unwrap();
         assert_eq!(state.members().len(), 1);
 
@@ -199,7 +204,8 @@ mod tests {
             ..Default::default()
         });
 
-        let new_state = apply_update(initial_state, IdentityUpdate::new(vec![update])).unwrap();
+        let new_state =
+            apply_update(initial_state, IdentityUpdate::new_test(vec![update])).unwrap();
         assert_eq!(new_state.members().len(), 2);
 
         let new_member = new_state.get(&new_installation_identifier).unwrap();
@@ -228,7 +234,7 @@ mod tests {
             new_member_identifier: new_member_identifier.clone(),
             ..Default::default()
         };
-        let identity_update = IdentityUpdate::new(vec![
+        let identity_update = IdentityUpdate::new_test(vec![
             Action::CreateInbox(create_action),
             Action::AddAssociation(add_action),
         ]);
@@ -253,7 +259,7 @@ mod tests {
                 Some(0),
             ),
         };
-        let state = get_state(vec![IdentityUpdate::new(vec![Action::CreateInbox(
+        let state = get_state(vec![IdentityUpdate::new_test(vec![Action::CreateInbox(
             create_action,
         )])])
         .unwrap();
@@ -270,7 +276,7 @@ mod tests {
             ),
             ..Default::default()
         });
-        let update_result = apply_update(state, IdentityUpdate::new(vec![update]));
+        let update_result = apply_update(state, IdentityUpdate::new_test(vec![update]));
         assert!(update_result.is_err());
         assert_eq!(update_result.err().unwrap(), AssociationError::Replay);
     }
@@ -303,8 +309,11 @@ mod tests {
             ..Default::default()
         });
 
-        let new_state = apply_update(initial_state, IdentityUpdate::new(vec![add_association]))
-            .expect("expected update to succeed");
+        let new_state = apply_update(
+            initial_state,
+            IdentityUpdate::new_test(vec![add_association]),
+        )
+        .expect("expected update to succeed");
         assert_eq!(new_state.members().len(), 3);
     }
 
@@ -317,7 +326,9 @@ mod tests {
             ..Default::default()
         };
 
-        let state_result = get_state(vec![IdentityUpdate::new(vec![Action::CreateInbox(action)])]);
+        let state_result = get_state(vec![IdentityUpdate::new_test(vec![Action::CreateInbox(
+            action,
+        )])]);
         assert!(state_result.is_err());
         assert_eq!(
             state_result.err().unwrap(),
@@ -338,7 +349,7 @@ mod tests {
 
         let update_result = apply_update(
             initial_state.clone(),
-            IdentityUpdate::new(vec![update_with_bad_existing_member]),
+            IdentityUpdate::new_test(vec![update_with_bad_existing_member]),
         );
         assert!(update_result.is_err());
         assert_eq!(
@@ -359,7 +370,7 @@ mod tests {
 
         let update_result_2 = apply_update(
             initial_state,
-            IdentityUpdate::new(vec![update_with_bad_new_member]),
+            IdentityUpdate::new_test(vec![update_with_bad_new_member]),
         );
         assert!(update_result_2.is_err());
         assert_eq!(
@@ -383,7 +394,7 @@ mod tests {
             ..Default::default()
         });
 
-        let state_result = get_state(vec![IdentityUpdate::new(vec![create_request, update])]);
+        let state_result = get_state(vec![IdentityUpdate::new_test(vec![create_request, update])]);
         assert!(state_result.is_err());
         assert_eq!(
             state_result.err().unwrap(),
@@ -415,7 +426,7 @@ mod tests {
             ..Default::default()
         });
 
-        let update_result = apply_update(existing_state, IdentityUpdate::new(vec![update]));
+        let update_result = apply_update(existing_state, IdentityUpdate::new_test(vec![update]));
         assert!(update_result.is_err());
         assert_eq!(
             update_result.err().unwrap(),
@@ -446,7 +457,7 @@ mod tests {
             ..Default::default()
         });
 
-        let new_state = apply_update(initial_state, IdentityUpdate::new(vec![update]))
+        let new_state = apply_update(initial_state, IdentityUpdate::new_test(vec![update]))
             .expect("expected update to succeed");
         assert!(new_state.get(&installation_id).is_none());
     }
@@ -473,7 +484,7 @@ mod tests {
 
         let new_state = apply_update(
             initial_state,
-            IdentityUpdate::new(vec![add_second_installation]),
+            IdentityUpdate::new_test(vec![add_second_installation]),
         )
         .expect("expected update to succeed");
         assert_eq!(new_state.members().len(), 3);
@@ -490,7 +501,7 @@ mod tests {
         });
 
         // With this revocation the original wallet + both installations should be gone
-        let new_state = apply_update(new_state, IdentityUpdate::new(vec![revocation]))
+        let new_state = apply_update(new_state, IdentityUpdate::new_test(vec![revocation]))
             .expect("expected update to succeed");
         assert_eq!(new_state.members().len(), 0);
     }
@@ -536,7 +547,7 @@ mod tests {
 
         let state_after_remove = apply_update(
             initial_state,
-            IdentityUpdate::new(vec![add_second_wallet, revoke_second_wallet]),
+            IdentityUpdate::new_test(vec![add_second_wallet, revoke_second_wallet]),
         )
         .expect("expected update to succeed");
         assert_eq!(state_after_remove.members().len(), 1);
@@ -560,7 +571,7 @@ mod tests {
 
         let state_after_re_add = apply_update(
             state_after_remove,
-            IdentityUpdate::new(vec![add_second_wallet_again]),
+            IdentityUpdate::new_test(vec![add_second_wallet_again]),
         )
         .expect("expected update to succeed");
         assert_eq!(state_after_re_add.members().len(), 2);
@@ -573,7 +584,6 @@ mod tests {
             initial_state.recovery_address().clone().into();
         let new_recovery_address = rand_string();
         let update_recovery = Action::ChangeRecoveryAddress(ChangeRecoveryAddress {
-            client_timestamp_ns: rand_u64(),
             new_recovery_address: new_recovery_address.clone(),
             recovery_address_signature: MockSignature::new_boxed(
                 true,
@@ -583,8 +593,11 @@ mod tests {
             ),
         });
 
-        let new_state = apply_update(initial_state, IdentityUpdate::new(vec![update_recovery]))
-            .expect("expected update to succeed");
+        let new_state = apply_update(
+            initial_state,
+            IdentityUpdate::new_test(vec![update_recovery]),
+        )
+        .expect("expected update to succeed");
         assert_eq!(new_state.recovery_address(), &new_recovery_address);
 
         let attempted_revoke = Action::RevokeAssociation(RevokeAssociation {
@@ -598,7 +611,8 @@ mod tests {
             ..Default::default()
         });
 
-        let revoke_result = apply_update(new_state, IdentityUpdate::new(vec![attempted_revoke]));
+        let revoke_result =
+            apply_update(new_state, IdentityUpdate::new_test(vec![attempted_revoke]));
         assert!(revoke_result.is_err());
         assert_eq!(
             revoke_result.err().unwrap(),
