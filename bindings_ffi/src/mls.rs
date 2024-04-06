@@ -19,7 +19,7 @@ use xmtp_mls::{
     client::Client as MlsClient,
     groups::MlsGroup,
     storage::{
-        group_message::StoredGroupMessage, EncryptedMessageStore, EncryptionKey, StorageOption,
+        group_message::StoredGroupMessage, EncryptedMessageStore, EncryptionKey, StorageOption, group_message::GroupMessageKind,
     },
     types::Address,
 };
@@ -485,16 +485,16 @@ impl FfiGroup {
 }
 
 #[derive(uniffi::Enum)]
-pub enum GroupMessageKind {
-    Application = 1,
-    MembershipChange = 2,
+pub enum FfiGroupMessageKind {
+    Application,
+    MembershipChange,
 }
 
-impl GroupMessageKind {
-    pub fn to_int(&self) -> i32 {
-        match self {
-            Self::Application => 1,
-            Self::MembershipChange => 2,
+impl From<GroupMessageKind> for FfiGroupMessageKind {
+    fn from(kind: GroupMessageKind) -> Self {
+        match kind {
+            GroupMessageKind::Application => FfiGroupMessageKind::Application,
+            GroupMessageKind::MembershipChange => FfiGroupMessageKind::MembershipChange,
         }
     }
 }
@@ -506,7 +506,7 @@ pub struct FfiMessage {
     pub convo_id: Vec<u8>,
     pub addr_from: String,
     pub content: Vec<u8>,
-    pub kind: GroupMessageKind,
+    pub kind: FfiGroupMessageKind,
 }
 
 impl From<StoredGroupMessage> for FfiMessage {
@@ -517,7 +517,7 @@ impl From<StoredGroupMessage> for FfiMessage {
             convo_id: msg.group_id,
             addr_from: msg.sender_account_address,
             content: msg.decrypted_message_bytes,
-            kind: msg.kind,
+            kind: msg.kind.into(),
         }
     }
 }
