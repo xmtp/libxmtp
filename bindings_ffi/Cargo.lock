@@ -5383,7 +5383,6 @@ dependencies = [
  "pbjson-types 0.5.1",
  "prost 0.12.3",
  "serde",
- "serde_json",
  "tokio",
  "tonic",
  "tower",
@@ -5474,9 +5473,7 @@ name = "xmtp_v2"
 version = "0.1.0"
 dependencies = [
  "aes-gcm",
- "chrono",
  "ecdsa 0.15.1",
- "ethers-core",
  "generic-array",
  "getrandom",
  "hex",
@@ -5484,11 +5481,8 @@ dependencies = [
  "k256 0.12.0",
  "rand",
  "rand_chacha",
- "rlp",
- "serde",
  "sha2",
  "sha3",
- "thiserror",
 ]
 
 [[package]]
