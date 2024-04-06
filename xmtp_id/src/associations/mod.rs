@@ -3,6 +3,7 @@ pub mod builder;
 mod hashes;
 mod member;
 mod signature;
+mod signer;
 mod state;
 #[cfg(test)]
 mod test_utils;
