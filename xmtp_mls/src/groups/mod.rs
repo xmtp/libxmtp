@@ -15,11 +15,12 @@ use openmls::{
         UnknownExtension,
     },
     group::{
-        CommitToPendingProposalsError, MlsGroupCreateConfig, MlsGroupJoinConfig, ProposalError,
+        CommitToPendingProposalsError, MergePendingCommitError, MlsGroupCreateConfig,
+        MlsGroupJoinConfig, ProposalError,
     },
     prelude::{
-        CredentialWithKey, CryptoConfig, Error as TlsCodecError, GroupId, MlsGroup as OpenMlsGroup,
-        StagedWelcome, Welcome as MlsWelcome, WireFormatPolicy,
+        Capabilities, CredentialWithKey, CryptoConfig, Error as TlsCodecError, GroupId,
+        MlsGroup as OpenMlsGroup, StagedWelcome, Welcome as MlsWelcome, WireFormatPolicy,
     },
 };
 use openmls_traits::OpenMlsProvider;
@@ -140,6 +141,8 @@ pub enum GroupError {
     ProposalError(#[from] ProposalError<()>),
     #[error("commit to pending proposal error: {0}")]
     CommitToPendingProposalsError(#[from] CommitToPendingProposalsError<StorageError>),
+    #[error("merge pending commit error: {0}")]
+    MergePendingCommitError(#[from] MergePendingCommitError<StorageError>),
 }
 
 impl RetryableError for GroupError {
@@ -533,18 +536,30 @@ fn build_group_config(
     protected_metadata_extension: Extension,
     mutable_metadata_extension: Extension,
 ) -> Result<MlsGroupCreateConfig, GroupError> {
-    let mut extensions = Extensions::single(protected_metadata_extension);
-    extensions.add(mutable_metadata_extension)?;
+    let required_extension_types = &[
+        ExtensionType::Unknown(0xff11),
+        ExtensionType::ImmutableMetadata,
+        ExtensionType::LastResort,
+        ExtensionType::ApplicationId,
+    ];
 
-    let rc_extensions = &[ExtensionType::Unknown(0xff11)];
+    let capabilities = Capabilities::new(None, None, Some(required_extension_types), None, None);
     let proposals = &[];
     let credentials = &[CredentialType::Basic];
-    let required_capabilities =
-        RequiredCapabilitiesExtension::new(rc_extensions, proposals, credentials);
 
-    let _ = extensions.add(Extension::RequiredCapabilities(required_capabilities))?;
+    let required_capabilities = Extension::RequiredCapabilities(
+        RequiredCapabilitiesExtension::new(required_extension_types, proposals, credentials),
+    );
+
+    let extensions = Extensions::from_vec(vec![
+        protected_metadata_extension,
+        mutable_metadata_extension,
+        required_capabilities,
+    ])?;
+
     Ok(MlsGroupCreateConfig::builder()
         .with_group_context_extensions(extensions)?
+        .capabilities(capabilities)
         .crypto_config(CryptoConfig::with_default_version(CIPHERSUITE))
         .wire_format_policy(WireFormatPolicy::default())
         .max_past_epochs(3) // Trying with 3 max past epochs for now

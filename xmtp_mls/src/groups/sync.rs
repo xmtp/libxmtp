@@ -34,6 +34,7 @@ use super::{
     intents::{
         AddMembersIntentData, AddressesOrInstallationIds, Installation, PostCommitAction,
         RemoveMembersIntentData, SendMessageIntentData, SendWelcomesAction,
+        UpdateMetadataIntentData,
     },
     members::GroupMember,
     GroupError, MlsGroup,
@@ -659,8 +660,9 @@ where
                 Ok((commit.tls_serialize_detached()?, None))
             }
             IntentKind::MetadataUpdate => {
+                let metadata_intent = UpdateMetadataIntentData::from_bytes(intent.data.as_slice())?;
                 let mutable_metadata = build_mutable_metadata_extension(
-                    "New Group".to_string(),
+                    metadata_intent.group_name,
                     vec![self.client.account_address().clone()],
                 )?;
                 let mut extensions = openmls_group.extensions().clone();
