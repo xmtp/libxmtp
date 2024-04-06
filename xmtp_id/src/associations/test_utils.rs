@@ -1,5 +1,13 @@
 use rand::{distributions::Alphanumeric, Rng};
 
+use super::{
+    // signer::{Signer, SignerClone, SignerError},
+    MemberIdentifier,
+    Signature,
+    SignatureError,
+    SignatureKind,
+};
+
 pub fn rand_string() -> String {
     let v: String = rand::thread_rng()
         .sample_iter(&Alphanumeric)
@@ -19,3 +27,81 @@ pub fn rand_vec() -> Vec<u8> {
     rand::thread_rng().fill(&mut buf[..]);
     buf.to_vec()
 }
+
+#[derive(Clone)]
+pub struct MockSignature {
+    is_valid: bool,
+    signer_identity: MemberIdentifier,
+    signature_kind: SignatureKind,
+    signature_nonce: String,
+}
+
+impl MockSignature {
+    pub fn new_boxed(
+        is_valid: bool,
+        signer_identity: MemberIdentifier,
+        signature_kind: SignatureKind,
+        // Signature nonce is used to control what the signature bytes are
+        // Defaults to random
+        signature_nonce: Option<String>,
+    ) -> Box<Self> {
+        let nonce = signature_nonce.unwrap_or(rand_string());
+        Box::new(Self {
+            is_valid,
+            signer_identity,
+            signature_kind,
+            signature_nonce: nonce,
+        })
+    }
+}
+
+impl Signature for MockSignature {
+    fn signature_kind(&self) -> SignatureKind {
+        self.signature_kind.clone()
+    }
+
+    fn recover_signer(&self) -> Result<MemberIdentifier, SignatureError> {
+        match self.is_valid {
+            true => Ok(self.signer_identity.clone()),
+            false => Err(SignatureError::Invalid),
+        }
+    }
+
+    fn bytes(&self) -> Vec<u8> {
+        let sig = format!("{}{}", self.signer_identity, self.signature_nonce);
+        sig.as_bytes().to_vec()
+    }
+}
+
+// #[derive(Clone)]
+// pub struct MockSigner {
+//     identity: MemberIdentifier,
+//     signature_kind: SignatureKind,
+// }
+
+// impl Signer for MockSigner {
+//     fn signature_kind(&self) -> SignatureKind {
+//         self.signature_kind.clone()
+//     }
+//     fn signer_identity(&self) -> MemberIdentifier {
+//         self.identity.clone()
+//     }
+
+//     fn sign(&self, text: &str) -> Result<Box<dyn Signature>, SignerError> {
+//         Ok(MockSignature::new_boxed(
+//             true,
+//             self.signer_identity(),
+//             self.signature_kind(),
+//             Some(text.to_string()),
+//         ))
+//     }
+// }
+
+// impl MockSigner {
+//     pub fn new_boxed(identity: MemberIdentifier, signature_kind: SignatureKind) -> Box<Self> {
+//         Box::new(Self {
+//             identity,
+//             signature_kind,
+//         })
+//     }
+// }

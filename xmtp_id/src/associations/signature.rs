@@ -28,8 +28,27 @@ impl std::fmt::Display for SignatureKind {
     }
 }
 
-pub trait Signature {
+pub trait Signature: SignatureClone {
     fn recover_signer(&self) -> Result<MemberIdentifier, SignatureError>;
     fn signature_kind(&self) -> SignatureKind;
     fn bytes(&self) -> Vec<u8>;
+}
+
+pub trait SignatureClone {
+    fn clone_box(&self) -> Box<dyn Signature>;
+}
+
+impl<T> SignatureClone for T
+where
+    T: 'static + Signature + Clone,
+{
+    fn clone_box(&self) -> Box<dyn Signature> {
+        Box::new(self.clone())
+    }
+}
+
+impl Clone for Box<dyn Signature> {
+    fn clone(&self) -> Box<dyn Signature> {
+        self.clone_box()
+    }
 }
