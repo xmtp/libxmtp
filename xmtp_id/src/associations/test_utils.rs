@@ -1,12 +1,6 @@
 use rand::{distributions::Alphanumeric, Rng};
 
-use super::{
-    // signer::{Signer, SignerClone, SignerError},
-    MemberIdentifier,
-    Signature,
-    SignatureError,
-    SignatureKind,
-};
+use super::{MemberIdentifier, Signature, SignatureError, SignatureKind};
 
 pub fn rand_string() -> String {
     let v: String = rand::thread_rng()
@@ -72,36 +66,3 @@ impl Signature for MockSignature {
         sig.as_bytes().to_vec()
     }
 }
-
-// #[derive(Clone)]
-// pub struct MockSigner {
-//     identity: MemberIdentifier,
-//     signature_kind: SignatureKind,
-// }
-
-// impl Signer for MockSigner {
-//     fn signature_kind(&self) -> SignatureKind {
-//         self.signature_kind.clone()
-//     }
-//     fn signer_identity(&self) -> MemberIdentifier {
-//         self.identity.clone()
-//     }
-
-//     fn sign(&self, text: &str) -> Result<Box<dyn Signature>, SignerError> {
-//         Ok(MockSignature::new_boxed(
-//             true,
-//             self.signer_identity(),
-//             self.signature_kind(),
-//             Some(text.to_string()),
-//         ))
-//     }
-// }
-
-// impl MockSigner {
-//     pub fn new_boxed(identity: MemberIdentifier, signature_kind: SignatureKind) -> Box<Self> {
-//         Box::new(Self {
-//             identity,
-//             signature_kind,
-//         })
-//     }
-// }

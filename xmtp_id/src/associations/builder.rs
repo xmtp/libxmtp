@@ -247,7 +247,7 @@ fn build_action(
                 .get(&SignatureField::InitialAddress)
                 .ok_or(SignatureRequestError::MissingSigner)?;
             let initial_address_signature = signatures
-                .get(&signer_identity)
+                .get(signer_identity)
                 .cloned()
                 .ok_or(SignatureRequestError::MissingSigner)?;
 
@@ -268,12 +268,12 @@ fn build_action(
                 .ok_or(SignatureRequestError::MissingSigner)?;
 
             let existing_member_signature = signatures
-                .get(&existing_member_signer_identity)
+                .get(existing_member_signer_identity)
                 .cloned()
                 .ok_or(SignatureRequestError::MissingSigner)?;
 
             let new_member_signature = signatures
-                .get(&new_member_signer_identity)
+                .get(new_member_signer_identity)
                 .cloned()
                 .ok_or(SignatureRequestError::MissingSigner)?;
 
@@ -289,7 +289,7 @@ fn build_action(
                 .get(&SignatureField::RecoveryAddress)
                 .ok_or(SignatureRequestError::MissingSigner)?;
             let recovery_address_signature = signatures
-                .get(&signer_identity)
+                .get(signer_identity)
                 .cloned()
                 .ok_or(SignatureRequestError::MissingSigner)?;
 
@@ -305,7 +305,7 @@ fn build_action(
                 .ok_or(SignatureRequestError::MissingSigner)?;
 
             let recovery_address_signature = signatures
-                .get(&signer_identity)
+                .get(signer_identity)
                 .cloned()
                 .ok_or(SignatureRequestError::MissingSigner)?;
 
