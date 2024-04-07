@@ -7,9 +7,6 @@ impl serde::Serialize for AddAssociation {
     {
         use serde::ser::SerializeStruct;
         let mut len = 0;
-        if !self.inbox_id.is_empty() {
-            len += 1;
-        }
         if self.new_member_identifier.is_some() {
             len += 1;
         }
@@ -20,9 +17,6 @@ impl serde::Serialize for AddAssociation {
             len += 1;
         }
         let mut struct_ser = serializer.serialize_struct("xmtp.identity.associations.AddAssociation", len)?;
-        if !self.inbox_id.is_empty() {
-            struct_ser.serialize_field("inboxId", &self.inbox_id)?;
-        }
         if let Some(v) = self.new_member_identifier.as_ref() {
             struct_ser.serialize_field("newMemberIdentifier", v)?;
         }
@@ -42,8 +36,6 @@ impl<'de> serde::Deserialize<'de> for AddAssociation {
         D: serde::Deserializer<'de>,
     {
         const FIELDS: &[&str] = &[
-            "inbox_id",
-            "inboxId",
             "new_member_identifier",
             "newMemberIdentifier",
             "existing_member_signature",
@@ -54,7 +46,6 @@ impl<'de> serde::Deserialize<'de> for AddAssociation {
 
         #[allow(clippy::enum_variant_names)]
         enum GeneratedField {
-            InboxId,
             NewMemberIdentifier,
             ExistingMemberSignature,
             NewMemberSignature,
@@ -79,7 +70,6 @@ impl<'de> serde::Deserialize<'de> for AddAssociation {
                         E: serde::de::Error,
                     {
                         match value {
-                            "inboxId" | "inbox_id" => Ok(GeneratedField::InboxId),
                             "newMemberIdentifier" | "new_member_identifier" => Ok(GeneratedField::NewMemberIdentifier),
                             "existingMemberSignature" | "existing_member_signature" => Ok(GeneratedField::ExistingMemberSignature),
                             "newMemberSignature" | "new_member_signature" => Ok(GeneratedField::NewMemberSignature),
@@ -102,18 +92,11 @@ impl<'de> serde::Deserialize<'de> for AddAssociation {
                 where
                     V: serde::de::MapAccess<'de>,
             {
-                let mut inbox_id__ = None;
                 let mut new_member_identifier__ = None;
                 let mut existing_member_signature__ = None;
                 let mut new_member_signature__ = None;
                 while let Some(k) = map_.next_key()? {
                     match k {
-                        GeneratedField::InboxId => {
-                            if inbox_id__.is_some() {
-                                return Err(serde::de::Error::duplicate_field("inboxId"));
-                            }
-                            inbox_id__ = Some(map_.next_value()?);
-                        }
                         GeneratedField::NewMemberIdentifier => {
                             if new_member_identifier__.is_some() {
                                 return Err(serde::de::Error::duplicate_field("newMemberIdentifier"));
@@ -135,7 +118,6 @@ impl<'de> serde::Deserialize<'de> for AddAssociation {
                     }
                 }
                 Ok(AddAssociation {
-                    inbox_id: inbox_id__.unwrap_or_default(),
                     new_member_identifier: new_member_identifier__,
                     existing_member_signature: existing_member_signature__,
                     new_member_signature: new_member_signature__,
@@ -153,9 +135,6 @@ impl serde::Serialize for ChangeRecoveryAddress {
     {
         use serde::ser::SerializeStruct;
         let mut len = 0;
-        if !self.inbox_id.is_empty() {
-            len += 1;
-        }
         if !self.new_recovery_address.is_empty() {
             len += 1;
         }
@@ -163,9 +142,6 @@ impl serde::Serialize for ChangeRecoveryAddress {
             len += 1;
         }
         let mut struct_ser = serializer.serialize_struct("xmtp.identity.associations.ChangeRecoveryAddress", len)?;
-        if !self.inbox_id.is_empty() {
-            struct_ser.serialize_field("inboxId", &self.inbox_id)?;
-        }
         if !self.new_recovery_address.is_empty() {
             struct_ser.serialize_field("newRecoveryAddress", &self.new_recovery_address)?;
         }
@@ -182,8 +158,6 @@ impl<'de> serde::Deserialize<'de> for ChangeRecoveryAddress {
         D: serde::Deserializer<'de>,
     {
         const FIELDS: &[&str] = &[
-            "inbox_id",
-            "inboxId",
             "new_recovery_address",
             "newRecoveryAddress",
             "existing_recovery_address_signature",
@@ -192,7 +166,6 @@ impl<'de> serde::Deserialize<'de> for ChangeRecoveryAddress {
 
         #[allow(clippy::enum_variant_names)]
         enum GeneratedField {
-            InboxId,
             NewRecoveryAddress,
             ExistingRecoveryAddressSignature,
         }
@@ -216,7 +189,6 @@ impl<'de> serde::Deserialize<'de> for ChangeRecoveryAddress {
                         E: serde::de::Error,
                     {
                         match value {
-                            "inboxId" | "inbox_id" => Ok(GeneratedField::InboxId),
                             "newRecoveryAddress" | "new_recovery_address" => Ok(GeneratedField::NewRecoveryAddress),
                             "existingRecoveryAddressSignature" | "existing_recovery_address_signature" => Ok(GeneratedField::ExistingRecoveryAddressSignature),
                             _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
@@ -238,17 +210,10 @@ impl<'de> serde::Deserialize<'de> for ChangeRecoveryAddress {
                 where
                     V: serde::de::MapAccess<'de>,
             {
-                let mut inbox_id__ = None;
                 let mut new_recovery_address__ = None;
                 let mut existing_recovery_address_signature__ = None;
                 while let Some(k) = map_.next_key()? {
                     match k {
-                        GeneratedField::InboxId => {
-                            if inbox_id__.is_some() {
-                                return Err(serde::de::Error::duplicate_field("inboxId"));
-                            }
-                            inbox_id__ = Some(map_.next_value()?);
-                        }
                         GeneratedField::NewRecoveryAddress => {
                             if new_recovery_address__.is_some() {
                                 return Err(serde::de::Error::duplicate_field("newRecoveryAddress"));
@@ -264,7 +229,6 @@ impl<'de> serde::Deserialize<'de> for ChangeRecoveryAddress {
                     }
                 }
                 Ok(ChangeRecoveryAddress {
-                    inbox_id: inbox_id__.unwrap_or_default(),
                     new_recovery_address: new_recovery_address__.unwrap_or_default(),
                     existing_recovery_address_signature: existing_recovery_address_signature__,
                 })
@@ -295,7 +259,8 @@ impl serde::Serialize for CreateInbox {
             struct_ser.serialize_field("initialAddress", &self.initial_address)?;
         }
         if self.nonce != 0 {
-            struct_ser.serialize_field("nonce", &self.nonce)?;
+            #[allow(clippy::needless_borrow)]
+            struct_ser.serialize_field("nonce", ToString::to_string(&self.nonce).as_str())?;
         }
         if let Some(v) = self.initial_address_signature.as_ref() {
             struct_ser.serialize_field("initialAddressSignature", v)?;
@@ -686,6 +651,9 @@ impl serde::Serialize for IdentityUpdate {
         if self.client_timestamp_ns != 0 {
             len += 1;
         }
+        if !self.inbox_id.is_empty() {
+            len += 1;
+        }
         let mut struct_ser = serializer.serialize_struct("xmtp.identity.associations.IdentityUpdate", len)?;
         if !self.actions.is_empty() {
             struct_ser.serialize_field("actions", &self.actions)?;
@@ -693,6 +661,9 @@ impl serde::Serialize for IdentityUpdate {
         if self.client_timestamp_ns != 0 {
             #[allow(clippy::needless_borrow)]
             struct_ser.serialize_field("clientTimestampNs", ToString::to_string(&self.client_timestamp_ns).as_str())?;
+        }
+        if !self.inbox_id.is_empty() {
+            struct_ser.serialize_field("inboxId", &self.inbox_id)?;
         }
         struct_ser.end()
     }
@@ -707,12 +678,15 @@ impl<'de> serde::Deserialize<'de> for IdentityUpdate {
             "actions",
             "client_timestamp_ns",
             "clientTimestampNs",
+            "inbox_id",
+            "inboxId",
         ];
 
         #[allow(clippy::enum_variant_names)]
         enum GeneratedField {
             Actions,
             ClientTimestampNs,
+            InboxId,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
             fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
@@ -736,6 +710,7 @@ impl<'de> serde::Deserialize<'de> for IdentityUpdate {
                         match value {
                             "actions" => Ok(GeneratedField::Actions),
                             "clientTimestampNs" | "client_timestamp_ns" => Ok(GeneratedField::ClientTimestampNs),
+                            "inboxId" | "inbox_id" => Ok(GeneratedField::InboxId),
                             _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
                         }
                     }
@@ -757,6 +732,7 @@ impl<'de> serde::Deserialize<'de> for IdentityUpdate {
             {
                 let mut actions__ = None;
                 let mut client_timestamp_ns__ = None;
+                let mut inbox_id__ = None;
                 while let Some(k) = map_.next_key()? {
                     match k {
                         GeneratedField::Actions => {
@@ -773,11 +749,18 @@ impl<'de> serde::Deserialize<'de> for IdentityUpdate {
                                 Some(map_.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
                             ;
                         }
+                        GeneratedField::InboxId => {
+                            if inbox_id__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("inboxId"));
+                            }
+                            inbox_id__ = Some(map_.next_value()?);
+                        }
                     }
                 }
                 Ok(IdentityUpdate {
                     actions: actions__.unwrap_or_default(),
                     client_timestamp_ns: client_timestamp_ns__.unwrap_or_default(),
+                    inbox_id: inbox_id__.unwrap_or_default(),
                 })
             }
         }
@@ -1198,9 +1181,6 @@ impl serde::Serialize for RevokeAssociation {
     {
         use serde::ser::SerializeStruct;
         let mut len = 0;
-        if !self.inbox_id.is_empty() {
-            len += 1;
-        }
         if self.member_to_revoke.is_some() {
             len += 1;
         }
@@ -1208,9 +1188,6 @@ impl serde::Serialize for RevokeAssociation {
             len += 1;
         }
         let mut struct_ser = serializer.serialize_struct("xmtp.identity.associations.RevokeAssociation", len)?;
-        if !self.inbox_id.is_empty() {
-            struct_ser.serialize_field("inboxId", &self.inbox_id)?;
-        }
         if let Some(v) = self.member_to_revoke.as_ref() {
             struct_ser.serialize_field("memberToRevoke", v)?;
         }
@@ -1227,8 +1204,6 @@ impl<'de> serde::Deserialize<'de> for RevokeAssociation {
         D: serde::Deserializer<'de>,
     {
         const FIELDS: &[&str] = &[
-            "inbox_id",
-            "inboxId",
             "member_to_revoke",
             "memberToRevoke",
             "recovery_address_signature",
@@ -1237,7 +1212,6 @@ impl<'de> serde::Deserialize<'de> for RevokeAssociation {
 
         #[allow(clippy::enum_variant_names)]
         enum GeneratedField {
-            InboxId,
             MemberToRevoke,
             RecoveryAddressSignature,
         }
@@ -1261,7 +1235,6 @@ impl<'de> serde::Deserialize<'de> for RevokeAssociation {
                         E: serde::de::Error,
                     {
                         match value {
-                            "inboxId" | "inbox_id" => Ok(GeneratedField::InboxId),
                             "memberToRevoke" | "member_to_revoke" => Ok(GeneratedField::MemberToRevoke),
                             "recoveryAddressSignature" | "recovery_address_signature" => Ok(GeneratedField::RecoveryAddressSignature),
                             _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
@@ -1283,17 +1256,10 @@ impl<'de> serde::Deserialize<'de> for RevokeAssociation {
                 where
                     V: serde::de::MapAccess<'de>,
             {
-                let mut inbox_id__ = None;
                 let mut member_to_revoke__ = None;
                 let mut recovery_address_signature__ = None;
                 while let Some(k) = map_.next_key()? {
                     match k {
-                        GeneratedField::InboxId => {
-                            if inbox_id__.is_some() {
-                                return Err(serde::de::Error::duplicate_field("inboxId"));
-                            }
-                            inbox_id__ = Some(map_.next_value()?);
-                        }
                         GeneratedField::MemberToRevoke => {
                             if member_to_revoke__.is_some() {
                                 return Err(serde::de::Error::duplicate_field("memberToRevoke"));
@@ -1309,7 +1275,6 @@ impl<'de> serde::Deserialize<'de> for RevokeAssociation {
                     }
                 }
                 Ok(RevokeAssociation {
-                    inbox_id: inbox_id__.unwrap_or_default(),
                     member_to_revoke: member_to_revoke__,
                     recovery_address_signature: recovery_address_signature__,
                 })

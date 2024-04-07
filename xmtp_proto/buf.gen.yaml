@@ -17,9 +17,11 @@ plugins:
       - compile_well_known_types
       - extern_path=.google.protobuf=::pbjson_types
       # Exclude it from non-tonic builds (so we can use the rest in Wasm)
+      - client_mod_attribute=xmtp.identity.api.v1=#[cfg(feature = "tonic")]
       - client_mod_attribute=xmtp.message_api.v1=#[cfg(feature = "tonic")]
       - client_mod_attribute=xmtp.mls.api.v1=#[cfg(feature = "tonic")]
       - client_mod_attribute=xmtp.mls_validation.v1=#[cfg(feature = "tonic")]
+      - server_mod_attribute=xmtp.identity.api.v1=#[cfg(feature = "tonic")]
       - server_mod_attribute=xmtp.mls_validation.v1=#[cfg(feature = "tonic")]
       - server_mod_attribute=xmtp.message_api.v1=#[cfg(feature = "tonic")]
       - server_mod_attribute=xmtp.mls.api.v1=#[cfg(feature = "tonic")]
