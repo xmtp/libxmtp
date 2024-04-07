@@ -295,7 +295,8 @@ impl serde::Serialize for CreateInbox {
             struct_ser.serialize_field("initialAddress", &self.initial_address)?;
         }
         if self.nonce != 0 {
-            struct_ser.serialize_field("nonce", &self.nonce)?;
+            #[allow(clippy::needless_borrow)]
+            struct_ser.serialize_field("nonce", ToString::to_string(&self.nonce).as_str())?;
         }
         if let Some(v) = self.initial_address_signature.as_ref() {
             struct_ser.serialize_field("initialAddressSignature", v)?;

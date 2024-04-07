@@ -1,27 +1,26 @@
 [package]
+edition = "2021"
 name = "xmtp_id"
 version = "0.1.0"
-edition = "2021"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
+async-trait.workspace = true
+chrono.workspace = true
+futures.workspace = true
+hex.workspace = true
 log.workspace = true
-tracing.workspace = true
-thiserror.workspace = true
-xmtp_cryptography.workspace = true 
-xmtp_mls.workspace = true
-xmtp_proto.workspace = true
-openmls_traits.workspace = true
 openmls.workspace = true
 openmls_basic_credential.workspace = true
 openmls_rust_crypto.workspace = true
+openmls_traits.workspace = true
 prost.workspace = true
-chrono.workspace = true
-serde.workspace = true
-async-trait.workspace = true
-futures.workspace = true
-sha2 = "0.10.8"
 rand.workspace = true
-hex.workspace = true
-
+serde.workspace = true
+sha2 = "0.10.8"
+thiserror.workspace = true
+tracing.workspace = true
+xmtp_cryptography.workspace = true
+xmtp_mls.workspace = true
+xmtp_proto.workspace = true

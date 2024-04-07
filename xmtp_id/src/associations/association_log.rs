@@ -1,9 +1,13 @@
 use super::hashes::generate_inbox_id;
 use super::member::{Member, MemberIdentifier, MemberKind};
+use super::serialization::{
+    from_identity_update_proto, to_identity_update_proto, DeserializationError, SerializationError,
+};
 use super::signature::{Signature, SignatureError, SignatureKind};
 use super::state::AssociationState;
 
 use thiserror::Error;
+use xmtp_proto::xmtp::identity::associations::IdentityUpdate as IdentityUpdateProto;
 
 #[derive(Debug, Error, PartialEq)]
 pub enum AssociationError {
@@ -23,6 +27,8 @@ pub enum AssociationError {
     LegacySignatureReuse,
     #[error("The new member identifier does not match the signer")]
     NewMemberIdSignatureMismatch,
+    #[error("Wrong inbox_id specified on association")]
+    WrongInboxId,
     #[error("Signature not allowed for role {0:?} {1:?}")]
     SignatureNotAllowed(String, String),
     #[error("Replay detected")]
@@ -90,6 +96,7 @@ impl IdentityAction for CreateInbox {
 
 /// AddAssociation Action
 pub struct AddAssociation {
+    pub inbox_id: String,
     pub new_member_signature: Box<dyn Signature>,
     pub new_member_identifier: MemberIdentifier,
     pub existing_member_signature: Box<dyn Signature>,
@@ -102,6 +109,7 @@ impl IdentityAction for AddAssociation {
     ) -> Result<AssociationState, AssociationError> {
         let existing_state = maybe_existing_state.ok_or(AssociationError::NotCreated)?;
         self.replay_check(&existing_state)?;
+        ensure_matching_inbox_id(&self.inbox_id, existing_state.inbox_id())?;
 
         // Validate the new member signature and get the recovered signer
         let new_member_address = self.new_member_signature.recover_signer()?;
@@ -186,6 +194,7 @@ impl IdentityAction for AddAssociation {
 
 /// RevokeAssociation Action
 pub struct RevokeAssociation {
+    pub inbox_id: String,
     pub recovery_address_signature: Box<dyn Signature>,
     pub revoked_member: MemberIdentifier,
 }
@@ -197,6 +206,7 @@ impl IdentityAction for RevokeAssociation {
     ) -> Result<AssociationState, AssociationError> {
         let existing_state = maybe_existing_state.ok_or(AssociationError::NotCreated)?;
         self.replay_check(&existing_state)?;
+        ensure_matching_inbox_id(&self.inbox_id, existing_state.inbox_id())?;
 
         if is_legacy_signature(&self.recovery_address_signature) {
             return Err(AssociationError::SignatureNotAllowed(
@@ -238,6 +248,7 @@ impl IdentityAction for RevokeAssociation {
 
 /// ChangeRecoveryAddress Action
 pub struct ChangeRecoveryAddress {
+    pub inbox_id: String,
     pub recovery_address_signature: Box<dyn Signature>,
     pub new_recovery_address: String,
 }
@@ -249,6 +260,7 @@ impl IdentityAction for ChangeRecoveryAddress {
     ) -> Result<AssociationState, AssociationError> {
         let existing_state = existing_state.ok_or(AssociationError::NotCreated)?;
         self.replay_check(&existing_state)?;
+        ensure_matching_inbox_id(&self.inbox_id, existing_state.inbox_id())?;
 
         if is_legacy_signature(&self.recovery_address_signature) {
             return Err(AssociationError::SignatureNotAllowed(
@@ -314,6 +326,14 @@ impl IdentityUpdate {
             client_timestamp_ns,
         }
     }
+
+    pub fn to_proto(&self) -> Result<IdentityUpdateProto, SerializationError> {
+        to_identity_update_proto(self)
+    }
+
+    pub fn from_proto(proto: IdentityUpdateProto) -> Result<Self, DeserializationError> {
+        from_identity_update_proto(proto)
+    }
 }
 
 impl IdentityAction for IdentityUpdate {
@@ -358,6 +378,17 @@ fn allowed_association(
             existing_member_kind.to_string(),
             new_member_kind.to_string(),
         ));
+    }
+
+    Ok(())
+}
+
+fn ensure_matching_inbox_id(
+    action_inbox_id: &String,
+    state_inbox_id: &String,
+) -> Result<(), AssociationError> {
+    if action_inbox_id.ne(state_inbox_id) {
+        return Err(AssociationError::WrongInboxId);
     }
 
     Ok(())

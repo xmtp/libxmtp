@@ -278,6 +278,7 @@ fn build_action(
                 .ok_or(SignatureRequestError::MissingSigner)?;
 
             Ok(Action::AddAssociation(AddAssociation {
+                inbox_id: unsigned_action.inbox_id,
                 new_member_identifier: unsigned_action.new_member_identifier,
                 existing_member_signature,
                 new_member_signature,
@@ -294,6 +295,7 @@ fn build_action(
                 .ok_or(SignatureRequestError::MissingSigner)?;
 
             Ok(Action::RevokeAssociation(RevokeAssociation {
+                inbox_id: unsigned_action.inbox_id,
                 recovery_address_signature,
                 revoked_member: unsigned_action.revoked_member,
             }))
@@ -310,6 +312,7 @@ fn build_action(
                 .ok_or(SignatureRequestError::MissingSigner)?;
 
             Ok(Action::ChangeRecoveryAddress(ChangeRecoveryAddress {
+                inbox_id: unsigned_action.inbox_id,
                 recovery_address_signature,
                 new_recovery_address: unsigned_action.new_recovery_address,
             }))

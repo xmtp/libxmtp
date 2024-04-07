@@ -37,6 +37,8 @@ pub fn get_state(updates: Vec<IdentityUpdate>) -> Result<AssociationState, Assoc
 
 #[cfg(test)]
 mod tests {
+    use tests::hashes::generate_inbox_id;
+
     use self::test_utils::{rand_string, rand_u64, rand_vec, MockSignature};
 
     use super::*;
@@ -52,6 +54,7 @@ mod tests {
             let existing_member = rand_string();
             let new_member = rand_vec();
             return Self {
+                inbox_id: rand_string(),
                 existing_member_signature: MockSignature::new_boxed(
                     true,
                     existing_member.into(),
@@ -90,6 +93,7 @@ mod tests {
         fn default() -> Self {
             let signer = rand_string();
             return Self {
+                inbox_id: rand_string(),
                 recovery_address_signature: MockSignature::new_boxed(
                     true,
                     signer.into(),
@@ -114,6 +118,7 @@ mod tests {
             initial_state.recovery_address().clone().into();
 
         let update = Action::AddAssociation(AddAssociation {
+            inbox_id: initial_state.inbox_id().clone(),
             existing_member_signature: MockSignature::new_boxed(
                 true,
                 initial_wallet_address.clone(),
@@ -145,6 +150,7 @@ mod tests {
         let first_member: MemberIdentifier = initial_state.recovery_address().clone().into();
 
         let update = Action::AddAssociation(AddAssociation {
+            inbox_id: initial_state.inbox_id().clone(),
             new_member_identifier: new_installation_identifier.clone(),
             new_member_signature: MockSignature::new_boxed(
                 true,
@@ -175,6 +181,7 @@ mod tests {
         let account_address = create_action.account_address.clone();
         let new_member_identifier: MemberIdentifier = rand_vec().into();
         let add_action = AddAssociation {
+            inbox_id: generate_inbox_id(&account_address, &create_action.nonce),
             existing_member_signature: MockSignature::new_boxed(
                 true,
                 account_address.clone().into(),
@@ -224,6 +231,7 @@ mod tests {
 
         // The legacy key can only be used once. After this, subsequent updates should fail
         let update = Action::AddAssociation(AddAssociation {
+            inbox_id: state.inbox_id().clone(),
             existing_member_signature: MockSignature::new_boxed(
                 true,
                 member_identifier,
@@ -250,6 +258,7 @@ mod tests {
 
         let new_wallet_address: MemberIdentifier = rand_string().into();
         let add_association = Action::AddAssociation(AddAssociation {
+            inbox_id: initial_state.inbox_id().clone(),
             new_member_identifier: new_wallet_address.clone(),
             new_member_signature: MockSignature::new_boxed(
                 true,
@@ -296,10 +305,12 @@ mod tests {
     #[test]
     fn reject_invalid_signature_on_update() {
         let initial_state = new_test_inbox();
+        let inbox_id = initial_state.inbox_id().clone();
         let bad_signature =
             MockSignature::new_boxed(false, rand_string().into(), SignatureKind::Erc191, None);
 
         let update_with_bad_existing_member = Action::AddAssociation(AddAssociation {
+            inbox_id: inbox_id.clone(),
             existing_member_signature: bad_signature.clone(),
             ..Default::default()
         });
@@ -315,6 +326,7 @@ mod tests {
         );
 
         let update_with_bad_new_member = Action::AddAssociation(AddAssociation {
+            inbox_id: inbox_id.clone(),
             new_member_signature: bad_signature.clone(),
             existing_member_signature: MockSignature::new_boxed(
                 true,
@@ -338,9 +350,12 @@ mod tests {
 
     #[test]
     fn reject_if_signer_not_existing_member() {
-        let create_request = Action::CreateInbox(CreateInbox::default());
+        let create_inbox = CreateInbox::default();
+        let inbox_id = generate_inbox_id(&create_inbox.account_address, &create_inbox.nonce);
+        let create_request = Action::CreateInbox(create_inbox);
         // The default here will create an AddAssociation from a random wallet
         let update = Action::AddAssociation(AddAssociation {
+            inbox_id,
             // Existing member signature is coming from a random wallet
             existing_member_signature: MockSignature::new_boxed(
                 true,
@@ -367,6 +382,7 @@ mod tests {
         let new_installation_id: MemberIdentifier = rand_vec().into();
 
         let update = Action::AddAssociation(AddAssociation {
+            inbox_id: existing_state.inbox_id().clone(),
             existing_member_signature: MockSignature::new_boxed(
                 true,
                 existing_installation.identifier.clone(),
@@ -404,6 +420,7 @@ mod tests {
             .unwrap()
             .identifier;
         let update = Action::RevokeAssociation(RevokeAssociation {
+            inbox_id: initial_state.inbox_id().clone(),
             recovery_address_signature: MockSignature::new_boxed(
                 true,
                 initial_state.recovery_address().clone().into(),
@@ -430,6 +447,7 @@ mod tests {
             .identifier;
 
         let add_second_installation = Action::AddAssociation(AddAssociation {
+            inbox_id: initial_state.inbox_id().clone(),
             existing_member_signature: MockSignature::new_boxed(
                 true,
                 wallet_address.clone(),
@@ -447,6 +465,7 @@ mod tests {
         assert_eq!(new_state.members().len(), 3);
 
         let revocation = Action::RevokeAssociation(RevokeAssociation {
+            inbox_id: new_state.inbox_id().clone(),
             recovery_address_signature: MockSignature::new_boxed(
                 true,
                 wallet_address.clone(),
@@ -475,6 +494,7 @@ mod tests {
 
         let second_wallet_address: MemberIdentifier = rand_string().into();
         let add_second_wallet = Action::AddAssociation(AddAssociation {
+            inbox_id: initial_state.inbox_id().clone(),
             new_member_identifier: second_wallet_address.clone(),
             new_member_signature: MockSignature::new_boxed(
                 true,
@@ -492,6 +512,7 @@ mod tests {
         });
 
         let revoke_second_wallet = Action::RevokeAssociation(RevokeAssociation {
+            inbox_id: initial_state.inbox_id().clone(),
             recovery_address_signature: MockSignature::new_boxed(
                 true,
                 wallet_address.clone(),
@@ -510,6 +531,7 @@ mod tests {
         assert_eq!(state_after_remove.members().len(), 1);
 
         let add_second_wallet_again = Action::AddAssociation(AddAssociation {
+            inbox_id: state_after_remove.inbox_id().clone(),
             new_member_identifier: second_wallet_address.clone(),
             new_member_signature: MockSignature::new_boxed(
                 true,
@@ -541,6 +563,7 @@ mod tests {
             initial_state.recovery_address().clone().into();
         let new_recovery_address = rand_string();
         let update_recovery = Action::ChangeRecoveryAddress(ChangeRecoveryAddress {
+            inbox_id: initial_state.inbox_id().clone(),
             new_recovery_address: new_recovery_address.clone(),
             recovery_address_signature: MockSignature::new_boxed(
                 true,
@@ -558,6 +581,7 @@ mod tests {
         assert_eq!(new_state.recovery_address(), &new_recovery_address);
 
         let attempted_revoke = Action::RevokeAssociation(RevokeAssociation {
+            inbox_id: new_state.inbox_id().clone(),
             recovery_address_signature: MockSignature::new_boxed(
                 true,
                 initial_recovery_address.clone(),
