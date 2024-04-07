@@ -96,6 +96,15 @@ pub struct UnsignedIdentityUpdate {
     pub actions: Vec<UnsignedAction>,
 }
 
+impl UnsignedIdentityUpdate {
+    pub fn new(client_timestamp_ns: u64, actions: Vec<UnsignedAction>) -> Self {
+        UnsignedIdentityUpdate {
+            client_timestamp_ns,
+            actions,
+        }
+    }
+}
+
 impl SignatureTextCreator for UnsignedIdentityUpdate {
     fn signature_text(&self) -> String {
         let all_signatures = self

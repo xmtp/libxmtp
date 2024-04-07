@@ -2,6 +2,7 @@ mod association_log;
 pub mod builder;
 mod hashes;
 mod member;
+mod serialization;
 mod signature;
 mod state;
 #[cfg(test)]
