@@ -45,6 +45,9 @@ tls_codec = "0.4.0"
 tokio = { version = "1.35.1", features = ["macros"] }
 tonic = "^0.11"
 tracing = "0.1"
+anyhow = "1.0"
+jsonrpsee = { version = "0.22", features = ["macros", "server", "client-core"] }
+tracing-subscriber = { version = "0.3.18", features = ["fmt", "env-filter"] }
 
 # Internal Crate Dependencies
 xmtp_cryptography = { path = "xmtp_cryptography" }
