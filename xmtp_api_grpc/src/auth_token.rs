@@ -55,8 +55,7 @@ impl Authenticator {
         let mut token_bytes = Vec::new();
         let _ = token.encode(&mut token_bytes);
 
-        let token_base64 = base64::engine::general_purpose::STANDARD.encode(&token_bytes);
-        token_base64
+        base64::engine::general_purpose::STANDARD.encode(&token_bytes)
     }
 
     fn sign(&self, bytes_to_sign: &[u8]) -> Signature {
