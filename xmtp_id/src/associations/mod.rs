@@ -1,4 +1,5 @@
 mod association_log;
+pub mod builder;
 mod hashes;
 mod member;
 mod signature;
@@ -35,58 +36,13 @@ pub fn get_state(updates: Vec<IdentityUpdate>) -> Result<AssociationState, Assoc
 
 #[cfg(test)]
 mod tests {
-    use self::test_utils::{rand_string, rand_u64, rand_vec};
+    use self::test_utils::{rand_string, rand_u64, rand_vec, MockSignature};
 
     use super::*;
-
-    #[derive(Clone)]
-    struct MockSignature {
-        is_valid: bool,
-        signer_identity: MemberIdentifier,
-        signature_kind: SignatureKind,
-        signature_nonce: u64,
-    }
 
     impl IdentityUpdate {
         pub fn new_test(actions: Vec<Action>) -> Self {
             Self::new(actions, rand_u64())
-        }
-    }
-
-    impl MockSignature {
-        pub fn new_boxed(
-            is_valid: bool,
-            signer_identity: MemberIdentifier,
-            signature_kind: SignatureKind,
-            // Signature nonce is used to control what the signature bytes are
-            // Defaults to random
-            signature_nonce: Option<u64>,
-        ) -> Box<Self> {
-            let nonce = signature_nonce.unwrap_or(rand_u64());
-            Box::new(Self {
-                is_valid,
-                signer_identity,
-                signature_kind,
-                signature_nonce: nonce,
-            })
-        }
-    }
-
-    impl Signature for MockSignature {
-        fn signature_kind(&self) -> SignatureKind {
-            self.signature_kind.clone()
-        }
-
-        fn recover_signer(&self) -> Result<MemberIdentifier, SignatureError> {
-            match self.is_valid {
-                true => Ok(self.signer_identity.clone()),
-                false => Err(SignatureError::Invalid),
-            }
-        }
-
-        fn bytes(&self) -> Vec<u8> {
-            let sig = format!("{}{}", self.signer_identity, self.signature_nonce);
-            sig.as_bytes().to_vec()
         }
     }
 
@@ -256,7 +212,7 @@ mod tests {
                 true,
                 member_identifier.clone(),
                 SignatureKind::LegacyDelegated,
-                Some(0),
+                Some("0".to_string()),
             ),
         };
         let state = get_state(vec![IdentityUpdate::new_test(vec![Action::CreateInbox(
@@ -272,7 +228,7 @@ mod tests {
                 member_identifier,
                 SignatureKind::LegacyDelegated,
                 // All requests from the same legacy key will have the same signature nonce
-                Some(0),
+                Some("0".to_string()),
             ),
             ..Default::default()
         });
