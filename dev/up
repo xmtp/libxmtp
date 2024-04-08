@@ -16,5 +16,11 @@ fi
 
 rustup update
 
+# install foundry for tests that require mocking blockchain
+curl -L https://foundry.paradigm.xyz | bash
+source ~/.zshenv
+source ~/.bashrc
+foundryup 
+
 dev/build_validation_service_local
 dev/docker/up
