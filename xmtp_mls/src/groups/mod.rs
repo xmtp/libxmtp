@@ -186,6 +186,7 @@ where
         client: &'c Client<ApiClient>,
         membership_state: GroupMembershipState,
         permissions: Option<PreconfiguredPolicies>,
+        added_by_address: Option<String>,
     ) -> Result<Self, GroupError> {
         let conn = client.store.conn()?;
         let provider = XmtpOpenMlsProvider::new(&conn);
@@ -207,10 +208,9 @@ where
         mls_group.save(provider.key_store())?;
 
         let group_id = mls_group.group_id().to_vec();
-        // EM: Pass in now added by address
-        let stored_group = StoredGroup::new(group_id.clone(), now_ns(), membership_state, None);
+        let stored_group = StoredGroup::new(group_id.clone(), now_ns(), membership_state, added_by_address.clone());
         stored_group.store(provider.conn())?;
-        Ok(Self::new(client, group_id, stored_group.created_at_ns, None))
+        Ok(Self::new(client, group_id, stored_group.created_at_ns, added_by_address))
     }
 
     // Create a group from a decrypted and decoded welcome message
@@ -228,7 +228,6 @@ where
         mls_group.save(provider.key_store())?;
 
         let group_id = mls_group.group_id().to_vec();
-        // EM: Store new added_by_address here
         let to_store = StoredGroup::new(group_id, now_ns(), GroupMembershipState::Pending, added_by_address.clone());
         let stored_group = provider.conn().insert_or_ignore_group(to_store)?;
 

@@ -206,9 +206,13 @@ where
     ) -> Result<MlsGroup<ApiClient>, ClientError> {
         log::info!("creating group");
 
-        // EM: Consider setting host id here as self?
-        let group = MlsGroup::create_and_insert(self, GroupMembershipState::Allowed, permissions)
-            .map_err(|e| ClientError::Generic(format!("group create error {}", e)))?;
+        let group = MlsGroup::create_and_insert(
+            self,
+            GroupMembershipState::Allowed,
+            permissions,
+            Some(self.account_address(),
+        ))
+        .map_err(|e| ClientError::Generic(format!("group create error {}", e)))?;
 
         Ok(group)
     }
