@@ -389,7 +389,6 @@ impl From<Vec<u8>> for PostCommitAction {
 
 #[cfg(test)]
 mod tests {
-    use serde_json::to_string;
     use xmtp_cryptography::utils::generate_local_wallet;
 
     use super::*;
