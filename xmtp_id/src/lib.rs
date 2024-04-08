@@ -1,3 +1,4 @@
+pub mod associations;
 pub mod credential_verifier;
 pub mod erc1271_verifier;
 

@@ -7,18 +7,30 @@ sequenceDiagram
 
     Note over Alice,Charlie: These calls are coming from higher-level<br/> SDKs on behalf of users
     Note over Alice,Node: Step 1 (Account Creation) & 2 (Initial Keying Material) of MLS group creation combined
-    Alice->>LibXMTP: create_client(encryption_key, account_address)
+    Alice->>+LibXMTP: create_client(encryption_key, account_address)
+    LibXMTP-->>-Alice: client
+    Alice->>+LibXMTP: client.text_to_sign()
+    LibXMTP-->>-Alice: text to be signed for register_identity
+    Alice->>LibXMTP: client.register_identity(recoverable_wallet_signature)
     LibXMTP->>+Node: register_installation(key_package:Alice)
     Node-->>-LibXMTP: installation_key:Alice
-    Bob->>LibXMTP: create_client(encryption_key, account_address)
+    Bob->>+LibXMTP: create_client(encryption_key, account_address)
+    LibXMTP-->>-Bob: client
+    Bob->>+LibXMTP: client.text_to_sign()
+    LibXMTP-->>-Bob: text to be signed for register_identity
+    Bob->>LibXMTP: client.register_identity(recoverable_wallet_signature)    
     LibXMTP->>+Node: register_installation(key_package:Bob)
     Node-->>-LibXMTP: installation_key:Bob
-    Charlie->>LibXMTP: create_client(encryption_key, account_address)
+    Charlie->>+LibXMTP: create_client(encryption_key, account_address)
+    LibXMTP-->>-Charlie: client
+    Charlie->>+LibXMTP: client.text_to_sign()
+    LibXMTP-->>-Charlie: text to be signed for register_identity
+    Charlie->>LibXMTP: client.register_identity(recoverable_wallet_signature)  
     LibXMTP->>+Node: register_installation(key_package:Charlie)
     Node-->>-LibXMTP: installation_key:Charlie 
 
     Note over Alice,Node: Step 3 (Adding Bob) & 4 (Adding Charlie) of MLS group creation
-    Alice->>LibXMTP: newGroup(Bob, Charlie)
+    Alice->>LibXMTP: conversations.create_group(Bob, Charlie)
     LibXMTP->>+Node: get-identity-updates(Bob)
     Node-->>-LibXMTP: installation_key:Bob + credential_identity:Bob
     LibXMTP->>+Node: get-identity-updates(Charlie)
@@ -26,15 +38,13 @@ sequenceDiagram
     LibXMTP->>Node: fetch-key-packages(installation_keys: Bob + Charlie)
     Node-->>LibXMTP: KeyPackages(Bob+Charlie) 
     LibXMTP->>Node: send-welcome-messages(KeyPackages:Bob + Charlie)
-    Bob->>+LibXMTP: syncGroups()
+    Bob->>+LibXMTP: conversations.sync()
     LibXMTP->>+Node: query-welcome-messages(installation_key:Bob)
     Node-->>-LibXMTP: WelcomeMessages()
-    LibXMTP-->>-Bob: "Alice has added you to a group"   
-    Bob->>LibXMTP: rotate_key_packages()
-    LibXMTP->>Node: upload-key-package()
-    Charlie->>+LibXMTP: syncGroups()
+    Bob->>+LibXMTP: conversations.list()
+    LibXMTP-->>-Bob: List of groups including new group  
+    Charlie->>+LibXMTP: conversations.sync()
     LibXMTP->>+Node: query-welcome-messages(installation_key:Charlie)
     Node-->>-LibXMTP: WelcomeMessages()
-    LibXMTP-->>-Charlie: "Alice has added you to a group"   
-    Charlie->>LibXMTP: rotate_key_packages()
-    LibXMTP->>Node: upload-key-package() 
+    Charlie->>+LibXMTP: conversations.list()
+    LibXMTP-->>-Charlie: List of groups including new group  

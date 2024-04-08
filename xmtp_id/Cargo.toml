@@ -21,6 +21,9 @@ chrono.workspace = true
 serde.workspace = true
 async-trait.workspace = true
 futures.workspace = true
+sha2 = "0.10.8"
+rand.workspace = true
+hex.workspace = true
 ethers.workspace = true
 anyhow.workspace = true
 

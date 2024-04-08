@@ -19,7 +19,8 @@ use xmtp_mls::{
     client::Client as MlsClient,
     groups::MlsGroup,
     storage::{
-        group_message::StoredGroupMessage, EncryptedMessageStore, EncryptionKey, StorageOption,
+        group_message::GroupMessageKind, group_message::StoredGroupMessage, EncryptedMessageStore,
+        EncryptionKey, StorageOption,
     },
     types::Address,
 };
@@ -224,7 +225,10 @@ impl FfiConversations {
         Ok(out)
     }
 
-    pub fn process_streamed_welcome_message(&self, envelope_bytes: Vec<u8>) -> Result<Arc<FfiGroup>, GenericError> {
+    pub fn process_streamed_welcome_message(
+        &self,
+        envelope_bytes: Vec<u8>,
+    ) -> Result<Arc<FfiGroup>, GenericError> {
         let inner = self.inner_client.as_ref();
         let group = inner.process_streamed_welcome_message(envelope_bytes)?;
 
@@ -365,7 +369,13 @@ impl FfiGroup {
         );
 
         let messages: Vec<FfiMessage> = group
-            .find_messages(None, opts.sent_before_ns, opts.sent_after_ns, None, opts.limit)?
+            .find_messages(
+                None,
+                opts.sent_before_ns,
+                opts.sent_after_ns,
+                None,
+                opts.limit,
+            )?
             .into_iter()
             .map(|msg| msg.into())
             .collect();
@@ -373,7 +383,10 @@ impl FfiGroup {
         Ok(messages)
     }
 
-    pub async fn process_streamed_group_message(&self, envelope_bytes: Vec<u8>) -> Result<FfiMessage, GenericError> {
+    pub async fn process_streamed_group_message(
+        &self,
+        envelope_bytes: Vec<u8>,
+    ) -> Result<FfiMessage, GenericError> {
         let group = MlsGroup::new(
             self.inner_client.as_ref(),
             self.group_id.clone(),
@@ -381,7 +394,7 @@ impl FfiGroup {
         );
         let message = group.process_streamed_group_message(envelope_bytes).await?;
         let ffi_message = message.into();
-        
+
         Ok(ffi_message)
     }
 
@@ -484,6 +497,21 @@ impl FfiGroup {
     }
 }
 
+#[derive(uniffi::Enum)]
+pub enum FfiGroupMessageKind {
+    Application,
+    MembershipChange,
+}
+
+impl From<GroupMessageKind> for FfiGroupMessageKind {
+    fn from(kind: GroupMessageKind) -> Self {
+        match kind {
+            GroupMessageKind::Application => FfiGroupMessageKind::Application,
+            GroupMessageKind::MembershipChange => FfiGroupMessageKind::MembershipChange,
+        }
+    }
+}
+
 #[derive(uniffi::Record)]
 pub struct FfiMessage {
     pub id: Vec<u8>,
@@ -491,6 +519,7 @@ pub struct FfiMessage {
     pub convo_id: Vec<u8>,
     pub addr_from: String,
     pub content: Vec<u8>,
+    pub kind: FfiGroupMessageKind,
 }
 
 impl From<StoredGroupMessage> for FfiMessage {
@@ -501,6 +530,7 @@ impl From<StoredGroupMessage> for FfiMessage {
             convo_id: msg.group_id,
             addr_from: msg.sender_account_address,
             content: msg.decrypted_message_bytes,
+            kind: msg.kind.into(),
         }
     }
 }
