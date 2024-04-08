@@ -34,6 +34,8 @@ pub struct StoredGroup {
     pub installations_last_checked: i64,
     /// Enum, [`Purpose`] signifies the group purpose which extends to who can access it.
     pub purpose: Purpose,
+    /// String representing the wallet address of the who added the user to a group.
+    pub added_by_address: Option<String>,
 }
 
 impl_fetch!(StoredGroup, groups, Vec<u8>);
@@ -48,6 +50,7 @@ impl StoredGroup {
             membership_state,
             installations_last_checked: 0,
             purpose: Purpose::Conversation,
+            added_by_address: None,
         }
     }
 
@@ -63,6 +66,7 @@ impl StoredGroup {
             membership_state,
             installations_last_checked: 0,
             purpose: Purpose::Sync,
+            added_by_address: None,
         }
     }
 }
