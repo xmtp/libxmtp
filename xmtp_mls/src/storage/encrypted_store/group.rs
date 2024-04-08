@@ -43,14 +43,14 @@ impl_store!(StoredGroup, groups);
 
 impl StoredGroup {
     /// Create a new [`Purpose::Conversation`] group. This is the default type of group.
-    pub fn new(id: ID, created_at_ns: i64, membership_state: GroupMembershipState) -> Self {
+    pub fn new(id: ID, created_at_ns: i64, membership_state: GroupMembershipState, added_by_address: Option<String>) -> Self {
         Self {
             id,
             created_at_ns,
             membership_state,
             installations_last_checked: 0,
             purpose: Purpose::Conversation,
-            added_by_address: None,
+            added_by_address,
         }
     }
 
@@ -253,7 +253,7 @@ pub(crate) mod tests {
         let id = rand_vec();
         let created_at_ns = now_ns();
         let membership_state = state.unwrap_or(GroupMembershipState::Allowed);
-        StoredGroup::new(id, created_at_ns, membership_state)
+        StoredGroup::new(id, created_at_ns, membership_state, None)
     }
 
     #[test]

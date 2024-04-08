@@ -207,7 +207,8 @@ where
         mls_group.save(provider.key_store())?;
 
         let group_id = mls_group.group_id().to_vec();
-        let stored_group = StoredGroup::new(group_id.clone(), now_ns(), membership_state);
+        // EM: Pass in now added by address
+        let stored_group = StoredGroup::new(group_id.clone(), now_ns(), membership_state, None);
         stored_group.store(provider.conn())?;
         Ok(Self::new(client, group_id, stored_group.created_at_ns, None))
     }
@@ -227,7 +228,8 @@ where
         mls_group.save(provider.key_store())?;
 
         let group_id = mls_group.group_id().to_vec();
-        let to_store = StoredGroup::new(group_id, now_ns(), GroupMembershipState::Pending);
+        // EM: Store new added_by_address here
+        let to_store = StoredGroup::new(group_id, now_ns(), GroupMembershipState::Pending, added_by_address.clone());
         let stored_group = provider.conn().insert_or_ignore_group(to_store)?;
 
         Ok(Self::new(
