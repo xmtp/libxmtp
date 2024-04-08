@@ -43,7 +43,12 @@ impl_store!(StoredGroup, groups);
 
 impl StoredGroup {
     /// Create a new [`Purpose::Conversation`] group. This is the default type of group.
-    pub fn new(id: ID, created_at_ns: i64, membership_state: GroupMembershipState, added_by_address: Option<String>) -> Self {
+    pub fn new(
+        id: ID,
+        created_at_ns: i64,
+        membership_state: GroupMembershipState,
+        added_by_address: Option<String>,
+    ) -> Self {
         Self {
             id,
             created_at_ns,

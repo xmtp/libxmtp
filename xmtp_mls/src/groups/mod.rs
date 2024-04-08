@@ -1000,22 +1000,32 @@ mod tests {
         let amal = ClientBuilder::new_test_client(&generate_local_wallet()).await;
         let bola = ClientBuilder::new_test_client(&generate_local_wallet()).await;
 
+        // Amal creates a group
         let amal_group = amal.create_group(None).unwrap();
-        // Add bola
+
+        // Amal adds Bola to the group
         amal_group
             .add_members_by_installation_id(vec![bola.installation_public_key()])
             .await
             .unwrap();
 
-        // Get bola's version of the same group
+        // Bola syncs groups - this will decrypt the Welcome, identify who added Bola
+        // and then store that value on the group and insert into the database
         let bola_groups = bola
                 .sync_welcomes()
                 .await
                 .unwrap();
+
+        // Bola gets the group id. This will be needed to fetch the group from
+        // the database.
         let bola_group = bola_groups.first().unwrap();
+        let bola_group_id = bola_group.group_id.clone();
+
+        // Bola fetches group from the database
+        let bola_fetched_group = bola.group(bola_group_id).unwrap();
 
         // Check Bola's group for the added_by_address of the inviter
-        let added_by_address = bola_group.added_by_address.clone().unwrap();
+        let added_by_address = bola_fetched_group.added_by_address.clone().unwrap();
 
         // // Verify the welcome host_credential is equal to Amal's
         assert_eq!(amal.account_address(), added_by_address, "The Inviter and added_by_address do not match!");
