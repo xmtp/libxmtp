@@ -5004,19 +5004,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "tokio-test"
-version = "0.4.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2468baabc3311435b55dd935f702f42cd1b8abb7e754fb7dfb16bd36aa88f9f7"
-dependencies = [
- "async-stream",
- "bytes",
- "futures-core",
- "tokio",
- "tokio-stream",
-]
-
-[[package]]
 name = "tokio-tungstenite"
 version = "0.20.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5977,8 +5964,6 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "async-trait",
- "chrono",
- "ctor",
  "ethers",
  "futures",
  "hex",
@@ -5990,13 +5975,11 @@ dependencies = [
  "openmls_traits",
  "prost 0.12.3",
  "rand",
- "regex",
  "serde",
  "serde_json",
  "sha2 0.10.8",
  "thiserror",
  "tokio",
- "tokio-test",
  "tracing",
  "tracing-subscriber",
  "xmtp_cryptography",
