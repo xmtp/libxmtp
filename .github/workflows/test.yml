@@ -15,6 +15,9 @@ jobs:
       - name: Update rust toolchain from rust-toolchain file
         run: rustup update
 
+      - name: Install Foundry
+        uses: foundry-rs/foundry-toolchain@v1
+        
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: |
