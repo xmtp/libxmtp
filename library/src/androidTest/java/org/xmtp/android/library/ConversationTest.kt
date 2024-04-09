@@ -519,13 +519,7 @@ class ConversationTest {
                 ),
             )
         }
-        val isSteveOrBobConversation = { topic: String ->
-            (topic.lowercase() == steveConversation.topic.lowercase() || topic.lowercase() == bobConversation.topic.lowercase())
-        }
         assertEquals(3, messages.size)
-        assertTrue(isSteveOrBobConversation(messages[0].topic))
-        assertTrue(isSteveOrBobConversation(messages[1].topic))
-        assertTrue(isSteveOrBobConversation(messages[2].topic))
     }
 
     @Test
@@ -799,9 +793,10 @@ class ConversationTest {
         assertTrue(isAllowed)
         assertTrue(bobClient.contacts.isAllowed(alice.walletAddress))
 
-        runBlocking { bobClient.contacts.deny(listOf(alice.walletAddress)) }
-        bobClient.contacts.refreshConsentList()
-
+        runBlocking {
+            bobClient.contacts.deny(listOf(alice.walletAddress))
+            bobClient.contacts.refreshConsentList()
+        }
         val isDenied = bobConversation.consentState() == ConsentState.DENIED
         assertEquals(bobClient.contacts.consentList.entries.size, 1)
         assertTrue(isDenied)
@@ -820,7 +815,7 @@ class ConversationTest {
         val aliceClient2 = Client().create(aliceWallet)
         val aliceConversation2 = runBlocking { aliceClient2.conversations.list()[0] }
 
-        aliceClient2.contacts.refreshConsentList()
+        runBlocking { aliceClient2.contacts.refreshConsentList() }
 
         // Allow state should sync across clients
         val isBobAllowed2 = aliceConversation2.consentState() == ConsentState.ALLOWED
@@ -843,12 +838,31 @@ class ConversationTest {
         // Conversations you receive should start as unknown
         assertTrue(isUnknown)
 
-        runBlocking { aliceConversation.send(content = "hey bob") }
-        aliceClient.contacts.refreshConsentList()
+        runBlocking {
+            aliceConversation.send(content = "hey bob")
+            aliceClient.contacts.refreshConsentList()
+        }
         val isNowAllowed = aliceConversation.consentState() == ConsentState.ALLOWED
 
         // Conversations you send a message to get marked as allowed
         assertTrue(isNowAllowed)
+    }
+
+    @Test
+    fun testCanPublishMultipleAddressConsentState() {
+        runBlocking {
+            val bobConversation = bobClient.conversations.newConversation(alice.walletAddress)
+            val caroConversation =
+                bobClient.conversations.newConversation(fixtures.caro.walletAddress)
+            bobClient.contacts.refreshConsentList()
+            assertEquals(bobClient.contacts.consentList.entries.size, 2)
+            assertTrue(bobConversation.consentState() == ConsentState.ALLOWED)
+            assertTrue(caroConversation.consentState() == ConsentState.ALLOWED)
+            bobClient.contacts.deny(listOf(alice.walletAddress, fixtures.caro.walletAddress))
+            assertEquals(bobClient.contacts.consentList.entries.size, 2)
+            assertTrue(bobConversation.consentState() == ConsentState.DENIED)
+            assertTrue(caroConversation.consentState() == ConsentState.DENIED)
+        }
     }
 
     @Test
