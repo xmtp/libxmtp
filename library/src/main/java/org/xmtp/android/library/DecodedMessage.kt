@@ -11,7 +11,7 @@ data class DecodedMessage(
     var topic: String,
     var encodedContent: Content.EncodedContent,
     var senderAddress: String,
-    var sent: Date
+    var sent: Date,
 ) {
     companion object {
         fun preview(client: Client, topic: String, body: String, senderAddress: String, sent: Date): DecodedMessage {

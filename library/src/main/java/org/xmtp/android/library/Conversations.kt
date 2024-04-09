@@ -12,7 +12,7 @@ import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.merge
 import org.xmtp.android.library.GRPCApiClient.Companion.makeQueryRequest
 import org.xmtp.android.library.GRPCApiClient.Companion.makeSubscribeRequest
-import org.xmtp.android.library.libxmtp.Message
+import org.xmtp.android.library.libxmtp.MessageV3
 import org.xmtp.android.library.messages.DecryptedMessage
 import org.xmtp.android.library.messages.Envelope
 import org.xmtp.android.library.messages.EnvelopeBuilder
@@ -576,7 +576,10 @@ data class Conversations(
     fun streamAllGroupMessages(): Flow<DecodedMessage> = callbackFlow {
         val messageCallback = object : FfiMessageCallback {
             override fun onMessage(message: FfiMessage) {
-                trySend(Message(client, message).decode())
+                val decodedMessage = MessageV3(client, message).decodeOrNull()
+                decodedMessage?.let {
+                    trySend(it)
+                }
             }
         }
         val stream = libXMTPConversations?.streamAllMessages(messageCallback)
@@ -587,7 +590,10 @@ data class Conversations(
     fun streamAllGroupDecryptedMessages(): Flow<DecryptedMessage> = callbackFlow {
         val messageCallback = object : FfiMessageCallback {
             override fun onMessage(message: FfiMessage) {
-                trySend(Message(client, message).decrypt())
+                val decryptedMessage = MessageV3(client, message).decryptOrNull()
+                decryptedMessage?.let {
+                    trySend(it)
+                }
             }
         }
         val stream = libXMTPConversations?.streamAllMessages(messageCallback)

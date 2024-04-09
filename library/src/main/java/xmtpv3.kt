@@ -2500,7 +2500,8 @@ data class FfiMessage (
     var `sentAtNs`: Long,
     var `convoId`: ByteArray,
     var `addrFrom`: String,
-    var `content`: ByteArray
+    var `content`: ByteArray,
+    var `kind`: FfiGroupMessageKind
 ) {
 
     companion object
@@ -2514,6 +2515,7 @@ public object FfiConverterTypeFfiMessage: FfiConverterRustBuffer<FfiMessage> {
             FfiConverterByteArray.read(buf),
             FfiConverterString.read(buf),
             FfiConverterByteArray.read(buf),
+            FfiConverterTypeFfiGroupMessageKind.read(buf),
         )
     }
 
@@ -2522,7 +2524,8 @@ public object FfiConverterTypeFfiMessage: FfiConverterRustBuffer<FfiMessage> {
                     FfiConverterLong.allocationSize(value.`sentAtNs`) +
                     FfiConverterByteArray.allocationSize(value.`convoId`) +
                     FfiConverterString.allocationSize(value.`addrFrom`) +
-                    FfiConverterByteArray.allocationSize(value.`content`)
+                    FfiConverterByteArray.allocationSize(value.`content`) +
+                    FfiConverterTypeFfiGroupMessageKind.allocationSize(value.`kind`)
             )
 
     override fun write(value: FfiMessage, buf: ByteBuffer) {
@@ -2531,6 +2534,7 @@ public object FfiConverterTypeFfiMessage: FfiConverterRustBuffer<FfiMessage> {
         FfiConverterByteArray.write(value.`convoId`, buf)
         FfiConverterString.write(value.`addrFrom`, buf)
         FfiConverterByteArray.write(value.`content`, buf)
+        FfiConverterTypeFfiGroupMessageKind.write(value.`kind`, buf)
     }
 }
 
@@ -2739,6 +2743,30 @@ public object FfiConverterTypeFfiV2SubscribeRequest: FfiConverterRustBuffer<FfiV
         FfiConverterSequenceString.write(value.`contentTopics`, buf)
     }
 }
+
+
+
+
+enum class FfiGroupMessageKind {
+    APPLICATION,MEMBERSHIP_CHANGE;
+    companion object
+}
+
+public object FfiConverterTypeFfiGroupMessageKind: FfiConverterRustBuffer<FfiGroupMessageKind> {
+    override fun read(buf: ByteBuffer) = try {
+        FfiGroupMessageKind.values()[buf.getInt() - 1]
+    } catch (e: IndexOutOfBoundsException) {
+        throw RuntimeException("invalid enum value, something is very wrong!!", e)
+    }
+
+    override fun allocationSize(value: FfiGroupMessageKind) = 4
+
+    override fun write(value: FfiGroupMessageKind, buf: ByteBuffer) {
+        buf.putInt(value.ordinal + 1)
+    }
+}
+
+
 
 
 

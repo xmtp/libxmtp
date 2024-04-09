@@ -6,7 +6,7 @@ import kotlinx.coroutines.flow.callbackFlow
 import org.xmtp.android.library.codecs.ContentCodec
 import org.xmtp.android.library.codecs.EncodedContent
 import org.xmtp.android.library.codecs.compress
-import org.xmtp.android.library.libxmtp.Message
+import org.xmtp.android.library.libxmtp.MessageV3
 import org.xmtp.android.library.messages.DecryptedMessage
 import org.xmtp.android.library.messages.PagingInfoSortDirection
 import org.xmtp.android.library.messages.Topic
@@ -93,9 +93,10 @@ class Group(val client: Client, private val libXMTPGroup: FfiGroup) {
                 sentAfterNs = after?.time?.nanoseconds?.toLong(DurationUnit.NANOSECONDS),
                 limit = limit?.toLong()
             )
-        ).map {
-            Message(client, it).decode()
+        ).mapNotNull {
+            MessageV3(client, it).decodeOrNull()
         }
+
         return when (direction) {
             MessageApiOuterClass.SortDirection.SORT_DIRECTION_ASCENDING -> messages
             else -> messages.reversed()
@@ -114,18 +115,19 @@ class Group(val client: Client, private val libXMTPGroup: FfiGroup) {
                 sentAfterNs = after?.time?.nanoseconds?.toLong(DurationUnit.NANOSECONDS),
                 limit = limit?.toLong()
             )
-        ).map {
-            Message(client, it).decrypt()
+        ).mapNotNull {
+            MessageV3(client, it).decryptOrNull()
         }
+
         return when (direction) {
             MessageApiOuterClass.SortDirection.SORT_DIRECTION_ASCENDING -> messages
             else -> messages.reversed()
         }
     }
 
-    suspend fun processMessage(envelopeBytes: ByteArray): Message {
+    suspend fun processMessage(envelopeBytes: ByteArray): MessageV3 {
         val message = libXMTPGroup.processStreamedGroupMessage(envelopeBytes)
-        return Message(client, message)
+        return MessageV3(client, message)
     }
 
     fun isActive(): Boolean {
@@ -173,7 +175,10 @@ class Group(val client: Client, private val libXMTPGroup: FfiGroup) {
     fun streamMessages(): Flow<DecodedMessage> = callbackFlow {
         val messageCallback = object : FfiMessageCallback {
             override fun onMessage(message: FfiMessage) {
-                trySend(Message(client, message).decode())
+                val decodedMessage = MessageV3(client, message).decodeOrNull()
+                decodedMessage?.let {
+                    trySend(it)
+                }
             }
         }
 
@@ -184,7 +189,10 @@ class Group(val client: Client, private val libXMTPGroup: FfiGroup) {
     fun streamDecryptedMessages(): Flow<DecryptedMessage> = callbackFlow {
         val messageCallback = object : FfiMessageCallback {
             override fun onMessage(message: FfiMessage) {
-                trySend(Message(client, message).decrypt())
+                val decryptedMessage = MessageV3(client, message).decryptOrNull()
+                decryptedMessage?.let {
+                    trySend(it)
+                }
             }
         }
 

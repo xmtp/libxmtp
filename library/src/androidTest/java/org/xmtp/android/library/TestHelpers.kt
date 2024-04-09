@@ -175,6 +175,7 @@ class FakeApiClient : ApiClient {
                 MessageApiOuterClass.SortDirection.SORT_DIRECTION_ASCENDING -> {
                     result = result.reversed().toMutableList()
                 }
+
                 else -> Unit
             }
         }
@@ -191,6 +192,7 @@ class FakeApiClient : ApiClient {
         published.addAll(envelopes)
         return PublishResponse.newBuilder().build()
     }
+
     override suspend fun subscribe(request: Flow<MessageApiOuterClass.SubscribeRequest>): Flow<MessageApiOuterClass.Envelope> {
         val env = stream.counts().first()
 
@@ -205,7 +207,9 @@ data class Fixtures(
     val aliceAccount: PrivateKeyBuilder,
     val bobAccount: PrivateKeyBuilder,
     val caroAccount: PrivateKeyBuilder,
-    val clientOptions: ClientOptions? = null
+    val clientOptions: ClientOptions? = ClientOptions(
+        ClientOptions.Api(XMTPEnvironment.LOCAL, isSecure = false)
+    ),
 ) {
     var fakeApiClient: FakeApiClient = FakeApiClient()
     var alice: PrivateKey = aliceAccount.getPrivateKey()
@@ -214,6 +218,7 @@ data class Fixtures(
     var bobClient: Client = Client().create(account = bobAccount, options = clientOptions)
     var caro: PrivateKey = caroAccount.getPrivateKey()
     var caroClient: Client = Client().create(account = caroAccount, options = clientOptions)
+
     constructor(clientOptions: ClientOptions?) : this(
         aliceAccount = PrivateKeyBuilder(),
         bobAccount = PrivateKeyBuilder(),

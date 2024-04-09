@@ -4,7 +4,7 @@ import android.util.Log
 import com.google.protobuf.kotlin.toByteString
 import kotlinx.coroutines.flow.Flow
 import org.xmtp.android.library.codecs.EncodedContent
-import org.xmtp.android.library.libxmtp.Message
+import org.xmtp.android.library.libxmtp.MessageV3
 import org.xmtp.android.library.messages.DecryptedMessage
 import org.xmtp.android.library.messages.Envelope
 import org.xmtp.android.library.messages.PagingInfoSortDirection
@@ -121,7 +121,7 @@ sealed class Conversation {
         }
     }
 
-    fun decode(envelope: Envelope, message: Message? = null): DecodedMessage {
+    fun decode(envelope: Envelope, message: MessageV3? = null): DecodedMessage {
         return when (this) {
             is V1 -> conversationV1.decode(envelope)
             is V2 -> conversationV2.decodeEnvelope(envelope)
@@ -277,7 +277,7 @@ sealed class Conversation {
 
     fun decrypt(
         envelope: Envelope,
-        message: Message? = null,
+        message: MessageV3? = null,
     ): DecryptedMessage {
         return when (this) {
             is V1 -> conversationV1.decrypt(envelope)
