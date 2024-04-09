@@ -21,7 +21,18 @@ chrono.workspace = true
 serde.workspace = true
 async-trait.workspace = true
 futures.workspace = true
+sha2 = "0.10.8"
+rand.workspace = true
+hex.workspace = true
+ethers.workspace = true
 
 [dev-dependencies]
-ethers.workspace = true
-tokio.workspace = true
+tracing-subscriber.workspace = true 
+serde_json.workspace = true
+anyhow.workspace = true
+tokio = { workspace = true, features = ["time"] }
+jsonrpsee = { workspace = true, features = ["macros", "ws-client"] }
+ethers = { workspace = true, features = ["ws"] }
+tokio-test = "0.4"
+ctor.workspace = true
+regex = "1.10"
