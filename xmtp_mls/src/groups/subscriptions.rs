@@ -75,7 +75,7 @@ where
         client: Arc<Client<ApiClient>>,
         group_id: Vec<u8>,
         created_at_ns: i64,
-        mut callback: impl FnMut(StoredGroupMessage) + Send + 'static,
+        callback: impl FnMut(StoredGroupMessage) + Send + 'static,
     ) -> Result<StreamCloser, GroupError> {
         Ok(Client::<ApiClient>::stream_messages_with_callback(
             client,
@@ -86,7 +86,7 @@ where
                     cursor: 0,
                 },
             )]),
-            move |message| callback(message),
+            callback,
         )?)
     }
 }
