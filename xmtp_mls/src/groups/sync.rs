@@ -674,14 +674,10 @@ where
                 )?;
                 let mut extensions = openmls_group.extensions().clone();
                 extensions.add_or_replace(mutable_metadata);
-                let (commit, _) = openmls_group.propose_group_context_extensions(
+
+                let (commit, _, _) = openmls_group.update_group_context_extensions(
                     provider,
                     extensions,
-                    &self.client.identity.installation_keys,
-                )?;
-                println!("about to commit to pending proposals");
-                openmls_group.commit_to_pending_proposals(
-                    provider,
                     &self.client.identity.installation_keys,
                 )?;
 

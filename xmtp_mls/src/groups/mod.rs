@@ -15,8 +15,8 @@ use openmls::{
         UnknownExtension,
     },
     group::{
-        CommitToPendingProposalsError, MergePendingCommitError, MlsGroupCreateConfig,
-        MlsGroupJoinConfig, ProposalError,
+        CommitToPendingProposalsError, CreateGroupContextExtProposalError, MergePendingCommitError,
+        MlsGroupCreateConfig, MlsGroupJoinConfig, ProposalError,
     },
     messages::proposals::ProposalType,
     prelude::{
@@ -144,6 +144,8 @@ pub enum GroupError {
     CommitToPendingProposalsError(#[from] CommitToPendingProposalsError<StorageError>),
     #[error("merge pending commit error: {0}")]
     MergePendingCommitError(#[from] MergePendingCommitError<StorageError>),
+    #[error("create group context proposal error: {0}")]
+    CreateGroupContextExtProposalError(#[from] CreateGroupContextExtProposalError),
 }
 
 impl RetryableError for GroupError {
@@ -1083,7 +1085,7 @@ mod tests {
         // Verify bola group sees update
         bola_group.sync().await.unwrap();
         let bola_group_name: String = bola_group.mutable_metadata().expect("msg").group_name;
-         assert_eq!(bola_group_name, "New Group Name 1");
+        assert_eq!(bola_group_name, "New Group Name 1");
     }
 
     #[tokio::test]
