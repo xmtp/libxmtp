@@ -18,6 +18,7 @@ use openmls::{
         CommitToPendingProposalsError, MergePendingCommitError, MlsGroupCreateConfig,
         MlsGroupJoinConfig, ProposalError,
     },
+    messages::proposals::ProposalType,
     prelude::{
         Capabilities, CredentialWithKey, CryptoConfig, Error as TlsCodecError, GroupId,
         MlsGroup as OpenMlsGroup, StagedWelcome, Welcome as MlsWelcome, WireFormatPolicy,
@@ -543,13 +544,23 @@ fn build_group_config(
         ExtensionType::ApplicationId,
     ];
 
-    let capabilities = Capabilities::new(None, None, Some(required_extension_types), None, None);
-    let proposals = &[];
+    let required_proposal_types = &[ProposalType::GroupContextExtensions];
+
+    let capabilities = Capabilities::new(
+        None,
+        None,
+        Some(required_extension_types),
+        Some(required_proposal_types),
+        None,
+    );
     let credentials = &[CredentialType::Basic];
 
-    let required_capabilities = Extension::RequiredCapabilities(
-        RequiredCapabilitiesExtension::new(required_extension_types, proposals, credentials),
-    );
+    let required_capabilities =
+        Extension::RequiredCapabilities(RequiredCapabilitiesExtension::new(
+            required_extension_types,
+            required_proposal_types,
+            credentials,
+        ));
 
     let extensions = Extensions::from_vec(vec![
         protected_metadata_extension,
@@ -1034,40 +1045,102 @@ mod tests {
 
     #[tokio::test]
     async fn test_group_mutable_data() {
-        // TODO: Add check for updating group mutable metadata
         let amal = ClientBuilder::new_test_client(&generate_local_wallet()).await;
         let bola = ClientBuilder::new_test_client(&generate_local_wallet()).await;
 
+        // Create a group and verify it has the default group name
         let policies = Some(PreconfiguredPolicies::GroupCreatorIsAdmin);
-
         let amal_group: MlsGroup<_> = amal.create_group(policies).unwrap();
-
         amal_group.sync().await.unwrap();
 
+        let group_mutable_metadata = amal_group.mutable_metadata().unwrap();
+        assert!(group_mutable_metadata.group_name.eq("New Group"));
+
         // Add bola to the group
-        println!("Adding Bola to the group");
         amal_group
             .add_members(vec![bola.account_address()])
             .await
             .unwrap();
-
-        let bola_group = receive_group_invite(&bola).await;
+        bola.sync_welcomes().await.unwrap();
+        let bola_groups = bola.find_groups(None, None, None, None).unwrap();
+        assert_eq!(bola_groups.len(), 1);
+        let bola_group = bola_groups.first().unwrap();
         bola_group.sync().await.unwrap();
-
-        let mut group_mutable_metadata = amal_group.mutable_metadata().unwrap();
+        let group_mutable_metadata = bola_group.mutable_metadata().unwrap();
         assert!(group_mutable_metadata.group_name.eq("New Group"));
 
         // Update group name
-        println!("Updating group name");
         amal_group
             .update_group_metadata("New Group Name 1".to_string())
             .await
             .unwrap();
 
+        // Verify amal group sees update
+        amal_group.sync().await.unwrap();
+        let amal_group_name: String = amal_group.mutable_metadata().expect("msg").group_name;
+        assert_eq!(amal_group_name, "New Group Name 1");
+
+        // Verify bola group sees update
+        bola_group.sync().await.unwrap();
+        let bola_group_name: String = bola_group.mutable_metadata().expect("msg").group_name;
+         assert_eq!(bola_group_name, "New Group Name 1");
+    }
+
+    #[tokio::test]
+    async fn test_mutable_data_breaks_group_member_count() {
+        let amal = ClientBuilder::new_test_client(&generate_local_wallet()).await;
+        let bola = ClientBuilder::new_test_client(&generate_local_wallet()).await;
+        let caro = ClientBuilder::new_test_client(&generate_local_wallet()).await;
+        let dan = ClientBuilder::new_test_client(&generate_local_wallet()).await;
+
+        // Create a group and verify it has the default group name
+        let policies = Some(PreconfiguredPolicies::GroupCreatorIsAdmin);
+        let amal_group: MlsGroup<_> = amal.create_group(policies).unwrap();
         amal_group.sync().await.unwrap();
 
-        group_mutable_metadata = amal_group.mutable_metadata().unwrap();
-        assert!(group_mutable_metadata.group_name.eq("New Group Name 1"));
+        let group_mutable_metadata = amal_group.mutable_metadata().unwrap();
+        assert!(group_mutable_metadata.group_name.eq("New Group"));
+
+        // Add bola to the group
+        amal_group
+            .add_members(vec![bola.account_address()])
+            .await
+            .unwrap();
+        bola.sync_welcomes().await.unwrap();
+        let bola_groups = bola.find_groups(None, None, None, None).unwrap();
+        assert_eq!(bola_groups.len(), 1);
+        let bola_group = bola_groups.first().unwrap();
+        bola_group.sync().await.unwrap();
+        let group_mutable_metadata = bola_group.mutable_metadata().unwrap();
+        assert!(group_mutable_metadata.group_name.eq("New Group"));
+
+        // Add caro to group, and ensure bola sees correct group count
+        amal_group
+            .add_members(vec![caro.account_address()])
+            .await
+            .unwrap();
+
+        bola_group.sync().await.unwrap();
+        let num_members = bola_group.members().unwrap().len();
+        assert_eq!(3, num_members);
+
+        // Update group name
+        // *** If you comment out name update, test passes... ***
+        amal_group
+            .update_group_metadata("New Group Name 1".to_string())
+            .await
+            .unwrap();
+
+        // Add dan to group, and ensure bola sees correct group count
+        // Last `assert` is failing unless you comment out the group name update
+        amal_group
+            .add_members(vec![dan.account_address()])
+            .await
+            .unwrap();
+
+        bola_group.sync().await.unwrap();
+        let num_members = bola_group.members().unwrap().len();
+        assert_eq!(4, num_members);
     }
 
     #[tokio::test]

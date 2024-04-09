@@ -367,6 +367,7 @@ mod tests {
         credentials::{BasicCredential, CredentialWithKey},
         extensions::ExtensionType,
         group::config::CryptoConfig,
+        messages::proposals::ProposalType,
         prelude::Capabilities,
         prelude_test::KeyPackage,
         versions::ProtocolVersion,
@@ -511,7 +512,7 @@ mod tests {
                 ExtensionType::Unknown(0xff11),
                 ExtensionType::ImmutableMetadata,
             ]),
-            None,
+            Some(&[ProposalType::GroupContextExtensions]),
             None,
         );
 

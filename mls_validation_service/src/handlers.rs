@@ -130,6 +130,7 @@ mod tests {
     use ethers::signers::LocalWallet;
     use openmls::{
         extensions::{ApplicationIdExtension, Extension, ExtensionType, Extensions},
+        messages::proposals::ProposalType,
         prelude::{
             tls_codec::Serialize, Capabilities, Ciphersuite, Credential as OpenMlsCredential,
             CredentialWithKey, CryptoConfig,
@@ -180,8 +181,13 @@ mod tests {
         let capabilities = Capabilities::new(
             None,
             Some(&[CIPHERSUITE]),
-            Some(&[ExtensionType::Unknown(0xff11)]),
-            None,
+            Some(&[
+                ExtensionType::LastResort,
+                ExtensionType::ApplicationId,
+                ExtensionType::Unknown(0xff11),
+                ExtensionType::ImmutableMetadata,
+            ]),
+            Some(&[ProposalType::GroupContextExtensions]),
             None,
         );
 

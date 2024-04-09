@@ -125,6 +125,7 @@ mod tests {
             ApplicationIdExtension, Extension, ExtensionType, Extensions, LastResortExtension,
         },
         group::config::CryptoConfig,
+        messages::proposals::ProposalType,
         prelude::Capabilities,
         prelude_test::KeyPackage,
         versions::ProtocolVersion,
@@ -153,8 +154,13 @@ mod tests {
         let capabilities = Capabilities::new(
             None,
             Some(&[CIPHERSUITE]),
-            Some(&[ExtensionType::LastResort, ExtensionType::ApplicationId]),
-            None,
+            Some(&[
+                ExtensionType::LastResort,
+                ExtensionType::ApplicationId,
+                ExtensionType::Unknown(0xff11),
+                ExtensionType::ImmutableMetadata,
+            ]),
+            Some(&[ProposalType::GroupContextExtensions]),
             None,
         );
         // TODO: Set expiration

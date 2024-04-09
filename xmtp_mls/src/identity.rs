@@ -7,6 +7,7 @@ use openmls::{
         BasicCredential,
     },
     extensions::{errors::InvalidExtensionError, ApplicationIdExtension, LastResortExtension},
+    messages::proposals::ProposalType,
     prelude::{
         tls_codec::{Error as TlsCodecError, Serialize},
         Capabilities, Credential as OpenMlsCredential, CredentialWithKey, CryptoConfig, Extension,
@@ -204,7 +205,7 @@ impl Identity {
                 ExtensionType::Unknown(0xff11),
                 ExtensionType::ImmutableMetadata,
             ]),
-            None,
+            Some(&[ProposalType::GroupContextExtensions]),
             None,
         );
         let kp = KeyPackage::builder()

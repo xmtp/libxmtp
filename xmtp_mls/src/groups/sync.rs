@@ -398,7 +398,14 @@ where
             msgv1.id,
             |provider| -> Result<(), MessageProcessingError> {
                 self.process_message(openmls_group, &provider, msgv1, true)?;
+                println!(
+                    "Processed message for client: {:?}",
+                    self.client.account_address()
+                );
+                println!("Processed message for group id: {:?}", msgv1.group_id);
+                println!("Processed message for msg id: {:?}", msgv1.id);
                 openmls_group.save(provider.key_store())?;
+                println!("Saved group state");
                 Ok(())
             },
         )?;
@@ -672,6 +679,7 @@ where
                     extensions,
                     &self.client.identity.installation_keys,
                 )?;
+                println!("about to commit to pending proposals");
                 openmls_group.commit_to_pending_proposals(
                     provider,
                     &self.client.identity.installation_keys,
@@ -681,7 +689,7 @@ where
                     // Validate the commit, even if it's from yourself
                     ValidatedCommit::from_staged_commit(staged_commit, openmls_group)?;
                 }
-
+                println!("pending commit validated");
                 let commit_bytes = commit.tls_serialize_detached()?;
 
                 Ok((commit_bytes, None))
