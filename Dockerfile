@@ -9,7 +9,7 @@ ENV RUSTUP_PERMIT_COPY_RENAME "yes"
 
 RUN cargo check
 RUN cargo fmt --check
-RUN cargo clippy --all-features --no-deps
+RUN cargo clippy --all-features --no-deps -- -Dwarnings
 # some tests are setup as integration tests 👀 xmtp_mls
 RUN for crate in xmtp_cryptography xmtp_proto xmtp_v2; do cd ${crate}; cargo test; done
 
