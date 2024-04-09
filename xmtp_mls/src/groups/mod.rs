@@ -9,13 +9,10 @@ pub mod validated_commit;
 
 use intents::SendMessageIntentData;
 use openmls::{
-    credentials::BasicCredential,
-    extensions::{Extension, Extensions, Metadata},
-    group::{MlsGroupCreateConfig, MlsGroupJoinConfig},
-    prelude::{
+    credentials::BasicCredential, error::LibraryError, extensions::{Extension, Extensions, Metadata}, group::{MlsGroupCreateConfig, MlsGroupJoinConfig}, prelude::{
         BasicCredentialError, CredentialWithKey, CryptoConfig, Error as TlsCodecError, GroupId, 
         MlsGroup as OpenMlsGroup, StagedWelcome, Welcome as MlsWelcome, WireFormatPolicy,
-    },
+    }
 };
 use openmls_traits::OpenMlsProvider;
 use prost::Message;
@@ -122,6 +119,8 @@ pub enum GroupError {
     EncodeError(#[from] prost::EncodeError),
     #[error("Credential error")]
     CredentialError(#[from] BasicCredentialError),
+    #[error("LeafNode error")]
+    LeafNodeError(#[from] LibraryError),
 }
 
 impl RetryableError for GroupError {
@@ -250,22 +249,16 @@ where
 
         let welcome = deserialize_welcome(&welcome_bytes)?;
 
-        // === Create Staged Welcome ===
-        // Note: .expect will be cleaned up before exiting DRAFT
         let join_config = build_group_join_config();
         let staged_welcome = StagedWelcome::new_from_welcome(
             provider, 
             &join_config,
             welcome.clone(),
             None
-        )
-        .expect("error created staged mls group");
+        )?;
 
-        // === Obtain address of welcome sender ===
-        // Note: .expect will be cleaned up before exiting DRAFT
         let added_by_node = staged_welcome
-            .welcome_sender()
-            .expect("couldn't determine the sender of welcome");
+            .welcome_sender()?;
 
         let added_by_credential = BasicCredential::try_from(added_by_node.credential())?;
         let pub_key_bytes = added_by_node.signature_key().as_slice();
