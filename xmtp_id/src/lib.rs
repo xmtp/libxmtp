@@ -28,22 +28,15 @@ pub enum IdentityError {
     Deserialization(#[from] prost::DecodeError),
     #[error("credential verification {0}")]
     VerificationError(#[from] VerificationError),
-    #[error("blockchain error: {0}")]
-    BlockchainError(#[from] ethers::providers::ProviderError),
 }
 
-/// Trait allowing libxmtp to interface with a blockchain network
 #[async_trait::async_trait]
-pub trait BlockchainConnection {
-    /// Get the code for a given address at the given block height.
-    async fn get_code(
-        &self,
-        address: &String,
-        block: Option<u64>,
-    ) -> Result<Vec<u8>, IdentityError>;
+pub trait WalletIdentity {
+    async fn is_smart_wallet(&self, block: Option<u64>) -> Result<bool, IdentityError>;
 }
 
 pub struct Identity {
+    #[allow(dead_code)]
     pub(crate) account_address: Address,
     #[allow(dead_code)]
     pub(crate) installation_keys: SignatureKeyPair,
@@ -98,22 +91,6 @@ impl Identity {
         let credential = <Credential as CredentialVerifier>::verify_credential(request).await?;
         Ok(credential.account_address().to_string())
     }
-
-    /// Check if a given address is a smart contract at the latest block height by checking the code at a smart contract
-    /// address.
-    /// **WARN** This is not fool-proof. It is possible to mis-characterize a contract as an EOA
-    /// when the contract has not yet been deployed at the block height being queried.
-    /// Therefore, going back in time too far will return a false negative.
-    pub async fn is_smart_contract(
-        &self,
-        chain: &impl BlockchainConnection,
-        block: Option<u64>,
-    ) -> Result<bool, IdentityError> {
-        Ok(!chain
-            .get_code(&self.account_address, block)
-            .await?
-            .is_empty())
-    }
 }
 
 #[cfg(test)]
@@ -122,52 +99,40 @@ mod tests {
     use ethers::{
         middleware::Middleware,
         providers::{Http, Provider},
+        types::Address,
     };
+    use std::str::FromStr;
     use xmtp_cryptography::utils::generate_local_wallet;
     use xmtp_mls::InboxOwner;
 
-    struct EthereumConnection {
+    struct EthereumWallet {
         provider: Provider<Http>,
+        address: String,
     }
 
-    impl EthereumConnection {
-        pub fn new() -> Self {
+    impl EthereumWallet {
+        pub fn new(address: String) -> Self {
             let provider = Provider::<Http>::try_from("https://eth.llamarpc.com").unwrap();
-            Self { provider }
+            Self { provider, address }
         }
     }
 
     #[async_trait::async_trait]
-    impl BlockchainConnection for EthereumConnection {
-        async fn get_code(
-            &self,
-            address: &String,
-            block: Option<u64>,
-        ) -> Result<Vec<u8>, IdentityError> {
+    impl WalletIdentity for EthereumWallet {
+        async fn is_smart_wallet(&self, block: Option<u64>) -> Result<bool, IdentityError> {
+            let address = Address::from_str(&self.address).unwrap();
             let res = self.provider.get_code(address, block.map(Into::into)).await;
-
-            println!("{:?}", res);
-
-            Ok(res.unwrap().to_vec())
+            Ok(!res.unwrap().to_vec().is_empty())
         }
     }
 
     #[tokio::test]
-    async fn test_is_smart_contract() {
+    async fn test_is_smart_wallet() {
         let wallet = generate_local_wallet();
-        let identity_eoa = Identity::create_to_be_signed(wallet.get_address()).unwrap();
-        let identity_scw =
-            Identity::create_to_be_signed("0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48".into())
-                .unwrap();
-        let eth = EthereumConnection::new();
+        let eth = EthereumWallet::new(wallet.get_address());
+        let scw = EthereumWallet::new("0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48".into());
 
-        assert_eq!(
-            identity_scw.is_smart_contract(&eth, None).await.unwrap(),
-            false
-        );
-        assert_eq!(
-            identity_eoa.is_smart_contract(&eth, None).await.unwrap(),
-            false
-        );
+        assert_eq!(eth.is_smart_wallet(None).await.unwrap(), false);
+        assert_eq!(scw.is_smart_wallet(None).await.unwrap(), true);
     }
 }

@@ -21,20 +21,24 @@ use storage::StorageError;
 use xmtp_cryptography::signature::{RecoverableSignature, SignatureError};
 
 pub trait InboxOwner {
+    /// Get address of the wallet.
     fn get_address(&self) -> String;
+    /// Sign text with the wallet.
     fn sign(&self, text: &str) -> Result<RecoverableSignature, SignatureError>;
 }
 
-// Inserts a model to the underlying data store
+/// Inserts a model to the underlying data store
 pub trait Store<StorageConnection> {
     fn store(&self, into: &StorageConnection) -> Result<(), StorageError>;
 }
 
+/// Fetches a model from the underlying data store
 pub trait Fetch<Model> {
     type Key;
     fn fetch(&self, key: &Self::Key) -> Result<Option<Model>, StorageError>;
 }
 
+/// Deletes a model from the underlying data store
 pub trait Delete<Model> {
     type Key;
     fn delete(&self, key: Self::Key) -> Result<usize, StorageError>;
