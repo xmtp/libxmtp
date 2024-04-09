@@ -12,7 +12,7 @@ extern crate xmtp_mls;
 use std::{fs, path::PathBuf, time::Duration};
 
 use clap::{Parser, Subcommand, ValueEnum};
-use ethers::signers::{coins_bip39::English, MnemonicBuilder, LocalWallet};
+use ethers::signers::{coins_bip39::English, LocalWallet, MnemonicBuilder};
 use kv_log_macro::{error, info};
 use prost::Message;
 
