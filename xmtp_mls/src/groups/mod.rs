@@ -175,7 +175,6 @@ where
     }
 
     // Create a new group and save it to the DB
-    #[allow(clippy::unwrap_or_default)]
     pub fn create_and_insert(
         client: &'c Client<ApiClient>,
         membership_state: GroupMembershipState,
@@ -186,7 +185,7 @@ where
         let protected_metadata = build_protected_metadata_extension(
             &client.identity,
             permissions
-                .unwrap_or(PreconfiguredPolicies::default())
+                .unwrap_or_default()
                 .to_policy_set(),
         )?;
         let group_config = build_group_config(protected_metadata)?;
