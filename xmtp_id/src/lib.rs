@@ -133,7 +133,7 @@ mod tests {
         let eth = EthereumWallet::new(wallet.get_address());
         let scw = EthereumWallet::new("0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48".into());
 
-        assert_eq!(eth.is_smart_wallet(None).await.unwrap(), false);
-        assert_eq!(scw.is_smart_wallet(None).await.unwrap(), true);
+        assert!(!eth.is_smart_wallet(None).await.unwrap());
+        assert!(scw.is_smart_wallet(None).await.unwrap());
     }
 }
