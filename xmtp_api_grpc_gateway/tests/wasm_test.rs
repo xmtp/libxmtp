@@ -1,5 +1,5 @@
 use wasm_bindgen_test::*;
-use xmtp_api_grpc::auth_token::Authenticator;
+use xmtp_api_grpc_gateway::auth_token::Authenticator;
 use xmtp_api_grpc_gateway::XmtpGrpcGatewayClient;
 use xmtp_proto::api_client::XmtpApiClient;
 use xmtp_proto::xmtp::message_api::v1::{
