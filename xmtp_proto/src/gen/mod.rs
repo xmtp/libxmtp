@@ -1,5 +1,21 @@
 // @generated
 pub mod xmtp {
+    pub mod identity {
+        pub mod api {
+            #[cfg(feature = "xmtp-identity-api-v1")]
+            // @@protoc_insertion_point(attribute:xmtp.identity.api.v1)
+            pub mod v1 {
+                include!("xmtp.identity.api.v1.rs");
+                // @@protoc_insertion_point(xmtp.identity.api.v1)
+            }
+        }
+        #[cfg(feature = "xmtp-identity-associations")]
+        // @@protoc_insertion_point(attribute:xmtp.identity.associations)
+        pub mod associations {
+            include!("xmtp.identity.associations.rs");
+            // @@protoc_insertion_point(xmtp.identity.associations)
+        }
+    }
     pub mod keystore_api {
         #[cfg(feature = "xmtp-keystore_api-v1")]
         // @@protoc_insertion_point(attribute:xmtp.keystore_api.v1)
