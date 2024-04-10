@@ -5,7 +5,7 @@ use super::state::AssociationState;
 
 use thiserror::Error;
 
-#[derive(Debug, Error, PartialEq)]
+#[derive(Debug, Error)]
 pub enum AssociationError {
     #[error("Error creating association {0}")]
     Generic(String),
