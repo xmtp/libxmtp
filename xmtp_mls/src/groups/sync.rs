@@ -44,7 +44,7 @@ use crate::{
     client::MessageProcessingError,
     codecs::{membership_change::GroupMembershipChangeCodec, ContentCodec},
     configuration::{MAX_INTENT_PUBLISH_ATTEMPTS, UPDATE_INSTALLATIONS_INTERVAL_NS},
-    groups::validated_commit::ValidatedCommit,
+    groups::{build_mutable_metadata_extension, intents::UpdateMetadataIntentData, validated_commit::ValidatedCommit},
     hpke::{encrypt_welcome, HpkeError},
     identity::Identity,
     retry,
@@ -174,7 +174,7 @@ where
 
         let conn = provider.conn();
         match intent.kind {
-            IntentKind::AddMembers | IntentKind::RemoveMembers | IntentKind::KeyUpdate => {
+            IntentKind::AddMembers | IntentKind::RemoveMembers | IntentKind::KeyUpdate | IntentKind::MetadataUpdate => {
                 if !allow_epoch_increment {
                     return Err(MessageProcessingError::EpochIncrementNotAllowed);
                 }
@@ -251,7 +251,6 @@ where
                     None => return Err(MessageProcessingError::InvalidPayload),
                 };
             }
-            IntentKind::MetadataUpdate => todo!(),
         };
 
         conn.set_group_intent_committed(intent.id)?;
@@ -669,7 +668,28 @@ where
 
                 Ok((commit.tls_serialize_detached()?, None))
             }
-            IntentKind::MetadataUpdate => todo!(),
+            IntentKind::MetadataUpdate => {
+                let metadata_intent = UpdateMetadataIntentData::from_bytes(intent.data.as_slice())?;
+                let mutable_metadata = build_mutable_metadata_extension(
+                    metadata_intent.group_name
+                )?;
+                let mut extensions = openmls_group.extensions().clone();
+                extensions.add_or_replace(mutable_metadata);
+
+                let (commit, _, _) = openmls_group.update_group_context_extensions(
+                    provider,
+                    extensions,
+                    &self.client.identity.installation_keys,
+                )?;
+
+                if let Some(staged_commit) = openmls_group.pending_commit() {
+                    // Validate the commit, even if it's from yourself
+                    ValidatedCommit::from_staged_commit(staged_commit, openmls_group)?;
+                }
+                let commit_bytes = commit.tls_serialize_detached()?;
+
+                Ok((commit_bytes, None))
+            }
         }
     }
 
