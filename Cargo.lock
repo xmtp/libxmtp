@@ -6913,9 +6913,14 @@ dependencies = [
  "serde_json",
  "sha2 0.10.8",
  "surf",
+ "thiserror",
  "tokio",
  "tokio-test",
+ "tracing",
  "tracing-subscriber",
+ "xmtp_cryptography",
+ "xmtp_mls",
+ "xmtp_proto",
 ]
 
 [[package]]
