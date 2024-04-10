@@ -44,6 +44,7 @@ pub enum LegacyIdentitySource {
     KeyGenerator,
 }
 
+#[allow(clippy::too_many_arguments)]
 #[allow(unused)]
 #[uniffi::export(async_runtime = "tokio")]
 pub async fn create_client(
