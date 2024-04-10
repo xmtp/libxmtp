@@ -176,7 +176,7 @@ where
             client,
             group_id,
             created_at_ns,
-            added_by_address: added_by_address,
+            added_by_address,
         }
     }
 
