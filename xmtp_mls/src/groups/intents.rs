@@ -248,6 +248,7 @@ impl UpdateMetadataIntentData {
         buf
     }
 
+    #[allow(dead_code)]
     pub(crate) fn from_bytes(data: &[u8]) -> Result<Self, IntentError> {
         let msg = UpdateMetadataData::decode(data)?;
         let group_name = match msg.version {
