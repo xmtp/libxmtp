@@ -221,6 +221,7 @@ impl FfiConversations {
             inner_client: self.inner_client.clone(),
             group_id: convo.group_id,
             created_at_ns: convo.created_at_ns,
+            added_by_address: Some(self.inner_client.account_address()),
         });
 
         Ok(out)
@@ -237,6 +238,7 @@ impl FfiConversations {
             inner_client: self.inner_client.clone(),
             group_id: group.group_id,
             created_at_ns: group.created_at_ns,
+            added_by_address: group.added_by_address,
         });
 
         Ok(out)
@@ -266,6 +268,7 @@ impl FfiConversations {
                     inner_client: self.inner_client.clone(),
                     group_id: group.group_id,
                     created_at_ns: group.created_at_ns,
+                    added_by_address: group.added_by_address,
                 })
             })
             .collect();
@@ -285,6 +288,7 @@ impl FfiConversations {
                     inner_client: client.clone(),
                     group_id: convo.group_id,
                     created_at_ns: convo.created_at_ns,
+                    added_by_address: convo.added_by_address,
                 }))
             },
             || {}, // on_close_callback
@@ -318,6 +322,7 @@ pub struct FfiGroup {
     inner_client: Arc<RustXmtpClient>,
     group_id: Vec<u8>,
     created_at_ns: i64,
+    added_by_address: Option<String>,
 }
 
 #[derive(uniffi::Record)]
@@ -340,7 +345,7 @@ impl FfiGroup {
             self.inner_client.as_ref(),
             self.group_id.clone(),
             self.created_at_ns,
-            None,
+            self.added_by_address.clone(),
         );
 
         group.send_message(content_bytes.as_slice()).await?;
@@ -353,12 +358,16 @@ impl FfiGroup {
             self.inner_client.as_ref(),
             self.group_id.clone(),
             self.created_at_ns,
-            None,
+            self.added_by_address.clone(),
         );
 
         group.sync().await?;
 
         Ok(())
+    }
+
+    pub fn who_added_me(&self) -> Option<String> {
+        self.added_by_address.clone()
     }
 
     pub fn find_messages(
@@ -369,7 +378,7 @@ impl FfiGroup {
             self.inner_client.as_ref(),
             self.group_id.clone(),
             self.created_at_ns,
-            None,
+            self.added_by_address.clone(),
         );
 
         let messages: Vec<FfiMessage> = group
@@ -395,7 +404,7 @@ impl FfiGroup {
             self.inner_client.as_ref(),
             self.group_id.clone(),
             self.created_at_ns,
-            None,            
+            self.added_by_address.clone(),            
         );
         let message = group.process_streamed_group_message(envelope_bytes).await?;
         let ffi_message = message.into();
@@ -408,7 +417,7 @@ impl FfiGroup {
             self.inner_client.as_ref(),
             self.group_id.clone(),
             self.created_at_ns,
-            None,
+            self.added_by_address.clone(),
         );
 
         let members: Vec<FfiGroupMember> = group
@@ -430,7 +439,7 @@ impl FfiGroup {
             self.inner_client.as_ref(),
             self.group_id.clone(),
             self.created_at_ns,
-            None,
+            self.added_by_address.clone(),
         );
 
         group.add_members(account_addresses).await?;
@@ -443,7 +452,7 @@ impl FfiGroup {
             self.inner_client.as_ref(),
             self.group_id.clone(),
             self.created_at_ns,
-            None,
+            self.added_by_address.clone(),
         );
 
         group.remove_members(account_addresses).await?;
@@ -479,7 +488,7 @@ impl FfiGroup {
             self.inner_client.as_ref(),
             self.group_id.clone(),
             self.created_at_ns,
-            None,
+            self.added_by_address.clone(),
         );
 
         Ok(group.is_active()?)
@@ -490,7 +499,7 @@ impl FfiGroup {
             self.inner_client.as_ref(),
             self.group_id.clone(),
             self.created_at_ns,
-            None,
+            self.added_by_address.clone(),
         );
 
         let metadata = group.metadata()?;
