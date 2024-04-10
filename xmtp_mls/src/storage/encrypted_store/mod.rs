@@ -256,7 +256,7 @@ where
 
 #[cfg(test)]
 mod tests {
-    use std::{boxed::Box, fs};
+    use std::fs;
 
     use super::{
         db_connection::DbConnection, identity::StoredIdentity, EncryptedMessageStore, StorageError,
