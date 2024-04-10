@@ -31,10 +31,10 @@ futures = "0.3.30"
 futures-core = "0.3.30"
 hex = "0.4.3"
 log = "0.4"
-openmls = { git = "https://github.com/xmtp/openmls", rev = "4eee1fc" }
-openmls_basic_credential = { git = "https://github.com/xmtp/openmls", rev = "4eee1fc" }
-openmls_rust_crypto = { git = "https://github.com/xmtp/openmls", rev = "4eee1fc" }
-openmls_traits = { git = "https://github.com/xmtp/openmls", rev = "4eee1fc" }
+openmls = { git = "https://github.com/xmtp/openmls", rev = "8c58f21" }
+openmls_basic_credential = { git = "https://github.com/xmtp/openmls", rev = "8c58f21" }
+openmls_rust_crypto = { git = "https://github.com/xmtp/openmls", rev = "8c58f21" }
+openmls_traits = { git = "https://github.com/xmtp/openmls", rev = "8c58f21" }
 prost = "^0.12"
 prost-types = "^0.12"
 rand = "0.8.5"
