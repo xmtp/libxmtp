@@ -2,7 +2,7 @@ use openmls::prelude::{
     tls_codec::{Error as TlsCodecError, Serialize},
     MlsMessageOut,
 };
-use prost::{DecodeError, Message};
+use prost::{DecodeError, Message, bytes::Bytes};
 use thiserror::Error;
 
 use xmtp_proto::xmtp::mls::database::{
@@ -251,7 +251,7 @@ impl From<UpdateMetadataIntentData> for Vec<u8> {
     }
 }
 
-use prost::bytes::Bytes;
+
 
 impl TryFrom<Vec<u8>> for UpdateMetadataIntentData {
     type Error = IntentError;
