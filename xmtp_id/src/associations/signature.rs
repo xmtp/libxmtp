@@ -78,6 +78,7 @@ impl RecoverableEcdsaSignature {
 
 impl Signature for RecoverableEcdsaSignature {
     fn recover_signer(&self) -> Result<MemberIdentifier, SignatureError> {
+        println!("OK!");
         todo!()
     }
 
