@@ -305,7 +305,10 @@ mod tests {
             initial_state.clone(),
             IdentityUpdate::new_test(vec![update_with_bad_existing_member]),
         );
-        assert!(matches!(update_result, Err(AssociationError::Signature(SignatureError::Invalid))));
+        assert!(matches!(
+            update_result,
+            Err(AssociationError::Signature(SignatureError::Invalid))
+        ));
 
         let update_with_bad_new_member = Action::AddAssociation(AddAssociation {
             new_member_signature: bad_signature.clone(),
