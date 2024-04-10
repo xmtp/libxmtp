@@ -76,7 +76,14 @@ impl TryFrom<GroupMutableMetadataProto> for GroupMutableMetadata {
 pub fn extract_group_mutable_metadata(
     group: &OpenMlsGroup,
 ) -> Result<GroupMutableMetadata, GroupMutableMetadataError> {
-    todo!()
+    let extensions = group.export_group_context().extensions();
+    for extension in extensions.iter() {
+        // TODO: Replace with Constant
+        if let Extension::Unknown(0xff11, UnknownExtension(meta_data)) = extension {
+            return GroupMutableMetadata::try_from(meta_data);
+        }
+    }
+    Err(GroupMutableMetadataError::MissingExtension)
 }
 
 #[cfg(test)]

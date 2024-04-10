@@ -363,10 +363,7 @@ impl From<ValidatedCommit> for GroupMembershipChanges {
 #[cfg(test)]
 mod tests {
     use openmls::{
-        credentials::{BasicCredential, CredentialWithKey},
-        group::config::CryptoConfig,
-        prelude_test::KeyPackage,
-        versions::ProtocolVersion,
+        credentials::{BasicCredential, CredentialWithKey}, extensions::ExtensionType, group::config::CryptoConfig, messages::proposals::ProposalType, prelude::Capabilities, prelude_test::KeyPackage, versions::ProtocolVersion
     };
     use xmtp_api_grpc::Client as GrpcClient;
     use xmtp_cryptography::utils::generate_local_wallet;
@@ -499,8 +496,22 @@ mod tests {
         let amal_group = amal.create_group(None).unwrap();
         let mut amal_mls_group = amal_group.load_mls_group(&amal_provider).unwrap();
 
+        let capabilities = Capabilities::new(
+            None,
+            Some(&[CIPHERSUITE]),
+            Some(&[
+                ExtensionType::LastResort,
+                ExtensionType::ApplicationId,
+                ExtensionType::Unknown(0xff11),
+                ExtensionType::ImmutableMetadata,
+            ]),
+            Some(&[ProposalType::GroupContextExtensions]),
+            None,
+        );
+
         // Create a key package with a malformed credential
         let bad_key_package = KeyPackage::builder()
+            .leaf_node_capabilities(capabilities)
             .build(
                 CryptoConfig {
                     ciphersuite: CIPHERSUITE,
