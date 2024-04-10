@@ -9,10 +9,14 @@ pub mod validated_commit;
 
 use intents::SendMessageIntentData;
 use openmls::{
-    credentials::BasicCredential, error::LibraryError, extensions::{Extension, Extensions, Metadata}, group::{MlsGroupCreateConfig, MlsGroupJoinConfig}, prelude::{
-        BasicCredentialError, CredentialWithKey, CryptoConfig, Error as TlsCodecError, GroupId, 
+    credentials::BasicCredential,
+    error::LibraryError,
+    extensions::{Extension, Extensions, Metadata},
+    group::{MlsGroupCreateConfig, MlsGroupJoinConfig},
+    prelude::{
+        BasicCredentialError, CredentialWithKey, CryptoConfig, Error as TlsCodecError, GroupId,
         MlsGroup as OpenMlsGroup, StagedWelcome, Welcome as MlsWelcome, WireFormatPolicy,
-    }
+    },
 };
 use openmls_traits::OpenMlsProvider;
 use prost::Message;
@@ -162,7 +166,12 @@ where
     ApiClient: XmtpMlsClient,
 {
     // Creates a new group instance. Does not validate that the group exists in the DB
-    pub fn new(client: &'c Client<ApiClient>, group_id: Vec<u8>, created_at_ns: i64, added_by_address: Option<String>) -> Self {
+    pub fn new(
+        client: &'c Client<ApiClient>,
+        group_id: Vec<u8>,
+        created_at_ns: i64,
+        added_by_address: Option<String>,
+    ) -> Self {
         Self {
             client,
             group_id,
@@ -207,9 +216,20 @@ where
         mls_group.save(provider.key_store())?;
 
         let group_id = mls_group.group_id().to_vec();
-        let stored_group = StoredGroup::new(group_id.clone(), now_ns(), membership_state, added_by_address.clone());
+        let stored_group = StoredGroup::new(
+            group_id.clone(),
+            now_ns(),
+            membership_state,
+            added_by_address.clone(),
+        );
+
         stored_group.store(provider.conn())?;
-        Ok(Self::new(client, group_id, stored_group.created_at_ns, added_by_address))
+        Ok(Self::new(
+            client,
+            group_id,
+            stored_group.created_at_ns,
+            added_by_address,
+        ))
     }
 
     // Create a group from a decrypted and decoded welcome message
@@ -227,7 +247,12 @@ where
         mls_group.save(provider.key_store())?;
 
         let group_id = mls_group.group_id().to_vec();
-        let to_store = StoredGroup::new(group_id, now_ns(), GroupMembershipState::Pending, added_by_address.clone());
+        let to_store = StoredGroup::new(
+            group_id,
+            now_ns(),
+            GroupMembershipState::Pending,
+            added_by_address.clone(),
+        );
         let stored_group = provider.conn().insert_or_ignore_group(to_store)?;
 
         Ok(Self::new(
@@ -250,22 +275,15 @@ where
         let welcome = deserialize_welcome(&welcome_bytes)?;
 
         let join_config = build_group_join_config();
-        let staged_welcome = StagedWelcome::new_from_welcome(
-            provider, 
-            &join_config,
-            welcome.clone(),
-            None
-        )?;
+        let staged_welcome =
+            StagedWelcome::new_from_welcome(provider, &join_config, welcome.clone(), None)?;
 
-        let added_by_node = staged_welcome
-            .welcome_sender()?;
+        let added_by_node = staged_welcome.welcome_sender()?;
 
         let added_by_credential = BasicCredential::try_from(added_by_node.credential())?;
         let pub_key_bytes = added_by_node.signature_key().as_slice();
-        let account_address = Identity::get_validated_account_address(
-            added_by_credential.identity(), 
-            pub_key_bytes
-        )?;
+        let account_address =
+            Identity::get_validated_account_address(added_by_credential.identity(), pub_key_bytes)?;
 
         Self::create_from_welcome(client, provider, welcome, Some(account_address))
     }
@@ -1004,10 +1022,7 @@ mod tests {
 
         // Bola syncs groups - this will decrypt the Welcome, identify who added Bola
         // and then store that value on the group and insert into the database
-        let bola_groups = bola
-                .sync_welcomes()
-                .await
-                .unwrap();
+        let bola_groups = bola.sync_welcomes().await.unwrap();
 
         // Bola gets the group id. This will be needed to fetch the group from
         // the database.
@@ -1020,7 +1035,11 @@ mod tests {
         // Check Bola's group for the added_by_address of the inviter
         let added_by_address = bola_fetched_group.added_by_address.clone().unwrap();
 
-        // // Verify the welcome host_credential is equal to Amal's
-        assert_eq!(amal.account_address(), added_by_address, "The Inviter and added_by_address do not match!");
+        // Verify the welcome host_credential is equal to Amal's
+        assert_eq!(
+            amal.account_address(),
+            added_by_address,
+            "The Inviter and added_by_address do not match!"
+        );
     }
 }

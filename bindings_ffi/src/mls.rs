@@ -404,7 +404,7 @@ impl FfiGroup {
             self.inner_client.as_ref(),
             self.group_id.clone(),
             self.created_at_ns,
-            self.added_by_address.clone(),            
+            self.added_by_address.clone(),
         );
         let message = group.process_streamed_group_message(envelope_bytes).await?;
         let ffi_message = message.into();
@@ -955,84 +955,84 @@ mod tests {
         );
     }
 
-    // #[tokio::test(flavor = "multi_thread", worker_threads = 5)]
-    // async fn test_conversation_streaming() {
-    //     let amal = new_test_client().await;
-    //     let bola = new_test_client().await;
+    #[tokio::test(flavor = "multi_thread", worker_threads = 5)]
+    async fn test_conversation_streaming() {
+        let amal = new_test_client().await;
+        let bola = new_test_client().await;
 
-    //     let stream_callback = RustStreamCallback::new();
+        let stream_callback = RustStreamCallback::new();
 
-    //     let stream = bola
-    //         .conversations()
-    //         .stream(Box::new(stream_callback.clone()))
-    //         .await
-    //         .unwrap();
+        let stream = bola
+            .conversations()
+            .stream(Box::new(stream_callback.clone()))
+            .await
+            .unwrap();
 
-    //     tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+        tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
 
-    //     amal.conversations()
-    //         .create_group(vec![bola.account_address()], None)
-    //         .await
-    //         .unwrap();
+        amal.conversations()
+            .create_group(vec![bola.account_address()], None)
+            .await
+            .unwrap();
 
-    //     tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+        tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
 
-    //     assert_eq!(stream_callback.message_count(), 1);
-    //     // Create another group and add bola
-    //     amal.conversations()
-    //         .create_group(vec![bola.account_address()], None)
-    //         .await
-    //         .unwrap();
+        assert_eq!(stream_callback.message_count(), 1);
+        // Create another group and add bola
+        amal.conversations()
+            .create_group(vec![bola.account_address()], None)
+            .await
+            .unwrap();
 
-    //     tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
-    //     assert_eq!(stream_callback.message_count(), 2);
+        tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+        assert_eq!(stream_callback.message_count(), 2);
 
-    //     stream.end();
-    //     tokio::time::sleep(tokio::time::Duration::from_millis(5)).await;
-    //     assert!(stream.is_closed());
-    // }
+        stream.end();
+        tokio::time::sleep(tokio::time::Duration::from_millis(5)).await;
+        assert!(stream.is_closed());
+    }
 
-    // #[tokio::test(flavor = "multi_thread", worker_threads = 5)]
-    // async fn test_stream_all_messages() {
-    //     let alix = new_test_client().await;
-    //     let bo = new_test_client().await;
-    //     let caro = new_test_client().await;
+    #[tokio::test(flavor = "multi_thread", worker_threads = 5)]
+    async fn test_stream_all_messages() {
+        let alix = new_test_client().await;
+        let bo = new_test_client().await;
+        let caro = new_test_client().await;
 
-    //     let alix_group = alix
-    //         .conversations()
-    //         .create_group(vec![caro.account_address()], None)
-    //         .await
-    //         .unwrap();
-    //     tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+        let alix_group = alix
+            .conversations()
+            .create_group(vec![caro.account_address()], None)
+            .await
+            .unwrap();
+        tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
 
-    //     let stream_callback = RustStreamCallback::new();
-    //     let stream = caro
-    //         .conversations()
-    //         .stream_all_messages(Box::new(stream_callback.clone()))
-    //         .await
-    //         .unwrap();
-    //     tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+        let stream_callback = RustStreamCallback::new();
+        let stream = caro
+            .conversations()
+            .stream_all_messages(Box::new(stream_callback.clone()))
+            .await
+            .unwrap();
+        tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
 
-    //     alix_group.send("first".as_bytes().to_vec()).await.unwrap();
-    //     tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
-    //     let bo_group = bo
-    //         .conversations()
-    //         .create_group(vec![caro.account_address()], None)
-    //         .await
-    //         .unwrap();
-    //     tokio::time::sleep(tokio::time::Duration::from_millis(200)).await;
-    //     bo_group.send("second".as_bytes().to_vec()).await.unwrap();
-    //     tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
-    //     alix_group.send("third".as_bytes().to_vec()).await.unwrap();
-    //     tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
-    //     bo_group.send("fourth".as_bytes().to_vec()).await.unwrap();
-    //     tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+        alix_group.send("first".as_bytes().to_vec()).await.unwrap();
+        tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+        let bo_group = bo
+            .conversations()
+            .create_group(vec![caro.account_address()], None)
+            .await
+            .unwrap();
+        tokio::time::sleep(tokio::time::Duration::from_millis(200)).await;
+        bo_group.send("second".as_bytes().to_vec()).await.unwrap();
+        tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+        alix_group.send("third".as_bytes().to_vec()).await.unwrap();
+        tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+        bo_group.send("fourth".as_bytes().to_vec()).await.unwrap();
+        tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
 
-    //     assert_eq!(stream_callback.message_count(), 4);
-    //     stream.end();
-    //     tokio::time::sleep(tokio::time::Duration::from_millis(5)).await;
-    //     assert!(stream.is_closed());
-    // }
+        assert_eq!(stream_callback.message_count(), 4);
+        stream.end();
+        tokio::time::sleep(tokio::time::Duration::from_millis(5)).await;
+        assert!(stream.is_closed());
+    }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 5)]
     async fn test_message_streaming() {
@@ -1147,15 +1147,13 @@ mod tests {
         // Bola gets the group id. This will be needed to fetch the group from
         // the database.
         let bola_groups = bola_conversations
-            .list(
-                crate::FfiListConversationsOptions { 
-                    created_after_ns: None, 
-                    created_before_ns: None,
-                    limit: None 
-                }
-            )
-        .await
-        .unwrap();
+            .list(crate::FfiListConversationsOptions {
+                created_after_ns: None,
+                created_before_ns: None,
+                limit: None,
+            })
+            .await
+            .unwrap();
 
         let bola_group = bola_groups.first().unwrap();
 
@@ -1163,6 +1161,10 @@ mod tests {
         let added_by_address = bola_group.added_by_address.clone().unwrap();
 
         // // Verify the welcome host_credential is equal to Amal's
-        assert_eq!(amal.account_address(), added_by_address, "The Inviter and added_by_address do not match!");
+        assert_eq!(
+            amal.account_address(),
+            added_by_address,
+            "The Inviter and added_by_address do not match!"
+        );
     }
 }
