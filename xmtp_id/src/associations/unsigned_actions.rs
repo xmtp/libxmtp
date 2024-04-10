@@ -19,7 +19,7 @@ pub struct UnsignedCreateInbox {
 
 impl SignatureTextCreator for UnsignedCreateInbox {
     fn signature_text(&self) -> String {
-        format!("- Create inbox\n(Owner: {})", self.account_address)
+        format!("- Create inbox\n  (Owner: {})", self.account_address)
     }
 }
 
@@ -36,7 +36,7 @@ impl SignatureTextCreator for UnsignedAddAssociation {
             MemberKind::Installation => "Grant messaging access to app",
             MemberKind::Address => "Link address to inbox",
         };
-        format!("- {prefix}\n({id_kind}: {})", self.new_member_identifier)
+        format!("- {prefix}\n  ({id_kind}: {})", self.new_member_identifier)
     }
 }
 
@@ -53,7 +53,7 @@ impl SignatureTextCreator for UnsignedRevokeAssociation {
             MemberKind::Installation => "Revoke messaging access from app",
             MemberKind::Address => "Unlink address from inbox",
         };
-        format!("- {prefix}\n({id_kind}: {})", self.revoked_member)
+        format!("- {prefix}\n  ({id_kind}: {})", self.revoked_member)
     }
 }
 
@@ -66,7 +66,7 @@ impl SignatureTextCreator for UnsignedChangeRecoveryAddress {
     fn signature_text(&self) -> String {
         format!(
             // TODO: Finalize text
-            "- Change inbox recovery address\n(Address: {})",
+            "- Change inbox recovery address\n  (Address: {})",
             self.new_recovery_address
         )
     }
@@ -119,7 +119,7 @@ impl SignatureTextCreator for UnsignedIdentityUpdate {
         format!(
             "{HEADER}\n\nInbox ID: {}\nCurrent time: {}\n\n{}\n\n{FOOTER}",
             self.inbox_id,
-            ns_date_to_iso_8601(self.client_timestamp_ns),
+            pretty_timestamp(self.client_timestamp_ns),
             all_signatures.join("\n"),
         )
     }
@@ -132,40 +132,48 @@ fn get_identifier_text(kind: &MemberKind) -> String {
     }
 }
 
-fn ns_date_to_iso_8601(ns_date: u64) -> String {
+fn pretty_timestamp(ns_date: u64) -> String {
     let date = DateTime::from_timestamp_nanos(ns_date as i64);
-    date.to_string()
+    date.to_rfc3339_opts(chrono::SecondsFormat::Secs, true)
 }
 
 #[cfg(test)]
 mod tests {
-    use crate::associations::{
-        hashes::generate_inbox_id,
-        test_utils::{rand_string, rand_u64},
-    };
+    use crate::associations::hashes::generate_inbox_id;
 
     use super::*;
 
     #[test]
     fn create_signatures() {
-        let account_address = rand_string();
-        let client_timestamp_ns = rand_u64();
+        let account_address = "0x123".to_string();
+        let client_timestamp_ns: u64 = 12;
+        let new_member_address = "0x456".to_string();
+        let new_recovery_address = "0x789".to_string();
+        let new_installation_id = vec![1, 2, 3];
         let create_inbox = UnsignedCreateInbox {
-            nonce: rand_u64(),
+            nonce: 0,
             account_address: account_address.clone(),
         };
         let inbox_id = generate_inbox_id(&create_inbox.account_address, &create_inbox.nonce);
 
-        let add_association = UnsignedAddAssociation {
-            new_member_identifier: MemberIdentifier::Address(rand_string()),
+        let add_address = UnsignedAddAssociation {
+            new_member_identifier: MemberIdentifier::Address(new_member_address.clone()),
         };
 
-        let revoke_association = UnsignedRevokeAssociation {
-            revoked_member: MemberIdentifier::Address(rand_string()),
+        let add_installation = UnsignedAddAssociation {
+            new_member_identifier: MemberIdentifier::Installation(new_installation_id.clone()),
+        };
+
+        let revoke_address = UnsignedRevokeAssociation {
+            revoked_member: MemberIdentifier::Address(new_member_address.clone()),
+        };
+
+        let revoke_installation = UnsignedRevokeAssociation {
+            revoked_member: MemberIdentifier::Installation(new_installation_id.clone()),
         };
 
         let change_recovery_address = UnsignedChangeRecoveryAddress {
-            new_recovery_address: rand_string(),
+            new_recovery_address: new_recovery_address.clone(),
         };
 
         let identity_update = UnsignedIdentityUpdate {
@@ -173,34 +181,33 @@ mod tests {
             client_timestamp_ns: client_timestamp_ns.clone(),
             actions: vec![
                 UnsignedAction::CreateInbox(create_inbox.clone()),
-                UnsignedAction::AddAssociation(add_association.clone()),
-                UnsignedAction::RevokeAssociation(revoke_association.clone()),
+                UnsignedAction::AddAssociation(add_address.clone()),
+                UnsignedAction::AddAssociation(add_installation.clone()),
+                UnsignedAction::RevokeAssociation(revoke_address.clone()),
+                UnsignedAction::RevokeAssociation(revoke_installation.clone()),
                 UnsignedAction::ChangeRecoveryAddress(change_recovery_address.clone()),
             ],
         };
-        let now_timestamp = ns_date_to_iso_8601(client_timestamp_ns);
         let signature_text = identity_update.signature_text();
-        let expected_text = format!(
-            "{HEADER}
+        let expected_text = "XMTP : Authenticate to inbox
 
-Inbox ID: {inbox_id}
-Current time: {now_timestamp}
+Inbox ID: 0b3a92b07ade747bc8d601ac6e173a4f3496f908395496c053b80458a39e1ced
+Current time: 1970-01-01T00:00:00Z
 
 - Create inbox
-(Owner: {})
+  (Owner: 0x123)
 - Link address to inbox
-(Address: {})
+  (Address: 0x456)
+- Grant messaging access to app
+  (ID: 010203)
 - Unlink address from inbox
-(Address: {})
+  (Address: 0x456)
+- Revoke messaging access from app
+  (ID: 010203)
 - Change inbox recovery address
-(Address: {})
+  (Address: 0x789)
 
-{FOOTER}",
-            account_address,
-            add_association.new_member_identifier,
-            revoke_association.revoked_member,
-            change_recovery_address.new_recovery_address,
-        );
+For more info: https://xmtp.org/signatures";
         assert_eq!(signature_text, expected_text)
     }
 }
