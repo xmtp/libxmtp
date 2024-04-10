@@ -11,6 +11,7 @@ LibXMTP is a shared library encapsulating the core functionality of the XMTP mes
 
 - Install [Rustup](https://rustup.rs/)
 - Install [Docker](https://www.docker.com/get-started/)
+- Install [Foundry](https://book.getfoundry.sh/getting-started/installation#using-foundryup)
 
 ## Development
 

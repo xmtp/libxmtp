@@ -6,9 +6,7 @@ rust-version = "1.64"
 
 [dependencies]
 aes-gcm = "0.10.1"
-chrono = { workspace = true } 
 ecdsa = "0.15.1"
-ethers-core = { workspace = true }
 generic-array = "0.14.6"
 getrandom = { version = "0.2.8", features = ["js"] }
 hex = { workspace = true }
@@ -16,12 +14,7 @@ hkdf = "0.12.3"
 k256 = { version = "0.12.0", features = ["ecdh"] }
 rand = { workspace = true }
 rand_chacha = "0.3.1"
-rlp = "0.5.2"
-serde = { workspace = true }
 sha2 = "0.10.6"
 sha3 = "0.10.6"
-thiserror = { workspace = true }
 
 [dev-dependencies]
-ethers = { workspace = true }
-tokio = { workspace = true, features = ["rt", "macros"] }

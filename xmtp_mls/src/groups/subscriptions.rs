@@ -95,7 +95,6 @@ where
 mod tests {
     use prost::Message;
     use xmtp_cryptography::utils::generate_local_wallet;
-    use xmtp_proto::xmtp::mls::api::v1::GroupMessage;
 
     use crate::{builder::ClientBuilder, storage::group_message::GroupMessageKind};
     use futures::StreamExt;
