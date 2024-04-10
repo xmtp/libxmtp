@@ -141,7 +141,7 @@ impl IdentityUpdateBuilder {
     }
 }
 
-#[derive(Debug, Error, PartialEq)]
+#[derive(Debug, Error)]
 pub enum SignatureRequestError {
     #[error("Unknown signer")]
     UnknownSigner,
@@ -434,9 +434,9 @@ mod tests {
             MockSignature::new_boxed(true, rand_string().into(), SignatureKind::Erc191, None),
         );
 
-        assert_eq!(
+        assert!(matches!(
             attempt_to_add_random_member,
             Err(SignatureRequestError::UnknownSigner)
-        );
+        ));
     }
 }

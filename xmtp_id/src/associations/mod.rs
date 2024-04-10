@@ -233,8 +233,7 @@ mod tests {
             ..Default::default()
         });
         let update_result = apply_update(state, IdentityUpdate::new_test(vec![update]));
-        assert!(update_result.is_err());
-        assert_eq!(update_result.err().unwrap(), AssociationError::Replay);
+        assert!(matches!(update_result, Err(AssociationError::Replay)));
     }
 
     #[test]
@@ -285,11 +284,10 @@ mod tests {
         let state_result = get_state(vec![IdentityUpdate::new_test(vec![Action::CreateInbox(
             action,
         )])]);
-        assert!(state_result.is_err());
-        assert_eq!(
-            state_result.err().unwrap(),
-            AssociationError::Signature(SignatureError::Invalid)
-        );
+        assert!(matches!(
+            state_result,
+            Err(AssociationError::Signature(SignatureError::Invalid))
+        ));
     }
 
     #[test]
@@ -307,11 +305,10 @@ mod tests {
             initial_state.clone(),
             IdentityUpdate::new_test(vec![update_with_bad_existing_member]),
         );
-        assert!(update_result.is_err());
-        assert_eq!(
-            update_result.err().unwrap(),
-            AssociationError::Signature(SignatureError::Invalid)
-        );
+        assert!(matches!(
+            update_result,
+            Err(AssociationError::Signature(SignatureError::Invalid))
+        ));
 
         let update_with_bad_new_member = Action::AddAssociation(AddAssociation {
             new_member_signature: bad_signature.clone(),
@@ -328,11 +325,10 @@ mod tests {
             initial_state,
             IdentityUpdate::new_test(vec![update_with_bad_new_member]),
         );
-        assert!(update_result_2.is_err());
-        assert_eq!(
-            update_result_2.err().unwrap(),
-            AssociationError::Signature(SignatureError::Invalid)
-        );
+        assert!(matches!(
+            update_result_2,
+            Err(AssociationError::Signature(SignatureError::Invalid))
+        ));
     }
 
     #[test]
@@ -351,11 +347,10 @@ mod tests {
         });
 
         let state_result = get_state(vec![IdentityUpdate::new_test(vec![create_request, update])]);
-        assert!(state_result.is_err());
-        assert_eq!(
-            state_result.err().unwrap(),
-            AssociationError::MissingExistingMember
-        );
+        assert!(matches!(
+            state_result,
+            Err(AssociationError::MissingExistingMember)
+        ));
     }
 
     #[test]
@@ -383,14 +378,13 @@ mod tests {
         });
 
         let update_result = apply_update(existing_state, IdentityUpdate::new_test(vec![update]));
-        assert!(update_result.is_err());
-        assert_eq!(
-            update_result.err().unwrap(),
-            AssociationError::MemberNotAllowed(
-                MemberKind::Installation.to_string(),
-                MemberKind::Installation.to_string()
-            )
-        );
+        assert!(matches!(
+            update_result,
+            Err(AssociationError::MemberNotAllowed(
+                MemberKind::Installation,
+                MemberKind::Installation
+            ))
+        ));
     }
 
     #[test]
@@ -569,10 +563,9 @@ mod tests {
 
         let revoke_result =
             apply_update(new_state, IdentityUpdate::new_test(vec![attempted_revoke]));
-        assert!(revoke_result.is_err());
-        assert_eq!(
-            revoke_result.err().unwrap(),
-            AssociationError::MissingExistingMember
-        );
+        assert!(matches!(
+            revoke_result,
+            Err(AssociationError::MissingExistingMember)
+        ));
     }
 }

@@ -2,7 +2,7 @@ use thiserror::Error;
 
 use super::MemberIdentifier;
 
-#[derive(Debug, Error, PartialEq)]
+#[derive(Debug, Error)]
 pub enum SignatureError {
     #[error("Signature validation failed")]
     Invalid,
