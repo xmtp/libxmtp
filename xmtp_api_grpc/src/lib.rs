@@ -1,5 +1,6 @@
 pub mod auth_token;
 pub mod grpc_api_helper;
+mod identity;
 
 pub const LOCALHOST_ADDRESS: &str = "http://localhost:5556";
 pub const DEV_ADDRESS: &str = "https://grpc.dev.xmtp.network:443";
