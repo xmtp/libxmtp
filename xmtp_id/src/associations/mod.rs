@@ -378,9 +378,13 @@ mod tests {
         });
 
         let update_result = apply_update(existing_state, IdentityUpdate::new_test(vec![update]));
-        assert!(
-            matches!(update_result, Err(AssociationError::MemberNotAllowed(t1, t2)) if t1 == MemberKind::Installation.to_string() && t2 == MemberKind::Installation.to_string())
-        );
+        assert!(matches!(
+            update_result,
+            Err(AssociationError::MemberNotAllowed(
+                MemberKind::Installation,
+                MemberKind::Installation
+            ))
+        ));
     }
 
     #[test]

@@ -16,7 +16,7 @@ pub enum AssociationError {
     #[error("Signature validation failed {0}")]
     Signature(#[from] SignatureError),
     #[error("Member of kind {0} not allowed to add {1}")]
-    MemberNotAllowed(String, String),
+    MemberNotAllowed(MemberKind, MemberKind),
     #[error("Missing existing member")]
     MissingExistingMember,
     #[error("Legacy key is only allowed to be associated using a legacy signature with nonce 0")]
@@ -165,8 +165,8 @@ impl IdentityAction for AddAssociation {
 
         // Ensure that the new member signature is correct for the new member type
         allowed_association(
-            &existing_member_identifier.kind(),
-            &self.new_member_identifier.kind(),
+            existing_member_identifier.kind(),
+            self.new_member_identifier.kind(),
         )?;
 
         let new_member = Member::new(new_member_address, Some(existing_entity_id));
@@ -347,16 +347,16 @@ fn is_legacy_signature(signature: &Box<dyn Signature>) -> bool {
 }
 
 fn allowed_association(
-    existing_member_kind: &MemberKind,
-    new_member_kind: &MemberKind,
+    existing_member_kind: MemberKind,
+    new_member_kind: MemberKind,
 ) -> Result<(), AssociationError> {
     // The only disallowed association is an installation adding an installation
-    if existing_member_kind.eq(&MemberKind::Installation)
-        && new_member_kind.eq(&MemberKind::Installation)
+    if existing_member_kind == MemberKind::Installation
+        && new_member_kind == MemberKind::Installation
     {
         return Err(AssociationError::MemberNotAllowed(
-            existing_member_kind.to_string(),
-            new_member_kind.to_string(),
+            existing_member_kind,
+            new_member_kind,
         ));
     }
 
