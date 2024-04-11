@@ -392,12 +392,5 @@ pub(crate) mod tests {
             let purpose = sync_group.purpose;
             assert_eq!(purpose, Purpose::Sync);
         })
-
-        // Test a round trip for Message backup Request -> Response.  
-        // Test that the request has the correct fields.
-        // Test serialization of the message-bundle payload.
-        // Test encryption of the message-bundle payload.
-        // Test downloading of message message-bundle
-        // Testing the expiry of the bundle.
     }
 }
