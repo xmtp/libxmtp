@@ -46,6 +46,15 @@ diesel::table! {
 }
 
 diesel::table! {
+    identity_updates (inbox_id, sequence_id) {
+        inbox_id -> Text,
+        sequence_id -> BigInt,
+        server_timestamp_ns -> BigInt,
+        payload -> Binary,
+    }
+}
+
+diesel::table! {
     openmls_key_store (key_bytes) {
         key_bytes -> Binary,
         value_bytes -> Binary,
@@ -68,6 +77,7 @@ diesel::allow_tables_to_appear_in_same_query!(
     group_messages,
     groups,
     identity,
+    identity_updates,
     openmls_key_store,
     refresh_state,
 );
