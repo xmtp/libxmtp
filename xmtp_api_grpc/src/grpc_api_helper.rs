@@ -14,6 +14,7 @@ use xmtp_proto::{
         Error, ErrorKind, GroupMessageStream, MutableApiSubscription, WelcomeMessageStream,
         XmtpApiClient, XmtpApiSubscription, XmtpMlsClient,
     },
+    xmtp::identity::api::v1::identity_api_client::IdentityApiClient as ProtoIdentityApiClient,
     xmtp::message_api::v1::{
         message_api_client::MessageApiClient, BatchQueryRequest, BatchQueryResponse, Envelope,
         PublishRequest, PublishResponse, QueryRequest, QueryResponse, SubscribeRequest,
@@ -45,9 +46,10 @@ async fn create_tls_channel(address: String) -> Result<Channel, Error> {
 
 #[derive(Debug)]
 pub struct Client {
-    client: MessageApiClient<Channel>,
-    mls_client: ProtoMlsApiClient<Channel>,
-    app_version: MetadataValue<tonic::metadata::Ascii>,
+    pub(crate) client: MessageApiClient<Channel>,
+    pub(crate) mls_client: ProtoMlsApiClient<Channel>,
+    pub(crate) identity_client: ProtoIdentityApiClient<Channel>,
+    pub(crate) app_version: MetadataValue<tonic::metadata::Ascii>,
 }
 
 impl Client {
@@ -58,12 +60,14 @@ impl Client {
             let channel = create_tls_channel(host).await?;
 
             let client = MessageApiClient::new(channel.clone());
-            let mls_client = ProtoMlsApiClient::new(channel);
+            let mls_client = ProtoMlsApiClient::new(channel.clone());
+            let identity_client = ProtoIdentityApiClient::new(channel);
 
             Ok(Self {
                 client,
                 mls_client,
                 app_version,
+                identity_client,
             })
         } else {
             let channel = Channel::from_shared(host)
@@ -73,11 +77,13 @@ impl Client {
                 .map_err(|e| Error::new(ErrorKind::SetupError).with(e))?;
 
             let client = MessageApiClient::new(channel.clone());
-            let mls_client = ProtoMlsApiClient::new(channel);
+            let mls_client = ProtoMlsApiClient::new(channel.clone());
+            let identity_client = ProtoIdentityApiClient::new(channel);
 
             Ok(Self {
                 client,
                 mls_client,
+                identity_client,
                 app_version,
             })
         }

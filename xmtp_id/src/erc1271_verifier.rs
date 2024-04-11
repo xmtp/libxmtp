@@ -1,9 +1,14 @@
-use anyhow::Error;
 use ethers::contract::abigen;
 use ethers::providers::{Http, Provider};
 use ethers::types::{Address, BlockNumber, Bytes};
-use std::convert::TryFrom;
 use std::sync::Arc;
+use thiserror::Error;
+
+#[derive(Debug, Error)]
+pub enum VerifierError {
+    #[error("calling smart contract {0}")]
+    Contract(#[from] ethers::contract::ContractError<Provider<Http>>),
+}
 
 const EIP1271_MAGIC_VALUE: [u8; 4] = [0x16, 0x26, 0xba, 0x7e];
 
@@ -15,6 +20,7 @@ abigen!(
     derives(serde::Serialize, serde::Deserialize)
 );
 
+#[derive(Debug)]
 pub struct ERC1271Verifier {
     pub provider: Arc<Provider<Http>>,
 }
@@ -38,7 +44,7 @@ impl ERC1271Verifier {
         block_number: Option<BlockNumber>,
         hash: [u8; 32],
         signature: Bytes,
-    ) -> Result<bool, Error> {
+    ) -> Result<bool, VerifierError> {
         let erc1271 = ERC1271::new(contract_address, self.provider.clone());
 
         let res: [u8; 4] = erc1271
@@ -56,8 +62,8 @@ mod tests {
     use super::*;
     use ethers::{
         abi::{self, Token},
-        providers::{Http, Middleware, Provider},
-        types::{Bytes, H256, U256},
+        providers::Middleware,
+        types::{H256, U256},
     };
 
     use ethers::{
@@ -65,7 +71,6 @@ mod tests {
         middleware::SignerMiddleware,
         signers::{LocalWallet, Signer as _},
     };
-    use std::{convert::TryFrom, sync::Arc};
 
     abigen!(
         CoinbaseSmartWallet,

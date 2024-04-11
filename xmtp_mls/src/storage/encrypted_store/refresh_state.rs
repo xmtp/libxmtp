@@ -115,7 +115,7 @@ impl DbConnection<'_> {
 #[cfg(test)]
 pub(crate) mod tests {
     use super::*;
-    use crate::{storage::encrypted_store::tests::with_connection, Store};
+    use crate::storage::encrypted_store::tests::with_connection;
 
     #[test]
     fn get_cursor_with_no_existing_state() {

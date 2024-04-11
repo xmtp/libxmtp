@@ -13,12 +13,8 @@ use super::{
     Action, IdentityUpdate, MemberIdentifier, Signature, SignatureError,
 };
 
-#[derive(Error, Debug)]
-pub enum IdentityBuilderError {
-    #[error("Missing signer")]
-    MissingSigner,
-}
-
+/// The SignatureField is used to map the signatures from a [SignatureRequest] back to the correct
+/// field in an [IdentityUpdate]. It is used in the `pending_signatures` map in a [PendingIdentityAction]
 #[derive(Clone, PartialEq, Hash, Eq)]
 enum SignatureField {
     InitialAddress,
@@ -33,13 +29,17 @@ pub struct PendingIdentityAction {
     pending_signatures: HashMap<SignatureField, MemberIdentifier>,
 }
 
-pub struct IdentityUpdateBuilder {
+/// The SignatureRequestBuilder is used to collect all of the actions in
+/// an IdentityUpdate, but without the signatures.
+/// It outputs a SignatureRequest, which can then collect the relevant signatures and be turned into
+/// an IdentityUpdate.
+pub struct SignatureRequestBuilder {
     inbox_id: String,
     client_timestamp_ns: u64,
     actions: Vec<PendingIdentityAction>,
 }
 
-impl IdentityUpdateBuilder {
+impl SignatureRequestBuilder {
     /// Create a new IdentityUpdateBuilder for the given `inbox_id`
     pub fn new(inbox_id: String) -> Self {
         Self {
@@ -76,7 +76,6 @@ impl IdentityUpdateBuilder {
         self.actions.push(PendingIdentityAction {
             unsigned_action: UnsignedAction::AddAssociation(UnsignedAddAssociation {
                 new_member_identifier: new_member_identifier.clone(),
-                inbox_id: self.inbox_id.clone(),
             }),
             pending_signatures: HashMap::from([
                 (
@@ -101,7 +100,6 @@ impl IdentityUpdateBuilder {
                 recovery_address_identifier.clone(),
             )]),
             unsigned_action: UnsignedAction::RevokeAssociation(UnsignedRevokeAssociation {
-                inbox_id: self.inbox_id.clone(),
                 revoked_member,
             }),
         });
@@ -120,7 +118,6 @@ impl IdentityUpdateBuilder {
                 recovery_address_identifier.clone(),
             )]),
             unsigned_action: UnsignedAction::ChangeRecoveryAddress(UnsignedChangeRecoveryAddress {
-                inbox_id: self.inbox_id.clone(),
                 new_recovery_address,
             }),
         });
@@ -128,20 +125,29 @@ impl IdentityUpdateBuilder {
         self
     }
 
-    pub fn to_signature_request(self) -> SignatureRequest {
+    pub fn build(self) -> SignatureRequest {
         let unsigned_actions: Vec<UnsignedAction> = self
             .actions
             .iter()
             .map(|pending_action| pending_action.unsigned_action.clone())
             .collect();
 
-        let signature_text = get_signature_text(unsigned_actions, self.client_timestamp_ns);
+        let signature_text = get_signature_text(
+            unsigned_actions,
+            self.inbox_id.clone(),
+            self.client_timestamp_ns,
+        );
 
-        SignatureRequest::new(self.actions, signature_text, self.client_timestamp_ns)
+        SignatureRequest::new(
+            self.actions,
+            signature_text,
+            self.inbox_id,
+            self.client_timestamp_ns,
+        )
     }
 }
 
-#[derive(Debug, Error, PartialEq)]
+#[derive(Debug, Error)]
 pub enum SignatureRequestError {
     #[error("Unknown signer")]
     UnknownSigner,
@@ -161,15 +167,18 @@ pub struct SignatureRequest {
     signature_text: String,
     signatures: HashMap<MemberIdentifier, Box<dyn Signature>>,
     client_timestamp_ns: u64,
+    inbox_id: String,
 }
 
 impl SignatureRequest {
     pub fn new(
         pending_actions: Vec<PendingIdentityAction>,
         signature_text: String,
+        inbox_id: String,
         client_timestamp_ns: u64,
     ) -> Self {
         Self {
+            inbox_id,
             pending_actions,
             signature_text,
             signatures: HashMap::new(),
@@ -220,7 +229,7 @@ impl SignatureRequest {
         self.signature_text.clone()
     }
 
-    pub fn build_identity_update(&self) -> Result<IdentityUpdate, SignatureRequestError> {
+    pub fn build_identity_update(self) -> Result<IdentityUpdate, SignatureRequestError> {
         if !self.is_ready() {
             return Err(SignatureRequestError::MissingSigner);
         }
@@ -232,7 +241,11 @@ impl SignatureRequest {
             .map(|pending_action| build_action(pending_action, &self.signatures))
             .collect::<Result<Vec<Action>, SignatureRequestError>>()?;
 
-        Ok(IdentityUpdate::new(actions, self.client_timestamp_ns))
+        Ok(IdentityUpdate::new(
+            actions,
+            self.inbox_id,
+            self.client_timestamp_ns,
+        ))
     }
 }
 
@@ -317,10 +330,15 @@ fn build_action(
     }
 }
 
-fn get_signature_text(actions: Vec<UnsignedAction>, client_timestamp_ns: u64) -> String {
+fn get_signature_text(
+    actions: Vec<UnsignedAction>,
+    inbox_id: String,
+    client_timestamp_ns: u64,
+) -> String {
     let identity_update = UnsignedIdentityUpdate {
         client_timestamp_ns,
         actions,
+        inbox_id,
     };
 
     identity_update.signature_text()
@@ -337,7 +355,7 @@ mod tests {
 
     use super::*;
 
-    // Helper function to add all the missing signatures
+    // Helper function to add all the missing signatures, since we don't have real signers available
     fn add_missing_signatures_to_request(signature_request: &mut SignatureRequest) {
         let missing_signatures = signature_request.missing_signatures();
         for member_identifier in missing_signatures {
@@ -362,9 +380,9 @@ mod tests {
         let account_address = "account_address".to_string();
         let nonce = 0;
         let inbox_id = generate_inbox_id(&account_address, &nonce);
-        let mut signature_request = IdentityUpdateBuilder::new(inbox_id)
+        let mut signature_request = SignatureRequestBuilder::new(inbox_id)
             .create_inbox(account_address.into(), nonce)
-            .to_signature_request();
+            .build();
 
         add_missing_signatures_to_request(&mut signature_request);
 
@@ -383,10 +401,10 @@ mod tests {
         let existing_member_identifier: MemberIdentifier = account_address.into();
         let new_member_identifier: MemberIdentifier = rand_vec().into();
 
-        let mut signature_request = IdentityUpdateBuilder::new(inbox_id)
+        let mut signature_request = SignatureRequestBuilder::new(inbox_id)
             .create_inbox(existing_member_identifier.clone(), nonce)
             .add_association(new_member_identifier, existing_member_identifier)
-            .to_signature_request();
+            .build();
 
         add_missing_signatures_to_request(&mut signature_request);
 
@@ -405,10 +423,10 @@ mod tests {
         let inbox_id = generate_inbox_id(&account_address, &nonce);
         let existing_member_identifier: MemberIdentifier = account_address.clone().into();
 
-        let mut signature_request = IdentityUpdateBuilder::new(inbox_id)
+        let mut signature_request = SignatureRequestBuilder::new(inbox_id)
             .create_inbox(existing_member_identifier.clone(), nonce)
             .revoke_association(existing_member_identifier.clone(), account_address.into())
-            .to_signature_request();
+            .build();
 
         add_missing_signatures_to_request(&mut signature_request);
 
@@ -426,17 +444,17 @@ mod tests {
         let account_address = "account_address".to_string();
         let nonce = 0;
         let inbox_id = generate_inbox_id(&account_address, &nonce);
-        let mut signature_request = IdentityUpdateBuilder::new(inbox_id)
+        let mut signature_request = SignatureRequestBuilder::new(inbox_id)
             .create_inbox(account_address.into(), nonce)
-            .to_signature_request();
+            .build();
 
         let attempt_to_add_random_member = signature_request.add_signature(
             MockSignature::new_boxed(true, rand_string().into(), SignatureKind::Erc191, None),
         );
 
-        assert_eq!(
+        assert!(matches!(
             attempt_to_add_random_member,
             Err(SignatureRequestError::UnknownSigner)
-        );
+        ));
     }
 }

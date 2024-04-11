@@ -7,6 +7,11 @@ pub use super::xmtp::message_api::v1::{
     BatchQueryRequest, BatchQueryResponse, Envelope, PagingInfo, PublishRequest, PublishResponse,
     QueryRequest, QueryResponse, SubscribeRequest,
 };
+use crate::xmtp::identity::api::v1::{
+    GetIdentityUpdatesRequest as GetIdentityUpdatesV2Request,
+    GetIdentityUpdatesResponse as GetIdentityUpdatesV2Response, GetInboxIdsRequest,
+    GetInboxIdsResponse, PublishIdentityUpdateRequest, PublishIdentityUpdateResponse,
+};
 use crate::xmtp::mls::api::v1::{
     FetchKeyPackagesRequest, FetchKeyPackagesResponse, GetIdentityUpdatesRequest,
     GetIdentityUpdatesResponse, GroupMessage, QueryGroupMessagesRequest,
@@ -24,6 +29,7 @@ pub enum ErrorKind {
     SubscribeError,
     BatchQueryError,
     MlsError,
+    IdentityError,
     SubscriptionUpdateError,
 }
 
@@ -67,6 +73,7 @@ impl fmt::Display for Error {
             ErrorKind::QueryError => "query error",
             ErrorKind::SubscribeError => "subscribe error",
             ErrorKind::BatchQueryError => "batch query error",
+            ErrorKind::IdentityError => "identity error",
             ErrorKind::MlsError => "mls error",
             ErrorKind::SubscriptionUpdateError => "subscription update error",
         })?;
@@ -165,4 +172,24 @@ pub trait XmtpMlsClient: Send + Sync + 'static {
         &self,
         request: SubscribeWelcomeMessagesRequest,
     ) -> Result<WelcomeMessageStream, Error>;
+}
+
+// Wasm futures don't have `Send` or `Sync` bounds.
+#[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
+#[cfg_attr(not(target_arch = "wasm32"), async_trait)]
+pub trait XmtpIdentityClient: Send + Sync + 'static {
+    async fn publish_identity_update(
+        &self,
+        request: PublishIdentityUpdateRequest,
+    ) -> Result<PublishIdentityUpdateResponse, Error>;
+
+    async fn get_identity_updates_v2(
+        &self,
+        request: GetIdentityUpdatesV2Request,
+    ) -> Result<GetIdentityUpdatesV2Response, Error>;
+
+    async fn get_inbox_ids(
+        &self,
+        request: GetInboxIdsRequest,
+    ) -> Result<GetInboxIdsResponse, Error>;
 }
