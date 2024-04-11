@@ -25,7 +25,7 @@ use xmtp_proto::{
         },
         GroupMessage, WelcomeMessageInput,
     },
-    xmtp::mls::message_contents::plaintext_envelope::{Content, V1},
+    xmtp::mls::message_contents::plaintext_envelope::{Content, V1, V2},
     xmtp::mls::message_contents::GroupMembershipChanges,
     xmtp::mls::message_contents::PlaintextEnvelope,
 };
@@ -236,7 +236,11 @@ where
 
                         conn.set_delivery_status_to_published(&message_id, envelope_timestamp_ns)?;
                     }
-                    Some(Content::V2(_)) => {
+                    Some(Content::V2(V2 {
+                        idempotency_key,
+                        message_type
+                    })) => {
+                        debug!("Send Message History Request with message_type {:#?}", message_type);
                         return Err(MessageProcessingError::Generic(
                             "not yet implemented".into(),
                         ))
@@ -298,7 +302,11 @@ where
                         }
                         .store(provider.conn())?
                     }
-                    Some(Content::V2(_)) => {
+                    Some(Content::V2(V2 {
+                        idempotency_key,
+                        message_type
+                    })) => {
+                        debug!("Received Message History Request with message_type {:#?}", message_type);
                         return Err(MessageProcessingError::Generic(
                             "not yet implemented".into(),
                         ))
@@ -747,12 +755,10 @@ where
                         }
                         IdentityUpdate::RevokeInstallation(_) => {
                             log::warn!("Revocation found. Not handled");
-
                             None
                         }
                         IdentityUpdate::Invalid => {
                             log::warn!("Invalid identity update found");
-
                             None
                         }
                     })
