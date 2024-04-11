@@ -1,11 +1,15 @@
 use super::hashes::generate_inbox_id;
 use super::member::{Member, MemberIdentifier, MemberKind};
+use super::serialization::{
+    from_identity_update_proto, to_identity_update_proto, DeserializationError, SerializationError,
+};
 use super::signature::{Signature, SignatureError, SignatureKind};
 use super::state::AssociationState;
 
 use thiserror::Error;
+use xmtp_proto::xmtp::identity::associations::IdentityUpdate as IdentityUpdateProto;
 
-#[derive(Debug, Error, PartialEq)]
+#[derive(Debug, Error)]
 pub enum AssociationError {
     #[error("Error creating association {0}")]
     Generic(String),
@@ -16,13 +20,15 @@ pub enum AssociationError {
     #[error("Signature validation failed {0}")]
     Signature(#[from] SignatureError),
     #[error("Member of kind {0} not allowed to add {1}")]
-    MemberNotAllowed(String, String),
+    MemberNotAllowed(MemberKind, MemberKind),
     #[error("Missing existing member")]
     MissingExistingMember,
     #[error("Legacy key is only allowed to be associated using a legacy signature with nonce 0")]
     LegacySignatureReuse,
     #[error("The new member identifier does not match the signer")]
     NewMemberIdSignatureMismatch,
+    #[error("Wrong inbox_id specified on association")]
+    WrongInboxId,
     #[error("Signature not allowed for role {0:?} {1:?}")]
     SignatureNotAllowed(String, String),
     #[error("Replay detected")]
@@ -165,8 +171,8 @@ impl IdentityAction for AddAssociation {
 
         // Ensure that the new member signature is correct for the new member type
         allowed_association(
-            &existing_member_identifier.kind(),
-            &self.new_member_identifier.kind(),
+            existing_member_identifier.kind(),
+            self.new_member_identifier.kind(),
         )?;
 
         let new_member = Member::new(new_member_address, Some(existing_entity_id));
@@ -303,16 +309,26 @@ impl IdentityAction for Action {
 
 /// An `IdentityUpdate` contains one or more Actions that can be applied to the AssociationState
 pub struct IdentityUpdate {
+    pub inbox_id: String,
     pub client_timestamp_ns: u64,
     pub actions: Vec<Action>,
 }
 
 impl IdentityUpdate {
-    pub fn new(actions: Vec<Action>, client_timestamp_ns: u64) -> Self {
+    pub fn new(actions: Vec<Action>, inbox_id: String, client_timestamp_ns: u64) -> Self {
         Self {
+            inbox_id,
             actions,
             client_timestamp_ns,
         }
+    }
+
+    pub fn to_proto(&self) -> Result<IdentityUpdateProto, SerializationError> {
+        to_identity_update_proto(self)
+    }
+
+    pub fn from_proto(proto: IdentityUpdateProto) -> Result<Self, DeserializationError> {
+        from_identity_update_proto(proto)
     }
 }
 
@@ -327,6 +343,9 @@ impl IdentityAction for IdentityUpdate {
         }
 
         let new_state = state.ok_or(AssociationError::NotCreated)?;
+        if new_state.inbox_id().ne(&self.inbox_id) {
+            return Err(AssociationError::WrongInboxId);
+        }
 
         // After all the updates in the LogEntry have been processed, add the list of signatures to the state
         // so that the signatures can not be re-used in subsequent updates
@@ -347,16 +366,16 @@ fn is_legacy_signature(signature: &Box<dyn Signature>) -> bool {
 }
 
 fn allowed_association(
-    existing_member_kind: &MemberKind,
-    new_member_kind: &MemberKind,
+    existing_member_kind: MemberKind,
+    new_member_kind: MemberKind,
 ) -> Result<(), AssociationError> {
     // The only disallowed association is an installation adding an installation
-    if existing_member_kind.eq(&MemberKind::Installation)
-        && new_member_kind.eq(&MemberKind::Installation)
+    if existing_member_kind == MemberKind::Installation
+        && new_member_kind == MemberKind::Installation
     {
         return Err(AssociationError::MemberNotAllowed(
-            existing_member_kind.to_string(),
-            new_member_kind.to_string(),
+            existing_member_kind,
+            new_member_kind,
         ));
     }
 

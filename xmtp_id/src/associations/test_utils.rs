@@ -1,4 +1,5 @@
 use rand::{distributions::Alphanumeric, Rng};
+use xmtp_proto::xmtp::identity::associations::Signature as SignatureProto;
 
 use super::{MemberIdentifier, Signature, SignatureError, SignatureKind};
 
@@ -64,5 +65,9 @@ impl Signature for MockSignature {
     fn bytes(&self) -> Vec<u8> {
         let sig = format!("{}{}", self.signer_identity, self.signature_nonce);
         sig.as_bytes().to_vec()
+    }
+
+    fn to_proto(&self) -> SignatureProto {
+        SignatureProto { signature: None }
     }
 }

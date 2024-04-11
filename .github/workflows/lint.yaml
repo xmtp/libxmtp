@@ -27,3 +27,9 @@ jobs:
           token: ${{ secrets.GITHUB_TOKEN }}
           name: ffi
           args: --all-features --no-deps --manifest-path bindings_ffi/Cargo.toml
+      - name: Format
+        run: cargo fmt --check
+      - name: Lint and fail on warnings
+        run: cargo clippy --no-deps --all-features -- -Dwarnings
+      - name: Lint and fail on warnings
+        run: cargo clippy --all-features --no-deps --manifest-path bindings_ffi/Cargo.toml -- -Dwarnings

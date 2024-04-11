@@ -10,8 +10,7 @@ use openmls_traits::types::CryptoError;
 use thiserror::Error;
 use xmtp_mls::{
     configuration::CIPHERSUITE,
-    credential::Credential,
-    credential::{AssociationError, UnsignedGrantMessagingAccessData},
+    credential::{AssociationError, Credential, UnsignedGrantMessagingAccessData},
     types::Address,
     utils::time::now_ns,
 };
@@ -30,6 +29,11 @@ pub enum IdentityError {
     Deserialization(#[from] prost::DecodeError),
     #[error("credential verification {0}")]
     VerificationError(#[from] VerificationError),
+}
+
+#[async_trait::async_trait]
+pub trait WalletIdentity {
+    async fn is_smart_wallet(&self, block: Option<u64>) -> Result<bool, IdentityError>;
 }
 
 pub struct Identity {
@@ -87,5 +91,49 @@ impl Identity {
         let request = VerificationRequest::new(credential, installation_public_key);
         let credential = <Credential as CredentialVerifier>::verify_credential(request).await?;
         Ok(credential.account_address().to_string())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use ethers::{
+        middleware::Middleware,
+        providers::{Http, Provider},
+        types::Address,
+    };
+    use std::str::FromStr;
+    use xmtp_cryptography::utils::generate_local_wallet;
+    use xmtp_mls::InboxOwner;
+
+    struct EthereumWallet {
+        provider: Provider<Http>,
+        address: String,
+    }
+
+    impl EthereumWallet {
+        pub fn new(address: String) -> Self {
+            let provider = Provider::<Http>::try_from("https://eth.llamarpc.com").unwrap();
+            Self { provider, address }
+        }
+    }
+
+    #[async_trait::async_trait]
+    impl WalletIdentity for EthereumWallet {
+        async fn is_smart_wallet(&self, block: Option<u64>) -> Result<bool, IdentityError> {
+            let address = Address::from_str(&self.address).unwrap();
+            let res = self.provider.get_code(address, block.map(Into::into)).await;
+            Ok(!res.unwrap().to_vec().is_empty())
+        }
+    }
+
+    #[tokio::test]
+    async fn test_is_smart_wallet() {
+        let wallet = generate_local_wallet();
+        let eth = EthereumWallet::new(wallet.get_address());
+        let scw = EthereumWallet::new("0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48".into());
+
+        assert!(!eth.is_smart_wallet(None).await.unwrap());
+        assert!(scw.is_smart_wallet(None).await.unwrap());
     }
 }
