@@ -456,14 +456,14 @@ impl FfiGroup {
         Ok(())
     }
 
-    pub async fn group_name(&self) -> Result<String, GenericError> {
+    pub fn group_name(&self) -> Result<String, GenericError> {
         let group = MlsGroup::new(
             self.inner_client.as_ref(),
             self.group_id.clone(),
             self.created_at_ns,
         );
 
-        let group_name = group.group_name().await?;
+        let group_name = group.group_name()?;
 
         Ok(group_name)
     }
