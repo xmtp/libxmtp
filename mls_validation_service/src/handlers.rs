@@ -5,12 +5,20 @@ use openmls::{
 use openmls_rust_crypto::RustCrypto;
 use tonic::{Request, Response, Status};
 
+use xmtp_id::associations::IdentityUpdate;
 use xmtp_mls::{utils::id::serialize_group_id, verified_key_package::VerifiedKeyPackage};
-use xmtp_proto::xmtp::mls_validation::v1::{
-    validate_group_messages_response::ValidationResponse as ValidateGroupMessageValidationResponse,
-    validate_key_packages_response::ValidationResponse as ValidateKeyPackageValidationResponse,
-    validation_api_server::ValidationApi, ValidateGroupMessagesRequest,
-    ValidateGroupMessagesResponse, ValidateKeyPackagesRequest, ValidateKeyPackagesResponse,
+use xmtp_proto::xmtp::{
+    identity::associations::{
+        identity_action::Kind as IdentityActionKindProto, IdentityAction as IdentityActionProto,
+        IdentityUpdate as IdentityUpdateProto,
+    },
+    mls_validation::v1::{
+        validate_group_messages_response::ValidationResponse as ValidateGroupMessageValidationResponse,
+        validate_key_packages_response::ValidationResponse as ValidateKeyPackageValidationResponse,
+        validation_api_server::ValidationApi, GetAssociationStateRequest,
+        GetAssociationStateResponse, ValidateGroupMessagesRequest, ValidateGroupMessagesResponse,
+        ValidateKeyPackagesRequest, ValidateKeyPackagesResponse,
+    },
 };
 
 #[derive(Debug, Default)]
@@ -80,6 +88,15 @@ impl ValidationApi for ValidationService {
         Ok(Response::new(ValidateGroupMessagesResponse {
             responses: out,
         }))
+    }
+
+    async fn get_association_state(
+        &self,
+        request: Request<GetAssociationStateRequest>,
+    ) -> Result<Response<GetAssociationStateResponse>, Status> {
+        todo!()
+        // let state = get_state(updates).await;
+        // Ok(state)
     }
 }
 

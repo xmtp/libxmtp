@@ -21,12 +21,13 @@ serde = { workspace = true }
 tokio = { workspace = true, features = ["full"] }
 tonic = { workspace = true }
 warp = "0.3.6"
-xmtp_mls = { path = "../xmtp_mls" }
 xmtp_proto = { path = "../xmtp_proto", features = [
     "proto_full",
     "grpc",
     "tonic",
 ] }
+xmtp_id.workspace = true
+xmtp_mls.workspace = true 
 
 [dev-dependencies]
 ethers = "2.0.13"

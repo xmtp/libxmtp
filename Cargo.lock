@@ -3296,6 +3296,7 @@ dependencies = [
  "tokio",
  "tonic",
  "warp",
+ "xmtp_id",
  "xmtp_mls",
  "xmtp_proto",
 ]
