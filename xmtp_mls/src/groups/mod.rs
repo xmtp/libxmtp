@@ -185,9 +185,7 @@ where
         let provider = XmtpOpenMlsProvider::new(&conn);
         let protected_metadata = build_protected_metadata_extension(
             &client.identity,
-            permissions
-                .unwrap_or_default()
-                .to_policy_set(),
+            permissions.unwrap_or_default().to_policy_set(),
         )?;
         let group_config = build_group_config(protected_metadata)?;
 

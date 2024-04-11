@@ -238,12 +238,15 @@ where
                     }
                     Some(Content::V2(V2 {
                         idempotency_key,
-                        message_type
+                        message_type,
                     })) => {
-                        debug!("Send Message History Request with message_type {:#?}", message_type);
+                        debug!(
+                            "Send Message History Request with message_type {:#?}",
+                            message_type
+                        );
                         return Err(MessageProcessingError::Generic(
                             "not yet implemented".into(),
-                        ))
+                        ));
                     }
                     None => return Err(MessageProcessingError::InvalidPayload),
                 };
@@ -304,12 +307,15 @@ where
                     }
                     Some(Content::V2(V2 {
                         idempotency_key,
-                        message_type
+                        message_type,
                     })) => {
-                        debug!("Received Message History Request with message_type {:#?}", message_type);
+                        debug!(
+                            "Received Message History Request with message_type {:#?}",
+                            message_type
+                        );
                         return Err(MessageProcessingError::Generic(
                             "not yet implemented".into(),
-                        ))
+                        ));
                     }
                     None => return Err(MessageProcessingError::InvalidPayload),
                 }
