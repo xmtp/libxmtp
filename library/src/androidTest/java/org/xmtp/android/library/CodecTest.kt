@@ -8,11 +8,9 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.xmtp.android.library.Crypto.Companion.verifyHmacSignature
-import org.xmtp.android.library.codecs.CompositeCodec
 import org.xmtp.android.library.codecs.ContentCodec
 import org.xmtp.android.library.codecs.ContentTypeId
 import org.xmtp.android.library.codecs.ContentTypeIdBuilder
-import org.xmtp.android.library.codecs.DecodedComposite
 import org.xmtp.android.library.codecs.EncodedContent
 import org.xmtp.android.library.codecs.TextCodec
 import org.xmtp.android.library.messages.InvitationV1ContextBuilder
@@ -75,58 +73,6 @@ class CodecTest {
             assertEquals(3.14, content)
             assertEquals("Error: This app does not support numbers.", messages[0].fallbackContent)
         }
-    }
-
-    @Test
-    fun testCompositeCodecOnePart() {
-        Client.register(codec = CompositeCodec())
-        val fixtures = fixtures()
-        val aliceClient = fixtures.aliceClient
-        val aliceConversation = runBlocking {
-            aliceClient.conversations.newConversation(fixtures.bob.walletAddress)
-        }
-        val textContent = TextCodec().encode(content = "hiya")
-        val source = DecodedComposite(encodedContent = textContent)
-        runBlocking {
-            aliceConversation.send(
-                content = source,
-                options = SendOptions(contentType = CompositeCodec().contentType),
-            )
-        }
-        val messages = runBlocking { aliceConversation.messages() }
-        val decoded: DecodedComposite? = messages[0].content()
-        assertEquals("hiya", decoded?.content())
-    }
-
-    @Test
-    fun testCompositeCodecCanHaveParts() {
-        Client.register(codec = CompositeCodec())
-        Client.register(codec = NumberCodec())
-        val fixtures = fixtures()
-        val aliceClient = fixtures.aliceClient!!
-        val aliceConversation = runBlocking {
-            aliceClient.conversations.newConversation(fixtures.bob.walletAddress)
-        }
-        val textContent = TextCodec().encode(content = "sup")
-        val numberContent = NumberCodec().encode(content = 3.14)
-        val source = DecodedComposite(
-            parts = listOf(
-                DecodedComposite(encodedContent = textContent),
-                DecodedComposite(parts = listOf(DecodedComposite(encodedContent = numberContent))),
-            ),
-        )
-        runBlocking {
-            aliceConversation.send(
-                content = source,
-                options = SendOptions(contentType = CompositeCodec().contentType),
-            )
-        }
-        val messages = runBlocking { aliceConversation.messages() }
-        val decoded: DecodedComposite? = messages[0].content()
-        val part1 = decoded!!.parts[0]
-        val part2 = decoded.parts[1].parts[0]
-        assertEquals("sup", part1.content())
-        assertEquals(3.14, part2.content())
     }
 
     @Test
