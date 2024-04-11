@@ -395,6 +395,16 @@ where
         self.sync_until_intent_resolved(conn, intent.id).await
     }
 
+    // Query the database for stored messages. Optionally filtered by time, kind, delivery_status
+    // and limit
+    pub fn group_name(
+        &self,
+    ) -> Result<String, GroupError> {
+        
+        let mutable_metadata = self.mutable_metadata()?;
+        Ok(mutable_metadata.group_name)
+    }
+
     #[allow(dead_code)]
     pub(crate) async fn remove_members_by_installation_id(
         &self,
