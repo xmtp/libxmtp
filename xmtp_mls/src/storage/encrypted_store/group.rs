@@ -51,7 +51,7 @@ impl StoredGroup {
         }
     }
 
-    /// Create a new [`Purpose::Sync`] group
+    /// Create a new [`Purpose::Sync`] group.  This is less common and is used to sync message history. 
     pub fn new_sync_group(
         id: ID,
         created_at_ns: i64,
@@ -68,7 +68,7 @@ impl StoredGroup {
 }
 
 impl DbConnection<'_> {
-    /// Return  regular [`Purpose::Conversation`] groups with additional filters
+    /// Return regular [`Purpose::Conversation`] groups with additional optional filters
     pub fn find_groups(
         &self,
         allowed_states: Option<Vec<GroupMembershipState>>,
