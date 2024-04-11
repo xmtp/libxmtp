@@ -1,10 +1,12 @@
+use std::collections::HashMap;
+
 use crate::{impl_store, storage::StorageError};
 
 use super::{
     db_connection::DbConnection,
     schema::identity_updates::{self, dsl},
 };
-use diesel::prelude::*;
+use diesel::{dsl::max, prelude::*};
 
 /// StoredIdentityUpdate holds a serialized IdentityUpdate record
 #[derive(Insertable, Identifiable, Queryable, Debug, Clone, PartialEq, Eq)]
@@ -68,6 +70,33 @@ impl DbConnection<'_> {
             Ok(())
         })?)
     }
+
+    /// Given a list of inbox_ids return a hashamp of each inbox ID -> highest known sequence ID
+    /// If an entry is not present in the DB, default to 0
+    pub fn get_latest_sequence_id(
+        &self,
+        inbox_ids: &[String],
+    ) -> Result<HashMap<String, i64>, StorageError> {
+        // Query IdentityUpdates grouped by inbox_id, getting the max sequence_id
+        let query = dsl::identity_updates
+            .group_by(dsl::inbox_id)
+            .select((dsl::inbox_id, max(dsl::sequence_id)))
+            .filter(dsl::inbox_id.eq_any(inbox_ids));
+
+        // Get the results as a Vec of (inbox_id, sequence_id) tuples
+        let result_tuples: Vec<(String, i64)> = self
+            .raw_query(|conn| query.load::<(String, Option<i64>)>(conn))?
+            .into_iter()
+            // Diesel needs an Option type for aggregations like max(sequence_id), so we
+            // unwrap the option here
+            .filter_map(|(inbox_id, sequence_id_opt)| {
+                sequence_id_opt.map(|sequence_id| (inbox_id, sequence_id))
+            })
+            .collect();
+
+        // Convert the Vec to a HashMap
+        Ok(HashMap::from_iter(result_tuples))
+    }
 }
 
 #[cfg(test)]
@@ -130,6 +159,41 @@ mod tests {
                 .expect("query should work");
 
             assert_eq!(all_updates.len(), 3);
+        })
+    }
+
+    #[test]
+    fn test_get_latest_sequence_id() {
+        with_connection(|conn| {
+            let inbox_1 = "inbox_1";
+            let inbox_2 = "inbox_2";
+            let update_1 = build_update(inbox_1, 1);
+            let update_2 = build_update(inbox_1, 3);
+            let update_3 = build_update(inbox_2, 5);
+            let update_4 = build_update(inbox_2, 6);
+
+            conn.insert_or_ignore_identity_updates(&[update_1, update_2, update_3, update_4])
+                .expect("insert should succeed");
+
+            let latest_sequence_ids = conn
+                .get_latest_sequence_id(&[inbox_1.to_string(), inbox_2.to_string()])
+                .expect("query should work");
+
+            assert_eq!(latest_sequence_ids.get(&inbox_1.to_string()), Some(&3));
+            assert_eq!(latest_sequence_ids.get(&inbox_2.to_string()), Some(&6));
+
+            let latest_sequence_ids_with_missing_member = conn
+                .get_latest_sequence_id(&[inbox_1.to_string(), "missing_inbox".to_string()])
+                .expect("should still succeed");
+
+            assert_eq!(
+                latest_sequence_ids_with_missing_member.get(&inbox_1.to_string()),
+                Some(&3)
+            );
+            assert_eq!(
+                latest_sequence_ids_with_missing_member.get("missing_inbox"),
+                None
+            );
         })
     }
 }
