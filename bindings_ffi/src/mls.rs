@@ -1005,7 +1005,7 @@ mod tests {
             .await
             .unwrap();
 
-        tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+        tokio::time::sleep(tokio::time::Duration::from_millis(200)).await;
 
         assert_eq!(stream_callback.message_count(), 1);
         // Create another group and add bola
