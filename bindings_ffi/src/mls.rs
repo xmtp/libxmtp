@@ -397,10 +397,7 @@ impl FfiGroup {
     }
 
     pub fn added_by_address(&self) -> Option<String> {
-        match &self.added_by {
-            Some(member) => Some(member.account_address.clone()),
-            None => None,
-        }
+        self.added_by.as_ref().map(|member| member.account_address.clone())
     }
 
     pub fn find_messages(
