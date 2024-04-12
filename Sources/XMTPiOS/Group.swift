@@ -109,12 +109,12 @@ public struct Group: Identifiable, Equatable, Hashable {
 	
 	public func processMessage(envelopeBytes: Data) async throws -> DecodedMessage {
 		let message = try await ffiGroup.processStreamedGroupMessage(envelopeBytes: envelopeBytes)
-		return try message.fromFFI(client: client)
+		return try MessageV3(client: client, ffiMessage: message).decode()
 	}
 	
 	public func processMessageDecrypted(envelopeBytes: Data) async throws -> DecryptedMessage {
 		let message = try await ffiGroup.processStreamedGroupMessage(envelopeBytes: envelopeBytes)
-		return try message.fromFFIDecrypted(client: client)
+		return try MessageV3(client: client, ffiMessage: message).decrypt()
 	}
 
 	public func send<T>(content: T, options: SendOptions? = nil) async throws -> String {
@@ -176,7 +176,7 @@ public struct Group: Identifiable, Equatable, Hashable {
 					self.streamHolder.stream = try await ffiGroup.stream(
 						messageCallback: MessageCallback(client: self.client) { message in
 							do {
-								continuation.yield(try message.fromFFI(client: self.client))
+								continuation.yield(try MessageV3(client: self.client, ffiMessage: message).decode())
 							} catch {
 								print("Error onMessage \(error)")
 							}
@@ -196,7 +196,7 @@ public struct Group: Identifiable, Equatable, Hashable {
 					self.streamHolder.stream = try await ffiGroup.stream(
 						messageCallback: MessageCallback(client: self.client) { message in
 							do {
-								continuation.yield(try message.fromFFIDecrypted(client: self.client))
+								continuation.yield(try MessageV3(client: self.client, ffiMessage: message).decrypt())
 							} catch {
 								print("Error onMessage \(error)")
 							}
@@ -224,8 +224,8 @@ public struct Group: Identifiable, Equatable, Hashable {
 			options.limit = Int64(limit)
 		}
 
-		let messages = try ffiGroup.findMessages(opts: options).map { ffiMessage in
-			try ffiMessage.fromFFI(client: client)
+		let messages = try ffiGroup.findMessages(opts: options).compactMap { ffiMessage in
+			return MessageV3(client: self.client, ffiMessage: ffiMessage).decodeOrNull()
 		}
 
 		switch direction {
@@ -251,8 +251,8 @@ public struct Group: Identifiable, Equatable, Hashable {
 			options.limit = Int64(limit)
 		}
 
-		let messages = try ffiGroup.findMessages(opts: options).map { ffiMessage in
-			try ffiMessage.fromFFIDecrypted(client: client)
+		let messages = try ffiGroup.findMessages(opts: options).compactMap { ffiMessage in
+			return MessageV3(client: self.client, ffiMessage: ffiMessage).decryptOrNull()
 		}
 		
 		switch direction {

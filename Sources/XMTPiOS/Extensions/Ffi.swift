@@ -193,34 +193,6 @@ extension FfiV2SubscribeRequest {
 	}
 }
 
-// MARK: Messages
-
-extension FfiMessage {
-	func fromFFI(client: Client) throws -> DecodedMessage {
-		let encodedContent = try EncodedContent(serializedData: content)
-
-		return DecodedMessage(
-			client: client,
-			topic: Topic.groupMessage(convoId.toHex).description,
-			encodedContent: encodedContent,
-			senderAddress: addrFrom,
-			sent: Date(timeIntervalSince1970: TimeInterval(sentAtNs / 1_000_000_000))
-		)
-	}
-	
-	func fromFFIDecrypted(client: Client) throws -> DecryptedMessage {
-		let encodedContent = try EncodedContent(serializedData: content)
-
-		return DecryptedMessage(
-			id: id.toHex,
-			encodedContent: encodedContent,
-			senderAddress: addrFrom,
-			sentAt: Date(timeIntervalSince1970: TimeInterval(sentAtNs / 1_000_000_000)),
-			topic: Topic.groupMessage(convoId.toHex).description
-		)
-	}
-}
-
 // MARK: Group
 
 extension FfiGroup {

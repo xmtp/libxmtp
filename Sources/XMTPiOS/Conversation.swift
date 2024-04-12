@@ -147,10 +147,10 @@ public enum Conversation: Sendable {
 		case let .v2(conversationV2):
 			return try conversationV2.decode(envelope: envelope)
 		case let .group(group):
-			guard let messageDecoded = try message?.fromFFI(client: client) else {
+			guard let message = message else {
 				throw GroupError.groupsRequireMessagePassed
 			}
-			return messageDecoded
+			return try MessageV3(client: client, ffiMessage: message).decode()
 		}
 	}
 
@@ -161,10 +161,10 @@ public enum Conversation: Sendable {
 		case let .v2(conversationV2):
 			return try conversationV2.decrypt(envelope: envelope)
 		case let .group(group):
-			guard let messageDecrypted = try message?.fromFFIDecrypted(client: client) else {
+			guard let message = message else {
 				throw GroupError.groupsRequireMessagePassed
 			}
-			return messageDecrypted
+			return try MessageV3(client: client, ffiMessage: message).decrypt()
 		}
 	}
 

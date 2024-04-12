@@ -353,12 +353,14 @@ class GroupTests: XCTestCase {
 	func testCanSendMessagesToGroup() async throws {
 		let fixtures = try await localFixtures()
 		let aliceGroup = try await fixtures.aliceClient.conversations.newGroup(with: [fixtures.bob.address])
+		let membershipChange = GroupMembershipChanges()
 
 		try await fixtures.bobClient.conversations.sync()
 		let bobGroup = try await fixtures.bobClient.conversations.groups()[0]
 
 		_ = try await aliceGroup.send(content: "sup gang original")
 		_ = try await aliceGroup.send(content: "sup gang")
+		_ = try await aliceGroup.send(content: membershipChange, options: SendOptions(contentType: ContentTypeGroupMembershipChanged))
 
 		try await aliceGroup.sync()
 		let aliceGroupsCount = try await aliceGroup.messages().count
@@ -373,6 +375,7 @@ class GroupTests: XCTestCase {
 		XCTAssertEqual("sup gang", try aliceMessage.content())
 		XCTAssertEqual("sup gang", try bobMessage.content())
 	}
+	
 	
 	func testCanSendMessagesToGroupDecrypted() async throws {
 		let fixtures = try await localFixtures()
@@ -396,6 +399,25 @@ class GroupTests: XCTestCase {
 
 		XCTAssertEqual("sup gang", String(data: Data(aliceMessage.encodedContent.content), encoding: .utf8))
 		XCTAssertEqual("sup gang", String(data: Data(bobMessage.encodedContent.content), encoding: .utf8))
+	}
+	
+	func testCanStreamGroupMessages() async throws {
+		let fixtures = try await localFixtures()
+		let group = try await fixtures.bobClient.conversations.newGroup(with: [fixtures.alice.address])
+		let membershipChange = GroupMembershipChanges()
+		let expectation1 = expectation(description: "got a message")
+		expectation1.expectedFulfillmentCount = 1
+
+		Task(priority: .userInitiated) {
+			for try await _ in group.streamMessages() {
+				expectation1.fulfill()
+			}
+		}
+
+		_ = try await group.send(content: "hi")
+		_ = try await group.send(content: membershipChange, options: SendOptions(contentType: ContentTypeGroupMembershipChanged))
+
+		await waitForExpectations(timeout: 3)
 	}
 	
 	func testCanStreamGroups() async throws {
@@ -454,6 +476,7 @@ class GroupTests: XCTestCase {
 	
 	func testCanStreamAllDecryptedMessages() async throws {
 		let fixtures = try await localFixtures()
+		let membershipChange = GroupMembershipChanges()
 
 		let expectation1 = expectation(description: "got a conversation")
 		expectation1.expectedFulfillmentCount = 2
@@ -467,6 +490,7 @@ class GroupTests: XCTestCase {
 		}
 
 		_ = try await group.send(content: "hi")
+		_ = try await group.send(content: membershipChange, options: SendOptions(contentType: ContentTypeGroupMembershipChanged))
 		_ = try await convo.send(content: "hi")
 
 		await waitForExpectations(timeout: 3)

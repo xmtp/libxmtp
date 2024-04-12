@@ -290,7 +290,7 @@ public actor Conversations {
 					self.streamHolder.stream = try await self.client.v3Client?.conversations().streamAllMessages(
 						messageCallback: MessageCallback(client: self.client) { message in
 							do {
-								continuation.yield(try message.fromFFI(client: self.client))
+								continuation.yield(try MessageV3(client: self.client, ffiMessage: message).decode())
 							} catch {
 								print("Error onMessage \(error)")
 							}
@@ -335,7 +335,7 @@ public actor Conversations {
 					self.streamHolder.stream = try await self.client.v3Client?.conversations().streamAllMessages(
 						messageCallback: MessageCallback(client: self.client) { message in
 							do {
-								continuation.yield(try message.fromFFIDecrypted(client: self.client))
+								continuation.yield(try MessageV3(client: self.client, ffiMessage: message).decrypt())
 							} catch {
 								print("Error onMessage \(error)")
 							}
