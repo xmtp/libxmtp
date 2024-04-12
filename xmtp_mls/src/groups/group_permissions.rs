@@ -231,6 +231,7 @@ pub struct PolicySet {
     pub remove_member_policy: MembershipPolicies,
     pub add_installation_policy: MembershipPolicies,
     pub remove_installation_policy: MembershipPolicies,
+    pub update_group_name_policy: MembershipPolicies,
 }
 
 #[allow(dead_code)]
@@ -242,8 +243,9 @@ impl PolicySet {
         Self {
             add_member_policy,
             remove_member_policy,
-            add_installation_policy: default_add_installation_policy(),
-            remove_installation_policy: default_remove_installation_policy(),
+            add_installation_policy: MembershipPolicies::allow(),
+            remove_installation_policy: MembershipPolicies::deny(),
+            update_group_name_policy: MembershipPolicies::allow() 
         }
     }
 
@@ -295,6 +297,7 @@ impl PolicySet {
         Ok(PolicySetProto {
             add_member_policy: Some(self.add_member_policy.to_proto()?),
             remove_member_policy: Some(self.remove_member_policy.to_proto()?),
+            update_group_name_policy: Some(self.update_group_name_policy.to_proto()?),
         })
     }
 
@@ -322,14 +325,6 @@ impl PolicySet {
         let proto = PolicySetProto::decode(bytes)?;
         Self::from_proto(proto)
     }
-}
-
-fn default_add_installation_policy() -> MembershipPolicies {
-    MembershipPolicies::allow()
-}
-
-fn default_remove_installation_policy() -> MembershipPolicies {
-    MembershipPolicies::deny()
 }
 
 /// A policy where any member can add or remove any other member
