@@ -233,13 +233,15 @@ impl UpdateMetadataIntentData {
     pub fn new(group_name: String) -> Self {
         Self { group_name }
     }
+}
 
-    pub(crate) fn to_bytes(&self) -> Vec<u8> {
+impl From<UpdateMetadataIntentData> for Vec<u8> {
+    fn from(intent: UpdateMetadataIntentData) -> Self {
         let mut buf = Vec::new();
 
         UpdateMetadataData {
             version: Some(UpdateMetadataVersion::V1(UpdateMetadataV1 {
-                group_name: self.group_name.clone(),
+                group_name: intent.group_name.clone(),
             })),
         }
         .encode(&mut buf)
@@ -247,22 +249,22 @@ impl UpdateMetadataIntentData {
 
         buf
     }
+}
 
-    #[allow(dead_code)]
-    pub(crate) fn from_bytes(data: &[u8]) -> Result<Self, IntentError> {
-        let msg = UpdateMetadataData::decode(data)?;
+use prost::bytes::Bytes;
+
+impl TryFrom<Vec<u8>> for UpdateMetadataIntentData {
+    type Error = IntentError;
+
+    fn try_from(data: Vec<u8>) -> Result<Self, Self::Error> {
+        let msg = UpdateMetadataData::decode(Bytes::from(data))?;
+
         let group_name = match msg.version {
             Some(UpdateMetadataVersion::V1(ref v1)) => v1.group_name.clone(),
             None => return Err(IntentError::Generic("missing payload".to_string())),
         };
 
         Ok(Self::new(group_name))
-    }
-}
-
-impl From<UpdateMetadataIntentData> for Vec<u8> {
-    fn from(intent: UpdateMetadataIntentData) -> Self {
-        intent.to_bytes()
     }
 }
 
@@ -412,7 +414,8 @@ mod tests {
     async fn test_serialize_update_metadata() {
         let intent = UpdateMetadataIntentData::new("group name".to_string());
         let as_bytes: Vec<u8> = intent.clone().try_into().unwrap();
-        let restored_intent = UpdateMetadataIntentData::from_bytes(as_bytes.as_slice()).unwrap();
+        let restored_intent: UpdateMetadataIntentData =
+            UpdateMetadataIntentData::try_from(as_bytes).unwrap();
 
         assert_eq!(intent.group_name, restored_intent.group_name);
     }

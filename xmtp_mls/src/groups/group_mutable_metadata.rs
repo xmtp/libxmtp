@@ -28,20 +28,6 @@ impl GroupMutableMetadata {
             group_name
         }
     }
-
-    pub(crate) fn from_proto(
-        proto: GroupMutableMetadataProto,
-    ) -> Result<Self, GroupMutableMetadataError> {
-        Ok(Self::new(
-            proto.group_name.clone()
-        ))
-    }
-
-    pub(crate) fn to_proto(&self) -> Result<GroupMutableMetadataProto, GroupMutableMetadataError> {
-        Ok(GroupMutableMetadataProto {
-            group_name: self.group_name.clone()
-        })
-    }
 }
 
 impl TryFrom<GroupMutableMetadata> for Vec<u8> {
@@ -49,7 +35,9 @@ impl TryFrom<GroupMutableMetadata> for Vec<u8> {
 
     fn try_from(value: GroupMutableMetadata) -> Result<Self, Self::Error> {
         let mut buf = Vec::new();
-        let proto_val = value.to_proto()?;
+        let proto_val = GroupMutableMetadataProto {
+            group_name: value.group_name.clone()
+        };
         proto_val.encode(&mut buf)?;
 
         Ok(buf)
@@ -69,7 +57,7 @@ impl TryFrom<GroupMutableMetadataProto> for GroupMutableMetadata {
     type Error = GroupMutableMetadataError;
 
     fn try_from(value: GroupMutableMetadataProto) -> Result<Self, Self::Error> {
-        Self::from_proto(value)
+        Self::new(value.group_name.clone())
     }
 }
 
