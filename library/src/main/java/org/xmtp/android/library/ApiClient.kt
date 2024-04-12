@@ -1,10 +1,10 @@
 package org.xmtp.android.library
 
-import io.grpc.Grpc
 import io.grpc.InsecureChannelCredentials
 import io.grpc.ManagedChannel
 import io.grpc.Metadata
 import io.grpc.TlsChannelCredentials
+import io.grpc.okhttp.OkHttpChannelBuilder
 import kotlinx.coroutines.flow.Flow
 import org.xmtp.android.library.messages.Pagination
 import org.xmtp.android.library.messages.Topic
@@ -88,7 +88,7 @@ data class GRPCApiClient(
     }
 
     private val channel: ManagedChannel =
-        Grpc.newChannelBuilderForAddress(
+        OkHttpChannelBuilder.forAddress(
             environment.getValue(),
             if (environment == XMTPEnvironment.LOCAL) 5556 else 443,
             if (secure) {
