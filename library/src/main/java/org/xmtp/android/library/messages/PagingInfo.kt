@@ -16,35 +16,13 @@ data class Pagination(
 ) {
     val pagingInfo: PagingInfo
         get() {
-            return PagingInfo.newBuilder().also {
-                if (limit != null) {
-                    it.limit = limit
+            return PagingInfo.newBuilder().also { page ->
+                limit?.let {
+                    page.limit = it
                 }
                 if (direction != null) {
-                    it.direction = direction
+                    page.direction = direction
                 }
             }.build()
         }
-}
-
-class PagingInfoBuilder {
-    companion object {
-        fun buildFromPagingInfo(
-            limit: Int? = null,
-            cursor: PagingInfoCursor? = null,
-            direction: PagingInfoSortDirection? = null,
-        ): PagingInfo {
-            return PagingInfo.newBuilder().also {
-                if (limit != null) {
-                    it.limit = limit
-                }
-                if (cursor != null) {
-                    it.cursor = cursor
-                }
-                if (direction != null) {
-                    it.direction = direction
-                }
-            }.build()
-        }
-    }
 }

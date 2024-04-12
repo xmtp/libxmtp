@@ -129,20 +129,25 @@ data class GRPCApiClient(
      * It yields all the envelopes in the query using the paging info
      * from the prior response to fetch the next page.
      */
-    override suspend fun envelopes(topic: String, pagination: Pagination?): List<Envelope> {
+    override suspend fun envelopes(
+        topic: String,
+        pagination: Pagination?,
+    ): List<Envelope> {
         var envelopes: MutableList<Envelope> = mutableListOf()
         var hasNextPage = true
         var cursor: Cursor? = null
         while (hasNextPage) {
-            val response = query(topic = topic, pagination = pagination, cursor = cursor)
+            val response =
+                query(topic = topic, pagination = pagination, cursor = cursor)
             envelopes.addAll(response.envelopesList)
             cursor = response.pagingInfo.cursor
             hasNextPage = response.envelopesList.isNotEmpty() && response.pagingInfo.hasCursor()
-            if (pagination?.limit != null && envelopes.size >= pagination.limit) {
+            if (pagination?.limit != null && pagination.limit <= 100 && envelopes.size >= pagination.limit) {
                 envelopes = envelopes.take(pagination.limit).toMutableList()
                 break
             }
         }
+
         return envelopes
     }
 
