@@ -32,3 +32,6 @@ ethers = { workspace = true, features = ["ws"] }
 futures = "0.3"
 regex = "1.10"
 tokio = { workspace = true, features = ["time"] }
+
+[features]
+test-utils = []

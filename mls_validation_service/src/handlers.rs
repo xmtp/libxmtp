@@ -149,6 +149,7 @@ fn validate_key_package(key_package_bytes: Vec<u8>) -> Result<ValidateKeyPackage
 
 #[cfg(test)]
 mod tests {
+    use anyhow::Error;
     use ethers::signers::LocalWallet;
     use openmls::{
         extensions::{ApplicationIdExtension, Extension, Extensions},
@@ -162,8 +163,12 @@ mod tests {
     use openmls_basic_credential::SignatureKeyPair;
     use openmls_rust_crypto::OpenMlsRustCrypto;
     use prost::Message;
+    use xmtp_id::associations::{
+        generate_inbox_id, Action, AddAssociation, CreateInbox, SerializationError,
+    };
     use xmtp_mls::{credential::Credential, InboxOwner};
     use xmtp_proto::xmtp::{
+        identity::associations::IdentityUpdate as IdentityUpdateProto,
         mls::message_contents::MlsCredential as CredentialProto,
         mls_validation::v1::validate_key_packages_request::KeyPackage as KeyPackageProtoWrapper,
     };
@@ -273,5 +278,30 @@ mod tests {
 
         assert!(!first_response.is_ok);
         assert_eq!(first_response.account_address, "".to_string());
+    }
+
+    #[tokio::test]
+    async fn test_get_association_state() -> Result<(), Error> {
+        let create_request = CreateInbox::default();
+        let inbox_id = generate_inbox_id(&create_request.account_address, &create_request.nonce);
+        let add_request = AddAssociation::default();
+
+        let updates = vec![
+            IdentityUpdate::new_test(vec![Action::CreateInbox(create_request)], inbox_id.clone()),
+            IdentityUpdate::new_test(vec![Action::AddAssociation(add_request)], inbox_id),
+        ];
+
+        let state = ValidationService::default()
+            .get_association_state(Request::new(GetAssociationStateRequest {
+                updates: updates
+                    .into_iter()
+                    .map(|u| IdentityUpdateProto::try_from(u))
+                    .collect::<Result<Vec<_>, SerializationError>>()?,
+            }))
+            .await
+            .unwrap();
+
+        println!("STATE {:?}", state);
+        Ok(())
     }
 }

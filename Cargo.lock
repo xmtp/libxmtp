@@ -2572,6 +2572,7 @@ dependencies = [
 name = "mls_validation_service"
 version = "0.1.0"
 dependencies = [
+ "anyhow",
  "clap",
  "env_logger",
  "ethers",

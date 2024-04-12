@@ -16,7 +16,7 @@ openmls = { workspace = true }
 openmls_basic_credential = { workspace = true }
 openmls_rust_crypto = { workspace = true }
 openmls_traits = { workspace = true }
-prost = { version = "^0.12", features = ["prost-derive"] }
+prost = { workspace = true, features = ["prost-derive"] }
 serde = { workspace = true }
 tokio = { workspace = true, features = ["full"] }
 tonic = { workspace = true }
@@ -30,5 +30,7 @@ xmtp_id.workspace = true
 xmtp_mls.workspace = true 
 
 [dev-dependencies]
-ethers = "2.0.13"
+ethers.workspace = true 
 rand = { workspace = true }
+xmtp_id = { workspace = true, features = ["test-utils"]}
+anyhow.workspace = true

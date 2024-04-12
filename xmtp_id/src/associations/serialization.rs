@@ -15,6 +15,7 @@ use super::{
     },
     IdentityUpdate, MemberIdentifier, Signature,
 };
+use std::collections::HashMap;
 use thiserror::Error;
 use xmtp_proto::xmtp::identity::associations::{
     identity_action::Kind as IdentityActionKindProto,
@@ -176,6 +177,13 @@ fn from_member_identifier_kind_proto(proto: MemberIdentifierKindProto) -> Member
     }
 }
 
+fn from_member_proto(member: MemberProto) -> Result<Member, DeserializationError> {
+    Ok(Member {
+        identifier: from_member_identifier_proto_option(member.identifier)?,
+        added_by_entity: from_member_identifier_proto_option(member.added_by_entity).ok(),
+    })
+}
+
 fn from_signature_proto_option(
     proto: Option<SignatureWrapperProto>,
     signature_text: String,
@@ -221,6 +229,28 @@ fn from_signature_kind_proto(
                     .ok_or(DeserializationError::Signature)?,
             ))
         }
+    })
+}
+
+fn from_association_state_proto(
+    proto: AssociationStateProto,
+) -> Result<AssociationState, DeserializationError> {
+    let members = proto
+        .members
+        .into_iter()
+        .map(|MemberMapProto { key, value }| {
+            Ok::<_, DeserializationError>((
+                from_member_identifier_proto_option(key)?,
+                from_member_proto(value.ok_or(DeserializationError::MissingMember)?)?,
+            ))
+        })
+        .filter_map(Result::ok);
+
+    Ok(AssociationState {
+        inbox_id: proto.inbox_id,
+        members: HashMap::from_iter(members),
+        recovery_address: proto.recovery_address,
+        seen_signatures: proto.seen_signatures.into_iter().collect(),
     })
 }
 
@@ -331,8 +361,8 @@ fn to_association_state_proto(association_state: AssociationState) -> Associatio
 }
 
 impl From<AssociationState> for AssociationStateProto {
-    fn from(association_state: AssociationState) -> Self {
-        to_association_state_proto(association_state)
+    fn from(state: AssociationState) -> AssociationStateProto {
+        to_association_state_proto(state)
     }
 }
 
