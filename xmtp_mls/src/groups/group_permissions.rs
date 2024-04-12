@@ -245,7 +245,7 @@ impl PolicySet {
             remove_member_policy,
             add_installation_policy: MembershipPolicies::allow(),
             remove_installation_policy: MembershipPolicies::deny(),
-            update_group_name_policy: MembershipPolicies::allow() 
+            update_group_name_policy: MembershipPolicies::allow(),
         }
     }
 
