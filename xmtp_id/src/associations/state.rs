@@ -4,10 +4,10 @@ use super::{hashes::generate_inbox_id, member::Member, MemberIdentifier, MemberK
 
 #[derive(Clone, Debug)]
 pub struct AssociationState {
-    inbox_id: String,
-    members: HashMap<MemberIdentifier, Member>,
-    recovery_address: String,
-    seen_signatures: HashSet<Vec<u8>>,
+    pub(crate) inbox_id: String,
+    pub(crate) members: HashMap<MemberIdentifier, Member>,
+    pub(crate) recovery_address: String,
+    pub(crate) seen_signatures: HashSet<Vec<u8>>,
 }
 
 impl AssociationState {

@@ -3,22 +3,16 @@ use openmls::{
     prelude::{tls_codec::Deserialize, MlsMessageIn, ProtocolMessage},
 };
 use openmls_rust_crypto::RustCrypto;
-use tonic::{Request, Response, Status};
+use tonic::{Code, Request, Response, Status};
 
-use xmtp_id::associations::IdentityUpdate;
+use xmtp_id::associations::{self, IdentityUpdate};
 use xmtp_mls::{utils::id::serialize_group_id, verified_key_package::VerifiedKeyPackage};
-use xmtp_proto::xmtp::{
-    identity::associations::{
-        identity_action::Kind as IdentityActionKindProto, IdentityAction as IdentityActionProto,
-        IdentityUpdate as IdentityUpdateProto,
-    },
-    mls_validation::v1::{
-        validate_group_messages_response::ValidationResponse as ValidateGroupMessageValidationResponse,
-        validate_key_packages_response::ValidationResponse as ValidateKeyPackageValidationResponse,
-        validation_api_server::ValidationApi, GetAssociationStateRequest,
-        GetAssociationStateResponse, ValidateGroupMessagesRequest, ValidateGroupMessagesResponse,
-        ValidateKeyPackagesRequest, ValidateKeyPackagesResponse,
-    },
+use xmtp_proto::xmtp::mls_validation::v1::{
+    validate_group_messages_response::ValidationResponse as ValidateGroupMessageValidationResponse,
+    validate_key_packages_response::ValidationResponse as ValidateKeyPackageValidationResponse,
+    validation_api_server::ValidationApi, GetAssociationStateRequest, GetAssociationStateResponse,
+    ValidateGroupMessagesRequest, ValidateGroupMessagesResponse, ValidateKeyPackagesRequest,
+    ValidateKeyPackagesResponse,
 };
 
 #[derive(Debug, Default)]
@@ -94,9 +88,20 @@ impl ValidationApi for ValidationService {
         &self,
         request: Request<GetAssociationStateRequest>,
     ) -> Result<Response<GetAssociationStateResponse>, Status> {
-        todo!()
-        // let state = get_state(updates).await;
-        // Ok(state)
+        let updates = request
+            .into_inner()
+            .updates
+            .into_iter()
+            .map(IdentityUpdate::from_proto)
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|e| Status::new(Code::Cancelled, e.to_string()))?;
+
+        let state = associations::get_state(updates)
+            .map_err(|e| Status::new(Code::Cancelled, e.to_string()))?;
+
+        Ok(Response::new(GetAssociationStateResponse {
+            association_state: Some(state.into()),
+        }))
     }
 }
 

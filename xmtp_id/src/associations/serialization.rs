@@ -2,10 +2,12 @@ use super::{
     association_log::{
         Action, AddAssociation, ChangeRecoveryAddress, CreateInbox, RevokeAssociation,
     },
+    member::Member,
     signature::{
         Erc1271Signature, InstallationKeySignature, LegacyDelegatedSignature,
         RecoverableEcdsaSignature,
     },
+    state::AssociationState,
     unsigned_actions::{
         SignatureTextCreator, UnsignedAction, UnsignedAddAssociation,
         UnsignedChangeRecoveryAddress, UnsignedCreateInbox, UnsignedIdentityUpdate,
@@ -18,10 +20,11 @@ use xmtp_proto::xmtp::identity::associations::{
     identity_action::Kind as IdentityActionKindProto,
     member_identifier::Kind as MemberIdentifierKindProto,
     signature::Signature as SignatureKindProto, AddAssociation as AddAssociationProto,
-    ChangeRecoveryAddress as ChangeRecoveryAddressProto, CreateInbox as CreateInboxProto,
-    IdentityAction as IdentityActionProto, IdentityUpdate as IdentityUpdateProto,
-    MemberIdentifier as MemberIdentifierProto, RevokeAssociation as RevokeAssociationProto,
-    Signature as SignatureWrapperProto,
+    AssociationState as AssociationStateProto, ChangeRecoveryAddress as ChangeRecoveryAddressProto,
+    CreateInbox as CreateInboxProto, IdentityAction as IdentityActionProto,
+    IdentityUpdate as IdentityUpdateProto, Member as MemberProto,
+    MemberIdentifier as MemberIdentifierProto, MemberMap as MemberMapProto,
+    RevokeAssociation as RevokeAssociationProto, Signature as SignatureWrapperProto,
 };
 
 #[derive(Error, Debug)]
@@ -32,6 +35,8 @@ pub enum DeserializationError {
     MissingMemberIdentifier,
     #[error("Missing signature")]
     Signature,
+    #[error("Missing Member")]
+    MissingMember,
 }
 
 pub fn from_identity_update_proto(
@@ -289,6 +294,13 @@ fn to_identity_action_proto(action: &Action) -> IdentityActionProto {
     }
 }
 
+fn to_member_proto(member: Member) -> MemberProto {
+    MemberProto {
+        identifier: Some(to_member_identifier_proto(member.identifier)),
+        added_by_entity: member.added_by_entity.map(to_member_identifier_proto),
+    }
+}
+
 fn to_member_identifier_proto(member_identifier: MemberIdentifier) -> MemberIdentifierProto {
     match member_identifier {
         MemberIdentifier::Address(address) => MemberIdentifierProto {
@@ -297,6 +309,30 @@ fn to_member_identifier_proto(member_identifier: MemberIdentifier) -> MemberIden
         MemberIdentifier::Installation(public_key) => MemberIdentifierProto {
             kind: Some(MemberIdentifierKindProto::InstallationPublicKey(public_key)),
         },
+    }
+}
+
+fn to_association_state_proto(association_state: AssociationState) -> AssociationStateProto {
+    let members = association_state
+        .members
+        .into_iter()
+        .map(|(key, value)| MemberMapProto {
+            key: Some(to_member_identifier_proto(key)),
+            value: Some(to_member_proto(value)),
+        })
+        .collect();
+
+    AssociationStateProto {
+        inbox_id: association_state.inbox_id,
+        members,
+        recovery_address: association_state.recovery_address,
+        seen_signatures: association_state.seen_signatures.into_iter().collect(),
+    }
+}
+
+impl From<AssociationState> for AssociationStateProto {
+    fn from(association_state: AssociationState) -> Self {
+        to_association_state_proto(association_state)
     }
 }
 

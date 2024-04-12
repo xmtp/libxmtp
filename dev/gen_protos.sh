@@ -6,7 +6,8 @@ if ! cargo install --list | grep "protoc-gen-prost-crate" > /dev/null; then
     fi
 fi
 
-if ! buf generate https://github.com/xmtp/proto.git#branch=main,subdir=proto; then
+# if ! buf generate https://github.com/xmtp/proto.git#branch=insipx/api-mls-validation-service,subdir=proto; then
+if ! buf generate ~/Projects/xmtp/workspace-proto/insipx/api-mls-validation-service/proto; then
     echo "Failed to generate protobuf definitions"
     exit 1
 fi
