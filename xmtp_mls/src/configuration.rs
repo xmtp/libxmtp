@@ -33,3 +33,5 @@ pub const MAX_GROUP_SIZE: u8 = 250;
 /// | 0x0005           | external_senders         | GC         | Y           | RFC XXXX  |
 /// | 0xff00  - 0xffff | Reserved for Private Use | N/A        | N/A         | RFC XXXX  |
 pub const MUTABLE_METADATA_EXTENSION_ID: u16 = 0xff00;
+
+pub const DEFAULT_GROUP_NAME: &str = "New Group";

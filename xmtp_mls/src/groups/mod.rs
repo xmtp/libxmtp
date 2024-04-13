@@ -59,7 +59,9 @@ use self::{
 
 use crate::{
     client::{deserialize_welcome, ClientError, MessageProcessingError},
-    configuration::{CIPHERSUITE, MAX_GROUP_SIZE, MUTABLE_METADATA_EXTENSION_ID},
+    configuration::{
+        CIPHERSUITE, DEFAULT_GROUP_NAME, MAX_GROUP_SIZE, MUTABLE_METADATA_EXTENSION_ID,
+    },
     hpke::{decrypt_welcome, HpkeError},
     identity::{Identity, IdentityError},
     retry::RetryableError,
@@ -207,8 +209,7 @@ where
             &client.identity,
             permissions.unwrap_or_default().to_policy_set(),
         )?;
-        // TODO: Add constant for default group name
-        let mutable_metadata = build_mutable_metadata_extension("New Group".to_string())?;
+        let mutable_metadata = build_mutable_metadata_extension(DEFAULT_GROUP_NAME.to_string())?;
         let group_config = build_group_config(protected_metadata, mutable_metadata)?;
 
         let mut mls_group = OpenMlsGroup::new(
