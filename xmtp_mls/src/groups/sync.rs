@@ -237,7 +237,7 @@ where
                         conn.set_delivery_status_to_published(&message_id, envelope_timestamp_ns)?;
                     }
                     Some(Content::V2(V2 {
-                        idempotency_key,
+                        idempotency_key: _,
                         message_type,
                     })) => {
                         debug!(
@@ -307,7 +307,7 @@ where
                         .store(provider.conn())?
                     }
                     Some(Content::V2(V2 {
-                        idempotency_key,
+                        idempotency_key: _,
                         message_type,
                     })) => {
                         debug!(
