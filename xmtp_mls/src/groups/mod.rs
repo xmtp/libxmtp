@@ -2,6 +2,7 @@ pub mod group_metadata;
 mod group_permissions;
 mod intents;
 mod members;
+mod message_history;
 mod subscriptions;
 mod sync;
 pub mod validated_commit;
@@ -175,7 +176,6 @@ where
     }
 
     // Create a new group and save it to the DB
-    #[allow(clippy::unwrap_or_default)]
     pub fn create_and_insert(
         client: &'c Client<ApiClient>,
         membership_state: GroupMembershipState,
@@ -185,9 +185,7 @@ where
         let provider = XmtpOpenMlsProvider::new(&conn);
         let protected_metadata = build_protected_metadata_extension(
             &client.identity,
-            permissions
-                .unwrap_or(PreconfiguredPolicies::default())
-                .to_policy_set(),
+            permissions.unwrap_or_default().to_policy_set(),
         )?;
         let group_config = build_group_config(protected_metadata)?;
 
@@ -246,7 +244,7 @@ where
         Self::create_from_welcome(client, provider, welcome)
     }
 
-    fn add_idempotency_key(encoded_msg: &[u8], idempotency_key: &str) -> PlaintextEnvelope {
+    fn into_envelope(encoded_msg: &[u8], idempotency_key: &str) -> PlaintextEnvelope {
         PlaintextEnvelope {
             content: Some(Content::V1(V1 {
                 content: encoded_msg.to_vec(),
@@ -263,7 +261,7 @@ where
             .await?;
 
         let now = now_ns();
-        let plain_envelope = Self::add_idempotency_key(message, &now.to_string());
+        let plain_envelope = Self::into_envelope(message, &now.to_string());
         let mut encoded_envelope = vec![];
         plain_envelope
             .encode(&mut encoded_envelope)
@@ -378,6 +376,7 @@ where
         self.sync_until_intent_resolved(conn, intent.id).await
     }
 
+    // Used in tests
     #[allow(dead_code)]
     pub(crate) async fn remove_members_by_installation_id(
         &self,
