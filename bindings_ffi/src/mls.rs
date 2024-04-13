@@ -451,7 +451,7 @@ impl FfiGroup {
             self.created_at_ns,
         );
 
-        group.update_group_metadata(group_name).await?;
+        group.update_group_name(group_name).await?;
 
         Ok(())
     }

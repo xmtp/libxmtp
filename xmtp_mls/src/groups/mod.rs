@@ -398,7 +398,7 @@ where
         self.sync_until_intent_resolved(conn, intent.id).await
     }
 
-    pub async fn update_group_metadata(&self, group_name: String) -> Result<(), GroupError> {
+    pub async fn update_group_name(&self, group_name: String) -> Result<(), GroupError> {
         let conn = &mut self.client.store.conn()?;
         let intent_data: Vec<u8> = UpdateMetadataIntentData::new(group_name).into();
         let intent = conn.insert_group_intent(NewGroupIntent::new(
@@ -1080,7 +1080,7 @@ mod tests {
 
         // Update group name
         amal_group
-            .update_group_metadata("New Group Name 1".to_string())
+            .update_group_name("New Group Name 1".to_string())
             .await
             .unwrap();
 
