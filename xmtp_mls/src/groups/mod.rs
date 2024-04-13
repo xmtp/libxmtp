@@ -10,9 +10,17 @@ pub mod validated_commit;
 
 use intents::SendMessageIntentData;
 use openmls::{
-    credentials::CredentialType, extensions::{Extension, ExtensionType, Extensions, Metadata, RequiredCapabilitiesExtension, UnknownExtension}, group::{CreateGroupContextExtProposalError, MlsGroupCreateConfig, MlsGroupJoinConfig}, messages::proposals::ProposalType, prelude::{
-        Capabilities, CredentialWithKey, CryptoConfig, Error as TlsCodecError, GroupId, MlsGroup as OpenMlsGroup, StagedWelcome, Welcome as MlsWelcome, WireFormatPolicy
-    }
+    credentials::CredentialType,
+    extensions::{
+        Extension, ExtensionType, Extensions, Metadata, RequiredCapabilitiesExtension,
+        UnknownExtension,
+    },
+    group::{CreateGroupContextExtProposalError, MlsGroupCreateConfig, MlsGroupJoinConfig},
+    messages::proposals::ProposalType,
+    prelude::{
+        Capabilities, CredentialWithKey, CryptoConfig, Error as TlsCodecError, GroupId,
+        MlsGroup as OpenMlsGroup, StagedWelcome, Welcome as MlsWelcome, WireFormatPolicy,
+    },
 };
 use openmls_traits::OpenMlsProvider;
 use prost::Message;
@@ -21,15 +29,27 @@ use thiserror::Error;
 use xmtp_cryptography::signature::is_valid_ed25519_public_key;
 use xmtp_proto::{
     api_client::XmtpMlsClient,
-    xmtp::mls::{api::v1::{
-        group_message::{Version as GroupMessageVersion, V1 as GroupMessageV1},
-        GroupMessage,
-    }, message_contents::{plaintext_envelope::{Content, V1}, GroupMutableMetadataV1, PlaintextEnvelope}},
+    xmtp::mls::{
+        api::v1::{
+            group_message::{Version as GroupMessageVersion, V1 as GroupMessageV1},
+            GroupMessage,
+        },
+        message_contents::{
+            plaintext_envelope::{Content, V1},
+            GroupMutableMetadataV1, PlaintextEnvelope,
+        },
+    },
 };
 
-use self::{group_metadata::extract_group_metadata, group_mutable_metadata::{extract_group_mutable_metadata, GroupMutableMetadata, GroupMutableMetadataError}, intents::UpdateMetadataIntentData};
 pub use self::group_permissions::PreconfiguredPolicies;
 pub use self::intents::{AddressesOrInstallationIds, IntentError};
+use self::{
+    group_metadata::extract_group_metadata,
+    group_mutable_metadata::{
+        extract_group_mutable_metadata, GroupMutableMetadata, GroupMutableMetadataError,
+    },
+    intents::UpdateMetadataIntentData,
+};
 use self::{
     group_metadata::{ConversationType, GroupMetadata, GroupMetadataError},
     group_permissions::PolicySet,
@@ -39,7 +59,7 @@ use self::{
 
 use crate::{
     client::{deserialize_welcome, ClientError, MessageProcessingError},
-    configuration::{CIPHERSUITE, MAX_GROUP_SIZE},
+    configuration::{CIPHERSUITE, MAX_GROUP_SIZE, MUTABLE_METADATA_EXTENSION_ID},
     hpke::{decrypt_welcome, HpkeError},
     identity::{Identity, IdentityError},
     retry::RetryableError,
@@ -118,7 +138,7 @@ pub enum GroupError {
     #[error("serialization error: {0}")]
     EncodeError(#[from] prost::EncodeError),
     #[error("create group context proposal error: {0}")]
-    CreateGroupContextExtProposalError(#[from] CreateGroupContextExtProposalError),
+    CreateGroupContextExtProposalError(#[from] CreateGroupContextExtProposalError<StorageError>),
 }
 
 impl RetryableError for GroupError {
@@ -188,9 +208,7 @@ where
             permissions.unwrap_or_default().to_policy_set(),
         )?;
         // TODO: Add constant for default group name
-        let mutable_metadata = build_mutable_metadata_extension(
-            "New Group".to_string(),
-        )?;
+        let mutable_metadata = build_mutable_metadata_extension("New Group".to_string())?;
         let group_config = build_group_config(protected_metadata, mutable_metadata)?;
 
         let mut mls_group = OpenMlsGroup::new(
@@ -382,8 +400,7 @@ where
 
     pub async fn update_group_metadata(&self, group_name: String) -> Result<(), GroupError> {
         let conn = &mut self.client.store.conn()?;
-        let intent_data: Vec<u8> =
-            UpdateMetadataIntentData::new(group_name).to_bytes();
+        let intent_data: Vec<u8> = UpdateMetadataIntentData::new(group_name).into();
         let intent = conn.insert_group_intent(NewGroupIntent::new(
             IntentKind::MetadataUpdate,
             self.group_id.clone(),
@@ -395,10 +412,7 @@ where
 
     // Query the database for stored messages. Optionally filtered by time, kind, delivery_status
     // and limit
-    pub fn group_name(
-        &self,
-    ) -> Result<String, GroupError> {
-        
+    pub fn group_name(&self) -> Result<String, GroupError> {
         let mutable_metadata = self.mutable_metadata()?;
         Ok(mutable_metadata.group_name)
     }
@@ -498,17 +512,15 @@ fn build_protected_metadata_extension(
     Ok(Extension::ImmutableMetadata(protected_metadata))
 }
 
-pub fn build_mutable_metadata_extension(
-    group_name: String,
-) -> Result<Extension, GroupError> {
-    let mutable_metadata: GroupMutableMetadataV1 = GroupMutableMetadataV1 {
-        group_name,
-    };
+pub fn build_mutable_metadata_extension(group_name: String) -> Result<Extension, GroupError> {
+    let mutable_metadata: GroupMutableMetadataV1 = GroupMutableMetadataV1 { group_name };
 
     let unknown_gc_extension = UnknownExtension(mutable_metadata.encode_to_vec());
 
-    // TODO: Where should the constant hex value live?
-    Ok(Extension::Unknown(0xff11, unknown_gc_extension))
+    Ok(Extension::Unknown(
+        MUTABLE_METADATA_EXTENSION_ID,
+        unknown_gc_extension,
+    ))
 }
 
 fn build_group_config(
@@ -516,7 +528,7 @@ fn build_group_config(
     mutable_metadata_extension: Extension,
 ) -> Result<MlsGroupCreateConfig, GroupError> {
     let required_extension_types = &[
-        ExtensionType::Unknown(0xff11),
+        ExtensionType::Unknown(MUTABLE_METADATA_EXTENSION_ID),
         ExtensionType::ImmutableMetadata,
         ExtensionType::LastResort,
         ExtensionType::ApplicationId,

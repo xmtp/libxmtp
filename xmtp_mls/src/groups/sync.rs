@@ -44,7 +44,10 @@ use crate::{
     client::MessageProcessingError,
     codecs::{membership_change::GroupMembershipChangeCodec, ContentCodec},
     configuration::{MAX_INTENT_PUBLISH_ATTEMPTS, UPDATE_INSTALLATIONS_INTERVAL_NS},
-    groups::{build_mutable_metadata_extension, intents::UpdateMetadataIntentData, validated_commit::ValidatedCommit},
+    groups::{
+        build_mutable_metadata_extension, intents::UpdateMetadataIntentData,
+        validated_commit::ValidatedCommit,
+    },
     hpke::{encrypt_welcome, HpkeError},
     identity::Identity,
     retry,
@@ -174,7 +177,10 @@ where
 
         let conn = provider.conn();
         match intent.kind {
-            IntentKind::AddMembers | IntentKind::RemoveMembers | IntentKind::KeyUpdate | IntentKind::MetadataUpdate => {
+            IntentKind::AddMembers
+            | IntentKind::RemoveMembers
+            | IntentKind::KeyUpdate
+            | IntentKind::MetadataUpdate => {
                 if !allow_epoch_increment {
                     return Err(MessageProcessingError::EpochIncrementNotAllowed);
                 }
@@ -669,10 +675,9 @@ where
                 Ok((commit.tls_serialize_detached()?, None))
             }
             IntentKind::MetadataUpdate => {
-                let metadata_intent = UpdateMetadataIntentData::from_bytes(intent.data.as_slice())?;
-                let mutable_metadata = build_mutable_metadata_extension(
-                    metadata_intent.group_name
-                )?;
+                let metadata_intent = UpdateMetadataIntentData::try_from(intent.data.clone())?;
+                let mutable_metadata =
+                    build_mutable_metadata_extension(metadata_intent.group_name)?;
                 let mut extensions = openmls_group.extensions().clone();
                 extensions.add_or_replace(mutable_metadata);
 

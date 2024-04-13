@@ -363,13 +363,23 @@ impl From<ValidatedCommit> for GroupMembershipChanges {
 #[cfg(test)]
 mod tests {
     use openmls::{
-        credentials::{BasicCredential, CredentialWithKey}, extensions::ExtensionType, group::config::CryptoConfig, messages::proposals::ProposalType, prelude::Capabilities, prelude_test::KeyPackage, versions::ProtocolVersion
+        credentials::{BasicCredential, CredentialWithKey},
+        extensions::ExtensionType,
+        group::config::CryptoConfig,
+        messages::proposals::ProposalType,
+        prelude::Capabilities,
+        prelude_test::KeyPackage,
+        versions::ProtocolVersion,
     };
     use xmtp_api_grpc::Client as GrpcClient;
     use xmtp_cryptography::utils::generate_local_wallet;
 
     use super::ValidatedCommit;
-    use crate::{builder::ClientBuilder, configuration::CIPHERSUITE, Client};
+    use crate::{
+        builder::ClientBuilder,
+        configuration::{CIPHERSUITE, MUTABLE_METADATA_EXTENSION_ID},
+        Client,
+    };
 
     fn get_key_package(client: &Client<GrpcClient>) -> KeyPackage {
         client
@@ -502,7 +512,7 @@ mod tests {
             Some(&[
                 ExtensionType::LastResort,
                 ExtensionType::ApplicationId,
-                ExtensionType::Unknown(0xff11),
+                ExtensionType::Unknown(MUTABLE_METADATA_EXTENSION_ID),
                 ExtensionType::ImmutableMetadata,
             ]),
             Some(&[ProposalType::GroupContextExtensions]),
