@@ -251,6 +251,7 @@ where
                     None => return Err(MessageProcessingError::InvalidPayload),
                 };
             }
+            IntentKind::MetadataUpdate => todo!(),
         };
 
         conn.set_group_intent_committed(intent.id)?;
@@ -668,6 +669,7 @@ where
 
                 Ok((commit.tls_serialize_detached()?, None))
             }
+            IntentKind::MetadataUpdate => todo!(),
         }
     }
 
