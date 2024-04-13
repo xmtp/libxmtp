@@ -12,7 +12,7 @@ if [[ "${OSTYPE}" == "darwin"* ]]; then
     fi
     if ! kotlinc -version &>/dev/null; then brew install kotlin; fi
     if ! swiftformat -version &>/dev/null; then brew install swiftformat; fi
-    if ! foundryup -version &>/dev/null; then  
+    if ! which foundryup &>/dev/null; then  
         # install foundry for tests that require mocking blockchain
         curl -L https://foundry.paradigm.xyz | bash
         # you may need to adjust this depending on which $SHELL you use 

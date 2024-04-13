@@ -239,13 +239,14 @@ impl PolicySet {
     pub fn new(
         add_member_policy: MembershipPolicies,
         remove_member_policy: MembershipPolicies,
+        update_group_name_policy: MembershipPolicies,
     ) -> Self {
         Self {
             add_member_policy,
             remove_member_policy,
-            add_installation_policy: MembershipPolicies::allow(),
-            remove_installation_policy: MembershipPolicies::deny(),
-            update_group_name_policy: MembershipPolicies::allow(),
+            add_installation_policy: default_add_installation_policy(),
+            remove_installation_policy: default_remove_installation_policy(),
+            update_group_name_policy,
         }
     }
 
@@ -311,6 +312,11 @@ impl PolicySet {
                     .remove_member_policy
                     .ok_or(PolicyError::InvalidPolicy)?,
             )?,
+            MembershipPolicies::try_from(
+                proto
+                    .update_group_name_policy
+                    .ok_or(PolicyError::InvalidPolicy)?,
+            )?,
         ))
     }
 
@@ -329,12 +335,17 @@ impl PolicySet {
 
 /// A policy where any member can add or remove any other member
 pub(crate) fn policy_everyone_is_admin() -> PolicySet {
-    PolicySet::new(MembershipPolicies::allow(), MembershipPolicies::allow())
+    PolicySet::new(
+        MembershipPolicies::allow(),
+        MembershipPolicies::allow(),
+        MembershipPolicies::allow(),
+    )
 }
 
 /// A policy where only the group creator can add or remove members
 pub(crate) fn policy_group_creator_is_admin() -> PolicySet {
     PolicySet::new(
+        MembershipPolicies::allow_if_actor_creator(),
         MembershipPolicies::allow_if_actor_creator(),
         MembershipPolicies::allow_if_actor_creator(),
     )
@@ -441,7 +452,11 @@ mod tests {
 
     #[test]
     fn test_allow_all() {
-        let permissions = PolicySet::new(MembershipPolicies::allow(), MembershipPolicies::allow());
+        let permissions = PolicySet::new(
+            MembershipPolicies::allow(),
+            MembershipPolicies::allow(),
+            MembershipPolicies::allow(),
+        );
 
         let commit = build_validated_commit(Some(true), Some(true), None, None, false);
         assert!(permissions.evaluate_commit(&commit));
@@ -449,7 +464,11 @@ mod tests {
 
     #[test]
     fn test_deny() {
-        let permissions = PolicySet::new(MembershipPolicies::deny(), MembershipPolicies::deny());
+        let permissions = PolicySet::new(
+            MembershipPolicies::deny(),
+            MembershipPolicies::deny(),
+            MembershipPolicies::deny(),
+        );
 
         let member_added_commit = build_validated_commit(Some(false), None, None, None, false);
         assert!(!permissions.evaluate_commit(&member_added_commit));
@@ -473,6 +492,7 @@ mod tests {
         let permissions = PolicySet::new(
             MembershipPolicies::allow_if_actor_creator(),
             MembershipPolicies::allow_if_actor_creator(),
+            MembershipPolicies::allow_if_actor_creator(),
         );
 
         let commit_with_creator = build_validated_commit(Some(true), Some(true), None, None, true);
@@ -488,6 +508,7 @@ mod tests {
         let permissions = PolicySet::new(
             MembershipPolicies::allow_same_member(),
             MembershipPolicies::deny(),
+            MembershipPolicies::allow(),
         );
 
         let commit_with_same_member = build_validated_commit(Some(true), None, None, None, false);
@@ -506,6 +527,7 @@ mod tests {
                 MembershipPolicies::Standard(BasePolicies::Allow),
             ]),
             MembershipPolicies::allow(),
+            MembershipPolicies::allow(),
         );
 
         let member_added_commit = build_validated_commit(Some(true), None, None, None, false);
@@ -519,6 +541,7 @@ mod tests {
                 MembershipPolicies::deny(),
                 MembershipPolicies::allow(),
             ]),
+            MembershipPolicies::allow(),
             MembershipPolicies::allow(),
         );
 
@@ -537,6 +560,7 @@ mod tests {
                 MembershipPolicies::allow_if_actor_creator(),
                 MembershipPolicies::deny(),
             ]),
+            MembershipPolicies::allow_if_actor_creator(),
         );
 
         let proto = permissions.to_proto().unwrap();
@@ -554,6 +578,7 @@ mod tests {
         let permissions = PolicySet::new(
             MembershipPolicies::allow_same_member(),
             MembershipPolicies::deny(),
+            MembershipPolicies::allow(),
         );
 
         let proto_result = permissions.to_proto();
