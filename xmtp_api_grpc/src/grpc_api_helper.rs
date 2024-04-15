@@ -32,9 +32,12 @@ use xmtp_proto::{
 async fn create_tls_channel(address: String) -> Result<Channel, Error> {
     let channel = Channel::from_shared(address)
         .map_err(|e| Error::new(ErrorKind::SetupError).with(e))?
+        .initial_connection_window_size(Some((1 << 31) - 1))
         .keep_alive_while_idle(true)
-        .connect_timeout(Duration::from_secs(5))
-        .keep_alive_timeout(Duration::from_secs(25))
+        .connect_timeout(Duration::from_secs(10))
+        .tcp_keepalive(Some(Duration::from_secs(15)))
+        .timeout(Duration::from_secs(120))
+        // .keep_alive_timeout(Duration::from_secs(25))
         .tls_config(ClientTlsConfig::new())
         .map_err(|e| Error::new(ErrorKind::SetupError).with(e))?
         .connect()
