@@ -37,7 +37,7 @@ async fn create_tls_channel(address: String) -> Result<Channel, Error> {
         .connect_timeout(Duration::from_secs(10))
         .tcp_keepalive(Some(Duration::from_secs(15)))
         .timeout(Duration::from_secs(120))
-        // .keep_alive_timeout(Duration::from_secs(25))
+        .keep_alive_timeout(Duration::from_secs(25))
         .tls_config(ClientTlsConfig::new())
         .map_err(|e| Error::new(ErrorKind::SetupError).with(e))?
         .connect()
