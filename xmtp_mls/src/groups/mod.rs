@@ -223,11 +223,7 @@ where
         let to_store = StoredGroup::new(group_id, now_ns(), GroupMembershipState::Pending);
         let stored_group = provider.conn().insert_or_ignore_group(to_store)?;
 
-        let xmtp_group = Self::new(
-            client,
-            stored_group.id,
-            stored_group.created_at_ns,
-        );
+        let xmtp_group = Self::new(client, stored_group.id, stored_group.created_at_ns);
 
         let _ = xmtp_group.queue_key_update();
 
@@ -409,14 +405,9 @@ where
 
     // Update the installation's leaf key in a synchronous way.
     pub fn queue_key_update(&self) -> Result<(), GroupError> {
-        // Retrieve a connection; assuming a synchronous call here.
         let conn = &mut self.client.store.conn()?;
-    
-        // Create a new group intent; assuming this is synchronous.
         let intent = NewGroupIntent::new(IntentKind::KeyUpdate, self.group_id.clone(), vec![]);
         intent.store(conn)?;
-    
-        // Synchronize with the connection; this must also be a synchronous method.
         Ok(())
     }
 
