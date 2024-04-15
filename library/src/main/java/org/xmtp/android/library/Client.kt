@@ -183,34 +183,7 @@ class Client() {
         options: ClientOptions? = null,
         account: SigningKey? = null,
     ): Client {
-        val address = bundle.identityKey.publicKey.recoverWalletSignerPublicKey().walletAddress
-        val clientOptions = options ?: ClientOptions()
-        val apiClient =
-            GRPCApiClient(
-                environment = clientOptions.api.env,
-                secure = clientOptions.api.isSecure,
-            )
-        val (v3Client, dbPath) = if (isAlphaMlsEnabled(options)) {
-            runBlocking {
-                ffiXmtpClient(
-                    options,
-                    account,
-                    options?.appContext,
-                    bundle,
-                    LegacyIdentitySource.STATIC,
-                    address
-                )
-            }
-        } else Pair(null, " ")
-
-        return Client(
-            address = address,
-            privateKeyBundleV1 = bundle,
-            apiClient = apiClient,
-            libXMTPClient = v3Client,
-            dbPath = dbPath,
-            installationId = v3Client?.installationId()?.toHex() ?: ""
-        )
+        return buildFromV1Bundle(bundle, options, account)
     }
 
     fun create(

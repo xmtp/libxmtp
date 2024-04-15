@@ -1,10 +1,8 @@
 package org.xmtp.android.library
 
-import io.grpc.InsecureChannelCredentials
 import io.grpc.ManagedChannel
+import io.grpc.ManagedChannelBuilder
 import io.grpc.Metadata
-import io.grpc.TlsChannelCredentials
-import io.grpc.okhttp.OkHttpChannelBuilder
 import kotlinx.coroutines.flow.Flow
 import org.xmtp.android.library.messages.Pagination
 import org.xmtp.android.library.messages.Topic
@@ -87,16 +85,39 @@ data class GRPCApiClient(
         ): SubscribeRequest = SubscribeRequest.newBuilder().addAllContentTopics(topics).build()
     }
 
+    private val retryPolicy = mapOf(
+        "methodConfig" to listOf(
+            mapOf(
+                "retryPolicy" to mapOf(
+                    "maxAttempts" to 4.0,
+                    "initialBackoff" to "0.5s",
+                    "maxBackoff" to "30s",
+                    "backoffMultiplier" to 2.0,
+                    "retryableStatusCodes" to listOf(
+                        "UNAVAILABLE",
+                        "CANCELLED",
+                    )
+                )
+            )
+        )
+    )
+
     private val channel: ManagedChannel =
-        OkHttpChannelBuilder.forAddress(
+        ManagedChannelBuilder.forAddress(
             environment.getValue(),
-            if (environment == XMTPEnvironment.LOCAL) 5556 else 443,
-            if (secure) {
-                TlsChannelCredentials.create()
+            if (environment == XMTPEnvironment.LOCAL) 5556 else 443
+        ).apply {
+            keepAliveTime(30L, TimeUnit.SECONDS)
+            keepAliveTimeout(20L, TimeUnit.SECONDS)
+            keepAliveWithoutCalls(true)
+            if (environment != XMTPEnvironment.LOCAL) {
+                useTransportSecurity()
             } else {
-                InsecureChannelCredentials.create()
-            },
-        ).build()
+                usePlaintext()
+            }
+            defaultServiceConfig(retryPolicy)
+            enableRetry()
+        }.build()
 
     private val client: MessageApiGrpcKt.MessageApiCoroutineStub =
         MessageApiGrpcKt.MessageApiCoroutineStub(channel)
