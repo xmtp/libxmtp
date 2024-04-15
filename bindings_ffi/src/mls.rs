@@ -220,7 +220,7 @@ impl FfiConversations {
             inner_client: self.inner_client.clone(),
             group_id: convo.group_id,
             created_at_ns: convo.created_at_ns,
-            added_by_address: Some(self.inner_client.account_address()),
+            added_by_address: convo.added_by_address,
         });
 
         Ok(out)
