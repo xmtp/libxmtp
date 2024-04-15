@@ -147,7 +147,7 @@ impl RetryableError for GroupError {
 pub struct MlsGroup<'c, ApiClient> {
     pub group_id: Vec<u8>,
     pub created_at_ns: i64,
-    pub added_by_address: Option<String>,
+    pub added_by_address: String,
     client: &'c Client<ApiClient>,
 }
 
@@ -171,7 +171,7 @@ where
         client: &'c Client<ApiClient>,
         group_id: Vec<u8>,
         created_at_ns: i64,
-        added_by_address: Option<String>,
+        added_by_address: String,
     ) -> Self {
         Self {
             client,
@@ -195,7 +195,7 @@ where
         client: &'c Client<ApiClient>,
         membership_state: GroupMembershipState,
         permissions: Option<PreconfiguredPolicies>,
-        added_by_address: Option<String>,
+        added_by_address: String,
     ) -> Result<Self, GroupError> {
         let conn = client.store.conn()?;
         let provider = XmtpOpenMlsProvider::new(&conn);
@@ -239,7 +239,7 @@ where
         client: &'c Client<ApiClient>,
         provider: &XmtpOpenMlsProvider,
         welcome: MlsWelcome,
-        added_by_address: Option<String>,
+        added_by_address: String,
     ) -> Result<Self, GroupError> {
         let mls_welcome =
             StagedWelcome::new_from_welcome(provider, &build_group_join_config(), welcome, None)?;
@@ -286,7 +286,7 @@ where
         let account_address =
             Identity::get_validated_account_address(added_by_credential.identity(), pub_key_bytes)?;
 
-        Self::create_from_welcome(client, provider, welcome, Some(account_address))
+        Self::create_from_welcome(client, provider, welcome, account_address)
     }
 
     fn into_envelope(encoded_msg: &[u8], idempotency_key: &str) -> PlaintextEnvelope {
@@ -1034,7 +1034,7 @@ mod tests {
         let bola_fetched_group = bola.group(bola_group_id).unwrap();
 
         // Check Bola's group for the added_by_address of the inviter
-        let added_by_address = bola_fetched_group.added_by_address.clone().unwrap();
+        let added_by_address = bola_fetched_group.added_by_address.clone();
 
         // Verify the welcome host_credential is equal to Amal's
         assert_eq!(

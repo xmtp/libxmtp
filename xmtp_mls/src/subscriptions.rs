@@ -134,9 +134,14 @@ where
                                 ),
                             )?;
                             // TODO update cursor
-                            MlsGroup::new(self, group_id, stream_info.convo_created_at_ns, None)
-                                .process_stream_entry(envelope)
-                                .await
+                            MlsGroup::new(
+                                self,
+                                group_id,
+                                stream_info.convo_created_at_ns,
+                                "placeholder_address".to_string(),
+                            )
+                            .process_stream_entry(envelope)
+                            .await
                         }
                         Err(err) => Err(GroupError::Api(err)),
                     }

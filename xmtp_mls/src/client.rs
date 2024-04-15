@@ -210,7 +210,7 @@ where
             self,
             GroupMembershipState::Allowed,
             permissions,
-            Some(self.account_address()),
+            self.account_address(),
         )
         .map_err(|e| ClientError::Generic(format!("group create error {}", e)))?;
 

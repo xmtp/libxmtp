@@ -319,7 +319,7 @@ pub struct FfiGroup {
     inner_client: Arc<RustXmtpClient>,
     group_id: Vec<u8>,
     created_at_ns: i64,
-    added_by_address: Option<String>,
+    added_by_address: String,
 }
 
 #[derive(uniffi::Record)]
@@ -1152,7 +1152,7 @@ mod tests {
         let bola_group = bola_groups.first().unwrap();
 
         // Check Bola's group for the added_by_address of the inviter
-        let added_by_address = bola_group.added_by_address.clone().unwrap();
+        let added_by_address = bola_group.added_by_address.clone();
 
         // // Verify the welcome host_credential is equal to Amal's
         assert_eq!(
