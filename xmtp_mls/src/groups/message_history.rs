@@ -88,7 +88,7 @@ mod tests {
 
     use super::*;
     use xmtp_cryptography::utils::generate_local_wallet;
-    
+
     use crate::assert_ok;
     use crate::builder::ClientBuilder;
     use crate::utils::time::now_ns;
