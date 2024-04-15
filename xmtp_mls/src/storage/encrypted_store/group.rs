@@ -34,6 +34,8 @@ pub struct StoredGroup {
     pub installations_last_checked: i64,
     /// Enum, [`Purpose`] signifies the group purpose which extends to who can access it.
     pub purpose: Purpose,
+    /// String representing the wallet address of the who added the user to a group.
+    pub added_by_address: Option<String>,
 }
 
 impl_fetch!(StoredGroup, groups, Vec<u8>);
@@ -41,13 +43,19 @@ impl_store!(StoredGroup, groups);
 
 impl StoredGroup {
     /// Create a new [`Purpose::Conversation`] group. This is the default type of group.
-    pub fn new(id: ID, created_at_ns: i64, membership_state: GroupMembershipState) -> Self {
+    pub fn new(
+        id: ID,
+        created_at_ns: i64,
+        membership_state: GroupMembershipState,
+        added_by_address: Option<String>,
+    ) -> Self {
         Self {
             id,
             created_at_ns,
             membership_state,
             installations_last_checked: 0,
             purpose: Purpose::Conversation,
+            added_by_address,
         }
     }
 
@@ -63,6 +71,7 @@ impl StoredGroup {
             membership_state,
             installations_last_checked: 0,
             purpose: Purpose::Sync,
+            added_by_address: None,
         }
     }
 }
@@ -249,7 +258,7 @@ pub(crate) mod tests {
         let id = rand_vec();
         let created_at_ns = now_ns();
         let membership_state = state.unwrap_or(GroupMembershipState::Allowed);
-        StoredGroup::new(id, created_at_ns, membership_state)
+        StoredGroup::new(id, created_at_ns, membership_state, None)
     }
 
     #[test]
