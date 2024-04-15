@@ -948,7 +948,7 @@ mod tests {
         );
     }
 
-    #[tokio::test(flavor = "multi_thread", worker_threads = 10)]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 5)]
     async fn test_conversation_streaming() {
         let amal = new_test_client().await;
         let bola = new_test_client().await;
@@ -961,14 +961,14 @@ mod tests {
             .await
             .unwrap();
 
-        tokio::time::sleep(tokio::time::Duration::from_millis(400)).await;
+        tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
 
         amal.conversations()
             .create_group(vec![bola.account_address()], None)
             .await
             .unwrap();
 
-        tokio::time::sleep(tokio::time::Duration::from_millis(400)).await;
+        tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
 
         assert_eq!(stream_callback.message_count(), 1);
         // Create another group and add bola
@@ -977,7 +977,7 @@ mod tests {
             .await
             .unwrap();
 
-        tokio::time::sleep(tokio::time::Duration::from_millis(400)).await;
+        tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
         assert_eq!(stream_callback.message_count(), 2);
 
         stream.end();
