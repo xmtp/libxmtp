@@ -10,7 +10,8 @@ pub mod validated_commit;
 
 use intents::SendMessageIntentData;
 use openmls::{
-    credentials::CredentialType,
+    credentials::{BasicCredential, CredentialType},
+    error::LibraryError,
     extensions::{
         Extension, ExtensionType, Extensions, Metadata, RequiredCapabilitiesExtension,
         UnknownExtension,
@@ -18,8 +19,9 @@ use openmls::{
     group::{CreateGroupContextExtProposalError, MlsGroupCreateConfig, MlsGroupJoinConfig},
     messages::proposals::ProposalType,
     prelude::{
-        Capabilities, CredentialWithKey, CryptoConfig, Error as TlsCodecError, GroupId,
-        MlsGroup as OpenMlsGroup, StagedWelcome, Welcome as MlsWelcome, WireFormatPolicy,
+        BasicCredentialError, Capabilities, CredentialWithKey, CryptoConfig,
+        Error as TlsCodecError, GroupId, MlsGroup as OpenMlsGroup, StagedWelcome,
+        Welcome as MlsWelcome, WireFormatPolicy,
     },
 };
 use openmls_traits::OpenMlsProvider;
@@ -141,6 +143,10 @@ pub enum GroupError {
     EncodeError(#[from] prost::EncodeError),
     #[error("create group context proposal error: {0}")]
     CreateGroupContextExtProposalError(#[from] CreateGroupContextExtProposalError<StorageError>),
+    #[error("Credential error")]
+    CredentialError(#[from] BasicCredentialError),
+    #[error("LeafNode error")]
+    LeafNodeError(#[from] LibraryError),
 }
 
 impl RetryableError for GroupError {
@@ -162,6 +168,7 @@ impl RetryableError for GroupError {
 pub struct MlsGroup<'c, ApiClient> {
     pub group_id: Vec<u8>,
     pub created_at_ns: i64,
+    pub added_by_address: Option<String>,
     client: &'c Client<ApiClient>,
 }
 
@@ -171,6 +178,7 @@ impl<'c, ApiClient> Clone for MlsGroup<'c, ApiClient> {
             client: self.client,
             group_id: self.group_id.clone(),
             created_at_ns: self.created_at_ns,
+            added_by_address: self.added_by_address.clone(),
         }
     }
 }
@@ -180,11 +188,17 @@ where
     ApiClient: XmtpMlsClient,
 {
     // Creates a new group instance. Does not validate that the group exists in the DB
-    pub fn new(client: &'c Client<ApiClient>, group_id: Vec<u8>, created_at_ns: i64) -> Self {
+    pub fn new(
+        client: &'c Client<ApiClient>,
+        group_id: Vec<u8>,
+        created_at_ns: i64,
+        added_by_address: Option<String>,
+    ) -> Self {
         Self {
             client,
             group_id,
             created_at_ns,
+            added_by_address,
         }
     }
 
@@ -202,6 +216,7 @@ where
         client: &'c Client<ApiClient>,
         membership_state: GroupMembershipState,
         permissions: Option<PreconfiguredPolicies>,
+        added_by_address: Option<String>,
     ) -> Result<Self, GroupError> {
         let conn = client.store.conn()?;
         let provider = XmtpOpenMlsProvider::new(&conn);
@@ -224,9 +239,20 @@ where
         mls_group.save(provider.key_store())?;
 
         let group_id = mls_group.group_id().to_vec();
-        let stored_group = StoredGroup::new(group_id.clone(), now_ns(), membership_state);
+        let stored_group = StoredGroup::new(
+            group_id.clone(),
+            now_ns(),
+            membership_state,
+            added_by_address.clone(),
+        );
+
         stored_group.store(provider.conn())?;
-        Ok(Self::new(client, group_id, stored_group.created_at_ns))
+        Ok(Self::new(
+            client,
+            group_id,
+            stored_group.created_at_ns,
+            added_by_address,
+        ))
     }
 
     // Create a group from a decrypted and decoded welcome message
@@ -235,6 +261,7 @@ where
         client: &'c Client<ApiClient>,
         provider: &XmtpOpenMlsProvider,
         welcome: MlsWelcome,
+        added_by_address: Option<String>,
     ) -> Result<Self, GroupError> {
         let mls_welcome =
             StagedWelcome::new_from_welcome(provider, &build_group_join_config(), welcome, None)?;
@@ -243,13 +270,19 @@ where
         mls_group.save(provider.key_store())?;
 
         let group_id = mls_group.group_id().to_vec();
-        let to_store = StoredGroup::new(group_id, now_ns(), GroupMembershipState::Pending);
+        let to_store = StoredGroup::new(
+            group_id,
+            now_ns(),
+            GroupMembershipState::Pending,
+            added_by_address.clone(),
+        );
         let stored_group = provider.conn().insert_or_ignore_group(to_store)?;
 
         Ok(Self::new(
             client,
             stored_group.id,
             stored_group.created_at_ns,
+            added_by_address,
         ))
     }
 
@@ -264,7 +297,18 @@ where
 
         let welcome = deserialize_welcome(&welcome_bytes)?;
 
-        Self::create_from_welcome(client, provider, welcome)
+        let join_config = build_group_join_config();
+        let staged_welcome =
+            StagedWelcome::new_from_welcome(provider, &join_config, welcome.clone(), None)?;
+
+        let added_by_node = staged_welcome.welcome_sender()?;
+
+        let added_by_credential = BasicCredential::try_from(added_by_node.credential())?;
+        let pub_key_bytes = added_by_node.signature_key().as_slice();
+        let account_address =
+            Identity::get_validated_account_address(added_by_credential.identity(), pub_key_bytes)?;
+
+        Self::create_from_welcome(client, provider, welcome, Some(account_address))
     }
 
     fn into_envelope(encoded_msg: &[u8], idempotency_key: &str) -> PlaintextEnvelope {
@@ -1094,5 +1138,43 @@ mod tests {
         bola_group.sync().await.unwrap();
         let bola_group_name: String = bola_group.mutable_metadata().expect("msg").group_name;
         assert_eq!(bola_group_name, "New Group Name 1");
+    }
+
+    #[tokio::test]
+    async fn test_staged_welcome() {
+        // Create Clients
+        let amal = ClientBuilder::new_test_client(&generate_local_wallet()).await;
+        let bola = ClientBuilder::new_test_client(&generate_local_wallet()).await;
+
+        // Amal creates a group
+        let amal_group = amal.create_group(None).unwrap();
+
+        // Amal adds Bola to the group
+        amal_group
+            .add_members_by_installation_id(vec![bola.installation_public_key()])
+            .await
+            .unwrap();
+
+        // Bola syncs groups - this will decrypt the Welcome, identify who added Bola
+        // and then store that value on the group and insert into the database
+        let bola_groups = bola.sync_welcomes().await.unwrap();
+
+        // Bola gets the group id. This will be needed to fetch the group from
+        // the database.
+        let bola_group = bola_groups.first().unwrap();
+        let bola_group_id = bola_group.group_id.clone();
+
+        // Bola fetches group from the database
+        let bola_fetched_group = bola.group(bola_group_id).unwrap();
+
+        // Check Bola's group for the added_by_address of the inviter
+        let added_by_address = bola_fetched_group.added_by_address.clone().unwrap();
+
+        // Verify the welcome host_credential is equal to Amal's
+        assert_eq!(
+            amal.account_address(),
+            added_by_address,
+            "The Inviter and added_by_address do not match!"
+        );
     }
 }
