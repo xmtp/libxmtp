@@ -31,7 +31,7 @@ use xmtp_proto::{
 
 async fn create_tls_channel(address: String) -> Result<Channel, Error> {
     let channel = Channel::from_shared(address)
-        .map_err(|e| Error::new(ErrorKind::SetupError).with(e))?
+        .map_err(|e| Error::new(ErrorKind::SetupCreateChannelError).with(e))?
         .initial_connection_window_size(Some((1 << 31) - 1))
         .keep_alive_while_idle(true)
         .connect_timeout(Duration::from_secs(10))
@@ -39,10 +39,10 @@ async fn create_tls_channel(address: String) -> Result<Channel, Error> {
         .timeout(Duration::from_secs(120))
         .keep_alive_timeout(Duration::from_secs(25))
         .tls_config(ClientTlsConfig::new())
-        .map_err(|e| Error::new(ErrorKind::SetupError).with(e))?
+        .map_err(|e| Error::new(ErrorKind::SetupTLSConfigError).with(e))?
         .connect()
         .await
-        .map_err(|e| Error::new(ErrorKind::SetupError).with(e))?;
+        .map_err(|e| Error::new(ErrorKind::SetupConnectionError).with(e))?;
 
     Ok(channel)
 }
@@ -74,10 +74,10 @@ impl Client {
             })
         } else {
             let channel = Channel::from_shared(host)
-                .map_err(|e| Error::new(ErrorKind::SetupError).with(e))?
+                .map_err(|e| Error::new(ErrorKind::SetupCreateChannelError).with(e))?
                 .connect()
                 .await
-                .map_err(|e| Error::new(ErrorKind::SetupError).with(e))?;
+                .map_err(|e| Error::new(ErrorKind::SetupConnectionError).with(e))?;
 
             let client = MessageApiClient::new(channel.clone());
             let mls_client = ProtoMlsApiClient::new(channel.clone());
