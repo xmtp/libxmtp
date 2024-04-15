@@ -223,7 +223,10 @@ where
         let to_store = StoredGroup::new(group_id, now_ns(), GroupMembershipState::Pending);
         let stored_group = provider.conn().insert_or_ignore_group(to_store)?;
 
+        
+
         let xmtp_group = Self::new(client, stored_group.id, stored_group.created_at_ns);
+
 
         let _ = xmtp_group.queue_key_update();
 
@@ -725,6 +728,44 @@ mod tests {
             .unwrap();
 
         group.key_update().await.unwrap();
+
+        let messages = client
+            .api_client
+            .query_group_messages(group.group_id.clone(), None)
+            .await
+            .unwrap();
+        assert_eq!(messages.len(), 2);
+
+        let conn = &client.store.conn().unwrap();
+        let provider = super::XmtpOpenMlsProvider::new(conn);
+        let mls_group = group.load_mls_group(&provider).unwrap();
+        let pending_commit = mls_group.pending_commit();
+        assert!(pending_commit.is_none());
+
+        group.send_message(b"hello").await.expect("send message");
+
+        bola_client.sync_welcomes().await.unwrap();
+        let bola_groups = bola_client.find_groups(None, None, None, None).unwrap();
+        let bola_group = bola_groups.first().unwrap();
+        bola_group.sync().await.unwrap();
+        let bola_messages = bola_group
+            .find_messages(None, None, None, None, None)
+            .unwrap();
+        assert_eq!(bola_messages.len(), 1);
+    }
+
+    #[tokio::test]
+    async fn test_queue_key_update() {
+        let client = ClientBuilder::new_test_client(&generate_local_wallet()).await;
+        let bola_client = ClientBuilder::new_test_client(&generate_local_wallet()).await;
+
+        let group = client.create_group(None).expect("create group");
+        group
+            .add_members(vec![bola_client.account_address()])
+            .await
+            .unwrap();
+
+        group.queue_key_update().unwrap();
 
         let messages = client
             .api_client
