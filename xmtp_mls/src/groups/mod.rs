@@ -254,14 +254,14 @@ where
             added_by_address.clone(),
         );
         let stored_group = provider.conn().insert_or_ignore_group(to_store)?;
-        
-
-        let xmtp_group = Self::new(client, stored_group.id, stored_group.created_at_ns, added_by_address);
-
+        let xmtp_group = Self::new(
+            client, 
+            stored_group.id, 
+            stored_group.created_at_ns, 
+            added_by_address,
+        );
         let _ = xmtp_group.queue_key_update();
-
         Ok(xmtp_group)
-
     }
 
     // Decrypt a welcome message using HPKE and then create and save a group from the stored message
@@ -807,8 +807,8 @@ mod tests {
             .await
             .unwrap();
 
-        group.queue_key_update().unwrap();
-
+        let _ = group.queue_key_update();
+        group.sync().await.unwrap();
         let messages = client
             .api_client
             .query_group_messages(group.group_id.clone(), None)
