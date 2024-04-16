@@ -71,6 +71,15 @@ pub struct AggregatedMembershipChange {
     pub(crate) is_creator: bool,
 }
 
+// Account information for Metadata Change used for validation
+#[derive(Clone, Debug)]
+pub struct MetadataChange {
+    #[allow(dead_code)]
+    pub(crate) account_address: Address,
+    #[allow(dead_code)]
+    pub(crate) is_creator: bool,
+}
+
 // A parsed and validated commit that we can apply permissions and rules to
 #[derive(Clone, Debug)]
 pub struct ValidatedCommit {
