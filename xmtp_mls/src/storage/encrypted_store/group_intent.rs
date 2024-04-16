@@ -306,7 +306,12 @@ mod tests {
     };
 
     fn insert_group(conn: &DbConnection, group_id: Vec<u8>) {
-        let group = StoredGroup::new(group_id, 100, GroupMembershipState::Allowed, None);
+        let group = StoredGroup::new(
+            group_id,
+            100,
+            GroupMembershipState::Allowed,
+            "placeholder_address".to_string(),
+        );
         group.store(conn).unwrap();
     }
 
