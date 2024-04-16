@@ -34,7 +34,7 @@ impl std::fmt::Display for SignatureKind {
     }
 }
 
-pub trait Signature: SignatureClone {
+pub trait Signature: SignatureClone + std::fmt::Debug {
     fn recover_signer(&self) -> Result<MemberIdentifier, SignatureError>;
     fn signature_kind(&self) -> SignatureKind;
     fn bytes(&self) -> Vec<u8>;
@@ -61,7 +61,7 @@ impl Clone for Box<dyn Signature> {
 }
 
 #[allow(dead_code)]
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 pub struct RecoverableEcdsaSignature {
     signature_text: String,
     signature_bytes: Vec<u8>,
@@ -99,7 +99,7 @@ impl Signature for RecoverableEcdsaSignature {
 }
 
 #[allow(dead_code)]
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 pub struct Erc1271Signature {
     signature_text: String,
     signature_bytes: Vec<u8>,
@@ -149,7 +149,7 @@ impl Signature for Erc1271Signature {
 }
 
 #[allow(dead_code)]
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct InstallationKeySignature {
     signature_text: String,
     signature_bytes: Vec<u8>,
@@ -189,7 +189,7 @@ impl Signature for InstallationKeySignature {
 }
 
 #[allow(dead_code)]
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 pub struct LegacyDelegatedSignature {
     // This would be the signature from the legacy key
     legacy_key_signature: RecoverableEcdsaSignature,

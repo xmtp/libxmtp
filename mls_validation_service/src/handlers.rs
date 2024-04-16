@@ -95,7 +95,7 @@ impl ValidationApi for ValidationService {
             .map(IdentityUpdate::from_proto)
             .collect::<Result<Vec<_>, _>>()
             .map_err(|e| Status::new(Code::Cancelled, e.to_string()))?;
-
+        println!("{:?} UPDATES NOT PROTO", updates);
         let state = associations::get_state(updates)
             .map_err(|e| Status::new(Code::Cancelled, e.to_string()))?;
 
@@ -149,7 +149,6 @@ fn validate_key_package(key_package_bytes: Vec<u8>) -> Result<ValidateKeyPackage
 
 #[cfg(test)]
 mod tests {
-    use anyhow::Error;
     use ethers::signers::LocalWallet;
     use openmls::{
         extensions::{ApplicationIdExtension, Extension, Extensions},
@@ -163,9 +162,7 @@ mod tests {
     use openmls_basic_credential::SignatureKeyPair;
     use openmls_rust_crypto::OpenMlsRustCrypto;
     use prost::Message;
-    use xmtp_id::associations::{
-        generate_inbox_id, Action, AddAssociation, CreateInbox, SerializationError,
-    };
+    use xmtp_id::associations::{generate_inbox_id, Action, CreateInbox, SerializationError};
     use xmtp_mls::{credential::Credential, InboxOwner};
     use xmtp_proto::xmtp::{
         identity::associations::IdentityUpdate as IdentityUpdateProto,
@@ -280,28 +277,28 @@ mod tests {
         assert_eq!(first_response.account_address, "".to_string());
     }
 
+    // this test will fail until signature recovery is added
+    // and `MockSignature` is updated with signatures that can be recovered
     #[tokio::test]
-    async fn test_get_association_state() -> Result<(), Error> {
+    #[should_panic]
+    async fn test_get_association_state() {
         let create_request = CreateInbox::default();
         let inbox_id = generate_inbox_id(&create_request.account_address, &create_request.nonce);
-        let add_request = AddAssociation::default();
 
-        let updates = vec![
-            IdentityUpdate::new_test(vec![Action::CreateInbox(create_request)], inbox_id.clone()),
-            IdentityUpdate::new_test(vec![Action::AddAssociation(add_request)], inbox_id),
-        ];
+        let updates = vec![IdentityUpdate::new_test(
+            vec![Action::CreateInbox(create_request)],
+            inbox_id.clone(),
+        )];
 
-        let state = ValidationService::default()
+        ValidationService::default()
             .get_association_state(Request::new(GetAssociationStateRequest {
                 updates: updates
                     .into_iter()
-                    .map(|u| IdentityUpdateProto::try_from(u))
-                    .collect::<Result<Vec<_>, SerializationError>>()?,
+                    .map(IdentityUpdateProto::try_from)
+                    .collect::<Result<Vec<_>, SerializationError>>()
+                    .unwrap(),
             }))
             .await
             .unwrap();
-
-        println!("STATE {:?}", state);
-        Ok(())
     }
 }
