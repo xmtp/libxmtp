@@ -147,7 +147,6 @@ impl RetryableError for GroupError {
 pub struct MlsGroup<'c, ApiClient> {
     pub group_id: Vec<u8>,
     pub created_at_ns: i64,
-    pub added_by_address: String,
     client: &'c Client<ApiClient>,
 }
 
@@ -157,7 +156,6 @@ impl<'c, ApiClient> Clone for MlsGroup<'c, ApiClient> {
             client: self.client,
             group_id: self.group_id.clone(),
             created_at_ns: self.created_at_ns,
-            added_by_address: self.added_by_address.clone(),
         }
     }
 }
@@ -167,17 +165,11 @@ where
     ApiClient: XmtpMlsClient,
 {
     // Creates a new group instance. Does not validate that the group exists in the DB
-    pub fn new(
-        client: &'c Client<ApiClient>,
-        group_id: Vec<u8>,
-        created_at_ns: i64,
-        added_by_address: String,
-    ) -> Self {
+    pub fn new(client: &'c Client<ApiClient>, group_id: Vec<u8>, created_at_ns: i64) -> Self {
         Self {
             client,
             group_id,
             created_at_ns,
-            added_by_address,
         }
     }
 
@@ -225,12 +217,7 @@ where
         );
 
         stored_group.store(provider.conn())?;
-        Ok(Self::new(
-            client,
-            group_id,
-            stored_group.created_at_ns,
-            added_by_address,
-        ))
+        Ok(Self::new(client, group_id, stored_group.created_at_ns))
     }
 
     // Create a group from a decrypted and decoded welcome message
@@ -260,7 +247,6 @@ where
             client,
             stored_group.id,
             stored_group.created_at_ns,
-            added_by_address,
         ))
     }
 
@@ -419,6 +405,19 @@ where
         ))?;
 
         self.sync_until_intent_resolved(conn, intent.id).await
+    }
+
+    // Find the wallet address of the group member who added the member to the group
+    pub fn added_by_address(&self) -> Result<String, GroupError> {
+        let conn = self.client.store.conn()?;
+        conn.find_group(self.group_id.clone())
+            .map_err(GroupError::from)
+            .and_then(|groups| {
+                groups
+                    .first()
+                    .map(|group| group.added_by_address.clone())
+                    .ok_or_else(|| GroupError::GroupNotFound)
+            })
     }
 
     // Used in tests
@@ -1034,7 +1033,7 @@ mod tests {
         let bola_fetched_group = bola.group(bola_group_id).unwrap();
 
         // Check Bola's group for the added_by_address of the inviter
-        let added_by_address = bola_fetched_group.added_by_address.clone();
+        let added_by_address = bola_fetched_group.added_by_address().unwrap();
 
         // Verify the welcome host_credential is equal to Amal's
         assert_eq!(
