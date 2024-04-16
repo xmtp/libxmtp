@@ -150,7 +150,6 @@ mod tests {
         let account_address = create_request.account_address.clone();
         let identity_update =
             IdentityUpdate::new_test(vec![Action::CreateInbox(create_request)], inbox_id.clone());
-        println!("{:?}", identity_update);
         let state = get_state(vec![identity_update]).unwrap();
         assert_eq!(state.members().len(), 1);
 

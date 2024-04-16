@@ -95,7 +95,6 @@ impl ValidationApi for ValidationService {
             .map(IdentityUpdate::from_proto)
             .collect::<Result<Vec<_>, _>>()
             .map_err(|e| Status::new(Code::Cancelled, e.to_string()))?;
-        println!("{:?} UPDATES NOT PROTO", updates);
         let state = associations::get_state(updates)
             .map_err(|e| Status::new(Code::Cancelled, e.to_string()))?;
 
