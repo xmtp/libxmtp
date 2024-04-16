@@ -2,7 +2,8 @@ use std::collections::HashMap;
 
 use xmtp_proto::{
     api_client::{
-        Error as ApiError, ErrorKind, GroupMessageStream, WelcomeMessageStream, XmtpMlsClient,
+        Error as ApiError, ErrorKind, GroupMessageStream, WelcomeMessageStream, XmtpIdentityClient,
+        XmtpMlsClient,
     },
     xmtp::mls::api::v1::{
         get_identity_updates_response::update::Kind as UpdateKind,
@@ -50,7 +51,7 @@ impl From<GroupFilter> for GroupFilterProto {
 
 impl<ApiClient> ApiClientWrapper<ApiClient>
 where
-    ApiClient: XmtpMlsClient,
+    ApiClient: XmtpMlsClient + XmtpIdentityClient,
 {
     pub fn new(api_client: ApiClient, retry_strategy: Retry) -> Self {
         Self {
@@ -373,7 +374,15 @@ pub mod tests {
     use mockall::mock;
     use xmtp_api_grpc::grpc_api_helper::Client as GrpcClient;
     use xmtp_proto::{
-        api_client::{Error, ErrorKind, GroupMessageStream, WelcomeMessageStream, XmtpMlsClient},
+        api_client::{
+            Error, ErrorKind, GroupMessageStream, WelcomeMessageStream, XmtpIdentityClient,
+            XmtpMlsClient,
+        },
+        xmtp::identity::api::v1::{
+            GetIdentityUpdatesRequest as GetIdentityUpdatesV2Request,
+            GetIdentityUpdatesResponse as GetIdentityUpdatesV2Response, GetInboxIdsRequest,
+            GetInboxIdsResponse, PublishIdentityUpdateRequest, PublishIdentityUpdateResponse,
+        },
         xmtp::mls::api::v1::{
             fetch_key_packages_response::KeyPackage,
             get_identity_updates_response::{
@@ -442,6 +451,13 @@ pub mod tests {
             async fn query_welcome_messages(&self, request: QueryWelcomeMessagesRequest) -> Result<QueryWelcomeMessagesResponse, Error>;
             async fn subscribe_group_messages(&self, request: SubscribeGroupMessagesRequest) -> Result<GroupMessageStream, Error>;
             async fn subscribe_welcome_messages(&self, request: SubscribeWelcomeMessagesRequest) -> Result<WelcomeMessageStream, Error>;
+        }
+
+        #[async_trait]
+        impl XmtpIdentityClient for ApiClient {
+            async fn publish_identity_update(&self, request: PublishIdentityUpdateRequest) -> Result<PublishIdentityUpdateResponse, Error>;
+            async fn get_identity_updates_v2(&self, request: GetIdentityUpdatesV2Request) -> Result<GetIdentityUpdatesV2Response, Error>;
+            async fn get_inbox_ids(&self, request: GetInboxIdsRequest) -> Result<GetInboxIdsResponse, Error>;
         }
     }
 

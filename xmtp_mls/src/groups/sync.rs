@@ -64,7 +64,7 @@ use crate::{
 
 impl<'c, ApiClient> MlsGroup<'c, ApiClient>
 where
-    ApiClient: XmtpMlsClient,
+    ApiClient: XmtpMlsClient + XmtpIdentityClient,
 {
     pub async fn sync(&self) -> Result<(), GroupError> {
         let conn = &mut self.client.store.conn()?;

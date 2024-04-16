@@ -12,7 +12,7 @@ use prost::EncodeError;
 use thiserror::Error;
 
 use xmtp_proto::{
-    api_client::XmtpMlsClient,
+    api_client::{XmtpIdentityClient, XmtpMlsClient},
     xmtp::mls::api::v1::{
         welcome_message::{Version as WelcomeMessageVersion, V1 as WelcomeMessageV1},
         GroupMessage, WelcomeMessage,
@@ -159,7 +159,7 @@ pub struct Client<ApiClient> {
 
 impl<'a, ApiClient> Client<ApiClient>
 where
-    ApiClient: XmtpMlsClient,
+    ApiClient: XmtpMlsClient + XmtpIdentityClient,
 {
     /// Create a new client with the given network, identity, and store.
     /// It is expected that most users will use the [`ClientBuilder`](crate::builder::ClientBuilder) instead of instantiating
