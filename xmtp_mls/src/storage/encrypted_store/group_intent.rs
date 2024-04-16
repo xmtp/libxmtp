@@ -25,6 +25,7 @@ pub enum IntentKind {
     AddMembers = 2,
     RemoveMembers = 3,
     KeyUpdate = 4,
+    MetadataUpdate = 5,
 }
 
 #[repr(i32)]
@@ -261,6 +262,7 @@ where
             2 => Ok(IntentKind::AddMembers),
             3 => Ok(IntentKind::RemoveMembers),
             4 => Ok(IntentKind::KeyUpdate),
+            5 => Ok(IntentKind::MetadataUpdate),
             x => Err(format!("Unrecognized variant {}", x).into()),
         }
     }
@@ -304,7 +306,7 @@ mod tests {
     };
 
     fn insert_group(conn: &DbConnection, group_id: Vec<u8>) {
-        let group = StoredGroup::new(group_id, 100, GroupMembershipState::Allowed);
+        let group = StoredGroup::new(group_id, 100, GroupMembershipState::Allowed, None);
         group.store(conn).unwrap();
     }
 

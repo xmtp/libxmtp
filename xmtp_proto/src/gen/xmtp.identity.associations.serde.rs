@@ -526,7 +526,7 @@ impl serde::Serialize for Erc1271Signature {
         if !self.contract_address.is_empty() {
             len += 1;
         }
-        if self.block_height != 0 {
+        if self.block_number != 0 {
             len += 1;
         }
         if !self.signature.is_empty() {
@@ -536,9 +536,9 @@ impl serde::Serialize for Erc1271Signature {
         if !self.contract_address.is_empty() {
             struct_ser.serialize_field("contractAddress", &self.contract_address)?;
         }
-        if self.block_height != 0 {
+        if self.block_number != 0 {
             #[allow(clippy::needless_borrow)]
-            struct_ser.serialize_field("blockHeight", ToString::to_string(&self.block_height).as_str())?;
+            struct_ser.serialize_field("blockNumber", ToString::to_string(&self.block_number).as_str())?;
         }
         if !self.signature.is_empty() {
             #[allow(clippy::needless_borrow)]
@@ -556,15 +556,15 @@ impl<'de> serde::Deserialize<'de> for Erc1271Signature {
         const FIELDS: &[&str] = &[
             "contract_address",
             "contractAddress",
-            "block_height",
-            "blockHeight",
+            "block_number",
+            "blockNumber",
             "signature",
         ];
 
         #[allow(clippy::enum_variant_names)]
         enum GeneratedField {
             ContractAddress,
-            BlockHeight,
+            BlockNumber,
             Signature,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
@@ -588,7 +588,7 @@ impl<'de> serde::Deserialize<'de> for Erc1271Signature {
                     {
                         match value {
                             "contractAddress" | "contract_address" => Ok(GeneratedField::ContractAddress),
-                            "blockHeight" | "block_height" => Ok(GeneratedField::BlockHeight),
+                            "blockNumber" | "block_number" => Ok(GeneratedField::BlockNumber),
                             "signature" => Ok(GeneratedField::Signature),
                             _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
                         }
@@ -610,7 +610,7 @@ impl<'de> serde::Deserialize<'de> for Erc1271Signature {
                     V: serde::de::MapAccess<'de>,
             {
                 let mut contract_address__ = None;
-                let mut block_height__ = None;
+                let mut block_number__ = None;
                 let mut signature__ = None;
                 while let Some(k) = map_.next_key()? {
                     match k {
@@ -620,11 +620,11 @@ impl<'de> serde::Deserialize<'de> for Erc1271Signature {
                             }
                             contract_address__ = Some(map_.next_value()?);
                         }
-                        GeneratedField::BlockHeight => {
-                            if block_height__.is_some() {
-                                return Err(serde::de::Error::duplicate_field("blockHeight"));
+                        GeneratedField::BlockNumber => {
+                            if block_number__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("blockNumber"));
                             }
-                            block_height__ = 
+                            block_number__ = 
                                 Some(map_.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
                             ;
                         }
@@ -640,7 +640,7 @@ impl<'de> serde::Deserialize<'de> for Erc1271Signature {
                 }
                 Ok(Erc1271Signature {
                     contract_address: contract_address__.unwrap_or_default(),
-                    block_height: block_height__.unwrap_or_default(),
+                    block_number: block_number__.unwrap_or_default(),
                     signature: signature__.unwrap_or_default(),
                 })
             }

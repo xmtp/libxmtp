@@ -33,6 +33,7 @@ diesel::table! {
         membership_state -> Integer,
         installations_last_checked -> BigInt,
         purpose -> Integer,
+        added_by_address -> Nullable<Text>,
     }
 }
 

@@ -34,6 +34,8 @@ pub struct StoredGroup {
     pub installations_last_checked: i64,
     /// Enum, [`Purpose`] signifies the group purpose which extends to who can access it.
     pub purpose: Purpose,
+    /// String representing the wallet address of the who added the user to a group.
+    pub added_by_address: Option<String>,
 }
 
 impl_fetch!(StoredGroup, groups, Vec<u8>);
@@ -41,17 +43,23 @@ impl_store!(StoredGroup, groups);
 
 impl StoredGroup {
     /// Create a new [`Purpose::Conversation`] group. This is the default type of group.
-    pub fn new(id: ID, created_at_ns: i64, membership_state: GroupMembershipState) -> Self {
+    pub fn new(
+        id: ID,
+        created_at_ns: i64,
+        membership_state: GroupMembershipState,
+        added_by_address: Option<String>,
+    ) -> Self {
         Self {
             id,
             created_at_ns,
             membership_state,
             installations_last_checked: 0,
             purpose: Purpose::Conversation,
+            added_by_address,
         }
     }
 
-    /// Create a new [`Purpose::Sync`] group
+    /// Create a new [`Purpose::Sync`] group.  This is less common and is used to sync message history.
     pub fn new_sync_group(
         id: ID,
         created_at_ns: i64,
@@ -63,12 +71,13 @@ impl StoredGroup {
             membership_state,
             installations_last_checked: 0,
             purpose: Purpose::Sync,
+            added_by_address: None,
         }
     }
 }
 
 impl DbConnection<'_> {
-    /// Return  regular [`Purpose::Conversation`] groups with additional filters
+    /// Return regular [`Purpose::Conversation`] groups with additional optional filters
     pub fn find_groups(
         &self,
         allowed_states: Option<Vec<GroupMembershipState>>,
@@ -249,7 +258,7 @@ pub(crate) mod tests {
         let id = rand_vec();
         let created_at_ns = now_ns();
         let membership_state = state.unwrap_or(GroupMembershipState::Allowed);
-        StoredGroup::new(id, created_at_ns, membership_state)
+        StoredGroup::new(id, created_at_ns, membership_state, None)
     }
 
     #[test]
@@ -335,6 +344,8 @@ pub(crate) mod tests {
             // Sync groups SHOULD NOT be returned
             let synced_groups = conn.find_sync_groups().unwrap();
             assert_eq!(synced_groups.len(), 0);
+
+            // test that ONLY normal groups show up.
         })
     }
 

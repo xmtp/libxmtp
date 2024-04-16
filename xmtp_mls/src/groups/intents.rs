@@ -14,9 +14,11 @@ use xmtp_proto::xmtp::mls::database::{
     },
     remove_members_data::{Version as RemoveMembersVersion, V1 as RemoveMembersV1},
     send_message_data::{Version as SendMessageVersion, V1 as SendMessageV1},
+    update_metadata_data::{Version as UpdateMetadataVersion, V1 as UpdateMetadataV1},
     AccountAddresses, AddMembersData,
     AddressesOrInstallationIds as AddressesOrInstallationIdsProtoWrapper, InstallationIds,
     PostCommitAction as PostCommitActionProto, RemoveMembersData, SendMessageData,
+    UpdateMetadataData,
 };
 
 use crate::{
@@ -223,6 +225,50 @@ impl From<RemoveMembersIntentData> for Vec<u8> {
 }
 
 #[derive(Debug, Clone)]
+pub struct UpdateMetadataIntentData {
+    pub group_name: String,
+}
+
+impl UpdateMetadataIntentData {
+    pub fn new(group_name: String) -> Self {
+        Self { group_name }
+    }
+}
+
+impl From<UpdateMetadataIntentData> for Vec<u8> {
+    fn from(intent: UpdateMetadataIntentData) -> Self {
+        let mut buf = Vec::new();
+
+        UpdateMetadataData {
+            version: Some(UpdateMetadataVersion::V1(UpdateMetadataV1 {
+                group_name: intent.group_name.clone(),
+            })),
+        }
+        .encode(&mut buf)
+        .expect("encode error");
+
+        buf
+    }
+}
+
+use prost::bytes::Bytes;
+
+impl TryFrom<Vec<u8>> for UpdateMetadataIntentData {
+    type Error = IntentError;
+
+    fn try_from(data: Vec<u8>) -> Result<Self, Self::Error> {
+        let msg = UpdateMetadataData::decode(Bytes::from(data))?;
+
+        let group_name = match msg.version {
+            Some(UpdateMetadataVersion::V1(ref v1)) => v1.group_name.clone(),
+            None => return Err(IntentError::Generic("missing payload".to_string())),
+        };
+
+        Ok(Self::new(group_name))
+    }
+}
+
+#[derive(Debug, Clone)]
 pub enum PostCommitAction {
     SendWelcomes(SendWelcomesAction),
 }
@@ -362,5 +408,15 @@ mod tests {
         let restored_intent = AddMembersIntentData::from_bytes(as_bytes.as_slice()).unwrap();
 
         assert_eq!(intent.address_or_id, restored_intent.address_or_id);
+    }
+
+    #[tokio::test]
+    async fn test_serialize_update_metadata() {
+        let intent = UpdateMetadataIntentData::new("group name".to_string());
+        let as_bytes: Vec<u8> = intent.clone().try_into().unwrap();
+        let restored_intent: UpdateMetadataIntentData =
+            UpdateMetadataIntentData::try_from(as_bytes).unwrap();
+
+        assert_eq!(intent.group_name, restored_intent.group_name);
     }
 }

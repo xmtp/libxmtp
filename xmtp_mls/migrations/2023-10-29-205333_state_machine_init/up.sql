@@ -35,8 +35,11 @@ CREATE INDEX group_messages_group_id_sort_idx ON group_messages(group_id, sent_a
 
 -- Used to keep track of the last seen message timestamp in a topic
 CREATE TABLE refresh_state (
+    -- E.g. the Id of the group
     "entity_id" BLOB NOT NULL,
+    -- Welcomes or other types
     "entity_kind" INTEGER NOT NULL, -- Need to allow for groups and welcomes to be separated, since a malicious client could manipulate their group ID to match someone's installation_id and make a mess
+    -- Where you are in the topic
     "cursor" BIGINT NOT NULL,
 
     PRIMARY KEY (entity_id, entity_kind)
