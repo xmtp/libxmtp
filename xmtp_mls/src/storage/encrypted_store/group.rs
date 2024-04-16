@@ -118,11 +118,14 @@ impl DbConnection<'_> {
     }
 
     /// Return a single group that matches the given ID
-    pub fn find_group(&self, id: Vec<u8>) -> Result<Vec<StoredGroup>, StorageError> {
+    pub fn find_group(&self, id: Vec<u8>) -> Result<Option<StoredGroup>, StorageError> {
         let mut query = dsl::groups.order(dsl::created_at_ns.asc()).into_boxed();
-        query = query.filter(dsl::id.eq(id));
 
-        Ok(self.raw_query(|conn| query.load(conn))?)
+        query = query.limit(1).filter(dsl::id.eq(id));
+        let groups: Vec<StoredGroup> = self.raw_query(|conn| query.load(conn))?;
+
+        // Manually extract the first element
+        Ok(groups.into_iter().next())
     }
 
     /// Updates group membership state

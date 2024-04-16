@@ -412,9 +412,8 @@ where
         let conn = self.client.store.conn()?;
         conn.find_group(self.group_id.clone())
             .map_err(GroupError::from)
-            .and_then(|groups| {
-                groups
-                    .first()
+            .and_then(|fetch_result| {
+                fetch_result
                     .map(|group| group.added_by_address.clone())
                     .ok_or_else(|| GroupError::GroupNotFound)
             })
