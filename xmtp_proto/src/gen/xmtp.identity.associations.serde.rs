@@ -127,154 +127,6 @@ impl<'de> serde::Deserialize<'de> for AddAssociation {
         deserializer.deserialize_struct("xmtp.identity.associations.AddAssociation", FIELDS, GeneratedVisitor)
     }
 }
-impl serde::Serialize for AssociationState {
-    #[allow(deprecated)]
-    fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
-    where
-        S: serde::Serializer,
-    {
-        use serde::ser::SerializeStruct;
-        let mut len = 0;
-        if !self.inbox_id.is_empty() {
-            len += 1;
-        }
-        if !self.members.is_empty() {
-            len += 1;
-        }
-        if !self.recovery_address.is_empty() {
-            len += 1;
-        }
-        if !self.seen_signatures.is_empty() {
-            len += 1;
-        }
-        let mut struct_ser = serializer.serialize_struct("xmtp.identity.associations.AssociationState", len)?;
-        if !self.inbox_id.is_empty() {
-            struct_ser.serialize_field("inboxId", &self.inbox_id)?;
-        }
-        if !self.members.is_empty() {
-            struct_ser.serialize_field("members", &self.members)?;
-        }
-        if !self.recovery_address.is_empty() {
-            struct_ser.serialize_field("recoveryAddress", &self.recovery_address)?;
-        }
-        if !self.seen_signatures.is_empty() {
-            struct_ser.serialize_field("seenSignatures", &self.seen_signatures.iter().map(pbjson::private::base64::encode).collect::<Vec<_>>())?;
-        }
-        struct_ser.end()
-    }
-}
-impl<'de> serde::Deserialize<'de> for AssociationState {
-    #[allow(deprecated)]
-    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
-    where
-        D: serde::Deserializer<'de>,
-    {
-        const FIELDS: &[&str] = &[
-            "inbox_id",
-            "inboxId",
-            "members",
-            "recovery_address",
-            "recoveryAddress",
-            "seen_signatures",
-            "seenSignatures",
-        ];
-
-        #[allow(clippy::enum_variant_names)]
-        enum GeneratedField {
-            InboxId,
-            Members,
-            RecoveryAddress,
-            SeenSignatures,
-        }
-        impl<'de> serde::Deserialize<'de> for GeneratedField {
-            fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
-            where
-                D: serde::Deserializer<'de>,
-            {
-                struct GeneratedVisitor;
-
-                impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
-                    type Value = GeneratedField;
-
-                    fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-                        write!(formatter, "expected one of: {:?}", &FIELDS)
-                    }
-
-                    #[allow(unused_variables)]
-                    fn visit_str<E>(self, value: &str) -> std::result::Result<GeneratedField, E>
-                    where
-                        E: serde::de::Error,
-                    {
-                        match value {
-                            "inboxId" | "inbox_id" => Ok(GeneratedField::InboxId),
-                            "members" => Ok(GeneratedField::Members),
-                            "recoveryAddress" | "recovery_address" => Ok(GeneratedField::RecoveryAddress),
-                            "seenSignatures" | "seen_signatures" => Ok(GeneratedField::SeenSignatures),
-                            _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
-                        }
-                    }
-                }
-                deserializer.deserialize_identifier(GeneratedVisitor)
-            }
-        }
-        struct GeneratedVisitor;
-        impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
-            type Value = AssociationState;
-
-            fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-                formatter.write_str("struct xmtp.identity.associations.AssociationState")
-            }
-
-            fn visit_map<V>(self, mut map_: V) -> std::result::Result<AssociationState, V::Error>
-                where
-                    V: serde::de::MapAccess<'de>,
-            {
-                let mut inbox_id__ = None;
-                let mut members__ = None;
-                let mut recovery_address__ = None;
-                let mut seen_signatures__ = None;
-                while let Some(k) = map_.next_key()? {
-                    match k {
-                        GeneratedField::InboxId => {
-                            if inbox_id__.is_some() {
-                                return Err(serde::de::Error::duplicate_field("inboxId"));
-                            }
-                            inbox_id__ = Some(map_.next_value()?);
-                        }
-                        GeneratedField::Members => {
-                            if members__.is_some() {
-                                return Err(serde::de::Error::duplicate_field("members"));
-                            }
-                            members__ = Some(map_.next_value()?);
-                        }
-                        GeneratedField::RecoveryAddress => {
-                            if recovery_address__.is_some() {
-                                return Err(serde::de::Error::duplicate_field("recoveryAddress"));
-                            }
-                            recovery_address__ = Some(map_.next_value()?);
-                        }
-                        GeneratedField::SeenSignatures => {
-                            if seen_signatures__.is_some() {
-                                return Err(serde::de::Error::duplicate_field("seenSignatures"));
-                            }
-                            seen_signatures__ = 
-                                Some(map_.next_value::<Vec<::pbjson::private::BytesDeserialize<_>>>()?
-                                    .into_iter().map(|x| x.0).collect())
-                            ;
-                        }
-                    }
-                }
-                Ok(AssociationState {
-                    inbox_id: inbox_id__.unwrap_or_default(),
-                    members: members__.unwrap_or_default(),
-                    recovery_address: recovery_address__.unwrap_or_default(),
-                    seen_signatures: seen_signatures__.unwrap_or_default(),
-                })
-            }
-        }
-        deserializer.deserialize_struct("xmtp.identity.associations.AssociationState", FIELDS, GeneratedVisitor)
-    }
-}
 impl serde::Serialize for ChangeRecoveryAddress {
     #[allow(deprecated)]
     fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
@@ -526,7 +378,7 @@ impl serde::Serialize for Erc1271Signature {
         if !self.contract_address.is_empty() {
             len += 1;
         }
-        if self.block_number != 0 {
+        if self.block_height != 0 {
             len += 1;
         }
         if !self.signature.is_empty() {
@@ -536,9 +388,9 @@ impl serde::Serialize for Erc1271Signature {
         if !self.contract_address.is_empty() {
             struct_ser.serialize_field("contractAddress", &self.contract_address)?;
         }
-        if self.block_number != 0 {
+        if self.block_height != 0 {
             #[allow(clippy::needless_borrow)]
-            struct_ser.serialize_field("blockNumber", ToString::to_string(&self.block_number).as_str())?;
+            struct_ser.serialize_field("blockHeight", ToString::to_string(&self.block_height).as_str())?;
         }
         if !self.signature.is_empty() {
             #[allow(clippy::needless_borrow)]
@@ -556,15 +408,15 @@ impl<'de> serde::Deserialize<'de> for Erc1271Signature {
         const FIELDS: &[&str] = &[
             "contract_address",
             "contractAddress",
-            "block_number",
-            "blockNumber",
+            "block_height",
+            "blockHeight",
             "signature",
         ];
 
         #[allow(clippy::enum_variant_names)]
         enum GeneratedField {
             ContractAddress,
-            BlockNumber,
+            BlockHeight,
             Signature,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
@@ -588,7 +440,7 @@ impl<'de> serde::Deserialize<'de> for Erc1271Signature {
                     {
                         match value {
                             "contractAddress" | "contract_address" => Ok(GeneratedField::ContractAddress),
-                            "blockNumber" | "block_number" => Ok(GeneratedField::BlockNumber),
+                            "blockHeight" | "block_height" => Ok(GeneratedField::BlockHeight),
                             "signature" => Ok(GeneratedField::Signature),
                             _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
                         }
@@ -610,7 +462,7 @@ impl<'de> serde::Deserialize<'de> for Erc1271Signature {
                     V: serde::de::MapAccess<'de>,
             {
                 let mut contract_address__ = None;
-                let mut block_number__ = None;
+                let mut block_height__ = None;
                 let mut signature__ = None;
                 while let Some(k) = map_.next_key()? {
                     match k {
@@ -620,11 +472,11 @@ impl<'de> serde::Deserialize<'de> for Erc1271Signature {
                             }
                             contract_address__ = Some(map_.next_value()?);
                         }
-                        GeneratedField::BlockNumber => {
-                            if block_number__.is_some() {
-                                return Err(serde::de::Error::duplicate_field("blockNumber"));
+                        GeneratedField::BlockHeight => {
+                            if block_height__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("blockHeight"));
                             }
-                            block_number__ = 
+                            block_height__ = 
                                 Some(map_.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
                             ;
                         }
@@ -640,7 +492,7 @@ impl<'de> serde::Deserialize<'de> for Erc1271Signature {
                 }
                 Ok(Erc1271Signature {
                     contract_address: contract_address__.unwrap_or_default(),
-                    block_number: block_number__.unwrap_or_default(),
+                    block_height: block_height__.unwrap_or_default(),
                     signature: signature__.unwrap_or_default(),
                 })
             }
@@ -1240,114 +1092,6 @@ impl<'de> serde::Deserialize<'de> for MemberIdentifier {
             }
         }
         deserializer.deserialize_struct("xmtp.identity.associations.MemberIdentifier", FIELDS, GeneratedVisitor)
-    }
-}
-impl serde::Serialize for MemberMap {
-    #[allow(deprecated)]
-    fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
-    where
-        S: serde::Serializer,
-    {
-        use serde::ser::SerializeStruct;
-        let mut len = 0;
-        if self.key.is_some() {
-            len += 1;
-        }
-        if self.value.is_some() {
-            len += 1;
-        }
-        let mut struct_ser = serializer.serialize_struct("xmtp.identity.associations.MemberMap", len)?;
-        if let Some(v) = self.key.as_ref() {
-            struct_ser.serialize_field("key", v)?;
-        }
-        if let Some(v) = self.value.as_ref() {
-            struct_ser.serialize_field("value", v)?;
-        }
-        struct_ser.end()
-    }
-}
-impl<'de> serde::Deserialize<'de> for MemberMap {
-    #[allow(deprecated)]
-    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
-    where
-        D: serde::Deserializer<'de>,
-    {
-        const FIELDS: &[&str] = &[
-            "key",
-            "value",
-        ];
-
-        #[allow(clippy::enum_variant_names)]
-        enum GeneratedField {
-            Key,
-            Value,
-        }
-        impl<'de> serde::Deserialize<'de> for GeneratedField {
-            fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
-            where
-                D: serde::Deserializer<'de>,
-            {
-                struct GeneratedVisitor;
-
-                impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
-                    type Value = GeneratedField;
-
-                    fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-                        write!(formatter, "expected one of: {:?}", &FIELDS)
-                    }
-
-                    #[allow(unused_variables)]
-                    fn visit_str<E>(self, value: &str) -> std::result::Result<GeneratedField, E>
-                    where
-                        E: serde::de::Error,
-                    {
-                        match value {
-                            "key" => Ok(GeneratedField::Key),
-                            "value" => Ok(GeneratedField::Value),
-                            _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
-                        }
-                    }
-                }
-                deserializer.deserialize_identifier(GeneratedVisitor)
-            }
-        }
-        struct GeneratedVisitor;
-        impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
-            type Value = MemberMap;
-
-            fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-                formatter.write_str("struct xmtp.identity.associations.MemberMap")
-            }
-
-            fn visit_map<V>(self, mut map_: V) -> std::result::Result<MemberMap, V::Error>
-                where
-                    V: serde::de::MapAccess<'de>,
-            {
-                let mut key__ = None;
-                let mut value__ = None;
-                while let Some(k) = map_.next_key()? {
-                    match k {
-                        GeneratedField::Key => {
-                            if key__.is_some() {
-                                return Err(serde::de::Error::duplicate_field("key"));
-                            }
-                            key__ = map_.next_value()?;
-                        }
-                        GeneratedField::Value => {
-                            if value__.is_some() {
-                                return Err(serde::de::Error::duplicate_field("value"));
-                            }
-                            value__ = map_.next_value()?;
-                        }
-                    }
-                }
-                Ok(MemberMap {
-                    key: key__,
-                    value: value__,
-                })
-            }
-        }
-        deserializer.deserialize_struct("xmtp.identity.associations.MemberMap", FIELDS, GeneratedVisitor)
     }
 }
 impl serde::Serialize for RecoverableEcdsaSignature {
