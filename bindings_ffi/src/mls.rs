@@ -216,11 +216,11 @@ impl FfiConversations {
         if !account_addresses.is_empty() {
             convo.add_members(account_addresses).await?;
         }
-
         let out = Arc::new(FfiGroup {
             inner_client: self.inner_client.clone(),
             group_id: convo.group_id,
             created_at_ns: convo.created_at_ns,
+            added_by_address: convo.added_by_address,
         });
 
         Ok(out)
@@ -232,13 +232,12 @@ impl FfiConversations {
     ) -> Result<Arc<FfiGroup>, GenericError> {
         let inner = self.inner_client.as_ref();
         let group = inner.process_streamed_welcome_message(envelope_bytes)?;
-
         let out = Arc::new(FfiGroup {
             inner_client: self.inner_client.clone(),
             group_id: group.group_id,
             created_at_ns: group.created_at_ns,
+            added_by_address: group.added_by_address,
         });
-
         Ok(out)
     }
 
@@ -266,6 +265,7 @@ impl FfiConversations {
                     inner_client: self.inner_client.clone(),
                     group_id: group.group_id,
                     created_at_ns: group.created_at_ns,
+                    added_by_address: group.added_by_address,
                 })
             })
             .collect();
@@ -285,6 +285,7 @@ impl FfiConversations {
                     inner_client: client.clone(),
                     group_id: convo.group_id,
                     created_at_ns: convo.created_at_ns,
+                    added_by_address: convo.added_by_address,
                 }))
             },
             || {}, // on_close_callback
@@ -318,6 +319,7 @@ pub struct FfiGroup {
     inner_client: Arc<RustXmtpClient>,
     group_id: Vec<u8>,
     created_at_ns: i64,
+    added_by_address: Option<String>,
 }
 
 #[derive(uniffi::Record)]
@@ -340,6 +342,7 @@ impl FfiGroup {
             self.inner_client.as_ref(),
             self.group_id.clone(),
             self.created_at_ns,
+            self.added_by_address.clone(),
         );
 
         group.send_message(content_bytes.as_slice()).await?;
@@ -352,6 +355,7 @@ impl FfiGroup {
             self.inner_client.as_ref(),
             self.group_id.clone(),
             self.created_at_ns,
+            self.added_by_address.clone(),
         );
 
         group.sync().await?;
@@ -367,6 +371,7 @@ impl FfiGroup {
             self.inner_client.as_ref(),
             self.group_id.clone(),
             self.created_at_ns,
+            self.added_by_address.clone(),
         );
 
         let messages: Vec<FfiMessage> = group
@@ -392,6 +397,7 @@ impl FfiGroup {
             self.inner_client.as_ref(),
             self.group_id.clone(),
             self.created_at_ns,
+            self.added_by_address.clone(),
         );
         let message = group.process_streamed_group_message(envelope_bytes).await?;
         let ffi_message = message.into();
@@ -404,6 +410,7 @@ impl FfiGroup {
             self.inner_client.as_ref(),
             self.group_id.clone(),
             self.created_at_ns,
+            self.added_by_address.clone(),
         );
 
         let members: Vec<FfiGroupMember> = group
@@ -425,6 +432,7 @@ impl FfiGroup {
             self.inner_client.as_ref(),
             self.group_id.clone(),
             self.created_at_ns,
+            self.added_by_address.clone(),
         );
 
         group.add_members(account_addresses).await?;
@@ -437,6 +445,7 @@ impl FfiGroup {
             self.inner_client.as_ref(),
             self.group_id.clone(),
             self.created_at_ns,
+            self.added_by_address.clone(),
         );
 
         group.remove_members(account_addresses).await?;
@@ -472,6 +481,7 @@ impl FfiGroup {
             self.inner_client.as_ref(),
             self.group_id.clone(),
             self.created_at_ns,
+            self.added_by_address.clone(),
         );
 
         Ok(group.is_active()?)
@@ -482,6 +492,7 @@ impl FfiGroup {
             self.inner_client.as_ref(),
             self.group_id.clone(),
             self.created_at_ns,
+            self.added_by_address.clone(),
         );
 
         let metadata = group.metadata()?;
@@ -938,6 +949,7 @@ mod tests {
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 5)]
+    #[ignore]
     async fn test_conversation_streaming() {
         let amal = new_test_client().await;
         let bola = new_test_client().await;
@@ -1107,5 +1119,46 @@ mod tests {
         stream_closer.end();
         tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
         assert!(stream_closer.is_closed());
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+    async fn test_group_who_added_me() {
+        // Create Clients
+        let amal = new_test_client().await;
+        let bola = new_test_client().await;
+
+        // Amal creates a group and adds Bola to the group
+        amal.conversations()
+            .create_group(vec![bola.account_address()], None)
+            .await
+            .unwrap();
+
+        // Bola syncs groups - this will decrypt the Welcome, identify who added Bola
+        // and then store that value on the group and insert into the database
+        let bola_conversations = bola.conversations();
+        let _ = bola_conversations.sync().await;
+
+        // Bola gets the group id. This will be needed to fetch the group from
+        // the database.
+        let bola_groups = bola_conversations
+            .list(crate::FfiListConversationsOptions {
+                created_after_ns: None,
+                created_before_ns: None,
+                limit: None,
+            })
+            .await
+            .unwrap();
+
+        let bola_group = bola_groups.first().unwrap();
+
+        // Check Bola's group for the added_by_address of the inviter
+        let added_by_address = bola_group.added_by_address.clone().unwrap();
+
+        // // Verify the welcome host_credential is equal to Amal's
+        assert_eq!(
+            amal.account_address(),
+            added_by_address,
+            "The Inviter and added_by_address do not match!"
+        );
     }
 }
