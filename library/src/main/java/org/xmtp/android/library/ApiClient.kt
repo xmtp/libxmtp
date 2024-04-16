@@ -95,7 +95,6 @@ data class GRPCApiClient(
                     "backoffMultiplier" to 2.0,
                     "retryableStatusCodes" to listOf(
                         "UNAVAILABLE",
-                        "CANCELLED",
                     )
                 )
             )
@@ -107,7 +106,7 @@ data class GRPCApiClient(
             environment.getValue(),
             if (environment == XMTPEnvironment.LOCAL) 5556 else 443
         ).apply {
-            keepAliveTime(30L, TimeUnit.SECONDS)
+            keepAliveTime(3, TimeUnit.MINUTES)
             keepAliveTimeout(20L, TimeUnit.SECONDS)
             keepAliveWithoutCalls(true)
             if (environment != XMTPEnvironment.LOCAL) {
