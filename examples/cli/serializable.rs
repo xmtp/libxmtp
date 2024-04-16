@@ -5,7 +5,10 @@ use xmtp_mls::{
     groups::MlsGroup,
     storage::group_message::StoredGroupMessage,
 };
-use xmtp_proto::{api_client::{XmtpMlsClient, XmtpIdentityClient}, xmtp::mls::message_contents::EncodedContent};
+use xmtp_proto::{
+    api_client::{XmtpIdentityClient, XmtpMlsClient},
+    xmtp::mls::message_contents::EncodedContent,
+};
 
 #[derive(Serialize, Debug)]
 pub struct SerializableGroupMetadata {
