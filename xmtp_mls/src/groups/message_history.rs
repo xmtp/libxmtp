@@ -1,11 +1,13 @@
 use xmtp_proto::{
     api_client::XmtpMlsClient,
     xmtp::mls::message_contents::plaintext_envelope::v2::MessageType::{
-        MessageHistoryRequest as HistoryRequest, MessageHistoryResponse as HistoryResponse,
+        Reply as HistoryResponse, Request as HistoryRequest,
     },
     xmtp::mls::message_contents::plaintext_envelope::{Content, V2},
     xmtp::mls::message_contents::PlaintextEnvelope,
-    xmtp::mls::message_contents::{MessageHistoryRequest, MessageHistoryResponse},
+    xmtp::mls::message_contents::{
+        MessageHistoryReply as MessageHistoryResponse, MessageHistoryRequest,
+    },
 };
 
 use super::{GroupError, MlsGroup};

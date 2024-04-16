@@ -1,3 +1,4 @@
+mod group_membership;
 pub mod group_metadata;
 mod group_permissions;
 mod intents;
