@@ -104,7 +104,7 @@ pub struct Erc1271Signature {
     signature_text: String,
     signature_bytes: Vec<u8>,
     contract_address: String,
-    block_height: u64,
+    block_number: u64,
 }
 
 impl Erc1271Signature {
@@ -112,13 +112,13 @@ impl Erc1271Signature {
         signature_text: String,
         signature_bytes: Vec<u8>,
         contract_address: String,
-        block_height: u64,
+        block_number: u64,
     ) -> Self {
         Erc1271Signature {
             signature_text,
             signature_bytes,
             contract_address,
-            block_height,
+            block_number,
         }
     }
 }
@@ -141,7 +141,7 @@ impl Signature for Erc1271Signature {
         SignatureProto {
             signature: Some(SignatureKindProto::Erc1271(Erc1271SignatureProto {
                 contract_address: self.contract_address.clone(),
-                block_height: self.block_height as i64,
+                block_number: self.block_number,
                 signature: self.bytes(),
             })),
         }
