@@ -1,11 +1,11 @@
 use xmtp_proto::{
     api_client::XmtpMlsClient,
     xmtp::mls::message_contents::plaintext_envelope::v2::MessageType::{
-        MessageHistoryRequest as HistoryRequest, MessageHistoryResponse as HistoryResponse,
+        Reply as HistoryResponse, Request as HistoryRequest,
     },
     xmtp::mls::message_contents::plaintext_envelope::{Content, V2},
     xmtp::mls::message_contents::PlaintextEnvelope,
-    xmtp::mls::message_contents::{MessageHistoryRequest, MessageHistoryResponse},
+    xmtp::mls::message_contents::{MessageHistoryReply, MessageHistoryRequest},
 };
 
 use super::{GroupError, MlsGroup};
@@ -40,7 +40,7 @@ where
         let _request = PlaintextEnvelope {
             content: Some(Content::V2(V2 {
                 idempotency_key: String::from("unique"),
-                message_type: Some(HistoryResponse(MessageHistoryResponse {
+                message_type: Some(HistoryResponse(MessageHistoryReply {
                     backup_url,
                     request_id,
                     backup_file_hash: backup_file_hash.into(),
