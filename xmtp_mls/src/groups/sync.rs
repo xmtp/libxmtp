@@ -17,7 +17,7 @@ use prost::bytes::Bytes;
 use prost::Message;
 
 use xmtp_proto::{
-    api_client::XmtpMlsClient,
+    api_client::{XmtpMlsClient, XmtpIdentityClient},
     xmtp::mls::api::v1::{
         group_message::{Version as GroupMessageVersion, V1 as GroupMessageV1},
         welcome_message_input::{
