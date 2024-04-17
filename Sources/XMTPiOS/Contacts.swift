@@ -40,12 +40,24 @@ public enum ContactError: Error {
 	case invalidIdentifier
 }
 
+public actor EntriesManager {
+	public var map: [String: ConsentListEntry] = [:]
+
+	func set(_ key: String, _ object: ConsentListEntry) {
+		map[key] = object
+	}
+
+	func get(_ key: String) -> ConsentListEntry? {
+		map[key]
+	}
+}
+
 public class ConsentList {
-	public var entries: [String: ConsentListEntry] = [:]
+	public let entriesManager = EntriesManager()
 	var publicKey: Data
 	var privateKey: Data
 	var identifier: String?
-  var lastFetched: Date?
+	var lastFetched: Date?
 	var client: Client
 
 	init(client: Client) {
@@ -77,23 +89,23 @@ public class ConsentList {
 		}
 		for preference in preferences {
 			for address in preference.allowAddress.walletAddresses {
-				_ = allow(address: address)
+				_ = await allow(address: address)
 			}
 
 			for address in preference.denyAddress.walletAddresses {
-				_ = deny(address: address)
+				_ = await deny(address: address)
 			}
 
 			for groupId in preference.allowGroup.groupIds {
-				_ = allowGroup(groupId: groupId)
+				_ = await allowGroup(groupId: groupId)
 			}
 
 			for groupId in preference.denyGroup.groupIds {
-				_ = denyGroup(groupId: groupId)
+				_ = await denyGroup(groupId: groupId)
 			}
 		}
 
-        return Array(entries.values)
+		return await Array(entriesManager.map.values)
 	}
 
     func publish(entries: [ConsentListEntry]) async throws {
@@ -148,46 +160,46 @@ public class ConsentList {
     try await client.publish(envelopes: [envelope])
   }
 
-	func allow(address: String) -> ConsentListEntry {
+	func allow(address: String) async -> ConsentListEntry {
 		let entry = ConsentListEntry.address(address, type: ConsentState.allowed)
-		entries[ConsentListEntry.address(address).key] = entry
+		await entriesManager.set(entry.key, entry)
 
 		return entry
 	}
 
-	func deny(address: String) -> ConsentListEntry {
+	func deny(address: String) async -> ConsentListEntry {
 		let entry = ConsentListEntry.address(address, type: ConsentState.denied)
-		entries[ConsentListEntry.address(address).key] = entry
+		await entriesManager.set(entry.key, entry)
 
 		return entry
 	}
 
-	func allowGroup(groupId: Data) -> ConsentListEntry {
+	func allowGroup(groupId: Data) async -> ConsentListEntry {
 		let groupIdString = groupId.toHex
 		let entry = ConsentListEntry.groupId(groupId: groupIdString, type: ConsentState.allowed)
-		entries[ConsentListEntry.groupId(groupId: groupIdString).key] = entry
+		await entriesManager.set(entry.key, entry)
 
 		return entry
 	}
 
-	func denyGroup(groupId: Data) -> ConsentListEntry {
+	func denyGroup(groupId: Data) async -> ConsentListEntry {
 		let groupIdString = groupId.toHex
 		let entry = ConsentListEntry.groupId(groupId: groupIdString, type: ConsentState.denied)
-		entries[ConsentListEntry.groupId(groupId: groupIdString).key] = entry
+		await entriesManager.set(entry.key, entry)
 
 		return entry
 	}
 
-	func state(address: String) -> ConsentState {
-		guard let entry = entries[ConsentListEntry.address(address).key] else {
+	func state(address: String) async -> ConsentState {
+		guard let entry = await entriesManager.get(ConsentListEntry.address(address).key) else {
 			return .unknown
 		}
 
 		return entry.consentType
 	}
 
-	func groupState(groupId: Data) -> ConsentState {
-		guard let entry =  entries[ConsentListEntry.groupId(groupId: groupId.toHex).key] else {
+	func groupState(groupId: Data) async -> ConsentState {
+		guard let entry =  await entriesManager.get(ConsentListEntry.groupId(groupId: groupId.toHex).key) else {
 			return .unknown
 		}
 
@@ -217,40 +229,88 @@ public actor Contacts {
 		return consentList
 	}
 
-	public func isAllowed(_ address: String) -> Bool {
-		return consentList.state(address: address) == .allowed
+	public func isAllowed(_ address: String) async -> Bool {
+		return await consentList.state(address: address) == .allowed
 	}
 
-	public func isDenied(_ address: String) -> Bool {
-		return consentList.state(address: address) == .denied
+	public func isDenied(_ address: String) async -> Bool {
+		return await consentList.state(address: address) == .denied
 	}
 
-	public func isGroupAllowed(groupId: Data) -> Bool {
-		return consentList.groupState(groupId: groupId) == .allowed
+	public func isGroupAllowed(groupId: Data) async -> Bool {
+		return await consentList.groupState(groupId: groupId) == .allowed
 	}
 
-	public func isGroupDenied(groupId: Data) -> Bool {
-		return consentList.groupState(groupId: groupId) == .denied
+	public func isGroupDenied(groupId: Data) async -> Bool {
+		return await consentList.groupState(groupId: groupId) == .denied
 	}
 
 	public func allow(addresses: [String]) async throws {
-        let entries = addresses.map { consentList.allow(address: $0) }
+		var entries: [ConsentListEntry] = []
+
+		try await withThrowingTaskGroup(of: ConsentListEntry.self) { group in
+			for address in addresses {
+				group.addTask {
+					return await self.consentList.allow(address: address)
+				}
+			}
+
+			for try await entry in group {
+				entries.append(entry)
+			}
+		}
         try await consentList.publish(entries: entries)
 	}
 
 	public func deny(addresses: [String]) async throws {
-        let entries = addresses.map { consentList.deny(address: $0) }
+		var entries: [ConsentListEntry] = []
+
+		try await withThrowingTaskGroup(of: ConsentListEntry.self) { group in
+			for address in addresses {
+				group.addTask {
+					return await self.consentList.deny(address: address)
+				}
+			}
+
+			for try await entry in group {
+				entries.append(entry)
+			}
+		}
         try await consentList.publish(entries: entries)
 	}
 
 	public func allowGroup(groupIds: [Data]) async throws {
-        let entries = groupIds.map { consentList.allowGroup(groupId: $0) }
+		var entries: [ConsentListEntry] = []
+
+		try await withThrowingTaskGroup(of: ConsentListEntry.self) { group in
+			for groupId in groupIds {
+				group.addTask {
+					return await self.consentList.allowGroup(groupId: groupId)
+				}
+			}
+
+			for try await entry in group {
+				entries.append(entry)
+			}
+		}
         try await consentList.publish(entries: entries)
 	}
 
 	public func denyGroup(groupIds: [Data]) async throws {
-        let entries = groupIds.map { consentList.denyGroup(groupId: $0) }
-        try await consentList.publish(entries: entries)
+		var entries: [ConsentListEntry] = []
+
+		try await withThrowingTaskGroup(of: ConsentListEntry.self) { group in
+			for groupId in groupIds {
+				group.addTask {
+					return await self.consentList.denyGroup(groupId: groupId)
+				}
+			}
+
+			for try await entry in group {
+				entries.append(entry)
+			}
+		}        
+		try await consentList.publish(entries: entries)
 	}
 
 	func markIntroduced(_ peerAddress: String, _ isIntroduced: Bool) {
