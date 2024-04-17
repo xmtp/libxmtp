@@ -338,7 +338,7 @@ pub struct FfiListMessagesOptions {
 
 #[uniffi::export(async_runtime = "tokio")]
 impl FfiGroup {
-    pub async fn send(&self, content_bytes: Vec<u8>) -> Result<(), GenericError> {
+    pub async fn send(&self, content_bytes: Vec<u8>) -> Result<Vec<u8>, GenericError> {
         let group = MlsGroup::new(
             self.inner_client.as_ref(),
             self.group_id.clone(),
@@ -346,9 +346,9 @@ impl FfiGroup {
             self.added_by_address.clone(),
         );
 
-        group.send_message(content_bytes.as_slice()).await?;
+        let message_id = group.send_message(content_bytes.as_slice()).await?;
 
-        Ok(())
+        Ok((message_id))
     }
 
     pub async fn sync(&self) -> Result<(), GenericError> {
