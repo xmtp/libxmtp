@@ -25,7 +25,7 @@ use xmtp_proto::{
 };
 
 use crate::{
-    api_client_wrapper::{ApiClientWrapper, IdentityUpdate},
+    api::{ApiClientWrapper, IdentityUpdate},
     configuration::CIPHERSUITE,
     credential::{AssociationError, Credential, UnsignedGrantMessagingAccessData},
     storage::{identity::StoredIdentity, StorageError},
@@ -286,7 +286,7 @@ mod tests {
 
     use super::Identity;
     use crate::{
-        api_client_wrapper::{tests::get_test_api_client, ApiClientWrapper},
+        api::{test_utils::get_test_api_client, ApiClientWrapper},
         storage::EncryptedMessageStore,
         xmtp_openmls_provider::XmtpOpenMlsProvider,
         InboxOwner,

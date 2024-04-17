@@ -9,7 +9,7 @@ use thiserror::Error;
 use xmtp_proto::api_client::{XmtpIdentityClient, XmtpMlsClient};
 
 use crate::{
-    api_client_wrapper::ApiClientWrapper,
+    api::ApiClientWrapper,
     client::{Client, Network},
     identity::{Identity, IdentityError},
     retry::Retry,
