@@ -24,8 +24,7 @@ sha2 = "0.10.8"
 thiserror.workspace = true
 tracing.workspace = true
 xmtp_cryptography.workspace = true
-xmtp_mls.workspace = true
-xmtp_proto.workspace = true
+xmtp_proto = { workspace = true, features = ["proto_full"] }
 
 [dev-dependencies]
 anyhow.workspace = true

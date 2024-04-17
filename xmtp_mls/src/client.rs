@@ -210,7 +210,7 @@ where
             self,
             GroupMembershipState::Allowed,
             permissions,
-            Some(self.account_address()),
+            self.account_address(),
         )
         .map_err(|e| {
             ClientError::Storage(StorageError::Store(format!("group create error {}", e)))
@@ -225,12 +225,7 @@ where
         let conn = &mut self.store.conn()?;
         let stored_group: Option<StoredGroup> = conn.fetch(&group_id)?;
         match stored_group {
-            Some(group) => Ok(MlsGroup::new(
-                self,
-                group.id,
-                group.created_at_ns,
-                group.added_by_address,
-            )),
+            Some(group) => Ok(MlsGroup::new(self, group.id, group.created_at_ns)),
             None => Err(ClientError::Storage(StorageError::NotFound)),
         }
     }
@@ -254,14 +249,7 @@ where
             .conn()?
             .find_groups(allowed_states, created_after_ns, created_before_ns, limit)?
             .into_iter()
-            .map(|stored_group| {
-                MlsGroup::new(
-                    self,
-                    stored_group.id,
-                    stored_group.created_at_ns,
-                    stored_group.added_by_address,
-                )
-            })
+            .map(|stored_group| MlsGroup::new(self, stored_group.id, stored_group.created_at_ns))
             .collect())
     }
 

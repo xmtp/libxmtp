@@ -6919,7 +6919,6 @@ dependencies = [
  "tracing",
  "tracing-subscriber",
  "xmtp_cryptography",
- "xmtp_mls",
  "xmtp_proto",
 ]
 
