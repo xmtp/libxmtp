@@ -25,13 +25,17 @@ use thiserror::Error;
 
 use xmtp_cryptography::signature::is_valid_ed25519_public_key;
 use xmtp_proto::{
-    api_client::XmtpMlsClient,
-    xmtp::mls::api::v1::{
-        group_message::{Version as GroupMessageVersion, V1 as GroupMessageV1},
-        GroupMessage,
+    api_client::{XmtpIdentityClient, XmtpMlsClient},
+    xmtp::mls::{
+        api::v1::{
+            group_message::{Version as GroupMessageVersion, V1 as GroupMessageV1},
+            GroupMessage,
+        },
+        message_contents::{
+            plaintext_envelope::{Content, V1},
+            PlaintextEnvelope,
+        },
     },
-    xmtp::mls::message_contents::plaintext_envelope::{Content, V1},
-    xmtp::mls::message_contents::PlaintextEnvelope,
 };
 
 use self::group_metadata::extract_group_metadata;
@@ -162,7 +166,7 @@ impl<'c, ApiClient> Clone for MlsGroup<'c, ApiClient> {
 
 impl<'c, ApiClient> MlsGroup<'c, ApiClient>
 where
-    ApiClient: XmtpMlsClient,
+    ApiClient: XmtpMlsClient + XmtpIdentityClient,
 {
     // Creates a new group instance. Does not validate that the group exists in the DB
     pub fn new(client: &'c Client<ApiClient>, group_id: Vec<u8>, created_at_ns: i64) -> Self {
@@ -534,7 +538,10 @@ mod tests {
     use prost::Message;
     use xmtp_api_grpc::grpc_api_helper::Client as GrpcClient;
     use xmtp_cryptography::utils::generate_local_wallet;
-    use xmtp_proto::{api_client::XmtpMlsClient, xmtp::mls::message_contents::EncodedContent};
+    use xmtp_proto::{
+        api_client::{XmtpIdentityClient, XmtpMlsClient},
+        xmtp::mls::message_contents::EncodedContent,
+    };
 
     use crate::{
         builder::ClientBuilder,
@@ -551,7 +558,7 @@ mod tests {
 
     async fn receive_group_invite<ApiClient>(client: &Client<ApiClient>) -> MlsGroup<ApiClient>
     where
-        ApiClient: XmtpMlsClient,
+        ApiClient: XmtpMlsClient + XmtpIdentityClient,
     {
         client.sync_welcomes().await.unwrap();
         let mut groups = client.find_groups(None, None, None, None).unwrap();

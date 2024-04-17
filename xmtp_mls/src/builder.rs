@@ -6,7 +6,7 @@ use log::debug;
 use log::info;
 use thiserror::Error;
 
-use xmtp_proto::api_client::XmtpMlsClient;
+use xmtp_proto::api_client::{XmtpIdentityClient, XmtpMlsClient};
 
 use crate::{
     api_client_wrapper::ApiClientWrapper,
@@ -78,7 +78,7 @@ pub enum IdentityStrategy {
 }
 
 impl IdentityStrategy {
-    async fn initialize_identity<ApiClient: XmtpMlsClient>(
+    async fn initialize_identity<ApiClient: XmtpMlsClient + XmtpIdentityClient>(
         self,
         api_client: &ApiClientWrapper<ApiClient>,
         store: &EncryptedMessageStore,
@@ -114,7 +114,7 @@ impl IdentityStrategy {
         }
     }
 
-    async fn create_identity<ApiClient: XmtpMlsClient>(
+    async fn create_identity<ApiClient: XmtpMlsClient + XmtpIdentityClient>(
         api_client: &ApiClientWrapper<ApiClient>,
         account_address: String,
         legacy_identity: LegacyIdentity,
@@ -167,7 +167,7 @@ pub struct ClientBuilder<ApiClient> {
 
 impl<ApiClient> ClientBuilder<ApiClient>
 where
-    ApiClient: XmtpMlsClient,
+    ApiClient: XmtpMlsClient + XmtpIdentityClient,
 {
     pub fn new(strat: IdentityStrategy) -> Self {
         Self {

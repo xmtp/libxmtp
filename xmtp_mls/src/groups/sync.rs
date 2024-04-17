@@ -17,7 +17,7 @@ use prost::bytes::Bytes;
 use prost::Message;
 
 use xmtp_proto::{
-    api_client::XmtpMlsClient,
+    api_client::{XmtpIdentityClient, XmtpMlsClient},
     xmtp::mls::api::v1::{
         group_message::{Version as GroupMessageVersion, V1 as GroupMessageV1},
         welcome_message_input::{
@@ -64,7 +64,7 @@ use crate::{
 
 impl<'c, ApiClient> MlsGroup<'c, ApiClient>
 where
-    ApiClient: XmtpMlsClient,
+    ApiClient: XmtpMlsClient + XmtpIdentityClient,
 {
     pub async fn sync(&self) -> Result<(), GroupError> {
         let conn = &mut self.client.store.conn()?;

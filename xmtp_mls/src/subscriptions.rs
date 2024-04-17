@@ -10,7 +10,10 @@ use std::{
 use futures::{Stream, StreamExt};
 use prost::Message;
 use tokio::sync::oneshot::{self, Sender};
-use xmtp_proto::{api_client::XmtpMlsClient, xmtp::mls::api::v1::WelcomeMessage};
+use xmtp_proto::{
+    api_client::{XmtpIdentityClient, XmtpMlsClient},
+    xmtp::mls::api::v1::WelcomeMessage,
+};
 
 use crate::{
     api_client_wrapper::GroupFilter,
@@ -51,7 +54,7 @@ pub(crate) struct MessagesStreamInfo {
 
 impl<'a, ApiClient> Client<ApiClient>
 where
-    ApiClient: XmtpMlsClient,
+    ApiClient: XmtpMlsClient + XmtpIdentityClient,
 {
     fn process_streamed_welcome(
         &self,
@@ -162,7 +165,7 @@ where
 
 impl<ApiClient> Client<ApiClient>
 where
-    ApiClient: XmtpMlsClient,
+    ApiClient: XmtpMlsClient + XmtpIdentityClient,
 {
     pub fn stream_conversations_with_callback(
         client: Arc<Client<ApiClient>>,
