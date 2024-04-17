@@ -325,7 +325,7 @@ where
             &now.to_string(),
         );
         let group_message = StoredGroupMessage {
-            id: message_id,
+            id: message_id.clone(),
             group_id: self.group_id.clone(),
             decrypted_message_bytes: message.to_vec(),
             sent_at_ns: now,
