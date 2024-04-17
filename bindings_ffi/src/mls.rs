@@ -375,12 +375,15 @@ impl FfiGroup {
             self.added_by_address.clone(),
         );
 
+        
+        let delivery_status = opts.delivery_status.map(|status| status.into()); 
+
         let messages: Vec<FfiMessage> = group
             .find_messages(
                 None,
                 opts.sent_before_ns,
                 opts.sent_after_ns,
-                opts.delivery_status,
+                delivery_status,
                 opts.limit,
             )?
             .into_iter()
@@ -538,6 +541,16 @@ impl From<DeliveryStatus> for FfiDeliveryStatus {
             DeliveryStatus::Unpublished => FfiDeliveryStatus::Unpublished,
             DeliveryStatus::Published => FfiDeliveryStatus::Published,
             DeliveryStatus::Failed => FfiDeliveryStatus::Failed,
+        }
+    }
+}
+
+impl From<FfiDeliveryStatus> for DeliveryStatus {
+    fn from(status: FfiDeliveryStatus) -> Self {
+        match status {
+            FfiDeliveryStatus::Unpublished => DeliveryStatus::Unpublished,
+            FfiDeliveryStatus::Published => DeliveryStatus::Published,
+            FfiDeliveryStatus::Failed => DeliveryStatus::Failed,
         }
     }
 }
