@@ -74,6 +74,7 @@ public class ConsentList {
 		let newDate = Date()
 
 		let pagination = Pagination(
+			limit: 500,
             after: lastFetched,
             direction: .ascending
         )
