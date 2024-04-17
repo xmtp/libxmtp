@@ -38,3 +38,6 @@ surf = "2.3"
 tokio = { workspace = true, features = ["time"] }
 tokio-test = "0.4"
 tracing-subscriber.workspace = true
+
+[features]
+test-utils = []

@@ -20,7 +20,7 @@ use xmtp_proto::{
 };
 
 use crate::{
-    api_client_wrapper::{ApiClientWrapper, IdentityUpdate},
+    api::{ApiClientWrapper, IdentityUpdate},
     groups::{
         validated_commit::CommitValidationError, AddressesOrInstallationIds, IntentError, MlsGroup,
         PreconfiguredPolicies,
