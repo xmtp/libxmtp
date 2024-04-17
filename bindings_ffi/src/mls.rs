@@ -348,7 +348,7 @@ impl FfiGroup {
 
         let message_id = group.send_message(content_bytes.as_slice()).await?;
 
-        Ok((message_id))
+        Ok(message_id)
     }
 
     pub async fn sync(&self) -> Result<(), GenericError> {
@@ -525,6 +525,7 @@ impl From<GroupMessageKind> for FfiGroupMessageKind {
     }
 }
 
+#[derive(uniffi::Enum)]
 pub enum FfiDeliveryStatus {
     Unpublished,
     Published,
