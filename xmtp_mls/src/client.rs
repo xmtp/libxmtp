@@ -212,7 +212,9 @@ where
             permissions,
             Some(self.account_address()),
         )
-        .map_err(|e| ClientError::Generic(format!("group create error {}", e)))?;
+        .map_err(|e| {
+            ClientError::Storage(StorageError::Store(format!("group create error {}", e)))
+        })?;
 
         Ok(group)
     }
@@ -229,7 +231,7 @@ where
                 group.created_at_ns,
                 group.added_by_address,
             )),
-            None => Err(ClientError::Generic("group not found".to_string())),
+            None => Err(ClientError::Storage(StorageError::NotFound)),
         }
     }
 
