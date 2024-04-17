@@ -332,6 +332,22 @@ impl IdentityUpdate {
     }
 }
 
+impl TryFrom<IdentityUpdate> for IdentityUpdateProto {
+    type Error = SerializationError;
+
+    fn try_from(proto: IdentityUpdate) -> Result<IdentityUpdateProto, Self::Error> {
+        IdentityUpdate::to_proto(&proto)
+    }
+}
+
+impl TryFrom<IdentityUpdateProto> for IdentityUpdate {
+    type Error = DeserializationError;
+
+    fn try_from(proto: IdentityUpdateProto) -> Result<IdentityUpdate, Self::Error> {
+        IdentityUpdate::from_proto(proto)
+    }
+}
+
 impl IdentityAction for IdentityUpdate {
     fn update_state(
         &self,

@@ -40,7 +40,7 @@ use super::{
 };
 
 use crate::{
-    api_client_wrapper::IdentityUpdate,
+    api::IdentityUpdate,
     client::MessageProcessingError,
     codecs::{membership_change::GroupMembershipChangeCodec, ContentCodec},
     configuration::{MAX_INTENT_PUBLISH_ATTEMPTS, UPDATE_INSTALLATIONS_INTERVAL_NS},

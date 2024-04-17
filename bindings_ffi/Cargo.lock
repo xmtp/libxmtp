@@ -579,16 +579,16 @@ dependencies = [
 
 [[package]]
 name = "chrono"
-version = "0.4.31"
+version = "0.4.38"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7f2c685bad3eb3d45a01354cedb7d5faa66194d1d58ba6e267a8de788f79db38"
+checksum = "a21f936df1771bf62b77f047b726c4625ff2e8aa607c01ec06e5a05bd8463401"
 dependencies = [
  "android-tzdata",
  "iana-time-zone",
  "js-sys",
  "num-traits",
  "wasm-bindgen",
- "windows-targets 0.48.5",
+ "windows-targets 0.52.0",
 ]
 
 [[package]]
@@ -5411,6 +5411,31 @@ dependencies = [
 ]
 
 [[package]]
+name = "xmtp_id"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "chrono",
+ "ethers",
+ "futures",
+ "hex",
+ "log",
+ "openmls",
+ "openmls_basic_credential",
+ "openmls_rust_crypto",
+ "openmls_traits",
+ "prost 0.12.3",
+ "rand",
+ "serde",
+ "sha2",
+ "thiserror",
+ "tracing",
+ "xmtp_cryptography",
+ "xmtp_proto",
+]
+
+[[package]]
 name = "xmtp_mls"
 version = "0.1.0"
 dependencies = [
@@ -5438,6 +5463,7 @@ dependencies = [
  "tokio",
  "toml 0.8.8",
  "xmtp_cryptography",
+ "xmtp_id",
  "xmtp_proto",
  "xmtp_v2",
 ]

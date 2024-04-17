@@ -16,7 +16,7 @@ use xmtp_proto::{
 };
 
 use crate::{
-    api_client_wrapper::GroupFilter,
+    api::GroupFilter,
     client::{extract_welcome_message, ClientError},
     groups::{extract_group_id, GroupError, MlsGroup},
     storage::group_message::StoredGroupMessage,
