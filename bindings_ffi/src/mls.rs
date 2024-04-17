@@ -333,6 +333,7 @@ pub struct FfiListMessagesOptions {
     pub sent_before_ns: Option<i64>,
     pub sent_after_ns: Option<i64>,
     pub limit: Option<i64>,
+    pub delivery_status: Option<FfiDeliveryStatus>,
 }
 
 #[uniffi::export(async_runtime = "tokio")]
@@ -379,7 +380,7 @@ impl FfiGroup {
                 None,
                 opts.sent_before_ns,
                 opts.sent_after_ns,
-                None,
+                opts.delivery_status,
                 opts.limit,
             )?
             .into_iter()
