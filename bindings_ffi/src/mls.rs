@@ -19,7 +19,7 @@ use xmtp_mls::{
     client::Client as MlsClient,
     groups::MlsGroup,
     storage::{
-        group_message::GroupMessageKind, group_message::StoredGroupMessage, EncryptedMessageStore,
+        group_message::DeliveryStatus, group_message::GroupMessageKind, group_message::StoredGroupMessage, EncryptedMessageStore,
         EncryptionKey, StorageOption,
     },
     types::Address,
@@ -524,6 +524,22 @@ impl From<GroupMessageKind> for FfiGroupMessageKind {
     }
 }
 
+pub enum FfiDeliveryStatus {
+    Unpublished,
+    Published,
+    Failed,
+}
+
+impl From<DeliveryStatus> for FfiDeliveryStatus {
+    fn from(status: DeliveryStatus) -> Self {
+        match status {
+            DeliveryStatus::Unpublished => FfiDeliveryStatus::Unpublished,
+            DeliveryStatus::Published => FfiDeliveryStatus::Published,
+            DeliveryStatus::Failed => FfiDeliveryStatus::Failed,
+        }
+    }
+}
+
 #[derive(uniffi::Record)]
 pub struct FfiMessage {
     pub id: Vec<u8>,
@@ -532,6 +548,7 @@ pub struct FfiMessage {
     pub addr_from: String,
     pub content: Vec<u8>,
     pub kind: FfiGroupMessageKind,
+    pub delivery_status: FfiDeliveryStatus,
 }
 
 impl From<StoredGroupMessage> for FfiMessage {
@@ -543,6 +560,7 @@ impl From<StoredGroupMessage> for FfiMessage {
             addr_from: msg.sender_account_address,
             content: msg.decrypted_message_bytes,
             kind: msg.kind.into(),
+            delivery_status: msg.delivery_status.into(),
         }
     }
 }
