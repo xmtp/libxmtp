@@ -10,9 +10,16 @@ impl serde::Serialize for GetAssociationStateRequest {
         if !self.updates.is_empty() {
             len += 1;
         }
+        if self.old_sequence_id != 0 {
+            len += 1;
+        }
         let mut struct_ser = serializer.serialize_struct("xmtp.mls_validation.v1.GetAssociationStateRequest", len)?;
         if !self.updates.is_empty() {
             struct_ser.serialize_field("updates", &self.updates)?;
+        }
+        if self.old_sequence_id != 0 {
+            #[allow(clippy::needless_borrow)]
+            struct_ser.serialize_field("oldSequenceId", ToString::to_string(&self.old_sequence_id).as_str())?;
         }
         struct_ser.end()
     }
@@ -25,11 +32,14 @@ impl<'de> serde::Deserialize<'de> for GetAssociationStateRequest {
     {
         const FIELDS: &[&str] = &[
             "updates",
+            "old_sequence_id",
+            "oldSequenceId",
         ];
 
         #[allow(clippy::enum_variant_names)]
         enum GeneratedField {
             Updates,
+            OldSequenceId,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
             fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
@@ -52,6 +62,7 @@ impl<'de> serde::Deserialize<'de> for GetAssociationStateRequest {
                     {
                         match value {
                             "updates" => Ok(GeneratedField::Updates),
+                            "oldSequenceId" | "old_sequence_id" => Ok(GeneratedField::OldSequenceId),
                             _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
                         }
                     }
@@ -72,6 +83,7 @@ impl<'de> serde::Deserialize<'de> for GetAssociationStateRequest {
                     V: serde::de::MapAccess<'de>,
             {
                 let mut updates__ = None;
+                let mut old_sequence_id__ = None;
                 while let Some(k) = map_.next_key()? {
                     match k {
                         GeneratedField::Updates => {
@@ -80,10 +92,19 @@ impl<'de> serde::Deserialize<'de> for GetAssociationStateRequest {
                             }
                             updates__ = Some(map_.next_value()?);
                         }
+                        GeneratedField::OldSequenceId => {
+                            if old_sequence_id__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("oldSequenceId"));
+                            }
+                            old_sequence_id__ = 
+                                Some(map_.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
+                            ;
+                        }
                     }
                 }
                 Ok(GetAssociationStateRequest {
                     updates: updates__.unwrap_or_default(),
+                    old_sequence_id: old_sequence_id__.unwrap_or_default(),
                 })
             }
         }
@@ -98,30 +119,18 @@ impl serde::Serialize for GetAssociationStateResponse {
     {
         use serde::ser::SerializeStruct;
         let mut len = 0;
-        if !self.inbox_id.is_empty() {
+        if self.association_state.is_some() {
             len += 1;
         }
-        if !self.members.is_empty() {
-            len += 1;
-        }
-        if !self.recovery_address.is_empty() {
-            len += 1;
-        }
-        if !self.seen_signatures.is_empty() {
+        if self.state_diff.is_some() {
             len += 1;
         }
         let mut struct_ser = serializer.serialize_struct("xmtp.mls_validation.v1.GetAssociationStateResponse", len)?;
-        if !self.inbox_id.is_empty() {
-            struct_ser.serialize_field("inboxId", &self.inbox_id)?;
+        if let Some(v) = self.association_state.as_ref() {
+            struct_ser.serialize_field("associationState", v)?;
         }
-        if !self.members.is_empty() {
-            struct_ser.serialize_field("members", &self.members)?;
-        }
-        if !self.recovery_address.is_empty() {
-            struct_ser.serialize_field("recoveryAddress", &self.recovery_address)?;
-        }
-        if !self.seen_signatures.is_empty() {
-            struct_ser.serialize_field("seenSignatures", &self.seen_signatures.iter().map(pbjson::private::base64::encode).collect::<Vec<_>>())?;
+        if let Some(v) = self.state_diff.as_ref() {
+            struct_ser.serialize_field("stateDiff", v)?;
         }
         struct_ser.end()
     }
@@ -133,21 +142,16 @@ impl<'de> serde::Deserialize<'de> for GetAssociationStateResponse {
         D: serde::Deserializer<'de>,
     {
         const FIELDS: &[&str] = &[
-            "inbox_id",
-            "inboxId",
-            "members",
-            "recovery_address",
-            "recoveryAddress",
-            "seen_signatures",
-            "seenSignatures",
+            "association_state",
+            "associationState",
+            "state_diff",
+            "stateDiff",
         ];
 
         #[allow(clippy::enum_variant_names)]
         enum GeneratedField {
-            InboxId,
-            Members,
-            RecoveryAddress,
-            SeenSignatures,
+            AssociationState,
+            StateDiff,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
             fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
@@ -169,10 +173,8 @@ impl<'de> serde::Deserialize<'de> for GetAssociationStateResponse {
                         E: serde::de::Error,
                     {
                         match value {
-                            "inboxId" | "inbox_id" => Ok(GeneratedField::InboxId),
-                            "members" => Ok(GeneratedField::Members),
-                            "recoveryAddress" | "recovery_address" => Ok(GeneratedField::RecoveryAddress),
-                            "seenSignatures" | "seen_signatures" => Ok(GeneratedField::SeenSignatures),
+                            "associationState" | "association_state" => Ok(GeneratedField::AssociationState),
+                            "stateDiff" | "state_diff" => Ok(GeneratedField::StateDiff),
                             _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
                         }
                     }
@@ -192,158 +194,31 @@ impl<'de> serde::Deserialize<'de> for GetAssociationStateResponse {
                 where
                     V: serde::de::MapAccess<'de>,
             {
-                let mut inbox_id__ = None;
-                let mut members__ = None;
-                let mut recovery_address__ = None;
-                let mut seen_signatures__ = None;
+                let mut association_state__ = None;
+                let mut state_diff__ = None;
                 while let Some(k) = map_.next_key()? {
                     match k {
-                        GeneratedField::InboxId => {
-                            if inbox_id__.is_some() {
-                                return Err(serde::de::Error::duplicate_field("inboxId"));
+                        GeneratedField::AssociationState => {
+                            if association_state__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("associationState"));
                             }
-                            inbox_id__ = Some(map_.next_value()?);
+                            association_state__ = map_.next_value()?;
                         }
-                        GeneratedField::Members => {
-                            if members__.is_some() {
-                                return Err(serde::de::Error::duplicate_field("members"));
+                        GeneratedField::StateDiff => {
+                            if state_diff__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("stateDiff"));
                             }
-                            members__ = Some(map_.next_value()?);
-                        }
-                        GeneratedField::RecoveryAddress => {
-                            if recovery_address__.is_some() {
-                                return Err(serde::de::Error::duplicate_field("recoveryAddress"));
-                            }
-                            recovery_address__ = Some(map_.next_value()?);
-                        }
-                        GeneratedField::SeenSignatures => {
-                            if seen_signatures__.is_some() {
-                                return Err(serde::de::Error::duplicate_field("seenSignatures"));
-                            }
-                            seen_signatures__ = 
-                                Some(map_.next_value::<Vec<::pbjson::private::BytesDeserialize<_>>>()?
-                                    .into_iter().map(|x| x.0).collect())
-                            ;
+                            state_diff__ = map_.next_value()?;
                         }
                     }
                 }
                 Ok(GetAssociationStateResponse {
-                    inbox_id: inbox_id__.unwrap_or_default(),
-                    members: members__.unwrap_or_default(),
-                    recovery_address: recovery_address__.unwrap_or_default(),
-                    seen_signatures: seen_signatures__.unwrap_or_default(),
+                    association_state: association_state__,
+                    state_diff: state_diff__,
                 })
             }
         }
         deserializer.deserialize_struct("xmtp.mls_validation.v1.GetAssociationStateResponse", FIELDS, GeneratedVisitor)
-    }
-}
-impl serde::Serialize for MemberMap {
-    #[allow(deprecated)]
-    fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
-    where
-        S: serde::Serializer,
-    {
-        use serde::ser::SerializeStruct;
-        let mut len = 0;
-        if self.key.is_some() {
-            len += 1;
-        }
-        if self.value.is_some() {
-            len += 1;
-        }
-        let mut struct_ser = serializer.serialize_struct("xmtp.mls_validation.v1.MemberMap", len)?;
-        if let Some(v) = self.key.as_ref() {
-            struct_ser.serialize_field("key", v)?;
-        }
-        if let Some(v) = self.value.as_ref() {
-            struct_ser.serialize_field("value", v)?;
-        }
-        struct_ser.end()
-    }
-}
-impl<'de> serde::Deserialize<'de> for MemberMap {
-    #[allow(deprecated)]
-    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
-    where
-        D: serde::Deserializer<'de>,
-    {
-        const FIELDS: &[&str] = &[
-            "key",
-            "value",
-        ];
-
-        #[allow(clippy::enum_variant_names)]
-        enum GeneratedField {
-            Key,
-            Value,
-        }
-        impl<'de> serde::Deserialize<'de> for GeneratedField {
-            fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
-            where
-                D: serde::Deserializer<'de>,
-            {
-                struct GeneratedVisitor;
-
-                impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
-                    type Value = GeneratedField;
-
-                    fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-                        write!(formatter, "expected one of: {:?}", &FIELDS)
-                    }
-
-                    #[allow(unused_variables)]
-                    fn visit_str<E>(self, value: &str) -> std::result::Result<GeneratedField, E>
-                    where
-                        E: serde::de::Error,
-                    {
-                        match value {
-                            "key" => Ok(GeneratedField::Key),
-                            "value" => Ok(GeneratedField::Value),
-                            _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
-                        }
-                    }
-                }
-                deserializer.deserialize_identifier(GeneratedVisitor)
-            }
-        }
-        struct GeneratedVisitor;
-        impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
-            type Value = MemberMap;
-
-            fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-                formatter.write_str("struct xmtp.mls_validation.v1.MemberMap")
-            }
-
-            fn visit_map<V>(self, mut map_: V) -> std::result::Result<MemberMap, V::Error>
-                where
-                    V: serde::de::MapAccess<'de>,
-            {
-                let mut key__ = None;
-                let mut value__ = None;
-                while let Some(k) = map_.next_key()? {
-                    match k {
-                        GeneratedField::Key => {
-                            if key__.is_some() {
-                                return Err(serde::de::Error::duplicate_field("key"));
-                            }
-                            key__ = map_.next_value()?;
-                        }
-                        GeneratedField::Value => {
-                            if value__.is_some() {
-                                return Err(serde::de::Error::duplicate_field("value"));
-                            }
-                            value__ = map_.next_value()?;
-                        }
-                    }
-                }
-                Ok(MemberMap {
-                    key: key__,
-                    value: value__,
-                })
-            }
-        }
-        deserializer.deserialize_struct("xmtp.mls_validation.v1.MemberMap", FIELDS, GeneratedVisitor)
     }
 }
 impl serde::Serialize for ValidateGroupMessagesRequest {

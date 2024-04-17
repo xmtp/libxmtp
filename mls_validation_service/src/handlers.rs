@@ -88,6 +88,13 @@ impl ValidationApi for ValidationService {
         &self,
         request: Request<GetAssociationStateRequest>,
     ) -> Result<Response<GetAssociationStateResponse>, Status> {
+        if updates.len() <= old_sequence_id {
+            return Err(Status::new(
+                Code::InvalidArgument,
+                "old_sequence_id is greater than number of updates",
+            ));
+        }
+
         let updates = request
             .into_inner()
             .updates
@@ -95,11 +102,14 @@ impl ValidationApi for ValidationService {
             .map(IdentityUpdate::from_proto)
             .collect::<Result<Vec<_>, _>>()
             .map_err(|e| Status::new(Code::InvalidArgument, e.to_string()))?;
-        let state = associations::get_state(updates)
-            .map_err(|e| Status::new(Code::InvalidArgument, e.to_string()))?;
+
+        let old_state = associations::get_state(updates[0..request.old_sequence_id]);
+        let new_state = associations::get_state(updates);
+        let state_diff = old_state.diff(new_state);
 
         Ok(Response::new(GetAssociationStateResponse {
-            association_state: Some(state.into()),
+            association_state: Some(new.into()),
+            diff: Some(state_diff.into()),
         }))
     }
 }
