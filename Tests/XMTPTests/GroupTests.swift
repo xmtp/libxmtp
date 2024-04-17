@@ -300,6 +300,25 @@ class GroupTests: XCTestCase {
 		XCTAssert(!isFredActive)
 	}
 
+	func testAddedByAddress() async throws {
+		// Create clients
+		let fixtures = try await localFixtures()
+
+		// Alice creates a group and adds Bob to the group
+		_ = try await fixtures.aliceClient.conversations.newGroup(with: [fixtures.bob.address])
+
+		// Bob syncs groups - this will decrypt the Welcome and then
+		// identify who added Bob to the group
+		try await fixtures.bobClient.conversations.sync()
+		
+		// Check Bob's group for the added_by_address of the inviter
+		let bobGroup = try await fixtures.bobClient.conversations.groups().first
+		let aliceAddress = fixtures.alice.address.localizedLowercase
+		let whoAddedBob = try bobGroup?.addedByAddress().localizedLowercase
+		
+		// Verify the welcome host_credential is equal to Amal's
+		XCTAssertEqual(aliceAddress, whoAddedBob)
+	}
 
 	func testCannotStartGroupWithSelf() async throws {
 		let fixtures = try await localFixtures()

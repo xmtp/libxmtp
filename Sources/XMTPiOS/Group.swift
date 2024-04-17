@@ -78,6 +78,10 @@ public struct Group: Identifiable, Equatable, Hashable {
 	public func adminAddress() throws -> String {
 		return try metadata().creatorAccountAddress()
 	}
+	
+	public func addedByAddress() throws -> String {
+		return try ffiGroup.addedByAddress()
+	}
 
 	public var memberAddresses: [String] {
 		do {
