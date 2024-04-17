@@ -134,7 +134,7 @@ where
                                 ),
                             )?;
                             // TODO update cursor
-                            MlsGroup::new(self, group_id, stream_info.convo_created_at_ns, None)
+                            MlsGroup::new(self, group_id, stream_info.convo_created_at_ns)
                                 .process_stream_entry(envelope)
                                 .await
                         }

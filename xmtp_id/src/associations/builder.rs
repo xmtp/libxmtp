@@ -1,7 +1,7 @@
 use std::collections::{HashMap, HashSet};
 
+use crate::utils::now_ns;
 use thiserror::Error;
-use xmtp_mls::utils::time::now_ns;
 
 use super::{
     association_log::{AddAssociation, ChangeRecoveryAddress, CreateInbox, RevokeAssociation},

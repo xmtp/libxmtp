@@ -2,6 +2,12 @@ use std::collections::{HashMap, HashSet};
 
 use super::{hashes::generate_inbox_id, member::Member, MemberIdentifier, MemberKind};
 
+#[derive(Debug, Clone)]
+pub struct AssociationStateDiff {
+    pub new_members: Vec<MemberIdentifier>,
+    pub removed_members: Vec<MemberIdentifier>,
+}
+
 #[derive(Clone, Debug)]
 pub struct AssociationState {
     pub(crate) inbox_id: String,
@@ -75,6 +81,35 @@ impl AssociationState {
             .collect()
     }
 
+    pub fn diff(&self, new_state: &Self) -> AssociationStateDiff {
+        let new_members: Vec<MemberIdentifier> = new_state
+            .members
+            .keys()
+            .filter_map(|new_member_identifier| {
+                match self.members.contains_key(new_member_identifier) {
+                    true => None,
+                    false => Some(new_member_identifier.clone()),
+                }
+            })
+            .collect();
+
+        let removed_members: Vec<MemberIdentifier> = self
+            .members
+            .keys()
+            .filter_map(|existing_member_identifier| {
+                match new_state.members.contains_key(existing_member_identifier) {
+                    true => None,
+                    false => Some(existing_member_identifier.clone()),
+                }
+            })
+            .collect();
+
+        AssociationStateDiff {
+            new_members,
+            removed_members,
+        }
+    }
+
     pub fn new(account_address: String, nonce: u64) -> Self {
         let inbox_id = generate_inbox_id(&account_address, &nonce);
         let identifier = MemberIdentifier::Address(account_address.clone());
@@ -105,5 +140,21 @@ mod tests {
         let with_add = starting_state.add(new_entity.clone());
         assert!(with_add.get(&new_entity.identifier).is_some());
         assert!(starting_state.get(&new_entity.identifier).is_none());
+    }
+
+    #[test]
+    fn can_diff() {
+        let starting_state = AssociationState::new(rand_string(), 0);
+        let entity_1 = Member::default();
+        let entity_2 = Member::default();
+        let entity_3 = Member::default();
+
+        let state_1 = starting_state.add(entity_1.clone()).add(entity_2.clone());
+        let state_2 = state_1.remove(&entity_1.identifier).add(entity_3.clone());
+
+        let diff = state_1.diff(&state_2);
+
+        assert_eq!(diff.new_members, vec![entity_3.identifier]);
+        assert_eq!(diff.removed_members, vec![entity_1.identifier]);
     }
 }

@@ -5808,7 +5808,6 @@ dependencies = [
  "tokio",
  "tracing",
  "xmtp_cryptography",
- "xmtp_mls",
  "xmtp_proto",
 ]
 
