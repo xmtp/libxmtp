@@ -106,9 +106,6 @@ data class GRPCApiClient(
             environment.getValue(),
             if (environment == XMTPEnvironment.LOCAL) 5556 else 443
         ).apply {
-            keepAliveTime(3, TimeUnit.MINUTES)
-            keepAliveTimeout(20L, TimeUnit.SECONDS)
-            keepAliveWithoutCalls(true)
             if (environment != XMTPEnvironment.LOCAL) {
                 useTransportSecurity()
             } else {
