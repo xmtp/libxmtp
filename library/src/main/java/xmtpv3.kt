@@ -854,7 +854,7 @@ private fun uniffiCheckApiChecksums(lib: _UniFFILib) {
     if (lib.uniffi_xmtpv3_checksum_method_ffigroup_remove_members() != 1645.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
-    if (lib.uniffi_xmtpv3_checksum_method_ffigroup_send() != 55957.toShort()) {
+    if (lib.uniffi_xmtpv3_checksum_method_ffigroup_send() != 2523.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_xmtpv3_checksum_method_ffigroup_stream() != 7482.toShort()) {
@@ -1505,7 +1505,7 @@ public interface FfiGroupInterface {
     fun `listMembers`(): List<FfiGroupMember>@Throws(GenericException::class)
     suspend fun `processStreamedGroupMessage`(`envelopeBytes`: ByteArray): FfiMessage@Throws(GenericException::class)
     suspend fun `removeMembers`(`accountAddresses`: List<String>)@Throws(GenericException::class)
-    suspend fun `send`(`contentBytes`: ByteArray)@Throws(GenericException::class)
+    suspend fun `send`(`contentBytes`: ByteArray): ByteArray@Throws(GenericException::class)
     suspend fun `stream`(`messageCallback`: FfiMessageCallback): FfiStreamCloser@Throws(GenericException::class)
     suspend fun `sync`()
     companion object
@@ -1676,7 +1676,7 @@ class FfiGroup(
 
     @Throws(GenericException::class)
     @Suppress("ASSIGNED_BUT_NEVER_ACCESSED_VARIABLE")
-    override suspend fun `send`(`contentBytes`: ByteArray) {
+    override suspend fun `send`(`contentBytes`: ByteArray) : ByteArray {
         return uniffiRustCallAsync(
             callWithPointer { thisPtr ->
                 _UniFFILib.INSTANCE.uniffi_xmtpv3_fn_method_ffigroup_send(
@@ -1684,12 +1684,11 @@ class FfiGroup(
                     FfiConverterByteArray.lower(`contentBytes`),
                 )
             },
-            { future, continuation -> _UniFFILib.INSTANCE.ffi_xmtpv3_rust_future_poll_void(future, continuation) },
-            { future, continuation -> _UniFFILib.INSTANCE.ffi_xmtpv3_rust_future_complete_void(future, continuation) },
-            { future -> _UniFFILib.INSTANCE.ffi_xmtpv3_rust_future_free_void(future) },
+            { future, continuation -> _UniFFILib.INSTANCE.ffi_xmtpv3_rust_future_poll_rust_buffer(future, continuation) },
+            { future, continuation -> _UniFFILib.INSTANCE.ffi_xmtpv3_rust_future_complete_rust_buffer(future, continuation) },
+            { future -> _UniFFILib.INSTANCE.ffi_xmtpv3_rust_future_free_rust_buffer(future) },
             // lift function
-            { Unit },
-
+            { FfiConverterByteArray.lift(it) },
             // Error FFI converter
             GenericException.ErrorHandler,
         )
@@ -2484,7 +2483,8 @@ public object FfiConverterTypeFfiListConversationsOptions: FfiConverterRustBuffe
 data class FfiListMessagesOptions (
     var `sentBeforeNs`: Long?,
     var `sentAfterNs`: Long?,
-    var `limit`: Long?
+    var `limit`: Long?,
+    var `deliveryStatus`: FfiDeliveryStatus?
 ) {
 
     companion object
@@ -2496,19 +2496,22 @@ public object FfiConverterTypeFfiListMessagesOptions: FfiConverterRustBuffer<Ffi
             FfiConverterOptionalLong.read(buf),
             FfiConverterOptionalLong.read(buf),
             FfiConverterOptionalLong.read(buf),
+            FfiConverterOptionalTypeFfiDeliveryStatus.read(buf),
         )
     }
 
     override fun allocationSize(value: FfiListMessagesOptions) = (
             FfiConverterOptionalLong.allocationSize(value.`sentBeforeNs`) +
                     FfiConverterOptionalLong.allocationSize(value.`sentAfterNs`) +
-                    FfiConverterOptionalLong.allocationSize(value.`limit`)
+                    FfiConverterOptionalLong.allocationSize(value.`limit`) +
+                    FfiConverterOptionalTypeFfiDeliveryStatus.allocationSize(value.`deliveryStatus`)
             )
 
     override fun write(value: FfiListMessagesOptions, buf: ByteBuffer) {
         FfiConverterOptionalLong.write(value.`sentBeforeNs`, buf)
         FfiConverterOptionalLong.write(value.`sentAfterNs`, buf)
         FfiConverterOptionalLong.write(value.`limit`, buf)
+        FfiConverterOptionalTypeFfiDeliveryStatus.write(value.`deliveryStatus`, buf)
     }
 }
 
@@ -2521,7 +2524,8 @@ data class FfiMessage (
     var `convoId`: ByteArray,
     var `addrFrom`: String,
     var `content`: ByteArray,
-    var `kind`: FfiGroupMessageKind
+    var `kind`: FfiGroupMessageKind,
+    var `deliveryStatus`: FfiDeliveryStatus
 ) {
 
     companion object
@@ -2536,6 +2540,7 @@ public object FfiConverterTypeFfiMessage: FfiConverterRustBuffer<FfiMessage> {
             FfiConverterString.read(buf),
             FfiConverterByteArray.read(buf),
             FfiConverterTypeFfiGroupMessageKind.read(buf),
+            FfiConverterTypeFfiDeliveryStatus.read(buf),
         )
     }
 
@@ -2545,7 +2550,8 @@ public object FfiConverterTypeFfiMessage: FfiConverterRustBuffer<FfiMessage> {
                     FfiConverterByteArray.allocationSize(value.`convoId`) +
                     FfiConverterString.allocationSize(value.`addrFrom`) +
                     FfiConverterByteArray.allocationSize(value.`content`) +
-                    FfiConverterTypeFfiGroupMessageKind.allocationSize(value.`kind`)
+                    FfiConverterTypeFfiGroupMessageKind.allocationSize(value.`kind`) +
+                    FfiConverterTypeFfiDeliveryStatus.allocationSize(value.`deliveryStatus`)
             )
 
     override fun write(value: FfiMessage, buf: ByteBuffer) {
@@ -2555,6 +2561,7 @@ public object FfiConverterTypeFfiMessage: FfiConverterRustBuffer<FfiMessage> {
         FfiConverterString.write(value.`addrFrom`, buf)
         FfiConverterByteArray.write(value.`content`, buf)
         FfiConverterTypeFfiGroupMessageKind.write(value.`kind`, buf)
+        FfiConverterTypeFfiDeliveryStatus.write(value.`deliveryStatus`, buf)
     }
 }
 
@@ -2763,6 +2770,30 @@ public object FfiConverterTypeFfiV2SubscribeRequest: FfiConverterRustBuffer<FfiV
         FfiConverterSequenceString.write(value.`contentTopics`, buf)
     }
 }
+
+
+
+
+enum class FfiDeliveryStatus {
+    UNPUBLISHED,PUBLISHED,FAILED;
+    companion object
+}
+
+public object FfiConverterTypeFfiDeliveryStatus: FfiConverterRustBuffer<FfiDeliveryStatus> {
+    override fun read(buf: ByteBuffer) = try {
+        FfiDeliveryStatus.values()[buf.getInt() - 1]
+    } catch (e: IndexOutOfBoundsException) {
+        throw RuntimeException("invalid enum value, something is very wrong!!", e)
+    }
+
+    override fun allocationSize(value: FfiDeliveryStatus) = 4
+
+    override fun write(value: FfiDeliveryStatus, buf: ByteBuffer) {
+        buf.putInt(value.ordinal + 1)
+    }
+}
+
+
 
 
 
@@ -3584,6 +3615,35 @@ public object FfiConverterOptionalTypeFfiPagingInfo: FfiConverterRustBuffer<FfiP
         } else {
             buf.put(1)
             FfiConverterTypeFfiPagingInfo.write(value, buf)
+        }
+    }
+}
+
+
+
+
+public object FfiConverterOptionalTypeFfiDeliveryStatus: FfiConverterRustBuffer<FfiDeliveryStatus?> {
+    override fun read(buf: ByteBuffer): FfiDeliveryStatus? {
+        if (buf.get().toInt() == 0) {
+            return null
+        }
+        return FfiConverterTypeFfiDeliveryStatus.read(buf)
+    }
+
+    override fun allocationSize(value: FfiDeliveryStatus?): Int {
+        if (value == null) {
+            return 1
+        } else {
+            return 1 + FfiConverterTypeFfiDeliveryStatus.allocationSize(value)
+        }
+    }
+
+    override fun write(value: FfiDeliveryStatus?, buf: ByteBuffer) {
+        if (value == null) {
+            buf.put(0)
+        } else {
+            buf.put(1)
+            FfiConverterTypeFfiDeliveryStatus.write(value, buf)
         }
     }
 }

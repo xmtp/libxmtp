@@ -2,6 +2,10 @@ package org.xmtp.android.library.messages
 
 typealias Message = org.xmtp.proto.message.contents.MessageOuterClass.Message
 
+enum class MessageDeliveryStatus {
+    ALL, PUBLISHED, UNPUBLISHED, FAILED
+}
+
 enum class MessageVersion(val rawValue: String) {
     V1("v1"),
     V2("v2");

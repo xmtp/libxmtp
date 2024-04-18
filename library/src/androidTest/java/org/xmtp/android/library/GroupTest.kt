@@ -17,6 +17,7 @@ import org.xmtp.android.library.codecs.Reaction
 import org.xmtp.android.library.codecs.ReactionAction
 import org.xmtp.android.library.codecs.ReactionCodec
 import org.xmtp.android.library.codecs.ReactionSchema
+import org.xmtp.android.library.messages.MessageDeliveryStatus
 import org.xmtp.android.library.messages.PrivateKey
 import org.xmtp.android.library.messages.PrivateKeyBuilder
 import org.xmtp.android.library.messages.walletAddress
@@ -330,9 +331,11 @@ class GroupTest {
     fun testCanSendMessageToGroup() {
         val group = runBlocking { boClient.conversations.newGroup(listOf(alix.walletAddress)) }
         runBlocking { group.send("howdy") }
-        runBlocking { group.send("gm") }
+        val messageId = runBlocking { group.send("gm") }
         runBlocking { group.sync() }
         assertEquals(group.messages().first().body, "gm")
+        assertEquals(group.messages().first().id, messageId)
+        assertEquals(group.messages().first().deliveryStatus, MessageDeliveryStatus.PUBLISHED)
         assertEquals(group.messages().size, 3)
 
         runBlocking { alixClient.conversations.syncGroups() }
@@ -340,6 +343,28 @@ class GroupTest {
         runBlocking { sameGroup.sync() }
         assertEquals(sameGroup.messages().size, 2)
         assertEquals(sameGroup.messages().first().body, "gm")
+    }
+
+    @Test
+    fun testCanListGroupMessages() {
+        val group = runBlocking { boClient.conversations.newGroup(listOf(alix.walletAddress)) }
+        runBlocking {
+            group.send("howdy")
+            group.send("gm")
+        }
+
+        assertEquals(group.messages().size, 3)
+        assertEquals(group.messages(deliveryStatus = MessageDeliveryStatus.UNPUBLISHED).size, 2)
+        assertEquals(group.messages(deliveryStatus = MessageDeliveryStatus.PUBLISHED).size, 1)
+        runBlocking { group.sync() }
+        assertEquals(group.messages().size, 3)
+        assertEquals(group.messages(deliveryStatus = MessageDeliveryStatus.UNPUBLISHED).size, 0)
+        assertEquals(group.messages(deliveryStatus = MessageDeliveryStatus.PUBLISHED).size, 3)
+
+        runBlocking { alixClient.conversations.syncGroups() }
+        val sameGroup = runBlocking { alixClient.conversations.listGroups().last() }
+        runBlocking { sameGroup.sync() }
+        assertEquals(sameGroup.messages(deliveryStatus = MessageDeliveryStatus.PUBLISHED).size, 2)
     }
 
     @Test

@@ -9,4 +9,5 @@ data class DecryptedMessage(
     var senderAddress: String,
     var sentAt: Date,
     var topic: String = "",
+    var deliveryStatus: MessageDeliveryStatus = MessageDeliveryStatus.PUBLISHED
 )

@@ -6,8 +6,10 @@ import org.xmtp.android.library.DecodedMessage
 import org.xmtp.android.library.XMTPException
 import org.xmtp.android.library.codecs.EncodedContent
 import org.xmtp.android.library.messages.DecryptedMessage
+import org.xmtp.android.library.messages.MessageDeliveryStatus
 import org.xmtp.android.library.messages.Topic
 import org.xmtp.android.library.toHex
+import uniffi.xmtpv3.FfiDeliveryStatus
 import uniffi.xmtpv3.FfiGroupMessageKind
 import uniffi.xmtpv3.FfiMessage
 import uniffi.xmtpv3.org.xmtp.android.library.codecs.ContentTypeGroupMembershipChange
@@ -27,6 +29,13 @@ data class MessageV3(val client: Client, private val libXMTPMessage: FfiMessage)
     val sentAt: Date
         get() = Date(libXMTPMessage.sentAtNs / 1_000_000)
 
+    val deliveryStatus: MessageDeliveryStatus
+        get() = when (libXMTPMessage.deliveryStatus) {
+            FfiDeliveryStatus.UNPUBLISHED -> MessageDeliveryStatus.UNPUBLISHED
+            FfiDeliveryStatus.PUBLISHED -> MessageDeliveryStatus.PUBLISHED
+            FfiDeliveryStatus.FAILED -> MessageDeliveryStatus.FAILED
+        }
+
     fun decode(): DecodedMessage {
         try {
             val decodedMessage = DecodedMessage(
@@ -36,6 +45,7 @@ data class MessageV3(val client: Client, private val libXMTPMessage: FfiMessage)
                 encodedContent = EncodedContent.parseFrom(libXMTPMessage.content),
                 senderAddress = senderAddress,
                 sent = sentAt,
+                deliveryStatus = deliveryStatus
             )
             if (decodedMessage.encodedContent.type == ContentTypeGroupMembershipChange && libXMTPMessage.kind != FfiGroupMessageKind.MEMBERSHIP_CHANGE) {
                 throw XMTPException("Error decoding group membership change")
@@ -71,6 +81,7 @@ data class MessageV3(val client: Client, private val libXMTPMessage: FfiMessage)
             encodedContent = decode().encodedContent,
             senderAddress = senderAddress,
             sentAt = Date(),
+            deliveryStatus = deliveryStatus
         )
     }
 }

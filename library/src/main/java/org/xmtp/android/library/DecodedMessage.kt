@@ -2,6 +2,7 @@ package org.xmtp.android.library
 
 import org.xmtp.android.library.codecs.TextCodec
 import org.xmtp.android.library.codecs.decoded
+import org.xmtp.android.library.messages.MessageDeliveryStatus
 import org.xmtp.proto.message.contents.Content
 import java.util.Date
 
@@ -12,6 +13,7 @@ data class DecodedMessage(
     var encodedContent: Content.EncodedContent,
     var senderAddress: String,
     var sent: Date,
+    var deliveryStatus: MessageDeliveryStatus = MessageDeliveryStatus.PUBLISHED
 ) {
     companion object {
         fun preview(client: Client, topic: String, body: String, senderAddress: String, sent: Date): DecodedMessage {
