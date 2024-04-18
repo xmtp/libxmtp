@@ -257,6 +257,20 @@ class GroupTest {
     }
 
     @Test
+    fun testAddedByAddress() {
+        val group = runBlocking {
+            alixClient.conversations.newGroup(
+                listOf(
+                    bo.walletAddress,
+                )
+            )
+        }
+        runBlocking { boClient.conversations.syncGroups() }
+        val boGroup = runBlocking { boClient.conversations.listGroups().first() }
+        assertEquals(boGroup.addedByAddress().lowercase(), alix.walletAddress.lowercase())
+    }
+
+    @Test
     fun testCanListGroups() {
         runBlocking {
             boClient.conversations.newGroup(listOf(alix.walletAddress))

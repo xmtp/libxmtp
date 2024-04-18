@@ -411,6 +411,8 @@ internal interface _UniFFILib : Library {
     ): Unit
     fun uniffi_xmtpv3_fn_method_ffigroup_add_members(`ptr`: Pointer,`accountAddresses`: RustBuffer.ByValue,
     ): Pointer
+    fun uniffi_xmtpv3_fn_method_ffigroup_added_by_address(`ptr`: Pointer,_uniffi_out_err: RustCallStatus,
+    ): RustBuffer.ByValue
     fun uniffi_xmtpv3_fn_method_ffigroup_created_at_ns(`ptr`: Pointer,_uniffi_out_err: RustCallStatus,
     ): Long
     fun uniffi_xmtpv3_fn_method_ffigroup_find_messages(`ptr`: Pointer,`opts`: RustBuffer.ByValue,_uniffi_out_err: RustCallStatus,
@@ -673,6 +675,8 @@ internal interface _UniFFILib : Library {
     ): Short
     fun uniffi_xmtpv3_checksum_method_ffigroup_add_members(
     ): Short
+    fun uniffi_xmtpv3_checksum_method_ffigroup_added_by_address(
+    ): Short
     fun uniffi_xmtpv3_checksum_method_ffigroup_created_at_ns(
     ): Short
     fun uniffi_xmtpv3_checksum_method_ffigroup_find_messages(
@@ -821,6 +825,9 @@ private fun uniffiCheckApiChecksums(lib: _UniFFILib) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_xmtpv3_checksum_method_ffigroup_add_members() != 24978.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_xmtpv3_checksum_method_ffigroup_added_by_address() != 5368.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_xmtpv3_checksum_method_ffigroup_created_at_ns() != 58515.toShort()) {
@@ -1488,7 +1495,8 @@ public object FfiConverterTypeFfiConversations: FfiConverter<FfiConversations, P
 
 public interface FfiGroupInterface {
     @Throws(GenericException::class)
-    suspend fun `addMembers`(`accountAddresses`: List<String>)
+    suspend fun `addMembers`(`accountAddresses`: List<String>)@Throws(GenericException::class)
+    fun `addedByAddress`(): String
     fun `createdAtNs`(): Long@Throws(GenericException::class)
     fun `findMessages`(`opts`: FfiListMessagesOptions): List<FfiMessage>@Throws(GenericException::class)
     fun `groupMetadata`(): FfiGroupMetadata
@@ -1542,6 +1550,18 @@ class FfiGroup(
             GenericException.ErrorHandler,
         )
     }
+
+    @Throws(GenericException::class)override fun `addedByAddress`(): String =
+        callWithPointer {
+            rustCallWithError(GenericException) { _status ->
+                _UniFFILib.INSTANCE.uniffi_xmtpv3_fn_method_ffigroup_added_by_address(it,
+
+                    _status)
+            }
+        }.let {
+            FfiConverterString.lift(it)
+        }
+
     override fun `createdAtNs`(): Long =
         callWithPointer {
             rustCall() { _status ->

@@ -134,6 +134,10 @@ class Group(val client: Client, private val libXMTPGroup: FfiGroup) {
         return libXMTPGroup.isActive()
     }
 
+    fun addedByAddress(): String {
+        return libXMTPGroup.addedByAddress()
+    }
+
     fun permissionLevel(): GroupPermissions {
         return metadata.policyType()
     }
