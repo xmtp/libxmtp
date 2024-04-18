@@ -20,6 +20,20 @@ use xmtp_proto::xmtp::{
     },
 };
 
+#[derive(Debug, thiserror::Error)]
+pub enum GrpcServerError {
+    #[error(transparent)]
+    Deserialization(#[from] DeserializationError),
+    #[error(transparent)]
+    Association(#[from] AssociationError),
+}
+
+impl From<GrpcServerError> for Status {
+    fn from(err: GrpcServerError) -> Self {
+        Status::invalid_argument(err.to_string())
+    }
+}
+
 #[derive(Debug, Default)]
 pub struct ValidationService {}
 
@@ -101,20 +115,6 @@ impl ValidationApi for ValidationService {
         get_association_state(old_updates, new_updates)
             .map(Response::new)
             .map_err(Into::into)
-    }
-}
-
-#[derive(Debug, thiserror::Error)]
-pub enum GrpcServerError {
-    #[error(transparent)]
-    Deserialization(#[from] DeserializationError),
-    #[error(transparent)]
-    Association(#[from] AssociationError),
-}
-
-impl From<GrpcServerError> for Status {
-    fn from(err: GrpcServerError) -> Self {
-        Status::invalid_argument(err.to_string())
     }
 }
 
