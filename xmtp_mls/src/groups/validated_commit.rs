@@ -2,7 +2,9 @@ use std::collections::HashMap;
 
 use openmls::{
     credentials::{errors::BasicCredentialError, BasicCredential, CredentialType},
+    extensions::{Extension, UnknownExtension},
     group::{QueuedAddProposal, QueuedRemoveProposal},
+    messages::proposals::Proposal,
     prelude::{LeafNodeIndex, MlsGroup as OpenMlsGroup, Sender, StagedCommit},
 };
 use thiserror::Error;
@@ -13,10 +15,14 @@ use xmtp_proto::xmtp::mls::message_contents::{
 
 use super::{
     group_metadata::{extract_group_metadata, GroupMetadata, GroupMetadataError},
+    group_mutable_metadata::{
+        extract_group_mutable_metadata, GroupMutableMetadata, GroupMutableMetadataError,
+    },
     members::aggregate_member_list,
 };
 
 use crate::{
+    configuration::MUTABLE_METADATA_EXTENSION_ID,
     identity::{Identity, IdentityError},
     types::Address,
     verified_key_package::{KeyPackageVerificationError, VerifiedKeyPackage},
@@ -52,6 +58,8 @@ pub enum CommitValidationError {
     InvalidApplicationId,
     #[error("Credential error")]
     CredentialError(#[from] BasicCredentialError),
+    #[error("Failed to parse group mutable metadata: {0}")]
+    GroupMutableMetadata(#[from] GroupMutableMetadataError),
 }
 
 // A participant in a commit. Could be the actor or the subject of a proposal
@@ -71,13 +79,14 @@ pub struct AggregatedMembershipChange {
     pub(crate) is_creator: bool,
 }
 
-// Account information for Metadata Change used for validation
+// Account information for Metadata Update used for validation
 #[derive(Clone, Debug)]
-pub struct MetadataChange {
+pub struct MetadataUpdate {
     #[allow(dead_code)]
-    pub(crate) account_address: Address,
+    pub(crate) updates_outside_mutable_metadata: bool,
     #[allow(dead_code)]
-    pub(crate) is_creator: bool,
+    pub(crate) field_updated: bool,
+    // TODO: other metadata fields will go here
 }
 
 // A parsed and validated commit that we can apply permissions and rules to
@@ -88,6 +97,7 @@ pub struct ValidatedCommit {
     pub(crate) members_removed: Vec<AggregatedMembershipChange>,
     pub(crate) installations_added: Vec<AggregatedMembershipChange>,
     pub(crate) installations_removed: Vec<AggregatedMembershipChange>,
+    pub(crate) group_name_updated: MetadataUpdate,
 }
 
 impl ValidatedCommit {
@@ -137,12 +147,15 @@ impl ValidatedCommit {
             &group_metadata,
         )?;
 
+        let group_name_updated = get_group_name_updated(staged_commit, openmls_group)?;
+
         let validated_commit = Self {
             actor,
             members_added,
             members_removed,
             installations_added,
             installations_removed,
+            group_name_updated,
         };
 
         if !group_metadata.policies.evaluate_commit(&validated_commit) {
@@ -344,6 +357,46 @@ fn get_removed_members(
             None => true,
         }
     }))
+}
+
+// Get group name updated
+fn get_group_name_updated(
+    staged_commit: &StagedCommit,
+    openmls_group: &OpenMlsGroup,
+) -> Result<MetadataUpdate, CommitValidationError> {
+    let existing_mutable_metadata = extract_group_mutable_metadata(openmls_group)?;
+    // TODO verify we have not updated extensions outside MUTABLE_METADATA_EXTENSION_ID
+    let updates_outside_mutable_metadata = false;
+
+    // Iterate through each proposal
+    for proposal in staged_commit.queued_proposals() {
+        if let Proposal::GroupContextExtensions(extension_proposal) = proposal.proposal() {
+            let extensions = extension_proposal.extensions();
+
+            // Check each extension to see if it updates metadata group name
+            for extension in extensions.iter() {
+                if let Extension::Unknown(MUTABLE_METADATA_EXTENSION_ID, UnknownExtension(data)) =
+                    extension
+                {
+                    match GroupMutableMetadata::try_from(data) {
+                        Ok(metadata) => {
+                            if metadata.group_name != existing_mutable_metadata.group_name {
+                                return Ok(MetadataUpdate {
+                                    updates_outside_mutable_metadata,
+                                    field_updated: true,
+                                });
+                            }
+                        }
+                        Err(e) => return Err(CommitValidationError::from(e)),
+                    }
+                }
+            }
+        }
+    }
+    Ok(MetadataUpdate {
+        updates_outside_mutable_metadata,
+        field_updated: false,
+    })
 }
 
 impl From<ValidatedCommit> for GroupMembershipChanges {
