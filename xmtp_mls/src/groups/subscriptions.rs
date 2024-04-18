@@ -5,6 +5,7 @@ use std::sync::Arc;
 use futures::Stream;
 
 use prost::Message;
+use xmtp_proto::api_client::XmtpIdentityClient;
 use xmtp_proto::{api_client::XmtpMlsClient, xmtp::mls::api::v1::GroupMessage};
 
 use super::{extract_message_v1, GroupError, MlsGroup};
@@ -14,7 +15,7 @@ use crate::Client;
 
 impl<'c, ApiClient> MlsGroup<'c, ApiClient>
 where
-    ApiClient: XmtpMlsClient,
+    ApiClient: XmtpMlsClient + XmtpIdentityClient,
 {
     pub(crate) async fn process_stream_entry(
         &self,
