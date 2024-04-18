@@ -288,7 +288,7 @@ where
         }
     }
 
-    pub async fn send_message(&self, message: &[u8]) -> Result<(), GroupError> {
+    pub async fn send_message(&self, message: &[u8]) -> Result<Vec<u8>, GroupError> {
         let conn = &mut self.client.store.conn()?;
 
         let update_interval = Some(5_000_000); // 5 seconds in nanoseconds
@@ -315,7 +315,7 @@ where
             &now.to_string(),
         );
         let group_message = StoredGroupMessage {
-            id: message_id,
+            id: message_id.clone(),
             group_id: self.group_id.clone(),
             decrypted_message_bytes: message.to_vec(),
             sent_at_ns: now,
@@ -330,7 +330,7 @@ where
         if let Err(err) = self.publish_intents(conn).await {
             println!("error publishing intents: {:?}", err);
         }
-        Ok(())
+        Ok(message_id)
     }
 
     // Query the database for stored messages. Optionally filtered by time, kind, delivery_status

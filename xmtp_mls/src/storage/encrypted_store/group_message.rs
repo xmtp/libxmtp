@@ -74,6 +74,7 @@ where
 pub enum DeliveryStatus {
     Unpublished = 1,
     Published = 2,
+    Failed = 3,
 }
 
 impl ToSql<Integer, Sqlite> for DeliveryStatus
@@ -94,6 +95,7 @@ where
         match i32::from_sql(bytes)? {
             1 => Ok(DeliveryStatus::Unpublished),
             2 => Ok(DeliveryStatus::Published),
+            3 => Ok(DeliveryStatus::Failed),
             x => Err(format!("Unrecognized variant {}", x).into()),
         }
     }
