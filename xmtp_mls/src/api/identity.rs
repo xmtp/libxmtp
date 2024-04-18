@@ -17,7 +17,7 @@ use xmtp_proto::{
 
 /// A filter for querying identity updates. `sequence_id` is the starting sequence, and only later updates will be returned.
 pub struct GetIdentityUpdatesV2Filter {
-    pub inbox_id: String,
+    pub inbox_id: InboxId,
     pub sequence_id: Option<u64>,
 }
 
@@ -68,7 +68,7 @@ where
     ) -> Result<(), WrappedApiError> {
         self.api_client
             .publish_identity_update(PublishIdentityUpdateRequest {
-                identity_update: Some(update.try_into()?),
+                identity_update: Some(update.into()),
             })
             .await?;
 
@@ -179,7 +179,7 @@ mod tests {
                         updates: vec![IdentityUpdateLog {
                             sequence_id: 1,
                             server_timestamp_ns: 1,
-                            update: Some(identity_update.to_proto().unwrap()),
+                            update: Some(identity_update.to_proto()),
                         }],
                     }],
                 })

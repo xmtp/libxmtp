@@ -7,6 +7,7 @@ pub mod credential;
 pub mod groups;
 mod hpke;
 pub mod identity;
+mod identity_updates;
 pub mod owner;
 pub mod retry;
 pub mod storage;

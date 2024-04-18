@@ -5,10 +5,7 @@ pub mod test_utils;
 
 use crate::retry::Retry;
 use thiserror::Error;
-use xmtp_id::associations::{
-    DeserializationError as AssociationDeserializationError,
-    SerializationError as AssociationSerializationError,
-};
+use xmtp_id::associations::DeserializationError as AssociationDeserializationError;
 use xmtp_proto::api_client::{Error as ApiError, XmtpIdentityClient, XmtpMlsClient};
 
 pub use identity::*;
@@ -20,8 +17,6 @@ pub enum WrappedApiError {
     Api(#[from] ApiError),
     #[error("Deserialization error {0}")]
     AssociationDeserialization(#[from] AssociationDeserializationError),
-    #[error("Serialization error {0}")]
-    AssociationSerialization(#[from] AssociationSerializationError),
 }
 
 #[derive(Debug)]
