@@ -204,7 +204,9 @@ mod tests {
     use openmls_basic_credential::SignatureKeyPair;
     use openmls_rust_crypto::OpenMlsRustCrypto;
     use prost::Message;
-    use xmtp_id::associations::{generate_inbox_id, Action, CreateInbox, SerializationError};
+    use xmtp_id::associations::{
+        generate_inbox_id, Action, CreateInbox, IdentityUpdate, SerializationError,
+    };
     use xmtp_mls::{credential::Credential, InboxOwner};
     use xmtp_proto::xmtp::{
         identity::associations::IdentityUpdate as IdentityUpdateProto,
