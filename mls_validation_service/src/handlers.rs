@@ -6,7 +6,7 @@ use openmls_rust_crypto::RustCrypto;
 use tonic::{Request, Response, Status};
 
 use xmtp_id::associations::{
-    self, try_map_vec, AssociationError, AssociationStateDiff, DeserializationError, IdentityUpdate,
+    self, try_map_vec, AssociationError, AssociationStateDiff, DeserializationError,
 };
 use xmtp_mls::{utils::id::serialize_group_id, verified_key_package::VerifiedKeyPackage};
 use xmtp_proto::xmtp::{
