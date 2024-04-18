@@ -127,6 +127,15 @@ impl AssociationState {
     }
 }
 
+impl From<AssociationState> for AssociationStateDiff {
+    fn from(state: AssociationState) -> Self {
+        AssociationStateDiff {
+            new_members: state.members.keys().cloned().collect(),
+            removed_members: vec![],
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use crate::associations::test_utils::rand_string;
