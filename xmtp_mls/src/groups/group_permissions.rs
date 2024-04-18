@@ -14,14 +14,12 @@ use xmtp_proto::xmtp::mls::message_contents::{
     PolicySet as PolicySetProto,
 };
 
-use super::validated_commit::{
-    AggregatedMembershipChange, CommitParticipant, MetadataUpdate, ValidatedCommit,
-};
+use super::validated_commit::{AggregatedMembershipChange, CommitParticipant, ValidatedCommit};
 
 // A trait for policies that can update Metadata for the group
 
 pub trait MetadataPolicy: std::fmt::Debug {
-    fn evaluate(&self, actor: &CommitParticipant, change: &MetadataUpdate) -> bool;
+    fn evaluate(&self, actor: &CommitParticipant, change: bool) -> bool;
     fn to_proto(&self) -> Result<MetadataPolicyProto, PolicyError>;
 }
 
@@ -35,14 +33,11 @@ pub enum MetadataBasePolicies {
 }
 
 impl MetadataPolicy for MetadataBasePolicies {
-    fn evaluate(&self, actor: &CommitParticipant, change: &MetadataUpdate) -> bool {
-        if change.updates_outside_mutable_metadata {
-            return false;
-        }
+    fn evaluate(&self, actor: &CommitParticipant, change: bool) -> bool {
         match self {
             MetadataBasePolicies::Allow => true,
-            MetadataBasePolicies::Deny => !change.field_updated,
-            MetadataBasePolicies::AllowIfActorCreator => actor.is_creator || !change.field_updated,
+            MetadataBasePolicies::Deny => !change,
+            MetadataBasePolicies::AllowIfActorCreator => actor.is_creator || !change,
         }
     }
 
@@ -134,7 +129,7 @@ impl TryFrom<MetadataPolicyProto> for MetadataPolicies {
 }
 
 impl MetadataPolicy for MetadataPolicies {
-    fn evaluate(&self, actor: &CommitParticipant, change: &MetadataUpdate) -> bool {
+    fn evaluate(&self, actor: &CommitParticipant, change: bool) -> bool {
         match self {
             MetadataPolicies::Standard(policy) => policy.evaluate(actor, change),
             MetadataPolicies::AndCondition(policy) => policy.evaluate(actor, change),
@@ -164,7 +159,7 @@ impl MetadataAndCondition {
 }
 
 impl MetadataPolicy for MetadataAndCondition {
-    fn evaluate(&self, actor: &CommitParticipant, change: &MetadataUpdate) -> bool {
+    fn evaluate(&self, actor: &CommitParticipant, change: bool) -> bool {
         self.policies
             .iter()
             .all(|policy| policy.evaluate(actor, change))
@@ -199,7 +194,7 @@ impl MetadataAnyCondition {
 }
 
 impl MetadataPolicy for MetadataAnyCondition {
-    fn evaluate(&self, actor: &CommitParticipant, change: &MetadataUpdate) -> bool {
+    fn evaluate(&self, actor: &CommitParticipant, change: bool) -> bool {
         self.policies
             .iter()
             .any(|policy| policy.evaluate(actor, change))
@@ -477,7 +472,7 @@ impl PolicySet {
             &self.remove_installation_policy,
             &commit.actor,
         ) & self.evaluate_metadata_policy(
-            &commit.group_name_updated,
+            commit.group_name_updated,
             &self.update_group_name_policy,
             &commit.actor,
         )
@@ -509,7 +504,7 @@ impl PolicySet {
 
     fn evaluate_metadata_policy<P>(
         &self,
-        change: &MetadataUpdate,
+        change: bool,
         policy: &P,
         actor: &CommitParticipant,
     ) -> bool

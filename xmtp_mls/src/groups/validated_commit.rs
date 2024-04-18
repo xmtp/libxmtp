@@ -79,16 +79,6 @@ pub struct AggregatedMembershipChange {
     pub(crate) is_creator: bool,
 }
 
-// Account information for Metadata Update used for validation
-#[derive(Clone, Debug)]
-pub struct MetadataUpdate {
-    #[allow(dead_code)]
-    pub(crate) updates_outside_mutable_metadata: bool,
-    #[allow(dead_code)]
-    pub(crate) field_updated: bool,
-    // TODO: other metadata fields will go here
-}
-
 // A parsed and validated commit that we can apply permissions and rules to
 #[derive(Clone, Debug)]
 pub struct ValidatedCommit {
@@ -97,7 +87,7 @@ pub struct ValidatedCommit {
     pub(crate) members_removed: Vec<AggregatedMembershipChange>,
     pub(crate) installations_added: Vec<AggregatedMembershipChange>,
     pub(crate) installations_removed: Vec<AggregatedMembershipChange>,
-    pub(crate) group_name_updated: MetadataUpdate,
+    pub(crate) group_name_updated: bool,
 }
 
 impl ValidatedCommit {
@@ -146,6 +136,9 @@ impl ValidatedCommit {
             openmls_group,
             &group_metadata,
         )?;
+
+        // We don't allow commits that update Group Context Extensions outside type Unknown(MUTABLE_METADATA_EXTENSION_ID)
+        ensure_extensions_valid(staged_commit, openmls_group)?;
 
         let group_name_updated = get_group_name_updated(staged_commit, openmls_group)?;
 
@@ -363,17 +356,13 @@ fn get_removed_members(
 fn get_group_name_updated(
     staged_commit: &StagedCommit,
     openmls_group: &OpenMlsGroup,
-) -> Result<MetadataUpdate, CommitValidationError> {
+) -> Result<bool, CommitValidationError> {
     let existing_mutable_metadata = extract_group_mutable_metadata(openmls_group)?;
-    // TODO verify we have not updated extensions outside MUTABLE_METADATA_EXTENSION_ID
-    let updates_outside_mutable_metadata = false;
-
     // Iterate through each proposal
     for proposal in staged_commit.queued_proposals() {
         if let Proposal::GroupContextExtensions(extension_proposal) = proposal.proposal() {
             let extensions = extension_proposal.extensions();
-
-            // Check each extension to see if it updates metadata group name
+            // Check each MUTABLE_METADATA extension to see if it updates metadata group name
             for extension in extensions.iter() {
                 if let Extension::Unknown(MUTABLE_METADATA_EXTENSION_ID, UnknownExtension(data)) =
                     extension
@@ -381,10 +370,7 @@ fn get_group_name_updated(
                     match GroupMutableMetadata::try_from(data) {
                         Ok(metadata) => {
                             if metadata.group_name != existing_mutable_metadata.group_name {
-                                return Ok(MetadataUpdate {
-                                    updates_outside_mutable_metadata,
-                                    field_updated: true,
-                                });
+                                return Ok(true);
                             }
                         }
                         Err(e) => return Err(CommitValidationError::from(e)),
@@ -393,10 +379,32 @@ fn get_group_name_updated(
             }
         }
     }
-    Ok(MetadataUpdate {
-        updates_outside_mutable_metadata,
-        field_updated: false,
-    })
+    Ok(false)
+}
+
+fn ensure_extensions_valid(
+    staged_commit: &StagedCommit,
+    openmls_group: &OpenMlsGroup,
+) -> Result<(), CommitValidationError> {
+    let mut existing_extensions = openmls_group.export_group_context().extensions().clone();
+    existing_extensions.remove(openmls::extensions::ExtensionType::Unknown(
+        MUTABLE_METADATA_EXTENSION_ID,
+    ));
+    // Iterate through each proposal
+    for proposal in staged_commit.queued_proposals() {
+        if let Proposal::GroupContextExtensions(extension_proposal) = proposal.proposal() {
+            let mut extensions = extension_proposal.extensions().clone();
+            extensions.remove(openmls::extensions::ExtensionType::Unknown(
+                MUTABLE_METADATA_EXTENSION_ID,
+            ));
+            if extensions != existing_extensions {
+                return Err(CommitValidationError::GroupMutableMetadata(
+                    GroupMutableMetadataError::NonMutableExtensionUpdate,
+                ));
+            }
+        }
+    }
+    Ok(())
 }
 
 impl From<ValidatedCommit> for GroupMembershipChanges {
