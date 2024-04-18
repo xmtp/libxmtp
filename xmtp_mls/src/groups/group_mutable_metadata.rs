@@ -66,21 +66,11 @@ pub fn extract_group_mutable_metadata(
 ) -> Result<GroupMutableMetadata, GroupMutableMetadataError> {
     let extensions = group.export_group_context().extensions();
     for extension in extensions.iter() {
-        if let Extension::Unknown(MUTABLE_METADATA_EXTENSION_ID, UnknownExtension(meta_data)) =
+        if let Extension::Unknown(MUTABLE_METADATA_EXTENSION_ID, UnknownExtension(metadata)) =
             extension
         {
-            return GroupMutableMetadata::try_from(meta_data);
+            return GroupMutableMetadata::try_from(metadata);
         }
     }
     Err(GroupMutableMetadataError::MissingExtension)
-}
-
-#[cfg(test)]
-mod tests {
-
-    use super::*;
-    #[test]
-    fn test_preconfigured_mutable_metadata() {
-        // TODO add test here
-    }
 }

@@ -15,13 +15,13 @@ use xmtp_proto::xmtp::mls::message_contents::{
 };
 
 use super::validated_commit::{
-    AggregatedMembershipChange, CommitParticipant, MetadataChange, ValidatedCommit,
+    AggregatedMembershipChange, CommitParticipant, MetadataUpdate, ValidatedCommit,
 };
 
 // A trait for policies that can update Metadata for the group
 
 pub trait MetadataPolicy: std::fmt::Debug {
-    fn evaluate(&self, actor: &CommitParticipant, change: &MetadataChange) -> bool;
+    fn evaluate(&self, actor: &CommitParticipant, change: &MetadataUpdate) -> bool;
     fn to_proto(&self) -> Result<MetadataPolicyProto, PolicyError>;
 }
 
@@ -35,11 +35,14 @@ pub enum MetadataBasePolicies {
 }
 
 impl MetadataPolicy for MetadataBasePolicies {
-    fn evaluate(&self, actor: &CommitParticipant, _change: &MetadataChange) -> bool {
+    fn evaluate(&self, actor: &CommitParticipant, change: &MetadataUpdate) -> bool {
+        if change.updates_outside_mutable_metadata {
+            return false;
+        }
         match self {
             MetadataBasePolicies::Allow => true,
-            MetadataBasePolicies::Deny => false,
-            MetadataBasePolicies::AllowIfActorCreator => actor.is_creator,
+            MetadataBasePolicies::Deny => !change.field_updated,
+            MetadataBasePolicies::AllowIfActorCreator => actor.is_creator || !change.field_updated,
         }
     }
 
@@ -131,7 +134,7 @@ impl TryFrom<MetadataPolicyProto> for MetadataPolicies {
 }
 
 impl MetadataPolicy for MetadataPolicies {
-    fn evaluate(&self, actor: &CommitParticipant, change: &MetadataChange) -> bool {
+    fn evaluate(&self, actor: &CommitParticipant, change: &MetadataUpdate) -> bool {
         match self {
             MetadataPolicies::Standard(policy) => policy.evaluate(actor, change),
             MetadataPolicies::AndCondition(policy) => policy.evaluate(actor, change),
@@ -161,7 +164,7 @@ impl MetadataAndCondition {
 }
 
 impl MetadataPolicy for MetadataAndCondition {
-    fn evaluate(&self, actor: &CommitParticipant, change: &MetadataChange) -> bool {
+    fn evaluate(&self, actor: &CommitParticipant, change: &MetadataUpdate) -> bool {
         self.policies
             .iter()
             .all(|policy| policy.evaluate(actor, change))
@@ -196,7 +199,7 @@ impl MetadataAnyCondition {
 }
 
 impl MetadataPolicy for MetadataAnyCondition {
-    fn evaluate(&self, actor: &CommitParticipant, change: &MetadataChange) -> bool {
+    fn evaluate(&self, actor: &CommitParticipant, change: &MetadataUpdate) -> bool {
         self.policies
             .iter()
             .any(|policy| policy.evaluate(actor, change))
@@ -456,7 +459,6 @@ impl PolicySet {
         }
     }
 
-    // TODO: add evaluate commit for updated metadata
     pub fn evaluate_commit(&self, commit: &ValidatedCommit) -> bool {
         self.evaluate_policy(
             commit.members_added.iter(),
@@ -474,10 +476,13 @@ impl PolicySet {
             commit.installations_removed.iter(),
             &self.remove_installation_policy,
             &commit.actor,
+        ) & self.evaluate_metadata_policy(
+            &commit.group_name_updated,
+            &self.update_group_name_policy,
+            &commit.actor,
         )
     }
 
-    // TODO: add evaluate policy for updated metadata policy
     fn evaluate_policy<'a, I, P>(
         &self,
         mut changes: I,
@@ -500,6 +505,27 @@ impl PolicySet {
             }
             is_ok
         })
+    }
+
+    fn evaluate_metadata_policy<P>(
+        &self,
+        change: &MetadataUpdate,
+        policy: &P,
+        actor: &CommitParticipant,
+    ) -> bool
+    where
+        P: MetadataPolicy + std::fmt::Debug,
+    {
+        let is_ok = policy.evaluate(actor, change);
+        if !is_ok {
+            log::info!(
+                "Policy {:?} failed for actor {:?} and change {:?}",
+                policy,
+                actor,
+                change
+            );
+        }
+        is_ok
     }
 
     pub(crate) fn to_proto(&self) -> Result<PolicySetProto, PolicyError> {
@@ -663,8 +689,14 @@ mod tests {
             installations_removed: installation_removed
                 .map(build_membership_change)
                 .unwrap_or_default(),
+            group_name_updated: MetadataUpdate {
+                updates_outside_mutable_metadata: false,
+                field_updated: false,
+            },
         }
     }
+
+    // TODO CVOELL: add metadata specific test here
 
     #[test]
     fn test_allow_all() {
