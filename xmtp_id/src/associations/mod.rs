@@ -12,7 +12,7 @@ mod unsigned_actions;
 pub use self::association_log::*;
 pub use self::hashes::generate_inbox_id;
 pub use self::member::{Member, MemberIdentifier, MemberKind};
-pub use self::serialization::{DeserializationError, SerializationError};
+pub use self::serialization::DeserializationError;
 pub use self::signature::{Signature, SignatureError, SignatureKind};
 pub use self::state::AssociationState;
 
