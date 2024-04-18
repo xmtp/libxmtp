@@ -3,9 +3,11 @@ use openmls::{
     prelude::{tls_codec::Deserialize, MlsMessageIn, ProtocolMessage},
 };
 use openmls_rust_crypto::RustCrypto;
-use tonic::{Code, Request, Response, Status};
+use tonic::{Request, Response, Status};
 
-use xmtp_id::associations::{self, AssociationError, AssociationStateDiff, IdentityUpdate};
+use xmtp_id::associations::{
+    self, AssociationError, AssociationStateDiff, DeserializationError, IdentityUpdate,
+};
 use xmtp_mls::{utils::id::serialize_group_id, verified_key_package::VerifiedKeyPackage};
 use xmtp_proto::xmtp::{
     identity::associations::IdentityUpdate as IdentityUpdateProto,
@@ -96,41 +98,61 @@ impl ValidationApi for ValidationService {
             new_updates,
         } = request.into_inner();
 
-        let conv_proto =
-            |updates: Vec<IdentityUpdateProto>| -> Result<Vec<IdentityUpdate>, Status> {
-                updates
-                    .into_iter()
-                    .map(IdentityUpdate::from_proto)
-                    .collect::<Result<Vec<_>, _>>()
-                    .map_err(|e| Status::new(Code::InvalidArgument, e.to_string()))
-            };
-
-        let to_status = |e: AssociationError| Status::new(Code::InvalidArgument, e.to_string());
-
-        let (old_updates, new_updates) = (conv_proto(old_updates)?, conv_proto(new_updates)?);
-
-        if old_updates.is_empty() {
-            let new_state = associations::get_state(&new_updates).map_err(to_status)?;
-            return Ok(Response::new(GetAssociationStateResponse {
-                association_state: Some(new_state.clone().into()),
-                state_diff: Some(AssociationStateDiff::from(new_state).into()),
-            }));
-        }
-
-        let old_state = associations::get_state(&old_updates).map_err(to_status)?;
-        let new_state = new_updates
-            .into_iter()
-            .try_fold(old_state.clone(), |state, update| {
-                associations::apply_update(state, update)
-            })
-            .map_err(to_status)?;
-        let state_diff = old_state.diff(&new_state);
-
-        Ok(Response::new(GetAssociationStateResponse {
-            association_state: Some(new_state.into()),
-            state_diff: Some(state_diff.into()),
-        }))
+        get_association_state(old_updates, new_updates)
+            .map(Response::new)
+            .map_err(Into::into)
     }
+}
+
+#[derive(Debug, thiserror::Error)]
+pub enum GrpcServerError {
+    #[error(transparent)]
+    Deserialization(#[from] DeserializationError),
+    #[error(transparent)]
+    Association(#[from] AssociationError),
+}
+
+impl From<GrpcServerError> for Status {
+    fn from(err: GrpcServerError) -> Self {
+        Status::invalid_argument(err.to_string())
+    }
+}
+
+fn get_association_state(
+    old_updates: Vec<IdentityUpdateProto>,
+    new_updates: Vec<IdentityUpdateProto>,
+) -> Result<GetAssociationStateResponse, GrpcServerError> {
+    let conv_proto =
+        |updates: Vec<IdentityUpdateProto>| -> Result<Vec<IdentityUpdate>, DeserializationError> {
+            updates
+                .into_iter()
+                .map(IdentityUpdate::from_proto)
+                .collect::<Result<Vec<_>, _>>()
+        };
+
+    let (old_updates, new_updates) = (conv_proto(old_updates)?, conv_proto(new_updates)?);
+
+    if old_updates.is_empty() {
+        let new_state = associations::get_state(&new_updates)?;
+        return Ok(GetAssociationStateResponse {
+            association_state: Some(new_state.clone().into()),
+            state_diff: Some(AssociationStateDiff::from(new_state).into()),
+        });
+    }
+
+    let old_state = associations::get_state(&old_updates)?;
+    let new_state = new_updates
+        .into_iter()
+        .try_fold(old_state.clone(), |state, update| {
+            associations::apply_update(state, update)
+        })?;
+
+    let state_diff = old_state.diff(&new_state);
+
+    Ok(GetAssociationStateResponse {
+        association_state: Some(new_state.into()),
+        state_diff: Some(state_diff.into()),
+    })
 }
 
 struct ValidateGroupMessageResult {

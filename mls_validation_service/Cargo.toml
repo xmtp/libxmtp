@@ -28,6 +28,7 @@ xmtp_proto = { path = "../xmtp_proto", features = [
 ] }
 xmtp_id.workspace = true
 xmtp_mls.workspace = true 
+thiserror.workspace = true
 
 [dev-dependencies]
 ethers.workspace = true 
