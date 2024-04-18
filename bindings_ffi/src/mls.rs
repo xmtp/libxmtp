@@ -19,7 +19,7 @@ use xmtp_mls::{
     client::Client as MlsClient,
     groups::MlsGroup,
     storage::{
-        group_message::GroupMessageKind, group_message::StoredGroupMessage, EncryptedMessageStore,
+        group_message::DeliveryStatus, group_message::GroupMessageKind, group_message::StoredGroupMessage, EncryptedMessageStore,
         EncryptionKey, StorageOption,
     },
     types::Address,
@@ -328,20 +328,21 @@ pub struct FfiListMessagesOptions {
     pub sent_before_ns: Option<i64>,
     pub sent_after_ns: Option<i64>,
     pub limit: Option<i64>,
+    pub delivery_status: Option<FfiDeliveryStatus>,
 }
 
 #[uniffi::export(async_runtime = "tokio")]
 impl FfiGroup {
-    pub async fn send(&self, content_bytes: Vec<u8>) -> Result<(), GenericError> {
+    pub async fn send(&self, content_bytes: Vec<u8>) -> Result<Vec<u8>, GenericError> {
         let group = MlsGroup::new(
             self.inner_client.as_ref(),
             self.group_id.clone(),
             self.created_at_ns,
         );
 
-        group.send_message(content_bytes.as_slice()).await?;
+        let message_id = group.send_message(content_bytes.as_slice()).await?;
 
-        Ok(())
+        Ok(message_id)
     }
 
     pub async fn sync(&self) -> Result<(), GenericError> {
@@ -366,12 +367,15 @@ impl FfiGroup {
             self.created_at_ns,
         );
 
+        
+        let delivery_status = opts.delivery_status.map(|status| status.into()); 
+
         let messages: Vec<FfiMessage> = group
             .find_messages(
                 None,
                 opts.sent_before_ns,
                 opts.sent_after_ns,
-                None,
+                delivery_status,
                 opts.limit,
             )?
             .into_iter()
@@ -520,6 +524,33 @@ impl From<GroupMessageKind> for FfiGroupMessageKind {
     }
 }
 
+#[derive(uniffi::Enum)]
+pub enum FfiDeliveryStatus {
+    Unpublished,
+    Published,
+    Failed,
+}
+
+impl From<DeliveryStatus> for FfiDeliveryStatus {
+    fn from(status: DeliveryStatus) -> Self {
+        match status {
+            DeliveryStatus::Unpublished => FfiDeliveryStatus::Unpublished,
+            DeliveryStatus::Published => FfiDeliveryStatus::Published,
+            DeliveryStatus::Failed => FfiDeliveryStatus::Failed,
+        }
+    }
+}
+
+impl From<FfiDeliveryStatus> for DeliveryStatus {
+    fn from(status: FfiDeliveryStatus) -> Self {
+        match status {
+            FfiDeliveryStatus::Unpublished => DeliveryStatus::Unpublished,
+            FfiDeliveryStatus::Published => DeliveryStatus::Published,
+            FfiDeliveryStatus::Failed => DeliveryStatus::Failed,
+        }
+    }
+}
+
 #[derive(uniffi::Record)]
 pub struct FfiMessage {
     pub id: Vec<u8>,
@@ -528,6 +559,7 @@ pub struct FfiMessage {
     pub addr_from: String,
     pub content: Vec<u8>,
     pub kind: FfiGroupMessageKind,
+    pub delivery_status: FfiDeliveryStatus,
 }
 
 impl From<StoredGroupMessage> for FfiMessage {
@@ -539,6 +571,7 @@ impl From<StoredGroupMessage> for FfiMessage {
             addr_from: msg.sender_account_address,
             content: msg.decrypted_message_bytes,
             kind: msg.kind.into(),
+            delivery_status: msg.delivery_status.into(),
         }
     }
 }

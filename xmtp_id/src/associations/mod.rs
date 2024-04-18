@@ -6,7 +6,7 @@ mod serialization;
 mod signature;
 mod state;
 #[cfg(any(test, feature = "test-utils"))]
-mod test_utils;
+pub mod test_utils;
 mod unsigned_actions;
 
 pub use self::association_log::*;
@@ -40,7 +40,7 @@ pub fn get_state<Updates: AsRef<[IdentityUpdate]>>(
 }
 
 #[cfg(any(test, feature = "test-utils"))]
-mod test_util {
+pub mod test_defaults {
     use self::test_utils::{rand_string, rand_u64, rand_vec, MockSignature};
     use super::*;
 
@@ -113,7 +113,7 @@ mod tests {
 
     use super::*;
 
-    fn new_test_inbox() -> AssociationState {
+    pub fn new_test_inbox() -> AssociationState {
         let create_request = CreateInbox::default();
         let inbox_id = generate_inbox_id(&create_request.account_address, &create_request.nonce);
         let identity_update =
@@ -122,7 +122,7 @@ mod tests {
         get_state(vec![identity_update]).unwrap()
     }
 
-    fn new_test_inbox_with_installation() -> AssociationState {
+    pub fn new_test_inbox_with_installation() -> AssociationState {
         let initial_state = new_test_inbox();
         let inbox_id = initial_state.inbox_id().clone();
         let initial_wallet_address: MemberIdentifier =

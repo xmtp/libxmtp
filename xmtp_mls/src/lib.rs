@@ -1,4 +1,4 @@
-pub mod api_client_wrapper;
+pub mod api;
 pub mod builder;
 pub mod client;
 pub mod codecs;

@@ -107,8 +107,7 @@ impl ValidationApi for ValidationService {
 
         let to_status = |e: AssociationError| Status::new(Code::InvalidArgument, e.to_string());
 
-        let (mut old_updates, mut new_updates) =
-            (conv_proto(old_updates)?, conv_proto(new_updates)?);
+        let (old_updates, new_updates) = (conv_proto(old_updates)?, conv_proto(new_updates)?);
 
         if old_updates.is_empty() {
             let new_state = associations::get_state(&new_updates).map_err(to_status)?;
@@ -119,8 +118,12 @@ impl ValidationApi for ValidationService {
         }
 
         let old_state = associations::get_state(&old_updates).map_err(to_status)?;
-        old_updates.append(new_updates.as_mut());
-        let new_state = associations::get_state(old_updates).map_err(to_status)?;
+        let new_state = new_updates
+            .into_iter()
+            .try_fold(old_state.clone(), |state, update| {
+                associations::apply_update(state, update)
+            })
+            .map_err(to_status)?;
         let state_diff = old_state.diff(&new_state);
 
         Ok(Response::new(GetAssociationStateResponse {

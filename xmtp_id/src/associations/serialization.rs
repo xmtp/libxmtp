@@ -31,6 +31,8 @@ use xmtp_proto::xmtp::identity::associations::{
 pub enum DeserializationError {
     #[error("Missing action")]
     MissingAction,
+    #[error("Missing update")]
+    MissingUpdate,
     #[error("Missing member identifier")]
     MissingMemberIdentifier,
     #[error("Missing signature")]
