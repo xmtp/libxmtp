@@ -324,7 +324,7 @@ impl IdentityUpdate {
     }
 
     pub fn to_proto(&self) -> Result<IdentityUpdateProto, SerializationError> {
-        to_identity_update_proto(self)
+        Self::into
     }
 
     pub fn from_proto(proto: IdentityUpdateProto) -> Result<Self, DeserializationError> {
