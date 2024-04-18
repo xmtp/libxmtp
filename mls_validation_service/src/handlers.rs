@@ -6,7 +6,7 @@ use openmls_rust_crypto::RustCrypto;
 use tonic::{Request, Response, Status};
 
 use xmtp_id::associations::{
-    self, AssociationError, AssociationStateDiff, DeserializationError, IdentityUpdate,
+    self, try_map_vec, AssociationError, AssociationStateDiff, DeserializationError, IdentityUpdate,
 };
 use xmtp_mls::{utils::id::serialize_group_id, verified_key_package::VerifiedKeyPackage};
 use xmtp_proto::xmtp::{
@@ -122,15 +122,7 @@ fn get_association_state(
     old_updates: Vec<IdentityUpdateProto>,
     new_updates: Vec<IdentityUpdateProto>,
 ) -> Result<GetAssociationStateResponse, GrpcServerError> {
-    let conv_proto =
-        |updates: Vec<IdentityUpdateProto>| -> Result<Vec<IdentityUpdate>, DeserializationError> {
-            updates
-                .into_iter()
-                .map(IdentityUpdate::from_proto)
-                .collect::<Result<Vec<_>, _>>()
-        };
-
-    let (old_updates, new_updates) = (conv_proto(old_updates)?, conv_proto(new_updates)?);
+    let (old_updates, new_updates) = (try_map_vec(old_updates)?, try_map_vec(new_updates)?);
 
     if old_updates.is_empty() {
         let new_state = associations::get_state(&new_updates)?;
