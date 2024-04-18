@@ -14,7 +14,7 @@ pub use self::hashes::generate_inbox_id;
 pub use self::member::{Member, MemberIdentifier, MemberKind};
 pub use self::serialization::DeserializationError;
 pub use self::signature::{Signature, SignatureError, SignatureKind};
-pub use self::state::AssociationState;
+pub use self::state::{AssociationState, AssociationStateDiff};
 
 // Apply a single IdentityUpdate to an existing AssociationState
 pub fn apply_update(
