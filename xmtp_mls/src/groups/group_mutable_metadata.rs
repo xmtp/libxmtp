@@ -17,6 +17,8 @@ pub enum GroupMutableMetadataError {
     Deserialization(#[from] prost::DecodeError),
     #[error("missing extension")]
     MissingExtension,
+    #[error("mutable extension updates only")]
+    NonMutableExtensionUpdate,
 }
 
 #[derive(Debug, Clone, PartialEq)]
