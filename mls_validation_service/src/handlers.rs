@@ -5,14 +5,17 @@ use openmls::{
 use openmls_rust_crypto::RustCrypto;
 use tonic::{Code, Request, Response, Status};
 
-use xmtp_id::associations::{self, IdentityUpdate};
+use xmtp_id::associations::{self, AssociationError, AssociationStateDiff, IdentityUpdate};
 use xmtp_mls::{utils::id::serialize_group_id, verified_key_package::VerifiedKeyPackage};
-use xmtp_proto::xmtp::mls_validation::v1::{
-    validate_group_messages_response::ValidationResponse as ValidateGroupMessageValidationResponse,
-    validate_key_packages_response::ValidationResponse as ValidateKeyPackageValidationResponse,
-    validation_api_server::ValidationApi, GetAssociationStateRequest, GetAssociationStateResponse,
-    ValidateGroupMessagesRequest, ValidateGroupMessagesResponse, ValidateKeyPackagesRequest,
-    ValidateKeyPackagesResponse,
+use xmtp_proto::xmtp::{
+    identity::associations::IdentityUpdate as IdentityUpdateProto,
+    mls_validation::v1::{
+        validate_group_messages_response::ValidationResponse as ValidateGroupMessageValidationResponse,
+        validate_key_packages_response::ValidationResponse as ValidateKeyPackageValidationResponse,
+        validation_api_server::ValidationApi, GetAssociationStateRequest,
+        GetAssociationStateResponse, ValidateGroupMessagesRequest, ValidateGroupMessagesResponse,
+        ValidateKeyPackagesRequest, ValidateKeyPackagesResponse,
+    },
 };
 
 #[derive(Debug, Default)]
@@ -88,28 +91,41 @@ impl ValidationApi for ValidationService {
         &self,
         request: Request<GetAssociationStateRequest>,
     ) -> Result<Response<GetAssociationStateResponse>, Status> {
-        if updates.len() <= old_sequence_id {
-            return Err(Status::new(
-                Code::InvalidArgument,
-                "old_sequence_id is greater than number of updates",
-            ));
+        let GetAssociationStateRequest {
+            old_updates,
+            new_updates,
+        } = request.into_inner();
+
+        let conv_proto =
+            |updates: Vec<IdentityUpdateProto>| -> Result<Vec<IdentityUpdate>, Status> {
+                updates
+                    .into_iter()
+                    .map(IdentityUpdate::from_proto)
+                    .collect::<Result<Vec<_>, _>>()
+                    .map_err(|e| Status::new(Code::InvalidArgument, e.to_string()))
+            };
+
+        let to_status = |e: AssociationError| Status::new(Code::InvalidArgument, e.to_string());
+
+        let (mut old_updates, mut new_updates) =
+            (conv_proto(old_updates)?, conv_proto(new_updates)?);
+
+        if old_updates.is_empty() {
+            let new_state = associations::get_state(&new_updates).map_err(to_status)?;
+            return Ok(Response::new(GetAssociationStateResponse {
+                association_state: Some(new_state.clone().into()),
+                state_diff: Some(AssociationStateDiff::from(new_state).into()),
+            }));
         }
 
-        let updates = request
-            .into_inner()
-            .updates
-            .into_iter()
-            .map(IdentityUpdate::from_proto)
-            .collect::<Result<Vec<_>, _>>()
-            .map_err(|e| Status::new(Code::InvalidArgument, e.to_string()))?;
-
-        let old_state = associations::get_state(updates[0..request.old_sequence_id]);
-        let new_state = associations::get_state(updates);
-        let state_diff = old_state.diff(new_state);
+        let old_state = associations::get_state(&old_updates).map_err(to_status)?;
+        old_updates.append(new_updates.as_mut());
+        let new_state = associations::get_state(old_updates).map_err(to_status)?;
+        let state_diff = old_state.diff(&new_state);
 
         Ok(Response::new(GetAssociationStateResponse {
-            association_state: Some(new.into()),
-            diff: Some(state_diff.into()),
+            association_state: Some(new_state.into()),
+            state_diff: Some(state_diff.into()),
         }))
     }
 }
@@ -301,7 +317,8 @@ mod tests {
 
         ValidationService::default()
             .get_association_state(Request::new(GetAssociationStateRequest {
-                updates: updates
+                old_updates: vec![],
+                new_updates: updates
                     .into_iter()
                     .map(IdentityUpdateProto::try_from)
                     .collect::<Result<Vec<_>, SerializationError>>()

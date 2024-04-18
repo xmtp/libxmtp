@@ -7,19 +7,18 @@ impl serde::Serialize for GetAssociationStateRequest {
     {
         use serde::ser::SerializeStruct;
         let mut len = 0;
-        if !self.updates.is_empty() {
+        if !self.old_updates.is_empty() {
             len += 1;
         }
-        if self.old_sequence_id != 0 {
+        if !self.new_updates.is_empty() {
             len += 1;
         }
         let mut struct_ser = serializer.serialize_struct("xmtp.mls_validation.v1.GetAssociationStateRequest", len)?;
-        if !self.updates.is_empty() {
-            struct_ser.serialize_field("updates", &self.updates)?;
+        if !self.old_updates.is_empty() {
+            struct_ser.serialize_field("oldUpdates", &self.old_updates)?;
         }
-        if self.old_sequence_id != 0 {
-            #[allow(clippy::needless_borrow)]
-            struct_ser.serialize_field("oldSequenceId", ToString::to_string(&self.old_sequence_id).as_str())?;
+        if !self.new_updates.is_empty() {
+            struct_ser.serialize_field("newUpdates", &self.new_updates)?;
         }
         struct_ser.end()
     }
@@ -31,15 +30,16 @@ impl<'de> serde::Deserialize<'de> for GetAssociationStateRequest {
         D: serde::Deserializer<'de>,
     {
         const FIELDS: &[&str] = &[
-            "updates",
-            "old_sequence_id",
-            "oldSequenceId",
+            "old_updates",
+            "oldUpdates",
+            "new_updates",
+            "newUpdates",
         ];
 
         #[allow(clippy::enum_variant_names)]
         enum GeneratedField {
-            Updates,
-            OldSequenceId,
+            OldUpdates,
+            NewUpdates,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
             fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
@@ -61,8 +61,8 @@ impl<'de> serde::Deserialize<'de> for GetAssociationStateRequest {
                         E: serde::de::Error,
                     {
                         match value {
-                            "updates" => Ok(GeneratedField::Updates),
-                            "oldSequenceId" | "old_sequence_id" => Ok(GeneratedField::OldSequenceId),
+                            "oldUpdates" | "old_updates" => Ok(GeneratedField::OldUpdates),
+                            "newUpdates" | "new_updates" => Ok(GeneratedField::NewUpdates),
                             _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
                         }
                     }
@@ -82,29 +82,27 @@ impl<'de> serde::Deserialize<'de> for GetAssociationStateRequest {
                 where
                     V: serde::de::MapAccess<'de>,
             {
-                let mut updates__ = None;
-                let mut old_sequence_id__ = None;
+                let mut old_updates__ = None;
+                let mut new_updates__ = None;
                 while let Some(k) = map_.next_key()? {
                     match k {
-                        GeneratedField::Updates => {
-                            if updates__.is_some() {
-                                return Err(serde::de::Error::duplicate_field("updates"));
+                        GeneratedField::OldUpdates => {
+                            if old_updates__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("oldUpdates"));
                             }
-                            updates__ = Some(map_.next_value()?);
+                            old_updates__ = Some(map_.next_value()?);
                         }
-                        GeneratedField::OldSequenceId => {
-                            if old_sequence_id__.is_some() {
-                                return Err(serde::de::Error::duplicate_field("oldSequenceId"));
+                        GeneratedField::NewUpdates => {
+                            if new_updates__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("newUpdates"));
                             }
-                            old_sequence_id__ = 
-                                Some(map_.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
-                            ;
+                            new_updates__ = Some(map_.next_value()?);
                         }
                     }
                 }
                 Ok(GetAssociationStateRequest {
-                    updates: updates__.unwrap_or_default(),
-                    old_sequence_id: old_sequence_id__.unwrap_or_default(),
+                    old_updates: old_updates__.unwrap_or_default(),
+                    new_updates: new_updates__.unwrap_or_default(),
                 })
             }
         }

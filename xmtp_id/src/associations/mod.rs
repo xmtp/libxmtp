@@ -14,7 +14,7 @@ pub use self::hashes::generate_inbox_id;
 pub use self::member::{Member, MemberIdentifier, MemberKind};
 pub use self::serialization::{DeserializationError, SerializationError};
 pub use self::signature::{Signature, SignatureError, SignatureKind};
-pub use self::state::AssociationState;
+pub use self::state::{AssociationState, AssociationStateDiff};
 
 // Apply a single IdentityUpdate to an existing AssociationState
 pub fn apply_update(
@@ -25,8 +25,10 @@ pub fn apply_update(
 }
 
 // Get the current state from an array of `IdentityUpdate`s. Entire operation fails if any operation fails
-pub fn get_state(updates: Vec<IdentityUpdate>) -> Result<AssociationState, AssociationError> {
-    let new_state = updates.iter().try_fold(
+pub fn get_state<Updates: AsRef<[IdentityUpdate]>>(
+    updates: Updates,
+) -> Result<AssociationState, AssociationError> {
+    let new_state = updates.as_ref().iter().try_fold(
         None,
         |state, update| -> Result<Option<AssociationState>, AssociationError> {
             let updated_state = update.update_state(state)?;

@@ -88,7 +88,7 @@ impl Signature for MockSignature {
             SignatureKind::Erc1271 => SignatureProto {
                 signature: Some(SignatureKindProto::Erc1271(Erc1271SignatureProto {
                     contract_address: "0xdead".into(),
-                    block_height: 0,
+                    block_number: 0,
                     signature: vec![0],
                 })),
             },

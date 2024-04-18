@@ -85,23 +85,17 @@ impl AssociationState {
         let new_members: Vec<MemberIdentifier> = new_state
             .members
             .keys()
-            .filter_map(|new_member_identifier| {
-                match self.members.contains_key(new_member_identifier) {
-                    true => None,
-                    false => Some(new_member_identifier.clone()),
-                }
-            })
+            .filter(|new_member_identifier| !self.members.contains_key(new_member_identifier))
+            .cloned()
             .collect();
 
         let removed_members: Vec<MemberIdentifier> = self
             .members
             .keys()
-            .filter_map(|existing_member_identifier| {
-                match new_state.members.contains_key(existing_member_identifier) {
-                    true => None,
-                    false => Some(existing_member_identifier.clone()),
-                }
+            .filter(|existing_member_identifier| {
+                !new_state.members.contains_key(existing_member_identifier)
             })
+            .cloned()
             .collect();
 
         AssociationStateDiff {
@@ -123,6 +117,15 @@ impl AssociationState {
             seen_signatures: HashSet::new(),
             recovery_address: account_address,
             inbox_id,
+        }
+    }
+}
+
+impl From<AssociationState> for AssociationStateDiff {
+    fn from(state: AssociationState) -> Self {
+        AssociationStateDiff {
+            new_members: state.members.keys().cloned().collect(),
+            removed_members: vec![],
         }
     }
 }

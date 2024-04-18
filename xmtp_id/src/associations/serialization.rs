@@ -7,7 +7,7 @@ use super::{
         Erc1271Signature, InstallationKeySignature, LegacyDelegatedSignature,
         RecoverableEcdsaSignature,
     },
-    state::AssociationState,
+    state::{AssociationState, AssociationStateDiff},
     unsigned_actions::{
         SignatureTextCreator, UnsignedAction, UnsignedAddAssociation,
         UnsignedChangeRecoveryAddress, UnsignedCreateInbox, UnsignedIdentityUpdate,
@@ -21,10 +21,10 @@ use xmtp_proto::xmtp::identity::associations::{
     identity_action::Kind as IdentityActionKindProto,
     member_identifier::Kind as MemberIdentifierKindProto,
     signature::Signature as SignatureKindProto, AddAssociation as AddAssociationProto,
-    AssociationState as AssociationStateProto, ChangeRecoveryAddress as ChangeRecoveryAddressProto,
-    CreateInbox as CreateInboxProto, IdentityAction as IdentityActionProto,
-    IdentityUpdate as IdentityUpdateProto, Member as MemberProto,
-    MemberIdentifier as MemberIdentifierProto, MemberMap as MemberMapProto,
+    AssociationState as AssociationStateProto, AssociationStateDiff as AssociationStateDiffProto,
+    ChangeRecoveryAddress as ChangeRecoveryAddressProto, CreateInbox as CreateInboxProto,
+    IdentityAction as IdentityActionProto, IdentityUpdate as IdentityUpdateProto,
+    Member as MemberProto, MemberIdentifier as MemberIdentifierProto, MemberMap as MemberMapProto,
     RevokeAssociation as RevokeAssociationProto, Signature as SignatureWrapperProto,
 };
 
@@ -363,6 +363,27 @@ fn to_association_state_proto(association_state: AssociationState) -> Associatio
 impl From<AssociationState> for AssociationStateProto {
     fn from(state: AssociationState) -> AssociationStateProto {
         to_association_state_proto(state)
+    }
+}
+
+fn to_association_state_diff_proto(state_diff: AssociationStateDiff) -> AssociationStateDiffProto {
+    AssociationStateDiffProto {
+        new_members: state_diff
+            .new_members
+            .into_iter()
+            .map(to_member_identifier_proto)
+            .collect(),
+        removed_members: state_diff
+            .removed_members
+            .into_iter()
+            .map(to_member_identifier_proto)
+            .collect(),
+    }
+}
+
+impl From<AssociationStateDiff> for AssociationStateDiffProto {
+    fn from(diff: AssociationStateDiff) -> AssociationStateDiffProto {
+        to_association_state_diff_proto(diff)
     }
 }
 
