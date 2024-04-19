@@ -18,6 +18,7 @@ use super::{
     group_mutable_metadata::{
         extract_group_mutable_metadata, GroupMutableMetadata, GroupMutableMetadataError,
     },
+    group_permissions::MetadataChange,
     members::aggregate_member_list,
 };
 
@@ -87,7 +88,7 @@ pub struct ValidatedCommit {
     pub(crate) members_removed: Vec<AggregatedMembershipChange>,
     pub(crate) installations_added: Vec<AggregatedMembershipChange>,
     pub(crate) installations_removed: Vec<AggregatedMembershipChange>,
-    pub(crate) group_name_updated: bool,
+    pub(crate) group_name_updated: MetadataChange,
 }
 
 impl ValidatedCommit {
@@ -356,8 +357,9 @@ fn get_removed_members(
 fn get_group_name_updated(
     staged_commit: &StagedCommit,
     openmls_group: &OpenMlsGroup,
-) -> Result<bool, CommitValidationError> {
-    let existing_mutable_metadata = extract_group_mutable_metadata(openmls_group)?;
+) -> Result<MetadataChange, CommitValidationError> {
+    let old_value = extract_group_mutable_metadata(openmls_group)?;
+    let mut new_value = old_value.clone();
     // Iterate through each proposal
     for proposal in staged_commit.queued_proposals() {
         if let Proposal::GroupContextExtensions(extension_proposal) = proposal.proposal() {
@@ -369,9 +371,10 @@ fn get_group_name_updated(
                 {
                     match GroupMutableMetadata::try_from(data) {
                         Ok(metadata) => {
-                            if metadata.group_name != existing_mutable_metadata.group_name {
-                                return Ok(true);
-                            }
+                            // Since we iterate through the commit proposal in order from queued proposals
+                            // we overwrite the GroupMutableMetadata for each valid GCE proposal to get the final state
+                            // of the commit
+                            new_value = metadata;
                         }
                         Err(e) => return Err(CommitValidationError::from(e)),
                     }
@@ -379,7 +382,10 @@ fn get_group_name_updated(
             }
         }
     }
-    Ok(false)
+    Ok(MetadataChange {
+        new_value,
+        old_value,
+    })
 }
 
 fn ensure_extensions_valid(

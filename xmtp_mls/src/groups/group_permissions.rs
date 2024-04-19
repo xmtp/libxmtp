@@ -14,12 +14,22 @@ use xmtp_proto::xmtp::mls::message_contents::{
     PolicySet as PolicySetProto,
 };
 
-use super::validated_commit::{AggregatedMembershipChange, CommitParticipant, ValidatedCommit};
+use super::{
+    group_mutable_metadata::GroupMutableMetadata,
+    validated_commit::{AggregatedMembershipChange, CommitParticipant, ValidatedCommit},
+};
 
 // A trait for policies that can update Metadata for the group
 
 pub trait MetadataPolicy: std::fmt::Debug {
-    fn evaluate(&self, actor: &CommitParticipant, change: bool) -> bool;
+    // Verify relevant metadata is actually changed before evaluating against the MetadataPolicy
+    // See evaluate_metadata_policy
+    fn evaluate(
+        &self,
+        actor: &CommitParticipant,
+        change: &MetadataChange,
+        change_type: &MetadataChangeType,
+    ) -> bool;
     fn to_proto(&self) -> Result<MetadataPolicyProto, PolicyError>;
 }
 
@@ -33,11 +43,18 @@ pub enum MetadataBasePolicies {
 }
 
 impl MetadataPolicy for MetadataBasePolicies {
-    fn evaluate(&self, actor: &CommitParticipant, change: bool) -> bool {
-        match self {
-            MetadataBasePolicies::Allow => true,
-            MetadataBasePolicies::Deny => !change,
-            MetadataBasePolicies::AllowIfActorCreator => actor.is_creator || !change,
+    fn evaluate(
+        &self,
+        actor: &CommitParticipant,
+        _change: &MetadataChange,
+        change_type: &MetadataChangeType,
+    ) -> bool {
+        match change_type {
+            MetadataChangeType::GroupName => match self {
+                MetadataBasePolicies::Allow => true,
+                MetadataBasePolicies::Deny => false,
+                MetadataBasePolicies::AllowIfActorCreator => actor.is_creator,
+            },
         }
     }
 
@@ -64,6 +81,11 @@ pub enum MetadataPolicies {
     AnyCondition(MetadataAnyCondition),
 }
 
+pub enum MetadataChangeType {
+    GroupName,
+    // AdminList,
+}
+
 impl MetadataPolicies {
     pub fn allow() -> Self {
         MetadataPolicies::Standard(MetadataBasePolicies::Allow)
@@ -85,6 +107,13 @@ impl MetadataPolicies {
     pub fn any(policies: Vec<MetadataPolicies>) -> Self {
         MetadataPolicies::AnyCondition(MetadataAnyCondition::new(policies))
     }
+}
+
+// Information for Metadata Update used for validation
+#[derive(Clone, Debug)]
+pub struct MetadataChange {
+    pub(crate) old_value: GroupMutableMetadata,
+    pub(crate) new_value: GroupMutableMetadata,
 }
 
 impl TryFrom<MetadataPolicyProto> for MetadataPolicies {
@@ -129,11 +158,16 @@ impl TryFrom<MetadataPolicyProto> for MetadataPolicies {
 }
 
 impl MetadataPolicy for MetadataPolicies {
-    fn evaluate(&self, actor: &CommitParticipant, change: bool) -> bool {
+    fn evaluate(
+        &self,
+        actor: &CommitParticipant,
+        change: &MetadataChange,
+        change_type: &MetadataChangeType,
+    ) -> bool {
         match self {
-            MetadataPolicies::Standard(policy) => policy.evaluate(actor, change),
-            MetadataPolicies::AndCondition(policy) => policy.evaluate(actor, change),
-            MetadataPolicies::AnyCondition(policy) => policy.evaluate(actor, change),
+            MetadataPolicies::Standard(policy) => policy.evaluate(actor, change, change_type),
+            MetadataPolicies::AndCondition(policy) => policy.evaluate(actor, change, change_type),
+            MetadataPolicies::AnyCondition(policy) => policy.evaluate(actor, change, change_type),
         }
     }
 
@@ -159,10 +193,15 @@ impl MetadataAndCondition {
 }
 
 impl MetadataPolicy for MetadataAndCondition {
-    fn evaluate(&self, actor: &CommitParticipant, change: bool) -> bool {
+    fn evaluate(
+        &self,
+        actor: &CommitParticipant,
+        change: &MetadataChange,
+        change_type: &MetadataChangeType,
+    ) -> bool {
         self.policies
             .iter()
-            .all(|policy| policy.evaluate(actor, change))
+            .all(|policy| policy.evaluate(actor, change, change_type))
     }
 
     fn to_proto(&self) -> Result<MetadataPolicyProto, PolicyError> {
@@ -194,10 +233,15 @@ impl MetadataAnyCondition {
 }
 
 impl MetadataPolicy for MetadataAnyCondition {
-    fn evaluate(&self, actor: &CommitParticipant, change: bool) -> bool {
+    fn evaluate(
+        &self,
+        actor: &CommitParticipant,
+        change: &MetadataChange,
+        change_type: &MetadataChangeType,
+    ) -> bool {
         self.policies
             .iter()
-            .any(|policy| policy.evaluate(actor, change))
+            .any(|policy| policy.evaluate(actor, change, change_type))
     }
 
     fn to_proto(&self) -> Result<MetadataPolicyProto, PolicyError> {
@@ -472,9 +516,10 @@ impl PolicySet {
             &self.remove_installation_policy,
             &commit.actor,
         ) & self.evaluate_metadata_policy(
-            commit.group_name_updated,
+            &commit.group_name_updated,
             &self.update_group_name_policy,
             &commit.actor,
+            MetadataChangeType::GroupName,
         )
     }
 
@@ -502,16 +547,26 @@ impl PolicySet {
         })
     }
 
+    // We want to know metadata change type this evaluation is checking for
     fn evaluate_metadata_policy<P>(
         &self,
-        change: bool,
+        change: &MetadataChange,
         policy: &P,
         actor: &CommitParticipant,
+        change_type: MetadataChangeType,
     ) -> bool
     where
         P: MetadataPolicy + std::fmt::Debug,
     {
-        let is_ok = policy.evaluate(actor, change);
+        // If there is no change in metadata, no need to validate the policy
+        match change_type {
+            MetadataChangeType::GroupName => {
+                if change.old_value.group_name == change.new_value.group_name {
+                    return true;
+                }
+            }
+        }
+        let is_ok = policy.evaluate(actor, change, &change_type);
         if !is_ok {
             log::info!(
                 "Policy {:?} failed for actor {:?} and change {:?}",
@@ -622,7 +677,10 @@ impl std::fmt::Display for PreconfiguredPolicies {
 
 #[cfg(test)]
 mod tests {
-    use crate::utils::test::{rand_account_address, rand_vec};
+    use crate::{
+        configuration::DEFAULT_GROUP_NAME,
+        utils::test::{rand_account_address, rand_vec},
+    };
 
     use super::*;
 
@@ -670,6 +728,7 @@ mod tests {
                 vec![build_change(None, None, false)]
             }
         };
+
         ValidatedCommit {
             actor: actor.clone(),
             members_added: member_added
@@ -684,9 +743,13 @@ mod tests {
             installations_removed: installation_removed
                 .map(build_membership_change)
                 .unwrap_or_default(),
-            group_name_updated: MetadataUpdate {
-                updates_outside_mutable_metadata: false,
-                field_updated: false,
+            group_name_updated: MetadataChange {
+                old_value: GroupMutableMetadata {
+                    group_name: DEFAULT_GROUP_NAME.to_string(),
+                },
+                new_value: GroupMutableMetadata {
+                    group_name: DEFAULT_GROUP_NAME.to_string(),
+                },
             },
         }
     }
