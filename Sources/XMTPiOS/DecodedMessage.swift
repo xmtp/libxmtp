@@ -22,6 +22,8 @@ public struct DecodedMessage: Sendable {
 	public var sent: Date
 
 	public var client: Client
+	
+	public var deliveryStatus: MessageDeliveryStatus = .published
 
 	init(
 		id: String,
@@ -29,7 +31,8 @@ public struct DecodedMessage: Sendable {
 		topic: String,
 		encodedContent: EncodedContent,
 		senderAddress: String,
-		sent: Date
+		sent: Date,
+		deliveryStatus: MessageDeliveryStatus = .published
 	) {
 		self.id = id
 		self.client = client
@@ -37,6 +40,7 @@ public struct DecodedMessage: Sendable {
 		self.encodedContent = encodedContent
 		self.senderAddress = senderAddress
 		self.sent = sent
+		self.deliveryStatus = deliveryStatus
 }
 
     public init(
@@ -44,13 +48,15 @@ public struct DecodedMessage: Sendable {
 			topic: String,
 			encodedContent: EncodedContent,
 			senderAddress: String,
-			sent: Date
+			sent: Date,
+			deliveryStatus: MessageDeliveryStatus = .published
 		) {
 			self.client = client
 			self.topic = topic
 			self.encodedContent = encodedContent
 			self.senderAddress = senderAddress
 			self.sent = sent
+			self.deliveryStatus = deliveryStatus
 	}
 
 	public func content<T>() throws -> T {

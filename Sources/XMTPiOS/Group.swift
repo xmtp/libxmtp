@@ -133,8 +133,8 @@ public struct Group: Identifiable, Equatable, Hashable {
 			try await client.contacts.allowGroup(groupIds: [id])
 		}
 
-		try await ffiGroup.send(contentBytes: encodedContent.serializedData())
-		return id.toHex
+		let messageId = try await ffiGroup.send(contentBytes: encodedContent.serializedData())
+		return messageId.toHex
 	}
 
 	public func prepareMessage<T>(content: T, options: SendOptions?) async throws -> EncodedContent {
@@ -213,8 +213,19 @@ public struct Group: Identifiable, Equatable, Hashable {
 		}
 	}
 
-	public func messages(before: Date? = nil, after: Date? = nil, limit: Int? = nil, direction: PagingInfoSortDirection? = .descending) async throws -> [DecodedMessage] {
-		var options = FfiListMessagesOptions(sentBeforeNs: nil, sentAfterNs: nil, limit: nil)
+	public func messages(
+		before: Date? = nil,
+		after: Date? = nil,
+		limit: Int? = nil,
+		direction: PagingInfoSortDirection? = .descending,
+		deliveryStatus: MessageDeliveryStatus = .all
+	) async throws -> [DecodedMessage] {
+		var options = FfiListMessagesOptions(
+			sentBeforeNs: nil,
+			sentAfterNs: nil,
+			limit: nil,
+			deliveryStatus: nil
+		)
 
 		if let before {
 			options.sentBeforeNs = Int64(before.millisecondsSinceEpoch * 1_000_000)
@@ -227,6 +238,13 @@ public struct Group: Identifiable, Equatable, Hashable {
 		if let limit {
 			options.limit = Int64(limit)
 		}
+
+		options.deliveryStatus = switch deliveryStatus {
+									case .published: FfiDeliveryStatus.published
+									case .unpublished: FfiDeliveryStatus.unpublished
+									case .failed: FfiDeliveryStatus.failed
+									default: nil
+								}
 
 		let messages = try ffiGroup.findMessages(opts: options).compactMap { ffiMessage in
 			return MessageV3(client: self.client, ffiMessage: ffiMessage).decodeOrNull()
@@ -240,8 +258,19 @@ public struct Group: Identifiable, Equatable, Hashable {
 		}
 	}
 
-	public func decryptedMessages(before: Date? = nil, after: Date? = nil, limit: Int? = nil, direction: PagingInfoSortDirection? = .descending) async throws -> [DecryptedMessage] {
-		var options = FfiListMessagesOptions(sentBeforeNs: nil, sentAfterNs: nil, limit: nil)
+	public func decryptedMessages(
+		before: Date? = nil,
+		after: Date? = nil,
+		limit: Int? = nil,
+		direction: PagingInfoSortDirection? = .descending,
+		deliveryStatus: MessageDeliveryStatus? = .all
+	) async throws -> [DecryptedMessage] {
+		var options = FfiListMessagesOptions(
+			sentBeforeNs: nil,
+			sentAfterNs: nil,
+			limit: nil,
+			deliveryStatus: nil
+		)
 
 		if let before {
 			options.sentBeforeNs = Int64(before.millisecondsSinceEpoch * 1_000_000)
@@ -254,6 +283,13 @@ public struct Group: Identifiable, Equatable, Hashable {
 		if let limit {
 			options.limit = Int64(limit)
 		}
+		
+		options.deliveryStatus = switch deliveryStatus {
+									case .published: FfiDeliveryStatus.published
+									case .unpublished: FfiDeliveryStatus.unpublished
+									case .failed: FfiDeliveryStatus.failed
+									default: nil
+								}
 
 		let messages = try ffiGroup.findMessages(opts: options).compactMap { ffiMessage in
 			return MessageV3(client: self.client, ffiMessage: ffiMessage).decryptOrNull()

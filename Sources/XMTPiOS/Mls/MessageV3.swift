@@ -37,6 +37,17 @@ public struct MessageV3: Identifiable {
 		return Date(timeIntervalSince1970: TimeInterval(ffiMessage.sentAtNs) / 1_000_000_000)
 	}
 	
+	var deliveryStatus: MessageDeliveryStatus {
+		switch ffiMessage.deliveryStatus {
+		case .unpublished:
+			return .unpublished
+		case .published:
+			return .published
+		case .failed:
+			return .failed
+		}
+	}
+	
 	public func decode() throws -> DecodedMessage {
 		do {
 			let encodedContent = try EncodedContent(serializedData: ffiMessage.content)
@@ -47,7 +58,8 @@ public struct MessageV3: Identifiable {
 				topic: Topic.groupMessage(convoId.toHex).description,
 				encodedContent: encodedContent,
 				senderAddress: senderAddress,
-				sent: sentAt
+				sent: sentAt,
+				deliveryStatus: deliveryStatus
 			)
 			
 			if decodedMessage.encodedContent.type == ContentTypeGroupMembershipChanged && ffiMessage.kind != .membershipChange {
@@ -86,7 +98,8 @@ public struct MessageV3: Identifiable {
 			encodedContent: encodedContent,
 			senderAddress: senderAddress,
 			sentAt: Date(),
-			topic: Topic.groupMessage(convoId.toHex).description
+			topic: Topic.groupMessage(convoId.toHex).description,
+			deliveryStatus: deliveryStatus
 		)
 		
 		if decrytedMessage.encodedContent.type == ContentTypeGroupMembershipChanged && ffiMessage.kind != .membershipChange {
