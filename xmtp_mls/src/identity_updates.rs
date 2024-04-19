@@ -88,7 +88,7 @@ where
     ) -> Result<AssociationStateDiff, ClientError> {
         let initial_state = self.get_association_state(conn, &inbox_id, starting_sequence_id)?;
         if starting_sequence_id.is_none() {
-            return Ok(AssociationStateDiff::from(initial_state));
+            return Ok(initial_state.as_diff());
         }
 
         let incremental_updates = conn
