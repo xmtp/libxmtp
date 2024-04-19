@@ -1,5 +1,6 @@
 mod group_membership;
 pub mod group_metadata;
+pub mod group_mutable_metadata;
 mod group_permissions;
 mod intents;
 mod members;
@@ -10,13 +11,18 @@ pub mod validated_commit;
 
 use intents::SendMessageIntentData;
 use openmls::{
-    credentials::BasicCredential,
+    credentials::{BasicCredential, CredentialType},
     error::LibraryError,
-    extensions::{Extension, Extensions, Metadata},
-    group::{MlsGroupCreateConfig, MlsGroupJoinConfig},
+    extensions::{
+        Extension, ExtensionType, Extensions, Metadata, RequiredCapabilitiesExtension,
+        UnknownExtension,
+    },
+    group::{CreateGroupContextExtProposalError, MlsGroupCreateConfig, MlsGroupJoinConfig},
+    messages::proposals::ProposalType,
     prelude::{
-        BasicCredentialError, CredentialWithKey, CryptoConfig, Error as TlsCodecError, GroupId,
-        MlsGroup as OpenMlsGroup, StagedWelcome, Welcome as MlsWelcome, WireFormatPolicy,
+        BasicCredentialError, Capabilities, CredentialWithKey, CryptoConfig,
+        Error as TlsCodecError, GroupId, MlsGroup as OpenMlsGroup, StagedWelcome,
+        Welcome as MlsWelcome, WireFormatPolicy,
     },
 };
 use openmls_traits::OpenMlsProvider;
@@ -33,14 +39,20 @@ use xmtp_proto::{
         },
         message_contents::{
             plaintext_envelope::{Content, V1},
-            PlaintextEnvelope,
+            GroupMutableMetadataV1, PlaintextEnvelope,
         },
     },
 };
 
-use self::group_metadata::extract_group_metadata;
 pub use self::group_permissions::PreconfiguredPolicies;
 pub use self::intents::{AddressesOrInstallationIds, IntentError};
+use self::{
+    group_metadata::extract_group_metadata,
+    group_mutable_metadata::{
+        extract_group_mutable_metadata, GroupMutableMetadata, GroupMutableMetadataError,
+    },
+    intents::UpdateMetadataIntentData,
+};
 use self::{
     group_metadata::{ConversationType, GroupMetadata, GroupMetadataError},
     group_permissions::PolicySet,
@@ -50,7 +62,9 @@ use self::{
 
 use crate::{
     client::{deserialize_welcome, ClientError, MessageProcessingError},
-    configuration::{CIPHERSUITE, MAX_GROUP_SIZE},
+    configuration::{
+        CIPHERSUITE, DEFAULT_GROUP_NAME, MAX_GROUP_SIZE, MUTABLE_METADATA_EXTENSION_ID,
+    },
     hpke::{decrypt_welcome, HpkeError},
     identity::{Identity, IdentityError},
     retry::RetryableError,
@@ -118,6 +132,8 @@ pub enum GroupError {
     CommitValidation(#[from] CommitValidationError),
     #[error("Metadata error {0}")]
     GroupMetadata(#[from] GroupMetadataError),
+    #[error("Mutable Metadata error {0}")]
+    GroupMutableMetadata(#[from] GroupMutableMetadataError),
     #[error("Errors occurred during sync {0:?}")]
     Sync(Vec<GroupError>),
     #[error("Hpke error: {0}")]
@@ -126,6 +142,8 @@ pub enum GroupError {
     Identity(#[from] IdentityError),
     #[error("serialization error: {0}")]
     EncodeError(#[from] prost::EncodeError),
+    #[error("create group context proposal error: {0}")]
+    CreateGroupContextExtProposalError(#[from] CreateGroupContextExtProposalError<StorageError>),
     #[error("Credential error")]
     CredentialError(#[from] BasicCredentialError),
     #[error("LeafNode error")]
@@ -199,7 +217,8 @@ where
             &client.identity,
             permissions.unwrap_or_default().to_policy_set(),
         )?;
-        let group_config = build_group_config(protected_metadata)?;
+        let mutable_metadata = build_mutable_metadata_extension(DEFAULT_GROUP_NAME.to_string())?;
+        let group_config = build_group_config(protected_metadata, mutable_metadata)?;
 
         let mut mls_group = OpenMlsGroup::new(
             &provider,
@@ -411,6 +430,25 @@ where
         self.sync_until_intent_resolved(conn, intent.id).await
     }
 
+    pub async fn update_group_name(&self, group_name: String) -> Result<(), GroupError> {
+        let conn = &mut self.client.store.conn()?;
+        let intent_data: Vec<u8> = UpdateMetadataIntentData::new(group_name).into();
+        let intent = conn.insert_group_intent(NewGroupIntent::new(
+            IntentKind::MetadataUpdate,
+            self.group_id.clone(),
+            intent_data,
+        ))?;
+
+        self.sync_until_intent_resolved(conn, intent.id).await
+    }
+
+    // Query the database for stored messages. Optionally filtered by time, kind, delivery_status
+    // and limit
+    pub fn group_name(&self) -> Result<String, GroupError> {
+        let mutable_metadata = self.mutable_metadata()?;
+        Ok(mutable_metadata.group_name)
+    }
+
     // Find the wallet address of the group member who added the member to the group
     pub fn added_by_address(&self) -> Result<String, GroupError> {
         let conn = self.client.store.conn()?;
@@ -465,6 +503,14 @@ where
 
         Ok(extract_group_metadata(&mls_group)?)
     }
+
+    pub fn mutable_metadata(&self) -> Result<GroupMutableMetadata, GroupError> {
+        let conn = &self.client.store.conn()?;
+        let provider = XmtpOpenMlsProvider::new(conn);
+        let mls_group = self.load_mls_group(&provider)?;
+
+        Ok(extract_group_mutable_metadata(&mls_group)?)
+    }
 }
 
 fn extract_message_v1(message: GroupMessage) -> Result<GroupMessageV1, MessageProcessingError> {
@@ -510,13 +556,55 @@ fn build_protected_metadata_extension(
     Ok(Extension::ImmutableMetadata(protected_metadata))
 }
 
+pub fn build_mutable_metadata_extension(group_name: String) -> Result<Extension, GroupError> {
+    let mutable_metadata: GroupMutableMetadataV1 = GroupMutableMetadataV1 { group_name };
+
+    let unknown_gc_extension = UnknownExtension(mutable_metadata.encode_to_vec());
+
+    Ok(Extension::Unknown(
+        MUTABLE_METADATA_EXTENSION_ID,
+        unknown_gc_extension,
+    ))
+}
+
 fn build_group_config(
     protected_metadata_extension: Extension,
+    mutable_metadata_extension: Extension,
 ) -> Result<MlsGroupCreateConfig, GroupError> {
-    let extensions = Extensions::single(protected_metadata_extension);
+    let required_extension_types = &[
+        ExtensionType::Unknown(MUTABLE_METADATA_EXTENSION_ID),
+        ExtensionType::ImmutableMetadata,
+        ExtensionType::LastResort,
+        ExtensionType::ApplicationId,
+    ];
+
+    let required_proposal_types = &[ProposalType::GroupContextExtensions];
+
+    let capabilities = Capabilities::new(
+        None,
+        None,
+        Some(required_extension_types),
+        Some(required_proposal_types),
+        None,
+    );
+    let credentials = &[CredentialType::Basic];
+
+    let required_capabilities =
+        Extension::RequiredCapabilities(RequiredCapabilitiesExtension::new(
+            required_extension_types,
+            required_proposal_types,
+            credentials,
+        ));
+
+    let extensions = Extensions::from_vec(vec![
+        protected_metadata_extension,
+        mutable_metadata_extension,
+        required_capabilities,
+    ])?;
 
     Ok(MlsGroupCreateConfig::builder()
         .with_group_context_extensions(extensions)?
+        .capabilities(capabilities)
         .crypto_config(CryptoConfig::with_default_version(CIPHERSUITE))
         .wire_format_policy(WireFormatPolicy::default())
         .max_past_epochs(3) // Trying with 3 max past epochs for now
@@ -1009,6 +1097,49 @@ mod tests {
             .add_members(vec![bola.account_address()])
             .await
             .is_err(),);
+    }
+
+    #[tokio::test]
+    async fn test_group_mutable_data() {
+        let amal = ClientBuilder::new_test_client(&generate_local_wallet()).await;
+        let bola = ClientBuilder::new_test_client(&generate_local_wallet()).await;
+
+        // Create a group and verify it has the default group name
+        let policies = Some(PreconfiguredPolicies::GroupCreatorIsAdmin);
+        let amal_group: MlsGroup<_> = amal.create_group(policies).unwrap();
+        amal_group.sync().await.unwrap();
+
+        let group_mutable_metadata = amal_group.mutable_metadata().unwrap();
+        assert!(group_mutable_metadata.group_name.eq("New Group"));
+
+        // Add bola to the group
+        amal_group
+            .add_members(vec![bola.account_address()])
+            .await
+            .unwrap();
+        bola.sync_welcomes().await.unwrap();
+        let bola_groups = bola.find_groups(None, None, None, None).unwrap();
+        assert_eq!(bola_groups.len(), 1);
+        let bola_group = bola_groups.first().unwrap();
+        bola_group.sync().await.unwrap();
+        let group_mutable_metadata = bola_group.mutable_metadata().unwrap();
+        assert!(group_mutable_metadata.group_name.eq("New Group"));
+
+        // Update group name
+        amal_group
+            .update_group_name("New Group Name 1".to_string())
+            .await
+            .unwrap();
+
+        // Verify amal group sees update
+        amal_group.sync().await.unwrap();
+        let amal_group_name: String = amal_group.mutable_metadata().expect("msg").group_name;
+        assert_eq!(amal_group_name, "New Group Name 1");
+
+        // Verify bola group sees update
+        bola_group.sync().await.unwrap();
+        let bola_group_name: String = bola_group.mutable_metadata().expect("msg").group_name;
+        assert_eq!(bola_group_name, "New Group Name 1");
     }
 
     #[tokio::test]

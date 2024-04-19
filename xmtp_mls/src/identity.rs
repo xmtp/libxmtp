@@ -7,6 +7,7 @@ use openmls::{
         BasicCredential,
     },
     extensions::{errors::InvalidExtensionError, ApplicationIdExtension, LastResortExtension},
+    messages::proposals::ProposalType,
     prelude::{
         tls_codec::{Error as TlsCodecError, Serialize},
         Capabilities, Credential as OpenMlsCredential, CredentialWithKey, CryptoConfig, Extension,
@@ -26,7 +27,7 @@ use xmtp_proto::{
 
 use crate::{
     api::{ApiClientWrapper, IdentityUpdate},
-    configuration::CIPHERSUITE,
+    configuration::{CIPHERSUITE, MUTABLE_METADATA_EXTENSION_ID},
     credential::{AssociationError, Credential, UnsignedGrantMessagingAccessData},
     storage::{identity::StoredIdentity, StorageError},
     types::Address,
@@ -199,8 +200,13 @@ impl Identity {
         let capabilities = Capabilities::new(
             None,
             Some(&[CIPHERSUITE]),
-            Some(&[ExtensionType::LastResort, ExtensionType::ApplicationId]),
-            None,
+            Some(&[
+                ExtensionType::LastResort,
+                ExtensionType::ApplicationId,
+                ExtensionType::Unknown(MUTABLE_METADATA_EXTENSION_ID),
+                ExtensionType::ImmutableMetadata,
+            ]),
+            Some(&[ProposalType::GroupContextExtensions]),
             None,
         );
         let kp = KeyPackage::builder()

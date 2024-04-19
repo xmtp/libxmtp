@@ -445,6 +445,30 @@ impl FfiGroup {
         Ok(())
     }
 
+    pub async fn update_group_name(&self, group_name: String) -> Result<(), GenericError> {
+        let group = MlsGroup::new(
+            self.inner_client.as_ref(),
+            self.group_id.clone(),
+            self.created_at_ns,
+        );
+
+        group.update_group_name(group_name).await?;
+
+        Ok(())
+    }
+
+    pub fn group_name(&self) -> Result<String, GenericError> {
+        let group = MlsGroup::new(
+            self.inner_client.as_ref(),
+            self.group_id.clone(),
+            self.created_at_ns,
+        );
+
+        let group_name = group.group_name()?;
+
+        Ok(group_name)
+    }
+
     pub async fn stream(
         &self,
         message_callback: Box<dyn FfiMessageCallback>,

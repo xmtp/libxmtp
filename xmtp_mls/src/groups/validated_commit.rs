@@ -364,7 +364,10 @@ impl From<ValidatedCommit> for GroupMembershipChanges {
 mod tests {
     use openmls::{
         credentials::{BasicCredential, CredentialWithKey},
+        extensions::ExtensionType,
         group::config::CryptoConfig,
+        messages::proposals::ProposalType,
+        prelude::Capabilities,
         prelude_test::KeyPackage,
         versions::ProtocolVersion,
     };
@@ -372,7 +375,11 @@ mod tests {
     use xmtp_cryptography::utils::generate_local_wallet;
 
     use super::ValidatedCommit;
-    use crate::{builder::ClientBuilder, configuration::CIPHERSUITE, Client};
+    use crate::{
+        builder::ClientBuilder,
+        configuration::{CIPHERSUITE, MUTABLE_METADATA_EXTENSION_ID},
+        Client,
+    };
 
     fn get_key_package(client: &Client<GrpcClient>) -> KeyPackage {
         client
@@ -499,8 +506,22 @@ mod tests {
         let amal_group = amal.create_group(None).unwrap();
         let mut amal_mls_group = amal_group.load_mls_group(&amal_provider).unwrap();
 
+        let capabilities = Capabilities::new(
+            None,
+            Some(&[CIPHERSUITE]),
+            Some(&[
+                ExtensionType::LastResort,
+                ExtensionType::ApplicationId,
+                ExtensionType::Unknown(MUTABLE_METADATA_EXTENSION_ID),
+                ExtensionType::ImmutableMetadata,
+            ]),
+            Some(&[ProposalType::GroupContextExtensions]),
+            None,
+        );
+
         // Create a key package with a malformed credential
         let bad_key_package = KeyPackage::builder()
+            .leaf_node_capabilities(capabilities)
             .build(
                 CryptoConfig {
                     ciphersuite: CIPHERSUITE,
