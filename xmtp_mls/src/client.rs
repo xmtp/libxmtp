@@ -219,6 +219,15 @@ where
         Ok(group)
     }
 
+    pub fn create_sync_group(&self) -> Result<MlsGroup<ApiClient>, ClientError> {
+        log::info!("creating sync group");
+        let sync_group = MlsGroup::create_and_insert_sync_group(self).map_err(|e| {
+            ClientError::Storage(StorageError::Store(format!("group create error {}", e)))
+        })?;
+
+        Ok(sync_group)
+    }
+
     /// Look up a group by its ID
     /// Returns a [`MlsGroup`] if the group exists, or an error if it does not
     pub fn group(&self, group_id: Vec<u8>) -> Result<MlsGroup<ApiClient>, ClientError> {

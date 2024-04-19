@@ -281,7 +281,7 @@ where
 
     pub(crate) fn create_and_insert_sync_group(
         client: &'c Client<ApiClient>,
-    ) -> Result<(), GroupError> {
+    ) -> Result<MlsGroup<ApiClient>, GroupError> {
         let conn = client.store.conn()?;
         let provider = XmtpOpenMlsProvider::new(&conn);
         let protected_metadata = build_protected_metadata_extension(
@@ -305,7 +305,11 @@ where
             StoredGroup::new_sync_group(group_id.clone(), now_ns(), GroupMembershipState::Allowed);
 
         stored_group.store(provider.conn())?;
-        Ok(())
+        Ok(Self::new(
+            client,
+            stored_group.id,
+            stored_group.created_at_ns,
+        ))
     }
 
     pub async fn send_message(&self, message: &[u8]) -> Result<Vec<u8>, GroupError> {

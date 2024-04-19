@@ -413,11 +413,7 @@ pub(crate) mod tests {
             let created_at_ns = now_ns();
             let membership_state = GroupMembershipState::Allowed;
 
-            let sync_group = StoredGroup::new_sync_group(
-                id,
-                created_at_ns,
-                membership_state,
-            );
+            let sync_group = StoredGroup::new_sync_group(id, created_at_ns, membership_state);
             let purpose = sync_group.purpose;
             assert_eq!(purpose, Purpose::Sync);
         })
