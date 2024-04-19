@@ -222,7 +222,7 @@ where
         // scott: I don't know where else this could go...
         new_client
             .create_sync_group()
-            .map_err(|e| ClientBuilderError::StorageError(e))?;
+            .map_err(ClientBuilderError::StorageError)?;
 
         Ok(new_client)
     }
