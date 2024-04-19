@@ -1090,10 +1090,17 @@ impl serde::Serialize for RecoverableEd25519Signature {
         if !self.bytes.is_empty() {
             len += 1;
         }
+        if !self.public_key.is_empty() {
+            len += 1;
+        }
         let mut struct_ser = serializer.serialize_struct("xmtp.identity.associations.RecoverableEd25519Signature", len)?;
         if !self.bytes.is_empty() {
             #[allow(clippy::needless_borrow)]
             struct_ser.serialize_field("bytes", pbjson::private::base64::encode(&self.bytes).as_str())?;
+        }
+        if !self.public_key.is_empty() {
+            #[allow(clippy::needless_borrow)]
+            struct_ser.serialize_field("publicKey", pbjson::private::base64::encode(&self.public_key).as_str())?;
         }
         struct_ser.end()
     }
@@ -1106,11 +1113,14 @@ impl<'de> serde::Deserialize<'de> for RecoverableEd25519Signature {
     {
         const FIELDS: &[&str] = &[
             "bytes",
+            "public_key",
+            "publicKey",
         ];
 
         #[allow(clippy::enum_variant_names)]
         enum GeneratedField {
             Bytes,
+            PublicKey,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
             fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
@@ -1133,6 +1143,7 @@ impl<'de> serde::Deserialize<'de> for RecoverableEd25519Signature {
                     {
                         match value {
                             "bytes" => Ok(GeneratedField::Bytes),
+                            "publicKey" | "public_key" => Ok(GeneratedField::PublicKey),
                             _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
                         }
                     }
@@ -1153,6 +1164,7 @@ impl<'de> serde::Deserialize<'de> for RecoverableEd25519Signature {
                     V: serde::de::MapAccess<'de>,
             {
                 let mut bytes__ = None;
+                let mut public_key__ = None;
                 while let Some(k) = map_.next_key()? {
                     match k {
                         GeneratedField::Bytes => {
@@ -1163,10 +1175,19 @@ impl<'de> serde::Deserialize<'de> for RecoverableEd25519Signature {
                                 Some(map_.next_value::<::pbjson::private::BytesDeserialize<_>>()?.0)
                             ;
                         }
+                        GeneratedField::PublicKey => {
+                            if public_key__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("publicKey"));
+                            }
+                            public_key__ = 
+                                Some(map_.next_value::<::pbjson::private::BytesDeserialize<_>>()?.0)
+                            ;
+                        }
                     }
                 }
                 Ok(RecoverableEd25519Signature {
                     bytes: bytes__.unwrap_or_default(),
+                    public_key: public_key__.unwrap_or_default(),
                 })
             }
         }

@@ -6897,6 +6897,8 @@ dependencies = [
  "async-trait",
  "chrono",
  "ctor",
+ "ed25519",
+ "ed25519-dalek",
  "ethers",
  "futures",
  "hex",

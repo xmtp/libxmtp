@@ -153,13 +153,15 @@ impl Signature for Erc1271Signature {
 pub struct InstallationKeySignature {
     signature_text: String,
     signature_bytes: Vec<u8>,
+    public_key: Vec<u8>,
 }
 
 impl InstallationKeySignature {
-    pub fn new(signature_text: String, signature_bytes: Vec<u8>) -> Self {
+    pub fn new(signature_text: String, signature_bytes: Vec<u8>, public_key: Vec<u8>) -> Self {
         InstallationKeySignature {
             signature_text,
             signature_bytes,
+            public_key,
         }
     }
 }
@@ -182,6 +184,7 @@ impl Signature for InstallationKeySignature {
             signature: Some(SignatureKindProto::InstallationKey(
                 RecoverableEd25519SignatureProto {
                     bytes: self.bytes(),
+                    public_key: self.public_key.clone(),
                 },
             )),
         }

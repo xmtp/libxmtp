@@ -94,7 +94,7 @@ impl Signature for MockSignature {
             },
             SignatureKind::InstallationKey => SignatureProto {
                 signature: Some(SignatureKindProto::InstallationKey(
-                    RecoverableEd25519SignatureProto { bytes: vec![0] },
+                    RecoverableEd25519SignatureProto { bytes: vec![0], public_key: vec![0] },
                 )),
             },
             SignatureKind::LegacyDelegated => SignatureProto {
