@@ -224,11 +224,10 @@ where
         Ok(group)
     }
 
-    pub fn create_sync_group(&self) -> Result<MlsGroup<ApiClient>, ClientError> {
+    pub fn create_sync_group(&self) -> Result<MlsGroup<ApiClient>, StorageError> {
         log::info!("creating sync group");
-        let sync_group = MlsGroup::create_and_insert_sync_group(self).map_err(|e| {
-            ClientError::Storage(StorageError::Store(format!("group create error {}", e)))
-        })?;
+        let sync_group = MlsGroup::create_and_insert_sync_group(self)
+            .map_err(|e| StorageError::Store(format!("sync group create error {}", e)))?;
 
         Ok(sync_group)
     }

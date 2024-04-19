@@ -4,18 +4,19 @@ use rand::{
 };
 
 use xmtp_proto::{
-    api_client::XmtpMlsClient,
+    api_client::{XmtpIdentityClient, XmtpMlsClient},
     xmtp::mls::message_contents::plaintext_envelope::v2::MessageType::{Reply, Request},
     xmtp::mls::message_contents::plaintext_envelope::{Content, V2},
     xmtp::mls::message_contents::PlaintextEnvelope,
     xmtp::mls::message_contents::{MessageHistoryReply, MessageHistoryRequest},
 };
 
-use super::{GroupError, MlsGroup};
+use super::GroupError;
+use crate::Client;
 
-impl<'c, ApiClient> MlsGroup<'c, ApiClient>
+impl<'c, ApiClient> Client<ApiClient>
 where
-    ApiClient: XmtpMlsClient,
+    ApiClient: XmtpMlsClient + XmtpIdentityClient,
 {
     #[allow(dead_code)]
     pub(crate) async fn send_message_history_request(&self) -> Result<(), GroupError> {
@@ -26,7 +27,6 @@ where
                 message_type: Some(Request(contents)),
             })),
         };
-        // TODO: Implement sending this request to the network
         Ok(())
     }
 
@@ -41,7 +41,6 @@ where
                 message_type: Some(Reply(contents)),
             })),
         };
-        // TODO: Implement sending this reply to the network
         Ok(())
     }
 }
