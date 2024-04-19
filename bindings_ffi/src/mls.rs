@@ -450,7 +450,6 @@ impl FfiGroup {
             self.inner_client.as_ref(),
             self.group_id.clone(),
             self.created_at_ns,
-            self.added_by_address.clone(),
         );
 
         group.update_group_name(group_name).await?;
@@ -463,7 +462,6 @@ impl FfiGroup {
             self.inner_client.as_ref(),
             self.group_id.clone(),
             self.created_at_ns,
-            self.added_by_address.clone(),
         );
 
         let group_name = group.group_name()?;
