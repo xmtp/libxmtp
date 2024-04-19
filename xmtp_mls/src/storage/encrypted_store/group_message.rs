@@ -171,7 +171,9 @@ impl DbConnection<'_> {
     }
 
     pub fn get_sync_group_messages(&self) -> Result<Vec<StoredGroupMessage>, StorageError> {
-        let query = dsl::group_messages.order(dsl::sent_at_ns.asc()).into_boxed();
+        let query = dsl::group_messages
+            .order(dsl::sent_at_ns.asc())
+            .into_boxed();
         Ok(self.raw_query(|conn| query.load::<StoredGroupMessage>(conn))?)
     }
 
