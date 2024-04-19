@@ -11,6 +11,7 @@ use openmls_traits::OpenMlsProvider;
 use prost::EncodeError;
 use thiserror::Error;
 
+use xmtp_id::associations::AssociationError;
 use xmtp_proto::{
     api_client::{XmtpIdentityClient, XmtpMlsClient},
     xmtp::mls::api::v1::{
@@ -60,6 +61,8 @@ pub enum ClientError {
     Diesel(#[from] diesel::result::Error),
     #[error("Query failed: {0}")]
     QueryError(#[from] xmtp_proto::api_client::Error),
+    #[error("API error: {0}")]
+    Api(#[from] crate::api::WrappedApiError),
     #[error("identity error: {0}")]
     Identity(#[from] crate::identity::IdentityError),
     #[error("TLS Codec error: {0}")]
@@ -70,6 +73,8 @@ pub enum ClientError {
     SyncingError(Vec<MessageProcessingError>),
     #[error("Stream inconsistency error: {0}")]
     StreamInconsistency(String),
+    #[error("Association error: {0}")]
+    Association(#[from] AssociationError),
     #[error("generic:{0}")]
     Generic(String),
 }

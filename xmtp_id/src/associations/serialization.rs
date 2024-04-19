@@ -15,6 +15,7 @@ use super::{
     },
     IdentityUpdate, MemberIdentifier, Signature,
 };
+use prost::DecodeError;
 use thiserror::Error;
 use xmtp_proto::xmtp::identity::associations::{
     identity_action::Kind as IdentityActionKindProto,
@@ -39,6 +40,8 @@ pub enum DeserializationError {
     Signature,
     #[error("Missing Member")]
     MissingMember,
+    #[error("Decode error {0}")]
+    Decode(#[from] DecodeError),
 }
 
 pub fn from_identity_update_proto(
@@ -226,29 +229,18 @@ fn from_signature_kind_proto(
     })
 }
 
-// Serialization
-#[derive(Error, Debug)]
-pub enum SerializationError {
-    #[error("Missing action")]
-    MissingAction,
-}
-
-pub fn to_identity_update_proto(
-    identity_update: &IdentityUpdate,
-) -> Result<IdentityUpdateProto, SerializationError> {
+pub fn to_identity_update_proto(identity_update: &IdentityUpdate) -> IdentityUpdateProto {
     let actions: Vec<IdentityActionProto> = identity_update
         .actions
         .iter()
         .map(to_identity_action_proto)
         .collect();
 
-    let proto = IdentityUpdateProto {
+    IdentityUpdateProto {
         client_timestamp_ns: identity_update.client_timestamp_ns,
         inbox_id: identity_update.inbox_id.clone(),
         actions,
-    };
-
-    Ok(proto)
+    }
 }
 
 fn to_identity_action_proto(action: &Action) -> IdentityActionProto {
@@ -398,8 +390,7 @@ mod tests {
             rand_u64(),
         );
 
-        let serialized_update =
-            to_identity_update_proto(&identity_update).expect("serialization should succeed");
+        let serialized_update = to_identity_update_proto(&identity_update);
 
         assert_eq!(
             serialized_update.client_timestamp_ns,
@@ -410,8 +401,7 @@ mod tests {
         let deserialized_update = from_identity_update_proto(serialized_update.clone())
             .expect("deserialization should succeed");
 
-        let reserialized =
-            to_identity_update_proto(&deserialized_update).expect("serialization should succeed");
+        let reserialized = to_identity_update_proto(&deserialized_update);
 
         assert_eq!(serialized_update, reserialized);
     }
