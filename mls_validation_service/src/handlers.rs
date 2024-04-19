@@ -337,9 +337,8 @@ mod tests {
                 old_updates: vec![],
                 new_updates: updates
                     .into_iter()
-                    .map(IdentityUpdateProto::try_from)
-                    .collect::<Result<Vec<_>, SerializationError>>()
-                    .unwrap(),
+                    .map(IdentityUpdateProto::from)
+                    .collect::<Vec<_>>(),
             }))
             .await
             .unwrap();
