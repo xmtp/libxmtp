@@ -220,8 +220,10 @@ where
             .await?;
         let new_client = Client::new(api_client_wrapper, network, identity, store);
         // scott: I don't know where else this could go...
-        new_client.create_sync_group().map_err(|e| ClientBuilderError::StorageError(e))?;
-            
+        new_client
+            .create_sync_group()
+            .map_err(|e| ClientBuilderError::StorageError(e))?;
+
         Ok(new_client)
     }
 }
