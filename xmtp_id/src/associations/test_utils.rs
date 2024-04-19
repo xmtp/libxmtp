@@ -1,5 +1,16 @@
 use rand::{distributions::Alphanumeric, Rng};
-use xmtp_proto::xmtp::identity::associations::Signature as SignatureProto;
+use xmtp_proto::{
+    xmtp::identity::associations::{
+        signature::Signature as SignatureKindProto, Erc1271Signature as Erc1271SignatureProto,
+        LegacyDelegatedSignature as LegacyDelegatedSignatureProto,
+        RecoverableEcdsaSignature as RecoverableEcdsaSignatureProto,
+        RecoverableEd25519Signature as RecoverableEd25519SignatureProto,
+        Signature as SignatureProto,
+    },
+    xmtp::message_contents::{
+        Signature as LegacySignatureProto, SignedPublicKey as LegacySignedPublicKeyProto,
+    },
+};
 
 use super::{MemberIdentifier, Signature, SignatureError, SignatureKind};
 
@@ -68,6 +79,35 @@ impl Signature for MockSignature {
     }
 
     fn to_proto(&self) -> SignatureProto {
-        SignatureProto { signature: None }
+        match self.signature_kind {
+            SignatureKind::Erc191 => SignatureProto {
+                signature: Some(SignatureKindProto::Erc191(RecoverableEcdsaSignatureProto {
+                    bytes: vec![0],
+                })),
+            },
+            SignatureKind::Erc1271 => SignatureProto {
+                signature: Some(SignatureKindProto::Erc1271(Erc1271SignatureProto {
+                    contract_address: "0xdead".into(),
+                    block_number: 0,
+                    signature: vec![0],
+                })),
+            },
+            SignatureKind::InstallationKey => SignatureProto {
+                signature: Some(SignatureKindProto::InstallationKey(
+                    RecoverableEd25519SignatureProto { bytes: vec![0] },
+                )),
+            },
+            SignatureKind::LegacyDelegated => SignatureProto {
+                signature: Some(SignatureKindProto::DelegatedErc191(
+                    LegacyDelegatedSignatureProto {
+                        delegated_key: Some(LegacySignedPublicKeyProto {
+                            key_bytes: vec![0],
+                            signature: Some(LegacySignatureProto { union: None }),
+                        }),
+                        signature: Some(RecoverableEcdsaSignatureProto { bytes: vec![0] }),
+                    },
+                )),
+            },
+        }
     }
 }

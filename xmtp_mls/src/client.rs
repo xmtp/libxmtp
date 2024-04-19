@@ -11,8 +11,9 @@ use openmls_traits::OpenMlsProvider;
 use prost::EncodeError;
 use thiserror::Error;
 
+use xmtp_id::associations::AssociationError;
 use xmtp_proto::{
-    api_client::XmtpMlsClient,
+    api_client::{XmtpIdentityClient, XmtpMlsClient},
     xmtp::mls::api::v1::{
         welcome_message::{Version as WelcomeMessageVersion, V1 as WelcomeMessageV1},
         GroupMessage, WelcomeMessage,
@@ -20,7 +21,7 @@ use xmtp_proto::{
 };
 
 use crate::{
-    api_client_wrapper::{ApiClientWrapper, IdentityUpdate},
+    api::{ApiClientWrapper, IdentityUpdate},
     groups::{
         validated_commit::CommitValidationError, AddressesOrInstallationIds, IntentError, MlsGroup,
         PreconfiguredPolicies,
@@ -60,6 +61,8 @@ pub enum ClientError {
     Diesel(#[from] diesel::result::Error),
     #[error("Query failed: {0}")]
     QueryError(#[from] xmtp_proto::api_client::Error),
+    #[error("API error: {0}")]
+    Api(#[from] crate::api::WrappedApiError),
     #[error("identity error: {0}")]
     Identity(#[from] crate::identity::IdentityError),
     #[error("TLS Codec error: {0}")]
@@ -70,6 +73,8 @@ pub enum ClientError {
     SyncingError(Vec<MessageProcessingError>),
     #[error("Stream inconsistency error: {0}")]
     StreamInconsistency(String),
+    #[error("Association error: {0}")]
+    Association(#[from] AssociationError),
     #[error("generic:{0}")]
     Generic(String),
 }
@@ -159,7 +164,7 @@ pub struct Client<ApiClient> {
 
 impl<'a, ApiClient> Client<ApiClient>
 where
-    ApiClient: XmtpMlsClient,
+    ApiClient: XmtpMlsClient + XmtpIdentityClient,
 {
     /// Create a new client with the given network, identity, and store.
     /// It is expected that most users will use the [`ClientBuilder`](crate::builder::ClientBuilder) instead of instantiating
@@ -210,7 +215,7 @@ where
             self,
             GroupMembershipState::Allowed,
             permissions,
-            Some(self.account_address()),
+            self.account_address(),
         )
         .map_err(|e| ClientError::Generic(format!("group create error {}", e)))?;
 
@@ -223,12 +228,7 @@ where
         let conn = &mut self.store.conn()?;
         let stored_group: Option<StoredGroup> = conn.fetch(&group_id)?;
         match stored_group {
-            Some(group) => Ok(MlsGroup::new(
-                self,
-                group.id,
-                group.created_at_ns,
-                group.added_by_address,
-            )),
+            Some(group) => Ok(MlsGroup::new(self, group.id, group.created_at_ns)),
             None => Err(ClientError::Generic("group not found".to_string())),
         }
     }
@@ -252,14 +252,7 @@ where
             .conn()?
             .find_groups(allowed_states, created_after_ns, created_before_ns, limit)?
             .into_iter()
-            .map(|stored_group| {
-                MlsGroup::new(
-                    self,
-                    stored_group.id,
-                    stored_group.created_at_ns,
-                    stored_group.added_by_address,
-                )
-            })
+            .map(|stored_group| MlsGroup::new(self, stored_group.id, stored_group.created_at_ns))
             .collect())
     }
 

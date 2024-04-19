@@ -1,4 +1,4 @@
-pub mod api_client_wrapper;
+pub mod api;
 pub mod builder;
 pub mod client;
 pub mod codecs;
@@ -7,6 +7,7 @@ pub mod credential;
 pub mod groups;
 mod hpke;
 pub mod identity;
+mod identity_updates;
 pub mod owner;
 pub mod retry;
 pub mod storage;

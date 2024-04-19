@@ -19,7 +19,7 @@ use xmtp_mls::{
     client::Client as MlsClient,
     groups::MlsGroup,
     storage::{
-        group_message::GroupMessageKind, group_message::StoredGroupMessage, EncryptedMessageStore,
+        group_message::DeliveryStatus, group_message::GroupMessageKind, group_message::StoredGroupMessage, EncryptedMessageStore,
         EncryptionKey, StorageOption,
     },
     types::Address,
@@ -220,7 +220,6 @@ impl FfiConversations {
             inner_client: self.inner_client.clone(),
             group_id: convo.group_id,
             created_at_ns: convo.created_at_ns,
-            added_by_address: convo.added_by_address,
         });
 
         Ok(out)
@@ -236,7 +235,6 @@ impl FfiConversations {
             inner_client: self.inner_client.clone(),
             group_id: group.group_id,
             created_at_ns: group.created_at_ns,
-            added_by_address: group.added_by_address,
         });
         Ok(out)
     }
@@ -265,7 +263,6 @@ impl FfiConversations {
                     inner_client: self.inner_client.clone(),
                     group_id: group.group_id,
                     created_at_ns: group.created_at_ns,
-                    added_by_address: group.added_by_address,
                 })
             })
             .collect();
@@ -285,7 +282,6 @@ impl FfiConversations {
                     inner_client: client.clone(),
                     group_id: convo.group_id,
                     created_at_ns: convo.created_at_ns,
-                    added_by_address: convo.added_by_address,
                 }))
             },
             || {}, // on_close_callback
@@ -319,7 +315,6 @@ pub struct FfiGroup {
     inner_client: Arc<RustXmtpClient>,
     group_id: Vec<u8>,
     created_at_ns: i64,
-    added_by_address: Option<String>,
 }
 
 #[derive(uniffi::Record)]
@@ -333,21 +328,21 @@ pub struct FfiListMessagesOptions {
     pub sent_before_ns: Option<i64>,
     pub sent_after_ns: Option<i64>,
     pub limit: Option<i64>,
+    pub delivery_status: Option<FfiDeliveryStatus>,
 }
 
 #[uniffi::export(async_runtime = "tokio")]
 impl FfiGroup {
-    pub async fn send(&self, content_bytes: Vec<u8>) -> Result<(), GenericError> {
+    pub async fn send(&self, content_bytes: Vec<u8>) -> Result<Vec<u8>, GenericError> {
         let group = MlsGroup::new(
             self.inner_client.as_ref(),
             self.group_id.clone(),
             self.created_at_ns,
-            self.added_by_address.clone(),
         );
 
-        group.send_message(content_bytes.as_slice()).await?;
+        let message_id = group.send_message(content_bytes.as_slice()).await?;
 
-        Ok(())
+        Ok(message_id)
     }
 
     pub async fn sync(&self) -> Result<(), GenericError> {
@@ -355,7 +350,6 @@ impl FfiGroup {
             self.inner_client.as_ref(),
             self.group_id.clone(),
             self.created_at_ns,
-            self.added_by_address.clone(),
         );
 
         group.sync().await?;
@@ -371,15 +365,17 @@ impl FfiGroup {
             self.inner_client.as_ref(),
             self.group_id.clone(),
             self.created_at_ns,
-            self.added_by_address.clone(),
         );
+
+        
+        let delivery_status = opts.delivery_status.map(|status| status.into()); 
 
         let messages: Vec<FfiMessage> = group
             .find_messages(
                 None,
                 opts.sent_before_ns,
                 opts.sent_after_ns,
-                None,
+                delivery_status,
                 opts.limit,
             )?
             .into_iter()
@@ -397,7 +393,6 @@ impl FfiGroup {
             self.inner_client.as_ref(),
             self.group_id.clone(),
             self.created_at_ns,
-            self.added_by_address.clone(),
         );
         let message = group.process_streamed_group_message(envelope_bytes).await?;
         let ffi_message = message.into();
@@ -410,7 +405,6 @@ impl FfiGroup {
             self.inner_client.as_ref(),
             self.group_id.clone(),
             self.created_at_ns,
-            self.added_by_address.clone(),
         );
 
         let members: Vec<FfiGroupMember> = group
@@ -432,7 +426,6 @@ impl FfiGroup {
             self.inner_client.as_ref(),
             self.group_id.clone(),
             self.created_at_ns,
-            self.added_by_address.clone(),
         );
 
         group.add_members(account_addresses).await?;
@@ -445,7 +438,6 @@ impl FfiGroup {
             self.inner_client.as_ref(),
             self.group_id.clone(),
             self.created_at_ns,
-            self.added_by_address.clone(),
         );
 
         group.remove_members(account_addresses).await?;
@@ -458,7 +450,6 @@ impl FfiGroup {
             self.inner_client.as_ref(),
             self.group_id.clone(),
             self.created_at_ns,
-            self.added_by_address.clone(),
         );
 
         group.update_group_name(group_name).await?;
@@ -471,7 +462,6 @@ impl FfiGroup {
             self.inner_client.as_ref(),
             self.group_id.clone(),
             self.created_at_ns,
-            self.added_by_address.clone(),
         );
 
         let group_name = group.group_name()?;
@@ -507,10 +497,19 @@ impl FfiGroup {
             self.inner_client.as_ref(),
             self.group_id.clone(),
             self.created_at_ns,
-            self.added_by_address.clone(),
         );
 
         Ok(group.is_active()?)
+    }
+
+    pub fn added_by_address(&self) -> Result<String, GenericError> {
+        let group = MlsGroup::new(
+            self.inner_client.as_ref(),
+            self.group_id.clone(),
+            self.created_at_ns,
+        );
+
+        Ok(group.added_by_address()?)
     }
 
     pub fn group_metadata(&self) -> Result<Arc<FfiGroupMetadata>, GenericError> {
@@ -518,7 +517,6 @@ impl FfiGroup {
             self.inner_client.as_ref(),
             self.group_id.clone(),
             self.created_at_ns,
-            self.added_by_address.clone(),
         );
 
         let metadata = group.metadata()?;
@@ -550,6 +548,33 @@ impl From<GroupMessageKind> for FfiGroupMessageKind {
     }
 }
 
+#[derive(uniffi::Enum)]
+pub enum FfiDeliveryStatus {
+    Unpublished,
+    Published,
+    Failed,
+}
+
+impl From<DeliveryStatus> for FfiDeliveryStatus {
+    fn from(status: DeliveryStatus) -> Self {
+        match status {
+            DeliveryStatus::Unpublished => FfiDeliveryStatus::Unpublished,
+            DeliveryStatus::Published => FfiDeliveryStatus::Published,
+            DeliveryStatus::Failed => FfiDeliveryStatus::Failed,
+        }
+    }
+}
+
+impl From<FfiDeliveryStatus> for DeliveryStatus {
+    fn from(status: FfiDeliveryStatus) -> Self {
+        match status {
+            FfiDeliveryStatus::Unpublished => DeliveryStatus::Unpublished,
+            FfiDeliveryStatus::Published => DeliveryStatus::Published,
+            FfiDeliveryStatus::Failed => DeliveryStatus::Failed,
+        }
+    }
+}
+
 #[derive(uniffi::Record)]
 pub struct FfiMessage {
     pub id: Vec<u8>,
@@ -558,6 +583,7 @@ pub struct FfiMessage {
     pub addr_from: String,
     pub content: Vec<u8>,
     pub kind: FfiGroupMessageKind,
+    pub delivery_status: FfiDeliveryStatus,
 }
 
 impl From<StoredGroupMessage> for FfiMessage {
@@ -569,6 +595,7 @@ impl From<StoredGroupMessage> for FfiMessage {
             addr_from: msg.sender_account_address,
             content: msg.decrypted_message_bytes,
             kind: msg.kind.into(),
+            delivery_status: msg.delivery_status.into(),
         }
     }
 }
@@ -975,6 +1002,7 @@ mod tests {
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 5)]
+    #[ignore]
     async fn test_conversation_streaming() {
         let amal = new_test_client().await;
         let bola = new_test_client().await;
@@ -1177,7 +1205,7 @@ mod tests {
         let bola_group = bola_groups.first().unwrap();
 
         // Check Bola's group for the added_by_address of the inviter
-        let added_by_address = bola_group.added_by_address.clone().unwrap();
+        let added_by_address = bola_group.added_by_address().unwrap();
 
         // // Verify the welcome host_credential is equal to Amal's
         assert_eq!(

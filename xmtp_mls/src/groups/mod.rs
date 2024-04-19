@@ -1,3 +1,4 @@
+mod group_membership;
 pub mod group_metadata;
 pub mod group_mutable_metadata;
 mod group_permissions;
@@ -30,7 +31,7 @@ use thiserror::Error;
 
 use xmtp_cryptography::signature::is_valid_ed25519_public_key;
 use xmtp_proto::{
-    api_client::XmtpMlsClient,
+    api_client::{XmtpIdentityClient, XmtpMlsClient},
     xmtp::mls::{
         api::v1::{
             group_message::{Version as GroupMessageVersion, V1 as GroupMessageV1},
@@ -168,7 +169,6 @@ impl RetryableError for GroupError {
 pub struct MlsGroup<'c, ApiClient> {
     pub group_id: Vec<u8>,
     pub created_at_ns: i64,
-    pub added_by_address: Option<String>,
     client: &'c Client<ApiClient>,
 }
 
@@ -178,27 +178,20 @@ impl<'c, ApiClient> Clone for MlsGroup<'c, ApiClient> {
             client: self.client,
             group_id: self.group_id.clone(),
             created_at_ns: self.created_at_ns,
-            added_by_address: self.added_by_address.clone(),
         }
     }
 }
 
 impl<'c, ApiClient> MlsGroup<'c, ApiClient>
 where
-    ApiClient: XmtpMlsClient,
+    ApiClient: XmtpMlsClient + XmtpIdentityClient,
 {
     // Creates a new group instance. Does not validate that the group exists in the DB
-    pub fn new(
-        client: &'c Client<ApiClient>,
-        group_id: Vec<u8>,
-        created_at_ns: i64,
-        added_by_address: Option<String>,
-    ) -> Self {
+    pub fn new(client: &'c Client<ApiClient>, group_id: Vec<u8>, created_at_ns: i64) -> Self {
         Self {
             client,
             group_id,
             created_at_ns,
-            added_by_address,
         }
     }
 
@@ -216,7 +209,7 @@ where
         client: &'c Client<ApiClient>,
         membership_state: GroupMembershipState,
         permissions: Option<PreconfiguredPolicies>,
-        added_by_address: Option<String>,
+        added_by_address: String,
     ) -> Result<Self, GroupError> {
         let conn = client.store.conn()?;
         let provider = XmtpOpenMlsProvider::new(&conn);
@@ -247,12 +240,7 @@ where
         );
 
         stored_group.store(provider.conn())?;
-        Ok(Self::new(
-            client,
-            group_id,
-            stored_group.created_at_ns,
-            added_by_address,
-        ))
+        Ok(Self::new(client, group_id, stored_group.created_at_ns))
     }
 
     // Create a group from a decrypted and decoded welcome message
@@ -261,7 +249,7 @@ where
         client: &'c Client<ApiClient>,
         provider: &XmtpOpenMlsProvider,
         welcome: MlsWelcome,
-        added_by_address: Option<String>,
+        added_by_address: String,
     ) -> Result<Self, GroupError> {
         let mls_welcome =
             StagedWelcome::new_from_welcome(provider, &build_group_join_config(), welcome, None)?;
@@ -282,7 +270,6 @@ where
             client,
             stored_group.id,
             stored_group.created_at_ns,
-            added_by_address,
         ))
     }
 
@@ -308,7 +295,7 @@ where
         let account_address =
             Identity::get_validated_account_address(added_by_credential.identity(), pub_key_bytes)?;
 
-        Self::create_from_welcome(client, provider, welcome, Some(account_address))
+        Self::create_from_welcome(client, provider, welcome, account_address)
     }
 
     fn into_envelope(encoded_msg: &[u8], idempotency_key: &str) -> PlaintextEnvelope {
@@ -320,7 +307,7 @@ where
         }
     }
 
-    pub async fn send_message(&self, message: &[u8]) -> Result<(), GroupError> {
+    pub async fn send_message(&self, message: &[u8]) -> Result<Vec<u8>, GroupError> {
         let conn = &mut self.client.store.conn()?;
 
         let update_interval = Some(5_000_000); // 5 seconds in nanoseconds
@@ -347,7 +334,7 @@ where
             &now.to_string(),
         );
         let group_message = StoredGroupMessage {
-            id: message_id,
+            id: message_id.clone(),
             group_id: self.group_id.clone(),
             decrypted_message_bytes: message.to_vec(),
             sent_at_ns: now,
@@ -362,7 +349,7 @@ where
         if let Err(err) = self.publish_intents(conn).await {
             println!("error publishing intents: {:?}", err);
         }
-        Ok(())
+        Ok(message_id)
     }
 
     // Query the database for stored messages. Optionally filtered by time, kind, delivery_status
@@ -460,6 +447,18 @@ where
     pub fn group_name(&self) -> Result<String, GroupError> {
         let mutable_metadata = self.mutable_metadata()?;
         Ok(mutable_metadata.group_name)
+    }
+
+    // Find the wallet address of the group member who added the member to the group
+    pub fn added_by_address(&self) -> Result<String, GroupError> {
+        let conn = self.client.store.conn()?;
+        conn.find_group(self.group_id.clone())
+            .map_err(GroupError::from)
+            .and_then(|fetch_result| {
+                fetch_result
+                    .map(|group| group.added_by_address.clone())
+                    .ok_or_else(|| GroupError::GroupNotFound)
+            })
     }
 
     // Used in tests
@@ -627,7 +626,10 @@ mod tests {
     use prost::Message;
     use xmtp_api_grpc::grpc_api_helper::Client as GrpcClient;
     use xmtp_cryptography::utils::generate_local_wallet;
-    use xmtp_proto::{api_client::XmtpMlsClient, xmtp::mls::message_contents::EncodedContent};
+    use xmtp_proto::{
+        api_client::{XmtpIdentityClient, XmtpMlsClient},
+        xmtp::mls::message_contents::EncodedContent,
+    };
 
     use crate::{
         builder::ClientBuilder,
@@ -644,7 +646,7 @@ mod tests {
 
     async fn receive_group_invite<ApiClient>(client: &Client<ApiClient>) -> MlsGroup<ApiClient>
     where
-        ApiClient: XmtpMlsClient,
+        ApiClient: XmtpMlsClient + XmtpIdentityClient,
     {
         client.sync_welcomes().await.unwrap();
         let mut groups = client.find_groups(None, None, None, None).unwrap();
@@ -1233,7 +1235,7 @@ mod tests {
         let bola_fetched_group = bola.group(bola_group_id).unwrap();
 
         // Check Bola's group for the added_by_address of the inviter
-        let added_by_address = bola_fetched_group.added_by_address.clone().unwrap();
+        let added_by_address = bola_fetched_group.added_by_address().unwrap();
 
         // Verify the welcome host_credential is equal to Amal's
         assert_eq!(
