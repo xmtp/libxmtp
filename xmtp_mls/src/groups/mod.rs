@@ -307,7 +307,8 @@ where
             &client.identity,
             PreconfiguredPolicies::default().to_policy_set(),
         )?;
-        let group_config = build_group_config(protected_metadata)?;
+        let mutable_metadata = build_mutable_metadata_extension(DEFAULT_GROUP_NAME.to_string())?;
+        let group_config = build_group_config(protected_metadata, mutable_metadata)?;
         let mut mls_group = OpenMlsGroup::new(
             &provider,
             &client.identity.installation_keys,
