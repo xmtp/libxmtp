@@ -5,12 +5,14 @@ mod member;
 mod serialization;
 mod signature;
 mod state;
-#[cfg(test)]
-mod test_utils;
+#[cfg(any(test, feature = "test-utils"))]
+pub mod test_utils;
 mod unsigned_actions;
 
 pub use self::association_log::*;
+pub use self::hashes::generate_inbox_id;
 pub use self::member::{Member, MemberIdentifier, MemberKind};
+pub use self::serialization::DeserializationError;
 pub use self::signature::{Signature, SignatureError, SignatureKind};
 pub use self::state::AssociationState;
 
@@ -35,12 +37,9 @@ pub fn get_state(updates: Vec<IdentityUpdate>) -> Result<AssociationState, Assoc
     new_state.ok_or(AssociationError::NotCreated)
 }
 
-#[cfg(test)]
-mod tests {
-    use tests::hashes::generate_inbox_id;
-
+#[cfg(any(test, feature = "test-utils"))]
+pub mod test_defaults {
     use self::test_utils::{rand_string, rand_u64, rand_vec, MockSignature};
-
     use super::*;
 
     impl IdentityUpdate {
@@ -53,7 +52,8 @@ mod tests {
         fn default() -> Self {
             let existing_member = rand_string();
             let new_member = rand_vec();
-            return Self {
+
+            Self {
                 existing_member_signature: MockSignature::new_boxed(
                     true,
                     existing_member.into(),
@@ -67,7 +67,7 @@ mod tests {
                     None,
                 ),
                 new_member_identifier: new_member.into(),
-            };
+            }
         }
     }
 
@@ -75,7 +75,8 @@ mod tests {
     impl Default for CreateInbox {
         fn default() -> Self {
             let signer = rand_string();
-            return Self {
+
+            Self {
                 nonce: rand_u64(),
                 account_address: signer.clone(),
                 initial_address_signature: MockSignature::new_boxed(
@@ -84,14 +85,15 @@ mod tests {
                     SignatureKind::Erc191,
                     None,
                 ),
-            };
+            }
         }
     }
 
     impl Default for RevokeAssociation {
         fn default() -> Self {
             let signer = rand_string();
-            return Self {
+
+            Self {
                 recovery_address_signature: MockSignature::new_boxed(
                     true,
                     signer.into(),
@@ -99,11 +101,20 @@ mod tests {
                     None,
                 ),
                 revoked_member: rand_string().into(),
-            };
+            }
         }
     }
+}
 
-    fn new_test_inbox() -> AssociationState {
+#[cfg(test)]
+mod tests {
+    use tests::hashes::generate_inbox_id;
+
+    use self::test_utils::{rand_string, rand_vec, MockSignature};
+
+    use super::*;
+
+    pub fn new_test_inbox() -> AssociationState {
         let create_request = CreateInbox::default();
         let inbox_id = generate_inbox_id(&create_request.account_address, &create_request.nonce);
         let identity_update =
@@ -112,7 +123,7 @@ mod tests {
         get_state(vec![identity_update]).unwrap()
     }
 
-    fn new_test_inbox_with_installation() -> AssociationState {
+    pub fn new_test_inbox_with_installation() -> AssociationState {
         let initial_state = new_test_inbox();
         let inbox_id = initial_state.inbox_id().clone();
         let initial_wallet_address: MemberIdentifier =

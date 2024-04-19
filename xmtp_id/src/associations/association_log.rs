@@ -1,11 +1,12 @@
 use super::hashes::generate_inbox_id;
 use super::member::{Member, MemberIdentifier, MemberKind};
 use super::serialization::{
-    from_identity_update_proto, to_identity_update_proto, DeserializationError, SerializationError,
+    from_identity_update_proto, to_identity_update_proto, DeserializationError,
 };
 use super::signature::{Signature, SignatureError, SignatureKind};
 use super::state::AssociationState;
 
+use prost::Message;
 use thiserror::Error;
 use xmtp_proto::xmtp::identity::associations::IdentityUpdate as IdentityUpdateProto;
 
@@ -33,6 +34,10 @@ pub enum AssociationError {
     SignatureNotAllowed(String, String),
     #[error("Replay detected")]
     Replay,
+    #[error("Deserialization error {0}")]
+    Deserialization(#[from] DeserializationError),
+    #[error("Missing identity update")]
+    MissingIdentityUpdate,
 }
 
 pub trait IdentityAction {
@@ -323,12 +328,35 @@ impl IdentityUpdate {
         }
     }
 
-    pub fn to_proto(&self) -> Result<IdentityUpdateProto, SerializationError> {
+    pub fn to_proto(&self) -> IdentityUpdateProto {
         to_identity_update_proto(self)
     }
 
     pub fn from_proto(proto: IdentityUpdateProto) -> Result<Self, DeserializationError> {
         from_identity_update_proto(proto)
+    }
+}
+
+impl From<IdentityUpdate> for IdentityUpdateProto {
+    fn from(proto: IdentityUpdate) -> IdentityUpdateProto {
+        IdentityUpdate::to_proto(&proto)
+    }
+}
+
+impl TryFrom<IdentityUpdateProto> for IdentityUpdate {
+    type Error = DeserializationError;
+
+    fn try_from(proto: IdentityUpdateProto) -> Result<IdentityUpdate, Self::Error> {
+        IdentityUpdate::from_proto(proto)
+    }
+}
+
+impl TryFrom<Vec<u8>> for IdentityUpdate {
+    type Error = DeserializationError;
+
+    fn try_from(bytes: Vec<u8>) -> Result<IdentityUpdate, Self::Error> {
+        let proto = IdentityUpdateProto::decode(bytes.as_slice())?;
+        IdentityUpdate::from_proto(proto)
     }
 }
 

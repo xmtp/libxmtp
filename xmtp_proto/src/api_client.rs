@@ -23,7 +23,9 @@ use crate::xmtp::mls::api::v1::{
 
 #[derive(Debug)]
 pub enum ErrorKind {
-    SetupError,
+    SetupCreateChannelError,
+    SetupTLSConfigError,
+    SetupConnectionError,
     PublishError,
     QueryError,
     SubscribeError,
@@ -68,7 +70,9 @@ impl fmt::Debug for Error {
 impl fmt::Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str(match &self.kind {
-            ErrorKind::SetupError => "setup error",
+            ErrorKind::SetupCreateChannelError => "failed to create channel",
+            ErrorKind::SetupTLSConfigError => "tls configuration failed",
+            ErrorKind::SetupConnectionError => "connection failed",
             ErrorKind::PublishError => "publish error",
             ErrorKind::QueryError => "query error",
             ErrorKind::SubscribeError => "subscribe error",

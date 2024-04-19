@@ -21,11 +21,12 @@ use prost::Message;
 use thiserror::Error;
 use xmtp_cryptography::signature::SignatureError;
 use xmtp_proto::{
-    api_client::XmtpMlsClient, xmtp::mls::message_contents::MlsCredential as CredentialProto,
+    api_client::{XmtpIdentityClient, XmtpMlsClient},
+    xmtp::mls::message_contents::MlsCredential as CredentialProto,
 };
 
 use crate::{
-    api_client_wrapper::{ApiClientWrapper, IdentityUpdate},
+    api::{ApiClientWrapper, IdentityUpdate},
     configuration::{CIPHERSUITE, MUTABLE_METADATA_EXTENSION_ID},
     credential::{AssociationError, Credential, UnsignedGrantMessagingAccessData},
     storage::{identity::StoredIdentity, StorageError},
@@ -114,7 +115,7 @@ impl Identity {
         })
     }
 
-    pub(crate) async fn register<ApiClient: XmtpMlsClient>(
+    pub(crate) async fn register<ApiClient: XmtpMlsClient + XmtpIdentityClient>(
         &self,
         provider: &XmtpOpenMlsProvider<'_>,
         api_client: &ApiClientWrapper<ApiClient>,
@@ -247,7 +248,9 @@ impl Identity {
         self.account_address.as_bytes().to_vec()
     }
 
-    pub(crate) async fn has_existing_legacy_credential<ApiClient: XmtpMlsClient>(
+    pub(crate) async fn has_existing_legacy_credential<
+        ApiClient: XmtpMlsClient + XmtpIdentityClient,
+    >(
         api_client: &ApiClientWrapper<ApiClient>,
         account_address: &str,
     ) -> Result<bool, IdentityError> {
@@ -285,17 +288,17 @@ mod tests {
     use openmls::prelude::ExtensionType;
     use xmtp_api_grpc::grpc_api_helper::Client as GrpcClient;
     use xmtp_cryptography::utils::generate_local_wallet;
-    use xmtp_proto::api_client::XmtpMlsClient;
+    use xmtp_proto::api_client::{XmtpIdentityClient, XmtpMlsClient};
 
     use super::Identity;
     use crate::{
-        api_client_wrapper::{tests::get_test_api_client, ApiClientWrapper},
+        api::{test_utils::get_test_api_client, ApiClientWrapper},
         storage::EncryptedMessageStore,
         xmtp_openmls_provider::XmtpOpenMlsProvider,
         InboxOwner,
     };
 
-    pub async fn create_registered_identity<ApiClient: XmtpMlsClient>(
+    pub async fn create_registered_identity<ApiClient: XmtpMlsClient + XmtpIdentityClient>(
         provider: &XmtpOpenMlsProvider<'_>,
         api_client: &ApiClientWrapper<ApiClient>,
         owner: &impl InboxOwner,
