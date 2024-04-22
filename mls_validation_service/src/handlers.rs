@@ -317,7 +317,7 @@ mod tests {
         assert_eq!(first_response.account_address, "".to_string());
     }
 
-    // this test will fail until signature recovery is added
+    // this test will panic until signature recovery is added
     // and `MockSignature` is updated with signatures that can be recovered
     #[tokio::test]
     #[should_panic]
