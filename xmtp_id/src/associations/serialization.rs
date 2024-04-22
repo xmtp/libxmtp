@@ -27,6 +27,8 @@ use xmtp_proto::xmtp::identity::associations::{
 
 #[derive(Error, Debug)]
 pub enum DeserializationError {
+    #[error(transparent)]
+    SignatureError(#[from] crate::associations::SignatureError),
     #[error("Missing action")]
     MissingAction,
     #[error("Missing update")]
@@ -222,7 +224,8 @@ fn from_signature_kind_proto(
                 recoverable_ecdsa_signature,
                 delegated_erc191_signature
                     .delegated_key
-                    .ok_or(DeserializationError::Signature)?,
+                    .ok_or(DeserializationError::Signature)?
+                    .try_into()?,
             ))
         }
     })

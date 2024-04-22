@@ -7,6 +7,7 @@ use ethers::{
     types::{Address, BlockNumber, U64},
     utils::hash_message,
 };
+use openmls::prelude::Member;
 use thiserror::Error;
 use tokio::runtime::Runtime;
 use xmtp_cryptography::signature::{h160addr_to_string, sanitize_evm_addresses};
@@ -237,13 +238,13 @@ impl Signature for InstallationKeySignature {
 pub struct LegacyDelegatedSignature {
     // This would be the signature from the legacy key
     legacy_key_signature: RecoverableEcdsaSignature,
-    signed_public_key: xmtp_proto::xmtp::message_contents::SignedPublicKey,
+    signed_public_key: ValidatedLegacySignedPublicKey,
 }
 
 impl LegacyDelegatedSignature {
     pub fn new(
         legacy_key_signature: RecoverableEcdsaSignature,
-        signed_public_key: xmtp_proto::xmtp::message_contents::SignedPublicKey,
+        signed_public_key: ValidatedLegacySignedPublicKey,
     ) -> Self {
         LegacyDelegatedSignature {
             legacy_key_signature,
@@ -254,21 +255,14 @@ impl LegacyDelegatedSignature {
 
 impl Signature for LegacyDelegatedSignature {
     fn recover_signer(&self) -> Result<MemberIdentifier, SignatureError> {
-        // 1. Verify the RecoverableEcdsaSignature and make sure it recovers to the public key specified in the `signed_public_key`
-        // use ValidatedLegacySignedPublicKey
+        // 1. Verify the RecoverableEcdsaSignature 
         let legacy_signer = self.legacy_key_signature.recover_signer()?;
-        let signed_public_key =
-            &EcdsaVerifyingKey::from_sec1_bytes(self.signed_public_key.key_bytes.as_slice())?;
-        if legacy_signer
-            != MemberIdentifier::Address(h160addr_to_string(ethers::utils::public_key_to_address(
-                signed_public_key,
-            )))
-        {
+
+        // 2. Signed public key is already verified, we just make sure it matches to the legacy_signer
+        if MemberIdentifier::Address(self.signed_public_key.account_address()) != legacy_signer {
             return Err(SignatureError::Invalid);
         }
 
-        // 2. Verify the wallet signature on the `signed_public_key`
-        // let _: ValidatedLegacySignedPublicKey = self.signed_public_key.try_into()?;
         Ok(legacy_signer)
     }
 
@@ -284,7 +278,7 @@ impl Signature for LegacyDelegatedSignature {
         SignatureProto {
             signature: Some(SignatureKindProto::DelegatedErc191(
                 LegacyDelegatedSignatureProto {
-                    delegated_key: Some(self.signed_public_key.clone()),
+                    delegated_key: Some(self.signed_public_key.clone().into()),
                     signature: Some(RecoverableEcdsaSignatureProto {
                         bytes: self.bytes(),
                     }),
@@ -304,6 +298,7 @@ use xmtp_proto::xmtp::message_contents::{
     UnsignedPublicKey as LegacyUnsignedPublicKeyProto,
 };
 
+#[derive(Clone)]
 pub struct ValidatedLegacySignedPublicKey {
     account_address: String,
     serialized_key_data: Vec<u8>,
