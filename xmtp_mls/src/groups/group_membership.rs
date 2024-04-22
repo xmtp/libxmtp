@@ -105,17 +105,17 @@ mod tests {
     use super::GroupMembership;
 
     #[test]
-    fn equality_works() {
+    fn test_equality_works() {
         let inbox_id_1 = "inbox_1".to_string();
         let sequence_id_1: u64 = 1;
         let mut member_map_1 = GroupMembership::new();
         let mut member_map_2 = GroupMembership::new();
 
-        member_map_1.add(inbox_id_1.clone(), sequence_id_1.clone());
+        member_map_1.add(inbox_id_1.clone(), sequence_id_1);
 
         assert!(member_map_1.ne(&member_map_2));
 
-        member_map_2.add(inbox_id_1.clone(), sequence_id_1.clone());
+        member_map_2.add(inbox_id_1.clone(), sequence_id_1);
         assert!(member_map_1.eq(&member_map_2));
 
         // Now change the sequence ID and make sure it is not equal again
@@ -124,7 +124,7 @@ mod tests {
     }
 
     #[test]
-    fn diff() {
+    fn test_diff() {
         let mut initial_members = GroupMembership::new();
         initial_members.add("inbox_1".into(), 1);
         initial_members.add("inbox_2".into(), 1);

@@ -97,7 +97,7 @@ mod tests {
     async fn test_send_mesage_history_request() {
         let wallet = generate_local_wallet();
         let client = ClientBuilder::new_test_client(&wallet).await;
-        let group = client.create_group(None).expect("create group");
+        let group = client.create_sync_group().expect("create group");
 
         let result = group.send_message_history_request().await;
         assert_ok!(result);
@@ -107,14 +107,28 @@ mod tests {
     async fn test_send_mesage_history_reply() {
         let wallet = generate_local_wallet();
         let client = ClientBuilder::new_test_client(&wallet).await;
-        let group = client.create_group(None).expect("create group");
-        let expiry = now_ns() + 1_000;
+        let group = client.create_sync_group().expect("create sync group");
 
         let request_id = new_request_id();
         let url = "https://test.com/abc-123";
         let backup_hash = b"ABC123".into();
+        let expiry = now_ns() + 10_000;
         let reply = new_message_history_reply(&request_id, url, backup_hash, expiry);
         let result = group.send_message_history_reply(reply).await;
         assert_ok!(result);
+    }
+
+    #[tokio::test]
+    async fn test_request_reply_roundtrip() {
+        let wallet = generate_local_wallet();
+        let amal_a = ClientBuilder::new_test_client(&wallet).await;
+        let amal_b = ClientBuilder::new_test_client(&wallet).await;
+        let group = amal_a.create_group(None).expect("create group");
+        let add_members_result = group
+            .add_members_by_installation_id(vec![amal_b.installation_public_key()])
+            .await;
+        assert_ok!(add_members_result);
+
+        let _ = group.send_message_history_request().await;
     }
 }
