@@ -239,12 +239,18 @@ public struct Group: Identifiable, Equatable, Hashable {
 			options.limit = Int64(limit)
 		}
 
-		let status: FfiDeliveryStatus? = switch deliveryStatus {
-					 case .published: FfiDeliveryStatus.published
-					 case .unpublished: FfiDeliveryStatus.unpublished
-					 case .failed: FfiDeliveryStatus.failed
-					 default: nil
-		}
+		let status: FfiDeliveryStatus? = {
+			switch deliveryStatus {
+			case .published:
+				return FfiDeliveryStatus.published
+			case .unpublished:
+				return FfiDeliveryStatus.unpublished
+			case .failed:
+				return FfiDeliveryStatus.failed
+			default:
+				return nil
+			}
+		}()
 
 		options.deliveryStatus = status
 
@@ -286,13 +292,19 @@ public struct Group: Identifiable, Equatable, Hashable {
 			options.limit = Int64(limit)
 		}
 		
-		let status: FfiDeliveryStatus? = switch deliveryStatus {
-					 case .published: FfiDeliveryStatus.published
-					 case .unpublished: FfiDeliveryStatus.unpublished
-					 case .failed: FfiDeliveryStatus.failed
-					 default: nil
-		}
-
+		let status: FfiDeliveryStatus? = {
+			switch deliveryStatus {
+			case .published:
+				return FfiDeliveryStatus.published
+			case .unpublished:
+				return FfiDeliveryStatus.unpublished
+			case .failed:
+				return FfiDeliveryStatus.failed
+			default:
+				return nil
+			}
+		}()
+		
 		options.deliveryStatus = status
 
 		let messages = try ffiGroup.findMessages(opts: options).compactMap { ffiMessage in
