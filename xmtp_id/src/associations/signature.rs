@@ -1,13 +1,11 @@
-use std::{array::TryFromSliceError, str::FromStr};
+use std::array::TryFromSliceError;
 
 use super::MemberIdentifier;
 use ed25519_dalek::{Signature as Ed25519Signature, Verifier, VerifyingKey};
 use ethers::{
-    core::k256::ecdsa::VerifyingKey as EcdsaVerifyingKey,
     types::{Address, BlockNumber, U64},
     utils::hash_message,
 };
-use openmls::prelude::Member;
 use thiserror::Error;
 use tokio::runtime::Runtime;
 use xmtp_cryptography::signature::{h160addr_to_string, sanitize_evm_addresses};
@@ -154,7 +152,7 @@ impl Signature for Erc1271Signature {
         // TODO: make this function async
         let runtime = Runtime::new().unwrap();
         let is_valid = runtime.block_on(verifier.is_valid_signature(
-            Address::from_slice(&self.contract_address.as_bytes()), // TODO: `from_slice` panics when input is not 20 bytes
+            Address::from_slice(self.contract_address.as_bytes()), // TODO: `from_slice` panics when input is not 20 bytes
             Some(BlockNumber::Number(U64::from(self.block_number))),
             hash_message(self.signature_text.clone()).into(), // the hash function should match the one used by the user wallet
             self.bytes().into(),
