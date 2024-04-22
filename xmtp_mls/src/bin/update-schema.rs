@@ -13,7 +13,7 @@ use toml::Table;
 
 use xmtp_mls::storage::{EncryptedMessageStore, StorageOption};
 
-const DIESEL_TOML: &str = "./diesel.toml";
+const DIESEL_TOML: &str = "diesel.toml";
 
 /// This binary is used to to generate the schema files from a sqlite database instance and update
 /// the appropriate file. The destination is read from the `diesel.toml` print_schema
@@ -65,12 +65,14 @@ fn update_schemas_encrypted_message_store() -> Result<(), std::io::Error> {
 }
 
 fn get_schema_path() -> Result<String, std::io::Error> {
-    match env::current_exe() {
-        Ok(exe_path) => println!("Path of this executable is: {}", exe_path.display()),
-        Err(e) => println!("failed to get current exe path: {e}"),
-    };
+    let project_path = env::current_dir()?;
+    println!(
+        "Make sure you run this script from libxmtp/, current dir is: {}",
+        project_path.display()
+    );
+    let project_path = project_path.join("xmtp_mls");
 
-    let mut file = File::open(DIESEL_TOML)?;
+    let mut file = File::open(project_path.join(DIESEL_TOML))?;
     let mut toml_contents = String::new();
     file.read_to_string(&mut toml_contents)?;
     let toml = toml_contents.parse::<Table>().unwrap();
@@ -81,7 +83,9 @@ fn get_schema_path() -> Result<String, std::io::Error> {
         .unwrap()
         .as_str()
         .unwrap();
-    Ok(format!("./{}", schema_file_path))
+    let schema_file_path = project_path.join(schema_file_path);
+    let schema_file_path = schema_file_path.to_str().unwrap();
+    Ok(schema_file_path.to_string())
 }
 
 fn exec_diesel(db: &str) -> Result<Vec<u8>, String> {

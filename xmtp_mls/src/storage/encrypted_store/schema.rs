@@ -34,6 +34,7 @@ diesel::table! {
         installations_last_checked -> BigInt,
         purpose -> Integer,
         added_by_address -> Nullable<Text>,
+        rotated_at_ns -> BigInt,
     }
 }
 
