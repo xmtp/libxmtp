@@ -98,7 +98,7 @@ mod tests {
         let client = ClientBuilder::new_test_client(&wallet).await;
         let group = client.create_sync_group().expect("create group");
 
-        let result = group.send_message_history_request().await;
+        let result = client.send_message_history_request().await;
         assert_ok!(result);
     }
 
@@ -113,7 +113,7 @@ mod tests {
         let backup_hash = b"ABC123".into();
         let expiry = now_ns() + 10_000;
         let reply = new_message_history_reply(&request_id, url, backup_hash, expiry);
-        let result = group.send_message_history_reply(reply).await;
+        let result = client.send_message_history_reply(reply).await;
         assert_ok!(result);
     }
 
@@ -128,6 +128,6 @@ mod tests {
             .await;
         assert_ok!(add_members_result);
 
-        let _ = group.send_message_history_request().await;
+        let _ = amal_b.send_message_history_request().await;
     }
 }
