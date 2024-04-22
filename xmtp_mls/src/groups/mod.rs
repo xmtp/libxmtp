@@ -39,7 +39,7 @@ use xmtp_proto::{
         },
         message_contents::{
             plaintext_envelope::{Content, V1},
-            GroupMutableMetadataV1, PlaintextEnvelope,
+            PlaintextEnvelope,
         },
     },
 };
@@ -50,6 +50,7 @@ use self::{
     group_metadata::extract_group_metadata,
     group_mutable_metadata::{
         extract_group_mutable_metadata, GroupMutableMetadata, GroupMutableMetadataError,
+        MetadataField,
     },
     intents::UpdateMetadataIntentData,
 };
@@ -62,9 +63,7 @@ use self::{
 
 use crate::{
     client::{deserialize_welcome, ClientError, MessageProcessingError},
-    configuration::{
-        CIPHERSUITE, DEFAULT_GROUP_NAME, MAX_GROUP_SIZE, MUTABLE_METADATA_EXTENSION_ID,
-    },
+    configuration::{CIPHERSUITE, MAX_GROUP_SIZE, MUTABLE_METADATA_EXTENSION_ID},
     hpke::{decrypt_welcome, HpkeError},
     identity::{Identity, IdentityError},
     retry::RetryableError,
@@ -217,7 +216,7 @@ where
             &client.identity,
             permissions.unwrap_or_default().to_policy_set(),
         )?;
-        let mutable_metadata = build_mutable_metadata_extension(DEFAULT_GROUP_NAME.to_string())?;
+        let mutable_metadata = build_mutable_metadata_extension_default()?;
         let group_config = build_group_config(protected_metadata, mutable_metadata)?;
 
         let mut mls_group = OpenMlsGroup::new(
@@ -432,7 +431,8 @@ where
 
     pub async fn update_group_name(&self, group_name: String) -> Result<(), GroupError> {
         let conn = &mut self.client.store.conn()?;
-        let intent_data: Vec<u8> = UpdateMetadataIntentData::new(group_name).into();
+        let intent_data: Vec<u8> =
+            UpdateMetadataIntentData::new_update_group_name(group_name).into();
         let intent = conn.insert_group_intent(NewGroupIntent::new(
             IntentKind::MetadataUpdate,
             self.group_id.clone(),
@@ -446,7 +446,15 @@ where
     // and limit
     pub fn group_name(&self) -> Result<String, GroupError> {
         let mutable_metadata = self.mutable_metadata()?;
-        Ok(mutable_metadata.group_name)
+        match mutable_metadata
+            .attributes
+            .get(&MetadataField::GroupName.to_string())
+        {
+            Some(group_name) => Ok(group_name.clone()),
+            None => Err(GroupError::GroupMutableMetadata(
+                GroupMutableMetadataError::MissingExtension,
+            )),
+        }
     }
 
     // Find the wallet address of the group member who added the member to the group
@@ -556,15 +564,30 @@ fn build_protected_metadata_extension(
     Ok(Extension::ImmutableMetadata(protected_metadata))
 }
 
-pub fn build_mutable_metadata_extension(group_name: String) -> Result<Extension, GroupError> {
-    let mutable_metadata: GroupMutableMetadataV1 = GroupMutableMetadataV1 { group_name };
-
-    let unknown_gc_extension = UnknownExtension(mutable_metadata.encode_to_vec());
+pub fn build_mutable_metadata_extension_default() -> Result<Extension, GroupError> {
+    let mutable_metadata: Vec<u8> = GroupMutableMetadata::default().try_into()?;
+    let unknown_gc_extension = UnknownExtension(mutable_metadata);
 
     Ok(Extension::Unknown(
         MUTABLE_METADATA_EXTENSION_ID,
         unknown_gc_extension,
     ))
+}
+
+pub fn build_mutable_metadata_extensions(
+    group: &OpenMlsGroup,
+    field_name: String,
+    field_value: String,
+) -> Result<Extensions, GroupError> {
+    let existing_metadata = extract_group_mutable_metadata(group)?;
+    let mut attributes = existing_metadata.attributes.clone();
+    attributes.insert(field_name, field_value);
+    let new_mutable_metadata: Vec<u8> = GroupMutableMetadata::new(attributes).try_into()?;
+    let unknown_gc_extension = UnknownExtension(new_mutable_metadata);
+    let extension = Extension::Unknown(MUTABLE_METADATA_EXTENSION_ID, unknown_gc_extension);
+    let mut extensions = group.extensions().clone();
+    extensions.add_or_replace(extension);
+    Ok(extensions)
 }
 
 fn build_group_config(
@@ -634,7 +657,7 @@ mod tests {
     use crate::{
         builder::ClientBuilder,
         codecs::{membership_change::GroupMembershipChangeCodec, ContentCodec},
-        groups::PreconfiguredPolicies,
+        groups::{group_mutable_metadata::MetadataField, PreconfiguredPolicies},
         storage::{
             group_intent::IntentState,
             group_message::{GroupMessageKind, StoredGroupMessage},
@@ -1110,7 +1133,12 @@ mod tests {
         amal_group.sync().await.unwrap();
 
         let group_mutable_metadata = amal_group.mutable_metadata().unwrap();
-        assert!(group_mutable_metadata.group_name.eq("New Group"));
+        assert!(group_mutable_metadata.attributes.len().eq(&2));
+        assert!(group_mutable_metadata
+            .attributes
+            .get(&MetadataField::GroupName.to_string())
+            .unwrap()
+            .eq("New Group"));
 
         // Add bola to the group
         amal_group
@@ -1123,7 +1151,11 @@ mod tests {
         let bola_group = bola_groups.first().unwrap();
         bola_group.sync().await.unwrap();
         let group_mutable_metadata = bola_group.mutable_metadata().unwrap();
-        assert!(group_mutable_metadata.group_name.eq("New Group"));
+        assert!(group_mutable_metadata
+            .attributes
+            .get(&MetadataField::GroupName.to_string())
+            .unwrap()
+            .eq("New Group"));
 
         // Update group name
         amal_group
@@ -1133,12 +1165,20 @@ mod tests {
 
         // Verify amal group sees update
         amal_group.sync().await.unwrap();
-        let amal_group_name: String = amal_group.mutable_metadata().expect("msg").group_name;
+        let binding = amal_group.mutable_metadata().expect("msg");
+        let amal_group_name: &String = binding
+            .attributes
+            .get(&MetadataField::GroupName.to_string())
+            .unwrap();
         assert_eq!(amal_group_name, "New Group Name 1");
 
         // Verify bola group sees update
         bola_group.sync().await.unwrap();
-        let bola_group_name: String = bola_group.mutable_metadata().expect("msg").group_name;
+        let binding = bola_group.mutable_metadata().expect("msg");
+        let bola_group_name: &String = binding
+            .attributes
+            .get(&MetadataField::GroupName.to_string())
+            .unwrap();
         assert_eq!(bola_group_name, "New Group Name 1");
 
         // Verify that bola can not update the group name since they are not the creator
@@ -1149,7 +1189,11 @@ mod tests {
 
         // Verify bola group does not see an update
         bola_group.sync().await.unwrap();
-        let bola_group_name: String = bola_group.mutable_metadata().expect("msg").group_name;
+        let binding = bola_group.mutable_metadata().expect("msg");
+        let bola_group_name: &String = binding
+            .attributes
+            .get(&MetadataField::GroupName.to_string())
+            .unwrap();
         assert_eq!(bola_group_name, "New Group Name 1");
     }
 
@@ -1164,7 +1208,11 @@ mod tests {
         amal_group.sync().await.unwrap();
 
         let group_mutable_metadata = amal_group.mutable_metadata().unwrap();
-        assert!(group_mutable_metadata.group_name.eq("New Group"));
+        assert!(group_mutable_metadata
+            .attributes
+            .get(&MetadataField::GroupName.to_string())
+            .unwrap()
+            .eq("New Group"));
 
         // Add bola to the group
         amal_group
@@ -1177,7 +1225,11 @@ mod tests {
         let bola_group = bola_groups.first().unwrap();
         bola_group.sync().await.unwrap();
         let group_mutable_metadata = bola_group.mutable_metadata().unwrap();
-        assert!(group_mutable_metadata.group_name.eq("New Group"));
+        assert!(group_mutable_metadata
+            .attributes
+            .get(&MetadataField::GroupName.to_string())
+            .unwrap()
+            .eq("New Group"));
 
         // Update group name
         amal_group
@@ -1187,12 +1239,20 @@ mod tests {
 
         // Verify amal group sees update
         amal_group.sync().await.unwrap();
-        let amal_group_name: String = amal_group.mutable_metadata().expect("msg").group_name;
+        let binding = amal_group.mutable_metadata().unwrap();
+        let amal_group_name: &String = binding
+            .attributes
+            .get(&MetadataField::GroupName.to_string())
+            .unwrap();
         assert_eq!(amal_group_name, "New Group Name 1");
 
         // Verify bola group sees update
         bola_group.sync().await.unwrap();
-        let bola_group_name: String = bola_group.mutable_metadata().expect("msg").group_name;
+        let binding = bola_group.mutable_metadata().expect("msg");
+        let bola_group_name: &String = binding
+            .attributes
+            .get(&MetadataField::GroupName.to_string())
+            .unwrap();
         assert_eq!(bola_group_name, "New Group Name 1");
 
         // Verify that bola CAN update the group name since everyone is admin for this group
@@ -1203,7 +1263,11 @@ mod tests {
 
         // Verify amal group sees an update
         amal_group.sync().await.unwrap();
-        let amal_group_name: String = amal_group.mutable_metadata().expect("msg").group_name;
+        let binding = amal_group.mutable_metadata().expect("msg");
+        let amal_group_name: &String = binding
+            .attributes
+            .get(&MetadataField::GroupName.to_string())
+            .unwrap();
         assert_eq!(amal_group_name, "New Group Name 2");
     }
 

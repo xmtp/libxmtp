@@ -31,6 +31,7 @@ use xmtp_proto::{
 };
 
 use super::{
+    build_mutable_metadata_extensions,
     intents::{
         AddMembersIntentData, AddressesOrInstallationIds, Installation, PostCommitAction,
         RemoveMembersIntentData, SendMessageIntentData, SendWelcomesAction,
@@ -44,10 +45,7 @@ use crate::{
     client::MessageProcessingError,
     codecs::{membership_change::GroupMembershipChangeCodec, ContentCodec},
     configuration::{MAX_INTENT_PUBLISH_ATTEMPTS, UPDATE_INSTALLATIONS_INTERVAL_NS},
-    groups::{
-        build_mutable_metadata_extension, intents::UpdateMetadataIntentData,
-        validated_commit::ValidatedCommit,
-    },
+    groups::{intents::UpdateMetadataIntentData, validated_commit::ValidatedCommit},
     hpke::{encrypt_welcome, HpkeError},
     identity::Identity,
     retry,
@@ -676,14 +674,15 @@ where
             }
             IntentKind::MetadataUpdate => {
                 let metadata_intent = UpdateMetadataIntentData::try_from(intent.data.clone())?;
-                let mutable_metadata =
-                    build_mutable_metadata_extension(metadata_intent.group_name)?;
-                let mut extensions = openmls_group.extensions().clone();
-                extensions.add_or_replace(mutable_metadata);
+                let mutable_metadata_extensions = build_mutable_metadata_extensions(
+                    openmls_group,
+                    metadata_intent.field_name,
+                    metadata_intent.field_value,
+                )?;
 
                 let (commit, _, _) = openmls_group.update_group_context_extensions(
                     provider,
-                    extensions,
+                    mutable_metadata_extensions,
                     &self.client.identity.installation_keys,
                 )?;
 

@@ -382,9 +382,13 @@ fn get_group_name_updated(
             }
         }
     }
+    let metadata_policies = extract_group_metadata(openmls_group)?
+        .policies
+        .update_metadata_policy;
     Ok(MetadataChange {
         new_value,
         old_value,
+        metadata_policies,
     })
 }
 

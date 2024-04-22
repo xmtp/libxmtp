@@ -1288,12 +1288,12 @@ impl serde::Serialize for GroupMutableMetadataV1 {
     {
         use serde::ser::SerializeStruct;
         let mut len = 0;
-        if !self.group_name.is_empty() {
+        if !self.attributes.is_empty() {
             len += 1;
         }
         let mut struct_ser = serializer.serialize_struct("xmtp.mls.message_contents.GroupMutableMetadataV1", len)?;
-        if !self.group_name.is_empty() {
-            struct_ser.serialize_field("groupName", &self.group_name)?;
+        if !self.attributes.is_empty() {
+            struct_ser.serialize_field("attributes", &self.attributes)?;
         }
         struct_ser.end()
     }
@@ -1305,13 +1305,12 @@ impl<'de> serde::Deserialize<'de> for GroupMutableMetadataV1 {
         D: serde::Deserializer<'de>,
     {
         const FIELDS: &[&str] = &[
-            "group_name",
-            "groupName",
+            "attributes",
         ];
 
         #[allow(clippy::enum_variant_names)]
         enum GeneratedField {
-            GroupName,
+            Attributes,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
             fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
@@ -1333,7 +1332,7 @@ impl<'de> serde::Deserialize<'de> for GroupMutableMetadataV1 {
                         E: serde::de::Error,
                     {
                         match value {
-                            "groupName" | "group_name" => Ok(GeneratedField::GroupName),
+                            "attributes" => Ok(GeneratedField::Attributes),
                             _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
                         }
                     }
@@ -1353,19 +1352,21 @@ impl<'de> serde::Deserialize<'de> for GroupMutableMetadataV1 {
                 where
                     V: serde::de::MapAccess<'de>,
             {
-                let mut group_name__ = None;
+                let mut attributes__ = None;
                 while let Some(k) = map_.next_key()? {
                     match k {
-                        GeneratedField::GroupName => {
-                            if group_name__.is_some() {
-                                return Err(serde::de::Error::duplicate_field("groupName"));
+                        GeneratedField::Attributes => {
+                            if attributes__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("attributes"));
                             }
-                            group_name__ = Some(map_.next_value()?);
+                            attributes__ = Some(
+                                map_.next_value::<std::collections::HashMap<_, _>>()?
+                            );
                         }
                     }
                 }
                 Ok(GroupMutableMetadataV1 {
-                    group_name: group_name__.unwrap_or_default(),
+                    attributes: attributes__.unwrap_or_default(),
                 })
             }
         }
@@ -3149,7 +3150,7 @@ impl serde::Serialize for PolicySet {
         if self.remove_member_policy.is_some() {
             len += 1;
         }
-        if self.update_group_name_policy.is_some() {
+        if !self.update_metadata_policy.is_empty() {
             len += 1;
         }
         let mut struct_ser = serializer.serialize_struct("xmtp.mls.message_contents.PolicySet", len)?;
@@ -3159,8 +3160,8 @@ impl serde::Serialize for PolicySet {
         if let Some(v) = self.remove_member_policy.as_ref() {
             struct_ser.serialize_field("removeMemberPolicy", v)?;
         }
-        if let Some(v) = self.update_group_name_policy.as_ref() {
-            struct_ser.serialize_field("updateGroupNamePolicy", v)?;
+        if !self.update_metadata_policy.is_empty() {
+            struct_ser.serialize_field("updateMetadataPolicy", &self.update_metadata_policy)?;
         }
         struct_ser.end()
     }
@@ -3176,15 +3177,15 @@ impl<'de> serde::Deserialize<'de> for PolicySet {
             "addMemberPolicy",
             "remove_member_policy",
             "removeMemberPolicy",
-            "update_group_name_policy",
-            "updateGroupNamePolicy",
+            "update_metadata_policy",
+            "updateMetadataPolicy",
         ];
 
         #[allow(clippy::enum_variant_names)]
         enum GeneratedField {
             AddMemberPolicy,
             RemoveMemberPolicy,
-            UpdateGroupNamePolicy,
+            UpdateMetadataPolicy,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
             fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
@@ -3208,7 +3209,7 @@ impl<'de> serde::Deserialize<'de> for PolicySet {
                         match value {
                             "addMemberPolicy" | "add_member_policy" => Ok(GeneratedField::AddMemberPolicy),
                             "removeMemberPolicy" | "remove_member_policy" => Ok(GeneratedField::RemoveMemberPolicy),
-                            "updateGroupNamePolicy" | "update_group_name_policy" => Ok(GeneratedField::UpdateGroupNamePolicy),
+                            "updateMetadataPolicy" | "update_metadata_policy" => Ok(GeneratedField::UpdateMetadataPolicy),
                             _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
                         }
                     }
@@ -3230,7 +3231,7 @@ impl<'de> serde::Deserialize<'de> for PolicySet {
             {
                 let mut add_member_policy__ = None;
                 let mut remove_member_policy__ = None;
-                let mut update_group_name_policy__ = None;
+                let mut update_metadata_policy__ = None;
                 while let Some(k) = map_.next_key()? {
                     match k {
                         GeneratedField::AddMemberPolicy => {
@@ -3245,18 +3246,20 @@ impl<'de> serde::Deserialize<'de> for PolicySet {
                             }
                             remove_member_policy__ = map_.next_value()?;
                         }
-                        GeneratedField::UpdateGroupNamePolicy => {
-                            if update_group_name_policy__.is_some() {
-                                return Err(serde::de::Error::duplicate_field("updateGroupNamePolicy"));
+                        GeneratedField::UpdateMetadataPolicy => {
+                            if update_metadata_policy__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("updateMetadataPolicy"));
                             }
-                            update_group_name_policy__ = map_.next_value()?;
+                            update_metadata_policy__ = Some(
+                                map_.next_value::<std::collections::HashMap<_, _>>()?
+                            );
                         }
                     }
                 }
                 Ok(PolicySet {
                     add_member_policy: add_member_policy__,
                     remove_member_policy: remove_member_policy__,
-                    update_group_name_policy: update_group_name_policy__,
+                    update_metadata_policy: update_metadata_policy__.unwrap_or_default(),
                 })
             }
         }
