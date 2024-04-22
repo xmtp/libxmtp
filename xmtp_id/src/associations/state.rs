@@ -104,6 +104,15 @@ impl AssociationState {
         }
     }
 
+    /// Converts the [`AssociationState`] to a diff that represents all members
+    /// of the inbox at the current state.
+    pub fn as_diff(&self) -> AssociationStateDiff {
+        AssociationStateDiff {
+            new_members: self.members.keys().cloned().collect(),
+            removed_members: vec![],
+        }
+    }
+
     pub fn new(account_address: String, nonce: u64) -> Self {
         let inbox_id = generate_inbox_id(&account_address, &nonce);
         let identifier = MemberIdentifier::Address(account_address.clone());
@@ -117,15 +126,6 @@ impl AssociationState {
             seen_signatures: HashSet::new(),
             recovery_address: account_address,
             inbox_id,
-        }
-    }
-}
-
-impl From<AssociationState> for AssociationStateDiff {
-    fn from(state: AssociationState) -> Self {
-        AssociationStateDiff {
-            new_members: state.members.keys().cloned().collect(),
-            removed_members: vec![],
         }
     }
 }

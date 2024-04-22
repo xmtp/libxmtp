@@ -351,13 +351,13 @@ impl From<AssociationStateDiff> for AssociationStateDiffProto {
     }
 }
 
-/// Convert a vector of `A` into a vector of `B` using `TryFrom`
+/// Convert a vector of `A` into a vector of `B` using [`From`]
 pub fn map_vec<A, B: From<A>>(other: Vec<A>) -> Vec<B> {
     other.into_iter().map(B::from).collect()
 }
 
-/// Convert a vector of `A` into a vector of `B` using `TryFrom`
-/// Useful to convert things like `Vec<IdentityUpdate>` to `Vec<IdentityUpdateProto>` or vice-versa.
+/// Convert a vector of `A` into a vector of `B` using [`TryFrom`]
+/// Useful to convert vectors of structs into protos, like `Vec<IdentityUpdate>` to `Vec<IdentityUpdateProto>` or vice-versa.
 pub fn try_map_vec<A, B: TryFrom<A>>(other: Vec<A>) -> Result<Vec<B>, <B as TryFrom<A>>::Error> {
     other.into_iter().map(B::try_from).collect()
 }

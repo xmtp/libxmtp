@@ -5,9 +5,7 @@ use openmls::{
 use openmls_rust_crypto::RustCrypto;
 use tonic::{Request, Response, Status};
 
-use xmtp_id::associations::{
-    self, try_map_vec, AssociationError, AssociationStateDiff, DeserializationError,
-};
+use xmtp_id::associations::{self, try_map_vec, AssociationError, DeserializationError};
 use xmtp_mls::{utils::id::serialize_group_id, verified_key_package::VerifiedKeyPackage};
 use xmtp_proto::xmtp::{
     identity::associations::IdentityUpdate as IdentityUpdateProto,
@@ -128,7 +126,7 @@ fn get_association_state(
         let new_state = associations::get_state(&new_updates)?;
         return Ok(GetAssociationStateResponse {
             association_state: Some(new_state.clone().into()),
-            state_diff: Some(AssociationStateDiff::from(new_state).into()),
+            state_diff: Some(new_state.as_diff().into()),
         });
     }
 
