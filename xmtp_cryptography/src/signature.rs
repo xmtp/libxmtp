@@ -42,7 +42,7 @@ impl RecoverableSignature {
         Ok(Self::from(key.sign_digest_recoverable(digest)?))
     }
 
-pub fn verify_signature(
+    pub fn verify_signature(
         &self,
         addr: &str,
         predigest_message: &str,
@@ -109,7 +109,7 @@ fn eip_191_prefix(msg: &str) -> String {
 
 fn addr_string_to_bytes(str: &str) -> Result<Vec<u8>, SignatureError> {
     let unprefixed_address = str::strip_prefix(str, "0x").unwrap_or(str);
-hex::decode(unprefixed_address).map_err(SignatureError::BadAddressFormat)
+    hex::decode(unprefixed_address).map_err(SignatureError::BadAddressFormat)
 }
 
 pub fn h160addr_to_string(bytes: H160) -> String {
@@ -137,6 +137,32 @@ pub fn is_valid_ethereum_address<S: AsRef<str>>(address: S) -> bool {
     }
 
     address.chars().all(|c| c.is_ascii_hexdigit())
+}
+
+#[derive(Debug, Error)]
+pub enum AddressValidationError {
+    #[error("invalid addresses: {0:?}")]
+    InvalidAddresses(Vec<String>),
+}
+
+pub fn sanitize_evm_addresses(
+    account_addresses: Vec<String>,
+) -> Result<Vec<String>, AddressValidationError> {
+    let mut invalid = account_addresses
+        .iter()
+        .filter(|a| !is_valid_ethereum_address(a))
+        .peekable();
+
+    if invalid.peek().is_some() {
+        return Err(AddressValidationError::InvalidAddresses(
+            invalid.map(ToString::to_string).collect::<Vec<_>>(),
+        ));
+    }
+
+    Ok(account_addresses
+        .iter()
+        .map(|address| address.to_lowercase())
+        .collect())
 }
 
 /// Check if an ed25519 public signature key is valid.

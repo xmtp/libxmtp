@@ -29,7 +29,9 @@ use openmls_traits::OpenMlsProvider;
 use prost::Message;
 use thiserror::Error;
 
-use xmtp_cryptography::signature::is_valid_ed25519_public_key;
+use xmtp_cryptography::signature::{
+    is_valid_ed25519_public_key, sanitize_evm_addresses, AddressValidationError,
+};
 use xmtp_proto::{
     api_client::{XmtpIdentityClient, XmtpMlsClient},
     xmtp::mls::{
@@ -75,11 +77,7 @@ use crate::{
         group_message::{DeliveryStatus, GroupMessageKind, StoredGroupMessage},
         StorageError,
     },
-    utils::{
-        address::{sanitize_evm_addresses, AddressValidationError},
-        id::calculate_message_id,
-        time::now_ns,
-    },
+    utils::{id::calculate_message_id, time::now_ns},
     xmtp_openmls_provider::XmtpOpenMlsProvider,
     Client, Store,
 };
@@ -124,7 +122,7 @@ pub enum GroupError {
     Generic(String),
     #[error("diesel error {0}")]
     Diesel(#[from] diesel::result::Error),
-    #[error("The address {0:?} is not a valid ethereum address")]
+    #[error(transparent)]
     AddressValidation(#[from] AddressValidationError),
     #[error("Public Keys {0:?} are not valid ed25519 public keys")]
     InvalidPublicKeys(Vec<Vec<u8>>),

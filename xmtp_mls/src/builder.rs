@@ -6,6 +6,7 @@ use log::debug;
 use log::info;
 use thiserror::Error;
 
+use xmtp_cryptography::signature::{sanitize_evm_addresses, AddressValidationError};
 use xmtp_proto::api_client::{XmtpIdentityClient, XmtpMlsClient};
 
 use crate::{
@@ -14,15 +15,14 @@ use crate::{
     identity::{Identity, IdentityError},
     retry::Retry,
     storage::{identity::StoredIdentity, EncryptedMessageStore},
-    utils::address::sanitize_evm_addresses,
     xmtp_openmls_provider::XmtpOpenMlsProvider,
     Fetch, InboxOwner, StorageError,
 };
 
 #[derive(Error, Debug)]
 pub enum ClientBuilderError {
-    #[error("Address validation: {0}")]
-    AddressValidation(#[from] crate::utils::address::AddressValidationError),
+    #[error(transparent)]
+    AddressValidation(#[from] AddressValidationError),
 
     #[error("Missing parameter: {parameter}")]
     MissingParameter { parameter: &'static str },

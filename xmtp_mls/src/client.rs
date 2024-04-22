@@ -11,6 +11,7 @@ use openmls_traits::OpenMlsProvider;
 use prost::EncodeError;
 use thiserror::Error;
 
+use xmtp_cryptography::signature::{sanitize_evm_addresses, AddressValidationError};
 use xmtp_id::associations::AssociationError;
 use xmtp_proto::{
     api_client::{XmtpIdentityClient, XmtpMlsClient},
@@ -34,7 +35,6 @@ use crate::{
         EncryptedMessageStore, StorageError,
     },
     types::Address,
-    utils::address::sanitize_evm_addresses,
     verified_key_package::{KeyPackageVerificationError, VerifiedKeyPackage},
     xmtp_openmls_provider::XmtpOpenMlsProvider,
     Fetch,
@@ -51,8 +51,8 @@ pub enum Network {
 
 #[derive(Debug, Error)]
 pub enum ClientError {
-    #[error("Address validation: {0}")]
-    AddressValidation(#[from] crate::utils::address::AddressValidationError),
+    #[error(transparent)]
+    AddressValidation(#[from] AddressValidationError),
     #[error("could not publish: {0}")]
     PublishError(String),
     #[error("storage error: {0}")]

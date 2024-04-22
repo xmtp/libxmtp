@@ -3,7 +3,7 @@ pub mod builder;
 mod hashes;
 mod member;
 mod serialization;
-mod signature;
+pub mod signature;
 mod state;
 #[cfg(any(test, feature = "test-utils"))]
 pub mod test_utils;

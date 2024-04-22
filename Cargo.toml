@@ -52,3 +52,4 @@ tracing-subscriber = { version = "0.3.18", features = ["fmt", "env-filter"] }
 xmtp_cryptography = { path = "xmtp_cryptography" }
 xmtp_mls = { path = "xmtp_mls" }
 xmtp_proto = { path = "xmtp_proto" }
+xmtp_id = { path = "xmtp_id" }
