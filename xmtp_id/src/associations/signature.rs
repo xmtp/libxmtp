@@ -255,7 +255,7 @@ impl LegacyDelegatedSignature {
 
 impl Signature for LegacyDelegatedSignature {
     fn recover_signer(&self) -> Result<MemberIdentifier, SignatureError> {
-        // 1. Verify the RecoverableEcdsaSignature 
+        // 1. Verify the RecoverableEcdsaSignature
         let legacy_signer = self.legacy_key_signature.recover_signer()?;
 
         // 2. Signed public key is already verified, we just make sure it matches to the legacy_signer
