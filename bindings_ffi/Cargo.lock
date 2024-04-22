@@ -5432,6 +5432,7 @@ dependencies = [
  "serde",
  "sha2",
  "thiserror",
+ "tokio",
  "tracing",
  "xmtp_cryptography",
  "xmtp_proto",

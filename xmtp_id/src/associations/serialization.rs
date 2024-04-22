@@ -194,9 +194,13 @@ fn from_signature_kind_proto(
     signature_text: String,
 ) -> Result<Box<dyn Signature>, DeserializationError> {
     Ok(match proto {
-        SignatureKindProto::InstallationKey(installation_key_signature) => Box::new(
-            InstallationKeySignature::new(signature_text, installation_key_signature.bytes, installation_key_signature.public_key),
-        ),
+        SignatureKindProto::InstallationKey(installation_key_signature) => {
+            Box::new(InstallationKeySignature::new(
+                signature_text,
+                installation_key_signature.bytes,
+                installation_key_signature.public_key,
+            ))
+        }
         SignatureKindProto::Erc191(erc191_signature) => Box::new(RecoverableEcdsaSignature::new(
             signature_text,
             erc191_signature.bytes,

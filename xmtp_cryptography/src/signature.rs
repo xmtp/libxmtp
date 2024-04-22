@@ -42,7 +42,7 @@ impl RecoverableSignature {
         Ok(Self::from(key.sign_digest_recoverable(digest)?))
     }
 
-    pub fn verify_signature(
+pub fn verify_signature(
         &self,
         addr: &str,
         predigest_message: &str,
@@ -109,7 +109,7 @@ fn eip_191_prefix(msg: &str) -> String {
 
 fn addr_string_to_bytes(str: &str) -> Result<Vec<u8>, SignatureError> {
     let unprefixed_address = str::strip_prefix(str, "0x").unwrap_or(str);
-    hex::decode(unprefixed_address).map_err(SignatureError::BadAddressFormat)
+hex::decode(unprefixed_address).map_err(SignatureError::BadAddressFormat)
 }
 
 pub fn h160addr_to_string(bytes: H160) -> String {
