@@ -32,7 +32,7 @@ xmtp_proto = { workspace = true, features = ["proto_full"] }
 [dev-dependencies]
 anyhow.workspace = true
 ctor = "0.2.5"
-ethers = { workspace = true, features = ["ws"] }
+ethers.workspace = true
 futures = "0.3"
 jsonrpsee = { workspace = true, features = ["macros", "ws-client"] }
 regex = "1.10"

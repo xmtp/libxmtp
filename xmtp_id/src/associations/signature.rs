@@ -100,7 +100,7 @@ impl Signature for RecoverableEcdsaSignature {
     fn recover_signer(&self) -> Result<MemberIdentifier, SignatureError> {
         let signature = ethers::types::Signature::try_from(self.bytes().as_slice())?;
         Ok(MemberIdentifier::Address(h160addr_to_string(
-            signature.recover(self.signature_text.clone())?,
+            dbg!(signature.recover(self.signature_text.clone())?),
         )))
     }
 
@@ -147,12 +147,12 @@ impl Erc1271Signature {
 }
 
 impl Signature for Erc1271Signature {
+    // TODO: make this function async
     fn recover_signer(&self) -> Result<MemberIdentifier, SignatureError> {
-        let verifier = crate::erc1271_verifier::ERC1271Verifier::new("http://node.rpc".to_string());
-        // TODO: make this function async
+        let verifier = crate::erc1271_verifier::ERC1271Verifier::new("http://node.rpc".to_string()); // TODO: make this url configurable
         let runtime = Runtime::new().unwrap();
         let is_valid = runtime.block_on(verifier.is_valid_signature(
-            Address::from_slice(self.contract_address.as_bytes()), // TODO: `from_slice` panics when input is not 20 bytes
+            Address::from_slice(self.contract_address.as_bytes()), // TODO: `from_slice` will panic when input is not 20 bytes
             Some(BlockNumber::Number(U64::from(self.block_number))),
             hash_message(self.signature_text.clone()).into(), // the hash function should match the one used by the user wallet
             self.bytes().into(),
@@ -416,12 +416,15 @@ impl From<ValidatedLegacySignedPublicKey> for LegacySignedPublicKeyProto {
 #[cfg(test)]
 pub mod tests {
 
-    use super::ValidatedLegacySignedPublicKey;
+    use crate::{associations::{test_utils::rand_u64, unsigned_actions::{SignatureTextCreator, UnsignedCreateInbox}}, InboxOwner};
+
+    use super::*;
+    use ethers::prelude::*;
     use prost::Message;
     use xmtp_proto::xmtp::message_contents::SignedPublicKey as LegacySignedPublicKeyProto;
 
-    #[tokio::test]
-    async fn validate_good_key_round_trip() {
+    #[test]
+    fn validate_good_key_round_trip() {
         let proto_bytes = vec![
             10, 79, 8, 192, 195, 165, 174, 203, 153, 231, 213, 23, 26, 67, 10, 65, 4, 216, 84, 174,
             252, 198, 225, 219, 168, 239, 166, 62, 233, 206, 108, 53, 155, 87, 132, 8, 43, 91, 36,
@@ -443,8 +446,8 @@ pub mod tests {
         assert_eq!(validated_key.account_address(), account_address);
     }
 
-    #[tokio::test]
-    async fn validate_malformed_key() {
+    #[test]
+    fn validate_malformed_key() {
         let proto_bytes = vec![
             10, 79, 8, 192, 195, 165, 174, 203, 153, 231, 213, 23, 26, 67, 10, 65, 4, 216, 84, 174,
             252, 198, 225, 219, 168, 239, 166, 62, 233, 206, 108, 53, 155, 87, 132, 8, 43, 91, 36,
@@ -461,5 +464,43 @@ pub mod tests {
             ValidatedLegacySignedPublicKey::try_from(proto),
             Err(super::SignatureError::Invalid)
         ));
+    }
+
+    #[tokio::test]
+    async fn recover_ecdsa() {
+        let wallet: LocalWallet = LocalWallet::new(&mut rand::thread_rng());
+        let unsigned_action = UnsignedCreateInbox {
+            nonce:  rand_u64(),
+            account_address: wallet.get_address()
+        };
+        let signature_text = unsigned_action.signature_text();
+        let signature_bytes: Vec<u8> = wallet.sign_message(signature_text.clone()).await.unwrap().to_vec();
+        let signature = RecoverableEcdsaSignature::new(signature_text.clone(), signature_bytes);
+        let expected = MemberIdentifier::Address(wallet.get_address());
+        let actual = signature.recover_signer().unwrap();
+        
+        assert_eq!(expected, actual);
+    }
+
+    #[tokio::test]
+    async fn recover_erc1271() {
+        todo!("implement this after finishing pass-in rpc url")
+    }
+
+    #[tokio::test]
+    async fn recover_installation() {
+     let secret_key_bytes: [u8; 32] = [
+ 157, 097, 177, 157, 239, 253, 090, 096,
+    186, 132, 074, 244, 146, 236, 044, 196,
+    068, 073, 197, 105, 123, 050, 105, 025,
+    112, 059, 172, 003, 028, 174, 127, 096, ];
+
+let signing_key: SigningKey = SigningKey::from_bytes(&secret_key_bytes);
+    assert_eq!(signing_key.to_bytes(), secret_key_bytes);
+    }
+
+    #[tokio::test]
+    async fn recover_legacy() {
+
     }
 }
