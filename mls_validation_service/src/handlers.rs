@@ -5,13 +5,32 @@ use openmls::{
 use openmls_rust_crypto::RustCrypto;
 use tonic::{Request, Response, Status};
 
+use xmtp_id::associations::{self, try_map_vec, AssociationError, DeserializationError};
 use xmtp_mls::{utils::id::serialize_group_id, verified_key_package::VerifiedKeyPackage};
-use xmtp_proto::xmtp::mls_validation::v1::{
-    validate_group_messages_response::ValidationResponse as ValidateGroupMessageValidationResponse,
-    validate_key_packages_response::ValidationResponse as ValidateKeyPackageValidationResponse,
-    validation_api_server::ValidationApi, ValidateGroupMessagesRequest,
-    ValidateGroupMessagesResponse, ValidateKeyPackagesRequest, ValidateKeyPackagesResponse,
+use xmtp_proto::xmtp::{
+    identity::associations::IdentityUpdate as IdentityUpdateProto,
+    mls_validation::v1::{
+        validate_group_messages_response::ValidationResponse as ValidateGroupMessageValidationResponse,
+        validate_key_packages_response::ValidationResponse as ValidateKeyPackageValidationResponse,
+        validation_api_server::ValidationApi, GetAssociationStateRequest,
+        GetAssociationStateResponse, ValidateGroupMessagesRequest, ValidateGroupMessagesResponse,
+        ValidateKeyPackagesRequest, ValidateKeyPackagesResponse,
+    },
 };
+
+#[derive(Debug, thiserror::Error)]
+pub enum GrpcServerError {
+    #[error(transparent)]
+    Deserialization(#[from] DeserializationError),
+    #[error(transparent)]
+    Association(#[from] AssociationError),
+}
+
+impl From<GrpcServerError> for Status {
+    fn from(err: GrpcServerError) -> Self {
+        Status::invalid_argument(err.to_string())
+    }
+}
 
 #[derive(Debug, Default)]
 pub struct ValidationService {}
@@ -81,6 +100,49 @@ impl ValidationApi for ValidationService {
             responses: out,
         }))
     }
+
+    async fn get_association_state(
+        &self,
+        request: Request<GetAssociationStateRequest>,
+    ) -> Result<Response<GetAssociationStateResponse>, Status> {
+        let GetAssociationStateRequest {
+            old_updates,
+            new_updates,
+        } = request.into_inner();
+
+        get_association_state(old_updates, new_updates)
+            .map(Response::new)
+            .map_err(Into::into)
+    }
+}
+
+fn get_association_state(
+    old_updates: Vec<IdentityUpdateProto>,
+    new_updates: Vec<IdentityUpdateProto>,
+) -> Result<GetAssociationStateResponse, GrpcServerError> {
+    let (old_updates, new_updates) = (try_map_vec(old_updates)?, try_map_vec(new_updates)?);
+
+    if old_updates.is_empty() {
+        let new_state = associations::get_state(&new_updates)?;
+        return Ok(GetAssociationStateResponse {
+            association_state: Some(new_state.clone().into()),
+            state_diff: Some(new_state.as_diff().into()),
+        });
+    }
+
+    let old_state = associations::get_state(&old_updates)?;
+    let new_state = new_updates
+        .into_iter()
+        .try_fold(old_state.clone(), |state, update| {
+            associations::apply_update(state, update)
+        })?;
+
+    let state_diff = old_state.diff(&new_state);
+
+    Ok(GetAssociationStateResponse {
+        association_state: Some(new_state.into()),
+        state_diff: Some(state_diff.into()),
+    })
 }
 
 struct ValidateGroupMessageResult {
@@ -140,8 +202,10 @@ mod tests {
     use openmls_basic_credential::SignatureKeyPair;
     use openmls_rust_crypto::OpenMlsRustCrypto;
     use prost::Message;
+    use xmtp_id::associations::{generate_inbox_id, Action, CreateInbox, IdentityUpdate};
     use xmtp_mls::{credential::Credential, InboxOwner};
     use xmtp_proto::xmtp::{
+        identity::associations::IdentityUpdate as IdentityUpdateProto,
         mls::message_contents::MlsCredential as CredentialProto,
         mls_validation::v1::validate_key_packages_request::KeyPackage as KeyPackageProtoWrapper,
     };
@@ -251,5 +315,30 @@ mod tests {
 
         assert!(!first_response.is_ok);
         assert_eq!(first_response.account_address, "".to_string());
+    }
+
+    // this test will panic until signature recovery is added
+    // and `MockSignature` is updated with signatures that can be recovered
+    #[tokio::test]
+    #[should_panic]
+    async fn test_get_association_state() {
+        let create_request = CreateInbox::default();
+        let inbox_id = generate_inbox_id(&create_request.account_address, &create_request.nonce);
+
+        let updates = vec![IdentityUpdate::new_test(
+            vec![Action::CreateInbox(create_request)],
+            inbox_id.clone(),
+        )];
+
+        ValidationService::default()
+            .get_association_state(Request::new(GetAssociationStateRequest {
+                old_updates: vec![],
+                new_updates: updates
+                    .into_iter()
+                    .map(IdentityUpdateProto::from)
+                    .collect::<Vec<_>>(),
+            }))
+            .await
+            .unwrap();
     }
 }

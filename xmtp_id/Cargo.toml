@@ -6,7 +6,6 @@ version = "0.1.0"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-anyhow.workspace = true
 async-trait.workspace = true
 chrono.workspace = true
 ethers.workspace = true
@@ -27,17 +26,11 @@ xmtp_cryptography.workspace = true
 xmtp_proto = { workspace = true, features = ["proto_full"] }
 
 [dev-dependencies]
-anyhow.workspace = true
 ctor = "0.2.5"
 ethers = { workspace = true, features = ["ws"] }
 futures = "0.3"
-jsonrpsee = { workspace = true, features = ["macros", "ws-client"] }
 regex = "1.10"
-serde_json.workspace = true
-surf = "2.3"
 tokio = { workspace = true, features = ["time"] }
-tokio-test = "0.4"
-tracing-subscriber.workspace = true
 
 [features]
 test-utils = []
