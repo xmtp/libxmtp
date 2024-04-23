@@ -7,6 +7,7 @@ use log::info;
 
 use xmtp_cryptography::signature::sanitize_evm_addresses;
 use xmtp_proto::api_client::{XmtpIdentityClient, XmtpMlsClient};
+use xmtp_cryptography::signature::sanitize_evm_addresses;
 
 use crate::{
     api::ApiClientWrapper,
