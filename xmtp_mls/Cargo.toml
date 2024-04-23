@@ -9,7 +9,7 @@ name = "update-schema"
 path = "src/bin/update-schema.rs"
 
 [features]
-default = ["types", "native", "xmtp-id"]
+default = ["types", "native"]
 xmtp-id = []
 grpc = ["xmtp_proto/grpc"]
 native = ["libsqlite3-sys/bundled-sqlcipher-vendored-openssl"]
