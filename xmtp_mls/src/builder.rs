@@ -13,8 +13,7 @@ use crate::{
     client::{Client, Network},
     identity::v3::{Identity, IdentityError, IdentityStrategy},
     retry::Retry,
-    storage::EncryptedMessageStore,
-    StorageError,
+    storage::EncryptedMessageStore, StorageError,
 };
 
 #[derive(Error, Debug)]

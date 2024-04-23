@@ -6,12 +6,12 @@ use log::debug;
 use log::info;
 
 use xmtp_proto::api_client::{XmtpIdentityClient, XmtpMlsClient};
+use xmtp_cryptography::signature::sanitize_evm_addresses;
 
 use crate::{
     api::ApiClientWrapper,
     builder::ClientBuilderError,
     storage::{identity::StoredIdentity, EncryptedMessageStore},
-    utils::address::sanitize_evm_addresses,
     xmtp_openmls_provider::XmtpOpenMlsProvider,
     Fetch, InboxOwner,
 };
