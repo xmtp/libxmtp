@@ -11,7 +11,10 @@ use openmls_traits::OpenMlsProvider;
 use prost::EncodeError;
 use thiserror::Error;
 
-use xmtp_id::{associations::AssociationError, InboxId};
+use xmtp_id::associations::AssociationError;
+#[cfg(feature = "xmtp-id")]
+use xmtp_id::InboxId;
+
 use xmtp_proto::{
     api_client::{XmtpIdentityClient, XmtpMlsClient},
     xmtp::mls::api::v1::{
