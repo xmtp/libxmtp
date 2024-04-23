@@ -4,7 +4,7 @@ use super::MemberIdentifier;
 use async_trait::async_trait;
 use ed25519_dalek::{Signature as Ed25519Signature, VerifyingKey};
 use ethers::{
-    types::{Address, BlockNumber, U64},
+    types::{BlockNumber, U64},
     utils::hash_message,
 };
 use sha2::{Digest, Sha512};
@@ -33,6 +33,8 @@ pub enum SignatureError {
     Invalid,
     #[error(transparent)]
     AddressValidationError(#[from] xmtp_cryptography::signature::AddressValidationError),
+    #[error("Invalid account address")]
+    InvalidAccountAddress(#[from] rustc_hex::FromHexError),
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -124,11 +126,27 @@ impl Signature for RecoverableEcdsaSignature {
     }
 }
 
+// CAIP-10[https://github.com/ChainAgnostic/CAIPs/blob/main/CAIPs/caip-10.md]
+#[derive(Debug, Clone)]
+pub struct AccountId {
+    pub(crate) chain_id: String,
+    pub(crate) account_address: String,
+}
+
+impl AccountId {
+    pub fn is_evm_chain(&self) -> bool {
+        self.chain_id.starts_with("eip155")
+    }
+    pub fn get_account_address(&self) -> &str {
+        &self.account_address
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct Erc1271Signature {
     signature_text: String,
     signature_bytes: Vec<u8>,
-    contract_address: String,
+    account_id: AccountId,
     block_number: u64,
     chain_rpc_url: String,
 }
@@ -137,14 +155,14 @@ impl Erc1271Signature {
     pub fn new(
         signature_text: String,
         signature_bytes: Vec<u8>,
-        contract_address: String,
+        account_id: AccountId,
         chain_rpc_url: String,
         block_number: u64,
     ) -> Self {
         Erc1271Signature {
             signature_text,
             signature_bytes,
-            contract_address,
+            account_id,
             chain_rpc_url,
             block_number,
         }
@@ -157,14 +175,14 @@ impl Signature for Erc1271Signature {
         let verifier = crate::erc1271_verifier::ERC1271Verifier::new(self.chain_rpc_url.clone());
         let is_valid = verifier
             .is_valid_signature(
-                Address::from_slice(self.contract_address.as_bytes()), // TODO: `from_slice` will panic when input is not 20 bytes
+                self.account_id.get_account_address().parse()?,
                 Some(BlockNumber::Number(U64::from(self.block_number))),
                 hash_message(self.signature_text.clone()).into(), // the hash function should match the one used by the user wallet
                 self.bytes().into(),
             )
             .await?;
         if is_valid {
-            Ok(MemberIdentifier::Address(self.contract_address.clone()))
+            Ok(MemberIdentifier::Address(self.account_id.get_account_address().to_string()))
         } else {
             Err(SignatureError::Invalid)
         }
@@ -181,7 +199,7 @@ impl Signature for Erc1271Signature {
     fn to_proto(&self) -> SignatureProto {
         SignatureProto {
             signature: Some(SignatureKindProto::Erc1271(Erc1271SignatureProto {
-                contract_address: self.contract_address.clone(),
+                account_id: self.account_id.clone().into(),
                 block_number: self.block_number,
                 signature: self.bytes(),
             })),
