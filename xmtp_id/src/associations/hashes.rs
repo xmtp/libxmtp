@@ -1,6 +1,6 @@
 use sha2::{Digest, Sha256};
 
-pub fn sha256_string(input: String) -> String {
+fn sha256_string(input: String) -> String {
     let mut hasher = Sha256::new();
     hasher.update(input.as_bytes());
     let result = hasher.finalize();
