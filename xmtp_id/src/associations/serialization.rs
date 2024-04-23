@@ -377,7 +377,7 @@ impl TryFrom<String> for AccountId {
     type Error = DeserializationError;
 
     fn try_from(s: String) -> Result<Self, Self::Error> {
-        let parts: Vec<&str> = s.split(":").collect();
+        let parts: Vec<&str> = s.split(':').collect();
         if parts.len() != 3 {
             return Err(DeserializationError::InvalidAccountId);
         }
@@ -385,7 +385,7 @@ impl TryFrom<String> for AccountId {
         let chain_id_regex = Regex::new(r"^[-a-z0-9]{3,8}:[-_a-zA-Z0-9]{1,32}$").unwrap();
         let account_address = parts[2];
         let account_address_regex = Regex::new(r"^[-.%a-zA-Z0-9]{1,128}$").unwrap();
-        if !chain_id_regex.is_match(&chain_id) || !account_address_regex.is_match(&account_address) {
+        if !chain_id_regex.is_match(&chain_id) || !account_address_regex.is_match(account_address) {
             return Err(DeserializationError::InvalidAccountId);
         }
         Ok(AccountId {
