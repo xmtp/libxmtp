@@ -1,5 +1,8 @@
 use prost::Message;
-use xmtp_id::associations::{get_state, AssociationError, AssociationState, IdentityUpdate};
+use xmtp_id::associations::{
+    apply_update, get_state, AssociationError, AssociationState, AssociationStateDiff,
+    IdentityUpdate,
+};
 use xmtp_proto::api_client::{XmtpIdentityClient, XmtpMlsClient};
 
 use crate::{
@@ -48,7 +51,7 @@ where
         Ok(conn.insert_or_ignore_identity_updates(&to_store)?)
     }
 
-    pub fn get_association_state<InboxId: AsRef<str>>(
+    pub async fn get_association_state<InboxId: AsRef<str>>(
         &self,
         conn: &'a DbConnection<'a>,
         inbox_id: InboxId,
@@ -73,7 +76,33 @@ where
             .map(IdentityUpdate::try_from)
             .collect::<Result<Vec<IdentityUpdate>, AssociationError>>()?;
 
-        Ok(get_state(updates)?)
+        Ok(get_state(updates).await?)
+    }
+
+    pub async fn get_association_state_diff<InboxId: AsRef<str>>(
+        &self,
+        conn: &'a DbConnection<'a>,
+        inbox_id: String,
+        starting_sequence_id: Option<i64>,
+        ending_sequence_id: Option<i64>,
+    ) -> Result<AssociationStateDiff, ClientError> {
+        let initial_state = self.get_association_state(conn, &inbox_id, starting_sequence_id).await?;
+        if starting_sequence_id.is_none() {
+            return Ok(initial_state.as_diff());
+        }
+
+        let incremental_updates = conn
+            .get_identity_updates(inbox_id, starting_sequence_id, ending_sequence_id)?
+            .into_iter()
+            .map(|update| update.try_into())
+            .collect::<Result<Vec<IdentityUpdate>, AssociationError>>()?;
+
+        let mut final_state = initial_state.clone();
+        for update in incremental_updates {
+            final_state = apply_update(final_state, update).await?;
+        }
+
+        Ok(initial_state.diff(&final_state))
     }
 }
 

@@ -34,7 +34,7 @@ pub fn rand_vec() -> Vec<u8> {
     buf.to_vec()
 }
 
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 pub struct MockSignature {
     is_valid: bool,
     signer_identity: MemberIdentifier,
@@ -61,12 +61,13 @@ impl MockSignature {
     }
 }
 
+#[async_trait::async_trait]
 impl Signature for MockSignature {
     fn signature_kind(&self) -> SignatureKind {
         self.signature_kind.clone()
     }
 
-    fn recover_signer(&self) -> Result<MemberIdentifier, SignatureError> {
+    async fn recover_signer(&self) -> Result<MemberIdentifier, SignatureError> {
         match self.is_valid {
             true => Ok(self.signer_identity.clone()),
             false => Err(SignatureError::Invalid),

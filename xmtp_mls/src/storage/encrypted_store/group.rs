@@ -64,7 +64,6 @@ impl StoredGroup {
         id: ID,
         created_at_ns: i64,
         membership_state: GroupMembershipState,
-        added_by_address: String,
     ) -> Self {
         Self {
             id,
@@ -72,7 +71,7 @@ impl StoredGroup {
             membership_state,
             installations_last_checked: 0,
             purpose: Purpose::Sync,
-            added_by_address,
+            added_by_address: "".into(),
         }
     }
 }
@@ -414,12 +413,7 @@ pub(crate) mod tests {
             let created_at_ns = now_ns();
             let membership_state = GroupMembershipState::Allowed;
 
-            let sync_group = StoredGroup::new_sync_group(
-                id,
-                created_at_ns,
-                membership_state,
-                "placeholder_address".to_string(),
-            );
+            let sync_group = StoredGroup::new_sync_group(id, created_at_ns, membership_state);
             let purpose = sync_group.purpose;
             assert_eq!(purpose, Purpose::Sync);
         })

@@ -217,9 +217,20 @@ where
             permissions,
             self.account_address(),
         )
-        .map_err(|e| ClientError::Generic(format!("group create error {}", e)))?;
+        .map_err(|e| {
+            ClientError::Storage(StorageError::Store(format!("group create error {}", e)))
+        })?;
 
         Ok(group)
+    }
+
+    pub fn create_sync_group(&self) -> Result<MlsGroup<ApiClient>, ClientError> {
+        log::info!("creating sync group");
+        let sync_group = MlsGroup::create_and_insert_sync_group(self).map_err(|e| {
+            ClientError::Storage(StorageError::Store(format!("group create error {}", e)))
+        })?;
+
+        Ok(sync_group)
     }
 
     /// Look up a group by its ID
@@ -229,7 +240,7 @@ where
         let stored_group: Option<StoredGroup> = conn.fetch(&group_id)?;
         match stored_group {
             Some(group) => Ok(MlsGroup::new(self, group.id, group.created_at_ns)),
-            None => Err(ClientError::Generic("group not found".to_string())),
+            None => Err(ClientError::Storage(StorageError::NotFound)),
         }
     }
 

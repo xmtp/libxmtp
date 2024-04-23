@@ -204,11 +204,11 @@ impl SignatureRequest {
         signers.difference(&signatures).cloned().collect()
     }
 
-    pub fn add_signature(
+    pub async fn add_signature(
         &mut self,
         signature: Box<dyn Signature>,
     ) -> Result<(), SignatureRequestError> {
-        let signer_identity = signature.recover_signer()?;
+        let signer_identity = signature.recover_signer().await?;
         let missing_signatures = self.missing_signatures();
 
         // Make sure the signer is someone actually in the request
@@ -356,7 +356,7 @@ mod tests {
     use super::*;
 
     // Helper function to add all the missing signatures, since we don't have real signers available
-    fn add_missing_signatures_to_request(signature_request: &mut SignatureRequest) {
+    async fn add_missing_signatures_to_request(signature_request: &mut SignatureRequest) {
         let missing_signatures = signature_request.missing_signatures();
         for member_identifier in missing_signatures {
             let signature_kind = match member_identifier.kind() {
@@ -371,12 +371,13 @@ mod tests {
                     signature_kind,
                     Some(signature_request.signature_text()),
                 ))
+                .await
                 .expect("should succeed");
         }
     }
 
-    #[test]
-    fn create_inbox() {
+    #[tokio::test]
+    async fn create_inbox() {
         let account_address = "account_address".to_string();
         let nonce = 0;
         let inbox_id = generate_inbox_id(&account_address, &nonce);
@@ -384,17 +385,19 @@ mod tests {
             .create_inbox(account_address.into(), nonce)
             .build();
 
-        add_missing_signatures_to_request(&mut signature_request);
+        add_missing_signatures_to_request(&mut signature_request).await;
 
         let identity_update = signature_request
             .build_identity_update()
             .expect("should be valid");
 
-        get_state(vec![identity_update]).expect("should be valid");
+        get_state(vec![identity_update])
+            .await
+            .expect("should be valid");
     }
 
-    #[test]
-    fn create_and_add_identity() {
+    #[tokio::test]
+    async fn create_and_add_identity() {
         let account_address = "account_address".to_string();
         let nonce = 0;
         let inbox_id = generate_inbox_id(&account_address, &nonce);
@@ -406,18 +409,20 @@ mod tests {
             .add_association(new_member_identifier, existing_member_identifier)
             .build();
 
-        add_missing_signatures_to_request(&mut signature_request);
+        add_missing_signatures_to_request(&mut signature_request).await;
 
         let identity_update = signature_request
             .build_identity_update()
             .expect("should be valid");
 
-        let state = get_state(vec![identity_update]).expect("should be valid");
+        let state = get_state(vec![identity_update])
+            .await
+            .expect("should be valid");
         assert_eq!(state.members().len(), 2);
     }
 
-    #[test]
-    fn create_and_revoke() {
+    #[tokio::test]
+    async fn create_and_revoke() {
         let account_address = "account_address".to_string();
         let nonce = 0;
         let inbox_id = generate_inbox_id(&account_address, &nonce);
@@ -428,19 +433,21 @@ mod tests {
             .revoke_association(existing_member_identifier.clone(), account_address.into())
             .build();
 
-        add_missing_signatures_to_request(&mut signature_request);
+        add_missing_signatures_to_request(&mut signature_request).await;
 
         let identity_update = signature_request
             .build_identity_update()
             .expect("should be valid");
 
-        let state = get_state(vec![identity_update]).expect("should be valid");
+        let state = get_state(vec![identity_update])
+            .await
+            .expect("should be valid");
 
         assert_eq!(state.members().len(), 0);
     }
 
-    #[test]
-    fn attempt_adding_unknown_signer() {
+    #[tokio::test]
+    async fn attempt_adding_unknown_signer() {
         let account_address = "account_address".to_string();
         let nonce = 0;
         let inbox_id = generate_inbox_id(&account_address, &nonce);
@@ -448,9 +455,14 @@ mod tests {
             .create_inbox(account_address.into(), nonce)
             .build();
 
-        let attempt_to_add_random_member = signature_request.add_signature(
-            MockSignature::new_boxed(true, rand_string().into(), SignatureKind::Erc191, None),
-        );
+        let attempt_to_add_random_member = signature_request
+            .add_signature(MockSignature::new_boxed(
+                true,
+                rand_string().into(),
+                SignatureKind::Erc191,
+                None,
+            ))
+            .await;
 
         assert!(matches!(
             attempt_to_add_random_member,

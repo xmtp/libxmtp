@@ -78,7 +78,6 @@ pub fn extract_group_mutable_metadata(
 #[cfg(test)]
 mod tests {
 
-    use super::*;
     #[test]
     fn test_preconfigured_mutable_metadata() {
         // TODO add test here

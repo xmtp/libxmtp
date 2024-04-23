@@ -1,6 +1,7 @@
 use std::array::TryFromSliceError;
 
 use super::MemberIdentifier;
+use async_trait::async_trait;
 use ed25519_dalek::{Signature as Ed25519Signature, VerifyingKey};
 use ethers::{
     types::{Address, BlockNumber, U64},
@@ -55,8 +56,9 @@ impl std::fmt::Display for SignatureKind {
     }
 }
 
-pub trait Signature: SignatureClone {
-    fn recover_signer(&self) -> Result<MemberIdentifier, SignatureError>;
+#[async_trait]
+pub trait Signature: SignatureClone + std::fmt::Debug + Send + Sync + 'static {
+    async fn recover_signer(&self) -> Result<MemberIdentifier, SignatureError>;
     fn signature_kind(&self) -> SignatureKind;
     fn bytes(&self) -> Vec<u8>;
     fn to_proto(&self) -> SignatureProto;
@@ -82,7 +84,7 @@ impl Clone for Box<dyn Signature> {
 }
 
 #[allow(dead_code)]
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 pub struct RecoverableEcdsaSignature {
     signature_text: String,
     signature_bytes: Vec<u8>,
@@ -97,8 +99,9 @@ impl RecoverableEcdsaSignature {
     }
 }
 
+#[async_trait]
 impl Signature for RecoverableEcdsaSignature {
-    fn recover_signer(&self) -> Result<MemberIdentifier, SignatureError> {
+    async fn recover_signer(&self) -> Result<MemberIdentifier, SignatureError> {
         let signature = ethers::types::Signature::try_from(self.bytes().as_slice())?;
         Ok(MemberIdentifier::Address(h160addr_to_string(
             signature.recover(self.signature_text.clone())?,
@@ -122,8 +125,7 @@ impl Signature for RecoverableEcdsaSignature {
     }
 }
 
-#[allow(dead_code)]
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 pub struct Erc1271Signature {
     signature_text: String,
     signature_bytes: Vec<u8>,
@@ -150,17 +152,18 @@ impl Erc1271Signature {
     }
 }
 
+#[async_trait]
 impl Signature for Erc1271Signature {
     // TODO: make this function async
-    fn recover_signer(&self) -> Result<MemberIdentifier, SignatureError> {
+    async fn recover_signer(&self) -> Result<MemberIdentifier, SignatureError> {
         let verifier = crate::erc1271_verifier::ERC1271Verifier::new(self.chain_rpc_url.clone());
-        let runtime = Runtime::new().unwrap();
-        let is_valid = runtime.block_on(verifier.is_valid_signature(
+        // let runtime = Runtime::new().unwrap();
+        let is_valid = verifier.is_valid_signature(
             Address::from_slice(self.contract_address.as_bytes()), // TODO: `from_slice` will panic when input is not 20 bytes
             Some(BlockNumber::Number(U64::from(self.block_number))),
             hash_message(self.signature_text.clone()).into(), // the hash function should match the one used by the user wallet
             self.bytes().into(),
-        ))?;
+        ).await?;
         if is_valid {
             Ok(MemberIdentifier::Address(self.contract_address.clone()))
         } else {
@@ -188,7 +191,6 @@ impl Signature for Erc1271Signature {
     }
 }
 
-#[allow(dead_code)]
 #[derive(Clone, Debug)]
 pub struct InstallationKeySignature {
     signature_text: String,
@@ -206,8 +208,9 @@ impl InstallationKeySignature {
     }
 }
 
+#[async_trait]
 impl Signature for InstallationKeySignature {
-    fn recover_signer(&self) -> Result<MemberIdentifier, SignatureError> {
+    async fn recover_signer(&self) -> Result<MemberIdentifier, SignatureError> {
         let signature: Ed25519Signature =
             Ed25519Signature::from_bytes(self.bytes().as_slice().try_into()?);
         let verifying_key: VerifyingKey =
@@ -238,8 +241,7 @@ impl Signature for InstallationKeySignature {
     }
 }
 
-#[allow(dead_code)]
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 pub struct LegacyDelegatedSignature {
     // This would be the signature from the legacy key
     legacy_key_signature: RecoverableEcdsaSignature,
@@ -258,10 +260,11 @@ impl LegacyDelegatedSignature {
     }
 }
 
+#[async_trait]
 impl Signature for LegacyDelegatedSignature {
-    fn recover_signer(&self) -> Result<MemberIdentifier, SignatureError> {
+    async fn recover_signer(&self) -> Result<MemberIdentifier, SignatureError> {
         // 1. Verify the RecoverableEcdsaSignature
-        let legacy_signer = self.legacy_key_signature.recover_signer()?;
+        let legacy_signer = self.legacy_key_signature.recover_signer().await?;
 
         // 2. Signed public key is already verified, we just make sure it matches to the legacy_signer
         if MemberIdentifier::Address(self.signed_public_key.account_address()) != legacy_signer {
@@ -303,7 +306,7 @@ use xmtp_proto::xmtp::message_contents::{
     UnsignedPublicKey as LegacyUnsignedPublicKeyProto,
 };
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct ValidatedLegacySignedPublicKey {
     account_address: String,
     serialized_key_data: Vec<u8>,
@@ -423,15 +426,15 @@ impl From<ValidatedLegacySignedPublicKey> for LegacySignedPublicKeyProto {
 #[cfg(test)]
 pub mod tests {
 
+    use super::*;
     use crate::{
         associations::{
+            signature::Signature,
             test_utils::{rand_u64, MockSignature},
             unsigned_actions::{SignatureTextCreator, UnsignedAddAssociation, UnsignedCreateInbox},
         },
         InboxOwner,
     };
-
-    use super::*;
     use ed25519_dalek::SigningKey;
     use ethers::prelude::*;
     use prost::Message;
@@ -497,7 +500,7 @@ pub mod tests {
             .to_vec();
         let signature = RecoverableEcdsaSignature::new(signature_text.clone(), signature_bytes);
         let expected = MemberIdentifier::Address(wallet.get_address());
-        let actual = signature.recover_signer().unwrap();
+        let actual = signature.recover_signer().await.unwrap();
 
         assert_eq!(expected, actual);
     }
@@ -515,7 +518,7 @@ pub mod tests {
         );
 
         let expected = MemberIdentifier::Address(wallet.get_address());
-        let actual = mock_erc1271.recover_signer().unwrap();
+        let actual = mock_erc1271.recover_signer().await.unwrap();
         assert_eq!(expected, actual);
     }
 
@@ -537,7 +540,7 @@ pub mod tests {
             verifying_key.as_bytes().to_vec(),
         );
         let expected = MemberIdentifier::Installation(verifying_key.as_bytes().to_vec());
-        let actual = installation_key_sig.recover_signer().unwrap();
+        let actual = installation_key_sig.recover_signer().await.unwrap();
         assert_eq!(expected, actual);
     }
 
@@ -569,7 +572,7 @@ pub mod tests {
         // LegacyDelegatedSignature
         let delegated_signature = LegacyDelegatedSignature::new(signature, signed_public_key);
         let expected = MemberIdentifier::Address(legacy_key.get_address());
-        let actual = delegated_signature.recover_signer().unwrap();
+        let actual = delegated_signature.recover_signer().await.unwrap();
         assert_eq!(expected, actual);
     }
 }

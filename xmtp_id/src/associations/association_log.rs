@@ -5,7 +5,7 @@ use super::serialization::{
 };
 use super::signature::{Signature, SignatureError, SignatureKind};
 use super::state::AssociationState;
-
+use async_trait::async_trait;
 use prost::Message;
 use thiserror::Error;
 use xmtp_proto::xmtp::identity::associations::IdentityUpdate as IdentityUpdateProto;
@@ -40,8 +40,9 @@ pub enum AssociationError {
     MissingIdentityUpdate,
 }
 
-pub trait IdentityAction {
-    fn update_state(
+#[async_trait]
+pub trait IdentityAction: Send + 'static {
+    async fn update_state(
         &self,
         existing_state: Option<AssociationState>,
     ) -> Result<AssociationState, AssociationError>;
@@ -59,14 +60,16 @@ pub trait IdentityAction {
 }
 
 /// CreateInbox Action
+#[derive(Debug)]
 pub struct CreateInbox {
     pub nonce: u64,
     pub account_address: String,
     pub initial_address_signature: Box<dyn Signature>,
 }
 
+#[async_trait]
 impl IdentityAction for CreateInbox {
-    fn update_state(
+    async fn update_state(
         &self,
         existing_state: Option<AssociationState>,
     ) -> Result<AssociationState, AssociationError> {
@@ -75,7 +78,7 @@ impl IdentityAction for CreateInbox {
         }
 
         let account_address = self.account_address.clone();
-        let recovered_signer = self.initial_address_signature.recover_signer()?;
+        let recovered_signer = self.initial_address_signature.recover_signer().await?;
         if recovered_signer.ne(&MemberIdentifier::Address(account_address.clone())) {
             return Err(AssociationError::MissingExistingMember);
         }
@@ -100,14 +103,16 @@ impl IdentityAction for CreateInbox {
 }
 
 /// AddAssociation Action
+#[derive(Debug)]
 pub struct AddAssociation {
     pub new_member_signature: Box<dyn Signature>,
     pub new_member_identifier: MemberIdentifier,
     pub existing_member_signature: Box<dyn Signature>,
 }
 
+#[async_trait::async_trait]
 impl IdentityAction for AddAssociation {
-    fn update_state(
+    async fn update_state(
         &self,
         maybe_existing_state: Option<AssociationState>,
     ) -> Result<AssociationState, AssociationError> {
@@ -115,9 +120,9 @@ impl IdentityAction for AddAssociation {
         self.replay_check(&existing_state)?;
 
         // Validate the new member signature and get the recovered signer
-        let new_member_address = self.new_member_signature.recover_signer()?;
+        let new_member_address = self.new_member_signature.recover_signer().await?;
         // Validate the existing member signature and get the recovedred signer
-        let existing_member_identifier = self.existing_member_signature.recover_signer()?;
+        let existing_member_identifier = self.existing_member_signature.recover_signer().await?;
 
         if new_member_address.ne(&self.new_member_identifier) {
             return Err(AssociationError::NewMemberIdSignatureMismatch);
@@ -196,13 +201,15 @@ impl IdentityAction for AddAssociation {
 }
 
 /// RevokeAssociation Action
+#[derive(Debug)]
 pub struct RevokeAssociation {
     pub recovery_address_signature: Box<dyn Signature>,
     pub revoked_member: MemberIdentifier,
 }
 
+#[async_trait]
 impl IdentityAction for RevokeAssociation {
-    fn update_state(
+    async fn update_state(
         &self,
         maybe_existing_state: Option<AssociationState>,
     ) -> Result<AssociationState, AssociationError> {
@@ -216,7 +223,7 @@ impl IdentityAction for RevokeAssociation {
             ));
         }
         // Don't need to check for replay here since revocation is idempotent
-        let recovery_signer = self.recovery_address_signature.recover_signer()?;
+        let recovery_signer = self.recovery_address_signature.recover_signer().await?;
         // Make sure there is a recovery address set on the state
         let state_recovery_address = existing_state.recovery_address();
 
@@ -248,13 +255,15 @@ impl IdentityAction for RevokeAssociation {
 }
 
 /// ChangeRecoveryAddress Action
+#[derive(Debug)]
 pub struct ChangeRecoveryAddress {
     pub recovery_address_signature: Box<dyn Signature>,
     pub new_recovery_address: String,
 }
 
+#[async_trait]
 impl IdentityAction for ChangeRecoveryAddress {
-    fn update_state(
+    async fn update_state(
         &self,
         existing_state: Option<AssociationState>,
     ) -> Result<AssociationState, AssociationError> {
@@ -268,7 +277,7 @@ impl IdentityAction for ChangeRecoveryAddress {
             ));
         }
 
-        let recovery_signer = self.recovery_address_signature.recover_signer()?;
+        let recovery_signer = self.recovery_address_signature.recover_signer().await?;
         if recovery_signer.ne(&existing_state.recovery_address().clone().into()) {
             return Err(AssociationError::MissingExistingMember);
         }
@@ -282,6 +291,7 @@ impl IdentityAction for ChangeRecoveryAddress {
 }
 
 /// All possible Action types that can be used inside an `IdentityUpdate`
+#[derive(Debug)]
 pub enum Action {
     CreateInbox(CreateInbox),
     AddAssociation(AddAssociation),
@@ -289,16 +299,17 @@ pub enum Action {
     ChangeRecoveryAddress(ChangeRecoveryAddress),
 }
 
+#[async_trait]
 impl IdentityAction for Action {
-    fn update_state(
+    async fn update_state(
         &self,
         existing_state: Option<AssociationState>,
     ) -> Result<AssociationState, AssociationError> {
         match self {
-            Action::CreateInbox(event) => event.update_state(existing_state),
-            Action::AddAssociation(event) => event.update_state(existing_state),
-            Action::RevokeAssociation(event) => event.update_state(existing_state),
-            Action::ChangeRecoveryAddress(event) => event.update_state(existing_state),
+            Action::CreateInbox(event) => event.update_state(existing_state).await,
+            Action::AddAssociation(event) => event.update_state(existing_state).await,
+            Action::RevokeAssociation(event) => event.update_state(existing_state).await,
+            Action::ChangeRecoveryAddress(event) => event.update_state(existing_state).await,
         }
     }
 
@@ -313,6 +324,7 @@ impl IdentityAction for Action {
 }
 
 /// An `IdentityUpdate` contains one or more Actions that can be applied to the AssociationState
+#[derive(Debug)]
 pub struct IdentityUpdate {
     pub inbox_id: String,
     pub client_timestamp_ns: u64,
@@ -360,14 +372,15 @@ impl TryFrom<Vec<u8>> for IdentityUpdate {
     }
 }
 
+#[async_trait]
 impl IdentityAction for IdentityUpdate {
-    fn update_state(
+    async fn update_state(
         &self,
         existing_state: Option<AssociationState>,
     ) -> Result<AssociationState, AssociationError> {
         let mut state = existing_state.clone();
         for action in &self.actions {
-            state = Some(action.update_state(state)?);
+            state = Some(action.update_state(state).await?);
         }
 
         let new_state = state.ok_or(AssociationError::NotCreated)?;
