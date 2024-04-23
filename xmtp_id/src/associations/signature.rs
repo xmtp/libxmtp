@@ -155,7 +155,6 @@ impl Erc1271Signature {
 impl Signature for Erc1271Signature {
     async fn recover_signer(&self) -> Result<MemberIdentifier, SignatureError> {
         let verifier = crate::erc1271_verifier::ERC1271Verifier::new(self.chain_rpc_url.clone());
-        // let runtime = Runtime::new().unwrap();
         let is_valid = verifier
             .is_valid_signature(
                 Address::from_slice(self.contract_address.as_bytes()), // TODO: `from_slice` will panic when input is not 20 bytes
