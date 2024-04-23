@@ -153,7 +153,6 @@ impl Erc1271Signature {
 
 #[async_trait]
 impl Signature for Erc1271Signature {
-    // TODO: make this function async
     async fn recover_signer(&self) -> Result<MemberIdentifier, SignatureError> {
         let verifier = crate::erc1271_verifier::ERC1271Verifier::new(self.chain_rpc_url.clone());
         // let runtime = Runtime::new().unwrap();
