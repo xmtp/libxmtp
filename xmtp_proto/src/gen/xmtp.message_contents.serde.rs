@@ -2146,6 +2146,9 @@ impl serde::Serialize for FrameActionBody {
         if !self.state.is_empty() {
             len += 1;
         }
+        if !self.address.is_empty() {
+            len += 1;
+        }
         let mut struct_ser = serializer.serialize_struct("xmtp.message_contents.FrameActionBody", len)?;
         if !self.frame_url.is_empty() {
             struct_ser.serialize_field("frameUrl", &self.frame_url)?;
@@ -2169,6 +2172,9 @@ impl serde::Serialize for FrameActionBody {
         if !self.state.is_empty() {
             struct_ser.serialize_field("state", &self.state)?;
         }
+        if !self.address.is_empty() {
+            struct_ser.serialize_field("address", &self.address)?;
+        }
         struct_ser.end()
     }
 }
@@ -2191,6 +2197,7 @@ impl<'de> serde::Deserialize<'de> for FrameActionBody {
             "input_text",
             "inputText",
             "state",
+            "address",
         ];
 
         #[allow(clippy::enum_variant_names)]
@@ -2202,6 +2209,7 @@ impl<'de> serde::Deserialize<'de> for FrameActionBody {
             UnixTimestamp,
             InputText,
             State,
+            Address,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
             fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
@@ -2230,6 +2238,7 @@ impl<'de> serde::Deserialize<'de> for FrameActionBody {
                             "unixTimestamp" | "unix_timestamp" => Ok(GeneratedField::UnixTimestamp),
                             "inputText" | "input_text" => Ok(GeneratedField::InputText),
                             "state" => Ok(GeneratedField::State),
+                            "address" => Ok(GeneratedField::Address),
                             _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
                         }
                     }
@@ -2256,6 +2265,7 @@ impl<'de> serde::Deserialize<'de> for FrameActionBody {
                 let mut unix_timestamp__ = None;
                 let mut input_text__ = None;
                 let mut state__ = None;
+                let mut address__ = None;
                 while let Some(k) = map_.next_key()? {
                     match k {
                         GeneratedField::FrameUrl => {
@@ -2306,6 +2316,12 @@ impl<'de> serde::Deserialize<'de> for FrameActionBody {
                             }
                             state__ = Some(map_.next_value()?);
                         }
+                        GeneratedField::Address => {
+                            if address__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("address"));
+                            }
+                            address__ = Some(map_.next_value()?);
+                        }
                     }
                 }
                 Ok(FrameActionBody {
@@ -2316,6 +2332,7 @@ impl<'de> serde::Deserialize<'de> for FrameActionBody {
                     unix_timestamp: unix_timestamp__.unwrap_or_default(),
                     input_text: input_text__.unwrap_or_default(),
                     state: state__.unwrap_or_default(),
+                    address: address__.unwrap_or_default(),
                 })
             }
         }

@@ -2,7 +2,9 @@ use std::collections::HashMap;
 
 use openmls::{
     credentials::{errors::BasicCredentialError, BasicCredential, CredentialType},
+    extensions::{Extension, UnknownExtension},
     group::{QueuedAddProposal, QueuedRemoveProposal},
+    messages::proposals::Proposal,
     prelude::{LeafNodeIndex, MlsGroup as OpenMlsGroup, Sender, StagedCommit},
 };
 use thiserror::Error;
@@ -13,10 +15,15 @@ use xmtp_proto::xmtp::mls::message_contents::{
 
 use super::{
     group_metadata::{extract_group_metadata, GroupMetadata, GroupMetadataError},
+    group_mutable_metadata::{
+        extract_group_mutable_metadata, GroupMutableMetadata, GroupMutableMetadataError,
+    },
+    group_permissions::MetadataChange,
     members::aggregate_member_list,
 };
 
 use crate::{
+    configuration::MUTABLE_METADATA_EXTENSION_ID,
     identity::{Identity, IdentityError},
     types::Address,
     verified_key_package::{KeyPackageVerificationError, VerifiedKeyPackage},
@@ -52,6 +59,8 @@ pub enum CommitValidationError {
     InvalidApplicationId,
     #[error("Credential error")]
     CredentialError(#[from] BasicCredentialError),
+    #[error("Failed to parse group mutable metadata: {0}")]
+    GroupMutableMetadata(#[from] GroupMutableMetadataError),
 }
 
 // A participant in a commit. Could be the actor or the subject of a proposal
@@ -79,6 +88,7 @@ pub struct ValidatedCommit {
     pub(crate) members_removed: Vec<AggregatedMembershipChange>,
     pub(crate) installations_added: Vec<AggregatedMembershipChange>,
     pub(crate) installations_removed: Vec<AggregatedMembershipChange>,
+    pub(crate) group_name_updated: MetadataChange,
 }
 
 impl ValidatedCommit {
@@ -128,12 +138,18 @@ impl ValidatedCommit {
             &group_metadata,
         )?;
 
+        // We don't allow commits that update Group Context Extensions outside type Unknown(MUTABLE_METADATA_EXTENSION_ID)
+        ensure_extensions_valid(staged_commit, openmls_group)?;
+
+        let group_name_updated = get_group_name_updated(staged_commit, openmls_group)?;
+
         let validated_commit = Self {
             actor,
             members_added,
             members_removed,
             installations_added,
             installations_removed,
+            group_name_updated,
         };
 
         if !group_metadata.policies.evaluate_commit(&validated_commit) {
@@ -335,6 +351,68 @@ fn get_removed_members(
             None => true,
         }
     }))
+}
+
+// Get group name updated
+fn get_group_name_updated(
+    staged_commit: &StagedCommit,
+    openmls_group: &OpenMlsGroup,
+) -> Result<MetadataChange, CommitValidationError> {
+    let old_value = extract_group_mutable_metadata(openmls_group)?;
+    let mut new_value = old_value.clone();
+    for proposal in staged_commit.queued_proposals() {
+        if let Proposal::GroupContextExtensions(extension_proposal) = proposal.proposal() {
+            let extensions = extension_proposal.extensions();
+            // Check each MUTABLE_METADATA extension to see if it updates metadata group name
+            for extension in extensions.iter() {
+                if let Extension::Unknown(MUTABLE_METADATA_EXTENSION_ID, UnknownExtension(data)) =
+                    extension
+                {
+                    match GroupMutableMetadata::try_from(data) {
+                        Ok(metadata) => {
+                            // Since we iterate through the commit proposal in order from queued proposals
+                            // we overwrite the GroupMutableMetadata for each valid GCE proposal to get the final state
+                            // of the commit
+                            new_value = metadata;
+                        }
+                        Err(e) => return Err(CommitValidationError::from(e)),
+                    }
+                }
+            }
+        }
+    }
+    let metadata_policies = extract_group_metadata(openmls_group)?
+        .policies
+        .update_metadata_policy;
+    Ok(MetadataChange {
+        new_value,
+        old_value,
+        metadata_policies,
+    })
+}
+
+fn ensure_extensions_valid(
+    staged_commit: &StagedCommit,
+    openmls_group: &OpenMlsGroup,
+) -> Result<(), CommitValidationError> {
+    let mut existing_extensions = openmls_group.export_group_context().extensions().clone();
+    existing_extensions.remove(openmls::extensions::ExtensionType::Unknown(
+        MUTABLE_METADATA_EXTENSION_ID,
+    ));
+    for proposal in staged_commit.queued_proposals() {
+        if let Proposal::GroupContextExtensions(extension_proposal) = proposal.proposal() {
+            let mut extensions = extension_proposal.extensions().clone();
+            extensions.remove(openmls::extensions::ExtensionType::Unknown(
+                MUTABLE_METADATA_EXTENSION_ID,
+            ));
+            if extensions != existing_extensions {
+                return Err(CommitValidationError::GroupMutableMetadata(
+                    GroupMutableMetadataError::NonMutableExtensionUpdate,
+                ));
+            }
+        }
+    }
+    Ok(())
 }
 
 impl From<ValidatedCommit> for GroupMembershipChanges {
