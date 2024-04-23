@@ -26,6 +26,8 @@ use crate::{
     verified_key_package::{KeyPackageVerificationError, VerifiedKeyPackage},
 };
 
+use super::group_mutable_metadata::MetadataField;
+
 #[derive(Debug, Error)]
 pub enum IntentError {
     #[error("decode error: {0}")]
@@ -226,12 +228,23 @@ impl From<RemoveMembersIntentData> for Vec<u8> {
 
 #[derive(Debug, Clone)]
 pub struct UpdateMetadataIntentData {
-    pub group_name: String,
+    pub field_name: String,
+    pub field_value: String,
 }
 
 impl UpdateMetadataIntentData {
-    pub fn new(group_name: String) -> Self {
-        Self { group_name }
+    pub fn new(field_name: String, field_value: String) -> Self {
+        Self {
+            field_name,
+            field_value,
+        }
+    }
+
+    pub fn new_update_group_name(group_name: String) -> Self {
+        Self {
+            field_name: MetadataField::GroupName.to_string(),
+            field_value: group_name,
+        }
     }
 }
 
@@ -241,7 +254,8 @@ impl From<UpdateMetadataIntentData> for Vec<u8> {
 
         UpdateMetadataData {
             version: Some(UpdateMetadataVersion::V1(UpdateMetadataV1 {
-                group_name: intent.group_name.clone(),
+                field_name: intent.field_name.to_string(),
+                field_value: intent.field_value.clone(),
             })),
         }
         .encode(&mut buf)
@@ -257,12 +271,16 @@ impl TryFrom<Vec<u8>> for UpdateMetadataIntentData {
     fn try_from(data: Vec<u8>) -> Result<Self, Self::Error> {
         let msg = UpdateMetadataData::decode(Bytes::from(data))?;
 
-        let group_name = match msg.version {
-            Some(UpdateMetadataVersion::V1(ref v1)) => v1.group_name.clone(),
+        let field_name = match msg.version {
+            Some(UpdateMetadataVersion::V1(ref v1)) => v1.field_name.clone(),
+            None => return Err(IntentError::Generic("missing payload".to_string())),
+        };
+        let field_value = match msg.version {
+            Some(UpdateMetadataVersion::V1(ref v1)) => v1.field_value.clone(),
             None => return Err(IntentError::Generic("missing payload".to_string())),
         };
 
-        Ok(Self::new(group_name))
+        Ok(Self::new(field_name, field_value))
     }
 }
 
@@ -410,11 +428,11 @@ mod tests {
 
     #[tokio::test]
     async fn test_serialize_update_metadata() {
-        let intent = UpdateMetadataIntentData::new("group name".to_string());
+        let intent = UpdateMetadataIntentData::new_update_group_name("group name".to_string());
         let as_bytes: Vec<u8> = intent.clone().try_into().unwrap();
         let restored_intent: UpdateMetadataIntentData =
             UpdateMetadataIntentData::try_from(as_bytes).unwrap();
 
-        assert_eq!(intent.group_name, restored_intent.group_name);
+        assert_eq!(intent.field_value, restored_intent.field_value);
     }
 }

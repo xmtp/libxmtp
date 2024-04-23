@@ -11,7 +11,7 @@ use thiserror::Error;
 
 use crate::{
     configuration::MLS_PROTOCOL_VERSION,
-    identity::{Identity, IdentityError},
+    identity::v3::{Identity, IdentityError},
     types::Address,
 };
 
