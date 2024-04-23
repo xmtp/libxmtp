@@ -459,7 +459,10 @@ mod tests {
         let text = "eip155:1:0xab16a96D359eC26a11e2C2b3d8f8B8942d5Bfcdb".to_string();
         let account_id: AccountId = text.clone().try_into().unwrap();
         assert_eq!(account_id.chain_id, "eip155:1");
-        assert_eq!(account_id.account_address, "0xab16a96D359eC26a11e2C2b3d8f8B8942d5Bfcdb");
+        assert_eq!(
+            account_id.account_address,
+            "0xab16a96D359eC26a11e2C2b3d8f8B8942d5Bfcdb"
+        );
         assert!(account_id.is_evm_chain());
         let proto: String = account_id.into();
         assert_eq!(text, proto);
@@ -467,8 +470,14 @@ mod tests {
         // valid Bitcoin mainnet
         let text = "bip122:000000000019d6689c085ae165831e93:128Lkh3S7CkDTBZ8W7BbpsN3YYizJMp8p6";
         let account_id: AccountId = text.try_into().unwrap();
-        assert_eq!(account_id.chain_id, "bip122:000000000019d6689c085ae165831e93");
-        assert_eq!(account_id.account_address, "128Lkh3S7CkDTBZ8W7BbpsN3YYizJMp8p6");
+        assert_eq!(
+            account_id.chain_id,
+            "bip122:000000000019d6689c085ae165831e93"
+        );
+        assert_eq!(
+            account_id.account_address,
+            "128Lkh3S7CkDTBZ8W7BbpsN3YYizJMp8p6"
+        );
         assert!(!account_id.is_evm_chain());
         let proto: String = account_id.into();
         assert_eq!(text, proto);
@@ -477,7 +486,10 @@ mod tests {
         let text = "cosmos:cosmoshub-3:cosmos1t2uflqwqe0fsj0shcfkrvpukewcw40yjj6hdc0";
         let account_id: AccountId = text.try_into().unwrap();
         assert_eq!(account_id.chain_id, "cosmos:cosmoshub-3");
-        assert_eq!(account_id.account_address, "cosmos1t2uflqwqe0fsj0shcfkrvpukewcw40yjj6hdc0");
+        assert_eq!(
+            account_id.account_address,
+            "cosmos1t2uflqwqe0fsj0shcfkrvpukewcw40yjj6hdc0"
+        );
         assert!(!account_id.is_evm_chain());
         let proto: String = account_id.into();
         assert_eq!(text, proto);
@@ -485,17 +497,27 @@ mod tests {
         // valid Kusama network
         let text = "polkadot:b0a8d493285c2df73290dfb7e61f870f:5hmuyxw9xdgbpptgypokw4thfyoe3ryenebr381z9iaegmfy";
         let account_id: AccountId = text.try_into().unwrap();
-        assert_eq!(account_id.chain_id, "polkadot:b0a8d493285c2df73290dfb7e61f870f");
-        assert_eq!(account_id.account_address, "5hmuyxw9xdgbpptgypokw4thfyoe3ryenebr381z9iaegmfy");
+        assert_eq!(
+            account_id.chain_id,
+            "polkadot:b0a8d493285c2df73290dfb7e61f870f"
+        );
+        assert_eq!(
+            account_id.account_address,
+            "5hmuyxw9xdgbpptgypokw4thfyoe3ryenebr381z9iaegmfy"
+        );
         assert!(!account_id.is_evm_chain());
         let proto: String = account_id.into();
         assert_eq!(text, proto);
 
         // valid StarkNet Testnet
-        let text = "starknet:SN_GOERLI:0x02dd1b492765c064eac4039e3841aa5f382773b598097a40073bd8b48170ab57";
+        let text =
+            "starknet:SN_GOERLI:0x02dd1b492765c064eac4039e3841aa5f382773b598097a40073bd8b48170ab57";
         let account_id: AccountId = text.try_into().unwrap();
         assert_eq!(account_id.chain_id, "starknet:SN_GOERLI");
-        assert_eq!(account_id.account_address, "0x02dd1b492765c064eac4039e3841aa5f382773b598097a40073bd8b48170ab57");
+        assert_eq!(
+            account_id.account_address,
+            "0x02dd1b492765c064eac4039e3841aa5f382773b598097a40073bd8b48170ab57"
+        );
         assert!(!account_id.is_evm_chain());
         let proto: String = account_id.into();
         assert_eq!(text, proto);
@@ -503,8 +525,14 @@ mod tests {
         // dummy max length (64+1+8+1+32 = 106 chars/bytes)
         let text = "chainstd:8c3444cf8970a9e41a706fab93e7a6c4:6d9b0b4b9994e8a6afbd3dc3ed983cd51c755afb27cd1dc7825ef59c134a39f7";
         let account_id: AccountId = text.try_into().unwrap();
-        assert_eq!(account_id.chain_id, "chainstd:8c3444cf8970a9e41a706fab93e7a6c4");
-        assert_eq!(account_id.account_address, "6d9b0b4b9994e8a6afbd3dc3ed983cd51c755afb27cd1dc7825ef59c134a39f7");
+        assert_eq!(
+            account_id.chain_id,
+            "chainstd:8c3444cf8970a9e41a706fab93e7a6c4"
+        );
+        assert_eq!(
+            account_id.account_address,
+            "6d9b0b4b9994e8a6afbd3dc3ed983cd51c755afb27cd1dc7825ef59c134a39f7"
+        );
         assert!(!account_id.is_evm_chain());
         let proto: String = account_id.into();
         assert_eq!(text, proto);
@@ -521,7 +549,9 @@ mod tests {
         // invalid
         let text = "eip/155:1:0xab16a96D359eC26a11e2C2b3d8f8B8942d5Bfcd";
         let result: Result<AccountId, DeserializationError> = text.try_into();
-        println!("result: {:?}", result);
-        assert!(matches!(result, Err(DeserializationError::InvalidAccountId)));
+        assert!(matches!(
+            result,
+            Err(DeserializationError::InvalidAccountId)
+        ));
     }
 }

@@ -182,7 +182,9 @@ impl Signature for Erc1271Signature {
             )
             .await?;
         if is_valid {
-            Ok(MemberIdentifier::Address(self.account_id.get_account_address().to_string()))
+            Ok(MemberIdentifier::Address(
+                self.account_id.get_account_address().to_string(),
+            ))
         } else {
             Err(SignatureError::Invalid)
         }
