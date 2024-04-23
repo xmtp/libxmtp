@@ -24,7 +24,7 @@ use super::{
 
 use crate::{
     configuration::MUTABLE_METADATA_EXTENSION_ID,
-    identity::{Identity, IdentityError},
+    identity::v3::{Identity, IdentityError},
     types::Address,
     verified_key_package::{KeyPackageVerificationError, VerifiedKeyPackage},
 };

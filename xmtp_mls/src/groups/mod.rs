@@ -65,7 +65,7 @@ use crate::{
     client::{deserialize_welcome, ClientError, MessageProcessingError},
     configuration::{CIPHERSUITE, MAX_GROUP_SIZE, MUTABLE_METADATA_EXTENSION_ID},
     hpke::{decrypt_welcome, HpkeError},
-    identity::{Identity, IdentityError},
+    identity::v3::{Identity, IdentityError},
     retry::RetryableError,
     retryable,
     storage::{

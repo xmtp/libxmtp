@@ -3,7 +3,6 @@ use std::println as debug;
 
 #[cfg(not(test))]
 use log::debug;
-use log::info;
 use thiserror::Error;
 
 use xmtp_proto::api_client::{XmtpIdentityClient, XmtpMlsClient};

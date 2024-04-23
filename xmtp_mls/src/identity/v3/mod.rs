@@ -4,7 +4,6 @@ use std::println as debug;
 #[cfg(not(test))]
 use log::debug;
 use log::info;
-use thiserror::Error;
 
 use xmtp_proto::api_client::{XmtpIdentityClient, XmtpMlsClient};
 
@@ -56,7 +55,7 @@ pub enum IdentityStrategy {
 }
 
 impl IdentityStrategy {
-    async fn initialize_identity<ApiClient: XmtpMlsClient + XmtpIdentityClient>(
+    pub(crate) async fn initialize_identity<ApiClient: XmtpMlsClient + XmtpIdentityClient>(
         self,
         api_client: &ApiClientWrapper<ApiClient>,
         store: &EncryptedMessageStore,

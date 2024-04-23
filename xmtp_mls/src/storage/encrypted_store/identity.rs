@@ -4,7 +4,7 @@ use diesel::prelude::*;
 
 use super::schema::identity;
 use crate::{
-    identity::Identity,
+    identity::v3::Identity,
     impl_fetch, impl_store,
     storage::serialization::{db_deserialize, db_serialize},
 };
