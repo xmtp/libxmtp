@@ -44,6 +44,7 @@ impl InboxOwner for LocalWallet {
 
 /// XMTP Identity according to [XIP-46](https://github.com/xmtp/XIPs/pull/53)
 pub struct Identity {
+    #[allow(dead_code)]
     id: String,
 }
 

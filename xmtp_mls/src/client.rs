@@ -290,7 +290,7 @@ where
     /// Register an XIP-46 InboxID with the network
     /// Requires [`IdentityUpdate`]. This can be built from a [`SignatureRequest`]
     /// externally and passed back in.
-    pub async fn register_inbox_id(&self, update: IdentityUpdate) -> InboxId {
+    pub async fn register_inbox_id(&self, _update: IdentityUpdate) -> InboxId {
         // register the IdentityUpdate with the server
         todo!()
     }
