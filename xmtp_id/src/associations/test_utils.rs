@@ -89,6 +89,7 @@ impl Signature for MockSignature {
                 signature: Some(SignatureKindProto::Erc1271(Erc1271SignatureProto {
                     contract_address: "0xdead".into(),
                     block_number: 0,
+                    chain_rpc_url: "http://node.rpc".to_string(),
                     signature: vec![0],
                 })),
             },
