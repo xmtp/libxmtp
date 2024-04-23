@@ -4087,6 +4087,7 @@ dependencies = [
  "log",
  "rand",
  "rand_chacha",
+ "rustc-hex",
  "serde",
  "sha2",
  "sha3",
