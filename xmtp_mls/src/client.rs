@@ -11,7 +11,7 @@ use openmls_traits::OpenMlsProvider;
 use prost::EncodeError;
 use thiserror::Error;
 
-use xmtp_id::associations::AssociationError;
+use xmtp_id::{associations::AssociationError, InboxId};
 use xmtp_proto::{
     api_client::{XmtpIdentityClient, XmtpMlsClient},
     xmtp::mls::api::v1::{
@@ -284,6 +284,15 @@ where
             .register(&provider, &self.api_client, recoverable_wallet_signature)
             .await?;
         Ok(())
+    }
+
+    #[cfg(feature = "xmtp-id")]
+    /// Register an XIP-46 InboxID with the network
+    /// Requires [`IdentityUpdate`]. This can be built from a [`SignatureRequest`]
+    /// externally and passed back in.
+    pub async fn register_inbox_id(&self, update: IdentityUpdate) -> InboxId {
+        // register the IdentityUpdate with the server
+        todo!()
     }
 
     /// Upload a new key package to the network replacing an existing key package

@@ -1,43 +1,24 @@
 pub mod associations;
-pub mod utils;
-// pub mod credential_verifier;
 pub mod erc1271_verifier;
+pub mod utils;
 use ethers::signers::{LocalWallet, Signer};
 use futures::executor;
 use openmls_traits::types::CryptoError;
 use thiserror::Error;
 use xmtp_cryptography::signature::{h160addr_to_string, RecoverableSignature, SignatureError};
 
-/**
- * COMMENTING OUT A BUNCH OF THIS CODE TO REMOVE DEPENDENCY ON XMTP_MLS
- */
-// use std::sync::RwLock;
-
-// use openmls::prelude::Credential as OpenMlsCredential;
-// use openmls_basic_credential::SignatureKeyPair;
-
-// use xmtp_mls::{
-//     configuration::CIPHERSUITE,
-//     credential::{AssociationError, Credential, UnsignedGrantMessagingAccessData},
-//     types::Address,
-//     utils::time::now_ns,
-// };
-
-// use crate::credential_verifier::{CredentialVerifier, VerificationError, VerificationRequest};
-
 #[derive(Debug, Error)]
 pub enum IdentityError {
-    // #[error("bad association: {0}")]
-    // BadAssocation(#[from] AssociationError),
     #[error("generating key-pairs: {0}")]
     KeyGenerationError(#[from] CryptoError),
     #[error("uninitialized identity")]
     UninitializedIdentity,
     #[error("protobuf deserialization: {0}")]
     Deserialization(#[from] prost::DecodeError),
-    // #[error("credential verification {0}")]
-    // VerificationError(#[from] VerificationError),
 }
+
+/// The global InboxID Type.
+pub type InboxId = String;
 
 #[async_trait::async_trait]
 pub trait WalletIdentity {
@@ -61,63 +42,20 @@ impl InboxOwner for LocalWallet {
     }
 }
 
-// pub struct Identity {
-//     #[allow(dead_code)]
-//     pub(crate) account_address: Address,
-//     #[allow(dead_code)]
-//     pub(crate) installation_keys: SignatureKeyPair,
-//     pub(crate) credential: RwLock<Option<OpenMlsCredential>>,
-//     pub(crate) unsigned_association_data: Option<UnsignedGrantMessagingAccessData>,
-// }
+/// XMTP Identity according to [XIP-46](https://github.com/xmtp/XIPs/pull/53)
+pub struct Identity {
+    id: String,
+}
 
-// impl Identity {
-//     // Creates a credential that is not yet wallet signed. Implementors should sign the payload returned by 'text_to_sign'
-//     // and call 'register' with the signature.
-//     #[allow(dead_code)]
-//     pub(crate) fn create_to_be_signed(account_address: String) -> Result<Self, IdentityError> {
-//         let signature_keys = SignatureKeyPair::new(CIPHERSUITE.signature_algorithm())?;
-//         let unsigned_association_data = UnsignedGrantMessagingAccessData::new(
-//             account_address.clone(),
-//             signature_keys.to_public_vec(),
-//             now_ns() as u64,
-//         )?;
-//         let identity = Self {
-//             account_address,
-//             installation_keys: signature_keys,
-//             credential: RwLock::new(None),
-//             unsigned_association_data: Some(unsigned_association_data),
-//         };
-
-//         Ok(identity)
-//     }
-
-//     pub fn text_to_sign(&self) -> Option<String> {
-//         if self.credential().is_ok() {
-//             return None;
-//         }
-//         self.unsigned_association_data
-//             .clone()
-//             .map(|data| data.text())
-//     }
-
-//     fn credential(&self) -> Result<OpenMlsCredential, IdentityError> {
-//         self.credential
-//             .read()
-//             .unwrap_or_else(|err| err.into_inner())
-//             .clone()
-//             .ok_or(IdentityError::UninitializedIdentity)
-//     }
-
-//     /// Get an account address verified by the
-//     pub async fn get_validated_account_address(
-//         credential: &[u8],
-//         installation_public_key: &[u8],
-//     ) -> Result<String, IdentityError> {
-//         let request = VerificationRequest::new(credential, installation_public_key);
-//         let credential = <Credential as CredentialVerifier>::verify_credential(request).await?;
-//         Ok(credential.account_address().to_string())
-//     }
-// }
+impl Identity {
+    /// Generate a new, empty ID for an account address.
+    /// A nonce is used to ensure uniqueness of the ID.
+    pub fn new(address: String) -> Self {
+        // TODO: how to nonce?
+        let id = associations::generate_inbox_id(&address, &0);
+        Self { id }
+    }
+}
 
 #[cfg(test)]
 mod tests {

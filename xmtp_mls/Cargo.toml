@@ -9,7 +9,8 @@ name = "update-schema"
 path = "src/bin/update-schema.rs"
 
 [features]
-default = ["types", "native"]
+default = ["types", "native", "xmtp-id"]
+xmtp-id = []
 grpc = ["xmtp_proto/grpc"]
 native = ["libsqlite3-sys/bundled-sqlcipher-vendored-openssl"]
 types = []
@@ -55,3 +56,4 @@ tempfile = "3.5.0"
 tracing-subscriber = { version = "0.3.17", features = ["env-filter"] }
 xmtp_api_grpc = { path = "../xmtp_api_grpc" }
 xmtp_id = { path = "../xmtp_id", features = ["test-utils"] }
+
