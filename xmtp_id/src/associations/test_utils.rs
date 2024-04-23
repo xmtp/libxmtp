@@ -34,7 +34,7 @@ pub fn rand_vec() -> Vec<u8> {
     buf.to_vec()
 }
 
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 pub struct MockSignature {
     is_valid: bool,
     signer_identity: MemberIdentifier,

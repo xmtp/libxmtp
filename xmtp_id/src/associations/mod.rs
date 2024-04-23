@@ -12,9 +12,9 @@ mod unsigned_actions;
 pub use self::association_log::*;
 pub use self::hashes::generate_inbox_id;
 pub use self::member::{Member, MemberIdentifier, MemberKind};
-pub use self::serialization::DeserializationError;
+pub use self::serialization::{map_vec, try_map_vec, DeserializationError};
 pub use self::signature::{Signature, SignatureError, SignatureKind};
-pub use self::state::AssociationState;
+pub use self::state::{AssociationState, AssociationStateDiff};
 
 // Apply a single IdentityUpdate to an existing AssociationState
 pub fn apply_update(
@@ -25,8 +25,10 @@ pub fn apply_update(
 }
 
 // Get the current state from an array of `IdentityUpdate`s. Entire operation fails if any operation fails
-pub fn get_state(updates: Vec<IdentityUpdate>) -> Result<AssociationState, AssociationError> {
-    let new_state = updates.iter().try_fold(
+pub fn get_state<Updates: AsRef<[IdentityUpdate]>>(
+    updates: Updates,
+) -> Result<AssociationState, AssociationError> {
+    let new_state = updates.as_ref().iter().try_fold(
         None,
         |state, update| -> Result<Option<AssociationState>, AssociationError> {
             let updated_state = update.update_state(state)?;
@@ -52,7 +54,6 @@ pub mod test_defaults {
         fn default() -> Self {
             let existing_member = rand_string();
             let new_member = rand_vec();
-
             Self {
                 existing_member_signature: MockSignature::new_boxed(
                     true,
@@ -75,7 +76,6 @@ pub mod test_defaults {
     impl Default for CreateInbox {
         fn default() -> Self {
             let signer = rand_string();
-
             Self {
                 nonce: rand_u64(),
                 account_address: signer.clone(),
@@ -92,7 +92,6 @@ pub mod test_defaults {
     impl Default for RevokeAssociation {
         fn default() -> Self {
             let signer = rand_string();
-
             Self {
                 recovery_address_signature: MockSignature::new_boxed(
                     true,

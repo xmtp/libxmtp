@@ -1,3 +1,5 @@
+use std::{collections::HashMap, fmt};
+
 use openmls::{
     extensions::{Extension, UnknownExtension},
     group::MlsGroup as OpenMlsGroup,
@@ -7,7 +9,9 @@ use thiserror::Error;
 
 use xmtp_proto::xmtp::mls::message_contents::GroupMutableMetadataV1 as GroupMutableMetadataProto;
 
-use crate::configuration::MUTABLE_METADATA_EXTENSION_ID;
+use crate::configuration::{
+    DEFAULT_GROUP_DESCRIPTION, DEFAULT_GROUP_NAME, MUTABLE_METADATA_EXTENSION_ID,
+};
 
 #[derive(Debug, Error)]
 pub enum GroupMutableMetadataError {
@@ -17,16 +21,65 @@ pub enum GroupMutableMetadataError {
     Deserialization(#[from] prost::DecodeError),
     #[error("missing extension")]
     MissingExtension,
+    #[error("mutable extension updates only")]
+    NonMutableExtensionUpdate,
+    #[error("only one change per update permitted")]
+    TooManyUpdates,
+    #[error("no changes in this update")]
+    NoUpdates,
+}
+
+// Fields should be added to supported_fields fn for Metadata Update Support
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum MetadataField {
+    GroupName,
+    Description,
+}
+
+impl MetadataField {
+    fn as_str(self) -> &'static str {
+        match self {
+            MetadataField::GroupName => "group_name",
+            MetadataField::Description => "description",
+        }
+    }
+}
+
+impl fmt::Display for MetadataField {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", self.as_str())
+    }
 }
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct GroupMutableMetadata {
-    pub group_name: String,
+    // Allow libxmtp to receive attributes from updated versions not yet captured in MetadataField
+    pub attributes: HashMap<String, String>,
+}
+
+impl Default for GroupMutableMetadata {
+    fn default() -> Self {
+        let mut attributes = HashMap::new();
+        attributes.insert(
+            MetadataField::GroupName.to_string(),
+            DEFAULT_GROUP_NAME.to_string(),
+        );
+        attributes.insert(
+            MetadataField::Description.to_string(),
+            DEFAULT_GROUP_DESCRIPTION.to_string(),
+        );
+        Self { attributes }
+    }
 }
 
 impl GroupMutableMetadata {
-    pub fn new(group_name: String) -> Self {
-        Self { group_name }
+    pub fn new(attributes: HashMap<String, String>) -> Self {
+        Self { attributes }
+    }
+
+    // These fields will receive default permission policies for new groups
+    pub fn supported_fields() -> Vec<MetadataField> {
+        vec![MetadataField::GroupName, MetadataField::Description]
     }
 }
 
@@ -36,7 +89,7 @@ impl TryFrom<GroupMutableMetadata> for Vec<u8> {
     fn try_from(value: GroupMutableMetadata) -> Result<Self, Self::Error> {
         let mut buf = Vec::new();
         let proto_val = GroupMutableMetadataProto {
-            group_name: value.group_name.clone(),
+            attributes: value.attributes.clone(),
         };
         proto_val.encode(&mut buf)?;
 
@@ -57,7 +110,7 @@ impl TryFrom<GroupMutableMetadataProto> for GroupMutableMetadata {
     type Error = GroupMutableMetadataError;
 
     fn try_from(value: GroupMutableMetadataProto) -> Result<Self, Self::Error> {
-        Ok(Self::new(value.group_name.clone()))
+        Ok(Self::new(value.attributes.clone()))
     }
 }
 
@@ -66,20 +119,11 @@ pub fn extract_group_mutable_metadata(
 ) -> Result<GroupMutableMetadata, GroupMutableMetadataError> {
     let extensions = group.export_group_context().extensions();
     for extension in extensions.iter() {
-        if let Extension::Unknown(MUTABLE_METADATA_EXTENSION_ID, UnknownExtension(meta_data)) =
+        if let Extension::Unknown(MUTABLE_METADATA_EXTENSION_ID, UnknownExtension(metadata)) =
             extension
         {
-            return GroupMutableMetadata::try_from(meta_data);
+            return GroupMutableMetadata::try_from(metadata);
         }
     }
     Err(GroupMutableMetadataError::MissingExtension)
-}
-
-#[cfg(test)]
-mod tests {
-
-    #[test]
-    fn test_preconfigured_mutable_metadata() {
-        // TODO add test here
-    }
 }
