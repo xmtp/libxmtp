@@ -9,18 +9,17 @@ use std::sync::{
 };
 use tokio::sync::oneshot::Sender;
 use xmtp_api_grpc::grpc_api_helper::Client as TonicApiClient;
-use xmtp_mls::builder::IdentityStrategy;
-use xmtp_mls::builder::LegacyIdentity;
 use xmtp_mls::groups::group_metadata::ConversationType;
 use xmtp_mls::groups::group_metadata::GroupMetadata;
 use xmtp_mls::groups::PreconfiguredPolicies;
+use xmtp_mls::identity::v3::{IdentityStrategy, LegacyIdentity};
 use xmtp_mls::{
     builder::ClientBuilder,
     client::Client as MlsClient,
     groups::MlsGroup,
     storage::{
-        group_message::DeliveryStatus, group_message::GroupMessageKind, group_message::StoredGroupMessage, EncryptedMessageStore,
-        EncryptionKey, StorageOption,
+        group_message::DeliveryStatus, group_message::GroupMessageKind,
+        group_message::StoredGroupMessage, EncryptedMessageStore, EncryptionKey, StorageOption,
     },
     types::Address,
 };
@@ -367,8 +366,7 @@ impl FfiGroup {
             self.created_at_ns,
         );
 
-        
-        let delivery_status = opts.delivery_status.map(|status| status.into()); 
+        let delivery_status = opts.delivery_status.map(|status| status.into());
 
         let messages: Vec<FfiMessage> = group
             .find_messages(

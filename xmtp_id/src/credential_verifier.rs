@@ -1,3 +1,4 @@
+//! Legacy Credential Verifier for XMTP/MLS
 use prost::Message;
 use xmtp_mls::{
     credential::{AssociationError, Credential},

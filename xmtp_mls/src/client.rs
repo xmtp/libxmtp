@@ -12,6 +12,9 @@ use prost::EncodeError;
 use thiserror::Error;
 
 use xmtp_id::associations::AssociationError;
+#[cfg(feature = "xmtp-id")]
+use xmtp_id::InboxId;
+
 use xmtp_proto::{
     api_client::{XmtpIdentityClient, XmtpMlsClient},
     xmtp::mls::api::v1::{
@@ -26,7 +29,7 @@ use crate::{
         validated_commit::CommitValidationError, AddressesOrInstallationIds, IntentError, MlsGroup,
         PreconfiguredPolicies,
     },
-    identity::Identity,
+    identity::v3::Identity,
     storage::{
         db_connection::DbConnection,
         group::{GroupMembershipState, StoredGroup},
@@ -64,7 +67,7 @@ pub enum ClientError {
     #[error("API error: {0}")]
     Api(#[from] crate::api::WrappedApiError),
     #[error("identity error: {0}")]
-    Identity(#[from] crate::identity::IdentityError),
+    Identity(#[from] crate::identity::v3::IdentityError),
     #[error("TLS Codec error: {0}")]
     TlsError(#[from] TlsCodecError),
     #[error("key package verification: {0}")]
@@ -284,6 +287,15 @@ where
             .register(&provider, &self.api_client, recoverable_wallet_signature)
             .await?;
         Ok(())
+    }
+
+    #[cfg(feature = "xmtp-id")]
+    /// Register an XIP-46 InboxID with the network
+    /// Requires [`IdentityUpdate`]. This can be built from a [`SignatureRequest`]
+    /// externally and passed back in.
+    pub async fn register_inbox_id(&self, _update: IdentityUpdate) -> InboxId {
+        // register the IdentityUpdate with the server
+        todo!()
     }
 
     /// Upload a new key package to the network replacing an existing key package

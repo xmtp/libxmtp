@@ -1,3 +1,8 @@
+//! [`AssociationState`] describes a single point in time for an Inbox where it contains a set of
+//! associated [`MemberIdentifier`]'s, which may be one of [`MemberKind::Address`]
+//! or[`MemberKind::Installation`]. A diff between two states can be calculated to determine
+//! a change of membership between two periods of time. [XIP-46](https://github.com/xmtp/XIPs/pull/53)
+
 use std::collections::{HashMap, HashSet};
 
 use super::{hashes::generate_inbox_id, member::Member, MemberIdentifier, MemberKind};
