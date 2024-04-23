@@ -298,13 +298,38 @@ where
         Self::create_from_welcome(client, provider, welcome, account_address)
     }
 
-    fn into_envelope(encoded_msg: &[u8], idempotency_key: &str) -> PlaintextEnvelope {
-        PlaintextEnvelope {
-            content: Some(Content::V1(V1 {
-                content: encoded_msg.to_vec(),
-                idempotency_key: idempotency_key.into(),
-            })),
-        }
+    pub(crate) fn create_and_insert_sync_group(
+        client: &'c Client<ApiClient>,
+    ) -> Result<MlsGroup<ApiClient>, GroupError> {
+        let conn = client.store.conn()?;
+        let provider = XmtpOpenMlsProvider::new(&conn);
+        let protected_metadata = build_protected_metadata_extension(
+            &client.identity,
+            PreconfiguredPolicies::default().to_policy_set(),
+        )?;
+        let mutable_metadata = build_mutable_metadata_extension(DEFAULT_GROUP_NAME.to_string())?;
+        let group_config = build_group_config(protected_metadata, mutable_metadata)?;
+        let mut mls_group = OpenMlsGroup::new(
+            &provider,
+            &client.identity.installation_keys,
+            &group_config,
+            CredentialWithKey {
+                credential: client.identity.credential()?,
+                signature_key: client.identity.installation_keys.to_public_vec().into(),
+            },
+        )?;
+        mls_group.save(provider.key_store())?;
+
+        let group_id = mls_group.group_id().to_vec();
+        let stored_group =
+            StoredGroup::new_sync_group(group_id.clone(), now_ns(), GroupMembershipState::Allowed);
+
+        stored_group.store(provider.conn())?;
+        Ok(Self::new(
+            client,
+            stored_group.id,
+            stored_group.created_at_ns,
+        ))
     }
 
     pub async fn send_message(&self, message: &[u8]) -> Result<Vec<u8>, GroupError> {
@@ -350,6 +375,15 @@ where
             println!("error publishing intents: {:?}", err);
         }
         Ok(message_id)
+    }
+
+    fn into_envelope(encoded_msg: &[u8], idempotency_key: &str) -> PlaintextEnvelope {
+        PlaintextEnvelope {
+            content: Some(Content::V1(V1 {
+                content: encoded_msg.to_vec(),
+                idempotency_key: idempotency_key.into(),
+            })),
+        }
     }
 
     // Query the database for stored messages. Optionally filtered by time, kind, delivery_status
