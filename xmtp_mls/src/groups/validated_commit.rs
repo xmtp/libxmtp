@@ -360,7 +360,6 @@ fn get_group_name_updated(
 ) -> Result<MetadataChange, CommitValidationError> {
     let old_value = extract_group_mutable_metadata(openmls_group)?;
     let mut new_value = old_value.clone();
-    // Iterate through each proposal
     for proposal in staged_commit.queued_proposals() {
         if let Proposal::GroupContextExtensions(extension_proposal) = proposal.proposal() {
             let extensions = extension_proposal.extensions();
@@ -400,7 +399,6 @@ fn ensure_extensions_valid(
     existing_extensions.remove(openmls::extensions::ExtensionType::Unknown(
         MUTABLE_METADATA_EXTENSION_ID,
     ));
-    // Iterate through each proposal
     for proposal in staged_commit.queued_proposals() {
         if let Proposal::GroupContextExtensions(extension_proposal) = proposal.proposal() {
             let mut extensions = extension_proposal.extensions().clone();

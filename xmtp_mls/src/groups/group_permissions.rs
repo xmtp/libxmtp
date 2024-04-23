@@ -22,7 +22,6 @@ use super::{
 };
 
 // A trait for policies that can update Metadata for the group
-
 pub trait MetadataPolicy: std::fmt::Debug {
     // Verify relevant metadata is actually changed before evaluating against the MetadataPolicy
     // See evaluate_metadata_policy
@@ -575,18 +574,21 @@ impl PolicySet {
             }
         }
 
-        let policy = change.metadata_policies.get(&field_changed).unwrap();
-
-        let is_ok = policy.evaluate(actor, change);
-        if !is_ok {
-            log::info!(
-                "Policy {:?} failed for actor {:?} and change {:?}",
-                policy,
-                actor,
-                change
-            );
+        if let Some(policy) = change.metadata_policies.get(&field_changed) {
+            let is_ok = policy.evaluate(actor, change);
+            if !is_ok {
+                log::info!(
+                    "Policy {:?} failed for actor {:?} and change {:?}",
+                    policy,
+                    actor,
+                    change
+                );
+            }
+            is_ok
+        } else {
+            log::info!("Missing policy for the changed field: {:?}", &field_changed);
+            false
         }
-        is_ok
     }
 
     pub(crate) fn to_proto(&self) -> Result<PolicySetProto, PolicyError> {
