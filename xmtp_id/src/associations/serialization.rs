@@ -216,7 +216,7 @@ fn from_signature_kind_proto(
             signature_text,
             erc1271_signature.signature,
             erc1271_signature.contract_address,
-            erc1271_signature.chain_rpc_url,
+            "TODO: inject chain rpc url".to_string(),
             erc1271_signature.block_number,
         )),
         SignatureKindProto::DelegatedErc191(delegated_erc191_signature) => {

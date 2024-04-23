@@ -185,7 +185,6 @@ impl Signature for Erc1271Signature {
             signature: Some(SignatureKindProto::Erc1271(Erc1271SignatureProto {
                 contract_address: self.contract_address.clone(),
                 block_number: self.block_number,
-                chain_rpc_url: self.chain_rpc_url.clone(),
                 signature: self.bytes(),
             })),
         }

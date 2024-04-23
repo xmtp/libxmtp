@@ -642,9 +642,6 @@ impl serde::Serialize for Erc1271Signature {
         if !self.signature.is_empty() {
             len += 1;
         }
-        if !self.chain_rpc_url.is_empty() {
-            len += 1;
-        }
         let mut struct_ser = serializer.serialize_struct("xmtp.identity.associations.Erc1271Signature", len)?;
         if !self.contract_address.is_empty() {
             struct_ser.serialize_field("contractAddress", &self.contract_address)?;
@@ -656,9 +653,6 @@ impl serde::Serialize for Erc1271Signature {
         if !self.signature.is_empty() {
             #[allow(clippy::needless_borrow)]
             struct_ser.serialize_field("signature", pbjson::private::base64::encode(&self.signature).as_str())?;
-        }
-        if !self.chain_rpc_url.is_empty() {
-            struct_ser.serialize_field("chainRpcUrl", &self.chain_rpc_url)?;
         }
         struct_ser.end()
     }
@@ -675,8 +669,6 @@ impl<'de> serde::Deserialize<'de> for Erc1271Signature {
             "block_number",
             "blockNumber",
             "signature",
-            "chain_rpc_url",
-            "chainRpcUrl",
         ];
 
         #[allow(clippy::enum_variant_names)]
@@ -684,7 +676,6 @@ impl<'de> serde::Deserialize<'de> for Erc1271Signature {
             ContractAddress,
             BlockNumber,
             Signature,
-            ChainRpcUrl,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
             fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
@@ -709,7 +700,6 @@ impl<'de> serde::Deserialize<'de> for Erc1271Signature {
                             "contractAddress" | "contract_address" => Ok(GeneratedField::ContractAddress),
                             "blockNumber" | "block_number" => Ok(GeneratedField::BlockNumber),
                             "signature" => Ok(GeneratedField::Signature),
-                            "chainRpcUrl" | "chain_rpc_url" => Ok(GeneratedField::ChainRpcUrl),
                             _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
                         }
                     }
@@ -732,7 +722,6 @@ impl<'de> serde::Deserialize<'de> for Erc1271Signature {
                 let mut contract_address__ = None;
                 let mut block_number__ = None;
                 let mut signature__ = None;
-                let mut chain_rpc_url__ = None;
                 while let Some(k) = map_.next_key()? {
                     match k {
                         GeneratedField::ContractAddress => {
@@ -757,19 +746,12 @@ impl<'de> serde::Deserialize<'de> for Erc1271Signature {
                                 Some(map_.next_value::<::pbjson::private::BytesDeserialize<_>>()?.0)
                             ;
                         }
-                        GeneratedField::ChainRpcUrl => {
-                            if chain_rpc_url__.is_some() {
-                                return Err(serde::de::Error::duplicate_field("chainRpcUrl"));
-                            }
-                            chain_rpc_url__ = Some(map_.next_value()?);
-                        }
                     }
                 }
                 Ok(Erc1271Signature {
                     contract_address: contract_address__.unwrap_or_default(),
                     block_number: block_number__.unwrap_or_default(),
                     signature: signature__.unwrap_or_default(),
-                    chain_rpc_url: chain_rpc_url__.unwrap_or_default(),
                 })
             }
         }
