@@ -14,4 +14,5 @@ jobs:
         with:
           xcode-version: latest-stable
       - uses: actions/checkout@v3
-      - run: script/lint
+      - run: swiftlint Sources/ XMTPiOSExample/XMTPiOSExample
+      - run: pod lib lint --allow-warnings
