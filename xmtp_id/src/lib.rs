@@ -1,4 +1,5 @@
 pub mod associations;
+pub mod constants;
 pub mod erc1271_verifier;
 pub mod utils;
 use ethers::signers::{LocalWallet, Signer};

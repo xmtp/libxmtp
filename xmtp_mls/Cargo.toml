@@ -10,10 +10,10 @@ path = "src/bin/update-schema.rs"
 
 [features]
 default = ["types", "native"]
-xmtp-id = []
 grpc = ["xmtp_proto/grpc"]
 native = ["libsqlite3-sys/bundled-sqlcipher-vendored-openssl"]
 types = []
+xmtp-id = []
 
 [dependencies]
 async-trait.workspace = true
@@ -38,6 +38,7 @@ prost = { workspace = true, features = ["prost-derive"] }
 rand = { workspace = true }
 serde = { workspace = true }
 serde_json.workspace = true
+sha2 = "0.10.8"
 smart-default = "0.7.1"
 thiserror = { workspace = true }
 tls_codec = { workspace = true }
@@ -47,6 +48,7 @@ xmtp_cryptography = { workspace = true }
 xmtp_id = { path = "../xmtp_id" }
 xmtp_proto = { workspace = true, features = ["proto_full"] }
 xmtp_v2 = { path = "../xmtp_v2" }
+ed25519-dalek = "2.1.1"
 
 [dev-dependencies]
 ctor.workspace = true
@@ -56,4 +58,3 @@ tempfile = "3.5.0"
 tracing-subscriber = { version = "0.3.17", features = ["env-filter"] }
 xmtp_api_grpc = { path = "../xmtp_api_grpc" }
 xmtp_id = { path = "../xmtp_id", features = ["test-utils"] }
-
