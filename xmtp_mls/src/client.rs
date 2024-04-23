@@ -204,6 +204,10 @@ where
         XmtpOpenMlsProvider::<'a>::new(conn)
     }
 
+    pub fn allow_history_sync(&self) -> Result<(), StorageError> {
+        self.create_sync_group().map(|_| ())
+    }
+
     /// Create a new group with the default settings
     pub fn create_group(
         &self,

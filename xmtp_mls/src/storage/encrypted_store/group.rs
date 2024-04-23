@@ -408,7 +408,7 @@ pub(crate) mod tests {
 
     #[test]
     fn test_new_sync_group() {
-        with_connection(|_conn| {
+        with_connection(|conn| {
             let id = rand_vec();
             let created_at_ns = now_ns();
             let membership_state = GroupMembershipState::Allowed;
@@ -416,6 +416,12 @@ pub(crate) mod tests {
             let sync_group = StoredGroup::new_sync_group(id, created_at_ns, membership_state);
             let purpose = sync_group.purpose;
             assert_eq!(purpose, Purpose::Sync);
+
+            sync_group.store(conn).unwrap();
+
+            let found = conn.find_sync_groups().unwrap();
+            assert_eq!(found.len(), 1);
+            assert_eq!(found[0].purpose, Purpose::Sync)
         })
     }
 }

@@ -219,10 +219,6 @@ where
             .initialize_identity(&api_client_wrapper, &store)
             .await?;
         let new_client = Client::new(api_client_wrapper, network, identity, store);
-        // scott: I don't know where else this could go...
-        new_client
-            .create_sync_group()
-            .map_err(ClientBuilderError::StorageError)?;
 
         Ok(new_client)
     }
@@ -273,6 +269,7 @@ mod tests {
                 .text_to_sign()
                 .map(|text| owner.sign(&text).unwrap().into());
             client.register_identity(signature).await.unwrap();
+
             client
         }
     }
@@ -284,6 +281,14 @@ mod tests {
         let client = ClientBuilder::new_test_client(&wallet).await;
         assert!(client.account_address() == format!("{address:#020x}"));
         assert!(!client.installation_public_key().is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_allow_history_sync() {
+        let wallet = generate_local_wallet();
+        let client = ClientBuilder::new_test_client(&wallet).await;
+        // This asserts that a sync group was successfully created
+        assert!(client.allow_history_sync().is_ok());
     }
 
     #[tokio::test]
