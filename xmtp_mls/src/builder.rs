@@ -5,6 +5,7 @@ use std::println as debug;
 use log::debug;
 use thiserror::Error;
 
+use xmtp_cryptography::signature::AddressValidationError;
 use xmtp_proto::api_client::{XmtpIdentityClient, XmtpMlsClient};
 
 use crate::{
@@ -12,14 +13,13 @@ use crate::{
     client::{Client, Network},
     identity::v3::{Identity, IdentityError, IdentityStrategy},
     retry::Retry,
-    storage::EncryptedMessageStore,
-    StorageError,
+    storage::EncryptedMessageStore, StorageError,
 };
 
 #[derive(Error, Debug)]
 pub enum ClientBuilderError {
-    #[error("Address validation: {0}")]
-    AddressValidation(#[from] crate::utils::address::AddressValidationError),
+    #[error(transparent)]
+    AddressValidation(#[from] AddressValidationError),
 
     #[error("Missing parameter: {parameter}")]
     MissingParameter { parameter: &'static str },

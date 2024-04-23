@@ -61,12 +61,13 @@ impl MockSignature {
     }
 }
 
+#[async_trait::async_trait]
 impl Signature for MockSignature {
     fn signature_kind(&self) -> SignatureKind {
         self.signature_kind.clone()
     }
 
-    fn recover_signer(&self) -> Result<MemberIdentifier, SignatureError> {
+    async fn recover_signer(&self) -> Result<MemberIdentifier, SignatureError> {
         match self.is_valid {
             true => Ok(self.signer_identity.clone()),
             false => Err(SignatureError::Invalid),
@@ -94,7 +95,10 @@ impl Signature for MockSignature {
             },
             SignatureKind::InstallationKey => SignatureProto {
                 signature: Some(SignatureKindProto::InstallationKey(
-                    RecoverableEd25519SignatureProto { bytes: vec![0] },
+                    RecoverableEd25519SignatureProto {
+                        bytes: vec![0],
+                        public_key: vec![0],
+                    },
                 )),
             },
             SignatureKind::LegacyDelegated => SignatureProto {

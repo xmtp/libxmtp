@@ -51,7 +51,7 @@ where
         Ok(conn.insert_or_ignore_identity_updates(&to_store)?)
     }
 
-    pub fn get_association_state<InboxId: AsRef<str>>(
+    pub async fn get_association_state<InboxId: AsRef<str>>(
         &self,
         conn: &'a DbConnection<'a>,
         inbox_id: InboxId,
@@ -76,17 +76,19 @@ where
             .map(IdentityUpdate::try_from)
             .collect::<Result<Vec<IdentityUpdate>, AssociationError>>()?;
 
-        Ok(get_state(updates)?)
+        Ok(get_state(updates).await?)
     }
 
-    pub fn get_association_state_diff<InboxId: AsRef<str>>(
+    pub async fn get_association_state_diff<InboxId: AsRef<str>>(
         &self,
         conn: &'a DbConnection<'a>,
         inbox_id: String,
         starting_sequence_id: Option<i64>,
         ending_sequence_id: Option<i64>,
     ) -> Result<AssociationStateDiff, ClientError> {
-        let initial_state = self.get_association_state(conn, &inbox_id, starting_sequence_id)?;
+        let initial_state = self
+            .get_association_state(conn, &inbox_id, starting_sequence_id)
+            .await?;
         if starting_sequence_id.is_none() {
             return Ok(initial_state.as_diff());
         }
@@ -97,11 +99,10 @@ where
             .map(|update| update.try_into())
             .collect::<Result<Vec<IdentityUpdate>, AssociationError>>()?;
 
-        let final_state = incremental_updates
-            .into_iter()
-            .try_fold(initial_state.clone(), |state, update| {
-                apply_update(state, update)
-            })?;
+        let mut final_state = initial_state.clone();
+        for update in incremental_updates {
+            final_state = apply_update(final_state, update).await?;
+        }
 
         Ok(initial_state.diff(&final_state))
     }

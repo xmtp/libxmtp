@@ -1,5 +1,6 @@
 use prost::Message;
 
+use xmtp_id::associations::signature::ValidatedLegacySignedPublicKey;
 use xmtp_proto::xmtp::{
     message_contents::{signed_private_key, SignedPrivateKey as LegacySignedPrivateKeyProto},
     mls::message_contents::{
@@ -9,7 +10,7 @@ use xmtp_proto::xmtp::{
 };
 use xmtp_v2::k256_helper;
 
-use super::{validated_legacy_signed_public_key::ValidatedLegacySignedPublicKey, AssociationError};
+use super::AssociationError;
 
 /// An Association is link between a blockchain account and an xmtp installation for the purposes of
 /// authentication.

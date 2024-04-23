@@ -30,6 +30,8 @@ use xmtp_proto::xmtp::identity::associations::{
 
 #[derive(Error, Debug)]
 pub enum DeserializationError {
+    #[error(transparent)]
+    SignatureError(#[from] crate::associations::SignatureError),
     #[error("Missing action")]
     MissingAction,
     #[error("Missing update")]
@@ -199,9 +201,13 @@ fn from_signature_kind_proto(
     signature_text: String,
 ) -> Result<Box<dyn Signature>, DeserializationError> {
     Ok(match proto {
-        SignatureKindProto::InstallationKey(installation_key_signature) => Box::new(
-            InstallationKeySignature::new(signature_text, installation_key_signature.bytes),
-        ),
+        SignatureKindProto::InstallationKey(installation_key_signature) => {
+            Box::new(InstallationKeySignature::new(
+                signature_text,
+                installation_key_signature.bytes,
+                installation_key_signature.public_key,
+            ))
+        }
         SignatureKindProto::Erc191(erc191_signature) => Box::new(RecoverableEcdsaSignature::new(
             signature_text,
             erc191_signature.bytes,
@@ -210,6 +216,7 @@ fn from_signature_kind_proto(
             signature_text,
             erc1271_signature.signature,
             erc1271_signature.contract_address,
+            "TODO: inject chain rpc url".to_string(),
             erc1271_signature.block_number,
         )),
         SignatureKindProto::DelegatedErc191(delegated_erc191_signature) => {
@@ -223,7 +230,8 @@ fn from_signature_kind_proto(
                 recoverable_ecdsa_signature,
                 delegated_erc191_signature
                     .delegated_key
-                    .ok_or(DeserializationError::Signature)?,
+                    .ok_or(DeserializationError::Signature)?
+                    .try_into()?,
             ))
         }
     })

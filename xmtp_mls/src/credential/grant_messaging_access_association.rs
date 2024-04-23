@@ -1,17 +1,15 @@
 use chrono::DateTime;
 use serde::{Deserialize, Serialize};
 
-use xmtp_cryptography::signature::{ed25519_public_key_to_address, RecoverableSignature};
+use xmtp_cryptography::signature::{
+    ed25519_public_key_to_address, sanitize_evm_addresses, RecoverableSignature,
+};
 use xmtp_proto::xmtp::mls::message_contents::{
     GrantMessagingAccessAssociation as GrantMessagingAccessAssociationProto,
     RecoverableEcdsaSignature as RecoverableEcdsaSignatureProto,
 };
 
-use crate::{
-    types::Address,
-    utils::{address::sanitize_evm_addresses, time::NS_IN_SEC},
-    InboxOwner,
-};
+use crate::{types::Address, utils::time::NS_IN_SEC, InboxOwner};
 
 use super::AssociationError;
 

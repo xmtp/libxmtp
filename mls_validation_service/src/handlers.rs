@@ -111,31 +111,31 @@ impl ValidationApi for ValidationService {
         } = request.into_inner();
 
         get_association_state(old_updates, new_updates)
+            .await
             .map(Response::new)
             .map_err(Into::into)
     }
 }
 
-fn get_association_state(
+async fn get_association_state(
     old_updates: Vec<IdentityUpdateProto>,
     new_updates: Vec<IdentityUpdateProto>,
 ) -> Result<GetAssociationStateResponse, GrpcServerError> {
     let (old_updates, new_updates) = (try_map_vec(old_updates)?, try_map_vec(new_updates)?);
 
     if old_updates.is_empty() {
-        let new_state = associations::get_state(&new_updates)?;
+        let new_state = associations::get_state(&new_updates).await?;
         return Ok(GetAssociationStateResponse {
             association_state: Some(new_state.clone().into()),
             state_diff: Some(new_state.as_diff().into()),
         });
     }
 
-    let old_state = associations::get_state(&old_updates)?;
-    let new_state = new_updates
-        .into_iter()
-        .try_fold(old_state.clone(), |state, update| {
-            associations::apply_update(state, update)
-        })?;
+    let old_state = associations::get_state(&old_updates).await?;
+    let mut new_state = old_state.clone();
+    for update in new_updates {
+        new_state = associations::apply_update(new_state, update).await?;
+    }
 
     let state_diff = old_state.diff(&new_state);
 

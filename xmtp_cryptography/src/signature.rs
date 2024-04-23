@@ -139,6 +139,32 @@ pub fn is_valid_ethereum_address<S: AsRef<str>>(address: S) -> bool {
     address.chars().all(|c| c.is_ascii_hexdigit())
 }
 
+#[derive(Debug, Error)]
+pub enum AddressValidationError {
+    #[error("invalid addresses: {0:?}")]
+    InvalidAddresses(Vec<String>),
+}
+
+pub fn sanitize_evm_addresses(
+    account_addresses: Vec<String>,
+) -> Result<Vec<String>, AddressValidationError> {
+    let mut invalid = account_addresses
+        .iter()
+        .filter(|a| !is_valid_ethereum_address(a))
+        .peekable();
+
+    if invalid.peek().is_some() {
+        return Err(AddressValidationError::InvalidAddresses(
+            invalid.map(ToString::to_string).collect::<Vec<_>>(),
+        ));
+    }
+
+    Ok(account_addresses
+        .iter()
+        .map(|address| address.to_lowercase())
+        .collect())
+}
+
 /// Check if an ed25519 public signature key is valid.
 pub fn is_valid_ed25519_public_key<Bytes: AsRef<[u8]>>(public_key: Bytes) -> bool {
     let public_key = public_key.as_ref();
