@@ -6,7 +6,7 @@ use ethers::{
     types::{Address, BlockNumber, U64},
     utils::hash_message,
 };
-use sha2::{Sha512, Digest};
+use sha2::{Digest, Sha512};
 use thiserror::Error;
 use tokio::runtime::Runtime;
 use xmtp_cryptography::signature::{h160addr_to_string, sanitize_evm_addresses};
@@ -100,7 +100,9 @@ impl RecoverableEcdsaSignature {
 impl Signature for RecoverableEcdsaSignature {
     fn recover_signer(&self) -> Result<MemberIdentifier, SignatureError> {
         let signature = ethers::types::Signature::try_from(self.bytes().as_slice())?;
-        Ok(MemberIdentifier::Address(h160addr_to_string(signature.recover(self.signature_text.clone())?)))
+        Ok(MemberIdentifier::Address(h160addr_to_string(
+            signature.recover(self.signature_text.clone())?,
+        )))
     }
 
     fn signature_kind(&self) -> SignatureKind {
@@ -433,8 +435,8 @@ pub mod tests {
     use ed25519_dalek::SigningKey;
     use ethers::prelude::*;
     use prost::Message;
-    use sha2::Sha512;
     use sha2::Digest;
+    use sha2::Sha512;
     use xmtp_proto::xmtp::message_contents::SignedPublicKey as LegacySignedPublicKeyProto;
 
     #[test]
@@ -504,14 +506,14 @@ pub mod tests {
     #[ignore]
     async fn recover_signer_erc1271() {
         let wallet: LocalWallet = LocalWallet::new(&mut rand::thread_rng());
-        
+
         let mock_erc1271 = MockSignature::new_boxed(
             true,
             MemberIdentifier::Address(wallet.get_address()),
             SignatureKind::Erc1271,
-            None
+            None,
         );
-        
+
         let expected = MemberIdentifier::Address(wallet.get_address());
         let actual = mock_erc1271.recover_signer().unwrap();
         assert_eq!(expected, actual);
@@ -521,7 +523,7 @@ pub mod tests {
     async fn recover_signer_installation() {
         let signing_key: SigningKey = SigningKey::generate(&mut rand::thread_rng());
         let verifying_key = signing_key.verifying_key();
-        
+
         let unsigned_action = UnsignedAddAssociation {
             new_member_identifier: MemberIdentifier::Address("0x123456789abcdef".to_string()),
         };
@@ -529,7 +531,11 @@ pub mod tests {
         let mut prehashed: Sha512 = Sha512::new();
         prehashed.update(signature_text.clone());
         let sig = signing_key.sign_prehashed(prehashed, None).unwrap();
-        let installation_key_sig = InstallationKeySignature::new(signature_text.clone(), sig.to_vec(), verifying_key.as_bytes().to_vec());
+        let installation_key_sig = InstallationKeySignature::new(
+            signature_text.clone(),
+            sig.to_vec(),
+            verifying_key.as_bytes().to_vec(),
+        );
         let expected = MemberIdentifier::Installation(verifying_key.as_bytes().to_vec());
         let actual = installation_key_sig.recover_signer().unwrap();
         assert_eq!(expected, actual);
@@ -551,7 +557,6 @@ pub mod tests {
             .to_vec();
         let signature = RecoverableEcdsaSignature::new(signature_text.clone(), signature_bytes);
 
-        
         // 2. ValidatedLegacySignedPublicKey
         let signed_public_key = ValidatedLegacySignedPublicKey {
             account_address: legacy_key.get_address(),
