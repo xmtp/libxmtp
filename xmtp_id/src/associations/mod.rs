@@ -395,7 +395,8 @@ mod tests {
         let state_result = get_state(vec![IdentityUpdate::new_test(
             vec![create_request, update],
             inbox_id.clone(),
-        )]).await;
+        )])
+        .await;
         assert!(matches!(
             state_result,
             Err(AssociationError::MissingExistingMember)
@@ -430,7 +431,8 @@ mod tests {
         let update_result = apply_update(
             existing_state,
             IdentityUpdate::new_test(vec![update], inbox_id.clone()),
-        ).await;
+        )
+        .await;
         assert!(matches!(
             update_result,
             Err(AssociationError::MemberNotAllowed(
@@ -637,7 +639,8 @@ mod tests {
         let revoke_result = apply_update(
             new_state,
             IdentityUpdate::new_test(vec![attempted_revoke], inbox_id.clone()),
-        ).await;
+        )
+        .await;
         assert!(revoke_result.is_err());
         assert!(matches!(
             revoke_result,

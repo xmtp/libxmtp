@@ -110,7 +110,8 @@ impl ValidationApi for ValidationService {
             new_updates,
         } = request.into_inner();
 
-        get_association_state(old_updates, new_updates).await
+        get_association_state(old_updates, new_updates)
+            .await
             .map(Response::new)
             .map_err(Into::into)
     }

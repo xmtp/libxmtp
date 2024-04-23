@@ -86,7 +86,9 @@ where
         starting_sequence_id: Option<i64>,
         ending_sequence_id: Option<i64>,
     ) -> Result<AssociationStateDiff, ClientError> {
-        let initial_state = self.get_association_state(conn, &inbox_id, starting_sequence_id).await?;
+        let initial_state = self
+            .get_association_state(conn, &inbox_id, starting_sequence_id)
+            .await?;
         if starting_sequence_id.is_none() {
             return Ok(initial_state.as_diff());
         }

@@ -9,7 +9,6 @@ use ethers::{
 };
 use sha2::{Digest, Sha512};
 use thiserror::Error;
-use tokio::runtime::Runtime;
 use xmtp_cryptography::signature::{h160addr_to_string, sanitize_evm_addresses};
 use xmtp_proto::xmtp::identity::associations::{
     signature::Signature as SignatureKindProto, Erc1271Signature as Erc1271SignatureProto,
@@ -158,12 +157,14 @@ impl Signature for Erc1271Signature {
     async fn recover_signer(&self) -> Result<MemberIdentifier, SignatureError> {
         let verifier = crate::erc1271_verifier::ERC1271Verifier::new(self.chain_rpc_url.clone());
         // let runtime = Runtime::new().unwrap();
-        let is_valid = verifier.is_valid_signature(
-            Address::from_slice(self.contract_address.as_bytes()), // TODO: `from_slice` will panic when input is not 20 bytes
-            Some(BlockNumber::Number(U64::from(self.block_number))),
-            hash_message(self.signature_text.clone()).into(), // the hash function should match the one used by the user wallet
-            self.bytes().into(),
-        ).await?;
+        let is_valid = verifier
+            .is_valid_signature(
+                Address::from_slice(self.contract_address.as_bytes()), // TODO: `from_slice` will panic when input is not 20 bytes
+                Some(BlockNumber::Number(U64::from(self.block_number))),
+                hash_message(self.signature_text.clone()).into(), // the hash function should match the one used by the user wallet
+                self.bytes().into(),
+            )
+            .await?;
         if is_valid {
             Ok(MemberIdentifier::Address(self.contract_address.clone()))
         } else {
