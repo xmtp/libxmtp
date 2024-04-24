@@ -2,6 +2,7 @@ pub use crate::inbox_owner::SigningError;
 use crate::logger::init_logger;
 use crate::logger::FfiLogger;
 use crate::GenericError;
+use std::collections::HashMap;
 use std::convert::TryInto;
 use std::sync::{
     atomic::{AtomicBool, Ordering},
@@ -131,10 +132,10 @@ impl FfiXmtpClient {
     pub async fn can_message(
         &self,
         account_addresses: Vec<String>,
-    ) -> Result<Vec<bool>, GenericError> {
+    ) -> Result<HashMap<String, bool>, GenericError> {
         let inner = self.inner_client.as_ref();
 
-        let results: Vec<bool> = inner.can_message(account_addresses).await?;
+        let results: HashMap<String, bool> = inner.can_message(account_addresses).await?;
 
         Ok(results)
     }
@@ -966,11 +967,17 @@ mod tests {
         )
         .await
         .unwrap();
+        let can_message_result = client_amal
+            .can_message(vec![bola.get_address()])
+            .await
+            .unwrap();
+
         assert!(
-            !client_amal
-                .can_message(vec![bola.get_address()])
-                .await
-                .unwrap()[0]
+            can_message_result
+                .get(&bola.get_address().to_string())
+                .map(|&value| !value)
+                .unwrap_or(false),
+            "Expected the can_message result to be false for the address"
         );
 
         let client_bola = create_client(
@@ -991,11 +998,18 @@ mod tests {
             .register_identity(Some(signature))
             .await
             .unwrap();
+
+        let can_message_result2 = client_amal
+            .can_message(vec![bola.get_address()])
+            .await
+            .unwrap();
+
         assert!(
-            client_amal
-                .can_message(vec![bola.get_address()])
-                .await
-                .unwrap()[0]
+            can_message_result2
+                .get(&bola.get_address().to_string())
+                .map(|&value| value)
+                .unwrap_or(false),
+            "Expected the can_message result to be true for the address"
         );
     }
 
