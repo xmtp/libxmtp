@@ -504,9 +504,9 @@ where
                     .get(address)
                     .map(has_active_installation)
                     .unwrap_or(false);
-                (address.clone(), result)  // Create a tuple for each address and result
+                (address.clone(), result)
             })
-            .collect::<HashMap<String, bool>>();  // Collect into a HashMap
+            .collect::<HashMap<String, bool>>();
 
         Ok(results)
     }
@@ -654,9 +654,21 @@ mod tests {
             ])
             .await
             .unwrap();
-        assert_eq!(can_message_result.get(&amal.account_address().to_string()), Some(&true), "Amal's messaging capability should be true");
-        assert_eq!(can_message_result.get(&bola.account_address().to_string()), Some(&true), "Bola's messaging capability should be true");
-        assert_eq!(can_message_result.get(&charlie_address), Some(&false), "Charlie's messaging capability should be false");
+        assert_eq!(
+            can_message_result.get(&amal.account_address().to_string()),
+            Some(&true),
+            "Amal's messaging capability should be true"
+        );
+        assert_eq!(
+            can_message_result.get(&bola.account_address().to_string()),
+            Some(&true),
+            "Bola's messaging capability should be true"
+        );
+        assert_eq!(
+            can_message_result.get(&charlie_address),
+            Some(&false),
+            "Charlie's messaging capability should be false"
+        );
     }
 
     #[tokio::test]
