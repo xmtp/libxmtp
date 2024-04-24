@@ -13,11 +13,14 @@ public typealias PreEventCallback = () async throws -> Void
 
 public enum ClientError: Error, CustomStringConvertible {
 	case creationError(String)
+	case noV3Client(String)
 
 	public var description: String {
 		switch self {
 		case .creationError(let err):
 			return "ClientError.creationError: \(err)"
+		case .noV3Client(let err):
+			return "ClientError.noV3Client: \(err)"
 		}
 	}
 }
@@ -239,19 +242,19 @@ public final class Client {
 	}
 
 	public func canMessageV3(address: String) async throws -> Bool {
-		guard let v3Client else {
-			return false
+		guard let client = v3Client else {
+			throw ClientError.noV3Client("Error no V3 client initialized")
 		}
-
-		return try await v3Client.canMessage(accountAddresses: [address]) == [true]
+		let canMessage = try await client.canMessage(accountAddresses: [address])
+		return canMessage[address.lowercased()] ?? false
 	}
 
-	public func canMessageV3(addresses: [String]) async throws -> Bool {
-		guard let v3Client else {
-			return false
+	public func canMessageV3(addresses: [String]) async throws -> [String: Bool]  {
+		guard let client = v3Client else {
+			throw ClientError.noV3Client("Error no V3 client initialized")
 		}
 
-		return try await !v3Client.canMessage(accountAddresses: addresses).contains(false)
+		return try await client.canMessage(accountAddresses: addresses)
 	}
 
 	public static func from(bundle: PrivateKeyBundle, options: ClientOptions? = nil) async throws -> Client {

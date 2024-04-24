@@ -252,10 +252,10 @@ class GroupTests: XCTestCase {
 	func testCanMessage() async throws {
 		let fixtures = try await localFixtures()
 		let notOnNetwork = try PrivateKey.generate()
-		let canMessage = try await fixtures.aliceClient.canMessageV3(addresses: [fixtures.bobClient.address])
+		let canMessage = try await fixtures.aliceClient.canMessageV3(address: fixtures.bobClient.address)
 		let cannotMessage = try await fixtures.aliceClient.canMessageV3(addresses: [notOnNetwork.address, fixtures.bobClient.address])
 		XCTAssert(canMessage)
-		XCTAssert(!cannotMessage)
+		XCTAssert(!(cannotMessage[notOnNetwork.address.lowercased()] ?? true))
 	}
 	
 	func testIsActive() async throws {
