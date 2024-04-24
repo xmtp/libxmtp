@@ -110,6 +110,14 @@ public struct Group: Identifiable, Equatable, Hashable {
 	public func removeMembers(addresses: [String]) async throws {
 		try await ffiGroup.removeMembers(accountAddresses: addresses)
 	}
+    
+    public func groupName() throws -> String {
+        return try ffiGroup.groupName()
+    }
+
+    public func updateGroupName(groupName: String) async throws {
+        try await ffiGroup.updateGroupName(groupName: groupName)
+    }
 	
 	public func processMessage(envelopeBytes: Data) async throws -> DecodedMessage {
 		let message = try await ffiGroup.processStreamedGroupMessage(envelopeBytes: envelopeBytes)

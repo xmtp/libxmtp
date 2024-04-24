@@ -585,4 +585,39 @@ class GroupTests: XCTestCase {
 
 		await waitForExpectations(timeout: 3)
 	}
+    
+    func testCanUpdateGroupName() async throws {
+        let fixtures = try await localFixtures()
+        let group = try await fixtures.aliceClient.conversations.newGroup(with: [fixtures.bob.address])
+        
+        var groupName = try group.groupName()
+        
+        XCTAssertEqual(groupName, "New Group")
+
+        try await group.updateGroupName(groupName: "Test Group Name 1")
+        
+        groupName = try group.groupName()
+        
+        XCTAssertEqual(groupName, "Test Group Name 1")
+        
+        let bobConv = try await fixtures.bobClient.conversations.list(includeGroups: true)[0]
+        let bobGroup: Group;
+        switch bobConv {
+            case .v1(_):
+                XCTFail("failed converting conversation to group")
+                return
+            case .v2(_):
+                XCTFail("failed converting conversation to group")
+                return
+            case .group(let group):
+                bobGroup = group
+        }
+        groupName = try bobGroup.groupName()
+        XCTAssertEqual(groupName, "New Group")
+        
+        try await bobGroup.sync()
+        groupName = try bobGroup.groupName()
+        
+        XCTAssertEqual(groupName, "Test Group Name 1")
+    }
 }
