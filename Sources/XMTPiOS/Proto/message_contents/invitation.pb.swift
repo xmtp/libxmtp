@@ -24,6 +24,47 @@ fileprivate struct _GeneratedWithProtocGenSwiftVersion: SwiftProtobuf.ProtobufAP
   typealias Version = _2
 }
 
+/// Version of consent proof payload 
+public enum Xmtp_MessageContents_ConsentProofPayloadVersion: SwiftProtobuf.Enum {
+  public typealias RawValue = Int
+  case unspecified // = 0
+  case consentProofPayloadVersion1 // = 1
+  case UNRECOGNIZED(Int)
+
+  public init() {
+    self = .unspecified
+  }
+
+  public init?(rawValue: Int) {
+    switch rawValue {
+    case 0: self = .unspecified
+    case 1: self = .consentProofPayloadVersion1
+    default: self = .UNRECOGNIZED(rawValue)
+    }
+  }
+
+  public var rawValue: Int {
+    switch self {
+    case .unspecified: return 0
+    case .consentProofPayloadVersion1: return 1
+    case .UNRECOGNIZED(let i): return i
+    }
+  }
+
+}
+
+#if swift(>=4.2)
+
+extension Xmtp_MessageContents_ConsentProofPayloadVersion: CaseIterable {
+  // The compiler won't synthesize support with the UNRECOGNIZED case.
+  public static let allCases: [Xmtp_MessageContents_ConsentProofPayloadVersion] = [
+    .unspecified,
+    .consentProofPayloadVersion1,
+  ]
+}
+
+#endif  // swift(>=4.2)
+
 /// Unsealed invitation V1
 public struct Xmtp_MessageContents_InvitationV1 {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
@@ -56,6 +97,16 @@ public struct Xmtp_MessageContents_InvitationV1 {
     }
     set {encryption = .aes256GcmHkdfSha256(newValue)}
   }
+
+  /// The user's consent proof
+  public var consentProof: Xmtp_MessageContents_ConsentProofPayload {
+    get {return _consentProof ?? Xmtp_MessageContents_ConsentProofPayload()}
+    set {_consentProof = newValue}
+  }
+  /// Returns true if `consentProof` has been explicitly set.
+  public var hasConsentProof: Bool {return self._consentProof != nil}
+  /// Clears the value of `consentProof`. Subsequent reads from it will return its default value.
+  public mutating func clearConsentProof() {self._consentProof = nil}
 
   public var unknownFields = SwiftProtobuf.UnknownStorage()
 
@@ -115,6 +166,7 @@ public struct Xmtp_MessageContents_InvitationV1 {
   public init() {}
 
   fileprivate var _context: Xmtp_MessageContents_InvitationV1.Context? = nil
+  fileprivate var _consentProof: Xmtp_MessageContents_ConsentProofPayload? = nil
 }
 
 /// Sealed Invitation V1 Header
@@ -222,7 +274,29 @@ public struct Xmtp_MessageContents_SealedInvitation {
   public init() {}
 }
 
+/// Payload for user's consent proof to be set in the invitation
+/// Signifying the conversation should be preapproved for the user on receipt
+public struct Xmtp_MessageContents_ConsentProofPayload {
+  // SwiftProtobuf.Message conformance is added in an extension below. See the
+  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
+  // methods supported on all messages.
+
+  /// the user's signature in hex format
+  public var signature: String = String()
+
+  /// approximate time when the user signed
+  public var timestamp: UInt64 = 0
+
+  /// version of the payload
+  public var payloadVersion: Xmtp_MessageContents_ConsentProofPayloadVersion = .unspecified
+
+  public var unknownFields = SwiftProtobuf.UnknownStorage()
+
+  public init() {}
+}
+
 #if swift(>=5.5) && canImport(_Concurrency)
+extension Xmtp_MessageContents_ConsentProofPayloadVersion: @unchecked Sendable {}
 extension Xmtp_MessageContents_InvitationV1: @unchecked Sendable {}
 extension Xmtp_MessageContents_InvitationV1.OneOf_Encryption: @unchecked Sendable {}
 extension Xmtp_MessageContents_InvitationV1.Aes256gcmHkdfsha256: @unchecked Sendable {}
@@ -231,11 +305,19 @@ extension Xmtp_MessageContents_SealedInvitationHeaderV1: @unchecked Sendable {}
 extension Xmtp_MessageContents_SealedInvitationV1: @unchecked Sendable {}
 extension Xmtp_MessageContents_SealedInvitation: @unchecked Sendable {}
 extension Xmtp_MessageContents_SealedInvitation.OneOf_Version: @unchecked Sendable {}
+extension Xmtp_MessageContents_ConsentProofPayload: @unchecked Sendable {}
 #endif  // swift(>=5.5) && canImport(_Concurrency)
 
 // MARK: - Code below here is support for the SwiftProtobuf runtime.
 
 fileprivate let _protobuf_package = "xmtp.message_contents"
+
+extension Xmtp_MessageContents_ConsentProofPayloadVersion: SwiftProtobuf._ProtoNameProviding {
+  public static let _protobuf_nameMap: SwiftProtobuf._NameMap = [
+    0: .same(proto: "CONSENT_PROOF_PAYLOAD_VERSION_UNSPECIFIED"),
+    1: .same(proto: "CONSENT_PROOF_PAYLOAD_VERSION_1"),
+  ]
+}
 
 extension Xmtp_MessageContents_InvitationV1: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".InvitationV1"
@@ -243,6 +325,7 @@ extension Xmtp_MessageContents_InvitationV1: SwiftProtobuf.Message, SwiftProtobu
     1: .same(proto: "topic"),
     2: .same(proto: "context"),
     3: .standard(proto: "aes256_gcm_hkdf_sha256"),
+    4: .standard(proto: "consent_proof"),
   ]
 
   public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
@@ -266,6 +349,7 @@ extension Xmtp_MessageContents_InvitationV1: SwiftProtobuf.Message, SwiftProtobu
           self.encryption = .aes256GcmHkdfSha256(v)
         }
       }()
+      case 4: try { try decoder.decodeSingularMessageField(value: &self._consentProof) }()
       default: break
       }
     }
@@ -285,6 +369,9 @@ extension Xmtp_MessageContents_InvitationV1: SwiftProtobuf.Message, SwiftProtobu
     try { if case .aes256GcmHkdfSha256(let v)? = self.encryption {
       try visitor.visitSingularMessageField(value: v, fieldNumber: 3)
     } }()
+    try { if let v = self._consentProof {
+      try visitor.visitSingularMessageField(value: v, fieldNumber: 4)
+    } }()
     try unknownFields.traverse(visitor: &visitor)
   }
 
@@ -292,6 +379,7 @@ extension Xmtp_MessageContents_InvitationV1: SwiftProtobuf.Message, SwiftProtobu
     if lhs.topic != rhs.topic {return false}
     if lhs._context != rhs._context {return false}
     if lhs.encryption != rhs.encryption {return false}
+    if lhs._consentProof != rhs._consentProof {return false}
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }
@@ -500,6 +588,50 @@ extension Xmtp_MessageContents_SealedInvitation: SwiftProtobuf.Message, SwiftPro
 
   public static func ==(lhs: Xmtp_MessageContents_SealedInvitation, rhs: Xmtp_MessageContents_SealedInvitation) -> Bool {
     if lhs.version != rhs.version {return false}
+    if lhs.unknownFields != rhs.unknownFields {return false}
+    return true
+  }
+}
+
+extension Xmtp_MessageContents_ConsentProofPayload: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+  public static let protoMessageName: String = _protobuf_package + ".ConsentProofPayload"
+  public static let _protobuf_nameMap: SwiftProtobuf._NameMap = [
+    1: .same(proto: "signature"),
+    2: .same(proto: "timestamp"),
+    3: .standard(proto: "payload_version"),
+  ]
+
+  public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
+    while let fieldNumber = try decoder.nextFieldNumber() {
+      // The use of inline closures is to circumvent an issue where the compiler
+      // allocates stack space for every case branch when no optimizations are
+      // enabled. https://github.com/apple/swift-protobuf/issues/1034
+      switch fieldNumber {
+      case 1: try { try decoder.decodeSingularStringField(value: &self.signature) }()
+      case 2: try { try decoder.decodeSingularUInt64Field(value: &self.timestamp) }()
+      case 3: try { try decoder.decodeSingularEnumField(value: &self.payloadVersion) }()
+      default: break
+      }
+    }
+  }
+
+  public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    if !self.signature.isEmpty {
+      try visitor.visitSingularStringField(value: self.signature, fieldNumber: 1)
+    }
+    if self.timestamp != 0 {
+      try visitor.visitSingularUInt64Field(value: self.timestamp, fieldNumber: 2)
+    }
+    if self.payloadVersion != .unspecified {
+      try visitor.visitSingularEnumField(value: self.payloadVersion, fieldNumber: 3)
+    }
+    try unknownFields.traverse(visitor: &visitor)
+  }
+
+  public static func ==(lhs: Xmtp_MessageContents_ConsentProofPayload, rhs: Xmtp_MessageContents_ConsentProofPayload) -> Bool {
+    if lhs.signature != rhs.signature {return false}
+    if lhs.timestamp != rhs.timestamp {return false}
+    if lhs.payloadVersion != rhs.payloadVersion {return false}
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }

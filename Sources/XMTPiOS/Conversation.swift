@@ -324,6 +324,17 @@ public enum Conversation: Sendable {
 		}
 	}
 
+    public var consentProof: ConsentProofPayload? {
+		switch self {
+		case .v1(_):
+			return nil
+		case let .v2(conversationV2):
+			return conversationV2.consentProof
+		case .group(_):
+			return nil
+		}
+	}
+
 	var client: Client {
 		switch self {
 		case let .v1(conversationV1):

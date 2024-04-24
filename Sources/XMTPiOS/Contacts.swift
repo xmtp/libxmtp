@@ -145,7 +145,6 @@ public class ConsentList {
 
     }
 
-
     let message = try LibXMTP.userPreferencesEncrypt(
         publicKey: publicKey,
         privateKey: privateKey,
