@@ -4,18 +4,19 @@ use rand::{
 };
 
 use xmtp_proto::{
-    api_client::XmtpMlsClient,
+    api_client::{XmtpIdentityClient, XmtpMlsClient},
     xmtp::mls::message_contents::plaintext_envelope::v2::MessageType::{Reply, Request},
     xmtp::mls::message_contents::plaintext_envelope::{Content, V2},
     xmtp::mls::message_contents::PlaintextEnvelope,
     xmtp::mls::message_contents::{MessageHistoryReply, MessageHistoryRequest},
 };
 
-use super::{GroupError, MlsGroup};
+use super::GroupError;
+use crate::Client;
 
-impl<'c, ApiClient> MlsGroup<'c, ApiClient>
+impl<'c, ApiClient> Client<ApiClient>
 where
-    ApiClient: XmtpMlsClient,
+    ApiClient: XmtpMlsClient + XmtpIdentityClient,
 {
     #[allow(dead_code)]
     pub(crate) async fn send_message_history_request(&self) -> Result<(), GroupError> {
@@ -26,7 +27,6 @@ where
                 message_type: Some(Request(contents)),
             })),
         };
-        // TODO: Implement sending this request to the network
         Ok(())
     }
 
@@ -41,7 +41,6 @@ where
                 message_type: Some(Reply(contents)),
             })),
         };
-        // TODO: Implement sending this reply to the network
         Ok(())
     }
 }
@@ -99,7 +98,7 @@ mod tests {
         let client = ClientBuilder::new_test_client(&wallet).await;
         let group = client.create_sync_group().expect("create group");
 
-        let result = group.send_message_history_request().await;
+        let result = client.send_message_history_request().await;
         assert_ok!(result);
     }
 
@@ -114,7 +113,7 @@ mod tests {
         let backup_hash = b"ABC123".into();
         let expiry = now_ns() + 10_000;
         let reply = new_message_history_reply(&request_id, url, backup_hash, expiry);
-        let result = group.send_message_history_reply(reply).await;
+        let result = client.send_message_history_reply(reply).await;
         assert_ok!(result);
     }
 
@@ -129,6 +128,6 @@ mod tests {
             .await;
         assert_ok!(add_members_result);
 
-        let _ = group.send_message_history_request().await;
+        let _ = amal_b.send_message_history_request().await;
     }
 }
