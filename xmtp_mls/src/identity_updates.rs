@@ -165,7 +165,7 @@ where
         wallet_to_revoke: String,
     ) -> Result<SignatureRequest, ClientError> {
         let current_state = self
-            .get_association_state(&mut self.store.conn()?, &inbox_id, None)
+            .get_association_state(&self.store.conn()?, &inbox_id, None)
             .await?;
         let builder = SignatureRequestBuilder::new(inbox_id);
 
@@ -184,7 +184,7 @@ where
         // If the signature request isn't completed, this will error
         let identity_update = signature_request
             .build_identity_update()
-            .map_err(|e| IdentityUpdateError::from(e))?;
+            .map_err(IdentityUpdateError::from)?;
 
         // We don't need to validate the update, since the server will do this for us
         self.api_client

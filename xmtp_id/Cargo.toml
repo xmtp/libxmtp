@@ -8,8 +8,8 @@ version = "0.1.0"
 [dependencies]
 async-trait.workspace = true
 chrono.workspace = true
-ed25519.workspace = true
 ed25519-dalek = { workspace = true, features = ["digest"] }
+ed25519.workspace = true
 ethers.workspace = true
 futures.workspace = true
 hex.workspace = true
@@ -23,7 +23,7 @@ rand.workspace = true
 regex.workspace = true
 rustc-hex.workspace = true
 serde.workspace = true
-sha2 = "0.10.8"
+sha2.workspace = true
 thiserror.workspace = true
 tokio.workspace = true
 tracing.workspace = true
