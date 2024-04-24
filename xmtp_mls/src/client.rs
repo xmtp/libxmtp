@@ -1,4 +1,4 @@
-use std::{collections::HashSet, mem::Discriminant};
+use std::{collections::HashMap, collections::HashSet, mem::Discriminant};
 
 use openmls::{
     credentials::errors::BasicCredentialError,
@@ -490,22 +490,25 @@ where
     pub async fn can_message(
         &self,
         account_addresses: Vec<String>,
-    ) -> Result<Vec<bool>, ClientError> {
+    ) -> Result<HashMap<String, bool>, ClientError> {
         let account_addresses = sanitize_evm_addresses(account_addresses)?;
         let identity_updates = self
             .api_client
             .get_identity_updates(0, account_addresses.clone())
             .await?;
 
-        Ok(account_addresses
+        let results = account_addresses
             .iter()
             .map(|address| {
-                identity_updates
+                let result = identity_updates
                     .get(address)
                     .map(has_active_installation)
-                    .unwrap_or(false)
+                    .unwrap_or(false);
+                (address.clone(), result)
             })
-            .collect())
+            .collect::<HashMap<String, bool>>();
+
+        Ok(results)
     }
 }
 
@@ -647,11 +650,25 @@ mod tests {
             .can_message(vec![
                 amal.account_address(),
                 bola.account_address(),
-                charlie_address,
+                charlie_address.clone(),
             ])
             .await
             .unwrap();
-        assert_eq!(can_message_result, vec![true, true, false]);
+        assert_eq!(
+            can_message_result.get(&amal.account_address().to_string()),
+            Some(&true),
+            "Amal's messaging capability should be true"
+        );
+        assert_eq!(
+            can_message_result.get(&bola.account_address().to_string()),
+            Some(&true),
+            "Bola's messaging capability should be true"
+        );
+        assert_eq!(
+            can_message_result.get(&charlie_address),
+            Some(&false),
+            "Charlie's messaging capability should be false"
+        );
     }
 
     #[tokio::test]
