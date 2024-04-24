@@ -116,8 +116,10 @@ data class Conversations(
         ) {
             throw XMTPException("Recipient is sender")
         }
-        if (!client.canMessageV3(accountAddresses)) {
-            throw XMTPException("Recipient not on network")
+        val falseAddresses =
+            client.canMessageV3(accountAddresses).filter { !it.value }.map { it.key }
+        if (falseAddresses.isNotEmpty()) {
+            throw XMTPException("${falseAddresses.joinToString()} not on network")
         }
 
         val group =

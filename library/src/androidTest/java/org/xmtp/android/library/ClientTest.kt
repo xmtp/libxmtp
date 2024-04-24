@@ -3,6 +3,7 @@ package org.xmtp.android.library
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import kotlinx.coroutines.runBlocking
+import org.junit.Assert
 import org.junit.Assert.assertEquals
 import org.junit.Assert.fail
 import org.junit.Test
@@ -90,7 +91,10 @@ class ClientTest {
         )
         val client =
             Client().create(account = fakeWallet, options = options)
-        assert(client.canMessageV3(listOf(client.address)))
+
+        runBlocking {
+            client.canMessageV3(listOf(client.address))[client.address]?.let { assert(it) }
+        }
 
         val bundle = client.privateKeyBundle
         val clientFromV1Bundle =
@@ -101,7 +105,9 @@ class ClientTest {
             clientFromV1Bundle.privateKeyBundleV1.identityKey,
         )
 
-        assert(clientFromV1Bundle.canMessageV3(listOf(client.address)))
+        runBlocking {
+            clientFromV1Bundle.canMessageV3(listOf(client.address))[client.address]?.let { assert(it) }
+        }
 
         assertEquals(
             client.address,
@@ -122,7 +128,9 @@ class ClientTest {
                     appContext = context
                 )
             )
-        assert(client.canMessageV3(listOf(client.address)))
+        runBlocking {
+            client.canMessageV3(listOf(client.address))[client.address]?.let { assert(it) }
+        }
         assert(client.installationId.isNotEmpty())
     }
 
@@ -187,14 +195,20 @@ class ClientTest {
                     appContext = context
                 )
             )
-        assert(client.canMessageV3(listOf(client.address)))
+        runBlocking {
+            client.canMessageV3(listOf(client.address))[client.address]?.let { assert(it) }
+        }
     }
 
     @Test
     fun testDoesNotCreateAV3Client() {
         val fakeWallet = PrivateKeyBuilder()
         val client = Client().create(account = fakeWallet)
-        assert(!client.canMessageV3(listOf(client.address)))
+        Assert.assertThrows("Error no V3 client initialized", XMTPException::class.java) {
+            runBlocking {
+                client.canMessageV3(listOf(client.address))[client.address]?.let { assert(!it) }
+            }
+        }
     }
 
     @Test

@@ -578,12 +578,11 @@ class Client() {
         return runBlocking { query(Topic.contact(peerAddress)).envelopesList.size > 0 }
     }
 
-    fun canMessageV3(addresses: List<String>): Boolean {
-        if (libXMTPClient == null) return false
-        val statuses = runBlocking {
-            libXMTPClient!!.canMessage(addresses)
+    suspend fun canMessageV3(addresses: List<String>): Map<String, Boolean> {
+        libXMTPClient?.let {
+            return it.canMessage(addresses)
         }
-        return !statuses.contains(false)
+        throw XMTPException("Error no V3 client initialized")
     }
 
     fun deleteLocalDatabase() {
