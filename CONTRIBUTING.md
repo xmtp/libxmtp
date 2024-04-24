@@ -29,3 +29,7 @@ Please make sure you have Docker running locally. Once you do, you can run the f
 ```sh
 script/local
 ```
+
+### Updating libxmtp rust bindings
+
+Please see [LibXMTP Kotlin README](https://github.com/xmtp/xmtp-android/blob/main/library/src/main/java/README.md).

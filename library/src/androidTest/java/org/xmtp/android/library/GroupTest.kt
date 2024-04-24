@@ -179,6 +179,21 @@ class GroupTest {
     }
 
     @Test
+    fun testNameAGroup() {
+        val boGroup = runBlocking { boClient.conversations.newGroup(listOf(alix.walletAddress)) }
+        runBlocking {
+            assertEquals("New Group", boGroup.name)
+            boGroup.updateGroupName("This Is A Great Group")
+            boGroup.sync()
+            alixClient.conversations.syncGroups()
+        }
+        val alixGroup = runBlocking { alixClient.conversations.listGroups().first() }
+        runBlocking { alixGroup.sync() }
+        assertEquals("This Is A Great Group", boGroup.name)
+        assertEquals("This Is A Great Group", alixGroup.name)
+    }
+
+    @Test
     fun testCanAddGroupMembers() {
         val group = runBlocking { boClient.conversations.newGroup(listOf(alix.walletAddress)) }
         runBlocking { group.addMembers(listOf(caro.walletAddress)) }

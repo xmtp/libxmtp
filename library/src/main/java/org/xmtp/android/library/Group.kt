@@ -36,6 +36,9 @@ class Group(val client: Client, private val libXMTPGroup: FfiGroup) {
     private val metadata: FfiGroupMetadata
         get() = libXMTPGroup.groupMetadata()
 
+    val name: String
+        get() = libXMTPGroup.groupName()
+
     suspend fun send(text: String): String {
         return send(prepareMessage(content = text, options = null))
     }
@@ -190,6 +193,10 @@ class Group(val client: Client, private val libXMTPGroup: FfiGroup) {
         val addresses = memberAddresses().map { it.lowercase() }.toMutableList()
         addresses.remove(client.address.lowercase())
         return addresses
+    }
+
+    suspend fun updateGroupName(name: String) {
+        return libXMTPGroup.updateGroupName(name)
     }
 
     fun streamMessages(): Flow<DecodedMessage> = callbackFlow {
