@@ -5,7 +5,7 @@ use super::{
     member::Member,
     signature::{
         AccountId, Erc1271Signature, InstallationKeySignature, LegacyDelegatedSignature,
-        RecoverableEcdsaSignature,
+        RecoverableEcdsaSignature, ValidatedLegacySignedPublicKey,
     },
     state::{AssociationState, AssociationStateDiff},
     unsigned_actions::{
@@ -13,20 +13,31 @@ use super::{
         UnsignedChangeRecoveryAddress, UnsignedCreateInbox, UnsignedIdentityUpdate,
         UnsignedRevokeAssociation,
     },
-    IdentityUpdate, MemberIdentifier, Signature,
+    IdentityUpdate, MemberIdentifier, Signature, SignatureError,
 };
-use prost::DecodeError;
+use prost::{DecodeError, Message};
 use regex::Regex;
 use thiserror::Error;
-use xmtp_proto::xmtp::identity::associations::{
-    identity_action::Kind as IdentityActionKindProto,
-    member_identifier::Kind as MemberIdentifierKindProto,
-    signature::Signature as SignatureKindProto, AddAssociation as AddAssociationProto,
-    AssociationState as AssociationStateProto, AssociationStateDiff as AssociationStateDiffProto,
-    ChangeRecoveryAddress as ChangeRecoveryAddressProto, CreateInbox as CreateInboxProto,
-    IdentityAction as IdentityActionProto, IdentityUpdate as IdentityUpdateProto,
-    Member as MemberProto, MemberIdentifier as MemberIdentifierProto, MemberMap as MemberMapProto,
-    RevokeAssociation as RevokeAssociationProto, Signature as SignatureWrapperProto,
+use xmtp_cryptography::signature::{sanitize_evm_addresses, RecoverableSignature};
+use xmtp_proto::xmtp::{
+    identity::associations::{
+        identity_action::Kind as IdentityActionKindProto,
+        member_identifier::Kind as MemberIdentifierKindProto,
+        signature::Signature as SignatureKindProto, AddAssociation as AddAssociationProto,
+        AssociationState as AssociationStateProto,
+        AssociationStateDiff as AssociationStateDiffProto,
+        ChangeRecoveryAddress as ChangeRecoveryAddressProto, CreateInbox as CreateInboxProto,
+        IdentityAction as IdentityActionProto, IdentityUpdate as IdentityUpdateProto,
+        Member as MemberProto, MemberIdentifier as MemberIdentifierProto,
+        MemberMap as MemberMapProto, RevokeAssociation as RevokeAssociationProto,
+        Signature as SignatureWrapperProto,
+    },
+    message_contents::{
+        signature::{Union, WalletEcdsaCompact},
+        unsigned_public_key, Signature as SignedPublicKeySignatureProto,
+        SignedPublicKey as LegacySignedPublicKeyProto,
+        UnsignedPublicKey as LegacyUnsignedPublicKeyProto,
+    },
 };
 
 #[derive(Error, Debug)]
@@ -233,8 +244,7 @@ fn from_signature_kind_proto(
                 recoverable_ecdsa_signature,
                 delegated_erc191_signature
                     .delegated_key
-                    .ok_or(DeserializationError::Signature)?
-                    .try_into()?,
+                    .ok_or(DeserializationError::Signature)?,
             ))
         }
     })
@@ -371,6 +381,77 @@ pub fn map_vec<A, B: From<A>>(other: Vec<A>) -> Vec<B> {
 /// Useful to convert vectors of structs into protos, like `Vec<IdentityUpdate>` to `Vec<IdentityUpdateProto>` or vice-versa.
 pub fn try_map_vec<A, B: TryFrom<A>>(other: Vec<A>) -> Result<Vec<B>, <B as TryFrom<A>>::Error> {
     other.into_iter().map(B::try_from).collect()
+}
+
+impl TryFrom<LegacySignedPublicKeyProto> for ValidatedLegacySignedPublicKey {
+    type Error = SignatureError;
+
+    fn try_from(proto: LegacySignedPublicKeyProto) -> Result<Self, Self::Error> {
+        let serialized_key_data = proto.key_bytes;
+        let union = proto
+            .signature
+            .ok_or(SignatureError::Invalid)?
+            .union
+            .ok_or(SignatureError::Invalid)?;
+        let wallet_signature = match union {
+            Union::WalletEcdsaCompact(wallet_ecdsa_compact) => {
+                let mut wallet_signature = wallet_ecdsa_compact.bytes.clone();
+                wallet_signature.push(wallet_ecdsa_compact.recovery as u8); // TODO: normalize recovery ID if necessary
+                if wallet_signature.len() != 65 {
+                    return Err(SignatureError::Invalid);
+                }
+                wallet_signature
+            }
+            Union::EcdsaCompact(ecdsa_compact) => {
+                let mut signature = ecdsa_compact.bytes.clone();
+                signature.push(ecdsa_compact.recovery as u8); // TODO: normalize recovery ID if necessary
+                if signature.len() != 65 {
+                    return Err(SignatureError::Invalid);
+                }
+                signature
+            }
+        };
+        let wallet_signature = RecoverableSignature::Eip191Signature(wallet_signature);
+        let account_address =
+            wallet_signature.recover_address(&Self::text(&serialized_key_data))?;
+        let account_address = sanitize_evm_addresses(vec![account_address])?[0].clone();
+
+        let legacy_unsigned_public_key_proto =
+            LegacyUnsignedPublicKeyProto::decode(serialized_key_data.as_slice())
+                .or(Err(SignatureError::Invalid))?;
+        let public_key_bytes = match legacy_unsigned_public_key_proto
+            .union
+            .ok_or(SignatureError::Invalid)?
+        {
+            unsigned_public_key::Union::Secp256k1Uncompressed(secp256k1_uncompressed) => {
+                secp256k1_uncompressed.bytes
+            }
+        };
+        let created_ns = legacy_unsigned_public_key_proto.created_ns;
+
+        Ok(Self {
+            account_address,
+            wallet_signature,
+            serialized_key_data,
+            public_key_bytes,
+            created_ns,
+        })
+    }
+}
+
+impl From<ValidatedLegacySignedPublicKey> for LegacySignedPublicKeyProto {
+    fn from(validated: ValidatedLegacySignedPublicKey) -> Self {
+        let RecoverableSignature::Eip191Signature(signature) = validated.wallet_signature;
+        Self {
+            key_bytes: validated.serialized_key_data,
+            signature: Some(SignedPublicKeySignatureProto {
+                union: Some(Union::WalletEcdsaCompact(WalletEcdsaCompact {
+                    bytes: signature[0..64].to_vec(),
+                    recovery: signature[64] as u32,
+                })),
+            }),
+        }
+    }
 }
 
 impl TryFrom<String> for AccountId {
