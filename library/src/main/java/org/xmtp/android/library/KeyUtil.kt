@@ -1,12 +1,32 @@
 package org.xmtp.android.library
 
+import com.google.protobuf.kotlin.toByteString
+import org.web3j.crypto.ECDSASignature
+import org.web3j.crypto.Keys
 import org.web3j.crypto.Sign
 import org.web3j.crypto.Sign.SignatureData
+import org.web3j.utils.Numeric
+import org.xmtp.android.library.messages.Signature
+import org.xmtp.android.library.messages.consentProofText
+import org.xmtp.android.library.messages.rawData
 import java.math.BigInteger
 
 object KeyUtil {
     fun getPublicKey(privateKey: ByteArray): ByteArray {
         return Sign.publicKeyFromPrivate(BigInteger(1, privateKey)).toByteArray()
+    }
+
+    private fun recoverPublicKeyKeccak256(signature: ByteArray, digest: ByteArray): BigInteger? {
+        val signatureData = getSignatureData(signature)
+        return Sign.recoverFromSignature(
+            BigInteger(1, signatureData.v).toInt(),
+            ECDSASignature(BigInteger(1, signatureData.r), BigInteger(1, signatureData.s)),
+            digest,
+        )
+    }
+
+    private fun publicKeyToAddress(publicKey: BigInteger): String {
+        return Keys.toChecksumAddress(Keys.getAddress(publicKey))
     }
 
     fun addUncompressedByte(publicKey: ByteArray): ByteArray {
@@ -59,5 +79,14 @@ object KeyUtil {
             start += array.size
         }
         return mergedArray
+    }
+
+    fun validateConsentSignature(signature: String, clientAddress: String, peerAddress: String, timestamp: Long): Boolean {
+        val messageData = Signature.newBuilder().build().consentProofText(peerAddress, timestamp).toByteArray()
+        val signatureData = Numeric.hexStringToByteArray(signature)
+        val sig = Signature.parseFrom(signatureData)
+        val recoveredPublicKey = recoverPublicKeyKeccak256(sig.rawData.toByteString().toByteArray(), Util.keccak256(messageData))
+            ?: return false
+        return clientAddress == publicKeyToAddress(recoveredPublicKey)
     }
 }

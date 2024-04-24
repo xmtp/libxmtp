@@ -5,6 +5,7 @@ import com.google.protobuf.kotlin.toByteString
 import org.xmtp.android.library.Crypto
 import org.xmtp.android.library.toHex
 import org.xmtp.proto.message.contents.Invitation
+import org.xmtp.proto.message.contents.Invitation.ConsentProofPayload
 import org.xmtp.proto.message.contents.Invitation.InvitationV1.Context
 import java.security.SecureRandom
 
@@ -16,11 +17,15 @@ class InvitationV1Builder {
             topic: Topic,
             context: Context? = null,
             aes256GcmHkdfSha256: Invitation.InvitationV1.Aes256gcmHkdfsha256,
+            consentProof: ConsentProofPayload? = null
         ): InvitationV1 {
             return InvitationV1.newBuilder().apply {
                 this.topic = topic.description
                 if (context != null) {
                     this.context = context
+                }
+                if (consentProof != null) {
+                    this.consentProof = consentProof
                 }
                 this.aes256GcmHkdfSha256 = aes256GcmHkdfSha256
             }.build()
@@ -60,6 +65,7 @@ fun InvitationV1.createDeterministic(
     sender: PrivateKeyBundleV2,
     recipient: SignedPublicKeyBundle,
     context: Context? = null,
+    consentProof: ConsentProofPayload? = null
 ): InvitationV1 {
     val myAddress = sender.toV1().walletAddress
     val theirAddress = recipient.walletAddress
@@ -95,6 +101,7 @@ fun InvitationV1.createDeterministic(
         topic = topic,
         context = inviteContext,
         aes256GcmHkdfSha256 = aes256GcmHkdfSha256,
+        consentProof = consentProof
     )
 }
 

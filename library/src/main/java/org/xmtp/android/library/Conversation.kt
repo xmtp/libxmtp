@@ -11,6 +11,7 @@ import org.xmtp.android.library.messages.PagingInfoSortDirection
 import org.xmtp.proto.keystore.api.v1.Keystore.TopicMap.TopicData
 import org.xmtp.proto.message.api.v1.MessageApiOuterClass
 import org.xmtp.proto.message.contents.Invitation
+import org.xmtp.proto.message.contents.Invitation.ConsentProofPayload
 import org.xmtp.proto.message.contents.Invitation.InvitationV1.Aes256gcmHkdfsha256
 import java.util.Date
 
@@ -287,6 +288,15 @@ sealed class Conversation {
             }
         }
     }
+
+    val consentProof: ConsentProofPayload?
+        get() {
+            return when (this) {
+                is V1 -> return null
+                is V2 -> conversationV2.consentProof
+                is Group -> return null
+            }
+        }
 
     // Get the client according to the version
     val client: Client

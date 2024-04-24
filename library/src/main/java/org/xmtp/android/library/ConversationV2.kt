@@ -27,6 +27,7 @@ data class ConversationV2(
     val topic: String,
     val keyMaterial: ByteArray,
     val context: Invitation.InvitationV1.Context,
+    var consentProof: Invitation.ConsentProofPayload? = null,
     val peerAddress: String,
     val client: Client,
     val createdAtNs: Long? = null,
@@ -52,6 +53,7 @@ data class ConversationV2(
                 client = client,
                 createdAtNs = header.createdNs,
                 header = header,
+                consentProof = if (invitation.hasConsentProof()) invitation.consentProof else null
             )
         }
     }

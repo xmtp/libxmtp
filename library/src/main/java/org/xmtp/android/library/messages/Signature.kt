@@ -47,6 +47,9 @@ fun Signature.createIdentityText(key: ByteArray): String =
 fun Signature.enableIdentityText(key: ByteArray): String =
     ("XMTP : Enable Identity\n" + "${key.toHex()}\n" + "\n" + "For more info: https://xmtp.org/signatures/")
 
+fun Signature.consentProofText(peerAddress: String, timestamp: Long): String =
+    ("XMTP : Grant inbox consent to sender\n" + "\n" + "Current Time: ${timestamp}\n" + "From Address: ${peerAddress}\n" + "\n" + "For more info: https://xmtp.org/signatures/")
+
 val Signature.rawData: ByteArray
     get() = if (hasEcdsaCompact()) {
         ecdsaCompact.bytes.toByteArray() + ecdsaCompact.recovery.toByte()

@@ -150,6 +150,20 @@ data class Conversations(
         } ?: emptyList()
     }
 
+    private suspend fun handleConsentProof(consentProof: Invitation.ConsentProofPayload, peerAddress: String) {
+        val signature = consentProof.signature
+        val timestamp = consentProof.timestamp
+
+        if (!KeyUtil.validateConsentSignature(signature, client.address, peerAddress, timestamp)) {
+            return
+        }
+        val contacts = client.contacts
+        contacts.refreshConsentList()
+        if (contacts.consentList.state(peerAddress) == ConsentState.UNKNOWN) {
+            contacts.allow(listOf(peerAddress))
+        }
+    }
+
     /**
      * This creates a new [Conversation] using a specified address
      * @param peerAddress The address of the client that you want to start a new conversation
@@ -160,6 +174,7 @@ data class Conversations(
     suspend fun newConversation(
         peerAddress: String,
         context: Invitation.InvitationV1.Context? = null,
+        consentProof: Invitation.ConsentProofPayload? = null,
     ): Conversation {
         if (peerAddress.lowercase() == client.address.lowercase()) {
             throw XMTPException("Recipient is sender")
@@ -216,6 +231,7 @@ data class Conversations(
                         peerAddress = peerAddress,
                         client = client,
                         header = sealedInvitation.v1.header,
+                        consentProof = if (invite.hasConsentProof()) invite.consentProof else null
                     ),
                 )
                 conversationsByTopic[conversation.topic] = conversation
@@ -225,7 +241,7 @@ data class Conversations(
         // We don't have an existing conversation, make a v2 one
         val recipient = contact.toSignedPublicKeyBundle()
         val invitation = Invitation.InvitationV1.newBuilder().build()
-            .createDeterministic(client.keys, recipient, context)
+            .createDeterministic(client.keys, recipient, context, consentProof)
         val sealedInvitation =
             sendInvitation(recipient = recipient, invitation = invitation, created = Date())
         val conversationV2 = ConversationV2.create(
@@ -262,7 +278,12 @@ data class Conversations(
         val invitations = listInvitations(pagination = pagination)
         for (sealedInvitation in invitations) {
             try {
-                newConversations.add(Conversation.V2(conversation(sealedInvitation)))
+                val newConversation = Conversation.V2(conversation(sealedInvitation))
+                newConversations.add(newConversation)
+                val consentProof = newConversation.consentProof
+                if (consentProof != null) {
+                    handleConsentProof(consentProof, newConversation.peerAddress)
+                }
             } catch (e: Exception) {
                 Log.d(TAG, e.message.toString())
             }
@@ -301,6 +322,7 @@ data class Conversations(
                     client = client,
                     createdAtNs = data.createdNs,
                     header = Invitation.SealedInvitationHeaderV1.getDefaultInstance(),
+                    consentProof = if (data.invitation.hasConsentProof()) data.invitation.consentProof else null
                 ),
             )
         }
