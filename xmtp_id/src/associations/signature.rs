@@ -160,6 +160,9 @@ impl Erc1271Signature {
         signature_text: String,
         signature_bytes: Vec<u8>,
         account_id: AccountId,
+        chain_rpc_url: String,
+        block_number: u64,
+    ) -> Self {
         Erc1271Signature {
             signature_text,
             signature_bytes,
