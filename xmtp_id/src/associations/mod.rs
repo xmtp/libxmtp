@@ -3,7 +3,7 @@ pub mod builder;
 mod hashes;
 mod member;
 mod serialization;
-mod signature;
+pub mod signature;
 mod state;
 #[cfg(any(test, feature = "test-utils"))]
 pub mod test_utils;
@@ -12,29 +12,28 @@ mod unsigned_actions;
 pub use self::association_log::*;
 pub use self::hashes::generate_inbox_id;
 pub use self::member::{Member, MemberIdentifier, MemberKind};
-pub use self::serialization::{DeserializationError, SerializationError};
+pub use self::serialization::{map_vec, try_map_vec, DeserializationError};
 pub use self::signature::{Signature, SignatureError, SignatureKind};
-pub use self::state::AssociationState;
+pub use self::state::{AssociationState, AssociationStateDiff};
 
 // Apply a single IdentityUpdate to an existing AssociationState
-pub fn apply_update(
+pub async fn apply_update(
     initial_state: AssociationState,
     update: IdentityUpdate,
 ) -> Result<AssociationState, AssociationError> {
-    update.update_state(Some(initial_state))
+    update.update_state(Some(initial_state)).await
 }
 
 // Get the current state from an array of `IdentityUpdate`s. Entire operation fails if any operation fails
-pub fn get_state(updates: Vec<IdentityUpdate>) -> Result<AssociationState, AssociationError> {
-    let new_state = updates.iter().try_fold(
-        None,
-        |state, update| -> Result<Option<AssociationState>, AssociationError> {
-            let updated_state = update.update_state(state)?;
-            Ok(Some(updated_state))
-        },
-    )?;
+pub async fn get_state<Updates: AsRef<[IdentityUpdate]>>(
+    updates: Updates,
+) -> Result<AssociationState, AssociationError> {
+    let mut state = None;
+    for update in updates.as_ref().iter() {
+        state = Some(update.update_state(state).await?);
+    }
 
-    new_state.ok_or(AssociationError::NotCreated)
+    state.ok_or(AssociationError::NotCreated)
 }
 
 #[cfg(any(test, feature = "test-utils"))]
@@ -52,7 +51,6 @@ pub mod test_defaults {
         fn default() -> Self {
             let existing_member = rand_string();
             let new_member = rand_vec();
-
             Self {
                 existing_member_signature: MockSignature::new_boxed(
                     true,
@@ -75,7 +73,6 @@ pub mod test_defaults {
     impl Default for CreateInbox {
         fn default() -> Self {
             let signer = rand_string();
-
             Self {
                 nonce: rand_u64(),
                 account_address: signer.clone(),
@@ -92,7 +89,6 @@ pub mod test_defaults {
     impl Default for RevokeAssociation {
         fn default() -> Self {
             let signer = rand_string();
-
             Self {
                 recovery_address_signature: MockSignature::new_boxed(
                     true,
@@ -114,17 +110,17 @@ mod tests {
 
     use super::*;
 
-    pub fn new_test_inbox() -> AssociationState {
+    pub async fn new_test_inbox() -> AssociationState {
         let create_request = CreateInbox::default();
         let inbox_id = generate_inbox_id(&create_request.account_address, &create_request.nonce);
         let identity_update =
             IdentityUpdate::new_test(vec![Action::CreateInbox(create_request)], inbox_id);
 
-        get_state(vec![identity_update]).unwrap()
+        get_state(vec![identity_update]).await.unwrap()
     }
 
-    pub fn new_test_inbox_with_installation() -> AssociationState {
-        let initial_state = new_test_inbox();
+    pub async fn new_test_inbox_with_installation() -> AssociationState {
+        let initial_state = new_test_inbox().await;
         let inbox_id = initial_state.inbox_id().clone();
         let initial_wallet_address: MemberIdentifier =
             initial_state.recovery_address().clone().into();
@@ -143,26 +139,27 @@ mod tests {
             initial_state,
             IdentityUpdate::new_test(vec![update], inbox_id.clone()),
         )
+        .await
         .unwrap()
     }
 
-    #[test]
-    fn test_create_inbox() {
+    #[tokio::test]
+    async fn test_create_inbox() {
         let create_request = CreateInbox::default();
         let inbox_id = generate_inbox_id(&create_request.account_address, &create_request.nonce);
         let account_address = create_request.account_address.clone();
         let identity_update =
             IdentityUpdate::new_test(vec![Action::CreateInbox(create_request)], inbox_id.clone());
-        let state = get_state(vec![identity_update]).unwrap();
+        let state = get_state(vec![identity_update]).await.unwrap();
         assert_eq!(state.members().len(), 1);
 
         let existing_entity = state.get(&account_address.clone().into()).unwrap();
         assert!(existing_entity.identifier.eq(&account_address.into()));
     }
 
-    #[test]
-    fn create_and_add_separately() {
-        let initial_state = new_test_inbox();
+    #[tokio::test]
+    async fn create_and_add_separately() {
+        let initial_state = new_test_inbox().await;
         let inbox_id = initial_state.inbox_id().clone();
         let new_installation_identifier: MemberIdentifier = rand_vec().into();
         let first_member: MemberIdentifier = initial_state.recovery_address().clone().into();
@@ -188,6 +185,7 @@ mod tests {
             initial_state,
             IdentityUpdate::new_test(vec![update], inbox_id.clone()),
         )
+        .await
         .unwrap();
         assert_eq!(new_state.members().len(), 2);
 
@@ -195,8 +193,8 @@ mod tests {
         assert_eq!(new_member.added_by_entity, Some(first_member));
     }
 
-    #[test]
-    fn create_and_add_together() {
+    #[tokio::test]
+    async fn create_and_add_together() {
         let create_action = CreateInbox::default();
         let account_address = create_action.account_address.clone();
         let inbox_id = generate_inbox_id(&account_address, &create_action.nonce);
@@ -225,7 +223,7 @@ mod tests {
             ],
             inbox_id.clone(),
         );
-        let state = get_state(vec![identity_update]).unwrap();
+        let state = get_state(vec![identity_update]).await.unwrap();
         assert_eq!(state.members().len(), 2);
         assert_eq!(
             state.get(&new_member_identifier).unwrap().added_by_entity,
@@ -233,8 +231,8 @@ mod tests {
         );
     }
 
-    #[test]
-    fn create_from_legacy_key() {
+    #[tokio::test]
+    async fn create_from_legacy_key() {
         let member_identifier: MemberIdentifier = rand_string().into();
         let create_action = CreateInbox {
             nonce: 0,
@@ -251,6 +249,7 @@ mod tests {
             vec![Action::CreateInbox(create_action)],
             inbox_id.clone(),
         )])
+        .await
         .unwrap();
         assert_eq!(state.members().len(), 1);
 
@@ -268,13 +267,14 @@ mod tests {
         let update_result = apply_update(
             state,
             IdentityUpdate::new_test(vec![update], inbox_id.clone()),
-        );
+        )
+        .await;
         assert!(matches!(update_result, Err(AssociationError::Replay)));
     }
 
-    #[test]
-    fn add_wallet_from_installation_key() {
-        let initial_state = new_test_inbox_with_installation();
+    #[tokio::test]
+    async fn add_wallet_from_installation_key() {
+        let initial_state = new_test_inbox_with_installation().await;
         let inbox_id = initial_state.inbox_id().clone();
         let installation_id = initial_state
             .members_by_kind(MemberKind::Installation)
@@ -305,12 +305,13 @@ mod tests {
             initial_state,
             IdentityUpdate::new_test(vec![add_association], inbox_id.clone()),
         )
+        .await
         .expect("expected update to succeed");
         assert_eq!(new_state.members().len(), 3);
     }
 
-    #[test]
-    fn reject_invalid_signature_on_create() {
+    #[tokio::test]
+    async fn reject_invalid_signature_on_create() {
         let bad_signature =
             MockSignature::new_boxed(false, rand_string().into(), SignatureKind::Erc191, None);
         let action = CreateInbox {
@@ -321,7 +322,8 @@ mod tests {
         let state_result = get_state(vec![IdentityUpdate::new_test(
             vec![Action::CreateInbox(action)],
             rand_string(),
-        )]);
+        )])
+        .await;
         assert!(state_result.is_err());
         assert!(matches!(
             state_result,
@@ -329,9 +331,9 @@ mod tests {
         ));
     }
 
-    #[test]
-    fn reject_invalid_signature_on_update() {
-        let initial_state = new_test_inbox();
+    #[tokio::test]
+    async fn reject_invalid_signature_on_update() {
+        let initial_state = new_test_inbox().await;
         let inbox_id = initial_state.inbox_id().clone();
         let bad_signature =
             MockSignature::new_boxed(false, rand_string().into(), SignatureKind::Erc191, None);
@@ -344,7 +346,8 @@ mod tests {
         let update_result = apply_update(
             initial_state.clone(),
             IdentityUpdate::new_test(vec![update_with_bad_existing_member], inbox_id.clone()),
-        );
+        )
+        .await;
         assert!(matches!(
             update_result,
             Err(AssociationError::Signature(SignatureError::Invalid))
@@ -364,15 +367,16 @@ mod tests {
         let update_result_2 = apply_update(
             initial_state,
             IdentityUpdate::new_test(vec![update_with_bad_new_member], inbox_id.clone()),
-        );
+        )
+        .await;
         assert!(matches!(
             update_result_2,
             Err(AssociationError::Signature(SignatureError::Invalid))
         ));
     }
 
-    #[test]
-    fn reject_if_signer_not_existing_member() {
+    #[tokio::test]
+    async fn reject_if_signer_not_existing_member() {
         let create_inbox = CreateInbox::default();
         let inbox_id = generate_inbox_id(&create_inbox.account_address, &create_inbox.nonce);
         let create_request = Action::CreateInbox(create_inbox);
@@ -391,16 +395,17 @@ mod tests {
         let state_result = get_state(vec![IdentityUpdate::new_test(
             vec![create_request, update],
             inbox_id.clone(),
-        )]);
+        )])
+        .await;
         assert!(matches!(
             state_result,
             Err(AssociationError::MissingExistingMember)
         ));
     }
 
-    #[test]
-    fn reject_if_installation_adding_installation() {
-        let existing_state = new_test_inbox_with_installation();
+    #[tokio::test]
+    async fn reject_if_installation_adding_installation() {
+        let existing_state = new_test_inbox_with_installation().await;
         let inbox_id = existing_state.inbox_id().clone();
         let existing_installations = existing_state.members_by_kind(MemberKind::Installation);
         let existing_installation = existing_installations.first().unwrap();
@@ -426,7 +431,8 @@ mod tests {
         let update_result = apply_update(
             existing_state,
             IdentityUpdate::new_test(vec![update], inbox_id.clone()),
-        );
+        )
+        .await;
         assert!(matches!(
             update_result,
             Err(AssociationError::MemberNotAllowed(
@@ -436,9 +442,9 @@ mod tests {
         ));
     }
 
-    #[test]
-    fn revoke() {
-        let initial_state = new_test_inbox_with_installation();
+    #[tokio::test]
+    async fn revoke() {
+        let initial_state = new_test_inbox_with_installation().await;
         let inbox_id = initial_state.inbox_id().clone();
         let installation_id = initial_state
             .members_by_kind(MemberKind::Installation)
@@ -461,13 +467,14 @@ mod tests {
             initial_state,
             IdentityUpdate::new_test(vec![update], inbox_id.clone()),
         )
+        .await
         .expect("expected update to succeed");
         assert!(new_state.get(&installation_id).is_none());
     }
 
-    #[test]
-    fn revoke_children() {
-        let initial_state = new_test_inbox_with_installation();
+    #[tokio::test]
+    async fn revoke_children() {
+        let initial_state = new_test_inbox_with_installation().await;
         let inbox_id = initial_state.inbox_id().clone();
         let wallet_address = initial_state
             .members_by_kind(MemberKind::Address)
@@ -490,6 +497,7 @@ mod tests {
             initial_state,
             IdentityUpdate::new_test(vec![add_second_installation], inbox_id.clone()),
         )
+        .await
         .expect("expected update to succeed");
         assert_eq!(new_state.members().len(), 3);
 
@@ -509,13 +517,14 @@ mod tests {
             new_state,
             IdentityUpdate::new_test(vec![revocation], inbox_id.clone()),
         )
+        .await
         .expect("expected update to succeed");
         assert_eq!(new_state.members().len(), 0);
     }
 
-    #[test]
-    fn revoke_and_re_add() {
-        let initial_state = new_test_inbox();
+    #[tokio::test]
+    async fn revoke_and_re_add() {
+        let initial_state = new_test_inbox().await;
         let wallet_address = initial_state
             .members_by_kind(MemberKind::Address)
             .first()
@@ -561,6 +570,7 @@ mod tests {
                 inbox_id.clone(),
             ),
         )
+        .await
         .expect("expected update to succeed");
         assert_eq!(state_after_remove.members().len(), 1);
 
@@ -585,13 +595,14 @@ mod tests {
             state_after_remove,
             IdentityUpdate::new_test(vec![add_second_wallet_again], inbox_id.clone()),
         )
+        .await
         .expect("expected update to succeed");
         assert_eq!(state_after_re_add.members().len(), 2);
     }
 
-    #[test]
-    fn change_recovery_address() {
-        let initial_state = new_test_inbox_with_installation();
+    #[tokio::test]
+    async fn change_recovery_address() {
+        let initial_state = new_test_inbox_with_installation().await;
         let inbox_id = initial_state.inbox_id().clone();
         let initial_recovery_address: MemberIdentifier =
             initial_state.recovery_address().clone().into();
@@ -610,6 +621,7 @@ mod tests {
             initial_state,
             IdentityUpdate::new_test(vec![update_recovery], inbox_id.clone()),
         )
+        .await
         .expect("expected update to succeed");
         assert_eq!(new_state.recovery_address(), &new_recovery_address);
 
@@ -627,7 +639,8 @@ mod tests {
         let revoke_result = apply_update(
             new_state,
             IdentityUpdate::new_test(vec![attempted_revoke], inbox_id.clone()),
-        );
+        )
+        .await;
         assert!(revoke_result.is_err());
         assert!(matches!(
             revoke_result,

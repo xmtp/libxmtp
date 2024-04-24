@@ -9,18 +9,17 @@ use std::sync::{
 };
 use tokio::sync::oneshot::Sender;
 use xmtp_api_grpc::grpc_api_helper::Client as TonicApiClient;
-use xmtp_mls::builder::IdentityStrategy;
-use xmtp_mls::builder::LegacyIdentity;
 use xmtp_mls::groups::group_metadata::ConversationType;
 use xmtp_mls::groups::group_metadata::GroupMetadata;
 use xmtp_mls::groups::PreconfiguredPolicies;
+use xmtp_mls::identity::v3::{IdentityStrategy, LegacyIdentity};
 use xmtp_mls::{
     builder::ClientBuilder,
     client::Client as MlsClient,
     groups::MlsGroup,
     storage::{
-        group_message::DeliveryStatus, group_message::GroupMessageKind, group_message::StoredGroupMessage, EncryptedMessageStore,
-        EncryptionKey, StorageOption,
+        group_message::DeliveryStatus, group_message::GroupMessageKind,
+        group_message::StoredGroupMessage, EncryptedMessageStore, EncryptionKey, StorageOption,
     },
     types::Address,
 };
@@ -367,8 +366,7 @@ impl FfiGroup {
             self.created_at_ns,
         );
 
-        
-        let delivery_status = opts.delivery_status.map(|status| status.into()); 
+        let delivery_status = opts.delivery_status.map(|status| status.into());
 
         let messages: Vec<FfiMessage> = group
             .find_messages(
@@ -443,6 +441,30 @@ impl FfiGroup {
         group.remove_members(account_addresses).await?;
 
         Ok(())
+    }
+
+    pub async fn update_group_name(&self, group_name: String) -> Result<(), GenericError> {
+        let group = MlsGroup::new(
+            self.inner_client.as_ref(),
+            self.group_id.clone(),
+            self.created_at_ns,
+        );
+
+        group.update_group_name(group_name).await?;
+
+        Ok(())
+    }
+
+    pub fn group_name(&self) -> Result<String, GenericError> {
+        let group = MlsGroup::new(
+            self.inner_client.as_ref(),
+            self.group_id.clone(),
+            self.created_at_ns,
+        );
+
+        let group_name = group.group_name()?;
+
+        Ok(group_name)
     }
 
     pub async fn stream(

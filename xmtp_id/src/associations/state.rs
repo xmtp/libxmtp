@@ -1,3 +1,8 @@
+//! [`AssociationState`] describes a single point in time for an Inbox where it contains a set of
+//! associated [`MemberIdentifier`]'s, which may be one of [`MemberKind::Address`]
+//! or[`MemberKind::Installation`]. A diff between two states can be calculated to determine
+//! a change of membership between two periods of time. [XIP-46](https://github.com/xmtp/XIPs/pull/53)
+
 use std::collections::{HashMap, HashSet};
 
 use super::{hashes::generate_inbox_id, member::Member, MemberIdentifier, MemberKind};
@@ -10,10 +15,10 @@ pub struct AssociationStateDiff {
 
 #[derive(Clone, Debug)]
 pub struct AssociationState {
-    inbox_id: String,
-    members: HashMap<MemberIdentifier, Member>,
-    recovery_address: String,
-    seen_signatures: HashSet<Vec<u8>>,
+    pub(crate) inbox_id: String,
+    pub(crate) members: HashMap<MemberIdentifier, Member>,
+    pub(crate) recovery_address: String,
+    pub(crate) seen_signatures: HashSet<Vec<u8>>,
 }
 
 impl AssociationState {
@@ -85,28 +90,31 @@ impl AssociationState {
         let new_members: Vec<MemberIdentifier> = new_state
             .members
             .keys()
-            .filter_map(|new_member_identifier| {
-                match self.members.contains_key(new_member_identifier) {
-                    true => None,
-                    false => Some(new_member_identifier.clone()),
-                }
-            })
+            .filter(|new_member_identifier| !self.members.contains_key(new_member_identifier))
+            .cloned()
             .collect();
 
         let removed_members: Vec<MemberIdentifier> = self
             .members
             .keys()
-            .filter_map(|existing_member_identifier| {
-                match new_state.members.contains_key(existing_member_identifier) {
-                    true => None,
-                    false => Some(existing_member_identifier.clone()),
-                }
+            .filter(|existing_member_identifier| {
+                !new_state.members.contains_key(existing_member_identifier)
             })
+            .cloned()
             .collect();
 
         AssociationStateDiff {
             new_members,
             removed_members,
+        }
+    }
+
+    /// Converts the [`AssociationState`] to a diff that represents all members
+    /// of the inbox at the current state.
+    pub fn as_diff(&self) -> AssociationStateDiff {
+        AssociationStateDiff {
+            new_members: self.members.keys().cloned().collect(),
+            removed_members: vec![],
         }
     }
 

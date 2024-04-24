@@ -2,10 +2,12 @@ use super::{
     association_log::{
         Action, AddAssociation, ChangeRecoveryAddress, CreateInbox, RevokeAssociation,
     },
+    member::Member,
     signature::{
-        Erc1271Signature, InstallationKeySignature, LegacyDelegatedSignature,
+        AccountId, Erc1271Signature, InstallationKeySignature, LegacyDelegatedSignature,
         RecoverableEcdsaSignature,
     },
+    state::{AssociationState, AssociationStateDiff},
     unsigned_actions::{
         SignatureTextCreator, UnsignedAction, UnsignedAddAssociation,
         UnsignedChangeRecoveryAddress, UnsignedCreateInbox, UnsignedIdentityUpdate,
@@ -13,19 +15,24 @@ use super::{
     },
     IdentityUpdate, MemberIdentifier, Signature,
 };
+use prost::DecodeError;
+use regex::Regex;
 use thiserror::Error;
 use xmtp_proto::xmtp::identity::associations::{
     identity_action::Kind as IdentityActionKindProto,
     member_identifier::Kind as MemberIdentifierKindProto,
     signature::Signature as SignatureKindProto, AddAssociation as AddAssociationProto,
+    AssociationState as AssociationStateProto, AssociationStateDiff as AssociationStateDiffProto,
     ChangeRecoveryAddress as ChangeRecoveryAddressProto, CreateInbox as CreateInboxProto,
     IdentityAction as IdentityActionProto, IdentityUpdate as IdentityUpdateProto,
-    MemberIdentifier as MemberIdentifierProto, RevokeAssociation as RevokeAssociationProto,
-    Signature as SignatureWrapperProto,
+    Member as MemberProto, MemberIdentifier as MemberIdentifierProto, MemberMap as MemberMapProto,
+    RevokeAssociation as RevokeAssociationProto, Signature as SignatureWrapperProto,
 };
 
 #[derive(Error, Debug)]
 pub enum DeserializationError {
+    #[error(transparent)]
+    SignatureError(#[from] crate::associations::SignatureError),
     #[error("Missing action")]
     MissingAction,
     #[error("Missing update")]
@@ -34,6 +41,12 @@ pub enum DeserializationError {
     MissingMemberIdentifier,
     #[error("Missing signature")]
     Signature,
+    #[error("Missing Member")]
+    MissingMember,
+    #[error("Decode error {0}")]
+    Decode(#[from] DecodeError),
+    #[error("Invalid account id")]
+    InvalidAccountId,
 }
 
 pub fn from_identity_update_proto(
@@ -191,9 +204,13 @@ fn from_signature_kind_proto(
     signature_text: String,
 ) -> Result<Box<dyn Signature>, DeserializationError> {
     Ok(match proto {
-        SignatureKindProto::InstallationKey(installation_key_signature) => Box::new(
-            InstallationKeySignature::new(signature_text, installation_key_signature.bytes),
-        ),
+        SignatureKindProto::InstallationKey(installation_key_signature) => {
+            Box::new(InstallationKeySignature::new(
+                signature_text,
+                installation_key_signature.bytes,
+                installation_key_signature.public_key,
+            ))
+        }
         SignatureKindProto::Erc191(erc191_signature) => Box::new(RecoverableEcdsaSignature::new(
             signature_text,
             erc191_signature.bytes,
@@ -201,7 +218,8 @@ fn from_signature_kind_proto(
         SignatureKindProto::Erc1271(erc1271_signature) => Box::new(Erc1271Signature::new(
             signature_text,
             erc1271_signature.signature,
-            erc1271_signature.contract_address,
+            erc1271_signature.account_id.try_into()?,
+            "TODO: inject chain rpc url".to_string(),
             erc1271_signature.block_number,
         )),
         SignatureKindProto::DelegatedErc191(delegated_erc191_signature) => {
@@ -215,35 +233,25 @@ fn from_signature_kind_proto(
                 recoverable_ecdsa_signature,
                 delegated_erc191_signature
                     .delegated_key
-                    .ok_or(DeserializationError::Signature)?,
+                    .ok_or(DeserializationError::Signature)?
+                    .try_into()?,
             ))
         }
     })
 }
 
-// Serialization
-#[derive(Error, Debug)]
-pub enum SerializationError {
-    #[error("Missing action")]
-    MissingAction,
-}
-
-pub fn to_identity_update_proto(
-    identity_update: &IdentityUpdate,
-) -> Result<IdentityUpdateProto, SerializationError> {
+pub fn to_identity_update_proto(identity_update: &IdentityUpdate) -> IdentityUpdateProto {
     let actions: Vec<IdentityActionProto> = identity_update
         .actions
         .iter()
         .map(to_identity_action_proto)
         .collect();
 
-    let proto = IdentityUpdateProto {
+    IdentityUpdateProto {
         client_timestamp_ns: identity_update.client_timestamp_ns,
         inbox_id: identity_update.inbox_id.clone(),
         actions,
-    };
-
-    Ok(proto)
+    }
 }
 
 fn to_identity_action_proto(action: &Action) -> IdentityActionProto {
@@ -291,6 +299,13 @@ fn to_identity_action_proto(action: &Action) -> IdentityActionProto {
     }
 }
 
+fn to_member_proto(member: Member) -> MemberProto {
+    MemberProto {
+        identifier: Some(to_member_identifier_proto(member.identifier)),
+        added_by_entity: member.added_by_entity.map(to_member_identifier_proto),
+    }
+}
+
 fn to_member_identifier_proto(member_identifier: MemberIdentifier) -> MemberIdentifierProto {
     match member_identifier {
         MemberIdentifier::Address(address) => MemberIdentifierProto {
@@ -299,6 +314,98 @@ fn to_member_identifier_proto(member_identifier: MemberIdentifier) -> MemberIden
         MemberIdentifier::Installation(public_key) => MemberIdentifierProto {
             kind: Some(MemberIdentifierKindProto::InstallationPublicKey(public_key)),
         },
+    }
+}
+
+fn to_association_state_proto(association_state: AssociationState) -> AssociationStateProto {
+    let members = association_state
+        .members
+        .into_iter()
+        .map(|(key, value)| MemberMapProto {
+            key: Some(to_member_identifier_proto(key)),
+            value: Some(to_member_proto(value)),
+        })
+        .collect();
+
+    AssociationStateProto {
+        inbox_id: association_state.inbox_id,
+        members,
+        recovery_address: association_state.recovery_address,
+        seen_signatures: association_state.seen_signatures.into_iter().collect(),
+    }
+}
+
+impl From<AssociationState> for AssociationStateProto {
+    fn from(state: AssociationState) -> AssociationStateProto {
+        to_association_state_proto(state)
+    }
+}
+
+fn to_association_state_diff_proto(state_diff: AssociationStateDiff) -> AssociationStateDiffProto {
+    AssociationStateDiffProto {
+        new_members: state_diff
+            .new_members
+            .into_iter()
+            .map(to_member_identifier_proto)
+            .collect(),
+        removed_members: state_diff
+            .removed_members
+            .into_iter()
+            .map(to_member_identifier_proto)
+            .collect(),
+    }
+}
+
+impl From<AssociationStateDiff> for AssociationStateDiffProto {
+    fn from(diff: AssociationStateDiff) -> AssociationStateDiffProto {
+        to_association_state_diff_proto(diff)
+    }
+}
+
+/// Convert a vector of `A` into a vector of `B` using [`From`]
+pub fn map_vec<A, B: From<A>>(other: Vec<A>) -> Vec<B> {
+    other.into_iter().map(B::from).collect()
+}
+
+/// Convert a vector of `A` into a vector of `B` using [`TryFrom`]
+/// Useful to convert vectors of structs into protos, like `Vec<IdentityUpdate>` to `Vec<IdentityUpdateProto>` or vice-versa.
+pub fn try_map_vec<A, B: TryFrom<A>>(other: Vec<A>) -> Result<Vec<B>, <B as TryFrom<A>>::Error> {
+    other.into_iter().map(B::try_from).collect()
+}
+
+impl TryFrom<String> for AccountId {
+    type Error = DeserializationError;
+
+    fn try_from(s: String) -> Result<Self, Self::Error> {
+        let parts: Vec<&str> = s.split(':').collect();
+        if parts.len() != 3 {
+            return Err(DeserializationError::InvalidAccountId);
+        }
+        let chain_id = format!("{}:{}", parts[0], parts[1]);
+        let chain_id_regex = Regex::new(r"^[-a-z0-9]{3,8}:[-_a-zA-Z0-9]{1,32}$").unwrap();
+        let account_address = parts[2];
+        let account_address_regex = Regex::new(r"^[-.%a-zA-Z0-9]{1,128}$").unwrap();
+        if !chain_id_regex.is_match(&chain_id) || !account_address_regex.is_match(account_address) {
+            return Err(DeserializationError::InvalidAccountId);
+        }
+        Ok(AccountId {
+            chain_id: chain_id.to_string(),
+            account_address: account_address.to_string(),
+        })
+    }
+}
+
+impl TryFrom<&str> for AccountId {
+    type Error = DeserializationError;
+
+    fn try_from(s: &str) -> Result<Self, Self::Error> {
+        s.to_string().try_into()
+    }
+}
+
+impl From<AccountId> for String {
+    fn from(account_id: AccountId) -> Self {
+        format!("{}:{}", account_id.chain_id, account_id.account_address)
     }
 }
 
@@ -330,8 +437,7 @@ mod tests {
             rand_u64(),
         );
 
-        let serialized_update =
-            to_identity_update_proto(&identity_update).expect("serialization should succeed");
+        let serialized_update = to_identity_update_proto(&identity_update);
 
         assert_eq!(
             serialized_update.client_timestamp_ns,
@@ -342,9 +448,110 @@ mod tests {
         let deserialized_update = from_identity_update_proto(serialized_update.clone())
             .expect("deserialization should succeed");
 
-        let reserialized =
-            to_identity_update_proto(&deserialized_update).expect("serialization should succeed");
+        let reserialized = to_identity_update_proto(&deserialized_update);
 
         assert_eq!(serialized_update, reserialized);
+    }
+
+    #[test]
+    fn test_accound_id() {
+        // valid evm chain
+        let text = "eip155:1:0xab16a96D359eC26a11e2C2b3d8f8B8942d5Bfcdb".to_string();
+        let account_id: AccountId = text.clone().try_into().unwrap();
+        assert_eq!(account_id.chain_id, "eip155:1");
+        assert_eq!(
+            account_id.account_address,
+            "0xab16a96D359eC26a11e2C2b3d8f8B8942d5Bfcdb"
+        );
+        assert!(account_id.is_evm_chain());
+        let proto: String = account_id.into();
+        assert_eq!(text, proto);
+
+        // valid Bitcoin mainnet
+        let text = "bip122:000000000019d6689c085ae165831e93:128Lkh3S7CkDTBZ8W7BbpsN3YYizJMp8p6";
+        let account_id: AccountId = text.try_into().unwrap();
+        assert_eq!(
+            account_id.chain_id,
+            "bip122:000000000019d6689c085ae165831e93"
+        );
+        assert_eq!(
+            account_id.account_address,
+            "128Lkh3S7CkDTBZ8W7BbpsN3YYizJMp8p6"
+        );
+        assert!(!account_id.is_evm_chain());
+        let proto: String = account_id.into();
+        assert_eq!(text, proto);
+
+        // valid Cosmos Hub
+        let text = "cosmos:cosmoshub-3:cosmos1t2uflqwqe0fsj0shcfkrvpukewcw40yjj6hdc0";
+        let account_id: AccountId = text.try_into().unwrap();
+        assert_eq!(account_id.chain_id, "cosmos:cosmoshub-3");
+        assert_eq!(
+            account_id.account_address,
+            "cosmos1t2uflqwqe0fsj0shcfkrvpukewcw40yjj6hdc0"
+        );
+        assert!(!account_id.is_evm_chain());
+        let proto: String = account_id.into();
+        assert_eq!(text, proto);
+
+        // valid Kusama network
+        let text = "polkadot:b0a8d493285c2df73290dfb7e61f870f:5hmuyxw9xdgbpptgypokw4thfyoe3ryenebr381z9iaegmfy";
+        let account_id: AccountId = text.try_into().unwrap();
+        assert_eq!(
+            account_id.chain_id,
+            "polkadot:b0a8d493285c2df73290dfb7e61f870f"
+        );
+        assert_eq!(
+            account_id.account_address,
+            "5hmuyxw9xdgbpptgypokw4thfyoe3ryenebr381z9iaegmfy"
+        );
+        assert!(!account_id.is_evm_chain());
+        let proto: String = account_id.into();
+        assert_eq!(text, proto);
+
+        // valid StarkNet Testnet
+        let text =
+            "starknet:SN_GOERLI:0x02dd1b492765c064eac4039e3841aa5f382773b598097a40073bd8b48170ab57";
+        let account_id: AccountId = text.try_into().unwrap();
+        assert_eq!(account_id.chain_id, "starknet:SN_GOERLI");
+        assert_eq!(
+            account_id.account_address,
+            "0x02dd1b492765c064eac4039e3841aa5f382773b598097a40073bd8b48170ab57"
+        );
+        assert!(!account_id.is_evm_chain());
+        let proto: String = account_id.into();
+        assert_eq!(text, proto);
+
+        // dummy max length (64+1+8+1+32 = 106 chars/bytes)
+        let text = "chainstd:8c3444cf8970a9e41a706fab93e7a6c4:6d9b0b4b9994e8a6afbd3dc3ed983cd51c755afb27cd1dc7825ef59c134a39f7";
+        let account_id: AccountId = text.try_into().unwrap();
+        assert_eq!(
+            account_id.chain_id,
+            "chainstd:8c3444cf8970a9e41a706fab93e7a6c4"
+        );
+        assert_eq!(
+            account_id.account_address,
+            "6d9b0b4b9994e8a6afbd3dc3ed983cd51c755afb27cd1dc7825ef59c134a39f7"
+        );
+        assert!(!account_id.is_evm_chain());
+        let proto: String = account_id.into();
+        assert_eq!(text, proto);
+
+        // Hedera address (with optional checksum suffix per [HIP-15][])
+        let text = "hedera:mainnet:0.0.1234567890-zbhlt";
+        let account_id: AccountId = text.try_into().unwrap();
+        assert_eq!(account_id.chain_id, "hedera:mainnet");
+        assert_eq!(account_id.account_address, "0.0.1234567890-zbhlt");
+        assert!(!account_id.is_evm_chain());
+        let proto: String = account_id.into();
+        assert_eq!(text, proto);
+
+        // invalid
+        let text = "eip/155:1:0xab16a96D359eC26a11e2C2b3d8f8B8942d5Bfcd";
+        let result: Result<AccountId, DeserializationError> = text.try_into();
+        assert!(matches!(
+            result,
+            Err(DeserializationError::InvalidAccountId)
+        ));
     }
 }

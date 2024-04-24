@@ -11,6 +11,11 @@ use openmls_traits::OpenMlsProvider;
 use prost::EncodeError;
 use thiserror::Error;
 
+use xmtp_cryptography::signature::{sanitize_evm_addresses, AddressValidationError};
+use xmtp_id::associations::AssociationError;
+#[cfg(feature = "xmtp-id")]
+use xmtp_id::InboxId;
+
 use xmtp_proto::{
     api_client::{XmtpIdentityClient, XmtpMlsClient},
     xmtp::mls::api::v1::{
@@ -25,7 +30,7 @@ use crate::{
         validated_commit::CommitValidationError, AddressesOrInstallationIds, IntentError, MlsGroup,
         PreconfiguredPolicies,
     },
-    identity::Identity,
+    identity::v3::Identity,
     storage::{
         db_connection::DbConnection,
         group::{GroupMembershipState, StoredGroup},
@@ -33,7 +38,6 @@ use crate::{
         EncryptedMessageStore, StorageError,
     },
     types::Address,
-    utils::address::sanitize_evm_addresses,
     verified_key_package::{KeyPackageVerificationError, VerifiedKeyPackage},
     xmtp_openmls_provider::XmtpOpenMlsProvider,
     Fetch,
@@ -50,8 +54,8 @@ pub enum Network {
 
 #[derive(Debug, Error)]
 pub enum ClientError {
-    #[error("Address validation: {0}")]
-    AddressValidation(#[from] crate::utils::address::AddressValidationError),
+    #[error(transparent)]
+    AddressValidation(#[from] AddressValidationError),
     #[error("could not publish: {0}")]
     PublishError(String),
     #[error("storage error: {0}")]
@@ -60,8 +64,10 @@ pub enum ClientError {
     Diesel(#[from] diesel::result::Error),
     #[error("Query failed: {0}")]
     QueryError(#[from] xmtp_proto::api_client::Error),
+    #[error("API error: {0}")]
+    Api(#[from] crate::api::WrappedApiError),
     #[error("identity error: {0}")]
-    Identity(#[from] crate::identity::IdentityError),
+    Identity(#[from] crate::identity::v3::IdentityError),
     #[error("TLS Codec error: {0}")]
     TlsError(#[from] TlsCodecError),
     #[error("key package verification: {0}")]
@@ -70,6 +76,8 @@ pub enum ClientError {
     SyncingError(Vec<MessageProcessingError>),
     #[error("Stream inconsistency error: {0}")]
     StreamInconsistency(String),
+    #[error("Association error: {0}")]
+    Association(#[from] AssociationError),
     #[error("generic:{0}")]
     Generic(String),
 }
@@ -212,9 +220,20 @@ where
             permissions,
             self.account_address(),
         )
-        .map_err(|e| ClientError::Generic(format!("group create error {}", e)))?;
+        .map_err(|e| {
+            ClientError::Storage(StorageError::Store(format!("group create error {}", e)))
+        })?;
 
         Ok(group)
+    }
+
+    pub fn create_sync_group(&self) -> Result<MlsGroup<ApiClient>, ClientError> {
+        log::info!("creating sync group");
+        let sync_group = MlsGroup::create_and_insert_sync_group(self).map_err(|e| {
+            ClientError::Storage(StorageError::Store(format!("group create error {}", e)))
+        })?;
+
+        Ok(sync_group)
     }
 
     /// Look up a group by its ID
@@ -224,7 +243,7 @@ where
         let stored_group: Option<StoredGroup> = conn.fetch(&group_id)?;
         match stored_group {
             Some(group) => Ok(MlsGroup::new(self, group.id, group.created_at_ns)),
-            None => Err(ClientError::Generic("group not found".to_string())),
+            None => Err(ClientError::Storage(StorageError::NotFound)),
         }
     }
 
@@ -268,6 +287,15 @@ where
             .register(&provider, &self.api_client, recoverable_wallet_signature)
             .await?;
         Ok(())
+    }
+
+    #[cfg(feature = "xmtp-id")]
+    /// Register an XIP-46 InboxID with the network
+    /// Requires [`IdentityUpdate`]. This can be built from a [`SignatureRequest`]
+    /// externally and passed back in.
+    pub async fn register_inbox_id(&self, _update: IdentityUpdate) -> InboxId {
+        // register the IdentityUpdate with the server
+        todo!()
     }
 
     /// Upload a new key package to the network replacing an existing key package

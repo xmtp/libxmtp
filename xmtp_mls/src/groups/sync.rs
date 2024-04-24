@@ -31,6 +31,7 @@ use xmtp_proto::{
 };
 
 use super::{
+    build_mutable_metadata_extensions,
     intents::{
         AddMembersIntentData, AddressesOrInstallationIds, Installation, PostCommitAction,
         RemoveMembersIntentData, SendMessageIntentData, SendWelcomesAction,
@@ -44,9 +45,9 @@ use crate::{
     client::MessageProcessingError,
     codecs::{membership_change::GroupMembershipChangeCodec, ContentCodec},
     configuration::{MAX_INTENT_PUBLISH_ATTEMPTS, UPDATE_INSTALLATIONS_INTERVAL_NS},
-    groups::validated_commit::ValidatedCommit,
+    groups::{intents::UpdateMetadataIntentData, validated_commit::ValidatedCommit},
     hpke::{encrypt_welcome, HpkeError},
-    identity::Identity,
+    identity::v3::Identity,
     retry,
     retry::Retry,
     retry_async,
@@ -174,7 +175,10 @@ where
 
         let conn = provider.conn();
         match intent.kind {
-            IntentKind::AddMembers | IntentKind::RemoveMembers | IntentKind::KeyUpdate => {
+            IntentKind::AddMembers
+            | IntentKind::RemoveMembers
+            | IntentKind::KeyUpdate
+            | IntentKind::MetadataUpdate => {
                 if !allow_epoch_increment {
                     return Err(MessageProcessingError::EpochIncrementNotAllowed);
                 }
@@ -251,7 +255,6 @@ where
                     None => return Err(MessageProcessingError::InvalidPayload),
                 };
             }
-            IntentKind::MetadataUpdate => todo!(),
         };
 
         conn.set_group_intent_committed(intent.id)?;
@@ -669,7 +672,28 @@ where
 
                 Ok((commit.tls_serialize_detached()?, None))
             }
-            IntentKind::MetadataUpdate => todo!(),
+            IntentKind::MetadataUpdate => {
+                let metadata_intent = UpdateMetadataIntentData::try_from(intent.data.clone())?;
+                let mutable_metadata_extensions = build_mutable_metadata_extensions(
+                    openmls_group,
+                    metadata_intent.field_name,
+                    metadata_intent.field_value,
+                )?;
+
+                let (commit, _, _) = openmls_group.update_group_context_extensions(
+                    provider,
+                    mutable_metadata_extensions,
+                    &self.client.identity.installation_keys,
+                )?;
+
+                if let Some(staged_commit) = openmls_group.pending_commit() {
+                    // Validate the commit, even if it's from yourself
+                    ValidatedCommit::from_staged_commit(staged_commit, openmls_group)?;
+                }
+                let commit_bytes = commit.tls_serialize_detached()?;
+
+                Ok((commit_bytes, None))
+            }
         }
     }
 
