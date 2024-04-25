@@ -447,7 +447,7 @@ public actor Conversations {
 		return Group(ffiGroup: group, client: client)
 	}
 
-    public func newConversation(with peerAddress: String, context: InvitationV1.Context? = nil, consentProofPayload: ConsentProofPayload? = nil) async throws -> Conversation {
+	public func newConversation(with peerAddress: String, context: InvitationV1.Context? = nil) async throws -> Conversation {
 		if peerAddress.lowercased() == client.address.lowercased() {
 			throw ConversationError.recipientIsSender
 		}
@@ -470,8 +470,7 @@ public actor Conversations {
 		let invitation = try InvitationV1.createDeterministic(
 			sender: client.keys,
 			recipient: recipient,
-			context: context,
-            consentProofPayload: consentProofPayload
+			context: context
 		)
 		let sealedInvitation = try await sendInvitation(recipient: recipient, invitation: invitation, created: Date())
 		let conversationV2 = try ConversationV2.create(client: client, invitation: invitation, header: sealedInvitation.v1.header)
@@ -540,53 +539,10 @@ public actor Conversations {
 
 	private func makeConversation(from sealedInvitation: SealedInvitation) throws -> ConversationV2 {
 		let unsealed = try sealedInvitation.v1.getInvitation(viewer: client.keys)
-        
-        let conversation = try ConversationV2.create(client: client, invitation: unsealed, header: sealedInvitation.v1.header)
+		let conversation = try ConversationV2.create(client: client, invitation: unsealed, header: sealedInvitation.v1.header)
 
 		return conversation
 	}
-    
-    private func validateConsentSignature(signature: String, clientAddress: String, peerAddress: String, timestamp: UInt64) -> Bool {
-        let message = Signature.consentProofText(peerAddress: peerAddress, timestamp: timestamp)
-
-        guard let signatureData = Data(hex: signature) else {
-            print("Invalid signature format")
-            return false
-        }
-        var sig = Signature()
-        do {
-            sig = try Signature(serializedData: signatureData)
-        } catch {
-            print("Invalid signature format: \(error)")
-            return false
-        }
-        // Convert the message to Data
-        guard let messageData = message.data(using: .utf8) else {
-            print("Invalid message format")
-            return false
-        }
-        do {
-            let recoveredKey = try KeyUtilx.recoverPublicKeyKeccak256(from: sig.rawData, message: messageData)
-            let address = KeyUtilx.generateAddress(from: recoveredKey).toChecksumAddress()
-
-            return clientAddress == address
-        } catch {
-            return false
-        }
-    }
-    
-    private func handleConsentProof(consentProof: ConsentProofPayload, peerAddress: String) async throws {
-        let signature = consentProof.signature
-
-        if (!validateConsentSignature(signature: signature, clientAddress: client.address, peerAddress: peerAddress, timestamp: consentProof.timestamp)) {
-            return
-        }
-        let contacts = client.contacts
-        _ = try await contacts.refreshConsentList()
-        if await (contacts.consentList.state(address: peerAddress) == .unknown) {
-            try await contacts.allow(addresses: [peerAddress])
-        }
-    }
 
 	public func list(includeGroups: Bool = false) async throws -> [Conversation] {
 		if (includeGroups) {
@@ -621,14 +577,9 @@ public actor Conversations {
 
 		for sealedInvitation in try await listInvitations(pagination: pagination) {
 			do {
-                let newConversation = Conversation.v2(try makeConversation(from: sealedInvitation))
-				newConversations.append(
-                    newConversation
+				try newConversations.append(
+					Conversation.v2(makeConversation(from: sealedInvitation))
 				)
-                if let consentProof = newConversation.consentProof {
-                    try await self.handleConsentProof(consentProof: consentProof, peerAddress: newConversation.peerAddress)
-                
-                }
 			} catch {
 				print("Error loading invitations: \(error)")
 			}

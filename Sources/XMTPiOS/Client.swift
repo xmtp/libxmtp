@@ -356,15 +356,6 @@ public final class Client {
 			throw ConversationImportError.invalidData
 		}
 
-        var consentProof: ConsentProofPayload? = nil
-        if let exportConsentProof = export.consentProof {
-            var proof = ConsentProofPayload()
-            proof.signature = exportConsentProof.signature
-            proof.timestamp = exportConsentProof.timestamp
-            proof.payloadVersion = ConsentProofPayloadVersion.consentProofPayloadVersion1
-            consentProof = proof
-        }
-
 		return .v2(ConversationV2(
 			topic: export.topic,
 			keyMaterial: keyMaterial,
@@ -374,8 +365,7 @@ public final class Client {
 			),
 			peerAddress: export.peerAddress,
 			client: self,
-			header: SealedInvitationHeaderV1(),
-            consentProof: consentProof
+			header: SealedInvitationHeaderV1()
 		))
 	}
 

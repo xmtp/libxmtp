@@ -62,17 +62,6 @@ extension Signature {
 				"For more info: https://xmtp.org/signatures/"
 		)
 	}
-    
-    static func consentProofText(peerAddress: String, timestamp: UInt64) -> String {
-        return (
-            "XMTP : Grant inbox consent to sender\n" +
-            "\n" +
-            "Current Time: \(timestamp)\n" +
-            "From Address: \(peerAddress)\n" +
-            "\n" +
-            "For more info: https://xmtp.org/signatures/"
-        )
-    }
 
 	public init(bytes: Data, recovery: Int) {
 		self.init()

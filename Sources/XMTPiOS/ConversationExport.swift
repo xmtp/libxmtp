@@ -23,15 +23,9 @@ struct ConversationV2Export: Codable {
 	var peerAddress: String
 	var createdAt: String
 	var context: ConversationV2ContextExport?
-    var consentProof: ConsentProofPayloadExport?
 }
 
 struct ConversationV2ContextExport: Codable {
 	var conversationId: String
 	var metadata: [String: String]
-}
-
-struct ConsentProofPayloadExport: Codable {
-    var signature: String
-    var timestamp: UInt64
 }
