@@ -1168,6 +1168,9 @@ impl serde::Serialize for ConversationReference {
         if self.context.is_some() {
             len += 1;
         }
+        if self.consent_proof_payload.is_some() {
+            len += 1;
+        }
         let mut struct_ser = serializer.serialize_struct("xmtp.message_contents.ConversationReference", len)?;
         if !self.topic.is_empty() {
             struct_ser.serialize_field("topic", &self.topic)?;
@@ -1181,6 +1184,9 @@ impl serde::Serialize for ConversationReference {
         }
         if let Some(v) = self.context.as_ref() {
             struct_ser.serialize_field("context", v)?;
+        }
+        if let Some(v) = self.consent_proof_payload.as_ref() {
+            struct_ser.serialize_field("consentProofPayload", v)?;
         }
         struct_ser.end()
     }
@@ -1198,6 +1204,8 @@ impl<'de> serde::Deserialize<'de> for ConversationReference {
             "created_ns",
             "createdNs",
             "context",
+            "consent_proof_payload",
+            "consentProofPayload",
         ];
 
         #[allow(clippy::enum_variant_names)]
@@ -1206,6 +1214,7 @@ impl<'de> serde::Deserialize<'de> for ConversationReference {
             PeerAddress,
             CreatedNs,
             Context,
+            ConsentProofPayload,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
             fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
@@ -1231,6 +1240,7 @@ impl<'de> serde::Deserialize<'de> for ConversationReference {
                             "peerAddress" | "peer_address" => Ok(GeneratedField::PeerAddress),
                             "createdNs" | "created_ns" => Ok(GeneratedField::CreatedNs),
                             "context" => Ok(GeneratedField::Context),
+                            "consentProofPayload" | "consent_proof_payload" => Ok(GeneratedField::ConsentProofPayload),
                             _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
                         }
                     }
@@ -1254,6 +1264,7 @@ impl<'de> serde::Deserialize<'de> for ConversationReference {
                 let mut peer_address__ = None;
                 let mut created_ns__ = None;
                 let mut context__ = None;
+                let mut consent_proof_payload__ = None;
                 while let Some(k) = map_.next_key()? {
                     match k {
                         GeneratedField::Topic => {
@@ -1282,6 +1293,12 @@ impl<'de> serde::Deserialize<'de> for ConversationReference {
                             }
                             context__ = map_.next_value()?;
                         }
+                        GeneratedField::ConsentProofPayload => {
+                            if consent_proof_payload__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("consentProofPayload"));
+                            }
+                            consent_proof_payload__ = map_.next_value()?;
+                        }
                     }
                 }
                 Ok(ConversationReference {
@@ -1289,6 +1306,7 @@ impl<'de> serde::Deserialize<'de> for ConversationReference {
                     peer_address: peer_address__.unwrap_or_default(),
                     created_ns: created_ns__.unwrap_or_default(),
                     context: context__,
+                    consent_proof_payload: consent_proof_payload__,
                 })
             }
         }

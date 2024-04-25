@@ -12,7 +12,7 @@ use prost::EncodeError;
 use thiserror::Error;
 
 use xmtp_cryptography::signature::{sanitize_evm_addresses, AddressValidationError};
-use xmtp_id::associations::AssociationError;
+use xmtp_id::associations::{builder::SignatureRequestError, AssociationError};
 #[cfg(feature = "xmtp-id")]
 use xmtp_id::InboxId;
 
@@ -31,6 +31,7 @@ use crate::{
         PreconfiguredPolicies,
     },
     identity::v3::Identity,
+    identity_updates::IdentityUpdateError,
     storage::{
         db_connection::DbConnection,
         group::{GroupMembershipState, StoredGroup},
@@ -78,6 +79,10 @@ pub enum ClientError {
     StreamInconsistency(String),
     #[error("Association error: {0}")]
     Association(#[from] AssociationError),
+    #[error(transparent)]
+    IdentityUpdate(#[from] IdentityUpdateError),
+    #[error(transparent)]
+    SignatureRequest(#[from] SignatureRequestError),
     #[error("generic:{0}")]
     Generic(String),
 }

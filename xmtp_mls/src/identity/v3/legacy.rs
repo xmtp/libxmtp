@@ -18,8 +18,10 @@ use openmls::{
 use openmls_basic_credential::SignatureKeyPair;
 use openmls_traits::{types::CryptoError, OpenMlsProvider};
 use prost::Message;
+use sha2::{Digest, Sha512};
 use thiserror::Error;
 use xmtp_cryptography::signature::SignatureError;
+use xmtp_id::constants::INSTALLATION_KEY_SIGNATURE_CONTEXT;
 use xmtp_proto::{
     api_client::{XmtpIdentityClient, XmtpMlsClient},
     xmtp::mls::message_contents::MlsCredential as CredentialProto,
@@ -64,6 +66,8 @@ pub enum IdentityError {
     OpenMlsCredentialError(#[from] CredentialError),
     #[error("Basic Credential error: {0}")]
     BasicCredential(#[from] BasicCredentialError),
+    #[error(transparent)]
+    Signature(#[from] ed25519_dalek::SignatureError),
 }
 
 #[derive(Debug)]
@@ -279,6 +283,15 @@ impl Identity {
             }
         }
         Ok(false)
+    }
+
+    pub(crate) fn sign<Text: AsRef<str>>(&self, text: Text) -> Result<Vec<u8>, IdentityError> {
+        let mut prehashed = Sha512::new();
+        prehashed.update(text.as_ref());
+        let k = ed25519_dalek::SigningKey::try_from(self.installation_keys.private())
+            .expect("signing key is invalid");
+        let signature = k.sign_prehashed(prehashed, Some(INSTALLATION_KEY_SIGNATURE_CONTEXT))?;
+        Ok(signature.to_vec())
     }
 }
 

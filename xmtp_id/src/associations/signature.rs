@@ -1,5 +1,7 @@
 use std::array::TryFromSliceError;
 
+use crate::constants::INSTALLATION_KEY_SIGNATURE_CONTEXT;
+
 use super::MemberIdentifier;
 use async_trait::async_trait;
 use ed25519_dalek::{Signature as Ed25519Signature, VerifyingKey};
@@ -237,7 +239,11 @@ impl Signature for InstallationKeySignature {
             VerifyingKey::from_bytes(&self.verifying_key.as_slice().try_into()?)?;
         let mut prehashed: Sha512 = Sha512::new();
         prehashed.update(self.signature_text.clone());
-        verifying_key.verify_prehashed(prehashed, None, &signature)?;
+        verifying_key.verify_prehashed(
+            prehashed,
+            Some(INSTALLATION_KEY_SIGNATURE_CONTEXT),
+            &signature,
+        )?;
         Ok(MemberIdentifier::Installation(self.verifying_key.clone()))
     }
 
@@ -473,7 +479,9 @@ pub mod tests {
         let signature_text = unsigned_action.signature_text();
         let mut prehashed: Sha512 = Sha512::new();
         prehashed.update(signature_text.clone());
-        let sig = signing_key.sign_prehashed(prehashed, None).unwrap();
+        let sig = signing_key
+            .sign_prehashed(prehashed, Some(INSTALLATION_KEY_SIGNATURE_CONTEXT))
+            .unwrap();
         let installation_key_sig = InstallationKeySignature::new(
             signature_text.clone(),
             sig.to_vec(),

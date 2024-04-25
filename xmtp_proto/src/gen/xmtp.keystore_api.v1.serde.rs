@@ -111,6 +111,9 @@ impl serde::Serialize for CreateInviteRequest {
         if self.created_ns != 0 {
             len += 1;
         }
+        if self.consent_proof.is_some() {
+            len += 1;
+        }
         let mut struct_ser = serializer.serialize_struct("xmtp.keystore_api.v1.CreateInviteRequest", len)?;
         if let Some(v) = self.context.as_ref() {
             struct_ser.serialize_field("context", v)?;
@@ -121,6 +124,9 @@ impl serde::Serialize for CreateInviteRequest {
         if self.created_ns != 0 {
             #[allow(clippy::needless_borrow)]
             struct_ser.serialize_field("createdNs", ToString::to_string(&self.created_ns).as_str())?;
+        }
+        if let Some(v) = self.consent_proof.as_ref() {
+            struct_ser.serialize_field("consentProof", v)?;
         }
         struct_ser.end()
     }
@@ -136,6 +142,8 @@ impl<'de> serde::Deserialize<'de> for CreateInviteRequest {
             "recipient",
             "created_ns",
             "createdNs",
+            "consent_proof",
+            "consentProof",
         ];
 
         #[allow(clippy::enum_variant_names)]
@@ -143,6 +151,7 @@ impl<'de> serde::Deserialize<'de> for CreateInviteRequest {
             Context,
             Recipient,
             CreatedNs,
+            ConsentProof,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
             fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
@@ -167,6 +176,7 @@ impl<'de> serde::Deserialize<'de> for CreateInviteRequest {
                             "context" => Ok(GeneratedField::Context),
                             "recipient" => Ok(GeneratedField::Recipient),
                             "createdNs" | "created_ns" => Ok(GeneratedField::CreatedNs),
+                            "consentProof" | "consent_proof" => Ok(GeneratedField::ConsentProof),
                             _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
                         }
                     }
@@ -189,6 +199,7 @@ impl<'de> serde::Deserialize<'de> for CreateInviteRequest {
                 let mut context__ = None;
                 let mut recipient__ = None;
                 let mut created_ns__ = None;
+                let mut consent_proof__ = None;
                 while let Some(k) = map_.next_key()? {
                     match k {
                         GeneratedField::Context => {
@@ -211,12 +222,19 @@ impl<'de> serde::Deserialize<'de> for CreateInviteRequest {
                                 Some(map_.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
                             ;
                         }
+                        GeneratedField::ConsentProof => {
+                            if consent_proof__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("consentProof"));
+                            }
+                            consent_proof__ = map_.next_value()?;
+                        }
                     }
                 }
                 Ok(CreateInviteRequest {
                     context: context__,
                     recipient: recipient__,
                     created_ns: created_ns__.unwrap_or_default(),
+                    consent_proof: consent_proof__,
                 })
             }
         }
