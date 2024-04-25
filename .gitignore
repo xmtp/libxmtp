@@ -137,6 +137,7 @@ dist
 
 # Sqlite Instances
 *.db3
+*.wallet.pk
 
 # JAR files
 *.jar

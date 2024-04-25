@@ -212,6 +212,10 @@ where
         XmtpOpenMlsProvider::<'a>::new(conn)
     }
 
+    pub fn conn(&self) -> Result<DbConnection<'_>, ClientError> {
+        Ok(self.store.conn()?)
+    }
+
     /// Create a new group with the default settings
     pub fn create_group(
         &self,

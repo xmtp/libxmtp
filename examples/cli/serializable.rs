@@ -1,5 +1,6 @@
 use prost::Message;
-use serde::Serialize;
+use serde::{Serialize, Serializer};
+use xmtp_id::associations::Member;
 use xmtp_mls::{
     codecs::{text::TextCodec, ContentCodec},
     groups::MlsGroup,
@@ -78,4 +79,28 @@ pub fn maybe_get_text(msg: &StoredGroupMessage) -> Option<String> {
         return None;
     };
     Some(decoded)
+}
+
+#[derive(Debug, Clone)]
+pub struct SerializableInboxMember {
+    kind: String,
+    identifier: String,
+}
+
+impl Serialize for SerializableInboxMember {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        serializer.serialize_str(format!("{}: {}", self.kind, self.identifier).as_str())
+    }
+}
+
+impl From<&Member> for SerializableInboxMember {
+    fn from(member: &Member) -> Self {
+        Self {
+            kind: member.kind().to_string(),
+            identifier: member.identifier.to_string(),
+        }
+    }
 }

@@ -193,6 +193,18 @@ where
 
         Ok(())
     }
+
+    pub async fn get_inbox_id(
+        &self,
+        wallet_address: String,
+    ) -> Result<Option<String>, ClientError> {
+        let inbox_map = self
+            .api_client
+            .get_inbox_ids(vec![wallet_address.clone()])
+            .await?;
+
+        Ok(inbox_map.get(&wallet_address).cloned().unwrap_or(None))
+    }
 }
 
 #[cfg(test)]

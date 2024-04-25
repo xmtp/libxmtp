@@ -18,7 +18,7 @@ use prost::Message;
 
 use crate::{
     json_logger::make_value,
-    serializable::{SerializableGroup, SerializableMessage},
+    serializable::{SerializableGroup, SerializableInboxMember, SerializableMessage},
 };
 use serializable::maybe_get_text;
 use thiserror::Error;
@@ -27,6 +27,7 @@ use xmtp_cryptography::{
     signature::{RecoverableSignature, SignatureError},
     utils::rng,
 };
+use xmtp_id::associations::{builder::SignatureRequest, RecoverableEcdsaSignature};
 use xmtp_mls::{
     builder::ClientBuilderError,
     client::ClientError,
@@ -57,6 +58,12 @@ struct Cli {
     local: bool,
     #[clap(long, default_value_t = false)]
     json: bool,
+}
+
+impl Cli {
+    fn wallet_path(&self) -> PathBuf {
+        get_wallet_path(self)
+    }
 }
 
 #[derive(ValueEnum, Debug, Copy, Clone)]
@@ -104,6 +111,22 @@ enum Commands {
         group_id: String,
         #[clap(short, long, value_parser, num_args = 1.., value_delimiter = ' ')]
         account_addresses: Vec<String>,
+    },
+    GetInboxId {
+        #[clap(long)]
+        wallet_address: String,
+    },
+    GetInboxState {
+        #[clap(long)]
+        inbox_id: String,
+    },
+    AddWalletToInbox {
+        #[clap(long)]
+        wallet_path: String,
+    },
+    RevokeWallet {
+        #[clap(long)]
+        wallet_address: String,
     },
     /// Information about the account that owns the DB
     Info {},
@@ -329,6 +352,105 @@ async fn main() {
             let serializable: SerializableGroup = group.into();
             info!("Group {}", group_id, { command_output: true, group_id: group_id, group_info: make_value(&serializable) })
         }
+        Commands::GetInboxId { wallet_address } => {
+            let client = create_client(&cli, IdentityStrategy::CachedOnly)
+                .await
+                .unwrap();
+
+            let inbox_id = client
+                .get_inbox_id(wallet_address.clone())
+                .await
+                .unwrap()
+                .unwrap_or("None".to_string());
+
+            info!("Inbox ID {}", inbox_id, { command_output: true, inbox_id: inbox_id });
+        }
+        Commands::GetInboxState { inbox_id } => {
+            let client = create_client(&cli, IdentityStrategy::CachedOnly)
+                .await
+                .unwrap();
+            let conn = client.conn().expect("failed to get conn");
+            client
+                .load_identity_updates(&conn, vec![inbox_id.clone()])
+                .await
+                .unwrap();
+
+            let association_state = client
+                .get_association_state(&conn, &inbox_id, None)
+                .await
+                .unwrap();
+
+            let member_list = association_state
+                .members()
+                .iter()
+                .map(|m| m.into())
+                .collect::<Vec<SerializableInboxMember>>();
+
+            info!("Inbox state {}", inbox_id, { command_output: true, inbox_id: inbox_id, members: make_value(&member_list) })
+        }
+        Commands::AddWalletToInbox { wallet_path } => {
+            let client = create_client(&cli, IdentityStrategy::CachedOnly)
+                .await
+                .unwrap();
+            let my_inbox_id = client
+                .get_inbox_id(client.account_address())
+                .await
+                .unwrap()
+                .unwrap();
+            let other_wallet = load_wallet(PathBuf::from(wallet_path)).unwrap();
+            let other_wallet_address = other_wallet.get_address();
+            let mut signature_request = client
+                .associate_wallet(
+                    my_inbox_id.clone(),
+                    client.account_address(),
+                    other_wallet_address.clone(),
+                )
+                .unwrap();
+
+            sign_signature_request(&mut signature_request, &other_wallet)
+                .await
+                .unwrap();
+
+            sign_signature_request(
+                &mut signature_request,
+                &load_wallet(cli.wallet_path()).unwrap(),
+            )
+            .await
+            .unwrap();
+
+            client
+                .apply_signature_request(signature_request)
+                .await
+                .unwrap();
+
+            info!("Added wallet to inbox", { command_output: true, inbox_id: my_inbox_id, new_wallet_address: other_wallet_address });
+        }
+        Commands::RevokeWallet { wallet_address } => {
+            let client = create_client(&cli, IdentityStrategy::CachedOnly)
+                .await
+                .unwrap();
+            let my_inbox_id = client
+                .get_inbox_id(client.account_address())
+                .await
+                .unwrap()
+                .unwrap();
+            let mut signature_request = client
+                .revoke_wallet(my_inbox_id.clone(), wallet_address.clone())
+                .await
+                .unwrap();
+
+            let my_wallet = load_wallet(cli.wallet_path()).unwrap();
+
+            sign_signature_request(&mut signature_request, &my_wallet)
+                .await
+                .unwrap();
+            client
+                .apply_signature_request(signature_request)
+                .await
+                .unwrap();
+
+            info!("Revoked wallet", { command_output: true, wallet_address: wallet_address });
+        }
         Commands::Clear {} => {
             fs::remove_file(cli.db.unwrap()).unwrap();
         }
@@ -369,8 +491,21 @@ async fn register(cli: &Cli, maybe_seed_phrase: Option<String>) -> Result<(), Cl
                 .unwrap(),
         )
     } else {
-        Wallet::LocalWallet(LocalWallet::new(&mut rng()))
+        match load_wallet(cli.wallet_path()) {
+            Ok(w) => Wallet::LocalWallet(w),
+            Err(_) => Wallet::LocalWallet(LocalWallet::new(&mut rng())),
+        }
     };
+
+    let Wallet::LocalWallet(local_wallet) = &w;
+
+    let private_key = local_wallet.signer().to_bytes();
+    let private_key_path = get_wallet_path(cli);
+
+    std::fs::write(private_key_path, &private_key).expect("Failed to write private key to file");
+    info!("Private key saved to disk.");
+    // Ensure that the wallet can be loaded
+    load_wallet(cli.wallet_path()).unwrap();
 
     let client = create_client(
         cli,
@@ -383,7 +518,14 @@ async fn register(cli: &Cli, maybe_seed_phrase: Option<String>) -> Result<(), Cl
         error!("Initialization Failed: {}", e.to_string());
         panic!("Could not init");
     };
-    info!("Registered identity", {account_address: client.account_address(), installation_id: hex::encode(client.installation_public_key()), command_output: true});
+    let mut signature_request = client
+        .create_inbox(local_wallet.get_address(), None)
+        .await?;
+    let inbox_id = signature_request.inbox_id();
+    sign_signature_request(&mut signature_request, local_wallet).await?;
+    client.apply_signature_request(signature_request).await?;
+
+    info!("Registered identity", {account_address: client.account_address(), inbox_id: inbox_id, installation_id: hex::encode(client.installation_public_key()), command_output: true});
 
     Ok(())
 }
@@ -464,4 +606,35 @@ fn pretty_delta(now: u64, then: u64) -> String {
     let f = timeago::Formatter::new();
     let diff = if now > then { now - then } else { then - now };
     f.convert(Duration::from_nanos(diff))
+}
+
+fn load_wallet(private_key_path: PathBuf) -> Result<LocalWallet, CliError> {
+    let private_key = std::fs::read(private_key_path)
+        .map_err(|_| CliError::Generic("No wallet found".to_string()))?;
+    let wallet = LocalWallet::from_bytes(&private_key).unwrap();
+    Ok(wallet)
+}
+
+fn get_wallet_path(cli: &Cli) -> PathBuf {
+    let mut private_key_path = cli.db.clone().unwrap();
+    private_key_path.set_extension("wallet.pk");
+
+    private_key_path
+}
+
+async fn sign_signature_request(
+    signature_request: &mut SignatureRequest,
+    wallet: &LocalWallet,
+) -> Result<(), CliError> {
+    let signature = wallet
+        .sign(signature_request.signature_text().as_str())
+        .unwrap();
+    signature_request
+        .add_signature(Box::new(RecoverableEcdsaSignature::new(
+            signature_request.signature_text(),
+            signature.into(),
+        )))
+        .await
+        .expect("signing should succeed");
+    Ok(())
 }
