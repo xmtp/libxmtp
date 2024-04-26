@@ -44,7 +44,6 @@ pub enum AssociationError {
     MalformedAssociation,
 
     #[error(transparent)]
-    // TODO: remove this AssociationError and use [xmtp_id::associations::AssociationError]
     IDAssociationError(#[from] xmtp_id::associations::AssociationError),
     #[error(transparent)]
     SignatureError(#[from] xmtp_id::associations::SignatureError),

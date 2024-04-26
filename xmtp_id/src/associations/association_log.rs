@@ -121,7 +121,7 @@ impl IdentityAction for AddAssociation {
 
         // Validate the new member signature and get the recovered signer
         let new_member_address = self.new_member_signature.recover_signer().await?;
-        // Validate the existing member signature and get the recovedred signer
+        // Validate the existing member signature and get the recovered signer
         let existing_member_identifier = self.existing_member_signature.recover_signer().await?;
 
         if new_member_address.ne(&self.new_member_identifier) {
@@ -153,7 +153,7 @@ impl IdentityAction for AddAssociation {
         let existing_member = existing_state.get(&existing_member_identifier);
 
         let existing_entity_id = match existing_member {
-            // If there is an existing member of the XID, use that member's ID
+            // If there is an existing member of the Inbox ID, use that member's ID
             Some(member) => member.identifier,
             None => {
                 // Get the recovery address from the state as a MemberIdentifier

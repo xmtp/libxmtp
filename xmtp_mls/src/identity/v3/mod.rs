@@ -42,10 +42,10 @@ pub enum LegacyIdentity {
 
 /// Describes whether the v3 identity should be created
 /// If CreateIfNotFound is chosen, the wallet account address and legacy
-/// v2 identity should be specified, or set to LegacyIdentity::None if not applicable.
+/// v2 identity should be specified, or set to [LegacyIdentity::None] if not applicable.
 pub enum IdentityStrategy {
     /// Tries to get an identity from the disk store, if not found creates an identity.
-    /// If a `LegacyIdentity` is provided it will be converted to a `v3` identity.
+    /// If a [LegacyIdentity] is provided it will be converted to a `v3` identity.
     CreateIfNotFound(String, LegacyIdentity),
     /// Identity that is already in the disk store
     CachedOnly,

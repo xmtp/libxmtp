@@ -4,9 +4,15 @@ pub mod erc1271_verifier;
 pub mod utils;
 use ethers::signers::{LocalWallet, Signer};
 use futures::executor;
+use openmls::{
+    credentials::{errors::BasicCredentialError, BasicCredential},
+    prelude::Credential as OpenMlsCredential,
+};
 use openmls_traits::types::CryptoError;
+use std::sync::RwLock;
 use thiserror::Error;
 use xmtp_cryptography::signature::{h160addr_to_string, RecoverableSignature, SignatureError};
+use xmtp_proto::xmtp::identity::MlsCredential as MlsCredentialProto;
 
 #[derive(Debug, Error)]
 pub enum IdentityError {
@@ -16,6 +22,8 @@ pub enum IdentityError {
     UninitializedIdentity,
     #[error("protobuf deserialization: {0}")]
     Deserialization(#[from] prost::DecodeError),
+    #[error(transparent)]
+    BasicCredentialError(#[from] BasicCredentialError),
 }
 
 /// The global InboxID Type.
@@ -43,19 +51,50 @@ impl InboxOwner for LocalWallet {
     }
 }
 
+pub struct Credential {
+    pub(crate) inbox_id: String,
+}
+
+impl From<Credential> for MlsCredentialProto {
+    fn from(credential: Credential) -> Self {
+        MlsCredentialProto {
+            inbox_id: credential.inbox_id,
+        }
+    }
+}
+
+impl From<MlsCredentialProto> for Credential {
+    fn from(credential: MlsCredentialProto) -> Self {
+        Credential {
+            inbox_id: credential.inbox_id,
+        }
+    }
+}
+
 /// XMTP Identity according to [XIP-46](https://github.com/xmtp/XIPs/pull/53)
 pub struct Identity {
     #[allow(dead_code)]
-    id: String,
+    id: String, // inbox id
+    #[allow(dead_code)]
+    credential: RwLock<Option<OpenMlsCredential>>,
 }
 
 impl Identity {
     /// Generate a new, empty ID for an account address.
     /// A nonce is used to ensure uniqueness of the ID.
-    pub fn new(address: String) -> Self {
+    pub fn new(
+        address: String,
+        nonce: &u64,
+        credential: Credential,
+    ) -> Result<Self, IdentityError> {
         // TODO: how to nonce?
-        let id = associations::generate_inbox_id(&address, &0);
-        Self { id }
+        let id = associations::generate_inbox_id(&address, nonce);
+        let mls_credential: OpenMlsCredential =
+            BasicCredential::new(credential.inbox_id.into_bytes())?.into();
+        Ok(Self {
+            id,
+            credential: RwLock::new(Some(mls_credential)),
+        })
     }
 }
 

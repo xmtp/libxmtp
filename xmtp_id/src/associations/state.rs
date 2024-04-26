@@ -118,6 +118,7 @@ impl AssociationState {
         }
     }
 
+    /// Set the account_address as the recovery_address and the only member
     pub fn new(account_address: String, nonce: u64) -> Self {
         let inbox_id = generate_inbox_id(&account_address, &nonce);
         let identifier = MemberIdentifier::Address(account_address.clone());
