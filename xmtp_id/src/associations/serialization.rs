@@ -184,16 +184,18 @@ fn from_member_identifier_proto_option(
     match proto {
         None => Err(DeserializationError::MissingMemberIdentifier),
         Some(identifier_proto) => match identifier_proto.kind {
-            Some(identifier) => Ok(from_member_identifier_kind_proto(identifier)),
+            Some(identifier) => Ok(identifier.into()),
             None => Err(DeserializationError::MissingMemberIdentifier),
         },
     }
 }
 
-fn from_member_identifier_kind_proto(proto: MemberIdentifierKindProto) -> MemberIdentifier {
-    match proto {
-        MemberIdentifierKindProto::Address(address) => address.into(),
-        MemberIdentifierKindProto::InstallationPublicKey(public_key) => public_key.into(),
+impl From<MemberIdentifierKindProto> for MemberIdentifier {
+    fn from(proto: MemberIdentifierKindProto) -> Self {
+        match proto {
+            MemberIdentifierKindProto::Address(address) => address.into(),
+            MemberIdentifierKindProto::InstallationPublicKey(public_key) => public_key.into(),
+        }
     }
 }
 
@@ -250,125 +252,113 @@ fn from_signature_kind_proto(
     })
 }
 
-pub fn to_identity_update_proto(identity_update: &IdentityUpdate) -> IdentityUpdateProto {
-    let actions: Vec<IdentityActionProto> = identity_update
-        .actions
-        .iter()
-        .map(to_identity_action_proto)
-        .collect();
+impl From<&IdentityUpdate> for IdentityUpdateProto {
+    fn from(update: &IdentityUpdate) -> IdentityUpdateProto {
+        let actions: Vec<IdentityActionProto> = update.actions.iter().map(Into::into).collect();
 
-    IdentityUpdateProto {
-        client_timestamp_ns: identity_update.client_timestamp_ns,
-        inbox_id: identity_update.inbox_id.clone(),
-        actions,
+        IdentityUpdateProto {
+            client_timestamp_ns: update.client_timestamp_ns,
+            inbox_id: update.inbox_id.clone(),
+            actions,
+        }
     }
 }
 
-fn to_identity_action_proto(action: &Action) -> IdentityActionProto {
-    match action {
-        Action::AddAssociation(add_association) => IdentityActionProto {
-            kind: Some(IdentityActionKindProto::Add(AddAssociationProto {
-                new_member_identifier: Some(to_member_identifier_proto(
-                    add_association.new_member_identifier.clone(),
-                )),
-                new_member_signature: Some(add_association.new_member_signature.to_proto()),
-                existing_member_signature: Some(
-                    add_association.existing_member_signature.to_proto(),
-                ),
-            })),
-        },
-        Action::CreateInbox(create_inbox) => IdentityActionProto {
-            kind: Some(IdentityActionKindProto::CreateInbox(CreateInboxProto {
-                nonce: create_inbox.nonce,
-                initial_address: create_inbox.account_address.clone(),
-                initial_address_signature: Some(create_inbox.initial_address_signature.to_proto()),
-            })),
-        },
-        Action::RevokeAssociation(revoke_association) => IdentityActionProto {
-            kind: Some(IdentityActionKindProto::Revoke(RevokeAssociationProto {
-                member_to_revoke: Some(to_member_identifier_proto(
-                    revoke_association.revoked_member.clone(),
-                )),
-                recovery_address_signature: Some(
-                    revoke_association.recovery_address_signature.to_proto(),
-                ),
-            })),
-        },
-        Action::ChangeRecoveryAddress(change_recovery_address) => IdentityActionProto {
-            kind: Some(IdentityActionKindProto::ChangeRecoveryAddress(
-                ChangeRecoveryAddressProto {
-                    new_recovery_address: change_recovery_address.new_recovery_address.clone(),
-                    existing_recovery_address_signature: Some(
-                        change_recovery_address
-                            .recovery_address_signature
-                            .to_proto(),
+impl From<&Action> for IdentityActionProto {
+    fn from(action: &Action) -> IdentityActionProto {
+        match action {
+            Action::AddAssociation(add_association) => IdentityActionProto {
+                kind: Some(IdentityActionKindProto::Add(AddAssociationProto {
+                    new_member_identifier: Some(
+                        add_association.new_member_identifier.clone().into(),
                     ),
-                },
-            )),
-        },
+                    new_member_signature: Some(add_association.new_member_signature.to_proto()),
+                    existing_member_signature: Some(
+                        add_association.existing_member_signature.to_proto(),
+                    ),
+                })),
+            },
+            Action::CreateInbox(create_inbox) => IdentityActionProto {
+                kind: Some(IdentityActionKindProto::CreateInbox(CreateInboxProto {
+                    nonce: create_inbox.nonce,
+                    initial_address: create_inbox.account_address.clone(),
+                    initial_address_signature: Some(
+                        create_inbox.initial_address_signature.to_proto(),
+                    ),
+                })),
+            },
+            Action::RevokeAssociation(revoke_association) => IdentityActionProto {
+                kind: Some(IdentityActionKindProto::Revoke(RevokeAssociationProto {
+                    member_to_revoke: Some(revoke_association.revoked_member.clone().into()),
+                    recovery_address_signature: Some(
+                        revoke_association.recovery_address_signature.to_proto(),
+                    ),
+                })),
+            },
+            Action::ChangeRecoveryAddress(change_recovery_address) => IdentityActionProto {
+                kind: Some(IdentityActionKindProto::ChangeRecoveryAddress(
+                    ChangeRecoveryAddressProto {
+                        new_recovery_address: change_recovery_address.new_recovery_address.clone(),
+                        existing_recovery_address_signature: Some(
+                            change_recovery_address
+                                .recovery_address_signature
+                                .to_proto(),
+                        ),
+                    },
+                )),
+            },
+        }
     }
 }
 
-fn to_member_proto(member: Member) -> MemberProto {
-    MemberProto {
-        identifier: Some(to_member_identifier_proto(member.identifier)),
-        added_by_entity: member.added_by_entity.map(to_member_identifier_proto),
+impl From<Member> for MemberProto {
+    fn from(member: Member) -> MemberProto {
+        MemberProto {
+            identifier: Some(member.identifier.into()),
+            added_by_entity: member.added_by_entity.map(Into::into),
+        }
     }
 }
 
-fn to_member_identifier_proto(member_identifier: MemberIdentifier) -> MemberIdentifierProto {
-    match member_identifier {
-        MemberIdentifier::Address(address) => MemberIdentifierProto {
-            kind: Some(MemberIdentifierKindProto::Address(address)),
-        },
-        MemberIdentifier::Installation(public_key) => MemberIdentifierProto {
-            kind: Some(MemberIdentifierKindProto::InstallationPublicKey(public_key)),
-        },
-    }
-}
-
-fn to_association_state_proto(association_state: AssociationState) -> AssociationStateProto {
-    let members = association_state
-        .members
-        .into_iter()
-        .map(|(key, value)| MemberMapProto {
-            key: Some(to_member_identifier_proto(key)),
-            value: Some(to_member_proto(value)),
-        })
-        .collect();
-
-    AssociationStateProto {
-        inbox_id: association_state.inbox_id,
-        members,
-        recovery_address: association_state.recovery_address,
-        seen_signatures: association_state.seen_signatures.into_iter().collect(),
+impl From<MemberIdentifier> for MemberIdentifierProto {
+    fn from(member_identifier: MemberIdentifier) -> MemberIdentifierProto {
+        match member_identifier {
+            MemberIdentifier::Address(address) => MemberIdentifierProto {
+                kind: Some(MemberIdentifierKindProto::Address(address)),
+            },
+            MemberIdentifier::Installation(public_key) => MemberIdentifierProto {
+                kind: Some(MemberIdentifierKindProto::InstallationPublicKey(public_key)),
+            },
+        }
     }
 }
 
 impl From<AssociationState> for AssociationStateProto {
     fn from(state: AssociationState) -> AssociationStateProto {
-        to_association_state_proto(state)
-    }
-}
+        let members = state
+            .members
+            .into_iter()
+            .map(|(key, value)| MemberMapProto {
+                key: Some(key.into()),
+                value: Some(value.into()),
+            })
+            .collect();
 
-fn to_association_state_diff_proto(state_diff: AssociationStateDiff) -> AssociationStateDiffProto {
-    AssociationStateDiffProto {
-        new_members: state_diff
-            .new_members
-            .into_iter()
-            .map(to_member_identifier_proto)
-            .collect(),
-        removed_members: state_diff
-            .removed_members
-            .into_iter()
-            .map(to_member_identifier_proto)
-            .collect(),
+        AssociationStateProto {
+            inbox_id: state.inbox_id,
+            members,
+            recovery_address: state.recovery_address,
+            seen_signatures: state.seen_signatures.into_iter().collect(),
+        }
     }
 }
 
 impl From<AssociationStateDiff> for AssociationStateDiffProto {
     fn from(diff: AssociationStateDiff) -> AssociationStateDiffProto {
-        to_association_state_diff_proto(diff)
+        AssociationStateDiffProto {
+            new_members: diff.new_members.into_iter().map(Into::into).collect(),
+            removed_members: diff.removed_members.into_iter().map(Into::into).collect(),
+        }
     }
 }
 
@@ -518,7 +508,7 @@ mod tests {
             rand_u64(),
         );
 
-        let serialized_update = to_identity_update_proto(&identity_update);
+        let serialized_update = IdentityUpdate::from(identity_update);
 
         assert_eq!(
             serialized_update.client_timestamp_ns,
@@ -526,10 +516,10 @@ mod tests {
         );
         assert_eq!(serialized_update.actions.len(), 1);
 
-        let deserialized_update = from_identity_update_proto(serialized_update.clone())
-            .expect("deserialization should succeed");
+        let deserialized_update =
+            from_identity_update_proto(serialized_update).expect("deserialization should succeed");
 
-        let reserialized = to_identity_update_proto(&deserialized_update);
+        let reserialized = &deserialized_update.into();
 
         assert_eq!(serialized_update, reserialized);
     }

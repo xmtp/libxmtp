@@ -1,8 +1,6 @@
 use super::hashes::generate_inbox_id;
 use super::member::{Member, MemberIdentifier, MemberKind};
-use super::serialization::{
-    from_identity_update_proto, to_identity_update_proto, DeserializationError,
-};
+use super::serialization::{from_identity_update_proto, DeserializationError};
 use super::signature::{Signature, SignatureError, SignatureKind};
 use super::state::AssociationState;
 use async_trait::async_trait;
@@ -341,17 +339,11 @@ impl IdentityUpdate {
     }
 
     pub fn to_proto(&self) -> IdentityUpdateProto {
-        to_identity_update_proto(self)
+        IdentityUpdateProto::from(self)
     }
 
     pub fn from_proto(proto: IdentityUpdateProto) -> Result<Self, DeserializationError> {
         from_identity_update_proto(proto)
-    }
-}
-
-impl From<IdentityUpdate> for IdentityUpdateProto {
-    fn from(proto: IdentityUpdate) -> IdentityUpdateProto {
-        IdentityUpdate::to_proto(&proto)
     }
 }
 

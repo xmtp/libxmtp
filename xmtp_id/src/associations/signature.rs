@@ -370,8 +370,7 @@ impl ValidatedLegacySignedPublicKey {
 }
 
 #[cfg(test)]
-pub mod tests {
-
+mod tests {
     use super::*;
     use crate::{
         associations::{
@@ -384,8 +383,7 @@ pub mod tests {
     use ed25519_dalek::SigningKey;
     use ethers::prelude::*;
     use prost::Message;
-    use sha2::Digest;
-    use sha2::Sha512;
+    use sha2::{Digest, Sha512};
     use xmtp_proto::xmtp::message_contents::SignedPublicKey as LegacySignedPublicKeyProto;
 
     #[test]
