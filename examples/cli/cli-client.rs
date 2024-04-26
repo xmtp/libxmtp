@@ -28,10 +28,11 @@ use xmtp_cryptography::{
     utils::rng,
 };
 use xmtp_mls::{
-    builder::{ClientBuilderError, IdentityStrategy, LegacyIdentity},
+    builder::ClientBuilderError,
     client::ClientError,
     codecs::{text::TextCodec, ContentCodec},
     groups::MlsGroup,
+    identity::v3::{IdentityStrategy, LegacyIdentity},
     storage::{
         group_message::StoredGroupMessage, EncryptedMessageStore, EncryptionKey, StorageError,
         StorageOption,

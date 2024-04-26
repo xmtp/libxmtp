@@ -1,4 +1,4 @@
-use std::{collections::HashSet, mem::Discriminant};
+use std::{collections::HashMap, collections::HashSet, mem::Discriminant};
 
 use openmls::{
     credentials::errors::BasicCredentialError,
@@ -10,6 +10,11 @@ use openmls::{
 use openmls_traits::OpenMlsProvider;
 use prost::EncodeError;
 use thiserror::Error;
+
+use xmtp_cryptography::signature::{sanitize_evm_addresses, AddressValidationError};
+use xmtp_id::associations::{builder::SignatureRequestError, AssociationError};
+#[cfg(feature = "xmtp-id")]
+use xmtp_id::InboxId;
 
 use xmtp_proto::{
     api_client::{XmtpIdentityClient, XmtpMlsClient},
@@ -25,7 +30,8 @@ use crate::{
         validated_commit::CommitValidationError, AddressesOrInstallationIds, IntentError, MlsGroup,
         PreconfiguredPolicies,
     },
-    identity::Identity,
+    identity::v3::Identity,
+    identity_updates::IdentityUpdateError,
     storage::{
         db_connection::DbConnection,
         group::{GroupMembershipState, StoredGroup},
@@ -33,7 +39,6 @@ use crate::{
         EncryptedMessageStore, StorageError,
     },
     types::Address,
-    utils::address::sanitize_evm_addresses,
     verified_key_package::{KeyPackageVerificationError, VerifiedKeyPackage},
     xmtp_openmls_provider::XmtpOpenMlsProvider,
     Fetch,
@@ -50,8 +55,8 @@ pub enum Network {
 
 #[derive(Debug, Error)]
 pub enum ClientError {
-    #[error("Address validation: {0}")]
-    AddressValidation(#[from] crate::utils::address::AddressValidationError),
+    #[error(transparent)]
+    AddressValidation(#[from] AddressValidationError),
     #[error("could not publish: {0}")]
     PublishError(String),
     #[error("storage error: {0}")]
@@ -60,8 +65,10 @@ pub enum ClientError {
     Diesel(#[from] diesel::result::Error),
     #[error("Query failed: {0}")]
     QueryError(#[from] xmtp_proto::api_client::Error),
+    #[error("API error: {0}")]
+    Api(#[from] crate::api::WrappedApiError),
     #[error("identity error: {0}")]
-    Identity(#[from] crate::identity::IdentityError),
+    Identity(#[from] crate::identity::v3::IdentityError),
     #[error("TLS Codec error: {0}")]
     TlsError(#[from] TlsCodecError),
     #[error("key package verification: {0}")]
@@ -70,6 +77,12 @@ pub enum ClientError {
     SyncingError(Vec<MessageProcessingError>),
     #[error("Stream inconsistency error: {0}")]
     StreamInconsistency(String),
+    #[error("Association error: {0}")]
+    Association(#[from] AssociationError),
+    #[error(transparent)]
+    IdentityUpdate(#[from] IdentityUpdateError),
+    #[error(transparent)]
+    SignatureRequest(#[from] SignatureRequestError),
     #[error("generic:{0}")]
     Generic(String),
 }
@@ -199,6 +212,10 @@ where
         XmtpOpenMlsProvider::<'a>::new(conn)
     }
 
+    pub fn allow_history_sync(&self) -> Result<(), StorageError> {
+        self.create_sync_group().map(|_| ())
+    }
+
     /// Create a new group with the default settings
     pub fn create_group(
         &self,
@@ -212,9 +229,19 @@ where
             permissions,
             self.account_address(),
         )
-        .map_err(|e| ClientError::Generic(format!("group create error {}", e)))?;
+        .map_err(|e| {
+            ClientError::Storage(StorageError::Store(format!("group create error {}", e)))
+        })?;
 
         Ok(group)
+    }
+
+    pub(crate) fn create_sync_group(&self) -> Result<MlsGroup<ApiClient>, StorageError> {
+        log::info!("creating sync group");
+        let sync_group = MlsGroup::create_and_insert_sync_group(self)
+            .map_err(|e| StorageError::Store(format!("sync group create error {}", e)))?;
+
+        Ok(sync_group)
     }
 
     /// Look up a group by its ID
@@ -224,7 +251,7 @@ where
         let stored_group: Option<StoredGroup> = conn.fetch(&group_id)?;
         match stored_group {
             Some(group) => Ok(MlsGroup::new(self, group.id, group.created_at_ns)),
-            None => Err(ClientError::Generic("group not found".to_string())),
+            None => Err(ClientError::Storage(StorageError::NotFound)),
         }
     }
 
@@ -268,6 +295,15 @@ where
             .register(&provider, &self.api_client, recoverable_wallet_signature)
             .await?;
         Ok(())
+    }
+
+    #[cfg(feature = "xmtp-id")]
+    /// Register an XIP-46 InboxID with the network
+    /// Requires [`IdentityUpdate`]. This can be built from a [`SignatureRequest`]
+    /// externally and passed back in.
+    pub async fn register_inbox_id(&self, _update: IdentityUpdate) -> InboxId {
+        // register the IdentityUpdate with the server
+        todo!()
     }
 
     /// Upload a new key package to the network replacing an existing key package
@@ -462,22 +498,25 @@ where
     pub async fn can_message(
         &self,
         account_addresses: Vec<String>,
-    ) -> Result<Vec<bool>, ClientError> {
+    ) -> Result<HashMap<String, bool>, ClientError> {
         let account_addresses = sanitize_evm_addresses(account_addresses)?;
         let identity_updates = self
             .api_client
             .get_identity_updates(0, account_addresses.clone())
             .await?;
 
-        Ok(account_addresses
+        let results = account_addresses
             .iter()
             .map(|address| {
-                identity_updates
+                let result = identity_updates
                     .get(address)
                     .map(has_active_installation)
-                    .unwrap_or(false)
+                    .unwrap_or(false);
+                (address.clone(), result)
             })
-            .collect())
+            .collect::<HashMap<String, bool>>();
+
+        Ok(results)
     }
 }
 
@@ -619,11 +658,25 @@ mod tests {
             .can_message(vec![
                 amal.account_address(),
                 bola.account_address(),
-                charlie_address,
+                charlie_address.clone(),
             ])
             .await
             .unwrap();
-        assert_eq!(can_message_result, vec![true, true, false]);
+        assert_eq!(
+            can_message_result.get(&amal.account_address().to_string()),
+            Some(&true),
+            "Amal's messaging capability should be true"
+        );
+        assert_eq!(
+            can_message_result.get(&bola.account_address().to_string()),
+            Some(&true),
+            "Bola's messaging capability should be true"
+        );
+        assert_eq!(
+            can_message_result.get(&charlie_address),
+            Some(&false),
+            "Charlie's messaging capability should be false"
+        );
     }
 
     #[tokio::test]

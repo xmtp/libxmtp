@@ -7,6 +7,7 @@ use super::{
     schema::identity_updates::{self, dsl},
 };
 use diesel::{dsl::max, prelude::*};
+use xmtp_id::associations::{AssociationError, IdentityUpdate};
 
 /// StoredIdentityUpdate holds a serialized IdentityUpdate record
 #[derive(Insertable, Identifiable, Queryable, Debug, Clone, PartialEq, Eq)]
@@ -35,22 +36,35 @@ impl StoredIdentityUpdate {
     }
 }
 
+impl TryFrom<StoredIdentityUpdate> for IdentityUpdate {
+    type Error = AssociationError;
+
+    fn try_from(update: StoredIdentityUpdate) -> Result<Self, Self::Error> {
+        Ok(IdentityUpdate::try_from(update.payload)?)
+    }
+}
+
 impl_store!(StoredIdentityUpdate, identity_updates);
 
 impl DbConnection<'_> {
     /// Returns all identity updates for the given inbox ID up to the provided sequence_id.
-    /// If no sequence_id is provided, return all updates
+    /// Returns updates greater than `from_sequence_id` and less than _or equal to_ `to_sequence_id`
     pub fn get_identity_updates<InboxId: AsRef<str>>(
         &self,
         inbox_id: InboxId,
-        sequence_id: Option<i64>,
+        from_sequence_id: Option<i64>,
+        to_sequence_id: Option<i64>,
     ) -> Result<Vec<StoredIdentityUpdate>, StorageError> {
         let mut query = dsl::identity_updates
             .order(dsl::sequence_id.asc())
             .filter(dsl::inbox_id.eq(inbox_id.as_ref()))
             .into_boxed();
 
-        if let Some(sequence_id) = sequence_id {
+        if let Some(sequence_id) = from_sequence_id {
+            query = query.filter(dsl::sequence_id.gt(sequence_id));
+        }
+
+        if let Some(sequence_id) = to_sequence_id {
             query = query.filter(dsl::sequence_id.le(sequence_id));
         }
 
@@ -72,7 +86,6 @@ impl DbConnection<'_> {
     }
 
     /// Given a list of inbox_ids return a hashamp of each inbox ID -> highest known sequence ID
-    /// If an entry is not present in the DB, default to 0
     pub fn get_latest_sequence_id(
         &self,
         inbox_ids: &[String],
@@ -126,7 +139,7 @@ mod tests {
             update_2.store(&conn).expect("should store without error");
 
             let all_updates = conn
-                .get_identity_updates(inbox_id, None)
+                .get_identity_updates(inbox_id, None, None)
                 .expect("query should work");
 
             assert_eq!(all_updates.len(), 2);
@@ -149,16 +162,23 @@ mod tests {
                 .expect("insert should succeed");
 
             let update_1_and_2 = conn
-                .get_identity_updates(inbox_id, Some(2))
+                .get_identity_updates(inbox_id, None, Some(2))
                 .expect("query should work");
 
             assert_eq!(update_1_and_2.len(), 2);
 
             let all_updates = conn
-                .get_identity_updates(inbox_id, None)
+                .get_identity_updates(inbox_id, None, None)
                 .expect("query should work");
 
             assert_eq!(all_updates.len(), 3);
+
+            let only_update_2 = conn
+                .get_identity_updates(inbox_id, Some(1), Some(2))
+                .expect("query should work");
+
+            assert_eq!(only_update_2.len(), 1);
+            assert_eq!(only_update_2[0].sequence_id, 2);
         })
     }
 

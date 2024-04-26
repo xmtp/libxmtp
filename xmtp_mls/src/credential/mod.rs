@@ -1,21 +1,17 @@
 mod grant_messaging_access_association;
 mod legacy_create_identity_association;
-mod validated_legacy_signed_public_key;
 
 use openmls_basic_credential::SignatureKeyPair;
 use prost::DecodeError;
 use thiserror::Error;
 
+use xmtp_cryptography::signature::AddressValidationError;
 use xmtp_cryptography::signature::{RecoverableSignature, SignatureError};
 use xmtp_proto::xmtp::mls::message_contents::{
     mls_credential::Association as AssociationProto, MlsCredential as MlsCredentialProto,
 };
 
-use crate::{
-    types::Address,
-    utils::{address::AddressValidationError, time::now_ns},
-    InboxOwner,
-};
+use crate::{types::Address, utils::time::now_ns, InboxOwner};
 
 pub use self::grant_messaging_access_association::GrantMessagingAccessAssociation;
 pub use self::grant_messaging_access_association::UnsignedGrantMessagingAccessData;
@@ -42,10 +38,16 @@ pub enum AssociationError {
         provided_addr: Address,
         signing_addr: Address,
     },
-    #[error("Bad address")]
-    BadAddress(#[from] AddressValidationError),
+    #[error(transparent)]
+    AddressValidationError(#[from] AddressValidationError),
     #[error("Malformed association")]
     MalformedAssociation,
+
+    #[error(transparent)]
+    // TODO: remove this AssociationError and use [xmtp_id::associations::AssociationError]
+    IDAssociationError(#[from] xmtp_id::associations::AssociationError),
+    #[error(transparent)]
+    SignatureError(#[from] xmtp_id::associations::SignatureError),
 }
 
 pub enum Credential {

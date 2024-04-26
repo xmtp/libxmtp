@@ -34,7 +34,7 @@ pub fn rand_vec() -> Vec<u8> {
     buf.to_vec()
 }
 
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 pub struct MockSignature {
     is_valid: bool,
     signer_identity: MemberIdentifier,
@@ -61,12 +61,13 @@ impl MockSignature {
     }
 }
 
+#[async_trait::async_trait]
 impl Signature for MockSignature {
     fn signature_kind(&self) -> SignatureKind {
         self.signature_kind.clone()
     }
 
-    fn recover_signer(&self) -> Result<MemberIdentifier, SignatureError> {
+    async fn recover_signer(&self) -> Result<MemberIdentifier, SignatureError> {
         match self.is_valid {
             true => Ok(self.signer_identity.clone()),
             false => Err(SignatureError::Invalid),
@@ -87,14 +88,17 @@ impl Signature for MockSignature {
             },
             SignatureKind::Erc1271 => SignatureProto {
                 signature: Some(SignatureKindProto::Erc1271(Erc1271SignatureProto {
-                    contract_address: "0xdead".into(),
+                    account_id: "eip155:1:0xab16a96D359eC26a11e2C2b3d8f8B8942d5Bfcdb".into(),
                     block_number: 0,
                     signature: vec![0],
                 })),
             },
             SignatureKind::InstallationKey => SignatureProto {
                 signature: Some(SignatureKindProto::InstallationKey(
-                    RecoverableEd25519SignatureProto { bytes: vec![0] },
+                    RecoverableEd25519SignatureProto {
+                        bytes: vec![0],
+                        public_key: vec![0],
+                    },
                 )),
             },
             SignatureKind::LegacyDelegated => SignatureProto {
