@@ -14,7 +14,8 @@ use xmtp_proto::xmtp::{
         validate_key_packages_response::ValidationResponse as ValidateKeyPackageValidationResponse,
         validation_api_server::ValidationApi, GetAssociationStateRequest,
         GetAssociationStateResponse, ValidateGroupMessagesRequest, ValidateGroupMessagesResponse,
-        ValidateKeyPackagesRequest, ValidateKeyPackagesResponse,
+        ValidateInboxIdsRequest, ValidateInboxIdsResponse, ValidateKeyPackagesRequest,
+        ValidateKeyPackagesResponse,
     },
 };
 
@@ -114,6 +115,13 @@ impl ValidationApi for ValidationService {
             .await
             .map(Response::new)
             .map_err(Into::into)
+    }
+
+    async fn validate_inbox_ids(
+        &self,
+        request: Request<ValidateInboxIdsRequest>,
+    ) -> Response<ValidateInboxIdsResponse> {
+        todo!()
     }
 }
 
