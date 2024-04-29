@@ -264,14 +264,25 @@ impl From<&IdentityUpdate> for IdentityUpdateProto {
     }
 }
 
-impl From<&Action> for IdentityActionProto {
-    fn from(action: &Action) -> IdentityActionProto {
+impl From<IdentityUpdate> for IdentityUpdateProto {
+    fn from(update: IdentityUpdate) -> IdentityUpdateProto {
+        let actions: Vec<IdentityActionProto> =
+            update.actions.into_iter().map(Into::into).collect();
+
+        IdentityUpdateProto {
+            client_timestamp_ns: update.client_timestamp_ns,
+            inbox_id: update.inbox_id,
+            actions,
+        }
+    }
+}
+
+impl From<Action> for IdentityActionProto {
+    fn from(action: Action) -> IdentityActionProto {
         match action {
             Action::AddAssociation(add_association) => IdentityActionProto {
                 kind: Some(IdentityActionKindProto::Add(AddAssociationProto {
-                    new_member_identifier: Some(
-                        add_association.new_member_identifier.clone().into(),
-                    ),
+                    new_member_identifier: Some(add_association.new_member_identifier.into()),
                     new_member_signature: Some(add_association.new_member_signature.to_proto()),
                     existing_member_signature: Some(
                         add_association.existing_member_signature.to_proto(),
@@ -281,7 +292,7 @@ impl From<&Action> for IdentityActionProto {
             Action::CreateInbox(create_inbox) => IdentityActionProto {
                 kind: Some(IdentityActionKindProto::CreateInbox(CreateInboxProto {
                     nonce: create_inbox.nonce,
-                    initial_address: create_inbox.account_address.clone(),
+                    initial_address: create_inbox.account_address,
                     initial_address_signature: Some(
                         create_inbox.initial_address_signature.to_proto(),
                     ),
@@ -289,7 +300,7 @@ impl From<&Action> for IdentityActionProto {
             },
             Action::RevokeAssociation(revoke_association) => IdentityActionProto {
                 kind: Some(IdentityActionKindProto::Revoke(RevokeAssociationProto {
-                    member_to_revoke: Some(revoke_association.revoked_member.clone().into()),
+                    member_to_revoke: Some(revoke_association.revoked_member.into()),
                     recovery_address_signature: Some(
                         revoke_association.recovery_address_signature.to_proto(),
                     ),
@@ -298,7 +309,7 @@ impl From<&Action> for IdentityActionProto {
             Action::ChangeRecoveryAddress(change_recovery_address) => IdentityActionProto {
                 kind: Some(IdentityActionKindProto::ChangeRecoveryAddress(
                     ChangeRecoveryAddressProto {
-                        new_recovery_address: change_recovery_address.new_recovery_address.clone(),
+                        new_recovery_address: change_recovery_address.new_recovery_address,
                         existing_recovery_address_signature: Some(
                             change_recovery_address
                                 .recovery_address_signature
@@ -308,6 +319,12 @@ impl From<&Action> for IdentityActionProto {
                 )),
             },
         }
+    }
+}
+
+impl From<&Action> for IdentityActionProto {
+    fn from(action: &Action) -> IdentityActionProto {
+        action.into()
     }
 }
 
@@ -508,7 +525,7 @@ mod tests {
             rand_u64(),
         );
 
-        let serialized_update = IdentityUpdate::from(identity_update);
+        let serialized_update = IdentityUpdateProto::from(&identity_update);
 
         assert_eq!(
             serialized_update.client_timestamp_ns,
@@ -516,10 +533,10 @@ mod tests {
         );
         assert_eq!(serialized_update.actions.len(), 1);
 
-        let deserialized_update =
-            from_identity_update_proto(serialized_update).expect("deserialization should succeed");
+        let deserialized_update = from_identity_update_proto(serialized_update.clone())
+            .expect("deserialization should succeed");
 
-        let reserialized = &deserialized_update.into();
+        let reserialized = IdentityUpdateProto::from(&deserialized_update);
 
         assert_eq!(serialized_update, reserialized);
     }

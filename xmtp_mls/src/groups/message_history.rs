@@ -96,7 +96,7 @@ mod tests {
     async fn test_send_mesage_history_request() {
         let wallet = generate_local_wallet();
         let client = ClientBuilder::new_test_client(&wallet).await;
-        let group = client.create_sync_group().expect("create group");
+        let _group = client.create_sync_group().expect("create group");
 
         let result = client.send_message_history_request().await;
         assert_ok!(result);
@@ -106,7 +106,7 @@ mod tests {
     async fn test_send_mesage_history_reply() {
         let wallet = generate_local_wallet();
         let client = ClientBuilder::new_test_client(&wallet).await;
-        let group = client.create_sync_group().expect("create sync group");
+        let _group = client.create_sync_group().expect("create sync group");
 
         let request_id = new_request_id();
         let url = "https://test.com/abc-123";

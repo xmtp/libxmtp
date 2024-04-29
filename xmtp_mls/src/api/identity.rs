@@ -68,7 +68,7 @@ where
     ) -> Result<(), WrappedApiError> {
         self.api_client
             .publish_identity_update(PublishIdentityUpdateRequest {
-                identity_update: Some(update.into()),
+                identity_update: Some((&update).into()),
             })
             .await?;
 
