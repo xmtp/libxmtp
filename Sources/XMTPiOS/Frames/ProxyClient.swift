@@ -13,7 +13,6 @@ struct Metadata: Codable {
     let imageUrl: String
 }
 
-
 class ProxyClient {
     var baseUrl: String
 
@@ -42,8 +41,7 @@ class ProxyClient {
         return metadataResponse
     }
 
-    func post(url: String, payload: Codable) async throws -> GetMetadataResponse {
-        
+    func post(url: String, payload: Codable) async throws -> GetMetadataResponse {        
         let encodedUrl = url.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? ""
         let fullUrl = "\(self.baseUrl)?url=\(encodedUrl)"
         guard let url = URL(string: fullUrl) else {
@@ -94,8 +92,6 @@ class ProxyClient {
     func mediaUrl(url: String) -> String {
         let encodedUrl = url.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? ""
         let result = "\(self.baseUrl)media?url=\(encodedUrl)"
-        return result;
+        return result
     }
 }
-
-

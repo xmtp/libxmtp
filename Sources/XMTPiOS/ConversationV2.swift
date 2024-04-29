@@ -17,10 +17,11 @@ public struct ConversationV2Container: Codable {
 	var peerAddress: String
 	var createdAtNs: UInt64?
 	var header: SealedInvitationHeaderV1
+    var consentProof: ConsentProofPayload?
 
 	public func decode(with client: Client) -> ConversationV2 {
 		let context = InvitationV1.Context(conversationID: conversationID ?? "", metadata: metadata)
-		return ConversationV2(topic: topic, keyMaterial: keyMaterial, context: context, peerAddress: peerAddress, client: client, createdAtNs: createdAtNs, header: header)
+        return ConversationV2(topic: topic, keyMaterial: keyMaterial, context: context, peerAddress: peerAddress, client: client, createdAtNs: createdAtNs, header: header, consentProof: consentProof)
 	}
 }
 
@@ -31,6 +32,7 @@ public struct ConversationV2 {
 	public var context: InvitationV1.Context
 	public var peerAddress: String
 	public var client: Client
+    public var consentProof: ConsentProofPayload?
 	var createdAtNs: UInt64?
 	private var header: SealedInvitationHeaderV1
 
@@ -49,21 +51,23 @@ public struct ConversationV2 {
 			peerAddress: peerAddress,
 			client: client,
 			createdAtNs: header.createdNs,
-			header: header
+			header: header,
+      consentProof: invitation.hasConsentProof ? invitation.consentProof : nil
 		)
 	}
 
-	public init(topic: String, keyMaterial: Data, context: InvitationV1.Context, peerAddress: String, client: Client, createdAtNs: UInt64? = nil) {
+  public init(topic: String, keyMaterial: Data, context: InvitationV1.Context, peerAddress: String, client: Client, createdAtNs: UInt64? = nil, consentProof: ConsentProofPayload? = nil) {
 		self.topic = topic
 		self.keyMaterial = keyMaterial
 		self.context = context
 		self.peerAddress = peerAddress
 		self.client = client
 		self.createdAtNs = createdAtNs
+        self.consentProof = consentProof
 		header = SealedInvitationHeaderV1()
 	}
 
-	public init(topic: String, keyMaterial: Data, context: InvitationV1.Context, peerAddress: String, client: Client, createdAtNs: UInt64? = nil, header: SealedInvitationHeaderV1) {
+	public init(topic: String, keyMaterial: Data, context: InvitationV1.Context, peerAddress: String, client: Client, createdAtNs: UInt64? = nil, header: SealedInvitationHeaderV1, consentProof: ConsentProofPayload? = nil) {
 		self.topic = topic
 		self.keyMaterial = keyMaterial
 		self.context = context
@@ -71,10 +75,11 @@ public struct ConversationV2 {
 		self.client = client
 		self.createdAtNs = createdAtNs
 		self.header = header
+        self.consentProof = consentProof
 	}
 
 	public var encodedContainer: ConversationV2Container {
-		ConversationV2Container(topic: topic, keyMaterial: keyMaterial, conversationID: context.conversationID, metadata: context.metadata, peerAddress: peerAddress, createdAtNs: createdAtNs, header: header)
+        ConversationV2Container(topic: topic, keyMaterial: keyMaterial, conversationID: context.conversationID, metadata: context.metadata, peerAddress: peerAddress, createdAtNs: createdAtNs, header: header, consentProof: consentProof)
 	}
 
 	func prepareMessage(encodedContent: EncodedContent, options: SendOptions?) async throws -> PreparedMessage {
