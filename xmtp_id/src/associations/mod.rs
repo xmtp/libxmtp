@@ -104,10 +104,7 @@ pub mod test_defaults {
 
 #[cfg(test)]
 mod tests {
-    use tests::hashes::generate_inbox_id;
-
     use self::test_utils::{rand_string, rand_vec, MockSignature};
-
     use super::*;
 
     pub async fn new_test_inbox() -> AssociationState {
