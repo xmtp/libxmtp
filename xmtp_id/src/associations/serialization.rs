@@ -252,18 +252,6 @@ fn from_signature_kind_proto(
     })
 }
 
-impl From<&IdentityUpdate> for IdentityUpdateProto {
-    fn from(update: &IdentityUpdate) -> IdentityUpdateProto {
-        let actions: Vec<IdentityActionProto> = update.actions.iter().map(Into::into).collect();
-
-        IdentityUpdateProto {
-            client_timestamp_ns: update.client_timestamp_ns,
-            inbox_id: update.inbox_id.clone(),
-            actions,
-        }
-    }
-}
-
 impl From<IdentityUpdate> for IdentityUpdateProto {
     fn from(update: IdentityUpdate) -> IdentityUpdateProto {
         let actions: Vec<IdentityActionProto> =
@@ -319,12 +307,6 @@ impl From<Action> for IdentityActionProto {
                 )),
             },
         }
-    }
-}
-
-impl From<&Action> for IdentityActionProto {
-    fn from(action: &Action) -> IdentityActionProto {
-        action.into()
     }
 }
 
@@ -525,7 +507,7 @@ mod tests {
             rand_u64(),
         );
 
-        let serialized_update = IdentityUpdateProto::from(&identity_update);
+        let serialized_update = IdentityUpdateProto::from(identity_update.clone());
 
         assert_eq!(
             serialized_update.client_timestamp_ns,
@@ -536,7 +518,7 @@ mod tests {
         let deserialized_update = from_identity_update_proto(serialized_update.clone())
             .expect("deserialization should succeed");
 
-        let reserialized = IdentityUpdateProto::from(&deserialized_update);
+        let reserialized = IdentityUpdateProto::from(deserialized_update);
 
         assert_eq!(serialized_update, reserialized);
     }
