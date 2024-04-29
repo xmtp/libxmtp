@@ -18,6 +18,7 @@ openmls_rust_crypto = { workspace = true }
 openmls_traits = { workspace = true }
 prost = { workspace = true, features = ["prost-derive"] }
 serde = { workspace = true }
+futures = { workspace = true }
 tokio = { workspace = true, features = ["full"] }
 tonic = { workspace = true }
 warp = "0.3.6"

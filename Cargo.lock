@@ -2577,6 +2577,7 @@ dependencies = [
  "clap",
  "env_logger",
  "ethers",
+ "futures",
  "hex",
  "log",
  "openmls",

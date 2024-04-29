@@ -5,12 +5,15 @@ use openmls::{
 use openmls_rust_crypto::RustCrypto;
 use tonic::{Request, Response, Status};
 
+use futures::future::join_all;
 use xmtp_id::associations::{self, try_map_vec, AssociationError, DeserializationError};
 use xmtp_mls::{utils::id::serialize_group_id, verified_key_package::VerifiedKeyPackage};
 use xmtp_proto::xmtp::{
     identity::associations::IdentityUpdate as IdentityUpdateProto,
     mls_validation::v1::{
         validate_group_messages_response::ValidationResponse as ValidateGroupMessageValidationResponse,
+        validate_inbox_ids_request::ValidationRequest as InboxIdValidationRequest,
+        validate_inbox_ids_response::ValidationResponse as InboxIdValidationResponse,
         validate_key_packages_response::ValidationResponse as ValidateKeyPackageValidationResponse,
         validation_api_server::ValidationApi, GetAssociationStateRequest,
         GetAssociationStateResponse, ValidateGroupMessagesRequest, ValidateGroupMessagesResponse,
@@ -120,9 +123,50 @@ impl ValidationApi for ValidationService {
     async fn validate_inbox_ids(
         &self,
         request: Request<ValidateInboxIdsRequest>,
-    ) -> Response<ValidateInboxIdsResponse> {
-        todo!()
+    ) -> Result<Response<ValidateInboxIdsResponse>, Status> {
+        let ValidateInboxIdsRequest { requests } = request.into_inner();
+        let responses: Vec<_> = requests.into_iter().map(validate_inbox_id).collect();
+
+        let responses: Vec<InboxIdValidationResponse> = join_all(responses)
+            .await
+            .into_iter()
+            .map(|res| res.map_err(InboxIdValidationResponse::from))
+            .map(|r| r.unwrap_or_else(|e| e))
+            .collect();
+
+        Ok(Response::new(ValidateInboxIdsResponse { responses }))
     }
+}
+
+/// Error type for inbox ID validation
+/// Each variant requires carrying the ID that failed to validate
+/// The error variant itself becomes the failed version of `InboxIdValidationResponse` but allows
+/// us to write normal rust in `validate_inbox_id`
+#[derive(thiserror::Error, Debug)]
+enum InboxIdValidationError {
+    #[error("Inbox ID {id} failed to validate")]
+    Placeholder { id: String },
+}
+
+impl From<InboxIdValidationError> for InboxIdValidationResponse {
+    fn from(err: InboxIdValidationError) -> Self {
+        match err {
+            InboxIdValidationError::Placeholder { ref id } => InboxIdValidationResponse {
+                is_ok: false,
+                error_message: err.to_string(),
+                inbox_id: id.to_string(),
+                expiration: 0,
+            },
+        }
+    }
+}
+
+async fn validate_inbox_id(
+    _request: InboxIdValidationRequest,
+) -> Result<InboxIdValidationResponse, InboxIdValidationError> {
+    // query db for identity updates
+    // ensure installation_public_key is a member of the identity
+    todo!()
 }
 
 async fn get_association_state(
