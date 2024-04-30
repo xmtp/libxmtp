@@ -6,10 +6,13 @@ use openmls_rust_crypto::RustCrypto;
 use tonic::{Request, Response, Status};
 
 use futures::future::join_all;
-use xmtp_id::associations::{self, try_map_vec, AssociationError, DeserializationError};
+use xmtp_id::associations::{
+    self, try_map_vec, AssociationError, DeserializationError, MemberIdentifier,
+};
 use xmtp_mls::{utils::id::serialize_group_id, verified_key_package::VerifiedKeyPackage};
 use xmtp_proto::xmtp::{
     identity::associations::IdentityUpdate as IdentityUpdateProto,
+    identity::MlsCredential,
     mls_validation::v1::{
         validate_group_messages_response::ValidationResponse as ValidateGroupMessageValidationResponse,
         validate_inbox_ids_request::ValidationRequest as InboxIdValidationRequest,
@@ -145,28 +148,106 @@ impl ValidationApi for ValidationService {
 #[derive(thiserror::Error, Debug)]
 enum InboxIdValidationError {
     #[error("Inbox ID {id} failed to validate")]
-    Placeholder { id: String },
+    Deserialization {
+        id: String,
+        source: DeserializationError,
+    },
+    #[error("Valid association state could not be found for inbox {id}, {source}")]
+    Association {
+        id: String,
+        source: AssociationError,
+    },
+    #[error("Missing Credential")]
+    MissingCredential,
+    #[error("Inbox {id} is not associated with member {member}")]
+    MemberNotAssociated {
+        id: String,
+        member: MemberIdentifier,
+    },
+    #[error(
+        "Given Inbox Id, {credential_inbox_id} does not match resulting inbox id, {state_inbox_id}"
+    )]
+    InboxIdDoesNotMatch {
+        credential_inbox_id: String,
+        state_inbox_id: String,
+    },
+}
+
+impl InboxIdValidationError {
+    pub fn inbox_id(&self) -> String {
+        match self {
+            InboxIdValidationError::Deserialization { id, .. } => id.clone(),
+            InboxIdValidationError::MissingCredential => "null".to_string(),
+            InboxIdValidationError::Association { id, .. } => id.clone(),
+            InboxIdValidationError::MemberNotAssociated { id, .. } => id.clone(),
+            InboxIdValidationError::InboxIdDoesNotMatch {
+                credential_inbox_id,
+                ..
+            } => credential_inbox_id.clone(),
+        }
+    }
 }
 
 impl From<InboxIdValidationError> for InboxIdValidationResponse {
     fn from(err: InboxIdValidationError) -> Self {
-        match err {
-            InboxIdValidationError::Placeholder { ref id } => InboxIdValidationResponse {
-                is_ok: false,
-                error_message: err.to_string(),
-                inbox_id: id.to_string(),
-                expiration: 0,
-            },
+        InboxIdValidationResponse {
+            is_ok: false,
+            error_message: err.to_string(),
+            inbox_id: err.inbox_id(),
+            expiration: 0,
         }
     }
 }
 
 async fn validate_inbox_id(
-    _request: InboxIdValidationRequest,
+    request: InboxIdValidationRequest,
 ) -> Result<InboxIdValidationResponse, InboxIdValidationError> {
-    // query db for identity updates
-    // ensure installation_public_key is a member of the identity
-    todo!()
+    let InboxIdValidationRequest {
+        credential,
+        installation_public_key,
+        identity_updates,
+    } = request;
+
+    if credential.is_none() {
+        return Err(InboxIdValidationError::MissingCredential);
+    }
+
+    let inbox_id = credential.expect("checked for empty credential").inbox_id;
+
+    let state = associations::get_state(try_map_vec(identity_updates).map_err(|e| {
+        InboxIdValidationError::Deserialization {
+            source: e,
+            id: inbox_id.clone(),
+        }
+    })?)
+    .await
+    .map_err(|e| InboxIdValidationError::Association {
+        source: e,
+        id: inbox_id.clone(),
+    })?;
+
+    // this is defensive and should not happen.
+    // The only way an inbox id is different is if xmtp-node-go hands over identity updates with a different inbox id.
+    // which is a bug.
+    if state.inbox_id().as_ref() != *inbox_id {
+        return Err(InboxIdValidationError::InboxIdDoesNotMatch {
+            credential_inbox_id: inbox_id.clone(),
+            state_inbox_id: state.inbox_id().clone(),
+        });
+    }
+
+    let member = MemberIdentifier::Installation(installation_public_key);
+    if state.get(&member).is_none() {
+        return Err(InboxIdValidationError::MemberNotAssociated {
+            id: inbox_id,
+            member,
+        });
+    }
+    Ok(InboxIdValidationResponse {
+        is_ok: true,
+        error_message: "".to_string(),
+        inbox_id,
+    })
 }
 
 async fn get_association_state(

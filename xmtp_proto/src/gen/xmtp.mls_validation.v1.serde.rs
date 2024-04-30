@@ -730,6 +730,9 @@ impl serde::Serialize for validate_inbox_ids_request::ValidationRequest {
         if !self.installation_public_key.is_empty() {
             len += 1;
         }
+        if !self.identity_updates.is_empty() {
+            len += 1;
+        }
         let mut struct_ser = serializer.serialize_struct("xmtp.mls_validation.v1.ValidateInboxIdsRequest.ValidationRequest", len)?;
         if let Some(v) = self.credential.as_ref() {
             struct_ser.serialize_field("credential", v)?;
@@ -737,6 +740,9 @@ impl serde::Serialize for validate_inbox_ids_request::ValidationRequest {
         if !self.installation_public_key.is_empty() {
             #[allow(clippy::needless_borrow)]
             struct_ser.serialize_field("installationPublicKey", pbjson::private::base64::encode(&self.installation_public_key).as_str())?;
+        }
+        if !self.identity_updates.is_empty() {
+            struct_ser.serialize_field("identityUpdates", &self.identity_updates)?;
         }
         struct_ser.end()
     }
@@ -751,12 +757,15 @@ impl<'de> serde::Deserialize<'de> for validate_inbox_ids_request::ValidationRequ
             "credential",
             "installation_public_key",
             "installationPublicKey",
+            "identity_updates",
+            "identityUpdates",
         ];
 
         #[allow(clippy::enum_variant_names)]
         enum GeneratedField {
             Credential,
             InstallationPublicKey,
+            IdentityUpdates,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
             fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
@@ -780,6 +789,7 @@ impl<'de> serde::Deserialize<'de> for validate_inbox_ids_request::ValidationRequ
                         match value {
                             "credential" => Ok(GeneratedField::Credential),
                             "installationPublicKey" | "installation_public_key" => Ok(GeneratedField::InstallationPublicKey),
+                            "identityUpdates" | "identity_updates" => Ok(GeneratedField::IdentityUpdates),
                             _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
                         }
                     }
@@ -801,6 +811,7 @@ impl<'de> serde::Deserialize<'de> for validate_inbox_ids_request::ValidationRequ
             {
                 let mut credential__ = None;
                 let mut installation_public_key__ = None;
+                let mut identity_updates__ = None;
                 while let Some(k) = map_.next_key()? {
                     match k {
                         GeneratedField::Credential => {
@@ -817,11 +828,18 @@ impl<'de> serde::Deserialize<'de> for validate_inbox_ids_request::ValidationRequ
                                 Some(map_.next_value::<::pbjson::private::BytesDeserialize<_>>()?.0)
                             ;
                         }
+                        GeneratedField::IdentityUpdates => {
+                            if identity_updates__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("identityUpdates"));
+                            }
+                            identity_updates__ = Some(map_.next_value()?);
+                        }
                     }
                 }
                 Ok(validate_inbox_ids_request::ValidationRequest {
                     credential: credential__,
                     installation_public_key: installation_public_key__.unwrap_or_default(),
+                    identity_updates: identity_updates__.unwrap_or_default(),
                 })
             }
         }
@@ -936,9 +954,6 @@ impl serde::Serialize for validate_inbox_ids_response::ValidationResponse {
         if !self.inbox_id.is_empty() {
             len += 1;
         }
-        if self.expiration != 0 {
-            len += 1;
-        }
         let mut struct_ser = serializer.serialize_struct("xmtp.mls_validation.v1.ValidateInboxIdsResponse.ValidationResponse", len)?;
         if self.is_ok {
             struct_ser.serialize_field("isOk", &self.is_ok)?;
@@ -948,10 +963,6 @@ impl serde::Serialize for validate_inbox_ids_response::ValidationResponse {
         }
         if !self.inbox_id.is_empty() {
             struct_ser.serialize_field("inboxId", &self.inbox_id)?;
-        }
-        if self.expiration != 0 {
-            #[allow(clippy::needless_borrow)]
-            struct_ser.serialize_field("expiration", ToString::to_string(&self.expiration).as_str())?;
         }
         struct_ser.end()
     }
@@ -969,7 +980,6 @@ impl<'de> serde::Deserialize<'de> for validate_inbox_ids_response::ValidationRes
             "errorMessage",
             "inbox_id",
             "inboxId",
-            "expiration",
         ];
 
         #[allow(clippy::enum_variant_names)]
@@ -977,7 +987,6 @@ impl<'de> serde::Deserialize<'de> for validate_inbox_ids_response::ValidationRes
             IsOk,
             ErrorMessage,
             InboxId,
-            Expiration,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
             fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
@@ -1002,7 +1011,6 @@ impl<'de> serde::Deserialize<'de> for validate_inbox_ids_response::ValidationRes
                             "isOk" | "is_ok" => Ok(GeneratedField::IsOk),
                             "errorMessage" | "error_message" => Ok(GeneratedField::ErrorMessage),
                             "inboxId" | "inbox_id" => Ok(GeneratedField::InboxId),
-                            "expiration" => Ok(GeneratedField::Expiration),
                             _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
                         }
                     }
@@ -1025,7 +1033,6 @@ impl<'de> serde::Deserialize<'de> for validate_inbox_ids_response::ValidationRes
                 let mut is_ok__ = None;
                 let mut error_message__ = None;
                 let mut inbox_id__ = None;
-                let mut expiration__ = None;
                 while let Some(k) = map_.next_key()? {
                     match k {
                         GeneratedField::IsOk => {
@@ -1046,21 +1053,12 @@ impl<'de> serde::Deserialize<'de> for validate_inbox_ids_response::ValidationRes
                             }
                             inbox_id__ = Some(map_.next_value()?);
                         }
-                        GeneratedField::Expiration => {
-                            if expiration__.is_some() {
-                                return Err(serde::de::Error::duplicate_field("expiration"));
-                            }
-                            expiration__ = 
-                                Some(map_.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
-                            ;
-                        }
                     }
                 }
                 Ok(validate_inbox_ids_response::ValidationResponse {
                     is_ok: is_ok__.unwrap_or_default(),
                     error_message: error_message__.unwrap_or_default(),
                     inbox_id: inbox_id__.unwrap_or_default(),
-                    expiration: expiration__.unwrap_or_default(),
                 })
             }
         }
