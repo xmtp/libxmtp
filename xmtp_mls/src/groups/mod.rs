@@ -1,4 +1,4 @@
-mod group_membership;
+pub mod group_membership;
 pub mod group_metadata;
 pub mod group_mutable_metadata;
 mod group_permissions;
