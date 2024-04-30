@@ -1,6 +1,7 @@
 use rand::{
     distributions::{Alphanumeric, DistString},
-    Rng,
+    rngs::OsRng,
+    Rng, RngCore,
 };
 
 use xmtp_proto::{
@@ -13,11 +14,12 @@ use xmtp_proto::{
 
 use super::GroupError;
 
-use crate::client::ClientError;
-use crate::groups::StoredGroupMessage;
-use crate::storage::group::StoredGroup;
-use crate::storage::StorageError;
-use crate::Client;
+use crate::{
+    client::ClientError,
+    groups::StoredGroupMessage,
+    storage::{group::StoredGroup, StorageError},
+    Client,
+};
 
 impl<'c, ApiClient> Client<ApiClient>
 where
@@ -44,6 +46,7 @@ where
                 message_type: Some(Request(contents.into())),
             })),
         };
+
         Ok(())
     }
 
@@ -109,8 +112,8 @@ struct HistoryReply {
     request_id: String,
     url: String,
     bundle_hash: Vec<u8>,
-    bundle_signing_key: String,
-    encryption_key: String,
+    bundle_signing_key: [u8; 32],
+    encryption_key: [u8; 32],
 }
 
 impl HistoryReply {
@@ -118,40 +121,52 @@ impl HistoryReply {
     pub(crate) fn new(
         id: &str,
         url: &str,
-        hash: Vec<u8>,
-        signing_key: &str,
-        encryption_key: &str,
+        bundle_hash: Vec<u8>,
+        bundle_signing_key: [u8; 32],
+        encryption_key: [u8; 32],
     ) -> Self {
         Self {
             request_id: id.into(),
             url: url.into(),
-            bundle_hash: hash,
-            bundle_signing_key: signing_key.into(),
-            encryption_key: encryption_key.into(),
+            bundle_hash,
+            bundle_signing_key,
+            encryption_key,
         }
     }
 }
 
 impl From<HistoryReply> for MessageHistoryReply {
     fn from(reply: HistoryReply) -> Self {
+        let bundle_signing_key = key_to_string(reply.bundle_signing_key);
+        let encryption_key = key_to_string(reply.encryption_key);
         MessageHistoryReply {
             request_id: reply.request_id,
             url: reply.url,
             bundle_hash: reply.bundle_hash,
-            bundle_signing_key: reply.bundle_signing_key,
-            encryption_key: reply.encryption_key,
+            bundle_signing_key,
+            encryption_key,
         }
     }
+}
+
+fn new_request_id() -> String {
+    Alphanumeric.sample_string(&mut rand::thread_rng(), 24)
+}
+
+fn new_key() -> [u8; 32] {
+    let mut key = [0u8; 32];
+    OsRng.fill_bytes(&mut key);
+    key
+}
+
+fn key_to_string(key: [u8; 32]) -> String {
+    String::from_utf8_lossy(&key).to_string()
 }
 
 fn new_pin() -> String {
     let mut rng = rand::thread_rng();
     let pin: u32 = rng.gen_range(0..10000);
     format!("{:04}", pin)
-}
-
-fn new_request_id() -> String {
-    Alphanumeric.sample_string(&mut rand::thread_rng(), 24)
 }
 
 #[allow(dead_code)]
@@ -179,11 +194,10 @@ mod tests {
     async fn test_send_mesage_history_request() {
         let wallet = generate_local_wallet();
         let client = ClientBuilder::new_test_client(&wallet).await;
-        // calls create_sync_group() internally.
         client
             .allow_history_sync()
             .await
-            .expect("create sync group");
+            .expect("allow history sync | create sync group");
         let result = client.send_message_history_request().await;
         assert_ok!(result);
     }
@@ -195,13 +209,13 @@ mod tests {
         client
             .allow_history_sync()
             .await
-            .expect("create sync group");
+            .expect("allow history sync | create sync group");
         let request_id = new_request_id();
         let url = "https://test.com/abc-123";
         let backup_hash = b"ABC123".into();
-        let aes_key = "1234567890";
-        let signing_key = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
-        let reply = HistoryReply::new(&request_id, url, backup_hash, aes_key, signing_key);
+        let signing_key = new_key();
+        let aes_key = new_key();
+        let reply = HistoryReply::new(&request_id, url, backup_hash, signing_key, aes_key);
         let result = client.send_message_history_reply(reply.into()).await;
         assert_ok!(result);
     }
@@ -226,7 +240,13 @@ mod tests {
     async fn test_prepare_messages_to_sync() {
         let wallet = generate_local_wallet();
         let amal_a = ClientBuilder::new_test_client(&wallet).await;
-        // let group_a = amal_a.create_group(None);
+        let group_a = amal_a.create_group(None).expect("create group");
+
+        group_a.send_message(b"hello").await.expect("send message");
+        group_a
+            .send_message(b"hello again")
+            .await
+            .expect("send message");
         let _messages_result = amal_a.prepare_messages_to_sync().await;
         // println!("{:?}", messages_result);
     }
