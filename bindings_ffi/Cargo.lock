@@ -1875,6 +1875,9 @@ name = "hex"
 version = "0.4.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7f24254aa9a54b5c858eaee2f5bccdb46aaf0e486a595ed5fd8f86ba55232a70"
+dependencies = [
+ "serde",
+]
 
 [[package]]
 name = "hkdf"
@@ -2567,12 +2570,13 @@ dependencies = [
 [[package]]
 name = "openmls"
 version = "0.5.0"
-source = "git+https://github.com/xmtp/openmls?rev=52cad0e#52cad0e35cb2c88f83002e786e177bbc9065a76c"
+source = "git+https://github.com/xmtp/openmls?rev=acdea30#acdea30d089d080dc938ddcc9c3774a00402f5ec"
 dependencies = [
  "backtrace",
  "itertools 0.10.5",
  "log",
  "openmls_basic_credential",
+ "openmls_memory_storage",
  "openmls_rust_crypto",
  "openmls_traits",
  "rand",
@@ -2589,7 +2593,7 @@ dependencies = [
 [[package]]
 name = "openmls_basic_credential"
 version = "0.2.0"
-source = "git+https://github.com/xmtp/openmls?rev=52cad0e#52cad0e35cb2c88f83002e786e177bbc9065a76c"
+source = "git+https://github.com/xmtp/openmls?rev=acdea30#acdea30d089d080dc938ddcc9c3774a00402f5ec"
 dependencies = [
  "ed25519-dalek",
  "openmls_traits",
@@ -2600,11 +2604,14 @@ dependencies = [
 ]
 
 [[package]]
-name = "openmls_memory_keystore"
+name = "openmls_memory_storage"
 version = "0.2.0"
-source = "git+https://github.com/xmtp/openmls?rev=52cad0e#52cad0e35cb2c88f83002e786e177bbc9065a76c"
+source = "git+https://github.com/xmtp/openmls?rev=acdea30#acdea30d089d080dc938ddcc9c3774a00402f5ec"
 dependencies = [
+ "hex",
+ "log",
  "openmls_traits",
+ "serde",
  "serde_json",
  "thiserror",
 ]
@@ -2612,7 +2619,7 @@ dependencies = [
 [[package]]
 name = "openmls_rust_crypto"
 version = "0.2.0"
-source = "git+https://github.com/xmtp/openmls?rev=52cad0e#52cad0e35cb2c88f83002e786e177bbc9065a76c"
+source = "git+https://github.com/xmtp/openmls?rev=acdea30#acdea30d089d080dc938ddcc9c3774a00402f5ec"
 dependencies = [
  "aes-gcm",
  "chacha20poly1305",
@@ -2622,7 +2629,7 @@ dependencies = [
  "hpke-rs",
  "hpke-rs-crypto",
  "hpke-rs-rust-crypto",
- "openmls_memory_keystore",
+ "openmls_memory_storage",
  "openmls_traits",
  "p256",
  "rand",
@@ -2636,7 +2643,7 @@ dependencies = [
 [[package]]
 name = "openmls_traits"
 version = "0.2.0"
-source = "git+https://github.com/xmtp/openmls?rev=52cad0e#52cad0e35cb2c88f83002e786e177bbc9065a76c"
+source = "git+https://github.com/xmtp/openmls?rev=acdea30#acdea30d089d080dc938ddcc9c3774a00402f5ec"
 dependencies = [
  "serde",
  "tls_codec 0.4.2-pre.1",
