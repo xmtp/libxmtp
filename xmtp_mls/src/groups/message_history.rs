@@ -113,6 +113,7 @@ struct HistoryReply {
 }
 
 impl HistoryReply {
+    #[allow(dead_code)]
     pub(crate) fn new(id: &str, url: &str, hash: Vec<u8>, exp: i64) -> Self {
         Self {
             request_id: id.into(),
@@ -122,7 +123,6 @@ impl HistoryReply {
         }
     }
 }
-
 
 impl From<HistoryReply> for MessageHistoryReply {
     fn from(reply: HistoryReply) -> Self {
