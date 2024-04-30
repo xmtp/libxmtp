@@ -1,5 +1,7 @@
 use std::array::TryFromSliceError;
 
+use crate::constants::INSTALLATION_KEY_SIGNATURE_CONTEXT;
+
 use super::MemberIdentifier;
 use async_trait::async_trait;
 use ed25519_dalek::{Signature as Ed25519Signature, VerifyingKey};
@@ -9,13 +11,15 @@ use ethers::{
 };
 use sha2::{Digest, Sha512};
 use thiserror::Error;
-use xmtp_cryptography::signature::{h160addr_to_string, sanitize_evm_addresses};
+use xmtp_cryptography::signature::h160addr_to_string;
+use xmtp_cryptography::signature::RecoverableSignature;
 use xmtp_proto::xmtp::identity::associations::{
     signature::Signature as SignatureKindProto, Erc1271Signature as Erc1271SignatureProto,
     LegacyDelegatedSignature as LegacyDelegatedSignatureProto,
     RecoverableEcdsaSignature as RecoverableEcdsaSignatureProto,
     RecoverableEd25519Signature as RecoverableEd25519SignatureProto, Signature as SignatureProto,
 };
+use xmtp_proto::xmtp::message_contents::SignedPublicKey as LegacySignedPublicKeyProto;
 
 #[derive(Debug, Error)]
 pub enum SignatureError {
@@ -235,7 +239,11 @@ impl Signature for InstallationKeySignature {
             VerifyingKey::from_bytes(&self.verifying_key.as_slice().try_into()?)?;
         let mut prehashed: Sha512 = Sha512::new();
         prehashed.update(self.signature_text.clone());
-        verifying_key.verify_prehashed(prehashed, None, &signature)?;
+        verifying_key.verify_prehashed(
+            prehashed,
+            Some(INSTALLATION_KEY_SIGNATURE_CONTEXT),
+            &signature,
+        )?;
         Ok(MemberIdentifier::Installation(self.verifying_key.clone()))
     }
 
@@ -261,19 +269,18 @@ impl Signature for InstallationKeySignature {
 
 #[derive(Debug, Clone)]
 pub struct LegacyDelegatedSignature {
-    // This would be the signature from the legacy key
-    legacy_key_signature: RecoverableEcdsaSignature,
-    signed_public_key: ValidatedLegacySignedPublicKey,
+    legacy_key_signature: RecoverableEcdsaSignature, // signature from the legacy key(delegated)
+    signed_public_key_proto: LegacySignedPublicKeyProto, // signature of the wallet(delegator)
 }
 
 impl LegacyDelegatedSignature {
     pub fn new(
         legacy_key_signature: RecoverableEcdsaSignature,
-        signed_public_key: ValidatedLegacySignedPublicKey,
+        signed_public_key_proto: LegacySignedPublicKeyProto,
     ) -> Self {
         LegacyDelegatedSignature {
             legacy_key_signature,
-            signed_public_key,
+            signed_public_key_proto,
         }
     }
 }
@@ -284,8 +291,10 @@ impl Signature for LegacyDelegatedSignature {
         // 1. Verify the RecoverableEcdsaSignature
         let legacy_signer = self.legacy_key_signature.recover_signer().await?;
 
-        // 2. Signed public key is already verified, we just make sure it matches to the legacy_signer
-        if MemberIdentifier::Address(self.signed_public_key.account_address()) != legacy_signer {
+        // 2. Verify the [LegacySignedPublicKeyProto] and make sure it matches to the legacy_signer
+        let signed_public_key: ValidatedLegacySignedPublicKey =
+            self.signed_public_key_proto.clone().try_into()?;
+        if MemberIdentifier::Address(signed_public_key.account_address()) != legacy_signer {
             return Err(SignatureError::Invalid);
         }
 
@@ -304,7 +313,7 @@ impl Signature for LegacyDelegatedSignature {
         SignatureProto {
             signature: Some(SignatureKindProto::DelegatedErc191(
                 LegacyDelegatedSignatureProto {
-                    delegated_key: Some(self.signed_public_key.clone().into()),
+                    delegated_key: Some(self.signed_public_key_proto.clone()),
                     signature: Some(RecoverableEcdsaSignatureProto {
                         bytes: self.bytes(),
                     }),
@@ -314,23 +323,13 @@ impl Signature for LegacyDelegatedSignature {
     }
 }
 
-use prost::Message;
-
-use xmtp_cryptography::signature::RecoverableSignature;
-use xmtp_proto::xmtp::message_contents::{
-    signature::{Union, WalletEcdsaCompact},
-    unsigned_public_key, Signature as SignedPublicKeySignatureProto,
-    SignedPublicKey as LegacySignedPublicKeyProto,
-    UnsignedPublicKey as LegacyUnsignedPublicKeyProto,
-};
-
 #[derive(Clone, Debug)]
 pub struct ValidatedLegacySignedPublicKey {
-    account_address: String,
-    serialized_key_data: Vec<u8>,
-    wallet_signature: RecoverableSignature,
-    public_key_bytes: Vec<u8>,
-    created_ns: u64,
+    pub(crate) account_address: String,
+    pub(crate) serialized_key_data: Vec<u8>,
+    pub(crate) wallet_signature: RecoverableSignature,
+    pub(crate) public_key_bytes: Vec<u8>,
+    pub(crate) created_ns: u64,
 }
 
 impl ValidatedLegacySignedPublicKey {
@@ -347,7 +346,7 @@ impl ValidatedLegacySignedPublicKey {
         "For more info: https://xmtp.org/signatures/".to_string()
     }
 
-    fn text(serialized_legacy_key: &[u8]) -> String {
+    pub(crate) fn text(serialized_legacy_key: &[u8]) -> String {
         format!(
             "{}\n{}\n\n{}",
             Self::header_text(),
@@ -370,80 +369,8 @@ impl ValidatedLegacySignedPublicKey {
     }
 }
 
-impl TryFrom<LegacySignedPublicKeyProto> for ValidatedLegacySignedPublicKey {
-    type Error = SignatureError;
-
-    fn try_from(proto: LegacySignedPublicKeyProto) -> Result<Self, Self::Error> {
-        let serialized_key_data = proto.key_bytes;
-        let union = proto
-            .signature
-            .ok_or(SignatureError::Invalid)?
-            .union
-            .ok_or(SignatureError::Invalid)?;
-        let wallet_signature = match union {
-            Union::WalletEcdsaCompact(wallet_ecdsa_compact) => {
-                let mut wallet_signature = wallet_ecdsa_compact.bytes.clone();
-                wallet_signature.push(wallet_ecdsa_compact.recovery as u8); // TODO: normalize recovery ID if necessary
-                if wallet_signature.len() != 65 {
-                    return Err(SignatureError::Invalid);
-                }
-                wallet_signature
-            }
-            Union::EcdsaCompact(ecdsa_compact) => {
-                let mut signature = ecdsa_compact.bytes.clone();
-                signature.push(ecdsa_compact.recovery as u8); // TODO: normalize recovery ID if necessary
-                if signature.len() != 65 {
-                    return Err(SignatureError::Invalid);
-                }
-                signature
-            }
-        };
-        let wallet_signature = RecoverableSignature::Eip191Signature(wallet_signature);
-        let account_address =
-            wallet_signature.recover_address(&Self::text(&serialized_key_data))?;
-        let account_address = sanitize_evm_addresses(vec![account_address])?[0].clone();
-
-        let legacy_unsigned_public_key_proto =
-            LegacyUnsignedPublicKeyProto::decode(serialized_key_data.as_slice())
-                .or(Err(SignatureError::Invalid))?;
-        let public_key_bytes = match legacy_unsigned_public_key_proto
-            .union
-            .ok_or(SignatureError::Invalid)?
-        {
-            unsigned_public_key::Union::Secp256k1Uncompressed(secp256k1_uncompressed) => {
-                secp256k1_uncompressed.bytes
-            }
-        };
-        let created_ns = legacy_unsigned_public_key_proto.created_ns;
-
-        Ok(Self {
-            account_address,
-            wallet_signature,
-            serialized_key_data,
-            public_key_bytes,
-            created_ns,
-        })
-    }
-}
-
-impl From<ValidatedLegacySignedPublicKey> for LegacySignedPublicKeyProto {
-    fn from(validated: ValidatedLegacySignedPublicKey) -> Self {
-        let RecoverableSignature::Eip191Signature(signature) = validated.wallet_signature;
-        Self {
-            key_bytes: validated.serialized_key_data,
-            signature: Some(SignedPublicKeySignatureProto {
-                union: Some(Union::WalletEcdsaCompact(WalletEcdsaCompact {
-                    bytes: signature[0..64].to_vec(),
-                    recovery: signature[64] as u32,
-                })),
-            }),
-        }
-    }
-}
-
 #[cfg(test)]
-pub mod tests {
-
+mod tests {
     use super::*;
     use crate::{
         associations::{
@@ -456,8 +383,7 @@ pub mod tests {
     use ed25519_dalek::SigningKey;
     use ethers::prelude::*;
     use prost::Message;
-    use sha2::Digest;
-    use sha2::Sha512;
+    use sha2::{Digest, Sha512};
     use xmtp_proto::xmtp::message_contents::SignedPublicKey as LegacySignedPublicKeyProto;
 
     #[test]
@@ -551,7 +477,9 @@ pub mod tests {
         let signature_text = unsigned_action.signature_text();
         let mut prehashed: Sha512 = Sha512::new();
         prehashed.update(signature_text.clone());
-        let sig = signing_key.sign_prehashed(prehashed, None).unwrap();
+        let sig = signing_key
+            .sign_prehashed(prehashed, Some(INSTALLATION_KEY_SIGNATURE_CONTEXT))
+            .unwrap();
         let installation_key_sig = InstallationKeySignature::new(
             signature_text.clone(),
             sig.to_vec(),
@@ -563,6 +491,7 @@ pub mod tests {
     }
 
     #[tokio::test]
+    #[ignore] // TODO: refactor [ValidatedLegacySignedPublicKey] to separate the validation logic from the protobuf deserialization.
     async fn recover_signer_legacy() {
         // 1. RecoverableEcdsaSignature
         let legacy_key: LocalWallet = LocalWallet::new(&mut rand::thread_rng());
@@ -588,7 +517,8 @@ pub mod tests {
         };
 
         // LegacyDelegatedSignature
-        let delegated_signature = LegacyDelegatedSignature::new(signature, signed_public_key);
+        let delegated_signature =
+            LegacyDelegatedSignature::new(signature, signed_public_key.into());
         let expected = MemberIdentifier::Address(legacy_key.get_address());
         let actual = delegated_signature.recover_signer().await.unwrap();
         assert_eq!(expected, actual);

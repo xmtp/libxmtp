@@ -251,6 +251,10 @@ impl SignatureRequest {
             self.client_timestamp_ns,
         ))
     }
+
+    pub fn inbox_id(&self) -> String {
+        self.inbox_id.clone()
+    }
 }
 
 fn build_action(

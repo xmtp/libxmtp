@@ -176,7 +176,6 @@ mod tests {
             .allow_history_sync()
             .await
             .expect("create sync group");
-
         let result = client.send_message_history_request().await;
         assert_ok!(result);
     }
@@ -185,18 +184,16 @@ mod tests {
     async fn test_send_mesage_history_reply() {
         let wallet = generate_local_wallet();
         let client = ClientBuilder::new_test_client(&wallet).await;
-        // calls create_sync_group() internally.
         client
             .allow_history_sync()
             .await
             .expect("create sync group");
-
         let request_id = new_request_id();
         let url = "https://test.com/abc-123";
         let backup_hash = b"ABC123".into();
         let expiry = now_ns() + 10_000;
-        let reply = new_message_history_reply(&request_id, url, backup_hash, expiry);
-        let result = client.send_message_history_reply(reply).await;
+        let reply = HistoryReply::new(&request_id, url, backup_hash, expiry);
+        let result = client.send_message_history_reply(reply.into()).await;
         assert_ok!(result);
     }
 

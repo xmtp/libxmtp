@@ -13,7 +13,7 @@ pub use self::association_log::*;
 pub use self::hashes::generate_inbox_id;
 pub use self::member::{Member, MemberIdentifier, MemberKind};
 pub use self::serialization::{map_vec, try_map_vec, DeserializationError};
-pub use self::signature::{Signature, SignatureError, SignatureKind};
+pub use self::signature::*;
 pub use self::state::{AssociationState, AssociationStateDiff};
 
 // Apply a single IdentityUpdate to an existing AssociationState
@@ -104,10 +104,7 @@ pub mod test_defaults {
 
 #[cfg(test)]
 mod tests {
-    use tests::hashes::generate_inbox_id;
-
     use self::test_utils::{rand_string, rand_vec, MockSignature};
-
     use super::*;
 
     pub async fn new_test_inbox() -> AssociationState {
