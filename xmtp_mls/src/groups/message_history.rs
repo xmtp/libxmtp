@@ -37,11 +37,11 @@ where
 
     #[allow(dead_code)]
     pub(crate) async fn send_message_history_request(&self) -> Result<(), GroupError> {
-        let contents = new_message_history_request();
+        let contents = HistoryRequest::new();
         let _request = PlaintextEnvelope {
             content: Some(Content::V2(V2 {
                 idempotency_key: new_request_id(),
-                message_type: Some(Request(contents)),
+                message_type: Some(Request(contents.into())),
             })),
         };
         Ok(())
@@ -82,25 +82,56 @@ where
     }
 }
 
-pub(crate) fn new_message_history_request() -> MessageHistoryRequest {
-    MessageHistoryRequest {
-        pin_code: new_pin(),
-        request_id: new_request_id(),
+struct HistoryRequest {
+    pin_code: String,
+    request_id: String,
+}
+
+impl HistoryRequest {
+    pub(crate) fn new() -> Self {
+        Self {
+            pin_code: new_pin(),
+            request_id: new_request_id(),
+        }
     }
 }
 
-#[allow(dead_code)]
-pub(crate) fn new_message_history_reply(
-    id: &str,
-    url: &str,
-    hash: Vec<u8>,
-    exp: i64,
-) -> MessageHistoryReply {
-    MessageHistoryReply {
-        request_id: id.into(),
-        backup_url: url.into(),
-        backup_file_hash: hash,
-        expiration_time_ns: exp,
+impl From<HistoryRequest> for MessageHistoryRequest {
+    fn from(req: HistoryRequest) -> Self {
+        MessageHistoryRequest {
+            pin_code: req.pin_code,
+            request_id: req.request_id,
+        }
+    }
+}
+
+struct HistoryReply {
+    request_id: String,
+    backup_url: String,
+    backup_file_hash: Vec<u8>,
+    expiration_time_ns: i64,
+}
+
+impl HistoryReply {
+    pub(crate) fn new(id: &str, url: &str, hash: Vec<u8>, exp: i64) -> Self {
+        Self {
+            request_id: id.into(),
+            backup_url: url.into(),
+            backup_file_hash: hash,
+            expiration_time_ns: exp,
+        }
+    }
+}
+
+
+impl From<HistoryReply> for MessageHistoryReply {
+    fn from(reply: HistoryReply) -> Self {
+        MessageHistoryReply {
+            request_id: reply.request_id,
+            backup_url: reply.backup_url,
+            backup_file_hash: reply.backup_file_hash,
+            expiration_time_ns: reply.expiration_time_ns,
+        }
     }
 }
 
@@ -136,14 +167,15 @@ mod tests {
         assert!(client.allow_history_sync().await.is_ok());
     }
 
-
-    
     #[tokio::test]
     async fn test_send_mesage_history_request() {
         let wallet = generate_local_wallet();
         let client = ClientBuilder::new_test_client(&wallet).await;
         // calls create_sync_group() internally.
-        client.allow_history_sync().await.expect("create sync group");
+        client
+            .allow_history_sync()
+            .await
+            .expect("create sync group");
 
         let result = client.send_message_history_request().await;
         assert_ok!(result);
@@ -154,7 +186,10 @@ mod tests {
         let wallet = generate_local_wallet();
         let client = ClientBuilder::new_test_client(&wallet).await;
         // calls create_sync_group() internally.
-        client.allow_history_sync().await.expect("create sync group");
+        client
+            .allow_history_sync()
+            .await
+            .expect("create sync group");
 
         let request_id = new_request_id();
         let url = "https://test.com/abc-123";
