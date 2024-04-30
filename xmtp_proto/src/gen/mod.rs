@@ -1,6 +1,10 @@
 // @generated
 pub mod xmtp {
+    #[cfg(feature = "xmtp-identity")]
+    // @@protoc_insertion_point(attribute:xmtp.identity)
     pub mod identity {
+        include!("xmtp.identity.rs");
+        // @@protoc_insertion_point(xmtp.identity)
         pub mod api {
             #[cfg(feature = "xmtp-identity-api-v1")]
             // @@protoc_insertion_point(attribute:xmtp.identity.api.v1)
