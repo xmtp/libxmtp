@@ -136,9 +136,10 @@ impl From<HistoryReply> for MessageHistoryReply {
     fn from(reply: HistoryReply) -> Self {
         MessageHistoryReply {
             request_id: reply.request_id,
-            backup_url: reply.url,
-            backup_file_hash: reply.bundle_hash,
-            expiration_time_ns: 0,
+            url: reply.url,
+            bundle_hash: reply.bundle_hash,
+            bundle_signing_key: reply.bundle_signing_key,
+            encryption_key: reply.encryption_key,
         }
     }
 }
@@ -224,7 +225,7 @@ mod tests {
         let wallet = generate_local_wallet();
         let amal_a = ClientBuilder::new_test_client(&wallet).await;
         // let group_a = amal_a.create_group(None);
-        let messages_result = amal_a.prepare_messages_to_sync().await;
+        let _messages_result = amal_a.prepare_messages_to_sync().await;
         // println!("{:?}", messages_result);
     }
 }
