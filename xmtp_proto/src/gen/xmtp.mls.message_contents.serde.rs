@@ -2008,29 +2008,34 @@ impl serde::Serialize for MessageHistoryReply {
         if !self.request_id.is_empty() {
             len += 1;
         }
-        if !self.backup_url.is_empty() {
+        if !self.url.is_empty() {
             len += 1;
         }
-        if !self.backup_file_hash.is_empty() {
+        if !self.encryption_key.is_empty() {
             len += 1;
         }
-        if self.expiration_time_ns != 0 {
+        if !self.bundle_hash.is_empty() {
+            len += 1;
+        }
+        if !self.bundle_signing_key.is_empty() {
             len += 1;
         }
         let mut struct_ser = serializer.serialize_struct("xmtp.mls.message_contents.MessageHistoryReply", len)?;
         if !self.request_id.is_empty() {
             struct_ser.serialize_field("requestId", &self.request_id)?;
         }
-        if !self.backup_url.is_empty() {
-            struct_ser.serialize_field("backupUrl", &self.backup_url)?;
+        if !self.url.is_empty() {
+            struct_ser.serialize_field("url", &self.url)?;
         }
-        if !self.backup_file_hash.is_empty() {
-            #[allow(clippy::needless_borrow)]
-            struct_ser.serialize_field("backupFileHash", pbjson::private::base64::encode(&self.backup_file_hash).as_str())?;
+        if !self.encryption_key.is_empty() {
+            struct_ser.serialize_field("encryptionKey", &self.encryption_key)?;
         }
-        if self.expiration_time_ns != 0 {
+        if !self.bundle_hash.is_empty() {
             #[allow(clippy::needless_borrow)]
-            struct_ser.serialize_field("expirationTimeNs", ToString::to_string(&self.expiration_time_ns).as_str())?;
+            struct_ser.serialize_field("bundleHash", pbjson::private::base64::encode(&self.bundle_hash).as_str())?;
+        }
+        if !self.bundle_signing_key.is_empty() {
+            struct_ser.serialize_field("bundleSigningKey", &self.bundle_signing_key)?;
         }
         struct_ser.end()
     }
@@ -2044,20 +2049,22 @@ impl<'de> serde::Deserialize<'de> for MessageHistoryReply {
         const FIELDS: &[&str] = &[
             "request_id",
             "requestId",
-            "backup_url",
-            "backupUrl",
-            "backup_file_hash",
-            "backupFileHash",
-            "expiration_time_ns",
-            "expirationTimeNs",
+            "url",
+            "encryption_key",
+            "encryptionKey",
+            "bundle_hash",
+            "bundleHash",
+            "bundle_signing_key",
+            "bundleSigningKey",
         ];
 
         #[allow(clippy::enum_variant_names)]
         enum GeneratedField {
             RequestId,
-            BackupUrl,
-            BackupFileHash,
-            ExpirationTimeNs,
+            Url,
+            EncryptionKey,
+            BundleHash,
+            BundleSigningKey,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
             fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
@@ -2080,9 +2087,10 @@ impl<'de> serde::Deserialize<'de> for MessageHistoryReply {
                     {
                         match value {
                             "requestId" | "request_id" => Ok(GeneratedField::RequestId),
-                            "backupUrl" | "backup_url" => Ok(GeneratedField::BackupUrl),
-                            "backupFileHash" | "backup_file_hash" => Ok(GeneratedField::BackupFileHash),
-                            "expirationTimeNs" | "expiration_time_ns" => Ok(GeneratedField::ExpirationTimeNs),
+                            "url" => Ok(GeneratedField::Url),
+                            "encryptionKey" | "encryption_key" => Ok(GeneratedField::EncryptionKey),
+                            "bundleHash" | "bundle_hash" => Ok(GeneratedField::BundleHash),
+                            "bundleSigningKey" | "bundle_signing_key" => Ok(GeneratedField::BundleSigningKey),
                             _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
                         }
                     }
@@ -2103,9 +2111,10 @@ impl<'de> serde::Deserialize<'de> for MessageHistoryReply {
                     V: serde::de::MapAccess<'de>,
             {
                 let mut request_id__ = None;
-                let mut backup_url__ = None;
-                let mut backup_file_hash__ = None;
-                let mut expiration_time_ns__ = None;
+                let mut url__ = None;
+                let mut encryption_key__ = None;
+                let mut bundle_hash__ = None;
+                let mut bundle_signing_key__ = None;
                 while let Some(k) = map_.next_key()? {
                     match k {
                         GeneratedField::RequestId => {
@@ -2114,35 +2123,40 @@ impl<'de> serde::Deserialize<'de> for MessageHistoryReply {
                             }
                             request_id__ = Some(map_.next_value()?);
                         }
-                        GeneratedField::BackupUrl => {
-                            if backup_url__.is_some() {
-                                return Err(serde::de::Error::duplicate_field("backupUrl"));
+                        GeneratedField::Url => {
+                            if url__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("url"));
                             }
-                            backup_url__ = Some(map_.next_value()?);
+                            url__ = Some(map_.next_value()?);
                         }
-                        GeneratedField::BackupFileHash => {
-                            if backup_file_hash__.is_some() {
-                                return Err(serde::de::Error::duplicate_field("backupFileHash"));
+                        GeneratedField::EncryptionKey => {
+                            if encryption_key__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("encryptionKey"));
                             }
-                            backup_file_hash__ = 
+                            encryption_key__ = Some(map_.next_value()?);
+                        }
+                        GeneratedField::BundleHash => {
+                            if bundle_hash__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("bundleHash"));
+                            }
+                            bundle_hash__ = 
                                 Some(map_.next_value::<::pbjson::private::BytesDeserialize<_>>()?.0)
                             ;
                         }
-                        GeneratedField::ExpirationTimeNs => {
-                            if expiration_time_ns__.is_some() {
-                                return Err(serde::de::Error::duplicate_field("expirationTimeNs"));
+                        GeneratedField::BundleSigningKey => {
+                            if bundle_signing_key__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("bundleSigningKey"));
                             }
-                            expiration_time_ns__ = 
-                                Some(map_.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
-                            ;
+                            bundle_signing_key__ = Some(map_.next_value()?);
                         }
                     }
                 }
                 Ok(MessageHistoryReply {
                     request_id: request_id__.unwrap_or_default(),
-                    backup_url: backup_url__.unwrap_or_default(),
-                    backup_file_hash: backup_file_hash__.unwrap_or_default(),
-                    expiration_time_ns: expiration_time_ns__.unwrap_or_default(),
+                    url: url__.unwrap_or_default(),
+                    encryption_key: encryption_key__.unwrap_or_default(),
+                    bundle_hash: bundle_hash__.unwrap_or_default(),
+                    bundle_signing_key: bundle_signing_key__.unwrap_or_default(),
                 })
             }
         }
