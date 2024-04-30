@@ -1,8 +1,11 @@
 use std::collections::HashMap;
 
+use super::ApiClientWrapper;
+use crate::retry_async;
 use xmtp_proto::{
     api_client::{
-        Error as ApiError, ErrorKind, GroupMessageStream, WelcomeMessageStream, XmtpMlsClient,
+        Error as ApiError, ErrorKind, GroupMessageStream, WelcomeMessageStream, XmtpIdentityClient,
+        XmtpMlsClient,
     },
     xmtp::mls::api::v1::{
         get_identity_updates_response::update::Kind as UpdateKind,
@@ -17,14 +20,7 @@ use xmtp_proto::{
     },
 };
 
-use crate::{retry::Retry, retry_async};
-
-#[derive(Debug)]
-pub struct ApiClientWrapper<ApiClient> {
-    api_client: ApiClient,
-    retry_strategy: Retry,
-}
-
+/// A filter for querying group messages
 pub struct GroupFilter {
     pub group_id: Vec<u8>,
     pub id_cursor: Option<u64>,
@@ -48,17 +44,34 @@ impl From<GroupFilter> for GroupFilterProto {
     }
 }
 
+#[derive(Debug, PartialEq)]
+pub struct NewInstallation {
+    pub installation_key: Vec<u8>,
+    pub credential_bytes: Vec<u8>,
+    pub timestamp_ns: u64,
+}
+
+#[derive(Debug, PartialEq)]
+pub struct RevokeInstallation {
+    pub installation_key: Vec<u8>, // TODO: Add proof of revocation
+    pub timestamp_ns: u64,
+}
+
+#[derive(Debug, PartialEq)]
+pub enum IdentityUpdate {
+    NewInstallation(NewInstallation),
+    RevokeInstallation(RevokeInstallation),
+    Invalid,
+}
+
+type KeyPackageMap = HashMap<Vec<u8>, Vec<u8>>;
+
+type IdentityUpdatesMap = HashMap<String, Vec<IdentityUpdate>>;
+
 impl<ApiClient> ApiClientWrapper<ApiClient>
 where
-    ApiClient: XmtpMlsClient,
+    ApiClient: XmtpMlsClient + XmtpIdentityClient,
 {
-    pub fn new(api_client: ApiClient, retry_strategy: Retry) -> Self {
-        Self {
-            api_client,
-            retry_strategy,
-        }
-    }
-
     pub async fn query_group_messages(
         &self,
         group_id: Vec<u8>,
@@ -343,107 +356,22 @@ where
     }
 }
 
-#[derive(Debug, PartialEq)]
-pub struct NewInstallation {
-    pub installation_key: Vec<u8>,
-    pub credential_bytes: Vec<u8>,
-    pub timestamp_ns: u64,
-}
-
-#[derive(Debug, PartialEq)]
-pub struct RevokeInstallation {
-    pub installation_key: Vec<u8>, // TODO: Add proof of revocation
-    pub timestamp_ns: u64,
-}
-
-#[derive(Debug, PartialEq)]
-pub enum IdentityUpdate {
-    NewInstallation(NewInstallation),
-    RevokeInstallation(RevokeInstallation),
-    Invalid,
-}
-
-type KeyPackageMap = HashMap<Vec<u8>, Vec<u8>>;
-
-type IdentityUpdatesMap = HashMap<String, Vec<IdentityUpdate>>;
-
 #[cfg(test)]
 pub mod tests {
-    use async_trait::async_trait;
-    use mockall::mock;
-    use xmtp_api_grpc::grpc_api_helper::Client as GrpcClient;
+    use super::super::test_utils::*;
+    use super::super::*;
+
     use xmtp_proto::{
-        api_client::{Error, ErrorKind, GroupMessageStream, WelcomeMessageStream, XmtpMlsClient},
+        api_client::{Error, ErrorKind},
         xmtp::mls::api::v1::{
             fetch_key_packages_response::KeyPackage,
             get_identity_updates_response::{
                 update::Kind as UpdateKind, NewInstallationUpdate, Update, WalletUpdates,
             },
-            group_message::{Version as GroupMessageVersion, V1 as GroupMessageV1},
-            FetchKeyPackagesRequest, FetchKeyPackagesResponse, GetIdentityUpdatesRequest,
-            GetIdentityUpdatesResponse, GroupMessage, PagingInfo, QueryGroupMessagesRequest,
-            QueryGroupMessagesResponse, QueryWelcomeMessagesRequest, QueryWelcomeMessagesResponse,
-            RegisterInstallationRequest, RegisterInstallationResponse, SendGroupMessagesRequest,
-            SendWelcomeMessagesRequest, SubscribeGroupMessagesRequest,
-            SubscribeWelcomeMessagesRequest, UploadKeyPackageRequest,
+            FetchKeyPackagesResponse, GetIdentityUpdatesResponse, PagingInfo,
+            QueryGroupMessagesResponse, RegisterInstallationResponse,
         },
     };
-
-    use super::ApiClientWrapper;
-    use crate::retry::Retry;
-
-    pub async fn get_test_api_client() -> ApiClientWrapper<GrpcClient> {
-        ApiClientWrapper::new(
-            GrpcClient::create("http://localhost:5556".to_string(), false)
-                .await
-                .unwrap(),
-            Retry::default(),
-        )
-    }
-
-    fn build_group_messages(num_messages: usize, group_id: Vec<u8>) -> Vec<GroupMessage> {
-        let mut out: Vec<GroupMessage> = vec![];
-        for i in 0..num_messages {
-            out.push(GroupMessage {
-                version: Some(GroupMessageVersion::V1(GroupMessageV1 {
-                    id: i as u64,
-                    created_ns: i as u64,
-                    group_id: group_id.clone(),
-                    data: vec![i as u8],
-                    sender_hmac: vec![],
-                })),
-            })
-        }
-        out
-    }
-
-    // Create a mock XmtpClient for testing the client wrapper
-    mock! {
-        pub ApiClient {}
-
-        #[async_trait]
-        impl XmtpMlsClient for ApiClient {
-            async fn register_installation(
-                &self,
-                request: RegisterInstallationRequest,
-            ) -> Result<RegisterInstallationResponse, Error>;
-            async fn upload_key_package(&self, request: UploadKeyPackageRequest) -> Result<(), Error>;
-            async fn fetch_key_packages(
-                &self,
-                request: FetchKeyPackagesRequest,
-            ) -> Result<FetchKeyPackagesResponse, Error>;
-            async fn send_group_messages(&self, request: SendGroupMessagesRequest) -> Result<(), Error>;
-            async fn send_welcome_messages(&self, request: SendWelcomeMessagesRequest) -> Result<(), Error>;
-            async fn get_identity_updates(
-                &self,
-                request: GetIdentityUpdatesRequest,
-            ) -> Result<GetIdentityUpdatesResponse, Error>;
-            async fn query_group_messages(&self, request: QueryGroupMessagesRequest) -> Result<QueryGroupMessagesResponse, Error>;
-            async fn query_welcome_messages(&self, request: QueryWelcomeMessagesRequest) -> Result<QueryWelcomeMessagesResponse, Error>;
-            async fn subscribe_group_messages(&self, request: SubscribeGroupMessagesRequest) -> Result<GroupMessageStream, Error>;
-            async fn subscribe_welcome_messages(&self, request: SubscribeWelcomeMessagesRequest) -> Result<WelcomeMessageStream, Error>;
-        }
-    }
 
     #[tokio::test]
     async fn test_register_installation() {

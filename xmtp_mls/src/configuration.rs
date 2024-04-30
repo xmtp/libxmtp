@@ -18,3 +18,21 @@ const NANOSECONDS_IN_HOUR: i64 = 3_600_000_000_000;
 pub const UPDATE_INSTALLATIONS_INTERVAL_NS: i64 = NANOSECONDS_IN_HOUR / 2; // 30 min
 
 pub const MAX_GROUP_SIZE: u8 = 250;
+
+/// MLS Extension Types
+///
+/// Copied from draft-ietf-mls-protocol-16:
+///
+/// | Value            | Name                     | Message(s) | Recommended | Reference |
+/// |:-----------------|:-------------------------|:-----------|:------------|:----------|
+/// | 0x0000           | RESERVED                 | N/A        | N/A         | RFC XXXX  |
+/// | 0x0001           | application_id           | LN         | Y           | RFC XXXX  |
+/// | 0x0002           | ratchet_tree             | GI         | Y           | RFC XXXX  |
+/// | 0x0003           | required_capabilities    | GC         | Y           | RFC XXXX  |
+/// | 0x0004           | external_pub             | GI         | Y           | RFC XXXX  |
+/// | 0x0005           | external_senders         | GC         | Y           | RFC XXXX  |
+/// | 0xff00  - 0xffff | Reserved for Private Use | N/A        | N/A         | RFC XXXX  |
+pub const MUTABLE_METADATA_EXTENSION_ID: u16 = 0xff00;
+
+pub const DEFAULT_GROUP_NAME: &str = "New Group";
+pub const DEFAULT_GROUP_DESCRIPTION: &str = "New Group Description";

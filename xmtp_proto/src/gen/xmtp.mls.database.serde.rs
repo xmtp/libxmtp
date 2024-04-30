@@ -1293,12 +1293,18 @@ impl serde::Serialize for update_metadata_data::V1 {
     {
         use serde::ser::SerializeStruct;
         let mut len = 0;
-        if !self.group_name.is_empty() {
+        if !self.field_name.is_empty() {
+            len += 1;
+        }
+        if !self.field_value.is_empty() {
             len += 1;
         }
         let mut struct_ser = serializer.serialize_struct("xmtp.mls.database.UpdateMetadataData.V1", len)?;
-        if !self.group_name.is_empty() {
-            struct_ser.serialize_field("groupName", &self.group_name)?;
+        if !self.field_name.is_empty() {
+            struct_ser.serialize_field("fieldName", &self.field_name)?;
+        }
+        if !self.field_value.is_empty() {
+            struct_ser.serialize_field("fieldValue", &self.field_value)?;
         }
         struct_ser.end()
     }
@@ -1310,13 +1316,16 @@ impl<'de> serde::Deserialize<'de> for update_metadata_data::V1 {
         D: serde::Deserializer<'de>,
     {
         const FIELDS: &[&str] = &[
-            "group_name",
-            "groupName",
+            "field_name",
+            "fieldName",
+            "field_value",
+            "fieldValue",
         ];
 
         #[allow(clippy::enum_variant_names)]
         enum GeneratedField {
-            GroupName,
+            FieldName,
+            FieldValue,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
             fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
@@ -1338,7 +1347,8 @@ impl<'de> serde::Deserialize<'de> for update_metadata_data::V1 {
                         E: serde::de::Error,
                     {
                         match value {
-                            "groupName" | "group_name" => Ok(GeneratedField::GroupName),
+                            "fieldName" | "field_name" => Ok(GeneratedField::FieldName),
+                            "fieldValue" | "field_value" => Ok(GeneratedField::FieldValue),
                             _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
                         }
                     }
@@ -1358,19 +1368,27 @@ impl<'de> serde::Deserialize<'de> for update_metadata_data::V1 {
                 where
                     V: serde::de::MapAccess<'de>,
             {
-                let mut group_name__ = None;
+                let mut field_name__ = None;
+                let mut field_value__ = None;
                 while let Some(k) = map_.next_key()? {
                     match k {
-                        GeneratedField::GroupName => {
-                            if group_name__.is_some() {
-                                return Err(serde::de::Error::duplicate_field("groupName"));
+                        GeneratedField::FieldName => {
+                            if field_name__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("fieldName"));
                             }
-                            group_name__ = Some(map_.next_value()?);
+                            field_name__ = Some(map_.next_value()?);
+                        }
+                        GeneratedField::FieldValue => {
+                            if field_value__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("fieldValue"));
+                            }
+                            field_value__ = Some(map_.next_value()?);
                         }
                     }
                 }
                 Ok(update_metadata_data::V1 {
-                    group_name: group_name__.unwrap_or_default(),
+                    field_name: field_name__.unwrap_or_default(),
+                    field_value: field_value__.unwrap_or_default(),
                 })
             }
         }

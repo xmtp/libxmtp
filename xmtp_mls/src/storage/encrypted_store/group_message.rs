@@ -74,6 +74,7 @@ where
 pub enum DeliveryStatus {
     Unpublished = 1,
     Published = 2,
+    Failed = 3,
 }
 
 impl ToSql<Integer, Sqlite> for DeliveryStatus
@@ -94,6 +95,7 @@ where
         match i32::from_sql(bytes)? {
             1 => Ok(DeliveryStatus::Unpublished),
             2 => Ok(DeliveryStatus::Published),
+            3 => Ok(DeliveryStatus::Failed),
             x => Err(format!("Unrecognized variant {}", x).into()),
         }
     }
@@ -166,6 +168,13 @@ impl DbConnection<'_> {
                 .first(conn)
                 .optional()
         })?)
+    }
+
+    pub fn get_sync_group_messages(&self) -> Result<Vec<StoredGroupMessage>, StorageError> {
+        let query = dsl::group_messages
+            .order(dsl::sent_at_ns.asc())
+            .into_boxed();
+        Ok(self.raw_query(|conn| query.load::<StoredGroupMessage>(conn))?)
     }
 
     pub fn set_delivery_status_to_published<MessageId: AsRef<[u8]>>(

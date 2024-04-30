@@ -1,3 +1,4 @@
+//! Interaction with [ERC-1271](https://eips.ethereum.org/EIPS/eip-1271) smart contracts.
 use ethers::contract::abigen;
 use ethers::providers::{Http, Provider};
 use ethers::types::{Address, BlockNumber, Bytes};

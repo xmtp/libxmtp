@@ -2,6 +2,7 @@ pub use crate::inbox_owner::SigningError;
 use crate::logger::init_logger;
 use crate::logger::FfiLogger;
 use crate::GenericError;
+use std::collections::HashMap;
 use std::convert::TryInto;
 use std::sync::{
     atomic::{AtomicBool, Ordering},
@@ -9,18 +10,17 @@ use std::sync::{
 };
 use tokio::sync::oneshot::Sender;
 use xmtp_api_grpc::grpc_api_helper::Client as TonicApiClient;
-use xmtp_mls::builder::IdentityStrategy;
-use xmtp_mls::builder::LegacyIdentity;
 use xmtp_mls::groups::group_metadata::ConversationType;
 use xmtp_mls::groups::group_metadata::GroupMetadata;
 use xmtp_mls::groups::PreconfiguredPolicies;
+use xmtp_mls::identity::v3::{IdentityStrategy, LegacyIdentity};
 use xmtp_mls::{
     builder::ClientBuilder,
     client::Client as MlsClient,
     groups::MlsGroup,
     storage::{
-        group_message::GroupMessageKind, group_message::StoredGroupMessage, EncryptedMessageStore,
-        EncryptionKey, StorageOption,
+        group_message::DeliveryStatus, group_message::GroupMessageKind,
+        group_message::StoredGroupMessage, EncryptedMessageStore, EncryptionKey, StorageOption,
     },
     types::Address,
 };
@@ -132,10 +132,10 @@ impl FfiXmtpClient {
     pub async fn can_message(
         &self,
         account_addresses: Vec<String>,
-    ) -> Result<Vec<bool>, GenericError> {
+    ) -> Result<HashMap<String, bool>, GenericError> {
         let inner = self.inner_client.as_ref();
 
-        let results: Vec<bool> = inner.can_message(account_addresses).await?;
+        let results: HashMap<String, bool> = inner.can_message(account_addresses).await?;
 
         Ok(results)
     }
@@ -220,7 +220,6 @@ impl FfiConversations {
             inner_client: self.inner_client.clone(),
             group_id: convo.group_id,
             created_at_ns: convo.created_at_ns,
-            added_by_address: convo.added_by_address,
         });
 
         Ok(out)
@@ -236,7 +235,6 @@ impl FfiConversations {
             inner_client: self.inner_client.clone(),
             group_id: group.group_id,
             created_at_ns: group.created_at_ns,
-            added_by_address: group.added_by_address,
         });
         Ok(out)
     }
@@ -265,7 +263,6 @@ impl FfiConversations {
                     inner_client: self.inner_client.clone(),
                     group_id: group.group_id,
                     created_at_ns: group.created_at_ns,
-                    added_by_address: group.added_by_address,
                 })
             })
             .collect();
@@ -285,7 +282,6 @@ impl FfiConversations {
                     inner_client: client.clone(),
                     group_id: convo.group_id,
                     created_at_ns: convo.created_at_ns,
-                    added_by_address: convo.added_by_address,
                 }))
             },
             || {}, // on_close_callback
@@ -319,7 +315,6 @@ pub struct FfiGroup {
     inner_client: Arc<RustXmtpClient>,
     group_id: Vec<u8>,
     created_at_ns: i64,
-    added_by_address: Option<String>,
 }
 
 #[derive(uniffi::Record)]
@@ -333,21 +328,21 @@ pub struct FfiListMessagesOptions {
     pub sent_before_ns: Option<i64>,
     pub sent_after_ns: Option<i64>,
     pub limit: Option<i64>,
+    pub delivery_status: Option<FfiDeliveryStatus>,
 }
 
 #[uniffi::export(async_runtime = "tokio")]
 impl FfiGroup {
-    pub async fn send(&self, content_bytes: Vec<u8>) -> Result<(), GenericError> {
+    pub async fn send(&self, content_bytes: Vec<u8>) -> Result<Vec<u8>, GenericError> {
         let group = MlsGroup::new(
             self.inner_client.as_ref(),
             self.group_id.clone(),
             self.created_at_ns,
-            self.added_by_address.clone(),
         );
 
-        group.send_message(content_bytes.as_slice()).await?;
+        let message_id = group.send_message(content_bytes.as_slice()).await?;
 
-        Ok(())
+        Ok(message_id)
     }
 
     pub async fn sync(&self) -> Result<(), GenericError> {
@@ -355,7 +350,6 @@ impl FfiGroup {
             self.inner_client.as_ref(),
             self.group_id.clone(),
             self.created_at_ns,
-            self.added_by_address.clone(),
         );
 
         group.sync().await?;
@@ -371,15 +365,16 @@ impl FfiGroup {
             self.inner_client.as_ref(),
             self.group_id.clone(),
             self.created_at_ns,
-            self.added_by_address.clone(),
         );
+
+        let delivery_status = opts.delivery_status.map(|status| status.into());
 
         let messages: Vec<FfiMessage> = group
             .find_messages(
                 None,
                 opts.sent_before_ns,
                 opts.sent_after_ns,
-                None,
+                delivery_status,
                 opts.limit,
             )?
             .into_iter()
@@ -397,7 +392,6 @@ impl FfiGroup {
             self.inner_client.as_ref(),
             self.group_id.clone(),
             self.created_at_ns,
-            self.added_by_address.clone(),
         );
         let message = group.process_streamed_group_message(envelope_bytes).await?;
         let ffi_message = message.into();
@@ -410,7 +404,6 @@ impl FfiGroup {
             self.inner_client.as_ref(),
             self.group_id.clone(),
             self.created_at_ns,
-            self.added_by_address.clone(),
         );
 
         let members: Vec<FfiGroupMember> = group
@@ -432,7 +425,6 @@ impl FfiGroup {
             self.inner_client.as_ref(),
             self.group_id.clone(),
             self.created_at_ns,
-            self.added_by_address.clone(),
         );
 
         group.add_members(account_addresses).await?;
@@ -445,12 +437,35 @@ impl FfiGroup {
             self.inner_client.as_ref(),
             self.group_id.clone(),
             self.created_at_ns,
-            self.added_by_address.clone(),
         );
 
         group.remove_members(account_addresses).await?;
 
         Ok(())
+    }
+
+    pub async fn update_group_name(&self, group_name: String) -> Result<(), GenericError> {
+        let group = MlsGroup::new(
+            self.inner_client.as_ref(),
+            self.group_id.clone(),
+            self.created_at_ns,
+        );
+
+        group.update_group_name(group_name).await?;
+
+        Ok(())
+    }
+
+    pub fn group_name(&self) -> Result<String, GenericError> {
+        let group = MlsGroup::new(
+            self.inner_client.as_ref(),
+            self.group_id.clone(),
+            self.created_at_ns,
+        );
+
+        let group_name = group.group_name()?;
+
+        Ok(group_name)
     }
 
     pub async fn stream(
@@ -481,10 +496,19 @@ impl FfiGroup {
             self.inner_client.as_ref(),
             self.group_id.clone(),
             self.created_at_ns,
-            self.added_by_address.clone(),
         );
 
         Ok(group.is_active()?)
+    }
+
+    pub fn added_by_address(&self) -> Result<String, GenericError> {
+        let group = MlsGroup::new(
+            self.inner_client.as_ref(),
+            self.group_id.clone(),
+            self.created_at_ns,
+        );
+
+        Ok(group.added_by_address()?)
     }
 
     pub fn group_metadata(&self) -> Result<Arc<FfiGroupMetadata>, GenericError> {
@@ -492,7 +516,6 @@ impl FfiGroup {
             self.inner_client.as_ref(),
             self.group_id.clone(),
             self.created_at_ns,
-            self.added_by_address.clone(),
         );
 
         let metadata = group.metadata()?;
@@ -524,6 +547,33 @@ impl From<GroupMessageKind> for FfiGroupMessageKind {
     }
 }
 
+#[derive(uniffi::Enum)]
+pub enum FfiDeliveryStatus {
+    Unpublished,
+    Published,
+    Failed,
+}
+
+impl From<DeliveryStatus> for FfiDeliveryStatus {
+    fn from(status: DeliveryStatus) -> Self {
+        match status {
+            DeliveryStatus::Unpublished => FfiDeliveryStatus::Unpublished,
+            DeliveryStatus::Published => FfiDeliveryStatus::Published,
+            DeliveryStatus::Failed => FfiDeliveryStatus::Failed,
+        }
+    }
+}
+
+impl From<FfiDeliveryStatus> for DeliveryStatus {
+    fn from(status: FfiDeliveryStatus) -> Self {
+        match status {
+            FfiDeliveryStatus::Unpublished => DeliveryStatus::Unpublished,
+            FfiDeliveryStatus::Published => DeliveryStatus::Published,
+            FfiDeliveryStatus::Failed => DeliveryStatus::Failed,
+        }
+    }
+}
+
 #[derive(uniffi::Record)]
 pub struct FfiMessage {
     pub id: Vec<u8>,
@@ -532,6 +582,7 @@ pub struct FfiMessage {
     pub addr_from: String,
     pub content: Vec<u8>,
     pub kind: FfiGroupMessageKind,
+    pub delivery_status: FfiDeliveryStatus,
 }
 
 impl From<StoredGroupMessage> for FfiMessage {
@@ -543,6 +594,7 @@ impl From<StoredGroupMessage> for FfiMessage {
             addr_from: msg.sender_account_address,
             content: msg.decrypted_message_bytes,
             kind: msg.kind.into(),
+            delivery_status: msg.delivery_status.into(),
         }
     }
 }
@@ -915,11 +967,17 @@ mod tests {
         )
         .await
         .unwrap();
+        let can_message_result = client_amal
+            .can_message(vec![bola.get_address()])
+            .await
+            .unwrap();
+
         assert!(
-            !client_amal
-                .can_message(vec![bola.get_address()])
-                .await
-                .unwrap()[0]
+            can_message_result
+                .get(&bola.get_address().to_string())
+                .map(|&value| !value)
+                .unwrap_or(false),
+            "Expected the can_message result to be false for the address"
         );
 
         let client_bola = create_client(
@@ -940,11 +998,18 @@ mod tests {
             .register_identity(Some(signature))
             .await
             .unwrap();
+
+        let can_message_result2 = client_amal
+            .can_message(vec![bola.get_address()])
+            .await
+            .unwrap();
+
         assert!(
-            client_amal
-                .can_message(vec![bola.get_address()])
-                .await
-                .unwrap()[0]
+            can_message_result2
+                .get(&bola.get_address().to_string())
+                .map(|&value| value)
+                .unwrap_or(false),
+            "Expected the can_message result to be true for the address"
         );
     }
 
@@ -1152,7 +1217,7 @@ mod tests {
         let bola_group = bola_groups.first().unwrap();
 
         // Check Bola's group for the added_by_address of the inviter
-        let added_by_address = bola_group.added_by_address.clone().unwrap();
+        let added_by_address = bola_group.added_by_address().unwrap();
 
         // // Verify the welcome host_credential is equal to Amal's
         assert_eq!(

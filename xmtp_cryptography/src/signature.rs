@@ -1,4 +1,5 @@
 use curve25519_dalek::{edwards::CompressedEdwardsY, traits::IsIdentity};
+use ethers::types::Address;
 use ethers_core::types::{self as ethers_types, H160};
 pub use k256::ecdsa::{RecoveryId, SigningKey, VerifyingKey};
 use k256::Secp256k1;
@@ -9,7 +10,7 @@ use thiserror::Error;
 #[derive(Error, Debug)]
 pub enum SignatureError {
     #[error("Bad address format")]
-    BadAddressFormat(#[from] hex::FromHexError),
+    BadAddressFormat(#[from] rustc_hex::FromHexError),
     #[error("supplied signature is not in the proper format")]
     BadSignatureFormat(#[from] ethers_types::SignatureError),
     #[error("Signature is not valid for {addr:?}")]
@@ -49,7 +50,7 @@ impl RecoverableSignature {
     ) -> Result<(), SignatureError> {
         match self {
             Self::Eip191Signature(signature_bytes) => {
-                let address = ethers_types::Address::from_slice(&addr_string_to_bytes(addr)?);
+                let address: Address = addr.parse()?;
                 let signature = ethers_types::Signature::try_from(signature_bytes.as_slice())?;
                 if let Err(e) = signature.verify(predigest_message, address) {
                     return Err(SignatureError::BadSignature {
@@ -107,11 +108,6 @@ fn eip_191_prefix(msg: &str) -> String {
     format!("\x19Ethereum Signed Message:\n{}.", msg.len())
 }
 
-fn addr_string_to_bytes(str: &str) -> Result<Vec<u8>, SignatureError> {
-    let unprefixed_address = str::strip_prefix(str, "0x").unwrap_or(str);
-    hex::decode(unprefixed_address).map_err(SignatureError::BadAddressFormat)
-}
-
 pub fn h160addr_to_string(bytes: H160) -> String {
     let mut s = String::from("0x");
     s.push_str(&hex::encode(bytes));
@@ -137,6 +133,32 @@ pub fn is_valid_ethereum_address<S: AsRef<str>>(address: S) -> bool {
     }
 
     address.chars().all(|c| c.is_ascii_hexdigit())
+}
+
+#[derive(Debug, Error)]
+pub enum AddressValidationError {
+    #[error("invalid addresses: {0:?}")]
+    InvalidAddresses(Vec<String>),
+}
+
+pub fn sanitize_evm_addresses(
+    account_addresses: Vec<String>,
+) -> Result<Vec<String>, AddressValidationError> {
+    let mut invalid = account_addresses
+        .iter()
+        .filter(|a| !is_valid_ethereum_address(a))
+        .peekable();
+
+    if invalid.peek().is_some() {
+        return Err(AddressValidationError::InvalidAddresses(
+            invalid.map(ToString::to_string).collect::<Vec<_>>(),
+        ));
+    }
+
+    Ok(account_addresses
+        .iter()
+        .map(|address| address.to_lowercase())
+        .collect())
 }
 
 /// Check if an ed25519 public signature key is valid.

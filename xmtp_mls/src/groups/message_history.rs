@@ -1,82 +1,133 @@
-use xmtp_proto::{
-    api_client::XmtpMlsClient,
-    xmtp::mls::message_contents::plaintext_envelope::v2::MessageType::{
-        MessageHistoryRequest as HistoryRequest, MessageHistoryResponse as HistoryResponse,
-    },
-    xmtp::mls::message_contents::plaintext_envelope::{Content, V2},
-    xmtp::mls::message_contents::PlaintextEnvelope,
-    xmtp::mls::message_contents::{MessageHistoryRequest, MessageHistoryResponse},
+use rand::{
+    distributions::{Alphanumeric, DistString},
+    Rng,
 };
 
-use super::{GroupError, MlsGroup};
+use xmtp_proto::{
+    api_client::{XmtpIdentityClient, XmtpMlsClient},
+    xmtp::mls::message_contents::plaintext_envelope::v2::MessageType::{Reply, Request},
+    xmtp::mls::message_contents::plaintext_envelope::{Content, V2},
+    xmtp::mls::message_contents::PlaintextEnvelope,
+    xmtp::mls::message_contents::{MessageHistoryReply, MessageHistoryRequest},
+};
 
-impl<'c, ApiClient> MlsGroup<'c, ApiClient>
+use super::GroupError;
+use crate::Client;
+
+impl<'c, ApiClient> Client<ApiClient>
 where
-    ApiClient: XmtpMlsClient,
+    ApiClient: XmtpMlsClient + XmtpIdentityClient,
 {
     #[allow(dead_code)]
     pub(crate) async fn send_message_history_request(&self) -> Result<(), GroupError> {
-        let pin_code = "1234".to_string();
-        let request_id = "abc123".to_string();
+        let contents = new_message_history_request();
         let _request = PlaintextEnvelope {
             content: Some(Content::V2(V2 {
-                idempotency_key: String::from("unique"),
-                message_type: Some(HistoryRequest(MessageHistoryRequest {
-                    pin_code,
-                    request_id,
-                })),
+                idempotency_key: new_request_id(),
+                message_type: Some(Request(contents)),
             })),
         };
-        // TODO: Implement sending request to network
         Ok(())
     }
 
     #[allow(dead_code)]
-    pub(crate) async fn send_message_history_response(&self) -> Result<(), GroupError> {
-        let backup_url = "https://example.com/uploads/long-id-123".to_string();
-        let request_id = "abc123".to_string();
-        let backup_file_hash = b"ABC123DEF456";
-        let expiration_time_ns = 123;
+    pub(crate) async fn send_message_history_reply(
+        &self,
+        contents: MessageHistoryReply,
+    ) -> Result<(), GroupError> {
         let _request = PlaintextEnvelope {
             content: Some(Content::V2(V2 {
-                idempotency_key: String::from("unique"),
-                message_type: Some(HistoryResponse(MessageHistoryResponse {
-                    backup_url,
-                    request_id,
-                    backup_file_hash: backup_file_hash.into(),
-                    expiration_time_ns,
-                })),
+                idempotency_key: new_request_id(),
+                message_type: Some(Reply(contents)),
             })),
         };
-        // TODO: Implement sending (responding) request to network
         Ok(())
     }
+}
+
+pub(crate) fn new_message_history_request() -> MessageHistoryRequest {
+    MessageHistoryRequest {
+        pin_code: new_pin(),
+        request_id: new_request_id(),
+    }
+}
+
+#[allow(dead_code)]
+pub(crate) fn new_message_history_reply(
+    id: &str,
+    url: &str,
+    hash: Vec<u8>,
+    exp: i64,
+) -> MessageHistoryReply {
+    MessageHistoryReply {
+        request_id: id.into(),
+        backup_url: url.into(),
+        backup_file_hash: hash,
+        expiration_time_ns: exp,
+    }
+}
+
+fn new_pin() -> String {
+    let mut rng = rand::thread_rng();
+    let pin: u32 = rng.gen_range(0..10000);
+    format!("{:04}", pin)
+}
+
+fn new_request_id() -> String {
+    Alphanumeric.sample_string(&mut rand::thread_rng(), 24)
+}
+
+#[allow(dead_code)]
+fn verify_pin(expected: &str, actual: &str) -> bool {
+    expected == actual
 }
 
 #[cfg(test)]
 mod tests {
 
+    use super::*;
+    use xmtp_cryptography::utils::generate_local_wallet;
+
     use crate::assert_ok;
     use crate::builder::ClientBuilder;
-    use xmtp_cryptography::utils::generate_local_wallet;
+    use crate::utils::time::now_ns;
 
     #[tokio::test]
     async fn test_send_mesage_history_request() {
         let wallet = generate_local_wallet();
         let client = ClientBuilder::new_test_client(&wallet).await;
-        let group = client.create_group(None).expect("create group");
+        let _group = client.create_sync_group().expect("create group");
 
-        let result = group.send_message_history_request().await;
+        let result = client.send_message_history_request().await;
         assert_ok!(result);
     }
 
     #[tokio::test]
-    async fn test_send_mesage_history_response() {
+    async fn test_send_mesage_history_reply() {
         let wallet = generate_local_wallet();
         let client = ClientBuilder::new_test_client(&wallet).await;
-        let group = client.create_group(None).expect("create group");
+        let _group = client.create_sync_group().expect("create sync group");
 
-        let result = group.send_message_history_response().await;
+        let request_id = new_request_id();
+        let url = "https://test.com/abc-123";
+        let backup_hash = b"ABC123".into();
+        let expiry = now_ns() + 10_000;
+        let reply = new_message_history_reply(&request_id, url, backup_hash, expiry);
+        let result = client.send_message_history_reply(reply).await;
         assert_ok!(result);
+    }
+
+    #[tokio::test]
+    async fn test_request_reply_roundtrip() {
+        let wallet = generate_local_wallet();
+        let amal_a = ClientBuilder::new_test_client(&wallet).await;
+        let amal_b = ClientBuilder::new_test_client(&wallet).await;
+        let group = amal_a.create_group(None).expect("create group");
+        let add_members_result = group
+            .add_members_by_installation_id(vec![amal_b.installation_public_key()])
+            .await;
+        assert_ok!(add_members_result);
+
+        let _ = amal_b.send_message_history_request().await;
     }
 }

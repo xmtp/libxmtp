@@ -2,11 +2,11 @@ use std::collections::HashMap;
 
 use openmls::{credentials::BasicCredential, group::MlsGroup as OpenMlsGroup};
 
-use xmtp_proto::api_client::XmtpMlsClient;
+use xmtp_proto::api_client::{XmtpIdentityClient, XmtpMlsClient};
 
 use super::{GroupError, MlsGroup};
 
-use crate::{identity::Identity, xmtp_openmls_provider::XmtpOpenMlsProvider};
+use crate::{identity::v3::Identity, xmtp_openmls_provider::XmtpOpenMlsProvider};
 
 #[derive(Debug, Clone)]
 pub struct GroupMember {
@@ -16,7 +16,7 @@ pub struct GroupMember {
 
 impl<'c, ApiClient> MlsGroup<'c, ApiClient>
 where
-    ApiClient: XmtpMlsClient,
+    ApiClient: XmtpMlsClient + XmtpIdentityClient,
 {
     // Load the member list for the group from the DB, merging together multiple installations into a single entry
     pub fn members(&self) -> Result<Vec<GroupMember>, GroupError> {

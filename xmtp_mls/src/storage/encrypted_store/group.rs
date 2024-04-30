@@ -6,7 +6,7 @@ use diesel::{
     expression::AsExpression,
     prelude::*,
     serialize::{self, IsNull, Output, ToSql},
-    sql_types::Integer,
+    sql_types::{BigInt, Integer},
     sqlite::Sqlite,
 };
 
@@ -35,7 +35,8 @@ pub struct StoredGroup {
     /// Enum, [`Purpose`] signifies the group purpose which extends to who can access it.
     pub purpose: Purpose,
     /// String representing the wallet address of the who added the user to a group.
-    pub added_by_address: Option<String>,
+    pub added_by_address: String,
+    pub rotated_at_ns: BigInt,
 }
 
 impl_fetch!(StoredGroup, groups, Vec<u8>);
@@ -47,7 +48,7 @@ impl StoredGroup {
         id: ID,
         created_at_ns: i64,
         membership_state: GroupMembershipState,
-        added_by_address: Option<String>,
+        added_by_address: String,
     ) -> Self {
         Self {
             id,
@@ -56,6 +57,7 @@ impl StoredGroup {
             installations_last_checked: 0,
             purpose: Purpose::Conversation,
             added_by_address,
+            rotated_at_ns: BigInt::zero(),
         }
     }
 
@@ -71,7 +73,8 @@ impl StoredGroup {
             membership_state,
             installations_last_checked: 0,
             purpose: Purpose::Sync,
-            added_by_address: None,
+            added_by_address: "".into(),
+            rotated_at_ns: BigInt::zero(),
         }
     }
 }
@@ -114,6 +117,17 @@ impl DbConnection<'_> {
         query = query.filter(dsl::purpose.eq(Purpose::Sync));
 
         Ok(self.raw_query(|conn| query.load(conn))?)
+    }
+
+    /// Return a single group that matches the given ID
+    pub fn find_group(&self, id: Vec<u8>) -> Result<Option<StoredGroup>, StorageError> {
+        let mut query = dsl::groups.order(dsl::created_at_ns.asc()).into_boxed();
+
+        query = query.limit(1).filter(dsl::id.eq(id));
+        let groups: Vec<StoredGroup> = self.raw_query(|conn| query.load(conn))?;
+
+        // Manually extract the first element
+        Ok(groups.into_iter().next())
     }
 
     /// Updates group membership state
@@ -258,7 +272,12 @@ pub(crate) mod tests {
         let id = rand_vec();
         let created_at_ns = now_ns();
         let membership_state = state.unwrap_or(GroupMembershipState::Allowed);
-        StoredGroup::new(id, created_at_ns, membership_state, None)
+        StoredGroup::new(
+            id,
+            created_at_ns,
+            membership_state,
+            "placeholder_address".to_string(),
+        )
     }
 
     #[test]
@@ -392,7 +411,7 @@ pub(crate) mod tests {
 
     #[test]
     fn test_new_sync_group() {
-        with_connection(|_conn| {
+        with_connection(|conn| {
             let id = rand_vec();
             let created_at_ns = now_ns();
             let membership_state = GroupMembershipState::Allowed;
@@ -400,6 +419,12 @@ pub(crate) mod tests {
             let sync_group = StoredGroup::new_sync_group(id, created_at_ns, membership_state);
             let purpose = sync_group.purpose;
             assert_eq!(purpose, Purpose::Sync);
+
+            sync_group.store(conn).unwrap();
+
+            let found = conn.find_sync_groups().unwrap();
+            assert_eq!(found.len(), 1);
+            assert_eq!(found[0].purpose, Purpose::Sync)
         })
     }
 }

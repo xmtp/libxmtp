@@ -7,6 +7,7 @@ use openmls::{
         BasicCredential,
     },
     extensions::{errors::InvalidExtensionError, ApplicationIdExtension, LastResortExtension},
+    messages::proposals::ProposalType,
     prelude::{
         tls_codec::{Error as TlsCodecError, Serialize},
         Capabilities, Credential as OpenMlsCredential, CredentialWithKey, CryptoConfig, Extension,
@@ -17,15 +18,18 @@ use openmls::{
 use openmls_basic_credential::SignatureKeyPair;
 use openmls_traits::{types::CryptoError, OpenMlsProvider};
 use prost::Message;
+use sha2::{Digest, Sha512};
 use thiserror::Error;
 use xmtp_cryptography::signature::SignatureError;
+use xmtp_id::constants::INSTALLATION_KEY_SIGNATURE_CONTEXT;
 use xmtp_proto::{
-    api_client::XmtpMlsClient, xmtp::mls::message_contents::MlsCredential as CredentialProto,
+    api_client::{XmtpIdentityClient, XmtpMlsClient},
+    xmtp::mls::message_contents::MlsCredential as CredentialProto,
 };
 
 use crate::{
-    api_client_wrapper::{ApiClientWrapper, IdentityUpdate},
-    configuration::CIPHERSUITE,
+    api::{ApiClientWrapper, IdentityUpdate},
+    configuration::{CIPHERSUITE, MUTABLE_METADATA_EXTENSION_ID},
     credential::{AssociationError, Credential, UnsignedGrantMessagingAccessData},
     storage::{identity::StoredIdentity, StorageError},
     types::Address,
@@ -62,6 +66,8 @@ pub enum IdentityError {
     OpenMlsCredentialError(#[from] CredentialError),
     #[error("Basic Credential error: {0}")]
     BasicCredential(#[from] BasicCredentialError),
+    #[error(transparent)]
+    Signature(#[from] ed25519_dalek::SignatureError),
 }
 
 #[derive(Debug)]
@@ -113,7 +119,7 @@ impl Identity {
         })
     }
 
-    pub(crate) async fn register<ApiClient: XmtpMlsClient>(
+    pub(crate) async fn register<ApiClient: XmtpMlsClient + XmtpIdentityClient>(
         &self,
         provider: &XmtpOpenMlsProvider<'_>,
         api_client: &ApiClientWrapper<ApiClient>,
@@ -198,8 +204,13 @@ impl Identity {
         let capabilities = Capabilities::new(
             None,
             Some(&[CIPHERSUITE]),
-            Some(&[ExtensionType::LastResort, ExtensionType::ApplicationId]),
-            None,
+            Some(&[
+                ExtensionType::LastResort,
+                ExtensionType::ApplicationId,
+                ExtensionType::Unknown(MUTABLE_METADATA_EXTENSION_ID),
+                ExtensionType::ImmutableMetadata,
+            ]),
+            Some(&[ProposalType::GroupContextExtensions]),
             None,
         );
         let kp = KeyPackage::builder()
@@ -241,7 +252,9 @@ impl Identity {
         self.account_address.as_bytes().to_vec()
     }
 
-    pub(crate) async fn has_existing_legacy_credential<ApiClient: XmtpMlsClient>(
+    pub(crate) async fn has_existing_legacy_credential<
+        ApiClient: XmtpMlsClient + XmtpIdentityClient,
+    >(
         api_client: &ApiClientWrapper<ApiClient>,
         account_address: &str,
     ) -> Result<bool, IdentityError> {
@@ -271,6 +284,15 @@ impl Identity {
         }
         Ok(false)
     }
+
+    pub(crate) fn sign<Text: AsRef<str>>(&self, text: Text) -> Result<Vec<u8>, IdentityError> {
+        let mut prehashed = Sha512::new();
+        prehashed.update(text.as_ref());
+        let k = ed25519_dalek::SigningKey::try_from(self.installation_keys.private())
+            .expect("signing key is invalid");
+        let signature = k.sign_prehashed(prehashed, Some(INSTALLATION_KEY_SIGNATURE_CONTEXT))?;
+        Ok(signature.to_vec())
+    }
 }
 
 #[cfg(test)]
@@ -279,17 +301,17 @@ mod tests {
     use openmls::prelude::ExtensionType;
     use xmtp_api_grpc::grpc_api_helper::Client as GrpcClient;
     use xmtp_cryptography::utils::generate_local_wallet;
-    use xmtp_proto::api_client::XmtpMlsClient;
+    use xmtp_proto::api_client::{XmtpIdentityClient, XmtpMlsClient};
 
     use super::Identity;
     use crate::{
-        api_client_wrapper::{tests::get_test_api_client, ApiClientWrapper},
+        api::{test_utils::get_test_api_client, ApiClientWrapper},
         storage::EncryptedMessageStore,
         xmtp_openmls_provider::XmtpOpenMlsProvider,
         InboxOwner,
     };
 
-    pub async fn create_registered_identity<ApiClient: XmtpMlsClient>(
+    pub async fn create_registered_identity<ApiClient: XmtpMlsClient + XmtpIdentityClient>(
         provider: &XmtpOpenMlsProvider<'_>,
         api_client: &ApiClientWrapper<ApiClient>,
         owner: &impl InboxOwner,
