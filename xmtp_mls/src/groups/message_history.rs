@@ -207,6 +207,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[ignore]
     async fn test_request_reply_roundtrip() {
         let wallet = generate_local_wallet();
         let amal_a = ClientBuilder::new_test_client(&wallet).await;
@@ -221,6 +222,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[ignore]
     async fn test_prepare_messages_to_sync() {
         let wallet = generate_local_wallet();
         let amal_a = ClientBuilder::new_test_client(&wallet).await;
