@@ -194,7 +194,6 @@ impl From<InboxIdValidationError> for InboxIdValidationResponse {
             is_ok: false,
             error_message: err.to_string(),
             inbox_id: err.inbox_id(),
-            expiration: 0,
         }
     }
 }
