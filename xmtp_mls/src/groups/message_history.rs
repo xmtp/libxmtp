@@ -62,22 +62,22 @@ where
     }
 
     #[allow(dead_code)]
-    pub(crate) async fn prepare_messages_to_send(
+    pub(crate) async fn prepare_messages_to_sync(
         &self,
     ) -> Result<Vec<StoredGroupMessage>, StorageError> {
-        println!("bundle_messages_to_send called");
+        // println!("prepreparepare_messages_to_sync called");
         let conn = self.store.conn()?;
         let groups = conn.find_groups(None, None, None, None)?;
         let mut all_messages: Vec<StoredGroupMessage> = vec![];
 
         for StoredGroup { id, .. } in groups.clone() {
             let messages = conn.get_group_messages(id, None, None, None, None, None)?;
-            println!("{:#?}", messages);
+            // println!("{:#?}", messages);
             all_messages.extend(messages);
         }
 
-        println!("groups: {:#?}", groups);
-        println!("# of group messages: {:?}", all_messages.len());
+        // println!("groups: {:#?}", groups);
+        // println!("# of grprepareoup messages: {:?}", all_messages.len());
         Ok(all_messages)
     }
 }
@@ -107,19 +107,27 @@ impl From<HistoryRequest> for MessageHistoryRequest {
 
 struct HistoryReply {
     request_id: String,
-    backup_url: String,
-    backup_file_hash: Vec<u8>,
-    expiration_time_ns: i64,
+    url: String,
+    bundle_hash: Vec<u8>,
+    bundle_signing_key: String,
+    encryption_key: String,
 }
 
 impl HistoryReply {
     #[allow(dead_code)]
-    pub(crate) fn new(id: &str, url: &str, hash: Vec<u8>, exp: i64) -> Self {
+    pub(crate) fn new(
+        id: &str,
+        url: &str,
+        hash: Vec<u8>,
+        signing_key: &str,
+        encryption_key: &str,
+    ) -> Self {
         Self {
             request_id: id.into(),
-            backup_url: url.into(),
-            backup_file_hash: hash,
-            expiration_time_ns: exp,
+            url: url.into(),
+            bundle_hash: hash,
+            bundle_signing_key: signing_key.into(),
+            encryption_key: encryption_key.into(),
         }
     }
 }
@@ -128,9 +136,9 @@ impl From<HistoryReply> for MessageHistoryReply {
     fn from(reply: HistoryReply) -> Self {
         MessageHistoryReply {
             request_id: reply.request_id,
-            backup_url: reply.backup_url,
-            backup_file_hash: reply.backup_file_hash,
-            expiration_time_ns: reply.expiration_time_ns,
+            backup_url: reply.url,
+            backup_file_hash: reply.bundle_hash,
+            expiration_time_ns: 0,
         }
     }
 }
@@ -158,7 +166,6 @@ mod tests {
 
     use crate::assert_ok;
     use crate::builder::ClientBuilder;
-    use crate::utils::time::now_ns;
 
     #[tokio::test]
     async fn test_allow_history_sync() {
@@ -191,8 +198,9 @@ mod tests {
         let request_id = new_request_id();
         let url = "https://test.com/abc-123";
         let backup_hash = b"ABC123".into();
-        let expiry = now_ns() + 10_000;
-        let reply = HistoryReply::new(&request_id, url, backup_hash, expiry);
+        let aes_key = "1234567890";
+        let signing_key = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
+        let reply = HistoryReply::new(&request_id, url, backup_hash, aes_key, signing_key);
         let result = client.send_message_history_reply(reply.into()).await;
         assert_ok!(result);
     }
@@ -212,11 +220,11 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_prepare_messages_to_send() {
+    async fn test_prepare_messages_to_sync() {
         let wallet = generate_local_wallet();
         let amal_a = ClientBuilder::new_test_client(&wallet).await;
         // let group_a = amal_a.create_group(None);
-        let messages_result = amal_a.prepare_messages_to_send().await;
-        println!("{:?}", messages_result);
+        let messages_result = amal_a.prepare_messages_to_sync().await;
+        // println!("{:?}", messages_result);
     }
 }
