@@ -1,4 +1,4 @@
-mod group_membership;
+pub mod group_membership;
 pub mod group_metadata;
 pub mod group_mutable_metadata;
 mod group_permissions;
@@ -265,8 +265,7 @@ where
         let xmtp_group = Self::new(
             client, 
             stored_group.id, 
-            stored_group.created_at_ns, 
-            added_by_address,
+            stored_group.created_at_ns,
         );
         let _ = xmtp_group.queue_key_update();
         Ok(xmtp_group)
