@@ -21,46 +21,89 @@ impl<'a> SqlKeyStore<'a> {
     pub fn conn(&self) -> &DbConnection<'a> {
         self.conn
     }
-    
-    pub fn write<const VERSION: u16>(&mut self, label: &[u8], key: &[u8], value: &[u8]) -> Result<(), Box<dyn std::error::Error>> {
+
+    pub fn write<const VERSION: u16>(
+        &mut self,
+        label: &[u8],
+        key: &[u8],
+        value: &[u8],
+    ) -> Result<(), Box<dyn std::error::Error>> {
         let storage_key = build_key_from_vec::<VERSION>(label, key.to_vec());
         let query = "REPLACE INTO storage (storage_key, version, data) VALUES (?, ?, ?)";
-        self.conn.execute(query, &[&storage_key, &VERSION.to_string(), &value])?;
+        self.conn
+            .execute(query, &[&storage_key, &VERSION.to_string(), &value])?;
         Ok(())
     }
 
-    pub fn append<const VERSION: u16>(&mut self, label: &[u8], key: &[u8], value: &[u8]) -> Result<(), Box<dyn std::error::Error>> {
+    pub fn append<const VERSION: u16>(
+        &mut self,
+        label: &[u8],
+        key: &[u8],
+        value: &[u8],
+    ) -> Result<(), Box<dyn std::error::Error>> {
         let storage_key = build_key_from_vec::<VERSION>(label, key.to_vec());
         let query = "INSERT INTO storage (storage_key, version, data) VALUES (?, ?, JSON_ARRAY_APPEND(COALESCE((SELECT data FROM storage WHERE storage_key = ? AND version = ?), '[]'), '$', ?)) ON DUPLICATE KEY UPDATE data = VALUES(data)";
-        self.conn.execute(query, &[&storage_key, &VERSION.to_string(), &storage_key, &VERSION.to_string(), &value])?;
+        self.conn.execute(
+            query,
+            &[
+                &storage_key,
+                &VERSION.to_string(),
+                &storage_key,
+                &VERSION.to_string(),
+                &value,
+            ],
+        )?;
         Ok(())
     }
 
-    pub fn remove_item<const VERSION: u16>(&mut self, label: &[u8], key: &[u8], value: &[u8]) -> Result<(), Box<dyn std::error::Error>> {
+    pub fn remove_item<const VERSION: u16>(
+        &mut self,
+        label: &[u8],
+        key: &[u8],
+        value: &[u8],
+    ) -> Result<(), Box<dyn std::error::Error>> {
         let storage_key = build_key_from_vec::<VERSION>(label, key.to_vec());
         let query = "UPDATE storage SET data = JSON_REMOVE(data, JSON_UNQUOTE(JSON_SEARCH(data, 'one', ?))) WHERE storage_key = ? AND version = ?";
-        self.conn.execute(query, &[&value, &storage_key, &VERSION.to_string()])?;
+        self.conn
+            .execute(query, &[&value, &storage_key, &VERSION.to_string()])?;
         Ok(())
     }
 
-    pub fn read<const VERSION: u16>(&self, label: &[u8], key: &[u8]) -> Result<Option<Vec<u8>>, Box<dyn std::error::Error>> {
+    pub fn read<const VERSION: u16>(
+        &self,
+        label: &[u8],
+        key: &[u8],
+    ) -> Result<Option<Vec<u8>>, Box<dyn std::error::Error>> {
         let storage_key = build_key_from_vec::<VERSION>(label, key.to_vec());
         let query = "SELECT data FROM storage WHERE storage_key = ? AND version = ?";
-        let result = self.conn.query(query, &[&storage_key, &VERSION.to_string()])?;
+        let result = self
+            .conn
+            .query(query, &[&storage_key, &VERSION.to_string()])?;
         Ok(result)
     }
 
-    pub fn read_list<const VERSION: u16>(&self, label: &[u8], key: &[u8]) -> Result<Vec<Vec<u8>>, Box<dyn std::error::Error>> {
+    pub fn read_list<const VERSION: u16>(
+        &self,
+        label: &[u8],
+        key: &[u8],
+    ) -> Result<Vec<Vec<u8>>, Box<dyn std::error::Error>> {
         let storage_key = build_key_from_vec::<VERSION>(label, key.to_vec());
         let query = "SELECT data FROM storage WHERE storage_key = ? AND version = ?";
-        let results = self.conn.query_vec(query, &[&storage_key, &VERSION.to_string()])?;
+        let results = self
+            .conn
+            .query_vec(query, &[&storage_key, &VERSION.to_string()])?;
         Ok(results)
     }
 
-    pub fn delete<const VERSION: u16>(&mut self, label: &[u8], key: &[u8]) -> Result<(), Box<dyn std::error::Error>> {
+    pub fn delete<const VERSION: u16>(
+        &mut self,
+        label: &[u8],
+        key: &[u8],
+    ) -> Result<(), Box<dyn std::error::Error>> {
         let storage_key = build_key_from_vec::<VERSION>(label, key.to_vec());
         let query = "DELETE FROM storage WHERE storage_key = ? AND version = ?";
-        self.conn.execute(query, &[&storage_key, &VERSION.to_string()])?;
+        self.conn
+            .execute(query, &[&storage_key, &VERSION.to_string()])?;
         Ok(())
     }
 }
