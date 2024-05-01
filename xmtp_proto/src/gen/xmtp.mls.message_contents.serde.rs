@@ -301,6 +301,7 @@ impl serde::Serialize for ConversationType {
             Self::Unspecified => "CONVERSATION_TYPE_UNSPECIFIED",
             Self::Group => "CONVERSATION_TYPE_GROUP",
             Self::Dm => "CONVERSATION_TYPE_DM",
+            Self::Sync => "CONVERSATION_TYPE_SYNC",
         };
         serializer.serialize_str(variant)
     }
@@ -315,6 +316,7 @@ impl<'de> serde::Deserialize<'de> for ConversationType {
             "CONVERSATION_TYPE_UNSPECIFIED",
             "CONVERSATION_TYPE_GROUP",
             "CONVERSATION_TYPE_DM",
+            "CONVERSATION_TYPE_SYNC",
         ];
 
         struct GeneratedVisitor;
@@ -358,6 +360,7 @@ impl<'de> serde::Deserialize<'de> for ConversationType {
                     "CONVERSATION_TYPE_UNSPECIFIED" => Ok(ConversationType::Unspecified),
                     "CONVERSATION_TYPE_GROUP" => Ok(ConversationType::Group),
                     "CONVERSATION_TYPE_DM" => Ok(ConversationType::Dm),
+                    "CONVERSATION_TYPE_SYNC" => Ok(ConversationType::Sync),
                     _ => Err(serde::de::Error::unknown_variant(value, FIELDS)),
                 }
             }
@@ -1168,6 +1171,9 @@ impl serde::Serialize for GroupMetadataV1 {
         if self.policies.is_some() {
             len += 1;
         }
+        if !self.creator_inbox_id.is_empty() {
+            len += 1;
+        }
         let mut struct_ser = serializer.serialize_struct("xmtp.mls.message_contents.GroupMetadataV1", len)?;
         if self.conversation_type != 0 {
             let v = ConversationType::try_from(self.conversation_type)
@@ -1179,6 +1185,9 @@ impl serde::Serialize for GroupMetadataV1 {
         }
         if let Some(v) = self.policies.as_ref() {
             struct_ser.serialize_field("policies", v)?;
+        }
+        if !self.creator_inbox_id.is_empty() {
+            struct_ser.serialize_field("creatorInboxId", &self.creator_inbox_id)?;
         }
         struct_ser.end()
     }
@@ -1195,6 +1204,8 @@ impl<'de> serde::Deserialize<'de> for GroupMetadataV1 {
             "creator_account_address",
             "creatorAccountAddress",
             "policies",
+            "creator_inbox_id",
+            "creatorInboxId",
         ];
 
         #[allow(clippy::enum_variant_names)]
@@ -1202,6 +1213,7 @@ impl<'de> serde::Deserialize<'de> for GroupMetadataV1 {
             ConversationType,
             CreatorAccountAddress,
             Policies,
+            CreatorInboxId,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
             fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
@@ -1226,6 +1238,7 @@ impl<'de> serde::Deserialize<'de> for GroupMetadataV1 {
                             "conversationType" | "conversation_type" => Ok(GeneratedField::ConversationType),
                             "creatorAccountAddress" | "creator_account_address" => Ok(GeneratedField::CreatorAccountAddress),
                             "policies" => Ok(GeneratedField::Policies),
+                            "creatorInboxId" | "creator_inbox_id" => Ok(GeneratedField::CreatorInboxId),
                             _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
                         }
                     }
@@ -1248,6 +1261,7 @@ impl<'de> serde::Deserialize<'de> for GroupMetadataV1 {
                 let mut conversation_type__ = None;
                 let mut creator_account_address__ = None;
                 let mut policies__ = None;
+                let mut creator_inbox_id__ = None;
                 while let Some(k) = map_.next_key()? {
                     match k {
                         GeneratedField::ConversationType => {
@@ -1268,12 +1282,19 @@ impl<'de> serde::Deserialize<'de> for GroupMetadataV1 {
                             }
                             policies__ = map_.next_value()?;
                         }
+                        GeneratedField::CreatorInboxId => {
+                            if creator_inbox_id__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("creatorInboxId"));
+                            }
+                            creator_inbox_id__ = Some(map_.next_value()?);
+                        }
                     }
                 }
                 Ok(GroupMetadataV1 {
                     conversation_type: conversation_type__.unwrap_or_default(),
                     creator_account_address: creator_account_address__.unwrap_or_default(),
                     policies: policies__,
+                    creator_inbox_id: creator_inbox_id__.unwrap_or_default(),
                 })
             }
         }
